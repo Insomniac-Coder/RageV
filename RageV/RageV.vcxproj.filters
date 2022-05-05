@@ -1,36 +1,48 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="Source Files">
-      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
-      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    <Filter Include="RageV">
+      <UniqueIdentifier>{BACD010E-26E2-29BF-EF63-CD1E5B3726F0}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Header Files">
-      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
-      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
-    </Filter>
-    <Filter Include="Resource Files">
-      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
-      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    <Filter Include="RageV\Events">
+      <UniqueIdentifier>{5E84A34D-4AE7-32F2-F36C-6BA8DFAEFE74}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\RageV\Core.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
+    <ClInclude Include="src\RageV.h" />
     <ClInclude Include="src\RageV\Application.h">
-      <Filter>Header Files</Filter>
+      <Filter>RageV</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="src\RageV\Core.h">
+      <Filter>RageV</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Entrypoint.h">
-      <Filter>Header Files</Filter>
+      <Filter>RageV</Filter>
     </ClInclude>
+    <ClInclude Include="src\RageV\Events\ApplicationEvent.h">
+      <Filter>RageV\Events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Events\Event.h">
+      <Filter>RageV\Events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Events\KeyEvent.h">
+      <Filter>RageV\Events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Events\MouseEvent.h">
+      <Filter>RageV\Events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Log.h">
+      <Filter>RageV</Filter>
+    </ClInclude>
+    <ClInclude Include="src\rvpch.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\RageV\Application.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>RageV</Filter>
     </ClCompile>
+    <ClCompile Include="src\RageV\Log.cpp">
+      <Filter>RageV</Filter>
+    </ClCompile>
+    <ClCompile Include="src\rvpch.cpp" />
   </ItemGroup>
 </Project>

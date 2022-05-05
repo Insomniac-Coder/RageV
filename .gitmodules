@@ -1,0 +1,3 @@
+[submodule "RageV/vendor/spdlog"]
+	path = RageV/vendor/spdlog
+	url = https://github.com/gabime/spdlog.git

@@ -1,7 +1,8 @@
 #pragma once
-// For use my applications
 
+// For use by applications
 #include "RageV/Application.h"
+#include "RageV/Log.h"
 
 //Entrypoint
 #include "RageV/Entrypoint.h"
