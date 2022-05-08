@@ -4,7 +4,7 @@
 #include "RageV/Application.h"
 
 namespace RageV {
-	Input* Input::m_Instance = nullptr;
+	Input* Input::m_Instance = new WindowsInput();
 
 	bool WindowsInput::IsKeyPressedImpl(int keycode)
 	{
@@ -24,18 +24,25 @@ namespace RageV {
 
 	float WindowsInput::GetMouseXImpl()
 	{
-		auto windowPtr = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		double xPos, yPos;
-		glfwGetCursorPos(windowPtr, &xPos, &yPos);
-		return (float)xPos;
+		auto [x, y] = GetMousePositionImpl();
+
+		return (float)x;
 	}
 
 	float WindowsInput::GetMouseYImpl()
 	{
+		auto [x,y] = GetMousePositionImpl();
+
+		return (float)y;
+	}
+
+	std::pair<float, float> WindowsInput::GetMousePositionImpl()
+	{
 		auto windowPtr = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		double xPos, yPos;
 		glfwGetCursorPos(windowPtr, &xPos, &yPos);
-		return (float)yPos;
+
+		return { xPos, yPos };
 	}
 
 }

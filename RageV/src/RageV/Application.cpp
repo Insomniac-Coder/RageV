@@ -2,6 +2,7 @@
 #include "Application.h"
 #include "RageV/Log.h"
 #include "glad/glad.h"
+#include "Input.h"
 
 namespace RageV {
 #define RV_BIND_FUNCTION(x) std::bind(&x, this, std::placeholders::_1)
@@ -57,6 +58,8 @@ namespace RageV {
 
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate();
+			auto [x, y] = Input::GetMousePosition();
+			RV_CORE_TRACE("{0}, {1}", x, y); 
 
 		}
 	}
