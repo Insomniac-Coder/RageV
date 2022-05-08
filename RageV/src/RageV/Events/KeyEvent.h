@@ -50,4 +50,21 @@ namespace RageV {
 	private:
 		int m_KeyCode;
 	};
+
+	class RV_API KeyTypedEvent : public KeyEvent {
+	public:
+		KeyTypedEvent(int keycode) : m_KeyCode(keycode), KeyEvent(keycode) {}
+
+		std::string ToString() const override {
+			std::stringstream ss;
+
+			ss << "KeyTyped Event: " << m_KeyCode;
+
+			return ss.str();
+		}
+
+		EVENT_CLASS_TYPE(KeyTyped);
+	private:
+		int m_KeyCode;
+	};
 }

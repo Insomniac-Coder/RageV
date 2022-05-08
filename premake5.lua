@@ -5,13 +5,26 @@ workspace "RageV"
         "Release",
         "Dist"
     }
+    startproject "Sandbox"
 
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
+
+IncludeDir = {}
+IncludeDir['GLFW'] = "RageV/vendor/GLFW/include"
+IncludeDir['GLAD'] = "RageV/vendor/GLAD/include"
+IncludeDir['ImGui'] = "RageV/vendor/imgui"
+
+group "Dependencies"
+    include "RageV/vendor/imgui"
+    include "RageV/vendor/GLAD"
+
+group ""
 
 project "RageV"
     location "RageV"
     kind "SharedLib"
     language "C++"
+    staticruntime "off"
 
     targetdir ("bin/" .. outputdir .. "/%{prj.name}")
     objdir("bin-int/" .. outputdir .. "/%{prj.name}")
@@ -28,42 +41,60 @@ project "RageV"
     includedirs
     {
         "%{prj.name}/vendor/spdlog/include",
+        "%{IncludeDir.GLFW}",
+        "%{IncludeDir.GLAD}",
+        "%{IncludeDir.ImGui}",
         "%{prj.name}/src"
+    }
+
+    libdirs
+    {
+        "%{prj.name}/vendor/GLFW/lib-vc2022"
+    }
+
+    links
+    {
+        "GLAD",
+        "ImGui",
+        "glfw3_mt.lib",
+        "opengl32.lib"
     }
 
     filter "system:windows"
         cppdialect "C++17"
-        staticruntime "On"
         systemversion "latest"
 
         defines
         {
             "RV_PLATFORM_WINDOWS",
-            "RV_BUILD_DLL",
-            "_WINDLL"
+            "RV_BUILD_DLL"
         }
 
         postbuildcommands
         {
-            ("{COPY} %{cfg.buildtarget.relpath} ../bin/" .. outputdir .. "/Sandbox")
+            ("{COPY} %{cfg.buildtarget.relpath} \"../bin/" .. outputdir .. "/Sandbox/\"")
         }
 
     filter  "configurations:Debug"
         defines "RV_DEBUG"
+        runtime "Debug"
         symbols "On"
 
     filter "configurations:Release"
         defines "RV_RELEASE"
+        runtime "Release"
         optimize "On"
 
     filter "configurations:Dist"
         defines "RV_DIST"
+        runtime "Release"
         optimize "On"
     
 project "Sandbox"
     location "Sandbox"
     kind "ConsoleApp"
     language "C++"   
+    staticruntime "off"
 
     targetdir ("bin/" .. outputdir .. "/%{prj.name}")
     objdir("bin-int/" .. outputdir .. "/%{prj.name}")
@@ -86,13 +117,11 @@ project "Sandbox"
 
     filter "system:windows"
         cppdialect "C++17"
-        staticruntime "On"
         systemversion "latest"
 
         defines
         {
-            "RV_PLATFORM_WINDOWS",
-            "_WINDLL"
+            "RV_PLATFORM_WINDOWS"
         }
 
     filter  "configurations:Debug"
