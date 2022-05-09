@@ -4,6 +4,8 @@
 #include "Events/ApplicationEvent.h"
 #include "LayerStack.h"
 
+#include "RageV/ImGui/ImGuiLayer.h"
+
 namespace RageV {
 	class RV_API Application
 	{
@@ -20,6 +22,7 @@ namespace RageV {
 		inline static Application& Get() { return *m_Instance; }
 	private:
 			std::unique_ptr<Window> m_Window;
+			ImGuiLayer* m_ImGuiLayer;
 			bool m_Running = true;
 			LayerStack m_LayerStack;
 			static Application* m_Instance;

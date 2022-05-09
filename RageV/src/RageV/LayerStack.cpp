@@ -3,7 +3,6 @@
 
 RageV::LayerStack::LayerStack()
 {
-	m_LayerInsert = begin();
 }
 
 RageV::LayerStack::~LayerStack()
@@ -14,7 +13,8 @@ RageV::LayerStack::~LayerStack()
 
 void RageV::LayerStack::PushLayer(Layer* layer)
 {
-	m_LayerInsert = m_Layers.emplace(m_LayerInsert, layer);
+	m_Layers.emplace(begin() + m_LayerInsertIndex, layer);
+	m_LayerInsertIndex++;
 }
 
 void RageV::LayerStack::PushOverlay(Layer* layer)
@@ -29,7 +29,7 @@ void RageV::LayerStack::PopLayer(Layer* layer)
 	if (it != end())
 	{
 		m_Layers.erase(it);
-		m_LayerInsert--;
+		m_LayerInsertIndex--;
 	}
 }
 

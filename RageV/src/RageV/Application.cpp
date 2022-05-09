@@ -14,6 +14,9 @@ namespace RageV {
 		m_Instance = this;
 		m_Window = std::unique_ptr<Window>(Window::Create());
 		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
+
+		m_ImGuiLayer = new ImGuiLayer();
+		PushOverlay(m_ImGuiLayer);
 	}
 
 	Application::~Application() {
@@ -33,7 +36,7 @@ namespace RageV {
 	}
 
 	void Application::OnEvent(Event& e) {
-		RV_CORE_TRACE("{0}", e);
+		//RV_CORE_TRACE("{0}", e);
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(RV_BIND_FUNCTION(Application::OnWindowClose));
@@ -58,8 +61,14 @@ namespace RageV {
 
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate();
-			auto [x, y] = Input::GetMousePosition();
-			RV_CORE_TRACE("{0}, {1}", x, y); 
+			//auto [x, y] = Input::GetMousePosition();
+			//RV_CORE_TRACE("{0}, {1}", x, y); 
+			m_ImGuiLayer->Begin();
+
+			for (Layer* layer : m_LayerStack)
+				layer->OnImGuiRender();
+
+			m_ImGuiLayer->End();
 
 		}
 	}

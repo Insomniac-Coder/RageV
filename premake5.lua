@@ -13,6 +13,7 @@ IncludeDir = {}
 IncludeDir['GLFW'] = "RageV/vendor/GLFW/include"
 IncludeDir['GLAD'] = "RageV/vendor/GLAD/include"
 IncludeDir['ImGui'] = "RageV/vendor/imgui"
+IncludeDir['glm'] = "RageV/vendor/glm"
 
 group "Dependencies"
     include "RageV/vendor/imgui"
@@ -35,7 +36,9 @@ project "RageV"
     files
     {
         "%{prj.name}/src/**.h",
-        "%{prj.name}/src/**.cpp"
+        "%{prj.name}/src/**.cpp",
+        "%{prj.name}/vendor/glm/glm/**.hpp",
+        "%{prj.name}/vendor/glm/glm/**.inl"
     }
 
     includedirs
@@ -44,6 +47,7 @@ project "RageV"
         "%{IncludeDir.GLFW}",
         "%{IncludeDir.GLAD}",
         "%{IncludeDir.ImGui}",
+        "%{IncludeDir.glm}",
         "%{prj.name}/src"
     }
 
@@ -108,7 +112,8 @@ project "Sandbox"
     includedirs
     {
         "RageV/vendor/spdlog/include",
-        "RageV/src"
+        "RageV/src",
+        "%{IncludeDir.glm}"
     }
 
     links {
