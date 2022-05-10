@@ -2,6 +2,7 @@ project "GLAD"
     location "Sandbox"
     kind "StaticLib"
     language "C"   
+    staticruntime "on"
 
     targetdir ("bin/" .. outputdir .. "/%{prj.name}")
     objdir("bin-int/" .. outputdir .. "/%{prj.name}")
@@ -19,5 +20,13 @@ project "GLAD"
     }
 
     filter "system:windows"
-        staticruntime "On"
         systemversion "latest"
+
+    filter  "configurations:Debug"
+        runtime "Debug"
+        symbols "on"
+
+    filter "configurations:Release"
+        runtime "Release"
+        optimize "on"
+

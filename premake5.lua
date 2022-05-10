@@ -23,9 +23,10 @@ group ""
 
 project "RageV"
     location "RageV"
-    kind "SharedLib"
+    kind "StaticLib"
     language "C++"
-    staticruntime "off"
+    cppdialect "C++17"
+    staticruntime "on"
 
     targetdir ("bin/" .. outputdir .. "/%{prj.name}")
     objdir("bin-int/" .. outputdir .. "/%{prj.name}")
@@ -65,7 +66,6 @@ project "RageV"
     }
 
     filter "system:windows"
-        cppdialect "C++17"
         systemversion "latest"
 
         defines
@@ -74,31 +74,27 @@ project "RageV"
             "RV_BUILD_DLL"
         }
 
-        postbuildcommands
-        {
-            ("{COPY} %{cfg.buildtarget.relpath} \"../bin/" .. outputdir .. "/Sandbox/\"")
-        }
-
     filter  "configurations:Debug"
         defines "RV_DEBUG"
         runtime "Debug"
-        symbols "On"
+        symbols "on"
 
     filter "configurations:Release"
         defines "RV_RELEASE"
         runtime "Release"
-        optimize "On"
+        optimize "on"
 
     filter "configurations:Dist"
         defines "RV_DIST"
         runtime "Release"
-        optimize "On"
+        optimize "on"
     
 project "Sandbox"
     location "Sandbox"
     kind "ConsoleApp"
     language "C++"   
-    staticruntime "off"
+    cppdialect "C++17"
+    staticruntime "on"
 
     targetdir ("bin/" .. outputdir .. "/%{prj.name}")
     objdir("bin-int/" .. outputdir .. "/%{prj.name}")
@@ -113,7 +109,8 @@ project "Sandbox"
     {
         "RageV/vendor/spdlog/include",
         "RageV/src",
-        "%{IncludeDir.glm}"
+        "%{IncludeDir.glm}",
+        "%{IncludeDir.ImGui}"
     }
 
     links {
@@ -121,7 +118,6 @@ project "Sandbox"
     }
 
     filter "system:windows"
-        cppdialect "C++17"
         systemversion "latest"
 
         defines
@@ -131,12 +127,15 @@ project "Sandbox"
 
     filter  "configurations:Debug"
         defines "RV_DEBUG"
-        symbols "On"
+        runtime "Debug"
+        symbols "on"
 
     filter "configurations:Release"
         defines "RV_RELEASE"
-        optimize "On"
+        runtime "Release"
+        optimize "on"
 
     filter "configurations:Dist"
         defines "RV_DIST"
-        optimize "On"
+        runtime "Release"
+        optimize "on"

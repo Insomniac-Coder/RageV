@@ -42,7 +42,7 @@ namespace RageV {
 		double xPos, yPos;
 		glfwGetCursorPos(windowPtr, &xPos, &yPos);
 
-		return { xPos, yPos };
+		return { (float)xPos, (float)yPos };
 	}
 
 }

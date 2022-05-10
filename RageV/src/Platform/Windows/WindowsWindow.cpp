@@ -3,6 +3,7 @@
 #include "RageV/Events/ApplicationEvent.h"
 #include "RageV/Events/KeyEvent.h"
 #include "RageV/Events/MouseEvent.h"
+#include "Platform/OpenGL/OpenGLContext.h"
 
 namespace RageV
 
@@ -33,9 +34,9 @@ RageV::WindowsWindow::~WindowsWindow()
 void RageV::WindowsWindow::OnUpdate()
 {
 	glfwPollEvents();
-	glfwSwapBuffers(m_Window);
+	m_Context->SwapBuffers();
 
-	glClearColor(0.1f, 0.2f, 0.7f, 1.0f);
+	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 }
 
@@ -70,10 +71,8 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 	}
 
 	m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
-	glfwMakeContextCurrent(m_Window);
-	int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
-
-	RV_CORE_ASSERT(status, "Failed to initialise GLAD!");
+	m_Context = new OpenGLContext(m_Window);
+	m_Context->Init();
 
 	glfwSetWindowUserPointer(m_Window, &m_Data);
 	SetVsync(true);
@@ -153,7 +152,7 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 		{
 			WindowData& winData = *(WindowData*)glfwGetWindowUserPointer(window);
 
-			MouseScrolledEvent e(xOffset, yOffset);
+			MouseScrolledEvent e((float)xOffset, (float)yOffset);
 			winData.EventCallback(e);
 		}
 	);
@@ -162,7 +161,7 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 		{
 			WindowData& winData = *(WindowData*)glfwGetWindowUserPointer(window);
 
-			MouseMovedEvent e(xPos, yPos);
+			MouseMovedEvent e((float )xPos, (float)yPos);
 			winData.EventCallback(e);
 		}
 	);

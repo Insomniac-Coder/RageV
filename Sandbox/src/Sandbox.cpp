@@ -1,4 +1,5 @@
 #include <RageV.h>
+#include "imgui.h"
 
 class ExampleLayer : public RageV::Layer
 {
@@ -8,6 +9,7 @@ public:
 	void  OnUpdate() override
 	{
 		//RV_INFO("ExampleLayer::Update");
+		/*
 		if (RageV::Input::IsKeyPressed(RV_KEY_TAB))
 		{
 			RV_TRACE("Tab key was pressed");
@@ -18,6 +20,14 @@ public:
 			auto [x, y] = RageV::Input::GetMousePosition();
 			RV_TRACE("Mouse position is: {0}, {1}", x, y);
 		}
+		*/
+	}
+
+	void OnImGuiRender() override
+	{
+		ImGui::Begin("Test");
+		ImGui::Text("Hello World!");
+		ImGui::End();
 	}
 
 	void OnEvent(RageV::Event& e) override

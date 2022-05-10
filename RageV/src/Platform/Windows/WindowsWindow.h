@@ -1,7 +1,7 @@
 #pragma once
-#include "glad/glad.h"
 #include "GLFW/glfw3.h"
 #include <RageV/Window.h>
+#include "RageV/GraphicsContext.h"
 
 namespace RageV
 {
@@ -27,6 +27,8 @@ namespace RageV
 		virtual void Shutdown();
 
 		GLFWwindow* m_Window;
+
+		GraphicsContext* m_Context;
 
 		struct WindowData {
 			unsigned int Height;
