@@ -1,5 +1,5 @@
 #pragma once
-#include "RageV/GraphicsContext.h"
+#include "RageV/Renderer/GraphicsContext.h"
 
 struct GLFWwindow;
 namespace RageV

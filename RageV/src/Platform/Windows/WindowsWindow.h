@@ -1,7 +1,7 @@
 #pragma once
 #include "GLFW/glfw3.h"
 #include <RageV/Window.h>
-#include "RageV/GraphicsContext.h"
+#include "RageV/Renderer/GraphicsContext.h"
 
 namespace RageV
 {

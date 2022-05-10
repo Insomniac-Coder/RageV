@@ -143,6 +143,7 @@
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
     <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
@@ -154,7 +155,8 @@
     <ClInclude Include="src\RageV\Events\Event.h" />
     <ClInclude Include="src\RageV\Events\KeyEvent.h" />
     <ClInclude Include="src\RageV\Events\MouseEvent.h" />
-    <ClInclude Include="src\RageV\GraphicsContext.h" />
+    <ClInclude Include="src\RageV\Renderer\Buffer.h" />
+    <ClInclude Include="src\RageV\Renderer\GraphicsContext.h" />
     <ClInclude Include="src\RageV\ImGui\ImGuiLayer.h" />
     <ClInclude Include="src\RageV\Input.h" />
     <ClInclude Include="src\RageV\KeyCodes.h" />
@@ -162,6 +164,8 @@
     <ClInclude Include="src\RageV\LayerStack.h" />
     <ClInclude Include="src\RageV\Log.h" />
     <ClInclude Include="src\RageV\MouseButtonCodes.h" />
+    <ClInclude Include="src\RageV\Renderer\Renderer.h" />
+    <ClInclude Include="src\RageV\Renderer\Shader.h" />
     <ClInclude Include="src\RageV\Window.h" />
     <ClInclude Include="src\rvpch.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />
@@ -581,6 +585,7 @@
     <ClInclude Include="vendor\glm\glm\vector_relational.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
@@ -590,6 +595,9 @@
     <ClCompile Include="src\RageV\Layer.cpp" />
     <ClCompile Include="src\RageV\LayerStack.cpp" />
     <ClCompile Include="src\RageV\Log.cpp" />
+    <ClCompile Include="src\RageV\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\RageV\Renderer\Renderer.cpp" />
+    <ClCompile Include="src\RageV\Renderer\Shader.cpp" />
     <ClCompile Include="src\rvpch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>

@@ -5,6 +5,8 @@
 #include "LayerStack.h"
 
 #include "RageV/ImGui/ImGuiLayer.h"
+#include "RageV/Renderer/Shader.h"
+#include "RageV/Renderer/Buffer.h"
 
 namespace RageV {
 	class RV_API Application
@@ -27,7 +29,10 @@ namespace RageV {
 			LayerStack m_LayerStack;
 			static Application* m_Instance;
 
-			unsigned int m_VertexArray, m_VertexBuffer, m_IndexBuffer;
+			unsigned int m_VertexArray;
+			std::unique_ptr<Shader> m_Shader;
+			std::unique_ptr<VertexBuffer> m_VertexBuffer;
+			std::unique_ptr<IndexBuffer> m_IndexBuffer;
 	};
 
 	Application* CreateApplication();
