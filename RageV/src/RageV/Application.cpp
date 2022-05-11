@@ -9,27 +9,6 @@ namespace RageV {
 
 	Application* Application::m_Instance = nullptr;
 
-	static GLenum ShaderDataTypeToGLType(const ShaderDataType& sDataType)
-	{
-		switch (sDataType)
-		{
-		case ShaderDataType::Float:		return GL_FLOAT;
-		case ShaderDataType::Float2:	return GL_FLOAT;
-		case ShaderDataType::Float3:	return GL_FLOAT;
-		case ShaderDataType::Float4:	return GL_FLOAT;
-		case ShaderDataType::Mat3:		return GL_FLOAT;
-		case ShaderDataType::Mat4:		return GL_FLOAT;
-		case ShaderDataType::Int:		return GL_INT;
-		case ShaderDataType::Int2:		return GL_INT;
-		case ShaderDataType::Int3:		return GL_INT;
-		case ShaderDataType::Int4:		return GL_INT;
-		case ShaderDataType::Bool:		return GL_BOOL;
-		}
-
-		RV_ASSERT(false, "Unknown Shader data type provided!");
-		return 0;
-	}
-
 	Application::Application() {
 		RV_CORE_ASSERT(!m_Instance, "Application instance already present present");
 		m_Instance = this;
@@ -39,33 +18,29 @@ namespace RageV {
 		m_ImGuiLayer = new ImGuiLayer();
  		PushOverlay(m_ImGuiLayer);
 
-		glGenVertexArrays(1, &m_VertexArray);
-		glBindVertexArray(m_VertexArray);
-
 		float vertices[3 * 7] = {
 			-0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
 			0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
 			0.0f, 0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f
 		};
+		unsigned int indices[3] = { 0, 1, 2 };
+
+		m_VertexArray.reset(VertexArray::Create());
+		std::shared_ptr<VertexBuffer> m_VertexBuffer;
+		std::shared_ptr<IndexBuffer> m_IndexBuffer;
 
 		m_VertexBuffer.reset(VertexBuffer::Create(vertices, sizeof(vertices)));
-
 		BufferLayout bufferLayout = {
 			{ "a_Position", ShaderDataType::Float3},
 			{ "a_Color", ShaderDataType::Float4 }
 		};
+		m_VertexBuffer->SetBufferLayout(bufferLayout);
+		m_VertexArray->AddVertexBuffer(m_VertexBuffer);
 
-		unsigned int i = 0;
-		for (const auto& element : bufferLayout)
-		{
-			glEnableVertexAttribArray(i);
-			glVertexAttribPointer(i, element.GetCount(), ShaderDataTypeToGLType(element.GetType()), element.IsNormalised(), bufferLayout.GetStride(), (const void*)element.GetOffset());
-			i++;
-		}
-
-		unsigned int indices[3] = { 0, 1, 2 };
 		m_IndexBuffer.reset(IndexBuffer::Create(indices, 3));
+		m_VertexArray->SetIndexBuffer(m_IndexBuffer);
 
+		glBindVertexArray(0);
 
 		std::string vertexSrc = R"(
 			#version 330 core
@@ -138,8 +113,8 @@ namespace RageV {
 			m_Window->OnUpdate();
 
 			m_Shader->Bind();
-			glBindVertexArray(m_VertexArray);
-			glDrawElements(GL_TRIANGLES, m_IndexBuffer->GetCount(), GL_UNSIGNED_INT, nullptr);
+			m_VertexArray->Bind();
+			glDrawElements(GL_TRIANGLES, m_VertexArray->GetIndexBuffer()->GetCount(), GL_UNSIGNED_INT, nullptr);
 
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate();

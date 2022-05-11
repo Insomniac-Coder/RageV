@@ -53,4 +53,60 @@ namespace RageV
 	}
 
 
+	OpenGLVertexArray::OpenGLVertexArray()
+	{
+		glCreateVertexArrays(1, &m_ID);
+		Bind();
+		
+	}
+
+	OpenGLVertexArray::~OpenGLVertexArray()
+	{
+		glDeleteVertexArrays(1, &m_ID);
+	}
+
+	void OpenGLVertexArray::Bind() const
+	{
+		glBindVertexArray(m_ID);
+	}
+
+	void OpenGLVertexArray::UnBind() const
+	{
+		glBindVertexArray(0);
+	}
+
+	static GLenum ShaderDataTypeToGLType(const ShaderDataType& sDataType)
+	{
+		switch (sDataType)
+		{
+		case ShaderDataType::Float:		return GL_FLOAT;
+		case ShaderDataType::Float2:	return GL_FLOAT;
+		case ShaderDataType::Float3:	return GL_FLOAT;
+		case ShaderDataType::Float4:	return GL_FLOAT;
+		case ShaderDataType::Mat3:		return GL_FLOAT;
+		case ShaderDataType::Mat4:		return GL_FLOAT;
+		case ShaderDataType::Int:		return GL_INT;
+		case ShaderDataType::Int2:		return GL_INT;
+		case ShaderDataType::Int3:		return GL_INT;
+		case ShaderDataType::Int4:		return GL_INT;
+		case ShaderDataType::Bool:		return GL_BOOL;
+		}
+
+		RV_ASSERT(false, "Unknown Shader data type provided!");
+		return 0;
+	}
+
+	const void OpenGLVertexArray::AddVertexBuffer(std::shared_ptr<VertexBuffer> vertexBuffer)
+	{
+		unsigned int i = 0;
+		for (auto& element : vertexBuffer->GetBufferLayout())
+		{
+			glEnableVertexAttribArray(i);
+			glVertexAttribPointer(i, element.GetCount(), ShaderDataTypeToGLType(element.GetType()), element.IsNormalised(), vertexBuffer->GetBufferLayout().GetStride(), (const void*)element.GetOffset());
+			i++;
+		}
+		m_VertexBuffers.push_back(vertexBuffer);
+	}
+
+
 }
