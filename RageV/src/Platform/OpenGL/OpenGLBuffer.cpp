@@ -30,8 +30,7 @@ namespace RageV
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
-
-	OpenGLIndexBuffer::OpenGLIndexBuffer(unsigned int* indices, unsigned int count)
+	OpenGLIndexBuffer::OpenGLIndexBuffer(unsigned int* indices, unsigned int count) : m_Count(count)
 	{
 		glCreateBuffers(1, &m_ID);
 		Bind();

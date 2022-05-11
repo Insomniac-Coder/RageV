@@ -42,4 +42,27 @@ namespace RageV
 		return nullptr;
 	}
 
+	BufferElement::BufferElement(const std::string& name, ShaderDataType sType, bool norm)
+		: elementName(name), sDataType(sType), normalised(norm), elementSize(GetDataTypeSize(sType)), elementOffset(0), elementCount(GetDataTypeCount(sType))
+	{}
+
+
+	BufferLayout::BufferLayout(const std::initializer_list<BufferElement>& bufferElements)
+		:m_BufferElements(bufferElements)
+	{
+		CalculateStrideAndOffset();
+	}
+
+	void BufferLayout::CalculateStrideAndOffset()
+	{
+		unsigned int offset = 0;
+		for (auto& element : m_BufferElements)
+		{
+			element.SetOffset(offset);
+			offset += element.GetSize();
+		}
+		m_Stride = offset;
+	}
+
+
 }

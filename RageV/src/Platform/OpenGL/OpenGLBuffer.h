@@ -25,9 +25,11 @@ namespace RageV
 		virtual ~OpenGLIndexBuffer();
 		virtual void Bind() const override;
 		virtual void UnBind() const override;
+		inline virtual unsigned int GetCount() const { return m_Count; }
 
 	private:
 		unsigned int m_ID;
+		unsigned int m_Count;
 	};
 
 }
