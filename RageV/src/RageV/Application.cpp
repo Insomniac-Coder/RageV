@@ -1,8 +1,8 @@
 #include <rvpch.h>
 #include "Application.h"
 #include "RageV/Log.h"
-#include "glad/glad.h"
 #include "Input.h"
+#include "Renderer/Renderer.h"
 
 namespace RageV {
 #define RV_BIND_FUNCTION(x) std::bind(&x, this, std::placeholders::_1)
@@ -39,8 +39,6 @@ namespace RageV {
 
 		m_IndexBuffer.reset(IndexBuffer::Create(indices, 3));
 		m_VertexArray->SetIndexBuffer(m_IndexBuffer);
-
-		glBindVertexArray(0);
 
 		std::string vertexSrc = R"(
 			#version 330 core
@@ -111,10 +109,14 @@ namespace RageV {
 		while (m_Running) {
 
 			m_Window->OnUpdate();
+			RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
+			RenderCommand::Clear();
 
+			Renderer::BeginScene();
 			m_Shader->Bind();
-			m_VertexArray->Bind();
-			glDrawElements(GL_TRIANGLES, m_VertexArray->GetIndexBuffer()->GetCount(), GL_UNSIGNED_INT, nullptr);
+			Renderer::Submit(m_VertexArray);
+
+			Renderer::EndScene();
 
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate();

@@ -35,9 +35,6 @@ void RageV::WindowsWindow::OnUpdate()
 {
 	glfwPollEvents();
 	m_Context->SwapBuffers();
-
-	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
 }
 
 void RageV::WindowsWindow::SetVsync(bool enabled)

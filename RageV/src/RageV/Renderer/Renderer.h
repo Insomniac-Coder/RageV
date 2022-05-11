@@ -1,21 +1,14 @@
 #pragma once
+#include "RenderCommand.h"
 
 namespace RageV
 {
-
-	enum class RendererAPI
-	{
-		None = 0,
-		OpenGL = 1
-	};
-
-
 	class Renderer
 	{
 	public:
-		inline static RendererAPI& GetAPI() { return m_API; }
-
-	private:
-		static RendererAPI m_API;
+		inline static RenderAPI::API GetAPI() { return RenderAPI::GetAPI(); }
+		static void BeginScene();
+		static void EndScene();
+		static void Submit(const std::shared_ptr<VertexArray>& vertexArray);
 	};
 }

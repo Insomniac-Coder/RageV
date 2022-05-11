@@ -11,12 +11,12 @@ namespace RageV
 	VertexBuffer* VertexBuffer::Create(float* vertices, unsigned int size) {
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::None:
+		case RenderAPI::API::None:
 			{
 				RV_ASSERT(false, "No API was chosen!");
 				return nullptr;
 			}
-			case RendererAPI::OpenGL:
+		case RenderAPI::API::OpenGL:
 			{
 				return new OpenGLVertexBuffer(vertices, size);
 			}
@@ -28,12 +28,12 @@ namespace RageV
 	IndexBuffer* IndexBuffer::Create(unsigned int* indices, unsigned int count) {
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::None:
+			case RenderAPI::API::None:
 			{
 				RV_ASSERT(false, "No API was chosen!");
 				return nullptr;
 			}
-			case RendererAPI::OpenGL:
+			case RenderAPI::API::OpenGL:
 			{
 				return new OpenGLIndexBuffer(indices, count);
 			}
@@ -111,12 +111,12 @@ namespace RageV
 	{
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::None:
+			case RenderAPI::API::None:
 			{
 				RV_ASSERT(false, "No API was chosen!");
 				return nullptr;
 			}
-			case RendererAPI::OpenGL:
+			case RenderAPI::API::OpenGL:
 			{
 				return new OpenGLVertexArray();
 			}
