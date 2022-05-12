@@ -13,5 +13,13 @@
 #include "RageV/KeyCodes.h"
 #include "RageV/MouseButtonCodes.h"
 
+#include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/RenderCommand.h"
+#include "RageV/Renderer/Camera.h"
+#include "RageV/Renderer/OrthographicCamera.h"
+#include "RageV/Renderer/Buffer.h"
+
+#include "RageV/Core/Timestep.h"
+
 //Entrypoint
 #include "RageV/Entrypoint.h"

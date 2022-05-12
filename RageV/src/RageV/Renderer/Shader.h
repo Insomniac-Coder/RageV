@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include "glm/glm.hpp"
 
 namespace RageV {
 
@@ -10,7 +11,7 @@ namespace RageV {
 
 		void Bind() const;
 		void UnBind()  const;
-
+		void SetUniformMat4(const std::string& name, const glm::mat4& matrix);
 	private:
 		unsigned int m_Program;
 	};

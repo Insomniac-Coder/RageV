@@ -151,12 +151,14 @@
     <ClInclude Include="src\RageV.h" />
     <ClInclude Include="src\RageV\Application.h" />
     <ClInclude Include="src\RageV\Core.h" />
+    <ClInclude Include="src\RageV\Core\Timestep.h" />
     <ClInclude Include="src\RageV\Entrypoint.h" />
     <ClInclude Include="src\RageV\Events\ApplicationEvent.h" />
     <ClInclude Include="src\RageV\Events\Event.h" />
     <ClInclude Include="src\RageV\Events\KeyEvent.h" />
     <ClInclude Include="src\RageV\Events\MouseEvent.h" />
     <ClInclude Include="src\RageV\Renderer\Buffer.h" />
+    <ClInclude Include="src\RageV\Renderer\Camera.h" />
     <ClInclude Include="src\RageV\Renderer\GraphicsContext.h" />
     <ClInclude Include="src\RageV\ImGui\ImGuiLayer.h" />
     <ClInclude Include="src\RageV\Input.h" />
@@ -165,6 +167,7 @@
     <ClInclude Include="src\RageV\LayerStack.h" />
     <ClInclude Include="src\RageV\Log.h" />
     <ClInclude Include="src\RageV\MouseButtonCodes.h" />
+    <ClInclude Include="src\RageV\Renderer\OrthographicCamera.h" />
     <ClInclude Include="src\RageV\Renderer\RenderAPI.h" />
     <ClInclude Include="src\RageV\Renderer\RenderCommand.h" />
     <ClInclude Include="src\RageV\Renderer\Renderer.h" />
@@ -600,6 +603,7 @@
     <ClCompile Include="src\RageV\LayerStack.cpp" />
     <ClCompile Include="src\RageV\Log.cpp" />
     <ClCompile Include="src\RageV\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\RageV\Renderer\OrthographicCamera.cpp" />
     <ClCompile Include="src\RageV\Renderer\RenderAPI.cpp" />
     <ClCompile Include="src\RageV\Renderer\RenderCommand.cpp" />
     <ClCompile Include="src\RageV\Renderer\Renderer.cpp" />

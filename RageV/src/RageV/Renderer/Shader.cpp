@@ -2,6 +2,7 @@
 #include "Shader.h"
 
 #include "glad/glad.h"
+#include "glm/gtc/type_ptr.hpp"
 
 namespace RageV {
 
@@ -126,6 +127,15 @@ namespace RageV {
 	void Shader::UnBind() const
 	{
 		glUseProgram(m_Program);
+	}
+
+	void Shader::SetUniformMat4(const std::string& name, const glm::mat4& matrix)
+	{
+		glUseProgram(m_Program);
+
+		int loc = glGetUniformLocation(m_Program, name.c_str());
+
+		glUniformMatrix4fv(loc, 1, false, glm::value_ptr(matrix));
 	}
 
 
