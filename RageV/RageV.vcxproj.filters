@@ -1356,6 +1356,8 @@
     <ClInclude Include="src\RageV\Renderer\Camera.h" />
     <ClInclude Include="src\RageV\Renderer\OrthographicCamera.h" />
     <ClInclude Include="src\RageV\Core\Timestep.h" />
+    <ClInclude Include="src\RageV\Core\Platform.h" />
+    <ClInclude Include="src\Platform\Windows\WindowsPlatform.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp">
@@ -1394,5 +1396,6 @@
     <ClCompile Include="src\RageV\Renderer\RenderCommand.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLRenderAPI.cpp" />
     <ClCompile Include="src\RageV\Renderer\OrthographicCamera.cpp" />
+    <ClCompile Include="src\RageV\Core\Platform.cpp" />
   </ItemGroup>
 </Project>

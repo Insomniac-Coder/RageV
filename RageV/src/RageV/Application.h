@@ -3,6 +3,7 @@
 #include "RageV/Window.h"
 #include "Events/ApplicationEvent.h"
 #include "LayerStack.h"
+#include "RageV/Core/Platform.h"
 
 #include "RageV/ImGui/ImGuiLayer.h"
 
@@ -27,6 +28,9 @@ namespace RageV {
 			LayerStack m_LayerStack;
 			static Application* m_Instance;
 			float m_LastTime = 0.0f;
+			std::unique_ptr<Platform> m_Platform;
+			std::function<double()> GetTime;
+
 	};
 
 	Application* CreateApplication();
