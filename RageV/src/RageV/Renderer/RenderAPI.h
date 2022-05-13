@@ -19,6 +19,7 @@ namespace RageV {
 		virtual void SetClearColor(const glm::vec4& clearColor) = 0;
 		virtual void Clear() = 0;
 		virtual void DrawIndexed(const std::shared_ptr<VertexArray>& vertexArray) = 0;
+		virtual void Init() = 0;
 		static API GetAPI() { return m_API; }
 	private:
 		static API m_API;

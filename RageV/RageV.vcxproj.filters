@@ -7,17 +7,26 @@
     <Filter Include="src\Platform">
       <UniqueIdentifier>{21CA02E5-0D2D-9289-B6B2-CA3FA2F45D0C}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\Platform\OpenGL">
+      <UniqueIdentifier>{35A49437-A105-7245-2A73-B8F796D3A804}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\Platform\Windows">
       <UniqueIdentifier>{5B054582-4794-CE4B-F0B2-E246DC20DFF1}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\RageV">
       <UniqueIdentifier>{11DCBEB3-7D46-732A-C684-24D0322E517F}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\RageV\Core">
+      <UniqueIdentifier>{09338914-F500-7D1A-DE94-ED40CA01597F}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\RageV\Events">
       <UniqueIdentifier>{D52AC460-C123-E3B2-EA55-C837D6ADC2BE}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\RageV\ImGui">
       <UniqueIdentifier>{FB591AA6-67E5-876A-70F6-0A5FDC00E46A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\RageV\Renderer">
+      <UniqueIdentifier>{D7427599-C326-36EF-2C87-3042188A2071}</UniqueIdentifier>
     </Filter>
     <Filter Include="vendor">
       <UniqueIdentifier>{B3738122-9F15-ACF8-88D0-BF4C74113349}</UniqueIdentifier>
@@ -40,9 +49,30 @@
     <Filter Include="vendor\glm\glm\gtx">
       <UniqueIdentifier>{B3A6A76B-9F8A-68C1-08EB-6214F4ED5243}</UniqueIdentifier>
     </Filter>
+    <Filter Include="vendor\stb_image">
+      <UniqueIdentifier>{0DA0BA59-F998-D9AB-22CB-BE300E23B9B7}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLRenderAPI.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLShader.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLTexture2D.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
     <ClInclude Include="src\Platform\Windows\WindowsInput.h">
+      <Filter>src\Platform\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\Windows\WindowsPlatform.h">
       <Filter>src\Platform\Windows</Filter>
     </ClInclude>
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h">
@@ -56,6 +86,12 @@
     </ClInclude>
     <ClInclude Include="src\RageV\Core.h">
       <Filter>src\RageV</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\Platform.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\Timestep.h">
+      <Filter>src\RageV\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Entrypoint.h">
       <Filter>src\RageV</Filter>
@@ -92,6 +128,33 @@
     </ClInclude>
     <ClInclude Include="src\RageV\MouseButtonCodes.h">
       <Filter>src\RageV</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Buffer.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Camera.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\GraphicsContext.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\OrthographicCamera.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\RenderAPI.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\RenderCommand.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Renderer.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Shader.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Texture.h">
+      <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Window.h">
       <Filter>src\RageV</Filter>
@@ -1344,23 +1407,26 @@
     <ClInclude Include="vendor\glm\glm\vector_relational.hpp">
       <Filter>vendor\glm\glm</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\Renderer\GraphicsContext.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
-    <ClInclude Include="src\RageV\Renderer\Shader.h" />
-    <ClInclude Include="src\RageV\Renderer\Buffer.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
-    <ClInclude Include="src\RageV\Renderer\Renderer.h" />
-    <ClInclude Include="src\RageV\Renderer\RenderAPI.h" />
-    <ClInclude Include="src\RageV\Renderer\RenderCommand.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLRenderAPI.h" />
-    <ClInclude Include="src\RageV\Renderer\Camera.h" />
-    <ClInclude Include="src\RageV\Renderer\OrthographicCamera.h" />
-    <ClInclude Include="src\RageV\Core\Timestep.h" />
-    <ClInclude Include="src\RageV\Core\Platform.h" />
-    <ClInclude Include="src\Platform\Windows\WindowsPlatform.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLShader.h" />
+    <ClInclude Include="vendor\stb_image\stb_image.h">
+      <Filter>vendor\stb_image</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLRenderAPI.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLShader.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLTexture2D.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp">
       <Filter>src\Platform\Windows</Filter>
     </ClCompile>
@@ -1369,6 +1435,9 @@
     </ClCompile>
     <ClCompile Include="src\RageV\Application.cpp">
       <Filter>src\RageV</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Core\Platform.cpp">
+      <Filter>src\RageV\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\ImGui\ImGuiBuild.cpp">
       <Filter>src\RageV\ImGui</Filter>
@@ -1385,19 +1454,32 @@
     <ClCompile Include="src\RageV\Log.cpp">
       <Filter>src\RageV</Filter>
     </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\Buffer.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\OrthographicCamera.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\RenderAPI.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\RenderCommand.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\Renderer.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\Shader.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\Texture.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\rvpch.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
-    <ClCompile Include="src\RageV\Renderer\Buffer.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
-    <ClCompile Include="src\RageV\Renderer\Renderer.cpp" />
-    <ClCompile Include="src\RageV\Renderer\RenderAPI.cpp" />
-    <ClCompile Include="src\RageV\Renderer\RenderCommand.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLRenderAPI.cpp" />
-    <ClCompile Include="src\RageV\Renderer\OrthographicCamera.cpp" />
-    <ClCompile Include="src\RageV\Core\Platform.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLShader.cpp" />
-    <ClCompile Include="src\RageV\Renderer\Shader.cpp" />
+    <ClCompile Include="vendor\stb_image\stb_image.cpp">
+      <Filter>vendor\stb_image</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

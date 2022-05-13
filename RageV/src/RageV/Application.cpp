@@ -16,7 +16,9 @@ namespace RageV {
 		m_Instance = this;
 		m_Window = std::unique_ptr<Window>(Window::Create());
 		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
-		m_Window->SetVsync(false);
+		m_Window->SetVsync(true);
+
+		Renderer::Init();
 
 		if (Platform::GetPlatformType() == PlatformType::Windows)
 		{

@@ -8,6 +8,7 @@ namespace RageV
 	class Renderer
 	{
 	public:
+		static void Init();
 		inline static RenderAPI::API GetAPI() { return RenderAPI::GetAPI(); }
 		static void BeginScene(Camera& camera);
 		static void EndScene();

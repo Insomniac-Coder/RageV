@@ -18,6 +18,8 @@
 #include "RageV/Renderer/Camera.h"
 #include "RageV/Renderer/OrthographicCamera.h"
 #include "RageV/Renderer/Buffer.h"
+#include "Platform/OpenGL/OpenGLShader.h"
+#include "RageV/Renderer/Texture.h"
 
 #include "RageV/Core/Timestep.h"
 

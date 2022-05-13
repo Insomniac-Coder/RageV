@@ -14,6 +14,7 @@ IncludeDir['GLFW'] = "RageV/vendor/GLFW/include"
 IncludeDir['GLAD'] = "RageV/vendor/GLAD/include"
 IncludeDir['ImGui'] = "RageV/vendor/imgui"
 IncludeDir['glm'] = "RageV/vendor/glm"
+IncludeDir['stb_image'] = "RageV/vendor/stb_image"
 
 group "Dependencies"
     include "RageV/vendor/imgui"
@@ -38,6 +39,8 @@ project "RageV"
     {
         "%{prj.name}/src/**.h",
         "%{prj.name}/src/**.cpp",
+        "%{prj.name}/vendor/stb_image/**.h",
+        "%{prj.name}/vendor/stb_image/**.cpp",
         "%{prj.name}/vendor/glm/glm/**.hpp",
         "%{prj.name}/vendor/glm/glm/**.inl"
     }
@@ -49,6 +52,7 @@ project "RageV"
         "%{IncludeDir.GLAD}",
         "%{IncludeDir.ImGui}",
         "%{IncludeDir.glm}",
+        "%{IncludeDir.stb_image}",
         "%{prj.name}/src"
     }
 

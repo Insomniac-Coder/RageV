@@ -4,51 +4,33 @@
 class ExampleLayer : public RageV::Layer
 {
 public:
-	ExampleLayer() : Layer("Example"), camera(-1.6f, 1.6f, -0.9f, 0.9f), m_CameraPos(0.0f), TrianglePos(0.0f) {
-		float vertices[3 * 7] = {
-			-0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
-			0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
-			0.0f, 0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f
+	ExampleLayer() : Layer("Example"), camera(-1.6f, 1.6f, -0.9f, 0.9f), m_CameraPos(0.0f), m_Color(1.0f) {
+
+		float sqvertices [3 * 4] = {
+			-0.5f, -0.5f, 0.0f,
+			0.5f, -0.5f, 0.0f,
+			0.5f, 0.5f, 0.0f,
+			-0.5f, 0.5f, 0.0f
 		};
 
-		float sqvertices[7 * 4] = {
-			-0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f,
-			0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f,
-			0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f,
-			-0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f
+		float sqvertices2 [5 * 4] = {
+			-0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
+			0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+			0.5f, 0.5f, 0.0f, 1.0f, 1.0f,
+			-0.5f, 0.5f, 0.0f, 0.0f, 1.0f
 		};
 
-		unsigned int indices[3] = { 0, 1, 2 };
 		unsigned int sqindices[6] = { 0, 1, 2, 2, 3, 0 };
-
-		m_VertexArray.reset(RageV::VertexArray::Create());
-		std::shared_ptr<RageV::VertexBuffer> m_VertexBuffer;
-		std::shared_ptr<RageV::IndexBuffer> m_IndexBuffer;
-
-		m_VertexBuffer.reset(RageV::VertexBuffer::Create(vertices, sizeof(vertices)));
-		RageV::BufferLayout bufferLayout = {
-			{ "a_Position", RageV::ShaderDataType::Float3},
-			{ "a_Color", RageV::ShaderDataType::Float4 }
-		};
-		m_VertexBuffer->SetBufferLayout(bufferLayout);
-		m_VertexArray->AddVertexBuffer(m_VertexBuffer);
-
-		m_IndexBuffer.reset(RageV::IndexBuffer::Create(indices, 3));
-		m_VertexArray->SetIndexBuffer(m_IndexBuffer);
 
 		std::string vertexSrc = R"(
 			#version 330 core
 			layout(location = 0) in vec3 a_Position;
-			layout(location = 1) in vec4 a_Color;
-			out vec3 v_Pos;
-			out vec4 v_Col;
+
 			uniform mat4 u_ViewProjection;
 			uniform mat4 u_Transform;
 
 			void main()
 			{	
-				v_Pos = a_Position;
-				v_Col = a_Color;
 				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);
 			}					
 		)";
@@ -56,23 +38,54 @@ public:
 		std::string fragmentSrc = R"(
 			#version 330 core
 			layout(location = 0) out vec4 a_Color;
-			in vec3 v_Pos;
-			in vec4 v_Col;
+
+			uniform vec3 u_Color;
 
 			void main()
 			{	
-				a_Color = v_Col;
+				a_Color = vec4(u_Color, 1.0);
 			}					
 		)";
 
+		std::string vertexSrc2 = R"(
+			#version 330 core
+			layout(location = 0) in vec3 a_Position;
+			layout(location = 1) in vec2 a_TexCord;
+			
+			out vec2 v_TexCord;
+
+			uniform mat4 u_ViewProjection;
+			uniform mat4 u_Transform;
+
+			void main()
+			{	
+				v_TexCord = a_TexCord;
+				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);
+			}					
+		)";
+
+		std::string fragmentSrc2 = R"(
+			#version 330 core
+			layout(location = 0) out vec4 a_Color;
+
+			in vec2 v_TexCord;
+			uniform sampler2D a_Tex;
+
+			void main()
+			{	
+				//a_Color = vec4(v_TexCord, 0.0, 0.0);
+				a_Color = texture(a_Tex, v_TexCord);
+			}					
+		)";
+
+		//Flat color tiles
 		m_SqVertexArray.reset(RageV::VertexArray::Create());
 		std::shared_ptr<RageV::VertexBuffer> m_SqVertexBuffer;
 		std::shared_ptr<RageV::IndexBuffer> m_SqIndexBuffer;
 
 		m_SqVertexBuffer.reset(RageV::VertexBuffer::Create(sqvertices, sizeof(sqvertices)));
 		RageV::BufferLayout sqbufferLayout = {
-			{ "a_Position", RageV::ShaderDataType::Float3},
-			{ "a_Color", RageV::ShaderDataType::Float4 }
+			{ "a_Position", RageV::ShaderDataType::Float3}
 		};
 		m_SqVertexBuffer->SetBufferLayout(sqbufferLayout);
 		m_SqVertexArray->AddVertexBuffer(m_SqVertexBuffer);
@@ -80,13 +93,38 @@ public:
 		m_SqIndexBuffer.reset(RageV::IndexBuffer::Create(sqindices, 6));
 		m_SqVertexArray->SetIndexBuffer(m_SqIndexBuffer);
 
-		m_Shader.reset(RageV::Shader::Create(vertexSrc, fragmentSrc));
+		//Textured tile
+		m_TextureSqVertexArray.reset(RageV::VertexArray::Create());
+		std::shared_ptr<RageV::VertexBuffer> m_TextureSqVertexBuffer;
+		std::shared_ptr<RageV::IndexBuffer> m_TextureSqIndexBuffer;
 
+		m_TextureSqVertexBuffer.reset(RageV::VertexBuffer::Create(sqvertices2, sizeof(sqvertices2)));
+		RageV::BufferLayout TextureSqBufferLayout = {
+			{ "a_Position", RageV::ShaderDataType::Float3},
+			{ "a_texCord", RageV::ShaderDataType::Float2}
+		};
+
+		m_TextureSqVertexBuffer->SetBufferLayout(TextureSqBufferLayout);
+		m_TextureSqVertexArray->AddVertexBuffer(m_TextureSqVertexBuffer);
+
+		m_TextureSqIndexBuffer.reset(RageV::IndexBuffer::Create(sqindices, 6));
+		m_TextureSqVertexArray->SetIndexBuffer(m_TextureSqIndexBuffer);
+
+		m_Texture = RageV::Texture2D::Create("assets/textures/instagram.png");
+		m_Texture2 = RageV::Texture2D::Create("assets/textures/transparent.png");
+
+		//shader stuff
+		m_Shader.reset(RageV::Shader::Create(vertexSrc, fragmentSrc));
+		m_TextureShader.reset(RageV::Shader::Create(vertexSrc2, fragmentSrc2));
+
+
+		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_TextureShader)->Bind();
+		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_TextureShader)->SetUniform("a_Tex", 0);
 	}
 
 	void  OnUpdate(RageV::Timestep ts) override
 	{
-		RV_TRACE("Delta time: {0} s ({1} ms)", ts, ts.GetMilliSeconds());
+		//RV_TRACE("Delta time: {0} s ({1} ms)", ts, ts.GetMilliSeconds());
 		RageV::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 		RageV::RenderCommand::Clear();
 		camera.SetRotation(m_CameraRot);
@@ -94,6 +132,8 @@ public:
 		RageV::Renderer::BeginScene(camera);
 
 		glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_Shader)->Bind();
+		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_Shader)->SetUniform("u_Color", m_Color);
 
 		for (int x = 0; x < 20; x++)
 		{
@@ -104,8 +144,11 @@ public:
 				RageV::Renderer::Submit(m_Shader, m_SqVertexArray, sqTransform);
 			}
 		}
-		glm::mat4 triangleTransform = glm::translate(glm::mat4(1.0f), TrianglePos);
-		RageV::Renderer::Submit(m_Shader, m_VertexArray, triangleTransform);
+		m_Texture->Bind();
+		RageV::Renderer::Submit(m_TextureShader, m_TextureSqVertexArray, glm::translate(glm::mat4(1.0f), glm::vec3(0.0)));
+		m_Texture2->Bind();
+		RageV::Renderer::Submit(m_TextureShader, m_TextureSqVertexArray, glm::translate(glm::mat4(1.0f), glm::vec3(0.0)));
+
 		RageV::Renderer::EndScene();
 
 		if (RageV::Input::IsKeyPressed(RV_KEY_LEFT))
@@ -125,7 +168,9 @@ public:
 
 	void OnImGuiRender() override
 	{
-		
+		ImGui::Begin("Color Picker");
+		ImGui::ColorEdit3("Color,", &m_Color[0]);
+		ImGui::End();
 	}
 
 	void OnEvent(RageV::Event& e) override
@@ -137,12 +182,14 @@ public:
 		}
 	}
 private:
-	std::shared_ptr<RageV::VertexArray> m_VertexArray;
 	std::shared_ptr<RageV::Shader> m_Shader;
+	std::shared_ptr<RageV::Shader> m_TextureShader;
 	std::shared_ptr<RageV::VertexArray> m_SqVertexArray;
+	std::shared_ptr<RageV::VertexArray> m_TextureSqVertexArray;
+	std::shared_ptr<RageV::Texture2D> m_Texture, m_Texture2;
 	RageV::OrthographicCamera camera;
-	glm::vec3 TrianglePos;
 	glm::vec3 m_CameraPos;
+	glm::vec3 m_Color;
 	float m_CameraRot = 0.0f;
 };
 

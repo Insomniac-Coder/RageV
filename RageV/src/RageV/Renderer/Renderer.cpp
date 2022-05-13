@@ -8,6 +8,11 @@ namespace RageV
 {
 	Renderer::SceneData* Renderer::m_SceneData = new Renderer::SceneData;
 
+	void Renderer::Init()
+	{
+		RenderCommand::Init();
+	}
+
 	void Renderer::BeginScene(Camera& camera)
 	{
 		m_SceneData->ViewProjection = camera.GetViewProjectionMatrix();
@@ -19,7 +24,7 @@ namespace RageV
 
 	void Renderer::Submit(const std::shared_ptr<Shader>& shader, const std::shared_ptr<VertexArray>& vertexArray, const glm::mat4& transform)
 	{
-		shader->Bind();
+		std::dynamic_pointer_cast<OpenGLShader>(shader)->Bind();
 		std::dynamic_pointer_cast<OpenGLShader>(shader)->SetUniform("u_ViewProjection", m_SceneData->ViewProjection);
 		std::dynamic_pointer_cast<OpenGLShader>(shader)->SetUniform("u_Transform", transform);
 		vertexArray->Bind();

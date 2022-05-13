@@ -19,6 +19,11 @@ namespace RageV
 			m_RenderAPI->Clear();
 		}
 
+		inline static void Init()
+		{
+			m_RenderAPI->Init();
+		}
+
 	private:
 		static RenderAPI* m_RenderAPI;
 
