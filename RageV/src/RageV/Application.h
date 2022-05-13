@@ -22,14 +22,14 @@ namespace RageV {
 		inline Window& GetWindow() { return *m_Window; }
 		inline static Application& Get() { return *m_Instance; }
 	private:
-			std::unique_ptr<Window> m_Window;
-			ImGuiLayer* m_ImGuiLayer;
-			bool m_Running = true;
-			LayerStack m_LayerStack;
-			static Application* m_Instance;
-			float m_LastTime = 0.0f;
-			std::unique_ptr<Platform> m_Platform;
-			std::function<double()> GetTime;
+		std::unique_ptr<Window> m_Window;
+		ImGuiLayer* m_ImGuiLayer;
+		bool m_Running = true;
+		LayerStack m_LayerStack;
+		static Application* m_Instance;
+		float m_LastTime = 0.0f;
+		std::unique_ptr<Platform> m_Platform;
+		std::function<double()> GetTime;
 
 	};
 

@@ -80,7 +80,7 @@ public:
 		m_SqIndexBuffer.reset(RageV::IndexBuffer::Create(sqindices, 6));
 		m_SqVertexArray->SetIndexBuffer(m_SqIndexBuffer);
 
-		m_Shader.reset(new RageV::Shader(vertexSrc, fragmentSrc));
+		m_Shader.reset(RageV::Shader::Create(vertexSrc, fragmentSrc));
 
 	}
 
