@@ -13,6 +13,11 @@ namespace RageV
 		RenderCommand::Init();
 	}
 
+	void Renderer::OnWindowResize(unsigned int width, unsigned int height)
+	{
+		RenderCommand::ResizeViewport(0, 0, width, height);
+	}
+
 	void Renderer::BeginScene(Camera& camera)
 	{
 		m_SceneData->ViewProjection = camera.GetViewProjectionMatrix();

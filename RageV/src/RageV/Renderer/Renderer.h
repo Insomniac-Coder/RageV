@@ -9,6 +9,7 @@ namespace RageV
 	{
 	public:
 		static void Init();
+		static void OnWindowResize(unsigned int width, unsigned int height);
 		inline static RenderAPI::API GetAPI() { return RenderAPI::GetAPI(); }
 		static void BeginScene(Camera& camera);
 		static void EndScene();

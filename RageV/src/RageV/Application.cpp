@@ -56,6 +56,7 @@ namespace RageV {
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(RV_BIND_FUNCTION(Application::OnWindowClose));
+		dispatcher.Dispatch<WindowResizeEvent>(RV_BIND_FUNCTION(Application::OnWindowResize));
 
 		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin();)
 		{
@@ -65,6 +66,18 @@ namespace RageV {
 				break;
 		}
 
+	}
+
+	bool Application::OnWindowResize(WindowResizeEvent& e)
+	{
+		if (e.GetHeight() == 0 || e.GetWidth() == 0)
+		{
+			m_Minimised = true;
+			return false;
+		}
+
+		Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
+		return false;
 	}
 
 	void Application::Run() {
@@ -79,8 +92,11 @@ namespace RageV {
 
 			m_Window->OnUpdate();
 
-			for (Layer* layer : m_LayerStack)
-				layer->OnUpdate(ts);
+			if (!m_Minimised)
+			{
+				for (Layer* layer : m_LayerStack)
+					layer->OnUpdate(ts);
+			}
 			//auto [x, y] = Input::GetMousePosition();
 			//RV_CORE_TRACE("{0}, {1}", x, y); 
 			m_ImGuiLayer->Begin();

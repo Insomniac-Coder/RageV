@@ -10,6 +10,10 @@ namespace RageV
 		{
 			m_RenderAPI->DrawIndexed(vertexArray);
 		}
+		inline static void ResizeViewport(unsigned int x, unsigned int y, unsigned int width, unsigned int height)
+		{
+			m_RenderAPI->ResizeViewport(x, y, width, height);
+		}
 		inline static void SetClearColor(const glm::vec4& clearColor)
 		{
 			m_RenderAPI->SetClearColor(clearColor);

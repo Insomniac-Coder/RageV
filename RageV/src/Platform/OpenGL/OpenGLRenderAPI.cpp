@@ -9,6 +9,11 @@ namespace RageV
 		glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
 	}
 
+	void OpenGLRenderAPI::ResizeViewport(unsigned int x, unsigned int y, unsigned int width, unsigned int height)
+	{
+		glViewport(x, y, width, height);
+	}
+
 	void OpenGLRenderAPI::Clear()
 	{
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

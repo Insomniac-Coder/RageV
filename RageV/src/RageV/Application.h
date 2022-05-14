@@ -16,6 +16,7 @@ namespace RageV {
 		void Run();
 		void OnEvent(Event& e);
 		bool OnWindowClose(WindowCloseEvent& e);
+		bool OnWindowResize(WindowResizeEvent& e);
 
 		void PushOverlay(Layer* layer);
 		void PushLayer(Layer* layer);
@@ -25,6 +26,7 @@ namespace RageV {
 		std::unique_ptr<Window> m_Window;
 		ImGuiLayer* m_ImGuiLayer;
 		bool m_Running = true;
+		bool m_Minimised = false;
 		LayerStack m_LayerStack;
 		static Application* m_Instance;
 		float m_LastTime = 0.0f;
