@@ -83,12 +83,12 @@ public:
 		m_Texture2 = RageV::Texture2D::Create("assets/textures/transparent.png");
 
 		//shader stuff
-		m_Shader.reset(RageV::Shader::Create(vertexSrc, fragmentSrc));
-		m_TextureShader.reset(RageV::Shader::Create("assets/shaders/textureshader.glsl"));
+		shaderManager.LoadShader("simpleshader", vertexSrc, fragmentSrc);
+		shaderManager.LoadShader("assets/shaders/textureshader.glsl");
 
-
-		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_TextureShader)->Bind();
-		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_TextureShader)->SetUniform("a_Tex", 0);
+		auto shader = shaderManager.GetShader("textureshader");
+		std::dynamic_pointer_cast<RageV::OpenGLShader>(shader)->Bind();
+		std::dynamic_pointer_cast<RageV::OpenGLShader>(shader)->SetUniform("a_Tex", 0);
 	}
 
 	void  OnUpdate(RageV::Timestep ts) override
@@ -101,8 +101,10 @@ public:
 		RageV::Renderer::BeginScene(camera);
 
 		glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
-		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_Shader)->Bind();
-		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_Shader)->SetUniform("u_Color", m_Color);
+		auto simpleshader = shaderManager.GetShader("simpleshader");
+		auto textureshader = shaderManager.GetShader("textureshader");
+		std::dynamic_pointer_cast<RageV::OpenGLShader>(simpleshader)->Bind();
+		std::dynamic_pointer_cast<RageV::OpenGLShader>(simpleshader)->SetUniform("u_Color", m_Color);
 
 		for (int x = 0; x < 20; x++)
 		{
@@ -110,13 +112,13 @@ public:
 			{
 				glm::vec3 pos((x * 0.11f) - 1.f, (y * 0.11f) - 1.f, 0.0f);
 				glm::mat4 sqTransform = glm::translate(glm::mat4(1.0f), pos) * scale;
-				RageV::Renderer::Submit(m_Shader, m_SqVertexArray, sqTransform);
+				RageV::Renderer::Submit(simpleshader, m_SqVertexArray, sqTransform);
 			}
 		}
 		m_Texture->Bind();
-		RageV::Renderer::Submit(m_TextureShader, m_TextureSqVertexArray, glm::translate(glm::mat4(1.0f), glm::vec3(0.0)));
+		RageV::Renderer::Submit(textureshader, m_TextureSqVertexArray, glm::translate(glm::mat4(1.0f), glm::vec3(0.0)));
 		m_Texture2->Bind();
-		RageV::Renderer::Submit(m_TextureShader, m_TextureSqVertexArray, glm::translate(glm::mat4(1.0f), glm::vec3(0.0)));
+		RageV::Renderer::Submit(textureshader, m_TextureSqVertexArray, glm::translate(glm::mat4(1.0f), glm::vec3(0.0)));
 
 		RageV::Renderer::EndScene();
 
@@ -151,11 +153,10 @@ public:
 		}
 	}
 private:
-	std::shared_ptr<RageV::Shader> m_Shader;
-	std::shared_ptr<RageV::Shader> m_TextureShader;
 	std::shared_ptr<RageV::VertexArray> m_SqVertexArray;
 	std::shared_ptr<RageV::VertexArray> m_TextureSqVertexArray;
 	std::shared_ptr<RageV::Texture2D> m_Texture, m_Texture2;
+	RageV::ShaderManager shaderManager;
 	RageV::OrthographicCamera camera;
 	glm::vec3 m_CameraPos;
 	glm::vec3 m_Color;

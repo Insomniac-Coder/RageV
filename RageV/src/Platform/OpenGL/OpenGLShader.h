@@ -9,7 +9,7 @@ namespace RageV
 	class OpenGLShader : public Shader {
 	public:
 		OpenGLShader(const std::string& shaderPath);
-		OpenGLShader(const std::string& vertexSrc, const std::string& fragmentSrc);
+		OpenGLShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
 		virtual ~OpenGLShader();
 
 		//Shader specific functions

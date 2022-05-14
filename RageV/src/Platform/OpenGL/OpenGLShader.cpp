@@ -28,7 +28,7 @@ namespace RageV
 		Compile(sources);
 	}
 
-	OpenGLShader::OpenGLShader(const std::string& vertexSrc, const std::string& fragmentSrc)
+	OpenGLShader::OpenGLShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
 	{
 		std::unordered_map<GLenum, std::string> sources;
 		sources[GL_VERTEX_SHADER] = vertexSrc;
@@ -38,7 +38,7 @@ namespace RageV
 
 	std::unordered_map<GLenum, std::string> OpenGLShader::ReadFileAndSeparate(const std::string& shaderPath)
 	{
-		std::ifstream file(shaderPath);
+		std::ifstream file(shaderPath, std::ios::in);
 		std::string line;
 		std::string keyword = "#type ";
 		std::string type = "";
