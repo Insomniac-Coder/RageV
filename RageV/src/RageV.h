@@ -21,6 +21,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "RageV/Renderer/Shader.h"
 #include "RageV/Renderer/Texture.h"
+#include "RageV/OrthographicCameraController.h"
 
 #include "RageV/Core/Timestep.h"
 

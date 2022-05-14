@@ -4,7 +4,7 @@
 class ExampleLayer : public RageV::Layer
 {
 public:
-	ExampleLayer() : Layer("Example"), camera(-1.6f, 1.6f, -0.9f, 0.9f), m_CameraPos(0.0f), m_Color(1.0f) {
+	ExampleLayer() : Layer("Example"), m_CameraController(1270.f/ 720.f, true), m_Color(1.0f) {
 
 		float sqvertices [3 * 4] = {
 			-0.5f, -0.5f, 0.0f,
@@ -21,31 +21,6 @@ public:
 		};
 
 		unsigned int sqindices[6] = { 0, 1, 2, 2, 3, 0 };
-
-		std::string vertexSrc = R"(
-			#version 330 core
-			layout(location = 0) in vec3 a_Position;
-
-			uniform mat4 u_ViewProjection;
-			uniform mat4 u_Transform;
-
-			void main()
-			{	
-				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);
-			}					
-		)";
-
-		std::string fragmentSrc = R"(
-			#version 330 core
-			layout(location = 0) out vec4 a_Color;
-
-			uniform vec3 u_Color;
-
-			void main()
-			{	
-				a_Color = vec4(u_Color, 1.0);
-			}					
-		)";
 
 		//Flat color tiles
 		m_SqVertexArray.reset(RageV::VertexArray::Create());
@@ -83,7 +58,7 @@ public:
 		m_Texture2 = RageV::Texture2D::Create("assets/textures/transparent.png");
 
 		//shader stuff
-		shaderManager.LoadShader("simpleshader", vertexSrc, fragmentSrc);
+		shaderManager.LoadShader("assets/shaders/simpleshader.glsl");
 		shaderManager.LoadShader("assets/shaders/textureshader.glsl");
 
 		auto shader = shaderManager.GetShader("textureshader");
@@ -94,11 +69,11 @@ public:
 	void  OnUpdate(RageV::Timestep ts) override
 	{
 		//RV_TRACE("Delta time: {0} s ({1} ms)", ts, ts.GetMilliSeconds());
+		m_CameraController.OnUpdate(ts);
+
 		RageV::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 		RageV::RenderCommand::Clear();
-		camera.SetRotation(m_CameraRot);
-		camera.SetPosition(m_CameraPos);
-		RageV::Renderer::BeginScene(camera);
+		RageV::Renderer::BeginScene(m_CameraController.GetCamera());
 
 		glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 		auto simpleshader = shaderManager.GetShader("simpleshader");
@@ -121,20 +96,6 @@ public:
 		RageV::Renderer::Submit(textureshader, m_TextureSqVertexArray, glm::translate(glm::mat4(1.0f), glm::vec3(0.0)));
 
 		RageV::Renderer::EndScene();
-
-		if (RageV::Input::IsKeyPressed(RV_KEY_LEFT))
-			m_CameraPos.x += 1.0f * ts;
-		else if (RageV::Input::IsKeyPressed(RV_KEY_RIGHT))
-			m_CameraPos.x -= 1.0f * ts;
-		if (RageV::Input::IsKeyPressed(RV_KEY_UP))
-			m_CameraPos.y -= 1.0f * ts;
-		else if (RageV::Input::IsKeyPressed(RV_KEY_DOWN))
-			m_CameraPos.y += 1.0f * ts;
-
-		if (RageV::Input::IsKeyPressed(RV_KEY_A))
-			m_CameraRot -= 90.0f * ts;
-		else if (RageV::Input::IsKeyPressed(RV_KEY_D))
-			m_CameraRot += 90.0f * ts;
 	}
 
 	void OnImGuiRender() override
@@ -146,6 +107,7 @@ public:
 
 	void OnEvent(RageV::Event& e) override
 	{
+		m_CameraController.OnEvent(e);
 		if (e.GetEventType() == RageV::EventType::KeyPressed)
 		{
 			RageV::KeyPressedEvent& ke = (RageV::KeyPressedEvent&)e;
@@ -157,10 +119,8 @@ private:
 	std::shared_ptr<RageV::VertexArray> m_TextureSqVertexArray;
 	std::shared_ptr<RageV::Texture2D> m_Texture, m_Texture2;
 	RageV::ShaderManager shaderManager;
-	RageV::OrthographicCamera camera;
-	glm::vec3 m_CameraPos;
 	glm::vec3 m_Color;
-	float m_CameraRot = 0.0f;
+	RageV::OrthographicCameraController m_CameraController;
 };
 
 class Sandbox : public RageV::Application {

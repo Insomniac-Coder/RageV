@@ -13,7 +13,8 @@ namespace RageV
 		virtual const glm::mat4& GetViewMatrix() const override { return m_ViewMatrix; }
 		virtual const glm::mat4& GetProjectionMatrix() const override { return m_ProjectionMatrix; };
 		virtual const glm::mat4& GetViewProjectionMatrix() const override { return m_ViewProjectionMatrix; };
-		virtual const ProjectionType& GetProjectionType() const override { return m_ProjectionType; }
+
+		void SetProjectionMatrix(float left, float right, float bottom, float top);
 
 		virtual const glm::vec3& GetPosition() const { return m_Position; }
 		virtual const float& GetRotation() const { return m_Rotation; }
