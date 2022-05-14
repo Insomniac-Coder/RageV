@@ -16,4 +16,15 @@ namespace RageV
 		return nullptr;
 	}
 
+	Shader* Shader::Create(const std::string& shaderPath)
+	{
+		switch (Renderer::GetAPI())
+		{
+		case RenderAPI::API::OpenGL: return new OpenGLShader(shaderPath);
+		case RenderAPI::API::None: RV_CORE_ASSERT(false, "This Render API is not supported!"); return nullptr;
+		}
+
+		return nullptr;
+	}
+
 }

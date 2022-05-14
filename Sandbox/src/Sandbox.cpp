@@ -47,37 +47,6 @@ public:
 			}					
 		)";
 
-		std::string vertexSrc2 = R"(
-			#version 330 core
-			layout(location = 0) in vec3 a_Position;
-			layout(location = 1) in vec2 a_TexCord;
-			
-			out vec2 v_TexCord;
-
-			uniform mat4 u_ViewProjection;
-			uniform mat4 u_Transform;
-
-			void main()
-			{	
-				v_TexCord = a_TexCord;
-				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);
-			}					
-		)";
-
-		std::string fragmentSrc2 = R"(
-			#version 330 core
-			layout(location = 0) out vec4 a_Color;
-
-			in vec2 v_TexCord;
-			uniform sampler2D a_Tex;
-
-			void main()
-			{	
-				//a_Color = vec4(v_TexCord, 0.0, 0.0);
-				a_Color = texture(a_Tex, v_TexCord);
-			}					
-		)";
-
 		//Flat color tiles
 		m_SqVertexArray.reset(RageV::VertexArray::Create());
 		std::shared_ptr<RageV::VertexBuffer> m_SqVertexBuffer;
@@ -115,7 +84,7 @@ public:
 
 		//shader stuff
 		m_Shader.reset(RageV::Shader::Create(vertexSrc, fragmentSrc));
-		m_TextureShader.reset(RageV::Shader::Create(vertexSrc2, fragmentSrc2));
+		m_TextureShader.reset(RageV::Shader::Create("assets/shaders/textureshader.glsl"));
 
 
 		std::dynamic_pointer_cast<RageV::OpenGLShader>(m_TextureShader)->Bind();

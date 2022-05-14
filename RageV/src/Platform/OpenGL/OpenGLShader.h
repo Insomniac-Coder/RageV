@@ -2,15 +2,18 @@
 #include "RageV/Renderer/Shader.h"
 #include <unordered_map>
 
+typedef unsigned int GLenum;
 namespace RageV
 {
 
 	class OpenGLShader : public Shader {
 	public:
+		OpenGLShader(const std::string& shaderPath);
 		OpenGLShader(const std::string& vertexSrc, const std::string& fragmentSrc);
 		virtual ~OpenGLShader();
+
+		//Shader specific functions
 		virtual void Bind() const override;
-		virtual void UnBind()  const override;
 		void SetUniform(const std::string& name, const glm::mat4& matrix4);
 		void SetUniform(const std::string& name, const glm::mat3& matrix3);
 		void SetUniform(const std::string& name, const glm::vec4& float4);
@@ -21,6 +24,11 @@ namespace RageV
 		void SetUniform(const std::string& name, const int& int1, const int& int2, const int& int3);
 		void SetUniform(const std::string& name, const int& int1, const int& int2);
 		void SetUniform(const std::string& name, const int& int1);
+
+	private:
+		//Helper functions
+		void Compile(std::unordered_map<GLenum, std::string>& sources);
+		std::unordered_map<GLenum, std::string> ReadFileAndSeparate(const std::string& shaderPath);
 	private:
 		int GetUniformLocation(const std::string& uniformName);
 		unsigned int m_Program;
