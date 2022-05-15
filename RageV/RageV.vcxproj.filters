@@ -81,11 +81,32 @@
     <ClInclude Include="src\RageV.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\Application.h">
-      <Filter>src\RageV</Filter>
+    <ClInclude Include="src\RageV\Core\Application.h">
+      <Filter>src\RageV\Core</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\Core.h">
-      <Filter>src\RageV</Filter>
+    <ClInclude Include="src\RageV\Core\Core.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\Entrypoint.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\Input.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\KeyCodes.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\Layer.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\LayerStack.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\Log.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\MouseButtonCodes.h">
+      <Filter>src\RageV\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Core\Platform.h">
       <Filter>src\RageV\Core</Filter>
@@ -93,8 +114,8 @@
     <ClInclude Include="src\RageV\Core\Timestep.h">
       <Filter>src\RageV\Core</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\Entrypoint.h">
-      <Filter>src\RageV</Filter>
+    <ClInclude Include="src\RageV\Core\Window.h">
+      <Filter>src\RageV\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Events\ApplicationEvent.h">
       <Filter>src\RageV\Events</Filter>
@@ -111,24 +132,6 @@
     <ClInclude Include="src\RageV\ImGui\ImGuiLayer.h">
       <Filter>src\RageV\ImGui</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\Input.h">
-      <Filter>src\RageV</Filter>
-    </ClInclude>
-    <ClInclude Include="src\RageV\KeyCodes.h">
-      <Filter>src\RageV</Filter>
-    </ClInclude>
-    <ClInclude Include="src\RageV\Layer.h">
-      <Filter>src\RageV</Filter>
-    </ClInclude>
-    <ClInclude Include="src\RageV\LayerStack.h">
-      <Filter>src\RageV</Filter>
-    </ClInclude>
-    <ClInclude Include="src\RageV\Log.h">
-      <Filter>src\RageV</Filter>
-    </ClInclude>
-    <ClInclude Include="src\RageV\MouseButtonCodes.h">
-      <Filter>src\RageV</Filter>
-    </ClInclude>
     <ClInclude Include="src\RageV\Renderer\Buffer.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
@@ -139,6 +142,9 @@
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\OrthographicCamera.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\OrthographicCameraController.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\RenderAPI.h">
@@ -155,9 +161,6 @@
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\Texture.h">
       <Filter>src\RageV\Renderer</Filter>
-    </ClInclude>
-    <ClInclude Include="src\RageV\Window.h">
-      <Filter>src\RageV</Filter>
     </ClInclude>
     <ClInclude Include="src\rvpch.h">
       <Filter>src</Filter>
@@ -1410,7 +1413,7 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\OrthographicCameraController.h" />
+    <ClInclude Include="src\RageV\Renderer\Renderer2D.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1434,8 +1437,17 @@
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp">
       <Filter>src\Platform\Windows</Filter>
     </ClCompile>
-    <ClCompile Include="src\RageV\Application.cpp">
-      <Filter>src\RageV</Filter>
+    <ClCompile Include="src\RageV\Core\Application.cpp">
+      <Filter>src\RageV\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Core\Layer.cpp">
+      <Filter>src\RageV\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Core\LayerStack.cpp">
+      <Filter>src\RageV\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Core\Log.cpp">
+      <Filter>src\RageV\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\Core\Platform.cpp">
       <Filter>src\RageV\Core</Filter>
@@ -1446,19 +1458,13 @@
     <ClCompile Include="src\RageV\ImGui\ImGuiLayer.cpp">
       <Filter>src\RageV\ImGui</Filter>
     </ClCompile>
-    <ClCompile Include="src\RageV\Layer.cpp">
-      <Filter>src\RageV</Filter>
-    </ClCompile>
-    <ClCompile Include="src\RageV\LayerStack.cpp">
-      <Filter>src\RageV</Filter>
-    </ClCompile>
-    <ClCompile Include="src\RageV\Log.cpp">
-      <Filter>src\RageV</Filter>
-    </ClCompile>
     <ClCompile Include="src\RageV\Renderer\Buffer.cpp">
       <Filter>src\RageV\Renderer</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\Renderer\OrthographicCamera.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\OrthographicCameraController.cpp">
       <Filter>src\RageV\Renderer</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\Renderer\RenderAPI.cpp">
@@ -1482,6 +1488,6 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\RageV\OrthographicCameraController.cpp" />
+    <ClCompile Include="src\RageV\Renderer\Renderer2D.cpp" />
   </ItemGroup>
 </Project>

@@ -31,10 +31,10 @@ namespace RageV
 	{
 		std::shared_ptr<Shader> shader = Shader::Create(shaderPath);
 
-		int lastSlashPos = shaderPath.find_last_of("/\\");
+		size_t lastSlashPos = shaderPath.find_last_of("/\\");
 		lastSlashPos = lastSlashPos == std::string::npos ? 0 : lastSlashPos + 1;
 
-		int lastDot = shaderPath.rfind('.');
+		size_t lastDot = shaderPath.rfind('.');
 		lastDot = lastDot == std::string::npos ? shaderPath.size() : lastDot;
 
 		m_Shaders[shaderPath.substr(lastSlashPos, lastDot - lastSlashPos)] = shader;

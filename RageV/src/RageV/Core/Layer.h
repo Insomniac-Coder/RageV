@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Core.h"
-#include "Events/Event.h"
-#include "Core/Timestep.h"
+#include "RageV/Events/Event.h"
+#include "Timestep.h"
 
 namespace RageV
 {

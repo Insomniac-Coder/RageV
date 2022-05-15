@@ -1,7 +1,7 @@
 #include <rvpch.h>
 #include "OrthographicCameraController.h"
-#include "RageV/Input.h"
-#include "RageV/KeyCodes.h"
+#include "RageV/Core/Input.h"
+#include "RageV/Core/KeyCodes.h"
 
 namespace RageV
 {
@@ -46,7 +46,6 @@ namespace RageV
 	bool OrthographicCameraController::OnMouseScrolled(MouseScrolledEvent& e)
 	{
 		m_Zoom -= e.GetYOffset() * m_CameraZoomSpeed;
-		std::cout << m_Zoom << std::endl;
 		m_Zoom = std::max(m_Zoom, 0.25f);
 		m_Camera.SetProjectionMatrix(-m_AspectRatio * m_Zoom, m_AspectRatio * m_Zoom, -m_Zoom, m_Zoom);
 		return false;

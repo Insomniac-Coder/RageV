@@ -1,9 +1,9 @@
 #include <rvpch.h>
 #include "Application.h"
-#include "RageV/Log.h"
+#include "Log.h"
 #include "Input.h"
-#include "Renderer/Renderer.h"
-#include "Core/Timestep.h"
+#include "RageV/Renderer/Renderer.h"
+#include "Timestep.h"
 #include "Platform/Windows/WindowsPlatform.h"
 
 namespace RageV {
@@ -16,7 +16,7 @@ namespace RageV {
 		m_Instance = this;
 		m_Window = std::unique_ptr<Window>(Window::Create());
 		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
-		m_Window->SetVsync(true);
+		m_Window->SetVsync(false);
 
 		Renderer::Init();
 
@@ -86,7 +86,7 @@ namespace RageV {
 		//RV_TRACE(e);
 		while (m_Running) {
 
-			float time = GetTime();
+			float time = (float)GetTime();
 			Timestep ts = time - m_LastTime;
 			m_LastTime = time;
 

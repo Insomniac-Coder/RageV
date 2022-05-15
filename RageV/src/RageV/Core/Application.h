@@ -1,7 +1,7 @@
 #pragma once
 #include "Core.h"
-#include "RageV/Window.h"
-#include "Events/ApplicationEvent.h"
+#include "Window.h"
+#include "RageV/Events/ApplicationEvent.h"
 #include "LayerStack.h"
 #include "RageV/Core/Platform.h"
 

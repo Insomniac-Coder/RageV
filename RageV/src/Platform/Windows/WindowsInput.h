@@ -1,5 +1,5 @@
 #pragma once
-#include "RageV/Input.h"
+#include "RageV/Core/Input.h"
 
 namespace RageV
 {

@@ -25,7 +25,7 @@ namespace RageV
 		int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
 		RV_CORE_ASSERT(status, "Failed to initialise GLAD!");
 
-		RV_CORE_INFO("OpenGL Vendor: {0}", glGetString(GL_VENDOR));
+		RV_CORE_INFO("OpenGL Vendor: {0}", (const char *)glGetString(GL_VENDOR));
 		RV_CORE_INFO("OpenGL Renderer: {0}", glGetString(GL_RENDERER));
 		RV_CORE_INFO("OpenGL Version: {0}", glGetString(GL_VERSION));
 	}

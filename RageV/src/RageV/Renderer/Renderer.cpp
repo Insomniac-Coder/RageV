@@ -2,6 +2,7 @@
 #include "Renderer.h"
 #include "OrthographicCamera.h"
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "Renderer2D.h"
 
 namespace RageV
 
@@ -11,6 +12,7 @@ namespace RageV
 	void Renderer::Init()
 	{
 		RenderCommand::Init();
+		Renderer2D::Init();
 	}
 
 	void Renderer::OnWindowResize(unsigned int width, unsigned int height)
@@ -29,9 +31,9 @@ namespace RageV
 
 	void Renderer::Submit(const std::shared_ptr<Shader>& shader, const std::shared_ptr<VertexArray>& vertexArray, const glm::mat4& transform)
 	{
-		std::dynamic_pointer_cast<OpenGLShader>(shader)->Bind();
-		std::dynamic_pointer_cast<OpenGLShader>(shader)->SetUniform("u_ViewProjection", m_SceneData->ViewProjection);
-		std::dynamic_pointer_cast<OpenGLShader>(shader)->SetUniform("u_Transform", transform);
+		shader->Bind();
+		shader->SetMat4("u_ViewProjection", m_SceneData->ViewProjection);
+		shader->SetMat4("u_Transform", transform);
 		vertexArray->Bind();
 		RenderCommand::DrawIndexed(vertexArray);
 	}

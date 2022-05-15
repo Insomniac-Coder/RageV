@@ -1,7 +1,7 @@
 #pragma once
 #include <rvpch.h>
 #include "RageV/Events/Event.h"
-#include "RageV/Core.h"
+#include "Core.h"
 
 namespace RageV {
 	

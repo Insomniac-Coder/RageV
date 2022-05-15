@@ -1,7 +1,7 @@
 #include <rvpch.h>
 #include "WindowsInput.h"
 #include "GLFW/glfw3.h"
-#include "RageV/Application.h"
+#include "RageV/Core/Application.h"
 
 namespace RageV {
 	Input* Input::m_Instance = new WindowsInput();

@@ -1,0 +1,102 @@
+#include <rvpch.h>
+#include "Renderer2D.h"
+#include "Buffer.h"
+#include "Platform/OpenGL/OpenGLShader.h"
+#include "RenderCommand.h"
+
+namespace RageV
+{
+
+	struct Renderer2DData {
+		std::shared_ptr<VertexArray> Renderer2DVertexArray;
+		ShaderManager Renderer2DShaderManager;
+		glm::mat4 Renderer2DViewProjectionMatrix;
+	};
+
+	static std::unique_ptr<Renderer2DData> renderer2DData;
+
+	void Renderer2D::Init()
+	{
+		renderer2DData = std::make_unique<Renderer2DData>();
+
+		float sqvertices[5 * 4] = {
+		-0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
+		0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+		0.5f, 0.5f, 0.0f, 1.0f, 1.0f,
+		-0.5f, 0.5f, 0.0f, 0.0f, 1.0f
+		};
+
+		unsigned int sqindices[6] = { 0, 1, 2, 2, 3, 0 };
+
+		//Flat color tiles
+		renderer2DData->Renderer2DVertexArray.reset(RageV::VertexArray::Create());
+		std::shared_ptr<RageV::VertexBuffer> m_SqVertexBuffer;
+		std::shared_ptr<RageV::IndexBuffer> m_SqIndexBuffer;
+
+		m_SqVertexBuffer.reset(RageV::VertexBuffer::Create(sqvertices, sizeof(sqvertices)));
+		RageV::BufferLayout sqbufferLayout = {
+			{ "a_Position", ShaderDataType::Float3},
+			{ "a_TexCord", RageV::ShaderDataType::Float2}
+		};
+		m_SqVertexBuffer->SetBufferLayout(sqbufferLayout);
+		renderer2DData->Renderer2DVertexArray->AddVertexBuffer(m_SqVertexBuffer);
+
+		m_SqIndexBuffer.reset(RageV::IndexBuffer::Create(sqindices, 6));
+		renderer2DData->Renderer2DVertexArray->SetIndexBuffer(m_SqIndexBuffer);
+
+		//shader stuff
+		renderer2DData->Renderer2DShaderManager.LoadShader("assets/shaders/simpleshader.glsl");
+		renderer2DData->Renderer2DShaderManager.LoadShader("assets/shaders/textureshader.glsl");
+		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->Bind();
+		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->SetInt1("a_Tex", 0);
+	}
+
+	void Renderer2D::Shutdown()
+	{
+		delete renderer2DData.get();
+	}
+
+	void Renderer2D::BeginScene(const OrthographicCamera& camera)
+	{
+		renderer2DData->Renderer2DViewProjectionMatrix = camera.GetViewProjectionMatrix();
+	}
+
+	void Renderer2D::EndScene()
+	{
+	}
+
+	void Renderer2D::DrawQuad(glm::vec2& position, glm::vec2& size, glm::vec4& color)
+	{
+		DrawQuad(glm::vec3(position.x, position.y, 0.0f), size, color);
+	}
+
+	void Renderer2D::DrawQuad(glm::vec3& position, glm::vec2& size, glm::vec4& color)
+	{
+		glm::mat4 sqTransform = glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f)), position);
+		renderer2DData->Renderer2DShaderManager.GetShader("simpleshader")->Bind();
+		renderer2DData->Renderer2DShaderManager.GetShader("simpleshader")->SetFloat4("u_Color", color);
+		renderer2DData->Renderer2DShaderManager.GetShader("simpleshader")->SetMat4("u_ViewProjection", renderer2DData->Renderer2DViewProjectionMatrix);
+		renderer2DData->Renderer2DShaderManager.GetShader("simpleshader")->SetMat4("u_Transform", sqTransform);
+		renderer2DData->Renderer2DVertexArray->Bind();
+		RenderCommand::DrawIndexed(renderer2DData->Renderer2DVertexArray);
+
+	}
+
+	void Renderer2D::DrawQuad(glm::vec2& position, glm::vec2& size, std::shared_ptr<Texture2D>& texture)
+	{
+		DrawQuad(glm::vec3(position.x, position.y, 0.0f), size, texture);
+	}
+
+	void Renderer2D::DrawQuad(glm::vec3& position, glm::vec2& size, std::shared_ptr<Texture2D>& texture)
+	{
+		texture->Bind();
+		glm::mat4 sqTransform = glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f)), position);
+		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->Bind();
+		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->SetMat4("u_ViewProjection", renderer2DData->Renderer2DViewProjectionMatrix);
+		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->SetMat4("u_Transform", sqTransform);
+		renderer2DData->Renderer2DVertexArray->Bind();
+		RenderCommand::DrawIndexed(renderer2DData->Renderer2DVertexArray);
+	}
+
+
+}

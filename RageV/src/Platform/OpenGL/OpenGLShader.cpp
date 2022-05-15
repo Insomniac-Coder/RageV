@@ -22,6 +22,56 @@ namespace RageV
 		glDeleteProgram(m_Program);
 	}
 
+	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& mat4)
+	{
+		SetUniform(name, mat4);
+	}
+
+	void OpenGLShader::SetMat3(const std::string& name, const glm::mat3& mat3)
+	{
+		SetUniform(name, mat3);
+	}
+
+	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& float4)
+	{
+		SetUniform(name, float4);
+	}
+
+	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& float3)
+	{
+		SetUniform(name, float3);
+	}
+
+	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& float2)
+	{
+		SetUniform(name, float2);
+	}
+
+	void OpenGLShader::SetFloat1(const std::string& name, const float& float1)
+	{
+		SetUniform(name, float1);
+	}
+
+	void OpenGLShader::SetInt4(const std::string& name, const int& int1, const int& int2, const int& int3, const int& int4)
+	{
+		SetUniform(name, int1, int2, int3, int4);
+	}
+
+	void OpenGLShader::SetInt3(const std::string& name, const int& int1, const int& int2, const int& int3)
+	{
+		SetUniform(name, int1, int2, int3);
+	}
+
+	void OpenGLShader::SetInt2(const std::string& name, const int& int1, const int& int2)
+	{
+		SetUniform(name, int1, int2);
+	}
+
+	void OpenGLShader::SetInt1(const std::string& name, const int& int1)
+	{
+		SetUniform(name, int1);
+	}
+
 	OpenGLShader::OpenGLShader(const std::string& shaderPath)
 	{
 		std::unordered_map<GLenum, std::string> sources = ReadFileAndSeparate(shaderPath);
