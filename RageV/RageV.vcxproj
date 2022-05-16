@@ -180,6 +180,7 @@
     <ClInclude Include="src\RageV\Renderer\Renderer2D.h" />
     <ClInclude Include="src\RageV\Renderer\Shader.h" />
     <ClInclude Include="src\RageV\Renderer\Texture.h" />
+    <ClInclude Include="src\RageV\Renderer\Transform.h" />
     <ClInclude Include="src\rvpch.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />
     <ClInclude Include="vendor\glm\glm\detail\_features.hpp" />

@@ -46,15 +46,21 @@ void ExampleLayer::OnUpdate(RageV::Timestep ts)
 
 	RageV::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 	RageV::RenderCommand::Clear();
+	RageV::Transform2D t1, t2;
+	t1.position = { 0.0f, 0.0f, -0.1f };
+	t1.scale = { 5.0f, 5.0f };
+	t1.rotation = 45.0f;
+	t2.position = { 0.5f, 0.0f, 0.0f };
+	t2.scale = { 1.0f, 1.0f };
 
 	{
 		PROFILER("Render Scene");
 		RageV::Renderer2D::BeginScene(m_CameraController.GetCamera());
 		{
 			PROFILER("Draw textured quad");
-			RageV::Renderer2D::DrawQuad(glm::vec3(0.0f, 0.0f, -0.1f), glm::vec2(5.0f, 5.0f), m_Texture);
+			RageV::Renderer2D::DrawQuad(t1, m_Texture, 10.0f);
 		}
-		RageV::Renderer2D::DrawQuad(glm::vec2(0.5f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(m_Color, 1.0f));
+		RageV::Renderer2D::DrawQuad(t2, glm::vec4(m_Color, 1.0f));
 		RageV::Renderer2D::EndScene();
 	}
 }

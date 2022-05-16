@@ -68,16 +68,16 @@ namespace RageV
 	{
 	}
 
-	void Renderer2D::DrawQuad(glm::vec2& position, glm::vec2& size, glm::vec4& color)
-	{
-		DrawQuad(glm::vec3(position.x, position.y, 0.0f), size, color);
-	}
-
-	void Renderer2D::DrawQuad(glm::vec3& position, glm::vec2& size, glm::vec4& color)
+	void Renderer2D::DrawQuad(Transform2D& transform, glm::vec4& color)
 	{
 		renderer2DData->WhiteTexture->Bind();
-		glm::mat4 sqTransform = glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f)), position);
+		glm::mat4 sqTransform = glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(transform.scale, 1.0f)), transform.position);
+		if (transform.rotation != 0.0f)
+		{
+			sqTransform *= glm::rotate(glm::mat4(1.0f), glm::radians(transform.rotation), glm::vec3(0.0f, 0.0f, 1.0f ));
+		}
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->Bind();
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat1("u_TilingFactor", 1.0f);
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat4("u_Color", color);
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_Transform", sqTransform);
 		renderer2DData->Renderer2DVertexArray->Bind();
@@ -85,16 +85,16 @@ namespace RageV
 
 	}
 
-	void Renderer2D::DrawQuad(glm::vec2& position, glm::vec2& size, std::shared_ptr<Texture2D>& texture)
-	{
-		DrawQuad(glm::vec3(position.x, position.y, 0.0f), size, texture);
-	}
-
-	void Renderer2D::DrawQuad(glm::vec3& position, glm::vec2& size, std::shared_ptr<Texture2D>& texture)
+	void Renderer2D::DrawQuad(Transform2D& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor)
 	{
 		texture->Bind();
-		glm::mat4 sqTransform = glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f)), position);
+		glm::mat4 sqTransform = glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(transform.scale, 1.0f)), transform.position);
+		if (transform.rotation != 0.0f)
+		{
+			sqTransform *= glm::rotate(glm::mat4(1.0f), glm::radians(transform.rotation), glm::vec3(0.0f, 0.0f, 1.0f));
+		}
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->Bind();
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat1("u_TilingFactor", tilingfactor);
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat4("u_Color", glm::vec4(1.0f));
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_Transform", sqTransform);
 		renderer2DData->Renderer2DVertexArray->Bind();
