@@ -2,6 +2,12 @@
 #include <RageV.h>
 #include "imgui.h"
 
+struct ProfileData
+{
+	const char* name;
+	double time;
+};
+
 class ExampleLayer : public RageV::Layer
 {
 public:
@@ -16,6 +22,7 @@ private:
 	glm::vec3 m_Color;
 	RageV::OrthographicCameraController m_CameraController;
 	std::shared_ptr<RageV::Texture2D> m_Texture;
+	std::vector<ProfileData> m_ProfileDataList;
 };
 
 class Sandbox2D : public RageV::Application {

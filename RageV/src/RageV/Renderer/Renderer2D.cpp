@@ -10,7 +10,7 @@ namespace RageV
 	struct Renderer2DData {
 		std::shared_ptr<VertexArray> Renderer2DVertexArray;
 		ShaderManager Renderer2DShaderManager;
-		glm::mat4 Renderer2DViewProjectionMatrix;
+		std::shared_ptr<Texture2D> WhiteTexture;
 	};
 
 	static std::unique_ptr<Renderer2DData> renderer2DData;
@@ -44,11 +44,14 @@ namespace RageV
 		m_SqIndexBuffer.reset(RageV::IndexBuffer::Create(sqindices, 6));
 		renderer2DData->Renderer2DVertexArray->SetIndexBuffer(m_SqIndexBuffer);
 
+		renderer2DData->WhiteTexture = Texture2D::Create(1, 1);
+		unsigned int whiteData = 0xffffffff;
+		renderer2DData->WhiteTexture->SetData(&whiteData, sizeof(unsigned int));
+
 		//shader stuff
-		renderer2DData->Renderer2DShaderManager.LoadShader("assets/shaders/simpleshader.glsl");
-		renderer2DData->Renderer2DShaderManager.LoadShader("assets/shaders/textureshader.glsl");
-		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->Bind();
-		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->SetInt1("a_Tex", 0);
+		renderer2DData->Renderer2DShaderManager.LoadShader("assets/shaders/quadshader.glsl");
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->Bind();
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetInt1("a_Tex", 0);
 	}
 
 	void Renderer2D::Shutdown()
@@ -58,7 +61,7 @@ namespace RageV
 
 	void Renderer2D::BeginScene(const OrthographicCamera& camera)
 	{
-		renderer2DData->Renderer2DViewProjectionMatrix = camera.GetViewProjectionMatrix();
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
 	}
 
 	void Renderer2D::EndScene()
@@ -72,11 +75,11 @@ namespace RageV
 
 	void Renderer2D::DrawQuad(glm::vec3& position, glm::vec2& size, glm::vec4& color)
 	{
+		renderer2DData->WhiteTexture->Bind();
 		glm::mat4 sqTransform = glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f)), position);
-		renderer2DData->Renderer2DShaderManager.GetShader("simpleshader")->Bind();
-		renderer2DData->Renderer2DShaderManager.GetShader("simpleshader")->SetFloat4("u_Color", color);
-		renderer2DData->Renderer2DShaderManager.GetShader("simpleshader")->SetMat4("u_ViewProjection", renderer2DData->Renderer2DViewProjectionMatrix);
-		renderer2DData->Renderer2DShaderManager.GetShader("simpleshader")->SetMat4("u_Transform", sqTransform);
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->Bind();
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat4("u_Color", color);
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_Transform", sqTransform);
 		renderer2DData->Renderer2DVertexArray->Bind();
 		RenderCommand::DrawIndexed(renderer2DData->Renderer2DVertexArray);
 
@@ -91,9 +94,9 @@ namespace RageV
 	{
 		texture->Bind();
 		glm::mat4 sqTransform = glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f)), position);
-		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->Bind();
-		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->SetMat4("u_ViewProjection", renderer2DData->Renderer2DViewProjectionMatrix);
-		renderer2DData->Renderer2DShaderManager.GetShader("textureshader")->SetMat4("u_Transform", sqTransform);
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->Bind();
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat4("u_Color", glm::vec4(1.0f));
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_Transform", sqTransform);
 		renderer2DData->Renderer2DVertexArray->Bind();
 		RenderCommand::DrawIndexed(renderer2DData->Renderer2DVertexArray);
 	}
