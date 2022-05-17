@@ -8,7 +8,24 @@
 namespace RageV
 {
 
-	VertexBuffer* VertexBuffer::Create(float* vertices, unsigned int size) {
+	std::shared_ptr<VertexBuffer> VertexBuffer::Create(unsigned int size) {
+		switch (Renderer::GetAPI())
+		{
+		case RenderAPI::API::None:
+		{
+			RV_ASSERT(false, "No API was chosen!");
+			return nullptr;
+		}
+		case RenderAPI::API::OpenGL:
+		{
+			return std::make_shared<OpenGLVertexBuffer>(size);
+		}
+		}
+
+		return nullptr;
+	}
+
+	std::shared_ptr<VertexBuffer> VertexBuffer::Create(float* vertices, unsigned int size) {
 		switch (Renderer::GetAPI())
 		{
 		case RenderAPI::API::None:
@@ -18,14 +35,14 @@ namespace RageV
 			}
 		case RenderAPI::API::OpenGL:
 			{
-				return new OpenGLVertexBuffer(vertices, size);
+				return std::make_shared<OpenGLVertexBuffer>(vertices, size);
 			}
 		}
 
 		return nullptr;
 	}
 
-	IndexBuffer* IndexBuffer::Create(unsigned int* indices, unsigned int count) {
+	std::shared_ptr<IndexBuffer> IndexBuffer::Create(unsigned int* indices, unsigned int count) {
 		switch (Renderer::GetAPI())
 		{
 			case RenderAPI::API::None:
@@ -35,7 +52,7 @@ namespace RageV
 			}
 			case RenderAPI::API::OpenGL:
 			{
-				return new OpenGLIndexBuffer(indices, count);
+				return std::make_shared<OpenGLIndexBuffer>(indices, count);
 			}
 		}
 
@@ -107,7 +124,7 @@ namespace RageV
 	}
 
 
-	VertexArray* VertexArray::Create()
+	std::shared_ptr<VertexArray> VertexArray::Create()
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -118,7 +135,7 @@ namespace RageV
 			}
 			case RenderAPI::API::OpenGL:
 			{
-				return new OpenGLVertexArray();
+				return std::make_shared<OpenGLVertexArray>();
 			}
 		}
 

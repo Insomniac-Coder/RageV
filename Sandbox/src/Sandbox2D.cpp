@@ -61,6 +61,7 @@ void ExampleLayer::OnUpdate(RageV::Timestep ts)
 			RageV::Renderer2D::DrawQuad(t1, m_Texture, 10.0f);
 		}
 		RageV::Renderer2D::DrawQuad(t2, glm::vec4(m_Color, 1.0f));
+		//RageV::Renderer2D::DrawQuad(t1, glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
 		RageV::Renderer2D::EndScene();
 	}
 }

@@ -17,6 +17,7 @@ namespace RageV {
 		virtual void SetFloat3(const std::string& name, const glm::vec3& float3) = 0;
 		virtual void SetFloat2(const std::string& name, const glm::vec2& float2) = 0;
 		virtual void SetFloat1(const std::string& name, const float& float1) = 0;
+		virtual void SetIntArray(const std::string& name, const int* intarray, const unsigned int& count) = 0;
 		virtual void SetInt4(const std::string& name, const int& int1, const int& int2, const int& int3, const int& int4) = 0;
 		virtual void SetInt3(const std::string& name, const int& int1, const int& int2, const int& int3) = 0;
 		virtual void SetInt2(const std::string& name, const int& int1, const int& int2) = 0;

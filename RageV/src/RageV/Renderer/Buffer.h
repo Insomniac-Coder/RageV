@@ -59,7 +59,9 @@ namespace RageV
 		virtual void UnBind() const = 0;
 		virtual const BufferLayout& GetBufferLayout() const = 0;
 		virtual void SetBufferLayout(const BufferLayout& bufferLayout) = 0;
-		static VertexBuffer* Create(float* vertices, unsigned int size);
+		static std::shared_ptr<VertexBuffer> Create(float* vertices, unsigned int size);
+		static std::shared_ptr<VertexBuffer> Create(unsigned int size);
+		virtual void SetData(const void* data, unsigned int size) = 0;
 	};
 
 	class IndexBuffer
@@ -68,7 +70,7 @@ namespace RageV
 		virtual ~IndexBuffer() {}
 		virtual void Bind() const = 0;
 		virtual void UnBind() const = 0;
-		static IndexBuffer* Create(unsigned int* indices, unsigned int count);
+		static std::shared_ptr<IndexBuffer> Create(unsigned int* indices, unsigned int count);
 		virtual unsigned int GetCount() const = 0;
 	};
 
@@ -78,7 +80,7 @@ namespace RageV
 		virtual ~VertexArray() {}
 		virtual void Bind() const = 0;
 		virtual void UnBind() const = 0;
-		static VertexArray* Create();
+		static std::shared_ptr<VertexArray> Create();
 		virtual const std::vector <std::shared_ptr<VertexBuffer>>& GetVertexBuffers() const = 0;
 		virtual const std::shared_ptr<IndexBuffer> GetIndexBuffer() const = 0;
 		virtual const void AddVertexBuffer(std::shared_ptr<VertexBuffer> vertexBuffer) = 0;

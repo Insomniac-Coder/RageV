@@ -32,6 +32,11 @@ namespace RageV
 		SetUniform(name, mat3);
 	}
 
+	void OpenGLShader::SetIntArray(const std::string& name, const int* intarray, const unsigned int& count)
+	{
+		SetUniform(name, intarray, count);
+	}
+
 	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& float4)
 	{
 		SetUniform(name, float4);
@@ -138,7 +143,7 @@ namespace RageV
 
 				glDeleteShader(shader);
 
-				RV_CORE_ERROR(infoLog[0]);
+				RV_CORE_ERROR(std::string(infoLog.begin(), infoLog.end()));
 				RV_ASSERT(false, "Shader compliation failed!");
 				break;
 			}
@@ -190,6 +195,15 @@ namespace RageV
 		int loc = GetUniformLocation(name);
 		if (loc != -1)
 			glUniformMatrix3fv(loc, 1, false, glm::value_ptr(matrix3));
+		else
+			RV_CORE_ERROR("Uniform {0} not found!", name);
+	}
+	void OpenGLShader::SetUniform(const std::string& name, const int* intarray, const unsigned int& count)
+	{
+		glUseProgram(m_Program);
+		int loc = GetUniformLocation(name);
+		if (loc != -1)
+			glUniform1iv(loc, count, intarray);
 		else
 			RV_CORE_ERROR("Uniform {0} not found!", name);
 	}

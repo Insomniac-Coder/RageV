@@ -5,14 +5,24 @@
 
 namespace RageV
 {
-
-
+	OpenGLVertexBuffer::OpenGLVertexBuffer(unsigned int size)
+	{
+		glCreateBuffers(1, &m_ID);
+		Bind();
+		glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
+	}
 
 	OpenGLVertexBuffer::OpenGLVertexBuffer(float* vertices, unsigned int size)
 	{
 		glCreateBuffers(1, &m_ID);
 		Bind();
 		glBufferData(GL_ARRAY_BUFFER, size, vertices, GL_STATIC_DRAW);
+	}
+
+	void OpenGLVertexBuffer::SetData(const void* data, unsigned int size)
+	{
+		Bind();
+		glBufferSubData(GL_ARRAY_BUFFER, 0, size, data);
 	}
 
 	OpenGLVertexBuffer::~OpenGLVertexBuffer()

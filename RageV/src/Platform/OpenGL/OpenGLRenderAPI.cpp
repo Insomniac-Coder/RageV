@@ -24,6 +24,11 @@ namespace RageV
 		glDrawElements(GL_TRIANGLES, vertexArray->GetIndexBuffer()->GetCount(), GL_UNSIGNED_INT, nullptr);
 	}
 
+	void OpenGLRenderAPI::DrawIndexed(const std::shared_ptr<VertexArray>& vertexArray, const unsigned int& count)
+	{
+		glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nullptr);
+	}
+
 	void OpenGLRenderAPI::Init()
 	{
 		glEnable(GL_BLEND);

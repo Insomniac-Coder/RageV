@@ -7,6 +7,7 @@ namespace RageV
 	class OpenGLVertexBuffer : public VertexBuffer
 	{
 	public:
+		OpenGLVertexBuffer(unsigned int size);
 		OpenGLVertexBuffer(float* vertices, unsigned int size);
 
 		virtual ~OpenGLVertexBuffer();
@@ -14,6 +15,7 @@ namespace RageV
 		virtual void UnBind() const override;
 		virtual const BufferLayout& GetBufferLayout() const override { return m_Layout; };
 		virtual void SetBufferLayout(const BufferLayout& bufferLayout) { m_Layout = bufferLayout; };
+		virtual void SetData(const void* data, unsigned int size) override;
 
 	private:
 		unsigned int m_ID;
