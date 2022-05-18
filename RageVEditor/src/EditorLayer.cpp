@@ -1,0 +1,136 @@
+#include "EditorLayer.h"
+#include "imgui.h"
+
+EditorLayer::EditorLayer() : Layer("Renderer2D"), m_CameraController(1270.f / 720.f, true), m_Color(1.0f, 0.0f, 0.0f) {
+
+}
+
+void EditorLayer::OnAttach()
+{
+	m_Texture = RageV::Texture2D::Create("assets/textures/square.png");
+
+	RageV::FrameBufferData fbdata;
+	fbdata.Width = 1280;
+	fbdata.Height = 720;
+
+	m_FrameBuffer = RageV::FrameBuffer::Create(fbdata);
+}
+
+void EditorLayer::OnUpdate(RageV::Timestep ts)
+{
+	PROFILER("On Update");
+	//RV_TRACE("Delta time: {0} s ({1} ms)", ts, ts.GetMilliSeconds());
+	m_CameraController.OnUpdate(ts);
+
+	m_FrameBuffer->Bind();
+
+	RageV::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
+	RageV::RenderCommand::Clear();
+	RageV::Transform2D t1, t2;
+	t1.position = { 0.0f, 0.0f, -0.1f };
+	t1.scale = { 5.0f, 5.0f };
+	t1.rotation = m_Rotation;
+	m_Rotation += (40.0f * ts);
+
+	{
+		RageV::Renderer2D::BeginScene(m_CameraController.GetCamera());
+		{
+			RageV::Renderer2D::DrawQuad(t1, m_Texture, 10.0f);
+		}
+		float factor = 25.0f;
+		for (float x = -factor; x <= factor; x += 0.1f)
+		{
+			for (float y = -factor; y <= factor; y += 0.1f)
+			{
+				t2.position = { x, y, 0.0f };
+				t2.scale = { 0.08f, 0.08f };
+				t2.rotation = 0.0f;
+				float r = (x + factor) / factor;
+				float b = (y + factor) / factor;
+				RageV::Renderer2D::DrawQuad(t2, glm::vec4(x, 0.4f, y, 0.7f));
+			}
+		}
+
+		//RageV::Renderer2D::DrawQuad(t1, glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+		RageV::Renderer2D::EndScene();
+	}
+	m_FrameBuffer->UnBind();
+}
+
+void EditorLayer::OnImGuiRender()
+{
+	static bool p_open = true;
+	static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+
+	ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+
+	const ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(viewport->WorkPos);
+	ImGui::SetNextWindowSize(viewport->WorkSize);
+	ImGui::SetNextWindowViewport(viewport->ID);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+	window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+	window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+
+	if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+		window_flags |= ImGuiWindowFlags_NoBackground;
+
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	ImGui::Begin("DockSpace Demo", &p_open, window_flags);
+	ImGui::PopStyleVar();
+	ImGui::PopStyleVar(2);
+
+	// Submit the DockSpace
+	ImGuiIO& io = ImGui::GetIO();
+	if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+	{
+		ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+		ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+	}
+
+	if (ImGui::BeginMenuBar())
+	{
+		if (ImGui::BeginMenu("Menu"))
+		{
+			if (ImGui::MenuItem("Close", NULL, false, p_open != NULL))
+				RageV::Application::Get().Close();
+			ImGui::EndMenu();
+		}
+
+		ImGui::EndMenuBar();
+	}
+
+	ImGui::End();
+
+	ImGui::Begin("Info Box");
+	//ImGui::ColorEdit3("Color,", &m_Color[0]);
+	ImGui::Text("DrawCalls: %d", RageV::Renderer2D::GetDrawCallCount());
+	ImGui::Text("Quad Count: %d", RageV::Renderer2D::GetQuadCount());
+	ImGui::Text("Vertices Count: %d", RageV::Renderer2D::GetVerticesCount());
+	ImGui::Text("Indices Count: %d", RageV::Renderer2D::GetIndiciesCount());
+	ImGui::Text("Graphics Card: %s", RageV::GraphicsInformation::GetGraphicsInfo().GPUName.c_str());
+	ImGui::Text("API Name: %s", RageV::GraphicsInformation::GetGraphicsInfo().APIName.c_str());
+	ImGui::End();
+
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	ImGui::Begin("Scene Viewport");
+	ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+	if (m_ViewportSize != *((glm::vec2*)&viewportSize))
+	{
+		m_ViewportSize = { viewportSize.x, viewportSize.y };
+		m_FrameBuffer->Resize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
+	};
+	unsigned int id = m_FrameBuffer->GetColorAttachment();
+	ImGui::Image((void*)id, ImVec2{ viewportSize.x, viewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+	m_CameraController.OnResize(viewportSize.x, viewportSize.y);
+	ImGui::End();
+	ImGui::PopStyleVar();
+
+	m_ProfileDataList.clear();
+}
+
+void EditorLayer::OnEvent(RageV::Event& e)
+{
+	m_CameraController.OnEvent(e);
+}

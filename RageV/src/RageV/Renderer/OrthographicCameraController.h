@@ -18,6 +18,7 @@ namespace RageV
 
 		OrthographicCamera& GetCamera()  { return m_Camera; }
 		const OrthographicCamera& GetCamera() const { return m_Camera; }
+		void OnResize(unsigned int width, unsigned int height) { m_AspectRatio = (float)width / (float)height; m_Camera.SetProjectionMatrix(-m_AspectRatio * m_Zoom, m_AspectRatio * m_Zoom, -m_Zoom, m_Zoom); }
 
 	private:
 		bool OnMouseScrolled(MouseScrolledEvent& e);

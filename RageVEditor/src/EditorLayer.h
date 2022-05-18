@@ -1,12 +1,11 @@
 #pragma once
 #include <RageV.h>
-#include "imgui.h"
-#include "RageV/Core/Entrypoint.h"
+#include <chrono>
 
-class ExampleLayer : public RageV::Layer
+class EditorLayer : public RageV::Layer
 {
 public:
-	ExampleLayer();
+	EditorLayer();
 
 	void OnAttach() override;
 	void  OnUpdate(RageV::Timestep ts) override;
@@ -19,23 +18,6 @@ private:
 	std::shared_ptr<RageV::Texture2D> m_Texture;
 	std::shared_ptr<RageV::FrameBuffer> m_FrameBuffer;
 	std::vector<ProfileData> m_ProfileDataList;
+	glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 	float m_Rotation = 0.0f;
 };
-
-class Sandbox2D : public RageV::Application {
-public:
-	Sandbox2D() : Application("Sandbox")
-	{
-		PushLayer(new ExampleLayer());
-	}
-	~Sandbox2D()
-	{
-
-	}
-};
-
-RageV::Application* RageV::CreateApplication() {
-	Sandbox2D* sandbox2d = new Sandbox2D();
-
-	return sandbox2d;
-}

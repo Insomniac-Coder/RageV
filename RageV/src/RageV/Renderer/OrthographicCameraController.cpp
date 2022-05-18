@@ -15,13 +15,13 @@ namespace RageV
 	void OrthographicCameraController::OnUpdate(Timestep ts)
 	{
 		if (Input::IsKeyPressed(RV_KEY_A))
-			m_Position.x += 5.0f * ts;
-		else if (Input::IsKeyPressed(RV_KEY_D))
 			m_Position.x -= 5.0f * ts;
+		else if (Input::IsKeyPressed(RV_KEY_D))
+			m_Position.x += 5.0f * ts;
 		if (Input::IsKeyPressed(RV_KEY_W))
-			m_Position.y -= 5.0f * ts;
-		else if (Input::IsKeyPressed(RV_KEY_S))
 			m_Position.y += 5.0f * ts;
+		else if (Input::IsKeyPressed(RV_KEY_S))
+			m_Position.y -= 5.0f * ts;
 
 		if (m_IsRotationEnabled)
 		{
@@ -53,8 +53,7 @@ namespace RageV
 
 	bool OrthographicCameraController::OnWindowResized(WindowResizeEvent& e)
 	{
-		m_AspectRatio = (float)e.GetWidth() / (float)e.GetHeight();
-		m_Camera.SetProjectionMatrix(-m_AspectRatio * m_Zoom, m_AspectRatio * m_Zoom, -m_Zoom, m_Zoom);
+		OnResize(e.GetWidth(), e.GetHeight());
 		return false;
 	}
 

@@ -11,10 +11,10 @@ namespace RageV {
 
 	Application* Application::m_Instance = nullptr;
 
-	Application::Application() {
+	Application::Application(const std::string& appname) {
 		RV_CORE_ASSERT(!m_Instance, "Application instance already present present");
 		m_Instance = this;
-		m_Window = std::unique_ptr<Window>(Window::Create());
+		m_Window = std::unique_ptr<Window>(Window::Create(WindowProps(appname)));
 		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
 		m_Window->SetVsync(false);
 

@@ -1,33 +1,4 @@
 #include "Sandbox2D.h"
-#include <chrono>
-
-template<typename Fn>
-class Timer
-{
-public:
-	Timer(const char* name, Fn&& func) : m_Name(name), m_Func(func)
-	{
-		m_Start = std::chrono::high_resolution_clock::now();
-	}
-
-	~Timer()
-	{
-		std::chrono::steady_clock::time_point m_End = Stop();
-		std::chrono::duration<double, std::micro> difference = m_End - m_Start;
-
-		m_Func({ m_Name, difference.count() });
-	}
-private:
-	std::chrono::steady_clock::time_point Stop()
-	{
-		return std::chrono::high_resolution_clock::now();
-	}
-	const char* m_Name;
-	std::chrono::steady_clock::time_point m_Start;
-	Fn m_Func;
-};
-
-#define PROFILER(name) Timer time##__LINE__(name, [&](ProfileData profileData) { m_ProfileDataList.push_back(profileData); })
 
 ExampleLayer::ExampleLayer() : Layer("Renderer2D"), m_CameraController(1270.f/ 720.f, true), m_Color(1.0f, 0.0f, 0.0f) {
 
@@ -36,6 +7,12 @@ ExampleLayer::ExampleLayer() : Layer("Renderer2D"), m_CameraController(1270.f/ 7
 void ExampleLayer::OnAttach()
 {
 	m_Texture = RageV::Texture2D::Create("assets/textures/square.png");
+
+	RageV::FrameBufferData fbdata;
+	fbdata.Width = 1920;
+	fbdata.Height = 1080;
+
+	m_FrameBuffer = RageV::FrameBuffer::Create(fbdata);
 }
 
 void ExampleLayer::OnUpdate(RageV::Timestep ts)
@@ -43,6 +20,8 @@ void ExampleLayer::OnUpdate(RageV::Timestep ts)
 	PROFILER("On Update");
 	//RV_TRACE("Delta time: {0} s ({1} ms)", ts, ts.GetMilliSeconds());
 	m_CameraController.OnUpdate(ts);
+
+	m_FrameBuffer->Bind();
 
 	RageV::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 	RageV::RenderCommand::Clear();
@@ -74,53 +53,54 @@ void ExampleLayer::OnUpdate(RageV::Timestep ts)
 		//RageV::Renderer2D::DrawQuad(t1, glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
 		RageV::Renderer2D::EndScene();
 	}
+	m_FrameBuffer->UnBind();
 }
 
 void ExampleLayer::OnImGuiRender()
 {
-    //static bool p_open = true;
-    //static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
-	//
-    //ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
- 	//
-    //const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    //ImGui::SetNextWindowPos(viewport->WorkPos);
-    //ImGui::SetNextWindowSize(viewport->WorkSize);
-    //ImGui::SetNextWindowViewport(viewport->ID);
-    //ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    //ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    //window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-    //window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
- 	//
-    //if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
-    //    window_flags |= ImGuiWindowFlags_NoBackground;
-	//
-    //ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    //ImGui::Begin("DockSpace Demo", &p_open, window_flags);
-    //ImGui::PopStyleVar();
-    //ImGui::PopStyleVar(2);
-	//
-    //// Submit the DockSpace
-    //ImGuiIO& io = ImGui::GetIO();
-    //if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
-    //{
-    //    ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
-    //    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
-    //}
-	//
-    //if (ImGui::BeginMenuBar())
-    //{
-    //    if (ImGui::BeginMenu("Menu"))
-    //    {
-	//		if (ImGui::MenuItem("Close", NULL, false, p_open != NULL))
-	//			RageV::Application::Get().Close();
-    //        ImGui::EndMenu();
-    //    }
-	//
-    //    ImGui::EndMenuBar();
-    //}
-	//
-    //ImGui::End();
+    static bool p_open = true;
+    static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+	
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+ 	
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+ 	
+    if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+        window_flags |= ImGuiWindowFlags_NoBackground;
+	
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("DockSpace Demo", &p_open, window_flags);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
+	
+    // Submit the DockSpace
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+    {
+        ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+    }
+	
+    if (ImGui::BeginMenuBar())
+    {
+        if (ImGui::BeginMenu("Menu"))
+        {
+			if (ImGui::MenuItem("Close", NULL, false, p_open != NULL))
+				RageV::Application::Get().Close();
+            ImGui::EndMenu();
+        }
+	
+        ImGui::EndMenuBar();
+    }
+	
+    ImGui::End();
 
 	ImGui::Begin("Info Box");
 	//ImGui::ColorEdit3("Color,", &m_Color[0]);
@@ -130,7 +110,7 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::Text("Indices Count: %d", RageV::Renderer2D::GetIndiciesCount());
 	ImGui::Text("Graphics Card: %s", RageV::GraphicsInformation::GetGraphicsInfo().GPUName.c_str());
 	ImGui::Text("API Name: %s", RageV::GraphicsInformation::GetGraphicsInfo().APIName.c_str());
-	ImGui::Image((void*)m_Texture->GetTextureID(), ImVec2{ 256.0f, 256.0f });
+	ImGui::Image((void*)m_FrameBuffer->GetColorAttachment(), ImVec2{1280.0f, 720.0f});
 	ImGui::End();
 	m_ProfileDataList.clear();
 }

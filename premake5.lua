@@ -5,7 +5,7 @@ workspace "RageV"
         "Release",
         "Dist"
     }
-    startproject "Sandbox"
+    startproject "RageVEditor"
 
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
@@ -95,6 +95,57 @@ project "RageV"
     
 project "Sandbox"
     location "Sandbox"
+    kind "ConsoleApp"
+    language "C++"   
+    cppdialect "C++17"
+    staticruntime "on"
+
+    targetdir ("bin/" .. outputdir .. "/%{prj.name}")
+    objdir("bin-int/" .. outputdir .. "/%{prj.name}")
+
+    files
+    {
+        "%{prj.name}/src/**.h",
+        "%{prj.name}/src/**.cpp"
+    }
+
+    includedirs
+    {
+        "RageV/vendor/spdlog/include",
+        "RageV/src",
+        "%{IncludeDir.glm}",
+        "%{IncludeDir.ImGui}"
+    }
+
+    links {
+        "RageV"
+    }
+
+    filter "system:windows"
+        systemversion "latest"
+
+        defines
+        {
+            "RV_PLATFORM_WINDOWS"
+        }
+
+    filter  "configurations:Debug"
+        defines "RV_DEBUG"
+        runtime "Debug"
+        symbols "on"
+
+    filter "configurations:Release"
+        defines "RV_RELEASE"
+        runtime "Release"
+        optimize "on"
+
+    filter "configurations:Dist"
+        defines "RV_DIST"
+        runtime "Release"
+        optimize "on"
+
+project "RageVEditor"
+    location "RageVEditor"
     kind "ConsoleApp"
     language "C++"   
     cppdialect "C++17"

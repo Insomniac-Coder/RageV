@@ -1,12 +1,11 @@
 #include <rvpch.h>
-#include "WindowsInput.h"
+#include "RageV/Core/Input.h"
 #include "GLFW/glfw3.h"
 #include "RageV/Core/Application.h"
 
 namespace RageV {
-	Input* Input::m_Instance = new WindowsInput();
 
-	bool WindowsInput::IsKeyPressedImpl(int keycode)
+	bool Input::IsKeyPressed(int keycode)
 	{
 		auto windowPtr = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		auto state = glfwGetKey(windowPtr, keycode);
@@ -14,7 +13,7 @@ namespace RageV {
 		return state == GLFW_PRESS || state == GLFW_REPEAT;
 	}
 
-	bool WindowsInput::IsMouseButtonPressedImpl(int button)
+	bool Input::IsMouseButtonPressed(int button)
 	{
 		auto windowPtr = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		auto state = glfwGetMouseButton(windowPtr, button);
@@ -22,21 +21,21 @@ namespace RageV {
 		return state == GLFW_PRESS;
 	}
 
-	float WindowsInput::GetMouseXImpl()
+	float Input::GetMouseX()
 	{
-		auto [x, y] = GetMousePositionImpl();
+		auto [x, y] = GetMousePosition();
 
 		return (float)x;
 	}
 
-	float WindowsInput::GetMouseYImpl()
+	float Input::GetMouseY()
 	{
-		auto [x,y] = GetMousePositionImpl();
+		auto [x,y] = GetMousePosition();
 
 		return (float)y;
 	}
 
-	std::pair<float, float> WindowsInput::GetMousePositionImpl()
+	std::pair<float, float> Input::GetMousePosition()
 	{
 		auto windowPtr = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		double xPos, yPos;

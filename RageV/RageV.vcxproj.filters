@@ -60,6 +60,9 @@
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h">
       <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLFrameBuffer.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
     <ClInclude Include="src\Platform\OpenGL\OpenGLRenderAPI.h">
       <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
@@ -68,9 +71,6 @@
     </ClInclude>
     <ClInclude Include="src\Platform\OpenGL\OpenGLTexture2D.h">
       <Filter>src\Platform\OpenGL</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Platform\Windows\WindowsInput.h">
-      <Filter>src\Platform\Windows</Filter>
     </ClInclude>
     <ClInclude Include="src\Platform\Windows\WindowsPlatform.h">
       <Filter>src\Platform\Windows</Filter>
@@ -88,6 +88,9 @@
       <Filter>src\RageV\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Core\Entrypoint.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Core\GraphicsInformation.h">
       <Filter>src\RageV\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Core\Input.h">
@@ -138,6 +141,9 @@
     <ClInclude Include="src\RageV\Renderer\Camera.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Framebuffer.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
     <ClInclude Include="src\RageV\Renderer\GraphicsContext.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
@@ -156,10 +162,16 @@
     <ClInclude Include="src\RageV\Renderer\Renderer.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Renderer2D.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
     <ClInclude Include="src\RageV\Renderer\Shader.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\Texture.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Transform.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\rvpch.h">
@@ -1413,15 +1425,16 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\Renderer\Renderer2D.h" />
-    <ClInclude Include="src\RageV\Renderer\Transform.h" />
-    <ClInclude Include="src\RageV\Core\GraphicsInformation.h" />
+    <ClInclude Include="src\RageV\Core\Timer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
       <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLFrameBuffer.cpp">
       <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\OpenGL\OpenGLRenderAPI.cpp">
@@ -1440,6 +1453,9 @@
       <Filter>src\Platform\Windows</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\Core\Application.cpp">
+      <Filter>src\RageV\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Core\GraphicsInformation.cpp">
       <Filter>src\RageV\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\Core\Layer.cpp">
@@ -1463,6 +1479,9 @@
     <ClCompile Include="src\RageV\Renderer\Buffer.cpp">
       <Filter>src\RageV\Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\Framebuffer.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\RageV\Renderer\OrthographicCamera.cpp">
       <Filter>src\RageV\Renderer</Filter>
     </ClCompile>
@@ -1478,6 +1497,9 @@
     <ClCompile Include="src\RageV\Renderer\Renderer.cpp">
       <Filter>src\RageV\Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\Renderer2D.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\RageV\Renderer\Shader.cpp">
       <Filter>src\RageV\Renderer</Filter>
     </ClCompile>
@@ -1490,7 +1512,5 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\RageV\Renderer\Renderer2D.cpp" />
-    <ClCompile Include="src\RageV\Core\GraphicsInformation.cpp" />
   </ItemGroup>
 </Project>

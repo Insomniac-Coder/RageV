@@ -145,10 +145,10 @@
   <ItemGroup>
     <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
+    <ClInclude Include="src\Platform\OpenGL\OpenGLFrameBuffer.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLRenderAPI.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLShader.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLTexture2D.h" />
-    <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
     <ClInclude Include="src\Platform\Windows\WindowsPlatform.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
     <ClInclude Include="src\RageV.h" />
@@ -163,6 +163,7 @@
     <ClInclude Include="src\RageV\Core\Log.h" />
     <ClInclude Include="src\RageV\Core\MouseButtonCodes.h" />
     <ClInclude Include="src\RageV\Core\Platform.h" />
+    <ClInclude Include="src\RageV\Core\Timer.h" />
     <ClInclude Include="src\RageV\Core\Timestep.h" />
     <ClInclude Include="src\RageV\Core\Window.h" />
     <ClInclude Include="src\RageV\Events\ApplicationEvent.h" />
@@ -172,6 +173,7 @@
     <ClInclude Include="src\RageV\ImGui\ImGuiLayer.h" />
     <ClInclude Include="src\RageV\Renderer\Buffer.h" />
     <ClInclude Include="src\RageV\Renderer\Camera.h" />
+    <ClInclude Include="src\RageV\Renderer\Framebuffer.h" />
     <ClInclude Include="src\RageV\Renderer\GraphicsContext.h" />
     <ClInclude Include="src\RageV\Renderer\OrthographicCamera.h" />
     <ClInclude Include="src\RageV\Renderer\OrthographicCameraController.h" />
@@ -603,6 +605,7 @@
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
+    <ClCompile Include="src\Platform\OpenGL\OpenGLFrameBuffer.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLRenderAPI.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLShader.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLTexture2D.cpp" />
@@ -617,6 +620,7 @@
     <ClCompile Include="src\RageV\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\RageV\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\RageV\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\RageV\Renderer\Framebuffer.cpp" />
     <ClCompile Include="src\RageV\Renderer\OrthographicCamera.cpp" />
     <ClCompile Include="src\RageV\Renderer\OrthographicCameraController.cpp" />
     <ClCompile Include="src\RageV\Renderer\RenderAPI.cpp" />

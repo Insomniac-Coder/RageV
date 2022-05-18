@@ -12,7 +12,7 @@ namespace RageV {
 	class RV_API Application
 	{
 	public:
-		Application();
+		Application(const std::string& appname);
 		virtual ~Application();
 		void Run();
 		void OnEvent(Event& e);
