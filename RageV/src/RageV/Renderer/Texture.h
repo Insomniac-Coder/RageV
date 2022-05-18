@@ -13,6 +13,7 @@ namespace RageV
 		virtual void Bind(unsigned int slot = 0) const = 0;
 		virtual const unsigned int& GetWidth() const = 0;
 		virtual const unsigned int& GetHeight() const = 0;
+		virtual const unsigned int& GetTextureID() const = 0;
 		virtual void SetData(void* data, const unsigned int& size) = 0;
 	};
 

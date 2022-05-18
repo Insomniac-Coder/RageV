@@ -13,6 +13,7 @@ namespace RageV
 		OpenGLTexture2D(const unsigned int& width, const unsigned int& height);
 		virtual ~OpenGLTexture2D();
 
+		virtual const unsigned int& GetTextureID() const override { return m_ID; }
 		virtual void SetData(void* data, const unsigned int& size) override;
 		virtual void Bind(unsigned int slot = 0) const override;
 		virtual const unsigned int& GetWidth() const override { return m_Width; }

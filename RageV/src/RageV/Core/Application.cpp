@@ -18,6 +18,8 @@ namespace RageV {
 		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
 		m_Window->SetVsync(false);
 
+		GraphicsInformation::SetGraphicsInfo(m_Window->GetGraphicsInfo());
+
 		Renderer::Init();
 
 		if (Platform::GetPlatformType() == PlatformType::Windows)

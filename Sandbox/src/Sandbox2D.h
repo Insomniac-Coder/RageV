@@ -23,6 +23,7 @@ private:
 	RageV::OrthographicCameraController m_CameraController;
 	std::shared_ptr<RageV::Texture2D> m_Texture;
 	std::vector<ProfileData> m_ProfileDataList;
+	float m_Rotation = 0.0f;
 };
 
 class Sandbox2D : public RageV::Application {

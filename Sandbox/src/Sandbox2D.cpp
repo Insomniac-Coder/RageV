@@ -49,18 +49,28 @@ void ExampleLayer::OnUpdate(RageV::Timestep ts)
 	RageV::Transform2D t1, t2;
 	t1.position = { 0.0f, 0.0f, -0.1f };
 	t1.scale = { 5.0f, 5.0f };
-	t1.rotation = 45.0f;
-	t2.position = { 0.5f, 0.0f, 0.0f };
-	t2.scale = { 1.0f, 1.0f };
+	t1.rotation = m_Rotation;
+	m_Rotation += (40.0f * ts);
 
 	{
-		PROFILER("Render Scene");
 		RageV::Renderer2D::BeginScene(m_CameraController.GetCamera());
 		{
-			PROFILER("Draw textured quad");
 			RageV::Renderer2D::DrawQuad(t1, m_Texture, 10.0f);
 		}
-		RageV::Renderer2D::DrawQuad(t2, glm::vec4(m_Color, 1.0f));
+		float factor = 25.0f;
+		for (float x = -factor; x <= factor; x+=0.1f)
+		{
+			for (float y = -factor; y <= factor; y+=0.1f)
+			{
+				t2.position = { x, y, 0.0f };
+				t2.scale = { 0.08f, 0.08f };
+				t2.rotation = 0.0f;
+				float r = (x + factor) / factor;
+				float b = (y + factor) / factor;
+				RageV::Renderer2D::DrawQuad(t2, glm::vec4(x, 0.4f, y, 1.0f));
+			}
+		}
+
 		//RageV::Renderer2D::DrawQuad(t1, glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
 		RageV::Renderer2D::EndScene();
 	}
@@ -68,17 +78,59 @@ void ExampleLayer::OnUpdate(RageV::Timestep ts)
 
 void ExampleLayer::OnImGuiRender()
 {
-	ImGui::Begin("Color Picker");
-	ImGui::ColorEdit3("Color,", &m_Color[0]);
+    //static bool p_open = true;
+    //static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+	//
+    //ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+ 	//
+    //const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    //ImGui::SetNextWindowPos(viewport->WorkPos);
+    //ImGui::SetNextWindowSize(viewport->WorkSize);
+    //ImGui::SetNextWindowViewport(viewport->ID);
+    //ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    //ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    //window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    //window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+ 	//
+    //if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+    //    window_flags |= ImGuiWindowFlags_NoBackground;
+	//
+    //ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    //ImGui::Begin("DockSpace Demo", &p_open, window_flags);
+    //ImGui::PopStyleVar();
+    //ImGui::PopStyleVar(2);
+	//
+    //// Submit the DockSpace
+    //ImGuiIO& io = ImGui::GetIO();
+    //if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+    //{
+    //    ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+    //    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+    //}
+	//
+    //if (ImGui::BeginMenuBar())
+    //{
+    //    if (ImGui::BeginMenu("Menu"))
+    //    {
+	//		if (ImGui::MenuItem("Close", NULL, false, p_open != NULL))
+	//			RageV::Application::Get().Close();
+    //        ImGui::EndMenu();
+    //    }
+	//
+    //    ImGui::EndMenuBar();
+    //}
+	//
+    //ImGui::End();
 
-	for (auto item : m_ProfileDataList)
-	{
-		char name[50];
-		strcpy(name, item.name);
-		strcat(name, ": %.3f ms");
-		ImGui::Text(name, item.time);
-	}
-
+	ImGui::Begin("Info Box");
+	//ImGui::ColorEdit3("Color,", &m_Color[0]);
+	ImGui::Text("DrawCalls: %d", RageV::Renderer2D::GetDrawCallCount());
+	ImGui::Text("Quad Count: %d", RageV::Renderer2D::GetQuadCount());
+	ImGui::Text("Vertices Count: %d", RageV::Renderer2D::GetVerticesCount());
+	ImGui::Text("Indices Count: %d", RageV::Renderer2D::GetIndiciesCount());
+	ImGui::Text("Graphics Card: %s", RageV::GraphicsInformation::GetGraphicsInfo().GPUName.c_str());
+	ImGui::Text("API Name: %s", RageV::GraphicsInformation::GetGraphicsInfo().APIName.c_str());
+	ImGui::Image((void*)m_Texture->GetTextureID(), ImVec2{ 256.0f, 256.0f });
 	ImGui::End();
 	m_ProfileDataList.clear();
 }

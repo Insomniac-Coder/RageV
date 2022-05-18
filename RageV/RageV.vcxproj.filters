@@ -1415,6 +1415,7 @@
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\Renderer2D.h" />
     <ClInclude Include="src\RageV\Renderer\Transform.h" />
+    <ClInclude Include="src\RageV\Core\GraphicsInformation.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1490,5 +1491,6 @@
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\Renderer\Renderer2D.cpp" />
+    <ClCompile Include="src\RageV\Core\GraphicsInformation.cpp" />
   </ItemGroup>
 </Project>

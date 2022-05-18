@@ -23,6 +23,7 @@
 #include "RageV/Renderer/Shader.h"
 #include "RageV/Renderer/Texture.h"
 #include "RageV/Renderer/OrthographicCameraController.h"
+#include "RageV/Core/GraphicsInformation.h"
 
 #include "RageV/Core/Timestep.h"
 

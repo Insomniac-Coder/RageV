@@ -2,6 +2,8 @@
 #include <rvpch.h>
 #include "RageV/Events/Event.h"
 #include "Core.h"
+#include "RageV/Renderer/GraphicsContext.h"
+#include "RageV/Core/GraphicsInformation.h"
 
 namespace RageV {
 	
@@ -30,6 +32,7 @@ namespace RageV {
 		virtual void SetVsync(bool enabled) = 0;
 		virtual bool IsVSync() const = 0;
 		virtual void* GetNativeWindow() const = 0;
+		virtual GraphicsInfo GetGraphicsInfo() const = 0;
 
 		static Window* Create(const WindowProps& props = WindowProps());
 	};

@@ -15,13 +15,13 @@ namespace RageV
 	void OrthographicCameraController::OnUpdate(Timestep ts)
 	{
 		if (Input::IsKeyPressed(RV_KEY_A))
-			m_Position.x += 1.0f * ts;
+			m_Position.x += 5.0f * ts;
 		else if (Input::IsKeyPressed(RV_KEY_D))
-			m_Position.x -= 1.0f * ts;
+			m_Position.x -= 5.0f * ts;
 		if (Input::IsKeyPressed(RV_KEY_W))
-			m_Position.y -= 1.0f * ts;
+			m_Position.y -= 5.0f * ts;
 		else if (Input::IsKeyPressed(RV_KEY_S))
-			m_Position.y += 1.0f * ts;
+			m_Position.y += 5.0f * ts;
 
 		if (m_IsRotationEnabled)
 		{

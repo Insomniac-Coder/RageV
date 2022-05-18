@@ -16,6 +16,12 @@ namespace RageV
 		static void EndScene();
 		static void DrawQuad(Transform2D& transform, glm::vec4& color);
 		static void DrawQuad(Transform2D& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor = 1.0f);
+		static unsigned int GetDrawCallCount();
+		static unsigned int GetVerticesCount();
+		static unsigned int GetIndiciesCount();
+		static unsigned int GetQuadCount();
+	private:
+		static void ResetScene();
 	};
 
 }

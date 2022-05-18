@@ -21,10 +21,12 @@ namespace RageV
 		void SetVsync(bool enabled) override;
 		bool IsVSync() const override;
 		inline void* GetNativeWindow() const override { return m_Window; }
+		virtual GraphicsInfo GetGraphicsInfo() const override { return m_GraphicsInfo; }
 
 	private:
 		virtual void Init(const WindowProps& props);
 		virtual void Shutdown();
+		
 
 		GLFWwindow* m_Window;
 
@@ -37,6 +39,8 @@ namespace RageV
 			std::string Title;
 			bool VSync;
 		};
+
+		GraphicsInfo m_GraphicsInfo;
 
 		WindowData m_Data;
 	};

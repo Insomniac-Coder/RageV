@@ -4,8 +4,9 @@
 #include "RageV/Events/ApplicationEvent.h"
 #include "LayerStack.h"
 #include "RageV/Core/Platform.h"
-
+#include "RageV/Core/GraphicsInformation.h"
 #include "RageV/ImGui/ImGuiLayer.h"
+
 
 namespace RageV {
 	class RV_API Application
@@ -17,7 +18,7 @@ namespace RageV {
 		void OnEvent(Event& e);
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
-
+		void Close() { m_Running = false; }
 		void PushOverlay(Layer* layer);
 		void PushLayer(Layer* layer);
 		inline Window& GetWindow() { return *m_Window; }

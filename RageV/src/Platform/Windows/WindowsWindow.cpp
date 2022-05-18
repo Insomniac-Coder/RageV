@@ -21,7 +21,7 @@ namespace RageV
 
 }
 
-RageV::WindowsWindow::WindowsWindow(const WindowProps& props)
+RageV::WindowsWindow::WindowsWindow(const WindowProps& props) 
 {
 	Init(props);
 }
@@ -70,6 +70,8 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 	m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
 	m_Context = new OpenGLContext(m_Window);
 	m_Context->Init();
+
+	m_GraphicsInfo = m_Context->GetGraphicsInfo();
 
 	glfwSetWindowUserPointer(m_Window, &m_Data);
 	SetVsync(true);
