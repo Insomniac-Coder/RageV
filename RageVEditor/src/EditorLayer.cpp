@@ -20,7 +20,30 @@ void EditorLayer::OnAttach()
 	m_Entity = entity;
 
 	auto camera = m_Scene->CreateEntity("Scene camera");
-	camera.AddComponent<RageV::CameraComponent>(glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f));
+	camera.AddComponent<RageV::CameraComponent>();
+
+	class CameraController : public RageV::ScriptableEntity {
+	public:
+		void OnCreate()
+		{
+			std::cout << "Hello!" << std::endl;
+		}
+		void OnUpdate(RageV::Timestep ts)
+		{
+			float speed = 5.0f;
+			auto& transform = GetComponent<RageV::TransformComponent>().Transform;
+			if (RageV::Input::IsKeyPressed(RV_KEY_A))
+				transform[3][0] += speed * ts;
+			if (RageV::Input::IsKeyPressed(RV_KEY_D))
+				transform[3][0] -= speed * ts;
+			if (RageV::Input::IsKeyPressed(RV_KEY_W))
+				transform[3][1] -= speed * ts;
+			if (RageV::Input::IsKeyPressed(RV_KEY_S))
+				transform[3][1] += speed * ts;
+		}
+	};
+
+	camera.AddComponent<RageV::NativeScriptComponent>().Bind<CameraController>();
 }
 
 void EditorLayer::OnUpdate(RageV::Timestep ts)
@@ -108,7 +131,8 @@ void EditorLayer::OnImGuiRender()
 	};
 	unsigned int id = m_FrameBuffer->GetColorAttachment();
 	ImGui::Image((void*)id, ImVec2{ viewportSize.x, viewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
-	m_CameraController.OnResize(viewportSize.x, viewportSize.y);
+	m_Scene->OnViewportResize(viewportSize.x, viewportSize.y);
+	//m_CameraController.OnResize(viewportSize.x, viewportSize.y);
 	ImGui::End();
 	ImGui::PopStyleVar();
 	

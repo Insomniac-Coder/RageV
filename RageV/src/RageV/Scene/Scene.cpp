@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "Scene.h"
 #include "Entity.h"
+#include "ScriptableEntity.h"
 #include "Components.h"
 #include "RageV/Renderer/Renderer2D.h"
 
@@ -15,6 +16,21 @@ namespace RageV
 
 	}
 
+	void Scene::OnViewportResize(float width, float height)
+	{
+		auto view = m_Registry.view<CameraComponent>();
+
+		for (auto& item : view)
+		{
+			CameraComponent& cam = view.get<CameraComponent>(item);
+
+			if (!cam.fixedAspectRatio)
+			{
+				cam.Camera.SetViewport(width, height);
+			}
+		}
+	}
+
 	Entity Scene::CreateEntity(const std::string& name)
 	{
 		Entity entity = { m_Registry.create(), this };
@@ -27,6 +43,19 @@ namespace RageV
 
 	void Scene::OnUpdate(Timestep ts)
 	{
+		m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nscript)
+			{
+				if (!nscript.m_ScriptableEntity)
+				{
+					nscript.OnInstantiateFunction();
+					nscript.m_ScriptableEntity->m_Entity = Entity{ entity, this };
+					nscript.OnCreateFunction(nscript.m_ScriptableEntity);
+				}
+
+				nscript.OnUpdateFunction(nscript.m_ScriptableEntity, ts);
+			}
+		);
+
 		auto view = m_Registry.view<CameraComponent, TransformComponent>();
 		TransformComponent cameraTransform;
 		Cameranew* mainCamera;
@@ -41,6 +70,7 @@ namespace RageV
 				break;
 			}
 		}
+
 
 		Renderer2D::BeginScene(*mainCamera, cameraTransform);
 

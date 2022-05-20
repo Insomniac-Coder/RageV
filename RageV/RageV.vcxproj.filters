@@ -1429,6 +1429,8 @@
     <ClInclude Include="src\RageV\Scene\Scene.h" />
     <ClInclude Include="src\RageV\Scene\Entity.h" />
     <ClInclude Include="src\RageV\Renderer\Cameranew.h" />
+    <ClInclude Include="src\RageV\Scene\SceneCamera.h" />
+    <ClInclude Include="src\RageV\Scene\ScriptableEntity.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1516,5 +1518,6 @@
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\Scene\Scene.cpp" />
+    <ClCompile Include="src\RageV\Scene\SceneCamera.cpp" />
   </ItemGroup>
 </Project>

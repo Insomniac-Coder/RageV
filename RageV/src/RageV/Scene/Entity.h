@@ -44,7 +44,7 @@ namespace RageV
 		}
 
 	private:
-		entt::entity m_Entity{0};
+		entt::entity m_Entity{entt::null};
 		Scene* m_Scene = nullptr;
 	};
 }

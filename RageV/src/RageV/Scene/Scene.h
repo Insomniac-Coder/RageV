@@ -11,6 +11,7 @@ namespace RageV
 	public:
 		Scene();
 		~Scene();
+		void OnViewportResize(float width, float height);
 		Entity CreateEntity(const std::string& name = std::string());
 		void OnUpdate(Timestep ts);
 	private:

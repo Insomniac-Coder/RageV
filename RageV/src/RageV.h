@@ -28,6 +28,7 @@
 #include "RageV/Core/GraphicsInformation.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
+#include "RageV/Scene/ScriptableEntity.h"
 #include "RageV/Scene/Components.h"
 
 #include "RageV/Core/Timestep.h"

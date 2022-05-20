@@ -187,6 +187,8 @@
     <ClInclude Include="src\RageV\Scene\Components.h" />
     <ClInclude Include="src\RageV\Scene\Entity.h" />
     <ClInclude Include="src\RageV\Scene\Scene.h" />
+    <ClInclude Include="src\RageV\Scene\SceneCamera.h" />
+    <ClInclude Include="src\RageV\Scene\ScriptableEntity.h" />
     <ClInclude Include="src\rvpch.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />
     <ClInclude Include="vendor\glm\glm\detail\_features.hpp" />
@@ -633,6 +635,7 @@
     <ClCompile Include="src\RageV\Renderer\Shader.cpp" />
     <ClCompile Include="src\RageV\Renderer\Texture.cpp" />
     <ClCompile Include="src\RageV\Scene\Scene.cpp" />
+    <ClCompile Include="src\RageV\Scene\SceneCamera.cpp" />
     <ClCompile Include="src\rvpch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
