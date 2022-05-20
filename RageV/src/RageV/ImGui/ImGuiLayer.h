@@ -18,9 +18,13 @@ namespace RageV
 		~ImGuiLayer();
 		virtual void OnAttach() override;
 		virtual void OnDetach() override;
+		virtual void OnEvent(Event& e) override;
+		void SetEventBlocker(bool block) { m_BlockEvents = block; }
 		//virtual void OnImGuiRender() override;
 		void Begin();
 		void End();
+	private:
+		bool m_BlockEvents = false;
 	};
 
 }

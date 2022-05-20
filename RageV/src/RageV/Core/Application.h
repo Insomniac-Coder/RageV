@@ -23,6 +23,7 @@ namespace RageV {
 		void PushLayer(Layer* layer);
 		inline Window& GetWindow() { return *m_Window; }
 		inline static Application& Get() { return *m_Instance; }
+		ImGuiLayer* GetImGuiLayer() const { return m_ImGuiLayer; }
 	private:
 		std::unique_ptr<Window> m_Window;
 		ImGuiLayer* m_ImGuiLayer;

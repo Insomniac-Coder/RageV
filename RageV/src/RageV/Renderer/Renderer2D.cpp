@@ -16,7 +16,7 @@ namespace RageV
 	};
 
 	struct Renderer2DData {
-		unsigned int MaxQuads = 1000000;
+		unsigned int MaxQuads = 10000;
 		unsigned int MaxVertices = 4 * MaxQuads;
 		unsigned int MaxIndicies = 6 * MaxQuads;
 		unsigned int MaxTextureSlots = 32;
@@ -118,6 +118,14 @@ namespace RageV
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
 	}
 
+	void Renderer2D::BeginScene(Cameranew& camera, glm::mat4& transform)
+	{
+		glm::mat4 viewprojectionmatrix = camera.GetProjection() * glm::inverse(transform);
+		renderer2DData->DrawCalls = 0;
+		Renderer2D::ResetScene();
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", viewprojectionmatrix);
+	}
+
 	void Renderer2D::ResetScene()
 	{
 		renderer2DData->QuadCount = 0;
@@ -127,13 +135,14 @@ namespace RageV
 
 	void Renderer2D::EndScene()
 	{
+		renderer2DData->WhiteTexture->Bind();
 		renderer2DData->DrawCalls++;
 		renderer2DData->VertexBuffer2D->SetData(renderer2DData->QuadVerticiesBuffer, renderer2DData->QuadCount * 4 * sizeof(VertexData));
 
 		RenderCommand::DrawIndexed(renderer2DData->VertexArray2D, renderer2DData->IndiciesCount);
 	}
 
-	void Renderer2D::DrawQuad(Transform2D& transform, glm::vec4& color)
+	void Renderer2D::DrawQuad(glm::mat4& transform, glm::vec4& color)
 	{
 		if (renderer2DData->MaxQuads <= renderer2DData->QuadCount)
 		{
@@ -141,44 +150,24 @@ namespace RageV
 			ResetScene();
 		}
 
-		glm::mat4 sqTransform = glm::translate(glm::mat4(1.0f), transform.position);
-		if (transform.rotation != 0.0f)
+		glm::vec2 texcoords[4] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
+
+		for (int i = 0; i < 4; i++)
 		{
-			sqTransform *= glm::rotate(glm::mat4(1.0f), glm::radians(transform.rotation), glm::vec3(0.0f, 0.0f, 1.0f));
+			renderer2DData->QuadVerticiesPtr->Position = transform * renderer2DData->QuadVerts[i];
+			renderer2DData->QuadVerticiesPtr->Color = color;
+			renderer2DData->QuadVerticiesPtr->TexCoord = texcoords[i];
+			renderer2DData->QuadVerticiesPtr->TextureID = 0.0f;
+			renderer2DData->QuadVerticiesPtr->TilingFactor = 1.0f;
+			renderer2DData->QuadVerticiesPtr++;
 		}
-		sqTransform *= glm::scale(glm::mat4(1.0f), glm::vec3(transform.scale, 1.0f));
-
-		renderer2DData->QuadVerticiesPtr->Position = sqTransform * renderer2DData->QuadVerts[0];
-		renderer2DData->QuadVerticiesPtr->Color = color;
-		renderer2DData->QuadVerticiesPtr->TexCoord = { 0.0f, 0.0f }; 
-		renderer2DData->QuadVerticiesPtr->TextureID = 0.0f;
-		renderer2DData->QuadVerticiesPtr->TilingFactor = 1.0f;
-		renderer2DData->QuadVerticiesPtr++;
-		renderer2DData->QuadVerticiesPtr->Position = sqTransform * renderer2DData->QuadVerts[1];
-		renderer2DData->QuadVerticiesPtr->Color = color;
-		renderer2DData->QuadVerticiesPtr->TexCoord = { 1.0f, 0.0f };
-		renderer2DData->QuadVerticiesPtr->TextureID = 0.0f;
-		renderer2DData->QuadVerticiesPtr->TilingFactor = 1.0f;
-		renderer2DData->QuadVerticiesPtr++;
-		renderer2DData->QuadVerticiesPtr->Position = sqTransform * renderer2DData->QuadVerts[2];
-		renderer2DData->QuadVerticiesPtr->Color = color;
-		renderer2DData->QuadVerticiesPtr->TexCoord = { 1.0f, 1.0f };
-		renderer2DData->QuadVerticiesPtr->TextureID = 0.0f;
-		renderer2DData->QuadVerticiesPtr->TilingFactor = 1.0f;
-		renderer2DData->QuadVerticiesPtr++;
-		renderer2DData->QuadVerticiesPtr->Position = sqTransform * renderer2DData->QuadVerts[3];
-		renderer2DData->QuadVerticiesPtr->Color = color;
-		renderer2DData->QuadVerticiesPtr->TexCoord = { 0.0f, 1.0f };
-		renderer2DData->QuadVerticiesPtr->TextureID = 0.0f;
-		renderer2DData->QuadVerticiesPtr->TilingFactor = 1.0f;
-		renderer2DData->QuadVerticiesPtr++;
-
+	
 		renderer2DData->QuadCount++;
 		renderer2DData->IndiciesCount += 6;
 
 	}
 
-	void Renderer2D::DrawQuad(Transform2D& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor)
+	void Renderer2D::DrawQuad(glm::mat4& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor)
 	{
 		if (renderer2DData->MaxQuads <= renderer2DData->QuadCount)
 		{
@@ -187,38 +176,19 @@ namespace RageV
 		}
 
 		texture->Bind(renderer2DData->CurrentTextureSlotId);
-		glm::mat4 sqTransform = glm::translate(glm::mat4(1.0f), transform.position);
-		if (transform.rotation != 0.0f)
-		{
-			sqTransform *= glm::rotate(glm::mat4(1.0f), glm::radians(transform.rotation), glm::vec3(0.0f, 0.0f, 1.0f));
-		}
-		sqTransform *= glm::scale(glm::mat4(1.0f), glm::vec3(transform.scale, 1.0f));
-		
-		renderer2DData->QuadVerticiesPtr->Position = sqTransform * renderer2DData->QuadVerts[0];
-		renderer2DData->QuadVerticiesPtr->Color = glm::vec4(1.0f);
-		renderer2DData->QuadVerticiesPtr->TexCoord = { 0.0f, 0.0f };
-		renderer2DData->QuadVerticiesPtr->TextureID = (float)renderer2DData->CurrentTextureSlotId;
-		renderer2DData->QuadVerticiesPtr->TilingFactor = tilingfactor;
-		renderer2DData->QuadVerticiesPtr++;
-		renderer2DData->QuadVerticiesPtr->Position = sqTransform * renderer2DData->QuadVerts[1];
-		renderer2DData->QuadVerticiesPtr->Color = glm::vec4(1.0f);
-		renderer2DData->QuadVerticiesPtr->TexCoord = { 1.0f, 0.0f };
-		renderer2DData->QuadVerticiesPtr->TextureID = (float)renderer2DData->CurrentTextureSlotId;
-		renderer2DData->QuadVerticiesPtr->TilingFactor = tilingfactor;
-		renderer2DData->QuadVerticiesPtr++;
-		renderer2DData->QuadVerticiesPtr->Position = sqTransform * renderer2DData->QuadVerts[2];
-		renderer2DData->QuadVerticiesPtr->Color = glm::vec4(1.0f);
-		renderer2DData->QuadVerticiesPtr->TexCoord = { 1.0f, 1.0f };
-		renderer2DData->QuadVerticiesPtr->TextureID = (float)renderer2DData->CurrentTextureSlotId;
-		renderer2DData->QuadVerticiesPtr->TilingFactor = tilingfactor;
-		renderer2DData->QuadVerticiesPtr++;
-		renderer2DData->QuadVerticiesPtr->Position = sqTransform * renderer2DData->QuadVerts[3];
-		renderer2DData->QuadVerticiesPtr->Color = glm::vec4(1.0f);
-		renderer2DData->QuadVerticiesPtr->TexCoord = { 0.0f, 1.0f };
-		renderer2DData->QuadVerticiesPtr->TextureID = (float)renderer2DData->CurrentTextureSlotId;
-		renderer2DData->QuadVerticiesPtr->TilingFactor = tilingfactor;
-		renderer2DData->QuadVerticiesPtr++;
 
+		glm::vec2 texcoords[4] = {{ 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f }};
+
+		for (int i = 0; i < 4; i++)
+		{
+			renderer2DData->QuadVerticiesPtr->Position = transform * renderer2DData->QuadVerts[i];
+			renderer2DData->QuadVerticiesPtr->Color = glm::vec4(1.0f);
+			renderer2DData->QuadVerticiesPtr->TexCoord = texcoords[i];
+			renderer2DData->QuadVerticiesPtr->TextureID = (float)renderer2DData->CurrentTextureSlotId;
+			renderer2DData->QuadVerticiesPtr->TilingFactor = tilingfactor;
+			renderer2DData->QuadVerticiesPtr++;
+		}
+		
 		renderer2DData->QuadCount++;
 		renderer2DData->IndiciesCount += 6;
 

@@ -75,9 +75,10 @@ namespace RageV {
 		if (e.GetHeight() == 0 || e.GetWidth() == 0)
 		{
 			m_Minimised = true;
+			RV_INFO(m_Minimised == true ? "True" : "False");
 			return false;
 		}
-
+		m_Minimised = false;
 		Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
 		return false;
 	}
@@ -98,15 +99,16 @@ namespace RageV {
 			{
 				for (Layer* layer : m_LayerStack)
 					layer->OnUpdate(ts);
+
+				m_ImGuiLayer->Begin();
+
+				for (Layer* layer : m_LayerStack)
+					layer->OnImGuiRender();
+
+				m_ImGuiLayer->End();
 			}
 			//auto [x, y] = Input::GetMousePosition();
 			//RV_CORE_TRACE("{0}, {1}", x, y); 
-			m_ImGuiLayer->Begin();
-			
-			for (Layer* layer : m_LayerStack)
-				layer->OnImGuiRender();
-			
-			m_ImGuiLayer->End();
 
 		}
 	}

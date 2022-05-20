@@ -25,10 +25,10 @@ void ExampleLayer::OnUpdate(RageV::Timestep ts)
 
 	RageV::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 	RageV::RenderCommand::Clear();
-	RageV::Transform2D t1, t2;
-	t1.position = { 0.0f, 0.0f, -0.1f };
-	t1.scale = { 5.0f, 5.0f };
-	t1.rotation = m_Rotation;
+	glm::mat4 t1, t2;
+	t1 = glm::translate(t1, { 0.0f, 0.0f, -0.1f });
+	t1 = glm::rotate(t1, m_Rotation, glm::vec3(0.0f, 0.0f, 1.0f));
+	t1 = glm::scale(t1, glm::vec3(5.0f, 5.0f, 1.0f));
 	m_Rotation += (40.0f * ts);
 
 	{
@@ -37,16 +37,15 @@ void ExampleLayer::OnUpdate(RageV::Timestep ts)
 			RageV::Renderer2D::DrawQuad(t1, m_Texture, 10.0f);
 		}
 		float factor = 25.0f;
-		for (float x = -factor; x <= factor; x+=0.1f)
+		for (float x = -factor; x <= factor; x += 0.1f)
 		{
-			for (float y = -factor; y <= factor; y+=0.1f)
+			for (float y = -factor; y <= factor; y += 0.1f)
 			{
-				t2.position = { x, y, 0.0f };
-				t2.scale = { 0.08f, 0.08f };
-				t2.rotation = 0.0f;
+				t2 = glm::translate(t1, { x, y, 0.0f });
+				t2 = glm::scale(t1, glm::vec3(0.08f, 0.08f, 1.0f));
 				float r = (x + factor) / factor;
 				float b = (y + factor) / factor;
-				RageV::Renderer2D::DrawQuad(t2, glm::vec4(x, 0.4f, y, 1.0f));
+				RageV::Renderer2D::DrawQuad(t2, glm::vec4(x, 0.4f, y, 0.7f));
 			}
 		}
 

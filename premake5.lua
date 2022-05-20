@@ -15,6 +15,7 @@ IncludeDir['GLAD'] = "RageV/vendor/GLAD/include"
 IncludeDir['ImGui'] = "RageV/vendor/imgui"
 IncludeDir['glm'] = "RageV/vendor/glm"
 IncludeDir['stb_image'] = "RageV/vendor/stb_image"
+IncludeDir['EnTT'] = "RageV/vendor/EnTT/include"
 
 group "Dependencies"
     include "RageV/vendor/imgui"
@@ -53,7 +54,8 @@ project "RageV"
         "%{IncludeDir.ImGui}",
         "%{IncludeDir.glm}",
         "%{IncludeDir.stb_image}",
-        "%{prj.name}/src"
+        "%{prj.name}/src",
+        "%{IncludeDir.EnTT}"
     }
 
     libdirs
@@ -114,7 +116,8 @@ project "Sandbox"
         "RageV/vendor/spdlog/include",
         "RageV/src",
         "%{IncludeDir.glm}",
-        "%{IncludeDir.ImGui}"
+        "%{IncludeDir.ImGui}",
+        "%{IncludeDir.EnTT}"
     }
 
     links {
@@ -165,7 +168,8 @@ project "RageVEditor"
         "RageV/vendor/spdlog/include",
         "RageV/src",
         "%{IncludeDir.glm}",
-        "%{IncludeDir.ImGui}"
+        "%{IncludeDir.ImGui}",
+        "%{IncludeDir.EnTT}"
     }
 
     links {

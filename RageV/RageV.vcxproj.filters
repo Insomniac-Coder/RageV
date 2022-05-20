@@ -114,6 +114,9 @@
     <ClInclude Include="src\RageV\Core\Platform.h">
       <Filter>src\RageV\Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\RageV\Core\Timer.h">
+      <Filter>src\RageV\Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\RageV\Core\Timestep.h">
       <Filter>src\RageV\Core</Filter>
     </ClInclude>
@@ -169,9 +172,6 @@
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\Texture.h">
-      <Filter>src\RageV\Renderer</Filter>
-    </ClInclude>
-    <ClInclude Include="src\RageV\Renderer\Transform.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\rvpch.h">
@@ -1425,7 +1425,10 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\Core\Timer.h" />
+    <ClInclude Include="src\RageV\Scene\Components.h" />
+    <ClInclude Include="src\RageV\Scene\Scene.h" />
+    <ClInclude Include="src\RageV\Scene\Entity.h" />
+    <ClInclude Include="src\RageV\Renderer\Cameranew.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1512,5 +1515,6 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
+    <ClCompile Include="src\RageV\Scene\Scene.cpp" />
   </ItemGroup>
 </Project>

@@ -5,6 +5,7 @@
 
 namespace RageV
 {
+	static unsigned int s_MaxFramebuffersize = 8192;
 	OpenGLFrameBuffer::OpenGLFrameBuffer(const FrameBufferData& fbdata) : m_FrameBufferData(fbdata)
 	{
 		RenderBuffer();
@@ -36,12 +37,12 @@ namespace RageV
 			glDeleteTextures(1, &m_DepthAttachmentID);
 		}
 
-		glCreateFramebuffers(1, &m_ID);
-		Bind();
+		glGenFramebuffers(1, &m_ID);
+		glBindFramebuffer(GL_FRAMEBUFFER, m_ID);
 
-		glCreateTextures(GL_TEXTURE_2D, 1, &m_ColorAttachmentID);
+		glGenTextures(1, &m_ColorAttachmentID);
 		glBindTexture(GL_TEXTURE_2D, m_ColorAttachmentID);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_FrameBufferData.Width, m_FrameBufferData.Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_FrameBufferData.Width, m_FrameBufferData.Height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -50,7 +51,6 @@ namespace RageV
 		glCreateTextures(GL_TEXTURE_2D, 1, &m_DepthAttachmentID);
 		glBindTexture(GL_TEXTURE_2D, m_DepthAttachmentID);
 		glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH24_STENCIL8, m_FrameBufferData.Width, m_FrameBufferData.Height);
-
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, m_DepthAttachmentID, 0);
 
 		RV_CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Frame buffer incomplete!");
@@ -60,6 +60,12 @@ namespace RageV
 
 	void OpenGLFrameBuffer::Resize(unsigned int width, unsigned int height)
 	{
+		std::cout << width << ", " << height << std::endl;
+		if (width == 0 || height == 0 || width > s_MaxFramebuffersize || height > s_MaxFramebuffersize)
+		{
+			RV_WARN("Invalid framebuffer size {0} x {1}", width, height);
+			return;
+		}
 		m_FrameBufferData.Width = width;
 		m_FrameBufferData.Height = height;
 

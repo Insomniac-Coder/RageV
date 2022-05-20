@@ -1,5 +1,5 @@
 #type vertex
-#version 330 core
+#version 460 core
 
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec4 a_Color;
@@ -24,7 +24,7 @@ void main()
 }
 
 #type fragment
-#version 330 core
+#version 460 core
 
 layout(location = 0) out vec4 a_Color;
 
@@ -38,5 +38,5 @@ uniform sampler2D u_Textures[32];
 void main()
 {	
 	//a_Color = vec4(v_TexCord, 0.0, 0.0);
-	a_Color = texture(u_Textures[int(v_TextureID)], v_TexCord * v_TilingFactor) * v_Color;
+	a_Color = texture(u_Textures[v_TextureID], v_TexCord * v_TilingFactor) * v_Color;
 }
