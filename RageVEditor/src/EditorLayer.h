@@ -1,6 +1,7 @@
 #pragma once
 #include <RageV.h>
 #include <chrono>
+#include "UI/SceneHierarchyPanel.h"
 
 class EditorLayer : public RageV::Layer
 {
@@ -23,4 +24,5 @@ private:
 	glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 	bool m_IsViewportFocused = false, m_IsViewportHovered = false;
 	float m_Rotation = 0.0f;
+	RageV::SceneHierarchyPanel m_SceneHierarchyPanel;
 };

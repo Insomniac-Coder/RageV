@@ -15,7 +15,7 @@ void EditorLayer::OnAttach()
 
 	m_FrameBuffer = RageV::FrameBuffer::Create(fbdata);
 	m_Scene = std::make_shared<RageV::Scene>();
-	auto entity = m_Scene->CreateEntity("Test");
+	auto entity = m_Scene->CreateEntity("Test Square");
 	entity.AddComponent<RageV::ColorComponent>(glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
 	m_Entity = entity;
 
@@ -44,6 +44,8 @@ void EditorLayer::OnAttach()
 	};
 
 	camera.AddComponent<RageV::NativeScriptComponent>().Bind<CameraController>();
+
+	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
 }
 
 void EditorLayer::OnUpdate(RageV::Timestep ts)
@@ -118,6 +120,8 @@ void EditorLayer::OnImGuiRender()
 	ImGui::Text("API Name: %s", RageV::GraphicsInformation::GetGraphicsInfo().APIName.c_str());
 	ImGui::End();
 	
+	m_SceneHierarchyPanel.OnImGuiRender();
+
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 	ImGui::Begin("Scene Viewport");
 	m_IsViewportFocused = ImGui::IsWindowFocused();

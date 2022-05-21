@@ -35,7 +35,7 @@ namespace RageV
 	{
 		Entity entity = { m_Registry.create(), this };
 		entity.AddComponent<TransformComponent>();
-		TagComponent tag = entity.AddComponent<TagComponent>();
+		TagComponent& tag = entity.AddComponent<TagComponent>();
 
 		tag.Name = name.empty() ? "GameObject" : name;
 		return entity;

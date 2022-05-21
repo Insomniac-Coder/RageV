@@ -7,7 +7,6 @@ namespace RageV
 	class Entity;
 	class Scene
 	{
-		friend class Entity;
 	public:
 		Scene();
 		~Scene();
@@ -16,5 +15,7 @@ namespace RageV
 		void OnUpdate(Timestep ts);
 	private:
 		entt::registry m_Registry;
+		friend class Entity;
+		friend class SceneHierarchyPanel;
 	};
 }

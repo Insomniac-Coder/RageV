@@ -14,8 +14,6 @@ namespace RageV
 		TagComponent() = default;
 		TagComponent(const TagComponent&) = default;
 		TagComponent(const std::string& name) { Name = name; }
-		operator std::string() { return Name; }
-		operator const std::string() const { return Name; }
 	};
 
 	struct TransformComponent
