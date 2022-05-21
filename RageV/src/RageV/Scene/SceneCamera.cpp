@@ -22,11 +22,18 @@ namespace RageV
 
 	void SceneCamera::Recalculate()
 	{
-		float left = -0.5f * m_AspectRatio * m_Size;
-		float right = 0.5f * m_AspectRatio * m_Size;
-		float bottom = -0.5f * m_Size;
-		float top = 0.5f * m_Size;
-		m_Projection = glm::ortho(left, right, bottom, top, -1.0f, 1.0f);
+		if (m_ProjectionType == ProjectionType::Orthographic)
+		{
+			float left = -0.5f * m_AspectRatio * m_Size;
+			float right = 0.5f * m_AspectRatio * m_Size;
+			float bottom = -0.5f * m_Size;
+			float top = 0.5f * m_Size;
+			m_Projection = glm::ortho(left, right, bottom, top, m_OrthoNear, m_OrthoFar);
+		}
+		if (m_ProjectionType == ProjectionType::Perspective)
+		{
+			m_Projection = glm::perspective(glm::radians(m_PerspectiveFOV), m_AspectRatio, m_PerspectiveNear, m_PerspectiveFar);
+		}
 	}
 
 

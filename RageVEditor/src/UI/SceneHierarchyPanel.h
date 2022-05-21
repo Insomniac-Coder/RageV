@@ -13,9 +13,11 @@ namespace RageV
 
 		void OnImGuiRender();
 
+		void ShowProperties(Entity entity);
+
 	private:
 		std::shared_ptr<Scene> m_SceneRef;
-		Entity m_Selected	;
+		Entity m_Selected;
 	};
 
 }

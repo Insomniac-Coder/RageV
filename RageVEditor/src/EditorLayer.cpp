@@ -31,15 +31,15 @@ void EditorLayer::OnAttach()
 		void OnUpdate(RageV::Timestep ts)
 		{
 			float speed = 5.0f;
-			auto& transform = GetComponent<RageV::TransformComponent>().Transform;
+			auto& position = GetComponent<RageV::TransformComponent>().Position;
 			if (RageV::Input::IsKeyPressed(RV_KEY_A))
-				transform[3][0] += speed * ts;
+				position.x += speed * ts;
 			if (RageV::Input::IsKeyPressed(RV_KEY_D))
-				transform[3][0] -= speed * ts;
+				position.x -= speed * ts;
 			if (RageV::Input::IsKeyPressed(RV_KEY_W))
-				transform[3][1] -= speed * ts;
+				position.y -= speed * ts;
 			if (RageV::Input::IsKeyPressed(RV_KEY_S))
-				transform[3][1] += speed * ts;
+				position.y += speed * ts;
 		}
 	};
 

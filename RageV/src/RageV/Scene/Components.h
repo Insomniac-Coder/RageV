@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include "glm/glm.hpp"
+#include "glm/gtc/matrix_transform.hpp"
 #include "RageV/Renderer/Texture.h"
 #include "RageV/Renderer/Cameranew.h"
 #include "SceneCamera.h"
@@ -18,13 +19,23 @@ namespace RageV
 
 	struct TransformComponent
 	{
-		glm::mat4 Transform{1.0f};
+		glm::vec3 Position{ 0.0f, 0.0f, 0.0f };
+		glm::vec3 Rotation{ 0.0f, 0.0f, 0.0f };
+		glm::vec3 Scale{ 1.0f };
 
 		TransformComponent() = default;
 		TransformComponent(const TransformComponent&) = default;
-		TransformComponent(const glm::mat4& transform) { Transform = transform; }
-		operator glm::mat4&() { return Transform; }
-		operator const glm::mat4&() const { return Transform; }
+		TransformComponent(const glm::vec3& position) { Position = position; }
+		
+
+		glm::mat4 GetTransform()
+		{
+			return	glm::translate(glm::mat4(1.0f), Position) *
+					glm::rotate(glm::mat4(1.0f), Rotation.x, glm::vec3(1.0f, 0.0f, 0.0f)) *
+					glm::rotate(glm::mat4(1.0f), Rotation.y, glm::vec3(0.0f, 1.0f, 0.0f)) *
+					glm::rotate(glm::mat4(1.0f), Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f)) *
+					glm::scale(glm::mat4(1.0f), Scale);
+		}
 	};
 
 	struct ColorComponent

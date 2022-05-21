@@ -72,7 +72,7 @@ namespace RageV
 		}
 
 
-		Renderer2D::BeginScene(*mainCamera, cameraTransform);
+		Renderer2D::BeginScene(*mainCamera, cameraTransform.GetTransform());
 
 		auto group = m_Registry.group<TransformComponent>(entt::get<ColorComponent>);
 
@@ -80,7 +80,7 @@ namespace RageV
 		{
 			auto [transform, color] = group.get<TransformComponent, ColorComponent>(item);
 
-			Renderer2D::DrawQuad(transform, color.Color);
+			Renderer2D::DrawQuad(transform.GetTransform(), color.Color);
 		}
 
 		Renderer2D::EndScene();
