@@ -78,8 +78,8 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>RV_PLATFORM_WINDOWS;RV_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\RageV\vendor\spdlog\include;..\RageV\src;..\RageV\vendor\glm;..\RageV\vendor\imgui;..\RageV\vendor\EnTT\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>RV_PLATFORM_WINDOWS;YAML_CPP_STATIC_DEFINE;RV_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\RageV\vendor\spdlog\include;..\RageV\src;..\RageV\vendor\glm;..\RageV\vendor\imgui;..\RageV\vendor\EnTT\include;..\RageV\vendor\yaml-cpp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -94,8 +94,8 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>RV_PLATFORM_WINDOWS;RV_RELEASE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\RageV\vendor\spdlog\include;..\RageV\src;..\RageV\vendor\glm;..\RageV\vendor\imgui;..\RageV\vendor\EnTT\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>RV_PLATFORM_WINDOWS;YAML_CPP_STATIC_DEFINE;RV_RELEASE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\RageV\vendor\spdlog\include;..\RageV\src;..\RageV\vendor\glm;..\RageV\vendor\imgui;..\RageV\vendor\EnTT\include;..\RageV\vendor\yaml-cpp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -114,8 +114,8 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>RV_PLATFORM_WINDOWS;RV_DIST;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\RageV\vendor\spdlog\include;..\RageV\src;..\RageV\vendor\glm;..\RageV\vendor\imgui;..\RageV\vendor\EnTT\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>RV_PLATFORM_WINDOWS;YAML_CPP_STATIC_DEFINE;RV_DIST;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\RageV\vendor\spdlog\include;..\RageV\src;..\RageV\vendor\glm;..\RageV\vendor\imgui;..\RageV\vendor\EnTT\include;..\RageV\vendor\yaml-cpp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>

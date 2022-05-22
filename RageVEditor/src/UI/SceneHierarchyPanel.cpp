@@ -11,6 +11,7 @@ RageV::SceneHierarchyPanel::SceneHierarchyPanel(const std::shared_ptr<Scene>& sc
 void RageV::SceneHierarchyPanel::SetSceneRef(const std::shared_ptr<Scene>& sceneref)
 {
 	m_SceneRef = sceneref;
+	m_Selected = {};
 }
 
 void RageV::SceneHierarchyPanel::OnImGuiRender()

@@ -27,6 +27,7 @@
 #include "RageV/Renderer/OrthographicCameraController.h"
 #include "RageV/Core/GraphicsInformation.h"
 #include "RageV/Scene/Scene.h"
+#include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/ScriptableEntity.h"
 #include "RageV/Scene/Components.h"

@@ -16,10 +16,12 @@ IncludeDir['ImGui'] = "RageV/vendor/imgui"
 IncludeDir['glm'] = "RageV/vendor/glm"
 IncludeDir['stb_image'] = "RageV/vendor/stb_image"
 IncludeDir['EnTT'] = "RageV/vendor/EnTT/include"
+IncludeDir["yaml_cpp"] = "RageV/vendor/yaml-cpp/include"
 
 group "Dependencies"
     include "RageV/vendor/imgui"
     include "RageV/vendor/GLAD"
+    include "RageV/vendor/yaml-cpp"
 
 group ""
 
@@ -55,7 +57,8 @@ project "RageV"
         "%{IncludeDir.glm}",
         "%{IncludeDir.stb_image}",
         "%{prj.name}/src",
-        "%{IncludeDir.EnTT}"
+        "%{IncludeDir.EnTT}",
+        "%{IncludeDir.yaml_cpp}"
     }
 
     libdirs
@@ -68,7 +71,8 @@ project "RageV"
         "GLAD",
         "ImGui",
         "glfw3_mt.lib",
-        "opengl32.lib"
+        "opengl32.lib",
+        "yaml-cpp"
     }
 
     filter "system:windows"
@@ -77,6 +81,7 @@ project "RageV"
         defines
         {
             "RV_PLATFORM_WINDOWS",
+            "YAML_CPP_STATIC_DEFINE",
             "RV_BUILD_DLL"
         }
 
@@ -117,7 +122,8 @@ project "Sandbox"
         "RageV/src",
         "%{IncludeDir.glm}",
         "%{IncludeDir.ImGui}",
-        "%{IncludeDir.EnTT}"
+        "%{IncludeDir.EnTT}",
+        "%{IncludeDir.yaml_cpp}"
     }
 
     links {
@@ -129,7 +135,8 @@ project "Sandbox"
 
         defines
         {
-            "RV_PLATFORM_WINDOWS"
+            "RV_PLATFORM_WINDOWS",
+            "YAML_CPP_STATIC_DEFINE"
         }
 
     filter  "configurations:Debug"
@@ -169,7 +176,8 @@ project "RageVEditor"
         "RageV/src",
         "%{IncludeDir.glm}",
         "%{IncludeDir.ImGui}",
-        "%{IncludeDir.EnTT}"
+        "%{IncludeDir.EnTT}",
+        "%{IncludeDir.yaml_cpp}"
     }
 
     links {
@@ -181,7 +189,8 @@ project "RageVEditor"
 
         defines
         {
-            "RV_PLATFORM_WINDOWS"
+            "RV_PLATFORM_WINDOWS",
+            "YAML_CPP_STATIC_DEFINE"
         }
 
     filter  "configurations:Debug"

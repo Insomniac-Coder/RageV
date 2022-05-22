@@ -1,5 +1,6 @@
 #include "EditorLayer.h"
 #include "imgui.h"
+#include "RageV/Utils/PlatformUtils.h"
 
 EditorLayer::EditorLayer() : Layer("Renderer2D"), m_CameraController(1270.f / 720.f, true), m_Color(1.0f, 0.0f, 0.0f) {
 
@@ -15,35 +16,40 @@ void EditorLayer::OnAttach()
 
 	m_FrameBuffer = RageV::FrameBuffer::Create(fbdata);
 	m_Scene = std::make_shared<RageV::Scene>();
-	auto entity = m_Scene->CreateEntity("Test Square");
-	entity.AddComponent<RageV::ColorComponent>(glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
-	m_Entity = entity;
+	//auto entity = m_Scene->CreateEntity("Test Square");
+	//entity.AddComponent<RageV::ColorComponent>(glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+	//m_Entity = entity;
+	//
+	//auto camera = m_Scene->CreateEntity("Scene camera");
+	//camera.AddComponent<RageV::CameraComponent>();
+	//
+	//class CameraController : public RageV::ScriptableEntity {
+	//public:
+	//	void OnCreate()
+	//	{
+	//		std::cout << "Hello!" << std::endl;
+	//	}
+	//	void OnUpdate(RageV::Timestep ts)
+	//	{
+	//		float speed = 5.0f;
+	//		auto& position = GetComponent<RageV::TransformComponent>().Position;
+	//		if (RageV::Input::IsKeyPressed(RV_KEY_A))
+	//			position.x += speed * ts;
+	//		if (RageV::Input::IsKeyPressed(RV_KEY_D))
+	//			position.x -= speed * ts;
+	//		if (RageV::Input::IsKeyPressed(RV_KEY_W))
+	//			position.y -= speed * ts;
+	//		if (RageV::Input::IsKeyPressed(RV_KEY_S))
+	//			position.y += speed * ts;
+	//	}
+	//};
+	//
+	//camera.AddComponent<RageV::NativeScriptComponent>().Bind<CameraController>();
 
-	auto camera = m_Scene->CreateEntity("Scene camera");
-	camera.AddComponent<RageV::CameraComponent>();
+	RageV::SceneSerializer serializer(m_Scene);
 
-	class CameraController : public RageV::ScriptableEntity {
-	public:
-		void OnCreate()
-		{
-			std::cout << "Hello!" << std::endl;
-		}
-		void OnUpdate(RageV::Timestep ts)
-		{
-			float speed = 5.0f;
-			auto& position = GetComponent<RageV::TransformComponent>().Position;
-			if (RageV::Input::IsKeyPressed(RV_KEY_A))
-				position.x += speed * ts;
-			if (RageV::Input::IsKeyPressed(RV_KEY_D))
-				position.x -= speed * ts;
-			if (RageV::Input::IsKeyPressed(RV_KEY_W))
-				position.y -= speed * ts;
-			if (RageV::Input::IsKeyPressed(RV_KEY_S))
-				position.y += speed * ts;
-		}
-	};
-
-	camera.AddComponent<RageV::NativeScriptComponent>().Bind<CameraController>();
+	//serializer.Serialize("assets/scenes/test.rage");
+	serializer.Deserialize("assets/scenes/test.rage");
 
 	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
 }
@@ -102,7 +108,19 @@ void EditorLayer::OnImGuiRender()
 	{
 		if (ImGui::BeginMenu("Menu"))
 		{
-			if (ImGui::MenuItem("Close", NULL, false, p_open != NULL))
+			if (ImGui::MenuItem("New", "Ctrl+N"))
+			{
+				NewScene();
+			}
+			if (ImGui::MenuItem("Open...", "Ctrl+O"))
+			{
+				OpenScene();
+			}
+			if (ImGui::MenuItem("Save As...", "Ctrl+S"))
+			{
+				SaveScene();
+			}
+			if (ImGui::MenuItem("Exit"))
 				RageV::Application::Get().Close();
 			ImGui::EndMenu();
 		}
@@ -148,4 +166,70 @@ void EditorLayer::OnImGuiRender()
 void EditorLayer::OnEvent(RageV::Event& e)
 {
 	m_CameraController.OnEvent(e);
+
+	RageV::EventDispatcher dispatcher(e);
+
+	dispatcher.Dispatch<RageV::KeyPressedEvent>(RV_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
+}
+
+bool EditorLayer::OnKeyPressed(RageV::KeyPressedEvent& e)
+{
+	if (e.GetRepeatCount() > 0)
+		return false;
+
+	bool control = RageV::Input::IsKeyPressed(RV_KEY_LEFT_CONTROL) || RageV::Input::IsKeyPressed(RV_KEY_RIGHT_CONTROL);
+	//bool shift = RageV::Input::IsKeyPressed(RV_KEY_LEFT_SHIFT) || RageV::Input::IsKeyPressed(RV_KEY_RIGHT_SHIFT);
+
+	switch (e.GetKeyCode())
+	{
+		case RV_KEY_N:
+		{
+			if (control)
+				NewScene();
+			break;
+		}
+		case RV_KEY_O:
+		{
+			if (control)
+				OpenScene();
+			break;
+		}
+		case RV_KEY_S:
+		{
+			if (control)
+				SaveScene();
+			break;
+		}
+	}
+}
+
+void EditorLayer::NewScene()
+{
+	m_Scene = std::make_shared<RageV::Scene>();
+	m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
+	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
+}
+
+void EditorLayer::OpenScene()
+{
+	std::string filepath = RageV::FileDialogs::OpenFile("RageV Scene (*.rage)\0*.rage\0");
+	if (!filepath.empty())
+	{
+		m_Scene = std::make_shared<RageV::Scene>();
+		m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
+		m_SceneHierarchyPanel.SetSceneRef(m_Scene);
+
+		RageV::SceneSerializer serializer(m_Scene);
+		serializer.Deserialize(filepath);
+	}
+}
+
+void EditorLayer::SaveScene()
+{
+	std::string filepath = RageV::FileDialogs::SaveFile("RageV Scene (*.rage)\0*.rage\0");
+	if (!filepath.empty())
+	{
+		RageV::SceneSerializer serializer(m_Scene);
+		serializer.Serialize(filepath);
+	}
 }

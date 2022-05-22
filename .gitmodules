@@ -7,3 +7,6 @@
 [submodule "RageV/vendor/glm"]
 	path = RageV/vendor/glm
 	url = https://github.com/g-truc/glm.git
+[submodule "RageV/vendor/yaml-cpp"]
+	path = RageV/vendor/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git

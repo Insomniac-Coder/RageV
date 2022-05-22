@@ -1,0 +1,47 @@
+Scene: Untitled
+Entities:
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Square 3
+    TransformComponent:
+      Position: [0, -0.899999976, 3.9000001]
+      Rotation: [0, 0.8883726, -0.816814065]
+      Scale: [1.79999995, 1, 1]
+    Color:
+      ColorValue: [0, 0.247104406, 1, 1]
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Square 2
+    TransformComponent:
+      Position: [-1.79999995, -1.70000005, 0.699999988]
+      Rotation: [0, -0.485201508, 0.649262488]
+      Scale: [1, 1, 1]
+    Color:
+      ColorValue: [0.250413656, 0.876447856, 0, 1]
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Test Square
+    TransformComponent:
+      Position: [0.699999988, 1.89999998, 2.9000001]
+      Rotation: [0.633554518, 1.06639612, 0.326376587]
+      Scale: [1, 1, 1]
+    Color:
+      ColorValue: [1, 0, 0, 1]
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Scene camera
+    TransformComponent:
+      Position: [0, 0, 8.30000019]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 60
+        PerspectiveNearClip: 0.00999999978
+        PerspectiveFarClip: 1000
+        OrthographicScale: 10
+        OrthographicNearClip: -1
+        OrthographicFarClip: 1
+      isPrimary: true
+      FixedAspectRatio: false

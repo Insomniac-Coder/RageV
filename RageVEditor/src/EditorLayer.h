@@ -12,6 +12,10 @@ public:
 	void  OnUpdate(RageV::Timestep ts) override;
 	void OnImGuiRender() override;
 	void OnEvent(RageV::Event& e) override;
+	bool OnKeyPressed(RageV::KeyPressedEvent& e);
+	void NewScene();
+	void OpenScene();
+	void SaveScene();
 
 private:
 	glm::vec3 m_Color;
