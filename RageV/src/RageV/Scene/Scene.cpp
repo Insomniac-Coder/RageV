@@ -41,6 +41,11 @@ namespace RageV
 		return entity;
 	}
 
+	void Scene::DeleteEntity(Entity& entity)
+	{
+		m_Registry.destroy(entity);
+	}
+
 	void Scene::OnUpdate(Timestep ts)
 	{
 		m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nscript)

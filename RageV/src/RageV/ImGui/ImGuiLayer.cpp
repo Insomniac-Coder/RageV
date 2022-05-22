@@ -32,6 +32,8 @@ namespace RageV
 		//io.ConfigViewportsNoAutoMerge = true;
 		//io.ConfigViewportsNoTaskBarIcon = true;
 
+		io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/fonts/RobotoFlex-Regular.ttf", 18.0f);
+
 		// Setup Dear ImGui style
 		ImGui::StyleColorsDark();
 		//ImGui::StyleColorsClassic();

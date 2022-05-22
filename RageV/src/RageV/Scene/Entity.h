@@ -46,6 +46,7 @@ namespace RageV
 
 		operator unsigned int() { return (unsigned int)m_Entity; }
 		operator bool() { return m_Entity != entt::null; }
+		operator entt::entity() { return m_Entity; }
 		bool operator ==(const Entity& other) { return m_Entity == other.m_Entity && m_Scene == other.m_Scene; }
 		bool operator !=(const Entity& other) { return !(*this == other); }
 	private:
