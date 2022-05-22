@@ -14,6 +14,8 @@ namespace RageV
 		Entity CreateEntity(const std::string& name = std::string());
 		void DeleteEntity(Entity& entity);
 		void OnUpdate(Timestep ts);
+
+		Entity GetPrimaryCameraEntity();
 	private:
 		entt::registry m_Registry;
 		friend class Entity;

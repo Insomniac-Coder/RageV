@@ -17,6 +17,7 @@ IncludeDir['glm'] = "RageV/vendor/glm"
 IncludeDir['stb_image'] = "RageV/vendor/stb_image"
 IncludeDir['EnTT'] = "RageV/vendor/EnTT/include"
 IncludeDir["yaml_cpp"] = "RageV/vendor/yaml-cpp/include"
+IncludeDir["ImGuizmo"] = "RageV/vendor/ImGuizmo"
 
 group "Dependencies"
     include "RageV/vendor/imgui"
@@ -45,7 +46,9 @@ project "RageV"
         "%{prj.name}/vendor/stb_image/**.h",
         "%{prj.name}/vendor/stb_image/**.cpp",
         "%{prj.name}/vendor/glm/glm/**.hpp",
-        "%{prj.name}/vendor/glm/glm/**.inl"
+        "%{prj.name}/vendor/glm/glm/**.inl",
+        "%{prj.name}/vendor/ImGuizmo/ImGuizmo.h",
+        "%{prj.name}/vendor/ImGuizmo/ImGuizmo.cpp"
     }
 
     includedirs
@@ -58,7 +61,8 @@ project "RageV"
         "%{IncludeDir.stb_image}",
         "%{prj.name}/src",
         "%{IncludeDir.EnTT}",
-        "%{IncludeDir.yaml_cpp}"
+        "%{IncludeDir.yaml_cpp}",
+        "%{IncludeDir.ImGuizmo}"
     }
 
     libdirs
@@ -74,6 +78,9 @@ project "RageV"
         "opengl32.lib",
         "yaml-cpp"
     }
+
+    filter "files:vendor/ImGuizmo/**.cpp"
+    flags { "NoPCH" }
 
     filter "system:windows"
         systemversion "latest"
@@ -177,7 +184,8 @@ project "RageVEditor"
         "%{IncludeDir.glm}",
         "%{IncludeDir.ImGui}",
         "%{IncludeDir.EnTT}",
-        "%{IncludeDir.yaml_cpp}"
+        "%{IncludeDir.yaml_cpp}",
+        "%{IncludeDir.ImGuizmo}"
     }
 
     links {

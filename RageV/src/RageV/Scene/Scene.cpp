@@ -16,6 +16,19 @@ namespace RageV
 
 	}
 
+	Entity Scene::GetPrimaryCameraEntity()
+	{
+		auto view = m_Registry.view<CameraComponent>();
+		for (auto item : view)
+		{
+			auto& camera = view.get<CameraComponent>(item);
+
+			return { item,  this };
+		}
+		
+		return {};
+	}
+
 	void Scene::OnViewportResize(float width, float height)
 	{
 		auto view = m_Registry.view<CameraComponent>();

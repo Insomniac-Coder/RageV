@@ -6,6 +6,8 @@
 #include "RageV/Renderer/Cameranew.h"
 #include "SceneCamera.h"
 #include "ScriptableEntity.h"
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
 
 namespace RageV
 {
@@ -30,10 +32,9 @@ namespace RageV
 
 		glm::mat4 GetTransform()
 		{
+			glm::mat4 rotation = glm::toMat4(glm::quat(Rotation));
 			return	glm::translate(glm::mat4(1.0f), Position) *
-					glm::rotate(glm::mat4(1.0f), Rotation.x, glm::vec3(1.0f, 0.0f, 0.0f)) *
-					glm::rotate(glm::mat4(1.0f), Rotation.y, glm::vec3(0.0f, 1.0f, 0.0f)) *
-					glm::rotate(glm::mat4(1.0f), Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f)) *
+					rotation *
 					glm::scale(glm::mat4(1.0f), Scale);
 		}
 	};

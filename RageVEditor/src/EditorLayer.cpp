@@ -1,6 +1,10 @@
 #include "EditorLayer.h"
 #include "imgui.h"
 #include "RageV/Utils/PlatformUtils.h"
+#include "ImGuizmo.h"
+#include "glm/gtc/type_ptr.hpp"
+#define GLM_ENABLE_EXPERIMENTAL
+#include "glm/gtx/matrix_decompose.hpp"
 
 EditorLayer::EditorLayer() : Layer("Renderer2D"), m_CameraController(1270.f / 720.f, true), m_Color(1.0f, 0.0f, 0.0f) {
 
@@ -46,12 +50,16 @@ void EditorLayer::OnAttach()
 	//
 	//camera.AddComponent<RageV::NativeScriptComponent>().Bind<CameraController>();
 
-	RageV::SceneSerializer serializer(m_Scene);
-
-	//serializer.Serialize("assets/scenes/test.rage");
-	serializer.Deserialize("assets/scenes/test.rage");
+	//RageV::SceneSerializer serializer(m_Scene);
+	//
+	////serializer.Serialize("assets/scenes/test.rage");
+	//serializer.Deserialize("assets/scenes/test.rage");
 
 	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
+	auto& camera = m_Scene->CreateEntity("Scene Camera");
+	camera.AddComponent<RageV::CameraComponent>();
+	auto& camComponent = camera.GetComponent<RageV::CameraComponent>();
+	camComponent.Camera.SetProjectionType(RageV::SceneCamera::ProjectionType::Perspective);
 }
 
 void EditorLayer::OnUpdate(RageV::Timestep ts)
@@ -147,7 +155,7 @@ void EditorLayer::OnImGuiRender()
 	m_IsViewportFocused = ImGui::IsWindowFocused();
 	m_IsViewportHovered = ImGui::IsWindowHovered();
 	ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-	RageV::Application::Get().GetImGuiLayer()->SetEventBlocker(!m_IsViewportFocused || !m_IsViewportHovered);
+	RageV::Application::Get().GetImGuiLayer()->SetEventBlocker(!m_IsViewportFocused && !m_IsViewportHovered);
 	if (m_ViewportSize != *((glm::vec2*)&viewportSize))
 	{
 		m_ViewportSize = { viewportSize.x, viewportSize.y };
@@ -157,6 +165,43 @@ void EditorLayer::OnImGuiRender()
 	ImGui::Image((void*)id, ImVec2{ viewportSize.x, viewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 	m_Scene->OnViewportResize(viewportSize.x, viewportSize.y);
 	//m_CameraController.OnResize(viewportSize.x, viewportSize.y);
+
+	//ImGuizmo stuff
+	RageV::Entity selected = m_SceneHierarchyPanel.GetSelectedEntity();
+	if (selected)
+	{
+		ImGuizmo::SetOrthographic(false);
+		ImGuizmo::SetDrawlist();
+		float windowWidth = (float)ImGui::GetWindowWidth();
+		float windowHeight = (float)ImGui::GetWindowHeight();
+		ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+
+		auto cameraEntity = m_Scene->GetPrimaryCameraEntity();
+		const auto& camera = cameraEntity.GetComponent<RageV::CameraComponent>();
+
+		glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<RageV::TransformComponent>().GetTransform());
+		const glm::mat4 camProjection = camera.Camera.GetProjection();
+
+		auto& tc = selected.GetComponent<RageV::TransformComponent>();
+		glm::mat4 transform = tc.GetTransform();
+
+		ImGuizmo::Manipulate(glm::value_ptr(cameraView),glm::value_ptr(camProjection), ImGuizmo::OPERATION::ROTATE, ImGuizmo::LOCAL, glm::value_ptr(transform));
+
+		if (ImGuizmo::IsUsing())
+		{
+			glm::vec3 position, scale, skew;
+			glm::quat rotation;
+			glm::vec4 t;
+			glm::decompose(transform, scale, rotation, position, skew, t);
+			glm::vec3 euler = glm::eulerAngles(rotation);
+			glm::vec3 diff = euler - tc.Rotation;
+			std::cout << diff.x << ", " << diff.y << ", " << diff.z << std::endl;
+			tc.Position = position;
+			tc.Rotation += diff;
+			
+		}
+	}
+
 	ImGui::End();
 	ImGui::PopStyleVar();
 	
@@ -207,6 +252,10 @@ void EditorLayer::NewScene()
 {
 	m_Scene = std::make_shared<RageV::Scene>();
 	m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
+	auto& camera = m_Scene->CreateEntity("Scene Camera");
+	camera.AddComponent<RageV::CameraComponent>();
+	auto& camComponent = camera.GetComponent<RageV::CameraComponent>();
+	camComponent.Camera.SetProjectionType(RageV::SceneCamera::ProjectionType::Perspective);
 	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
 }
 

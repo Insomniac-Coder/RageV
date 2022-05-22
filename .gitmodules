@@ -10,3 +10,6 @@
 [submodule "RageV/vendor/yaml-cpp"]
 	path = RageV/vendor/yaml-cpp
 	url = https://github.com/jbeder/yaml-cpp.git
+[submodule "RageV/vendor/ImGuizmo"]
+	path = RageV/vendor/ImGuizmo
+	url = https://github.com/CedricGuillemet/ImGuizmo.git
