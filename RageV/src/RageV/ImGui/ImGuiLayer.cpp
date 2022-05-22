@@ -38,6 +38,9 @@ namespace RageV
 		ImGui::StyleColorsDark();
 		//ImGui::StyleColorsClassic();
 
+		auto& colors = ImGui::GetStyle().Colors;
+		colors[ImGuiCol_WindowBg] = ImVec4{0.05f, 0.05f, 0.05f, 1.0f};
+
 		// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
 		ImGuiStyle& style = ImGui::GetStyle();
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)

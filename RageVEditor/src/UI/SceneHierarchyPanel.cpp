@@ -73,24 +73,7 @@ void RageV::SceneHierarchyPanel::OnImGuiRender()
 	if (m_Selected)
 	{
 		ShowProperties(m_Selected);
-
-		if (ImGui::Button("Add Component"))
-			ImGui::OpenPopup("AddComponent");
-
-		if (ImGui::BeginPopup("AddComponent"))
-		{
-			if (ImGui::MenuItem("Camera"))
-			{
-				m_Selected.AddComponent<CameraComponent>();
-				ImGui::CloseCurrentPopup();
-			}
-			if (ImGui::MenuItem("Color Component"))
-			{
-				m_Selected.AddComponent<ColorComponent>();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
-		}
+		ImGui::Separator();
 	}
 	ImGui::End();
 }
@@ -159,19 +142,23 @@ namespace RageV
 	{
 		if (entity.HasComponent<T>())
 		{
+			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_AllowItemOverlap;
+
 			auto& component = entity.GetComponent<T>();
+
+			ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
-			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap;
+			float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+			ImGui::Separator();
 			bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), flags, name.c_str());
+			ImGui::PopStyleVar();
 			
 			if (removeable)
 			{
-				ImGui::SameLine(ImGui::GetWindowWidth() - 25.0f);
-				if (ImGui::Button("*", ImVec2{ 20, 20 }))
+				ImGui::SameLine(contentRegionAvailable.x - lineHeight * 0.5f);
+				if (ImGui::Button("*", ImVec2{ lineHeight, lineHeight }))
 					ImGui::OpenPopup("Settings");
 			}
-			ImGui::PopStyleVar();
-
 			bool remove = false;
 			if (ImGui::BeginPopup("Settings"))
 			{
@@ -202,11 +189,40 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 		char buffer[256];
 		memset(buffer, 0, sizeof(buffer));
 		strcpy_s(buffer, tag.Name.c_str());
-		if (ImGui::InputText("Tag", buffer, sizeof(buffer)))
+		ImGui::PushID("Tag");
+		ImGui::Columns(2);
+		ImGui::SetColumnWidth(0, 100.f);
+		ImGui::Text("Tag");
+		ImGui::NextColumn();
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+		if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
 		{
 			tag = std::string(buffer);
 		}
+		ImGui::Columns(1);
+		ImGui::PopStyleVar();
+		ImGui::PopID();
 
+		ImGui::SameLine();
+		ImGui::PushItemWidth(-1);
+		if (ImGui::Button("Add Component"))
+			ImGui::OpenPopup("AddComponent");
+
+		if (ImGui::BeginPopup("AddComponent"))
+		{
+			if (ImGui::MenuItem("Camera"))
+			{
+				m_Selected.AddComponent<CameraComponent>();
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::MenuItem("Color Component"))
+			{
+				m_Selected.AddComponent<ColorComponent>();
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+		ImGui::PopItemWidth();
 	}
 	
 	DrawComponent<TransformComponent>("Transform", entity, [](auto& component) 
@@ -216,13 +232,25 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			DrawVec3Control("Rotation", rotation);
 			component.Rotation = glm::radians(rotation);
 			DrawVec3Control("Scale", component.Scale, 1.0f);
+			ImGui::Spacing();
 		},
 		false
 	);
 
 	DrawComponent<ColorComponent>("Color", entity, [](auto& component)
 		{
-			ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
+			ImGui::PushID("Color");
+			ImGui::Columns(2);
+			ImGui::SetColumnWidth(0, 100.f);
+			ImGui::Text("Color");
+			ImGui::NextColumn();
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+			ImGui::ColorEdit4("##Color", glm::value_ptr(component.Color));
+			ImGui::SameLine();
+			ImGui::Columns(1);
+			ImGui::PopStyleVar();
+			ImGui::PopID();
+			ImGui::Spacing();
 		}
 	);
 
@@ -234,7 +262,13 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			ImGui::Checkbox("Primary", &component.isPrimary);
 			ImGui::Checkbox("Fixed Aspect Ratio", &component.fixedAspectRatio);
 
-			if (ImGui::BeginCombo("Projection Type", currentProjectionType))
+			ImGui::PushID("ProjectionType");
+			ImGui::Columns(2);
+			ImGui::SetColumnWidth(0, 150.f);
+			ImGui::Text("Projection Type");
+			ImGui::NextColumn();
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+			if (ImGui::BeginCombo("##Projection Type", currentProjectionType))
 			{
 				for (int i = 0; i < 2; i++)
 				{
@@ -250,35 +284,100 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 				}
 				ImGui::EndCombo();
 			}
+			ImGui::Columns(1);
+			ImGui::PopStyleVar();
+			ImGui::PopID();
 
 			if (component.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
 			{
 				float perspectiveFOV = component.Camera.GetPerspectiveFOV();
-				if (ImGui::DragFloat("Perspective FOV", &perspectiveFOV, 0.1f))
+
+				ImGui::PushID("perspectiveFOV");
+				ImGui::Columns(2);
+				ImGui::SetColumnWidth(0, 150.f);
+				ImGui::Text("Perspective FOV");
+				ImGui::NextColumn();
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+				if (ImGui::DragFloat("", &perspectiveFOV, 0.1f))
 					component.Camera.SetPerspectiveFOV(perspectiveFOV);
+				ImGui::Columns(1);
+				ImGui::PopStyleVar();
+				ImGui::PopID();
+
 
 				float perspectiveNear = component.Camera.GetPerspectiveNearClip();
-				if (ImGui::DragFloat("Near Clip", &perspectiveNear, 0.1f))
+
+				ImGui::PushID("perspectiveNearClip");
+				ImGui::Columns(2);
+				ImGui::SetColumnWidth(0, 150.f);
+				ImGui::Text("Near Clip");
+				ImGui::NextColumn();
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+				if (ImGui::DragFloat("", &perspectiveNear, 0.1f))
 					component.Camera.SetPerspectiveNearClip(perspectiveNear);
+				ImGui::Columns(1);
+				ImGui::PopStyleVar();
+				ImGui::PopID();
 
 				float perspectiveFar = component.Camera.GetPerspectiveFarClip();
-				if (ImGui::DragFloat("Far Clip", &perspectiveFar, 0.1f))
+
+				ImGui::PushID("perspectiveFarClip");
+				ImGui::Columns(2);
+				ImGui::SetColumnWidth(0, 150.f);
+				ImGui::Text("Far Clip");
+				ImGui::NextColumn();
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+				if (ImGui::DragFloat("", &perspectiveFar, 0.1f))
 					component.Camera.SetPerspectiveFarClip(perspectiveFar);
+				ImGui::Columns(1);
+				ImGui::PopStyleVar();
+				ImGui::PopID();
 			}
 			if (component.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
 			{
 				float orthSize = component.Camera.GetOrthographicSize();
-				if (ImGui::DragFloat("Orthographic Size", &orthSize, 0.1f))
+
+				ImGui::PushID("orthographicSize");
+				ImGui::Columns(2);
+				ImGui::SetColumnWidth(0, 150.f);
+				ImGui::Text("Orthographic Size");
+				ImGui::NextColumn();
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+				if (ImGui::DragFloat("", &orthSize, 0.1f))
 					component.Camera.SetOrthgraphicSize(orthSize);
+				ImGui::Columns(1);
+				ImGui::PopStyleVar();
+				ImGui::PopID();
 
 				float orthNear = component.Camera.GetOrthoNearClip();
-				if (ImGui::DragFloat("Near Clip", &orthNear, 0.1f))
+
+				ImGui::PushID("orthographicNearClip");
+				ImGui::Columns(2);
+				ImGui::SetColumnWidth(0, 150.f);
+				ImGui::Text("Near Clip");
+				ImGui::NextColumn();
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+				if (ImGui::DragFloat("", &orthNear, 0.1f))
 					component.Camera.SetOrthoNearClip(orthNear);
+				ImGui::Columns(1);
+				ImGui::PopStyleVar();
+				ImGui::PopID();
 
 				float orthFar = component.Camera.GetOrthoFarClip();
-				if (ImGui::DragFloat("Far Clip", &orthFar, 0.1f))
+
+				ImGui::PushID("orthographicFarClip");
+				ImGui::Columns(2);
+				ImGui::SetColumnWidth(0, 150.f);
+				ImGui::Text("Far Clip");
+				ImGui::NextColumn();
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+				if (ImGui::DragFloat("", &orthFar, 0.1f))
 					component.Camera.SetOrthoFarClip(orthFar);
+				ImGui::Columns(1);
+				ImGui::PopStyleVar();
+				ImGui::PopID();
 			}
+			ImGui::Spacing();
 		}
 	);
 
