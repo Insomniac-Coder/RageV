@@ -185,7 +185,21 @@ void EditorLayer::OnImGuiRender()
 		auto& tc = selected.GetComponent<RageV::TransformComponent>();
 		glm::mat4 transform = tc.GetTransform();
 
-		ImGuizmo::Manipulate(glm::value_ptr(cameraView),glm::value_ptr(camProjection), ImGuizmo::OPERATION::ROTATE, ImGuizmo::LOCAL, glm::value_ptr(transform));
+		ImGuizmo::OPERATION type = ImGuizmo::OPERATION::TRANSLATE;
+
+		if (RageV::Input::IsKeyPressed(RV_KEY_LEFT_CONTROL) || RageV::Input::IsKeyPressed(RV_KEY_RIGHT_CONTROL))
+		{
+			if (RageV::Input::IsKeyPressed(RV_KEY_Q))
+			{
+				type = ImGuizmo::OPERATION::ROTATE;
+			}
+			if (RageV::Input::IsKeyPressed(RV_KEY_E))
+			{
+				type = ImGuizmo::OPERATION::SCALE;
+			}
+		}
+
+		ImGuizmo::Manipulate(glm::value_ptr(cameraView),glm::value_ptr(camProjection), type, ImGuizmo::LOCAL, glm::value_ptr(transform));
 
 		if (ImGuizmo::IsUsing())
 		{
@@ -195,10 +209,9 @@ void EditorLayer::OnImGuiRender()
 			glm::decompose(transform, scale, rotation, position, skew, t);
 			glm::vec3 euler = glm::eulerAngles(rotation);
 			glm::vec3 diff = euler - tc.Rotation;
-			std::cout << diff.x << ", " << diff.y << ", " << diff.z << std::endl;
 			tc.Position = position;
 			tc.Rotation += diff;
-			
+			tc.Scale = scale;
 		}
 	}
 
