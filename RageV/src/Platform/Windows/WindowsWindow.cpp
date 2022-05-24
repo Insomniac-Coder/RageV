@@ -4,6 +4,8 @@
 #include "RageV/Events/KeyEvent.h"
 #include "RageV/Events/MouseEvent.h"
 #include "Platform/OpenGL/OpenGLContext.h"
+#include "Platform/Vulkan/VulkanContext.h"
+#include "RageV/Renderer/Renderer.h"
 
 namespace RageV
 
@@ -66,10 +68,31 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 		glfwSetErrorCallback(GLFWErrorCallback);
 		s_GLFWInitialized = true;
 	}
-
+	if (Renderer::GetAPI() == RenderAPI::API::Vulkan)
+		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
-	m_Context = new OpenGLContext(m_Window);
+	if (Renderer::GetAPI() == RenderAPI::API::OpenGL) {
+		m_Context = new OpenGLContext(m_Window);
+	}
+
+	switch (Renderer::GetAPI())
+	{
+		case RenderAPI::API::OpenGL:
+		{
+			m_Context = new OpenGLContext(m_Window);
+			break;
+		}
+		case RenderAPI::API::Vulkan:
+		{
+			m_Context = new VulkanContext(m_Window);
+			break;
+		}
+	}
+
 	m_Context->Init();
+
+	if (Renderer::GetAPI() == RenderAPI::API::Vulkan)
+		return;
 
 	m_GraphicsInfo = m_Context->GetGraphicsInfo();
 

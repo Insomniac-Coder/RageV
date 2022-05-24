@@ -62,12 +62,14 @@ project "RageV"
         "%{prj.name}/src",
         "%{IncludeDir.EnTT}",
         "%{IncludeDir.yaml_cpp}",
-        "%{IncludeDir.ImGuizmo}"
+        "%{IncludeDir.ImGuizmo}",
+        "C:/VulkanSDK/1.3.211.0/Include/vulkan"
     }
 
     libdirs
     {
-        "%{prj.name}/vendor/GLFW/lib-vc2022"
+        "%{prj.name}/vendor/GLFW/lib-vc2022",
+        "C:/VulkanSDK/1.3.211.0/Lib"
     }
 
     links
@@ -76,7 +78,8 @@ project "RageV"
         "ImGui",
         "glfw3_mt.lib",
         "opengl32.lib",
-        "yaml-cpp"
+        "yaml-cpp",
+        "vulkan-1.lib"
     }
 
     filter "files:vendor/ImGuizmo/**.cpp"

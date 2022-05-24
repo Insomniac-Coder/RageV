@@ -4,6 +4,6 @@
 namespace RageV
 {
 
-	RenderAPI::API RenderAPI::m_API = RenderAPI::API::OpenGL;
+	RenderAPI::API RenderAPI::m_API = RenderAPI::API::Vulkan;
 
 }

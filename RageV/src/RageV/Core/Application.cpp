@@ -15,26 +15,29 @@ namespace RageV {
 		RV_CORE_ASSERT(!m_Instance, "Application instance already present present");
 		m_Instance = this;
 		m_Window = std::unique_ptr<Window>(Window::Create(WindowProps(appname)));
-		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
-		m_Window->SetVsync(false);
-
-		GraphicsInformation::SetGraphicsInfo(m_Window->GetGraphicsInfo());
-
-		Renderer::Init();
-
-		if (Platform::GetPlatformType() == PlatformType::Windows)
+		if (Renderer::GetAPI() != RenderAPI::API::Vulkan)
 		{
-			m_Platform.reset(new WindowsPlatform);
-		}
-		else
-		{
-			RV_CORE_ASSERT(false, "Currently only Windows platform is supported!");
-		}
+			m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
+			m_Window->SetVsync(false);
 
-		GetTime = m_Platform->GetTimeFn();
+			GraphicsInformation::SetGraphicsInfo(m_Window->GetGraphicsInfo());
 
-		m_ImGuiLayer = new ImGuiLayer();
- 		PushOverlay(m_ImGuiLayer);
+			Renderer::Init();
+
+			if (Platform::GetPlatformType() == PlatformType::Windows)
+			{
+				m_Platform.reset(new WindowsPlatform);
+			}
+			else
+			{
+				RV_CORE_ASSERT(false, "Currently only Windows platform is supported!");
+			}
+
+			GetTime = m_Platform->GetTimeFn();
+
+			m_ImGuiLayer = new ImGuiLayer();
+			PushOverlay(m_ImGuiLayer);
+		}
 	}
 
 	Application::~Application() {
@@ -88,28 +91,29 @@ namespace RageV {
 		//WindowResizeEvent e(1280, 720);
 		//RV_TRACE(e);
 		while (m_Running) {
-
-			float time = (float)GetTime();
-			Timestep ts = time - m_LastTime;
-			m_LastTime = time;
-
-			m_Window->OnUpdate();
-
-			if (!m_Minimised)
+			if (Renderer::GetAPI() != RenderAPI::API::Vulkan)
 			{
-				for (Layer* layer : m_LayerStack)
-					layer->OnUpdate(ts);
+				float time = (float)GetTime();
+				Timestep ts = time - m_LastTime;
+				m_LastTime = time;
 
-				m_ImGuiLayer->Begin();
+				m_Window->OnUpdate();
 
-				for (Layer* layer : m_LayerStack)
-					layer->OnImGuiRender();
+				if (!m_Minimised)
+				{
+					for (Layer* layer : m_LayerStack)
+						layer->OnUpdate(ts);
 
-				m_ImGuiLayer->End();
+					m_ImGuiLayer->Begin();
+
+					for (Layer* layer : m_LayerStack)
+						layer->OnImGuiRender();
+
+					m_ImGuiLayer->End();
+				}
+				//auto [x, y] = Input::GetMousePosition();
+				//RV_CORE_TRACE("{0}, {1}", x, y); 
 			}
-			//auto [x, y] = Input::GetMousePosition();
-			//RV_CORE_TRACE("{0}, {1}", x, y); 
-
 		}
 	}
 
