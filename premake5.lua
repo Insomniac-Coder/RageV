@@ -79,7 +79,8 @@ project "RageV"
         "glfw3_mt.lib",
         "opengl32.lib",
         "yaml-cpp",
-        "vulkan-1.lib"
+        "vulkan-1.lib",
+        "VkLayer_utils.lib"
     }
 
     filter "files:vendor/ImGuizmo/**.cpp"
