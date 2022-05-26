@@ -19,6 +19,7 @@ RageV::VulkanContext::~VulkanContext()
 	if (func != nullptr)
 		func(m_Instance, DebugMessenger, nullptr);
 
+	vkDestroySwapchainKHR(m_LogicalDevice, m_SwapChain, nullptr);
 	vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
 	vkDestroyDevice(m_LogicalDevice, nullptr);
 	vkDestroyInstance(m_Instance, nullptr);
@@ -251,6 +252,107 @@ static bool QuerySwapChainSupport(VkPhysicalDevice& physicalDevice, VkSurfaceKHR
 	return !swapChainSupportDetails.formats.empty() && !swapChainSupportDetails.presentModes.empty();
 }
 
+static void ChooseSwapSurfaceFormat(VkSurfaceFormatKHR& surfaceFormat, const std::vector<VkSurfaceFormatKHR>& availableFormats)
+{
+	bool found = false;
+	for (const auto& availableFormat : availableFormats)
+	{
+		if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR)
+		{
+			surfaceFormat = availableFormat;
+			found = true;
+			break;
+		}
+	}
+
+	if(!found)
+		surfaceFormat = availableFormats[0];
+}
+
+static VkExtent2D ChooseExtent(GLFWwindow* window, const VkSurfaceCapabilitiesKHR& capabilites)
+{
+	if (capabilites.currentExtent.width != std::numeric_limits<uint32_t>::max())
+	{
+		return capabilites.currentExtent;
+	}
+	else
+	{
+		int width;
+		int height;
+		glfwGetFramebufferSize(window, &width, &height);
+		width = static_cast<int>(std::clamp(static_cast<uint32_t>(width), capabilites.minImageExtent.width, capabilites.maxImageExtent.height));
+		height = static_cast<int>(std::clamp(static_cast<uint32_t>(height), capabilites.minImageExtent.height, capabilites.maxImageExtent.width));
+		return { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
+	}
+}
+
+static void ChoosePresentationMode(VkPresentModeKHR& presentMode, const std::vector<VkPresentModeKHR>& availableModes)
+{
+	bool found = false;
+	for (const auto& availableMode : availableModes)
+	{
+		if (availableMode == VK_PRESENT_MODE_MAILBOX_KHR)
+		{
+			presentMode = availableMode;
+			found = true;
+			break;
+		}
+	}
+
+	if (!found)
+		presentMode = VK_PRESENT_MODE_FIFO_KHR;
+}
+
+static VkSwapchainKHR CreateSwapChain(VkDevice& logicalDevice, 
+							RageV::SwapChainSupportDetails& swapchainSupportDetails, 
+							VkSurfaceKHR& surface, VkSurfaceFormatKHR& surfaceFormat, 
+							VkExtent2D& extent, RageV::QueueFamilyIndices& queueFamilyIndices, 
+							VkPresentModeKHR& presentMode)
+{
+	VkSwapchainCreateInfoKHR createInfo{};
+
+	createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	createInfo.surface = surface;
+	createInfo.minImageCount = swapchainSupportDetails.capabilities.minImageCount + 1;
+	createInfo.imageFormat = surfaceFormat.format;
+	createInfo.imageColorSpace = surfaceFormat.colorSpace;
+	createInfo.imageExtent = extent;
+	createInfo.imageArrayLayers = 1;
+	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; //this has to be parameterized since it will be later on used for framebuffers(I guess)
+	createInfo.preTransform = swapchainSupportDetails.capabilities.currentTransform;
+	createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	createInfo.presentMode = presentMode;
+	createInfo.clipped = VK_TRUE;
+	createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+	if (queueFamilyIndices.graphicsFamily != queueFamilyIndices.presentFamily)
+	{
+		uint32_t familyIndices[] = { queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value()};
+		createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+		createInfo.queueFamilyIndexCount = 2;
+		createInfo.pQueueFamilyIndices = familyIndices;
+	}
+	else
+	{
+		createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		createInfo.queueFamilyIndexCount = 0;
+		createInfo.pQueueFamilyIndices = nullptr;
+	}
+
+	VkSwapchainKHR swapChain;
+
+	if (vkCreateSwapchainKHR(logicalDevice, &createInfo, nullptr, &swapChain) != VK_SUCCESS)
+	{
+		RV_CORE_ERROR("Swapchain creation succeeded!");
+	}
+	else
+	{
+		RV_CORE_INFO("Swapchain created!");
+	}
+
+	return swapChain;
+}
+
 void RageV::VulkanContext::Init()
 {
 	unsigned int extensionCount = 0;
@@ -326,13 +428,23 @@ void RageV::VulkanContext::Init()
 	CreateLogicalDevice(m_PhysicalDevice, m_LogicalDevice, m_QueueIndicies);
 	vkGetDeviceQueue(m_LogicalDevice, m_QueueIndicies.graphicsFamily.value(), 0, &m_GraphicsQueue);
 	vkGetDeviceQueue(m_LogicalDevice, m_QueueIndicies.presentFamily.value(), 0, &m_PresentQueue);
+
+	ChooseSwapSurfaceFormat(m_SurfaceFormat, m_SwapChainSupportDetails.formats);
+	ChoosePresentationMode(m_PresentMode, m_SwapChainSupportDetails.presentModes);
+	m_Extent = ChooseExtent(m_WindowHandle, m_SwapChainSupportDetails.capabilities);
+	m_SwapChain = CreateSwapChain(m_LogicalDevice, m_SwapChainSupportDetails, m_Surface, m_SurfaceFormat, m_Extent, m_QueueIndicies, m_PresentMode);
 }
 
 const RageV::GraphicsInfo& RageV::VulkanContext::GetGraphicsInfo() const
 {
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
+	std::string versionName = "Vulkan " + std::to_string(VK_API_VERSION_MAJOR(properties.apiVersion)) + "."
+										+ std::to_string(VK_API_VERSION_MINOR(properties.apiVersion)) + "."
+										+ std::to_string(VK_API_VERSION_PATCH(properties.apiVersion));
 	// // O: insert return statement here
 	return {
-		"Test",
-		"Vulkan"
+		versionName,
+		properties.deviceName
 	};
 }

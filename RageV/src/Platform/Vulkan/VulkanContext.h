@@ -39,6 +39,11 @@ namespace RageV
 		VkQueue m_PresentQueue;
 		VkSurfaceKHR m_Surface;
 		SwapChainSupportDetails m_SwapChainSupportDetails;
+		VkSurfaceFormatKHR m_SurfaceFormat;
+		VkPresentModeKHR m_PresentMode;
+		VkExtent2D m_Extent;
+		VkSwapchainKHR m_SwapChain;
+		friend class GraphicsInfo;
 	};
 
 }
