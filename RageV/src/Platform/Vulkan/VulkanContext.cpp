@@ -15,6 +15,7 @@ RageV::VulkanContext::~VulkanContext()
 	if (func != nullptr)
 		func(m_Instance, DebugMessenger, nullptr);
 
+	vkDestroyDevice(m_LogicalDevice, nullptr);
 	vkDestroyInstance(m_Instance, nullptr);
 }
 
@@ -112,6 +113,59 @@ static VkPhysicalDevice SelectPhysicalDevice(VkInstance& instance)
 	return VK_NULL_HANDLE;
 }
 
+static bool GetQueueFamilyProperties(VkPhysicalDevice& device, RageV::QueueFamilyIndices& queueIndicies)
+{
+	uint32_t queueFamilyCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+	std::vector<VkQueueFamilyProperties> queueFamilyProperties(queueFamilyCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilyProperties.data());
+
+	int i = 0;
+	for (const auto& queueFamilyProperty : queueFamilyProperties)
+	{
+		if (queueFamilyProperty.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+		{
+			queueIndicies.graphicsFamily = i;
+		}
+		i++;
+	}
+
+	return queueIndicies.graphicsFamily.has_value();
+}
+
+static void CreateLogicalDevice(VkPhysicalDevice& physicalDevice, VkDevice& logicalDevice, RageV::QueueFamilyIndices& queueFamilies)
+{
+	VkDeviceQueueCreateInfo createInfo{};
+	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	createInfo.queueFamilyIndex = queueFamilies.graphicsFamily.value();
+	createInfo.queueCount = 1;
+	float queuePriority = 1.0f;
+	createInfo.pQueuePriorities = &queuePriority;
+
+	VkPhysicalDeviceFeatures deviceFeatures{};
+	
+	VkDeviceCreateInfo deviceCreateInfo{};
+	deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+	deviceCreateInfo.pQueueCreateInfos = &createInfo;
+	deviceCreateInfo.queueCreateInfoCount = 1;
+	deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+
+	//Not required in newer implementations of Vulkan but still adding it
+	const std::vector<const char*>validationLayers = { "VK_LAYER_KHRONOS_validation" };
+	const bool enableValidationLayers = true;
+	if (enableValidationLayers)
+	{
+		deviceCreateInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+		deviceCreateInfo.ppEnabledLayerNames = validationLayers.data();
+	}
+	else
+		deviceCreateInfo.enabledLayerCount = 0;
+
+	if (vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &logicalDevice) == VK_SUCCESS)
+		RV_CORE_INFO("Logical device created successfully");
+}
+
 void RageV::VulkanContext::Init()
 {
 	unsigned int extensionCount = 0;
@@ -173,6 +227,13 @@ void RageV::VulkanContext::Init()
 		SetupDebugMessenger(m_Instance, DebugMessenger);
 
 	m_PhysicalDevice = SelectPhysicalDevice(m_Instance);
+
+	bool isDeviceGood = GetQueueFamilyProperties(m_PhysicalDevice, m_QueueIndicies);
+	if (isDeviceGood)
+		RV_CORE_INFO("Chosen physical device has all the relevant family queues");
+
+	CreateLogicalDevice(m_PhysicalDevice, m_LogicalDevice, m_QueueIndicies);
+	vkGetDeviceQueue(m_LogicalDevice, m_QueueIndicies.graphicsFamily.value(), 0, &m_GraphicsQueue);
 }
 
 const RageV::GraphicsInfo& RageV::VulkanContext::GetGraphicsInfo() const

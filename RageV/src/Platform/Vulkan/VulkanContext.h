@@ -1,9 +1,16 @@
 #pragma once
 #include "RageV/Renderer/GraphicsContext.h"
+#include <optional>
 
 struct GLFWwindow;
 namespace RageV
 {
+
+	struct QueueFamilyIndices
+	{
+		std::optional<uint32_t> graphicsFamily;
+	};
+
 
 	class VulkanContext : public GraphicsContext
 	{
@@ -19,6 +26,9 @@ namespace RageV
 		VkInstance m_Instance;
 		VkDebugUtilsMessengerEXT DebugMessenger;
 		VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
+		QueueFamilyIndices m_QueueIndicies;
+		VkDevice m_LogicalDevice;
+		VkQueue m_GraphicsQueue;
 	};
 
 }
