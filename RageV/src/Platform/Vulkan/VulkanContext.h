@@ -9,8 +9,15 @@ namespace RageV
 	struct QueueFamilyIndices
 	{
 		std::optional<uint32_t> graphicsFamily;
+		std::optional<uint32_t> presentFamily;
 	};
 
+	struct SwapChainSupportDetails
+	{
+		VkSurfaceCapabilitiesKHR capabilities;
+		std::vector<VkSurfaceFormatKHR> formats;
+		std::vector<VkPresentModeKHR> presentModes;
+	};
 
 	class VulkanContext : public GraphicsContext
 	{
@@ -29,6 +36,9 @@ namespace RageV
 		QueueFamilyIndices m_QueueIndicies;
 		VkDevice m_LogicalDevice;
 		VkQueue m_GraphicsQueue;
+		VkQueue m_PresentQueue;
+		VkSurfaceKHR m_Surface;
+		SwapChainSupportDetails m_SwapChainSupportDetails;
 	};
 
 }

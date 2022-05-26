@@ -1,8 +1,12 @@
 #include <rvpch.h>
 //including this for now since glfw is the only window creation API in use
+#define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
 #include "VulkanContext.h"
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include "GLFW/glfw3native.h"
+#include <set>
 
 RageV::VulkanContext::VulkanContext(GLFWwindow* windowHandle) :m_WindowHandle(windowHandle)
 {
@@ -15,6 +19,7 @@ RageV::VulkanContext::~VulkanContext()
 	if (func != nullptr)
 		func(m_Instance, DebugMessenger, nullptr);
 
+	vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
 	vkDestroyDevice(m_LogicalDevice, nullptr);
 	vkDestroyInstance(m_Instance, nullptr);
 }
@@ -48,6 +53,30 @@ static bool checkValidationLayersSupport(const std::vector<const char*>& layers)
 		if (!isPresent)
 			return false;
 	}
+	return true;
+}
+
+static bool CheckDeviceExtensionSupport(VkPhysicalDevice physicalDevice, std::vector<const char*> requiredExtensions)
+{
+	uint32_t extensionCount;
+	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
+
+	std::vector<VkExtensionProperties> deviceExtensions(extensionCount);
+	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, deviceExtensions.data());
+
+	bool isPresent = false;
+
+	for (auto& requiredExtension : requiredExtensions)
+	{
+		for (auto& deviceExtension : deviceExtensions)
+		{
+			if (strcmp(deviceExtension.extensionName, requiredExtension) == 0)
+				isPresent = true;
+		}
+		if (!isPresent)
+			return false;
+	}
+
 	return true;
 }
 
@@ -113,13 +142,14 @@ static VkPhysicalDevice SelectPhysicalDevice(VkInstance& instance)
 	return VK_NULL_HANDLE;
 }
 
-static bool GetQueueFamilyProperties(VkPhysicalDevice& device, RageV::QueueFamilyIndices& queueIndicies)
+static bool GetQueueFamilyProperties(VkPhysicalDevice& device, RageV::QueueFamilyIndices& queueIndicies, VkSurfaceKHR& surface)
 {
 	uint32_t queueFamilyCount = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
 
 	std::vector<VkQueueFamilyProperties> queueFamilyProperties(queueFamilyCount);
 	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilyProperties.data());
+	VkBool32 presentSupport = false;
 
 	int i = 0;
 	for (const auto& queueFamilyProperty : queueFamilyProperties)
@@ -128,27 +158,40 @@ static bool GetQueueFamilyProperties(VkPhysicalDevice& device, RageV::QueueFamil
 		{
 			queueIndicies.graphicsFamily = i;
 		}
+		vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+		if (presentSupport)
+		{
+			queueIndicies.presentFamily = i;
+		}
 		i++;
 	}
 
-	return queueIndicies.graphicsFamily.has_value();
+	return queueIndicies.graphicsFamily.has_value() && queueIndicies.presentFamily.has_value();
 }
 
 static void CreateLogicalDevice(VkPhysicalDevice& physicalDevice, VkDevice& logicalDevice, RageV::QueueFamilyIndices& queueFamilies)
 {
-	VkDeviceQueueCreateInfo createInfo{};
-	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	createInfo.queueFamilyIndex = queueFamilies.graphicsFamily.value();
-	createInfo.queueCount = 1;
+
+	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+	std::set<uint32_t> uniqueQueueFamilies = { queueFamilies.graphicsFamily.value(), queueFamilies.presentFamily.value() };
 	float queuePriority = 1.0f;
-	createInfo.pQueuePriorities = &queuePriority;
+
+	for (uint32_t queueFamily : uniqueQueueFamilies)
+	{
+		VkDeviceQueueCreateInfo createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		createInfo.queueFamilyIndex = queueFamily;
+		createInfo.queueCount = 1;
+		createInfo.pQueuePriorities = &queuePriority;
+		queueCreateInfos.push_back(createInfo);
+	}
 
 	VkPhysicalDeviceFeatures deviceFeatures{};
 	
 	VkDeviceCreateInfo deviceCreateInfo{};
 	deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-	deviceCreateInfo.pQueueCreateInfos = &createInfo;
-	deviceCreateInfo.queueCreateInfoCount = 1;
+	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
+	deviceCreateInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 	deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
 
 	//Not required in newer implementations of Vulkan but still adding it
@@ -162,8 +205,50 @@ static void CreateLogicalDevice(VkPhysicalDevice& physicalDevice, VkDevice& logi
 	else
 		deviceCreateInfo.enabledLayerCount = 0;
 
+	const std::vector<const char*> deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+	deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
 	if (vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &logicalDevice) == VK_SUCCESS)
 		RV_CORE_INFO("Logical device created successfully");
+}
+
+static void CreateSurface(VkInstance& instance, GLFWwindow* window, VkSurfaceKHR& surface)
+{
+	VkWin32SurfaceCreateInfoKHR createInfo{};
+	createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	createInfo.hwnd = glfwGetWin32Window(window);
+	createInfo.hinstance = GetModuleHandle(nullptr);
+
+	if (vkCreateWin32SurfaceKHR(instance, &createInfo, nullptr, &surface) != VK_SUCCESS)
+		RV_CORE_ERROR("Surface creation failed!");
+	else
+		RV_CORE_INFO("Surface created successfully!");
+}
+
+static bool QuerySwapChainSupport(VkPhysicalDevice& physicalDevice, VkSurfaceKHR& surface, RageV::SwapChainSupportDetails& swapChainSupportDetails)
+{
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &swapChainSupportDetails.capabilities);
+
+	uint32_t formatCount;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+
+	if (formatCount != 0)
+	{
+		swapChainSupportDetails.formats.resize(formatCount);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, swapChainSupportDetails.formats.data());
+	}
+
+	uint32_t presentCount;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentCount, nullptr);
+
+	if (presentCount != 0)
+	{
+		swapChainSupportDetails.presentModes.resize(presentCount);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentCount, swapChainSupportDetails.presentModes.data());
+	}
+
+	return !swapChainSupportDetails.formats.empty() && !swapChainSupportDetails.presentModes.empty();
 }
 
 void RageV::VulkanContext::Init()
@@ -227,13 +312,20 @@ void RageV::VulkanContext::Init()
 		SetupDebugMessenger(m_Instance, DebugMessenger);
 
 	m_PhysicalDevice = SelectPhysicalDevice(m_Instance);
+	
+	//Creating surface here because it's needed to look for presentation queues
+	CreateSurface(m_Instance, m_WindowHandle, m_Surface);
+	std::vector<const char*> deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
-	bool isDeviceGood = GetQueueFamilyProperties(m_PhysicalDevice, m_QueueIndicies);
+	bool isDeviceGood = GetQueueFamilyProperties(m_PhysicalDevice, m_QueueIndicies, m_Surface) && 
+						CheckDeviceExtensionSupport(m_PhysicalDevice, deviceExtensions) &&
+						QuerySwapChainSupport(m_PhysicalDevice, m_Surface, m_SwapChainSupportDetails);
 	if (isDeviceGood)
-		RV_CORE_INFO("Chosen physical device has all the relevant family queues");
+		RV_CORE_INFO("Chosen physical device has all the relevant features");
 
 	CreateLogicalDevice(m_PhysicalDevice, m_LogicalDevice, m_QueueIndicies);
 	vkGetDeviceQueue(m_LogicalDevice, m_QueueIndicies.graphicsFamily.value(), 0, &m_GraphicsQueue);
+	vkGetDeviceQueue(m_LogicalDevice, m_QueueIndicies.presentFamily.value(), 0, &m_PresentQueue);
 }
 
 const RageV::GraphicsInfo& RageV::VulkanContext::GetGraphicsInfo() const
