@@ -40,9 +40,12 @@ namespace RageV
 		VkSurfaceKHR m_Surface;
 		SwapChainSupportDetails m_SwapChainSupportDetails;
 		VkSurfaceFormatKHR m_SurfaceFormat;
+		VkFormat m_ImageFormat;
 		VkPresentModeKHR m_PresentMode;
 		VkExtent2D m_Extent;
 		VkSwapchainKHR m_SwapChain;
+		std::vector<VkImage> m_SwapChainImages;
+		std::vector<VkImageView> m_ImageViews;
 		friend class GraphicsInfo;
 	};
 

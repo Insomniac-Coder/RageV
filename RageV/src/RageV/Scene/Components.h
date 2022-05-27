@@ -6,6 +6,7 @@
 #include "RageV/Renderer/Cameranew.h"
 #include "SceneCamera.h"
 #include "ScriptableEntity.h"
+#include "RageV/Renderer/Light.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
@@ -57,6 +58,15 @@ namespace RageV
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
 		//CameraComponent(const glm::mat4& projection): Camera(projection) { }
+	};
+
+	struct LightComponent
+	{
+		RageV::Light Light;
+
+		LightComponent() = default;
+		LightComponent(const LightComponent&) = default;
+		LightComponent(const RageV::Light& light) : Light(light) {}
 	};
 
 	struct NativeScriptComponent

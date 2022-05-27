@@ -353,6 +353,48 @@ static VkSwapchainKHR CreateSwapChain(VkDevice& logicalDevice,
 	return swapChain;
 }
 
+static std::vector<VkImage> GetSwapChainImages(VkDevice& logicalDevice, VkSwapchainKHR& swapChain)
+{
+	uint32_t count;
+	vkGetSwapchainImagesKHR(logicalDevice, swapChain, &count, nullptr);
+	std::vector<VkImage> images(count);
+	vkGetSwapchainImagesKHR(logicalDevice, swapChain, &count, images.data());
+
+	return images;
+}
+
+static void CreateImageViews(VkDevice& logicalDevice, std::vector<VkImageView>& imageViews, VkFormat& imageFormat, const std::vector<VkImage>& images)
+{
+	imageViews.resize(images.size());
+	int counter = 0;
+	for (const auto& image : images)
+	{
+		VkImageViewCreateInfo createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		createInfo.image = image;
+		createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		createInfo.format = imageFormat;
+		createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+		createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+		createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+		createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+		createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		createInfo.subresourceRange.baseMipLevel = 0;
+		createInfo.subresourceRange.levelCount = 1;
+		createInfo.subresourceRange.baseArrayLayer = 0;
+		createInfo.subresourceRange.layerCount = 1;
+
+		if (vkCreateImageView(logicalDevice, &createInfo, nullptr, &imageViews[counter]) != VK_SUCCESS)
+		{
+			RV_CORE_ERROR("Failed to create image view");
+		}
+		else
+		{
+			RV_CORE_INFO("Image view created!");
+		}
+	}
+}
+
 void RageV::VulkanContext::Init()
 {
 	unsigned int extensionCount = 0;
@@ -433,6 +475,9 @@ void RageV::VulkanContext::Init()
 	ChoosePresentationMode(m_PresentMode, m_SwapChainSupportDetails.presentModes);
 	m_Extent = ChooseExtent(m_WindowHandle, m_SwapChainSupportDetails.capabilities);
 	m_SwapChain = CreateSwapChain(m_LogicalDevice, m_SwapChainSupportDetails, m_Surface, m_SurfaceFormat, m_Extent, m_QueueIndicies, m_PresentMode);
+	m_SwapChainImages = GetSwapChainImages(m_LogicalDevice, m_SwapChain);
+	m_ImageFormat = m_SurfaceFormat.format;
+	CreateImageViews(m_LogicalDevice, m_ImageViews, m_ImageFormat, m_SwapChainImages);
 }
 
 const RageV::GraphicsInfo& RageV::VulkanContext::GetGraphicsInfo() const
