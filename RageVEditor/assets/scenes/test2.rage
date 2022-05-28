@@ -2,20 +2,47 @@ Scene: Untitled
 Entities:
   - EntityID: 12345678890
     TagComponent:
-      Tag: Sqaure 4
+      Tag: Square 5
     TransformComponent:
-      Position: [-4.2126298, 0.130343422, 0.397827148]
-      Rotation: [1.13401079, 1.32124066, 0.647533596]
-      Scale: [3.91308236, 1.89920735, 0.99999994]
+      Position: [2.49124074, -0.616609097, -0.328918487]
+      Rotation: [1.02993906, 0.554552495, 0.719810009]
+      Scale: [0.999999881, 3.33109808, 1]
     Color:
-      ColorValue: [0.949806929, 0.352052003, 0, 1]
+      ColorValue: [0.908349335, 0.181467175, 1, 1]
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Square 3
+    TransformComponent:
+      Position: [0, -0.899999976, 3.9000001]
+      Rotation: [0, 0.8883726, -0.816814065]
+      Scale: [1.79999995, 1, 1]
+    Color:
+      ColorValue: [0, 0.247104406, 1, 1]
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Square 2
+    TransformComponent:
+      Position: [-3.27213717, 2.39298725, 0.839221179]
+      Rotation: [-1.51609001e-07, -0.485201329, 0.649262905]
+      Scale: [0.999999166, 0.999999821, 0.999999583]
+    Color:
+      ColorValue: [0, 1, 0.270270348, 1]
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Test Square
+    TransformComponent:
+      Position: [-1.48751581, -0.23982209, 3.5564332]
+      Rotation: [-0.875144243, 0.533304989, -0.362192273]
+      Scale: [2.10300183, 2.4917531, 0.999999464]
+    Color:
+      ColorValue: [1, 0, 0, 1]
   - EntityID: 12345678890
     TagComponent:
       Tag: Scene camera
     TransformComponent:
-      Position: [0, -0.100000001, 10]
-      Rotation: [-0.190241024, 0.0942484885, -0.425858289]
-      Scale: [0.999997079, 0.999997258, 0.999993324]
+      Position: [0, -0.100000001, 7.19999981]
+      Rotation: [-0.190240994, 0.0942491069, -0.404916376]
+      Scale: [0.99999541, 0.999997079, 0.999993324]
     CameraComponent:
       Camera:
         ProjectionType: 0
@@ -29,37 +56,10 @@ Entities:
       FixedAspectRatio: false
   - EntityID: 12345678890
     TagComponent:
-      Tag: Test Square
+      Tag: Sqaure 4
     TransformComponent:
-      Position: [-1.48751581, -0.23982209, 3.5564332]
-      Rotation: [1.4271425, 1.06640613, 0.326386094]
-      Scale: [3.22028089, 6.13253307, 0.999997914]
+      Position: [-4.2126298, 0.130343422, 0.397827148]
+      Rotation: [1.13401079, 1.32124066, 0.647533596]
+      Scale: [3.91308236, 1.89920735, 0.99999994]
     Color:
-      ColorValue: [1, 0, 0, 1]
-  - EntityID: 12345678890
-    TagComponent:
-      Tag: Square 2
-    TransformComponent:
-      Position: [-3.27213717, 2.39298725, 0.839221179]
-      Rotation: [0, -0.485201508, 0.649262488]
-      Scale: [1, 1, 1]
-    Color:
-      ColorValue: [0, 1, 0.270270348, 1]
-  - EntityID: 12345678890
-    TagComponent:
-      Tag: Square 3
-    TransformComponent:
-      Position: [0, -0.899999976, 3.9000001]
-      Rotation: [0, 0.8883726, -0.816814065]
-      Scale: [1.79999995, 1, 1]
-    Color:
-      ColorValue: [0, 0.247104406, 1, 1]
-  - EntityID: 12345678890
-    TagComponent:
-      Tag: Square 5
-    TransformComponent:
-      Position: [2.49124074, -0.616609097, -0.328918487]
-      Rotation: [1.02993906, 0.554552495, 0.719810009]
-      Scale: [0.999999881, 3.33109808, 1]
-    Color:
-      ColorValue: [0.908349335, 0.181467175, 1, 1]
+      ColorValue: [0.949806929, 0.352052003, 0, 1]

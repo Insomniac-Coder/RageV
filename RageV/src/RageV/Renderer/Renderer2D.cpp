@@ -9,6 +9,7 @@ namespace RageV
 	struct VertexData
 	{
 		glm::vec3 Position;
+		glm::vec3 Normal;
 		glm::vec4 Color;
 		glm::vec2 TexCoord;
 		float TextureID;
@@ -56,6 +57,7 @@ namespace RageV
 		renderer2DData->VertexBuffer2D = RageV::VertexBuffer::Create(sizeof(VertexData) * renderer2DData->MaxVertices);
 		RageV::BufferLayout sqbufferLayout = {
 			{ "a_Position", ShaderDataType::Float3 },
+			{ "a_Normal", ShaderDataType::Float3 },
 			{ "a_Color", ShaderDataType::Float4 },
 			{ "a_TexCord", RageV::ShaderDataType::Float2 },
 			{ "a_TextureID", RageV::ShaderDataType::Float },
@@ -124,6 +126,8 @@ namespace RageV
 		renderer2DData->DrawCalls = 0;
 		Renderer2D::ResetScene();
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", viewprojectionmatrix);
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_CamPos", transform[3]);
+		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightPos", glm::vec3(1.0f));
 	}
 
 	void Renderer2D::ResetScene()
@@ -155,6 +159,7 @@ namespace RageV
 		for (int i = 0; i < 4; i++)
 		{
 			renderer2DData->QuadVerticiesPtr->Position = transform * renderer2DData->QuadVerts[i];
+			renderer2DData->QuadVerticiesPtr->Normal = glm::mat3(glm::transpose(glm::inverse(transform))) * glm::vec3(0.0f, 0.0f, -1.0f);
 			renderer2DData->QuadVerticiesPtr->Color = color;
 			renderer2DData->QuadVerticiesPtr->TexCoord = texcoords[i];
 			renderer2DData->QuadVerticiesPtr->TextureID = 0.0f;
@@ -182,6 +187,7 @@ namespace RageV
 		for (int i = 0; i < 4; i++)
 		{
 			renderer2DData->QuadVerticiesPtr->Position = transform * renderer2DData->QuadVerts[i];
+			renderer2DData->QuadVerticiesPtr->Normal = glm::mat3(glm::transpose(glm::inverse(transform))) * glm::vec3(0.0f, 0.0f, -1.0f);
 			renderer2DData->QuadVerticiesPtr->Color = glm::vec4(1.0f);
 			renderer2DData->QuadVerticiesPtr->TexCoord = texcoords[i];
 			renderer2DData->QuadVerticiesPtr->TextureID = (float)renderer2DData->CurrentTextureSlotId;
