@@ -89,8 +89,18 @@ namespace RageV
 			}
 		}
 
+		auto group2 = m_Registry.view<TransformComponent, LightComponent>();
+		std::vector <std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData;
+		
+		for (auto& item : group2)
+		{
+			auto [transform, light] = group2.get<TransformComponent, LightComponent>(item);
+		
+			lightData.push_back(std::make_tuple(glm::vec3(transform.GetTransform()[3]), light.Light.GetLightColor(), light.Light.GetLightType()));
+		}
 
-		Renderer2D::BeginScene(*mainCamera, cameraTransform.GetTransform());
+
+		Renderer2D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lightData);
 
 		auto group = m_Registry.group<TransformComponent>(entt::get<ColorComponent>);
 

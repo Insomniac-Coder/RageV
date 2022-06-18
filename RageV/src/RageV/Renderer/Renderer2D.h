@@ -3,6 +3,7 @@
 #include "OrthographicCamera.h"
 #include "Texture.h"
 #include "Cameranew.h"
+#include "Light.h"
 
 namespace RageV
 {
@@ -13,7 +14,7 @@ namespace RageV
 		static void Init();
 		static void Shutdown();
 		static void BeginScene(const OrthographicCamera& camera);
-		static void BeginScene(Cameranew& camera, glm::mat4& transform);
+		static void BeginScene(Cameranew& camera, glm::mat4& transform, std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData = {});
 		static void EndScene();
 		static void DrawQuad(glm::mat4& transform, glm::vec4& color);
 		static void DrawQuad(glm::mat4& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor = 1.0f);

@@ -3,6 +3,9 @@
 #include "Buffer.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "RenderCommand.h"
+#include "Perlin.h"
+#include "stb_write_image.h"
+#include "stb_image.h"
 
 namespace RageV
 {
@@ -41,6 +44,26 @@ namespace RageV
 	};
 
 	static std::unique_ptr<Renderer2DData> renderer2DData;
+
+	static void CreatePerlinImage()
+	{
+		char* data = new char[512 * 512 * 3];
+
+		int index = 0;
+		for (int x = 0; x < 512; x++)
+		{
+			for (int y = 0; y < 512; y++)
+			{
+				float r = perlin2D(x, y);
+				int ir = int(255.0 * r);
+				data[index++] = ir;
+				data[index++] = ir;
+				data[index++] = ir;
+			}
+		}
+		stbi_write_jpg("noise.png", 512, 512, 3, data, 100);
+		stbi_image_free(data);
+	}
 
 	void Renderer2D::Init()
 	{
@@ -106,6 +129,7 @@ namespace RageV
 
 		renderer2DData->QuadVerticiesBuffer = new VertexData[renderer2DData->MaxQuads * 4];
 		renderer2DData->QuadVerticiesPtr = renderer2DData->QuadVerticiesBuffer;
+		CreatePerlinImage();
 	}
 
 	void Renderer2D::Shutdown()
@@ -120,14 +144,27 @@ namespace RageV
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
 	}
 
-	void Renderer2D::BeginScene(Cameranew& camera, glm::mat4& transform)
+	void Renderer2D::BeginScene(Cameranew& camera, glm::mat4& transform, std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData)
 	{
 		glm::mat4 viewprojectionmatrix = camera.GetProjection() * glm::inverse(transform);
 		renderer2DData->DrawCalls = 0;
 		Renderer2D::ResetScene();
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", viewprojectionmatrix);
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_CamPos", transform[3]);
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightPos", glm::vec3(1.0f));
+
+		for (int i = 0; i < lightData.size(); i++)
+		{
+			glm::vec3 lPos = std::get<0>(lightData[i]);
+			glm::vec3 lColor = std::get<1>(lightData[i]);
+			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightPos[" + std::to_string(i) + "]", lPos);
+			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightColor[" + std::to_string(i) + "]", lColor);
+		}
+
+		if (lightData.empty())
+		{
+			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightPos[0]", glm::vec3(1.0f));
+			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightColor[0]", glm::vec3(0.1f));
+		}
 	}
 
 	void Renderer2D::ResetScene()

@@ -41,28 +41,28 @@ in float v_TilingFactor;
 
 uniform sampler2D u_Textures[32];
 uniform vec3 u_CamPos;
-uniform vec3 u_LightPos;
+uniform vec3 u_LightPos[];
+uniform vec3 u_LightColor[];
 
 void main()
 {	
-    vec3 lightColor = vec3(1.0, 0.2, 0.3);
 	// ambient
     float ambientStrength = 0.1;
-    vec3 ambient = ambientStrength * lightColor * vec3(texture(u_Textures[int(v_TextureID)], v_TexCord * v_TilingFactor) * v_Color);
+    vec3 ambient = ambientStrength * u_LightColor[0];
   	
     // diffuse 
     vec3 norm = normalize(v_Normal);
-    vec3 lightDir = normalize(-u_LightPos);
+    vec3 lightDir = normalize(u_LightPos[0] - v_Pos);
     float diff = max(dot(norm, lightDir), 0.0);
-    vec3 diffuse = diff * lightColor * vec3(texture(u_Textures[int(v_TextureID)], v_TexCord * v_TilingFactor) * v_Color);
+    vec3 diffuse = diff * u_LightColor[0];
     
     // specular
     float specularStrength = 0.5;
     vec3 viewDir = normalize(u_CamPos - v_Pos);
     vec3 reflectDir = reflect(-lightDir, norm);  
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
-    vec3 specular = specularStrength * spec * lightColor * vec3(texture(u_Textures[int(v_TextureID)], v_TexCord * v_TilingFactor) * v_Color);  
+    vec3 specular = specularStrength * spec * u_LightColor[0];  
 
-
-	a_Color = vec4(ambient + diffuse + specular, 1.0f);
+    vec3 v_Temp = vec3(texture(u_Textures[int(v_TextureID)], v_TexCord * v_TilingFactor) * v_Color);
+	a_Color = vec4((ambient + diffuse + specular) * v_Temp, 1.0f);
 }

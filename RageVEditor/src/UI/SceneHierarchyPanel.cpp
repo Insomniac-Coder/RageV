@@ -221,6 +221,11 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 				m_Selected.AddComponent<ColorComponent>();
 				ImGui::CloseCurrentPopup();
 			}
+			if (ImGui::MenuItem("Light Component"))
+			{
+				m_Selected.AddComponent<LightComponent>();
+				ImGui::CloseCurrentPopup();
+			}
 			ImGui::EndPopup();
 		}
 		ImGui::PopItemWidth();
@@ -248,6 +253,48 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
 			ImGui::ColorEdit4("##Color", glm::value_ptr(component.Color));
 			ImGui::SameLine();
+			ImGui::Columns(1);
+			ImGui::PopStyleVar();
+			ImGui::PopID();
+			ImGui::Spacing();
+		}
+	);
+
+	DrawComponent<LightComponent>("Light", entity, [](auto& component)
+		{
+			const char* lightTypes[] = { "Directional", "Point", "Spot"};
+			const char* currentLightType = lightTypes[(int)component.Light.GetLightType()];
+
+			ImGui::PushID("Light");
+			ImGui::Columns(2);
+			ImGui::SetColumnWidth(0, 150.f);
+			ImGui::Text("Light Color");
+			ImGui::NextColumn();
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+			ImGui::ColorEdit3("##Light", glm::value_ptr(component.Light.GetLightColor()));
+			ImGui::Columns(1);
+			ImGui::PopStyleVar();
+			ImGui::Columns(2);
+			ImGui::SetColumnWidth(0, 150.f);
+			ImGui::Text("Light Type");
+			ImGui::NextColumn();
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+			if (ImGui::BeginCombo("##Light Type", currentLightType))
+			{
+				for (int i = 0; i < 3; i++)
+				{
+					bool isSelected = currentLightType == lightTypes[i];
+					if (ImGui::Selectable(lightTypes[i], isSelected))
+					{
+						currentLightType = lightTypes[i];
+						component.Light.SetLightType(Light::LightType(i));
+					}
+
+					if (isSelected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
 			ImGui::Columns(1);
 			ImGui::PopStyleVar();
 			ImGui::PopID();

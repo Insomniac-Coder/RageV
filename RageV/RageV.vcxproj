@@ -180,6 +180,7 @@
     <ClInclude Include="src\RageV\Renderer\Light.h" />
     <ClInclude Include="src\RageV\Renderer\OrthographicCamera.h" />
     <ClInclude Include="src\RageV\Renderer\OrthographicCameraController.h" />
+    <ClInclude Include="src\RageV\Renderer\Perlin.h" />
     <ClInclude Include="src\RageV\Renderer\RenderAPI.h" />
     <ClInclude Include="src\RageV\Renderer\RenderCommand.h" />
     <ClInclude Include="src\RageV\Renderer\Renderer.h" />
@@ -611,6 +612,7 @@
     <ClInclude Include="vendor\glm\glm\vec4.hpp" />
     <ClInclude Include="vendor\glm\glm\vector_relational.hpp" />
     <ClInclude Include="vendor\stb_image\stb_image.h" />
+    <ClInclude Include="vendor\stb_image\stb_write_image.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
@@ -650,6 +652,7 @@
     </ClCompile>
     <ClCompile Include="vendor\ImGuizmo\ImGuizmo.cpp" />
     <ClCompile Include="vendor\stb_image\stb_image.cpp" />
+    <ClCompile Include="vendor\stb_image\stb_write_image.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="vendor\GLAD\Sandbox\GLAD.vcxproj">

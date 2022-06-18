@@ -1468,6 +1468,8 @@
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\Light.h" />
+    <ClInclude Include="src\RageV\Renderer\Perlin.h" />
+    <ClInclude Include="vendor\stb_image\stb_write_image.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1573,5 +1575,6 @@
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
     <ClCompile Include="src\RageV\Renderer\Light.cpp" />
+    <ClCompile Include="vendor\stb_image\stb_write_image.cpp" />
   </ItemGroup>
 </Project>
