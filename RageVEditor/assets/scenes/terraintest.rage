@@ -1,0 +1,27 @@
+Scene: Untitled
+Entities:
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Light
+    TransformComponent:
+      Position: [10, 60, 35]
+      Rotation: [4.88692188, 4.71238899, 1.30899692]
+      Scale: [1, 1, 1]
+  - EntityID: 12345678890
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [-40, 60, 35]
+      Rotation: [4.88692188, 4.71238899, 1.30899692]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 60
+        PerspectiveNearClip: 0.00999999978
+        PerspectiveFarClip: 1000
+        OrthographicScale: 10
+        OrthographicNearClip: -1
+        OrthographicFarClip: 1
+      isPrimary: true
+      FixedAspectRatio: false

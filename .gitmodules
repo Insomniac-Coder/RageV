@@ -13,3 +13,6 @@
 [submodule "RageV/vendor/ImGuizmo"]
 	path = RageV/vendor/ImGuizmo
 	url = https://github.com/CedricGuillemet/ImGuizmo.git
+[submodule "RageV/vendor/PerlinNoise"]
+	path = RageV/vendor/PerlinNoise
+	url = https://github.com/Reputeless/PerlinNoise.git

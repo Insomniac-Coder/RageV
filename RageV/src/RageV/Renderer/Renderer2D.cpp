@@ -45,26 +45,6 @@ namespace RageV
 
 	static std::unique_ptr<Renderer2DData> renderer2DData;
 
-	static void CreatePerlinImage()
-	{
-		char* data = new char[512 * 512 * 3];
-
-		int index = 0;
-		for (int x = 0; x < 512; x++)
-		{
-			for (int y = 0; y < 512; y++)
-			{
-				float r = perlin2D(x, y);
-				int ir = int(255.0 * r);
-				data[index++] = ir;
-				data[index++] = ir;
-				data[index++] = ir;
-			}
-		}
-		stbi_write_jpg("noise.png", 512, 512, 3, data, 100);
-		stbi_image_free(data);
-	}
-
 	void Renderer2D::Init()
 	{
 		renderer2DData = std::make_unique<Renderer2DData>();
@@ -129,7 +109,6 @@ namespace RageV
 
 		renderer2DData->QuadVerticiesBuffer = new VertexData[renderer2DData->MaxQuads * 4];
 		renderer2DData->QuadVerticiesPtr = renderer2DData->QuadVerticiesBuffer;
-		CreatePerlinImage();
 	}
 
 	void Renderer2D::Shutdown()

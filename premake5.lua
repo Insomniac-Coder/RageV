@@ -54,6 +54,7 @@ project "RageV"
     includedirs
     {
         "%{prj.name}/vendor/spdlog/include",
+        "%{prj.name}/vendor/PerlinNoise",
         "%{IncludeDir.GLFW}",
         "%{IncludeDir.GLAD}",
         "%{IncludeDir.ImGui}",

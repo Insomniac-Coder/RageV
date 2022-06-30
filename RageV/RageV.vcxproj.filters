@@ -168,10 +168,16 @@
     <ClInclude Include="src\RageV\Renderer\GraphicsContext.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Light.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
     <ClInclude Include="src\RageV\Renderer\OrthographicCamera.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\OrthographicCameraController.h">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Perlin.h">
       <Filter>src\RageV\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\RageV\Renderer\RenderAPI.h">
@@ -1467,9 +1473,10 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\RageV\Renderer\Light.h" />
-    <ClInclude Include="src\RageV\Renderer\Perlin.h" />
-    <ClInclude Include="vendor\stb_image\stb_write_image.h" />
+    <ClInclude Include="vendor\stb_image\stb_write_image.h">
+      <Filter>vendor\stb_image</Filter>
+    </ClInclude>
+    <ClInclude Include="src\RageV\Renderer\Chunk.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1532,6 +1539,9 @@
     <ClCompile Include="src\RageV\Renderer\Framebuffer.cpp">
       <Filter>src\RageV\Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\Light.cpp">
+      <Filter>src\RageV\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\RageV\Renderer\OrthographicCamera.cpp">
       <Filter>src\RageV\Renderer</Filter>
     </ClCompile>
@@ -1574,7 +1584,9 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\RageV\Renderer\Light.cpp" />
-    <ClCompile Include="vendor\stb_image\stb_write_image.cpp" />
+    <ClCompile Include="vendor\stb_image\stb_write_image.cpp">
+      <Filter>vendor\stb_image</Filter>
+    </ClCompile>
+    <ClCompile Include="src\RageV\Renderer\Chunk.cpp" />
   </ItemGroup>
 </Project>

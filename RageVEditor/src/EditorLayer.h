@@ -16,6 +16,7 @@ public:
 	void NewScene();
 	void OpenScene();
 	void SaveScene();
+	void Generate();
 
 private:
 	glm::vec3 m_Color;

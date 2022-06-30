@@ -6,6 +6,7 @@
 #include "glm/gtc/type_ptr.hpp"
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/matrix_decompose.hpp"
+#include "RageV/Renderer/Chunk.h"
 
 EditorLayer::EditorLayer() : Layer("Renderer2D"), m_CameraController(1270.f / 720.f, true), m_Color(1.0f, 0.0f, 0.0f) {
 
@@ -133,7 +134,16 @@ void EditorLayer::OnImGuiRender()
 				RageV::Application::Get().Close();
 			ImGui::EndMenu();
 		}
-	
+		
+		if (ImGui::BeginMenu("Terrain"))
+		{
+			if (ImGui::MenuItem("Generate Chunk"))
+			{
+				Generate();
+			}
+			ImGui::EndMenu();
+		}
+
 		ImGui::EndMenuBar();
 	}
 	
@@ -294,5 +304,40 @@ void EditorLayer::SaveScene()
 	{
 		RageV::SceneSerializer serializer(m_Scene);
 		serializer.Serialize(filepath);
+	}
+}
+
+void EditorLayer::Generate()
+{
+	RageV::Chunk chunk(0, 0, 1453422, 1349244, 4832123);
+	unsigned int counter = 0;
+	for (auto point : chunk.GetData())
+	{
+		auto entt = m_Scene->CreateEntity("TerrainObject" + std::to_string(counter));
+		entt.AddComponent<RageV::ColorComponent>();
+		auto& transform = entt.GetComponent<RageV::TransformComponent>();
+		transform.Position = { point.x, point.y, point.z };
+		switch (point.faceType)
+		{
+		case RageV::FaceType::TOP:
+			transform.Rotation = glm::radians(glm::vec3(-90.f, 0.f, 0.f));
+			break;
+		case RageV::FaceType::BOTTOM:
+			transform.Rotation = glm::radians(glm::vec3(90.f, 0.f, 0.f));
+			break;
+		case RageV::FaceType::LEFT:
+			transform.Rotation = glm::radians(glm::vec3(0.f, -90.f, 0.f));
+			break;
+		case RageV::FaceType::RIGHT:
+			transform.Rotation = glm::radians(glm::vec3(0.f, 90.f, 0.f));
+			break;
+		case RageV::FaceType::FRONT:
+			transform.Rotation = glm::radians(glm::vec3(0.f, 0.f, 0.f));
+			break;
+		case RageV::FaceType::BACK:
+			transform.Rotation = glm::radians(glm::vec3(0.f, 180.f, 0.f));
+			break;
+		}
+		counter++;
 	}
 }
