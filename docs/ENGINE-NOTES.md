@@ -109,6 +109,48 @@ solo project has no business writing a solver, and Godot reached the same
 conclusion for its 4.6 default. But it lands *after* the loop and play mode,
 because both are prerequisites and both are cheap.
 
+### 3a. Contacts: the callback is not the hard part
+
+Written after implementing 2.6. The plumbing — a `ContactListener`, a queue,
+six virtuals on `ScriptableEntity` — is a morning. What decides whether a
+script can *trust* what it is told is three properties of Jolt that are stated
+in its docs and are easy to read past.
+
+**The callbacks run on job threads with every body locked.** Jolt is explicit
+that using a locking body interface there deadlocks. So the listener records
+the raw fact and returns; every map lookup, every decision, every delivery
+happens on the main thread after `Update` returns. This is not a performance
+choice, it is the only correct shape.
+
+**`OnContactRemoved` cannot read either body.** It gets a `SubShapeIDPair` and
+nothing else, because one of the bodies may already have been destroyed.
+Anything the removal needs — which entities, whether it was a trigger — has to
+have been cached when the contact was *added*.
+
+**Jolt withdraws a body's contacts the instant it falls asleep.** This is the
+one that produces a wrong game rather than a crash. A box lands, settles, and
+about a second later Jolt reports every one of its contacts removed — so a
+naive implementation tells the script the box left the floor at exactly the
+moment it looks most firmly on it. Any "am I grounded" check built on that is
+wrong, intermittently, in a way that looks like a physics bug.
+
+Neither body being awake is what distinguishes it from real separation: bodies
+that genuinely separate are moving, and a body cannot fall asleep while it is.
+Suppressing the exit and remembering the pair as dormant gives the semantics
+Unity and Godot both have, where enter and exit describe touching rather than
+simulation state.
+
+**Reporting granularity is per sub-shape pair, not per body pair.** With convex
+shapes those are the same thing, so it is invisible today — and stops being
+invisible the moment compound or mesh colliders arrive. Counting sub-shape
+pairs per body pair, and firing enter/exit on the transitions off and back to
+zero, costs nothing now and means one touch stays one touch later.
+
+**On ordering:** contacts arrive from several threads, so the order they land
+in is the scheduler's rather than the scene's. Sorting before delivery is
+cheap and is the difference between a simulation that replays and one that
+nearly does.
+
 ---
 
 ## 4. ECS: stay on EnTT, and know what it costs
@@ -242,6 +284,44 @@ the layer *underneath* this, not a substitute for it.
 
 ---
 
+## 7a. Audio: the null backend is the design
+
+Written after implementing 2.5. miniaudio's `ma_engine` supplies decoding,
+mixing, streaming, a node graph and distance attenuation, so almost nothing
+about audio is a matter of algorithms. What is left is a lifetime problem and a
+testability problem, and they have the same answer.
+
+**A sound outlives the thing that started it.** A one-shot fired from a
+collision belongs to no entity; the entity may be destroyed before the sound
+finishes, and usually should not cut it off when it is. So a playing sound is
+addressed by an opaque voice id rather than a pointer, and the engine owns the
+lifetime. A component holds a voice id, never a sound.
+
+That immediately produces three places a voice has to be released — the entity
+is destroyed, the component is removed, the registry is cleared — which is one
+too many to remember. An `on_destroy` signal covers all three and cannot be
+forgotten at one of them. This is the same conclusion the script component
+reached, for the same reason, which is a sign it is the right shape.
+
+**The interesting decision is what happens with no output device.** The obvious
+implementation makes every call a no-op and returns nothing. That means the
+engine behaves differently on a machine with no sound card — and, worse, that
+the audio code paths are untestable anywhere without one, so the difference
+goes unnoticed until someone reports it.
+
+Making the silent path allocate, track and retire voices exactly as the real
+one does costs about ten lines and buys two things: behaviour that does not
+depend on the hardware, and a suite that can run the *same* checks twice, once
+with a device and once without. `--audio=off` exists to make the second path
+reachable deliberately rather than only by accident on someone else's machine.
+
+**On buses:** four fixed ones rather than arbitrary named groups. Every game
+needs exactly this separation, and a fixed enum is something the inspector, the
+serializer and a settings screen can present without first inventing a naming
+scheme. Arbitrary buses can be added later; they cannot be taken away.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
@@ -254,3 +334,5 @@ the layer *underneath* this, not a substitute for it.
 | Bindless | unexamined | named as the point where two backends costs something real |
 | ECS | EnTT | confirmed, with the failure mode written down |
 | GPU-driven | unstated | explicitly out of scope |
+| Contacts | "route them into scripts" | the routing is easy; sleep, removal and sub-shape granularity are not (§3a) |
+| Audio | "add miniaudio" | the null backend is the design, not a fallback (§7a) |

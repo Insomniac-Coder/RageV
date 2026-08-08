@@ -273,6 +273,19 @@ after Jolt would mean writing the transform sync twice.
 | 2.5 | **Audio — miniaudio** — 2D + 3D sources, listener, volume groups | L |
 | 2.6 | Collision and trigger callbacks routed into scripts | M |
 
+**Phase 2 is complete.** Two things came out differently from how they were
+written here:
+
+- 2.4 shipped without **debug draw** and without **convex/mesh colliders**.
+  Debug draw is a renderer feature that happened to be listed under physics;
+  it is now the largest gap between "physics works" and "physics is usable",
+  and the demo scene contains a trigger volume nobody can see.
+- 2.6 turned out to be the harder half of the pair, not the easier one. The
+  callbacks themselves are a morning's work; the two Jolt behaviours around
+  them — contacts withdrawn on sleep, and removal reported a step late — are
+  the part that decides whether a script can trust what it is told. Both are
+  recorded in HANDOFF §5.
+
 ### Phase 3 — Fidelity *(parallel track; the "somewhat Unreal" slice)*
 
 | # | Item | Size |

@@ -1,12 +1,13 @@
 # RageV — handoff
 
 **Read this first.** Updated 2026-08-08, on branch `vulkan-overhaul`
-(36 commits ahead of `main`, **not merged, not pushed**).
+(38 commits ahead of `main`, **not merged, not pushed**).
 
 Companion docs:
 - [ROADMAP.md](ROADMAP.md) — where this is going, in dependency order.
 - [ENGINE-NOTES.md](ENGINE-NOTES.md) — research distilled into decisions. Read
-  §1 before touching the simulation loop and §3 before touching physics.
+  §1 before touching the simulation loop, §3 and §3a before touching physics or
+  contacts, and §7a before touching audio.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — renderer design detail.
 
 ---
@@ -14,14 +15,14 @@ Companion docs:
 ## 1. What this is
 
 A Windows game engine. Originally a Hazel/Cherno-lineage 2D engine, shelved
-mid-way through a Vulkan port, revived and taken through two and a half phases
+mid-way through a Vulkan port, revived and taken through the first three phases
 of a planned roadmap.
 
 **Stated goal:** ease of use of Unity, some of Unreal's graphical fidelity,
 scope closer to Godot.
 
 The engine loop — *import → place → script → play → export* — has four of five
-links working. Export is the missing one.
+links working. Export is the missing one, and it is Phase 4.
 
 ---
 
@@ -40,7 +41,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 | Target | Purpose |
 |---|---|
 | `RageVEditor` | The editor. Opens on a demo scene. |
-| `scenetest` | 155 checks: serialization, undo, assets, scripts, physics. |
+| `scenetest` | 239 checks: serialization, undo, assets, scripts, physics, audio. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
 | `Sandbox` | Stale, predates the RHI, **off by default**. |
@@ -56,7 +57,12 @@ Command line or `ragev.ini` next to the executable; command line wins.
 --frames-in-flight=N
 --fixed-hz=N             simulation rate, 20..240, default 60
 --width=N --height=N     window size
+--audio=on|off           open an output device at all
 ```
+
+`--audio=off` is not only a mute switch. It takes the same path a machine with
+no sound card takes, which is how that path stays working rather than being
+assumed to. `scenetest` runs its whole audio suite on both.
 
 ### Verifying a change
 
@@ -83,20 +89,24 @@ every `[Vulkan]` line so far has been a real defect.
   Nothing to fix.
 - GPU: NVIDIA RTX 5070 Ti Laptop, driver 591.91. RenderDoc installed; debug
   names and command-buffer labels are wired throughout.
-- 13 vendored submodules: spdlog, imgui, glm, yaml-cpp, ImGuizmo, PerlinNoise,
+- 14 vendored submodules: spdlog, imgui, glm, yaml-cpp, ImGuizmo, PerlinNoise,
   GLFW, Vulkan-Headers, volk, VulkanMemoryAllocator, glslang, **cgltf**,
-  **JoltPhysics** (v5.6.0).
+  **JoltPhysics** (v5.6.0), **miniaudio** (0.11.22).
 
 ---
 
 ## 4. Architecture
 
 ```
-Application  (fixed-step loop, InputMap, AssetRegistry/Manager)
+Application  (fixed-step loop, InputMap, AssetRegistry/Manager, AudioEngine)
      |
    Layers -> EditorLayer
      |
    Scene (EnTT)  --  PhysicsWorld (Jolt)   ScriptRegistry
+     |                     |
+     |                contact events
+     |                     v
+     |                 scripts  -->  AudioEngine (miniaudio)
      |
   Renderer2D / Renderer3D
      |
@@ -125,10 +135,29 @@ simulation directly. See ENGINE-NOTES §1.
 |---|---|---|
 | Scripts | no | yes, on the fixed step |
 | Physics | no | yes, after scripts |
+| Contact callbacks | no | yes, after the step that produced them |
+| Audio | no | starts on play, silenced on stop |
 | Restore on Stop | — | full snapshot |
 
 `Scene::OnUpdateEditor` / `OnUpdateRuntime` / `OnFixedUpdateRuntime`.
-`OnRuntimeStart` builds the physics world; `OnRuntimeStop` tears it down.
+`OnRuntimeStart` builds the physics world and starts play-on-awake sources;
+`OnRuntimeStop` silences everything and tears the physics world down.
+
+One fixed step, in order:
+
+```
+scripts (OnUpdate)
+flush destroy queue
+update world transforms
+physics step
+dispatch contacts  ->  OnCollisionEnter/Stay/Exit, OnTrigger*
+flush destroy queue          again: a handler may have destroyed something
+```
+
+Audio deliberately is not in that list. Listener and source positions are
+pushed on the **frame**, from `OnUpdateRuntime`, after physics transforms have
+been interpolated — audio is presentation, and belongs where rendering is for
+the same reason.
 
 ---
 
@@ -168,6 +197,10 @@ or silence rather than an obvious failure.
 - **Anything rewritten every frame needs one instance per frame in flight.**
 - **Entities are addressed by UUID, never by `entt::entity`.** Handles are
   recycled, and play-mode restore recreates every entity.
+- **`Entity`'s members are all `const`.** It is a handle, so const on it means
+  "cannot be repointed", not "cannot be used" — the same reading that makes
+  `T* const` allow writes through it. Without that, anything holding one by
+  const reference, such as a script receiving a `Collision`, could not touch it.
 - World transforms are recomputed by one unconditional top-down pass, not a
   dirty-flag cache — a missed flag renders an object in the wrong place
   silently.
@@ -189,6 +222,48 @@ or silence rather than an obvious failure.
 - Jolt must use the **dynamic** MSVC runtime to match the project.
 - Bodies simulate in world space; the result converts back through the parent.
 - Rotations interpolate with **slerp**.
+
+### Contacts
+
+- **The contact listener runs on job threads with every body locked.** It may
+  not touch the scene, the body interface, or any engine state — Jolt says a
+  locking interface there *deadlocks*. It records the raw fact; everything else
+  happens on the main thread after `Update` returns.
+- **`OnContactRemoved` cannot read either body.** One of them may already be
+  destroyed. Whatever the removal needs must have been cached when the contact
+  was added.
+- **Jolt withdraws the contacts of a body the instant it falls asleep.** Taken
+  at face value that is a box leaving the floor about a second after it landed
+  — exactly when it looks most stationary. Neither body being awake is what
+  tells that apart from real separation, since bodies that separate are moving.
+- **A destroyed body's contacts are reported only on the following step, and a
+  pair left asleep is never reported again at all.** `RemoveBody` retires its
+  own pairs rather than waiting for Jolt to mention them.
+- Contacts arrive from several threads, so their order within a step is the
+  scheduler's, not the scene's. They are sorted before delivery.
+- Delivery is over a **moved** copy of the queue. A handler may destroy an
+  entity, which removes a body, which queues more events — appending to a
+  container being iterated.
+- A trigger only sees bodies that are **awake**. Something that falls asleep
+  inside one stops being reported until it moves.
+
+### Audio
+
+- **Every call works with no output device.** Voices are still allocated,
+  tracked and retired, so engine behaviour does not depend on the hardware.
+  `--audio=off` takes that path on purpose and `scenetest` runs the whole audio
+  suite on it.
+- A voice is stopped by an **`on_destroy` signal**, not by a line in
+  `DeleteEntity`: entity destruction, component removal and registry clear all
+  have to do it. A looping source on a destroyed entity would otherwise play
+  until the process ended.
+- **A voice is not scene data.** It is cleared on copy and never serialized —
+  it means nothing outside the run that created it.
+- Shutdown order is sounds, then groups, then the engine. Each holds a node in
+  the graph owned by the next, and out of order leaves the audio thread reading
+  freed memory.
+- `AudioEngine::Update()` runs once per frame from the application loop. Without
+  it, one-shots accumulate for the life of the process — nothing else owns them.
 
 ### Input
 
@@ -226,16 +301,18 @@ or silence rather than an obvious failure.
 | Loop | Fixed timestep, clamp, interpolation |
 | Play mode | Snapshot / restore, pause |
 | Input | Actions, axes, bindings, contexts |
-| Scripting | Registry by name, rich native API, three built-in scripts |
+| Scripting | Registry by name, rich native API, six built-in scripts |
 | Physics | Jolt — rigid bodies, 3 collider shapes, triggers, raycasts |
+| Contacts | Collision and trigger enter/stay/exit into scripts, both sides |
+| Audio | miniaudio — clips as assets, 4 buses, 3D sources, listener, one-shots |
 | Editor | Two viewports, proportional dock layout, red-on-black theme |
-| Tests | `scenetest`, **155 checks**, green on both backends |
+| Tests | `scenetest`, **239 checks**, green on both backends |
+
+**Phase 2 is complete.** The engine loop is *import → place → script → play →
+export* with export the one remaining severed link.
 
 ### Not done
 
-- **Collision callbacks into scripts** (roadmap 2.6). Physics can push things;
-  a script cannot yet react to a hit. Next most valuable item.
-- **Audio** (2.5). Nothing at all. miniaudio is the chosen library.
 - **Shadows, IBL, skybox, HDR/post** (Phase 3). Ambient is a flat constant.
 - **Clustered forward** — the 8-light cap stands.
 - **Culling** — everything is drawn every frame.
@@ -243,11 +320,13 @@ or silence rather than an obvious failure.
 - **Build/export** (Phase 4). No runtime target, no packaging. This is the
   remaining severed link in the engine loop.
 - **C# scripting** (Phase 5). Deliberately last.
-- Physics debug draw — colliders are invisible.
+- Physics debug draw — colliders and trigger volumes are invisible.
 - Mesh/convex colliders — box, sphere and capsule only.
 - Texture map assignment UI; materials are not assets yet.
 - Multi-select, copy/paste, focus-on-selection for multiple entities.
 - Multi-viewport ImGui on Vulkan (OpenGL only).
+- Audio: no reverb or effects, no Vorbis, no editor preview button, no mixer
+  panel — bus volumes are reachable from code only.
 
 ---
 
@@ -264,6 +343,19 @@ or silence rather than an obvious failure.
 - **cgltf, not fastgltf** — fastgltf needs simdjson for parse speed that does
   not matter at editor scale.
 - **Jolt, not a hand-written solver.**
+- **miniaudio, not OpenAL Soft or FMOD.** OpenAL Soft is LGPL, which constrains
+  how a packaged game may link it; FMOD cannot be redistributed, so every user
+  of the engine would need their own licence. miniaudio is one public-domain
+  file with decoding, mixing, streaming and spatialisation already in it.
+- **No Vorbis.** miniaudio decodes it only through stb_vorbis, which means
+  vendoring another decoder for a format WAV and MP3 already cover.
+- **Four fixed audio buses, not arbitrary named groups.** Every game needs
+  exactly this separation, and a fixed enum is something the inspector, the
+  serializer and a settings screen can all present without inventing a naming
+  scheme first. Arbitrary buses can be added later; they cannot be removed.
+- **A missing audio listener falls back to the primary camera** rather than
+  producing silence. Requiring a component would mostly produce silent scenes
+  and a confused user.
 - **EnTT stays** — sparse sets are the right trade for editor-scale scenes.
 - **A purpose-built component registry, not `entt::meta`** — EnTT identifies
   members by hashed id, so a serializer must store the name anyway.
@@ -277,16 +369,31 @@ or silence rather than an obvious failure.
 
 ## 8. Next steps
 
-1. **Collision callbacks into scripts** (2.6, `M`). `OnCollisionEnter` /
-   `OnTriggerEnter` on `ScriptableEntity`, fed by a Jolt contact listener.
-   Finishes making physics useful.
-2. **Audio** (2.5, `L`). miniaudio: 2D and 3D sources, listener, volume groups.
-3. **Phase 3 fidelity** — render graph → skybox/cubemaps → IBL → HDR/post →
-   shadows. A parallel track against a stable RHI; pulling it forward costs no
-   structural debt.
-4. **Phase 4 ship** — project concept, standalone runtime, packaging. This is
-   the definition of done for MVP.
-5. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+Phases 0, 1 and 2 are done. Two tracks remain and they are independent, so the
+first decision is which to take.
+
+1. **Phase 4 ship** — project concept (4.1), standalone runtime (4.2),
+   packaging (4.3). This is the definition of done for MVP, and 4.1 also fixes
+   the asset-handle problem in §9 rather than working around it. 4.2 is a
+   forcing function: it proves nothing load-bearing has leaked into the editor.
+2. **Phase 3 fidelity** — render graph → skybox/cubemaps → IBL → HDR/post →
+   shadows → clustered forward → culling. A parallel track against a stable
+   RHI; pulling it forward costs no structural debt. This is where the
+   "somewhat Unreal" half of the goal is won or lost.
+3. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+
+**My recommendation is Phase 4 first**, on two grounds. It is the shorter of
+the two, and until it exists the engine cannot produce anything a person who is
+not running the editor can play — which is the difference between a project and
+a demo. Phase 3 also gets easier afterwards, because the project concept is
+where render settings would naturally live.
+
+Smaller items worth doing whenever they get in the way:
+
+- **Physics debug draw.** Colliders and trigger volumes are invisible, and the
+  demo scene now contains a trigger you cannot see. This is the single biggest
+  gap between "physics works" and "physics is usable".
+- **A mixer panel.** Bus volumes exist and are reachable from code only.
 
 ---
 

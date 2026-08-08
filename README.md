@@ -1,8 +1,9 @@
 # RageV
 
 A Windows game engine with a backend-agnostic RHI over **Vulkan and OpenGL**,
-Cook-Torrance PBR mesh rendering, an EnTT scene system, and an ImGui editor with
-docking and gizmos.
+Cook-Torrance PBR mesh rendering, an EnTT scene system, Jolt physics with
+collision callbacks, miniaudio for 3D sound, and an ImGui editor with docking
+and gizmos.
 
 Switch backend at startup:
 
