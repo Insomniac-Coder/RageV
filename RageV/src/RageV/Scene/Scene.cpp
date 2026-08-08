@@ -11,6 +11,7 @@
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ShadowMap.h"
+#include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Asset/AssetManager.h"
 #include <glm/gtx/matrix_decompose.hpp>
@@ -645,6 +646,26 @@ namespace RageV
 		OnRender(camera, camera.GetTransform());
 	}
 
+	void Scene::PrepareEnvironment()
+	{
+		if (m_CapturingProbes || !Renderer::HasDevice() || !EnvironmentIBL::IsReady())
+			return;
+
+		RHI::RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		RHI::Ref<RHI::RHITexture> sky;
+		if (m_Environment.Sky == SkyType::Cubemap)
+			sky = AssetManager::GetCubemap(m_Environment.SkyTexture);
+
+		sky = Skybox::ResolveEnvironment(m_Environment, sky);
+
+		// Cached on the source, so this is a map lookup on every frame after
+		// the one that built it.
+		EnvironmentIBL::Prefilter(*cmd, sky);
+	}
+
 	void Scene::RenderShadows(const Camera& camera, const glm::mat4& cameraTransform)
 	{
 		// A probe capture draws the scene, and the scene samples shadows. Doing
@@ -967,7 +988,13 @@ namespace RageV
 		// The sky still draws the sky; only the surfaces reflect the probe.
 		// A probe's capture contains the sky already, so drawing the background
 		// from it would be a lower-resolution copy of what is there anyway.
-		const RHI::Ref<RHI::RHITexture> environment = ResolveEnvironment(cameraTransform, sky);
+		RHI::Ref<RHI::RHITexture> environment = ResolveEnvironment(cameraTransform, sky);
+
+		// Surfaces reflect the prefiltered cube; the sky still draws the sharp
+		// one. A probe's capture is not prefiltered -- it is rebuilt too often
+		// to be worth thirty-six renders a frame -- so this returns it
+		// unchanged and it keeps its box-filtered chain.
+		environment = EnvironmentIBL::GetPrefiltered(environment);
 
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
 		// of the alpha-blended quads means the quads blend against a complete

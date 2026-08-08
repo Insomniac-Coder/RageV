@@ -5,6 +5,7 @@
 #include "DebugRenderer.h"
 #include "Skybox.h"
 #include "ShadowMap.h"
+#include "EnvironmentIBL.h"
 #include "PostProcess.h"
 
 namespace RageV
@@ -23,12 +24,14 @@ namespace RageV
 		DebugRenderer::Init(device);
 		Skybox::Init(device);
 		ShadowMap::Init(device);
+		EnvironmentIBL::Init(device);
 		PostProcess::Init(device);
 	}
 
 	void Renderer::Shutdown()
 	{
 		PostProcess::Shutdown();
+		EnvironmentIBL::Shutdown();
 		ShadowMap::Shutdown();
 		Skybox::Shutdown();
 		DebugRenderer::Shutdown();

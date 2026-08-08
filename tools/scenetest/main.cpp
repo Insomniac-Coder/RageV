@@ -1840,6 +1840,68 @@ namespace
 			  "an empty environment convolves to nothing rather than crashing");
 	}
 
+	// The environment BRDF table.
+	//
+	// A table of a function that has known values at its corners, which is a
+	// rare luxury: most of what a renderer computes can only be checked against
+	// itself. These are the analytic ones.
+	void CheckEnvironmentBRDF()
+	{
+		constexpr uint32_t kSize = 64;
+		const std::vector<float> table = IntegrateEnvironmentBRDF(kSize, 256);
+
+		Check(table.size() == (size_t)kSize * kSize * 2, "the BRDF table has two channels");
+
+		auto at = [&](uint32_t x, uint32_t y)
+		{
+			return glm::vec2(table[((size_t)y * kSize + x) * 2 + 0],
+							 table[((size_t)y * kSize + x) * 2 + 1]);
+		};
+
+		// A mirror seen head on reflects exactly F0: scale one, bias nothing.
+		// This is the corner where the integral has a closed form, and it fails
+		// if the geometry term, the importance sampling or the Fresnel split is
+		// wrong.
+		{
+			const glm::vec2 mirror = at(kSize - 1, 0);
+			Check(std::fabs(mirror.x - 1.0f) < 0.02f && mirror.y < 0.02f,
+				  "a smooth surface seen head on reflects its F0 and nothing more");
+		}
+
+		// Energy: for a fully reflective material, F0 = 1, the answer is
+		// scale + bias -- and no surface reflects more than arrives.
+		{
+			bool conserving = true;
+			bool positive = true;
+			for (uint32_t y = 0; y < kSize; y++)
+			{
+				for (uint32_t x = 0; x < kSize; x++)
+				{
+					const glm::vec2 value = at(x, y);
+					conserving = conserving && (value.x + value.y) <= 1.02f;
+					positive = positive && value.x >= 0.0f && value.y >= 0.0f;
+				}
+			}
+
+			Check(conserving, "and no entry reflects more light than reached it");
+			Check(positive, "with nothing negative anywhere in the table");
+		}
+
+		// Fresnel: at a grazing angle everything becomes a mirror, so the bias
+		// term -- the part that does not depend on F0 -- rises as the surface
+		// turns away. Checked on a rough row, where the effect is largest.
+		{
+			const uint32_t rough = kSize / 2;
+			Check(at(0, rough).y > at(kSize - 1, rough).y,
+				  "and grazing angles carry more of the response than head-on ones");
+		}
+
+		// Degenerate requests are clamped rather than refused: a zero-sized
+		// table would be a texture nothing could sample.
+		Check(!IntegrateEnvironmentBRDF(0, 0).empty(),
+			  "a table of no size is clamped to one that works");
+	}
+
 	// Reflection probes.
 	//
 	// The capture basis is the whole thing worth checking, and it cannot be
@@ -3235,6 +3297,7 @@ int RunTests(int argc, char** argv)
 	CheckShadowToggle();
 	CheckShadowCascades();
 	CheckIrradiance();
+	CheckEnvironmentBRDF();
 	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();

@@ -4,6 +4,7 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "TextureLoader.h"
 #include "ShadowMap.h"
+#include "EnvironmentIBL.h"
 #include <glm/gtc/constants.hpp>
 
 namespace RageV
@@ -381,6 +382,15 @@ namespace RageV
 		sceneSet->SetTexture(5, irradianceMap ? irradianceMap
 											  : TextureLoader::BlackCube(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
+
+		// The BRDF table. Never null in practice, but the binding has to be
+		// filled either way, and a white 1x1 reads as "reflect everything"
+		// rather than as nothing.
+		if (const Ref<RHITexture> brdf = EnvironmentIBL::GetBRDF())
+			sceneSet->SetTexture(6, brdf, EnvironmentIBL::GetBRDFSampler());
+		else
+			sceneSet->SetTexture(6, TextureLoader::White(*s_Data->Device),
+								 s_Data->EnvironmentSampler);
 
 		// All four, always. A comparison sampler the layout declares and the
 		// set does not fill is a validation error; a 1x1 depth of 1.0 is the

@@ -105,6 +105,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 
 	// Before the frame graph: both of these open render passes of their own,
 	// and nothing may do that inside another one.
+	m_Scene->PrepareEnvironment();
 	m_Scene->CaptureReflectionProbes();
 
 	if (Entity camera = m_Scene->GetPrimaryCameraEntity())

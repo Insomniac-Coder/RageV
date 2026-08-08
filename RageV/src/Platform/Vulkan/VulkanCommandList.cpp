@@ -308,7 +308,7 @@ namespace RageV::Vk
 
 	void VulkanCommandList::CopyToTextureLayer(const RHI::Ref<RHI::RHITexture>& source,
 											   const RHI::Ref<RHI::RHITexture>& destination,
-											   uint32_t layer)
+											   uint32_t layer, uint32_t mip)
 	{
 		RV_CORE_ASSERT(!m_InRenderPass, "CopyToTextureLayer inside a render pass");
 
@@ -347,6 +347,7 @@ namespace RageV::Vk
 		region.srcOffsets[0] = { 0, height, 0 };
 		region.srcOffsets[1] = { width, 0, 1 };
 		region.dstSubresource.aspectMask = aspect;
+		region.dstSubresource.mipLevel = mip;
 		region.dstSubresource.baseArrayLayer = layer;
 		region.dstSubresource.layerCount = 1;
 		region.dstOffsets[0] = { 0, 0, 0 };

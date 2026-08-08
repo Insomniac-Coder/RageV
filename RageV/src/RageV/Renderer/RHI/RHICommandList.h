@@ -64,7 +64,7 @@ namespace RageV::RHI
 		// other blits upside down, and callers see neither.
 		virtual void CopyToTextureLayer(const Ref<RHITexture>& source,
 										const Ref<RHITexture>& destination,
-										uint32_t layer) = 0;
+										uint32_t layer, uint32_t mip = 0) = 0;
 
 		// Debug-marker scopes; show up in RenderDoc and Nsight.
 		virtual void PushDebugGroup(const char* name) = 0;

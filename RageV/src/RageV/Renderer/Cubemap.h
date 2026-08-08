@@ -78,4 +78,21 @@ namespace RageV
 	// 512-pixel source, once per environment map.
 	CubeFaces IrradianceFromCube(const CubeFaces& source, uint32_t faceSize,
 								 uint32_t samplesPerAxis = 32);
+
+	// The environment BRDF: the second half of the split-sum approximation.
+	//
+	// Given how directly a surface faces the viewer and how rough it is, this
+	// returns the scale and bias to apply to a material's F0 -- so the whole
+	// specular response becomes one cube lookup times two numbers from here.
+	// It depends on nothing else: not the environment, not the material's
+	// colour, not the scene. Which is exactly why it can be a table.
+	//
+	// Two channels, red then green, `size` by `size`. R16G16 is enough -- it is
+	// a smooth function of two variables with no detail anywhere in it, which
+	// is also why 128 is a generous size.
+	//
+	// This is what replaces Lazarov's analytic fit. The fit is within a couple
+	// of percent across most of the range and visibly off at grazing angles on
+	// smooth metal, which is the one case people look at.
+	std::vector<float> IntegrateEnvironmentBRDF(uint32_t size, uint32_t samples = 512);
 }

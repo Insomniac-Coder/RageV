@@ -107,6 +107,13 @@ namespace RageV
 		// Draws through the viewport's own camera, which needs no entity.
 		void OnRenderEditor(const EditorCamera& camera);
 
+		// Convolves the scene's environment map into roughness levels, once.
+		//
+		// Like the shadow and probe passes, it opens render passes of its own
+		// and so belongs before the frame graph. Unlike them it does nothing
+		// after the first frame with a given environment.
+		void PrepareEnvironment();
+
 		// Renders the shadow cascades for the first directional light that casts.
 		//
 		// Takes the camera it is about to be rendered with, because cascades are

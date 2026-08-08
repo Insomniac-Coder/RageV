@@ -218,6 +218,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// Before either frame graph, and once for both: a probe capture opens
 	// render passes of its own, nothing may do that inside another one, and the
 	// two viewports share the scene and so share its probes.
+	m_Scene->PrepareEnvironment();
 	m_Scene->CaptureReflectionProbes();
 
 	// Cascades are fitted to a frustum, so they belong to whichever camera is

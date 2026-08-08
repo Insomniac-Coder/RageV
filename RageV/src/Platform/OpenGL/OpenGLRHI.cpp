@@ -895,7 +895,7 @@ namespace RageV::GL
 
 	void OpenGLCommandListRHI::CopyToTextureLayer(const Ref<RHITexture>& source,
 												  const Ref<RHITexture>& destination,
-												  uint32_t layer)
+												  uint32_t layer, uint32_t mip)
 	{
 		if (!source || !destination)
 			return;
@@ -929,7 +929,7 @@ namespace RageV::GL
 		glNamedFramebufferTexture(m_CopyDraw, GL_DEPTH_ATTACHMENT, 0, 0);
 
 		glNamedFramebufferTexture(m_CopyRead, attachment, src, 0);
-		glNamedFramebufferTextureLayer(m_CopyDraw, attachment, dst, 0, (GLint)layer);
+		glNamedFramebufferTextureLayer(m_CopyDraw, attachment, dst, (GLint)mip, (GLint)layer);
 
 		// A framebuffer with no colour attachment has to say so explicitly, or
 		// it is incomplete and the blit silently does nothing.

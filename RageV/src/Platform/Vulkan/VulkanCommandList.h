@@ -41,7 +41,7 @@ namespace RageV::Vk
 
 		void CopyToTextureLayer(const RHI::Ref<RHI::RHITexture>& source,
 								const RHI::Ref<RHI::RHITexture>& destination,
-								uint32_t layer) override;
+								uint32_t layer, uint32_t mip = 0) override;
 
 		void PushDebugGroup(const char* name) override;
 		void PopDebugGroup() override;

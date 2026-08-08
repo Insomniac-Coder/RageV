@@ -111,6 +111,7 @@ layout(set = 0, binding = 0) uniform SceneData
 
 layout(set = 0, binding = 1) uniform samplerCube u_Environment;
 layout(set = 0, binding = 5) uniform samplerCube u_Irradiance;
+layout(set = 0, binding = 6) uniform sampler2D u_BRDF;
 
 // Comparison samplers: the hardware compares against the reference and filters
 // the answers, which is a 2x2 percentage-closer filter for one fetch. Four
@@ -290,20 +291,19 @@ vec3 RotateIntoSky(vec3 v)
 	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
 }
 
-// Lazarov's analytic fit to the split-sum environment BRDF.
+// The split-sum environment BRDF, read from the table.
 //
-// The accurate version is a 2D lookup texture, which is what roadmap 3.4 will
-// build along with a properly prefiltered environment. This is within a couple
-// of percent of it across most of the range, costs no texture and no pass, and
-// is the difference between metals reflecting the sky now and reflecting it
-// after another feature lands.
-vec2 EnvBRDFApprox(float NoV, float roughness)
+// The scale and bias to apply to a material's F0, given how directly the
+// surface faces the viewer and how rough it is. It depends on nothing else --
+// not the environment, not the material's colour -- which is what makes one
+// table serve every surface in every scene.
+//
+// This replaced Lazarov's analytic fit, which is within a couple of percent
+// across most of the range and visibly wrong at grazing angles on smooth
+// metal, which is the one case anybody looks at.
+vec2 EnvBRDF(float NoV, float roughness)
 {
-	const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-	const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-	vec4 r = roughness * c0 + c1;
-	float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
-	return vec2(-1.04, 1.04) * a004 + r.zw;
+	return texture(u_BRDF, vec2(clamp(NoV, 0.0, 1.0), clamp(roughness, 0.0, 1.0))).rg;
 }
 
 // Trowbridge-Reitz GGX: the microfacet distribution.
@@ -528,13 +528,17 @@ void main()
 	// The coarser of the two: what roughness asks for, and what the screen
 	// demands. Taking the maximum means a mirror still looks like a mirror
 	// everywhere it is not aliasing.
+	//
+	// The roughness term indexes a real GGX convolution now rather than a box
+	// filtered chain, so a level means a lobe width rather than "blurrier than
+	// the last one".
 	float lod = max(roughness * u_Scene.Environment.y,
 					log2(max(texelsPerPixel, 1.0)));
 
 	vec3 prefiltered = textureLod(u_Environment, reflection, lod).rgb *
 					   u_Scene.Environment.x;
 
-	vec2 envBRDF = EnvBRDFApprox(NdotV, roughness);
+	vec2 envBRDF = EnvBRDF(NdotV, roughness);
 	ambient += prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;
 
 	vec3 emissive = u_Material.EmissiveColor.rgb;

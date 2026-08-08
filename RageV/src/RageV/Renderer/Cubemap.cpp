@@ -218,6 +218,108 @@ namespace RageV
 		return result;
 	}
 
+	namespace
+	{
+		// Van der Corput radical inverse: the second dimension of a Hammersley
+		// sequence. A low-discrepancy pair covers the hemisphere far more
+		// evenly than random numbers do, which is what lets 512 samples stand
+		// in for an integral.
+		float RadicalInverse(uint32_t bits)
+		{
+			bits = (bits << 16u) | (bits >> 16u);
+			bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+			bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+			bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+			bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+			return (float)bits * 2.3283064365386963e-10f;
+		}
+
+		// A half vector drawn from the GGX distribution for this roughness, in
+		// tangent space. Importance sampling: the samples are placed where the
+		// lobe actually is, so the weighting cancels out of the estimator.
+		glm::vec3 ImportanceSampleGGX(const glm::vec2& random, float roughness)
+		{
+			const float a = roughness * roughness;
+
+			const float phi = glm::two_pi<float>() * random.x;
+			const float cosTheta = std::sqrt((1.0f - random.y) /
+											 (1.0f + (a * a - 1.0f) * random.y));
+			const float sinTheta = std::sqrt(glm::max(1.0f - cosTheta * cosTheta, 0.0f));
+
+			return { std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta };
+		}
+
+		// Smith's geometry term with the IBL remapping of k. Direct lighting
+		// uses (r+1)^2/8 and image-based lighting uses r^2/2; using the direct
+		// one here darkens every rough surface.
+		float GeometrySmithIBL(float NdotV, float NdotL, float roughness)
+		{
+			const float k = (roughness * roughness) / 2.0f;
+			const float ggxV = NdotV / (NdotV * (1.0f - k) + k);
+			const float ggxL = NdotL / (NdotL * (1.0f - k) + k);
+			return ggxV * ggxL;
+		}
+	}
+
+	std::vector<float> IntegrateEnvironmentBRDF(uint32_t size, uint32_t samples)
+	{
+		size = glm::clamp(size, 8u, 1024u);
+		samples = glm::clamp(samples, 16u, 4096u);
+
+		std::vector<float> table((size_t)size * size * 2, 0.0f);
+
+		for (uint32_t y = 0; y < size; y++)
+		{
+			// Row is roughness, column is how directly the surface faces the
+			// viewer. Texel centres, so the table's ends are not half a texel
+			// short of 0 and 1.
+			const float roughness = ((float)y + 0.5f) / (float)size;
+
+			for (uint32_t x = 0; x < size; x++)
+			{
+				const float NdotV = glm::max(((float)x + 0.5f) / (float)size, 1e-3f);
+
+				// The view direction in tangent space. Only its angle to the
+				// normal matters, so it can lie in the xz plane.
+				const glm::vec3 view(std::sqrt(1.0f - NdotV * NdotV), 0.0f, NdotV);
+
+				float scale = 0.0f;
+				float bias = 0.0f;
+
+				for (uint32_t i = 0; i < samples; i++)
+				{
+					const glm::vec2 random((float)i / (float)samples, RadicalInverse(i));
+					const glm::vec3 half = ImportanceSampleGGX(random, roughness);
+					const glm::vec3 light = glm::normalize(2.0f * glm::dot(view, half) * half - view);
+
+					const float NdotL = light.z;
+					if (NdotL <= 0.0f)
+						continue;
+
+					const float NdotH = glm::max(half.z, 0.0f);
+					const float VdotH = glm::max(glm::dot(view, half), 0.0f);
+
+					const float geometry = GeometrySmithIBL(NdotV, NdotL, roughness);
+					const float visibility = geometry * VdotH / glm::max(NdotH * NdotV, 1e-6f);
+
+					// Fresnel split into the two terms F0 multiplies and adds.
+					// That split is the whole point: it takes F0 out of the
+					// integral, so one table serves every material.
+					const float fresnel = std::pow(1.0f - VdotH, 5.0f);
+
+					scale += (1.0f - fresnel) * visibility;
+					bias += fresnel * visibility;
+				}
+
+				float* texel = table.data() + ((size_t)y * size + x) * 2;
+				texel[0] = scale / (float)samples;
+				texel[1] = bias / (float)samples;
+			}
+		}
+
+		return table;
+	}
+
 	CubeFaces EquirectangularToCube(const float* pixels, uint32_t width, uint32_t height,
 									uint32_t faceSize)
 	{
