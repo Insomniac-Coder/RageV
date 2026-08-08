@@ -41,4 +41,6 @@ git clone --recurse-submodules <url>
 and what is not, and the invariants that are load-bearing.
 [docs/ROADMAP.md](docs/ROADMAP.md) is where it goes next and in what order,
 benchmarked against Unity, Godot and Unreal.
+[docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md) is engine architecture and
+rendering research distilled into decisions for this engine.
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the renderer design in detail.
