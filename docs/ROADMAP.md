@@ -294,7 +294,7 @@ written here:
 | 3.2 | HDR target + tonemap/bloom post chain (moves ACES out of the PBR shader) | M | ✅ plus FXAA |
 | 3.3 | Skybox + cubemaps (`TextureType::TextureCube` already exists in the RHI) | M | ✅ three background modes, CPU panorama-to-cube conversion, plus reflection probes (baked and realtime), which were not on this list |
 | 3.4 | **IBL** — irradiance, prefiltered specular, BRDF LUT; replaces the flat ambient term | L | 🟡 specular half done with a mip-selected approximation and an analytic env BRDF; the real prefilter, irradiance and the LUT remain |
-| 3.5 | **Shadows** — CSM directional, cube point, spot. Sphere-fit cascades, texel snapping, normal-offset bias (ENGINE-NOTES §5) | XL | 🟡 directional cascades done, with the fitting properties checked in scenetest rather than by eye; spot and point remain, and only one light casts at a time |
+| 3.5 | **Shadows** — CSM directional, cube point, spot. Sphere-fit cascades, texel snapping, normal-offset bias (ENGINE-NOTES §5) | XL | ✅ all three types; cascade fitting checked in scenetest rather than by eye; four spot and four point lights cast at once |
 | 3.6 | Frustum culling, draw sorting, instancing. **CPU only** — GPU-driven rendering is out of scope | M |
 | 3.8 | **Clustered forward lighting** — removes the 8-light cap, keeps transparency working (unlike deferred) | L |
 | 3.7 | Skeletal animation — skinning, clips, blending | XL |

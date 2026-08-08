@@ -20,8 +20,8 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.3 and 3.5
-(directional only), plus the specular half of 3.4. The engine loop closes — a project can be imported into,
+**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.3 and **3.5**,
+plus the specular half of 3.4. The engine loop closes — a project can be imported into,
 placed in, scripted, played, and packaged into a folder someone else can run.
 
 **Prove it still works** (from the repo root, ~2 minutes):
@@ -185,7 +185,8 @@ only in where the finished image lands (an imported viewport target, or the
 backbuffer):
 
 ```
-(shadow cascades)-> 4 depth maps  4 scene renders, BEFORE the graph opens
+(shadow maps)    -> 4 cascades + a map per casting spot and a cube per point,
+                    all scene renders, BEFORE the graph opens
 (probe faces)    -> probe cube  0..6 scene renders, BEFORE the graph opens
 Scene            -> SceneHDR    RGBA16F, linear, no tone curve
   meshes                        reflect the environment cube
@@ -426,6 +427,13 @@ or silence rather than an obvious failure.
   that no longer equals what a shader computes from the same matrix — every
   shadow comparison passed and the backend drew no shadows at all. The origin
   stays lower-left: flipping it would invert every render target's row order.
+- **`CopyToTextureLayer` detaches before it attaches, on OpenGL.** Its two
+  framebuffers are shared by every copy — a probe's colour faces and a point
+  light's depth faces, at different sizes. A stale attachment of the wrong size
+  is not an error in GL 4.5: the blittable region becomes the intersection, so
+  the copy silently moves a corner and the rest of the face keeps what it had.
+- **A render target's depth attachment is `TransferSrc`.** Nothing copied one
+  until point shadows did, and Vulkan refused the blit.
 - **Nothing is culled in the shadow pass, on purpose.** Culling front faces
   hides acne by recording the back of each caster, and moves every shadow away
   from its caster by that thickness. On a sphere that is a diameter. Acne
@@ -598,18 +606,9 @@ report an error.
      step that makes a scene look lit by its surroundings.
    - **A BRDF lookup texture**, replacing the analytic fit. Smallest of the
      three and the least visible.
-2. **Finish 3.5 shadows** (`M` now, was `XL`). Directional cascades are in.
-   What is left is the other two light types, which are a smaller problem
-   because each has a frustum and a range of its own -- no cascades to fit:
-   - **Spot**: one perspective depth map per light, the same pass with a
-     different matrix.
-   - **Point**: a cube of six, which the probe machinery already knows how to
-     fill.
-   - Only one light casts at a time today, and the shader shadows only that
-     one. More than one means an array of maps and a per-light index.
-3. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
+2. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
    **3.7 skeletal animation**.
-4. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+3. **Phase 5 C#.** Last, because it must mirror a stable native surface.
 
 The render graph is in place, so each of those is *a pass and a target added to
 `BuildFrame`* rather than a new ownership question. That was the point of 3.1
