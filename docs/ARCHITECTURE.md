@@ -23,8 +23,8 @@ different versions of the same shader files.
 
 | Target | What it is |
 |---|---|
-| `RageVEditor` | The editor. Currently runs the **legacy OpenGL** renderer. |
-| `Sandbox` | Sample app, also legacy OpenGL. |
+| `RageVEditor` | The editor. Runs on either backend. |
+| `Sandbox` | Stale 2D sample, predates the RHI. Off by default (`RAGEV_BUILD_SANDBOX`). |
 | `shaderinfo` | Compiles a `.rvshader` and prints reflection + generated GLSL. |
 | `rhismoke` | Drives either backend end to end without the editor (`--rhi=vulkan\|opengl`). |
 
@@ -33,18 +33,22 @@ different versions of the same shader files.
 ```
 Application / Layers / Scene (EnTT)
         |
-   Renderer2D                     <-- still on the legacy path
+   Renderer2D
         |
-   +----+----------------------------+
-   |                                 |
-Legacy RenderCommand/RenderAPI    RHI (new)
-   |                                 |
-Platform/OpenGL                   Platform/Vulkan
+       RHI
+        |
+   +----+----+
+   |         |
+Platform/  Platform/
+ OpenGL     Vulkan
 ```
 
-Two renderer paths currently coexist. The legacy one is what the editor uses and
-still works; the RHI is what everything should move onto. **Both RHI backends are
-implemented** -- `rhismoke` renders identical code through either.
+One renderer, two backends. The legacy `RenderAPI`/`RenderCommand` path and its
+OpenGL-only resource wrappers have been removed.
+
+`Application` owns the device and drives `BeginFrame`/`EndFrame` around the layer
+stack. Layers take no command-list parameter, so `Renderer` holds the active one
+-- the same role `RenderCommand`'s static played, but scoped to a frame.
 
 The backend is chosen at startup by `EngineConfig` (`--rhi=vulkan|opengl`, or
 `ragev.ini`) and is fixed for the process lifetime. That is deliberate: the
@@ -178,27 +182,16 @@ Things that are load-bearing and easy to break:
 
 ## What is not done
 
-These three have to land together -- flipping the editor onto the RHI while
-ImGui still issues GL calls would break the Vulkan path -- so they are one unit
-of work, not three:
-
-1. **`Renderer2D` still targets the legacy path**, so the editor renders through
-   the old OpenGL renderer. Porting means replacing the `ShaderManager` +
-   `SetUniform` calls with the `SceneData` UBO and set-1 sampler array that
-   `quad.rvshader` already declares. Note the vertex buffer and the scene UBO
-   both need one instance **per frame in flight**: they are rewritten every
-   frame, and with 2 frames in flight the next frame would otherwise overwrite
-   data the GPU is still reading.
-2. **ImGui backend selection.** `imgui_impl_vulkan` is compiled in and wired to
-   volk, and `VulkanTexture::GetImGuiHandle()` already returns a descriptor set
-   for `ImGui::Image`, but `ImGuiLayer` hardcodes the OpenGL3 backend.
-3. **Editor viewport** — render the scene into an offscreen `RHIRenderTarget`
-   and display it through `ImGui::Image`, replacing the GL-only `FrameBuffer`.
-
-`Application` also needs to own the `RHIDevice` and drive
-`BeginFrame`/`EndFrame` around the layer stack. Layers have no command list
-parameter; the least invasive route is for `Renderer` to hold the current one,
-mirroring how `RenderCommand` already exposes a static.
+- **`PushConstants` on OpenGL** warns and does nothing. Nothing uses it yet;
+  emulating it means a uniform buffer per pipeline layout, worth adding with the
+  first shader that needs it.
+- **Multi-viewport ImGui is OpenGL-only.** Each extra OS window needs its own
+  swapchain, which is a second presentation path the engine does not drive.
+- **Sandbox is not ported** and is off by default.
+- **No readback path.** Verification is currently "the frame completed without
+  validation errors", not "the pixels are right". A
+  `RHIDevice::Readback(renderTarget)` would let the smoke test assert on actual
+  output, and would double as screenshot support.
 
 ## Road to PBR and shadows
 
