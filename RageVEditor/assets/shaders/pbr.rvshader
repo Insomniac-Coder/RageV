@@ -31,6 +31,10 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 LightColors[MAX_LIGHTS];
 	// x = range, y = cos(inner cone), z = cos(outer cone)
 	vec4 LightParams[MAX_LIGHTS];
+	// x = environment intensity, y = its highest mip, zw = cos and sin of the
+	// sky's rotation. Intensity is zero when there is nothing to reflect,
+	// which is how the term is switched off without a branch.
+	vec4 Environment;
 	int  LightCount;
 } u_Scene;
 
@@ -76,8 +80,11 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 LightDirections[MAX_LIGHTS];
 	vec4 LightColors[MAX_LIGHTS];
 	vec4 LightParams[MAX_LIGHTS];
+	vec4 Environment;
 	int  LightCount;
 } u_Scene;
+
+layout(set = 0, binding = 1) uniform samplerCube u_Environment;
 
 layout(set = 1, binding = 0) uniform MaterialData
 {
@@ -103,6 +110,32 @@ layout(location = 2) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 
 bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
+
+// Turns a direction into the sky's own frame. The sky pass folds the same
+// rotation into its matrix on the CPU; a reflection that skipped it would show
+// a different sky from the one visible behind the surface.
+vec3 RotateIntoSky(vec3 v)
+{
+	float c = u_Scene.Environment.z;
+	float s = u_Scene.Environment.w;
+	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
+}
+
+// Lazarov's analytic fit to the split-sum environment BRDF.
+//
+// The accurate version is a 2D lookup texture, which is what roadmap 3.4 will
+// build along with a properly prefiltered environment. This is within a couple
+// of percent of it across most of the range, costs no texture and no pass, and
+// is the difference between metals reflecting the sky now and reflecting it
+// after another feature lands.
+vec2 EnvBRDFApprox(float NoV, float roughness)
+{
+	const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+	const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+	vec4 r = roughness * c0 + c1;
+	float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+	return vec2(-1.04, 1.04) * a004 + r.zw;
+}
 
 // Trowbridge-Reitz GGX: the microfacet distribution.
 float DistributionGGX(vec3 N, vec3 H, float roughness)
@@ -262,9 +295,25 @@ void main()
 	// scene now rather than by two constants buried in this file, and it is
 	// what IBL will fall back to when a scene has no environment map.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
-	vec3 F = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+	float NdotV = max(dot(N, V), 0.0);
+	vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
 	vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-	vec3 ambient = (kD * albedo + F) * ambientLight * occlusion;
+	vec3 ambient = kD * albedo * ambientLight * occlusion;
+
+	// The environment, reflected. Roughness selects a mip rather than driving
+	// a real GGX convolution -- the chain is box filtered, so this is an
+	// approximation of the lobe rather than the lobe -- but it is monotonic in
+	// roughness, which is what makes a rough metal read as rough.
+	//
+	// This is the specular half of image-based lighting. The diffuse half is
+	// still the flat ambient above; 3.4 replaces it with real irradiance.
+	vec3 reflection = RotateIntoSky(reflect(-V, N));
+	vec3 prefiltered = textureLod(u_Environment, reflection,
+								  roughness * u_Scene.Environment.y).rgb *
+					   u_Scene.Environment.x;
+
+	vec2 envBRDF = EnvBRDFApprox(NdotV, roughness);
+	ambient += prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;
 
 	vec3 emissive = u_Material.EmissiveColor.rgb;
 	if (HasMap(MAP_EMISSIVE))

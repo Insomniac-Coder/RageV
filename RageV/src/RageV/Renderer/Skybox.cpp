@@ -42,8 +42,34 @@ namespace RageV
 			std::vector<std::vector<Ref<RHIResourceSet>>> Sets;
 			uint32_t SetCursor = 0;
 
+			// The gradient, baked into a cube so it can be reflected. Rebuilt
+			// only when one of the three colours changes, which in the editor
+			// is while a colour picker is open and never otherwise.
+			Ref<RHITexture> GradientCube;
+			glm::vec3 GradientHorizon{ -1.0f };
+			glm::vec3 GradientZenith{ -1.0f };
+			glm::vec3 GradientGround{ -1.0f };
+
 			bool Ready = false;
 		};
+
+		// Small on purpose. This is three colours and a horizon: a reflection
+		// of it has nothing in it that 32 texels a side cannot say, and the
+		// cost of being wrong about that is a slightly soft reflection of a
+		// gradient.
+		constexpr uint32_t kGradientCubeSize = 32;
+
+		// Shared with sky.rvshader. Both have to agree, or a mirrored surface
+		// shows a different sky from the one behind it.
+		glm::vec3 GradientAt(const glm::vec3& direction, const SceneEnvironment& environment)
+		{
+			const float height = glm::clamp(std::fabs(direction.y), 0.0f, 1.0f);
+			const float t = std::pow(height, 0.45f);
+
+			return direction.y >= 0.0f
+				 ? glm::mix(environment.SkyHorizon, environment.SkyZenith, t)
+				 : glm::mix(environment.SkyHorizon, environment.SkyGround, t);
+		}
 
 		std::unique_ptr<SkyboxData> s_Data;
 	}
@@ -106,6 +132,64 @@ namespace RageV
 	bool Skybox::IsReady()
 	{
 		return s_Data && s_Data->Ready;
+	}
+
+	Ref<RHITexture> Skybox::ResolveEnvironment(const SceneEnvironment& environment,
+											   const Ref<RHITexture>& cubemap)
+	{
+		if (!s_Data || !s_Data->Device)
+			return nullptr;
+
+		if (environment.Sky == SkyType::Cubemap && cubemap)
+			return cubemap;
+
+		// A flat background reflects nothing, which is the honest answer: there
+		// is no sky there to reflect.
+		if (environment.Sky == SkyType::Color)
+			return TextureLoader::BlackCube(*s_Data->Device);
+
+		const bool stale = !s_Data->GradientCube ||
+						   s_Data->GradientHorizon != environment.SkyHorizon ||
+						   s_Data->GradientZenith != environment.SkyZenith ||
+						   s_Data->GradientGround != environment.SkyGround;
+
+		if (stale)
+		{
+			CubeFaces faces;
+			faces.Size = kGradientCubeSize;
+			faces.Pixels.resize((size_t)CubeFaces::kFaceCount * kGradientCubeSize * kGradientCubeSize * 4);
+
+			const float inverse = 1.0f / (float)kGradientCubeSize;
+
+			for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+			{
+				float* output = faces.Face(face);
+				for (uint32_t y = 0; y < kGradientCubeSize; y++)
+				{
+					for (uint32_t x = 0; x < kGradientCubeSize; x++)
+					{
+						const glm::vec3 direction =
+							CubeFaceDirection(face, ((float)x + 0.5f) * inverse,
+													((float)y + 0.5f) * inverse);
+						const glm::vec3 colour = GradientAt(direction, environment);
+
+						float* texel = output + ((size_t)y * kGradientCubeSize + x) * 4;
+						texel[0] = colour.r;
+						texel[1] = colour.g;
+						texel[2] = colour.b;
+						texel[3] = 1.0f;
+					}
+				}
+			}
+
+			s_Data->GradientCube = TextureLoader::CreateCube(*s_Data->Device, faces, "sky.gradient");
+			s_Data->GradientHorizon = environment.SkyHorizon;
+			s_Data->GradientZenith = environment.SkyZenith;
+			s_Data->GradientGround = environment.SkyGround;
+		}
+
+		return s_Data->GradientCube ? s_Data->GradientCube
+									: TextureLoader::BlackCube(*s_Data->Device);
 	}
 
 	glm::mat4 Skybox::BuildDirectionMatrix(const glm::mat4& projection,

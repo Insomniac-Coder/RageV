@@ -38,6 +38,19 @@ namespace RageV
 						 const SceneEnvironment& environment,
 						 const RHI::Ref<RHI::RHITexture>& cubemap);
 
+		// What the scene's surfaces reflect.
+		//
+		// Never null once Init has run. A gradient sky becomes a small cube of
+		// its own colours rather than nothing, so a metal surface reflects the
+		// sky that is actually behind it -- a chrome sphere against a visible
+		// blue sky reflecting black is the single most obvious way for
+		// reflections to look broken, and it is the default case.
+		//
+		// `cubemap` is the scene's environment map if it has one, and is
+		// returned unchanged when it does.
+		static RHI::Ref<RHI::RHITexture> ResolveEnvironment(const SceneEnvironment& environment,
+															const RHI::Ref<RHI::RHITexture>& cubemap);
+
 		// The matrix the shader uses: clip space to a world direction, camera
 		// translation removed and the sky's rotation folded in. Exposed so the
 		// test suite can check the reconstruction against known directions

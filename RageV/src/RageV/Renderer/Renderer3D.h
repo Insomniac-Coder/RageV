@@ -24,9 +24,15 @@ namespace RageV
 		// Resets the per-frame scene-slot pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();
 
+		// `environmentMap` is what surfaces reflect -- the scene's environment
+		// map, a probe's capture, or the sky's gradient baked into a small
+		// cube. Null means nothing is reflected, not that the term is
+		// undefined: the binding is filled with a neutral cube and the
+		// intensity set to zero.
 		static void BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
 							   const LightList& lights = {},
-							   const SceneEnvironment& environment = {});
+							   const SceneEnvironment& environment = {},
+							   const RHI::Ref<RHI::RHITexture>& environmentMap = nullptr);
 		static void EndScene();
 
 		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,

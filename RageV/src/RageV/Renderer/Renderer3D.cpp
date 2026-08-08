@@ -28,6 +28,9 @@ namespace RageV
 			glm::vec4 LightColors[kMaxLights];
 			// x = range, y = cos(inner cone), z = cos(outer cone)
 			glm::vec4 LightParams[kMaxLights];
+			// x = environment intensity, y = its highest mip, zw = cos and sin
+			// of the sky's rotation
+			glm::vec4 Environment;
 			int32_t   LightCount;
 			int32_t   _padding[3];
 		};
@@ -69,6 +72,11 @@ namespace RageV
 			uint32_t SceneCursor = 0;
 
 			Ref<Material> DefaultMaterial;
+
+			// Mip-filtered and clamped, unlike the material sampler: roughness
+			// selects a level here, so a sampler pinned to level 0 would make
+			// every surface a mirror.
+			Ref<RHISampler> EnvironmentSampler;
 
 			SceneUniforms Scene{};
 			bool SceneActive = false;
@@ -128,6 +136,13 @@ namespace RageV
 		s_Data->SceneSlots.resize(device.GetFramesInFlight());
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
+
+		SamplerDesc environment;
+		environment.WrapU = WrapMode::ClampToEdge;
+		environment.WrapV = WrapMode::ClampToEdge;
+		environment.WrapW = WrapMode::ClampToEdge;
+		environment.MaxLod = 16.0f;
+		s_Data->EnvironmentSampler = device.CreateSampler(environment);
 
 		RV_CORE_INFO("Renderer3D ready (Cook-Torrance PBR)");
 	}
@@ -209,7 +224,8 @@ namespace RageV
 	}
 
 	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
-								const LightList& lights, const SceneEnvironment& environment)
+								const LightList& lights, const SceneEnvironment& environment,
+								const Ref<RHITexture>& environmentMap)
 	{
 		if (!s_Data)
 			return;
@@ -241,6 +257,17 @@ namespace RageV
 		}
 		s_Data->Scene.LightCount = lightCount;
 
+		// Zero intensity is how "nothing to reflect" is expressed: the sampler
+		// still has to be bound, because the shader declares it either way, but
+		// the term it feeds multiplies out.
+		const float mips = environmentMap ? (float)environmentMap->GetDesc().MipLevels : 1.0f;
+		s_Data->Scene.Environment = {
+			environmentMap ? environment.SkyIntensity : 0.0f,
+			glm::max(mips - 1.0f, 0.0f),
+			std::cos(environment.SkyRotation),
+			std::sin(environment.SkyRotation),
+		};
+
 		EnsurePipeline();
 		if (!s_Data->Pipeline)
 			return;
@@ -254,6 +281,12 @@ namespace RageV
 
 		auto& sceneSet = slot.Set;
 		sceneSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
+		// Never left unwritten. A binding the layout declares and the set does
+		// not fill is a validation error rather than a harmless omission, which
+		// is the same lesson the tonemap pass learned about its bloom input.
+		sceneSet->SetTexture(1, environmentMap ? environmentMap
+											   : TextureLoader::BlackCube(*s_Data->Device),
+							 s_Data->EnvironmentSampler);
 		sceneSet->Commit();
 
 		// Bound once for the whole scene; only push constants change per draw.

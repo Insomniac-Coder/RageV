@@ -667,13 +667,25 @@ namespace RageV
 			lights.push_back(data);
 		}
 
+		// What the scene reflects, resolved once: the same cube feeds the
+		// surfaces and the background, so a mirror cannot disagree with what is
+		// behind it.
+		RHI::Ref<RHI::RHITexture> sky;
+		if (Renderer::HasDevice())
+		{
+			if (m_Environment.Sky == SkyType::Cubemap)
+				sky = AssetManager::GetCubemap(m_Environment.SkyTexture);
+
+			sky = Skybox::ResolveEnvironment(m_Environment, sky);
+		}
+
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
 		// of the alpha-blended quads means the quads blend against a complete
 		// depth buffer rather than over each other arbitrarily.
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
 		{
-			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment);
+			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment, sky);
 
 			for (auto& item : meshView)
 			{
@@ -698,13 +710,7 @@ namespace RageV
 		// it still has a sky, and an empty scene showing the clear colour is
 		// how this looked before.
 		if (Renderer::HasDevice() && m_Environment.Sky != SkyType::Color)
-		{
-			RHI::Ref<RHI::RHITexture> sky;
-			if (m_Environment.Sky == SkyType::Cubemap)
-				sky = AssetManager::GetCubemap(m_Environment.SkyTexture);
-
 			Skybox::Draw(camera, cameraTransform, m_Environment, sky);
-		}
 
 		Renderer2D::BeginScene(camera, cameraTransform, lights);
 

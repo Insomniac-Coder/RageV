@@ -38,6 +38,7 @@
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/Cubemap.h"
+#include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Asset/AssetRegistry.h"
@@ -1211,6 +1212,82 @@ namespace
 	// never written, a chain that keeps going after the levels stop being worth
 	// filtering, a setting that changes nothing -- and all of that is visible
 	// in the pass list.
+	// Primitive winding.
+	//
+	// The pipeline calls counter-clockwise front-facing and culls the rest, so
+	// a primitive wound the other way draws the inside of its far half. The
+	// silhouette is identical and, until something reads the normal, so is
+	// most of the image -- which is how the sphere shipped inside out through
+	// four roadmap phases and was only caught when surfaces started reflecting
+	// the sky and reflected the ground instead.
+	//
+	// Checked against the centroid rather than against stored normals, because
+	// the normals are what a wrong winding agrees with: these are all convex,
+	// so a face must point away from the middle.
+	void CheckPrimitiveWinding()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		struct Solid { PrimitiveType Type; const char* Name; };
+		const Solid solids[] = {
+			{ PrimitiveType::Cube,     "cube"     },
+			{ PrimitiveType::Sphere,   "sphere"   },
+			{ PrimitiveType::Cylinder, "cylinder" },
+		};
+
+		for (const Solid& solid : solids)
+		{
+			RHI::Ref<Mesh> mesh = Mesh::GetPrimitive(Renderer::GetDevice(), solid.Type);
+			if (!mesh)
+			{
+				Check(false, std::string("the ") + solid.Name + " primitive exists");
+				continue;
+			}
+
+			const std::vector<glm::vec3>& positions = mesh->GetPositions();
+			const std::vector<uint32_t>& indices = mesh->GetIndices();
+
+			glm::vec3 centroid(0.0f);
+			for (const glm::vec3& position : positions)
+				centroid += position;
+			centroid /= (float)glm::max<size_t>(positions.size(), 1);
+
+			size_t inward = 0;
+			size_t degenerate = 0;
+
+			for (size_t i = 0; i + 2 < indices.size(); i += 3)
+			{
+				const glm::vec3& a = positions[indices[i]];
+				const glm::vec3& b = positions[indices[i + 1]];
+				const glm::vec3& c = positions[indices[i + 2]];
+
+				const glm::vec3 face = glm::cross(b - a, c - a);
+
+				// The poles of a UV sphere collapse to triangles of no area.
+				// They render nothing and have no winding to be wrong about --
+				// and their orientation is noise, since sin(pi) in float is
+				// -8.7e-8 rather than zero, which is enough to flip one. These
+				// primitives are unit sized, so the smallest triangle that
+				// covers anything is many orders of magnitude above this.
+				if (glm::length(face) < 1e-6f)
+				{
+					degenerate++;
+					continue;
+				}
+
+				if (glm::dot(face, (a + b + c) / 3.0f - centroid) <= 0.0f)
+					inward++;
+			}
+
+			Check(inward == 0, std::string("every ") + solid.Name +
+								" triangle faces outwards (" + std::to_string(inward) +
+								" of " + std::to_string(indices.size() / 3) + " do not)");
+			Check(degenerate * 4 < indices.size() / 3,
+				  std::string("and the ") + solid.Name + " is not mostly degenerate");
+		}
+	}
+
 	// Cube maps.
 	//
 	// The conversion is a function from pixels to pixels, so it is checked
@@ -2650,6 +2727,7 @@ int RunTests(int argc, char** argv)
 
 	// --- physics -------------------------------------------------------------
 	CheckRenderGraph();
+	CheckPrimitiveWinding();
 	CheckCubemap();
 	CheckSky();
 	CheckFrameGraph();

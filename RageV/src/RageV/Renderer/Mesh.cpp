@@ -205,13 +205,20 @@ namespace RageV
 					const uint32_t a = ring * stride + segment;
 					const uint32_t b = a + stride;
 
+					// Counter-clockwise seen from outside, which is what the
+					// pipeline calls front-facing. Wound the other way for a
+					// long time: back-face culling then kept the near hemisphere
+					// and drew the far one's inside, which has the same
+					// silhouette and only looks wrong once anything reads the
+					// normal -- so it survived until surfaces started
+					// reflecting.
 					indices.push_back(a);
-					indices.push_back(b);
 					indices.push_back(a + 1);
+					indices.push_back(b);
 
 					indices.push_back(a + 1);
-					indices.push_back(b);
 					indices.push_back(b + 1);
+					indices.push_back(b);
 				}
 			}
 		}
@@ -269,8 +276,12 @@ namespace RageV
 				}
 			};
 
-			addCap( halfHeight, {  0.0f,  1.0f, 0.0f }, false);
-			addCap(-halfHeight, {  0.0f, -1.0f, 0.0f }, true);
+			// The fan runs anticlockwise about +Y, so seen from above -- from
+			// outside the top cap -- it runs clockwise, and has to be flipped.
+			// The bottom cap is the one that needs no flip. These two were the
+			// wrong way round, which culled both caps and left a tube.
+			addCap( halfHeight, {  0.0f,  1.0f, 0.0f }, true);
+			addCap(-halfHeight, {  0.0f, -1.0f, 0.0f }, false);
 		}
 	}
 }
