@@ -23,7 +23,10 @@ public:
 
 	void NewScene();
 	void OpenScene();
+	void OpenSceneFile(const std::filesystem::path& filepath);
 	void SaveScene();
+	void OpenProject();
+	void SetStartSceneToCurrent();
 	void ImportModel();
 	void OnScenePlay();
 	void OnSceneStop();
@@ -72,6 +75,11 @@ private:
 	enum class SceneState { Edit, Play, Paused };
 	SceneState m_SceneState = SceneState::Edit;
 	std::string m_SceneSnapshot;
+
+	// Where the current scene came from. Needed because "set this as the start
+	// scene" has to write a path, and a scene that has never been saved has
+	// none to write.
+	std::filesystem::path m_ScenePath;
 
 	RageV::EditorCamera m_EditorCamera;
 	bool m_UseEditorCamera = true;

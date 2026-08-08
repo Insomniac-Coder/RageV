@@ -19,6 +19,8 @@ namespace RageV {
 		// draw at lerp(previous, current, alpha) or it will stutter.
 		static float GetInterpolationAlpha();
 		static float GetFixedTimestep();
+		// The rate actually in use: the project's, unless --fixed-hz overrode it.
+		static uint32_t GetFixedHz();
 		// Seconds since startup. Scripts want this without reaching for the
 		// platform layer.
 		static float GetElapsedTime();

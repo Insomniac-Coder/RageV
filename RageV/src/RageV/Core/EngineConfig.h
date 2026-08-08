@@ -23,6 +23,7 @@
 //   --fixed-hz=N            simulation steps per second (default 60)
 //   --width=N --height=N    window size
 //   --audio=on|off          open an output device at all
+//   --project=<path>        the .rvproject to open, or a folder containing one
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include <string>
@@ -39,6 +40,16 @@ namespace RageV
 		// Simulation rate. 60 matches what most physics engines are tuned for;
 		// higher costs CPU, lower makes fast collisions tunnel.
 		uint32_t     FixedHz = 60;
+		// Whether --fixed-hz was actually given. Without this there is no way
+		// to tell "the user asked for 60" from "nobody said", and the project's
+		// own rate could never win over the default.
+		bool         FixedHzExplicit = false;
+
+		// The project to open. Empty falls back to RV_DEFAULT_PROJECT, which
+		// CMake bakes in for builds run out of the build tree, and then to
+		// nothing -- which is a valid state the editor shows rather than
+		// pretending it has a project.
+		std::string ProjectPath;
 
 		// Whether to open an audio device. Off means the engine still tracks
 		// every sound it would have played and simply plays none of them, which

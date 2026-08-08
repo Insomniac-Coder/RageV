@@ -7,6 +7,7 @@
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
+#include "RageV/Project/Project.h"
 #include "RageV/Core/InputMap.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "Timestep.h"
@@ -59,7 +60,14 @@ namespace RageV {
 		// since a layer's OnAttach may already want to load something.
 		InputMap::Init();
 
-		AssetRegistry::Init("assets");
+		// The project decides where assets live, so it is opened first. Without
+		// one the registry has no root and every handle resolves to nothing,
+		// which the editor reports rather than papering over.
+		Project::OpenConfigured();
+
+		if (Project::GetActive())
+			AssetRegistry::Init(Project::AssetRoot());
+
 		AssetManager::Init(*m_Device);
 
 		// After the registry, because a clip is resolved through it. Never
@@ -169,14 +177,30 @@ namespace RageV {
 		return (m_Instance && m_Instance->GetTime) ? (float)m_Instance->GetTime() : 0.0f;
 	}
 
+	uint32_t Application::GetFixedHz()
+	{
+		// The project wins over the default, because the rate a game was tuned
+		// at travels with the game. An explicit --fixed-hz still overrides both:
+		// it is a diagnostic, and being able to run a game at 240 Hz to see what
+		// breaks is the reason it exists.
+		const EngineConfig& config = EngineConfig::Get();
+		if (config.FixedHzExplicit)
+			return config.FixedHz;
+
+		if (Project::GetActive())
+			return Project::Config().FixedHz;
+
+		return config.FixedHz;
+	}
+
 	float Application::GetFixedTimestep()
 	{
-		return 1.0f / (float)EngineConfig::Get().FixedHz;
+		return 1.0f / (float)GetFixedHz();
 	}
 
 	void Application::Run() {
 
-		m_FixedStep.Timestep = 1.0f / (float)EngineConfig::Get().FixedHz;
+		m_FixedStep.Timestep = 1.0f / (float)GetFixedHz();
 
 		while (m_Running) {
 			const float time = (float)GetTime();

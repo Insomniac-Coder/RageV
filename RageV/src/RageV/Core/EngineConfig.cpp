@@ -76,6 +76,12 @@ namespace RageV
 		if (key == "audio")
 			return ParseBool(value, config.EnableAudio);
 
+		if (key == "project")
+		{
+			config.ProjectPath = value;
+			return true;
+		}
+
 		if (key == "frames-in-flight" || key == "framesinflight")
 		{
 			try
@@ -116,6 +122,7 @@ namespace RageV
 				// tunnel through thin geometry; above 240 it burns CPU for
 				// nothing a display can show.
 				config.FixedHz = (uint32_t)std::clamp(parsed, 20, 240);
+				config.FixedHzExplicit = true;
 				return true;
 			}
 			catch (const std::exception&)

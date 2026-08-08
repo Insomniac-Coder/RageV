@@ -49,6 +49,12 @@ target_compile_definitions(RageV
         VK_USE_PLATFORM_WIN32_KHR
         GLFW_INCLUDE_NONE)             # we include vulkan/volk ourselves
 
+# Where a build run out of the build tree finds a project when nobody says.
+# Absent from an installed build, which then relies on a .rvproject sitting
+# beside the executable -- the shape a packaged game has.
+target_compile_definitions(RageV PUBLIC
+    RV_DEFAULT_PROJECT="${CMAKE_SOURCE_DIR}/SampleProject")
+
 if(RAGEV_ENABLE_VALIDATION)
     target_compile_definitions(RageV PRIVATE $<$<CONFIG:Debug>:RV_VULKAN_VALIDATION>)
 endif()

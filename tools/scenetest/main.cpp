@@ -38,6 +38,7 @@
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
+#include "RageV/Project/Project.h"
 
 #include <GLFW/glfw3.h>
 #include <fstream>
@@ -185,7 +186,7 @@ namespace
 	// quaternion -- the shapes a real exporter emits.
 	void CheckGltfImport()
 	{
-		const std::filesystem::path path = "assets/models/testcube.gltf";
+		const std::filesystem::path path = Project::AssetPath("models/testcube.gltf");
 
 		ImportedModel model;
 		if (!GltfImporter::Import(path, model))
@@ -319,8 +320,51 @@ namespace
 	// that stamping it out twice produces two independent trees -- if the
 	// copies shared ids, every reference to one would resolve to both, and the
 	// hierarchy links would cross-connect them.
+	// Anything that writes an asset does it in a throwaway project.
+	//
+	// Assets used to be staged beside each tool, so a test writing one left its
+	// mess in a build directory nobody looks at. They live in a real project
+	// folder now, and a test suite that leaves files in the user's project --
+	// which is under version control -- is a test suite people stop running.
+	//
+	// Restores whatever project was open on destruction, including when a check
+	// returns early.
+	class ScratchProject
+	{
+	public:
+		explicit ScratchProject(const char* name)
+			: m_Previous(Project::File())
+		{
+			m_Root = std::filesystem::temp_directory_path() / (std::string("ragev-") + name);
+
+			std::error_code error;
+			std::filesystem::remove_all(m_Root, error);
+
+			if (Project::Create(m_Root, name))
+				AssetRegistry::Init(Project::AssetRoot());
+		}
+
+		~ScratchProject()
+		{
+			if (!m_Previous.empty() && Project::Load(m_Previous))
+				AssetRegistry::Init(Project::AssetRoot());
+
+			std::error_code error;
+			std::filesystem::remove_all(m_Root, error);
+		}
+
+		ScratchProject(const ScratchProject&) = delete;
+		ScratchProject& operator=(const ScratchProject&) = delete;
+
+	private:
+		std::filesystem::path m_Previous;
+		std::filesystem::path m_Root;
+	};
+
 	void CheckPrefabs()
 	{
+		ScratchProject scratch("prefabtest");
+
 		auto scene = std::make_shared<Scene>();
 
 		Entity root = scene->CreateEntity("Turret");
@@ -940,6 +984,71 @@ namespace
 			  "and does not stop what passes through it");
 
 		scene->OnRuntimeStop();
+	}
+
+	// The project concept.
+	//
+	// Everything here is about paths surviving a trip through a file, because
+	// the failure this exists to prevent is a project that only opens on the
+	// machine that made it.
+	void CheckProject()
+	{
+		// Kept, because the checks below open other projects and everything
+		// after this expects the sample back.
+		const std::filesystem::path original = Project::File();
+
+		const std::filesystem::path root =
+			std::filesystem::temp_directory_path() / "ragev-project-test";
+
+		std::error_code error;
+		std::filesystem::remove_all(root, error);
+
+		Check(Project::Create(root, "Probe"), "a project can be created");
+		Check(std::filesystem::exists(root / "Probe.rvproject"),
+			  "which writes a .rvproject");
+		Check(std::filesystem::is_directory(root / "assets"),
+			  "and an assets folder beside it");
+
+		// Refused rather than overwritten: a project file is the only thing
+		// that says where a game's assets are.
+		Check(!Project::Create(root, "Probe"), "creating over an existing project is refused");
+
+		Project::Config().StartScene = "scenes/level.rage";
+		Project::Config().FixedHz = 120;
+		Check(Project::Save(), "a project saves");
+
+		Project::Close();
+		Check(Project::GetActive() == nullptr, "and can be closed");
+
+		Check(Project::Load(root / "Probe.rvproject"), "and loaded back");
+		Check(Project::Config().Name == "Probe", "the name survives");
+		Check(Project::Config().StartScene == "scenes/level.rage", "as does the start scene");
+		Check(Project::Config().FixedHz == 120, "and the simulation rate");
+		Check(Project::AssetRoot() == root / "assets",
+			  "the asset root is derived from the project folder");
+
+		// A folder, not a file: how a packaged game finds its own project.
+		Check(Project::FindIn(root) == root / "Probe.rvproject",
+			  "a project is found by looking in its folder");
+		Check(Project::FindIn(root / "assets").empty(), "and not found where there is none");
+
+		// --- relative paths ---------------------------------------------------
+		Check(Project::MakeRelative(root / "assets" / "models" / "x.gltf") == "models/x.gltf",
+			  "a path inside the project becomes relative, with forward slashes");
+		Check(Project::MakeRelative(root / "elsewhere" / "x.gltf").empty(),
+			  "and one outside it is refused rather than stored");
+
+		// A failed load must leave the previous project intact rather than
+		// half-replacing it.
+		Check(!Project::Load(root / "nope.rvproject"), "loading a missing project fails");
+		Check(Project::GetActive() != nullptr && Project::Config().Name == "Probe",
+			  "and leaves the open one alone");
+
+		std::filesystem::remove_all(root, error);
+
+		// Back to the sample, which everything after this depends on.
+		Check(Project::Load(original), "the sample project reopens");
+		AssetRegistry::Init(Project::AssetRoot());
 	}
 
 	// Clicking in the viewport.
@@ -1905,7 +2014,11 @@ int RunTests(int argc, char** argv)
 	// Also compiles both renderers' shaders, so a broken shader fails here
 	// rather than silently later.
 	Renderer::Init(*device);
-	AssetRegistry::Init("assets");
+	// The same resolution the editor and the runtime use, so the tests exercise
+	// a real project rather than a folder that happens to be beside them.
+	Project::OpenConfigured();
+	AssetRegistry::Init(Project::GetActive() ? Project::AssetRoot()
+											 : std::filesystem::path("assets"));
 	AssetManager::Init(*device);
 	// Opens a real device if there is one. The audio checks are written to
 	// hold either way, so a machine with no sound card is not a failing build.
@@ -1920,6 +2033,7 @@ int RunTests(int argc, char** argv)
 	CheckLiveScriptChanges();
 
 	// --- physics -------------------------------------------------------------
+	CheckProject();
 	CheckPhysics();
 	CheckColliderOverlay();
 	CheckPicking();

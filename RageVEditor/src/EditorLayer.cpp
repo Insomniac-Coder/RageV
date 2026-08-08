@@ -8,6 +8,7 @@
 #include "RageV/Renderer/DebugRenderer.h"
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Scene/ScenePicking.h"
+#include "RageV/Project/Project.h"
 #include "ImGuizmo.h"
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/gtx/matrix_decompose.hpp"
@@ -554,6 +555,31 @@ void EditorLayer::DrawMenuBar()
 	if (ImGui::BeginMenu("File"))
 	{
 		if (ImGui::MenuItem("New Scene", "Ctrl+N"))   NewScene();
+		if (ImGui::MenuItem("Open Project...")) OpenProject();
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("A project is a folder with a .rvproject in it.\n"
+							  "Its assets folder is where handles are minted, which\n"
+							  "is why they survive a rebuild.");
+		}
+
+		if (Project::GetActive())
+		{
+			if (ImGui::MenuItem("Set Start Scene"))
+				SetStartSceneToCurrent();
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("The scene a standalone build opens on.\n"
+								  "Saved into the .rvproject.");
+			}
+		}
+		else
+		{
+			ImGui::MenuItem("Set Start Scene", nullptr, false, false);
+		}
+
+		ImGui::Separator();
+
 		if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) OpenScene();
 		ImGui::Separator();
 		if (ImGui::MenuItem("Import Model...")) ImportModel();
@@ -1622,6 +1648,14 @@ void EditorLayer::OpenScene()
 	if (filepath.empty())
 		return;
 
+	OpenSceneFile(filepath);
+}
+
+// The one place a scene is loaded, so opening one from a dialog, from the
+// content browser and from a project's start scene all end up in the same
+// state -- including remembering the path, which "Set Start Scene" needs.
+void EditorLayer::OpenSceneFile(const std::filesystem::path& filepath)
+{
 	m_Scene = std::make_shared<Scene>();
 	if (m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f)
 		m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
@@ -1630,7 +1664,10 @@ void EditorLayer::OpenScene()
 	m_Commands.Clear();
 
 	SceneSerializer serializer(m_Scene);
-	serializer.Deserialize(filepath);
+	if (serializer.Deserialize(filepath.string()))
+		m_ScenePath = filepath;
+	else
+		m_ScenePath.clear();
 }
 
 void EditorLayer::SaveScene()
@@ -1641,5 +1678,61 @@ void EditorLayer::SaveScene()
 
 	SceneSerializer serializer(m_Scene);
 	serializer.Serialize(filepath);
+	m_ScenePath = filepath;
+}
+
+// Switching projects re-roots the asset registry, which is the whole point of
+// a project: handles are minted in and resolved against its folder.
+void EditorLayer::OpenProject()
+{
+	const std::string filepath = FileDialogs::OpenFile("RageV Project (*.rvproject)\0*.rvproject\0");
+	if (filepath.empty())
+		return;
+
+	if (!Project::Load(filepath))
+		return;
+
+	// The cache is keyed by handle, and handles from the old project mean
+	// something else -- or nothing -- in the new one.
+	AssetManager::ClearCache();
+	AssetRegistry::Init(Project::AssetRoot());
+
+	const std::string& start = Project::Config().StartScene;
+	if (!start.empty() && std::filesystem::exists(Project::AssetPath(start)))
+	{
+		OpenSceneFile(Project::AssetPath(start));
+		return;
+	}
+
+	// A project with no start scene opens empty rather than on whatever scene
+	// the previous project happened to be showing.
+	NewScene();
+	m_ScenePath.clear();
+}
+
+void EditorLayer::SetStartSceneToCurrent()
+{
+	if (!Project::GetActive())
+		return;
+
+	if (m_ScenePath.empty())
+	{
+		RV_WARN("Save the scene before setting it as the start scene");
+		return;
+	}
+
+	// Relative to the asset directory, and refused when it is not inside one:
+	// an absolute path in a project file is a project that only opens on the
+	// machine that wrote it, which is exactly what a packaged game cannot be.
+	const std::string relative = Project::MakeRelative(m_ScenePath);
+	if (relative.empty())
+	{
+		RV_WARN("'{0}' is outside the project's assets folder", m_ScenePath.string());
+		return;
+	}
+
+	Project::Config().StartScene = relative;
+	if (Project::Save())
+		RV_INFO("Start scene is now {0}", relative);
 }
 
