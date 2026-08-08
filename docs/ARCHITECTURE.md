@@ -26,7 +26,7 @@ different versions of the same shader files.
 | `RageVEditor` | The editor. Currently runs the **legacy OpenGL** renderer. |
 | `Sandbox` | Sample app, also legacy OpenGL. |
 | `shaderinfo` | Compiles a `.rvshader` and prints reflection + generated GLSL. |
-| `vksmoke` | Drives the Vulkan backend end to end without the editor. |
+| `rhismoke` | Drives either backend end to end without the editor (`--rhi=vulkan\|opengl`). |
 
 ## Layers
 
@@ -43,7 +43,13 @@ Platform/OpenGL                   Platform/Vulkan
 ```
 
 Two renderer paths currently coexist. The legacy one is what the editor uses and
-still works; the RHI is what everything should move onto.
+still works; the RHI is what everything should move onto. **Both RHI backends are
+implemented** -- `rhismoke` renders identical code through either.
+
+The backend is chosen at startup by `EngineConfig` (`--rhi=vulkan|opengl`, or
+`ragev.ini`) and is fixed for the process lifetime. That is deliberate: the
+window is created differently per backend, so switching live would mean
+recreating the window, the swapchain and every GPU resource.
 
 ## The RHI
 
@@ -146,21 +152,53 @@ Things that are load-bearing and easy to break:
   callers. `glm` is built with `GLM_FORCE_DEPTH_ZERO_TO_ONE` to match Vulkan's
   `[0,1]` clip range.
 
+## OpenGL backend notes
+
+`RageV/src/Platform/OpenGL/OpenGLRHI.*`, built on 4.5+ direct-state-access.
+
+- **Binding assignment is the subtle part.** Vulkan addresses resources by
+  `(set, binding)`; GL has one flat namespace per resource type.
+  `FlatBindingMap` assigns densely from 0 per type. A scheme that spaces sets
+  apart (`set * 16 + binding`) looks fine until a real shader hits it: with
+  `GL_MAX_TEXTURE_IMAGE_UNITS == 32`, the quad shader's 32-element sampler array
+  at set 1 would land on units 16..47 and fail to link. The map is computed once
+  per shader and shared by GLSL generation and the resource-set binding code --
+  recomputing it separately in the two places is how they drift apart.
+- Vertex format lives in the VAO; buffers attach at bind time. GL 4.5's
+  separate-format model maps onto the RHI's pipeline/buffer split directly.
+- `glClear` respects the depth mask, so the mask is forced on before clearing.
+  Otherwise a pipeline that disabled depth writes silently skips the clear.
+- The RHI expresses a viewport flip as Vulkan's negative height; the GL backend
+  normalises it back to a positive rect.
+- Depth-only targets set draw/read buffer to `GL_NONE` or the framebuffer is
+  incomplete. Shadow maps need this.
+- `PushConstants` is unimplemented and warns. GL has no equivalent; emulating it
+  means a uniform buffer per pipeline layout, worth adding with the first shader
+  that needs it.
+
 ## What is not done
 
-1. **The OpenGL RHI backend.** `RHIDevice::Create(Backend::OpenGL)` returns
-   `nullptr` with an explanatory error. The SPIRV-Cross GLSL generation path it
-   needs already exists and is tested; what is missing is the
-   `OpenGLDevice`/`OpenGLCommandList` family mapping the RHI onto GL calls.
-2. **`Renderer2D` still targets the legacy path**, so the editor renders through
-   the old OpenGL renderer. Porting it means replacing the `ShaderManager` +
-   `SetUniform` calls with the `SceneData` UBO and the set-1 sampler array that
-   `quad.rvshader` already declares.
-3. **ImGui on Vulkan.** `imgui_impl_vulkan` is compiled in and wired to volk,
-   and `VulkanTexture::GetImGuiHandle()` returns a descriptor set for
-   `ImGui::Image`, but `ImGuiLayer` still hardcodes the OpenGL3 backend.
-4. **Editor viewport on Vulkan** — render into an offscreen `RHIRenderTarget`
-   and display it via `ImGui::Image`.
+These three have to land together -- flipping the editor onto the RHI while
+ImGui still issues GL calls would break the Vulkan path -- so they are one unit
+of work, not three:
+
+1. **`Renderer2D` still targets the legacy path**, so the editor renders through
+   the old OpenGL renderer. Porting means replacing the `ShaderManager` +
+   `SetUniform` calls with the `SceneData` UBO and set-1 sampler array that
+   `quad.rvshader` already declares. Note the vertex buffer and the scene UBO
+   both need one instance **per frame in flight**: they are rewritten every
+   frame, and with 2 frames in flight the next frame would otherwise overwrite
+   data the GPU is still reading.
+2. **ImGui backend selection.** `imgui_impl_vulkan` is compiled in and wired to
+   volk, and `VulkanTexture::GetImGuiHandle()` already returns a descriptor set
+   for `ImGui::Image`, but `ImGuiLayer` hardcodes the OpenGL3 backend.
+3. **Editor viewport** — render the scene into an offscreen `RHIRenderTarget`
+   and display it through `ImGui::Image`, replacing the GL-only `FrameBuffer`.
+
+`Application` also needs to own the `RHIDevice` and drive
+`BeginFrame`/`EndFrame` around the layer stack. Layers have no command list
+parameter; the least invasive route is for `Renderer` to hold the current one,
+mirroring how `RenderCommand` already exposes a static.
 
 ## Road to PBR and shadows
 
