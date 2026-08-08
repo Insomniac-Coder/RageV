@@ -257,12 +257,19 @@ Sizes are relative: **S** ≈ a sitting, **M** ≈ a few, **L** ≈ a focused we
 
 ### Phase 2 — Simulation *(the missing middle of the loop)*
 
+Reordered after the research pass — see [ENGINE-NOTES.md](ENGINE-NOTES.md) §1.
+The fixed-timestep loop moved to the front because it is a **prerequisite** for
+physics, not a companion to it: integrator behaviour depends on `dt`, so a
+variable one means a scene that settles at 300 fps explodes at 40. Landing it
+after Jolt would mean writing the transform sync twice.
+
 | # | Item | Size |
 |---|---|---|
+| 2.0 | **Fixed-timestep loop** — accumulator, frame-time clamp, render interpolation | M |
 | 2.1 | **Edit/play split** — `OnUpdateEditor` / `OnUpdateRuntime`, snapshot on Play, restore on Stop | M |
 | 2.2 | Input action mapping (named actions over raw keycodes) | S |
 | 2.3 | **Native script API v2** — entity handle, components on any entity, input, time, instantiate/find/destroy, scene queries | L |
-| 2.4 | **Physics — Jolt** — rigid/static/character bodies, box/sphere/capsule/convex/mesh shapes, triggers, raycasts, debug draw | XL |
+| 2.4 | **Physics — Jolt** — rigid/static/character bodies, box/sphere/capsule/convex/mesh shapes, triggers, raycasts, debug draw. Batch body adds, two broad-phase layers, `BodyID` not pointers (ENGINE-NOTES §3) | XL |
 | 2.5 | **Audio — miniaudio** — 2D + 3D sources, listener, volume groups | L |
 | 2.6 | Collision and trigger callbacks routed into scripts | M |
 
@@ -274,8 +281,9 @@ Sizes are relative: **S** ≈ a sitting, **M** ≈ a few, **L** ≈ a focused we
 | 3.2 | HDR target + tonemap/bloom post chain (moves ACES out of the PBR shader) | M |
 | 3.3 | Skybox + cubemaps (`TextureType::TextureCube` already exists in the RHI) | M |
 | 3.4 | **IBL** — irradiance, prefiltered specular, BRDF LUT; replaces the flat ambient term | L |
-| 3.5 | **Shadows** — CSM directional, cube point, spot | XL |
-| 3.6 | Frustum culling, draw sorting, instancing | M |
+| 3.5 | **Shadows** — CSM directional, cube point, spot. Sphere-fit cascades, texel snapping, normal-offset bias (ENGINE-NOTES §5) | XL |
+| 3.6 | Frustum culling, draw sorting, instancing. **CPU only** — GPU-driven rendering is out of scope | M |
+| 3.8 | **Clustered forward lighting** — removes the 8-light cap, keeps transparency working (unlike deferred) | L |
 | 3.7 | Skeletal animation — skinning, clips, blending | XL |
 
 **On 3.1:** a render graph is not architecture astronomy here. It earns its
@@ -345,6 +353,13 @@ Naming these is as important as the roadmap. Each is a place a solo engine dies.
   thousands of entities per chunk. It should be deleted or quarantined, not
   developed.
 - **Asset store / plugin ecosystem.**
+- **GPU-driven rendering** — compute-generated draw commands, meshlets. Real
+  wins at hundreds of thousands of objects; invisible at this scale.
+- **Bindless resource binding.** Descriptor indexing is core in Vulkan 1.2 and
+  is how modern renderers kill per-draw CPU cost — but OpenGL 4.5 has no
+  equivalent. This is the first place the two-backend commitment has a real
+  price, and it is a decision to make deliberately rather than drift into. Not
+  needed while the renderer is nowhere near CPU-bound.
 
 ---
 
