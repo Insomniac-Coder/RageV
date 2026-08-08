@@ -18,13 +18,16 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/component_wise.hpp>
+#include <algorithm>
 #include <cstdarg>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 
@@ -226,6 +229,127 @@ namespace RageV
 
 			return shape;
 		}
+
+		// --- contacts --------------------------------------------------------
+		// What the listener records, before anything is interpreted.
+		//
+		// Jolt calls contact callbacks from several job threads at once, with
+		// every body locked, so the listener may not touch the scene, the body
+		// interface, or any engine state. It records the raw fact and returns;
+		// all of the interpretation happens on the main thread once Update has
+		// returned.
+		enum class RawKind : uint8_t { Added, Persisted, Removed };
+
+		struct RawContact
+		{
+			RawKind Kind = RawKind::Added;
+			JPH::BodyID Id1, Id2;
+
+			// Read from the bodies' user data at callback time. Removed cannot
+			// carry them -- the bodies may already be destroyed by then -- so
+			// they are recovered from the tracked pair instead.
+			UUID A = UUID::Invalid();
+			UUID B = UUID::Invalid();
+
+			bool Trigger = false;
+			glm::vec3 Point{ 0.0f };
+			glm::vec3 Normal{ 0.0f };
+			float ImpactSpeed = 0.0f;
+		};
+
+		struct ContactQueue
+		{
+			std::mutex Mutex;
+			std::vector<RawContact> Raw;
+		};
+
+		// Jolt sorts the two bodies by id before every contact callback, so the
+		// pair (a, b) always arrives in the same order and one key identifies it.
+		uint64_t PairKey(const JPH::BodyID& a, const JPH::BodyID& b)
+		{
+			return ((uint64_t)a.GetIndexAndSequenceNumber() << 32) |
+					(uint64_t)b.GetIndexAndSequenceNumber();
+		}
+
+		class ContactListenerImpl final : public JPH::ContactListener
+		{
+		public:
+			explicit ContactListenerImpl(ContactQueue& queue) : m_Queue(queue) {}
+
+			void OnContactAdded(const JPH::Body& body1, const JPH::Body& body2,
+								const JPH::ContactManifold& manifold,
+								JPH::ContactSettings&) override
+			{
+				Push(RawKind::Added, body1, body2, manifold);
+			}
+
+			void OnContactPersisted(const JPH::Body& body1, const JPH::Body& body2,
+									const JPH::ContactManifold& manifold,
+									JPH::ContactSettings&) override
+			{
+				Push(RawKind::Persisted, body1, body2, manifold);
+			}
+
+			void OnContactRemoved(const JPH::SubShapeIDPair& pair) override
+			{
+				// Nothing may be read from the bodies here -- one of them may
+				// already have been destroyed, and the rest are being written by
+				// other threads. Only the ids are safe.
+				RawContact contact;
+				contact.Kind = RawKind::Removed;
+				contact.Id1 = pair.GetBody1ID();
+				contact.Id2 = pair.GetBody2ID();
+
+				std::lock_guard<std::mutex> lock(m_Queue.Mutex);
+				m_Queue.Raw.push_back(contact);
+			}
+
+		private:
+			void Push(RawKind kind, const JPH::Body& body1, const JPH::Body& body2,
+					  const JPH::ContactManifold& manifold)
+			{
+				RawContact contact;
+				contact.Kind = kind;
+				contact.Id1 = body1.GetID();
+				contact.Id2 = body2.GetID();
+				contact.A = UUID(body1.GetUserData());
+				contact.B = UUID(body2.GetUserData());
+				contact.Trigger = body1.IsSensor() || body2.IsSensor();
+				contact.Normal = ToGlm(manifold.mWorldSpaceNormal);
+
+				// A manifold is a surface, not a point. The average of its
+				// points is where the contact reads as being; picking the first
+				// would make a box landing flat report one arbitrary corner.
+				const uint32_t count = manifold.mRelativeContactPointsOn1.size();
+				if (count > 0)
+				{
+					JPH::Vec3 sum = JPH::Vec3::sZero();
+					for (uint32_t i = 0; i < count; i++)
+						sum += manifold.mRelativeContactPointsOn1[i];
+
+					contact.Point = ToGlm(manifold.mBaseOffset + sum / (float)count);
+				}
+				else
+				{
+					contact.Point = ToGlm(manifold.mBaseOffset);
+				}
+
+				// Safe on a static body: Jolt returns zero rather than reading
+				// motion properties it does not have.
+				const glm::vec3 relative = ToGlm(body2.GetLinearVelocity()) -
+										   ToGlm(body1.GetLinearVelocity());
+
+				// The normal runs from body 1 into body 2, so approaching means
+				// body 2 moves against it. Negative is separating, which a
+				// speculative contact can be, and is reported as no impact.
+				contact.ImpactSpeed = glm::max(-glm::dot(relative, contact.Normal), 0.0f);
+
+				std::lock_guard<std::mutex> lock(m_Queue.Mutex);
+				m_Queue.Raw.push_back(contact);
+			}
+
+			ContactQueue& m_Queue;
+		};
 	}
 
 	// -------------------------------------------------------------------------
@@ -246,16 +370,46 @@ namespace RageV
 			glm::quat CurrentRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
 		};
 
+		// Two bodies that are touching, and how the engine last reported them.
+		struct Pair
+		{
+			JPH::BodyID Id1, Id2;
+			UUID A = UUID::Invalid();
+			UUID B = UUID::Invalid();
+			bool Trigger = false;
+
+			// Jolt reports contacts per sub-shape pair, and a compound shape
+			// can produce several for one pair of bodies. Enter fires when this
+			// rises off zero and Exit when it returns to it, so a script sees
+			// one touch rather than one per feature of the geometry.
+			int SubShapes = 0;
+
+			// Still touching, but Jolt has withdrawn the contact because both
+			// bodies went to sleep. See ProcessContacts.
+			bool Dormant = false;
+		};
+
 		Impl()
 			: TempAllocator(16 * 1024 * 1024),
 			  // One less than the hardware supports: the main thread is doing
 			  // the rest of the frame and taking every core starves it.
 			  JobSystem(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
-						(int)glm::max(1u, std::thread::hardware_concurrency() - 1u))
+						(int)glm::max(1u, std::thread::hardware_concurrency() - 1u)),
+			  Listener(Queue)
 		{
 			System.Init(kMaxBodies, kBodyMutexes, kMaxBodyPairs, kMaxContactConstraints,
 						BroadPhaseLayerInterface, ObjectVsBroadPhase, ObjectLayerPair);
 			System.SetGravity(JPH::Vec3(0.0f, -9.81f, 0.0f));
+			System.SetContactListener(&Listener);
+		}
+
+		~Impl()
+		{
+			// The listener is a member and is about to be destroyed, so the
+			// system must stop pointing at it first. Nothing steps between here
+			// and destruction today, but a dangling listener is not the kind of
+			// thing to leave depending on that.
+			System.SetContactListener(nullptr);
 		}
 
 		static constexpr uint32_t kMaxBodies = 8192;
@@ -274,7 +428,14 @@ namespace RageV
 
 		JPH::PhysicsSystem System;
 
+		// Queue first: the listener binds a reference to it, and members are
+		// constructed in declaration order.
+		ContactQueue Queue;
+		ContactListenerImpl Listener;
+
 		std::unordered_map<UUID, Body> Bodies;
+		std::unordered_map<uint64_t, Pair> Pairs;
+		std::vector<ContactEvent> Events;
 
 		JPH::BodyInterface& Interface() { return System.GetBodyInterface(); }
 		const JPH::BodyInterface& Interface() const { return System.GetBodyInterface(); }
@@ -346,6 +507,145 @@ namespace RageV
 			// entity being recreated.
 			out.mUserData = (uint64_t)entity.GetUUID();
 			return true;
+		}
+
+		// Turns what the listener recorded into engine events. Main thread,
+		// after Update has returned, so bodies may be queried normally again.
+		void ProcessContacts()
+		{
+			std::vector<RawContact> raw;
+			{
+				std::lock_guard<std::mutex> lock(Queue.Mutex);
+				raw.swap(Queue.Raw);
+			}
+
+			if (raw.empty())
+				return;
+
+			const JPH::BodyInterface& bodies = Interface();
+
+			for (const RawContact& contact : raw)
+			{
+				const uint64_t key = PairKey(contact.Id1, contact.Id2);
+
+				if (contact.Kind == RawKind::Removed)
+				{
+					const auto it = Pairs.find(key);
+					if (it == Pairs.end())
+						continue;   // already retired, or never tracked
+
+					Pair& pair = it->second;
+					if (pair.SubShapes > 0)
+						pair.SubShapes--;
+
+					if (pair.SubShapes > 0)
+						continue;   // other features of the same pair still touch
+
+					// Jolt withdraws every contact of a body the moment it falls
+					// asleep. A box that has settled on the floor is still on
+					// the floor, so reporting that as separation would mean a
+					// script's "am I standing on something" answer flips to no
+					// about a second after it lands -- which is exactly when it
+					// looks most stationary.
+					//
+					// Neither body being awake is what tells the two cases
+					// apart: bodies that genuinely separate are moving, and a
+					// body cannot fall asleep while it is.
+					const bool bothPresent = Bodies.count(pair.A) != 0 && Bodies.count(pair.B) != 0;
+					if (bothPresent && !bodies.IsActive(pair.Id1) && !bodies.IsActive(pair.Id2))
+					{
+						pair.Dormant = true;
+						continue;
+					}
+
+					ContactEvent event;
+					event.Phase = ContactPhase::Exit;
+					event.A = pair.A;
+					event.B = pair.B;
+					event.Trigger = pair.Trigger;
+					Events.push_back(event);
+
+					Pairs.erase(it);
+					continue;
+				}
+
+				const auto [it, inserted] = Pairs.try_emplace(key);
+				Pair& pair = it->second;
+
+				if (inserted)
+				{
+					pair.Id1 = contact.Id1;
+					pair.Id2 = contact.Id2;
+					pair.A = contact.A;
+					pair.B = contact.B;
+				}
+				pair.Trigger = contact.Trigger;
+
+				if (contact.Kind == RawKind::Added)
+					pair.SubShapes++;
+				else if (pair.SubShapes == 0)
+					pair.SubShapes = 1;   // persisted across a sleep, never added
+
+				ContactEvent event;
+				event.Phase = ContactPhase::Stay;
+				event.A = pair.A;
+				event.B = pair.B;
+				event.Trigger = pair.Trigger;
+				event.Point = contact.Point;
+				event.Normal = contact.Normal;
+				event.ImpactSpeed = contact.ImpactSpeed;
+
+				if (inserted)
+				{
+					event.Phase = ContactPhase::Enter;
+				}
+				else if (pair.Dormant)
+				{
+					// Waking up is not touching something new. Left as Stay, so
+					// a pair that sleeps and wakes reports one Enter over its
+					// whole life rather than one per nap.
+					pair.Dormant = false;
+				}
+
+				Events.push_back(event);
+			}
+
+			// Contacts arrive from several job threads, so their order within a
+			// step is whatever the scheduler produced. Sorting makes the events
+			// a scene sees depend only on the scene.
+			std::sort(Events.begin(), Events.end(), [](const ContactEvent& a, const ContactEvent& b)
+			{
+				if (a.A != b.A) return (uint64_t)a.A < (uint64_t)b.A;
+				if (a.B != b.B) return (uint64_t)a.B < (uint64_t)b.B;
+				return (uint8_t)a.Phase < (uint8_t)b.Phase;
+			});
+		}
+
+		// Everything the entity was touching stops being touched, now rather
+		// than on the next step.
+		//
+		// Jolt does report the contacts of a removed body as removed, but only
+		// during the following Update -- and a pair left asleep is never
+		// reported again at all, since its contact was withdrawn when it slept.
+		void RetirePairs(UUID entity)
+		{
+			for (auto it = Pairs.begin(); it != Pairs.end(); )
+			{
+				if (it->second.A != entity && it->second.B != entity)
+				{
+					++it;
+					continue;
+				}
+
+				ContactEvent event;
+				event.Phase = ContactPhase::Exit;
+				event.A = it->second.A;
+				event.B = it->second.B;
+				event.Trigger = it->second.Trigger;
+				Events.push_back(event);
+
+				it = Pairs.erase(it);
+			}
 		}
 
 		void Record(UUID entity, JPH::BodyID id, BodyType type, const glm::vec3& position,
@@ -456,6 +756,10 @@ namespace RageV
 		if (!record)
 			return;
 
+		// Before the body goes, so anything touching it is told while there is
+		// still something to name.
+		m_Impl->RetirePairs(entity);
+
 		JPH::BodyInterface& bodies = m_Impl->Interface();
 		bodies.RemoveBody(record->Id);
 		bodies.DestroyBody(record->Id);
@@ -491,6 +795,10 @@ namespace RageV
 
 		m_Impl->System.Update(deltaTime, collisionSteps, &m_Impl->TempAllocator, &m_Impl->JobSystem);
 
+		// After Update, never inside a callback: the contact listener runs on
+		// job threads with every body locked.
+		m_Impl->ProcessContacts();
+
 		for (auto& [entity, record] : m_Impl->Bodies)
 		{
 			if (!record.Simulated)
@@ -499,6 +807,17 @@ namespace RageV
 			record.CurrentPosition = ToGlm(bodies.GetPosition(record.Id));
 			record.CurrentRotation = ToGlm(bodies.GetRotation(record.Id));
 		}
+	}
+
+	void PhysicsWorld::TakeContactEvents(std::vector<ContactEvent>& out)
+	{
+		out.clear();
+		out.swap(m_Impl->Events);
+	}
+
+	size_t PhysicsWorld::GetContactPairCount() const
+	{
+		return m_Impl->Pairs.size();
 	}
 
 	void PhysicsWorld::SyncTransforms(Scene& scene, float interpolationAlpha)

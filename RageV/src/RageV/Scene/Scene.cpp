@@ -426,7 +426,73 @@ namespace RageV
 		// After the scripts, so a script's forces and velocity changes are part
 		// of the step they were issued for rather than the next one.
 		if (m_Physics)
+		{
 			m_Physics->Step(dt.GetSeconds());
+
+			// After the step, not during it: a contact callback that pushes
+			// something back should push it in the world the solver has already
+			// finished with, and Jolt forbids touching bodies from inside the
+			// callback at all.
+			DispatchContactEvents();
+
+			// A collision handler is as entitled to destroy something as any
+			// other script code is.
+			FlushDestroyQueue();
+		}
+	}
+
+	void Scene::DispatchContactEvents()
+	{
+		m_Physics->TakeContactEvents(m_ContactEvents);
+
+		for (const ContactEvent& event : m_ContactEvents)
+		{
+			// The stored normal runs from A towards B, so B is the one it
+			// already points at and A is the one that needs it reversed.
+			DeliverContact(event, event.A, event.B, true);
+			DeliverContact(event, event.B, event.A, false);
+		}
+
+		// Not cleared: the buffer is swapped back next step, and holding the
+		// events until then costs nothing.
+	}
+
+	void Scene::DeliverContact(const ContactEvent& event, UUID to, UUID other, bool flip)
+	{
+		Entity entity = GetEntityByUUID(to);
+		if (!entity)
+			return;   // destroyed since the step, which is not an error
+
+		auto* script = m_Registry.try_get<NativeScriptComponent>(entity);
+		if (!script || !script->Instance)
+			return;
+
+		Collision collision;
+		collision.Other = GetEntityByUUID(other);
+		collision.Trigger = event.Trigger;
+		collision.Point = event.Point;
+		collision.Normal = flip ? -event.Normal : event.Normal;
+		collision.ImpactSpeed = event.ImpactSpeed;
+
+		ScriptableEntity* instance = script->Instance;
+
+		if (event.Trigger)
+		{
+			switch (event.Phase)
+			{
+				case ContactPhase::Enter: instance->OnTriggerEnter(collision); break;
+				case ContactPhase::Stay:  instance->OnTriggerStay(collision);  break;
+				case ContactPhase::Exit:  instance->OnTriggerExit(collision);  break;
+			}
+			return;
+		}
+
+		switch (event.Phase)
+		{
+			case ContactPhase::Enter: instance->OnCollisionEnter(collision); break;
+			case ContactPhase::Stay:  instance->OnCollisionStay(collision);  break;
+			case ContactPhase::Exit:  instance->OnCollisionExit(collision);  break;
+		}
 	}
 
 	void Scene::OnRenderRuntime(float aspectRatio)

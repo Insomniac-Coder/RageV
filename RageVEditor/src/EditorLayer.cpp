@@ -1316,6 +1316,28 @@ void EditorLayer::LoadDemoScene()
 
 		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
 		box.AddComponent<ColliderComponent>().HalfExtents = glm::vec3(0.5f);
+
+		// So landing is visible as an event and not only as a change of
+		// position: each box flashes in proportion to how hard it lands.
+		box.AddComponent<NativeScriptComponent>("ImpactFlash");
+	}
+
+	// A band of air the boxes fall through, tinting them on the way. Invisible
+	// -- no mesh -- which is what a trigger volume normally is, and what makes
+	// it worth having something in the demo scene that proves one is there.
+	{
+		Entity zone = m_Scene->CreateEntity("Trigger Zone");
+		zone.GetComponent<TransformComponent>().Position = { 0.0f, 2.2f, 0.0f };
+
+		// Static: a trigger is a place, not an object. It still detects the
+		// moving bodies that pass through it.
+		zone.AddComponent<RigidBodyComponent>(BodyType::Static);
+
+		auto& collider = zone.AddComponent<ColliderComponent>();
+		collider.HalfExtents = { 3.0f, 0.6f, 3.0f };
+		collider.IsTrigger = true;
+
+		zone.AddComponent<NativeScriptComponent>("TriggerZone");
 	}
 
 	m_SceneHierarchyPanel.SetSelectedEntity({});

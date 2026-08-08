@@ -136,6 +136,45 @@ namespace RageV
 	}
 
 	// -------------------------------------------------------------------------
+	// Physics
+	// -------------------------------------------------------------------------
+	// Every one of these tolerates there being no simulation. A script runs in
+	// play mode, but it can be stepped by a tool or a test that never started
+	// one, and asking a scene at rest to push something is a no-op rather than
+	// a mistake.
+	void ScriptableEntity::AddForce(const glm::vec3& force)
+	{
+		if (PhysicsWorld* physics = GetScene().GetPhysics())
+			physics->AddForce(m_Entity.GetUUID(), force);
+	}
+
+	void ScriptableEntity::AddImpulse(const glm::vec3& impulse)
+	{
+		if (PhysicsWorld* physics = GetScene().GetPhysics())
+			physics->AddImpulse(m_Entity.GetUUID(), impulse);
+	}
+
+	void ScriptableEntity::SetLinearVelocity(const glm::vec3& velocity)
+	{
+		if (PhysicsWorld* physics = GetScene().GetPhysics())
+			physics->SetLinearVelocity(m_Entity.GetUUID(), velocity);
+	}
+
+	glm::vec3 ScriptableEntity::GetLinearVelocity()
+	{
+		if (PhysicsWorld* physics = GetScene().GetPhysics())
+			return physics->GetLinearVelocity(m_Entity.GetUUID());
+		return glm::vec3(0.0f);
+	}
+
+	RayHit ScriptableEntity::Raycast(const glm::vec3& origin, const glm::vec3& direction)
+	{
+		if (PhysicsWorld* physics = GetScene().GetPhysics())
+			return physics->CastRay(origin, direction);
+		return {};
+	}
+
+	// -------------------------------------------------------------------------
 	// Input and time
 	// -------------------------------------------------------------------------
 	bool ScriptableEntity::IsActionDown(const std::string& action)      { return InputMap::IsActionDown(action); }

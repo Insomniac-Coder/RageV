@@ -4,12 +4,12 @@
 
 namespace RageV
 {
-	UUID Entity::GetUUID()
+	UUID Entity::GetUUID() const
 	{
 		return GetComponent<IDComponent>().ID;
 	}
 
-	const std::string& Entity::GetName()
+	const std::string& Entity::GetName() const
 	{
 		return GetComponent<TagComponent>().Name;
 	}

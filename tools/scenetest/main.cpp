@@ -748,6 +748,192 @@ namespace
 		Check(scene->GetPhysics() == nullptr, "stop tears the physics world down");
 	}
 
+	// Records every contact it is told about, so the routing can be checked
+	// without anything being on screen.
+	class ContactProbe : public ScriptableEntity
+	{
+	public:
+		struct Log
+		{
+			int Enter = 0, Stay = 0, Exit = 0;
+			int TriggerEnter = 0, TriggerStay = 0, TriggerExit = 0;
+			std::string LastOther;
+			glm::vec3 LastNormal{ 0.0f };
+			float LastImpact = 0.0f;
+			bool SawInvalidOther = false;
+		};
+
+		// Keyed by the entity's name, so one probe class can be attached to
+		// both sides of a collision and each side checked separately.
+		inline static std::map<std::string, Log> Logs;
+
+		static void Reset() { Logs.clear(); }
+		static const Log& For(const std::string& name) { return Logs[name]; }
+
+		void OnCollisionEnter(const Collision& collision) override
+		{
+			Log& log = Record(collision);
+			log.Enter++;
+		}
+
+		void OnCollisionStay(const Collision& collision) override { Record(collision).Stay++; }
+		void OnCollisionExit(const Collision& collision) override  { Record(collision).Exit++; }
+
+		void OnTriggerEnter(const Collision& collision) override { Record(collision).TriggerEnter++; }
+		void OnTriggerStay(const Collision& collision) override  { Record(collision).TriggerStay++; }
+		void OnTriggerExit(const Collision& collision) override   { Record(collision).TriggerExit++; }
+
+	private:
+		Log& Record(const Collision& collision)
+		{
+			Log& log = Logs[GetName()];
+
+			if (collision.Other)
+				log.LastOther = collision.Other.GetName();
+			else
+				log.SawInvalidOther = true;
+
+			log.LastNormal = collision.Normal;
+			log.LastImpact = glm::max(log.LastImpact, collision.ImpactSpeed);
+			return log;
+		}
+	};
+
+	// Contacts routed into scripts.
+	//
+	// Simulated rather than asserted on: the plumbing being present says
+	// nothing about whether a box landing on a floor produces exactly one
+	// Enter, on both entities, with a normal that points the right way.
+	void CheckContactCallbacks()
+	{
+		ContactProbe::Reset();
+		ScriptRegistry::Register("ContactProbe", []() -> ScriptableEntity* { return new ContactProbe(); });
+
+		auto scene = std::make_shared<Scene>();
+
+		Entity ground = scene->CreateEntity("Ground");
+		ground.GetComponent<TransformComponent>().Position = { 0.0f, -1.0f, 0.0f };
+		ground.AddComponent<RigidBodyComponent>(BodyType::Static);
+		ground.AddComponent<ColliderComponent>().HalfExtents = { 25.0f, 1.0f, 25.0f };
+		ground.AddComponent<NativeScriptComponent>("ContactProbe");
+
+		Entity box = scene->CreateEntity("Box");
+		box.GetComponent<TransformComponent>().Position = { 0.0f, 5.0f, 0.0f };
+		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+		box.AddComponent<ColliderComponent>();
+		box.AddComponent<NativeScriptComponent>("ContactProbe");
+
+		// Off to one side and never touched, so "a callback fired" can be told
+		// apart from "callbacks fire for everything".
+		Entity lonely = scene->CreateEntity("Lonely");
+		lonely.GetComponent<TransformComponent>().Position = { 40.0f, 5.0f, 0.0f };
+		lonely.AddComponent<RigidBodyComponent>(BodyType::Static);
+		lonely.AddComponent<ColliderComponent>();
+		lonely.AddComponent<NativeScriptComponent>("ContactProbe");
+
+		constexpr float dt = 1.0f / 60.0f;
+		scene->OnRuntimeStart();
+
+		// Falling, not yet landed.
+		for (int i = 0; i < 20; i++)
+			scene->OnFixedUpdateRuntime(dt);
+
+		Check(ContactProbe::For("Box").Enter == 0, "nothing is reported while a body is in mid-air");
+
+		// Long enough to land, but well short of falling asleep.
+		for (int i = 0; i < 40; i++)
+			scene->OnFixedUpdateRuntime(dt);
+
+		const ContactProbe::Log& onBox = ContactProbe::For("Box");
+		Check(onBox.Enter == 1, "landing reports exactly one collision enter");
+		Check(onBox.LastOther == "Ground", "and names the entity that was hit");
+		Check(onBox.Stay > 0, "and keeps reporting while they stay in contact");
+		Check(onBox.Exit == 0, "with no exit while they are still touching");
+		// The ground is below the box, so the normal it hands the box points up.
+		Check(onBox.LastNormal.y > 0.9f, "the normal points from the other body back at this one");
+		Check(onBox.LastImpact > 1.0f, "the impact carries the speed the bodies met at");
+
+		const ContactProbe::Log& onGround = ContactProbe::For("Ground");
+		Check(onGround.Enter == 1, "the other entity is told about the same collision");
+		Check(onGround.LastOther == "Box", "from its own point of view");
+		Check(onGround.LastNormal.y < -0.9f, "with the normal reversed for it");
+
+		Check(ContactProbe::For("Lonely").Enter == 0, "an untouched body hears nothing");
+
+		// Jolt withdraws the contacts of a body that falls asleep, which would
+		// read as the box leaving the floor about a second after it landed.
+		const int stayBeforeSleep = onBox.Stay;
+		for (int i = 0; i < 240; i++)
+			scene->OnFixedUpdateRuntime(dt);
+
+		Check(onBox.Exit == 0, "a body settling and falling asleep is not reported as leaving");
+		Check(onBox.Enter == 1, "and waking up again is not reported as a new collision");
+		Check(onBox.Stay > stayBeforeSleep, "resting contact keeps being reported");
+
+		// Destroying one side has to tell the other, and not leave it believing
+		// it is still being stood on.
+		scene->DestroyDeferred(box);
+		scene->OnFixedUpdateRuntime(dt);
+
+		Check(onGround.Exit == 1, "destroying one body reports an exit to the other");
+
+		scene->OnRuntimeStop();
+	}
+
+	// Triggers report overlaps and resist nothing, which is a different code
+	// path through the same listener.
+	void CheckTriggerCallbacks()
+	{
+		ContactProbe::Reset();
+
+		auto scene = std::make_shared<Scene>();
+
+		// A slab of air the box falls through.
+		Entity zone = scene->CreateEntity("Zone");
+		zone.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 0.0f };
+		zone.AddComponent<RigidBodyComponent>(BodyType::Static);
+		auto& trigger = zone.AddComponent<ColliderComponent>();
+		trigger.HalfExtents = { 4.0f, 0.5f, 4.0f };
+		trigger.IsTrigger = true;
+		zone.AddComponent<NativeScriptComponent>("ContactProbe");
+
+		Entity box = scene->CreateEntity("Box");
+		box.GetComponent<TransformComponent>().Position = { 0.0f, 6.0f, 0.0f };
+		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+		box.AddComponent<ColliderComponent>();
+		box.AddComponent<NativeScriptComponent>("ContactProbe");
+
+		constexpr float dt = 1.0f / 60.0f;
+		scene->OnRuntimeStart();
+
+		// Long enough to fall in and out the other side.
+		for (int i = 0; i < 120; i++)
+			scene->OnFixedUpdateRuntime(dt);
+
+		// Simulated positions reach the transforms on the frame, not on the
+		// step -- that is where the interpolation between the last two steps is
+		// applied. Without this the transform still reads where it started.
+		scene->OnUpdateRuntime(dt);
+
+		const ContactProbe::Log& onBox = ContactProbe::For("Box");
+		const ContactProbe::Log& onZone = ContactProbe::For("Zone");
+
+		Check(onBox.TriggerEnter == 1, "entering a trigger reports once");
+		Check(onBox.TriggerExit == 1, "and leaving it reports once");
+		Check(onBox.TriggerStay > 0, "with the time between reported as well");
+		Check(onBox.Enter == 0 && onBox.Exit == 0,
+			  "a trigger does not also report as a solid collision");
+		Check(onZone.TriggerEnter == 1, "the trigger itself is told what entered it");
+		Check(onZone.LastOther == "Box", "and which entity it was");
+
+		// The whole point of a trigger: it reports without resisting. A solid
+		// body here would have stopped the box at the slab.
+		Check(box.GetComponent<TransformComponent>().Position.y < -2.0f,
+			  "and does not stop what passes through it");
+
+		scene->OnRuntimeStop();
+	}
+
 	// Stop has to put the scene back exactly, including everything physics
 	// moved -- which is most of the scene after a run.
 	void CheckPhysicsRestoresOnStop()
@@ -1047,6 +1233,8 @@ int RunTests(int argc, char** argv)
 
 	// --- physics -------------------------------------------------------------
 	CheckPhysics();
+	CheckContactCallbacks();
+	CheckTriggerCallbacks();
 	CheckPhysicsRestoresOnStop();
 	CheckPlayModeRestore();
 

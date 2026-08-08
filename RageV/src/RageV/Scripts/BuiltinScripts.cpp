@@ -10,6 +10,7 @@
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Scene/Components.h"
 #include <glm/glm.hpp>
+#include <unordered_map>
 
 namespace RageV
 {
@@ -88,6 +89,145 @@ namespace RageV
 		float m_Sharpness = 4.0f;
 		Entity m_Target;
 	};
+	// Glows on impact, in proportion to how hard it was hit, and fades back.
+	//
+	// The worked example for OnCollisionEnter, and the reason ImpactSpeed is on
+	// Collision at all: "something touched me" is rarely enough on its own, and
+	// almost every use -- an impact sound's volume, a damage number, the size of
+	// a dent -- wants to know how hard.
+	class ImpactFlash : public ScriptableEntity
+	{
+	public:
+		void OnCreate() override
+		{
+			// A null material means the renderer's shared default, which every
+			// other object without one is also drawn with. Tinting that would
+			// light up the whole scene on one collision.
+			if (!HasComponent<MeshComponent>() || !GetComponent<MeshComponent>().Material)
+				return;
+
+			m_Material = GetComponent<MeshComponent>().Material;
+			m_Rest = m_Material->GetParams().EmissiveColor;
+		}
+
+		void OnCollisionEnter(const Collision& collision) override
+		{
+			if (!m_Material)
+				return;
+
+			// Saturating rather than linear: a fall from any real height lands
+			// at well over the speed that already reads as a bright flash, so a
+			// linear scale would make every impact past the first look the same.
+			m_Flash = glm::max(m_Flash, glm::min(collision.ImpactSpeed / 8.0f, 1.0f));
+		}
+
+		void OnUpdate(Timestep dt) override
+		{
+			if (!m_Material || m_Flash <= 0.0f)
+				return;
+
+			m_Flash = glm::max(m_Flash - dt.GetSeconds() / m_FadeSeconds, 0.0f);
+
+			auto& params = m_Material->GetParams();
+			params.EmissiveColor = m_Rest + glm::vec4(m_Colour * m_Flash, 0.0f);
+			// The parameter block is a GPU buffer; without this the write above
+			// never reaches it.
+			m_Material->Invalidate();
+		}
+
+		void OnDestroy() override
+		{
+			// Stop puts the scene back from a snapshot, but a material is a
+			// shared resource rather than scene data, so a flash left mid-fade
+			// would survive it.
+			if (!m_Material)
+				return;
+
+			m_Material->GetParams().EmissiveColor = m_Rest;
+			m_Material->Invalidate();
+		}
+
+	private:
+		RHI::Ref<Material> m_Material;
+		glm::vec4 m_Rest{ 0.0f };
+		glm::vec3 m_Colour{ 1.0f, 0.55f, 0.25f };
+		float m_Flash = 0.0f;
+		float m_FadeSeconds = 0.45f;
+	};
+
+	// An invisible volume that tints whatever is inside it.
+	//
+	// The worked example for triggers, and for reaching the *other* entity in a
+	// collision rather than the one the script is on. Attach it to an entity
+	// with a collider marked IsTrigger.
+	class TriggerZone : public ScriptableEntity
+	{
+	public:
+		void OnTriggerEnter(const Collision& collision) override
+		{
+			if (!collision.Other || !collision.Other.HasComponent<MeshComponent>())
+				return;
+
+			const RHI::Ref<Material> material = collision.Other.GetComponent<MeshComponent>().Material;
+			if (!material)
+				return;
+
+			// Keyed by entity, not by material: two entities may share one, and
+			// the second to leave would otherwise restore a colour that the
+			// first had already put back.
+			const UUID id = collision.Other.GetUUID();
+			if (m_Occupants.find(id) != m_Occupants.end())
+				return;
+
+			m_Occupants[id] = { material, material->GetParams().BaseColor };
+
+			material->GetParams().BaseColor = m_Tint;
+			material->Invalidate();
+		}
+
+		void OnTriggerExit(const Collision& collision) override
+		{
+			// Deliberately by id rather than through collision.Other: the exit
+			// may be *because* it was destroyed, in which case Other is invalid
+			// and the entity's components are already gone.
+			Restore(collision.Other ? collision.Other.GetUUID() : UUID::Invalid());
+		}
+
+		void OnDestroy() override
+		{
+			while (!m_Occupants.empty())
+				Restore(m_Occupants.begin()->first);
+		}
+
+		// How many bodies are inside. Useful on its own -- a pressure plate is
+		// this and nothing else.
+		size_t GetOccupantCount() const { return m_Occupants.size(); }
+
+	private:
+		struct Tinted
+		{
+			RHI::Ref<Material> Material;
+			glm::vec4 Original{ 1.0f };
+		};
+
+		void Restore(UUID id)
+		{
+			const auto it = m_Occupants.find(id);
+			if (it == m_Occupants.end())
+				return;
+
+			if (it->second.Material)
+			{
+				it->second.Material->GetParams().BaseColor = it->second.Original;
+				it->second.Material->Invalidate();
+			}
+			m_Occupants.erase(it);
+		}
+
+		std::unordered_map<UUID, Tinted> m_Occupants;
+		glm::vec4 m_Tint{ 0.95f, 0.24f, 0.26f, 1.0f };
+	};
+
 	// Called explicitly rather than registered by a static initializer.
 	//
 	// This file's only contents used to be registrar objects, and a linker may
@@ -104,8 +244,10 @@ namespace RageV
 	void RegisterBuiltinScripts()
 	{
 		// Unqualified names on purpose: these strings go into scene files.
-		ScriptRegistry::Register("Spinner", []() -> ScriptableEntity* { return new Spinner(); });
-		ScriptRegistry::Register("Mover",   []() -> ScriptableEntity* { return new Mover(); });
-		ScriptRegistry::Register("Follow",  []() -> ScriptableEntity* { return new Follow(); });
+		ScriptRegistry::Register("Spinner",     []() -> ScriptableEntity* { return new Spinner(); });
+		ScriptRegistry::Register("Mover",       []() -> ScriptableEntity* { return new Mover(); });
+		ScriptRegistry::Register("Follow",      []() -> ScriptableEntity* { return new Follow(); });
+		ScriptRegistry::Register("ImpactFlash", []() -> ScriptableEntity* { return new ImpactFlash(); });
+		ScriptRegistry::Register("TriggerZone", []() -> ScriptableEntity* { return new TriggerZone(); });
 	}
 }

@@ -12,14 +12,20 @@ namespace RageV
 		Entity(entt::entity entity, Scene* scene) : m_Entity(entity), m_Scene(scene) {}
 		Entity(const Entity& entity) = default;
 
+		// Every member is const, because an Entity is a handle rather than the
+		// thing it refers to -- the same reasoning that makes `T* const` allow
+		// writes through it. Without this, anything holding an Entity by const
+		// reference could not use it at all, which is what a script receiving a
+		// Collision does.
+		//
 		// Defined in Entity.cpp: Components.h includes this header (through
 		// ScriptableEntity.h), so IDComponent cannot be visible here.
-		UUID GetUUID();
-		const std::string& GetName();
+		UUID GetUUID() const;
+		const std::string& GetName() const;
 		Scene& GetScene() const { return *m_Scene; }
 
 		template<typename T, typename... Args>
-		T& AddComponent(Args&& ... args)
+		T& AddComponent(Args&& ... args) const
 		{
 			if (HasComponent<T>())
 				RV_CORE_WARN("Entity already has this component!");
@@ -27,7 +33,7 @@ namespace RageV
 		}
 
 		template<typename T>
-		T& GetComponent()
+		T& GetComponent() const
 		{
 			if (!HasComponent<T>())
 				RV_CORE_WARN("Entity does not have the requested component");
@@ -35,7 +41,7 @@ namespace RageV
 		}
 
 		template<typename T>
-		bool HasComponent()
+		bool HasComponent() const
 		{
 			if (m_Scene->m_Registry.try_get<T>(m_Entity) != nullptr)
 				return true;
@@ -43,7 +49,7 @@ namespace RageV
 		}
 
 		template<typename T>
-		void RemoveComponent()
+		void RemoveComponent() const
 		{
 			if (!HasComponent<T>())
 				RV_CORE_WARN("Entity does not have the component that you want to remove!");
@@ -51,11 +57,11 @@ namespace RageV
 		}
 
 
-		operator unsigned int() { return (unsigned int)m_Entity; }
-		operator bool() { return m_Entity != entt::null; }
-		operator entt::entity() { return m_Entity; }
-		bool operator ==(const Entity& other) { return m_Entity == other.m_Entity && m_Scene == other.m_Scene; }
-		bool operator !=(const Entity& other) { return !(*this == other); }
+		operator unsigned int() const { return (unsigned int)m_Entity; }
+		operator bool() const { return m_Entity != entt::null; }
+		operator entt::entity() const { return m_Entity; }
+		bool operator ==(const Entity& other) const { return m_Entity == other.m_Entity && m_Scene == other.m_Scene; }
+		bool operator !=(const Entity& other) const { return !(*this == other); }
 	private:
 		entt::entity m_Entity{entt::null};
 		Scene* m_Scene = nullptr;

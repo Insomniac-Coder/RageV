@@ -2,6 +2,7 @@
 #include "EnTT/entt.hpp"
 #include "RageV/Core/Timestep.h"
 #include "RageV/Core/UUID.h"
+#include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
 #include <glm/glm.hpp>
 #include <string>
@@ -14,7 +15,6 @@ namespace RageV
 	class Entity;
 	class Camera;
 	class EditorCamera;
-	class PhysicsWorld;
 
 	class Scene
 	{
@@ -128,12 +128,23 @@ namespace RageV
 		void OnNativeScriptDestroyed(entt::registry& registry, entt::entity handle);
 		void OnIDDestroyed(entt::registry& registry, entt::entity handle);
 
+		// Hands what the simulation reported to the scripts on both entities.
+		void DispatchContactEvents();
+		// One side of one event. `flip` is true for the entity the stored
+		// normal points away from.
+		void DeliverContact(const ContactEvent& event, UUID to, UUID other, bool flip);
+
 	private:
 		entt::registry m_Registry;
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 		SceneEnvironment m_Environment;
 		std::vector<UUID> m_PendingDestroy;
 		std::unique_ptr<PhysicsWorld> m_Physics;
+
+		// Kept between steps rather than allocated each one: TakeContactEvents
+		// swaps, so the two buffers trade places and neither reallocates once
+		// they have grown to the scene's busiest step.
+		std::vector<ContactEvent> m_ContactEvents;
 
 		friend class Entity;
 		friend class SceneHierarchyPanel;

@@ -21,6 +21,47 @@ namespace RageV
 		explicit operator bool() const { return Hit; }
 	};
 
+	enum class ContactPhase : uint8_t
+	{
+		// The two bodies were not touching last step and are now.
+		Enter,
+		// Still touching. One per step per pair.
+		Stay,
+		// Were touching and are not any more.
+		Exit,
+	};
+
+	// One thing that happened between two bodies, in engine terms.
+	//
+	// Produced by the simulation and consumed by the scene, which is what keeps
+	// the physics layer from having to know that scripts exist.
+	struct ContactEvent
+	{
+		ContactPhase Phase = ContactPhase::Enter;
+
+		UUID A = UUID::Invalid();
+		UUID B = UUID::Invalid();
+
+		// Either collider is a sensor, which routes this to OnTrigger* rather
+		// than OnCollision*.
+		bool Trigger = false;
+
+		// World space. Both are zero on Exit: the contact is gone by then, and
+		// inventing a position for it would be worse than reporting none.
+		glm::vec3 Point{ 0.0f };
+		// Points from A towards B. Delivery flips it per recipient so a script
+		// always receives a normal pointing back at itself.
+		glm::vec3 Normal{ 0.0f };
+
+		// Closing speed along the normal at the moment of contact, in units per
+		// second, never negative. What the volume of an impact sound wants.
+		//
+		// Not an impulse: contacts are reported before the solver runs, so the
+		// real impulse is not known yet. Jolt can estimate one, at the cost of
+		// re-running part of the collision response per contact.
+		float ImpactSpeed = 0.0f;
+	};
+
 	// The simulation, for one scene, for the duration of one play session.
 	//
 	// Created when Play is pressed and destroyed on Stop, because the scene is
@@ -62,6 +103,19 @@ namespace RageV
 		void AddBody(Scene& scene, Entity entity);
 		void RemoveBody(UUID entity);
 		bool HasBody(UUID entity) const;
+
+		// --- contacts --------------------------------------------------------
+		// Moves everything that happened during the last Step into `out`,
+		// leaving the queue empty.
+		//
+		// Moved rather than returned by reference on purpose. Delivering an
+		// event runs script code, and a script may destroy an entity -- which
+		// removes a body, which queues more events. Handing out a reference to
+		// the live queue would mean appending to a container being iterated.
+		void TakeContactEvents(std::vector<ContactEvent>& out);
+
+		// Pairs currently touching. For tests and a future debug overlay.
+		size_t GetContactPairCount() const;
 
 		// --- queries ---------------------------------------------------------
 		// Nearest hit along the ray. Direction need not be normalised; the ray
