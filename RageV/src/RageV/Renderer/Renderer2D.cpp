@@ -20,6 +20,9 @@ namespace RageV
 	};
 
 	struct Renderer2DData {
+		// Must match MAX_LIGHTS in assets/shaders/quadshader.glsl.
+		static constexpr unsigned int MaxLights = 8;
+
 		unsigned int MaxQuads = 10000;
 		unsigned int MaxVertices = 4 * MaxQuads;
 		unsigned int MaxIndicies = 6 * MaxQuads;
@@ -27,6 +30,7 @@ namespace RageV
 		unsigned int WhiteTextureSlotId = 0;
 		unsigned int CurrentTextureSlotId = 1;
 
+		std::vector<VertexData> QuadVerticiesStorage;
 		VertexData* QuadVerticiesBuffer = nullptr;
 		VertexData* QuadVerticiesPtr = nullptr;
 
@@ -40,7 +44,13 @@ namespace RageV
 		glm::vec4 QuadVerts[4];
 
 		ShaderManager Renderer2DShaderManager;
+		std::shared_ptr<Shader> QuadShader;
 		std::shared_ptr<Texture2D> WhiteTexture;
+
+		// Built once. These used to be concatenated with std::to_string on every
+		// light, every frame.
+		std::string LightPosNames[MaxLights];
+		std::string LightColorNames[MaxLights];
 	};
 
 	static std::unique_ptr<Renderer2DData> renderer2DData;
@@ -97,53 +107,64 @@ namespace RageV
 
 		//shader stuff
 		renderer2DData->Renderer2DShaderManager.LoadShader("assets/shaders/quadshader.glsl");
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->Bind();
-		int* array = new int[renderer2DData->MaxTextureSlots];
+		renderer2DData->QuadShader = renderer2DData->Renderer2DShaderManager.GetShader("quadshader");
+		renderer2DData->QuadShader->Bind();
 
-		for (int i = 0; i < renderer2DData->MaxTextureSlots; i++)
+		std::vector<int> samplers(renderer2DData->MaxTextureSlots);
+		for (unsigned int i = 0; i < renderer2DData->MaxTextureSlots; i++)
+			samplers[i] = (int)i;
+
+		renderer2DData->QuadShader->SetIntArray("u_Textures", samplers.data(), renderer2DData->MaxTextureSlots);
+
+		for (unsigned int i = 0; i < Renderer2DData::MaxLights; i++)
 		{
-			array[i] = i;
+			renderer2DData->LightPosNames[i]   = "u_LightPos[" + std::to_string(i) + "]";
+			renderer2DData->LightColorNames[i] = "u_LightColor[" + std::to_string(i) + "]";
 		}
 
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetIntArray("u_Textures", array, renderer2DData->MaxTextureSlots);
-
-		renderer2DData->QuadVerticiesBuffer = new VertexData[renderer2DData->MaxQuads * 4];
+		renderer2DData->QuadVerticiesStorage.resize((size_t)renderer2DData->MaxQuads * 4);
+		renderer2DData->QuadVerticiesBuffer = renderer2DData->QuadVerticiesStorage.data();
 		renderer2DData->QuadVerticiesPtr = renderer2DData->QuadVerticiesBuffer;
 	}
 
 	void Renderer2D::Shutdown()
 	{
-		delete renderer2DData.get();
+		// This used to be `delete renderer2DData.get()`, which freed the block
+		// the unique_ptr still owned and then double-freed it at exit.
+		renderer2DData.reset();
 	}
 
 	void Renderer2D::BeginScene(const OrthographicCamera& camera)
 	{
 		renderer2DData->DrawCalls = 0;
 		Renderer2D::ResetScene();
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
+		renderer2DData->QuadShader->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
 	}
 
 	void Renderer2D::BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightData& lightData)
 	{
-		glm::mat4 viewprojectionmatrix = camera.GetProjection() * glm::inverse(transform);
+		const glm::mat4 viewprojectionmatrix = camera.GetProjection() * glm::inverse(transform);
 		renderer2DData->DrawCalls = 0;
 		Renderer2D::ResetScene();
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", viewprojectionmatrix);
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_CamPos", transform[3]);
 
-		for (int i = 0; i < lightData.size(); i++)
+		// Was a hash lookup per uniform, every frame.
+		const auto& shader = renderer2DData->QuadShader;
+		shader->SetMat4("u_ViewProjection", viewprojectionmatrix);
+		shader->SetFloat3("u_CamPos", glm::vec3(transform[3]));
+
+		// The shader declares fixed-size arrays; feeding it more lights than
+		// that would write past the end of the uniform array.
+		const int lightCount = (int)std::min<size_t>(lightData.size(), Renderer2DData::MaxLights);
+
+		for (int i = 0; i < lightCount; i++)
 		{
-			glm::vec3 lPos = std::get<0>(lightData[i]);
-			glm::vec3 lColor = std::get<1>(lightData[i]);
-			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightPos[" + std::to_string(i) + "]", lPos);
-			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightColor[" + std::to_string(i) + "]", lColor);
+			const glm::vec3& lPos = std::get<0>(lightData[i]);
+			const glm::vec3& lColor = std::get<1>(lightData[i]);
+			shader->SetFloat3(renderer2DData->LightPosNames[i], lPos);
+			shader->SetFloat3(renderer2DData->LightColorNames[i], lColor);
 		}
 
-		if (lightData.empty())
-		{
-			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightPos[0]", glm::vec3(1.0f));
-			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightColor[0]", glm::vec3(0.1f));
-		}
+		shader->SetInt1("u_LightCount", lightCount);
 	}
 
 	void Renderer2D::ResetScene()
@@ -155,6 +176,11 @@ namespace RageV
 
 	void Renderer2D::EndScene()
 	{
+		// An empty batch used to still cost a SetData, a draw call, and a bump
+		// of the draw-call counter the editor displays.
+		if (renderer2DData->QuadCount == 0)
+			return;
+
 		renderer2DData->WhiteTexture->Bind();
 		renderer2DData->DrawCalls++;
 		renderer2DData->VertexBuffer2D->SetData(renderer2DData->QuadVerticiesBuffer, renderer2DData->QuadCount * 4 * sizeof(VertexData));

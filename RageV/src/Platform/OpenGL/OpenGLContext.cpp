@@ -30,13 +30,13 @@ namespace RageV
 		RV_CORE_INFO("OpenGL Version: {0}", (const char*)glGetString(GL_VERSION));
 	}
 
-	const GraphicsInfo& OpenGLContext::GetGraphicsInfo() const
+	GraphicsInfo OpenGLContext::GetGraphicsInfo() const
 	{
 		std::string api = "OpenGL ";
 		api += (const char*)glGetString(GL_VERSION);
 		return {
 			(const char*)glGetString(GL_RENDERER),
-			api.c_str()
+			std::move(api)
 		};
 	}
 

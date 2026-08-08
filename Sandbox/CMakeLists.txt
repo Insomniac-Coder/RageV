@@ -16,4 +16,5 @@ add_custom_command(TARGET Sandbox POST_BUILD
 
 set_target_properties(Sandbox PROPERTIES
     FOLDER "Applications"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/Sandbox"
     VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:Sandbox>")

@@ -16,6 +16,9 @@ add_custom_command(TARGET RageVEditor POST_BUILD
         "$<TARGET_FILE_DIR:RageVEditor>/assets"
     COMMENT "Staging RageVEditor assets")
 
+# Each app gets its own directory. They ship different copies of assets/ and a
+# shared output directory let whichever built last overwrite the other's.
 set_target_properties(RageVEditor PROPERTIES
     FOLDER "Applications"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/RageVEditor"
     VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:RageVEditor>")

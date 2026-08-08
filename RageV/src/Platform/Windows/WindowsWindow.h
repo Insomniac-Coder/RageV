@@ -28,9 +28,9 @@ namespace RageV
 		virtual void Shutdown();
 		
 
-		GLFWwindow* m_Window;
+		GLFWwindow* m_Window = nullptr;
 
-		GraphicsContext* m_Context;
+		GraphicsContext* m_Context = nullptr;
 
 		struct WindowData {
 			unsigned int Height;

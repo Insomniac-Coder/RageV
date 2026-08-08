@@ -10,3 +10,7 @@ CMakeUserPresets.json
 #Files
 *.user
 CMakeCache.txt
+
+# Editor/sandbox stdout capture
+out.txt
+err.txt

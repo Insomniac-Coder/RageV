@@ -488,16 +488,16 @@ void RageV::VulkanContext::Init()
 	CreateImageViews(m_LogicalDevice, m_ImageViews, m_ImageFormat, m_SwapChainImages);
 }
 
-const RageV::GraphicsInfo& RageV::VulkanContext::GetGraphicsInfo() const
+RageV::GraphicsInfo RageV::VulkanContext::GetGraphicsInfo() const
 {
 	VkPhysicalDeviceProperties properties;
 	vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
 	std::string versionName = "Vulkan " + std::to_string(VK_API_VERSION_MAJOR(properties.apiVersion)) + "."
 										+ std::to_string(VK_API_VERSION_MINOR(properties.apiVersion)) + "."
 										+ std::to_string(VK_API_VERSION_PATCH(properties.apiVersion));
-	// // O: insert return statement here
+	// GraphicsInfo is { GPUName, APIName } -- these were the wrong way round.
 	return {
-		versionName,
-		properties.deviceName
+		properties.deviceName,
+		std::move(versionName)
 	};
 }

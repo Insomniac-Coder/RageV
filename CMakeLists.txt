@@ -34,13 +34,13 @@ foreach(kind EXE SHARED MODULE STATIC)
 endforeach()
 set(CMAKE_MAP_IMPORTED_CONFIG_DIST Release "")
 
-# Single output tree so the editor, sandbox and their assets land side by side.
-foreach(cfg ${CMAKE_CONFIGURATION_TYPES})
-    string(TOUPPER ${cfg} CFG)
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CFG} "${CMAKE_BINARY_DIR}/bin/${cfg}")
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CFG} "${CMAKE_BINARY_DIR}/bin/${cfg}")
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CFG} "${CMAKE_BINARY_DIR}/lib/${cfg}")
-endforeach()
+# Generator-expression form rather than the per-config CMAKE_*_OUTPUT_DIRECTORY_<CFG>
+# variables: those set per-config target properties, which take precedence over
+# the per-target RUNTIME_OUTPUT_DIRECTORY the applications use to claim their own
+# directories.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>")
 
 option(RAGEV_BUILD_SANDBOX "Build the Sandbox sample application" ON)
 option(RAGEV_ENABLE_VALIDATION "Enable Vulkan validation layers in Debug builds" ON)

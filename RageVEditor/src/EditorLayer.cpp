@@ -167,15 +167,16 @@ void EditorLayer::OnImGuiRender()
 	m_IsViewportHovered = ImGui::IsWindowHovered();
 	ImVec2 viewportSize = ImGui::GetContentRegionAvail();
 	RageV::Application::Get().GetImGuiLayer()->SetEventBlocker(!m_IsViewportFocused && !m_IsViewportHovered);
-	if (m_ViewportSize != *((glm::vec2*)&viewportSize))
+	if (m_ViewportSize.x != viewportSize.x || m_ViewportSize.y != viewportSize.y)
 	{
 		m_ViewportSize = { viewportSize.x, viewportSize.y };
 		m_FrameBuffer->Resize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
-	};
+		// Only on an actual change: this recomputes every camera's projection
+		// and used to run on every single frame.
+		m_Scene->OnViewportResize(viewportSize.x, viewportSize.y);
+	}
 	unsigned int id = m_FrameBuffer->GetColorAttachment();
-	ImGui::Image((void*)id, ImVec2{ viewportSize.x, viewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
-	m_Scene->OnViewportResize(viewportSize.x, viewportSize.y);
-	//m_CameraController.OnResize(viewportSize.x, viewportSize.y);
+	ImGui::Image((ImTextureID)(uintptr_t)id, ImVec2{ viewportSize.x, viewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
 	//ImGuizmo stuff
 	RageV::Entity selected = m_SceneHierarchyPanel.GetSelectedEntity();
@@ -241,6 +242,8 @@ void EditorLayer::OnEvent(RageV::Event& e)
 	dispatcher.Dispatch<RageV::KeyPressedEvent>(RV_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 }
 
+// Returns true when the shortcut was consumed. Every path used to fall off the
+// end of the function without returning.
 bool EditorLayer::OnKeyPressed(RageV::KeyPressedEvent& e)
 {
 	if (e.GetRepeatCount() > 0)
@@ -254,22 +257,33 @@ bool EditorLayer::OnKeyPressed(RageV::KeyPressedEvent& e)
 		case RV_KEY_N:
 		{
 			if (control)
+			{
 				NewScene();
+				return true;
+			}
 			break;
 		}
 		case RV_KEY_O:
 		{
 			if (control)
+			{
 				OpenScene();
+				return true;
+			}
 			break;
 		}
 		case RV_KEY_S:
 		{
 			if (control)
+			{
 				SaveScene();
+				return true;
+			}
 			break;
 		}
 	}
+
+	return false;
 }
 
 void EditorLayer::NewScene()

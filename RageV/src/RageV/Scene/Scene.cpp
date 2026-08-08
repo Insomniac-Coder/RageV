@@ -76,7 +76,7 @@ namespace RageV
 
 		auto view = m_Registry.view<CameraComponent, TransformComponent>();
 		TransformComponent cameraTransform;
-		Cameranew* mainCamera;
+		Cameranew* mainCamera = nullptr;
 
 		for (auto& item : view)
 		{
@@ -88,6 +88,11 @@ namespace RageV
 				break;
 			}
 		}
+
+		// A scene with no primary camera used to dereference an uninitialised
+		// pointer below. There is nothing to render from, so stop here.
+		if (!mainCamera)
+			return;
 
 		auto group2 = m_Registry.view<TransformComponent, LightComponent>();
 		std::vector <std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData;

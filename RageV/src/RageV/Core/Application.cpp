@@ -88,31 +88,36 @@ namespace RageV {
 
 	void Application::Run() {
 
-		//WindowResizeEvent e(1280, 720);
-		//RV_TRACE(e);
+		// The Vulkan path used to spin this loop with an empty body: no event
+		// pump, no way to close the window, one core pegged at 100%. It still
+		// has no renderer attached, but it now at least pumps events so the
+		// window responds and the process can exit.
+		const bool hasRenderer = Renderer::GetAPI() != RenderAPI::API::Vulkan;
+
 		while (m_Running) {
-			if (Renderer::GetAPI() != RenderAPI::API::Vulkan)
+			if (!hasRenderer)
 			{
-				float time = (float)GetTime();
-				Timestep ts = time - m_LastTime;
-				m_LastTime = time;
-
 				m_Window->OnUpdate();
+				continue;
+			}
 
-				if (!m_Minimised)
-				{
-					for (Layer* layer : m_LayerStack)
-						layer->OnUpdate(ts);
+			float time = (float)GetTime();
+			Timestep ts = time - m_LastTime;
+			m_LastTime = time;
 
-					m_ImGuiLayer->Begin();
+			m_Window->OnUpdate();
 
-					for (Layer* layer : m_LayerStack)
-						layer->OnImGuiRender();
+			if (!m_Minimised)
+			{
+				for (Layer* layer : m_LayerStack)
+					layer->OnUpdate(ts);
 
-					m_ImGuiLayer->End();
-				}
-				//auto [x, y] = Input::GetMousePosition();
-				//RV_CORE_TRACE("{0}, {1}", x, y); 
+				m_ImGuiLayer->Begin();
+
+				for (Layer* layer : m_LayerStack)
+					layer->OnImGuiRender();
+
+				m_ImGuiLayer->End();
 			}
 		}
 	}

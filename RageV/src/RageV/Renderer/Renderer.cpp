@@ -7,7 +7,8 @@
 namespace RageV
 
 {
-	Renderer::SceneData* Renderer::m_SceneData = new Renderer::SceneData;
+	// Was a leaked `new SceneData` that outlived the renderer.
+	Renderer::SceneData Renderer::m_SceneData;
 
 	void Renderer::Init()
 	{
@@ -22,7 +23,7 @@ namespace RageV
 
 	void Renderer::BeginScene(Camera& camera)
 	{
-		m_SceneData->ViewProjection = camera.GetViewProjectionMatrix();
+		m_SceneData.ViewProjection = camera.GetViewProjectionMatrix();
 	}
 
 	void Renderer::EndScene()
@@ -32,7 +33,7 @@ namespace RageV
 	void Renderer::Submit(const std::shared_ptr<Shader>& shader, const std::shared_ptr<VertexArray>& vertexArray, const glm::mat4& transform)
 	{
 		shader->Bind();
-		shader->SetMat4("u_ViewProjection", m_SceneData->ViewProjection);
+		shader->SetMat4("u_ViewProjection", m_SceneData.ViewProjection);
 		shader->SetMat4("u_Transform", transform);
 		vertexArray->Bind();
 		RenderCommand::DrawIndexed(vertexArray);

@@ -20,6 +20,6 @@ namespace RageV
 			glm::mat4 ViewProjection;
 		};
 
-		static SceneData* m_SceneData;
+		static SceneData m_SceneData;
 	};
 }

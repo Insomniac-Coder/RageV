@@ -27,7 +27,7 @@ namespace RageV
 		virtual ~VulkanContext();
 		virtual void SwapBuffers() override;
 		virtual void Init() override;
-		const GraphicsInfo& GetGraphicsInfo() const override;
+		GraphicsInfo GetGraphicsInfo() const override;
 
 	private:
 		GLFWwindow* m_WindowHandle;

@@ -71,10 +71,10 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 	if (Renderer::GetAPI() == RenderAPI::API::Vulkan)
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
-	if (Renderer::GetAPI() == RenderAPI::API::OpenGL) {
-		m_Context = new OpenGLContext(m_Window);
-	}
+	RV_CORE_ASSERT(m_Window, "Failed to create GLFW window!");
 
+	// The OpenGL context used to be constructed here *and* in the switch below,
+	// leaking the first one.
 	switch (Renderer::GetAPI())
 	{
 		case RenderAPI::API::OpenGL:
@@ -191,5 +191,7 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 
 void RageV::WindowsWindow::Shutdown()
 {
+	delete m_Context;
+	m_Context = nullptr;
 	glfwDestroyWindow(m_Window);
 }

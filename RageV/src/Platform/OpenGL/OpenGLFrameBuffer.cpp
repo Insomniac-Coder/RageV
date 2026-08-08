@@ -60,7 +60,11 @@ namespace RageV
 
 	void OpenGLFrameBuffer::Resize(unsigned int width, unsigned int height)
 	{
-		std::cout << width << ", " << height << std::endl;
+		// Nothing changed -- rebuilding the attachments here cost a full
+		// texture reallocation on frames where the viewport was merely redrawn.
+		if (width == m_FrameBufferData.Width && height == m_FrameBufferData.Height)
+			return;
+
 		if (width == 0 || height == 0 || width > s_MaxFramebuffersize || height > s_MaxFramebuffersize)
 		{
 			RV_WARN("Invalid framebuffer size {0} x {1}", width, height);
