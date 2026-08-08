@@ -445,6 +445,20 @@ or silence rather than an obvious failure.
   the copy silently moves a corner and the rest of the face keeps what it had.
 - **A render target's depth attachment is `TransferSrc`.** Nothing copied one
   until point shadows did, and Vulkan refused the blit.
+- **A pooled render target is keyed by its own size, never by who asked for
+  it.** The environment prefilter kept one chain keyed by base size and threw
+  it away when a different environment arrived — which happened *mid-frame*,
+  the moment a 128-pixel probe was filtered after the 512-pixel sky, destroying
+  images the command buffer still had bound.
+- **A per-frame descriptor cursor resets per frame, not per call.** Same bug,
+  second form: the prefilter reset its cursor on entry, so a second environment
+  filtered in the same frame rewrote sets the first had already bound.
+- **A frustum's near plane is row 2 alone, not row 3 plus row 2.** glm is built
+  with `GLM_FORCE_DEPTH_ZERO_TO_ONE`. The OpenGL form of that plane sits half
+  the frustum away and culls geometry in plain view.
+- **Each pass culls against its own frustum.** A shadow cascade sees a
+  different volume from the viewer; culling it against the camera removes
+  exactly the casters standing outside the view whose shadows fall inside it.
 - **A module that logs "ready" must mean it, and must be askable.** Seven
   renderer subsystems announced readiness unconditionally, so a shader that
   would not compile produced a feature present in every sense except that it
@@ -556,7 +570,7 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 |---|---|
 | Reflection probes | One point of capture, so no parallax correction. Move a reflective object away from its probe and the reflection slides. |
 | Reflection probes | One probe per scene render, chosen by distance to the **camera** rather than per object. With one probe in a scene the two agree; with several they do not. |
-| Reflection probes | A probe's cube is **not** prefiltered — it is rebuilt too often to be worth 36 renders a frame — so rough materials reflecting a probe get the box-filtered chain rather than a GGX lobe. |
+| Reflection probes | Prefiltered on the frame each completes a round of faces, so a realtime probe's roughness levels are up to six frames behind its capture. |
 | Reflection probes | A probe inside a closed mesh only works because back-face culling hides the mesh. Placing one where geometry surrounds it in an open shape will capture that geometry. |
 | Reflection probes | Realtime probes update one face per frame, so a reflection lags by up to six frames. |
 | Shadows | Only the **first** directional light gets cascades, and four spot and four point maps exist. Beyond that a light lights but does not shadow — it now warns once per scene rather than doing it silently. |
@@ -751,4 +765,16 @@ because the pattern in them is more useful than the list.
 - **Tuning two variables at once.** The shadow bias was reduced at the same
   time as front-face culling was removed, so the contribution of each is not
   separable from the screenshots.
+- **Writing a justification for a gap instead of closing it.** The prefilter
+  refused any environment under 64 pixels a face, which is every gradient sky,
+  and the comment beside the guard called that "a fine answer". It was the bug,
+  with a rationale attached. Probe cubes were left box-filtered the same way,
+  recorded as a deliberate trade — which is worse, because a decision is harder
+  to notice than an oversight.
+- **Listing defects instead of fixing them.** Several rounds of this session
+  produced accurate inventories of what did not work, in place of work. An
+  honest list of gaps is not a substitute for closing one.
+- **Reporting a fix by what was logged rather than by what changed.** The
+  readiness work was presented as six modules' log lines when the actual fix
+  was three new flags and a test. A log line cannot be tested and is not a fix.
 
