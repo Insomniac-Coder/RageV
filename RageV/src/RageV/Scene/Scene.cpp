@@ -325,12 +325,12 @@ namespace RageV
 			data.Position = glm::vec3(transform.World[3]);
 			// A light's forward axis is -Z, matching the camera convention.
 			data.Direction = glm::normalize(glm::vec3(transform.World * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
-			data.Color = light.Light.GetLightColor();
-			data.Intensity = light.Light.GetIntensity();
-			data.Range = light.Light.GetRange();
-			data.InnerCone = light.Light.GetInnerCone();
-			data.OuterCone = light.Light.GetOuterCone();
-			data.Type = light.Light.GetLightType();
+			data.Color = light.Light.Color;
+			data.Intensity = light.Light.Intensity;
+			data.Range = light.Light.Range;
+			data.InnerCone = light.Light.InnerCone;
+			data.OuterCone = light.Light.OuterCone;
+			data.Type = light.Light.Type;
 
 			lights.push_back(data);
 		}

@@ -115,7 +115,7 @@ Entity EditorLayer::CreateLight(Light::LightType type)
 
 	Entity entity = CreateEmpty(name);
 	auto& light = entity.AddComponent<LightComponent>();
-	light.Light.SetLightType(type);
+	light.Light.Type = type;
 
 	// Off the origin and angled down, so a new light does something visible
 	// rather than sitting inside whatever it is meant to illuminate.
@@ -131,7 +131,7 @@ Entity EditorLayer::CreateCamera()
 {
 	Entity entity = CreateEmpty("Camera");
 	auto& camera = entity.AddComponent<CameraComponent>();
-	camera.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
+	camera.Camera.Projection = SceneCamera::ProjectionType::Perspective;
 	return entity;
 }
 
@@ -736,7 +736,7 @@ void EditorLayer::NewScene()
 	// A scene with no camera renders nothing, so seed one.
 	Entity camera = m_Scene->CreateEntity("Scene Camera");
 	auto& cameraComponent = camera.AddComponent<CameraComponent>();
-	cameraComponent.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
+	cameraComponent.Camera.Projection = SceneCamera::ProjectionType::Perspective;
 	camera.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 6.0f };
 }
 
@@ -817,29 +817,29 @@ void EditorLayer::LoadDemoScene()
 	Entity key = m_Scene->CreateEntity("Key Light");
 	{
 		auto& light = key.AddComponent<LightComponent>().Light;
-		light.SetLightType(Light::LightType::Point);
-		light.GetLightColor() = { 1.0f, 0.87f, 0.72f };
-		light.SetIntensity(120.0f);
-		light.SetRange(30.0f);
+		light.Type = Light::LightType::Point;
+		light.Color = { 1.0f, 0.87f, 0.72f };
+		light.Intensity = 120.0f;
+		light.Range = 30.0f;
 		key.GetComponent<TransformComponent>().Position = { 4.0f, 5.0f, 4.0f };
 	}
 
 	Entity fill = m_Scene->CreateEntity("Fill Light");
 	{
 		auto& light = fill.AddComponent<LightComponent>().Light;
-		light.SetLightType(Light::LightType::Point);
-		light.GetLightColor() = { 0.38f, 0.50f, 0.85f };
-		light.SetIntensity(60.0f);
-		light.SetRange(30.0f);
+		light.Type = Light::LightType::Point;
+		light.Color = { 0.38f, 0.50f, 0.85f };
+		light.Intensity = 60.0f;
+		light.Range = 30.0f;
 		fill.GetComponent<TransformComponent>().Position = { -5.0f, 3.0f, -2.0f };
 	}
 
 	Entity sun = m_Scene->CreateEntity("Sun");
 	{
 		auto& light = sun.AddComponent<LightComponent>().Light;
-		light.SetLightType(Light::LightType::Directional);
-		light.GetLightColor() = { 0.55f, 0.58f, 0.65f };
-		light.SetIntensity(1.2f);
+		light.Type = Light::LightType::Directional;
+		light.Color = { 0.55f, 0.58f, 0.65f };
+		light.Intensity = 1.2f;
 		sun.GetComponent<TransformComponent>().Rotation = glm::radians(glm::vec3(-55.0f, -30.0f, 0.0f));
 	}
 

@@ -6,8 +6,12 @@ namespace RageV
 {
 	typedef glm::vec3 color;
 
-	class Light {
-	public:
+	// Plain data. Every accessor this used to have was a bare assignment with
+	// no invariant to protect, and private members cannot be described to the
+	// component registry -- so the encapsulation bought nothing and blocked the
+	// reflection that the serializer, the inspector and later the C# layer all
+	// need.
+	struct Light {
 		enum class LightType
 		{
 			Directional = 0,
@@ -15,35 +19,20 @@ namespace RageV
 			Spot = 2
 		};
 
-		LightType GetLightType() const { return m_Type; }
-		void SetLightType(const LightType& type) { m_Type = type; }
-
-		color& GetLightColor() { return m_Color; }
-		const color& GetLightColor() const { return m_Color; }
+		LightType Type = LightType::Directional;
+		color Color{ 1.0f };
 
 		// PBR needs a magnitude as well as a hue: a colour alone cannot express
 		// the difference between a candle and a floodlight.
-		float GetIntensity() const { return m_Intensity; }
-		void  SetIntensity(float value) { m_Intensity = value; }
+		float Intensity = 1.0f;
 
 		// Distance at which a positional light reaches zero. Inverse-square
 		// falloff never actually reaches zero, so it is windowed against this.
-		float GetRange() const { return m_Range; }
-		void  SetRange(float value) { m_Range = value; }
+		float Range = 10.0f;
 
 		// Spot cone half-angles, in degrees.
-		float GetInnerCone() const { return m_InnerCone; }
-		void  SetInnerCone(float degrees) { m_InnerCone = degrees; }
-		float GetOuterCone() const { return m_OuterCone; }
-		void  SetOuterCone(float degrees) { m_OuterCone = degrees; }
-
-	private:
-		LightType m_Type = LightType::Directional;
-		color m_Color{ 1.0f };
-		float m_Intensity = 1.0f;
-		float m_Range = 10.0f;
-		float m_InnerCone = 20.0f;
-		float m_OuterCone = 30.0f;
+		float InnerCone = 20.0f;
+		float OuterCone = 30.0f;
 	};
 
 	// What the renderers actually consume. A struct rather than the tuple this

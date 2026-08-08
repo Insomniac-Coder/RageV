@@ -5,36 +5,33 @@
 
 namespace RageV
 {
-
-
-
-	void SceneCamera::SetOrthgraphicSize(float size)
-	{
-		m_Size = size;
-		Recalculate();
-	}
-
 	void SceneCamera::SetViewport(float width, float height)
 	{
-		m_AspectRatio = width / height;
+		if (height <= 0.0f)
+			return;
+
+		AspectRatio = width / height;
 		Recalculate();
 	}
 
 	void SceneCamera::Recalculate()
 	{
-		if (m_ProjectionType == ProjectionType::Orthographic)
+		// Before the viewport has reported a size there is no meaningful
+		// aspect. Dividing by it produced a projection full of infinities.
+		const float aspect = AspectRatio > 0.0f ? AspectRatio : 16.0f / 9.0f;
+
+		if (Projection == ProjectionType::Orthographic)
 		{
-			float left = -0.5f * m_AspectRatio * m_Size;
-			float right = 0.5f * m_AspectRatio * m_Size;
-			float bottom = -0.5f * m_Size;
-			float top = 0.5f * m_Size;
-			m_Projection = glm::ortho(left, right, bottom, top, m_OrthoNear, m_OrthoFar);
+			const float left = -0.5f * aspect * OrthographicSize;
+			const float right = 0.5f * aspect * OrthographicSize;
+			const float bottom = -0.5f * OrthographicSize;
+			const float top = 0.5f * OrthographicSize;
+			m_Projection = glm::ortho(left, right, bottom, top, OrthographicNear, OrthographicFar);
 		}
-		if (m_ProjectionType == ProjectionType::Perspective)
+		else
 		{
-			m_Projection = glm::perspective(glm::radians(m_PerspectiveFOV), m_AspectRatio, m_PerspectiveNear, m_PerspectiveFar);
+			m_Projection = glm::perspective(glm::radians(PerspectiveFOV), aspect,
+											PerspectiveNear, PerspectiveFar);
 		}
 	}
-
-
 }

@@ -8,11 +8,17 @@ namespace RageV
 	class SceneSerializer
 	{
 	public:
-		// Bumped whenever the on-disk shape changes. Version 1 predates entity
-		// UUIDs and the hierarchy; it wrote a hardcoded ID for every entity, so
-		// files at that version cannot carry references and are loaded with
-		// fresh IDs and no parents.
-		static constexpr int kVersion = 2;
+		// Bumped whenever the on-disk shape changes.
+		//
+		//   1  Hardcoded entity IDs, no hierarchy, lights never written, the
+		//      colour component keyed "Color", camera settings nested.
+		//   2  Real UUIDs and parent links.
+		//   3  Registry-driven: camera settings flattened, enums by name.
+		//
+		// Older files are read and upgraded on load. Version 1 entities get
+		// fresh IDs, since honouring what they contain would collapse every
+		// entity in the scene onto a single identity.
+		static constexpr int kVersion = 3;
 
 		SceneSerializer(const std::shared_ptr<Scene>& sceneRef);
 		~SceneSerializer();

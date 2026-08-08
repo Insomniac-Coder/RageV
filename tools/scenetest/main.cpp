@@ -56,10 +56,10 @@ namespace
 
 		Entity camera = scene->CreateEntity("Main Camera");
 		auto& cameraComponent = camera.AddComponent<CameraComponent>();
-		cameraComponent.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
-		cameraComponent.Camera.SetPerspectiveFOV(53.5f);
-		cameraComponent.Camera.SetPerspectiveNearClip(0.05f);
-		cameraComponent.Camera.SetPerspectiveFarClip(750.0f);
+		cameraComponent.Camera.Projection = SceneCamera::ProjectionType::Perspective;
+		cameraComponent.Camera.PerspectiveFOV = 53.5f;
+		cameraComponent.Camera.PerspectiveNear = 0.05f;
+		cameraComponent.Camera.PerspectiveFar = 750.0f;
 		cameraComponent.fixedAspectRatio = true;
 		camera.GetComponent<TransformComponent>().Position = { 1.5f, 2.5f, 9.0f };
 
@@ -91,12 +91,12 @@ namespace
 
 		Entity spot = scene->CreateEntity("Spot Light");
 		auto& light = spot.AddComponent<LightComponent>().Light;
-		light.SetLightType(Light::LightType::Spot);
-		light.GetLightColor() = { 0.9f, 0.75f, 0.4f };
-		light.SetIntensity(85.0f);
-		light.SetRange(22.5f);
-		light.SetInnerCone(18.0f);
-		light.SetOuterCone(34.0f);
+		light.Type = Light::LightType::Spot;
+		light.Color = { 0.9f, 0.75f, 0.4f };
+		light.Intensity = 85.0f;
+		light.Range = 22.5f;
+		light.InnerCone = 18.0f;
+		light.OuterCone = 34.0f;
 		spot.GetComponent<TransformComponent>().Position = { -3.0f, 4.0f, 2.0f };
 
 		return scene;
@@ -159,7 +159,29 @@ namespace
 	}
 }
 
+int RunTests(int argc, char** argv);
+
 int main(int argc, char** argv)
+{
+	// A test tool that dies to an uncaught exception tells you nothing but
+	// "abort() has been called". Report what actually went wrong.
+	try
+	{
+		return RunTests(argc, argv);
+	}
+	catch (const std::exception& e)
+	{
+		RV_CORE_ERROR("Uncaught exception: {0}", e.what());
+		return 1;
+	}
+	catch (...)
+	{
+		RV_CORE_ERROR("Uncaught non-standard exception");
+		return 1;
+	}
+}
+
+int RunTests(int argc, char** argv)
 {
 	Log::Init();
 
