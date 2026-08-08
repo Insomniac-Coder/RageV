@@ -10,6 +10,7 @@
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/Skybox.h"
+#include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Asset/AssetManager.h"
 #include <glm/gtx/matrix_decompose.hpp>
@@ -644,6 +645,95 @@ namespace RageV
 		OnRender(camera, camera.GetTransform());
 	}
 
+	void Scene::RenderShadows(const Camera& camera, const glm::mat4& cameraTransform)
+	{
+		// A probe capture draws the scene, and the scene samples shadows. Doing
+		// this during one would fit cascades to a cube face's 90-degree frustum
+		// and then leave them there for the real camera.
+		if (m_CapturingProbes || !m_Environment.ShadowsEnabled || !Renderer::HasDevice())
+			return;
+
+		if (!ShadowMap::IsReady())
+			return;
+
+		RHI::RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		UpdateWorldTransforms();
+
+		// The first directional light that asks. A second set of cascades is
+		// four more scene renders for a light that is a fill in every scene
+		// this is likely to see.
+		int index = 0;
+		int casterIndex = -1;
+		glm::vec3 direction(0.0f, -1.0f, 0.0f);
+
+		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
+		for (auto& item : lightView)
+		{
+			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
+
+			if (casterIndex < 0 && light.Light.CastShadows &&
+				light.Light.Type == Light::LightType::Directional)
+			{
+				casterIndex = index;
+				direction = glm::normalize(
+					glm::vec3(transform.World * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+			}
+
+			index++;
+			if (index >= 8)   // the shader's light cap
+				break;
+		}
+
+		if (casterIndex < 0)
+			return;
+
+		// Nothing to shadow, and a cascade of an empty scene is four render
+		// passes that clear and stop.
+		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		if (meshView.begin() == meshView.end())
+			return;
+
+		const uint32_t count = (uint32_t)glm::clamp(m_Environment.ShadowCascades, 1,
+													(int)ShadowMap::kMaxCascades);
+		const uint32_t resolution = (uint32_t)glm::clamp(m_Environment.ShadowResolution, 256, 8192);
+
+		// Aspect and field of view come from the projection rather than being
+		// passed alongside it: an editor camera and a scene camera describe
+		// theirs differently and the matrix is what actually gets used.
+		const glm::mat4& projection = camera.GetProjection();
+		const float fovY = 2.0f * std::atan(1.0f / glm::max(projection[1][1], 1e-4f));
+		const float aspect = glm::max(projection[1][1] / glm::max(projection[0][0], 1e-4f), 1e-4f);
+
+		ShadowCascade cascades[ShadowMap::kMaxCascades];
+		ShadowMap::ComputeCascades(cameraTransform, fovY, aspect,
+								   0.1f, m_Environment.ShadowDistance,
+								   direction, count, resolution,
+								   m_Environment.ShadowSplitLambda,
+								   Renderer::GetDevice().GetBackend() == RHI::Backend::Vulkan,
+								   cascades);
+
+		ShadowMap::SetLightIndex(casterIndex);
+		ShadowMap::Render(*cmd, cascades, count, resolution,
+			[this, &meshView](const glm::mat4& viewProjection)
+			{
+				Renderer3D::BeginShadow(viewProjection);
+
+				for (auto& item : meshView)
+				{
+					auto [transform, mesh] =
+						meshView.get<TransformComponent, MeshComponent>(item);
+
+					if (RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh))
+						Renderer3D::DrawMeshShadow(resolved, transform.World);
+				}
+
+				Renderer3D::EndShadow();
+			});
+	}
+
 	void Scene::CaptureReflectionProbes()
 	{
 		// Re-entrant only in the sense that must never happen: a capture draws
@@ -762,6 +852,7 @@ namespace RageV
 			data.InnerCone = light.Light.InnerCone;
 			data.OuterCone = light.Light.OuterCone;
 			data.Type = light.Light.Type;
+			data.CastShadows = light.Light.CastShadows;
 
 			lights.push_back(data);
 		}

@@ -4,6 +4,7 @@
 #include "Renderer3D.h"
 #include "DebugRenderer.h"
 #include "Skybox.h"
+#include "ShadowMap.h"
 #include "PostProcess.h"
 
 namespace RageV
@@ -21,12 +22,14 @@ namespace RageV
 		Renderer3D::Init(device);
 		DebugRenderer::Init(device);
 		Skybox::Init(device);
+		ShadowMap::Init(device);
 		PostProcess::Init(device);
 	}
 
 	void Renderer::Shutdown()
 	{
 		PostProcess::Shutdown();
+		ShadowMap::Shutdown();
 		Skybox::Shutdown();
 		DebugRenderer::Shutdown();
 		Renderer3D::Shutdown();
@@ -45,6 +48,9 @@ namespace RageV
 		Renderer3D::BeginFrame();
 		DebugRenderer::BeginFrame();
 		Skybox::BeginFrame();
+		// Cascades are rendered per frame, if at all. Anything left from the
+		// last one describes a camera that has since moved.
+		ShadowMap::Invalidate();
 		PostProcess::BeginFrame();
 	}
 

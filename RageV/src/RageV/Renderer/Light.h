@@ -33,6 +33,11 @@ namespace RageV
 		// Spot cone half-angles, in degrees.
 		float InnerCone = 20.0f;
 		float OuterCone = 30.0f;
+
+		// Only one directional light's shadows are rendered per frame -- the
+		// first that asks. A second set of cascades is four more scene renders
+		// for a light that, in almost every scene, is a fill.
+		bool CastShadows = true;
 	};
 
 	// What the renderers actually consume. A struct rather than the tuple this
@@ -48,6 +53,7 @@ namespace RageV
 		float InnerCone = 20.0f;   // degrees
 		float OuterCone = 30.0f;
 		Light::LightType Type = Light::LightType::Directional;
+		bool CastShadows = false;
 	};
 
 	using LightList = std::vector<LightRenderData>;

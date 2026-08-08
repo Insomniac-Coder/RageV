@@ -110,6 +110,33 @@ namespace RageV
 		// values, and only what bleeds out of them is limited.
 		float BloomClamp = 16.0f;
 
+		// --- shadows -----------------------------------------------------------
+		bool ShadowsEnabled = true;
+
+		// More cascades means better texel density near the camera and more
+		// scene renders. Four is the usual answer and the most this supports.
+		int ShadowCascades = 4;
+
+		// Per cascade, square. This is the single biggest lever on both quality
+		// and cost: four 2048 maps is 64 MB of depth.
+		int ShadowResolution = 2048;
+
+		// How far from the camera shadows are drawn at all. Not the camera's
+		// far plane, which is usually a kilometre: past this distance the
+		// texels are so large the shadow is worse than none.
+		float ShadowDistance = 40.0f;
+
+		// Blend between a logarithmic split, which distributes texels correctly
+		// and starves the far cascades, and a uniform one, which does the
+		// reverse. 1 is fully logarithmic.
+		float ShadowSplitLambda = 0.85f;
+
+		// How far along the surface normal a sample is pushed, in shadow
+		// texels. Raising it removes acne and starts detaching shadows from
+		// their casters; there is no value that has neither, which is why the
+		// shadow pass also writes back faces.
+		float ShadowNormalOffset = 0.9f;
+
 		AntiAliasing AA = AntiAliasing::FXAA;
 	};
 }

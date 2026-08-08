@@ -1,0 +1,32 @@
+// Depth only, from a light's point of view.
+//
+// No descriptor set and no uniform buffer: the light's view-projection is
+// folded into the model matrix on the CPU, so the whole shader's input is one
+// matrix in a push constant. A shadow pass draws every caster in the scene and
+// is the one place where the per-draw cost is the entire cost.
+//
+// The fragment stage writes nothing. It exists because the pipeline wants one,
+// and depth is written by the fixed-function stage regardless.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) in vec3 a_Position;
+
+layout(push_constant) uniform ObjectData
+{
+	// Light view-projection times model, multiplied out before it got here.
+	mat4 LightMVP;
+} u_Object;
+
+void main()
+{
+	gl_Position = u_Object.LightMVP * vec4(a_Position, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+void main()
+{
+}

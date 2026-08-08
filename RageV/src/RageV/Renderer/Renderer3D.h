@@ -35,6 +35,17 @@ namespace RageV
 							   const RHI::Ref<RHI::RHITexture>& environmentMap = nullptr);
 		static void EndScene();
 
+		// Depth only, from a light. Wraps the same mesh binding the lit path
+		// uses, because a shadow pass draws the same geometry and differs only
+		// in what it writes.
+		//
+		// The light's view-projection is folded into each draw's model matrix,
+		// so a caster costs one push constant and nothing else -- no descriptor
+		// set is bound in this pass at all.
+		static void BeginShadow(const glm::mat4& viewProjection);
+		static void DrawMeshShadow(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform);
+		static void EndShadow();
+
 		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,
 							 const RHI::Ref<Material>& material);
 

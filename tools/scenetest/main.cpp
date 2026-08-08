@@ -39,6 +39,7 @@
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
+#include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Scene/ScenePicking.h"
@@ -1432,6 +1433,157 @@ namespace
 			  "and an incomplete set of faces is refused");
 	}
 
+	// Cascaded shadow maps.
+	//
+	// Every property that matters here is invisible in a still frame and
+	// obvious in motion, which makes this the worst possible feature to verify
+	// by looking at a screenshot. A cascade that changes size as the camera
+	// turns makes every shadow edge crawl; one that is not snapped to its own
+	// texel grid makes them shimmer on each sub-texel step. Both render
+	// perfectly convincing single frames.
+	void CheckShadowCascades()
+	{
+		constexpr uint32_t kCount = 4;
+		constexpr uint32_t kResolution = 1024;
+
+		const glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.4f, -1.0f, -0.25f));
+		const float fov = glm::radians(60.0f);
+		const float aspect = 16.0f / 9.0f;
+		const float distance = 60.0f;
+
+		auto fit = [&](const glm::mat4& cameraTransform, ShadowCascade* out, bool flip = false)
+		{
+			ShadowMap::ComputeCascades(cameraTransform, fov, aspect, 0.1f, distance,
+									   lightDirection, kCount, kResolution, 0.85f, flip, out);
+		};
+
+		ShadowCascade level[kCount];
+		fit(glm::mat4(1.0f), level);
+
+		// --- splits -------------------------------------------------------------
+		{
+			bool increasing = true;
+			for (uint32_t i = 1; i < kCount; i++)
+				increasing = increasing && level[i].SplitDepth > level[i - 1].SplitDepth;
+
+			Check(increasing, "cascade splits increase with distance");
+			Check(std::fabs(level[kCount - 1].SplitDepth - distance) < 0.01f,
+				  "and the last one ends exactly at the shadow distance");
+			Check(level[0].TexelWorldSize < level[kCount - 1].TexelWorldSize,
+				  "so the near cascade's texels are the smaller ones");
+		}
+
+		// --- the property the sphere fit exists for -------------------------------
+		// Turn the camera through a full circle and the cascades must not change
+		// size. A box fitted to the frustum corners would breathe with every
+		// degree, and every shadow edge in the cascade would crawl with it.
+		{
+			bool stable = true;
+			for (int step = 1; step < 24; step++)
+			{
+				const float yaw = glm::two_pi<float>() * (float)step / 24.0f;
+				const float pitch = glm::radians(-35.0f) * std::sin(yaw * 3.0f);
+
+				glm::mat4 turned = glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0, 1, 0));
+				turned = glm::rotate(turned, pitch, glm::vec3(1, 0, 0));
+
+				ShadowCascade rotated[kCount];
+				fit(turned, rotated);
+
+				for (uint32_t i = 0; i < kCount; i++)
+				{
+					stable = stable && std::fabs(rotated[i].TexelWorldSize -
+												 level[i].TexelWorldSize) < 1e-6f;
+				}
+			}
+
+			Check(stable, "and rotating the camera does not change a cascade's size");
+		}
+
+		// --- texel snapping -------------------------------------------------------
+		// The projection's origin has to land on a whole texel. Without it the
+		// sampled grid slides continuously under the geometry and every edge
+		// shimmers on sub-texel movement.
+		{
+			bool snapped = true;
+			for (int step = 0; step < 8; step++)
+			{
+				// Deliberately not a multiple of anything: a texel here is
+				// centimetres, and these are millimetre steps.
+				const glm::mat4 nudged = glm::translate(
+					glm::mat4(1.0f), glm::vec3(0.0013f * (float)step, 0.0f, 0.0007f * (float)step));
+
+				ShadowCascade moved[kCount];
+				fit(nudged, moved);
+
+				for (uint32_t i = 0; i < kCount; i++)
+				{
+					const glm::vec4 origin =
+						moved[i].ViewProjection * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+					const glm::vec2 texels = glm::vec2(origin) * ((float)kResolution * 0.5f);
+
+					snapped = snapped &&
+							  std::fabs(texels.x - std::round(texels.x)) < 1e-3f &&
+							  std::fabs(texels.y - std::round(texels.y)) < 1e-3f;
+				}
+			}
+
+			Check(snapped, "and the projection stays snapped to whole texels as it moves");
+		}
+
+		// --- the lookup matrix -----------------------------------------------------
+		{
+			// A point in the middle of the near cascade must land inside the map.
+			const glm::vec3 inside(0.0f, 0.0f, -level[0].SplitDepth * 0.5f);
+			const glm::vec4 lookup = level[0].LookupMatrix * glm::vec4(inside, 1.0f);
+			const glm::vec3 coordinate = glm::vec3(lookup) / lookup.w;
+
+			Check(coordinate.x > 0.0f && coordinate.x < 1.0f &&
+				  coordinate.y > 0.0f && coordinate.y < 1.0f,
+				  "a point inside a cascade maps into its shadow map");
+			Check(coordinate.z >= 0.0f && coordinate.z <= 1.0f,
+				  "with a depth already in the range the comparison expects");
+
+			// The flip is a backend property, and the only difference it makes
+			// is which way up v runs. Getting it wrong shadows the scene with a
+			// mirror image of itself, which looks like broken geometry rather
+			// than a wrong matrix.
+			ShadowCascade flipped[kCount];
+			fit(glm::mat4(1.0f), flipped, true);
+
+			const glm::vec4 other = flipped[0].LookupMatrix * glm::vec4(inside, 1.0f);
+			const glm::vec3 mirrored = glm::vec3(other) / other.w;
+
+			Check(std::fabs(mirrored.x - coordinate.x) < 1e-5f &&
+				  std::fabs(mirrored.z - coordinate.z) < 1e-5f &&
+				  std::fabs(mirrored.y - (1.0f - coordinate.y)) < 1e-5f,
+				  "and asking for the flip mirrors v and nothing else");
+		}
+
+		// --- degenerate input ------------------------------------------------------
+		{
+			ShadowCascade one[ShadowMap::kMaxCascades];
+			ShadowMap::ComputeCascades(glm::mat4(1.0f), fov, aspect, 0.1f, distance,
+									   glm::vec3(0.0f), 99, kResolution, 0.85f, false, one);
+			Check(one[ShadowMap::kMaxCascades - 1].SplitDepth > 0.0f,
+				  "asking for more cascades than exist fills the ones that do");
+
+			// A light pointing straight down is the case where an up vector of
+			// +Y is parallel to the view and lookAt degenerates.
+			ShadowCascade overhead[kCount];
+			ShadowMap::ComputeCascades(glm::mat4(1.0f), fov, aspect, 0.1f, distance,
+									   glm::vec3(0.0f, -1.0f, 0.0f), kCount, kResolution,
+									   0.85f, false, overhead);
+
+			const glm::vec4 lookup =
+				overhead[0].LookupMatrix * glm::vec4(0.0f, 0.0f, -5.0f, 1.0f);
+			const glm::vec3 coordinate = glm::vec3(lookup) / lookup.w;
+			Check(std::isfinite(coordinate.x) && std::isfinite(coordinate.y) &&
+				  std::isfinite(coordinate.z),
+				  "and a light pointing straight down still produces a usable matrix");
+		}
+	}
+
 	// Reflection probes.
 	//
 	// The capture basis is the whole thing worth checking, and it cannot be
@@ -2823,6 +2975,7 @@ int RunTests(int argc, char** argv)
 	CheckPrimitiveWinding();
 	CheckCubemap();
 	CheckSky();
+	CheckShadowCascades();
 	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();

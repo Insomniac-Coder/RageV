@@ -348,6 +348,11 @@ namespace RageV
 					OnlyWhen(IsSpot, Slider(0.0f, 89.0f))),
 				Field<&LightComponent::Light, &Light::OuterCone>("OuterCone",
 					OnlyWhen(IsSpot, Slider(0.0f, 89.0f))),
+				// Tooltip only; there is no widget choice to make for a checkbox.
+				Field<&LightComponent::Light, &Light::CastShadows>("CastShadows",
+					FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
+							   "Directional only for now, and only the first light that "
+							   "asks: a second set of cascades is four more scene renders." }),
 			};
 			Bind<LightComponent>(desc);
 			s_Components.push_back(std::move(desc));

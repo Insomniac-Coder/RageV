@@ -974,6 +974,26 @@ namespace RageV::GL
 		// than letting the two backends disagree about what a cube map is.
 		glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
+		// Depth in [0, 1], matching Vulkan and matching the projections glm
+		// produces -- it is built with GLM_FORCE_DEPTH_ZERO_TO_ONE. Without
+		// this, GL maps that same clip range onto [0.5, 1] of the depth buffer:
+		// half the precision thrown away, and, worse, a stored depth that no
+		// longer equals the value a shader computes from the same matrix.
+		//
+		// That second part is not theoretical. Every shadow comparison passed
+		// on this backend and nothing was ever in shadow, because the reference
+		// was a clip-space depth and the map held a window-space one. The
+		// vendored CMake has claimed since the port that "the OpenGL backend
+		// compensates once at the swapchain"; this is the line that finally
+		// makes that true.
+		//
+		// LOWER_LEFT is kept. Flipping the origin here would invert every
+		// render target's row order and move the problem rather than solve it.
+		if (GLAD_GL_VERSION_4_5)
+			glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+		else
+			RV_CORE_ERROR("OpenGL 4.5 is required for glClipControl; depth will not match Vulkan");
+
 		QueryCaps();
 
 		m_CommandList = std::make_unique<OpenGLCommandListRHI>(*this);

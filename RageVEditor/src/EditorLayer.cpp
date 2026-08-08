@@ -220,6 +220,14 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// two viewports share the scene and so share its probes.
 	m_Scene->CaptureReflectionProbes();
 
+	// Cascades are fitted to a frustum, so they belong to whichever camera is
+	// about to be drawn. The game view below re-renders them for its own.
+	if (m_UseEditorCamera)
+		m_Scene->RenderShadows(m_EditorCamera, m_EditorCamera.GetTransform());
+	else if (Entity camera = m_Scene->GetPrimaryCameraEntity())
+		m_Scene->RenderShadows(camera.GetComponent<CameraComponent>().Camera,
+							   camera.GetComponent<TransformComponent>().World);
+
 	// The scene view and the game view are the same frame described twice,
 	// differing only in the camera and where the result lands. Both go through
 	// BuildFrame, so bloom and tone mapping cannot end up applied to one and
@@ -261,6 +269,10 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// overwrite the data the pass above is about to read.
 	if (m_ShowGameViewport && m_GameViewportVisible && m_GameViewportSize.y > 0.0f)
 	{
+		if (Entity camera = m_Scene->GetPrimaryCameraEntity())
+			m_Scene->RenderShadows(camera.GetComponent<CameraComponent>().Camera,
+								   camera.GetComponent<TransformComponent>().World);
+
 		m_GameGraph->Begin((uint32_t)m_GameViewportSize.x, (uint32_t)m_GameViewportSize.y);
 
 		FrameDesc game;

@@ -107,6 +107,14 @@ namespace RageV
 		// Draws through the viewport's own camera, which needs no entity.
 		void OnRenderEditor(const EditorCamera& camera);
 
+		// Renders the shadow cascades for the first directional light that casts.
+		//
+		// Takes the camera it is about to be rendered with, because cascades are
+		// fitted to a frustum: shadows for a camera other than the one looking
+		// at them would be the wrong size in the wrong place. Like the probe
+		// capture, it opens render passes and so must run before the graph.
+		void RenderShadows(const Camera& camera, const glm::mat4& cameraTransform);
+
 		// Re-renders whatever the scene's reflection probes can see.
 		//
 		// Called by the application between BeginFrame and the frame graph,

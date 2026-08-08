@@ -181,6 +181,12 @@ namespace RageV
 		emitter << YAML::Key << "BloomKnee" << YAML::Value << environment.BloomKnee;
 		emitter << YAML::Key << "BloomIntensity" << YAML::Value << environment.BloomIntensity;
 		emitter << YAML::Key << "BloomClamp" << YAML::Value << environment.BloomClamp;
+		emitter << YAML::Key << "ShadowsEnabled" << YAML::Value << environment.ShadowsEnabled;
+		emitter << YAML::Key << "ShadowCascades" << YAML::Value << environment.ShadowCascades;
+		emitter << YAML::Key << "ShadowResolution" << YAML::Value << environment.ShadowResolution;
+		emitter << YAML::Key << "ShadowDistance" << YAML::Value << environment.ShadowDistance;
+		emitter << YAML::Key << "ShadowSplitLambda" << YAML::Value << environment.ShadowSplitLambda;
+		emitter << YAML::Key << "ShadowNormalOffset" << YAML::Value << environment.ShadowNormalOffset;
 		emitter << YAML::Key << "AntiAliasing" << YAML::Value << (uint32_t)environment.AA;
 		emitter << YAML::EndMap;
 
@@ -410,6 +416,19 @@ namespace RageV
 					target.BloomIntensity = value.as<float>();
 				if (const YAML::Node value = environment["BloomClamp"])
 					target.BloomClamp = value.as<float>();
+
+				if (const YAML::Node value = environment["ShadowsEnabled"])
+					target.ShadowsEnabled = value.as<bool>();
+				if (const YAML::Node value = environment["ShadowCascades"])
+					target.ShadowCascades = value.as<int>();
+				if (const YAML::Node value = environment["ShadowResolution"])
+					target.ShadowResolution = value.as<int>();
+				if (const YAML::Node value = environment["ShadowDistance"])
+					target.ShadowDistance = value.as<float>();
+				if (const YAML::Node value = environment["ShadowSplitLambda"])
+					target.ShadowSplitLambda = value.as<float>();
+				if (const YAML::Node value = environment["ShadowNormalOffset"])
+					target.ShadowNormalOffset = value.as<float>();
 				if (const YAML::Node value = environment["AntiAliasing"])
 					target.AA = (AntiAliasing)value.as<uint32_t>();
 			}

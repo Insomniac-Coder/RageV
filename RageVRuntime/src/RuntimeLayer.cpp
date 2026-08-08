@@ -103,9 +103,15 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	if (!cmd || m_Height == 0)
 		return;
 
-	// Before the frame graph: a probe capture opens render passes of its own,
+	// Before the frame graph: both of these open render passes of their own,
 	// and nothing may do that inside another one.
 	m_Scene->CaptureReflectionProbes();
+
+	if (Entity camera = m_Scene->GetPrimaryCameraEntity())
+	{
+		m_Scene->RenderShadows(camera.GetComponent<CameraComponent>().Camera,
+							   camera.GetComponent<TransformComponent>().World);
+	}
 
 	m_Graph->Begin(m_Width, m_Height);
 

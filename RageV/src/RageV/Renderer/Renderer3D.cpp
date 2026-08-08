@@ -3,6 +3,7 @@
 #include "Renderer.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "TextureLoader.h"
+#include "ShadowMap.h"
 #include <glm/gtc/constants.hpp>
 
 namespace RageV
@@ -31,6 +32,20 @@ namespace RageV
 			// x = environment intensity, y = its highest mip, zw = cos and sin
 			// of the sky's rotation
 			glm::vec4 Environment;
+
+			// World space straight to shadow lookup coordinates, per cascade.
+			glm::mat4 CascadeLookup[4];
+			// Far view-space distance of each cascade, for selection.
+			glm::vec4 CascadeSplits;
+			// World size of one texel in each, for normal-offset bias.
+			glm::vec4 CascadeTexel;
+			// The camera's forward axis: cascade selection needs a view depth
+			// and the shader has no view matrix, only a view-projection.
+			glm::vec4 CameraForward;
+			// x = cascades rendered (0 = no shadows), y = normal offset scale,
+			// z = one texel in lookup coordinates, w = which light casts
+			glm::vec4 ShadowParams;
+
 			int32_t   LightCount;
 			int32_t   _padding[3];
 		};
@@ -72,6 +87,14 @@ namespace RageV
 			uint32_t SceneCursor = 0;
 
 			Ref<Material> DefaultMaterial;
+
+			// The depth-only pipeline. Its own shader and its own pipeline
+			// object: no colour attachment, so it cannot share the lit one.
+			Ref<RHIShader>   ShadowShader;
+			Ref<RHIPipeline> ShadowPipeline;
+			Format ShadowDepth = Format::D32_SFLOAT;
+			glm::mat4 ShadowViewProjection{ 1.0f };
+			bool ShadowActive = false;
 
 			// Mip-filtered and clamped, unlike the material sampler: roughness
 			// selects a level here, so a sampler pinned to level 0 would make
@@ -136,6 +159,11 @@ namespace RageV
 		s_Data->SceneSlots.resize(device.GetFramesInFlight());
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
+
+		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/shadow_depth.rvshader"))
+			s_Data->ShadowShader = device.CreateShader(*compiled);
+		else
+			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/shadow_depth.rvshader");
 
 		SamplerDesc environment;
 		environment.WrapU = WrapMode::ClampToEdge;
@@ -268,6 +296,43 @@ namespace RageV
 			std::sin(environment.SkyRotation),
 		};
 
+		// Cascades come from ShadowMap rather than being passed in: this runs
+		// once per viewport, and the cascades belong to the frame.
+		s_Data->Scene.CameraForward =
+			glm::vec4(glm::normalize(glm::vec3(cameraTransform * glm::vec4(0, 0, -1, 0))), 0.0f);
+		s_Data->Scene.ShadowParams = glm::vec4(0.0f, 0.0f, 0.0f, -1.0f);
+
+		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;
+		if (cascadeCount > 0)
+		{
+			const ShadowCascade* cascades = ShadowMap::GetCascades();
+			const uint32_t resolution = glm::max(ShadowMap::GetResolution(), 1u);
+
+			for (uint32_t i = 0; i < cascadeCount; i++)
+			{
+				s_Data->Scene.CascadeLookup[i] = cascades[i].LookupMatrix;
+				s_Data->Scene.CascadeSplits[i] = cascades[i].SplitDepth;
+				s_Data->Scene.CascadeTexel[i] = cascades[i].TexelWorldSize;
+			}
+
+			// The last cascade's split repeated, so a fragment past the end
+			// selects the coarsest map rather than reading an uninitialised
+			// split and picking arbitrarily.
+			for (uint32_t i = cascadeCount; i < ShadowMap::kMaxCascades; i++)
+			{
+				s_Data->Scene.CascadeLookup[i] = cascades[cascadeCount - 1].LookupMatrix;
+				s_Data->Scene.CascadeSplits[i] = cascades[cascadeCount - 1].SplitDepth;
+				s_Data->Scene.CascadeTexel[i] = cascades[cascadeCount - 1].TexelWorldSize;
+			}
+
+			s_Data->Scene.ShadowParams = {
+				(float)cascadeCount,
+				environment.ShadowNormalOffset,
+				1.0f / (float)resolution,
+				(float)ShadowMap::GetLightIndex(),
+			};
+		}
+
 		EnsurePipeline();
 		if (!s_Data->Pipeline)
 			return;
@@ -287,6 +352,23 @@ namespace RageV
 		sceneSet->SetTexture(1, environmentMap ? environmentMap
 											   : TextureLoader::BlackCube(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
+
+		// All four, always. A comparison sampler the layout declares and the
+		// set does not fill is a validation error; a 1x1 depth of 1.0 is the
+		// harmless answer, because under LessOrEqual every comparison against
+		// the far plane passes and the surface reads as lit.
+		{
+			const Ref<RHISampler> shadowSampler = ShadowMap::GetSampler();
+			const Ref<RHITexture> empty = ShadowMap::GetEmptyTexture();
+
+			for (uint32_t i = 0; i < ShadowMap::kMaxCascades; i++)
+			{
+				Ref<RHITexture> cascade = i < cascadeCount ? ShadowMap::GetCascadeTexture(i)
+														  : nullptr;
+				sceneSet->SetTexture(2, cascade ? cascade : empty, shadowSampler, i);
+			}
+		}
+
 		sceneSet->Commit();
 
 		// Bound once for the whole scene; only push constants change per draw.
@@ -299,6 +381,104 @@ namespace RageV
 	{
 		if (s_Data)
 			s_Data->SceneActive = false;
+	}
+
+	void Renderer3D::BeginShadow(const glm::mat4& viewProjection)
+	{
+		if (!s_Data || !s_Data->ShadowShader)
+			return;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		if (!s_Data->ShadowPipeline)
+		{
+			GraphicsPipelineDesc desc;
+			desc.Name = "Renderer3D.shadow";
+			desc.Shader = s_Data->ShadowShader;
+			desc.Topology = PrimitiveTopology::TriangleList;
+
+			// Stated rather than reflected. The shader reads only the position,
+			// so reflection would produce a tightly packed 12-byte stride and
+			// walk through the mesh buffer reading normals as positions.
+			VertexBinding binding;
+			binding.Binding = 0;
+			binding.Stride = sizeof(MeshVertex);
+			desc.VertexInput.Bindings = { binding };
+			desc.VertexInput.Attributes = {
+				{ 0, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, Position) },
+			};
+
+			// Nothing culled.
+			//
+			// Culling front faces is the classic way to avoid acne -- the depth
+			// written is then the *back* of each caster, a bias that scales with
+			// the geometry instead of with a guess. It also moves every shadow
+			// away from its caster by that same thickness, which on a sphere is
+			// a whole diameter: the small spheres in the sample scene had their
+			// shadows sitting most of a radius away from them, which reads as
+			// the shadow belonging to something else.
+			//
+			// Culling nothing records the surface nearest the light, keeps
+			// contact where it belongs, and lets single-sided geometry cast at
+			// all. Acne is then entirely the biases' problem, which is what the
+			// normal offset was written for.
+			desc.Rasterizer.Cull = CullMode::None;
+			desc.Rasterizer.Front = FrontFace::CounterClockwise;
+
+			// Slope-scaled on top, for surfaces nearly edge-on to the light,
+			// where one texel of shadow map covers a lot of depth.
+			//
+			// Small, because these were tuned alongside front-face culling and
+			// its free thickness. Every unit of bias here is a unit the shadow
+			// moves away from whatever cast it, and on an object the size of a
+			// few texels the shadow ends up looking like it belongs to
+			// something else standing nearby.
+			desc.Rasterizer.DepthBiasEnable = true;
+			desc.Rasterizer.DepthBiasConstant = 0.6f;
+			desc.Rasterizer.DepthBiasSlope = 1.4f;
+
+			desc.DepthStencil.DepthTestEnable = true;
+			desc.DepthStencil.DepthWriteEnable = true;
+			desc.ColorFormats.clear();
+			desc.DepthFormat = s_Data->ShadowDepth;
+
+			s_Data->ShadowPipeline = s_Data->Device->CreatePipeline(desc);
+		}
+
+		if (!s_Data->ShadowPipeline)
+			return;
+
+		s_Data->ShadowViewProjection = viewProjection;
+		cmd->BindPipeline(s_Data->ShadowPipeline);
+		s_Data->ShadowActive = true;
+	}
+
+	void Renderer3D::DrawMeshShadow(const Ref<Mesh>& mesh, const glm::mat4& transform)
+	{
+		if (!s_Data || !s_Data->ShadowActive || !mesh)
+			return;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		ObjectPushConstants object;
+		object.Model = s_Data->ShadowViewProjection * transform;
+
+		cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+		cmd->BindVertexBuffer(0, mesh->GetVertexBuffer());
+		cmd->BindIndexBuffer(mesh->GetIndexBuffer(), IndexType::UInt32);
+		cmd->DrawIndexed(mesh->GetIndexCount());
+
+		s_Data->DrawCalls++;
+	}
+
+	void Renderer3D::EndShadow()
+	{
+		if (s_Data)
+			s_Data->ShadowActive = false;
 	}
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& transform,

@@ -35,6 +35,18 @@ layout(set = 0, binding = 0) uniform SceneData
 	// sky's rotation. Intensity is zero when there is nothing to reflect,
 	// which is how the term is switched off without a branch.
 	vec4 Environment;
+
+	// Shadows. CascadeLookup takes a world position straight to lookup
+	// coordinates -- xy texture, z the depth to compare -- with the
+	// texture-space bias and one backend's vertical flip already folded in.
+	mat4 CascadeLookup[4];
+	vec4 CascadeSplits;   // far view depth of each cascade
+	vec4 CascadeTexel;    // world size of one texel in each
+	vec4 CameraForward;   // selection needs a view depth, and there is no view matrix
+	// x = cascades rendered (0 = none), y = normal offset scale,
+	// z = one texel in lookup coordinates, w = index of the casting light
+	vec4 ShadowParams;
+
 	int  LightCount;
 } u_Scene;
 
@@ -81,10 +93,22 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 LightColors[MAX_LIGHTS];
 	vec4 LightParams[MAX_LIGHTS];
 	vec4 Environment;
+	mat4 CascadeLookup[4];
+	vec4 CascadeSplits;
+	vec4 CascadeTexel;
+	vec4 CameraForward;
+	vec4 ShadowParams;
 	int  LightCount;
 } u_Scene;
 
 layout(set = 0, binding = 1) uniform samplerCube u_Environment;
+
+// Comparison samplers: the hardware compares against the reference and filters
+// the answers, which is a 2x2 percentage-closer filter for one fetch. Four
+// separate maps rather than one array texture, because indexing an array of
+// samplers by a value that varies per fragment is not dynamically uniform --
+// the switch below keeps every index constant, which is always legal.
+layout(set = 0, binding = 2) uniform sampler2DShadow u_ShadowMaps[4];
 
 layout(set = 1, binding = 0) uniform MaterialData
 {
@@ -110,6 +134,70 @@ layout(location = 2) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 
 bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
+
+float SampleCascade(int cascade, vec3 coordinate)
+{
+	if (cascade == 0) return texture(u_ShadowMaps[0], coordinate);
+	if (cascade == 1) return texture(u_ShadowMaps[1], coordinate);
+	if (cascade == 2) return texture(u_ShadowMaps[2], coordinate);
+	return texture(u_ShadowMaps[3], coordinate);
+}
+
+// How lit a point is, from 0 (fully shadowed) to 1.
+//
+// Two biases, because one is not enough and the reason is geometric. The
+// shadow pass writes back faces, which pushes each caster's recorded depth
+// behind it by its own thickness -- free, and proportional to the object. That
+// does nothing for a surface nearly edge-on to the light, where one shadow
+// texel spans a lot of depth, so the sample is also moved along the surface
+// normal by a texel scaled by the slope. Pure depth bias is the option that
+// was not taken: there is no constant that avoids both acne and shadows
+// detaching from their casters.
+float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
+{
+	int count = int(u_Scene.ShadowParams.x);
+	if (count <= 0)
+		return 1.0;
+
+	float viewDepth = dot(worldPos - u_Scene.CameraPosition.xyz, u_Scene.CameraForward.xyz);
+
+	int cascade = count - 1;
+	for (int i = 0; i < count; ++i)
+	{
+		if (viewDepth < u_Scene.CascadeSplits[i])
+		{
+			cascade = i;
+			break;
+		}
+	}
+
+	float NdotL = clamp(dot(N, L), 0.0, 1.0);
+	// tan of the angle to the light, clamped: at grazing incidence this runs
+	// away, and an offset larger than the geometry detaches the shadow.
+	float slope = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
+	float offset = u_Scene.CascadeTexel[cascade] * u_Scene.ShadowParams.y *
+				   (1.0 + min(slope, 4.0));
+
+	vec4 lightSpace = u_Scene.CascadeLookup[cascade] * vec4(worldPos + N * offset, 1.0);
+	vec3 coordinate = lightSpace.xyz / lightSpace.w;
+
+	// Beyond the far plane of the cascade there is nothing recorded, and the
+	// honest answer is lit.
+	if (coordinate.z > 1.0)
+		return 1.0;
+
+	// 3x3 of hardware 2x2 taps. Nine fetches is the point at which the edge
+	// stops looking like a staircase and starts looking like a penumbra.
+	float texel = u_Scene.ShadowParams.z;
+	float sum = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+			sum += SampleCascade(cascade, vec3(coordinate.xy + vec2(x, y) * texel, coordinate.z));
+	}
+
+	return sum / 9.0;
+}
 
 // Turns a direction into the sky's own frame. The sky pass folds the same
 // rotation into its matrix on the CPU; a reflection that skipped it would show
@@ -285,7 +373,16 @@ void main()
 		vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
 
 		float NdotL = max(dot(N, L), 0.0);
-		Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+
+		// Only the one light that rendered cascades this frame is shadowed.
+		// Every other light is unoccluded, which is wrong and is the honest
+		// shape of "one shadow-casting light" rather than a silent
+		// approximation applied to all of them.
+		float shadow = (i == int(u_Scene.ShadowParams.w))
+					 ? ShadowFactor(v_WorldPos, N, L)
+					 : 1.0;
+
+		Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
 	}
 
 	// A constant environment standing in for IBL: irradiance is the same from
