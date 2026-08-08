@@ -44,7 +44,8 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 325 checks: serialization, undo, assets, scripts, physics, audio, project, picking. |
+| `scenetest` | 340 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging. |
+| `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
 | `Sandbox` | Stale, predates the RHI, **off by default**. |
@@ -347,17 +348,25 @@ or silence rather than an obvious failure.
 | Projects | A folder is a project; the asset registry roots there |
 | Runtime | `RageVRuntime` opens a project and runs its start scene |
 | Capture | `--screenshot=<file>` writes a PNG of one frame and exits |
-| Tests | `scenetest`, **325 checks**, green on both backends |
+| Packaging | `rvpack` and File > Build Game: a runnable folder, ~9 MB |
+| Tests | `scenetest`, **340 checks**, green on both backends |
 
-**Phases 0, 1 and 2 are complete, and 4.1 and 4.2 with them.** What remains of
-Phase 4 is 4.3: turning a project into something someone else can run.
+**Phases 0, 1, 2 and 4 are complete.** The engine loop closes: a project can be
+imported into, placed in, scripted, played, and packaged into a folder someone
+else can run. Phase 3 (fidelity) and Phase 5 (C#) remain.
+
+All three build configurations work: Debug, Release, and **Dist**, which is
+what a shipped game uses -- asserts off, logging at warn so a player can still
+report an error.
 
 ### Not done
 
-- **Packaging** (4.3). The runtime can run a project in place; nothing cooks
-  one into a distributable folder. **Everything in this project has only ever
-  been built and verified in Debug** -- Release and Dist configurations exist
-  in CMake and have never been compiled, let alone run. 4.3 starts there.
+- **An archive format.** Packaging emits a folder, not a `.pak`. Packing needs
+  a virtual file system on the loading side to be worth anything, since every
+  asset path goes through `std::filesystem` -- a larger feature than 4.3 was.
+- **Asset cooking.** Assets ship in their source form: glTF is parsed at load,
+  PNGs decoded at load. Fine at this scale, and the place to start when it
+  is not.
 - **Shadows, IBL, skybox, HDR/post** (Phase 3). Ambient is a flat constant.
 - **Clustered forward** — the 8-light cap stands.
 - **Culling** — everything is drawn every frame.
@@ -418,17 +427,16 @@ Phase 4 is 4.3: turning a project into something someone else can run.
 
 ## 8. Next steps
 
-1. **Push.** `origin` is still at the pre-overhaul state; 47 commits of work
-   exist only on this machine.
-2. **4.3 packaging.** Cook a project into a folder with the runtime beside it.
-   Expect two pieces of work, not one: **no Release build has ever been
-   produced in this project**, and shipping a Debug binary with validation
-   layers and a `.pdb` is not shipping. Get Release building and running on
-   both backends first, then package.
-3. **Phase 3 fidelity** — render graph -> skybox/cubemaps -> IBL -> HDR/post ->
-   shadows -> clustered forward -> culling. A parallel track against a stable
-   RHI. This is where the "somewhat Unreal" half of the goal is won.
-4. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+**Phase 4 is done.** Two tracks remain, and they are independent.
+
+1. **Push.** `origin` is still at the pre-overhaul state; every commit here
+   exists only on this machine.
+2. **Phase 3 fidelity** — render graph -> skybox/cubemaps -> IBL -> HDR/post ->
+   shadows -> clustered forward -> culling -> skeletal animation. This is the
+   whole of what is left before Phase 5, and it is where the "somewhat Unreal"
+   half of the goal is won or lost. Start at 3.1: the render graph earns its
+   keep at about three passes and Phase 3 adds six.
+3. **Phase 5 C#.** Last, because it must mirror a stable native surface.
 
 Smaller items, none blocking:
 
@@ -437,6 +445,8 @@ Smaller items, none blocking:
 - **Materials as assets**, so two entities can share one from the inspector.
 - **A mixer panel.** Bus volumes exist and are reachable from code only.
 - **Prefab instances do not update when the prefab changes.**
+- **Packaging is per-machine.** `rvpack` finds the runtime beside itself or in
+  a sibling build directory. A shipped editor would need that pinned down.
 
 ## 9. Known rough edges
 

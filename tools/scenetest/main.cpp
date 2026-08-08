@@ -39,6 +39,7 @@
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
 #include "RageV/Project/Project.h"
+#include "RageV/Project/ProjectPackager.h"
 
 #include <GLFW/glfw3.h>
 #include <fstream>
@@ -1049,6 +1050,114 @@ namespace
 		// Back to the sample, which everything after this depends on.
 		Check(Project::Load(original), "the sample project reopens");
 		AssetRegistry::Init(Project::AssetRoot());
+	}
+
+	// Packaging.
+	//
+	// Checked by packaging a throwaway project and looking at what came out,
+	// rather than by asserting the function returned true. The failures that
+	// matter here are all "it built something that does not work": a missing
+	// sidecar, a project file still pointing at the source layout, a start
+	// scene left behind.
+	void CheckPackaging()
+	{
+		const std::filesystem::path previous = Project::File();
+		const std::filesystem::path root =
+			std::filesystem::temp_directory_path() / "ragev-package-test";
+		const std::filesystem::path output = root / "out";
+
+		std::error_code error;
+		std::filesystem::remove_all(root, error);
+
+		// A project with one asset and a start scene, built from nothing.
+		Check(Project::Create(root / "src", "Packaged"), "a project to package");
+		AssetRegistry::Init(Project::AssetRoot());
+
+		std::filesystem::create_directories(Project::AssetRoot() / "scenes", error);
+
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity camera = scene->CreateEntity("Camera");
+			camera.AddComponent<CameraComponent>();
+			Entity cube = scene->CreateEntity("Cube");
+			cube.AddComponent<MeshComponent>(PrimitiveType::Cube);
+
+			SceneSerializer serializer(scene);
+			serializer.Serialize((Project::AssetRoot() / "scenes" / "main.rage").string());
+		}
+		AssetRegistry::Refresh();
+
+		// Stand-ins for the runtime and the engine's own assets. Packaging is
+		// file copying, so what it copies matters and what produced the file
+		// does not.
+		const std::filesystem::path fakeRuntime = root / "bin" / "RageVRuntime.exe";
+		std::filesystem::create_directories(fakeRuntime.parent_path(), error);
+		{ std::ofstream stream(fakeRuntime); stream << "not really an executable"; }
+
+		const std::filesystem::path fakeAssets = root / "bin" / "assets";
+		std::filesystem::create_directories(fakeAssets / "shaders", error);
+		{ std::ofstream stream(fakeAssets / "shaders" / "pbr.rvshader"); stream << "shader"; }
+
+		PackageDesc desc;
+		desc.OutputDirectory = output;
+		desc.RuntimeExecutable = fakeRuntime;
+		desc.EngineAssets = fakeAssets;
+
+		// --- refused before anything is written --------------------------------
+		Project::Config().StartScene.clear();
+		PackageResult result = PackageProject(desc);
+		Check(!result.Success, "a project with no start scene will not package");
+		Check(!std::filesystem::exists(output),
+			  "and nothing is written, so a refused build leaves no half-made game");
+
+		Project::Config().StartScene = "scenes/missing.rage";
+		Check(!PackageProject(desc).Success, "nor one whose start scene does not exist");
+
+		// --- the real thing ----------------------------------------------------
+		Project::Config().StartScene = "scenes/main.rage";
+		result = PackageProject(desc);
+		Check(result.Success, "a complete project packages");
+
+		Check(std::filesystem::exists(output / "Packaged.exe"),
+			  "the executable is named after the game, not after the engine");
+		Check(std::filesystem::exists(output / "Packaged.rvproject"),
+			  "a project file ships beside it");
+		Check(std::filesystem::exists(output / "assets" / "shaders" / "pbr.rvshader"),
+			  "engine assets ship, or the renderer cannot start");
+		Check(std::filesystem::exists(output / "content" / "scenes" / "main.rage"),
+			  "and the project's assets, under content/");
+		Check(std::filesystem::exists(output / "ragev.ini"),
+			  "with a config file the player can edit");
+
+		// The sidecar is the identity: a scene refers to an asset by handle and
+		// the handle lives in the .meta. A build without them is a build where
+		// every reference resolves to nothing.
+		Check(std::filesystem::exists(output / "content" / "scenes" / "main.rage.meta"),
+			  "the .meta sidecars ship, because they are the asset identity");
+
+		// --- the shipped project file must describe the shipped layout ---------
+		{
+			auto packaged = std::make_shared<Scene>();
+			const YAML::Node file = YAML::LoadFile((output / "Packaged.rvproject").string());
+			const YAML::Node& node = file;
+
+			Check(node["Project"]["AssetDirectory"].as<std::string>() == "content",
+				  "the shipped project points at content/, not the source layout");
+			Check(node["Project"]["StartScene"].as<std::string>() == "scenes/main.rage",
+				  "and keeps the start scene");
+		}
+
+		// --- refuses to build over something ------------------------------------
+		Check(!PackageProject(desc).Success,
+			  "packaging into a directory that already has files is refused");
+
+		desc.Overwrite = true;
+		Check(PackageProject(desc).Success, "unless overwrite is asked for");
+
+		std::filesystem::remove_all(root, error);
+
+		if (!previous.empty() && Project::Load(previous))
+			AssetRegistry::Init(Project::AssetRoot());
 	}
 
 	// What the standalone runtime does, without the window.
@@ -2078,6 +2187,7 @@ int RunTests(int argc, char** argv)
 
 	// --- physics -------------------------------------------------------------
 	CheckProject();
+	CheckPackaging();
 	CheckRuntimePath();
 	CheckPhysics();
 	CheckColliderOverlay();

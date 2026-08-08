@@ -27,6 +27,7 @@ public:
 	void SaveScene();
 	void OpenProject();
 	void SetStartSceneToCurrent();
+	void BuildGame();
 	void ImportModel();
 	void OnScenePlay();
 	void OnSceneStop();

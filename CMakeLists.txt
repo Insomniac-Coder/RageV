@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-# Dist is a Release build with logging and asserts compiled out. Declared before
+# Dist is a Release build for shipping: asserts off, logging at warn. Declared before
 # project() so the multi-config generators pick it up.
 set(CMAKE_CONFIGURATION_TYPES "Debug;Release;Dist" CACHE STRING "" FORCE)
 
@@ -64,6 +64,7 @@ if(RAGEV_BUILD_TOOLS)
     add_subdirectory(tools/shaderinfo)
     add_subdirectory(tools/rhismoke)
     add_subdirectory(tools/scenetest)
+    add_subdirectory(tools/rvpack)
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio")

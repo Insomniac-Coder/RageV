@@ -312,6 +312,19 @@ defects). Hand-writing barriers six more times is the expensive option.
 | 4.2 | Standalone runtime target (engine without the editor) | M |
 | 4.3 | Packaging — cook assets, pack, emit `.exe` + data | L |
 
+**Phase 4 is complete.** 4.3 shipped as a folder rather than an archive, and
+without cooking, both deliberately: packing needs a virtual file system on the
+loading side to be worth anything, because every asset path in the engine goes
+through `std::filesystem`. A folder that runs is the whole of the value and
+none of that cost. `rvpack` is a headless tool as well as an editor menu item,
+since packaging touches no GPU and a build step that can be scripted is one
+that gets run.
+
+4.3 also turned up that **no Release or Dist build had ever been produced** in
+this project, which was the real first task. All three configurations build and
+pass now. Dist logs at warn rather than not at all: a player who can send you
+one line about what went wrong is worth more than a silent binary.
+
 4.2 is also a **forcing function**: it proves nothing load-bearing has leaked
 into the editor.
 

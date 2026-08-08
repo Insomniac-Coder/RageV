@@ -9,6 +9,7 @@
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Project/Project.h"
+#include "RageV/Project/ProjectPackager.h"
 #include "ImGuizmo.h"
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/gtx/matrix_decompose.hpp"
@@ -565,6 +566,15 @@ void EditorLayer::DrawMenuBar()
 
 		if (Project::GetActive())
 		{
+			if (ImGui::MenuItem("Build Game..."))
+				BuildGame();
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("Package this project into a folder someone else\n"
+								  "can run: the runtime, the assets, and a config\n"
+								  "file, with no editor.");
+			}
+
 			if (ImGui::MenuItem("Set Start Scene"))
 				SetStartSceneToCurrent();
 			if (ImGui::IsItemHovered())
@@ -1708,6 +1718,45 @@ void EditorLayer::OpenProject()
 	// the previous project happened to be showing.
 	NewScene();
 	m_ScenePath.clear();
+}
+
+// Package the project into a folder someone else can run.
+//
+// A folder dialog would be better than a file one, but the platform layer only
+// has file dialogs; asking for a name inside the target folder and using its
+// parent is the honest version of that until it grows one.
+void EditorLayer::BuildGame()
+{
+	if (!Project::GetActive())
+		return;
+
+	const std::string chosen = FileDialogs::SaveFile("Build folder\0*.*\0");
+	if (chosen.empty())
+		return;
+
+	PackageDesc desc;
+	desc.OutputDirectory = std::filesystem::path(chosen).parent_path();
+	// The dialog picked a location inside an existing folder, which will
+	// usually already hold something. Refusing here would make the menu item
+	// unusable; the CLI keeps the guard, where a scripted build could
+	// otherwise flatten a directory nobody looked at.
+	desc.Overwrite = true;
+
+	const PackageResult result = PackageProject(desc);
+
+	for (const std::string& warning : result.Warnings)
+		RV_WARN("{0}", warning);
+
+	if (!result.Success)
+	{
+		for (const std::string& error : result.Errors)
+			RV_ERROR("{0}", error);
+		return;
+	}
+
+	RV_INFO("Built '{0}': {1} files, {2} MB -> {3}", Project::Config().Name,
+			result.FilesCopied, result.BytesCopied / (1024 * 1024),
+			result.Executable.string());
 }
 
 void EditorLayer::SetStartSceneToCurrent()
