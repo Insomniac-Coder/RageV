@@ -49,15 +49,20 @@ would mean recreating the window, swapchain and every GPU resource.
 | `RageVEditor` | The editor. Opens on a demo scene. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
 | `rhismoke` | Drives either backend headlessly (`--rhi=`, frame count). |
+| `scenetest` | Serialization round trip and undo/redo, 35 checks. |
 | `Sandbox` | Stale, predates the RHI, **off by default**. |
 
 ### Verifying a change
 
 Both of these should be run after any renderer change:
 
+Run from each tool's own directory -- assets are staged per target.
+
 ```bash
 build/bin/Debug/rhismoke/rhismoke.exe 120 --rhi=vulkan
 build/bin/Debug/rhismoke/rhismoke.exe 120 --rhi=opengl
+build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
+build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
 Then run the editor on both and check the log contains **zero `[Vulkan]`
@@ -223,7 +228,13 @@ intermittent corruption rather than an obvious failure.
 | Primitives | Cube, sphere, cylinder, plane, quad — cached per device |
 | Lights | Directional / point / spot, intensity, range, cones |
 | Editor UI | Menus, toolbar, panels, red-on-black theme, gizmos |
-| Serialization | Transform, camera, colour, mesh + material, light |
+| Serialization | Registry-driven, version 3, lossless round trip |
+| Identity | Real UUIDs, `Scene::GetEntityByUUID` |
+| Hierarchy | Parent/child, world transforms, drag-to-reparent |
+| Reflection | `ComponentRegistry` drives inspector + serializer + add menu |
+| Undo/redo | Command stack; create, delete, reparent, fields, gizmo, ambient |
+| Editor camera | Fly / orbit / pan / zoom, F to frame selection |
+| Ambient | Scene colour + intensity, serialized |
 
 ### Not done
 
@@ -272,19 +283,19 @@ intermittent corruption rather than an obvious failure.
 
 Chosen by the user, in order:
 
-1. ~~**Research pass**~~ — **done**, see [ROADMAP.md](ROADMAP.md). Surveys
-   Unity / Godot / Unreal, defines the MVP+ bar, audits the gap and gives a
-   dependency-ordered plan in six phases. Its headline finding: the ordering is
-   driven by entity/asset IDs, transform hierarchy and reflection — all cheap
-   now, all format migrations later. **Start with Phase 0.**
-2. **Scripting — both paths.** User explicitly wants both:
+1. ~~**Research pass**~~ — **done**, see [ROADMAP.md](ROADMAP.md).
+2. ~~**Phase 0**~~ — **done**. Editor camera, entity UUIDs, transform
+   hierarchy, component registry, undo/redo, lossless round-trip test, native
+   script lifetime fixes. Plus a scene ambient control and `Chunk` quarantined
+   to `experiments/`. **Next is Phase 1: the asset pipeline.**
+3. **Scripting — both paths.** User explicitly wants both:
    - Enrich the native C++ `ScriptableEntity` API (transform/component helpers,
      input, timing, spawn/find/destroy, scene queries).
    - Embed C# on top. Large: runtime host, interop layer, assembly build
      pipeline, managed class library.
    - Order matters: the native API defines the surface, C# mirrors it. Design
      once, bind twice.
-3. Renderer continuation: skybox + cubemaps → IBL → HDR/tonemap pass → shadows.
+4. Renderer continuation: skybox + cubemaps → IBL → HDR/tonemap pass → shadows.
 
 **Flagged to the user, worth keeping in view:** the biggest gaps to an MVP+
 engine are usually *not* rendering. They are asset import (glTF/FBX), an asset
@@ -300,12 +311,8 @@ stall.
 - `quadshader.glsl`, `simpleshader.glsl`, `textureshader.glsl` in
   `RageVEditor/assets/shaders/` are **legacy leftovers** from the pre-RHI
   renderer. Only `quad.rvshader` and `pbr.rvshader` are used. Safe to delete.
-- `Chunk` terrain generation creates one entity per face — thousands of entities
-  for one chunk. It works but is not a real voxel mesher.
-- `Camera.h` / `Cameranew.h` coexist; `Cameranew` is the live one, the naming is
-  a leftover.
-- `Scene::DeleteEntity` takes `Entity&` rather than by value.
-- `SceneSerializer` writes a hardcoded `EntityID` of `"12345678890"` for every
-  entity; IDs are not real yet. This will matter as soon as anything needs
-  entity references (prefabs, parenting, script references).
-- No entity parenting / transform hierarchy. Needed before prefabs.
+- Vendored EnTT is 3.10.0, checked in as a 5 MB **UTF-16LE** single header
+  rather than a submodule like the other eleven dependencies. The encoding
+  defeats ordinary text tooling -- grep finds nothing in it.
+- `Chunk`/`Perlin` are in `experiments/terrain/` and not built. See the README
+  there.
