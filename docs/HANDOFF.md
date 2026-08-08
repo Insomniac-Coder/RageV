@@ -20,8 +20,10 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.3 and **3.5**,
-plus 3.4's specular approximation and its irradiance. The engine loop closes — a project can be imported into,
+**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through **3.5** — the
+render graph, HDR post, sky and cube maps, full image-based lighting and
+shadows for every light type. What is left of Phase 3 is performance (3.6,
+3.8) and skeletal animation (3.7). The engine loop closes — a project can be imported into,
 placed in, scripted, played, and packaged into a folder someone else can run.
 
 **Prove it still works** (from the repo root, ~2 minutes):
@@ -32,7 +34,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-447 checks, `exit 0`. Then look at a frame:
+453 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -185,6 +187,7 @@ only in where the finished image lands (an imported viewport target, or the
 backbuffer):
 
 ```
+(prefilter)      -> roughness levels, 36 small renders, ONCE per environment
 (shadow maps)    -> 4 cascades + a map per casting spot and a cube per point,
                     all scene renders, BEFORE the graph opens
 (probe faces)    -> probe cube  0..6 scene renders, BEFORE the graph opens
@@ -204,8 +207,8 @@ Eleven passes and seven pooled targets at 1600x900. Adding a Phase 3 feature
 means a target and a pass in `FrameGraphBuilder.cpp` and nothing else -- that
 is what 3.1 was for, and it held for 3.2.
 
-The sky, the shadow cascades and the probe captures are the three things *not*
-in `BuildFrame`. The
+The sky, the shadow maps, the probe captures and the environment prefilter are
+the things *not* in `BuildFrame`. The
 sky adds no target and belongs inside the scene pass, between the opaque meshes
 and the blended quads. A probe capture opens render passes of its own, so it
 cannot be inside one -- both applications call
@@ -434,6 +437,9 @@ or silence rather than an obvious failure.
   the copy silently moves a corner and the rest of the face keeps what it had.
 - **A render target's depth attachment is `TransferSrc`.** Nothing copied one
   until point shadows did, and Vulkan refused the blit.
+- **A module that logs "ready" must mean it.** `EnvironmentIBL` announced
+  itself unconditionally, so a prefilter shader that failed to compile looked
+  like a working feature that silently did nothing. Report the failure.
 - **Nothing is culled in the shadow pass, on purpose.** Culling front faces
   hides acne by recording the back of each caster, and moves every shadow away
   from its caster by that thickness. On a sphere that is a diameter. Acne
@@ -594,17 +600,9 @@ report an error.
 
 **Phases 0, 1, 2 and 4 are done. Phase 3 is at 3.3, and 3.4 is half done.**
 
-1. **Finish 3.4 IBL** (`S` now). Irradiance is in, and so is a specular
-   approximation. Two pieces remain, both refinements rather than gaps:
-   - **A real GGX prefilter.** The mip chain is box filtered, so roughness
-     selects a blur that is monotonic but is not the lobe. Needs a convolution
-     per roughness level — the CPU path would be slow at 512, so this is the
-     one piece that probably wants render-to-cube-face.
-   - **A BRDF lookup texture**, replacing Lazarov's analytic fit. Smallest of
-     everything left and the least visible.
-2. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
+1. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
    **3.7 skeletal animation**.
-3. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+2. **Phase 5 C#.** Last, because it must mirror a stable native surface.
 
 The render graph is in place, so each of those is *a pass and a target added to
 `BuildFrame`* rather than a new ownership question. That was the point of 3.1
