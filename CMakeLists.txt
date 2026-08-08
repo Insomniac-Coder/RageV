@@ -60,6 +60,7 @@ if(RAGEV_BUILD_SANDBOX)
 endif()
 if(RAGEV_BUILD_TOOLS)
     add_subdirectory(tools/shaderinfo)
+    add_subdirectory(tools/vksmoke)
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio")

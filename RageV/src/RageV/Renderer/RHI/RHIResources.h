@@ -77,9 +77,14 @@ namespace RageV::RHI
 		uint32_t                    Width  = 1280;
 		uint32_t                    Height = 720;
 		uint32_t                    Samples = 1;
+		// May be empty: a shadow map is a depth-only target.
 		std::vector<AttachmentDesc> ColorAttachments;
 		AttachmentDesc              DepthAttachment;
 		bool                        HasDepth = true;
+		// >1 allocates an array target and renders to layer `Layer` of it,
+		// which is how cascaded and cube shadow maps are filled.
+		uint32_t                    Layers = 1;
+		bool                        DepthSampled = false;   // shadow maps sample the depth afterwards
 		std::string                 DebugName;
 	};
 

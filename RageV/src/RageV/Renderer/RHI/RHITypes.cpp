@@ -7,6 +7,7 @@ namespace RageV::RHI
 	{
 		switch (format)
 		{
+			case Format::D16_UNORM:
 			case Format::D32_SFLOAT:
 			case Format::D24_UNORM_S8_UINT:
 			case Format::D32_SFLOAT_S8_UINT:
@@ -27,6 +28,11 @@ namespace RageV::RHI
 		{
 			case Format::R8_UNORM:              return 1;
 			case Format::R8G8_UNORM:            return 2;
+			case Format::R16_SFLOAT:            return 2;
+			case Format::D16_UNORM:             return 2;
+			case Format::R16G16_SFLOAT:         return 4;
+			case Format::B10G11R11_UFLOAT:      return 4;
+			case Format::R9G9B9E5_UFLOAT:       return 4;
 			case Format::R8G8B8A8_UNORM:
 			case Format::R8G8B8A8_SRGB:
 			case Format::B8G8R8A8_UNORM:

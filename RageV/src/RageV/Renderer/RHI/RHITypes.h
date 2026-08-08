@@ -33,15 +33,23 @@ namespace RageV::RHI
 		B8G8R8A8_UNORM,
 		B8G8R8A8_SRGB,
 
+		R16_SFLOAT,
+		R16G16_SFLOAT,
 		R16G16B16A16_SFLOAT,
 		R32_SFLOAT,
 		R32G32_SFLOAT,
 		R32G32B32_SFLOAT,
 		R32G32B32A32_SFLOAT,
 
+		// HDR render targets and IBL: same dynamic range as RGBA16F at half the
+		// bandwidth, which matters for the lighting and bloom passes.
+		B10G11R11_UFLOAT,
+		R9G9B9E5_UFLOAT,
+
 		R32_UINT,
 		R32_SINT,
 
+		D16_UNORM,
 		D32_SFLOAT,
 		D24_UNORM_S8_UINT,
 		D32_SFLOAT_S8_UINT,
@@ -99,6 +107,12 @@ namespace RageV::RHI
 		UInt32,
 	};
 
+	// Declared ahead of SamplerDesc, which needs it for comparison sampling.
+	enum class CompareOp : uint8_t
+	{
+		Never, Less, Equal, LessOrEqual, Greater, NotEqual, GreaterOrEqual, Always
+	};
+
 	// ---------------------------------------------------------------------
 	// Textures and samplers
 	// ---------------------------------------------------------------------
@@ -122,12 +136,21 @@ namespace RageV::RHI
 		return (static_cast<uint32_t>(value) & static_cast<uint32_t>(flag)) != 0;
 	}
 
+	enum class TextureType : uint8_t
+	{
+		Texture2D,
+		Texture2DArray,   // cascaded shadow maps, texture atlases
+		TextureCube,      // point-light shadows, environment / irradiance maps
+		TextureCubeArray,
+	};
+
 	struct TextureDesc
 	{
 		uint32_t     Width     = 1;
 		uint32_t     Height    = 1;
 		uint32_t     MipLevels = 1;   // 0 means "generate the full chain"
-		uint32_t     Layers    = 1;
+		uint32_t     Layers    = 1;   // cube faces count as 6 layers
+		TextureType  Type      = TextureType::Texture2D;
 		Format       Format    = Format::R8G8B8A8_UNORM;
 		TextureUsage Usage     = TextureUsage::Sampled;
 		uint32_t     Samples   = 1;
@@ -138,6 +161,13 @@ namespace RageV::RHI
 	enum class MipmapMode : uint8_t { Nearest, Linear };
 	enum class WrapMode   : uint8_t { Repeat, MirroredRepeat, ClampToEdge, ClampToBorder };
 
+	enum class BorderColor : uint8_t
+	{
+		TransparentBlack,
+		OpaqueBlack,
+		OpaqueWhite,      // the useful one for shadow maps: outside = fully lit
+	};
+
 	struct SamplerDesc
 	{
 		FilterMode MinFilter = FilterMode::Linear;
@@ -147,6 +177,15 @@ namespace RageV::RHI
 		WrapMode   WrapV     = WrapMode::Repeat;
 		WrapMode   WrapW     = WrapMode::Repeat;
 		float      MaxAnisotropy = 1.0f;
+		float      MinLod = 0.0f;
+		float      MaxLod = 1000.0f;
+		BorderColor Border = BorderColor::OpaqueWhite;
+
+		// A comparison sampler returns the filtered result of comparing the
+		// sampled depth against a reference, which is how hardware PCF shadow
+		// filtering works. Maps to sampler2DShadow in GLSL.
+		bool      CompareEnable = false;
+		CompareOp Compare = CompareOp::LessOrEqual;
 
 		bool operator==(const SamplerDesc&) const = default;
 	};
@@ -166,11 +205,6 @@ namespace RageV::RHI
 	enum class PolygonMode : uint8_t { Fill, Line, Point };
 	enum class CullMode    : uint8_t { None, Front, Back };
 	enum class FrontFace   : uint8_t { CounterClockwise, Clockwise };
-
-	enum class CompareOp : uint8_t
-	{
-		Never, Less, Equal, LessOrEqual, Greater, NotEqual, GreaterOrEqual, Always
-	};
 
 	enum class BlendPreset : uint8_t
 	{
@@ -195,6 +229,14 @@ namespace RageV::RHI
 		CullMode    Cull      = CullMode::Back;
 		FrontFace   Front     = FrontFace::CounterClockwise;
 		float       LineWidth = 1.0f;
+
+		// Shadow-map passes need this to push depth away from the light and
+		// avoid self-shadowing acne. Slope-scaled bias handles surfaces at
+		// grazing angles that a constant bias cannot.
+		bool  DepthBiasEnable = false;
+		float DepthBiasConstant = 0.0f;
+		float DepthBiasSlope    = 0.0f;
+		float DepthBiasClamp    = 0.0f;
 
 		bool operator==(const RasterizerState&) const = default;
 	};
