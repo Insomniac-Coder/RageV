@@ -21,6 +21,9 @@ namespace RageV
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
 		static void SetWireframe(bool enabled);
 
+		// Resets the per-frame scene-slot pool. Called by Renderer::BeginFrame.
+		static void BeginFrame();
+
 		static void BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
 							   const LightList& lights = {},
 							   const SceneEnvironment& environment = {});

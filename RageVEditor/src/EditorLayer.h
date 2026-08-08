@@ -31,6 +31,7 @@ private:
 	void DrawStatisticsPanel();
 	void DrawRenderSettingsPanel();
 	void DrawViewportPanel();
+	void DrawGameViewportPanel();
 	void DrawAboutPopup();
 	void DrawGizmo();
 
@@ -64,10 +65,15 @@ private:
 	// The scene renders here; the viewport panel samples it. Replaces the
 	// GL-only FrameBuffer so the same code works on either backend.
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_SceneTarget;
+	// The game view draws the same scene through its camera, so it needs its
+	// own target: the two panels are different sizes and therefore different
+	// aspect ratios.
+	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_GameTarget;
 	std::shared_ptr<RageV::Scene> m_Scene;
 	RageV::SceneHierarchyPanel m_SceneHierarchyPanel;
 
 	glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
+	glm::vec2 m_GameViewportSize = { 0.0f, 0.0f };
 	bool m_IsViewportFocused = false, m_IsViewportHovered = false;
 
 	// Panel visibility, driven by the Window menu.
@@ -76,6 +82,7 @@ private:
 	bool m_ShowStatistics = true;
 	bool m_ShowRenderSettings = true;
 	bool m_ShowViewport = true;
+	bool m_ShowGameViewport = true;
 	bool m_ShowDemoWindow = false;
 	bool m_ShowAbout = false;
 

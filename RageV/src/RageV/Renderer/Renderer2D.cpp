@@ -65,15 +65,26 @@ namespace RageV
 			bool   PipelineDirty = true;
 			bool   Wireframe = false;
 
-			// One per frame in flight. The vertex stream and the scene uniforms
-			// are rewritten every frame, so a single instance would be
-			// overwritten by the next frame while the GPU was still reading it
-			// for the previous one. This is the same class of hazard
-			// synchronization validation flags, and it only bites under load.
-			std::vector<Ref<RHIBuffer>>      VertexBuffers;
-			std::vector<Ref<RHIBuffer>>      SceneBuffers;
-			std::vector<Ref<RHIResourceSet>> SceneSets;
-			std::vector<Ref<RHIResourceSet>> TextureSets;
+			// One set of storage per *batch*, not per frame in flight.
+			//
+			// Per-frame alone was not enough. A batch's draw is recorded against
+			// whatever buffer it was bound to, and the data has to still be
+			// there when the GPU runs it -- so anything that ends a scene more
+			// than once in a frame needs separate storage each time. Two things
+			// do: a scene that overflows kMaxQuads and flushes mid-way, and
+			// drawing the same scene into two viewports. The first was already
+			// a live bug; it just needed 20000 quads to show itself.
+			struct Batch
+			{
+				Ref<RHIBuffer>      Vertices;
+				Ref<RHIBuffer>      Scene;
+				Ref<RHIResourceSet> SceneSet;
+				Ref<RHIResourceSet> TextureSet;
+			};
+
+			// [frame in flight][batch within the frame]
+			std::vector<std::vector<Batch>> Batches;
+			uint32_t BatchCursor = 0;
 
 			Ref<RHIBuffer>  IndexBuffer;
 			Ref<RHITexture> WhiteTexture;
@@ -95,6 +106,49 @@ namespace RageV
 		};
 
 		std::unique_ptr<Renderer2DData> s_Data;
+
+		// The batch storage for the current scene. Grown on demand and kept, so a
+		// scene that needs three batches allocates them once and reuses them every
+		// frame after.
+		Renderer2DData::Batch& AcquireBatch()
+		{
+			const uint32_t frame = s_Data->Device->GetFrameIndex();
+			auto& batches = s_Data->Batches[frame];
+
+			if (s_Data->BatchCursor >= batches.size())
+			{
+				const std::string index = std::to_string(frame) + "." + std::to_string(batches.size());
+
+				Renderer2DData::Batch batch;
+
+				BufferDesc vertexDesc;
+				vertexDesc.Size = (uint64_t)kMaxVertices * sizeof(VertexData);
+				vertexDesc.Usage = BufferUsage::Vertex;
+				vertexDesc.Memory = MemoryDomain::HostVisible;
+				vertexDesc.DebugName = "Renderer2D.vertices." + index;
+				batch.Vertices = s_Data->Device->CreateBuffer(vertexDesc);
+
+				BufferDesc sceneDesc;
+				sceneDesc.Size = sizeof(SceneUniforms);
+				sceneDesc.Usage = BufferUsage::Uniform;
+				sceneDesc.Memory = MemoryDomain::HostVisible;
+				sceneDesc.DebugName = "Renderer2D.scene." + index;
+				batch.Scene = s_Data->Device->CreateBuffer(sceneDesc);
+
+				batches.push_back(std::move(batch));
+			}
+
+			Renderer2DData::Batch& batch = batches[s_Data->BatchCursor++];
+
+			// Created lazily rather than in Init: sets need a pipeline, and the
+			// pipeline is built from the target formats, which Init does not know.
+			if (!batch.SceneSet)
+				batch.SceneSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+			if (!batch.TextureSet)
+				batch.TextureSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 1);
+
+			return batch;
+		}
 	}
 
 	void Renderer2D::Init(RHIDevice& device)
@@ -138,24 +192,8 @@ namespace RageV
 			s_Data->IndexBuffer->Upload(indices.data(), desc.Size);
 		}
 
-		s_Data->VertexBuffers.resize(frames);
-		s_Data->SceneBuffers.resize(frames);
-		for (uint32_t i = 0; i < frames; i++)
-		{
-			BufferDesc vertexDesc;
-			vertexDesc.Size = (uint64_t)kMaxVertices * sizeof(VertexData);
-			vertexDesc.Usage = BufferUsage::Vertex;
-			vertexDesc.Memory = MemoryDomain::HostVisible;
-			vertexDesc.DebugName = "Renderer2D.vertices." + std::to_string(i);
-			s_Data->VertexBuffers[i] = device.CreateBuffer(vertexDesc);
-
-			BufferDesc sceneDesc;
-			sceneDesc.Size = sizeof(SceneUniforms);
-			sceneDesc.Usage = BufferUsage::Uniform;
-			sceneDesc.Memory = MemoryDomain::HostVisible;
-			sceneDesc.DebugName = "Renderer2D.scene." + std::to_string(i);
-			s_Data->SceneBuffers[i] = device.CreateBuffer(sceneDesc);
-		}
+		// Batches are created on demand; most frames need one.
+		s_Data->Batches.resize(frames);
 
 		{
 			TextureDesc desc;
@@ -238,16 +276,21 @@ namespace RageV
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
 		s_Data->PipelineDirty = false;
 
-		// Resource sets are tied to a pipeline layout, so they are rebuilt with
-		// the pipeline.
-		const uint32_t frames = s_Data->Device->GetFramesInFlight();
-		s_Data->SceneSets.clear();
-		s_Data->TextureSets.clear();
-		for (uint32_t i = 0; i < frames; i++)
-		{
-			s_Data->SceneSets.push_back(s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0));
-			s_Data->TextureSets.push_back(s_Data->Device->CreateResourceSet(s_Data->Pipeline, 1));
-		}
+		// Resource sets are tied to a pipeline layout, so every batch's sets are
+		// discarded with the pipeline and recreated on demand.
+		for (auto& frame : s_Data->Batches)
+			frame.clear();
+	}
+
+	void Renderer2D::BeginFrame()
+	{
+		if (!s_Data)
+			return;
+
+		// The GPU has finished with this frame's slot, so its batches are free
+		// to reuse.
+		s_Data->BatchCursor = 0;
+		s_Data->DrawCalls = 0;
 	}
 
 	void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& transform, const LightList& lights)
@@ -255,7 +298,6 @@ namespace RageV
 		if (!s_Data)
 			return;
 
-		s_Data->DrawCalls = 0;
 		ResetScene();
 
 		s_Data->Scene = {};
@@ -297,24 +339,22 @@ namespace RageV
 		if (!s_Data->Pipeline)
 			return;
 
-		const uint32_t frame = s_Data->Device->GetFrameIndex();
+		// Its own storage, so this draw's data survives until the GPU runs it
+		// even if another batch is recorded before the frame ends.
+		Renderer2DData::Batch& batch = AcquireBatch();
 
-		// Each frame slot has its own vertex and uniform storage, so writing
-		// here cannot race the GPU reading the previous frame's batch.
-		auto& vertexBuffer = s_Data->VertexBuffers[frame];
-		vertexBuffer->Upload(s_Data->Vertices.data(), (uint64_t)s_Data->QuadCount * 4 * sizeof(VertexData));
+		batch.Vertices->Upload(s_Data->Vertices.data(),
+							   (uint64_t)s_Data->QuadCount * 4 * sizeof(VertexData));
+		batch.Scene->Upload(&s_Data->Scene, sizeof(SceneUniforms));
 
-		auto& sceneBuffer = s_Data->SceneBuffers[frame];
-		sceneBuffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
-
-		auto& sceneSet = s_Data->SceneSets[frame];
-		sceneSet->SetUniformBuffer(0, sceneBuffer, 0, sizeof(SceneUniforms));
+		auto& sceneSet = batch.SceneSet;
+		sceneSet->SetUniformBuffer(0, batch.Scene, 0, sizeof(SceneUniforms));
 		sceneSet->Commit();
 
 		// Every element of the sampler array has to be written even though only
 		// the occupied slots are read: the shader indexes it dynamically, so
 		// validation treats all of them as potentially accessed.
-		auto& textureSet = s_Data->TextureSets[frame];
+		auto& textureSet = batch.TextureSet;
 		for (unsigned int slot = 0; slot < kMaxTextureSlots; slot++)
 		{
 			const auto& texture = slot < s_Data->NextTextureSlot && s_Data->TextureSlots[slot]
@@ -327,7 +367,7 @@ namespace RageV
 		cmd->BindPipeline(s_Data->Pipeline);
 		cmd->BindResourceSet(0, sceneSet);
 		cmd->BindResourceSet(1, textureSet);
-		cmd->BindVertexBuffer(0, vertexBuffer);
+		cmd->BindVertexBuffer(0, batch.Vertices);
 		cmd->BindIndexBuffer(s_Data->IndexBuffer, IndexType::UInt32);
 		cmd->DrawIndexed(s_Data->IndexCount);
 

@@ -92,12 +92,21 @@ namespace RageV
 	struct CameraComponent
 	{
 		RageV::SceneCamera Camera;
-		bool isPrimary = true;
+
+		// Which camera the game view renders through: the lowest rank wins,
+		// 0 highest priority through 99 lowest.
+		//
+		// A rank rather than the `isPrimary` flag this replaced. A boolean can
+		// be true on two cameras at once, and then which one renders depends on
+		// registry iteration order -- so adding a camera could silently change
+		// the view. A rank always has a single winner, and ties break on entity
+		// id so the answer is the same on every run.
+		int ViewRank = 0;
+
 		bool fixedAspectRatio = false;
 
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
-		//CameraComponent(const glm::mat4& projection): Camera(projection) { }
 	};
 
 	struct LightComponent

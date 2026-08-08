@@ -72,6 +72,9 @@ void EditorLayer::OnAttach()
 	targetDesc.DebugName = "SceneViewport";
 	m_SceneTarget = device.CreateRenderTarget(targetDesc);
 
+	targetDesc.DebugName = "GameViewport";
+	m_GameTarget = device.CreateRenderTarget(targetDesc);
+
 	// Pipelines bake their attachment formats, so the renderer has to be told
 	// what it is drawing into before the first frame.
 	Renderer::SetTargetFormats(targetDesc.ColorAttachments[0].Format,
@@ -177,12 +180,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 	pass.Clear.Color[2] = m_ClearColor.b;
 	pass.Clear.Color[3] = 1.0f;
 
-	cmd->PushDebugGroup("Scene");
-	cmd->BeginRenderPass(pass);
-
-	// Simulation and rendering are separate calls now. The play/edit split
-	// lands on the first of these; the second only chooses a viewpoint.
+	// Simulation once, rendering once per view. The play/edit split lands on
+	// the first of these; the rest only choose a viewpoint.
 	m_Scene->OnUpdate(ts);
+
+	cmd->PushDebugGroup("Scene view");
+	cmd->BeginRenderPass(pass);
 
 	if (m_UseEditorCamera)
 		m_Scene->OnRenderEditor(m_EditorCamera);
@@ -191,6 +194,26 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 	cmd->EndRenderPass();
 	cmd->PopDebugGroup();
+
+	// The same scene again, through whichever camera holds the lowest ViewRank.
+	// Drawing a scene twice in one frame is what the renderers' per-batch
+	// storage exists for -- with one buffer per frame, this pass would
+	// overwrite the data the pass above is about to read.
+	if (m_ShowGameViewport)
+	{
+		RHI::RenderPassBeginInfo gamePass;
+		gamePass.Target = m_GameTarget.get();
+		gamePass.Clear.Color[0] = m_ClearColor.r;
+		gamePass.Clear.Color[1] = m_ClearColor.g;
+		gamePass.Clear.Color[2] = m_ClearColor.b;
+		gamePass.Clear.Color[3] = 1.0f;
+
+		cmd->PushDebugGroup("Game view");
+		cmd->BeginRenderPass(gamePass);
+		m_Scene->OnRenderRuntime();
+		cmd->EndRenderPass();
+		cmd->PopDebugGroup();
+	}
 }
 
 void EditorLayer::OnImGuiRender()
@@ -230,6 +253,7 @@ void EditorLayer::OnImGuiRender()
 	if (m_ShowStatistics)      DrawStatisticsPanel();
 	if (m_ShowRenderSettings)  DrawRenderSettingsPanel();
 	if (m_ShowViewport)        DrawViewportPanel();
+	if (m_ShowGameViewport)    DrawGameViewportPanel();
 	if (m_ShowDemoWindow)      ImGui::ShowDemoWindow(&m_ShowDemoWindow);
 
 	DrawAboutPopup();
@@ -319,6 +343,7 @@ void EditorLayer::DrawMenuBar()
 		ImGui::MenuItem("Scene Hierarchy", nullptr, &m_ShowHierarchy);
 		ImGui::MenuItem("Properties",      nullptr, &m_ShowProperties);
 		ImGui::MenuItem("Viewport",        nullptr, &m_ShowViewport);
+		ImGui::MenuItem("Game",            nullptr, &m_ShowGameViewport);
 		ImGui::MenuItem("Statistics",      nullptr, &m_ShowStatistics);
 		ImGui::MenuItem("Render Settings", nullptr, &m_ShowRenderSettings);
 		ImGui::Separator();
@@ -577,7 +602,6 @@ void EditorLayer::DrawViewportPanel()
 		m_SceneTarget->Resize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
 		// Only on an actual change: this recomputes every camera's projection
 		// and used to run on every single frame.
-		m_Scene->OnViewportResize(viewportSize.x, viewportSize.y);
 		m_EditorCamera.SetViewportSize(viewportSize.x, viewportSize.y);
 	}
 
@@ -594,6 +618,61 @@ void EditorLayer::DrawViewportPanel()
 	}
 
 	DrawGizmo();
+
+	ImGui::End();
+	ImGui::PopStyleVar();
+}
+
+// The scene as the player would see it. Same scene, different camera -- so a
+// camera can be positioned in one panel while its result is watched in the
+// other, which is the entire reason for having two.
+void EditorLayer::DrawGameViewportPanel()
+{
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	if (!ImGui::Begin("Game", &m_ShowGameViewport))
+	{
+		ImGui::End();
+		ImGui::PopStyleVar();
+		return;
+	}
+
+	const ImVec2 size = ImGui::GetContentRegionAvail();
+	if (size.x > 0.0f && size.y > 0.0f &&
+		(m_GameViewportSize.x != size.x || m_GameViewportSize.y != size.y))
+	{
+		m_GameViewportSize = { size.x, size.y };
+		m_GameTarget->Resize((unsigned int)size.x, (unsigned int)size.y);
+		// The scene cameras' aspect follows *this* panel: it is what the game
+		// actually renders into. Driving it from the editor viewport would give
+		// the game view a stretched image whenever the two panels differed.
+		m_Scene->OnViewportResize(size.x, size.y);
+	}
+
+	Entity camera = m_Scene->GetPrimaryCameraEntity();
+	if (!camera)
+	{
+		ImGui::PopStyleVar();
+		ImGui::TextDisabled("No camera in the scene.");
+		ImGui::TextDisabled("Entity > Camera adds one.");
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	}
+	else if (auto color = m_GameTarget->GetColorTexture(0))
+	{
+		const ImTextureID handle = (ImTextureID)color->GetImGuiHandle();
+		const bool flip = Renderer::GetDevice().GetBackend() == RHI::Backend::OpenGL;
+		ImGui::Image(handle, size,
+					 ImVec2{ 0, flip ? 1.0f : 0.0f }, ImVec2{ 1, flip ? 0.0f : 1.0f });
+
+		// Which camera won, and why -- otherwise a scene with several cameras
+		// gives no clue about what is being looked through.
+		ImGui::SetCursorPos(ImVec2(8.0f, 8.0f));
+		ImGui::TextColored(EditorTheme::Color::Accent, "%s", camera.GetName().c_str());
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Rank %d. The lowest ViewRank in the scene wins;\nties break on entity id.",
+							  camera.GetComponent<CameraComponent>().ViewRank);
+		}
+	}
 
 	ImGui::End();
 	ImGui::PopStyleVar();

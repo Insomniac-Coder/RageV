@@ -238,18 +238,30 @@ namespace RageV
 	// -------------------------------------------------------------------------
 	// Frame
 	// -------------------------------------------------------------------------
+	// Lowest ViewRank wins. Ties break on entity id rather than on registry
+	// order, so two cameras at the same rank resolve the same way on every run
+	// instead of depending on what was created when.
 	Entity Scene::GetPrimaryCameraEntity()
 	{
-		auto view = m_Registry.view<CameraComponent>();
+		Entity best;
+		int bestRank = std::numeric_limits<int>::max();
+		uint64_t bestID = std::numeric_limits<uint64_t>::max();
+
+		auto view = m_Registry.view<CameraComponent, IDComponent>();
 		for (auto item : view)
 		{
-			// Used to return the first camera whether or not it was primary,
-			// which disagreed with what the renderer picked.
-			if (view.get<CameraComponent>(item).isPrimary)
-				return { item, this };
+			const int rank = view.get<CameraComponent>(item).ViewRank;
+			const uint64_t id = view.get<IDComponent>(item).ID;
+
+			if (rank < bestRank || (rank == bestRank && id < bestID))
+			{
+				best = { item, this };
+				bestRank = rank;
+				bestID = id;
+			}
 		}
 
-		return {};
+		return best;
 	}
 
 	void Scene::OnViewportResize(float width, float height)
@@ -290,21 +302,13 @@ namespace RageV
 	{
 		UpdateWorldTransforms();
 
-		auto view = m_Registry.view<CameraComponent, TransformComponent>();
+		Entity camera = GetPrimaryCameraEntity();
+		if (!camera || !camera.HasComponent<TransformComponent>())
+			return;   // nothing to render from
 
-		for (auto& item : view)
-		{
-			auto [camera, transform] = view.get<CameraComponent, TransformComponent>(item);
-			if (!camera.isPrimary)
-				continue;
-
-			// World, so a camera parented to a rig follows it.
-			OnRender(camera.Camera, transform.World);
-			return;
-		}
-
-		// No primary camera: there is nothing to render from. This used to
-		// dereference an uninitialised pointer.
+		// World, so a camera parented to a rig follows it.
+		OnRender(camera.GetComponent<CameraComponent>().Camera,
+				 camera.GetComponent<TransformComponent>().World);
 	}
 
 	void Scene::OnRenderEditor(const EditorCamera& camera)

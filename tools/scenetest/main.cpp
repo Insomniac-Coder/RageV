@@ -302,6 +302,44 @@ namespace
 			  "a random handle is not treated as a primitive");
 	}
 
+	void CheckCameraRanking()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		Entity low = scene->CreateEntity("Rank 5");
+		low.AddComponent<CameraComponent>().ViewRank = 5;
+
+		Entity tieA = scene->CreateEntity("Rank 2 A");
+		tieA.AddComponent<CameraComponent>().ViewRank = 2;
+
+		Entity tieB = scene->CreateEntity("Rank 2 B");
+		tieB.AddComponent<CameraComponent>().ViewRank = 2;
+
+		Entity winner = scene->GetPrimaryCameraEntity();
+		Check(winner && winner.GetComponent<CameraComponent>().ViewRank == 2,
+			  "the lowest ViewRank wins");
+
+		// Ties must resolve on entity id rather than on registry order, or
+		// adding an unrelated camera could silently change the view.
+		const Entity expected = tieA.GetUUID() < tieB.GetUUID() ? tieA : tieB;
+		Check(winner == expected, "a rank tie breaks on entity id, not creation order");
+
+		// Repeatable within a run, and repeatable across runs because the
+		// comparison is on ids rather than on iteration.
+		Check(scene->GetPrimaryCameraEntity() == winner, "camera selection is stable");
+
+		// Rank 0 is the highest priority, so a new camera at the default rank
+		// takes over -- which is what makes "add a camera and look through it"
+		// behave the way people expect.
+		Entity fresh = scene->CreateEntity("Default rank");
+		fresh.AddComponent<CameraComponent>();
+		Check(scene->GetPrimaryCameraEntity() == fresh, "a default-rank camera outranks rank 2");
+
+		scene->DeleteEntity(fresh);
+		Check(scene->GetPrimaryCameraEntity() == expected,
+			  "removing the winner falls back to the next rank");
+	}
+
 	size_t EntityCount(const std::shared_ptr<Scene>& scene)
 	{
 		return scene->GetRegistry().view<IDComponent>().size();
@@ -482,6 +520,9 @@ int RunTests(int argc, char** argv)
 	AssetManager::Init(*device);
 
 	RV_CORE_INFO("Scene round-trip test on {0}", device->GetCaps().APIName);
+
+	// --- cameras -------------------------------------------------------------
+	CheckCameraRanking();
 
 	// --- assets --------------------------------------------------------------
 	CheckPrimitiveHandles();

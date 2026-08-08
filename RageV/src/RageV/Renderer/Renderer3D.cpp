@@ -51,10 +51,23 @@ namespace RageV
 			bool   PipelineDirty = true;
 			bool   Wireframe = false;
 
-			// Per frame in flight: the scene block is rewritten every frame, so
-			// a single buffer would be overwritten while the GPU still read it.
-			std::vector<Ref<RHIBuffer>>      SceneBuffers;
-			std::vector<Ref<RHIResourceSet>> SceneSets;
+			// One per scene *within* a frame, not one per frame in flight.
+			//
+			// A draw reads the scene block when the GPU runs it, not when it is
+			// recorded, so two scenes in one frame -- the editor viewport and
+			// the game viewport -- need separate blocks. Sharing one meant the
+			// second BeginScene overwrote the view-projection the first
+			// viewport's draws were about to use.
+			struct SceneSlot
+			{
+				Ref<RHIBuffer>      Buffer;
+				Ref<RHIResourceSet> Set;
+			};
+
+			// [frame in flight][scene within the frame]
+			std::vector<std::vector<SceneSlot>> SceneSlots;
+			uint32_t SceneCursor = 0;
+
 			Ref<Material> DefaultMaterial;
 
 			SceneUniforms Scene{};
@@ -65,6 +78,36 @@ namespace RageV
 		};
 
 		std::unique_ptr<Renderer3DData> s_Data;
+
+		Renderer3DData::SceneSlot& AcquireSceneSlot()
+		{
+			const uint32_t frame = s_Data->Device->GetFrameIndex();
+			auto& slots = s_Data->SceneSlots[frame];
+
+			if (s_Data->SceneCursor >= slots.size())
+			{
+				Renderer3DData::SceneSlot slot;
+
+				BufferDesc desc;
+				desc.Size = sizeof(SceneUniforms);
+				desc.Usage = BufferUsage::Uniform;
+				desc.Memory = MemoryDomain::HostVisible;
+				desc.DebugName = "Renderer3D.scene." + std::to_string(frame) + "." +
+								 std::to_string(slots.size());
+				slot.Buffer = s_Data->Device->CreateBuffer(desc);
+
+				slots.push_back(std::move(slot));
+			}
+
+			Renderer3DData::SceneSlot& slot = slots[s_Data->SceneCursor++];
+
+			// Lazily, because a set needs a pipeline and the pipeline is built
+			// from target formats that Init does not know.
+			if (!slot.Set)
+				slot.Set = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+
+			return slot;
+		}
 	}
 
 	void Renderer3D::Init(RHIDevice& device)
@@ -81,17 +124,8 @@ namespace RageV
 		}
 		s_Data->Shader = device.CreateShader(*compiled);
 
-		const uint32_t frames = device.GetFramesInFlight();
-		s_Data->SceneBuffers.resize(frames);
-		for (uint32_t i = 0; i < frames; i++)
-		{
-			BufferDesc desc;
-			desc.Size = sizeof(SceneUniforms);
-			desc.Usage = BufferUsage::Uniform;
-			desc.Memory = MemoryDomain::HostVisible;
-			desc.DebugName = "Renderer3D.scene." + std::to_string(i);
-			s_Data->SceneBuffers[i] = device.CreateBuffer(desc);
-		}
+		// Slots are created on demand; most frames need one.
+		s_Data->SceneSlots.resize(device.GetFramesInFlight());
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
 
@@ -152,10 +186,26 @@ namespace RageV
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
 		s_Data->PipelineDirty = false;
 
-		const uint32_t frames = s_Data->Device->GetFramesInFlight();
-		s_Data->SceneSets.clear();
-		for (uint32_t i = 0; i < frames; i++)
-			s_Data->SceneSets.push_back(s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0));
+		// Resource sets are tied to a pipeline layout, so they go with it and
+		// are recreated on demand.
+		for (auto& frame : s_Data->SceneSlots)
+		{
+			for (auto& slot : frame)
+				slot.Set.reset();
+		}
+	}
+
+	void Renderer3D::BeginFrame()
+	{
+		if (!s_Data)
+			return;
+
+		// The GPU has finished with this frame's slots, so they are reusable.
+		s_Data->SceneCursor = 0;
+		// Accumulated across every scene drawn this frame rather than reset per
+		// scene, or the statistics panel would only ever show the last viewport.
+		s_Data->DrawCalls = 0;
+		s_Data->Triangles = 0;
 	}
 
 	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
@@ -163,9 +213,6 @@ namespace RageV
 	{
 		if (!s_Data)
 			return;
-
-		s_Data->DrawCalls = 0;
-		s_Data->Triangles = 0;
 
 		s_Data->Scene = {};
 		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(cameraTransform);
@@ -202,11 +249,11 @@ namespace RageV
 		if (!cmd)
 			return;
 
-		const uint32_t frame = s_Data->Device->GetFrameIndex();
-		s_Data->SceneBuffers[frame]->Upload(&s_Data->Scene, sizeof(SceneUniforms));
+		Renderer3DData::SceneSlot& slot = AcquireSceneSlot();
+		slot.Buffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
 
-		auto& sceneSet = s_Data->SceneSets[frame];
-		sceneSet->SetUniformBuffer(0, s_Data->SceneBuffers[frame], 0, sizeof(SceneUniforms));
+		auto& sceneSet = slot.Set;
+		sceneSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
 		sceneSet->Commit();
 
 		// Bound once for the whole scene; only push constants change per draw.

@@ -163,9 +163,10 @@ namespace RageV
 			desc.Name = "CameraComponent";
 			desc.DisplayName = "Camera";
 			desc.Fields = {
-				Field<&CameraComponent::isPrimary>("isPrimary",
-					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
-							   "The camera the runtime renders through. Only one applies." }),
+				Field<&CameraComponent::ViewRank>("ViewRank",
+					Drag(0.25f, 0, 99, "Which camera the game view uses: lowest rank wins, "
+									   "0 highest priority through 99 lowest. Ties break on "
+									   "entity id, so the choice is stable between runs.")),
 				Field<&CameraComponent::fixedAspectRatio>("FixedAspectRatio"),
 				Field<&CameraComponent::Camera, &SceneCamera::Projection>("ProjectionType",
 					Enum(kProjectionNames, "Perspective is 3D, orthographic is 2D.")),
@@ -184,9 +185,23 @@ namespace RageV
 				Field<&CameraComponent::Camera, &SceneCamera::OrthographicFar>("OrthographicFarClip",
 					OnlyWhen(IsOrthographic, Drag(0.1f))),
 			};
+			// Version 4 and earlier stored a boolean. A camera that was primary
+			// becomes rank 0 and one that was not becomes 50, which preserves
+			// which camera wins without inventing an ordering among the rest.
+			desc.DeserializeExtra = [](const YAML::Node& node, void* component)
+			{
+				if (node["ViewRank"])
+					return;
+
+				if (const YAML::Node primary = node["isPrimary"])
+					static_cast<CameraComponent*>(component)->ViewRank = primary.as<bool>() ? 0 : 50;
+			};
+
 			desc.OnChanged = [](void* component)
 			{
-				static_cast<CameraComponent*>(component)->Camera.Recalculate();
+				auto* camera = static_cast<CameraComponent*>(component);
+				camera->ViewRank = glm::clamp(camera->ViewRank, 0, 99);
+				camera->Camera.Recalculate();
 			};
 			Bind<CameraComponent>(desc);
 			s_Components.push_back(std::move(desc));

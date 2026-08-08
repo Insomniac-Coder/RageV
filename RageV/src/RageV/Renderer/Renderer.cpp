@@ -29,6 +29,11 @@ namespace RageV
 	void Renderer::BeginFrame(RHI::RHICommandList* commandList)
 	{
 		s_CommandList = commandList;
+
+		// Frees the per-frame buffer pools. Anything that draws a scene more
+		// than once per frame depends on this having run first.
+		Renderer2D::BeginFrame();
+		Renderer3D::BeginFrame();
 	}
 
 	void Renderer::EndFrame()

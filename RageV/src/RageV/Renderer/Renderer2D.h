@@ -22,6 +22,9 @@ namespace RageV
 		static void SetWireframe(bool enabled);
 		static bool IsWireframe();
 
+		// Resets the per-frame batch pool. Called by Renderer::BeginFrame.
+		static void BeginFrame();
+
 		static void BeginScene(const Camera& camera, const glm::mat4& transform, const LightList& lights = {});
 		static void EndScene();
 
