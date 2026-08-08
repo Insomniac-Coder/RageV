@@ -4,6 +4,7 @@
 #include "Cubemap.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include <map>
+#include <set>
 
 namespace RageV
 {
@@ -50,19 +51,31 @@ namespace RageV
 			Ref<RHITexture> BRDF;
 			Ref<RHISampler> BRDFSampler;
 
-			// One scratch target per roughness level, since each is a different
-			// size and a render target may not be resized while a command
-			// buffer holds it.
-			std::array<Ref<RHIRenderTarget>, EnvironmentIBL::kRoughnessLevels> Scratch;
-			uint32_t ScratchBase = 0;
+			// Scratch targets keyed by their own size, not by which environment
+			// asked for them.
+			//
+			// Keyed by base size, this held one chain and threw it away when a
+			// different environment arrived -- which happened mid-frame, the
+			// moment a 128 pixel probe was filtered after the 512 pixel sky,
+			// and destroyed images the command buffer still had bound. Sizes
+			// are powers of two, so this map stays small and nothing in it is
+			// ever destroyed while recording.
+			std::map<uint32_t, Ref<RHIRenderTarget>> Scratch;
 
 			// Descriptor sets, one per face per level, so none is rewritten
-			// while still bound.
+			// while still bound. The cursor resets once a frame, not once a
+			// call -- see BeginFrame.
 			std::vector<Ref<RHIResourceSet>> Sets;
+			uint32_t SetCursor = 0;
 
 			// Keyed on the source texture: a scene keeps one environment and
 			// rebuilding it every frame would be thirty-six renders a frame.
 			std::map<const RHITexture*, Ref<RHITexture>> Prefiltered;
+
+			// Sources whose filter is stale. A reflection probe re-captures
+			// itself, so its filter has to be redone -- into the cube already
+			// allocated for it, not a new one.
+			std::set<const RHITexture*> Stale;
 
 			bool Ready = false;
 		};
@@ -171,6 +184,12 @@ namespace RageV
 		}
 	}
 
+	void EnvironmentIBL::BeginFrame()
+	{
+		if (s_Data)
+			s_Data->SetCursor = 0;
+	}
+
 	void EnvironmentIBL::Shutdown()
 	{
 		s_Data.reset();
@@ -206,13 +225,31 @@ namespace RageV
 		return it != s_Data->Prefiltered.end() && it->second ? it->second : source;
 	}
 
+	void EnvironmentIBL::Invalidate(const Ref<RHITexture>& source)
+	{
+		if (s_Data && source)
+			s_Data->Stale.insert(source.get());
+	}
+
 	Ref<RHITexture> EnvironmentIBL::Prefilter(RHICommandList& cmd, const Ref<RHITexture>& source)
 	{
 		if (!s_Data || !s_Data->Ready || !source)
 			return source;
 
+		const bool stale = s_Data->Stale.erase(source.get()) != 0;
+
+		Ref<RHITexture> existing;
 		if (const auto it = s_Data->Prefiltered.find(source.get()); it != s_Data->Prefiltered.end())
-			return it->second ? it->second : source;
+		{
+			// Known to be unfilterable, and that does not change with time.
+			if (!it->second)
+				return source;
+
+			if (!stale)
+				return it->second;
+
+			existing = it->second;
+		}
 
 		const uint32_t base = source->GetWidth();
 		const uint32_t levels = LevelsFor(base);
@@ -239,20 +276,13 @@ namespace RageV
 		desc.MipLevels = levels;
 		desc.DebugName = "ibl.prefiltered";
 
-		Ref<RHITexture> destination = s_Data->Device->CreateTexture(desc);
+		// Refilled rather than reallocated when a probe re-captures: a new cube
+		// every six frames would be a leak with extra steps.
+		Ref<RHITexture> destination = existing ? existing : s_Data->Device->CreateTexture(desc);
 		if (!destination)
 		{
 			s_Data->Prefiltered[source.get()] = nullptr;
 			return source;
-		}
-
-		// Scratch targets, one per level. Rebuilt when the base size changes,
-		// which is once per project in practice.
-		if (s_Data->ScratchBase != base)
-		{
-			for (auto& target : s_Data->Scratch)
-				target.reset();
-			s_Data->ScratchBase = base;
 		}
 
 		if (!s_Data->Pipeline)
@@ -279,43 +309,47 @@ namespace RageV
 
 		cmd.PushDebugGroup("Prefilter environment");
 
-		uint32_t setCursor = 0;
 
 		for (uint32_t level = 0; level < levels; level++)
 		{
 			const uint32_t size = glm::max(base >> level, 1u);
 
-			if (!s_Data->Scratch[level])
+			Ref<RHIRenderTarget>& scratch = s_Data->Scratch[size];
+			if (!scratch)
 			{
 				RenderTargetDesc target;
 				target.Width = size;
 				target.Height = size;
 				target.ColorAttachments = { { Format::R16G16B16A16_SFLOAT } };
 				target.HasDepth = false;
-				target.DebugName = "ibl.prefilter" + std::to_string(level);
+				target.DebugName = "ibl.prefilter" + std::to_string(size);
 
-				s_Data->Scratch[level] = s_Data->Device->CreateRenderTarget(target);
+				scratch = s_Data->Device->CreateRenderTarget(target);
 			}
 
-			if (!s_Data->Scratch[level])
+			if (!scratch)
 				continue;
 
 			const float roughness = (float)level / (float)(levels - 1);
-			const Ref<RHITexture> rendered = s_Data->Scratch[level]->GetColorTexture(0);
+			const Ref<RHITexture> rendered = scratch->GetColorTexture(0);
 
 			for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
 			{
 				RenderPassBeginInfo begin;
-				begin.Target = s_Data->Scratch[level].get();
+				begin.Target = scratch.get();
 				begin.ClearColor = true;
 				begin.UseDepth = false;
 
 				cmd.BeginRenderPass(begin);
 
-				if (setCursor >= s_Data->Sets.size())
+				// The cursor is per frame, not per call. Resetting it here meant a
+				// second environment filtered in the same frame -- a probe after
+				// the sky -- rewrote descriptor sets the command buffer had
+				// already bound, which invalidates it.
+				if (s_Data->SetCursor >= s_Data->Sets.size())
 					s_Data->Sets.push_back(s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0));
 
-				Ref<RHIResourceSet>& set = s_Data->Sets[setCursor++];
+				Ref<RHIResourceSet>& set = s_Data->Sets[s_Data->SetCursor++];
 				if (!set)
 					set = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
 
@@ -345,8 +379,14 @@ namespace RageV
 		cmd.PopDebugGroup();
 
 		s_Data->Prefiltered[source.get()] = destination;
-		RV_CORE_INFO("Prefiltered an environment map ({0} levels from {1} px faces)",
-					 levels, base);
+
+		// Only the first time. A realtime probe refilters every six frames and
+		// would otherwise fill the log with it.
+		if (!existing)
+		{
+			RV_CORE_INFO("Prefiltered an environment map ({0} levels from {1} px faces)",
+						 levels, base);
+		}
 
 		return destination;
 	}

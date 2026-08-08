@@ -112,6 +112,7 @@ namespace RageV
 
 			unsigned int DrawCalls = 0;
 			unsigned int Triangles = 0;
+			unsigned int Culled = 0;
 
 			bool Ready = false;
 		};
@@ -265,6 +266,7 @@ namespace RageV
 		// scene, or the statistics panel would only ever show the last viewport.
 		s_Data->DrawCalls = 0;
 		s_Data->Triangles = 0;
+		s_Data->Culled = 0;
 	}
 
 	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
@@ -565,6 +567,9 @@ namespace RageV
 		s_Data->DrawCalls++;
 		s_Data->Triangles += mesh->GetIndexCount() / 3;
 	}
+
+	unsigned int Renderer3D::GetCulledCount() { return s_Data ? s_Data->Culled : 0; }
+	void Renderer3D::CountCulled() { if (s_Data) s_Data->Culled++; }
 
 	bool Renderer3D::IsReady()
 	{

@@ -54,6 +54,7 @@ namespace RageV
 		// Cascades are rendered per frame, if at all. Anything left from the
 		// last one describes a camera that has since moved.
 		ShadowMap::Invalidate();
+		EnvironmentIBL::BeginFrame();
 		PostProcess::BeginFrame();
 	}
 

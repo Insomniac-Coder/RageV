@@ -947,6 +947,7 @@ void EditorLayer::DrawStatisticsPanel()
 	{
 		StatRow("Mesh draws", std::to_string(Renderer3D::GetDrawCallCount()));
 		StatRow("Triangles",  std::to_string(Renderer3D::GetTriangleCount()));
+		StatRow("Culled",     std::to_string(Renderer3D::GetCulledCount()));
 		StatRow("Quad batches", std::to_string(Renderer2D::GetDrawCallCount()));
 		StatRow("Quads",      std::to_string(Renderer2D::GetQuadCount()));
 		ImGui::EndTable();

@@ -41,6 +41,7 @@
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/ShadowMap.h"
+#include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/PostProcess.h"
@@ -1887,6 +1888,85 @@ namespace
 			  "an empty environment convolves to nothing rather than crashing");
 	}
 
+	// Frustum culling.
+	//
+	// The failure that matters is asymmetric: drawing something invisible costs
+	// a draw, and skipping something visible costs a hole in the picture. So
+	// every check here is about *not* culling something that should be drawn,
+	// and only the last is about culling what should not.
+	void CheckFrustumCulling()
+	{
+		const glm::mat4 projection = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
+		// At the origin looking down -Z, which is where a camera with an
+		// identity transform points.
+		const Frustum frustum(projection * glm::inverse(glm::mat4(1.0f)));
+
+		const glm::vec3 unit(0.5f);
+
+		Check(frustum.Intersects(glm::vec3(0.0f, 0.0f, -10.0f), unit),
+			  "a box in front of the camera is drawn");
+		Check(!frustum.Intersects(glm::vec3(0.0f, 0.0f, 10.0f), unit),
+			  "one behind it is not");
+		Check(!frustum.Intersects(glm::vec3(100.0f, 0.0f, -10.0f), unit),
+			  "one far to the side is not");
+		Check(!frustum.Intersects(glm::vec3(0.0f, 0.0f, -500.0f), unit),
+			  "and one beyond the far plane is not");
+
+		// The near plane is z = 0, not z = -w: glm is built with
+		// GLM_FORCE_DEPTH_ZERO_TO_ONE. Building it the OpenGL way puts the
+		// plane half the frustum away and culls things that are plainly in
+		// view, which is the mistake this check exists for.
+		Check(frustum.Intersects(glm::vec3(0.0f, 0.0f, -0.3f), glm::vec3(0.05f)),
+			  "something just past the near plane is drawn, not culled");
+
+		// Conservative: straddling counts as inside. A box half out of view is
+		// half in it.
+		Check(frustum.Intersects(glm::vec3(0.0f, 0.0f, -10.0f), glm::vec3(50.0f)),
+			  "a box straddling the frustum is drawn");
+
+		// A shadow cascade's frustum is orthographic and points somewhere else
+		// entirely. Culling has to work against whatever matrix it is given.
+		{
+			const glm::mat4 ortho = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.0f, 50.0f);
+			const glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 20.0f, 0.0f),
+											   glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			const Frustum cascade(ortho * view);
+
+			Check(cascade.Intersects(glm::vec3(0.0f), unit),
+				  "an orthographic frustum contains what is under it");
+			Check(!cascade.Intersects(glm::vec3(60.0f, 0.0f, 0.0f), unit),
+				  "and not what is well outside it");
+		}
+
+		// Transformed bounds. A rotated box's axis-aligned bound grows, and has
+		// to -- shrinking it would cull something still on screen.
+		{
+			AABB box;
+			box.Min = glm::vec3(-0.5f);
+			box.Max = glm::vec3(0.5f);
+
+			glm::vec3 centre, extents;
+			Frustum::TransformBounds(box, glm::mat4(1.0f), centre, extents);
+			Check(glm::length(centre) < 1e-5f && std::fabs(extents.x - 0.5f) < 1e-5f,
+				  "an untransformed box keeps its own bounds");
+
+			const glm::mat4 turned = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f),
+												 glm::vec3(0.0f, 1.0f, 0.0f));
+			Frustum::TransformBounds(box, turned, centre, extents);
+			Check(extents.x > 0.69f && extents.x < 0.72f,
+				  "and a box turned 45 degrees grows to contain itself");
+
+			const glm::mat4 moved = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
+			Frustum::TransformBounds(box, moved, centre, extents);
+			Check(std::fabs(centre.x - 3.0f) < 1e-5f && std::fabs(extents.x - 0.5f) < 1e-5f,
+				  "moving a box moves its bounds and does not grow them");
+
+			const glm::mat4 scaled = glm::scale(glm::mat4(1.0f), glm::vec3(4.0f));
+			Frustum::TransformBounds(box, scaled, centre, extents);
+			Check(std::fabs(extents.x - 2.0f) < 1e-5f, "and scaling scales them");
+		}
+	}
+
 	// The environment BRDF table.
 	//
 	// A table of a function that has known values at its corners, which is a
@@ -3346,6 +3426,7 @@ int RunTests(int argc, char** argv)
 	CheckShadowCascades();
 	CheckIrradiance();
 	CheckEnvironmentBRDF();
+	CheckFrustumCulling();
 	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();

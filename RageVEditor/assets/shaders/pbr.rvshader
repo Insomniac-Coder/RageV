@@ -160,6 +160,37 @@ float SampleCascade(int cascade, vec3 coordinate)
 	return texture(u_ShadowMaps[3], coordinate);
 }
 
+// One cascade's answer. Split out so the band between two of them can ask both.
+float CascadeFactor(int cascade, vec3 worldPos, vec3 N, vec3 L)
+{
+	float NdotL = clamp(dot(N, L), 0.0, 1.0);
+	// tan of the angle to the light, clamped: at grazing incidence this runs
+	// away, and an offset larger than the geometry detaches the shadow.
+	float slope = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
+	float offset = u_Scene.CascadeTexel[cascade] * u_Scene.ShadowParams.y *
+				   (1.0 + min(slope, 4.0));
+
+	vec4 lightSpace = u_Scene.CascadeLookup[cascade] * vec4(worldPos + N * offset, 1.0);
+	vec3 coordinate = lightSpace.xyz / lightSpace.w;
+
+	// Beyond the far plane of the cascade there is nothing recorded, and the
+	// honest answer is lit.
+	if (coordinate.z > 1.0)
+		return 1.0;
+
+	// 3x3 of hardware 2x2 taps. Nine fetches is the point at which the edge
+	// stops looking like a staircase and starts looking like a penumbra.
+	float texel = u_Scene.ShadowParams.z;
+	float sum = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+			sum += SampleCascade(cascade, vec3(coordinate.xy + vec2(x, y) * texel, coordinate.z));
+	}
+
+	return sum / 9.0;
+}
+
 // How lit a point is, from 0 (fully shadowed) to 1.
 //
 // Two biases, because one is not enough and the reason is geometric. The
@@ -188,32 +219,28 @@ float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
 		}
 	}
 
-	float NdotL = clamp(dot(N, L), 0.0, 1.0);
-	// tan of the angle to the light, clamped: at grazing incidence this runs
-	// away, and an offset larger than the geometry detaches the shadow.
-	float slope = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
-	float offset = u_Scene.CascadeTexel[cascade] * u_Scene.ShadowParams.y *
-				   (1.0 + min(slope, 4.0));
+	float lit = CascadeFactor(cascade, worldPos, N, L);
 
-	vec4 lightSpace = u_Scene.CascadeLookup[cascade] * vec4(worldPos + N * offset, 1.0);
-	vec3 coordinate = lightSpace.xyz / lightSpace.w;
-
-	// Beyond the far plane of the cascade there is nothing recorded, and the
-	// honest answer is lit.
-	if (coordinate.z > 1.0)
-		return 1.0;
-
-	// 3x3 of hardware 2x2 taps. Nine fetches is the point at which the edge
-	// stops looking like a staircase and starts looking like a penumbra.
-	float texel = u_Scene.ShadowParams.z;
-	float sum = 0.0;
-	for (int y = -1; y <= 1; ++y)
+	// Fade into the next cascade over the last tenth of this one.
+	//
+	// Selection is a step function, and two cascades disagree slightly at their
+	// boundary -- different texel sizes, different bias. Without a band the
+	// disagreement is a line across the ground that slides as the camera moves,
+	// which reads as a rendering artefact rather than as a shadow.
+	if (cascade + 1 < count)
 	{
-		for (int x = -1; x <= 1; ++x)
-			sum += SampleCascade(cascade, vec3(coordinate.xy + vec2(x, y) * texel, coordinate.z));
+		float start = cascade == 0 ? 0.0 : u_Scene.CascadeSplits[cascade - 1];
+		float end = u_Scene.CascadeSplits[cascade];
+		float band = (end - start) * 0.1;
+
+		if (band > 0.0 && viewDepth > end - band)
+		{
+			float t = clamp((viewDepth - (end - band)) / band, 0.0, 1.0);
+			lit = mix(lit, CascadeFactor(cascade + 1, worldPos, N, L), t);
+		}
 	}
 
-	return sum / 9.0;
+	return lit;
 }
 
 float SampleSpot(int slot, vec3 coordinate)

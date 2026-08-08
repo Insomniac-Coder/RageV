@@ -57,6 +57,11 @@ namespace RageV
 		// Shared by every mesh that has no material of its own.
 		static RHI::Ref<Material> GetDefaultMaterial();
 
+		// How many meshes were skipped by frustum culling this frame, across
+		// every pass. Reported so the saving is visible rather than assumed.
+		static unsigned int GetCulledCount();
+		static void CountCulled();
+
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetTriangleCount();
 

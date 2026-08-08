@@ -35,6 +35,9 @@ namespace RageV
 
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
+
+		// Frees the per-frame descriptor pool. Called by Renderer::BeginFrame.
+		static void BeginFrame();
 		static bool IsReady();
 
 		// The environment BRDF table, computed once at Init.
@@ -54,6 +57,12 @@ namespace RageV
 		// What Prefilter last produced for this source, without building it.
 		// Returns `source` when there is nothing yet.
 		static RHI::Ref<RHI::RHITexture> GetPrefiltered(const RHI::Ref<RHI::RHITexture>& source);
+
+		// Says the source has changed and its filter is stale. The next
+		// Prefilter refills the cube it already made rather than allocating
+		// another -- which is what makes this affordable for a reflection probe
+		// that re-captures itself.
+		static void Invalidate(const RHI::Ref<RHI::RHITexture>& source);
 
 		// Frees the cached cubes. Called when the project changes, since the
 		// sources they were built from are gone.

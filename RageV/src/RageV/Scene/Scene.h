@@ -184,6 +184,11 @@ namespace RageV
 		// a probe would capture itself.
 		bool m_CapturingProbes = false;
 
+		// Said once per scene, not once per frame. A light that asks to cast
+		// and silently does not is the kind of thing someone spends an evening
+		// on.
+		bool m_ShadowBudgetWarned = false;
+
 		SceneEnvironment m_Environment;
 		std::vector<UUID> m_PendingDestroy;
 		std::unique_ptr<PhysicsWorld> m_Physics;

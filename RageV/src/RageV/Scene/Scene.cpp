@@ -12,6 +12,7 @@
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
+#include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Asset/AssetManager.h"
 #include <glm/gtx/matrix_decompose.hpp>
@@ -698,14 +699,32 @@ namespace RageV
 		// it exists a shadow map costs a full scene walk.
 		auto drawCasters = [this, &meshView](const glm::mat4& viewProjection)
 		{
+			// Against this pass's own frustum, not the camera's. A cascade sees
+			// a different volume from the viewer, and culling it against the
+			// camera would drop exactly the casters standing outside the view
+			// whose shadows fall inside it.
+			const Frustum frustum(viewProjection);
+
 			Renderer3D::BeginShadow(viewProjection);
 
 			for (auto& item : meshView)
 			{
 				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
 
-				if (RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh))
-					Renderer3D::DrawMeshShadow(resolved, transform.World);
+				RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh);
+				if (!resolved)
+					continue;
+
+				glm::vec3 centre, extents;
+				Frustum::TransformBounds(resolved->GetBounds(), transform.World, centre, extents);
+
+				if (!frustum.Intersects(centre, extents))
+				{
+					Renderer3D::CountCulled();
+					continue;
+				}
+
+				Renderer3D::DrawMeshShadow(resolved, transform.World);
 			}
 
 			Renderer3D::EndShadow();
@@ -751,7 +770,16 @@ namespace RageV
 				case Light::LightType::Directional:
 				{
 					if (casterIndex >= 0)
+					{
+						if (!m_ShadowBudgetWarned)
+						{
+							RV_CORE_WARN("More than one directional light asks to cast; only "
+										 "the first gets cascades. The rest light but do not "
+										 "shadow.");
+							m_ShadowBudgetWarned = true;
+						}
 						break;
+					}
 
 					casterIndex = lightIndex;
 					direction = forward;
@@ -765,7 +793,15 @@ namespace RageV
 				case Light::LightType::Spot:
 				{
 					if (spotSlot >= ShadowMap::kMaxLocal)
+					{
+						if (!m_ShadowBudgetWarned)
+						{
+							RV_CORE_WARN("More than {0} spot lights ask to cast; the rest "
+										 "light but do not shadow.", ShadowMap::kMaxLocal);
+							m_ShadowBudgetWarned = true;
+						}
 						break;
+					}
 
 					// The light's own cone, widened a little: the outer angle is
 					// where the light reaches zero, and a shadow that ends
@@ -799,7 +835,15 @@ namespace RageV
 				case Light::LightType::Point:
 				{
 					if (pointSlot >= ShadowMap::kMaxLocal)
+					{
+						if (!m_ShadowBudgetWarned)
+						{
+							RV_CORE_WARN("More than {0} point lights ask to cast; the rest "
+										 "light but do not shadow.", ShadowMap::kMaxLocal);
+							m_ShadowBudgetWarned = true;
+						}
 						break;
+					}
 
 					const float reach = glm::max(light.Light.Range, 0.5f);
 
@@ -900,6 +944,22 @@ namespace RageV
 				});
 
 			probe.Dirty = false;
+
+			// A probe's cube gets the same GGX convolution the sky's does, once
+			// it holds a complete set of faces and each time it finishes a new
+			// round of them. Leaving it box filtered meant a rough metal
+			// reflecting a probe got a blur rather than a lobe -- which is the
+			// same gap that went unnoticed on the default sky, kept on purpose
+			// and no better for it.
+			//
+			// Thirty-six small renders per full capture. A baked probe pays it
+			// once; a realtime one updating a face a frame pays it every sixth,
+			// which is six renders a frame amortised.
+			if (probe.Probe->IsComplete() && probe.NextFace == 0)
+			{
+				EnvironmentIBL::Invalidate(probe.Probe->GetCube());
+				EnvironmentIBL::Prefilter(*cmd, probe.Probe->GetCube());
+			}
 		}
 
 		m_CapturingProbes = false;
@@ -991,9 +1051,8 @@ namespace RageV
 		RHI::Ref<RHI::RHITexture> environment = ResolveEnvironment(cameraTransform, sky);
 
 		// Surfaces reflect the prefiltered cube; the sky still draws the sharp
-		// one. A probe's capture is not prefiltered -- it is rebuilt too often
-		// to be worth thirty-six renders a frame -- so this returns it
-		// unchanged and it keeps its box-filtered chain.
+		// one. Probes are filtered too, on the frame each completes a round of
+		// faces.
 		environment = EnvironmentIBL::GetPrefiltered(environment);
 
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
@@ -1005,6 +1064,8 @@ namespace RageV
 			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment,
 								   environment, irradiance);
 
+			const Frustum frustum(camera.GetProjection() * glm::inverse(cameraTransform));
+
 			for (auto& item : meshView)
 			{
 				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
@@ -1012,8 +1073,20 @@ namespace RageV
 				// Null when the handle points at nothing loadable -- a deleted
 				// model, or a scene opened without its assets. Skipped rather
 				// than substituted, so the gap is visible.
-				if (RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh))
-					Renderer3D::DrawMesh(resolved, transform.World, mesh.Material);
+				RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh);
+				if (!resolved)
+					continue;
+
+				glm::vec3 centre, extents;
+				Frustum::TransformBounds(resolved->GetBounds(), transform.World, centre, extents);
+
+				if (!frustum.Intersects(centre, extents))
+				{
+					Renderer3D::CountCulled();
+					continue;
+				}
+
+				Renderer3D::DrawMesh(resolved, transform.World, mesh.Material);
 			}
 
 			Renderer3D::EndScene();
