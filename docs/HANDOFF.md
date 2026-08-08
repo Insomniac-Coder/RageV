@@ -57,6 +57,14 @@ build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --scr
 **What to read before changing something:** §5 of this document. Every entry
 was a real bug, and most fail silently rather than obviously.
 
+**What is true right now, honestly:** §6 — what works, what works with a
+caveat worth knowing, and what is not built. §9 for defects, §10 for what has
+already gone wrong here and what caught it.
+
+**What to do next:** §8. The short answer is **3.6, culling** — twelve meshes
+in the sample scene issue 144 draws a frame, and nothing is culled from any
+pass.
+
 ---
 
 ## 1. What this is
@@ -488,17 +496,22 @@ or silence rather than an obvious failure.
 
 ## 6. Current state
 
-### Done
+Everything below is what is true after a session that took Phase 3 from 3.2 to
+the end of its lighting. Where something is listed as working, it has been run
+on **both backends** with validation on and its frames compared; where it is
+listed with a caveat, the caveat is real and was found rather than guessed.
+
+### Works
 
 | Area | State |
 |---|---|
-| Build | CMake, 13 vendored submodules |
+| Build | CMake, 13 vendored submodules; Debug, Release and **Dist** all build |
 | RHI | Two complete backends, Vulkan + OpenGL, switchable at startup |
 | Renderer | Cook-Torrance PBR, materials with 5 maps, primitives, 8 lights |
-| Ambient | Scene colour + intensity, serialized (IBL's stand-in) |
 | Identity | Real UUIDs, `GetEntityByUUID` |
 | Hierarchy | Parenting, world transforms, drag-to-reparent |
 | Reflection | `ComponentRegistry` drives inspector + serializer + add menu |
+| Inspector labels | Field names read as sentences; the serialized key is untouched |
 | Serialization | Version 5, lossless round trip, subtree snapshots |
 | Undo/redo | Full command stack, everything routes through it |
 | Assets | Handles, `.meta` sidecars, content-hash cache, content browser |
@@ -512,6 +525,7 @@ or silence rather than an obvious failure.
 | Contacts | Collision and trigger enter/stay/exit into scripts, both sides |
 | Audio | miniaudio — clips as assets, 4 buses, 3D sources, listener, one-shots |
 | Editor | Two viewports, proportional dock layout, red-on-black theme |
+| Editor scene | Opens the project's start scene, so it matches the runtime |
 | Picking | Click to select in the viewport, triangle-exact; colliders too |
 | Debug draw | Collider and trigger wireframes on F3, sleeping bodies dimmed |
 | Projects | A folder is a project; the asset registry roots there |
@@ -519,49 +533,69 @@ or silence rather than an obvious failure.
 | Capture | `--screenshot=<file>` writes a PNG of one frame and exits |
 | Packaging | `rvpack` and File > Build Game: a runnable folder, ~9 MB |
 | Render graph | Declared passes, pooled targets, compile-time validation (3.1) |
-| Post chain | HDR scene, 5-level bloom, ACES tonemap, FXAA (3.2) |
-| Tests | `scenetest`, **371 checks**, green on both backends |
+| Post chain | HDR scene, 5-level bloom with Karis weighting and a clamp, ACES, FXAA (3.2) |
+| Sky | Colour, gradient, or an environment map; panoramas and six-file sets (3.3) |
+| Cube maps | Per-face upload, CPU panorama conversion, mip chains (3.3) |
+| Reflections | Surfaces reflect the environment, mip chosen by roughness *and* by screen derivatives |
+| Reflection probes | Baked and realtime, one face per frame, captured into a cube (3.3) |
+| IBL | Irradiance convolution, GGX prefilter per roughness level, BRDF table (3.4) |
+| Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
+| Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
+| Tests | `scenetest`, **461 checks**, green on both backends |
 
-**Phases 0, 1, 2 and 4 are complete.** The engine loop closes: a project can be
-imported into, placed in, scripted, played, and packaged into a folder someone
-else can run. Phase 3 (fidelity) and Phase 5 (C#) remain.
+**Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete through 3.5.**
+What is left of Phase 3 is performance (3.6, 3.8) and skeletal animation (3.7).
 
-All three build configurations work: Debug, Release, and **Dist**, which is
-what a shipped game uses -- asserts off, logging at warn so a player can still
-report an error.
+### Works, with a caveat worth knowing
 
-### Not done
+These are all *implemented and running*. Each has a limit that is real, was
+found rather than assumed, and is not a bug so much as a thing not built yet.
 
+| Feature | The caveat |
+|---|---|
+| Reflection probes | One point of capture, so no parallax correction. Move a reflective object away from its probe and the reflection slides. |
+| Reflection probes | One probe per scene render, chosen by distance to the **camera** rather than per object. With one probe in a scene the two agree; with several they do not. |
+| Reflection probes | A probe's cube is **not** prefiltered — it is rebuilt too often to be worth 36 renders a frame — so rough materials reflecting a probe get the box-filtered chain rather than a GGX lobe. |
+| Reflection probes | A probe inside a closed mesh only works because back-face culling hides the mesh. Placing one where geometry surrounds it in an open shape will capture that geometry. |
+| Reflection probes | Realtime probes update one face per frame, so a reflection lags by up to six frames. |
+| Shadows | Only the **first** directional light gets cascades. A second directional light lights but does not shadow. |
+| Shadows | Four spot and four point maps at once. Past that a light lights but does not shadow, silently. |
+| Shadows | Cascade selection is hard, with no blend band, so the transition between cascades can be visible on a slow pan. |
+| Shadows | Spot and point resolutions are derived from `ShadowResolution` (half and quarter) rather than being independently settable. |
+| Shadows | A point light's near plane is a shared constant, not per light. |
+| Shadows | No culling: every caster is drawn into every map. See the draw-count note below. |
+| Lighting | Eight lights, hard cap, shared with the shader's `MAX_LIGHTS`. 3.8 removes it. |
+| IBL | The prefilter assumes the surface is viewed head on, which is the standard split-sum approximation. It costs the stretched highlight a surface has at a grazing angle. |
+| IBL | Irradiance is convolved once, at load. A scene that changes its sky colours at runtime rebuilds the gradient cube but a loaded environment map's irradiance is fixed. |
+| Anti-aliasing | FXAA only. SMAA needs two lookup textures vendored; TAA needs motion vectors first. |
+| Editor | With the game viewport open, shadows are rendered **twice** — once fitted to each camera. Correct, and twice the cost. |
+| Bloom | The clamp defaults to 16, which bounds what one pixel contributes. A genuinely enormous highlight blooms less than energy conservation says it should. |
+| Materials | Not assets. Two entities cannot share one from the inspector; each carries its own. |
+| Lights and cameras | No billboard icons, and not clickable — picking tests geometry and they have none. |
+| Audio | `.ogg` is deliberately not claimed: it needs stb_vorbis, and a file that imports and then will not play is worse than one that does not import. |
+
+### Not built
+
+- **Frustum culling, draw sorting, instancing** (3.6). Nothing is culled.
+- **Clustered forward** (3.8) — the 8-light cap stands.
+- **Skeletal animation** (3.7). No skinning, no clips, no blending.
+- **C# scripting** (Phase 5). Native only.
 - **An archive format.** Packaging emits a folder, not a `.pak`. Packing needs
-  a virtual file system on the loading side to be worth anything, since every
-  asset path goes through `std::filesystem` -- a larger feature than 4.3 was.
-- **Asset cooking.** Assets ship in their source form: glTF is parsed at load,
-  PNGs decoded at load. Fine at this scale, and the place to start when it
-  is not.
-- **Shadows, IBL, skybox** (Phase 3). Ambient is still a flat constant.
-- **SMAA and TAA.** FXAA is the only anti-aliasing that exists. SMAA needs two
-  precomputed lookup textures vendored in; TAA needs motion vectors, which
-  means every mesh carrying its previous transform and the renderer writing a
-  velocity target -- a renderer feature with prerequisites, not a post pass.
-- **Clustered forward** — the 8-light cap stands.
-- **Culling** — everything is drawn every frame.
-- **Skeletal animation.**
-- **Build/export** (Phase 4). No runtime target, no packaging. This is the
-  remaining severed link in the engine loop.
-- **C# scripting** (Phase 5). Deliberately last.
-- Physics debug draw — colliders and trigger volumes are invisible.
-- Mesh/convex colliders — box, sphere and capsule only.
-- Texture map assignment UI; materials are not assets yet.
-- Multi-select, copy/paste, focus-on-selection for multiple entities.
-- Multi-viewport ImGui on Vulkan (OpenGL only).
-- Audio: no reverb or effects, no Vorbis, no editor preview button, no mixer
-  panel — bus volumes are reachable from code only.
-- Lights and cameras are not clickable in the viewport: picking tests geometry
-  and they have none. They need billboard icons first.
-- Materials are still per-component `Ref`s rather than assets, so two entities
-  cannot be pointed at one material from the inspector.
+  a virtual file system on the loading side to be worth anything.
+- **Asset cooking.** glTF is parsed at load, PNGs decoded at load.
+- **SMAA and TAA.**
 
----
+### The number that decides what comes next
+
+The sample scene has **12 meshes** and issues **144 mesh draws** a frame.
+
+That is twelve passes over the whole scene: four shadow cascades, six faces of
+a point light's shadow cube, one reflection-probe face, and the scene itself.
+Nothing is culled from any of them. It runs at 4.1 ms because the scene is
+twelve objects; the multiplier is the problem, not the number.
+
+Every feature added this session multiplies that further, and 3.6 is the one
+that divides it.
 
 ## 7. Decisions already made (do not relitigate)
 
@@ -602,57 +636,136 @@ report an error.
 
 ## 8. Next steps
 
-**Phases 0, 1, 2 and 4 are done. Phase 3 is at 3.3, and 3.4 is half done.**
+**Phases 0, 1, 2 and 4 are done. Phase 3 is done through 3.5.**
 
-1. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
-   **3.7 skeletal animation**.
-2. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+Start here, in this order.
 
-The render graph is in place, so each of those is *a pass and a target added to
-`BuildFrame`* rather than a new ownership question. That was the point of 3.1
-and it held for 3.2.
+### 1. 3.6 — culling, sorting, instancing (`M`)
 
-**Anti-aliasing**, asked for during 3.2 and partly delivered:
+The one that pays for everything already built. Twelve meshes currently issue
+**144 draws** a frame, because every shadow map, every probe face and the scene
+each walk the whole scene with nothing removed. Every feature added recently
+multiplies that; this divides it.
 
-- **FXAA** is done and is the default.
-- **SMAA** (`M`) needs two precomputed lookup textures -- an area table and a
-  search table -- vendored into the repository, and three passes.
-- **TAA** (`L`) needs **motion vectors** first: every mesh carrying its previous
-  world transform, the renderer writing a velocity target, a jittered
-  projection and a history buffer. A renderer feature with prerequisites, not a
-  post pass. The same motion vectors would then also buy motion blur and
-  temporal upscaling, which is the argument for doing it properly rather than
-  cheaply.
+- Frustum cull per pass, against each pass's own frustum — a shadow cascade's
+  frustum is not the camera's, which is the part that is easy to get wrong.
+- The mesh bounds already exist: `Mesh` extracts an AABB at construction, and
+  nothing has ever used it.
+- Sort opaque front-to-back so early-z does its job, and batch by material.
+- **CPU only.** GPU-driven rendering is out of scope; see §7.
 
-Smaller items, none blocking:
+### 2. 3.8 — clustered forward (`L`)
 
+Removes the eight-light cap, which is the last hard limit in the lighting.
+Clustered rather than deferred, so transparency keeps working — the reasoning
+is in ENGINE-NOTES §5.
+
+Worth doing after culling because the cluster build wants the same visibility
+information.
+
+### 3. 3.7 — skeletal animation (`XL`)
+
+The largest remaining item anywhere, and the one that decides whether a game
+with characters can be made. Skinning, clips, blending. Nothing exists yet.
+
+### 4. Phase 5 — C# scripting (`XL`)
+
+Last, deliberately: it must mirror a native surface that has stopped moving.
+
+### Smaller, none blocking
+
+- **Materials as assets**, so two entities can share one from the inspector.
 - **Billboard icons for lights and cameras**, which would also make them
   clickable — picking tests geometry and they have none.
-- **Materials as assets**, so two entities can share one from the inspector.
-- **A mixer panel.** Bus volumes exist and are reachable from code only.
-- **Prefab instances do not update when the prefab changes.**
-- **Packaging is per-machine.** `rvpack` finds the runtime beside itself or in
-  a sibling build directory. A shipped editor would need that pinned down.
-- **The collider overlay is tone mapped** along with the scene, because it
-  draws into the HDR target to depth-test against the geometry it annotates.
-  Its colours are therefore slightly off. Fixing it needs the depth buffer
-  available in a second pass.
+- **A blend band between shadow cascades**, so the transition is not visible
+  on a slow pan.
+- **Per-object reflection probe selection**, replacing the per-scene choice.
+- **SMAA** (`M`) needs two lookup textures vendored. **TAA** (`L`) needs motion
+  vectors first: every mesh carrying its previous transform, a velocity target,
+  a jittered projection and a history buffer. The same motion vectors would
+  then buy motion blur and temporal upscaling, which is the argument for doing
+  it properly rather than cheaply.
+- **DPI scaling for the editor font.**
 
 ## 9. Known rough edges
+
+Things that are wrong, or true and annoying, and that nothing above covers.
+
+### Actual defects
 
 - **Asset handles minted in the build output are lost on a clean build.** The
   assets root is the folder beside the executable, which CMake copies from the
   source tree. Assets added to the *source* tree keep their handle because the
-  `.meta` is copied along; assets dropped into `build/` do not. The real fix is
-  the project concept in roadmap 4.1. Recorded in `AssetRegistry.h`.
+  `.meta` is copied along; assets dropped into `build/` do not. Recorded in
+  `AssetRegistry.h`.
+- **The editor's font is loaded at a fixed 18px with no DPI scaling**, so the
+  UI is physically small on a high-DPI display.
+- **`Sandbox` predates the RHI and does not build.** Off by default.
+- **A script attached while playing is discarded on Stop.** Correct snapshot
+  semantics, but surprising the first time.
+
+### Housekeeping
+
 - **`.meta` files belong in version control.** They are the identity.
 - Vendored EnTT is 3.10.0, checked in as a 5 MB **UTF-16LE** single header
   rather than a submodule — the encoding defeats grep.
 - `quadshader.glsl`, `simpleshader.glsl`, `textureshader.glsl` in
   `RageVEditor/assets/shaders/` are pre-RHI leftovers. Safe to delete.
 - `Chunk`/`Perlin` are parked in `experiments/terrain/` and not built.
-- A script attached while playing is discarded on Stop — correct snapshot
-  semantics, but worth knowing.
-- The editor's font is loaded at a fixed 18px with no DPI scaling, so the UI is
-  physically small on a high-DPI display.
-- `Sandbox` predates the RHI and does not build.
+- The sample project's `sky.hdr` is generated, not authored. The script that
+  made it is not in the repository; regenerating it means writing it again.
+
+---
+
+## 10. What went wrong, and what it cost
+
+Kept because each of these was expensive to find and cheap to prevent, and
+because the pattern in them is more useful than the list.
+
+### Bugs that shipped and were found later
+
+| Bug | How long it hid | Why |
+|---|---|---|
+| Vulkan post passes sampled with V flipped | A phase and a half | An even number of passes cancels it; the bloom chain has an odd number, so only bloom was mirrored — invisible until something was bright enough to bleed |
+| OpenGL never called `glClipControl` | Since the Vulkan port | Depth landed in `[0.5, 1]`, so every shadow comparison passed. Nothing sampled a depth buffer as data until shadows did |
+| The sphere primitive was wound inside out | Four roadmap phases | Back-face culling kept the far hemisphere and drew its inside. Same silhouette; nothing read the normal closely enough |
+| Both cylinder caps were flipped | Four roadmap phases | Same. It was a tube and nobody looked down it |
+| Mip-generation barriers named the wrong stage | Since the port | Nothing in the project had a mip chain until environment maps did |
+| GL's copy framebuffers kept stale attachments | One feature | A mismatched attachment size is legal in GL 4.5; the blit region silently became the intersection |
+| Seven modules logged "ready" unconditionally | Unknown | A failed shader compile produced a feature present in every sense except that it did nothing |
+| A depth attachment was not `TransferSrc` | Until first use | Nothing had ever copied one |
+
+### What actually catches these
+
+1. **Compare the two backends' frames against each other.** Three separate
+   bugs this session were each *internally* clean on both backends while the
+   two disagreed. Per-backend verification cannot see that, and it is the
+   single highest-yield check there is.
+2. **Verify by exiting, not killing.** A killed process runs no destructors.
+3. **Check the pixels.** A draw count cannot tell a rendered frame from one
+   cleared afterwards.
+4. **A convention documented as "these cancel" deserves a test.** That exact
+   comment was repeated in six shaders and was false in one backend.
+5. **Content that is too dim hides renderer bugs.** The mirrored bloom needed
+   an HDR sky to become visible. Test scenes should stress the renderer, not
+   only demonstrate it.
+6. **Test the test.** The subsystem-readiness check was verified by breaking a
+   shader on purpose and confirming the run went red — not by watching it pass.
+7. **A flag can be tested; a log line cannot.** Anything worth announcing is
+   worth exposing as state.
+
+### Mistakes in the work itself, not in the code
+
+- **Fixing the instance and describing the pattern.** The readiness bug was
+  fixed in one module while the same words — "this is a bug generator" — were
+  being written about it, and the other six were left. Scope a fix to the
+  pattern that was named, or do not name it.
+- **Writing a test that asserted something false.** Two of them: "each
+  direction is dominated by the face it points at" is not true of a correct
+  irradiance convolution, and the cube-face edge test paired the wrong two
+  edges. Both were the test being wrong, not the code — worth checking which
+  before changing anything.
+- **Tuning two variables at once.** The shadow bias was reduced at the same
+  time as front-face culling was removed, so the contribution of each is not
+  separable from the screenshots.
+
