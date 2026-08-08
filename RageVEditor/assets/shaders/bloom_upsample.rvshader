@@ -1,0 +1,54 @@
+// Bloom, stage 3: blur up the chain, adding each level onto the one above.
+//
+// A 3x3 tent filter, again from the Call of Duty presentation. Written with
+// additive blending rather than by reading both levels and summing, so each
+// step needs one target rather than two -- the chain accumulates in place from
+// the smallest level to the largest.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	// The radius is in texels of the *source*, which is the smaller level, so
+	// the filter widens as the chain unwinds. That widening is what turns a
+	// stack of small blurs into one large, smooth one.
+	vec2  TexelSize;
+	float Radius;
+	float Unused;
+} u_Params;
+
+void main()
+{
+	vec2 o = u_Params.TexelSize * u_Params.Radius;
+
+	vec3 result = texture(u_Source, v_UV + vec2(-o.x,  o.y)).rgb * 1.0;
+	result     += texture(u_Source, v_UV + vec2( 0.0,  o.y)).rgb * 2.0;
+	result     += texture(u_Source, v_UV + vec2( o.x,  o.y)).rgb * 1.0;
+
+	result     += texture(u_Source, v_UV + vec2(-o.x,  0.0)).rgb * 2.0;
+	result     += texture(u_Source, v_UV).rgb                    * 4.0;
+	result     += texture(u_Source, v_UV + vec2( o.x,  0.0)).rgb * 2.0;
+
+	result     += texture(u_Source, v_UV + vec2(-o.x, -o.y)).rgb * 1.0;
+	result     += texture(u_Source, v_UV + vec2( 0.0, -o.y)).rgb * 2.0;
+	result     += texture(u_Source, v_UV + vec2( o.x, -o.y)).rgb * 1.0;
+
+	o_Color = vec4(result * (1.0 / 16.0), 1.0);
+}

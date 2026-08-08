@@ -291,7 +291,7 @@ written here:
 | # | Item | Size |
 |---|---|---|
 | 3.1 | **Render graph** — declare passes and resources, derive barriers | L | ✅ built smaller: the RHI already tracks layouts, so it owns targets, describes the frame and validates it. See ENGINE-NOTES §6. |
-| 3.2 | HDR target + tonemap/bloom post chain (moves ACES out of the PBR shader) | M |
+| 3.2 | HDR target + tonemap/bloom post chain (moves ACES out of the PBR shader) | M | ✅ plus FXAA |
 | 3.3 | Skybox + cubemaps (`TextureType::TextureCube` already exists in the RHI) | M |
 | 3.4 | **IBL** — irradiance, prefiltered specular, BRDF LUT; replaces the flat ambient term | L |
 | 3.5 | **Shadows** — CSM directional, cube point, spot. Sphere-fit cascades, texel snapping, normal-offset bias (ENGINE-NOTES §5) | XL |

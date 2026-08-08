@@ -39,10 +39,11 @@ void RuntimeLayer::OnAttach()
 
 	auto& device = Renderer::GetDevice();
 
-	// Straight to the swapchain, not through an offscreen target. The editor
-	// needs one because a panel samples it; a game has nothing to sample it
-	// with, and the copy would be a full-screen blit per frame for nothing.
-	Renderer::SetTargetFormats(device.GetSwapchainFormat(), device.GetSwapchainDepthFormat());
+	// The scene draws into a linear HDR target, not the swapchain: bloom needs
+	// values from before the tone curve compresses them, and there are none
+	// left once an 8-bit backbuffer has been written. The tonemap pass is what
+	// reaches the swapchain.
+	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT);
 
 	m_Graph = std::make_unique<RenderGraph>(device);
 
@@ -102,24 +103,23 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	if (!cmd || m_Height == 0)
 		return;
 
-	// One pass today, and the frame reads as one pass. The point of describing
-	// it this way is what happens next: HDR, bloom and shadows each add a
-	// target and a stage here rather than another BeginRenderPass somewhere
-	// else, and the order stays something that can be read off in one place.
 	m_Graph->Begin(m_Width, m_Height);
 
-	const RGResource backbuffer = m_Graph->Backbuffer();
+	// The scene, bloom, tone mapping and anti-aliasing, described in one place
+	// and shared with the editor -- the two differ only in where the finished
+	// image goes.
+	FrameDesc frame;
+	frame.Output = m_Graph->Backbuffer();
+	frame.Width = m_Width;
+	frame.Height = m_Height;
+	frame.Environment = m_Scene->GetEnvironment();
+	frame.OutputFormat = device.GetSwapchainFormat();
+	frame.DrawScene = [this](RGPassContext& context)
+	{
+		m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);
+	};
 
-	m_Graph->AddPass("Game",
-		[&](RGPassBuilder& builder)
-		{
-			builder.Write(backbuffer);
-			builder.SetClearColor({ 0.05f, 0.05f, 0.06f, 1.0f });
-		},
-		[this](RGPassContext& context)
-		{
-			m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);
-		});
+	BuildFrame(*m_Graph, frame);
 
 	if (!m_Graph->Compile())
 	{

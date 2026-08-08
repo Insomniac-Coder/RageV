@@ -1,0 +1,64 @@
+// The last pass: exposure, bloom, tone mapping, and the transfer function.
+//
+// This is what moved out of the PBR shader. Doing it there meant every shader
+// that wrote to the screen had to agree on it -- and only one of them did, so
+// Renderer2D's quads and the PBR meshes were being displayed with two different
+// transfer functions in the same image. It also made bloom impossible: bloom
+// needs the linear values from before tone mapping, and by the time the PBR
+// shader had finished there were none left.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+layout(set = 0, binding = 1) uniform sampler2D u_Bloom;
+
+layout(push_constant) uniform Params
+{
+	float Exposure;
+	float BloomIntensity;
+	float Unused0;
+	float Unused1;
+} u_Params;
+
+// ACES filmic approximation (Narkowicz). Without tone mapping anything above
+// 1.0 clips to white, and the specular highlights that make PBR read as PBR
+// are the first thing lost.
+vec3 TonemapACES(vec3 x)
+{
+	const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+	return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+void main()
+{
+	vec3 color = texture(u_Scene, v_UV).rgb;
+	color += texture(u_Bloom, v_UV).rgb * u_Params.BloomIntensity;
+
+	// Exposure before the curve, which is what makes it an exposure control
+	// rather than a brightness one: it slides the scene along the response
+	// curve instead of scaling the result of it.
+	color *= u_Params.Exposure;
+
+	color = TonemapACES(color);
+
+	// The swapchain is UNORM rather than sRGB, so the transfer function is
+	// applied here instead of by the hardware.
+	color = pow(color, vec3(1.0 / 2.2));
+
+	o_Color = vec4(color, 1.0);
+}

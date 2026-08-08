@@ -1,6 +1,7 @@
 #pragma once
 #include <RageV.h>
 #include "RageV/Renderer/RenderGraph.h"
+#include "RageV/Renderer/FrameGraphBuilder.h"
 
 // The game, with no editor around it.
 //

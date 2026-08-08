@@ -1,0 +1,36 @@
+// A straight copy.
+//
+// Exists because the chain has to land in the target the caller asked for even
+// when anti-aliasing is off -- without it, turning FXAA off would leave the
+// image in an intermediate nobody presents.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	float Unused0;
+	float Unused1;
+} u_Params;
+
+void main()
+{
+	o_Color = vec4(texture(u_Source, v_UV).rgb, 1.0);
+}

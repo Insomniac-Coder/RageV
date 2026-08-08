@@ -163,15 +163,6 @@ vec3 ApplyNormalMap(vec3 N, vec3 worldPos, vec2 uv)
 	return normalize(TBN * tangentNormal);
 }
 
-// ACES filmic approximation. Without tone mapping, any light brighter than 1.0
-// clips to white and the specular highlights that make PBR read as PBR are the
-// first thing lost.
-vec3 TonemapACES(vec3 x)
-{
-	const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-	return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-
 void main()
 {
 	vec4 baseColor = u_Material.BaseColor;
@@ -281,10 +272,10 @@ void main()
 
 	vec3 color = ambient + Lo + emissive;
 
-	color = TonemapACES(color);
-	// The swapchain is UNORM rather than sRGB, so the transfer function is
-	// applied here instead of by the hardware.
-	color = pow(color, vec3(1.0 / 2.2));
-
+	// Linear, unbounded, untouched. Tone mapping and the transfer function
+	// moved to the tonemap pass, for two reasons: bloom needs these values
+	// before the curve compresses them, and every shader that wrote to the
+	// screen used to have to agree on the display transform -- which only this
+	// one did, so quads and meshes were being shown through different ones.
 	o_Color = vec4(color, baseColor.a);
 }

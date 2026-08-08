@@ -34,6 +34,7 @@
 #include "RageV/Physics/ColliderShapes.h"
 #include "RageV/Renderer/DebugRenderer.h"
 #include "RageV/Renderer/RenderGraph.h"
+#include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Asset/AssetRegistry.h"
@@ -1193,6 +1194,100 @@ namespace
 		}
 	}
 
+	// The standard frame: scene, bloom, tone mapping, anti-aliasing.
+	//
+	// Checked through the graph it produces rather than by looking at pixels.
+	// What can go wrong here is structural -- a pass reading a level that was
+	// never written, a chain that keeps going after the levels stop being worth
+	// filtering, a setting that changes nothing -- and all of that is visible
+	// in the pass list.
+	void CheckFrameGraph()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		RenderGraph graph(Renderer::GetDevice());
+
+		auto build = [&](uint32_t width, uint32_t height, const SceneEnvironment& environment)
+		{
+			graph.Begin(width, height);
+
+			FrameDesc frame;
+			frame.Output = graph.Backbuffer();
+			frame.Width = width;
+			frame.Height = height;
+			frame.Environment = environment;
+			frame.OutputFormat = RHI::Format::R8G8B8A8_UNORM;
+			frame.DrawScene = [](RGPassContext&) {};
+
+			BuildFrame(graph, frame);
+			return graph.Compile();
+		};
+
+		auto hasPass = [&](const char* name)
+		{
+			for (size_t i = 0; i < graph.GetPassCount(); i++)
+			{
+				if (graph.GetPassName(i).find(name) != std::string::npos)
+					return true;
+			}
+			return false;
+		};
+
+		SceneEnvironment environment;
+
+		// --- the full chain -----------------------------------------------------
+		Check(build(1600, 900, environment), "the standard frame compiles");
+		Check(hasPass("Scene"), "it draws the scene");
+		Check(hasPass("Bloom prefilter"), "thresholds for bloom");
+		Check(hasPass("Bloom down"), "downsamples");
+		Check(hasPass("Bloom up"), "and blurs back up");
+		Check(hasPass("Tonemap"), "tone maps");
+		Check(hasPass("FXAA"), "and anti-aliases");
+
+		const size_t withEverything = graph.GetPassCount();
+
+		// --- bloom off ----------------------------------------------------------
+		environment.BloomEnabled = false;
+		Check(build(1600, 900, environment), "with bloom off it still compiles");
+		Check(!hasPass("Bloom"), "and has no bloom passes at all");
+		Check(hasPass("Tonemap"), "but still tone maps, because that is not optional");
+		Check(graph.GetPassCount() < withEverything, "so the frame is shorter");
+
+		// --- anti-aliasing off ---------------------------------------------------
+		environment.BloomEnabled = true;
+		environment.AA = AntiAliasing::None;
+		Check(build(1600, 900, environment), "with anti-aliasing off it compiles");
+		Check(!hasPass("FXAA"), "and skips the FXAA pass");
+		// Without FXAA the tonemap has to land in the output directly, rather
+		// than in an intermediate nobody then presents.
+		Check(hasPass("Tonemap"), "with tone mapping writing the output itself");
+
+		environment.AA = AntiAliasing::FXAA;
+
+		// --- a tiny frame --------------------------------------------------------
+		// The chain has to stop before the levels are a handful of texels,
+		// where the filters stop meaning anything and a zero-sized target is
+		// one division away.
+		Check(build(64, 64, environment), "a small frame compiles");
+		const size_t smallPasses = graph.GetPassCount();
+		Check(build(1600, 900, environment), "a large one compiles");
+		Check(graph.GetPassCount() > smallPasses,
+			  "and has more bloom levels than the small one");
+
+		// --- degenerate sizes -----------------------------------------------------
+		graph.Begin(0, 0);
+		{
+			FrameDesc frame;
+			frame.Output = graph.Backbuffer();
+			frame.Width = 0;
+			frame.Height = 0;
+			frame.DrawScene = [](RGPassContext&) {};
+			BuildFrame(graph, frame);
+		}
+		Check(!graph.Compile(), "a zero-sized frame describes nothing and is refused");
+	}
+
 	// Packaging.
 	//
 	// Checked by packaging a throwaway project and looking at what came out,
@@ -2328,6 +2423,7 @@ int RunTests(int argc, char** argv)
 
 	// --- physics -------------------------------------------------------------
 	CheckRenderGraph();
+	CheckFrameGraph();
 	CheckProject();
 	CheckPackaging();
 	CheckRuntimePath();

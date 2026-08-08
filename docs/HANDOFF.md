@@ -44,7 +44,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 353 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph. |
+| `scenetest` | 371 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -186,6 +186,15 @@ or silence rather than an obvious failure.
 
 ### Renderer
 
+- **The PBR shader outputs linear HDR and nothing else.** Tone mapping and the
+  transfer function belong to the tonemap pass. They were in the PBR shader,
+  which meant every shader writing to the screen had to agree on the display
+  transform and only one of them did -- quads and meshes were being shown
+  through different ones. It also made bloom impossible, since bloom needs the
+  values from before the curve.
+- **Only write a descriptor binding the shader actually declares.** Writing one
+  past the end of a layout is not a harmless extra; it is out of range and the
+  driver takes it badly. Only the tonemap pass declares two samplers.
 - **Per-batch storage, not per-frame.** A draw reads its buffer when the *GPU*
   runs it, not when it is recorded. Anything that ends a scene more than once in
   a frame — two viewports, or a batch overflowing 20000 quads — needs separate
@@ -350,7 +359,8 @@ or silence rather than an obvious failure.
 | Capture | `--screenshot=<file>` writes a PNG of one frame and exits |
 | Packaging | `rvpack` and File > Build Game: a runnable folder, ~9 MB |
 | Render graph | Declared passes, pooled targets, compile-time validation (3.1) |
-| Tests | `scenetest`, **353 checks**, green on both backends |
+| Post chain | HDR scene, 5-level bloom, ACES tonemap, FXAA (3.2) |
+| Tests | `scenetest`, **371 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete.** The engine loop closes: a project can be
 imported into, placed in, scripted, played, and packaged into a folder someone
@@ -368,7 +378,11 @@ report an error.
 - **Asset cooking.** Assets ship in their source form: glTF is parsed at load,
   PNGs decoded at load. Fine at this scale, and the place to start when it
   is not.
-- **Shadows, IBL, skybox, HDR/post** (Phase 3). Ambient is a flat constant.
+- **Shadows, IBL, skybox** (Phase 3). Ambient is still a flat constant.
+- **SMAA and TAA.** FXAA is the only anti-aliasing that exists. SMAA needs two
+  precomputed lookup textures vendored in; TAA needs motion vectors, which
+  means every mesh carrying its previous transform and the renderer writing a
+  velocity target -- a renderer feature with prerequisites, not a post pass.
 - **Clustered forward** — the 8-light cap stands.
 - **Culling** — everything is drawn every frame.
 - **Skeletal animation.**

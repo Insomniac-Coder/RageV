@@ -4,6 +4,7 @@
 #include "UI/SceneHierarchyPanel.h"
 #include "UI/ContentBrowserPanel.h"
 #include "RageV/Scene/SceneCommands.h"
+#include "RageV/Renderer/RenderGraph.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
 // first.
 #include "imgui.h"
@@ -102,6 +103,16 @@ private:
 	// aspect ratios.
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_GameTarget;
 	std::shared_ptr<RageV::Scene> m_Scene;
+
+	// One graph per viewport rather than one shared. Each keeps its own pool of
+	// intermediates, and a shared pool would hand the game view whatever the
+	// scene view had just finished with -- at the scene view's resolution.
+	std::unique_ptr<RageV::RenderGraph> m_Graph;
+	std::unique_ptr<RageV::RenderGraph> m_GameGraph;
+
+	// What both viewport textures are, and what the post chain's last pass
+	// writes. ImGui samples them, so they are LDR.
+	static constexpr RageV::RHI::Format kViewportFormat = RageV::RHI::Format::R8G8B8A8_UNORM;
 	RageV::SceneHierarchyPanel m_SceneHierarchyPanel;
 	RageV::ContentBrowserPanel m_ContentBrowser;
 

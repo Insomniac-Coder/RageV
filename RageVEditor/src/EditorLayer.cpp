@@ -6,6 +6,7 @@
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Renderer/DebugRenderer.h"
+#include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Project/Project.h"
@@ -81,10 +82,15 @@ void EditorLayer::OnAttach()
 	targetDesc.DebugName = "GameViewport";
 	m_GameTarget = device.CreateRenderTarget(targetDesc);
 
-	// Pipelines bake their attachment formats, so the renderer has to be told
-	// what it is drawing into before the first frame.
-	Renderer::SetTargetFormats(targetDesc.ColorAttachments[0].Format,
-							   targetDesc.DepthAttachment.Format);
+	// The scene draws into the graph's linear HDR target, not into these --
+	// these are what the finished, tone-mapped image lands in for ImGui to
+	// sample. Pipelines bake their attachment formats, so the renderer is told
+	// what the *scene* pass writes.
+	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT);
+
+	auto& graphDevice = Renderer::GetDevice();
+	m_Graph = std::make_unique<RenderGraph>(graphDevice);
+	m_GameGraph = std::make_unique<RenderGraph>(graphDevice);
 
 	m_ContentBrowser.SetActivateCallback(
 		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
@@ -186,13 +192,6 @@ void EditorLayer::OnUpdate(Timestep ts)
 	if (!cmd)
 		return;
 
-	RHI::RenderPassBeginInfo pass;
-	pass.Target = m_SceneTarget.get();
-	pass.Clear.Color[0] = m_ClearColor.r;
-	pass.Clear.Color[1] = m_ClearColor.g;
-	pass.Clear.Color[2] = m_ClearColor.b;
-	pass.Clear.Color[3] = 1.0f;
-
 	// Presentational per-frame work. Simulation happens on the fixed step in
 	// OnFixedUpdate, and only while playing.
 	if (m_SceneState == SceneState::Edit)
@@ -200,41 +199,70 @@ void EditorLayer::OnUpdate(Timestep ts)
 	else
 		m_Scene->OnUpdateRuntime(ts);
 
-	cmd->PushDebugGroup("Scene view");
-	cmd->BeginRenderPass(pass);
+	// The scene view and the game view are the same frame described twice,
+	// differing only in the camera and where the result lands. Both go through
+	// BuildFrame, so bloom and tone mapping cannot end up applied to one and
+	// not the other -- which is exactly the drift that put two transfer
+	// functions in one image before this.
+	m_Graph->Begin((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
-	if (m_UseEditorCamera)
-		m_Scene->OnRenderEditor(m_EditorCamera);
-	else if (m_ViewportSize.y > 0.0f)
-		m_Scene->OnRenderRuntime(m_ViewportSize.x / m_ViewportSize.y);
+	FrameDesc scene;
+	scene.Output = m_Graph->Import(m_SceneTarget, "SceneView");
+	scene.Width = (uint32_t)m_ViewportSize.x;
+	scene.Height = (uint32_t)m_ViewportSize.y;
+	scene.Environment = m_Scene->GetEnvironment();
+	scene.ClearColor = glm::vec4(m_ClearColor, 1.0f);
+	scene.OutputFormat = kViewportFormat;
+	scene.DrawScene = [this](RGPassContext&)
+	{
+		if (m_UseEditorCamera)
+			m_Scene->OnRenderEditor(m_EditorCamera);
+		else if (m_ViewportSize.y > 0.0f)
+			m_Scene->OnRenderRuntime(m_ViewportSize.x / m_ViewportSize.y);
+	};
 
-	// Inside the same pass and after the scene, so the lines are depth-tested
-	// against what was just drawn rather than against an empty buffer.
 	if (m_ShowColliders)
-		DrawColliderOverlay();
+		scene.DrawOverlay = [this](RGPassContext&) { DrawColliderOverlay(); };
 
-	cmd->EndRenderPass();
-	cmd->PopDebugGroup();
+	BuildFrame(*m_Graph, scene);
+
+	if (m_Graph->Compile())
+		m_Graph->Execute(*cmd);
+	else
+	{
+		for (const std::string& error : m_Graph->Errors())
+			RV_ERROR("Render graph (scene view): {0}", error);
+	}
 
 	// The same scene again, through whichever camera holds the lowest ViewRank.
 	// Drawing a scene twice in one frame is what the renderers' per-batch
 	// storage exists for -- with one buffer per frame, this pass would
 	// overwrite the data the pass above is about to read.
-	if (m_ShowGameViewport && m_GameViewportVisible)
+	if (m_ShowGameViewport && m_GameViewportVisible && m_GameViewportSize.y > 0.0f)
 	{
-		RHI::RenderPassBeginInfo gamePass;
-		gamePass.Target = m_GameTarget.get();
-		gamePass.Clear.Color[0] = m_ClearColor.r;
-		gamePass.Clear.Color[1] = m_ClearColor.g;
-		gamePass.Clear.Color[2] = m_ClearColor.b;
-		gamePass.Clear.Color[3] = 1.0f;
+		m_GameGraph->Begin((uint32_t)m_GameViewportSize.x, (uint32_t)m_GameViewportSize.y);
 
-		cmd->PushDebugGroup("Game view");
-		cmd->BeginRenderPass(gamePass);
-		if (m_GameViewportSize.y > 0.0f)
+		FrameDesc game;
+		game.Output = m_GameGraph->Import(m_GameTarget, "GameView");
+		game.Width = (uint32_t)m_GameViewportSize.x;
+		game.Height = (uint32_t)m_GameViewportSize.y;
+		game.Environment = m_Scene->GetEnvironment();
+		game.ClearColor = glm::vec4(m_ClearColor, 1.0f);
+		game.OutputFormat = kViewportFormat;
+		game.DrawScene = [this](RGPassContext&)
+		{
 			m_Scene->OnRenderRuntime(m_GameViewportSize.x / m_GameViewportSize.y);
-		cmd->EndRenderPass();
-		cmd->PopDebugGroup();
+		};
+
+		BuildFrame(*m_GameGraph, game);
+
+		if (m_GameGraph->Compile())
+			m_GameGraph->Execute(*cmd);
+		else
+		{
+			for (const std::string& error : m_GameGraph->Errors())
+				RV_ERROR("Render graph (game view): {0}", error);
+		}
 	}
 }
 
@@ -970,6 +998,49 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "angle or roughness the way a real environment does -- image-based lighting "
 				   "replaces it, and falls back to it for scenes with no environment map.\n\n"
 				   "Set the intensity to 0 for pure direct lighting.");
+
+		ImGui::SeparatorText("Post processing");
+
+		ImGui::DragFloat("Exposure", &environment.Exposure, 0.01f, 0.01f, 16.0f);
+		trackAmbient("Exposure");
+		HelpMarker("Applied before the tone curve, which is what makes this an exposure "
+				   "control rather than a brightness one: it slides the scene along the "
+				   "response curve instead of scaling the result of it.");
+
+		ImGui::Checkbox("Bloom", &environment.BloomEnabled);
+		trackAmbient("Bloom");
+
+		if (environment.BloomEnabled)
+		{
+			ImGui::DragFloat("Threshold", &environment.BloomThreshold, 0.01f, 0.0f, 16.0f);
+			trackAmbient("Bloom threshold");
+			HelpMarker("Brightness at which a pixel starts to bleed. Above 1, only things "
+					   "genuinely brighter than white glow.");
+
+			ImGui::DragFloat("Knee", &environment.BloomKnee, 0.01f, 0.0f, 4.0f);
+			trackAmbient("Bloom knee");
+			HelpMarker("Width of the ramp around the threshold. Zero is a hard cut, which "
+					   "pops as something crosses it and reads as flickering.");
+
+			ImGui::DragFloat("Intensity", &environment.BloomIntensity, 0.002f, 0.0f, 2.0f);
+			trackAmbient("Bloom intensity");
+		}
+
+		// Only the modes that exist. Offering SMAA and TAA here and doing
+		// nothing would be worse than not offering them; the roadmap is where
+		// "not yet" belongs.
+		const char* aaModes[] = { "None", "FXAA" };
+		int aa = (int)environment.AA;
+		if (ImGui::Combo("Anti-aliasing", &aa, aaModes, IM_ARRAYSIZE(aaModes)))
+			environment.AA = (AntiAliasing)aa;
+		HelpMarker("FXAA is one pass over the tone-mapped image: cheap, no prerequisites, "
+				   "and it softens the picture slightly.\n\n"
+				   "SMAA is sharper for the same idea and needs two precomputed lookup "
+				   "textures vendored in.\n\n"
+				   "TAA is better than either and needs motion vectors -- every mesh "
+				   "carrying its previous transform and the renderer writing a velocity "
+				   "target. That is a renderer feature with its own prerequisites, not a "
+				   "post pass.");
 	}
 
 	ImGui::SeparatorText("Lighting");

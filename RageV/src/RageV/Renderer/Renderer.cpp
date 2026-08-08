@@ -3,6 +3,7 @@
 #include "Renderer2D.h"
 #include "Renderer3D.h"
 #include "DebugRenderer.h"
+#include "PostProcess.h"
 
 namespace RageV
 {
@@ -18,10 +19,12 @@ namespace RageV
 		Renderer2D::Init(device);
 		Renderer3D::Init(device);
 		DebugRenderer::Init(device);
+		PostProcess::Init(device);
 	}
 
 	void Renderer::Shutdown()
 	{
+		PostProcess::Shutdown();
 		DebugRenderer::Shutdown();
 		Renderer3D::Shutdown();
 		Renderer2D::Shutdown();
@@ -38,6 +41,7 @@ namespace RageV
 		Renderer2D::BeginFrame();
 		Renderer3D::BeginFrame();
 		DebugRenderer::BeginFrame();
+		PostProcess::BeginFrame();
 	}
 
 	void Renderer::EndFrame()

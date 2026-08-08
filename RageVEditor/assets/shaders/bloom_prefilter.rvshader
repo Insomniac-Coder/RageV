@@ -1,0 +1,68 @@
+// Bloom, stage 1: pick out what is bright enough to bleed, at half resolution.
+//
+// A hard threshold makes bloom pop in and out as something crosses it, which
+// reads as flickering on anything moving. The soft knee below ramps in over a
+// range around the threshold instead, which is the standard fix and costs three
+// instructions.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	// One triangle covering the screen, generated from the vertex index. No
+	// vertex buffer, and no seam down the diagonal where two triangles would
+	// meet -- which shows up in any filter that samples neighbours.
+	//
+	// The same mapping works on both backends. Vulkan's framebuffer origin is
+	// top-left and its textures are top-down; OpenGL's are both bottom-up. The
+	// two flips cancel, so uv 0,0 is the first texel either way.
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	float Threshold;
+	float Knee;
+} u_Params;
+
+void main()
+{
+	// A 4-tap box at the halfway points: this pass halves resolution, so
+	// sampling the four texels it is averaging costs nothing extra over one
+	// bilinear fetch and keeps the result stable.
+	vec2 o = u_Params.TexelSize;
+	vec3 color = texture(u_Source, v_UV + vec2(-o.x, -o.y)).rgb
+			   + texture(u_Source, v_UV + vec2( o.x, -o.y)).rgb
+			   + texture(u_Source, v_UV + vec2(-o.x,  o.y)).rgb
+			   + texture(u_Source, v_UV + vec2( o.x,  o.y)).rgb;
+	color *= 0.25;
+
+	// Brightness as the largest channel rather than luminance: a saturated red
+	// light at (4, 0, 0) is visibly glowing, and its luminance weighting would
+	// put it under a threshold of 1.
+	float brightness = max(color.r, max(color.g, color.b));
+
+	// Soft knee. Below threshold-knee nothing passes, above threshold+knee
+	// everything does, and between them it ramps quadratically.
+	float knee = max(u_Params.Knee, 1e-4);
+	float soft = clamp(brightness - u_Params.Threshold + knee, 0.0, 2.0 * knee);
+	soft = soft * soft / (4.0 * knee);
+
+	float contribution = max(soft, brightness - u_Params.Threshold);
+	contribution /= max(brightness, 1e-4);
+
+	o_Color = vec4(color * contribution, 1.0);
+}

@@ -1,0 +1,65 @@
+// Bloom, stage 2: halve the resolution, repeatedly.
+//
+// The 13-tap filter from Jimenez's "Next Generation Post Processing in Call of
+// Duty: Advanced Warfare". A plain box filter aliases badly as the chain gets
+// smaller: a bright pixel appears and disappears between mip levels depending
+// on where it lands, and the result flickers on anything that moves. The extra
+// taps are what makes the chain stable.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	float Unused0;
+	float Unused1;
+} u_Params;
+
+void main()
+{
+	vec2 o = u_Params.TexelSize;
+
+	vec3 a = texture(u_Source, v_UV + vec2(-2.0 * o.x,  2.0 * o.y)).rgb;
+	vec3 b = texture(u_Source, v_UV + vec2( 0.0,        2.0 * o.y)).rgb;
+	vec3 c = texture(u_Source, v_UV + vec2( 2.0 * o.x,  2.0 * o.y)).rgb;
+
+	vec3 d = texture(u_Source, v_UV + vec2(-2.0 * o.x,  0.0)).rgb;
+	vec3 e = texture(u_Source, v_UV).rgb;
+	vec3 f = texture(u_Source, v_UV + vec2( 2.0 * o.x,  0.0)).rgb;
+
+	vec3 g = texture(u_Source, v_UV + vec2(-2.0 * o.x, -2.0 * o.y)).rgb;
+	vec3 h = texture(u_Source, v_UV + vec2( 0.0,       -2.0 * o.y)).rgb;
+	vec3 i = texture(u_Source, v_UV + vec2( 2.0 * o.x, -2.0 * o.y)).rgb;
+
+	// The four inner taps, each already a bilinear average of 2x2.
+	vec3 j = texture(u_Source, v_UV + vec2(-o.x,  o.y)).rgb;
+	vec3 k = texture(u_Source, v_UV + vec2( o.x,  o.y)).rgb;
+	vec3 l = texture(u_Source, v_UV + vec2(-o.x, -o.y)).rgb;
+	vec3 m = texture(u_Source, v_UV + vec2( o.x, -o.y)).rgb;
+
+	// Weights from the paper: the inner square carries half the total, the
+	// four overlapping outer squares an eighth each.
+	vec3 result = e * 0.125;
+	result += (a + c + g + i) * 0.03125;
+	result += (b + d + f + h) * 0.0625;
+	result += (j + k + l + m) * 0.125;
+
+	o_Color = vec4(result, 1.0);
+}

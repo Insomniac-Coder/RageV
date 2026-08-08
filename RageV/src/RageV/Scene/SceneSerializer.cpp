@@ -165,6 +165,12 @@ namespace RageV
 		emitter << YAML::Key << "AmbientColor" << YAML::Value;
 		EmitVec3(emitter, environment.AmbientColor);
 		emitter << YAML::Key << "AmbientIntensity" << YAML::Value << environment.AmbientIntensity;
+		emitter << YAML::Key << "Exposure" << YAML::Value << environment.Exposure;
+		emitter << YAML::Key << "BloomEnabled" << YAML::Value << environment.BloomEnabled;
+		emitter << YAML::Key << "BloomThreshold" << YAML::Value << environment.BloomThreshold;
+		emitter << YAML::Key << "BloomKnee" << YAML::Value << environment.BloomKnee;
+		emitter << YAML::Key << "BloomIntensity" << YAML::Value << environment.BloomIntensity;
+		emitter << YAML::Key << "AntiAliasing" << YAML::Value << (uint32_t)environment.AA;
 		emitter << YAML::EndMap;
 
 		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
@@ -362,6 +368,21 @@ namespace RageV
 				target.AmbientColor = ReadVec3(environment["AmbientColor"], target.AmbientColor);
 				if (const YAML::Node intensity = environment["AmbientIntensity"])
 					target.AmbientIntensity = intensity.as<float>();
+
+				// Absent in a scene written before post processing existed, which is
+				// why each is read only if present rather than defaulted to zero.
+				if (const YAML::Node value = environment["Exposure"])
+					target.Exposure = value.as<float>();
+				if (const YAML::Node value = environment["BloomEnabled"])
+					target.BloomEnabled = value.as<bool>();
+				if (const YAML::Node value = environment["BloomThreshold"])
+					target.BloomThreshold = value.as<float>();
+				if (const YAML::Node value = environment["BloomKnee"])
+					target.BloomKnee = value.as<float>();
+				if (const YAML::Node value = environment["BloomIntensity"])
+					target.BloomIntensity = value.as<float>();
+				if (const YAML::Node value = environment["AntiAliasing"])
+					target.AA = (AntiAliasing)value.as<uint32_t>();
 			}
 		}
 
