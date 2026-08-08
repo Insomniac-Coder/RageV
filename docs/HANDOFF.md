@@ -3,8 +3,7 @@
 **Read this first.** Updated 2026-08-08.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
-finished with. **Everything since 3.1 is unpushed**; `origin/main` is at
-`5b579d3`.
+finished with, and `main` is pushed.
 
 Companion docs:
 - [ROADMAP.md](ROADMAP.md) — where this is going, in dependency order.
@@ -568,8 +567,7 @@ report an error.
 
 **Phases 0, 1, 2 and 4 are done. Phase 3 is at 3.3, and 3.4 is half done.**
 
-1. **Push.** Everything from 3.1 onwards exists only on this machine.
-2. **Finish 3.4 IBL** (`M` now, was `L`). The specular half is in: surfaces
+1. **Finish 3.4 IBL** (`M` now, was `L`). The specular half is in: surfaces
    reflect the environment cube, roughness picks a mip, and the split-sum
    environment BRDF is Lazarov's analytic fit. What is left is the accurate
    version of both halves:
@@ -581,12 +579,12 @@ report an error.
      step that makes a scene look lit by its surroundings.
    - **A BRDF lookup texture**, replacing the analytic fit. Smallest of the
      three and the least visible.
-3. **3.5 shadows** (`XL`) — CSM directional, cube point, spot. Sphere-fit
+2. **3.5 shadows** (`XL`) — CSM directional, cube point, spot. Sphere-fit
    cascades, texel snapping, normal-offset bias; the recipe is ENGINE-NOTES §5.
    The biggest item left anywhere on the roadmap.
-5. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
+3. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
    **3.7 skeletal animation**.
-6. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+4. **Phase 5 C#.** Last, because it must mirror a stable native surface.
 
 The render graph is in place, so each of those is *a pass and a target added to
 `BuildFrame`* rather than a new ownership question. That was the point of 3.1
