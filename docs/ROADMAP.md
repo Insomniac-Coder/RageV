@@ -295,7 +295,7 @@ written here:
 | 3.3 | Skybox + cubemaps (`TextureType::TextureCube` already exists in the RHI) | M | ✅ three background modes, CPU panorama-to-cube conversion, plus reflection probes (baked and realtime), which were not on this list |
 | 3.4 | **IBL** — irradiance, prefiltered specular, BRDF LUT; replaces the flat ambient term | L | ✅ all three: CPU hemisphere convolution for irradiance, GPU importance-sampled GGX per roughness level, and a CPU-integrated BRDF table checked against its analytic corners |
 | 3.5 | **Shadows** — CSM directional, cube point, spot. Sphere-fit cascades, texel snapping, normal-offset bias (ENGINE-NOTES §5) | XL | ✅ all three types; cascade fitting checked in scenetest rather than by eye; four spot and four point lights cast at once |
-| 3.6 | Frustum culling, draw sorting, instancing. **CPU only** — GPU-driven rendering is out of scope | M |
+| 3.6 | Frustum culling, draw sorting, instancing. **CPU only** — GPU-driven rendering is out of scope | M | 🟡 frustum culling done, per pass against its own frustum: 144 draws down to 60 in the sample scene. Sorting and instancing remain |
 | 3.8 | **Clustered forward lighting** — removes the 8-light cap, keeps transparency working (unlike deferred) | L |
 | 3.7 | Skeletal animation — skinning, clips, blending | XL |
 

@@ -34,7 +34,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-461 checks, `exit 0`. Then look at a frame:
+477 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -61,9 +61,9 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**What to do next:** §8. The short answer is **3.6, culling** — twelve meshes
-in the sample scene issue 144 draws a frame, and nothing is culled from any
-pass.
+**What to do next:** §8. The short answer is **3.8, clustered forward** — it
+removes the eight-light cap, which is the last hard limit left in the
+lighting.
 
 ---
 
@@ -541,7 +541,8 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | IBL | Irradiance convolution, GGX prefilter per roughness level, BRDF table (3.4) |
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
-| Tests | `scenetest`, **461 checks**, green on both backends |
+| Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
+| Tests | `scenetest`, **477 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete through 3.5.**
 What is left of Phase 3 is performance (3.6, 3.8) and skeletal animation (3.7).
@@ -558,12 +559,9 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 | Reflection probes | A probe's cube is **not** prefiltered — it is rebuilt too often to be worth 36 renders a frame — so rough materials reflecting a probe get the box-filtered chain rather than a GGX lobe. |
 | Reflection probes | A probe inside a closed mesh only works because back-face culling hides the mesh. Placing one where geometry surrounds it in an open shape will capture that geometry. |
 | Reflection probes | Realtime probes update one face per frame, so a reflection lags by up to six frames. |
-| Shadows | Only the **first** directional light gets cascades. A second directional light lights but does not shadow. |
-| Shadows | Four spot and four point maps at once. Past that a light lights but does not shadow, silently. |
-| Shadows | Cascade selection is hard, with no blend band, so the transition between cascades can be visible on a slow pan. |
+| Shadows | Only the **first** directional light gets cascades, and four spot and four point maps exist. Beyond that a light lights but does not shadow — it now warns once per scene rather than doing it silently. |
 | Shadows | Spot and point resolutions are derived from `ShadowResolution` (half and quarter) rather than being independently settable. |
 | Shadows | A point light's near plane is a shared constant, not per light. |
-| Shadows | No culling: every caster is drawn into every map. See the draw-count note below. |
 | Lighting | Eight lights, hard cap, shared with the shader's `MAX_LIGHTS`. 3.8 removes it. |
 | IBL | The prefilter assumes the surface is viewed head on, which is the standard split-sum approximation. It costs the stretched highlight a surface has at a grazing angle. |
 | IBL | Irradiance is convolved once, at load. A scene that changes its sky colours at runtime rebuilds the gradient cube but a loaded environment map's irradiance is fixed. |
@@ -576,7 +574,8 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 
 ### Not built
 
-- **Frustum culling, draw sorting, instancing** (3.6). Nothing is culled.
+- **Draw sorting and instancing** (the rest of 3.6). Frustum culling is in;
+  opaque draws are not sorted front-to-back and nothing is instanced.
 - **Clustered forward** (3.8) — the 8-light cap stands.
 - **Skeletal animation** (3.7). No skinning, no clips, no blending.
 - **C# scripting** (Phase 5). Native only.
@@ -585,17 +584,15 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 - **Asset cooking.** glTF is parsed at load, PNGs decoded at load.
 - **SMAA and TAA.**
 
-### The number that decides what comes next
+### Draw counts
 
-The sample scene has **12 meshes** and issues **144 mesh draws** a frame.
+The sample scene has **12 meshes** and issues **60 mesh draws** a frame, with
+**84 culled**. Before frustum culling it was 144.
 
-That is twelve passes over the whole scene: four shadow cascades, six faces of
-a point light's shadow cube, one reflection-probe face, and the scene itself.
-Nothing is culled from any of them. It runs at 4.1 ms because the scene is
-twelve objects; the multiplier is the problem, not the number.
-
-Every feature added this session multiplies that further, and 3.6 is the one
-that divides it.
+The passes are still twelve — four shadow cascades, six faces of a point
+light's shadow cube, one probe face, the scene itself — but each now only draws
+what its own frustum contains. The editor's Statistics panel reports the culled
+count so the saving is visible rather than assumed.
 
 ## 7. Decisions already made (do not relitigate)
 
@@ -640,21 +637,7 @@ that divides it.
 
 Start here, in this order.
 
-### 1. 3.6 — culling, sorting, instancing (`M`)
-
-The one that pays for everything already built. Twelve meshes currently issue
-**144 draws** a frame, because every shadow map, every probe face and the scene
-each walk the whole scene with nothing removed. Every feature added recently
-multiplies that; this divides it.
-
-- Frustum cull per pass, against each pass's own frustum — a shadow cascade's
-  frustum is not the camera's, which is the part that is easy to get wrong.
-- The mesh bounds already exist: `Mesh` extracts an AABB at construction, and
-  nothing has ever used it.
-- Sort opaque front-to-back so early-z does its job, and batch by material.
-- **CPU only.** GPU-driven rendering is out of scope; see §7.
-
-### 2. 3.8 — clustered forward (`L`)
+### 1. 3.8 — clustered forward (`L`)
 
 Removes the eight-light cap, which is the last hard limit in the lighting.
 Clustered rather than deferred, so transparency keeps working — the reasoning
@@ -663,12 +646,12 @@ is in ENGINE-NOTES §5.
 Worth doing after culling because the cluster build wants the same visibility
 information.
 
-### 3. 3.7 — skeletal animation (`XL`)
+### 2. 3.7 — skeletal animation (`XL`)
 
 The largest remaining item anywhere, and the one that decides whether a game
 with characters can be made. Skinning, clips, blending. Nothing exists yet.
 
-### 4. Phase 5 — C# scripting (`XL`)
+### 3. Phase 5 — C# scripting (`XL`)
 
 Last, deliberately: it must mirror a native surface that has stopped moving.
 
