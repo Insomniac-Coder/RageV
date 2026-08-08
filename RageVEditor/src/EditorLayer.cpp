@@ -470,6 +470,26 @@ void EditorLayer::DrawMenuBar()
 		ImGui::EndMenu();
 	}
 
+	if (ImGui::BeginMenu("Scene"))
+	{
+		const bool running = m_SceneState != SceneState::Edit;
+
+		if (ImGui::MenuItem(running ? "Stop" : "Play", "Ctrl+P"))
+		{
+			if (running) OnSceneStop();
+			else         OnScenePlay();
+		}
+
+		const bool paused = m_SceneState == SceneState::Paused;
+		if (ImGui::MenuItem(paused ? "Resume" : "Pause", nullptr, false, running))
+			OnScenePause(!paused);
+
+		ImGui::Separator();
+		ImGui::TextDisabled(running ? "Running -- changes are discarded on Stop"
+								    : "Editing");
+		ImGui::EndMenu();
+	}
+
 	if (ImGui::BeginMenu("Entity"))
 	{
 		if (ImGui::MenuItem("Create Empty", "Ctrl+Shift+N")) CreateEmpty("Entity");
@@ -558,7 +578,19 @@ void EditorLayer::DrawToolbar()
 	ImGui::BeginChild("##Toolbar", ImVec2(0.0f, ImGui::GetFrameHeight() + 10.0f), ImGuiChildFlags_None,
 					  ImGuiWindowFlags_NoScrollbar);
 
-	// The active mode is the accent: it is the state currently in effect.
+	// Every gap goes through here rather than through a hand-written
+	// SameLine/Dummy/SameLine chain. One missing SameLine in that chain wraps
+	// everything after it onto a second row -- inside a child exactly one row
+	// tall, which clips it away entirely. That is how the Play button became
+	// invisible the moment it was added after a checkbox.
+	auto Gap = [](float width = 10.0f)
+	{
+		ImGui::SameLine(0.0f, width);
+	};
+
+	const bool running = m_SceneState != SceneState::Edit;
+
+	// --- transform tools, left ----------------------------------------------
 	auto ModeButton = [&](const char* label, ImGuizmo::OPERATION op, const char* tip)
 	{
 		const bool active = m_GizmoOperation == op;
@@ -573,42 +605,44 @@ void EditorLayer::DrawToolbar()
 			ImGui::PopStyleColor(2);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("%s", tip);
-		ImGui::SameLine();
 	};
 
 	ModeButton("Mov", ImGuizmo::OPERATION::TRANSLATE, "Translate (W)");
-	ModeButton("Rot", ImGuizmo::OPERATION::ROTATE,    "Rotate (E)");
-	ModeButton("Scl", ImGuizmo::OPERATION::SCALE,     "Scale (R)");
+	Gap(4.0f);
+	ModeButton("Rot", ImGuizmo::OPERATION::ROTATE, "Rotate (E)");
+	Gap(4.0f);
+	ModeButton("Scl", ImGuizmo::OPERATION::SCALE, "Scale (R)");
 
-	ImGui::Dummy(ImVec2(8.0f, 0.0f));
-	ImGui::SameLine();
-
+	Gap();
 	if (ImGui::Button(m_GizmoLocal ? "Local" : "World", ImVec2(52.0f, 0.0f)))
 		m_GizmoLocal = !m_GizmoLocal;
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Gizmo space. Scaling is always local.");
-	ImGui::SameLine();
 
-	ImGui::Dummy(ImVec2(8.0f, 0.0f));
-	ImGui::SameLine();
+	Gap();
 	ImGui::Checkbox("Snap", &m_SnapEnabled);
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Hold Ctrl while dragging for the same effect.");
 
-	ImGui::Dummy(ImVec2(8.0f, 0.0f));
-	ImGui::SameLine();
-
-	// Transport. Accented while running, per the theme rule: red means "this is
-	// acting now".
+	// --- transport, centred -------------------------------------------------
+	// Centred because it is the control people reach for most, and because that
+	// is where every other engine puts it.
 	{
-		const bool running = m_SceneState != SceneState::Edit;
+		constexpr float kPlayWidth = 52.0f;
+		constexpr float kPauseWidth = 62.0f;
+		const float transportWidth = kPlayWidth + kPauseWidth + 4.0f;
+
+		const float centre = (ImGui::GetWindowWidth() - transportWidth) * 0.5f;
+		// Never behind what is already drawn: at a narrow window the tools on
+		// the left win and the transport simply sits after them.
+		ImGui::SameLine(ImMax(centre, ImGui::GetCursorPosX() + 10.0f));
 
 		if (running)
 		{
 			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Color::Accent);
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Color::AccentHover);
 		}
-		if (ImGui::Button(running ? "Stop" : "Play", ImVec2(48.0f, 0.0f)))
+		if (ImGui::Button(running ? "Stop" : "Play", ImVec2(kPlayWidth, 0.0f)))
 		{
 			if (running) OnSceneStop();
 			else         OnScenePlay();
@@ -618,25 +652,26 @@ void EditorLayer::DrawToolbar()
 
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip(running
-				? "Stop and restore the scene to exactly what it was when Play was pressed."
-				: "Run the scene. Everything that happens while running is discarded on Stop.");
+				? "Stop, and restore the scene to exactly what it was when Play was pressed. (Ctrl+P)"
+				: "Run the scene. Everything that happens while running is discarded on Stop. (Ctrl+P)");
 
-		ImGui::SameLine();
+		Gap(4.0f);
 		ImGui::BeginDisabled(!running);
 		const bool paused = m_SceneState == SceneState::Paused;
-		if (ImGui::Button(paused ? "Resume" : "Pause", ImVec2(60.0f, 0.0f)))
+		if (ImGui::Button(paused ? "Resume" : "Pause", ImVec2(kPauseWidth, 0.0f)))
 			OnScenePause(!paused);
 		ImGui::EndDisabled();
 		if (ImGui::IsItemHovered() && running)
 			ImGui::SetTooltip("Stop stepping the simulation without leaving play mode.");
 	}
 
-	// Which camera the viewport draws through. Right-aligned because it
-	// describes the view rather than the edit operation.
+	// --- viewpoint, right ---------------------------------------------------
 	{
 		const char* label = m_UseEditorCamera ? "Editor Cam" : "Game Cam";
-		const float width = 92.0f;
-		ImGui::SameLine(ImGui::GetContentRegionAvail().x - width + ImGui::GetCursorPosX());
+		constexpr float width = 96.0f;
+
+		const float rightEdge = ImGui::GetWindowWidth() - width - 12.0f;
+		ImGui::SameLine(ImMax(rightEdge, ImGui::GetCursorPosX() + 10.0f));
 
 		if (!m_UseEditorCamera)
 		{
@@ -654,7 +689,7 @@ void EditorLayer::DrawToolbar()
 				  "Alt+LMB orbit, MMB pan, RMB fly (WASD, QE, Shift),\n"
 				  "wheel zoom, F frames the selection.\n\n"
 				  "Click to preview the scene's primary camera instead."
-				: "Viewport draws through the scene's primary camera.\n\n"
+				: "Viewport draws through the scene's camera -- the lowest ViewRank wins.\n\n"
 				  "Nothing renders if the scene has no camera entity.\n"
 				  "Click to return to the editor camera.");
 	}
@@ -1037,6 +1072,19 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 			break;
 		}
 		case RV_KEY_O: if (control) { OpenScene(); return true; } break;
+
+		// The conventional binding, and a second way to reach a control that
+		// was previously only on the toolbar.
+		case RV_KEY_P:
+		{
+			if (control)
+			{
+				if (m_SceneState == SceneState::Edit) OnScenePlay();
+				else                                  OnSceneStop();
+				return true;
+			}
+			break;
+		}
 
 		// Ctrl+Shift+Z is the other common redo binding; both are accepted.
 		case RV_KEY_Z:
