@@ -24,6 +24,7 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
+#include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/KeyCodes.h"
@@ -136,6 +137,9 @@ namespace
 		light.Range = 22.5f;
 		light.InnerCone = 18.0f;
 		light.OuterCone = 34.0f;
+		// False, which is not the default: a field that happens to match its
+		// default cannot tell a working round trip from a missing one.
+		light.CastShadows = false;
 		spot.GetComponent<TransformComponent>().Position = { -3.0f, 4.0f, 2.0f };
 
 		return scene;
@@ -1431,6 +1435,62 @@ namespace
 		incomplete.Size = 4;
 		Check(TextureLoader::CreateCube(device, incomplete, "scenetest.broken") == nullptr,
 			  "and an incomplete set of faces is refused");
+	}
+
+	// The shadow toggle on a light.
+	//
+	// One checkbox, but it reaches three places that are edited separately --
+	// the component registry the inspector is generated from, the serializer
+	// driven by that same registry, and the gather in Scene::RenderShadows --
+	// and a light that silently keeps casting after being told not to is
+	// indistinguishable from the feature not existing.
+	void CheckShadowToggle()
+	{
+		// Described, therefore in the inspector: the panel is generated from
+		// this, so a field that is here is a widget and one that is not is
+		// nothing at all.
+		bool described = false;
+		if (const ComponentDesc* component = ComponentRegistry::Find("LightComponent"))
+		{
+			for (const FieldDesc& field : component->Fields)
+			{
+				if (std::string(field.Name) == "CastShadows")
+					described = field.Type == FieldType::Bool;
+			}
+		}
+
+		Check(described, "a light describes CastShadows as a checkbox");
+
+		// And it survives a save and a load. The serializer walks the same
+		// description, so this also fails if the field is described but the
+		// round trip drops it.
+		auto scene = std::make_shared<Scene>();
+		Entity sun = scene->CreateEntity("Sun");
+		auto& light = sun.AddComponent<LightComponent>().Light;
+		light.Type = Light::LightType::Directional;
+		light.CastShadows = false;
+
+		SceneSerializer serializer(scene);
+		const std::string text = serializer.SerializeToString();
+
+		Check(text.find("CastShadows") != std::string::npos,
+			  "and writes it to the scene file");
+
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer back(reloaded);
+		Check(back.DeserializeFromString(text), "which loads again");
+
+		Entity restored = reloaded->FindEntityByName("Sun");
+		Check(restored && restored.HasComponent<LightComponent>() &&
+			  !restored.GetComponent<LightComponent>().Light.CastShadows,
+			  "with the light still not casting");
+
+		// Nothing to render when nothing casts. RenderShadows leaves the
+		// cascade count at zero, and the shader's whole shadow term is switched
+		// off by that one number.
+		ShadowMap::Invalidate();
+		Check(!ShadowMap::HasCascades(),
+			  "and a scene where no light casts renders no cascades at all");
 	}
 
 	// Cascaded shadow maps.
@@ -2975,6 +3035,7 @@ int RunTests(int argc, char** argv)
 	CheckPrimitiveWinding();
 	CheckCubemap();
 	CheckSky();
+	CheckShadowToggle();
 	CheckShadowCascades();
 	CheckReflectionProbe();
 	CheckFrameGraph();

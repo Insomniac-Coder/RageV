@@ -216,6 +216,7 @@ Entities:
       Range: 30
       InnerCone: 20
       OuterCone: 30
+      CastShadows: false
   - EntityID: 17106466824111096354
     TagComponent:
       Tag: Sun

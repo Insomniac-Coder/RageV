@@ -351,8 +351,10 @@ namespace RageV
 				// Tooltip only; there is no widget choice to make for a checkbox.
 				Field<&LightComponent::Light, &Light::CastShadows>("CastShadows",
 					FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
-							   "Directional only for now, and only the first light that "
-							   "asks: a second set of cascades is four more scene renders." }),
+							   "Whether this light casts shadows. Every type can, and each "
+							   "costs scene renders: a directional light four, a spot one, "
+							   "a point six. Only the first directional light to ask gets "
+							   "cascades; four spot and four point lights cast at once." }),
 			};
 			Bind<LightComponent>(desc);
 			s_Components.push_back(std::move(desc));
