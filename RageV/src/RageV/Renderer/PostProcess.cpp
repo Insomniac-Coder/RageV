@@ -114,7 +114,13 @@ namespace RageV
 		s_Data->Sets.resize(device.GetFramesInFlight());
 		s_Data->Ready = ok;
 
-		RV_CORE_INFO("PostProcess ready (bloom, ACES tonemap, FXAA)");
+		// Conditional, because `ok` is false when any of the six shaders failed
+		// and the errors above scroll past. Announcing readiness anyway is how
+		// a broken post chain looks like a working one that draws nothing.
+		if (ok)
+			RV_CORE_INFO("PostProcess ready (bloom, ACES tonemap, FXAA)");
+		else
+			RV_CORE_ERROR("PostProcess unavailable; the frame will not be tone mapped");
 	}
 
 	void PostProcess::Shutdown()

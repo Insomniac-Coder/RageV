@@ -103,7 +103,10 @@ namespace RageV
 		s_Data->Sets.resize(device.GetFramesInFlight());
 		s_Data->Ready = s_Data->Shader != nullptr;
 
-		RV_CORE_INFO("Skybox ready (gradient, cubemap)");
+		if (s_Data->Ready)
+			RV_CORE_INFO("Skybox ready (gradient, cubemap)");
+		else
+			RV_CORE_ERROR("Skybox unavailable; scenes will show the clear colour");
 	}
 
 	void Skybox::Shutdown()

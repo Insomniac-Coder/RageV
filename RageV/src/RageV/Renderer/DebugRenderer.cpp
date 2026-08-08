@@ -62,6 +62,10 @@ namespace RageV
 
 			SceneUniforms Scene{};
 			bool InScene = false;
+
+			// False when the shader did not compile. Asked by the test
+			// suite, so a silent failure fails a build rather than a picture.
+			bool Ready = false;
 		};
 
 		std::unique_ptr<DebugRendererData> s_Data;
@@ -161,11 +165,20 @@ namespace RageV
 			return;
 		}
 		s_Data->Shader = device.CreateShader(*compiled);
+		s_Data->Ready = s_Data->Shader != nullptr;
 
 		s_Data->Batches.resize(device.GetFramesInFlight());
 		s_Data->Vertices.resize(kMaxVertices);
 
-		RV_CORE_INFO("DebugRenderer ready ({0} lines per batch)", kMaxLines);
+		if (s_Data->Ready)
+			RV_CORE_INFO("DebugRenderer ready ({0} lines per batch)", kMaxLines);
+		else
+			RV_CORE_ERROR("DebugRenderer incomplete; overlays will not draw");
+	}
+
+	bool DebugRenderer::IsReady()
+	{
+		return s_Data && s_Data->Ready;
 	}
 
 	void DebugRenderer::Shutdown()

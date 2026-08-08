@@ -18,6 +18,10 @@ namespace RageV
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
 
+		// False when a shader did not compile. Meshes draw nothing in that
+		// state, which is easier to diagnose from here than from the picture.
+		static bool IsReady();
+
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
 		static void SetWireframe(bool enabled);
 

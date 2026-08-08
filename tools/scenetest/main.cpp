@@ -41,6 +41,10 @@
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/ShadowMap.h"
+#include "RageV/Renderer/Renderer3D.h"
+#include "RageV/Renderer/EnvironmentIBL.h"
+#include "RageV/Renderer/PostProcess.h"
+#include "RageV/Renderer/Renderer2D.h"
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Scene/ScenePicking.h"
@@ -1435,6 +1439,32 @@ namespace
 		incomplete.Size = 4;
 		Check(TextureLoader::CreateCube(device, incomplete, "scenetest.broken") == nullptr,
 			  "and an incomplete set of faces is refused");
+	}
+
+	// Every renderer subsystem actually came up.
+	//
+	// This exists because of a specific failure and the shape of it matters
+	// more than the instance: EnvironmentIBL logged "ready" unconditionally, so
+	// a shader that would not compile produced a feature that was present in
+	// every sense except that it did nothing. Nothing failed, nothing was red,
+	// and the only symptom was a picture that looked slightly wrong -- which is
+	// indistinguishable from the feature simply not being very good.
+	//
+	// A log line cannot be tested. A flag can, and asking every subsystem for
+	// its own turns a silent shader failure into a failing build.
+	void CheckRenderersReady()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		Check(Renderer2D::IsReady(), "Renderer2D came up");
+		Check(Renderer3D::IsReady(), "Renderer3D came up, with both its shaders");
+		Check(DebugRenderer::IsReady(), "DebugRenderer came up");
+		Check(Skybox::IsReady(), "the sky came up");
+		Check(ShadowMap::IsReady(), "the shadow maps came up");
+		Check(PostProcess::IsReady(), "the post chain came up");
+		Check(EnvironmentIBL::IsReady(), "image-based lighting came up");
+		Check(EnvironmentIBL::GetBRDF() != nullptr, "with a BRDF table behind it");
 	}
 
 	// Inspector labels.
@@ -3293,6 +3323,7 @@ int RunTests(int argc, char** argv)
 	CheckPrimitiveWinding();
 	CheckCubemap();
 	CheckSky();
+	CheckRenderersReady();
 	CheckFieldLabels();
 	CheckShadowToggle();
 	CheckShadowCascades();

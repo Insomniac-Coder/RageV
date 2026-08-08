@@ -112,6 +112,8 @@ namespace RageV
 
 			unsigned int DrawCalls = 0;
 			unsigned int Triangles = 0;
+
+			bool Ready = false;
 		};
 
 		std::unique_ptr<Renderer3DData> s_Data;
@@ -178,7 +180,15 @@ namespace RageV
 		environment.MaxLod = 16.0f;
 		s_Data->EnvironmentSampler = device.CreateSampler(environment);
 
-		RV_CORE_INFO("Renderer3D ready (Cook-Torrance PBR)");
+		// Both shaders, not just the lit one. The shadow pass failing on its own
+		// used to leave this announcing readiness while nothing cast anything.
+		s_Data->Ready = s_Data->Shader != nullptr && s_Data->ShadowShader != nullptr &&
+						s_Data->DefaultMaterial != nullptr;
+
+		if (s_Data->Ready)
+			RV_CORE_INFO("Renderer3D ready (Cook-Torrance PBR, shadow casting)");
+		else
+			RV_CORE_ERROR("Renderer3D incomplete; meshes or their shadows will not draw");
 	}
 
 	void Renderer3D::Shutdown()
@@ -554,6 +564,11 @@ namespace RageV
 
 		s_Data->DrawCalls++;
 		s_Data->Triangles += mesh->GetIndexCount() / 3;
+	}
+
+	bool Renderer3D::IsReady()
+	{
+		return s_Data && s_Data->Ready;
 	}
 
 	unsigned int Renderer3D::GetDrawCallCount() { return s_Data ? s_Data->DrawCalls : 0; }

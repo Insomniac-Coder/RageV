@@ -103,6 +103,10 @@ namespace RageV
 			unsigned int DrawCalls = 0;
 
 			SceneUniforms Scene{};
+
+			// False when the shader did not compile. Asked by the test
+			// suite, so a silent failure fails a build rather than a picture.
+			bool Ready = false;
 		};
 
 		std::unique_ptr<Renderer2DData> s_Data;
@@ -166,6 +170,7 @@ namespace RageV
 			return;
 		}
 		s_Data->Shader = device.CreateShader(*compiled);
+		s_Data->Ready = s_Data->Shader != nullptr;
 
 		// Index data never changes, so it lives in device-local memory and is
 		// uploaded once through the staging path.
@@ -217,7 +222,15 @@ namespace RageV
 		s_Data->TextureSlots.assign(kMaxTextureSlots, nullptr);
 		s_Data->TextureSlots[0] = s_Data->WhiteTexture;
 
-		RV_CORE_INFO("Renderer2D ready ({0} frames in flight, {1} quads per batch)", frames, kMaxQuads);
+		if (s_Data->Ready)
+			RV_CORE_INFO("Renderer2D ready ({0} frames in flight, {1} quads per batch)", frames, kMaxQuads);
+		else
+			RV_CORE_ERROR("Renderer2D incomplete; quads will not draw");
+	}
+
+	bool Renderer2D::IsReady()
+	{
+		return s_Data && s_Data->Ready;
 	}
 
 	void Renderer2D::Shutdown()

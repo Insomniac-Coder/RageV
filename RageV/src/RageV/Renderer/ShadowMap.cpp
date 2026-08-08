@@ -142,7 +142,10 @@ namespace RageV
 
 		s_Data->Ready = s_Data->Sampler != nullptr && s_Data->Empty != nullptr &&
 						s_Data->EmptyCube != nullptr;
-		RV_CORE_INFO("Shadow maps ready (directional, up to {0} cascades)", kMaxCascades);
+		if (s_Data->Ready)
+			RV_CORE_INFO("Shadow maps ready (directional, up to {0} cascades)", kMaxCascades);
+		else
+			RV_CORE_ERROR("Shadow maps unavailable; nothing will cast");
 	}
 
 	void ShadowMap::Shutdown()

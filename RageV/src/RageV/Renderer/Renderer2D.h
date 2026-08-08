@@ -13,6 +13,9 @@ namespace RageV
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
 
+		// False when the shader did not compile.
+		static bool IsReady();
+
 		// Colour and depth formats of the target this renderer draws into.
 		// Pipelines are built against them, so they must be known up front.
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth);

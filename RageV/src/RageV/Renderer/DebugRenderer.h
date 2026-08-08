@@ -24,6 +24,9 @@ namespace RageV
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
 
+		// False when the shader did not compile.
+		static bool IsReady();
+
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
 
 		// Resets the per-frame batch pool. Called by Renderer::BeginFrame.
