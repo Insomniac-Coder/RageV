@@ -39,4 +39,6 @@ git clone --recurse-submodules <url>
 
 **Start with [docs/HANDOFF.md](docs/HANDOFF.md)** — current state, what is done
 and what is not, and the invariants that are load-bearing.
+[docs/ROADMAP.md](docs/ROADMAP.md) is where it goes next and in what order,
+benchmarked against Unity, Godot and Unreal.
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the renderer design in detail.

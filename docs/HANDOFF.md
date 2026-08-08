@@ -3,7 +3,8 @@
 **Read this first.** Written 2026-08-08, on branch `vulkan-overhaul` (18 commits
 ahead of `main`, not merged, not pushed).
 
-Companion doc: [ARCHITECTURE.md](ARCHITECTURE.md) for renderer design detail.
+Companion docs: [ROADMAP.md](ROADMAP.md) for where this is going and in what
+order; [ARCHITECTURE.md](ARCHITECTURE.md) for renderer design detail.
 
 ---
 
@@ -271,10 +272,11 @@ intermittent corruption rather than an obvious failure.
 
 Chosen by the user, in order:
 
-1. **Research pass** *(next)* — survey Unity / Godot / Unreal, determine what an
-   MVP+ engine actually requires, map against current state, produce a
-   dependency-ordered roadmap. Target positioning: *Unity's ease of use, some of
-   Unreal's fidelity, Godot's scope.*
+1. ~~**Research pass**~~ — **done**, see [ROADMAP.md](ROADMAP.md). Surveys
+   Unity / Godot / Unreal, defines the MVP+ bar, audits the gap and gives a
+   dependency-ordered plan in six phases. Its headline finding: the ordering is
+   driven by entity/asset IDs, transform hierarchy and reflection — all cheap
+   now, all format migrations later. **Start with Phase 0.**
 2. **Scripting — both paths.** User explicitly wants both:
    - Enrich the native C++ `ScriptableEntity` API (transform/component helpers,
      input, timing, spawn/find/destroy, scene queries).
