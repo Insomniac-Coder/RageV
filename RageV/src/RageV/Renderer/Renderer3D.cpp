@@ -43,8 +43,13 @@ namespace RageV
 			// and the shader has no view matrix, only a view-projection.
 			glm::vec4 CameraForward;
 			// x = cascades rendered (0 = no shadows), y = normal offset scale,
-			// z = one texel in lookup coordinates, w = which light casts
+			// z = one cascade texel in lookup coordinates, w unused
 			glm::vec4 ShadowParams;
+
+			// Per light: x = kind of map, y = slot, z = far, w = the world size
+			// of one of its texels per unit of distance.
+			glm::vec4 LightShadow[kMaxLights];
+			glm::mat4 SpotLookup[4];
 
 			int32_t   LightCount;
 			int32_t   _padding[3];
@@ -329,8 +334,28 @@ namespace RageV
 				(float)cascadeCount,
 				environment.ShadowNormalOffset,
 				1.0f / (float)resolution,
-				(float)ShadowMap::GetLightIndex(),
+				0.0f,
 			};
+		}
+		else
+		{
+			s_Data->Scene.ShadowParams.y = environment.ShadowNormalOffset;
+		}
+
+		// Which map each light got, decided when the shadows were rendered.
+		for (int i = 0; i < lightCount; i++)
+		{
+			const LocalShadow& assigned = ShadowMap::GetAssignment((uint32_t)i);
+
+			s_Data->Scene.LightShadow[i] = {
+				(float)(uint32_t)assigned.Type,
+				(float)glm::max(assigned.Slot, 0),
+				assigned.FarClip,
+				assigned.TexelScale,
+			};
+
+			if (assigned.Type == LocalShadow::Kind::Spot && assigned.Slot >= 0)
+				s_Data->Scene.SpotLookup[assigned.Slot] = assigned.LookupMatrix;
 		}
 
 		EnsurePipeline();
@@ -366,6 +391,16 @@ namespace RageV
 				Ref<RHITexture> cascade = i < cascadeCount ? ShadowMap::GetCascadeTexture(i)
 														  : nullptr;
 				sceneSet->SetTexture(2, cascade ? cascade : empty, shadowSampler, i);
+			}
+
+			const Ref<RHITexture> emptyCube = ShadowMap::GetEmptyCube();
+			for (uint32_t i = 0; i < ShadowMap::kMaxLocal; i++)
+			{
+				const Ref<RHITexture> spot = ShadowMap::GetSpotTexture(i);
+				sceneSet->SetTexture(3, spot ? spot : empty, shadowSampler, i);
+
+				const Ref<RHITexture> point = ShadowMap::GetPointTexture(i);
+				sceneSet->SetTexture(4, point ? point : emptyCube, shadowSampler, i);
 			}
 		}
 

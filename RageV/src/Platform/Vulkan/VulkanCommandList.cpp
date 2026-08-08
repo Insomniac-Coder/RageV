@@ -334,23 +334,35 @@ namespace RageV::Vk
 		// belongs here. Getting this backwards produces an upside-down
 		// reflection, which on a sphere is not obviously upside down -- it just
 		// looks wrong.
+		// A point light's shadow is a cube of depth, so this has to carry the
+		// depth aspect as well as the colour one. Both ends always agree --
+		// nothing copies a colour image into a depth one.
+		const bool depth = RHI::IsDepthFormat(source->GetFormat());
+		const VkImageAspectFlags aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT
+												: VK_IMAGE_ASPECT_COLOR_BIT;
+
 		VkImageBlit region{};
-		region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.srcSubresource.aspectMask = aspect;
 		region.srcSubresource.layerCount = 1;
 		region.srcOffsets[0] = { 0, height, 0 };
 		region.srcOffsets[1] = { width, 0, 1 };
-		region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.dstSubresource.aspectMask = aspect;
 		region.dstSubresource.baseArrayLayer = layer;
 		region.dstSubresource.layerCount = 1;
 		region.dstOffsets[0] = { 0, 0, 0 };
 		region.dstOffsets[1] = { width, height, 1 };
 
+		// NEAREST is not a quality choice for depth: the specification requires
+		// it. Filtering depth would average two distances and produce one that
+		// nothing in the scene is at.
 		vkCmdBlitImage(m_CommandBuffer,
 					   src->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 					   dst->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 					   1, &region, VK_FILTER_NEAREST);
 
-		src->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		src->TransitionTo(m_CommandBuffer, depth
+										 ? VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
+										 : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		dst->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
 

@@ -29,6 +29,39 @@ namespace RageV
 		float TexelWorldSize = 0.0f;
 	};
 
+	// A shadow map belonging to one positional light.
+	//
+	// Simpler than a cascade in every way that matters: a spot has a frustum
+	// and a point has a range, so neither needs fitting to whatever the camera
+	// happens to be looking at. That is the entire reason cascades exist, and
+	// the entire reason these are cheap by comparison.
+	struct LocalShadow
+	{
+		enum class Kind : uint32_t { None = 0, Cascades = 1, Spot = 2, Point = 3 };
+
+		Kind Type = Kind::None;
+		int  Slot = -1;
+
+		// Spot only: world space to lookup coordinates, bias folded in.
+		glm::mat4 LookupMatrix{ 1.0f };
+
+		// Point only. The comparison reference is rebuilt in the shader from
+		// the distance along the major axis, so it needs the same far the faces
+		// were rendered with. The near is a shared constant -- see
+		// kPointShadowNear.
+		float FarClip = 25.0f;
+
+		// World size of one of this light's shadow texels, per unit of distance
+		// from it. Unlike a directional cascade, where a texel is a fixed size,
+		// a positional light's texels grow with distance and so must its bias.
+		float TexelScale = 0.0f;
+	};
+
+	// Shared with pbr.rvshader, which rebuilds a point light's comparison depth
+	// from the same projection. The two have to agree or every comparison is
+	// against a depth from a different frustum.
+	constexpr float kPointShadowNear = 0.05f;
+
 	// Cascaded shadow maps for one directional light.
 	//
 	// Directional only, deliberately. A directional light has no position, so
@@ -79,6 +112,40 @@ namespace RageV
 		// nothing casts.
 		static int GetLightIndex();
 		static void SetLightIndex(int index);
+
+		// --- positional lights ---------------------------------------------
+		// Up to this many spot and point lights cast at once. Four of each is
+		// four extra scene renders and twenty-four; past that the answer is
+		// fewer shadow-casting lights, not more slots.
+		static constexpr uint32_t kMaxLocal = 4;
+
+		// One perspective depth map. `viewProjection` is the light's own
+		// frustum, so nothing is fitted and nothing crawls.
+		static void RenderSpot(RHI::RHICommandList& cmd, uint32_t slot, uint32_t resolution,
+							   const glm::mat4& viewProjection, const DrawCasters& draw);
+
+		// Six faces of one, into a depth cube. The face basis is the same table
+		// the reflection probes use -- the two features disagree about nothing.
+		static void RenderPoint(RHI::RHICommandList& cmd, uint32_t slot, uint32_t resolution,
+								const glm::vec3& position, float farClip,
+								const DrawCasters& draw);
+
+		// Which map each light in the scene's list ended up with. Recorded here
+		// rather than on the light, because the assignment is made while
+		// rendering shadows and read while rendering the scene -- two passes
+		// that build their light lists separately and must agree.
+		//
+		// Must match the shader's MAX_LIGHTS.
+		static constexpr uint32_t kMaxLights = 8;
+
+		static void Assign(uint32_t lightIndex, const LocalShadow& shadow);
+		static const LocalShadow& GetAssignment(uint32_t lightIndex);
+
+		static RHI::Ref<RHI::RHITexture> GetSpotTexture(uint32_t slot);
+		static RHI::Ref<RHI::RHITexture> GetPointTexture(uint32_t slot);
+
+		// A cube of "everything passes", for the slots a scene does not use.
+		static RHI::Ref<RHI::RHITexture> GetEmptyCube();
 
 		// Nothing has been rendered this frame, so surfaces must not sample.
 		static void Invalidate();

@@ -662,38 +662,144 @@ namespace RageV
 
 		UpdateWorldTransforms();
 
-		// The first directional light that asks. A second set of cascades is
+		// Nothing to shadow, and a shadow pass over an empty scene is a render
+		// pass that clears and stops.
+		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		if (meshView.begin() == meshView.end())
+			return;
+
+		const uint32_t localResolution =
+			(uint32_t)glm::clamp(m_Environment.ShadowResolution / 2, 256, 4096);
+		const uint32_t pointResolution =
+			(uint32_t)glm::clamp(m_Environment.ShadowResolution / 4, 128, 2048);
+
+		// Drawing every caster, once per map. Culling is roadmap 3.6, and until
+		// it exists a shadow map costs a full scene walk.
+		auto drawCasters = [this, &meshView](const glm::mat4& viewProjection)
+		{
+			Renderer3D::BeginShadow(viewProjection);
+
+			for (auto& item : meshView)
+			{
+				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+
+				if (RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh))
+					Renderer3D::DrawMeshShadow(resolved, transform.World);
+			}
+
+			Renderer3D::EndShadow();
+		};
+
+		const bool flip = Renderer::GetDevice().GetBackend() == RHI::Backend::Vulkan;
+
+		// Clip space to lookup coordinates, with the vertical flip one backend
+		// needs. The same construction the cascades use.
+		glm::mat4 bias(1.0f);
+		bias[0][0] = 0.5f;
+		bias[1][1] = flip ? -0.5f : 0.5f;
+		bias[3][0] = 0.5f;
+		bias[3][1] = 0.5f;
+
+		// The first directional light that asks gets cascades. A second set is
 		// four more scene renders for a light that is a fill in every scene
 		// this is likely to see.
 		int index = 0;
 		int casterIndex = -1;
+		uint32_t spotSlot = 0;
+		uint32_t pointSlot = 0;
 		glm::vec3 direction(0.0f, -1.0f, 0.0f);
 
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
 		for (auto& item : lightView)
 		{
-			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
-
-			if (casterIndex < 0 && light.Light.CastShadows &&
-				light.Light.Type == Light::LightType::Directional)
-			{
-				casterIndex = index;
-				direction = glm::normalize(
-					glm::vec3(transform.World * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
-			}
-
-			index++;
-			if (index >= 8)   // the shader's light cap
+			if (index >= (int)ShadowMap::kMaxLights)   // the shader's light cap
 				break;
+
+			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
+			const int lightIndex = index++;
+
+			if (!light.Light.CastShadows)
+				continue;
+
+			const glm::vec3 position = glm::vec3(transform.World[3]);
+			const glm::vec3 forward = glm::normalize(
+				glm::vec3(transform.World * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+
+			switch (light.Light.Type)
+			{
+				case Light::LightType::Directional:
+				{
+					if (casterIndex >= 0)
+						break;
+
+					casterIndex = lightIndex;
+					direction = forward;
+
+					LocalShadow assigned;
+					assigned.Type = LocalShadow::Kind::Cascades;
+					ShadowMap::Assign((uint32_t)lightIndex, assigned);
+					break;
+				}
+
+				case Light::LightType::Spot:
+				{
+					if (spotSlot >= ShadowMap::kMaxLocal)
+						break;
+
+					// The light's own cone, widened a little: the outer angle is
+					// where the light reaches zero, and a shadow that ends
+					// exactly there has a hard edge at the cone's rim.
+					const float fov = glm::radians(
+						glm::clamp(light.Light.OuterCone * 2.2f, 10.0f, 170.0f));
+					const float reach = glm::max(light.Light.Range, 0.5f);
+
+					const glm::vec3 up = std::fabs(forward.y) > 0.99f
+									   ? glm::vec3(0.0f, 0.0f, 1.0f)
+									   : glm::vec3(0.0f, 1.0f, 0.0f);
+
+					const glm::mat4 view = glm::lookAt(position, position + forward, up);
+					const glm::mat4 projection =
+						glm::perspective(fov, 1.0f, kPointShadowNear, reach);
+
+					LocalShadow assigned;
+					assigned.Type = LocalShadow::Kind::Spot;
+					assigned.Slot = (int)spotSlot;
+					assigned.LookupMatrix = bias * projection * view;
+					assigned.FarClip = reach;
+					assigned.TexelScale = 2.0f * std::tan(fov * 0.5f) / (float)localResolution;
+
+					ShadowMap::Assign((uint32_t)lightIndex, assigned);
+					ShadowMap::RenderSpot(*cmd, spotSlot, localResolution,
+										  projection * view, drawCasters);
+					spotSlot++;
+					break;
+				}
+
+				case Light::LightType::Point:
+				{
+					if (pointSlot >= ShadowMap::kMaxLocal)
+						break;
+
+					const float reach = glm::max(light.Light.Range, 0.5f);
+
+					LocalShadow assigned;
+					assigned.Type = LocalShadow::Kind::Point;
+					assigned.Slot = (int)pointSlot;
+					assigned.FarClip = reach;
+					// A face is 90 degrees, so tan(45) is one and a texel is
+					// two units of distance divided by the resolution.
+					assigned.TexelScale = 2.0f / (float)pointResolution;
+
+					ShadowMap::Assign((uint32_t)lightIndex, assigned);
+					ShadowMap::RenderPoint(*cmd, pointSlot, pointResolution,
+										   position, reach, drawCasters);
+					pointSlot++;
+					break;
+				}
+			}
 		}
 
 		if (casterIndex < 0)
-			return;
-
-		// Nothing to shadow, and a cascade of an empty scene is four render
-		// passes that clear and stop.
-		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
-		if (meshView.begin() == meshView.end())
 			return;
 
 		const uint32_t count = (uint32_t)glm::clamp(m_Environment.ShadowCascades, 1,
@@ -712,26 +818,10 @@ namespace RageV
 								   0.1f, m_Environment.ShadowDistance,
 								   direction, count, resolution,
 								   m_Environment.ShadowSplitLambda,
-								   Renderer::GetDevice().GetBackend() == RHI::Backend::Vulkan,
-								   cascades);
+								   flip, cascades);
 
 		ShadowMap::SetLightIndex(casterIndex);
-		ShadowMap::Render(*cmd, cascades, count, resolution,
-			[this, &meshView](const glm::mat4& viewProjection)
-			{
-				Renderer3D::BeginShadow(viewProjection);
-
-				for (auto& item : meshView)
-				{
-					auto [transform, mesh] =
-						meshView.get<TransformComponent, MeshComponent>(item);
-
-					if (RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh))
-						Renderer3D::DrawMeshShadow(resolved, transform.World);
-				}
-
-				Renderer3D::EndShadow();
-			});
+		ShadowMap::Render(*cmd, cascades, count, resolution, drawCasters);
 	}
 
 	void Scene::CaptureReflectionProbes()

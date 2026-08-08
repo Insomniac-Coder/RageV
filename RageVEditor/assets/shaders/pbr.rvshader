@@ -44,8 +44,14 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 CascadeTexel;    // world size of one texel in each
 	vec4 CameraForward;   // selection needs a view depth, and there is no view matrix
 	// x = cascades rendered (0 = none), y = normal offset scale,
-	// z = one texel in lookup coordinates, w = index of the casting light
+	// z = one cascade texel in lookup coordinates, w unused
 	vec4 ShadowParams;
+
+	// Per light: x = which kind of map it has, y = which slot, z = its far
+	// distance, w = the world size of one of its texels per unit of distance.
+	// A light with kind 0 casts nothing, which is most of them.
+	vec4 LightShadow[MAX_LIGHTS];
+	mat4 SpotLookup[4];
 
 	int  LightCount;
 } u_Scene;
@@ -98,6 +104,8 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 CascadeTexel;
 	vec4 CameraForward;
 	vec4 ShadowParams;
+	vec4 LightShadow[MAX_LIGHTS];
+	mat4 SpotLookup[4];
 	int  LightCount;
 } u_Scene;
 
@@ -109,6 +117,13 @@ layout(set = 0, binding = 1) uniform samplerCube u_Environment;
 // samplers by a value that varies per fragment is not dynamically uniform --
 // the switch below keeps every index constant, which is always legal.
 layout(set = 0, binding = 2) uniform sampler2DShadow u_ShadowMaps[4];
+layout(set = 0, binding = 3) uniform sampler2DShadow u_SpotShadows[4];
+layout(set = 0, binding = 4) uniform samplerCubeShadow u_PointShadows[4];
+
+// Shared with ShadowMap.cpp. A point light's faces are all rendered with the
+// same near plane, so it does not need storing per light -- but the two have to
+// agree, or every comparison is against a depth from a different projection.
+const float POINT_SHADOW_NEAR = 0.05;
 
 layout(set = 1, binding = 0) uniform MaterialData
 {
@@ -197,6 +212,71 @@ float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
 	}
 
 	return sum / 9.0;
+}
+
+float SampleSpot(int slot, vec3 coordinate)
+{
+	if (slot == 0) return texture(u_SpotShadows[0], coordinate);
+	if (slot == 1) return texture(u_SpotShadows[1], coordinate);
+	if (slot == 2) return texture(u_SpotShadows[2], coordinate);
+	return texture(u_SpotShadows[3], coordinate);
+}
+
+float SamplePoint(int slot, vec4 coordinate)
+{
+	if (slot == 0) return texture(u_PointShadows[0], coordinate);
+	if (slot == 1) return texture(u_PointShadows[1], coordinate);
+	if (slot == 2) return texture(u_PointShadows[2], coordinate);
+	return texture(u_PointShadows[3], coordinate);
+}
+
+// A spot light's own frustum, so there is nothing to fit and nothing to select.
+float SpotShadow(int slot, vec3 lightPos, float texelScale, vec3 worldPos, vec3 N, vec3 L)
+{
+	float NdotL = clamp(dot(N, L), 0.0, 1.0);
+	float slope = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
+
+	// A texel's world size grows with distance from the light, unlike a
+	// directional cascade where it is constant, so the offset has to as well.
+	float distanceToLight = length(worldPos - lightPos);
+	float offset = texelScale * distanceToLight * u_Scene.ShadowParams.y *
+				   (1.0 + min(slope, 4.0));
+
+	vec4 lightSpace = u_Scene.SpotLookup[slot] * vec4(worldPos + N * offset, 1.0);
+	if (lightSpace.w <= 0.0)
+		return 1.0;
+
+	vec3 coordinate = lightSpace.xyz / lightSpace.w;
+	if (coordinate.z > 1.0)
+		return 1.0;
+
+	return SampleSpot(slot, coordinate);
+}
+
+// Six faces of one, addressed by direction. No matrix: the reference depth is
+// rebuilt from the distance along whichever axis the face was chosen by, which
+// is what the projection did when the face was rendered.
+float PointShadow(int slot, vec3 lightPos, float farClip, float texelScale,
+				  vec3 worldPos, vec3 N)
+{
+	vec3 toFragment = worldPos - lightPos;
+	float distanceToLight = length(toFragment);
+
+	// Offset before the direction is taken, so a surface facing the light is
+	// pushed out of its own shadow rather than sideways along the cube.
+	vec3 offsetPos = worldPos + N * (texelScale * distanceToLight * u_Scene.ShadowParams.y);
+	toFragment = offsetPos - lightPos;
+
+	float major = max(abs(toFragment.x), max(abs(toFragment.y), abs(toFragment.z)));
+	if (major <= POINT_SHADOW_NEAR || major >= farClip)
+		return 1.0;
+
+	// The depth glm's perspective would have written for a point this far down
+	// the face's axis, with GLM_FORCE_DEPTH_ZERO_TO_ONE.
+	float depth = (farClip / (farClip - POINT_SHADOW_NEAR)) *
+				  (1.0 - POINT_SHADOW_NEAR / major);
+
+	return SamplePoint(slot, vec4(toFragment, depth));
 }
 
 // Turns a direction into the sky's own frame. The sky pass folds the same
@@ -374,13 +454,20 @@ void main()
 
 		float NdotL = max(dot(N, L), 0.0);
 
-		// Only the one light that rendered cascades this frame is shadowed.
-		// Every other light is unoccluded, which is wrong and is the honest
-		// shape of "one shadow-casting light" rather than a silent
-		// approximation applied to all of them.
-		float shadow = (i == int(u_Scene.ShadowParams.w))
-					 ? ShadowFactor(v_WorldPos, N, L)
-					 : 1.0;
+		// Each light carries which kind of map it has, if any.
+		int kind = int(u_Scene.LightShadow[i].x);
+		int slot = int(u_Scene.LightShadow[i].y);
+
+		float shadow = 1.0;
+		if (kind == 1)
+			shadow = ShadowFactor(v_WorldPos, N, L);
+		else if (kind == 2)
+			shadow = SpotShadow(slot, u_Scene.LightPositions[i].xyz,
+								u_Scene.LightShadow[i].w, v_WorldPos, N, L);
+		else if (kind == 3)
+			shadow = PointShadow(slot, u_Scene.LightPositions[i].xyz,
+								 u_Scene.LightShadow[i].z, u_Scene.LightShadow[i].w,
+								 v_WorldPos, N);
 
 		Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
 	}

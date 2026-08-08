@@ -578,7 +578,10 @@ namespace RageV::Vk
 			depthDesc.Layers = m_Desc.Layers;
 			depthDesc.Type = m_Desc.Layers > 1 ? RHI::TextureType::Texture2DArray : RHI::TextureType::Texture2D;
 			depthDesc.Samples = m_Desc.Samples;
-			depthDesc.Usage = RHI::TextureUsage::DepthAttachment;
+			// TransferSrc like the colour attachments, and for the same reason:
+			// something eventually wants to copy what was rendered. A point
+			// light's shadow is six of these blitted into a depth cube.
+			depthDesc.Usage = RHI::TextureUsage::DepthAttachment | RHI::TextureUsage::TransferSrc;
 			// Shadow maps are sampled after being rendered.
 			if (m_Desc.DepthSampled)
 				depthDesc.Usage = depthDesc.Usage | RHI::TextureUsage::Sampled;

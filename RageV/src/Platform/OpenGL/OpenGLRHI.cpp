@@ -909,11 +909,32 @@ namespace RageV::GL
 		const uint32_t src = std::static_pointer_cast<OpenGLTextureRHI>(source)->GetHandle();
 		const uint32_t dst = std::static_pointer_cast<OpenGLTextureRHI>(destination)->GetHandle();
 
-		glNamedFramebufferTexture(m_CopyRead, GL_COLOR_ATTACHMENT0, src, 0);
-		glNamedFramebufferReadBuffer(m_CopyRead, GL_COLOR_ATTACHMENT0);
+		// Depth as well as colour: a point light's shadow is a cube of it.
+		const bool depth = IsDepthFormat(source->GetFormat());
+		const GLenum attachment = depth ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0;
+		const GLbitfield mask = depth ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT;
 
-		glNamedFramebufferTextureLayer(m_CopyDraw, GL_COLOR_ATTACHMENT0, dst, 0, (GLint)layer);
-		glNamedFramebufferDrawBuffer(m_CopyDraw, GL_COLOR_ATTACHMENT0);
+		// Detach everything first.
+		//
+		// These two framebuffers are shared by every copy: a reflection probe's
+		// colour faces and a point light's depth faces both come through here,
+		// at different sizes. A stale attachment of the wrong size is not an
+		// error in GL 4.5 -- the blittable region becomes the intersection --
+		// so the copy silently moves a corner of the image and the rest of the
+		// face keeps whatever it had. That is a whole feature quietly half
+		// working, with nothing reported anywhere.
+		glNamedFramebufferTexture(m_CopyRead, GL_COLOR_ATTACHMENT0, 0, 0);
+		glNamedFramebufferTexture(m_CopyRead, GL_DEPTH_ATTACHMENT, 0, 0);
+		glNamedFramebufferTexture(m_CopyDraw, GL_COLOR_ATTACHMENT0, 0, 0);
+		glNamedFramebufferTexture(m_CopyDraw, GL_DEPTH_ATTACHMENT, 0, 0);
+
+		glNamedFramebufferTexture(m_CopyRead, attachment, src, 0);
+		glNamedFramebufferTextureLayer(m_CopyDraw, attachment, dst, 0, (GLint)layer);
+
+		// A framebuffer with no colour attachment has to say so explicitly, or
+		// it is incomplete and the blit silently does nothing.
+		glNamedFramebufferReadBuffer(m_CopyRead, depth ? GL_NONE : GL_COLOR_ATTACHMENT0);
+		glNamedFramebufferDrawBuffer(m_CopyDraw, depth ? GL_NONE : GL_COLOR_ATTACHMENT0);
 
 		// Scissor is on for the life of the context so the RHI's SetScissor
 		// means something, and a blit is scissored like anything else. Off for
@@ -928,7 +949,7 @@ namespace RageV::GL
 		glBlitNamedFramebuffer(m_CopyRead, m_CopyDraw,
 							   0, 0, (GLint)width, (GLint)height,
 							   0, 0, (GLint)width, (GLint)height,
-							   GL_COLOR_BUFFER_BIT, GL_NEAREST);
+							   mask, GL_NEAREST);
 
 		glEnable(GL_SCISSOR_TEST);
 	}

@@ -1,6 +1,8 @@
 #include <rvpch.h>
 #include "ShadowMap.h"
 #include "Renderer.h"
+#include "ReflectionProbe.h"
+#include "Cubemap.h"
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace RageV
@@ -26,6 +28,22 @@ namespace RageV
 			std::array<ShadowCascade, ShadowMap::kMaxCascades> Cascades{};
 			uint32_t Rendered = 0;
 			int LightIndex = -1;
+
+			// Positional lights. A spot is one 2D map; a point is a depth cube
+			// filled the same way a reflection probe is -- render a face into a
+			// scratch target, copy it into the layer -- because the two
+			// backends store a rendered image the opposite way up and
+			// CopyToTextureLayer is the one place that is reconciled.
+			std::array<RHI::Ref<RHIRenderTarget>, ShadowMap::kMaxLocal> SpotTargets;
+			std::array<RHI::Ref<RHITexture>, ShadowMap::kMaxLocal> PointCubes;
+			RHI::Ref<RHIRenderTarget> PointScratch;
+			uint32_t LocalResolution = 0;
+			uint32_t PointResolution = 0;
+
+			RHI::Ref<RHITexture> EmptyCube;
+
+			std::array<LocalShadow, ShadowMap::kMaxLights> Assignments{};
+
 			bool Ready = false;
 		};
 
@@ -99,7 +117,31 @@ namespace RageV
 				s_Data->Empty->Upload(&lit, sizeof(lit));
 		}
 
-		s_Data->Ready = s_Data->Sampler != nullptr && s_Data->Empty != nullptr;
+		{
+			// The same "everything passes" answer, in the shape a cube sampler
+			// wants. Every declared binding has to be filled whether or not a
+			// scene uses it.
+			TextureDesc desc;
+			desc.Width = 1;
+			desc.Height = 1;
+			desc.Layers = 6;
+			desc.Type = TextureType::TextureCube;
+			desc.Format = Format::D32_SFLOAT;
+			desc.Usage = TextureUsage::Sampled | TextureUsage::DepthAttachment |
+						 TextureUsage::TransferDst;
+			desc.DebugName = "shadow.emptycube";
+
+			s_Data->EmptyCube = device.CreateTexture(desc);
+			const float lit = 1.0f;
+			if (s_Data->EmptyCube)
+			{
+				for (uint32_t face = 0; face < 6; face++)
+					s_Data->EmptyCube->UploadLayer(&lit, sizeof(lit), face);
+			}
+		}
+
+		s_Data->Ready = s_Data->Sampler != nullptr && s_Data->Empty != nullptr &&
+						s_Data->EmptyCube != nullptr;
 		RV_CORE_INFO("Shadow maps ready (directional, up to {0} cascades)", kMaxCascades);
 	}
 
@@ -119,7 +161,22 @@ namespace RageV
 		{
 			s_Data->Rendered = 0;
 			s_Data->LightIndex = -1;
+			s_Data->Assignments.fill(LocalShadow{});
 		}
+	}
+
+	void ShadowMap::Assign(uint32_t lightIndex, const LocalShadow& shadow)
+	{
+		if (s_Data && lightIndex < kMaxLights)
+			s_Data->Assignments[lightIndex] = shadow;
+	}
+
+	const LocalShadow& ShadowMap::GetAssignment(uint32_t lightIndex)
+	{
+		static const LocalShadow none;
+		if (!s_Data || lightIndex >= kMaxLights)
+			return none;
+		return s_Data->Assignments[lightIndex];
 	}
 
 	const ShadowCascade* ShadowMap::GetCascades()
@@ -168,6 +225,151 @@ namespace RageV
 	Ref<RHITexture> ShadowMap::GetEmptyTexture()
 	{
 		return s_Data ? s_Data->Empty : nullptr;
+	}
+
+	Ref<RHITexture> ShadowMap::GetEmptyCube()
+	{
+		return s_Data ? s_Data->EmptyCube : nullptr;
+	}
+
+	Ref<RHITexture> ShadowMap::GetSpotTexture(uint32_t slot)
+	{
+		if (!s_Data || slot >= kMaxLocal || !s_Data->SpotTargets[slot])
+			return nullptr;
+		return s_Data->SpotTargets[slot]->GetDepthTexture();
+	}
+
+	Ref<RHITexture> ShadowMap::GetPointTexture(uint32_t slot)
+	{
+		if (!s_Data || slot >= kMaxLocal)
+			return nullptr;
+		return s_Data->PointCubes[slot];
+	}
+
+	void ShadowMap::RenderSpot(RHICommandList& cmd, uint32_t slot, uint32_t resolution,
+							   const glm::mat4& viewProjection, const DrawCasters& draw)
+	{
+		if (!s_Data || !s_Data->Ready || !draw || slot >= kMaxLocal)
+			return;
+
+		resolution = glm::clamp(resolution, 256u, 4096u);
+
+		if (s_Data->LocalResolution != resolution)
+		{
+			for (auto& target : s_Data->SpotTargets)
+				target.reset();
+			s_Data->LocalResolution = resolution;
+		}
+
+		if (!s_Data->SpotTargets[slot])
+		{
+			RenderTargetDesc desc;
+			desc.Width = resolution;
+			desc.Height = resolution;
+			desc.ColorAttachments.clear();
+			desc.HasDepth = true;
+			desc.DepthAttachment.Format = Format::D32_SFLOAT;
+			desc.DepthSampled = true;
+			desc.DebugName = "shadow.spot" + std::to_string(slot);
+
+			s_Data->SpotTargets[slot] = s_Data->Device->CreateRenderTarget(desc);
+		}
+
+		if (!s_Data->SpotTargets[slot])
+			return;
+
+		RenderPassBeginInfo begin;
+		begin.Target = s_Data->SpotTargets[slot].get();
+		begin.ClearColor = false;
+		begin.ClearDepth = true;
+		begin.UseDepth = true;
+		begin.Clear.Depth = 1.0f;
+
+		cmd.PushDebugGroup("Spot shadow");
+		cmd.BeginRenderPass(begin);
+		draw(viewProjection);
+		cmd.EndRenderPass();
+		cmd.PopDebugGroup();
+	}
+
+	void ShadowMap::RenderPoint(RHICommandList& cmd, uint32_t slot, uint32_t resolution,
+								const glm::vec3& position, float farClip,
+								const DrawCasters& draw)
+	{
+		if (!s_Data || !s_Data->Ready || !draw || slot >= kMaxLocal)
+			return;
+
+		// Smaller than a spot map by default and deliberately: this is six of
+		// them, and a point light's shadow is seen from every direction at once
+		// so no single face carries much of the frame.
+		resolution = glm::clamp(resolution, 128u, 2048u);
+
+		if (s_Data->PointResolution != resolution)
+		{
+			for (auto& cube : s_Data->PointCubes)
+				cube.reset();
+			s_Data->PointScratch.reset();
+			s_Data->PointResolution = resolution;
+		}
+
+		if (!s_Data->PointCubes[slot])
+		{
+			TextureDesc desc;
+			desc.Width = resolution;
+			desc.Height = resolution;
+			desc.Layers = CubeFaces::kFaceCount;
+			desc.Type = TextureType::TextureCube;
+			desc.Format = Format::D32_SFLOAT;
+			desc.Usage = TextureUsage::Sampled | TextureUsage::DepthAttachment |
+						 TextureUsage::TransferDst;
+			desc.DebugName = "shadow.point" + std::to_string(slot);
+
+			s_Data->PointCubes[slot] = s_Data->Device->CreateTexture(desc);
+		}
+
+		if (!s_Data->PointScratch)
+		{
+			RenderTargetDesc desc;
+			desc.Width = resolution;
+			desc.Height = resolution;
+			desc.ColorAttachments.clear();
+			desc.HasDepth = true;
+			desc.DepthAttachment.Format = Format::D32_SFLOAT;
+			// Sampled, because the copy reads it.
+			desc.DepthSampled = true;
+			desc.DebugName = "shadow.pointface";
+
+			s_Data->PointScratch = s_Data->Device->CreateRenderTarget(desc);
+		}
+
+		if (!s_Data->PointCubes[slot] || !s_Data->PointScratch)
+			return;
+
+		const glm::mat4 projection = ReflectionProbe::FaceProjection(kPointShadowNear, farClip);
+		const Ref<RHITexture> face = s_Data->PointScratch->GetDepthTexture();
+
+		cmd.PushDebugGroup("Point shadow");
+
+		for (uint32_t i = 0; i < CubeFaces::kFaceCount; i++)
+		{
+			RenderPassBeginInfo begin;
+			begin.Target = s_Data->PointScratch.get();
+			begin.ClearColor = false;
+			begin.ClearDepth = true;
+			begin.UseDepth = true;
+			begin.Clear.Depth = 1.0f;
+
+			cmd.BeginRenderPass(begin);
+			// The same face basis a reflection probe captures with. Two
+			// features that disagreed about which way a cube face points would
+			// be two features that could not be debugged together.
+			draw(projection * glm::inverse(ReflectionProbe::FaceTransform(i, position)));
+			cmd.EndRenderPass();
+
+			cmd.CopyToTextureLayer(face, s_Data->PointCubes[slot], i);
+		}
+
+		cmd.PopDebugGroup();
 	}
 
 	void ShadowMap::ComputeCascades(const glm::mat4& cameraTransform,
