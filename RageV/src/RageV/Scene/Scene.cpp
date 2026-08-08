@@ -3,6 +3,7 @@
 #include "Entity.h"
 #include "ScriptableEntity.h"
 #include "Components.h"
+#include "ScriptRegistry.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
@@ -39,8 +40,9 @@ namespace RageV
 			return;
 
 		component.Instance->OnDestroy();
-		if (component.DestroyScript)
-			component.DestroyScript(&component);
+		// Virtual destructor, so this destroys the derived type.
+		delete component.Instance;
+		component.Instance = nullptr;
 	}
 
 	void Scene::OnIDDestroyed(entt::registry& registry, entt::entity handle)
@@ -75,6 +77,53 @@ namespace RageV
 		if (it == m_EntityMap.end())
 			return {};
 		return { it->second, this };
+	}
+
+	Entity Scene::FindEntityByName(const std::string& name)
+	{
+		auto view = m_Registry.view<TagComponent>();
+		for (auto handle : view)
+		{
+			if (view.get<TagComponent>(handle).Name == name)
+				return { handle, this };
+		}
+		return {};
+	}
+
+	std::vector<Entity> Scene::FindEntitiesByName(const std::string& name)
+	{
+		std::vector<Entity> found;
+		auto view = m_Registry.view<TagComponent>();
+		for (auto handle : view)
+		{
+			if (view.get<TagComponent>(handle).Name == name)
+				found.push_back({ handle, this });
+		}
+		return found;
+	}
+
+	void Scene::DestroyDeferred(Entity entity)
+	{
+		if (!entity)
+			return;
+
+		// By id, not by handle: whatever runs the queue may be several steps
+		// later, and handles are recycled.
+		m_PendingDestroy.push_back(entity.GetUUID());
+	}
+
+	void Scene::FlushDestroyQueue()
+	{
+		if (m_PendingDestroy.empty())
+			return;
+
+		// Moved out first: DeleteEntity recurses into children, and a script's
+		// OnDestroy running during that could queue more.
+		std::vector<UUID> pending;
+		pending.swap(m_PendingDestroy);
+
+		for (UUID id : pending)
+			DeleteEntity(GetEntityByUUID(id));
 	}
 
 	void Scene::DeleteEntity(Entity entity)
@@ -292,23 +341,47 @@ namespace RageV
 
 	void Scene::OnFixedUpdateRuntime(Timestep dt)
 	{
-		m_Registry.view<NativeScriptComponent>().each([&](auto handle, NativeScriptComponent& script)
+		// The handles are collected before stepping any of them. A script may
+		// spawn an entity, attach a script to it, or remove one -- any of which
+		// restructures the pool a view is iterating.
+		std::vector<entt::entity> scripted;
+		m_Registry.view<NativeScriptComponent>().each(
+			[&](auto handle, NativeScriptComponent&) { scripted.push_back(handle); });
+
+		for (entt::entity handle : scripted)
+		{
+			// May have been destroyed by an earlier script in this same step.
+			auto* script = m_Registry.try_get<NativeScriptComponent>(handle);
+			if (!script)
+				continue;
+
+			if (!script->Instance)
 			{
-				if (!script.Instance)
-				{
-					if (!script.InstantiateScript)
-						return;
+				if (script->ScriptName.empty())
+					continue;
 
-					script.Instance = script.InstantiateScript();
-					script.Instance->m_Entity = Entity{ handle, this };
-					script.Instance->OnCreate();
-				}
+				script->Instance = ScriptRegistry::Create(script->ScriptName);
+				if (!script->Instance)
+					continue;
 
-				// On the fixed step, not the frame: a script that moves
-				// something has to agree with the physics that will push it.
-				script.Instance->OnUpdate(dt);
+				script->Instance->m_Entity = Entity{ handle, this };
+				script->Instance->OnCreate();
+
+				// OnCreate may have destroyed something, including this entity.
+				script = m_Registry.try_get<NativeScriptComponent>(handle);
+				if (!script || !script->Instance)
+					continue;
 			}
-		);
+
+			// On the fixed step, not the frame: a script that moves something
+			// has to agree with the physics that will push it.
+			script->Instance->OnUpdate(dt);
+		}
+
+		// Applied once the pass is over, so a script can destroy anything --
+		// including itself -- without deleting the object it is executing in.
+		FlushDestroyQueue();
+		UpdateWorldTransforms();
 	}
 
 	void Scene::OnRenderRuntime()

@@ -19,6 +19,9 @@ namespace RageV {
 		// draw at lerp(previous, current, alpha) or it will stutter.
 		static float GetInterpolationAlpha();
 		static float GetFixedTimestep();
+		// Seconds since startup. Scripts want this without reaching for the
+		// platform layer.
+		static float GetElapsedTime();
 
 		Application(const std::string& appname);
 		virtual ~Application();
@@ -31,6 +34,10 @@ namespace RageV {
 		void PushLayer(Layer* layer);
 		inline Window& GetWindow() { return *m_Window; }
 		inline static Application& Get() { return *m_Instance; }
+		// Get() dereferences unconditionally, so anything that may run without
+		// an application -- a headless tool, or code during construction --
+		// has to ask first.
+		inline static bool Exists() { return m_Instance != nullptr; }
 		ImGuiLayer* GetImGuiLayer() const { return m_ImGuiLayer; }
 		RHI::RHIDevice& GetDevice() { return *m_Device; }
 	private:

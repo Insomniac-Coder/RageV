@@ -32,6 +32,18 @@ namespace RageV
 		void DeleteEntity(Entity entity);
 
 		Entity GetEntityByUUID(UUID id);
+
+		// First match, or an invalid entity. Names are not unique -- they are a
+		// label, not an identity -- so FindEntitiesByName exists for the cases
+		// where that matters.
+		Entity FindEntityByName(const std::string& name);
+		std::vector<Entity> FindEntitiesByName(const std::string& name);
+
+		// Queued rather than immediate. A script destroying an entity while the
+		// script pass is walking them would invalidate that iteration, and a
+		// script destroying itself would delete the object it is executing in.
+		void DestroyDeferred(Entity entity);
+		void FlushDestroyQueue();
 		bool HasEntity(UUID id) const { return m_EntityMap.find(id) != m_EntityMap.end(); }
 
 		// --- hierarchy ------------------------------------------------------
@@ -101,6 +113,7 @@ namespace RageV
 		entt::registry m_Registry;
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 		SceneEnvironment m_Environment;
+		std::vector<UUID> m_PendingDestroy;
 
 		friend class Entity;
 		friend class SceneHierarchyPanel;

@@ -6,6 +6,7 @@
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
+#include "RageV/Scene/ScriptRegistry.h"
 
 RageV::SceneHierarchyPanel::SceneHierarchyPanel(const std::shared_ptr<Scene>& sceneref)
 {
@@ -449,6 +450,37 @@ namespace
 			case FieldType::String:
 			{
 				BeginField(field.Name, hint.Tooltip);
+
+				// Scripts are picked from what is registered, not typed. A
+				// free-text field lets a typo produce an entity that does
+				// nothing with no indication why.
+				if (std::string(field.Name) == "Script")
+				{
+					std::string& current = *(std::string*)value;
+					const std::vector<std::string> names = ScriptRegistry::GetNames();
+
+					if (ImGui::BeginCombo("##value", current.empty() ? "(none)" : current.c_str()))
+					{
+						if (ImGui::Selectable("(none)", current.empty()))
+						{
+							current.clear();
+							changed = true;
+						}
+						for (const std::string& name : names)
+						{
+							if (ImGui::Selectable(name.c_str(), name == current))
+							{
+								current = name;
+								changed = true;
+							}
+						}
+						ImGui::EndCombo();
+					}
+
+					EndField();
+					break;
+				}
+
 				std::string& text = *(std::string*)value;
 				char buffer[256];
 				memset(buffer, 0, sizeof(buffer));
@@ -604,6 +636,22 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 
 			if (std::string(desc.Name) == "MeshComponent")
 				DrawMaterial(*static_cast<MeshComponent*>(component));
+
+			if (std::string(desc.Name) == "NativeScriptComponent")
+			{
+				auto* script = static_cast<NativeScriptComponent*>(component);
+				if (!script->ScriptName.empty() && !ScriptRegistry::IsRegistered(script->ScriptName))
+				{
+					// A scene can outlive the script it names. Saying so beats
+					// an entity that silently does nothing.
+					ImGui::TextColored(EditorTheme::Color::AccentHover,
+									   "'%s' is not registered", script->ScriptName.c_str());
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("The scene refers to a script this build does not "
+										  "contain. The entity will run nothing.");
+				}
+				ImGui::TextDisabled("Runs on the fixed step, only while playing.");
+			}
 
 			// One place where derived state is refreshed, so a field added
 			// later cannot forget to do it.

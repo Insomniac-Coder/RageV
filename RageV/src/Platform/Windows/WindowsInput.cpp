@@ -5,42 +5,59 @@
 
 namespace RageV {
 
+	namespace
+	{
+		// Null when there is no application -- a headless tool, or anything
+		// running before Application's constructor finishes. Application::Get()
+		// dereferences its instance pointer unconditionally, so calling any of
+		// these without one used to be a null dereference rather than a
+		// diagnosable failure.
+		GLFWwindow* NativeWindow()
+		{
+			if (!Application::Exists())
+				return nullptr;
+
+			return static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+		}
+	}
+
 	bool Input::IsKeyPressed(int keycode)
 	{
-		auto windowPtr = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		auto state = glfwGetKey(windowPtr, keycode);
+		GLFWwindow* window = NativeWindow();
+		if (!window)
+			return false;
 
+		const auto state = glfwGetKey(window, keycode);
 		return state == GLFW_PRESS || state == GLFW_REPEAT;
 	}
 
 	bool Input::IsMouseButtonPressed(int button)
 	{
-		auto windowPtr = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		auto state = glfwGetMouseButton(windowPtr, button);
+		GLFWwindow* window = NativeWindow();
+		if (!window)
+			return false;
 
-		return state == GLFW_PRESS;
+		return glfwGetMouseButton(window, button) == GLFW_PRESS;
 	}
 
 	float Input::GetMouseX()
 	{
-		auto [x, y] = GetMousePosition();
-
-		return (float)x;
+		return GetMousePosition().first;
 	}
 
 	float Input::GetMouseY()
 	{
-		auto [x,y] = GetMousePosition();
-
-		return (float)y;
+		return GetMousePosition().second;
 	}
 
 	std::pair<float, float> Input::GetMousePosition()
 	{
-		auto windowPtr = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		double xPos, yPos;
-		glfwGetCursorPos(windowPtr, &xPos, &yPos);
+		GLFWwindow* window = NativeWindow();
+		if (!window)
+			return { 0.0f, 0.0f };
 
+		double xPos = 0.0, yPos = 0.0;
+		glfwGetCursorPos(window, &xPos, &yPos);
 		return { (float)xPos, (float)yPos };
 	}
 

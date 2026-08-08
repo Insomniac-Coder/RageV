@@ -3,6 +3,7 @@
 #include "Components.h"
 #include "Entity.h"
 #include "RageV/Renderer/Renderer.h"
+#include "ScriptRegistry.h"
 
 namespace RageV
 {
@@ -312,6 +313,20 @@ namespace RageV
 					OnlyWhen(IsSpot, Slider(0.0f, 89.0f))),
 			};
 			Bind<LightComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- Native script ---------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "NativeScriptComponent";
+			desc.DisplayName = "Script";
+			// The registered name is the durable reference, the way an asset
+			// handle is for assets. Presented as a dropdown of what is actually
+			// registered rather than a free-text field, so a typo cannot
+			// produce an entity that silently does nothing.
+			desc.Fields = { Field<&NativeScriptComponent::ScriptName>("Script") };
+			Bind<NativeScriptComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
 

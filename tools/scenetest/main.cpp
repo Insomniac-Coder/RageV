@@ -25,6 +25,9 @@
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Core/FixedStep.h"
+#include "RageV/Core/InputMap.h"
+#include "RageV/Core/KeyCodes.h"
+#include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
@@ -472,6 +475,187 @@ namespace
 		CheckHierarchyPreserved(scene);
 	}
 
+	// A script that records what it was given, so the API can be exercised
+	// without a window or a keyboard.
+	class ProbeScript : public ScriptableEntity
+	{
+	public:
+		inline static int Created = 0;
+		inline static int Updated = 0;
+		inline static int Destroyed = 0;
+		inline static float LastDelta = 0.0f;
+		inline static std::string SeenName;
+		inline static bool FoundOther = false;
+		inline static bool SelfDestruct = false;
+		inline static bool SpawnOnCreate = false;
+
+		static void Reset()
+		{
+			Created = Updated = Destroyed = 0;
+			LastDelta = 0.0f;
+			SeenName.clear();
+			FoundOther = false;
+			SelfDestruct = false;
+			SpawnOnCreate = false;
+		}
+
+		void OnCreate() override
+		{
+			Created++;
+			SeenName = GetName();
+			FoundOther = (bool)FindEntityByName("Target");
+
+			if (SpawnOnCreate)
+				Spawn("Spawned");
+		}
+
+		void OnUpdate(Timestep dt) override
+		{
+			Updated++;
+			LastDelta = dt.GetSeconds();
+
+			// Moving through the API rather than the component, so the helpers
+			// are what is under test.
+			Translate({ 1.0f, 0.0f, 0.0f });
+
+			if (SelfDestruct)
+				Destroy();
+		}
+
+		void OnDestroy() override { Destroyed++; }
+	};
+
+	void CheckScriptApi()
+	{
+		ScriptRegistry::Register("ProbeScript", []() -> ScriptableEntity* { return new ProbeScript(); });
+		Check(ScriptRegistry::IsRegistered("ProbeScript"), "a script registers by name");
+		Check(ScriptRegistry::Create("NoSuchScript") == nullptr,
+			  "an unknown script name yields nothing rather than crashing");
+
+		ProbeScript::Reset();
+
+		auto scene = std::make_shared<Scene>();
+		Entity target = scene->CreateEntity("Target");
+
+		Entity actor = scene->CreateEntity("Actor");
+		actor.AddComponent<NativeScriptComponent>("ProbeScript");
+
+		// Nothing runs until the scene is stepped -- editing a scene must not
+		// run it.
+		scene->OnUpdateEditor(1.0f / 60.0f);
+		Check(ProbeScript::Created == 0, "scripts do not run in the editor");
+
+		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Created == 1, "OnCreate runs once on the first step");
+		Check(ProbeScript::Updated == 1, "OnUpdate runs on the same step as OnCreate");
+		Check(std::fabs(ProbeScript::LastDelta - 1.0f / 60.0f) < 1e-6f,
+			  "the script is handed the fixed timestep");
+		Check(ProbeScript::SeenName == "Actor", "a script can read its own entity");
+		Check(ProbeScript::FoundOther, "a script can find another entity by name");
+
+		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Created == 1, "OnCreate does not run again");
+		Check(ProbeScript::Updated == 2, "OnUpdate runs every step");
+
+		Check(std::fabs(actor.GetComponent<TransformComponent>().Position.x - 2.0f) < 1e-4f,
+			  "transform helpers write through to the component");
+
+		// Destroying the entity has to run OnDestroy exactly once.
+		scene->DeleteEntity(actor);
+		Check(ProbeScript::Destroyed == 1, "OnDestroy runs when the entity is destroyed");
+
+		// A script that spawns during OnCreate restructures the very pool the
+		// script pass is walking.
+		ProbeScript::Reset();
+		ProbeScript::SpawnOnCreate = true;
+		{
+			auto spawner = std::make_shared<Scene>();
+			Entity entity = spawner->CreateEntity("Spawner");
+			entity.AddComponent<NativeScriptComponent>("ProbeScript");
+
+			spawner->OnFixedUpdateRuntime(1.0f / 60.0f);
+			Check(spawner->GetRegistry().view<IDComponent>().size() == 2,
+				  "a script can spawn an entity mid-step without corrupting the pass");
+		}
+
+		// And one that destroys itself while executing inside itself.
+		ProbeScript::Reset();
+		ProbeScript::SelfDestruct = true;
+		{
+			auto suicide = std::make_shared<Scene>();
+			Entity entity = suicide->CreateEntity("Doomed");
+			entity.AddComponent<NativeScriptComponent>("ProbeScript");
+
+			suicide->OnFixedUpdateRuntime(1.0f / 60.0f);
+			Check(suicide->GetRegistry().view<IDComponent>().size() == 0,
+				  "a script can destroy itself; the delete lands after the pass");
+			Check(ProbeScript::Destroyed == 1, "self-destruction still runs OnDestroy once");
+		}
+		ProbeScript::Reset();
+
+		// The script name is the durable reference, so it has to survive a save.
+		{
+			auto saved = std::make_shared<Scene>();
+			Entity entity = saved->CreateEntity("Scripted");
+			entity.AddComponent<NativeScriptComponent>("ProbeScript");
+
+			SceneSerializer serializer(saved);
+			const std::string yaml = serializer.SerializeToString();
+
+			auto reloaded = std::make_shared<Scene>();
+			SceneSerializer reader(reloaded);
+			reader.DeserializeFromString(yaml);
+
+			bool found = false;
+			for (auto handle : reloaded->GetRegistry().view<NativeScriptComponent>())
+			{
+				found = found || reloaded->GetRegistry()
+									.get<NativeScriptComponent>(handle).ScriptName == "ProbeScript";
+			}
+			Check(found, "a script assignment survives save and load");
+		}
+	}
+
+	void CheckInputMap()
+	{
+		InputMap::ClearBindings();
+
+		InputMap::BindKey("Gameplay", "Jump", RV_KEY_SPACE);
+		InputMap::BindKeyAxis("Gameplay", "MoveRight", RV_KEY_D, RV_KEY_A);
+		InputMap::BindKey("Menu", "Back", RV_KEY_ESCAPE);
+
+		const std::vector<std::string> actions = InputMap::GetActionNames();
+		Check(std::find(actions.begin(), actions.end(), "Jump") != actions.end(),
+			  "an action appears once bound");
+		Check(std::find(actions.begin(), actions.end(), "Back") != actions.end(),
+			  "actions from several contexts coexist");
+
+		Check(InputMap::IsContextEnabled("Gameplay"), "a context is enabled by default");
+		InputMap::SetContextEnabled("Menu", false);
+		Check(!InputMap::IsContextEnabled("Menu"), "a context can be disabled");
+
+		// No device state in a headless test, so what is checked is that
+		// queries are total: an unknown name answers rather than throwing.
+		Check(!InputMap::IsActionDown("Jump"), "an unpressed action is not down");
+		Check(!InputMap::IsActionDown("NoSuchAction"), "an unknown action is not down");
+		Check(InputMap::GetAxis("NoSuchAxis") == 0.0f, "an unknown axis reads zero");
+
+		// The wheel is fed rather than sampled, so it can be driven here.
+		InputMap::OnScroll(3.0f);
+		InputMap::BindMouseAxis("Gameplay", "Zoom", MouseAxis::Wheel);
+		InputMap::Update();
+		Check(std::fabs(InputMap::GetAxis("Zoom") - 3.0f) < 1e-4f, "the wheel reaches its axis");
+
+		// It has to be consumed, or it would read as scrolling forever.
+		InputMap::Update();
+		Check(InputMap::GetAxis("Zoom") == 0.0f, "the wheel clears after one frame");
+
+		InputMap::ClearBindings();
+		InputMap::LoadDefaults();
+		Check(!InputMap::GetActionNames().empty(), "defaults provide actions");
+		Check(!InputMap::GetAxisNames().empty(), "defaults provide axes");
+	}
+
 	void CheckCameraRanking()
 	{
 		auto scene = std::make_shared<Scene>();
@@ -693,6 +877,8 @@ int RunTests(int argc, char** argv)
 
 	// --- simulation loop -----------------------------------------------------
 	CheckFixedStep();
+	CheckInputMap();
+	CheckScriptApi();
 	CheckPlayModeRestore();
 
 	// --- cameras -------------------------------------------------------------

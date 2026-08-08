@@ -153,36 +153,36 @@ namespace RageV
 		PrefabComponent(AssetHandle source) : Source(source) {}
 	};
 
-	// Plain function pointers, not std::function, and captureless lambdas.
+	// A script by name, instantiated through ScriptRegistry.
 	//
-	// These used to be `[&]` lambdas capturing the enclosing component's `this`.
-	// EnTT relocates components when its storage grows, so the moment a second
-	// entity got a script the earlier component's lambdas pointed at freed
-	// memory. Capturing nothing makes that failure unrepresentable rather than
-	// merely fixed.
+	// The name is what goes to disk. Holding a factory instead -- which is what
+	// this did -- meant a script could only be attached from C++ with a
+	// compile-time type, so it could be neither chosen in the inspector nor
+	// saved: a scene with scripted behaviour lost all of it on save.
 	//
-	// The per-type OnCreate/OnUpdate/OnDestroy thunks are gone too:
-	// ScriptableEntity already declares them virtual, so the extra indirection
-	// bought nothing and was three more places to get the cast wrong.
+	// The instance is deleted through ScriptableEntity's virtual destructor, so
+	// the per-type destroy thunk this used to carry is gone with it.
 	struct NativeScriptComponent
 	{
+		std::string ScriptName;
+
+		// Runtime only. Created on the first simulation step after Play and
+		// destroyed with the component, so it is never serialized.
 		ScriptableEntity* Instance = nullptr;
 
-		ScriptableEntity* (*InstantiateScript)() = nullptr;
-		void (*DestroyScript)(NativeScriptComponent*) = nullptr;
+		NativeScriptComponent() = default;
+		NativeScriptComponent(const std::string& script) : ScriptName(script) {}
 
-		template <typename T>
-		void Bind()
+		// Copying a component must not copy the pointer, or two components
+		// would own one instance and both would delete it. EnTT copies
+		// components when a scene is duplicated.
+		NativeScriptComponent(const NativeScriptComponent& other)
+			: ScriptName(other.ScriptName) {}
+
+		NativeScriptComponent& operator=(const NativeScriptComponent& other)
 		{
-			static_assert(std::is_base_of_v<ScriptableEntity, T>,
-						  "Bound script type must derive from ScriptableEntity");
-
-			InstantiateScript = []() { return static_cast<ScriptableEntity*>(new T()); };
-			DestroyScript = [](NativeScriptComponent* component)
-			{
-				delete static_cast<T*>(component->Instance);
-				component->Instance = nullptr;
-			};
+			ScriptName = other.ScriptName;
+			return *this;
 		}
 	};
 

@@ -16,6 +16,7 @@ namespace RageV
 		// ScriptableEntity.h), so IDComponent cannot be visible here.
 		UUID GetUUID();
 		const std::string& GetName();
+		Scene& GetScene() const { return *m_Scene; }
 
 		template<typename T, typename... Args>
 		T& AddComponent(Args&& ... args)

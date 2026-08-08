@@ -6,6 +6,7 @@
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
+#include "RageV/Core/InputMap.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "Timestep.h"
 #include "Platform/Windows/WindowsPlatform.h"
@@ -55,6 +56,8 @@ namespace RageV {
 		// The registry scans for source files and mints handles; the manager
 		// turns those handles into GPU resources. Both before any layer runs,
 		// since a layer's OnAttach may already want to load something.
+		InputMap::Init();
+
 		AssetRegistry::Init("assets");
 		AssetManager::Init(*m_Device);
 
@@ -78,6 +81,7 @@ namespace RageV {
 		// is still alive.
 		m_LayerStack.Clear();
 
+		InputMap::Shutdown();
 		AssetManager::Shutdown();
 		AssetRegistry::Shutdown();
 
@@ -105,6 +109,15 @@ namespace RageV {
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(RV_BIND_FUNCTION(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(RV_BIND_FUNCTION(Application::OnWindowResize));
+
+		// Fed rather than sampled: a wheel has no queryable state, so it is the
+		// one input that has to arrive as an event. Not marked handled -- the
+		// editor camera and ImGui both want it too.
+		dispatcher.Dispatch<MouseScrolledEvent>([](MouseScrolledEvent& scrolled)
+			{
+				InputMap::OnScroll(scrolled.GetYOffset());
+				return false;
+			});
 
 		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin();)
 		{
@@ -141,6 +154,11 @@ namespace RageV {
 		return m_Instance ? m_Instance->m_FixedStep.Alpha : 0.0f;
 	}
 
+	float Application::GetElapsedTime()
+	{
+		return (m_Instance && m_Instance->GetTime) ? (float)m_Instance->GetTime() : 0.0f;
+	}
+
 	float Application::GetFixedTimestep()
 	{
 		return 1.0f / (float)EngineConfig::Get().FixedHz;
@@ -166,11 +184,19 @@ namespace RageV {
 				continue;
 			}
 
+			// Sampled once per frame, not per step: several steps in one frame
+			// must see one press, not one each.
+			InputMap::Update();
+
 			const int steps = m_FixedStep.Advance(frameTime);
 			for (int i = 0; i < steps; i++)
 			{
 				for (Layer* layer : m_LayerStack)
 					layer->OnFixedUpdate(m_FixedStep.Timestep);
+
+				// Edges are consumed by the first step that runs; a frame with
+				// no steps carries them forward rather than losing them.
+				InputMap::EndFixedStep();
 			}
 
 			// Null means the frame must be skipped -- a resized or minimised
