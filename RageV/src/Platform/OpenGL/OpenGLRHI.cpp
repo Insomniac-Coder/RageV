@@ -945,7 +945,44 @@ namespace RageV::GL
 
 	void OpenGLDevice::EndFrame()
 	{
+		// Before the swap, not after: once the buffers are swapped the back
+		// buffer's contents are undefined, so reading it then is reading
+		// whatever the driver left there.
+		if (m_Capture)
+		{
+			const uint32_t width = m_Width;
+			const uint32_t height = m_Height;
+
+			std::vector<uint8_t> pixels((size_t)width * height * 4);
+
+			glPixelStorei(GL_PACK_ALIGNMENT, 1);
+			glReadBuffer(GL_BACK);
+			glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_RGBA,
+						 GL_UNSIGNED_BYTE, pixels.data());
+
+			// OpenGL hands back rows bottom-up; the contract is top row first,
+			// so that a caller does not have to know which backend produced it.
+			std::vector<uint8_t> flipped((size_t)width * height * 4);
+			const size_t stride = (size_t)width * 4;
+			for (uint32_t y = 0; y < height; y++)
+			{
+				memcpy(flipped.data() + (size_t)y * stride,
+					   pixels.data() + (size_t)(height - 1 - y) * stride, stride);
+			}
+
+			// Moved out before invoking: the callback may request another
+			// capture, and one that armed itself again here would never stop.
+			CaptureCallback callback;
+			callback.swap(m_Capture);
+			callback(flipped.data(), width, height);
+		}
+
 		glfwSwapBuffers(m_Window);
+	}
+
+	void OpenGLDevice::RequestCapture(CaptureCallback callback)
+	{
+		m_Capture = std::move(callback);
 	}
 
 	void OpenGLDevice::WaitIdle()

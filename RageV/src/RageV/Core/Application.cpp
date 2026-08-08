@@ -14,6 +14,8 @@
 #include "Platform/Windows/WindowsPlatform.h"
 
 #include <GLFW/glfw3.h>
+#include <stb_write_image.h>
+#include <filesystem>
 
 namespace RageV {
 
@@ -203,9 +205,35 @@ namespace RageV {
 		return 1.0f / (float)GetFixedHz();
 	}
 
+	bool Application::WriteScreenshot(const std::string& path, const uint8_t* rgba,
+									  uint32_t width, uint32_t height)
+	{
+		if (!rgba || width == 0 || height == 0)
+			return false;
+
+		// So --screenshot=shots/frame.png works without the caller having had to
+		// create the folder first.
+		std::error_code error;
+		const std::filesystem::path file(path);
+		if (file.has_parent_path())
+			std::filesystem::create_directories(file.parent_path(), error);
+
+		if (stbi_write_png(path.c_str(), (int)width, (int)height, 4, rgba, (int)width * 4) == 0)
+		{
+			RV_CORE_ERROR("Could not write {0}", path);
+			return false;
+		}
+
+		RV_CORE_INFO("Wrote {0} ({1}x{2})", path, width, height);
+		return true;
+	}
+
 	void Application::Run() {
 
 		m_FixedStep.Timestep = 1.0f / (float)GetFixedHz();
+
+		const EngineConfig& config = EngineConfig::Get();
+		uint64_t frameNumber = 0;
 
 		while (m_Running) {
 			const float time = (float)GetTime();
@@ -262,8 +290,22 @@ namespace RageV {
 			// otherwise clean it up.
 			AudioEngine::Update();
 
+			// Armed before EndFrame, which is the call that consumes it.
+			if (!config.ScreenshotPath.empty() && ++frameNumber == config.ScreenshotFrame)
+			{
+				const std::string path = config.ScreenshotPath;
+				m_Device->RequestCapture([path](const uint8_t* rgba, uint32_t w, uint32_t h)
+				{
+					WriteScreenshot(path, rgba, w, h);
+				});
+			}
+
 			Renderer::EndFrame();
 			m_Device->EndFrame();
+
+			// After the capture, not before: the point of the flag is the file.
+			if (!config.ScreenshotPath.empty() && frameNumber >= config.ScreenshotFrame)
+				m_Running = false;
 		}
 	}
 

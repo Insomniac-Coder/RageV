@@ -9,6 +9,7 @@
 #include "RHIPipeline.h"
 #include "RHIResourceSet.h"
 #include "RHICommandList.h"
+#include <functional>
 
 struct GLFWwindow;
 
@@ -46,6 +47,23 @@ namespace RageV::RHI
 		virtual void EndFrame() = 0;
 
 		virtual void WaitIdle() = 0;
+
+		// Hands back the pixels of the frame about to be presented, once.
+		//
+		// The only way to check what an engine actually put on screen without
+		// a person looking at it. Draw-call counts are not a substitute: a
+		// pass that clears the backbuffer after the scene was drawn produces a
+		// blank window and a perfectly healthy draw count, which is precisely
+		// the bug the standalone runtime shipped with.
+		//
+		// Tightly scoped on purpose. It stalls the GPU, it fires for one frame
+		// and then disarms itself, and the callback runs on the frame that
+		// satisfies it -- so it is a diagnostic, not a capture pipeline.
+		//
+		// Pixels are RGBA8, top row first, tightly packed.
+		using CaptureCallback = std::function<void(const uint8_t* rgba, uint32_t width,
+												   uint32_t height)>;
+		virtual void RequestCapture(CaptureCallback callback) = 0;
 		virtual void OnResize(uint32_t width, uint32_t height) = 0;
 		virtual void SetVSync(bool enabled) = 0;
 

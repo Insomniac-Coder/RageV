@@ -82,6 +82,26 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "screenshot")
+		{
+			config.ScreenshotPath = value;
+			return true;
+		}
+
+		if (key == "screenshot-frame" || key == "screenshotframe")
+		{
+			try
+			{
+				config.ScreenshotFrame = (uint32_t)std::max(std::stoi(value), 1);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("screenshot-frame expects an integer, got '{0}'", value);
+				return false;
+			}
+		}
+
 		if (key == "frames-in-flight" || key == "framesinflight")
 		{
 			try

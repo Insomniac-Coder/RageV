@@ -32,6 +32,11 @@ namespace RageV {
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
 		void Close() { m_Running = false; }
+
+		// Writes RGBA8 pixels, top row first, as a PNG. Public because the
+		// screenshot flag is not the only reason to want one.
+		static bool WriteScreenshot(const std::string& path, const uint8_t* rgba,
+									uint32_t width, uint32_t height);
 		void PushOverlay(Layer* layer);
 		void PushLayer(Layer* layer);
 		inline Window& GetWindow() { return *m_Window; }

@@ -10,7 +10,17 @@ namespace RageV
 	{
 	public:
 		Layer(const std::string& name = "Layer");
-		~Layer();
+
+		// Virtual, because LayerStack owns layers as Layer* and deletes them
+		// through that pointer. Without it only ~Layer ran: every derived
+		// member -- the editor's scene, its render targets, the runtime's
+		// scene, every material in them -- was never destroyed, which is
+		// undefined behaviour and leaked the whole scene on every shutdown.
+		//
+		// Invisible for the life of the project because nothing ever exited
+		// cleanly enough to notice. The standalone runtime does, and VMA
+		// asserts when allocations outlive its allocator.
+		virtual ~Layer();
 
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}

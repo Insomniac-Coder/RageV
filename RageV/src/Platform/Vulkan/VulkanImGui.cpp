@@ -78,6 +78,11 @@ namespace RageV::Vk
 		s_Initialized = false;
 	}
 
+	bool IsImGuiVulkanReady()
+	{
+		return s_Initialized;
+	}
+
 	void ImGuiVulkanNewFrame()
 	{
 		if (s_Initialized)

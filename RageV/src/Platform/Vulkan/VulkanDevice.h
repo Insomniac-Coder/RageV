@@ -44,6 +44,8 @@ namespace RageV::Vk
 		RHI::RHICommandList* BeginFrame() override;
 		void EndFrame() override;
 		void WaitIdle() override;
+		void RequestCapture(CaptureCallback callback) override;
+		void CaptureSwapchainImage();
 		void OnResize(uint32_t width, uint32_t height) override;
 		void SetVSync(bool enabled) override;
 
@@ -109,6 +111,9 @@ namespace RageV::Vk
 
 	private:
 		GLFWwindow* m_Window = nullptr;
+
+		// Armed by RequestCapture, consumed and cleared by the next EndFrame.
+		CaptureCallback m_Capture;
 
 		VkInstance               m_Instance       = VK_NULL_HANDLE;
 		VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;

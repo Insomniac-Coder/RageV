@@ -867,6 +867,12 @@ namespace RageV::Vk
 
 		VK_CHECK(vkQueueSubmit(m_GraphicsQueue, 1, &submit, frame.InFlight));
 
+		// After the submit and before the present: the image holds the finished
+		// frame at exactly this point, and reading it here means the capture is
+		// of what is about to be shown rather than of an intermediate state.
+		if (m_Capture)
+			CaptureSwapchainImage();
+
 		VkPresentInfoKHR present{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 		present.waitSemaphoreCount = 1;
 		present.pWaitSemaphores = &m_RenderFinished[m_ImageIndex];
@@ -888,6 +894,119 @@ namespace RageV::Vk
 	{
 		if (m_Device)
 			vkDeviceWaitIdle(m_Device);
+	}
+
+	void VulkanDevice::RequestCapture(CaptureCallback callback)
+	{
+		m_Capture = std::move(callback);
+	}
+
+	// Copies the presented image into host memory and hands it to the waiting
+	// callback.
+	//
+	// Deliberately unsubtle: it waits for the frame's fence, does its own
+	// one-shot submit, and allocates a staging buffer it immediately throws
+	// away. Every one of those is wrong for something on the frame path and
+	// right for a diagnostic that fires once.
+	void VulkanDevice::CaptureSwapchainImage()
+	{
+		FrameContext& frame = m_Frames[m_FrameIndex];
+
+		// The submit that drew this frame has to have finished before its
+		// result can be read.
+		vkWaitForFences(m_Device, 1, &frame.InFlight, VK_TRUE, UINT64_MAX);
+
+		const uint32_t width = m_SwapchainExtent.width;
+		const uint32_t height = m_SwapchainExtent.height;
+		const VkDeviceSize size = (VkDeviceSize)width * height * 4;
+
+		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bufferInfo.size = size;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+						  VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation allocation = nullptr;
+		VmaAllocationInfo allocated{};
+
+		if (vmaCreateBuffer(m_Allocator, &bufferInfo, &allocInfo, &buffer, &allocation,
+							&allocated) != VK_SUCCESS)
+		{
+			RV_CORE_ERROR("Capture: could not allocate a staging buffer");
+			m_Capture = nullptr;
+			return;
+		}
+
+		const VkImage image = m_SwapchainImages[m_ImageIndex];
+
+		ImmediateSubmit([&](VkCommandBuffer cmd)
+		{
+			auto barrier = [&](VkImageLayout from, VkImageLayout to,
+							   VkAccessFlags2 srcAccess, VkAccessFlags2 dstAccess,
+							   VkPipelineStageFlags2 srcStage, VkPipelineStageFlags2 dstStage)
+			{
+				VkImageMemoryBarrier2 imageBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+				imageBarrier.srcStageMask = srcStage;
+				imageBarrier.srcAccessMask = srcAccess;
+				imageBarrier.dstStageMask = dstStage;
+				imageBarrier.dstAccessMask = dstAccess;
+				imageBarrier.oldLayout = from;
+				imageBarrier.newLayout = to;
+				imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarrier.image = image;
+				imageBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				imageBarrier.subresourceRange.levelCount = 1;
+				imageBarrier.subresourceRange.layerCount = 1;
+
+				VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+				dependency.imageMemoryBarrierCount = 1;
+				dependency.pImageMemoryBarriers = &imageBarrier;
+				vkCmdPipelineBarrier2(cmd, &dependency);
+			};
+
+			barrier(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					0, VK_ACCESS_2_TRANSFER_READ_BIT,
+					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_COPY_BIT);
+
+			VkBufferImageCopy region{};
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.layerCount = 1;
+			region.imageExtent = { width, height, 1 };
+			vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+								   buffer, 1, &region);
+
+			// Back to PRESENT_SRC, because the present that follows this
+			// expects to find it in exactly the layout it was left in.
+			barrier(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+					VK_ACCESS_2_TRANSFER_READ_BIT, 0,
+					VK_PIPELINE_STAGE_2_COPY_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+		});
+
+		std::vector<uint8_t> rgba((size_t)size);
+		memcpy(rgba.data(), allocated.pMappedData, (size_t)size);
+
+		// Swapchains on this platform are usually BGRA; the contract is RGBA,
+		// so a caller never has to ask which.
+		if (m_SwapchainFormat == VK_FORMAT_B8G8R8A8_UNORM ||
+			m_SwapchainFormat == VK_FORMAT_B8G8R8A8_SRGB)
+		{
+			for (size_t i = 0; i < rgba.size(); i += 4)
+				std::swap(rgba[i], rgba[i + 2]);
+		}
+
+		vmaDestroyBuffer(m_Allocator, buffer, allocation);
+
+		// Moved out before invoking, so a callback that requests another
+		// capture arms the next frame rather than being cleared by this one.
+		CaptureCallback callback;
+		callback.swap(m_Capture);
+		callback(rgba.data(), width, height);
 	}
 
 	void VulkanDevice::ImmediateSubmit(const std::function<void(VkCommandBuffer)>& record)

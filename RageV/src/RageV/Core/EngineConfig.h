@@ -24,6 +24,9 @@
 //   --width=N --height=N    window size
 //   --audio=on|off          open an output device at all
 //   --project=<path>        the .rvproject to open, or a folder containing one
+//   --screenshot=<file>     write a PNG of one frame and exit
+//   --screenshot-frame=N    which frame to capture (default 30, to let the
+//                           scene settle and any first-frame allocation pass)
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include <string>
@@ -44,6 +47,15 @@ namespace RageV
 		// to tell "the user asked for 60" from "nobody said", and the project's
 		// own rate could never win over the default.
 		bool         FixedHzExplicit = false;
+
+		// Write a PNG of one frame and exit.
+		//
+		// The only way to check what the engine actually put on screen without
+		// a person looking at it, which matters because the interesting
+		// failures are not crashes: a blank window, an image cleared after it
+		// was drawn, a scene rendered through the wrong camera.
+		std::string ScreenshotPath;
+		uint32_t    ScreenshotFrame = 30;
 
 		// The project to open. Empty falls back to RV_DEFAULT_PROJECT, which
 		// CMake bakes in for builds run out of the build tree, and then to

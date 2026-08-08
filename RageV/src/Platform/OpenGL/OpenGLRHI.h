@@ -211,6 +211,7 @@ namespace RageV::GL
 		RHICommandList* BeginFrame() override;
 		void EndFrame() override;
 		void WaitIdle() override;
+		void RequestCapture(CaptureCallback callback) override;
 		void OnResize(uint32_t width, uint32_t height) override;
 		void SetVSync(bool enabled) override;
 
@@ -244,5 +245,8 @@ namespace RageV::GL
 		bool m_VSync = true;
 		DeviceCaps m_Caps;
 		Scope<OpenGLCommandListRHI> m_CommandList;
+
+		// Armed by RequestCapture, consumed and cleared by the next EndFrame.
+		CaptureCallback m_Capture;
 	};
 }

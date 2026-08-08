@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "VulkanResources.h"
+#include "VulkanImGui.h"
 #include "VulkanDevice.h"
 
 #include <backends/imgui_impl_vulkan.h>
@@ -302,7 +303,13 @@ namespace RageV::Vk
 
 		m_Deletion->Push([=]()
 		{
-			if (imguiSet)     ImGui_ImplVulkan_RemoveTexture(imguiSet);
+			// Guarded: this runs on the deletion queue, and the queue's final
+			// flush happens when the device is destroyed -- after the ImGui
+			// backend has shut down and taken its descriptor pool with it. The
+			// set is already gone at that point; asking to free it again is a
+			// crash.
+			if (imguiSet && IsImGuiVulkanReady())
+				ImGui_ImplVulkan_RemoveTexture(imguiSet);
 			if (imguiSampler) vkDestroySampler(device, imguiSampler, nullptr);
 			if (owned)
 			{
