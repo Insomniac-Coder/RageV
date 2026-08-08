@@ -1,7 +1,7 @@
 # RageV — handoff
 
 **Read this first.** Updated 2026-08-08, on branch `vulkan-overhaul`
-(38 commits ahead of `main`, **not merged, not pushed**).
+(41 commits ahead of `main`, **not merged, not pushed**).
 
 Companion docs:
 - [ROADMAP.md](ROADMAP.md) — where this is going, in dependency order.
