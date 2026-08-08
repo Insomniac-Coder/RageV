@@ -608,6 +608,16 @@ light's shadow cube, one probe face, the scene itself — but each now only draw
 what its own frustum contains. The editor's Statistics panel reports the culled
 count so the saving is visible rather than assumed.
 
+**That is a draw count, not a frame time.** The panel read 4.14 ms before
+culling and 4.01 ms after, and both applications ship with `vsync = on`, so
+those numbers are the display's refresh rather than a measurement of anything.
+Whether removing 84 draws a frame is worth anything here is **unverified** —
+the scene is twelve objects and the bottleneck may well be elsewhere entirely.
+
+To find out: run with `--vsync=off` and compare, and do it on a scene large
+enough that the answer is not noise. Until then the honest claim is that the
+work per pass went down, not that the frame got faster.
+
 ## 7. Decisions already made (do not relitigate)
 
 - **CMake**, not premake.
@@ -650,6 +660,16 @@ count so the saving is visible rather than assumed.
 **Phases 0, 1, 2 and 4 are done. Phase 3 is done through 3.5.**
 
 Start here, in this order.
+
+### 0. Measure before optimising further (`S`)
+
+Culling cut the sample scene from 144 draws to 60 and the frame time did not
+move, because both applications ship with `vsync = on` and the panel was the
+limit. Nothing about the renderer's cost is currently known.
+
+Run with `--vsync=off`, on a scene big enough for the answer not to be noise,
+and find out where the time actually goes before doing any more work that
+assumes draw calls are the problem.
 
 ### 1. 3.8 — clustered forward (`L`)
 
@@ -762,6 +782,10 @@ because the pattern in them is more useful than the list.
   irradiance convolution, and the cube-face edge test paired the wrong two
   edges. Both were the test being wrong, not the code — worth checking which
   before changing anything.
+- **Reporting a draw count as if it were a speed-up.** 144 draws became 60,
+  which is real; the frame time barely moved, because both applications ship
+  with vsync on and the panel was the limit. The number that was measured and
+  the number that was implied were not the same number.
 - **Tuning two variables at once.** The shadow bias was reduced at the same
   time as front-face culling was removed, so the contribution of each is not
   separable from the screenshots.
