@@ -23,6 +23,7 @@
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
 #include "RageV/Scene/SceneSerializer.h"
+#include "RageV/Scene/SceneCommands.h"
 
 #include <GLFW/glfw3.h>
 #include <set>
@@ -53,6 +54,11 @@ namespace
 	std::shared_ptr<Scene> BuildFixture()
 	{
 		auto scene = std::make_shared<Scene>();
+
+		// Non-default, so "written correctly" is distinguishable from "not
+		// written at all".
+		scene->GetEnvironment().AmbientColor = { 0.31f, 0.18f, 0.44f };
+		scene->GetEnvironment().AmbientIntensity = 0.37f;
 
 		Entity camera = scene->CreateEntity("Main Camera");
 		auto& cameraComponent = camera.AddComponent<CameraComponent>();
@@ -156,6 +162,101 @@ namespace
 
 		Check(allValid, "every entity has a non-zero UUID");
 		Check(unique, "every entity UUID is distinct");
+	}
+
+	size_t EntityCount(const std::shared_ptr<Scene>& scene)
+	{
+		return scene->GetRegistry().view<IDComponent>().size();
+	}
+
+	// The property that matters for undo is not "it changes something back" but
+	// "the scene is bit-for-bit what it was". Comparing serialized snapshots is
+	// the only check that catches a command restoring four fields out of five.
+	void CheckUndoRestoresExactly(const std::shared_ptr<Scene>& scene, CommandStack& stack,
+								  std::unique_ptr<EditorCommand> command, const std::string& what)
+	{
+		SceneSerializer serializer(scene);
+		const std::string before = serializer.SerializeToString();
+
+		stack.Push(std::move(command));
+		const std::string during = serializer.SerializeToString();
+		Check(during != before, what + ": changed something");
+
+		stack.Undo();
+		Check(serializer.SerializeToString() == before, what + ": undo restores the scene exactly");
+
+		stack.Redo();
+		Check(serializer.SerializeToString() == during, what + ": redo reapplies it exactly");
+
+		stack.Undo();
+	}
+
+	void CheckUndo(const std::shared_ptr<Scene>& scene)
+	{
+		CommandStack stack;
+
+		// Held as ids, not as Entity handles. Undoing a delete recreates the
+		// entity with the same UUID but a *different* entt handle, so a stored
+		// handle is stale the moment anything is deleted -- which is exactly
+		// why the commands themselves address entities by UUID.
+		UUID rootID = UUID::Invalid();
+		UUID childID = UUID::Invalid();
+
+		for (auto handle : scene->GetRegistry().view<TagComponent>())
+		{
+			Entity entity{ handle, scene.get() };
+			if (entity.GetName() == "Root")       rootID = entity.GetUUID();
+			else if (entity.GetName() == "Child") childID = entity.GetUUID();
+		}
+
+		if (!rootID.IsValid() || !childID.IsValid())
+		{
+			Check(false, "undo fixture entities present");
+			return;
+		}
+
+		// Deleting a parent takes its children with it, so this also covers
+		// restoring a whole subtree with its ids and parent links intact.
+		const size_t populated = EntityCount(scene);
+		CheckUndoRestoresExactly(scene, stack,
+			std::make_unique<DeleteEntityCommand>(scene, scene->GetEntityByUUID(rootID)),
+			"delete subtree");
+		Check(EntityCount(scene) == populated, "entity count is back after undoing a delete");
+		Check(scene->HasEntity(rootID) && scene->HasEntity(childID),
+			  "restored entities keep their original ids");
+
+		// Removing a component must restore its values, not just its presence.
+		CheckUndoRestoresExactly(scene, stack,
+			std::make_unique<RemoveComponentCommand>(scene, childID, "MeshComponent"),
+			"remove component");
+
+		CheckUndoRestoresExactly(scene, stack,
+			std::make_unique<AddComponentCommand>(scene, rootID, "ColorComponent"),
+			"add component");
+
+		// Reparenting rewrites the child's local transform to preserve its world
+		// position, so undo has to put that back too.
+		CheckUndoRestoresExactly(scene, stack,
+			std::make_unique<ReparentCommand>(scene, scene->GetEntityByUUID(childID), Entity{}),
+			"unparent");
+
+		CheckUndoRestoresExactly(scene, stack,
+			std::make_unique<FieldEditCommand>(scene, rootID, "TagComponent", "Tag",
+											   FieldValue(std::string("Root")),
+											   FieldValue(std::string("Renamed"))),
+			"field edit");
+
+		// A cycle must be refused rather than recorded.
+		ReparentCommand cycle(scene, scene->GetEntityByUUID(rootID),
+									 scene->GetEntityByUUID(childID));
+		Check(!cycle.IsValid(), "parenting an entity to its own descendant is rejected");
+
+		// Redo is dropped once a new edit diverges from the undone branch.
+		stack.Push(std::make_unique<AddComponentCommand>(scene, rootID, "ColorComponent"));
+		stack.Undo();
+		Check(stack.CanRedo(), "redo is available after an undo");
+		stack.Push(std::make_unique<AddComponentCommand>(scene, childID, "ColorComponent"));
+		Check(!stack.CanRedo(), "a new edit clears the redo branch");
 	}
 }
 
@@ -261,7 +362,20 @@ int RunTests(int argc, char** argv)
 		CheckHierarchyPreserved(scene);
 		CheckUniqueIDs(scene);
 
+		const SceneEnvironment& environment = scene->GetEnvironment();
+		Check(std::fabs(environment.AmbientColor.b - 0.44f) < 1e-4f &&
+			  std::fabs(environment.AmbientIntensity - 0.37f) < 1e-4f,
+			  "scene ambient survives the round trip");
+
 		b = serializer.SerializeToString();
+	}
+
+	// --- pass 3: undo/redo ---------------------------------------------------
+	{
+		auto scene = std::make_shared<Scene>();
+		SceneSerializer serializer(scene);
+		serializer.DeserializeFromString(a);
+		CheckUndo(scene);
 	}
 
 	Check(a == b, "save -> load -> save is byte-identical");

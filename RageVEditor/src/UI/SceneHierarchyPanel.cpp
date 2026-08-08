@@ -66,7 +66,15 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 	if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 	{
 		if (ImGui::MenuItem("Create Entity"))
-			m_SceneRef->CreateEntity();
+		{
+			// The id is chosen here rather than inside the command so that redo
+			// recreates the same entity rather than a new one.
+			const UUID id;
+			auto command = std::make_unique<CreateEntityCommand>(m_SceneRef, id, "Entity");
+			if (m_Commands) m_Commands->Push(std::move(command));
+			else            command->Execute();
+			m_Selected = m_SceneRef->GetEntityByUUID(id);
+		}
 
 		ImGui::EndPopup();
 	}
@@ -75,15 +83,35 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 	// mid-traversal invalidates the child lists the recursion is iterating.
 	if (m_PendingCreateChild)
 	{
-		Entity child = m_SceneRef->CreateEntity("Entity");
-		m_SceneRef->SetParent(child, m_PendingCreateChildParent);
+		const UUID id;
+		auto create = std::make_unique<CreateEntityCommand>(m_SceneRef, id, "Entity");
+		if (m_Commands) m_Commands->Push(std::move(create));
+		else            create->Execute();
+
+		Entity child = m_SceneRef->GetEntityByUUID(id);
+		auto parent = std::make_unique<ReparentCommand>(m_SceneRef, child, m_PendingCreateChildParent);
+		if (m_Commands) m_Commands->Push(std::move(parent));
+		else            parent->Execute();
+
 		m_Selected = child;
 	}
 
 	if (m_PendingReparent)
 	{
-		if (!m_SceneRef->SetParent(m_PendingReparentChild, m_PendingReparentParent))
+		auto command = std::make_unique<ReparentCommand>(m_SceneRef, m_PendingReparentChild,
+														m_PendingReparentParent);
+		if (!command->IsValid())
+		{
 			RV_WARN("Cannot parent an entity to itself or to its own descendant");
+		}
+		else if (m_Commands)
+		{
+			m_Commands->Push(std::move(command));
+		}
+		else
+		{
+			command->Execute();
+		}
 	}
 
 	if (m_PendingDelete)
@@ -92,7 +120,10 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 		// cleared whenever the deleted subtree contains it.
 		if (m_Selected == m_PendingDelete || m_SceneRef->IsDescendantOf(m_Selected, m_PendingDelete))
 			m_Selected = {};
-		m_SceneRef->DeleteEntity(m_PendingDelete);
+
+		auto command = std::make_unique<DeleteEntityCommand>(m_SceneRef, m_PendingDelete);
+		if (m_Commands) m_Commands->Push(std::move(command));
+		else            command->Execute();
 	}
 
 	ImGui::End();
@@ -451,7 +482,10 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			any = true;
 			if (ImGui::MenuItem(desc.DisplayName))
 			{
-				desc.Add(entity);
+				auto command = std::make_unique<AddComponentCommand>(m_SceneRef, entity.GetUUID(),
+																	 desc.Name);
+				if (m_Commands) m_Commands->Push(std::move(command));
+				else            command->Execute();
 				ImGui::CloseCurrentPopup();
 			}
 		}
@@ -511,7 +545,22 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 				if (field.Hint.VisibleIf && !field.Hint.VisibleIf(component))
 					continue;
 
-				changed |= DrawField(field, component);
+				// Read before drawing: ImGui writes the new value during the
+				// draw call, so this is the value from before the edit.
+				const FieldValue before = ReadFieldValue(field, component);
+
+				if (DrawField(field, component))
+				{
+					changed = true;
+					if (!m_PendingEdit.Active)
+					{
+						m_PendingEdit.Active = true;
+						m_PendingEdit.Entity = entity.GetUUID();
+						m_PendingEdit.Component = desc.Name;
+						m_PendingEdit.Field = field.Name;
+						m_PendingEdit.Before = before;
+					}
+				}
 			}
 
 			if (std::string(desc.Name) == "MeshComponent")
@@ -532,5 +581,52 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 	// Applied after the loop: removing a component invalidates the pointer the
 	// iteration is holding.
 	if (pendingRemove)
-		pendingRemove->Remove(entity);
+	{
+		auto command = std::make_unique<RemoveComponentCommand>(m_SceneRef, entity.GetUUID(),
+															   pendingRemove->Name);
+		if (m_Commands) m_Commands->Push(std::move(command));
+		else            command->Execute();
+	}
+
+	CommitPendingEdit();
+}
+
+// A continuous edit becomes one undo step. The pre-edit value is whatever the
+// field held at the start of the frame in which it first changed -- ImGui
+// applies the change during the draw call, so reading before drawing gives the
+// value from before the drag began.
+void RageV::SceneHierarchyPanel::CommitPendingEdit()
+{
+	if (!m_PendingEdit.Active || ImGui::IsAnyItemActive())
+		return;
+
+	m_PendingEdit.Active = false;
+
+	if (!m_Commands || !m_SceneRef)
+		return;
+
+	const ComponentDesc* desc = ComponentRegistry::Find(m_PendingEdit.Component);
+	Entity entity = m_SceneRef->GetEntityByUUID(m_PendingEdit.Entity);
+	if (!desc || !entity)
+		return;
+
+	void* component = desc->TryGet(entity);
+	if (!component)
+		return;
+
+	for (const FieldDesc& field : desc->Fields)
+	{
+		if (m_PendingEdit.Field != field.Name)
+			continue;
+
+		const FieldValue after = ReadFieldValue(field, component);
+		if (after == m_PendingEdit.Before)
+			return;   // dragged and returned to where it started
+
+		// Already applied by the widget, so it is recorded rather than run.
+		m_Commands->PushApplied(std::make_unique<FieldEditCommand>(
+			m_SceneRef, m_PendingEdit.Entity, m_PendingEdit.Component,
+			m_PendingEdit.Field, m_PendingEdit.Before, after));
+		return;
+	}
 }

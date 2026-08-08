@@ -2,6 +2,7 @@
 #include "glm/glm.hpp"
 #include "Camera.h"
 #include "Light.h"
+#include "Environment.h"
 #include "Mesh.h"
 #include "Material.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
@@ -21,7 +22,8 @@ namespace RageV
 		static void SetWireframe(bool enabled);
 
 		static void BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
-							   const LightList& lights = {});
+							   const LightList& lights = {},
+							   const SceneEnvironment& environment = {});
 		static void EndScene();
 
 		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,

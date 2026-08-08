@@ -2,6 +2,7 @@
 #include "EnTT/entt.hpp"
 #include "RageV/Core/Timestep.h"
 #include "RageV/Core/UUID.h"
+#include "RageV/Renderer/Environment.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -69,6 +70,9 @@ namespace RageV
 
 		Entity GetPrimaryCameraEntity();
 
+		SceneEnvironment& GetEnvironment() { return m_Environment; }
+		const SceneEnvironment& GetEnvironment() const { return m_Environment; }
+
 		// For tools and tests that need to iterate arbitrary component sets.
 		// The editor panels reach it through friendship instead; this exists so
 		// that code outside the engine does not have to.
@@ -89,6 +93,7 @@ namespace RageV
 	private:
 		entt::registry m_Registry;
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
+		SceneEnvironment m_Environment;
 
 		friend class Entity;
 		friend class SceneHierarchyPanel;

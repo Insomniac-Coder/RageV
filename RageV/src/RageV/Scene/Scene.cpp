@@ -341,7 +341,7 @@ namespace RageV
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
 		{
-			Renderer3D::BeginScene(camera, cameraTransform, lights);
+			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment);
 
 			auto& device = Renderer::GetDevice();
 			for (auto& item : meshView)

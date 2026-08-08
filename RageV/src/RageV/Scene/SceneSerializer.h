@@ -31,8 +31,20 @@ namespace RageV
 		std::string SerializeToString();
 		bool DeserializeFromString(const std::string& yaml);
 
+		// One entity and its descendants, in the same document shape as a whole
+		// scene so the same reader restores it. Undo uses this to bring a
+		// deleted subtree back with its original ids -- which is what keeps
+		// anything referring to it resolving. Prefabs will want it too.
+		std::string SerializeSubtree(Entity root);
+
+		// Adds to the scene instead of replacing it. Ids in the snapshot are
+		// preserved, so restoring twice would collide -- callers are expected
+		// to be undoing a delete, not duplicating.
+		bool DeserializeAdditive(const std::string& yaml);
+
 	private:
 		void SerializeEntity(YAML::Emitter& emitter, Entity entity);
+		bool Read(const std::string& yaml, bool replace);
 
 		std::shared_ptr<Scene> m_SceneRef;
 	};

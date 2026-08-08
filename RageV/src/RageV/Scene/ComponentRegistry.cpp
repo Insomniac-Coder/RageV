@@ -20,17 +20,17 @@ namespace RageV
 		template<typename T>
 		void Bind(ComponentDesc& desc)
 		{
-			desc.TryGet = [](Entity& entity) -> void*
+			desc.TryGet = [](Entity entity) -> void*
 			{
 				return entity.HasComponent<T>() ? (void*)&entity.GetComponent<T>() : nullptr;
 			};
-			desc.Add = [](Entity& entity) -> void*
+			desc.Add = [](Entity entity) -> void*
 			{
 				if (!entity.HasComponent<T>())
 					entity.AddComponent<T>();
 				return (void*)&entity.GetComponent<T>();
 			};
-			desc.Remove = [](Entity& entity)
+			desc.Remove = [](Entity entity)
 			{
 				if (entity.HasComponent<T>())
 					entity.RemoveComponent<T>();

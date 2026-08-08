@@ -18,6 +18,8 @@ namespace RageV
 		{
 			glm::mat4 ViewProjection;
 			glm::vec4 CameraPosition;
+			// rgb = ambient colour, a = ambient intensity
+			glm::vec4 Ambient;
 			// xyz = position, w = 0 for directional
 			glm::vec4 LightPositions[kMaxLights];
 			// xyz = forward axis, for directional travel and spot cones
@@ -157,7 +159,7 @@ namespace RageV
 	}
 
 	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
-								const LightList& lights)
+								const LightList& lights, const SceneEnvironment& environment)
 	{
 		if (!s_Data)
 			return;
@@ -168,6 +170,7 @@ namespace RageV
 		s_Data->Scene = {};
 		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(cameraTransform);
 		s_Data->Scene.CameraPosition = glm::vec4(glm::vec3(cameraTransform[3]), 1.0f);
+		s_Data->Scene.Ambient = glm::vec4(environment.AmbientColor, environment.AmbientIntensity);
 
 		const int lightCount = (int)std::min<size_t>(lights.size(), kMaxLights);
 		for (int i = 0; i < lightCount; i++)

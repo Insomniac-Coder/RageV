@@ -85,8 +85,14 @@ void EditorLayer::OnAttach()
 // -----------------------------------------------------------------------------
 Entity EditorLayer::CreateEmpty(const std::string& name)
 {
-	Entity entity = m_Scene->CreateEntity(name);
+	const UUID id;
+	Entity entity = m_Scene->CreateEntityWithUUID(id, name);
 	m_SceneHierarchyPanel.SetSelectedEntity(entity);
+
+	// Recorded rather than executed: the entity exists already, and callers add
+	// components to it after this returns. CreateEntityCommand snapshots the
+	// subtree at undo time, so redo restores all of that, not a bare entity.
+	m_Commands.PushApplied(std::make_unique<CreateEntityCommand>(m_Scene, id, name));
 	return entity;
 }
 
@@ -246,14 +252,19 @@ void EditorLayer::DrawMenuBar()
 
 	if (ImGui::BeginMenu("Edit"))
 	{
-		PendingMenuItem("Undo", "No undo stack yet. Scene edits are applied directly to the registry.");
-		PendingMenuItem("Redo", "No undo stack yet.");
+		const std::string undoLabel = m_Commands.CanUndo() ? "Undo " + m_Commands.UndoName() : "Undo";
+		const std::string redoLabel = m_Commands.CanRedo() ? "Redo " + m_Commands.RedoName() : "Redo";
+
+		if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, m_Commands.CanUndo()))
+			m_Commands.Undo();
+		if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, m_Commands.CanRedo()))
+			m_Commands.Redo();
 		ImGui::Separator();
 		Entity selected = m_SceneHierarchyPanel.GetSelectedEntity();
 		ImGui::BeginDisabled(!selected);
 		if (ImGui::MenuItem("Delete Selected", "Del"))
 		{
-			m_Scene->DeleteEntity(selected);
+			m_Commands.Push(std::make_unique<DeleteEntityCommand>(m_Scene, selected));
 			m_SceneHierarchyPanel.SetSelectedEntity({});
 		}
 		ImGui::EndDisabled();
@@ -480,6 +491,45 @@ void EditorLayer::DrawRenderSettingsPanel()
 
 	ImGui::ColorEdit3("Clear colour", glm::value_ptr(m_ClearColor));
 
+	ImGui::SeparatorText("Environment");
+
+	// The ambient term used to be two constants inside pbr.rvshader with no way
+	// to reach them. It is still a flat approximation of IBL, but it is a value
+	// now, and it is stored with the scene rather than with the editor.
+	if (m_Scene)
+	{
+		SceneEnvironment& environment = m_Scene->GetEnvironment();
+
+		// Captured when the widget takes focus and recorded when it lets go,
+		// so a drag across the slider is one undo step.
+		auto trackAmbient = [&](const char* label)
+		{
+			if (ImGui::IsItemActivated())
+				m_AmbientBefore = environment;
+
+			if (ImGui::IsItemDeactivatedAfterEdit())
+			{
+				const SceneEnvironment before = m_AmbientBefore;
+				const SceneEnvironment after = environment;
+				std::weak_ptr<Scene> scene = m_Scene;
+
+				m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
+					label,
+					[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
+					[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
+			}
+		};
+
+		ImGui::ColorEdit3("Ambient colour", glm::value_ptr(environment.AmbientColor));
+		trackAmbient("Ambient colour");
+		ImGui::DragFloat("Ambient intensity", &environment.AmbientIntensity, 0.005f, 0.0f, 4.0f);
+		trackAmbient("Ambient intensity");
+		HelpMarker("A single colour arriving from every direction. It cannot vary with view "
+				   "angle or roughness the way a real environment does -- image-based lighting "
+				   "replaces it, and falls back to it for scenes with no environment map.\n\n"
+				   "Set the intensity to 0 for pure direct lighting.");
+	}
+
 	ImGui::SeparatorText("Lighting");
 
 	// Shadows are not implemented. A toggle wired to nothing would be worse
@@ -598,6 +648,14 @@ void EditorLayer::DrawGizmo()
 
 	if (ImGuizmo::IsUsing())
 	{
+		// Captured before the first write of the drag, so undo returns to where
+		// the object started rather than to one frame into the drag.
+		if (!m_GizmoDragging)
+		{
+			m_GizmoDragging = true;
+			m_GizmoBefore = tc;
+		}
+
 		// Back into the parent's space before decomposing, or dragging a child
 		// would write its world transform into a local field and the object
 		// would leap by the parent's transform.
@@ -615,6 +673,14 @@ void EditorLayer::DrawGizmo()
 		tc.Rotation += euler - tc.Rotation;
 		tc.Position = position;
 		tc.Scale = scale;
+	}
+	else if (m_GizmoDragging)
+	{
+		// Released. The transform is already where the user left it, so the
+		// command is recorded rather than executed.
+		m_GizmoDragging = false;
+		m_Commands.PushApplied(std::make_unique<TransformEditCommand>(
+			m_Scene, selected.GetUUID(), m_GizmoBefore, tc));
 	}
 }
 
@@ -684,6 +750,15 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 			break;
 		}
 		case RV_KEY_O: if (control) { OpenScene(); return true; } break;
+
+		// Ctrl+Shift+Z is the other common redo binding; both are accepted.
+		case RV_KEY_Z:
+		{
+			if (control && shift) { m_Commands.Redo(); return true; }
+			if (control)          { m_Commands.Undo(); return true; }
+			break;
+		}
+		case RV_KEY_Y: if (control) { m_Commands.Redo(); return true; } break;
 		case RV_KEY_S: if (control) { SaveScene(); return true; } break;
 
 		// Gizmo modes, matching the convention most editors use. Ignored while
@@ -699,7 +774,7 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 		{
 			if (Entity selected = m_SceneHierarchyPanel.GetSelectedEntity())
 			{
-				m_Scene->DeleteEntity(selected);
+				m_Commands.Push(std::make_unique<DeleteEntityCommand>(m_Scene, selected));
 				m_SceneHierarchyPanel.SetSelectedEntity({});
 				return true;
 			}
@@ -732,6 +807,9 @@ void EditorLayer::NewScene()
 	if (m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f)
 		m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
 	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
+	m_SceneHierarchyPanel.SetCommandStack(&m_Commands);
+	// The recorded commands refer to entities that no longer exist.
+	m_Commands.Clear();
 
 	// A scene with no camera renders nothing, so seed one.
 	Entity camera = m_Scene->CreateEntity("Scene Camera");
@@ -857,6 +935,8 @@ void EditorLayer::OpenScene()
 	if (m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f)
 		m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
 	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
+	m_SceneHierarchyPanel.SetCommandStack(&m_Commands);
+	m_Commands.Clear();
 
 	SceneSerializer serializer(m_Scene);
 	serializer.Deserialize(filepath);

@@ -19,6 +19,8 @@ layout(set = 0, binding = 0) uniform SceneData
 {
 	mat4 ViewProjection;
 	vec4 CameraPosition;
+	// rgb = ambient colour, a = ambient intensity
+	vec4 Ambient;
 	// xyz = position, w = 0 for directional (where position is unused)
 	vec4 LightPositions[MAX_LIGHTS];
 	// xyz = forward axis: the direction a directional light travels, and the
@@ -69,6 +71,7 @@ layout(set = 0, binding = 0) uniform SceneData
 {
 	mat4 ViewProjection;
 	vec4 CameraPosition;
+	vec4 Ambient;
 	vec4 LightPositions[MAX_LIGHTS];
 	vec4 LightDirections[MAX_LIGHTS];
 	vec4 LightColors[MAX_LIGHTS];
@@ -261,12 +264,16 @@ void main()
 		Lo += (kD * albedo / PI + specular) * radiance * NdotL;
 	}
 
-	// Placeholder ambient until IBL exists. A constant term is wrong -- it does
-	// not vary with view angle or roughness -- but it keeps unlit faces from
-	// going pure black.
+	// A constant environment standing in for IBL: irradiance is the same from
+	// every direction, so one colour serves both the diffuse and specular
+	// response. Still an approximation -- it cannot vary with view angle or
+	// roughness the way a real environment does -- but it is driven by the
+	// scene now rather than by two constants buried in this file, and it is
+	// what IBL will fall back to when a scene has no environment map.
+	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
 	vec3 F = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
 	vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-	vec3 ambient = (kD * albedo * 0.06 + F * 0.02) * occlusion;
+	vec3 ambient = (kD * albedo + F) * ambientLight * occlusion;
 
 	vec3 emissive = u_Material.EmissiveColor.rgb;
 	if (HasMap(MAP_EMISSIVE))

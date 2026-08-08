@@ -70,9 +70,11 @@ namespace RageV
 		bool Removable = true;
 		bool AddableFromMenu = true;
 
-		void* (*TryGet)(Entity&) = nullptr;
-		void* (*Add)(Entity&) = nullptr;
-		void  (*Remove)(Entity&) = nullptr;
+		// By value: an Entity is a handle pair, so taking it by reference only
+		// stopped callers passing a temporary.
+		void* (*TryGet)(Entity) = nullptr;
+		void* (*Add)(Entity) = nullptr;
+		void  (*Remove)(Entity) = nullptr;
 
 		// Run after any field is written through reflection. Derived state that
 		// used to hide behind a setter lives here -- the camera's cached

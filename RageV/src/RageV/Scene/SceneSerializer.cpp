@@ -155,6 +155,16 @@ namespace RageV
 		emitter << YAML::BeginMap;
 		emitter << YAML::Key << "Scene" << YAML::Value << "Untitled";
 		emitter << YAML::Key << "Version" << YAML::Value << kVersion;
+
+		// Scene-wide, not owned by any entity.
+		const SceneEnvironment& environment = m_SceneRef->GetEnvironment();
+		emitter << YAML::Key << "Environment";
+		emitter << YAML::BeginMap;
+		emitter << YAML::Key << "AmbientColor" << YAML::Value;
+		EmitVec3(emitter, environment.AmbientColor);
+		emitter << YAML::Key << "AmbientIntensity" << YAML::Value << environment.AmbientIntensity;
+		emitter << YAML::EndMap;
+
 		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 
 		// EnTT iterates its entity storage in reverse creation order. Writing
@@ -257,7 +267,49 @@ namespace RageV
 		return DeserializeFromString(ss.str());
 	}
 
+	// Snapshot of a subtree, in the same document shape a whole scene uses so
+	// that one reader handles both.
+	std::string SceneSerializer::SerializeSubtree(Entity root)
+	{
+		YAML::Emitter emitter;
+		emitter << YAML::BeginMap;
+		emitter << YAML::Key << "Scene" << YAML::Value << "Subtree";
+		emitter << YAML::Key << "Version" << YAML::Value << kVersion;
+		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
+
+		// Depth first from the root, so a parent is always written before its
+		// children and creation order is reproduced on restore.
+		std::vector<Entity> pending{ root };
+		while (!pending.empty())
+		{
+			Entity entity = pending.back();
+			pending.pop_back();
+			if (!entity)
+				continue;
+
+			SerializeEntity(emitter, entity);
+
+			const auto& children = m_SceneRef->GetChildren(entity);
+			for (auto it = children.rbegin(); it != children.rend(); ++it)
+				pending.push_back(m_SceneRef->GetEntityByUUID(*it));
+		}
+
+		emitter << YAML::EndSeq;
+		emitter << YAML::EndMap;
+		return std::string(emitter.c_str());
+	}
+
+	bool SceneSerializer::DeserializeAdditive(const std::string& yaml)
+	{
+		return Read(yaml, false);
+	}
+
 	bool SceneSerializer::DeserializeFromString(const std::string& yaml)
+	{
+		return Read(yaml, true);
+	}
+
+	bool SceneSerializer::Read(const std::string& yaml, bool replace)
 	{
 		YAML::Node node;
 		try
@@ -285,12 +337,25 @@ namespace RageV
 		if (version < kVersion)
 			RV_CORE_WARN("Loading a version {0} scene and upgrading it to {1}", version, kVersion);
 
-		// Loading replaces the scene. Without this, opening a file merged it
-		// into whatever was already there.
-		m_SceneRef->m_Registry.clear();
-		m_SceneRef->m_EntityMap.clear();
+		// Loading a file replaces the scene. Without this, opening one merged
+		// it into whatever was already there. Restoring a subtree for undo does
+		// the opposite and adds to what is there.
+		if (replace)
+		{
+			m_SceneRef->m_Registry.clear();
+			m_SceneRef->m_EntityMap.clear();
+			m_SceneRef->m_Environment = SceneEnvironment{};
 
-		auto entities = node["Entities"];
+			if (const YAML::Node environment = node["Environment"])
+			{
+				SceneEnvironment& target = m_SceneRef->m_Environment;
+				target.AmbientColor = ReadVec3(environment["AmbientColor"], target.AmbientColor);
+				if (const YAML::Node intensity = environment["AmbientIntensity"])
+					target.AmbientIntensity = intensity.as<float>();
+			}
+		}
+
+		const YAML::Node entities = node["Entities"];
 		if (!entities)
 			return true;
 

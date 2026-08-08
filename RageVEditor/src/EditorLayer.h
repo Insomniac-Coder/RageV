@@ -2,6 +2,7 @@
 #include <RageV.h>
 #include <chrono>
 #include "UI/SceneHierarchyPanel.h"
+#include "RageV/Scene/SceneCommands.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
 // first.
 #include "imgui.h"
@@ -49,6 +50,16 @@ private:
 	// no longer has to contain a camera to be visible.
 	RageV::EditorCamera m_EditorCamera;
 	bool m_UseEditorCamera = true;
+
+	// Every scene edit routes through here. Cleared on new/open, since the
+	// recorded commands refer to entities that no longer exist.
+	RageV::CommandStack m_Commands;
+
+	// A gizmo drag is one undo step, not one per frame. The transform is
+	// captured on the first frame of the drag and recorded on release.
+	bool m_GizmoDragging = false;
+	RageV::TransformComponent m_GizmoBefore;
+	RageV::SceneEnvironment m_AmbientBefore;
 	// The scene renders here; the viewport panel samples it. Replaces the
 	// GL-only FrameBuffer so the same code works on either backend.
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_SceneTarget;
