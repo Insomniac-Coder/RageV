@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "RageV/Core/UUID.h"
+#include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsTypes.h"
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
@@ -188,6 +189,85 @@ namespace RageV
 		ColliderComponent() = default;
 		ColliderComponent(const ColliderComponent&) = default;
 		ColliderComponent(ColliderShape shape) : Shape(shape) {}
+	};
+
+	// A sound this entity can play, positioned where the entity is.
+	//
+	// One clip per component rather than a list. A component holding several
+	// would need a way to say which one to play, which is a script's job -- and
+	// a script can play any clip through the one-shot helpers without a
+	// component at all.
+	struct AudioSourceComponent
+	{
+		AssetHandle Clip = AssetHandle::Invalid();
+		AudioBus Bus = AudioBus::SFX;
+
+		float Volume = 1.0f;
+		// Also changes speed: this is a resampling ratio, not a shift. 2 is an
+		// octave up and half as long.
+		float Pitch = 1.0f;
+		bool Loop = false;
+
+		// Starts when the scene starts playing. Off for anything a script or a
+		// collision is meant to trigger.
+		bool PlayOnAwake = true;
+
+		// Positioned in the world, so it is quieter further away and pans as
+		// the listener turns. Off for music and UI.
+		bool Spatial = true;
+		float MinDistance = 1.0f;
+		float MaxDistance = 50.0f;
+
+		// Decoded while playing rather than up front. For music; a long track
+		// decoded into memory costs tens of megabytes to play once.
+		bool Stream = false;
+
+		// Runtime only, and deliberately not a registered field: a voice is
+		// meaningless outside the run that created it, so it is neither
+		// serialized nor shown.
+		AudioVoice Voice = 0;
+
+		AudioSourceComponent() = default;
+		AudioSourceComponent(const AudioSourceComponent& other)
+		{
+			*this = other;
+		}
+
+		// Copying a component must not copy the voice, for the same reason a
+		// script instance is not copied: two components would own one playing
+		// sound and both would stop it.
+		AudioSourceComponent& operator=(const AudioSourceComponent& other)
+		{
+			Clip = other.Clip;
+			Bus = other.Bus;
+			Volume = other.Volume;
+			Pitch = other.Pitch;
+			Loop = other.Loop;
+			PlayOnAwake = other.PlayOnAwake;
+			Spatial = other.Spatial;
+			MinDistance = other.MinDistance;
+			MaxDistance = other.MaxDistance;
+			Stream = other.Stream;
+			Voice = 0;
+			return *this;
+		}
+	};
+
+	// Where the scene is heard from.
+	//
+	// Optional: with no listener in the scene the primary camera is used, which
+	// is what is wanted almost every time and means audio works in a scene
+	// nobody thought about it in. Add one to hear from somewhere other than the
+	// camera -- a first-person game whose camera sits at the eyes but whose
+	// listener belongs at the character.
+	struct AudioListenerComponent
+	{
+		// Lowest wins, ties broken on entity id. The same rule as a camera's
+		// ViewRank, and for the same reason: a boolean can be true twice.
+		int ListenerRank = 0;
+
+		AudioListenerComponent() = default;
+		AudioListenerComponent(const AudioListenerComponent&) = default;
 	};
 
 	// Marks the root of an entity tree stamped out from a prefab asset.

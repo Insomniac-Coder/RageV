@@ -16,6 +16,7 @@ namespace RageV
 		const char* kProjectionNames[] = { "Perspective", "Orthographic" };
 		const char* kBodyTypeNames[] = { "Static", "Kinematic", "Dynamic" };
 		const char* kColliderShapeNames[] = { "Box", "Sphere", "Capsule" };
+		const char* kAudioBusNames[] = { "Master", "Music", "SFX", "UI" };
 
 		FieldHint AssetRef(AssetType accepts, const char* tooltip = nullptr)
 		{
@@ -129,6 +130,11 @@ namespace RageV
 		bool IsRoundCollider(const void* component)
 		{
 			return static_cast<const ColliderComponent*>(component)->Shape != ColliderShape::Box;
+		}
+
+		bool IsSpatialSource(const void* component)
+		{
+			return static_cast<const AudioSourceComponent*>(component)->Spatial;
 		}
 
 		bool IsPerspective(const void* component)
@@ -390,6 +396,72 @@ namespace RageV
 							   "Reports overlaps without resisting them." }),
 			};
 			Bind<ColliderComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- Audio source ----------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "AudioSourceComponent";
+			desc.DisplayName = "Audio Source";
+			desc.Fields = {
+				Field<&AudioSourceComponent::Clip>("Clip",
+					AssetRef(AssetType::Audio, "A .wav, .mp3 or .flac in the assets folder.")),
+				Field<&AudioSourceComponent::Bus>("Bus",
+					Enum(kAudioBusNames, "Which mix this sound belongs to, so music and "
+										 "effects can be turned down separately.")),
+				Field<&AudioSourceComponent::Volume>("Volume", Slider(0.0f, 2.0f)),
+				Field<&AudioSourceComponent::Pitch>("Pitch",
+					Drag(0.01f, 0.01f, 4.0f, "Also changes speed: 2 is an octave up and "
+											 "half as long.")),
+				Field<&AudioSourceComponent::Loop>("Loop"),
+				Field<&AudioSourceComponent::PlayOnAwake>("PlayOnAwake",
+					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+							   "Starts when the scene starts playing." }),
+				Field<&AudioSourceComponent::Stream>("Stream",
+					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+							   "Decode while playing rather than up front. For music." }),
+				Field<&AudioSourceComponent::Spatial>("Spatial",
+					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+							   "Positioned in the world, so it fades with distance. Off for "
+							   "music and UI." }),
+				Field<&AudioSourceComponent::MinDistance>("MinDistance",
+					OnlyWhen(IsSpatialSource, Drag(0.1f, 0.01f, 1000.0f,
+						"Full volume within this distance."))),
+				Field<&AudioSourceComponent::MaxDistance>("MaxDistance",
+					OnlyWhen(IsSpatialSource, Drag(0.5f, 0.02f, 10000.0f))),
+			};
+
+			desc.OnChanged = [](void* component)
+			{
+				auto* source = static_cast<AudioSourceComponent*>(component);
+				// A max below the min inverts the falloff curve, which is
+				// audible as a sound that gets louder as it recedes.
+				source->MinDistance = glm::max(source->MinDistance, 0.01f);
+				source->MaxDistance = glm::max(source->MaxDistance, source->MinDistance + 0.01f);
+			};
+
+			Bind<AudioSourceComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- Audio listener --------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "AudioListenerComponent";
+			desc.DisplayName = "Audio Listener";
+			desc.Fields = {
+				Field<&AudioListenerComponent::ListenerRank>("ListenerRank",
+					Drag(0.25f, 0, 99, "Which listener the scene is heard from: lowest rank "
+									   "wins. With no listener at all the primary camera is "
+									   "used.")),
+			};
+			desc.OnChanged = [](void* component)
+			{
+				auto* listener = static_cast<AudioListenerComponent*>(component);
+				listener->ListenerRank = glm::clamp(listener->ListenerRank, 0, 99);
+			};
+			Bind<AudioListenerComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
 

@@ -2,6 +2,7 @@
 #include "RageV/Core/Timestep.h"
 #include "RageV/Core/UUID.h"
 #include "RageV/Asset/Asset.h"
+#include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "Entity.h"
 #include <glm/glm.hpp>
@@ -160,6 +161,21 @@ namespace RageV
 		// Nearest body along the ray, which may be this one. Direction need not
 		// be normalised; the ray extends to its length. Test with `if (hit)`.
 		RayHit Raycast(const glm::vec3& origin, const glm::vec3& direction);
+
+		// --- audio -----------------------------------------------------------
+		// This entity's AudioSourceComponent. Restarts it if it is already
+		// playing; does nothing without the component.
+		AudioVoice PlaySource();
+		void StopSource();
+		bool IsSourcePlaying();
+
+		// Fire and forget, at this entity's position. Nothing to stop and
+		// nothing to keep: the returned voice is only useful if the sound is
+		// long enough to want to interrupt.
+		AudioVoice PlayOneShot(AssetHandle clip, float volume = 1.0f);
+		// The same, but unpositioned -- the listener hears it at full volume
+		// wherever they are. UI, narration, a stinger.
+		static AudioVoice PlayOneShot2D(AssetHandle clip, float volume = 1.0f);
 
 		// --- input -----------------------------------------------------------
 		// By action name, never by keycode. See RageV/Core/InputMap.h.

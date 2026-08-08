@@ -32,6 +32,29 @@ target_include_directories(cgltf PUBLIC cgltf)
 set_target_properties(cgltf PROPERTIES FOLDER ${VENDOR_FOLDER})
 
 # ---------------------------------------------------------------------------
+# miniaudio -- playback, decoding, mixing and 3D spatialisation
+#
+# One header and one implementation file, no dependencies, and public domain.
+# It brings its own WAV, MP3 and FLAC decoders, a resource manager that caches
+# and streams, and a node graph with distance attenuation already in it -- so
+# there is no second library to pick for any of that.
+#
+# OpenAL Soft is LGPL, which constrains how a packaged game may link it, and
+# FMOD cannot be redistributed at all: every user of this engine would need
+# their own licence, which for an engine is disqualifying.
+#
+# Vorbis is deliberately absent. miniaudio can decode it through stb_vorbis,
+# which would mean vendoring another decoder for a format that WAV and MP3
+# between them already cover.
+# ---------------------------------------------------------------------------
+add_library(miniaudio STATIC miniaudio/miniaudio.c)
+target_include_directories(miniaudio PUBLIC miniaudio)
+# The engine API is the whole reason for choosing this library; without it
+# miniaudio is only a device backend.
+target_compile_definitions(miniaudio PUBLIC MA_NO_ENCODING)
+set_target_properties(miniaudio PROPERTIES FOLDER ${VENDOR_FOLDER})
+
+# ---------------------------------------------------------------------------
 # Jolt Physics
 #
 # Not written here for the same reason Godot stopped writing its own: a

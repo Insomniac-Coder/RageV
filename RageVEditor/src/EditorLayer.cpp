@@ -1317,9 +1317,25 @@ void EditorLayer::LoadDemoScene()
 		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
 		box.AddComponent<ColliderComponent>().HalfExtents = glm::vec3(0.5f);
 
-		// So landing is visible as an event and not only as a change of
-		// position: each box flashes in proportion to how hard it lands.
-		box.AddComponent<NativeScriptComponent>("ImpactFlash");
+		// Landing shown as an event rather than only as a change of position.
+		// Alternating, because an entity carries one script: half the boxes
+		// flash on impact and half are heard, and between them the pair of
+		// features is demonstrated on the same collisions.
+		if (i % 2 == 0)
+		{
+			box.AddComponent<NativeScriptComponent>("ImpactFlash");
+		}
+		else
+		{
+			box.AddComponent<NativeScriptComponent>("ImpactSound");
+
+			auto& sound = box.AddComponent<AudioSourceComponent>();
+			sound.Clip = AssetRegistry::GetHandle("audio/impact.wav");
+			// The script starts it. On awake it would fire as the scene loads,
+			// before the box has hit anything.
+			sound.PlayOnAwake = false;
+			sound.MaxDistance = 40.0f;
+		}
 	}
 
 	// A band of air the boxes fall through, tinting them on the way. Invisible
@@ -1338,6 +1354,26 @@ void EditorLayer::LoadDemoScene()
 		collider.IsTrigger = true;
 
 		zone.AddComponent<NativeScriptComponent>("TriggerZone");
+
+		auto& chime = zone.AddComponent<AudioSourceComponent>();
+		chime.Clip = AssetRegistry::GetHandle("audio/chime.wav");
+		chime.PlayOnAwake = false;
+		chime.Volume = 0.7f;
+	}
+
+	// A looping spatial drone on the pedestal, off to one side, so the demo
+	// scene proves the parts of audio that a one-shot cannot: that a sound
+	// loops without a seam, that it starts with the scene, and that it is
+	// panned and attenuated by where it is relative to the camera.
+	{
+		auto& ambience = pedestal.AddComponent<AudioSourceComponent>();
+		ambience.Clip = AssetRegistry::GetHandle("audio/hum.wav");
+		ambience.Bus = AudioBus::Music;
+		ambience.Loop = true;
+		ambience.PlayOnAwake = true;
+		ambience.Volume = 0.35f;
+		ambience.MinDistance = 2.0f;
+		ambience.MaxDistance = 25.0f;
 	}
 
 	m_SceneHierarchyPanel.SetSelectedEntity({});

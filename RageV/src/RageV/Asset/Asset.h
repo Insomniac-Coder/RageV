@@ -21,6 +21,7 @@ namespace RageV
 		Material,
 		Prefab,
 		Scene,
+		Audio,
 	};
 
 	const char* AssetTypeName(AssetType type);

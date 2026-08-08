@@ -4,6 +4,7 @@
 #include "Input.h"
 #include "EngineConfig.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Audio/AudioEngine.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Core/InputMap.h"
@@ -61,6 +62,10 @@ namespace RageV {
 		AssetRegistry::Init("assets");
 		AssetManager::Init(*m_Device);
 
+		// After the registry, because a clip is resolved through it. Never
+		// fatal: a machine with no output device still runs the editor.
+		AudioEngine::Init(config.EnableAudio);
+
 		if (Platform::GetPlatformType() == PlatformType::Windows)
 		{
 			m_Platform.reset(new WindowsPlatform);
@@ -80,6 +85,11 @@ namespace RageV {
 		// Layers hold GPU resources, so they must be torn down while the device
 		// is still alive.
 		m_LayerStack.Clear();
+
+		// After the layers, so any scene still playing has already stopped what
+		// it started, and before anything else, because a sound outliving the
+		// mixer is a use-after-free on the audio thread.
+		AudioEngine::Shutdown();
 
 		InputMap::Shutdown();
 		AssetManager::Shutdown();
@@ -217,6 +227,11 @@ namespace RageV {
 				layer->OnImGuiRender();
 
 			m_ImGuiLayer->End();
+
+			// Retires sounds that have played out. Once a frame, unconditional:
+			// a one-shot fired from a script belongs to nothing that would
+			// otherwise clean it up.
+			AudioEngine::Update();
 
 			Renderer::EndFrame();
 			m_Device->EndFrame();

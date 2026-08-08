@@ -175,6 +175,75 @@ namespace RageV
 	}
 
 	// -------------------------------------------------------------------------
+	// Audio
+	// -------------------------------------------------------------------------
+	AudioVoice ScriptableEntity::PlaySource()
+	{
+		if (!HasComponent<AudioSourceComponent>())
+			return 0;
+
+		auto& source = GetComponent<AudioSourceComponent>();
+
+		// Restart rather than overlap. Two copies of one source playing over
+		// each other is a bug in every case where a component is involved --
+		// overlapping repeats are what PlayOneShot is for.
+		AudioEngine::Stop(source.Voice);
+
+		AudioPlayback playback;
+		playback.Clip = source.Clip;
+		playback.Bus = source.Bus;
+		playback.Volume = source.Volume;
+		playback.Pitch = source.Pitch;
+		playback.Loop = source.Loop;
+		playback.Stream = source.Stream;
+		playback.Spatial = source.Spatial;
+		playback.Position = GetWorldPosition();
+		playback.MinDistance = source.MinDistance;
+		playback.MaxDistance = source.MaxDistance;
+
+		source.Voice = AudioEngine::Play(playback);
+		return source.Voice;
+	}
+
+	void ScriptableEntity::StopSource()
+	{
+		if (!HasComponent<AudioSourceComponent>())
+			return;
+
+		auto& source = GetComponent<AudioSourceComponent>();
+		AudioEngine::Stop(source.Voice);
+		source.Voice = 0;
+	}
+
+	bool ScriptableEntity::IsSourcePlaying()
+	{
+		if (!HasComponent<AudioSourceComponent>())
+			return false;
+
+		return AudioEngine::IsPlaying(GetComponent<AudioSourceComponent>().Voice);
+	}
+
+	AudioVoice ScriptableEntity::PlayOneShot(AssetHandle clip, float volume)
+	{
+		AudioPlayback playback;
+		playback.Clip = clip;
+		playback.Volume = volume;
+		playback.Spatial = true;
+		playback.Position = GetWorldPosition();
+		return AudioEngine::Play(playback);
+	}
+
+	AudioVoice ScriptableEntity::PlayOneShot2D(AssetHandle clip, float volume)
+	{
+		AudioPlayback playback;
+		playback.Clip = clip;
+		playback.Bus = AudioBus::UI;
+		playback.Volume = volume;
+		playback.Spatial = false;
+		return AudioEngine::Play(playback);
+	}
+
+	// -------------------------------------------------------------------------
 	// Input and time
 	// -------------------------------------------------------------------------
 	bool ScriptableEntity::IsActionDown(const std::string& action)      { return InputMap::IsActionDown(action); }

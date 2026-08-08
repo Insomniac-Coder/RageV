@@ -22,6 +22,7 @@
 //   --frames-in-flight=N
 //   --fixed-hz=N            simulation steps per second (default 60)
 //   --width=N --height=N    window size
+//   --audio=on|off          open an output device at all
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include <string>
@@ -38,6 +39,12 @@ namespace RageV
 		// Simulation rate. 60 matches what most physics engines are tuned for;
 		// higher costs CPU, lower makes fast collisions tunnel.
 		uint32_t     FixedHz = 60;
+
+		// Whether to open an audio device. Off means the engine still tracks
+		// every sound it would have played and simply plays none of them, which
+		// is the same path a machine with no output device takes -- so turning
+		// this off is how that path gets exercised rather than assumed.
+		bool         EnableAudio = true;
 
 		// Startup window size. Worth having as a flag rather than a constant:
 		// panel layout only misbehaves at sizes you have to reproduce to see.

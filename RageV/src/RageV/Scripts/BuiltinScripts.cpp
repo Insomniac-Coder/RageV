@@ -155,6 +155,40 @@ namespace RageV
 		float m_FadeSeconds = 0.45f;
 	};
 
+	// Plays this entity's clip when it is hit, at a volume that follows how
+	// hard. Needs an AudioSourceComponent for the clip; PlayOnAwake should be
+	// off, since the point is that a collision starts it.
+	//
+	// A one-shot rather than the source itself, so two hits close together
+	// overlap the way two real impacts would instead of cutting each other off.
+	class ImpactSound : public ScriptableEntity
+	{
+	public:
+		void OnCollisionEnter(const Collision& collision) override
+		{
+			if (!HasComponent<AudioSourceComponent>())
+				return;
+
+			const auto& source = GetComponent<AudioSourceComponent>();
+			if (!source.Clip.IsValid())
+				return;
+
+			// Below this, a contact is something settling rather than landing.
+			// Without the threshold a stack coming to rest sounds like a
+			// machine gun: the last centimetre of a box finding its place is
+			// several separate contacts, each of them technically a collision.
+			if (collision.ImpactSpeed < m_QuietestAudibleSpeed)
+				return;
+
+			const float loudness = glm::min(collision.ImpactSpeed / m_FullVolumeSpeed, 1.0f);
+			PlayOneShot(source.Clip, loudness * source.Volume);
+		}
+
+	private:
+		float m_QuietestAudibleSpeed = 0.9f;
+		float m_FullVolumeSpeed = 7.0f;
+	};
+
 	// An invisible volume that tints whatever is inside it.
 	//
 	// The worked example for triggers, and for reaching the *other* entity in a
@@ -165,6 +199,15 @@ namespace RageV
 	public:
 		void OnTriggerEnter(const Collision& collision) override
 		{
+			// Announced whether or not the thing that entered can be tinted --
+			// a pressure plate with nothing to recolour should still click.
+			if (HasComponent<AudioSourceComponent>())
+			{
+				const auto& source = GetComponent<AudioSourceComponent>();
+				if (source.Clip.IsValid())
+					PlayOneShot(source.Clip, source.Volume);
+			}
+
 			if (!collision.Other || !collision.Other.HasComponent<MeshComponent>())
 				return;
 
@@ -248,6 +291,7 @@ namespace RageV
 		ScriptRegistry::Register("Mover",       []() -> ScriptableEntity* { return new Mover(); });
 		ScriptRegistry::Register("Follow",      []() -> ScriptableEntity* { return new Follow(); });
 		ScriptRegistry::Register("ImpactFlash", []() -> ScriptableEntity* { return new ImpactFlash(); });
+		ScriptRegistry::Register("ImpactSound", []() -> ScriptableEntity* { return new ImpactSound(); });
 		ScriptRegistry::Register("TriggerZone", []() -> ScriptableEntity* { return new TriggerZone(); });
 	}
 }

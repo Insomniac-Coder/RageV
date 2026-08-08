@@ -73,6 +73,9 @@ namespace RageV
 		if (key == "validation")
 			return ParseBool(value, config.EnableValidation);
 
+		if (key == "audio")
+			return ParseBool(value, config.EnableAudio);
+
 		if (key == "frames-in-flight" || key == "framesinflight")
 		{
 			try

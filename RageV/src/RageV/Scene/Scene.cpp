@@ -23,6 +23,7 @@ namespace RageV
 	Scene::Scene()
 	{
 		m_Registry.on_destroy<NativeScriptComponent>().connect<&Scene::OnNativeScriptDestroyed>(this);
+		m_Registry.on_destroy<AudioSourceComponent>().connect<&Scene::OnAudioSourceDestroyed>(this);
 		m_Registry.on_destroy<IDComponent>().connect<&Scene::OnIDDestroyed>(this);
 	}
 
@@ -45,6 +46,16 @@ namespace RageV
 		// Virtual destructor, so this destroys the derived type.
 		delete component.Instance;
 		component.Instance = nullptr;
+	}
+
+	// A signal rather than a line in DeleteEntity, for the same reason the
+	// script hook is one: destroying an entity, removing the component and
+	// clearing the registry all have to stop the sound, and a signal cannot be
+	// forgotten at one of three call sites. A looping source on a destroyed
+	// entity would otherwise play until the process ended.
+	void Scene::OnAudioSourceDestroyed(entt::registry& registry, entt::entity handle)
+	{
+		AudioEngine::Stop(registry.get<AudioSourceComponent>(handle).Voice);
 	}
 
 	void Scene::OnIDDestroyed(entt::registry& registry, entt::entity handle)
@@ -335,14 +346,117 @@ namespace RageV
 		}
 	}
 
+	// Lowest ListenerRank wins, on the same rule as cameras. With no listener
+	// component anywhere, the camera is where the scene is heard from -- which
+	// is right often enough that requiring one would mostly produce silent
+	// scenes and a confused user.
+	Entity Scene::GetPrimaryListenerEntity()
+	{
+		Entity best;
+		int bestRank = std::numeric_limits<int>::max();
+		uint64_t bestID = std::numeric_limits<uint64_t>::max();
+
+		auto view = m_Registry.view<AudioListenerComponent, IDComponent>();
+		for (auto item : view)
+		{
+			const int rank = view.get<AudioListenerComponent>(item).ListenerRank;
+			const uint64_t id = view.get<IDComponent>(item).ID;
+
+			if (rank < bestRank || (rank == bestRank && id < bestID))
+			{
+				best = { item, this };
+				bestRank = rank;
+				bestID = id;
+			}
+		}
+
+		return best ? best : GetPrimaryCameraEntity();
+	}
+
+	void Scene::StartAudioSources()
+	{
+		UpdateWorldTransforms();
+
+		auto view = m_Registry.view<AudioSourceComponent, TransformComponent>();
+		for (auto handle : view)
+		{
+			auto [source, transform] = view.get<AudioSourceComponent, TransformComponent>(handle);
+
+			// Whatever was left in the component is not this run's. A scene
+			// saved while playing would otherwise start believing it already
+			// owns a voice that no longer exists.
+			source.Voice = 0;
+
+			if (!source.PlayOnAwake || !source.Clip.IsValid())
+				continue;
+
+			AudioPlayback playback;
+			playback.Clip = source.Clip;
+			playback.Bus = source.Bus;
+			playback.Volume = source.Volume;
+			playback.Pitch = source.Pitch;
+			playback.Loop = source.Loop;
+			playback.Stream = source.Stream;
+			playback.Spatial = source.Spatial;
+			playback.Position = glm::vec3(transform.World[3]);
+			playback.MinDistance = source.MinDistance;
+			playback.MaxDistance = source.MaxDistance;
+
+			source.Voice = AudioEngine::Play(playback);
+		}
+	}
+
+	void Scene::StopAudioSources()
+	{
+		auto view = m_Registry.view<AudioSourceComponent>();
+		for (auto handle : view)
+		{
+			AudioSourceComponent& source = view.get<AudioSourceComponent>(handle);
+			AudioEngine::Stop(source.Voice);
+			source.Voice = 0;
+		}
+
+		// Everything else the run started -- one-shots a script fired, and
+		// sounds belonging to entities that have since been destroyed. Stop
+		// means silence, not "silence except for whatever is still in flight".
+		AudioEngine::StopAll();
+	}
+
+	void Scene::UpdateAudio()
+	{
+		if (Entity listener = GetPrimaryListenerEntity())
+		{
+			const glm::mat4& world = listener.GetComponent<TransformComponent>().World;
+
+			// -Z forward, matching the camera and light convention.
+			AudioEngine::SetListener(glm::vec3(world[3]),
+									 glm::vec3(world * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)),
+									 glm::vec3(world * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)));
+		}
+
+		// Positions follow the entity every frame, so a sound attached to
+		// something moving is heard where it is rather than where it started.
+		auto view = m_Registry.view<AudioSourceComponent, TransformComponent>();
+		for (auto handle : view)
+		{
+			auto [source, transform] = view.get<AudioSourceComponent, TransformComponent>(handle);
+
+			if (source.Voice != 0 && source.Spatial)
+				AudioEngine::SetVoicePosition(source.Voice, glm::vec3(transform.World[3]));
+		}
+	}
+
 	void Scene::OnRuntimeStart()
 	{
 		m_Physics = std::make_unique<PhysicsWorld>();
 		m_Physics->Build(*this);
+
+		StartAudioSources();
 	}
 
 	void Scene::OnRuntimeStop()
 	{
+		StopAudioSources();
 		m_Physics.reset();
 	}
 
@@ -360,6 +474,12 @@ namespace RageV
 		// simulation states is applied, and it is the frame that needs it.
 		if (m_Physics)
 			m_Physics->SyncTransforms(*this, Application::GetInterpolationAlpha());
+
+		// After the sync, so a sound on a simulated body is placed where it is
+		// being drawn rather than one step behind it. Audio is presentation,
+		// like rendering, and belongs on the frame for the same reason.
+		UpdateWorldTransforms();
+		UpdateAudio();
 	}
 
 	void Scene::OnFixedUpdateRuntime(Timestep dt)

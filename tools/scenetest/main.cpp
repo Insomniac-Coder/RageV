@@ -29,6 +29,7 @@
 #include "RageV/Core/KeyCodes.h"
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Physics/PhysicsWorld.h"
+#include "RageV/Audio/AudioEngine.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
@@ -934,6 +935,221 @@ namespace
 		scene->OnRuntimeStop();
 	}
 
+	// Audio, checked through the scene rather than through the mixer.
+	//
+	// Whether a sound is audible depends on the machine; what the scene does
+	// about it must not. AudioEngine allocates and tracks voices with or
+	// without an output device precisely so this is testable either way, and
+	// every check below holds in both cases.
+	void CheckAudio()
+	{
+		const AssetHandle clip = AssetRegistry::GetHandle("audio/impact.wav");
+		Check(clip.IsValid(), "a .wav in the assets folder is registered as an audio asset");
+		Check(AssetRegistry::GetMetadata(clip).Type == AssetType::Audio,
+			  "and typed from its extension");
+		// The demo scene refers to all three by path, and a handle that stops
+		// resolving is a silent failure there rather than a loud one.
+		Check(AssetRegistry::GetHandle("audio/chime.wav").IsValid() &&
+			  AssetRegistry::GetHandle("audio/hum.wav").IsValid(),
+			  "as are the other sample clips");
+
+		AudioEngine::StopAll();
+
+		// --- bus volumes ------------------------------------------------------
+		AudioEngine::SetBusVolume(AudioBus::Music, 0.25f);
+		Check(std::fabs(AudioEngine::GetBusVolume(AudioBus::Music) - 0.25f) < 1e-4f,
+			  "a bus volume reads back as it was set");
+		Check(std::fabs(AudioEngine::GetBusVolume(AudioBus::SFX) - 1.0f) < 1e-4f,
+			  "and does not affect the other buses");
+		AudioEngine::SetBusVolume(AudioBus::Music, 1.0f);
+
+		// --- what does and does not produce a voice ---------------------------
+		AudioPlayback missing;
+		missing.Clip = AssetHandle::Invalid();
+		Check(AudioEngine::Play(missing) == 0, "a source with no clip plays nothing");
+
+		AudioPlayback good;
+		good.Clip = clip;
+		const AudioVoice voice = AudioEngine::Play(good);
+		Check(voice != 0, "a valid clip yields a voice");
+		Check(AudioEngine::IsPlaying(voice), "which is playing");
+		AudioEngine::Stop(voice);
+		Check(!AudioEngine::IsPlaying(voice), "and stops when told to");
+		Check(AudioEngine::GetVoiceCount() == 0, "leaving nothing behind");
+
+		// --- play on awake ----------------------------------------------------
+		auto scene = std::make_shared<Scene>();
+
+		Entity speaker = scene->CreateEntity("Speaker");
+		speaker.GetComponent<TransformComponent>().Position = { 3.0f, 0.0f, -2.0f };
+		{
+			auto& source = speaker.AddComponent<AudioSourceComponent>();
+			source.Clip = clip;
+			source.Loop = true;          // so it cannot end before it is checked
+			source.PlayOnAwake = true;
+		}
+
+		Entity quiet = scene->CreateEntity("Quiet");
+		{
+			auto& source = quiet.AddComponent<AudioSourceComponent>();
+			source.Clip = clip;
+			source.PlayOnAwake = false;
+		}
+
+		scene->OnRuntimeStart();
+
+		Check(speaker.GetComponent<AudioSourceComponent>().Voice != 0,
+			  "play starts a source marked play-on-awake");
+		Check(quiet.GetComponent<AudioSourceComponent>().Voice == 0,
+			  "and leaves one that is not alone");
+
+		scene->OnUpdateRuntime(1.0f / 60.0f);
+		AudioEngine::Update();
+		Check(AudioEngine::GetVoiceCount() == 1, "a looping voice survives a frame");
+
+		// --- the listener ------------------------------------------------------
+		Check(!scene->GetPrimaryListenerEntity(),
+			  "a scene with no listener and no camera has nowhere to hear from");
+
+		Entity camera = scene->CreateEntity("Camera");
+		camera.AddComponent<CameraComponent>();
+		Check(scene->GetPrimaryListenerEntity() == camera,
+			  "the camera is the listener when nothing else claims to be");
+
+		Entity ears = scene->CreateEntity("Ears");
+		ears.AddComponent<AudioListenerComponent>();
+		Check(scene->GetPrimaryListenerEntity() == ears,
+			  "an explicit listener takes precedence over the camera");
+
+		Entity better = scene->CreateEntity("Better Ears");
+		better.AddComponent<AudioListenerComponent>().ListenerRank = 0;
+		ears.GetComponent<AudioListenerComponent>().ListenerRank = 5;
+		Check(scene->GetPrimaryListenerEntity() == better,
+			  "and the lowest rank wins among several");
+
+		// --- destroying a source stops it --------------------------------------
+		scene->DeleteEntity(speaker);
+		Check(AudioEngine::GetVoiceCount() == 0,
+			  "destroying an entity stops the sound it was playing");
+
+		// --- stop silences everything ------------------------------------------
+		Entity again = scene->CreateEntity("Again");
+		{
+			auto& source = again.AddComponent<AudioSourceComponent>();
+			source.Clip = clip;
+			source.Loop = true;
+		}
+		scene->OnRuntimeStart();
+		Check(AudioEngine::GetVoiceCount() == 1, "restarting play starts it again");
+
+		scene->OnRuntimeStop();
+		Check(AudioEngine::GetVoiceCount() == 0, "stopping the scene silences everything");
+		Check(again.GetComponent<AudioSourceComponent>().Voice == 0,
+			  "and clears the voice off the component");
+	}
+
+	// Where 2.5 and 2.6 meet: a built-in script hearing about a collision and
+	// turning it into a sound.
+	//
+	// Each half is tested on its own above. This is the join, which is the part
+	// that is easy to leave broken -- a callback that fires into a script that
+	// cannot reach the mixer looks fine from either side.
+	void CheckCollisionSound()
+	{
+		AudioEngine::StopAll();
+
+		auto scene = std::make_shared<Scene>();
+
+		Entity ground = scene->CreateEntity("Ground");
+		ground.GetComponent<TransformComponent>().Position = { 0.0f, -1.0f, 0.0f };
+		ground.AddComponent<RigidBodyComponent>(BodyType::Static);
+		ground.AddComponent<ColliderComponent>().HalfExtents = { 25.0f, 1.0f, 25.0f };
+
+		Entity box = scene->CreateEntity("Box");
+		box.GetComponent<TransformComponent>().Position = { 0.0f, 5.0f, 0.0f };
+		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+		box.AddComponent<ColliderComponent>();
+		box.AddComponent<NativeScriptComponent>("ImpactSound");
+
+		auto& source = box.AddComponent<AudioSourceComponent>();
+		source.Clip = AssetRegistry::GetHandle("audio/impact.wav");
+		source.PlayOnAwake = false;
+
+		constexpr float dt = 1.0f / 60.0f;
+		scene->OnRuntimeStart();
+
+		Check(AudioEngine::GetVoiceCount() == 0,
+			  "a source that is not play-on-awake is silent at the start");
+
+		// Falling, not yet landed.
+		for (int i = 0; i < 20; i++)
+			scene->OnFixedUpdateRuntime(dt);
+
+		Check(AudioEngine::GetVoiceCount() == 0, "and while it is still in the air");
+
+		for (int i = 0; i < 40; i++)
+			scene->OnFixedUpdateRuntime(dt);
+
+		Check(AudioEngine::GetVoiceCount() > 0, "landing plays the clip");
+		Check(box.GetComponent<AudioSourceComponent>().Voice == 0,
+			  "as a one-shot, so a second hit overlaps rather than cutting the first off");
+
+		scene->OnRuntimeStop();
+		Check(AudioEngine::GetVoiceCount() == 0, "and stop silences it");
+	}
+
+	// The source's settings are scene data and have to survive a save; the
+	// voice is not and must not.
+	void CheckAudioSerialization()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		Entity entity = scene->CreateEntity("Source");
+		auto& source = entity.AddComponent<AudioSourceComponent>();
+		source.Clip = AssetRegistry::GetHandle("audio/chime.wav");
+		source.Bus = AudioBus::Music;
+		source.Volume = 0.42f;
+		source.Pitch = 1.35f;
+		source.Loop = true;
+		source.PlayOnAwake = false;
+		source.Spatial = false;
+		source.MinDistance = 2.5f;
+		source.MaxDistance = 88.0f;
+		source.Stream = true;
+		source.Voice = 12345;   // must not survive
+
+		entity.AddComponent<AudioListenerComponent>().ListenerRank = 7;
+
+		SceneSerializer serializer(scene);
+		const std::string yaml = serializer.SerializeToString();
+
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer reader(reloaded);
+		reader.DeserializeFromString(yaml);
+
+		Entity restored = reloaded->FindEntityByName("Source");
+		Check((bool)restored, "the entity survives the round trip");
+		if (!restored)
+			return;
+
+		Check(restored.HasComponent<AudioSourceComponent>(), "with its audio source");
+		const auto& back = restored.GetComponent<AudioSourceComponent>();
+
+		Check(back.Clip == source.Clip, "the clip is stored by handle");
+		Check(back.Bus == AudioBus::Music, "the bus survives");
+		Check(std::fabs(back.Volume - 0.42f) < 1e-4f &&
+			  std::fabs(back.Pitch - 1.35f) < 1e-4f, "volume and pitch survive");
+		Check(back.Loop && !back.PlayOnAwake && !back.Spatial && back.Stream,
+			  "and every flag survives");
+		Check(std::fabs(back.MinDistance - 2.5f) < 1e-4f &&
+			  std::fabs(back.MaxDistance - 88.0f) < 1e-4f, "as do the distances");
+		Check(back.Voice == 0, "the playing voice does not, because it belongs to one run");
+
+		Check(restored.HasComponent<AudioListenerComponent>() &&
+			  restored.GetComponent<AudioListenerComponent>().ListenerRank == 7,
+			  "a listener and its rank survive");
+	}
+
 	// Stop has to put the scene back exactly, including everything physics
 	// moved -- which is most of the scene after a run.
 	void CheckPhysicsRestoresOnStop()
@@ -1222,6 +1438,9 @@ int RunTests(int argc, char** argv)
 	Renderer::Init(*device);
 	AssetRegistry::Init("assets");
 	AssetManager::Init(*device);
+	// Opens a real device if there is one. The audio checks are written to
+	// hold either way, so a machine with no sound card is not a failing build.
+	AudioEngine::Init();
 
 	RV_CORE_INFO("Scene round-trip test on {0}", device->GetCaps().APIName);
 
@@ -1237,6 +1456,23 @@ int RunTests(int argc, char** argv)
 	CheckTriggerCallbacks();
 	CheckPhysicsRestoresOnStop();
 	CheckPlayModeRestore();
+
+	// --- audio ---------------------------------------------------------------
+	CheckAudio();
+	CheckCollisionSound();
+	CheckAudioSerialization();
+
+	// Then the whole suite again with no output device. The claim this makes is
+	// that what the engine does with sound does not depend on whether the
+	// machine can play it -- and a claim like that is worth running rather than
+	// believing, since the day it stops being true is a day nobody notices on a
+	// desk with speakers.
+	RV_CORE_INFO("Audio again, with no output device");
+	AudioEngine::Shutdown();
+	AudioEngine::Init(false);
+	Check(!AudioEngine::IsAvailable(), "the silent path really is silent");
+	CheckAudio();
+	CheckCollisionSound();
 
 	// --- cameras -------------------------------------------------------------
 	CheckCameraRanking();
@@ -1311,6 +1547,7 @@ int RunTests(int argc, char** argv)
 		Check(first == second, "loading a scene replaces the current one rather than merging");
 	}
 
+	AudioEngine::Shutdown();
 	AssetManager::Shutdown();
 	AssetRegistry::Shutdown();
 	Renderer::Shutdown();

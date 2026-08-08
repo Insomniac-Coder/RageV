@@ -38,3 +38,6 @@
 [submodule "RageV/vendor/JoltPhysics"]
 	path = RageV/vendor/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "RageV/vendor/miniaudio"]
+	path = RageV/vendor/miniaudio
+	url = https://github.com/mackron/miniaudio.git

@@ -17,6 +17,7 @@ namespace RageV
 			{ AssetType::Material, "Material" },
 			{ AssetType::Prefab,   "Prefab" },
 			{ AssetType::Scene,    "Scene" },
+			{ AssetType::Audio,    "Audio" },
 		};
 	}
 
@@ -52,6 +53,13 @@ namespace RageV
 		if (lower == ".png" || lower == ".jpg" || lower == ".jpeg" ||
 			lower == ".tga" || lower == ".bmp" || lower == ".hdr")
 			return AssetType::Texture;
+
+		// What miniaudio decodes without a second library bolted on. Vorbis
+		// (.ogg) needs stb_vorbis and is deliberately not claimed here -- a
+		// file that imports and then will not play is worse than one that does
+		// not import.
+		if (lower == ".wav" || lower == ".mp3" || lower == ".flac")
+			return AssetType::Audio;
 
 		if (lower == ".rmat")    return AssetType::Material;
 		if (lower == ".rprefab") return AssetType::Prefab;

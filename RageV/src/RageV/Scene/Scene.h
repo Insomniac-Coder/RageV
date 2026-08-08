@@ -108,6 +108,11 @@ namespace RageV
 
 		Entity GetPrimaryCameraEntity();
 
+		// Lowest ListenerRank wins. Falls back to the primary camera when the
+		// scene has no AudioListenerComponent at all, which is the case almost
+		// every time and is what makes audio work without being set up.
+		Entity GetPrimaryListenerEntity();
+
 		SceneEnvironment& GetEnvironment() { return m_Environment; }
 		const SceneEnvironment& GetEnvironment() const { return m_Environment; }
 
@@ -126,10 +131,17 @@ namespace RageV
 		// the registry all have to run these; a signal cannot be forgotten at
 		// one of those call sites.
 		void OnNativeScriptDestroyed(entt::registry& registry, entt::entity handle);
+		void OnAudioSourceDestroyed(entt::registry& registry, entt::entity handle);
 		void OnIDDestroyed(entt::registry& registry, entt::entity handle);
 
 		// Hands what the simulation reported to the scripts on both entities.
 		void DispatchContactEvents();
+
+		// Starts every PlayOnAwake source, stops everything the scene started,
+		// and pushes the listener and each source's world position to the mixer.
+		void StartAudioSources();
+		void StopAudioSources();
+		void UpdateAudio();
 		// One side of one event. `flip` is true for the entity the stored
 		// normal points away from.
 		void DeliverContact(const ContactEvent& event, UUID to, UUID other, bool flip);

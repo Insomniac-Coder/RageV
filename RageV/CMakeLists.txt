@@ -23,6 +23,7 @@ target_link_libraries(RageV
         stb
         cgltf
         Jolt
+        miniaudio
         glfw
         volk
         vma

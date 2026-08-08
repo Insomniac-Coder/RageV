@@ -19,6 +19,7 @@ namespace RageV
 				case AssetType::Material: return "[m]";
 				case AssetType::Prefab:   return "[P]";
 				case AssetType::Scene:    return "[S]";
+				case AssetType::Audio:    return "[A]";
 				default:                  return " ? ";
 			}
 		}
