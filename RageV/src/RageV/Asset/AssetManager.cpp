@@ -2,6 +2,7 @@
 #include "AssetManager.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Renderer/TextureLoader.h"
+#include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
@@ -23,6 +24,7 @@ namespace RageV
 		// Environment maps, keyed on the handle rather than the path, so a scene
 		// that reloads keeps the cube it already paid to build.
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Cubemaps;
+		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Irradiance;
 
 		constexpr PrimitiveType kPrimitives[] = {
 			PrimitiveType::Cube, PrimitiveType::Sphere, PrimitiveType::Plane,
@@ -67,6 +69,15 @@ namespace RageV
 	{
 		s_Meshes.clear();
 		s_Cubemaps.clear();
+		s_Irradiance.clear();
+
+		// The loader and the filter hold the same textures by path and by
+		// pointer, and both used to be cleared only at shutdown -- so changing
+		// project kept every old project's environment maps alive, and the
+		// filter's map was keyed on addresses whose owners it did not know the
+		// lifetime of. Cleared together or not at all.
+		TextureLoader::ClearCache();
+		EnvironmentIBL::ClearCache();
 	}
 
 	std::string AssetManager::GetDisplayName(AssetHandle handle)
@@ -146,13 +157,23 @@ namespace RageV
 		if (!s_Device || !handle.IsValid())
 			return nullptr;
 
+		// Cached by handle like the cube is. Without this it resolved a handle
+		// to an absolute path and built a std::string every frame a scene was
+		// drawn, to reach a cache that was already holding the answer.
+		const auto cached = s_Irradiance.find(handle);
+		if (cached != s_Irradiance.end())
+			return cached->second;
+
 		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
 		if (path.empty())
+		{
+			s_Irradiance[handle] = nullptr;
 			return nullptr;
+		}
 
-		// Cached inside the loader alongside the cube it came from, so this is
-		// a lookup after the first call rather than a second convolution.
-		return TextureLoader::LoadIrradiance(*s_Device, path.string());
+		auto irradiance = TextureLoader::LoadIrradiance(*s_Device, path.string());
+		s_Irradiance[handle] = irradiance;
+		return irradiance;
 	}
 
 	AssetHandle AssetManager::CreatePrefab(Scene& scene, Entity root,

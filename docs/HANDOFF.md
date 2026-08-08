@@ -61,8 +61,10 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**What to do next:** §8. The short answer is **3.8, clustered forward** — it
-removes the eight-light cap, which is the last hard limit left in the
+**What to do next:** §8, and it starts with **measuring the frame with vsync
+off**. Every timing number taken so far is the display's refresh rate, so
+nothing about this renderer's cost is actually known. After that, 3.8 —
+clustered forward — removes the eight-light cap, the last hard limit in the
 lighting.
 
 ---
@@ -453,6 +455,12 @@ or silence rather than an obvious failure.
 - **A per-frame descriptor cursor resets per frame, not per call.** Same bug,
   second form: the prefilter reset its cursor on entry, so a second environment
   filtered in the same frame rewrote sets the first had already bound.
+- **Caches that hold the same object by different keys are cleared together.**
+  `TextureLoader` holds environment maps by path, `AssetManager` by handle, and
+  `EnvironmentIBL` holds their filtered cubes by raw pointer. Two of the three
+  cleared only at shutdown, so changing project leaked every previous project's
+  maps — and the pointer-keyed one had no way to know its keys had died.
+  `AssetManager::ClearCache` now clears all of them.
 - **A cube's face size is sent to the shader, not derived from its mip count.**
   `exp2(highest mip)` equals the face size only when the chain runs down to one
   texel. A prefiltered cube stops at its roughness levels, so the derivation
@@ -667,15 +675,29 @@ work per pass went down, not that the frame got faster.
 
 Start here, in this order.
 
-### 0. Measure before optimising further (`S`)
+### START HERE — measure, with vsync off (`S`)
+
+**This is where the next session begins.** Everything below it is guesswork
+until it is done.
 
 Culling cut the sample scene from 144 draws to 60 and the frame time did not
-move, because both applications ship with `vsync = on` and the panel was the
-limit. Nothing about the renderer's cost is currently known.
+move: 4.14 ms to 4.01 ms, which is 242 to 249 FPS, which is a 240 Hz panel.
+Both applications ship with `vsync = on`. Nothing about this renderer's cost
+is currently known — not the shadow passes, not the probe captures, not the
+post chain, not whether culling bought anything at all.
 
-Run with `--vsync=off`, on a scene big enough for the answer not to be noise,
-and find out where the time actually goes before doing any more work that
-assumes draw calls are the problem.
+1. Run both applications with `--vsync=off` and read the frame time again.
+2. Build a scene large enough that the answer is not noise — the sample is
+   twelve objects, and twelve objects will not reveal a bottleneck.
+3. Then attribute it: shadows are up to eleven extra scene walks, a realtime
+   probe is one more plus a prefilter every sixth frame, and the post chain is
+   eleven passes. One of those is the cost; none of them is currently known to
+   be.
+
+Do not do any more optimisation work before this. 3.6's remaining half —
+sorting and instancing — is exactly the kind of work that should be justified
+by a measurement rather than by a plausible story, and the plausible story
+about draw counts has already been wrong once today.
 
 ### 1. 3.8 — clustered forward (`L`)
 
@@ -712,20 +734,52 @@ Last, deliberately: it must mirror a native surface that has stopped moving.
 
 ## 9. Known rough edges
 
-Things that are wrong, or true and annoying, and that nothing above covers.
+Everything wrong or annoying that is not already a caveat in §6. Written down
+because the alternative is someone finding each one by being confused.
 
-### Actual defects
+### Correctness
 
 - **Asset handles minted in the build output are lost on a clean build.** The
   assets root is the folder beside the executable, which CMake copies from the
   source tree. Assets added to the *source* tree keep their handle because the
-  `.meta` is copied along; assets dropped into `build/` do not. Recorded in
+  `.meta` is copied with them; assets dropped into `build/` do not. Recorded in
   `AssetRegistry.h`.
-- **The editor's font is loaded at a fixed 18px with no DPI scaling**, so the
-  UI is physically small on a high-DPI display.
-- **`Sandbox` predates the RHI and does not build.** Off by default.
+- **A cubemap sky whose irradiance fails to load silently uses the gradient's.**
+  `Skybox::ResolveIrradiance` falls through to the gradient path, which builds
+  a cube from `SkyHorizon` / `SkyZenith` / `SkyGround` — values the scene may
+  never have set meaningfully because it uses an environment map. The diffuse
+  ambient is then plausible and wrong.
 - **A script attached while playing is discarded on Stop.** Correct snapshot
-  semantics, but surprising the first time.
+  semantics, surprising the first time.
+- **`Renderer2D` quads and the debug overlay are not frustum culled.** Only
+  meshes are. Neither is usually the cost, but "culling is in" is not true of
+  the whole renderer.
+- **Nothing culls by distance.** A mesh behind the camera is skipped; a mesh a
+  kilometre away that is two pixels across is drawn in full.
+
+### Performance, all unmeasured
+
+- **Both applications ship with `vsync = on`**, so every frame-time number
+  taken so far is the panel's refresh rather than the renderer's cost. See §8,
+  step 0.
+- **The editor renders shadows twice** when the game viewport is open, once
+  fitted to each camera. Correct, and twice the cost.
+- **A realtime probe re-runs the GGX prefilter every sixth frame**: 36 small
+  renders, amortised to six a frame. Fine for one probe, untested for several.
+- **No draw sorting and no instancing.** Opaque geometry is drawn in registry
+  order, so early-z does nothing for it, and identical meshes are separate
+  draws.
+
+### Editor and tooling
+
+- **The editor's font is 18px with no DPI scaling**, so the UI is physically
+  small on a high-DPI display.
+- **Running any application without `--screenshot` opens a window and waits.**
+  That is correct behaviour and not a hang, but it will look like one in a
+  script. Every verification run should pass the flag.
+- **`Sandbox` predates the RHI and does not build.** Off by default.
+- **Field labels are derived, not authored.** An acronym that is not all-caps
+  in the source — `Fov` rather than `FOV` — reads as a word.
 
 ### Housekeeping
 
@@ -735,8 +789,11 @@ Things that are wrong, or true and annoying, and that nothing above covers.
 - `quadshader.glsl`, `simpleshader.glsl`, `textureshader.glsl` in
   `RageVEditor/assets/shaders/` are pre-RHI leftovers. Safe to delete.
 - `Chunk`/`Perlin` are parked in `experiments/terrain/` and not built.
-- The sample project's `sky.hdr` is generated, not authored. The script that
-  made it is not in the repository; regenerating it means writing it again.
+- **The sample project's `sky.hdr` is generated and the generator is not in the
+  repository.** Regenerating it means writing the script again. It produced a
+  1024x512 Radiance file with a sun at 40 degrees azimuth and 17 elevation.
+- The sample scene's shadow distance, bias and probe placement are tuned for
+  that scene and are not general defaults.
 
 ---
 
