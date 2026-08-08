@@ -110,7 +110,8 @@ namespace RageV
 					PostProcess::Prefilter(context.Cmd, context.Color(sceneHDR),
 										   context.Width * 2, context.Height * 2,
 										   Format::R16G16B16A16_SFLOAT,
-										   env.BloomThreshold, env.BloomKnee);
+										   env.BloomThreshold, env.BloomKnee,
+										   env.BloomClamp);
 				});
 
 			for (size_t i = 1; i < levels.size(); i++)

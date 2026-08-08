@@ -4,6 +4,14 @@
 // reads as flickering on anything moving. The soft knee below ramps in over a
 // range around the threshold instead, which is the standard fix and costs three
 // instructions.
+//
+// This is also the only stage that reads the full-resolution scene, and so the
+// only one that can see a bright detail smaller than a pixel of the level below
+// it. That is where fireflies come from: the sun reflected in a curved metal
+// surface is a handful of pixels at several hundred nits, a box filter turns
+// that into one very bright texel, and the chain then spreads it into a
+// scattering of hard blobs that float in the air near whatever produced them.
+// The weighted average below is what stops that -- see KarisWeight.
 
 #type vertex
 #version 450 core
@@ -36,19 +44,94 @@ layout(push_constant) uniform Params
 	vec2  TexelSize;
 	float Threshold;
 	float Knee;
+	float Clamp;
+	float FlipY;
 } u_Params;
+
+float Luminance(vec3 colour)
+{
+	return dot(colour, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// Karis's weighting for averaging high-dynamic-range samples.
+//
+// A plain mean is dominated by its brightest member: average 400 with three
+// zeroes and the answer is 100, which is still four times over the threshold
+// and survives every level of the chain. Weighting each sample by 1/(1+luma)
+// makes a very bright sample contribute roughly its own share of the *result*
+// rather than of the sum, so a single hot pixel brightens the group instead of
+// becoming it.
+//
+// The cost is that genuinely bright things bloom slightly less than energy
+// conservation says they should. That is the trade every engine makes here,
+// and it is the right way round: a sun that glows a little less than it might
+// looks like a sun, and one that scatters blobs looks like a bug.
+float KarisWeight(vec3 colour)
+{
+	return 1.0 / (1.0 + Luminance(colour));
+}
 
 void main()
 {
-	// A 4-tap box at the halfway points: this pass halves resolution, so
-	// sampling the four texels it is averaging costs nothing extra over one
-	// bilinear fetch and keeps the result stable.
+	// The destination row this fragment writes and the source row v_UV
+	// names are the same row on OpenGL and opposite rows on Vulkan. See
+	// PostProcess::Dispatch.
+	vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
+
 	vec2 o = u_Params.TexelSize;
-	vec3 color = texture(u_Source, v_UV + vec2(-o.x, -o.y)).rgb
-			   + texture(u_Source, v_UV + vec2( o.x, -o.y)).rgb
-			   + texture(u_Source, v_UV + vec2(-o.x,  o.y)).rgb
-			   + texture(u_Source, v_UV + vec2( o.x,  o.y)).rgb;
-	color *= 0.25;
+
+	// The same 13-tap arrangement the rest of the chain downsamples with: a
+	// 3x3 grid two texels apart, plus four inner taps at the halfway points.
+	// A 4-tap box was cheaper and aliased, which is the other half of why the
+	// blobs were there.
+	//
+	// Every tap is clamped on the way in. The weighting below limits how much
+	// one sample can dominate its neighbours; it cannot bound the result, and a
+	// reflected sun is bright enough -- hundreds, against a threshold of one --
+	// that a reduced share of it is still a blob. Clamping the input is what
+	// bounds it. The scene keeps its real values; only what bleeds is limited.
+	float ceiling = max(u_Params.Clamp, u_Params.Threshold);
+	vec3 a = min(texture(u_Source, uv + vec2(-2.0 * o.x,  2.0 * o.y)).rgb, ceiling);
+	vec3 b = min(texture(u_Source, uv + vec2( 0.0,        2.0 * o.y)).rgb, ceiling);
+	vec3 c = min(texture(u_Source, uv + vec2( 2.0 * o.x,  2.0 * o.y)).rgb, ceiling);
+
+	vec3 d = min(texture(u_Source, uv + vec2(-2.0 * o.x,  0.0)).rgb, ceiling);
+	vec3 e = min(texture(u_Source, uv).rgb, ceiling);
+	vec3 f = min(texture(u_Source, uv + vec2( 2.0 * o.x,  0.0)).rgb, ceiling);
+
+	vec3 g = min(texture(u_Source, uv + vec2(-2.0 * o.x, -2.0 * o.y)).rgb, ceiling);
+	vec3 h = min(texture(u_Source, uv + vec2( 0.0,       -2.0 * o.y)).rgb, ceiling);
+	vec3 i = min(texture(u_Source, uv + vec2( 2.0 * o.x, -2.0 * o.y)).rgb, ceiling);
+
+	vec3 j = min(texture(u_Source, uv + vec2(-o.x,  o.y)).rgb, ceiling);
+	vec3 k = min(texture(u_Source, uv + vec2( o.x,  o.y)).rgb, ceiling);
+	vec3 l = min(texture(u_Source, uv + vec2(-o.x, -o.y)).rgb, ceiling);
+	vec3 m = min(texture(u_Source, uv + vec2( o.x, -o.y)).rgb, ceiling);
+
+	// Five overlapping 2x2 groups. The weighting is applied per group rather
+	// than per tap: a tap on its own is too small a sample to say whether it is
+	// a highlight or an outlier, and per-group is what the reference does.
+	vec3 groups[5];
+	groups[0] = (a + b + d + e) * 0.25;
+	groups[1] = (b + c + e + f) * 0.25;
+	groups[2] = (d + e + g + h) * 0.25;
+	groups[3] = (e + f + h + i) * 0.25;
+	groups[4] = (j + k + l + m) * 0.25;
+
+	// The inner square carries half the total, the four overlapping outer
+	// squares an eighth each -- the same split as the downsample pass.
+	const float share[5] = float[5](0.125, 0.125, 0.125, 0.125, 0.5);
+
+	vec3 sum = vec3(0.0);
+	float total = 0.0;
+	for (int n = 0; n < 5; ++n)
+	{
+		float weight = share[n] * KarisWeight(groups[n]);
+		sum += groups[n] * weight;
+		total += weight;
+	}
+
+	vec3 color = sum / max(total, 1e-4);
 
 	// Brightness as the largest channel rather than luminance: a saturated red
 	// light at (4, 0, 0) is visibly glowing, and its luminance weighting would

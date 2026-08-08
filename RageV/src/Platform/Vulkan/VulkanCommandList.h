@@ -39,6 +39,10 @@ namespace RageV::Vk
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
 
+		void CopyToTextureLayer(const RHI::Ref<RHI::RHITexture>& source,
+								const RHI::Ref<RHI::RHITexture>& destination,
+								uint32_t layer) override;
+
 		void PushDebugGroup(const char* name) override;
 		void PopDebugGroup() override;
 

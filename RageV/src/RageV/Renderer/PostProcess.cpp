@@ -19,6 +19,12 @@ namespace RageV
 			glm::vec2 TexelSize{ 0.0f };
 			float A = 0.0f;
 			float B = 0.0f;
+			float C = 0.0f;
+
+			// Whether sampling has to flip vertically. Filled by Dispatch, never
+			// by a caller, because it is a property of the backend and not of
+			// the effect. See the note there.
+			float FlipY = 0.0f;
 		};
 
 		const char* ShaderPath(int shader)
@@ -193,8 +199,34 @@ namespace RageV
 		cmd.BindPipeline(pipeline);
 		cmd.BindResourceSet(0, set);
 
-		if (params && paramSize > 0)
+		// A fullscreen pass reads one render target and writes another, and the
+		// two backends do not store a rendered image the same way round.
+		//
+		// Vulkan's first framebuffer row is the top of the image; OpenGL's is
+		// the bottom. The RHI hides that everywhere else by giving Vulkan a
+		// negative-height viewport, so geometry lands in the same place on both
+		// -- but that fixes where a fragment *writes*, not where a texture
+		// coordinate *reads*. A fragment at the top of the destination samples
+		// v = 1, which is the last row of the source: the bottom on Vulkan and
+		// the top on OpenGL. So Vulkan flips and OpenGL does not.
+		//
+		// An even number of passes hides it, which is why this survived: with
+		// anti-aliasing on, the scene goes through tonemap and FXAA and comes
+		// out the right way up. The bloom chain has an odd number, and its
+		// contribution was being added upside down -- visible only once
+		// something in the scene was bright enough to bleed, as a set of blobs
+		// mirrored about the middle of the image.
+		PostParams local{};
+		if (params && paramSize >= sizeof(PostParams))
+		{
+			memcpy(&local, params, sizeof(PostParams));
+			local.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+			cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(PostParams), &local);
+		}
+		else if (params && paramSize > 0)
+		{
 			cmd.PushConstants(ShaderStage::Fragment, 0, paramSize, params);
+		}
 
 		// Three vertices, no buffer: the vertex shader builds the triangle from
 		// gl_VertexIndex.
@@ -203,12 +235,13 @@ namespace RageV
 
 	void PostProcess::Prefilter(RHICommandList& cmd, const Ref<RHITexture>& source,
 								uint32_t width, uint32_t height, Format outputFormat,
-								float threshold, float knee)
+								float threshold, float knee, float clamp)
 	{
 		PostParams params;
 		params.TexelSize = { 1.0f / (float)glm::max(width, 1u), 1.0f / (float)glm::max(height, 1u) };
 		params.A = threshold;
 		params.B = knee;
+		params.C = glm::max(clamp, threshold);
 		Dispatch(cmd, Shader::Prefilter, outputFormat, source, nullptr, &params, sizeof(params));
 	}
 

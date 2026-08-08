@@ -180,6 +180,7 @@ namespace RageV
 		emitter << YAML::Key << "BloomThreshold" << YAML::Value << environment.BloomThreshold;
 		emitter << YAML::Key << "BloomKnee" << YAML::Value << environment.BloomKnee;
 		emitter << YAML::Key << "BloomIntensity" << YAML::Value << environment.BloomIntensity;
+		emitter << YAML::Key << "BloomClamp" << YAML::Value << environment.BloomClamp;
 		emitter << YAML::Key << "AntiAliasing" << YAML::Value << (uint32_t)environment.AA;
 		emitter << YAML::EndMap;
 
@@ -407,6 +408,8 @@ namespace RageV
 					target.BloomKnee = value.as<float>();
 				if (const YAML::Node value = environment["BloomIntensity"])
 					target.BloomIntensity = value.as<float>();
+				if (const YAML::Node value = environment["BloomClamp"])
+					target.BloomClamp = value.as<float>();
 				if (const YAML::Node value = environment["AntiAliasing"])
 					target.AA = (AntiAliasing)value.as<uint32_t>();
 			}

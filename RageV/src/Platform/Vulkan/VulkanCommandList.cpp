@@ -306,6 +306,54 @@ namespace RageV::Vk
 		vkCmdDrawIndexed(m_CommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 	}
 
+	void VulkanCommandList::CopyToTextureLayer(const RHI::Ref<RHI::RHITexture>& source,
+											   const RHI::Ref<RHI::RHITexture>& destination,
+											   uint32_t layer)
+	{
+		RV_CORE_ASSERT(!m_InRenderPass, "CopyToTextureLayer inside a render pass");
+
+		if (!source || !destination)
+			return;
+
+		auto* src = static_cast<VulkanTexture*>(source.get());
+		auto* dst = static_cast<VulkanTexture*>(destination.get());
+
+		src->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		dst->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+		const int32_t width = (int32_t)source->GetWidth();
+		const int32_t height = (int32_t)source->GetHeight();
+
+		// Read bottom-to-top, write top-to-bottom.
+		//
+		// The face is captured with the same camera basis every cube-map
+		// tutorial uses, which puts the face's first texel row at the *bottom*
+		// of the rendered image. OpenGL stores a rendered image bottom-up and
+		// therefore needs nothing; this backend renders through a
+		// negative-height viewport, so its row 0 is the top, and the flip
+		// belongs here. Getting this backwards produces an upside-down
+		// reflection, which on a sphere is not obviously upside down -- it just
+		// looks wrong.
+		VkImageBlit region{};
+		region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.srcSubresource.layerCount = 1;
+		region.srcOffsets[0] = { 0, height, 0 };
+		region.srcOffsets[1] = { width, 0, 1 };
+		region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.dstSubresource.baseArrayLayer = layer;
+		region.dstSubresource.layerCount = 1;
+		region.dstOffsets[0] = { 0, 0, 0 };
+		region.dstOffsets[1] = { width, height, 1 };
+
+		vkCmdBlitImage(m_CommandBuffer,
+					   src->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					   dst->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					   1, &region, VK_FILTER_NEAREST);
+
+		src->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		dst->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	}
+
 	void VulkanCommandList::PushDebugGroup(const char* name)
 	{
 		if (!vkCmdBeginDebugUtilsLabelEXT)

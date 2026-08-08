@@ -98,6 +98,18 @@ namespace RageV
 		float BloomKnee = 0.5f;
 		float BloomIntensity = 0.06f;
 
+		// Ceiling on what a single pixel may contribute to bloom.
+		//
+		// Without one, anything very bright and very small -- the sun reflected
+		// in curved metal is the usual culprit, a few hundred nits across less
+		// than a texel of the mip being read -- survives the whole chain as an
+		// isolated blob that floats in the air near the surface that produced
+		// it. Every engine has this control for the same reason.
+		//
+		// It bounds the contribution, not the pixel: the scene keeps its real
+		// values, and only what bleeds out of them is limited.
+		float BloomClamp = 16.0f;
+
 		AntiAliasing AA = AntiAliasing::FXAA;
 	};
 }

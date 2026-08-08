@@ -50,6 +50,22 @@ namespace RageV::RHI
 								 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 								 uint32_t firstInstance = 0) = 0;
 
+		// Copies a rendered 2D image onto one array layer of another texture,
+		// in the orientation that sampling that layer expects. Same size, same
+		// format, mip 0. Must be called outside a render pass.
+		//
+		// "In the orientation sampling expects" is doing real work here. The
+		// two backends store a rendered image with opposite row order -- Vulkan
+		// writes row 0 at the top, OpenGL at the bottom -- and for an ordinary
+		// texture that cancels against the equally opposite texture coordinate
+		// convention, so nothing anywhere has to know. Cube faces have no such
+		// luck: their orientation comes from a face table both specifications
+		// share, and the data has to match it. So one backend copies and the
+		// other blits upside down, and callers see neither.
+		virtual void CopyToTextureLayer(const Ref<RHITexture>& source,
+										const Ref<RHITexture>& destination,
+										uint32_t layer) = 0;
+
 		// Debug-marker scopes; show up in RenderDoc and Nsight.
 		virtual void PushDebugGroup(const char* name) = 0;
 		virtual void PopDebugGroup() = 0;

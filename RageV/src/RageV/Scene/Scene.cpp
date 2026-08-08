@@ -644,6 +644,105 @@ namespace RageV
 		OnRender(camera, camera.GetTransform());
 	}
 
+	void Scene::CaptureReflectionProbes()
+	{
+		// Re-entrant only in the sense that must never happen: a capture draws
+		// the scene, and drawing the scene must not start another capture.
+		if (m_CapturingProbes || !Renderer::HasDevice())
+			return;
+
+		RHI::RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
+		if (view.begin() == view.end())
+			return;
+
+		// The probes are placed by transforms, and a probe parented to
+		// something that moved this frame is at last frame's position until
+		// this runs.
+		UpdateWorldTransforms();
+
+		m_CapturingProbes = true;
+
+		for (auto& item : view)
+		{
+			auto [transform, probe] = view.get<TransformComponent, ReflectionProbeComponent>(item);
+
+			const bool realtime = probe.Update == ProbeUpdate::Realtime;
+			const bool captured = probe.Probe && probe.Probe->IsComplete();
+
+			if (!realtime && captured && !probe.Dirty)
+				continue;
+
+			const uint32_t resolution = (uint32_t)glm::clamp(probe.Resolution, 16, 1024);
+			if (!probe.Probe || probe.Probe->GetFaceSize() != resolution)
+			{
+				probe.Probe = std::make_shared<ReflectionProbe>(Renderer::GetDevice(), resolution);
+				probe.NextFace = 0;
+			}
+
+			// The first capture always does all six. Spreading it would only
+			// delay the moment anything can reflect at all, since an incomplete
+			// cube is not usable.
+			const uint32_t faces = probe.Probe->IsComplete()
+								 ? (uint32_t)glm::clamp(probe.FacesPerFrame, 1, 6)
+								 : 6u;
+
+			probe.NextFace = probe.Probe->CaptureFaces(
+				*cmd, glm::vec3(transform.World[3]), probe.NearClip, probe.FarClip,
+				probe.NextFace, faces,
+				[this](const Camera& faceCamera, const glm::mat4& faceTransform)
+				{
+					OnRender(faceCamera, faceTransform);
+				});
+
+			probe.Dirty = false;
+		}
+
+		m_CapturingProbes = false;
+	}
+
+	RHI::Ref<RHI::RHITexture> Scene::ResolveEnvironment(const glm::mat4& cameraTransform,
+														const RHI::Ref<RHI::RHITexture>& sky)
+	{
+		// A probe capture reflects the sky, never another probe. Two probes
+		// facing each other would otherwise capture each other capturing each
+		// other, one frame deeper every frame.
+		if (m_CapturingProbes)
+			return sky;
+
+		// Chosen against the viewer rather than per surface. Per surface is the
+		// right answer and needs the scene descriptor set rebound per draw, or
+		// a cube array indexed per object; neither is worth building before one
+		// probe works. With one probe in a scene the two agree anyway.
+		const glm::vec3 eye = glm::vec3(cameraTransform[3]);
+
+		RHI::Ref<RHI::RHITexture> best = sky;
+		float nearest = std::numeric_limits<float>::max();
+
+		auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
+		for (auto& item : view)
+		{
+			auto [transform, probe] = view.get<TransformComponent, ReflectionProbeComponent>(item);
+
+			// An incomplete probe is black on the faces it has not reached. The
+			// sky is a better answer than a hole.
+			if (!probe.Probe || !probe.Probe->IsComplete())
+				continue;
+
+			const float distance = glm::distance(eye, glm::vec3(transform.World[3]));
+			if (distance > probe.Influence || distance >= nearest)
+				continue;
+
+			nearest = distance;
+			best = probe.Probe->GetCube();
+		}
+
+		return best;
+	}
+
 	void Scene::OnRender(const Camera& camera, const glm::mat4& cameraTransform)
 	{
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
@@ -679,13 +778,18 @@ namespace RageV
 			sky = Skybox::ResolveEnvironment(m_Environment, sky);
 		}
 
+		// The sky still draws the sky; only the surfaces reflect the probe.
+		// A probe's capture contains the sky already, so drawing the background
+		// from it would be a lower-resolution copy of what is there anyway.
+		const RHI::Ref<RHI::RHITexture> environment = ResolveEnvironment(cameraTransform, sky);
+
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
 		// of the alpha-blended quads means the quads blend against a complete
 		// depth buffer rather than over each other arbitrarily.
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
 		{
-			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment, sky);
+			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment, environment);
 
 			for (auto& item : meshView)
 			{

@@ -24,7 +24,7 @@ namespace RageV
 		// Bloom stage 1: threshold and halve. Source is the linear HDR scene.
 		static void Prefilter(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
 							  uint32_t width, uint32_t height, RHI::Format outputFormat,
-							  float threshold, float knee);
+							  float threshold, float knee, float clamp);
 
 		// Bloom stage 2: halve again. Source is the level above.
 		static void Downsample(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,

@@ -215,6 +215,11 @@ void EditorLayer::OnUpdate(Timestep ts)
 	else
 		m_Scene->OnUpdateRuntime(ts);
 
+	// Before either frame graph, and once for both: a probe capture opens
+	// render passes of its own, nothing may do that inside another one, and the
+	// two viewports share the scene and so share its probes.
+	m_Scene->CaptureReflectionProbes();
+
 	// The scene view and the game view are the same frame described twice,
 	// differing only in the camera and where the result lands. Both go through
 	// BuildFrame, so bloom and tone mapping cannot end up applied to one and

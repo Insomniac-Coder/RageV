@@ -12,6 +12,7 @@
 #include "RageV/Renderer/Light.h"
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/Material.h"
+#include "RageV/Renderer/ReflectionProbe.h"
 #include <glm/gtx/quaternion.hpp>
 
 namespace RageV
@@ -118,6 +119,67 @@ namespace RageV
 		LightComponent() = default;
 		LightComponent(const LightComponent&) = default;
 		LightComponent(const RageV::Light& light) : Light(light) {}
+	};
+
+	// How often a probe re-renders what it can see.
+	enum class ProbeUpdate : uint32_t
+	{
+		// Captured once and kept. Costs nothing after the first frame, which is
+		// what makes it the right answer for a room, a corridor, or anything
+		// else whose surroundings do not move.
+		Baked = 0,
+
+		// Re-captured continuously, one face per frame by default. Costs one
+		// extra scene render per frame and shows moving objects in reflections.
+		Realtime = 1,
+	};
+
+	// Captures the scene into a cube map from one point, for surfaces near it
+	// to reflect.
+	//
+	// The scene picks one probe per render: the nearest whose influence radius
+	// contains the camera, and the sky otherwise. Per-object selection would
+	// mean rebinding the scene descriptor set per draw, and blending between
+	// probes needs both bound at once -- neither is worth it before the thing
+	// works with one.
+	struct ReflectionProbeComponent
+	{
+		ProbeUpdate Update = ProbeUpdate::Baked;
+
+		// Per face. Reflections are seen through a rough surface or a curved
+		// one, so this can be far smaller than it feels like it should be: 128
+		// is six 128x128 renders and is hard to fault on anything but a mirror.
+		//
+		// Signed because the reflected inspector has no unsigned widget, and a
+		// second numeric type for one field is worse than one clamp.
+		int Resolution = 128;
+
+		float NearClip = 0.05f;
+		float FarClip = 100.0f;
+
+		// How far from this probe its capture is still a reasonable answer.
+		// Reflections come from a single point, so the further a surface is from
+		// that point the more wrong the parallax, and past some distance the sky
+		// is the better lie.
+		float Influence = 20.0f;
+
+		// Realtime only. Six renders in one frame is a visible hitch; one per
+		// frame is a sixth of the cost and a sixth of a second of latency on a
+		// reflection.
+		int FacesPerFrame = 1;
+
+		// Runtime state. Not serialized: a capture is derived from the scene,
+		// like a shadow map, and writing one into a text file would be storing
+		// a render in a scene description.
+		std::shared_ptr<ReflectionProbe> Probe;
+		uint32_t NextFace = 0;
+		// Set when the probe has never been captured, or when something that
+		// invalidates the capture changed. A baked probe watches this; a
+		// realtime one ignores it and re-captures regardless.
+		bool Dirty = true;
+
+		ReflectionProbeComponent() = default;
+		ReflectionProbeComponent(const ReflectionProbeComponent&) = default;
 	};
 
 	// 3D geometry, referenced by handle rather than embedded. A scene file

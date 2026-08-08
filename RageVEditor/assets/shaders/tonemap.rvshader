@@ -33,6 +33,8 @@ layout(push_constant) uniform Params
 	float BloomIntensity;
 	float Unused0;
 	float Unused1;
+	float Unused2;
+	float FlipY;
 } u_Params;
 
 // ACES filmic approximation (Narkowicz). Without tone mapping anything above
@@ -46,8 +48,13 @@ vec3 TonemapACES(vec3 x)
 
 void main()
 {
-	vec3 color = texture(u_Scene, v_UV).rgb;
-	color += texture(u_Bloom, v_UV).rgb * u_Params.BloomIntensity;
+	// The destination row this fragment writes and the source row v_UV
+	// names are the same row on OpenGL and opposite rows on Vulkan. See
+	// PostProcess::Dispatch.
+	vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
+
+	vec3 color = texture(u_Scene, uv).rgb;
+	color += texture(u_Bloom, uv).rgb * u_Params.BloomIntensity;
 
 	// Exposure before the curve, which is what makes it an exposure control
 	// rather than a brightness one: it slides the scene along the response

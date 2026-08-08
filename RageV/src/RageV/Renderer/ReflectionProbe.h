@@ -1,0 +1,75 @@
+#pragma once
+#include "RageV/Renderer/RHI/RHIDevice.h"
+#include "RageV/Renderer/Camera.h"
+#include "glm/glm.hpp"
+#include <functional>
+
+namespace RageV
+{
+	// A cube map captured from a point in the scene.
+	//
+	// The difference from an environment map loaded off disk is only where the
+	// pixels come from: the shader binds either one the same way. What a probe
+	// buys is that the reflection contains the *scene* -- the wall behind you,
+	// the red box beside you -- rather than only the sky.
+	//
+	// Six faces are rendered into one scratch 2D target and copied into the
+	// cube, rather than rendered into the cube directly. Rendering into a face
+	// needs a per-layer image view on one backend and a layered framebuffer on
+	// the other, and the two disagree about which way up a rendered image is
+	// stored; a copy step costs six blits of a small image and puts that
+	// disagreement in one place -- RHICommandList::CopyToTextureLayer -- with
+	// the reasoning written down beside it.
+	class ReflectionProbe
+	{
+	public:
+		ReflectionProbe(RHI::RHIDevice& device, uint32_t faceSize);
+
+		uint32_t GetFaceSize() const { return m_FaceSize; }
+		const RHI::Ref<RHI::RHITexture>& GetCube() const { return m_Cube; }
+
+		// False until all six faces have been rendered at least once. Binding a
+		// half-captured probe would show black where the scene has not been
+		// drawn yet, so callers fall back to the sky until this is true.
+		bool IsComplete() const { return m_Complete; }
+
+		// Draws the scene from one face's camera. Given the projection and the
+		// camera's world transform, exactly as a viewport would be.
+		using DrawScene = std::function<void(const Camera&, const glm::mat4&)>;
+
+		// Renders `count` faces starting at `first`, wrapping round. Returns the
+		// face to start from next time.
+		//
+		// Splitting a capture across frames is what makes a realtime probe
+		// affordable: six scene renders in one frame is a visible hitch, one per
+		// frame is a sixth of a frame's cost and a sixth of a second of latency
+		// on a reflection, which nobody has ever noticed in a moving image.
+		//
+		// Must be called outside a render pass.
+		uint32_t CaptureFaces(RHI::RHICommandList& cmd, const glm::vec3& position,
+							  float nearClip, float farClip,
+							  uint32_t first, uint32_t count, const DrawScene& draw);
+
+		// The camera for one face: a 90-degree frustum looking down that face's
+		// axis, with the up vector the cube-map face table implies.
+		//
+		// Exposed because it is the part worth checking without a GPU. Every way
+		// of getting the basis wrong -- a mirrored face, a rotated one, an
+		// upside-down one -- still produces a plausible reflection.
+		static glm::mat4 FaceTransform(uint32_t face, const glm::vec3& position);
+		static glm::mat4 FaceProjection(float nearClip, float farClip);
+
+	private:
+		RHI::RHIDevice& m_Device;
+		uint32_t m_FaceSize = 0;
+
+		RHI::Ref<RHI::RHITexture> m_Cube;
+		// One scratch target, reused for all six faces. The copy after each face
+		// is ordered against the render before it, so there is nothing to gain
+		// from six.
+		RHI::Ref<RHI::RHIRenderTarget> m_Scratch;
+
+		uint32_t m_FacesCaptured = 0;
+		bool m_Complete = false;
+	};
+}

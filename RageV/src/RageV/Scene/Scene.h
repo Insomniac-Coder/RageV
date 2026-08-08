@@ -4,6 +4,7 @@
 #include "RageV/Core/UUID.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/RHI/RHIResources.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -106,6 +107,14 @@ namespace RageV
 		// Draws through the viewport's own camera, which needs no entity.
 		void OnRenderEditor(const EditorCamera& camera);
 
+		// Re-renders whatever the scene's reflection probes can see.
+		//
+		// Called by the application between BeginFrame and the frame graph,
+		// because a capture opens render passes of its own and nothing may do
+		// that inside another one. It is not folded into OnRender for the same
+		// reason: OnRender runs *inside* the scene pass.
+		void CaptureReflectionProbes();
+
 		Entity GetPrimaryCameraEntity();
 
 		// Lowest ListenerRank wins. Falls back to the primary camera when the
@@ -123,6 +132,11 @@ namespace RageV
 
 	private:
 		void OnRender(const Camera& camera, const glm::mat4& cameraTransform);
+
+		// The cube surfaces reflect: the nearest complete probe whose influence
+		// reaches the viewer, and the sky otherwise.
+		RHI::Ref<RHI::RHITexture> ResolveEnvironment(const glm::mat4& cameraTransform,
+													 const RHI::Ref<RHI::RHITexture>& sky);
 		void PropagateTransform(entt::entity handle, const glm::mat4& parentWorld);
 		void UnlinkFromParent(Entity entity);
 
@@ -149,6 +163,12 @@ namespace RageV
 	private:
 		entt::registry m_Registry;
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
+		// True while probe faces are being rendered. A probe capture draws the
+		// scene, and the scene reflects a probe -- without this the second
+		// probe in a scene would capture the first one's reflection of it, and
+		// a probe would capture itself.
+		bool m_CapturingProbes = false;
+
 		SceneEnvironment m_Environment;
 		std::vector<UUID> m_PendingDestroy;
 		std::unique_ptr<PhysicsWorld> m_Physics;

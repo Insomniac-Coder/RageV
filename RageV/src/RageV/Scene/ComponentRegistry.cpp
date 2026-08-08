@@ -13,6 +13,7 @@ namespace RageV
 		bool s_Initialised = false;
 
 		const char* kLightTypeNames[] = { "Directional", "Point", "Spot" };
+		const char* kProbeUpdateNames[] = { "Baked", "Realtime" };
 		const char* kProjectionNames[] = { "Perspective", "Orthographic" };
 		const char* kBodyTypeNames[] = { "Static", "Kinematic", "Dynamic" };
 		const char* kColliderShapeNames[] = { "Box", "Sphere", "Capsule" };
@@ -109,6 +110,12 @@ namespace RageV
 		bool IsPositional(const void* component)
 		{
 			return static_cast<const LightComponent*>(component)->Light.Type != Light::LightType::Directional;
+		}
+
+		bool IsRealtimeProbe(const void* component)
+		{
+			return static_cast<const ReflectionProbeComponent*>(component)->Update
+				 == ProbeUpdate::Realtime;
 		}
 
 		bool IsDynamicBody(const void* component)
@@ -343,6 +350,36 @@ namespace RageV
 					OnlyWhen(IsSpot, Slider(0.0f, 89.0f))),
 			};
 			Bind<LightComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- Reflection probe -------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "ReflectionProbeComponent";
+			desc.DisplayName = "Reflection Probe";
+			desc.Fields = {
+				Field<&ReflectionProbeComponent::Update>("Update",
+					Enum(kProbeUpdateNames, "Baked captures once and costs nothing after "
+											"that. Realtime re-captures continuously and "
+											"shows moving objects in reflections.")),
+				Field<&ReflectionProbeComponent::Resolution>("Resolution",
+					Drag(8.0f, 16.0f, 1024.0f, "Per face. Reflections are seen through "
+											   "rough or curved surfaces, so this can be "
+											   "far lower than it feels like it should.")),
+				Field<&ReflectionProbeComponent::Influence>("Influence",
+					Drag(0.5f, 0.5f, 500.0f, "How far from the probe its capture is still "
+											 "a reasonable answer. Beyond this the sky is "
+											 "the better lie.")),
+				Field<&ReflectionProbeComponent::NearClip>("NearClip", Drag(0.01f, 0.001f, 10.0f)),
+				Field<&ReflectionProbeComponent::FarClip>("FarClip", Drag(1.0f, 0.1f, 10000.0f)),
+				Field<&ReflectionProbeComponent::FacesPerFrame>("FacesPerFrame",
+					OnlyWhen(IsRealtimeProbe,
+						Drag(1.0f, 1.0f, 6.0f, "Six in one frame is a visible hitch; one "
+											   "per frame is a sixth of the cost and a "
+											   "sixth of a second of latency."))),
+			};
+			Bind<ReflectionProbeComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
 

@@ -46,6 +46,8 @@ layout(push_constant) uniform Params
 	// Absolute floor, so near-black areas -- where contrast is tiny but banding
 	// is most visible -- are left alone rather than smeared.
 	float RelativeThreshold;
+	float Unused2;
+	float FlipY;
 } u_Params;
 
 // Perceived brightness. The green channel alone is the usual approximation and
@@ -58,15 +60,20 @@ float Luma(vec3 color)
 
 void main()
 {
+	// The destination row this fragment writes and the source row v_UV
+	// names are the same row on OpenGL and opposite rows on Vulkan. See
+	// PostProcess::Dispatch.
+	vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
+
 	vec2 texel = u_Params.TexelSize;
 
-	vec3 middle = texture(u_Source, v_UV).rgb;
+	vec3 middle = texture(u_Source, uv).rgb;
 
 	float lumaM = Luma(middle);
-	float lumaN = Luma(texture(u_Source, v_UV + vec2(0.0, -texel.y)).rgb);
-	float lumaS = Luma(texture(u_Source, v_UV + vec2(0.0,  texel.y)).rgb);
-	float lumaW = Luma(texture(u_Source, v_UV + vec2(-texel.x, 0.0)).rgb);
-	float lumaE = Luma(texture(u_Source, v_UV + vec2( texel.x, 0.0)).rgb);
+	float lumaN = Luma(texture(u_Source, uv + vec2(0.0, -texel.y)).rgb);
+	float lumaS = Luma(texture(u_Source, uv + vec2(0.0,  texel.y)).rgb);
+	float lumaW = Luma(texture(u_Source, uv + vec2(-texel.x, 0.0)).rgb);
+	float lumaE = Luma(texture(u_Source, uv + vec2( texel.x, 0.0)).rgb);
 
 	float lumaMin = min(lumaM, min(min(lumaN, lumaS), min(lumaW, lumaE)));
 	float lumaMax = max(lumaM, max(max(lumaN, lumaS), max(lumaW, lumaE)));
@@ -82,10 +89,10 @@ void main()
 
 	// The diagonal neighbours, needed to tell a horizontal edge from a vertical
 	// one and to weight the blend.
-	float lumaNW = Luma(texture(u_Source, v_UV + vec2(-texel.x, -texel.y)).rgb);
-	float lumaNE = Luma(texture(u_Source, v_UV + vec2( texel.x, -texel.y)).rgb);
-	float lumaSW = Luma(texture(u_Source, v_UV + vec2(-texel.x,  texel.y)).rgb);
-	float lumaSE = Luma(texture(u_Source, v_UV + vec2( texel.x,  texel.y)).rgb);
+	float lumaNW = Luma(texture(u_Source, uv + vec2(-texel.x, -texel.y)).rgb);
+	float lumaNE = Luma(texture(u_Source, uv + vec2( texel.x, -texel.y)).rgb);
+	float lumaSW = Luma(texture(u_Source, uv + vec2(-texel.x,  texel.y)).rgb);
+	float lumaSE = Luma(texture(u_Source, uv + vec2( texel.x,  texel.y)).rgb);
 
 	float edgeHorizontal =
 		abs(lumaNW - 2.0 * lumaN + lumaNE) +
@@ -123,7 +130,7 @@ void main()
 	vec2 offset = horizontal ? vec2(0.0, stepLength * 0.5)
 							 : vec2(stepLength * 0.5, 0.0);
 
-	vec3 blended = texture(u_Source, v_UV + offset).rgb;
+	vec3 blended = texture(u_Source, uv + offset).rgb;
 
 	o_Color = vec4(mix(middle, blended, subpixel), 1.0);
 }

@@ -893,6 +893,46 @@ namespace RageV::GL
 			(GLsizei)instanceCount, vertexOffset, firstInstance);
 	}
 
+	void OpenGLCommandListRHI::CopyToTextureLayer(const Ref<RHITexture>& source,
+												  const Ref<RHITexture>& destination,
+												  uint32_t layer)
+	{
+		if (!source || !destination)
+			return;
+
+		const uint32_t width = source->GetWidth();
+		const uint32_t height = source->GetHeight();
+
+		if (!m_CopyRead) glCreateFramebuffers(1, &m_CopyRead);
+		if (!m_CopyDraw) glCreateFramebuffers(1, &m_CopyDraw);
+
+		const uint32_t src = std::static_pointer_cast<OpenGLTextureRHI>(source)->GetHandle();
+		const uint32_t dst = std::static_pointer_cast<OpenGLTextureRHI>(destination)->GetHandle();
+
+		glNamedFramebufferTexture(m_CopyRead, GL_COLOR_ATTACHMENT0, src, 0);
+		glNamedFramebufferReadBuffer(m_CopyRead, GL_COLOR_ATTACHMENT0);
+
+		glNamedFramebufferTextureLayer(m_CopyDraw, GL_COLOR_ATTACHMENT0, dst, 0, (GLint)layer);
+		glNamedFramebufferDrawBuffer(m_CopyDraw, GL_COLOR_ATTACHMENT0);
+
+		// Scissor is on for the life of the context so the RHI's SetScissor
+		// means something, and a blit is scissored like anything else. Off for
+		// the duration, or a face inherits whatever rectangle the last pass set.
+		glDisable(GL_SCISSOR_TEST);
+
+		// Straight through, no flip. A face is captured with the camera basis
+		// every cube-map tutorial uses, which puts the face's first texel row
+		// at the bottom of the rendered image -- and bottom-up is exactly how
+		// this backend stores one. The Vulkan path is where the difference is
+		// paid, because its viewport is flipped.
+		glBlitNamedFramebuffer(m_CopyRead, m_CopyDraw,
+							   0, 0, (GLint)width, (GLint)height,
+							   0, 0, (GLint)width, (GLint)height,
+							   GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+		glEnable(GL_SCISSOR_TEST);
+	}
+
 	void OpenGLCommandListRHI::PushDebugGroup(const char* name)
 	{
 		glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, name);

@@ -190,6 +190,10 @@ namespace RageV::GL
 		void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1,
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
+		void CopyToTextureLayer(const Ref<RHITexture>& source,
+								const Ref<RHITexture>& destination,
+								uint32_t layer) override;
+
 		void PushDebugGroup(const char* name) override;
 		void PopDebugGroup() override;
 
@@ -198,6 +202,12 @@ namespace RageV::GL
 		OpenGLPipelineRHI* m_BoundPipeline = nullptr;
 		uint32_t m_IndexType = 0;
 		uint64_t m_IndexOffset = 0;
+
+		// Framebuffers kept for CopyToTextureLayer's blit. Created on first use
+		// and reattached each time; a blit needs both ends bound, and GL has no
+		// image-to-image copy that can also flip.
+		uint32_t m_CopyRead = 0;
+		uint32_t m_CopyDraw = 0;
 	};
 
 	class OpenGLDevice final : public RHIDevice

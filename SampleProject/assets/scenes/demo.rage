@@ -230,6 +230,20 @@ Entities:
       Range: 10
       InnerCone: 20
       OuterCone: 30
+  - EntityID: 6172839405162738491
+    TagComponent:
+      Tag: Reflection Probe
+    TransformComponent:
+      Position: [0, 0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ReflectionProbeComponent:
+      Update: Realtime
+      Resolution: 128
+      Influence: 40
+      NearClip: 0.05
+      FarClip: 100
+      FacesPerFrame: 1
   - EntityID: 3590914368618080122
     TagComponent:
       Tag: testcube

@@ -38,6 +38,7 @@
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/Cubemap.h"
+#include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Scene/ScenePicking.h"
@@ -1431,6 +1432,98 @@ namespace
 			  "and an incomplete set of faces is refused");
 	}
 
+	// Reflection probes.
+	//
+	// The capture basis is the whole thing worth checking, and it cannot be
+	// checked by looking: a mirrored face, a face rotated by 90 degrees and an
+	// upside-down one all produce a reflection that moves correctly with the
+	// camera and is simply wrong. So each face's basis is compared against the
+	// cube-map face table it has to agree with -- if the capture and the
+	// sampling disagree about which direction a texel is, everything else in
+	// the feature is decoration.
+	void CheckReflectionProbe()
+	{
+		const glm::vec3 origin(3.0f, -2.0f, 7.0f);
+
+		bool centred = true;
+		bool positioned = true;
+		bool verticalMatches = true;
+		bool horizontalMatches = true;
+
+		for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+		{
+			const glm::mat4 transform = ReflectionProbe::FaceTransform(face, origin);
+
+			// A camera looks down its own -Z, here and everywhere else.
+			const glm::vec3 forward = glm::normalize(glm::vec3(transform * glm::vec4(0, 0, -1, 0)));
+			const glm::vec3 up = glm::normalize(glm::vec3(transform * glm::vec4(0, 1, 0, 0)));
+			const glm::vec3 right = glm::normalize(glm::vec3(transform * glm::vec4(1, 0, 0, 0)));
+
+			positioned = positioned && glm::length(glm::vec3(transform[3]) - origin) < 1e-5f;
+
+			// The middle of a face image looks down that face's axis.
+			centred = centred &&
+					  glm::length(forward - CubeFaceDirection(face, 0.5f, 0.5f)) < 1e-5f;
+
+			// The top row of a face image is the camera's *down*, not its up:
+			// a face is captured with the basis every cube-map tutorial uses,
+			// which stores the first texel row at the bottom of the rendered
+			// image. CopyToTextureLayer is what makes that true on both
+			// backends -- this is the assertion it exists to satisfy.
+			//
+			// The frustum is 90 degrees, so the edge of the image is exactly
+			// one unit of up per unit of forward.
+			const glm::vec3 top = glm::normalize(forward - up);
+			verticalMatches = verticalMatches &&
+							  glm::length(top - CubeFaceDirection(face, 0.5f, 0.0f)) < 1e-5f;
+
+			// Horizontally nothing is flipped, so the right of the image is the
+			// camera's right. A cube map is addressed left-handed, which is why
+			// this does not simply fall out and is worth stating.
+			const glm::vec3 edge = glm::normalize(forward + right);
+			horizontalMatches = horizontalMatches &&
+								glm::length(edge - CubeFaceDirection(face, 1.0f, 0.5f)) < 1e-5f;
+		}
+
+		Check(positioned, "a probe's faces are all captured from its own position");
+		Check(centred, "each face looks down the axis the cube-map table gives it");
+		Check(verticalMatches, "and its top row is the direction that table's v = 0 is");
+		Check(horizontalMatches, "and its right column the direction u = 1 is");
+
+		// A 90-degree square frustum: six of them tile the sphere of directions
+		// exactly, which is the reason a cube map is six squares.
+		{
+			const glm::mat4 projection = ReflectionProbe::FaceProjection(0.1f, 50.0f);
+			const glm::vec4 corner = projection * glm::vec4(1.0f, 1.0f, -1.0f, 1.0f);
+			Check(std::fabs(corner.x / corner.w - 1.0f) < 1e-4f &&
+				  std::fabs(corner.y / corner.w - 1.0f) < 1e-4f,
+				  "the face frustum is exactly 90 degrees and square");
+		}
+
+		if (!Renderer::HasDevice())
+			return;
+
+		ReflectionProbe probe(Renderer::GetDevice(), 64);
+		Check(probe.GetFaceSize() == 64, "a probe allocates the face size asked for");
+		Check(probe.GetCube() != nullptr, "with a cube behind it");
+		Check(!probe.IsComplete(), "and reports itself unusable until it has been captured");
+
+		if (probe.GetCube())
+		{
+			Check(probe.GetCube()->GetDesc().Type == RHI::TextureType::TextureCube,
+				  "which the RHI knows is a cube");
+			// The scene renders in linear HDR, and a capture that stored
+			// anything else would clip the values bloom and the tone curve are
+			// about to read.
+			Check(probe.GetCube()->GetFormat() == RHI::Format::R16G16B16A16_SFLOAT,
+				  "in the same format the scene renders into");
+		}
+
+		// Below the floor, so the clamp has something to do.
+		ReflectionProbe tiny(Renderer::GetDevice(), 1);
+		Check(tiny.GetFaceSize() >= 8, "and a face size of one is clamped to something renderable");
+	}
+
 	// The sky.
 	//
 	// The matrix is the whole feature: everything else is a colour lookup. A
@@ -2730,6 +2823,7 @@ int RunTests(int argc, char** argv)
 	CheckPrimitiveWinding();
 	CheckCubemap();
 	CheckSky();
+	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();
 	CheckPackaging();
