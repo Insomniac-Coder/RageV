@@ -105,6 +105,9 @@ int main(int argc, char** argv)
 	pipelineDesc.DepthFormat = device->GetSwapchainDepthFormat();
 
 	auto pipeline = device->CreatePipeline(pipelineDesc);
+	// GraphicsPipelineDesc holds a Ref to the shader. Left populated, this local
+	// keeps the shader alive past device teardown.
+	pipelineDesc.Shader.reset();
 	RV_CORE_INFO("Pipeline created");
 
 	// Two quads so the batch touches more than one primitive.

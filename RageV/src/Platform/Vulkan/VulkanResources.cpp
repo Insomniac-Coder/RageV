@@ -89,7 +89,7 @@ namespace RageV::Vk
 	// Buffer
 	// -------------------------------------------------------------------------
 	VulkanBuffer::VulkanBuffer(VulkanDevice& device, const RHI::BufferDesc& desc)
-		: RHI::RHIBuffer(desc), m_Device(device)
+		: RHI::RHIBuffer(desc), m_Device(device), m_Deletion(device.GetDeletionQueue())
 	{
 		VkBufferUsageFlags usage = ToVkBufferUsage(desc.Usage);
 		if (desc.Memory == RHI::MemoryDomain::DeviceLocal)
@@ -127,7 +127,7 @@ namespace RageV::Vk
 		VkBuffer buffer = m_Buffer;
 		VmaAllocation allocation = m_Allocation;
 		VmaAllocator allocator = m_Device.GetAllocator();
-		m_Device.DeferDestruction([allocator, buffer, allocation]()
+		m_Deletion->Push([allocator, buffer, allocation]()
 		{
 			vmaDestroyBuffer(allocator, buffer, allocation);
 		});
@@ -179,7 +179,7 @@ namespace RageV::Vk
 	// Sampler
 	// -------------------------------------------------------------------------
 	VulkanSampler::VulkanSampler(VulkanDevice& device, const RHI::SamplerDesc& desc)
-		: RHI::RHISampler(desc), m_Device(device)
+		: RHI::RHISampler(desc), m_Device(device), m_Deletion(device.GetDeletionQueue())
 	{
 		const auto& caps = device.GetCaps();
 
@@ -209,14 +209,14 @@ namespace RageV::Vk
 	{
 		VkDevice device = m_Device.GetDevice();
 		VkSampler sampler = m_Sampler;
-		m_Device.DeferDestruction([device, sampler]() { vkDestroySampler(device, sampler, nullptr); });
+		m_Deletion->Push([device, sampler]() { vkDestroySampler(device, sampler, nullptr); });
 	}
 
 	// -------------------------------------------------------------------------
 	// Texture
 	// -------------------------------------------------------------------------
 	VulkanTexture::VulkanTexture(VulkanDevice& device, const RHI::TextureDesc& desc)
-		: RHI::RHITexture(desc), m_Device(device)
+		: RHI::RHITexture(desc), m_Device(device), m_Deletion(device.GetDeletionQueue())
 	{
 		m_Aspect = AspectFor(desc.Format);
 		CreateImage();
@@ -224,7 +224,8 @@ namespace RageV::Vk
 
 	VulkanTexture::VulkanTexture(VulkanDevice& device, const RHI::TextureDesc& desc,
 								 VkImage image, VkImageView view, bool owned)
-		: RHI::RHITexture(desc), m_Device(device), m_Image(image), m_View(view), m_Owned(owned)
+		: RHI::RHITexture(desc), m_Device(device), m_Deletion(device.GetDeletionQueue())
+		, m_Image(image), m_View(view), m_Owned(owned)
 	{
 		m_Aspect = AspectFor(desc.Format);
 	}
@@ -299,7 +300,7 @@ namespace RageV::Vk
 		VkDescriptorSet imguiSet = m_ImGuiDescriptor;
 		VkSampler imguiSampler = m_ImGuiSampler;
 
-		m_Device.DeferDestruction([=]()
+		m_Deletion->Push([=]()
 		{
 			if (imguiSet)     ImGui_ImplVulkan_RemoveTexture(imguiSet);
 			if (imguiSampler) vkDestroySampler(device, imguiSampler, nullptr);

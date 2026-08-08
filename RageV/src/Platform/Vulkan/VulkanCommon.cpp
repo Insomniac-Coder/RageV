@@ -257,6 +257,17 @@ namespace RageV::Vk
 		return op == StoreOp::Store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	}
 
+	VkImageLayout DepthAttachmentLayout(Format format)
+	{
+		return IsStencilFormat(format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+									   : VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	}
+
+	VkImageLayout DepthAttachmentLayout(VkFormat format)
+	{
+		return DepthAttachmentLayout(FromVkFormat(format));
+	}
+
 	void ApplyBlendPreset(BlendPreset preset, VkPipelineColorBlendAttachmentState& out)
 	{
 		out.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |

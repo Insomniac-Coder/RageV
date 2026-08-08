@@ -26,6 +26,7 @@ namespace RageV::Vk
 
 	private:
 		VulkanDevice&            m_Device;
+		std::shared_ptr<DeletionQueue> m_Deletion;
 		std::vector<StageModule> m_Stages;
 	};
 
@@ -45,6 +46,7 @@ namespace RageV::Vk
 		void CreatePipeline();
 
 		VulkanDevice&    m_Device;
+		std::shared_ptr<DeletionQueue> m_Deletion;
 		VkPipeline       m_Pipeline = VK_NULL_HANDLE;
 		VkPipelineLayout m_Layout   = VK_NULL_HANDLE;
 		// Indexed by set number; gaps are VK_NULL_HANDLE.
@@ -82,6 +84,7 @@ namespace RageV::Vk
 		};
 
 		VulkanDevice&           m_Device;
+		std::shared_ptr<DeletionQueue> m_Deletion;
 		RHI::Ref<VulkanPipeline> m_Pipeline;
 		std::vector<VkDescriptorSet> m_Sets;   // one per frame in flight
 

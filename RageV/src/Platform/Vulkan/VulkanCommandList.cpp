@@ -84,10 +84,11 @@ namespace RageV::Vk
 
 			if (VulkanTexture* depth = target->GetDepth())
 			{
-				depth->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+				const VkImageLayout depthLayout = DepthAttachmentLayout(depth->GetFormat());
+				depth->TransitionTo(m_CommandBuffer, depthLayout);
 
 				depthAttachment.imageView = depth->GetView();
-				depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+				depthAttachment.imageLayout = depthLayout;
 				depthAttachment.loadOp = info.ClearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 				// Shadow maps are sampled afterwards, so depth must be kept.
 				depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -101,8 +102,16 @@ namespace RageV::Vk
 
 			// The acquired swapchain image is in UNDEFINED (or PRESENT_SRC from
 			// a previous frame); either way its contents are being cleared.
+			//
+			// srcStageMask must be COLOR_ATTACHMENT_OUTPUT, not TOP_OF_PIPE:
+			// the submit waits on the acquire semaphore at that stage, and a
+			// TOP_OF_PIPE source forms no execution dependency with it. The
+			// layout transition -- a write -- could then run before the
+			// presentation engine finished reading the image. Synchronization
+			// validation reports this as WRITE_AFTER_READ against
+			// vkAcquireNextImageKHR.
 			VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-			barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+			barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 			barrier.srcAccessMask = 0;
 			barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 			barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -129,7 +138,7 @@ namespace RageV::Vk
 			colorAttachments.push_back(attachment);
 
 			depthAttachment.imageView = m_Device.GetSwapchainDepthView();
-			depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			depthAttachment.imageLayout = DepthAttachmentLayout(m_Device.GetSwapchainDepthFormat());
 			depthAttachment.loadOp = info.ClearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 			depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			depthAttachment.clearValue.depthStencil = { info.Clear.Depth, info.Clear.Stencil };

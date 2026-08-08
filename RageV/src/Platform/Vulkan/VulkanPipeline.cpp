@@ -8,7 +8,7 @@ namespace RageV::Vk
 	// Shader
 	// -------------------------------------------------------------------------
 	VulkanShader::VulkanShader(VulkanDevice& device, const RHI::CompiledShader& compiled)
-		: RHI::RHIShader(compiled.Name, compiled.Reflection), m_Device(device)
+		: RHI::RHIShader(compiled.Name, compiled.Reflection), m_Device(device), m_Deletion(device.GetDeletionQueue())
 	{
 		for (const auto& stage : compiled.Stages)
 		{
@@ -34,7 +34,7 @@ namespace RageV::Vk
 		for (const auto& stage : m_Stages)
 		{
 			VkShaderModule module = stage.Module;
-			m_Device.DeferDestruction([device, module]() { vkDestroyShaderModule(device, module, nullptr); });
+			m_Deletion->Push([device, module]() { vkDestroyShaderModule(device, module, nullptr); });
 		}
 	}
 
@@ -42,7 +42,7 @@ namespace RageV::Vk
 	// Pipeline
 	// -------------------------------------------------------------------------
 	VulkanPipeline::VulkanPipeline(VulkanDevice& device, const RHI::GraphicsPipelineDesc& desc)
-		: RHI::RHIPipeline(desc), m_Device(device)
+		: RHI::RHIPipeline(desc), m_Device(device), m_Deletion(device.GetDeletionQueue())
 	{
 		CreateLayouts();
 		CreatePipeline();
@@ -55,7 +55,7 @@ namespace RageV::Vk
 		VkPipelineLayout layout = m_Layout;
 		auto setLayouts = m_SetLayouts;
 
-		m_Device.DeferDestruction([device, pipeline, layout, setLayouts]()
+		m_Deletion->Push([device, pipeline, layout, setLayouts]()
 		{
 			if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
 			if (layout)   vkDestroyPipelineLayout(device, layout, nullptr);
@@ -269,7 +269,7 @@ namespace RageV::Vk
 	// Resource set
 	// -------------------------------------------------------------------------
 	VulkanResourceSet::VulkanResourceSet(VulkanDevice& device, const RHI::Ref<VulkanPipeline>& pipeline, uint32_t set)
-		: RHI::RHIResourceSet(set), m_Device(device), m_Pipeline(pipeline)
+		: RHI::RHIResourceSet(set), m_Device(device), m_Deletion(device.GetDeletionQueue()), m_Pipeline(pipeline)
 	{
 		const uint32_t frames = device.GetFramesInFlight();
 		VkDescriptorSetLayout layout = pipeline->GetSetLayout(set);
@@ -295,7 +295,7 @@ namespace RageV::Vk
 		VkDevice device = m_Device.GetDevice();
 		VkDescriptorPool pool = m_Device.GetDescriptorPool();
 		auto sets = m_Sets;
-		m_Device.DeferDestruction([device, pool, sets]()
+		m_Deletion->Push([device, pool, sets]()
 		{
 			vkFreeDescriptorSets(device, pool, (uint32_t)sets.size(), sets.data());
 		});

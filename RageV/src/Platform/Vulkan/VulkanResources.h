@@ -21,6 +21,7 @@ namespace RageV::Vk
 
 	private:
 		VulkanDevice& m_Device;
+		std::shared_ptr<DeletionQueue> m_Deletion;
 		VkBuffer      m_Buffer     = VK_NULL_HANDLE;
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;
 		void*         m_Mapped     = nullptr;
@@ -36,6 +37,7 @@ namespace RageV::Vk
 
 	private:
 		VulkanDevice& m_Device;
+		std::shared_ptr<DeletionQueue> m_Deletion;
 		VkSampler     m_Sampler = VK_NULL_HANDLE;
 	};
 
@@ -65,6 +67,7 @@ namespace RageV::Vk
 		void CreateImage();
 
 		VulkanDevice& m_Device;
+		std::shared_ptr<DeletionQueue> m_Deletion;
 		VkImage       m_Image      = VK_NULL_HANDLE;
 		VkImageView   m_View       = VK_NULL_HANDLE;
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;

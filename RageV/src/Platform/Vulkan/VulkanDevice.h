@@ -30,9 +30,6 @@ namespace RageV::Vk
 		VkCommandBuffer CommandBuffer    = VK_NULL_HANDLE;
 		VkSemaphore     ImageAvailable   = VK_NULL_HANDLE;
 		VkFence         InFlight         = VK_NULL_HANDLE;
-		// Resources whose destruction has to wait until this frame's fence is
-		// signalled, because the GPU may still be reading them.
-		std::vector<std::function<void()>> PendingDeletions;
 	};
 
 	class VulkanDevice final : public RHI::RHIDevice
@@ -77,6 +74,10 @@ namespace RageV::Vk
 		uint32_t         GetGraphicsFamily() const { return m_QueueFamilies.Graphics; }
 		VkDescriptorPool GetDescriptorPool() const { return m_DescriptorPool; }
 
+		// Resources copy this so their destructors never touch the device
+		// itself; see DeletionQueue for why that matters.
+		const std::shared_ptr<DeletionQueue>& GetDeletionQueue() const { return m_Deletion; }
+
 		VkImageView GetCurrentSwapchainImageView() const { return m_SwapchainImageViews[m_ImageIndex]; }
 		VkImage     GetCurrentSwapchainImage()     const { return m_SwapchainImages[m_ImageIndex]; }
 		VkImageView GetSwapchainDepthView()        const { return m_DepthImageView; }
@@ -104,7 +105,6 @@ namespace RageV::Vk
 		void RecreateSwapchain();
 		void CreateDepthResources();
 		VkFormat SelectDepthFormat() const;
-		void FlushDeletions(FrameContext& frame);
 		void QueryCaps();
 
 	private:
@@ -140,6 +140,7 @@ namespace RageV::Vk
 
 		VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 
+		std::shared_ptr<DeletionQueue> m_Deletion;
 		std::vector<FrameContext> m_Frames;
 		uint32_t m_FramesInFlight = 2;
 		uint32_t m_FrameIndex = 0;

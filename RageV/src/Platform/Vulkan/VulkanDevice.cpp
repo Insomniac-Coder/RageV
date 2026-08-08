@@ -48,12 +48,15 @@ namespace RageV::Vk
 			return false;
 		}
 
-		bool HasInstanceExtension(const char* name)
+		// layerName == nullptr queries the loader and ICDs only. Extensions
+		// implemented *by* a layer -- VK_EXT_layer_settings is one -- are
+		// invisible unless that layer is named explicitly.
+		bool HasInstanceExtension(const char* name, const char* layerName = nullptr)
 		{
 			uint32_t count = 0;
-			vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
+			vkEnumerateInstanceExtensionProperties(layerName, &count, nullptr);
 			std::vector<VkExtensionProperties> extensions(count);
-			vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
+			vkEnumerateInstanceExtensionProperties(layerName, &count, extensions.data());
 			for (const auto& extension : extensions)
 				if (strcmp(extension.extensionName, name) == 0)
 					return true;
@@ -154,9 +157,11 @@ namespace RageV::Vk
 			vkDeviceWaitIdle(m_Device);
 
 		// Anything queued for deferred destruction is safe to run now.
+		if (m_Deletion)
+			m_Deletion->FlushAll();
+
 		for (auto& frame : m_Frames)
 		{
-			FlushDeletions(frame);
 			if (frame.CommandPool)    vkDestroyCommandPool(m_Device, frame.CommandPool, nullptr);
 			if (frame.ImageAvailable) vkDestroySemaphore(m_Device, frame.ImageAvailable, nullptr);
 			if (frame.InFlight)       vkDestroyFence(m_Device, frame.InFlight, nullptr);
@@ -169,6 +174,12 @@ namespace RageV::Vk
 		if (m_ImmediateFence) vkDestroyFence(m_Device, m_ImmediateFence, nullptr);
 		if (m_ImmediatePool)  vkDestroyCommandPool(m_Device, m_ImmediatePool, nullptr);
 		if (m_Allocator)      vmaDestroyAllocator(m_Allocator);
+		// Past this point any surviving resource must not touch Vulkan: its
+		// objects died with the device. Resources hold the queue by shared_ptr
+		// and check this flag, rather than dereferencing a destroyed device.
+		if (m_Deletion)
+			m_Deletion->DeviceAlive = false;
+
 		if (m_Device)         vkDestroyDevice(m_Device, nullptr);
 		if (m_Surface)        vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
 
@@ -215,6 +226,31 @@ namespace RageV::Vk
 			m_ValidationEnabled = false;
 		}
 
+		// Synchronization validation is off in the layer's default preset, but
+		// it is the check that matters most here: it catches *missing barriers*,
+		// which standard validation does not. Those show up otherwise as an
+		// intermittently corrupt frame on one GPU and nothing on another.
+		// Enabling it here rather than through vkconfig means it does not depend
+		// on external configuration state.
+		const VkBool32 enabled = VK_TRUE;
+		const VkLayerSettingEXT layerSettings[] = {
+			{ validationLayer, "validate_sync", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &enabled },
+		};
+
+		VkLayerSettingsCreateInfoEXT layerSettingsInfo{ VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT };
+		layerSettingsInfo.settingCount = (uint32_t)std::size(layerSettings);
+		layerSettingsInfo.pSettings = layerSettings;
+
+		if (!layers.empty() && HasInstanceExtension(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME, validationLayer))
+		{
+			extensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+			RV_CORE_INFO("Vulkan synchronization validation enabled");
+		}
+		else
+		{
+			layerSettingsInfo.settingCount = 0;
+		}
+
 		VkInstanceCreateInfo createInfo{ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 		createInfo.pApplicationInfo = &appInfo;
 		createInfo.enabledExtensionCount = (uint32_t)extensions.size();
@@ -233,7 +269,13 @@ namespace RageV::Vk
 		messengerInfo.pfnUserCallback = DebugCallback;
 
 		if (!layers.empty())
+		{
+			// messenger -> layer settings, so validation output from instance
+			// creation itself is still routed through our callback.
 			createInfo.pNext = &messengerInfo;
+			if (layerSettingsInfo.settingCount > 0)
+				messengerInfo.pNext = &layerSettingsInfo;
+		}
 
 		VK_CHECK(vkCreateInstance(&createInfo, nullptr, &m_Instance));
 		volkLoadInstance(m_Instance);
@@ -442,6 +484,9 @@ namespace RageV::Vk
 
 	void VulkanDevice::CreateFrameContexts()
 	{
+		m_Deletion = std::make_shared<DeletionQueue>();
+		m_Deletion->PerFrame.resize(m_FramesInFlight);
+
 		m_Frames.resize(m_FramesInFlight);
 
 		for (auto& frame : m_Frames)
@@ -666,6 +711,32 @@ namespace RageV::Vk
 		viewInfo.subresourceRange.layerCount = 1;
 
 		VK_CHECK(vkCreateImageView(m_Device, &viewInfo, nullptr, &m_DepthImageView));
+
+		// Dynamic rendering does not perform the initial layout transition a
+		// render pass would, so the image would still be UNDEFINED when
+		// vkCmdBeginRendering declares it as DEPTH_ATTACHMENT_OPTIMAL. Nothing
+		// ever moves it out of that layout afterwards, so once is enough.
+		ImmediateSubmit([&](VkCommandBuffer cmd)
+		{
+			VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+			barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+			barrier.srcAccessMask = 0;
+			barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+								   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+			barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+									VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			barrier.newLayout = DepthAttachmentLayout(m_DepthFormat);
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.image = m_DepthImage;
+			barrier.subresourceRange = viewInfo.subresourceRange;
+
+			VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+			dependency.imageMemoryBarrierCount = 1;
+			dependency.pImageMemoryBarriers = &barrier;
+			vkCmdPipelineBarrier2(cmd, &dependency);
+		});
 	}
 
 	void VulkanDevice::DestroySwapchain()
@@ -752,7 +823,8 @@ namespace RageV::Vk
 		// next pass through this slot.
 		VK_CHECK(vkResetFences(m_Device, 1, &frame.InFlight));
 
-		FlushDeletions(frame);
+		// Safe now that this slot's fence has been waited on.
+		m_Deletion->Flush(m_FrameIndex);
 
 		VK_CHECK(vkResetCommandPool(m_Device, frame.CommandPool, 0));
 		m_CommandList->Begin(frame.CommandBuffer);
@@ -797,6 +869,7 @@ namespace RageV::Vk
 			RV_CORE_ERROR("vkQueuePresentKHR failed: {0}", ResultToString(result));
 
 		m_FrameIndex = (m_FrameIndex + 1) % m_FramesInFlight;
+		m_Deletion->FrameIndex = m_FrameIndex;
 	}
 
 	void VulkanDevice::WaitIdle()
@@ -836,14 +909,7 @@ namespace RageV::Vk
 
 	void VulkanDevice::DeferDestruction(std::function<void()> deleter)
 	{
-		m_Frames[m_FrameIndex].PendingDeletions.push_back(std::move(deleter));
-	}
-
-	void VulkanDevice::FlushDeletions(FrameContext& frame)
-	{
-		for (auto& deleter : frame.PendingDeletions)
-			deleter();
-		frame.PendingDeletions.clear();
+		m_Deletion->Push(std::move(deleter));
 	}
 
 	void VulkanDevice::SetDebugName(uint64_t handle, VkObjectType type, const char* name)
