@@ -290,7 +290,7 @@ written here:
 
 | # | Item | Size |
 |---|---|---|
-| 3.1 | **Render graph** — declare passes and resources, derive barriers | L |
+| 3.1 | **Render graph** — declare passes and resources, derive barriers | L | ✅ built smaller: the RHI already tracks layouts, so it owns targets, describes the frame and validates it. See ENGINE-NOTES §6. |
 | 3.2 | HDR target + tonemap/bloom post chain (moves ACES out of the PBR shader) | M |
 | 3.3 | Skybox + cubemaps (`TextureType::TextureCube` already exists in the RHI) | M |
 | 3.4 | **IBL** — irradiance, prefiltered specular, BRDF LUT; replaces the flat ambient term | L |

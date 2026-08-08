@@ -33,6 +33,7 @@
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Physics/ColliderShapes.h"
 #include "RageV/Renderer/DebugRenderer.h"
+#include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Asset/AssetRegistry.h"
@@ -1050,6 +1051,146 @@ namespace
 		// Back to the sample, which everything after this depends on.
 		Check(Project::Load(original), "the sample project reopens");
 		AssetRegistry::Init(Project::AssetRoot());
+	}
+
+	// The render graph.
+	//
+	// The interesting part is not that a valid frame runs -- it is that an
+	// invalid one is refused, with a message, before anything is allocated.
+	// A pass reading a target nothing produced is a black screen otherwise,
+	// and a black screen is the single most expensive thing to diagnose in a
+	// renderer.
+	void CheckRenderGraph()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		RenderGraph graph(Renderer::GetDevice());
+
+		// --- a frame that describes nothing -----------------------------------
+		graph.Begin(1280, 720);
+		Check(!graph.Compile(), "an empty frame is refused");
+
+		// --- a pass that draws nowhere ----------------------------------------
+		graph.Begin(1280, 720);
+		graph.AddPass("Nowhere", [](RGPassBuilder&) {}, [](RGPassContext&) {});
+		Check(!graph.Compile(), "a pass that writes no target is refused");
+
+		// --- reading something nobody wrote -----------------------------------
+		graph.Begin(1280, 720);
+		{
+			RGTargetDesc desc;
+			desc.Name = "Unwritten";
+			const RGResource unwritten = graph.CreateTarget(desc);
+
+			graph.AddPass("Reader",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(graph.Backbuffer());
+					builder.Sample(unwritten);
+				},
+				[](RGPassContext&) {});
+		}
+		Check(!graph.Compile(), "a pass sampling a target nothing wrote is refused");
+		Check(!graph.Errors().empty() &&
+			  graph.Errors()[0].find("Unwritten") != std::string::npos,
+			  "and the error names the target");
+
+		// --- a target nothing draws into --------------------------------------
+		graph.Begin(1280, 720);
+		{
+			RGTargetDesc desc;
+			desc.Name = "Orphan";
+			graph.CreateTarget(desc);
+			graph.AddPass("Main", [&](RGPassBuilder& b) { b.Write(graph.Backbuffer()); },
+						  [](RGPassContext&) {});
+		}
+		Check(!graph.Compile(), "a target created and never written is refused");
+
+		// --- the shape a real frame has ---------------------------------------
+		graph.Begin(1280, 720);
+		{
+			RGTargetDesc hdr;
+			hdr.Name = "HDR";
+			hdr.Color = RHI::Format::R16G16B16A16_SFLOAT;
+			const RGResource scene = graph.CreateTarget(hdr);
+
+			graph.AddPass("Scene",
+				[&](RGPassBuilder& builder) { builder.Write(scene); },
+				[](RGPassContext&) {});
+
+			graph.AddPass("Tonemap",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(graph.Backbuffer());
+					builder.Sample(scene);
+				},
+				[](RGPassContext&) {});
+		}
+		Check(graph.Compile(), "a pass reading an earlier pass's output compiles");
+		Check(graph.GetPassCount() == 2, "with both passes");
+		Check(graph.GetPassName(0) == "Scene" && graph.GetPassName(1) == "Tonemap",
+			  "in the order they were declared");
+
+		// --- targets are pooled, not reallocated -------------------------------
+		const size_t afterFirst = graph.GetPooledTargetCount();
+
+		for (int i = 0; i < 5; i++)
+		{
+			graph.Begin(1280, 720);
+			RGTargetDesc hdr;
+			hdr.Name = "HDR";
+			const RGResource scene = graph.CreateTarget(hdr);
+			graph.AddPass("Scene", [&](RGPassBuilder& b) { b.Write(scene); },
+						  [](RGPassContext&) {});
+			graph.AddPass("Tonemap",
+				[&](RGPassBuilder& b) { b.Write(graph.Backbuffer()); b.Sample(scene); },
+				[](RGPassContext&) {});
+			graph.Compile();
+		}
+
+		Check(graph.GetPooledTargetCount() == afterFirst,
+			  "a stable frame allocates nothing after the first");
+
+		// A second target of the same shape in one frame is a second target,
+		// not the same one handed out twice -- two passes each wanting "a
+		// half-res buffer" want two of them.
+		graph.Begin(1280, 720);
+		{
+			RGTargetDesc desc;
+			desc.Name = "Ping";
+			const RGResource ping = graph.CreateTarget(desc);
+			desc.Name = "Pong";
+			const RGResource pong = graph.CreateTarget(desc);
+
+			graph.AddPass("A", [&](RGPassBuilder& b) { b.Write(ping); }, [](RGPassContext&) {});
+			graph.AddPass("B", [&](RGPassBuilder& b) { b.Write(pong); b.Sample(ping); },
+						  [](RGPassContext&) {});
+			graph.AddPass("C", [&](RGPassBuilder& b) { b.Write(graph.Backbuffer()); b.Sample(pong); },
+						  [](RGPassContext&) {});
+		}
+		Check(graph.Compile(), "a three-pass chain compiles");
+		Check(graph.GetPooledTargetCount() >= afterFirst + 1,
+			  "two targets of one shape in a frame are two targets");
+
+		// --- scaled targets ----------------------------------------------------
+		graph.Begin(1000, 500);
+		{
+			RGTargetDesc half;
+			half.Name = "HalfRes";
+			half.Scale = 0.5f;
+			const RGResource small = graph.CreateTarget(half);
+			graph.AddPass("Half", [&](RGPassBuilder& b) { b.Write(small); },
+						  [](RGPassContext&) {});
+			graph.AddPass("Out", [&](RGPassBuilder& b) { b.Write(graph.Backbuffer()); b.Sample(small); },
+						  [](RGPassContext&) {});
+
+			Check(graph.Compile(), "a half-resolution target compiles");
+
+			uint32_t width = 0, height = 0;
+			graph.GetTargetSize(small, width, height);
+			Check(width == 500 && height == 250, "and is sized against the frame, not the window");
+		}
 	}
 
 	// Packaging.
@@ -2186,6 +2327,7 @@ int RunTests(int argc, char** argv)
 	CheckLiveScriptChanges();
 
 	// --- physics -------------------------------------------------------------
+	CheckRenderGraph();
 	CheckProject();
 	CheckPackaging();
 	CheckRuntimePath();

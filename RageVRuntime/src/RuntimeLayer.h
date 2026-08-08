@@ -1,5 +1,6 @@
 #pragma once
 #include <RageV.h>
+#include "RageV/Renderer/RenderGraph.h"
 
 // The game, with no editor around it.
 //
@@ -31,6 +32,10 @@ private:
 	void ResizeTarget(uint32_t width, uint32_t height);
 
 	std::shared_ptr<RageV::Scene> m_Scene;
+
+	// Rebuilt every frame, but kept between them: it pools the targets it
+	// allocates, so a stable frame allocates nothing after the first.
+	std::unique_ptr<RageV::RenderGraph> m_Graph;
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 
 	uint32_t m_Width = 0;

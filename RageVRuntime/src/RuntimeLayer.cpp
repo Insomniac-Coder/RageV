@@ -44,6 +44,8 @@ void RuntimeLayer::OnAttach()
 	// with, and the copy would be a full-screen blit per frame for nothing.
 	Renderer::SetTargetFormats(device.GetSwapchainFormat(), device.GetSwapchainDepthFormat());
 
+	m_Graph = std::make_unique<RenderGraph>(device);
+
 	// So the UI pass does not wipe the frame this layer just drew.
 	Application::Get().GetImGuiLayer()->SetClearsBackbuffer(false);
 
@@ -100,18 +102,35 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	if (!cmd || m_Height == 0)
 		return;
 
-	RHI::RenderPassBeginInfo pass;
-	pass.Target = nullptr;   // the swapchain
-	pass.Clear.Color[0] = 0.05f;
-	pass.Clear.Color[1] = 0.05f;
-	pass.Clear.Color[2] = 0.06f;
-	pass.Clear.Color[3] = 1.0f;
+	// One pass today, and the frame reads as one pass. The point of describing
+	// it this way is what happens next: HDR, bloom and shadows each add a
+	// target and a stage here rather than another BeginRenderPass somewhere
+	// else, and the order stays something that can be read off in one place.
+	m_Graph->Begin(m_Width, m_Height);
 
-	cmd->PushDebugGroup("Game");
-	cmd->BeginRenderPass(pass);
-	m_Scene->OnRenderRuntime((float)m_Width / (float)m_Height);
-	cmd->EndRenderPass();
-	cmd->PopDebugGroup();
+	const RGResource backbuffer = m_Graph->Backbuffer();
+
+	m_Graph->AddPass("Game",
+		[&](RGPassBuilder& builder)
+		{
+			builder.Write(backbuffer);
+			builder.SetClearColor({ 0.05f, 0.05f, 0.06f, 1.0f });
+		},
+		[this](RGPassContext& context)
+		{
+			m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);
+		});
+
+	if (!m_Graph->Compile())
+	{
+		// Loudly and once. A frame that cannot be described is a bug in the
+		// description, and it will be the same bug every frame.
+		for (const std::string& error : m_Graph->Errors())
+			RV_ERROR("Render graph: {0}", error);
+		return;
+	}
+
+	m_Graph->Execute(*cmd);
 }
 
 void RuntimeLayer::OnImGuiRender()

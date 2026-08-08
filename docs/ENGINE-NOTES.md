@@ -262,6 +262,44 @@ RageV has three barrier bugs on record already, all found only by
 synchronization validation. That is the argument for the graph, and it is why
 the graph goes in *before* shadows and post rather than after.
 
+### What was actually built, and why it is smaller
+
+Written after 3.1. The barrier argument above **did not survive contact with
+the code**, and it is worth recording why rather than quietly building to it.
+
+This RHI already tracks image layout per texture: `EndRenderPass` puts a
+target's textures into a shader-readable layout and `BeginRenderPass` puts them
+back. Sampling a previous pass's output is already correct with the graph
+knowing nothing about it. Deriving barriers in the graph would have meant a
+second layout tracker over a working one -- two sources of truth about the same
+state, which is worse than either alone.
+
+The three barrier bugs were also not the class the graph prevents. Two were in
+the swapchain path (a transition with no execution dependency on the acquire,
+and one that assumed a single pass per frame) and one was a descriptor set
+rewritten while bound. A pass-level dependency graph would have caught none of
+them.
+
+So the graph that exists does three things the frame genuinely needed:
+
+- **Owns the intermediate targets**, pooled and resized with the output. Phase
+  3 adds an HDR buffer, a bloom chain, a BRDF LUT and shadow maps; without an
+  owner each of those hangs off whichever layer wanted it first.
+- **Makes the frame a data structure** rather than a sequence of calls spread
+  across files.
+- **Refuses an invalid frame** at compile time, with a message. A pass sampling
+  a target nothing wrote is otherwise a black screen, which is the single most
+  expensive thing to diagnose in a renderer.
+
+Aliasing and reordering are still absent, and now for a second reason: they are
+optimisations for frames much larger than this one, and both need lifetime
+analysis that is only correct if it is complete.
+
+**The general lesson, which is the reusable part:** a design taken from an
+article describes the problem the article's author had. Check that it is the
+problem you have before building it. Here the honest version was smaller than
+the plan, and saying so is cheaper than maintaining the difference.
+
 ---
 
 ## 7. Input: actions, not keys

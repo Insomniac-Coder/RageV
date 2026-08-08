@@ -1,0 +1,246 @@
+#pragma once
+#include "RageV/Renderer/RHI/RHIDevice.h"
+#include "glm/glm.hpp"
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace RageV
+{
+	// A frame described as passes and the targets they read and write, rather
+	// than as a sequence of calls that happen to be in the right order.
+	//
+	// ## What this is for, and what it is not
+	//
+	// The usual argument for a render graph is derived barriers. That argument
+	// does not apply here, and pretending it did would mean building a second
+	// layout tracker on top of a working one: this RHI already transitions a
+	// target's textures to a shader-readable layout when its pass ends, and
+	// back to an attachment layout when one begins. Sampling a previous pass's
+	// output is already correct without the graph knowing anything.
+	//
+	// What is *not* solved without it, and what this exists for:
+	//
+	//   - **Somebody has to own the intermediate targets.** Phase 3 adds an HDR
+	//     buffer, a bloom chain, a BRDF LUT and shadow maps. Hanging each off
+	//     whichever layer happened to need it first is how a renderer becomes
+	//     impossible to reason about, and how two features end up with two
+	//     half-shared copies of the same buffer.
+	//
+	//   - **A frame should be inspectable.** With passes declared, "what does
+	//     this frame do, in what order, reading what" is a data structure
+	//     rather than a reading exercise across three files.
+	//
+	//   - **Mistakes should fail loudly.** A pass that samples something no
+	//     earlier pass wrote is a black screen at runtime and an error at
+	//     compile time. Compile() returns the list.
+	//
+	// ## Deliberately absent
+	//
+	// **Aliasing** (reusing one allocation for two targets whose lifetimes do
+	// not overlap) and **reordering** (shuffling passes to overlap work) are
+	// both in the literature and both out of scope. They are memory and
+	// occupancy optimisations for frames far larger than this one, and each
+	// needs lifetime analysis that is only correct if it is complete. When the
+	// frame is big enough to want them, the declarations they need are already
+	// here.
+	//
+	// See docs/ENGINE-NOTES.md section 6.
+
+	using RGResource = uint32_t;
+	constexpr RGResource kRGInvalid = ~0u;
+
+	// A target the graph owns. One colour attachment and one depth, matching
+	// what RenderPassBeginInfo can express -- a graph resource is a target
+	// rather than a single attachment, because that is the unit the RHI binds.
+	struct RGTargetDesc
+	{
+		std::string Name;
+
+		// Undefined means depth-only, which is what a shadow map is.
+		RHI::Format Color = RHI::Format::R16G16B16A16_SFLOAT;
+		// Undefined means no depth.
+		RHI::Format Depth = RHI::Format::D32_SFLOAT;
+
+		// Fraction of the frame's output size. Half-resolution bloom is 0.5;
+		// a shadow map sets Width and Height instead and ignores this.
+		float Scale = 1.0f;
+		uint32_t Width = 0;
+		uint32_t Height = 0;
+
+		// Whether a later pass samples the depth. Colour is always sampleable;
+		// depth costs an extra usage flag and is usually not read.
+		bool SampleDepth = false;
+
+		uint32_t Layers = 1;
+	};
+
+	enum class RGLoad
+	{
+		Clear,       // start from the clear value
+		Preserve,    // keep what a previous pass left
+	};
+
+	class RenderGraph;
+
+	// What a pass declares about itself, during setup.
+	class RGPassBuilder
+	{
+	public:
+		// Draw into this target. A pass writes exactly one.
+		void Write(RGResource target, RGLoad load = RGLoad::Clear);
+
+		// Read this target's colour, or depth, in a shader. Declaring it is
+		// what lets Compile catch a pass reading something nothing produced --
+		// and what makes the frame's shape visible without reading the passes.
+		void Sample(RGResource target);
+
+		void SetClearColor(const glm::vec4& color);
+		void SetClearDepth(float depth);
+
+		// Skip the depth attachment even though the target has one. The UI
+		// pass does this: a pass that declares depth requires every pipeline
+		// drawn in it to declare a matching depth format.
+		void DisableDepth();
+
+	private:
+		friend class RenderGraph;
+		explicit RGPassBuilder(RenderGraph& graph, size_t pass)
+			: m_Graph(graph), m_Pass(pass) {}
+
+		RenderGraph& m_Graph;
+		size_t m_Pass;
+	};
+
+	// What a pass is handed when it runs.
+	struct RGPassContext
+	{
+		RHI::RHICommandList& Cmd;
+
+		// The size of the target being drawn into, which is not always the
+		// frame's: a half-resolution pass wants its own dimensions.
+		uint32_t Width = 0;
+		uint32_t Height = 0;
+
+		// Textures of a target declared with Sample. Null if it was not
+		// declared, rather than silently returning something -- an undeclared
+		// read is the bug this is trying to make visible.
+		RHI::Ref<RHI::RHITexture> Color(RGResource target) const;
+		RHI::Ref<RHI::RHITexture> Depth(RGResource target) const;
+
+		const RenderGraph* Graph = nullptr;
+		size_t Pass = 0;
+	};
+
+	class RenderGraph
+	{
+	public:
+		using PassSetup = std::function<void(RGPassBuilder&)>;
+		using PassExecute = std::function<void(RGPassContext&)>;
+
+		explicit RenderGraph(RHI::RHIDevice& device);
+		~RenderGraph();
+
+		// Starts a new frame's description. `width` and `height` are the size
+		// scaled targets are relative to -- the window, or the viewport panel.
+		//
+		// Targets are allocated and resized here rather than while passes run,
+		// because resizing a target that a command buffer has already bound
+		// destroys images it is holding.
+		void Begin(uint32_t width, uint32_t height);
+
+		// The swapchain. Always available, never owned.
+		RGResource Backbuffer() const { return kBackbuffer; }
+
+		// A target somebody else owns -- the editor's viewport image, which
+		// ImGui samples and so must outlive the frame.
+		RGResource Import(const RHI::Ref<RHI::RHIRenderTarget>& target, const char* name);
+
+		// A target the graph owns, pooled across frames and resized with the
+		// output. Identical descs in the same frame produce separate targets:
+		// two passes wanting "a half-res buffer" want two of them.
+		RGResource CreateTarget(const RGTargetDesc& desc);
+
+		void AddPass(const char* name, PassSetup setup, PassExecute execute);
+
+		// Validates and allocates. False means the frame is not runnable and
+		// Errors() says why. Nothing is recorded on failure -- a half-executed
+		// frame is harder to diagnose than one that refused.
+		bool Compile();
+		const std::vector<std::string>& Errors() const { return m_Errors; }
+
+		void Execute(RHI::RHICommandList& cmd);
+
+		// For tests and a future frame inspector.
+		size_t GetPassCount() const { return m_Passes.size(); }
+		const std::string& GetPassName(size_t pass) const;
+		size_t GetTargetCount() const { return m_Resources.size(); }
+		// Pooled targets currently alive, across all frames.
+		size_t GetPooledTargetCount() const;
+
+		// The resolved size of a target after Compile. Zero before it, and for
+		// the backbuffer, whose size belongs to the swapchain.
+		void GetTargetSize(RGResource target, uint32_t& width, uint32_t& height) const;
+
+	private:
+		friend class RGPassBuilder;
+		friend struct RGPassContext;
+
+		static constexpr RGResource kBackbuffer = 0;
+
+		struct Resource
+		{
+			std::string Name;
+			RGTargetDesc Desc;
+			bool Imported = false;
+			bool IsBackbuffer = false;
+
+			// Resolved during Compile.
+			RHI::Ref<RHI::RHIRenderTarget> Target;
+
+			// Which pass last wrote it, for validating reads.
+			bool Written = false;
+			bool Read = false;
+		};
+
+		struct Pass
+		{
+			std::string Name;
+			PassSetup SetupFn;
+			PassExecute ExecuteFn;
+
+			RGResource Output = kRGInvalid;
+			RGLoad Load = RGLoad::Clear;
+			std::vector<RGResource> Samples;
+
+			glm::vec4 ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+			float ClearDepth = 1.0f;
+			bool UseDepth = true;
+		};
+
+		RHI::Ref<RHI::RHIRenderTarget> AcquireTarget(const RGTargetDesc& desc,
+													 uint32_t width, uint32_t height);
+
+		RHI::RHIDevice& m_Device;
+
+		uint32_t m_Width = 0;
+		uint32_t m_Height = 0;
+
+		std::vector<Resource> m_Resources;
+		std::vector<Pass> m_Passes;
+		std::vector<std::string> m_Errors;
+		bool m_Compiled = false;
+
+		// Kept between frames so a stable frame allocates nothing after the
+		// first. Keyed by description and size.
+		struct Pooled
+		{
+			RGTargetDesc Desc;
+			uint32_t Width = 0;
+			uint32_t Height = 0;
+			RHI::Ref<RHI::RHIRenderTarget> Target;
+			bool InUse = false;
+		};
+		std::vector<Pooled> m_Pool;
+	};
+}

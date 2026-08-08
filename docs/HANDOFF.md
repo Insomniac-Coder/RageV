@@ -44,7 +44,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 340 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging. |
+| `scenetest` | 353 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -349,7 +349,8 @@ or silence rather than an obvious failure.
 | Runtime | `RageVRuntime` opens a project and runs its start scene |
 | Capture | `--screenshot=<file>` writes a PNG of one frame and exits |
 | Packaging | `rvpack` and File > Build Game: a runnable folder, ~9 MB |
-| Tests | `scenetest`, **340 checks**, green on both backends |
+| Render graph | Declared passes, pooled targets, compile-time validation (3.1) |
+| Tests | `scenetest`, **353 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete.** The engine loop closes: a project can be
 imported into, placed in, scripted, played, and packaged into a folder someone
