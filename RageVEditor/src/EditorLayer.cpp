@@ -1273,8 +1273,13 @@ void EditorLayer::LoadDemoScene()
 	// Something scripted, so pressing Play does something without having to
 	// set it up first. Stop puts it back where it started, which is the whole
 	// point of the snapshot.
-	if (Entity sphere = m_Scene->FindEntityByName("Sphere (gold)"))
-		sphere.AddComponent<NativeScriptComponent>("Spinner");
+	//
+	// The cube rather than a sphere: a sphere turning about its own axis is
+	// very nearly indistinguishable from a still one, since its silhouette and
+	// its shading are both symmetric about that axis. A cube's corners make the
+	// rotation unmistakable, which is what a demonstration has to be.
+	if (Entity cube = m_Scene->FindEntityByName("Cube (dielectric)"))
+		cube.AddComponent<NativeScriptComponent>("Spinner");
 
 	m_SceneHierarchyPanel.SetSelectedEntity({});
 	// Loading is not an edit; without this the demo scene arrives with an undo
