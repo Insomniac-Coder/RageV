@@ -1,30 +1,70 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-08. The `vulkan-overhaul` branch is
-**merged into `main`** (47 commits); `main` is the branch to work on now.
-**Nothing has been pushed** -- `origin` is still at the pre-overhaul state.
+**Read this first.** Updated 2026-08-08.
+
+Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
+finished with. **Two commits are unpushed** (3.1 and 3.2); `origin/main` is at
+`5b579d3`.
 
 Companion docs:
 - [ROADMAP.md](ROADMAP.md) — where this is going, in dependency order.
 - [ENGINE-NOTES.md](ENGINE-NOTES.md) — research distilled into decisions. Read
   §1 before touching the simulation loop, §3 and §3a before touching physics or
-  contacts, §7a before touching audio, and **§7b before deciding a change is
-  verified** — it is why exiting and pixels are both part of the bar.
+  contacts, §6 before touching the render graph, §7a before touching audio, and
+  **§7b before deciding a change is verified** — it is why exiting and pixels
+  are both part of the bar.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — renderer design detail.
+
+---
+
+## 0. Cold start
+
+The five-minute version, for picking this up with no memory of it.
+
+**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.2. The engine
+loop closes — a project can be imported into, placed in, scripted, played, and
+packaged into a folder someone else can run.
+
+**Prove it still works** (from the repo root, ~2 minutes):
+
+```bash
+cmake --build build --config Debug
+build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
+build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
+```
+
+371 checks, `exit 0`. Then look at a frame:
+
+```bash
+build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
+```
+
+**Three things that are easy to get wrong here, all learned the hard way:**
+
+1. **Run each tool from its own directory.** Assets are staged per target.
+2. **`--validation=on` for the runtime.** It ships with validation *off*, so a
+   run without the flag reports zero validation lines whether or not there were
+   any. That already hid a black screen and a segfault once.
+3. **Verify by exiting, not by killing.** `exit 0` is part of the bar. A killed
+   process runs no destructors, which hid a leak of every scene and every
+   render target for months.
+
+**What to read before changing something:** §5 of this document. Every entry
+was a real bug, and most fail silently rather than obviously.
 
 ---
 
 ## 1. What this is
 
 A Windows game engine. Originally a Hazel/Cherno-lineage 2D engine, shelved
-mid-way through a Vulkan port, revived and taken through phases 0, 1, 2 and
-most of 4 of a planned roadmap.
+mid-way through a Vulkan port, revived and taken through four of five roadmap
+phases.
 
 **Stated goal:** ease of use of Unity, some of Unreal's graphical fidelity,
 scope closer to Godot.
 
-The engine loop — *import → place → script → play → export* — has four of five
-links working. Export is the missing one, and it is Phase 4.
+The engine loop — *import → place → script → play → export* — **closes**.
+What remains is fidelity (Phase 3) and C# scripting (Phase 5).
 
 ---
 
@@ -116,9 +156,11 @@ every `[Vulkan]` line so far has been a real defect.
 ## 4. Architecture
 
 ```
+Project (.rvproject: asset root, start scene, fixed Hz)
+     |
 Application  (fixed-step loop, InputMap, AssetRegistry/Manager, AudioEngine)
      |
-   Layers -> EditorLayer
+   Layers -> EditorLayer | RuntimeLayer
      |
    Scene (EnTT)  --  PhysicsWorld (Jolt)   ScriptRegistry
      |                     |
@@ -126,10 +168,36 @@ Application  (fixed-step loop, InputMap, AssetRegistry/Manager, AudioEngine)
      |                     v
      |                 scripts  -->  AudioEngine (miniaudio)
      |
-  Renderer2D / Renderer3D
+   RenderGraph  <-  BuildFrame  ->  PostProcess
+     |
+  Renderer2D / Renderer3D / DebugRenderer
      |
     RHI  ->  Platform/Vulkan | Platform/OpenGL
 ```
+
+### The render path
+
+One frame, built by `BuildFrame` and shared by both applications -- they differ
+only in where the finished image lands (an imported viewport target, or the
+backbuffer):
+
+```
+Scene            -> SceneHDR   RGBA16F, linear, no tone curve
+Overlay          -> SceneHDR   colliders, preserved load, depth-tested
+Bloom prefilter  -> Bloom0     threshold with a soft knee, half res
+Bloom down 1..4  -> Bloom1..4  13-tap, halving each time
+Bloom up 4..1    -> Bloom3..0  3x3 tent, ADDITIVE, accumulates in place
+Tonemap          -> LDR        exposure, + bloom, ACES, 1/2.2
+FXAA             -> Output     on the tone-mapped image, not the linear one
+```
+
+Eleven passes and seven pooled targets at 1600x900. Adding a Phase 3 feature
+means a target and a pass in `FrameGraphBuilder.cpp` and nothing else -- that
+is what 3.1 was for, and it held for 3.2.
+
+**`Renderer::SetTargetFormats` is told what the *scene* pass writes**
+(RGBA16F/D32), not what the viewport texture is. Getting that backwards builds
+every mesh pipeline against the wrong attachment format.
 
 ### The frame
 
@@ -298,6 +366,21 @@ or silence rather than an obvious failure.
   frame with no steps must not lose a press, and two steps must not see one
   press twice.
 
+### Render graph and post
+
+- **`BuildFrame` is the only description of a frame.** The editor and the
+  runtime both call it. Writing the chain twice is how two transfer functions
+  ended up in one image before 3.2, and it would happen again within a week of
+  shadows landing.
+- **A pass writes exactly one target and declares what it samples.** An
+  undeclared read returns null rather than working by accident -- a dependency
+  the graph cannot see is the first thing to break when passes move.
+- **Targets are allocated and resized in `Compile`**, never while passes
+  record. Same reason as the editor's viewport targets: resizing something a
+  command buffer has bound destroys images it is holding.
+- **The bloom upsample is additive and loads rather than clears.** That is what
+  lets the chain use one target per level instead of two.
+
 ### Lifetime and shutdown
 
 - **`Layer`'s destructor is virtual, and must stay so.** `LayerStack` owns
@@ -442,16 +525,36 @@ report an error.
 
 ## 8. Next steps
 
-**Phase 4 is done.** Two tracks remain, and they are independent.
+**Phases 0, 1, 2 and 4 are done. Phase 3 is at 3.2.**
 
-1. **Push.** `origin` is still at the pre-overhaul state; every commit here
-   exists only on this machine.
-2. **Phase 3 fidelity** — render graph -> skybox/cubemaps -> IBL -> HDR/post ->
-   shadows -> clustered forward -> culling -> skeletal animation. This is the
-   whole of what is left before Phase 5, and it is where the "somewhat Unreal"
-   half of the goal is won or lost. Start at 3.1: the render graph earns its
-   keep at about three passes and Phase 3 adds six.
-3. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+1. **Push.** Two commits (3.1, 3.2) exist only on this machine.
+2. **3.3 skybox + cubemaps** (`M`). `TextureType::TextureCube` already exists
+   in the RHI and nothing uses it. This is also the prerequisite for 3.4.
+3. **3.4 IBL** (`L`) — irradiance, prefiltered specular, BRDF LUT. This is what
+   finally replaces the flat ambient constant, and it is the single largest
+   step in how the renderer *looks*.
+4. **3.5 shadows** (`XL`) — CSM directional, cube point, spot. Sphere-fit
+   cascades, texel snapping, normal-offset bias; the recipe is ENGINE-NOTES §5.
+   The biggest item left anywhere on the roadmap.
+5. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
+   **3.7 skeletal animation**.
+6. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+
+The render graph is in place, so each of those is *a pass and a target added to
+`BuildFrame`* rather than a new ownership question. That was the point of 3.1
+and it held for 3.2.
+
+**Anti-aliasing**, asked for during 3.2 and partly delivered:
+
+- **FXAA** is done and is the default.
+- **SMAA** (`M`) needs two precomputed lookup textures -- an area table and a
+  search table -- vendored into the repository, and three passes.
+- **TAA** (`L`) needs **motion vectors** first: every mesh carrying its previous
+  world transform, the renderer writing a velocity target, a jittered
+  projection and a history buffer. A renderer feature with prerequisites, not a
+  post pass. The same motion vectors would then also buy motion blur and
+  temporal upscaling, which is the argument for doing it properly rather than
+  cheaply.
 
 Smaller items, none blocking:
 
@@ -462,6 +565,10 @@ Smaller items, none blocking:
 - **Prefab instances do not update when the prefab changes.**
 - **Packaging is per-machine.** `rvpack` finds the runtime beside itself or in
   a sibling build directory. A shipped editor would need that pinned down.
+- **The collider overlay is tone mapped** along with the scene, because it
+  draws into the HDR target to depth-test against the geometry it annotates.
+  Its colours are therefore slightly off. Fixing it needs the depth buffer
+  available in a second pass.
 
 ## 9. Known rough edges
 
