@@ -43,6 +43,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>")
 
 option(RAGEV_BUILD_SANDBOX "Build the Sandbox sample application" ON)
+option(RAGEV_BUILD_TOOLS "Build the offline shader inspection tool" ON)
 option(RAGEV_ENABLE_VALIDATION "Enable Vulkan validation layers in Debug builds" ON)
 
 if(MSVC)
@@ -56,6 +57,9 @@ add_subdirectory(RageV)
 add_subdirectory(RageVEditor)
 if(RAGEV_BUILD_SANDBOX)
     add_subdirectory(Sandbox)
+endif()
+if(RAGEV_BUILD_TOOLS)
+    add_subdirectory(tools/shaderinfo)
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio")

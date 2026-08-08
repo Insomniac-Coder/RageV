@@ -1,0 +1,73 @@
+#pragma once
+
+// The device owns the swapchain, the frame lifecycle and every resource
+// factory. One instance exists per window.
+
+#include "RHITypes.h"
+#include "RHIResources.h"
+#include "RHIShader.h"
+#include "RHIPipeline.h"
+#include "RHIResourceSet.h"
+#include "RHICommandList.h"
+
+struct GLFWwindow;
+
+namespace RageV::RHI
+{
+	struct DeviceDesc
+	{
+		Backend      Backend      = Backend::Vulkan;
+		GLFWwindow*  Window       = nullptr;
+		uint32_t     Width        = 1600;
+		uint32_t     Height       = 900;
+		bool         VSync        = true;
+		bool         EnableValidation = false;
+		uint32_t     FramesInFlight   = 2;
+	};
+
+	class RHIDevice
+	{
+	public:
+		virtual ~RHIDevice() = default;
+
+		static Scope<RHIDevice> Create(const DeviceDesc& desc);
+
+		virtual Backend           GetBackend() const = 0;
+		virtual const DeviceCaps& GetCaps()    const = 0;
+
+		// ------------------------------------------------------------------
+		// Frame lifecycle
+		// ------------------------------------------------------------------
+		// Acquires a swapchain image and returns the command list to record
+		// into. Returns nullptr when the frame must be skipped -- the swapchain
+		// is out of date or the window is minimised -- in which case EndFrame
+		// must not be called.
+		virtual RHICommandList* BeginFrame() = 0;
+		virtual void EndFrame() = 0;
+
+		virtual void WaitIdle() = 0;
+		virtual void OnResize(uint32_t width, uint32_t height) = 0;
+		virtual void SetVSync(bool enabled) = 0;
+
+		virtual uint32_t GetFramesInFlight() const = 0;
+		// Which frame slot is currently being recorded. Per-frame resources
+		// (uniform buffers, descriptor sets) must be indexed by this.
+		virtual uint32_t GetFrameIndex() const = 0;
+
+		virtual Format GetSwapchainFormat() const = 0;
+		virtual Format GetSwapchainDepthFormat() const = 0;
+		virtual uint32_t GetSwapchainWidth()  const = 0;
+		virtual uint32_t GetSwapchainHeight() const = 0;
+
+		// ------------------------------------------------------------------
+		// Resource creation
+		// ------------------------------------------------------------------
+		virtual Ref<RHIBuffer>       CreateBuffer(const BufferDesc& desc) = 0;
+		virtual Ref<RHITexture>      CreateTexture(const TextureDesc& desc) = 0;
+		virtual Ref<RHISampler>      CreateSampler(const SamplerDesc& desc) = 0;
+		virtual Ref<RHIShader>       CreateShader(const CompiledShader& compiled) = 0;
+		virtual Ref<RHIPipeline>     CreatePipeline(const GraphicsPipelineDesc& desc) = 0;
+		virtual Ref<RHIRenderTarget> CreateRenderTarget(const RenderTargetDesc& desc) = 0;
+		virtual Ref<RHIResourceSet>  CreateResourceSet(const Ref<RHIPipeline>& pipeline, uint32_t set) = 0;
+	};
+}

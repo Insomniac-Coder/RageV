@@ -1,0 +1,459 @@
+#include <rvpch.h>
+#include "ShaderCompiler.h"
+
+#include <glslang/Public/ShaderLang.h>
+#include <glslang/Public/ResourceLimits.h>
+#include <SPIRV/GlslangToSpv.h>
+
+#include <spirv_glsl.hpp>
+
+#include <fstream>
+#include <sstream>
+
+namespace RageV::RHI
+{
+	namespace
+	{
+		bool s_Initialized = false;
+		std::filesystem::path s_CacheDirectory;
+
+		EShLanguage ToGlslangStage(ShaderStage stage)
+		{
+			switch (stage)
+			{
+				case ShaderStage::Vertex:   return EShLangVertex;
+				case ShaderStage::Fragment: return EShLangFragment;
+				case ShaderStage::Compute:  return EShLangCompute;
+				default:                    return EShLangVertex;
+			}
+		}
+
+		ShaderStage ParseStageName(std::string name)
+		{
+			// Trim, then accept the engine's existing spellings.
+			while (!name.empty() && (name.back() == '\r' || name.back() == '\n' || name.back() == ' ' || name.back() == '\t'))
+				name.pop_back();
+			size_t start = name.find_first_not_of(" \t");
+			if (start != std::string::npos)
+				name = name.substr(start);
+
+			if (name == "vertex")                      return ShaderStage::Vertex;
+			if (name == "fragment" || name == "pixel") return ShaderStage::Fragment;
+			if (name == "compute")                     return ShaderStage::Compute;
+			return ShaderStage::None;
+		}
+
+		Format FormatFromSpirvType(const spirv_cross::SPIRType& type)
+		{
+			using BT = spirv_cross::SPIRType::BaseType;
+			switch (type.basetype)
+			{
+				case BT::Float:
+					switch (type.vecsize)
+					{
+						case 1: return Format::R32_SFLOAT;
+						case 2: return Format::R32G32_SFLOAT;
+						case 3: return Format::R32G32B32_SFLOAT;
+						case 4: return Format::R32G32B32A32_SFLOAT;
+						default: break;
+					}
+					break;
+				case BT::Int:  return Format::R32_SINT;
+				case BT::UInt: return Format::R32_UINT;
+				default: break;
+			}
+			return Format::Undefined;
+		}
+
+		// Merges a binding into a set, OR-ing the stage mask when the same
+		// binding is declared by more than one stage.
+		void MergeBinding(ShaderReflection& reflection, uint32_t set, const ResourceBinding& binding)
+		{
+			ResourceSetLayoutDesc* layout = nullptr;
+			for (auto& s : reflection.Sets)
+			{
+				if (s.Set == set)
+				{
+					layout = &s;
+					break;
+				}
+			}
+			if (!layout)
+			{
+				reflection.Sets.push_back(ResourceSetLayoutDesc{ set, {} });
+				layout = &reflection.Sets.back();
+			}
+
+			for (auto& existing : layout->Bindings)
+			{
+				if (existing.Binding == binding.Binding)
+				{
+					existing.Stages = existing.Stages | binding.Stages;
+					existing.Count = std::max(existing.Count, binding.Count);
+					existing.BlockSize = std::max(existing.BlockSize, binding.BlockSize);
+					return;
+				}
+			}
+			layout->Bindings.push_back(binding);
+		}
+
+		uint64_t HashSource(const std::string& source, ShaderStage stage)
+		{
+			// FNV-1a. Only used as a cache key.
+			uint64_t hash = 1469598103934665603ull;
+			for (unsigned char c : source)
+			{
+				hash ^= c;
+				hash *= 1099511628211ull;
+			}
+			hash ^= (uint64_t)stage;
+			hash *= 1099511628211ull;
+			return hash;
+		}
+
+		std::filesystem::path CachePathFor(uint64_t hash)
+		{
+			std::ostringstream name;
+			name << std::hex << hash << ".spv";
+			return s_CacheDirectory / name.str();
+		}
+
+		bool ReadCache(const std::filesystem::path& path, std::vector<uint32_t>& outSpirV)
+		{
+			std::ifstream file(path, std::ios::binary | std::ios::ate);
+			if (!file)
+				return false;
+
+			const std::streamsize size = file.tellg();
+			if (size <= 0 || (size % sizeof(uint32_t)) != 0)
+				return false;
+
+			file.seekg(0);
+			outSpirV.resize((size_t)size / sizeof(uint32_t));
+			return (bool)file.read((char*)outSpirV.data(), size);
+		}
+
+		void WriteCache(const std::filesystem::path& path, const std::vector<uint32_t>& spirv)
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(path.parent_path(), ec);
+			std::ofstream file(path, std::ios::binary);
+			if (file)
+				file.write((const char*)spirv.data(), (std::streamsize)(spirv.size() * sizeof(uint32_t)));
+		}
+	}
+
+	void ShaderCompiler::Init()
+	{
+		if (s_Initialized)
+			return;
+		glslang::InitializeProcess();
+		s_Initialized = true;
+	}
+
+	void ShaderCompiler::Shutdown()
+	{
+		if (!s_Initialized)
+			return;
+		glslang::FinalizeProcess();
+		s_Initialized = false;
+	}
+
+	void ShaderCompiler::SetCacheDirectory(const std::filesystem::path& directory)
+	{
+		s_CacheDirectory = directory;
+	}
+
+	std::optional<CompiledShader> ShaderCompiler::CompileFromFile(const std::filesystem::path& path)
+	{
+		std::ifstream file(path);
+		if (!file)
+		{
+			RV_CORE_ERROR("Shader file not found: {0}", path.string());
+			return std::nullopt;
+		}
+
+		ShaderDesc desc;
+		desc.Name = path.stem().string();
+
+		// Split on `#type <stage>` markers.
+		const std::string marker = "#type ";
+		ShaderStage current = ShaderStage::None;
+		std::string body;
+		std::string line;
+
+		auto flush = [&]()
+		{
+			if (current != ShaderStage::None && !body.empty())
+				desc.Stages.push_back(ShaderStageSource{ current, body, "main" });
+			body.clear();
+		};
+
+		while (std::getline(file, line))
+		{
+			const size_t pos = line.find(marker);
+			if (pos != std::string::npos)
+			{
+				flush();
+				current = ParseStageName(line.substr(pos + marker.size()));
+				if (current == ShaderStage::None)
+					RV_CORE_WARN("Unknown shader stage in {0}: {1}", path.string(), line);
+			}
+			else
+			{
+				body += line;
+				body += '\n';
+			}
+		}
+		flush();
+
+		if (desc.Stages.empty())
+		{
+			RV_CORE_ERROR("Shader {0} contains no #type sections", path.string());
+			return std::nullopt;
+		}
+
+		return Compile(desc);
+	}
+
+	std::optional<CompiledShader> ShaderCompiler::Compile(const ShaderDesc& desc)
+	{
+		Init();
+
+		CompiledShader result;
+		result.Name = desc.Name;
+
+		for (const auto& stageSource : desc.Stages)
+		{
+			const uint64_t hash = HashSource(stageSource.Source, stageSource.Stage);
+
+			std::vector<uint32_t> spirv;
+			bool fromCache = false;
+			if (!s_CacheDirectory.empty() && ReadCache(CachePathFor(hash), spirv))
+				fromCache = true;
+
+			if (!fromCache)
+			{
+				auto compiled = CompileStage(stageSource.Source, stageSource.Stage,
+											 desc.Name + ":" + ShaderStageName(stageSource.Stage));
+				if (!compiled)
+					return std::nullopt;
+
+				spirv = std::move(*compiled);
+				if (!s_CacheDirectory.empty())
+					WriteCache(CachePathFor(hash), spirv);
+			}
+
+			CompiledStage stage;
+			stage.Stage = stageSource.Stage;
+			stage.SpirV = std::move(spirv);
+			stage.EntryPoint = stageSource.EntryPoint;
+
+			ReflectStage(stage, result.Reflection);
+			result.Stages.push_back(std::move(stage));
+		}
+
+		return result;
+	}
+
+	std::optional<std::vector<uint32_t>> ShaderCompiler::CompileStage(const std::string& source,
+																	  ShaderStage stage,
+																	  const std::string& debugName)
+	{
+		const EShLanguage language = ToGlslangStage(stage);
+		glslang::TShader shader(language);
+
+		const char* sources[] = { source.c_str() };
+		shader.setStrings(sources, 1);
+		shader.setEnvInput(glslang::EShSourceGlsl, language, glslang::EShClientVulkan, 100);
+		shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
+		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
+
+		const EShMessages messages = (EShMessages)(EShMsgSpvRules | EShMsgVulkanRules);
+		const int defaultVersion = 450;
+
+		if (!shader.parse(GetDefaultResources(), defaultVersion, false, messages))
+		{
+			RV_CORE_ERROR("Shader compilation failed [{0}]:\n{1}", debugName, shader.getInfoLog());
+			return std::nullopt;
+		}
+
+		glslang::TProgram program;
+		program.addShader(&shader);
+		if (!program.link(messages))
+		{
+			RV_CORE_ERROR("Shader linking failed [{0}]:\n{1}", debugName, program.getInfoLog());
+			return std::nullopt;
+		}
+
+		std::vector<uint32_t> spirv;
+		spv::SpvBuildLogger logger;
+		glslang::SpvOptions options;
+#ifdef RV_DEBUG
+		options.generateDebugInfo = true;
+		options.disableOptimizer = true;
+#else
+		options.disableOptimizer = true;   // spirv-opt is not built in (ENABLE_OPT=OFF)
+		options.stripDebugInfo = true;
+#endif
+		glslang::GlslangToSpv(*program.getIntermediate(language), spirv, &logger, &options);
+
+		const std::string messagesText = logger.getAllMessages();
+		if (!messagesText.empty())
+			RV_CORE_TRACE("SPIR-V generation [{0}]: {1}", debugName, messagesText);
+
+		if (spirv.empty())
+		{
+			RV_CORE_ERROR("SPIR-V generation produced nothing for {0}", debugName);
+			return std::nullopt;
+		}
+
+		return spirv;
+	}
+
+	void ShaderCompiler::ReflectStage(const CompiledStage& stage, ShaderReflection& outReflection)
+	{
+		spirv_cross::Compiler compiler(stage.SpirV);
+		const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+
+		auto decorate = [&](const spirv_cross::Resource& resource, ResourceType type, uint32_t blockSize)
+		{
+			ResourceBinding binding;
+			binding.Binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
+			binding.Type = type;
+			binding.Stages = stage.Stage;
+			binding.Name = resource.name;
+			binding.BlockSize = blockSize;
+
+			const spirv_cross::SPIRType& resourceType = compiler.get_type(resource.type_id);
+			binding.Count = resourceType.array.empty() ? 1u : resourceType.array[0];
+
+			const uint32_t set = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
+			MergeBinding(outReflection, set, binding);
+		};
+
+		for (const auto& ubo : resources.uniform_buffers)
+		{
+			const auto& type = compiler.get_type(ubo.base_type_id);
+			decorate(ubo, ResourceType::UniformBuffer, (uint32_t)compiler.get_declared_struct_size(type));
+		}
+
+		for (const auto& ssbo : resources.storage_buffers)
+		{
+			const auto& type = compiler.get_type(ssbo.base_type_id);
+			decorate(ssbo, ResourceType::StorageBuffer, (uint32_t)compiler.get_declared_struct_size(type));
+		}
+
+		for (const auto& image : resources.sampled_images)
+			decorate(image, ResourceType::CombinedImageSampler, 0);
+
+		for (const auto& image : resources.storage_images)
+			decorate(image, ResourceType::StorageImage, 0);
+
+		for (const auto& pushConstant : resources.push_constant_buffers)
+		{
+			const auto& type = compiler.get_type(pushConstant.base_type_id);
+
+			PushConstantRange range;
+			range.Offset = 0;
+			range.Size = (uint32_t)compiler.get_declared_struct_size(type);
+			range.Stages = stage.Stage;
+
+			bool merged = false;
+			for (auto& existing : outReflection.PushConstants)
+			{
+				if (existing.Offset == range.Offset && existing.Size == range.Size)
+				{
+					existing.Stages = existing.Stages | range.Stages;
+					merged = true;
+					break;
+				}
+			}
+			if (!merged)
+				outReflection.PushConstants.push_back(range);
+		}
+
+		// Vertex inputs only come from the vertex stage. SPIR-V carries
+		// locations and types but not offsets or stride -- those are the
+		// application's choice -- so assume one interleaved binding packed in
+		// ascending location order, which is what the engine's vertex structs
+		// do.
+		if (stage.Stage == ShaderStage::Vertex && !resources.stage_inputs.empty())
+		{
+			struct Input { uint32_t Location; Format Format; uint32_t Size; };
+			std::vector<Input> inputs;
+			inputs.reserve(resources.stage_inputs.size());
+
+			for (const auto& input : resources.stage_inputs)
+			{
+				const spirv_cross::SPIRType& type = compiler.get_type(input.base_type_id);
+				const Format format = FormatFromSpirvType(type);
+				if (format == Format::Undefined)
+				{
+					RV_CORE_WARN("Unsupported vertex input type for '{0}'", input.name);
+					continue;
+				}
+				inputs.push_back({ compiler.get_decoration(input.id, spv::DecorationLocation),
+								   format, FormatSize(format) });
+			}
+
+			std::sort(inputs.begin(), inputs.end(),
+					  [](const Input& a, const Input& b) { return a.Location < b.Location; });
+
+			VertexLayout layout;
+			uint32_t offset = 0;
+			for (const auto& input : inputs)
+			{
+				layout.Attributes.push_back(VertexAttribute{ input.Location, 0, input.Format, offset });
+				offset += input.Size;
+			}
+			layout.Bindings.push_back(VertexBinding{ 0, offset, false });
+
+			outReflection.VertexInput = std::move(layout);
+		}
+	}
+
+	std::optional<std::string> ShaderCompiler::CrossCompileToGLSL(const CompiledStage& stage,
+																  uint32_t glslVersion)
+	{
+		try
+		{
+			spirv_cross::CompilerGLSL compiler(stage.SpirV);
+
+			spirv_cross::CompilerGLSL::Options options;
+			options.version = glslVersion;
+			options.es = false;
+			// Keeps the GLSL close to the SPIR-V so uniform block names and
+			// binding points survive.
+			options.enable_420pack_extension = true;
+			options.emit_uniform_buffer_as_plain_uniforms = false;
+			compiler.set_common_options(options);
+
+			// GL has one flat binding-point namespace per resource kind, so a
+			// (set, binding) pair has to collapse to a single number. Sets are
+			// spaced far enough apart that they cannot collide.
+			constexpr uint32_t kBindingsPerSet = 16;
+			const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+
+			auto flatten = [&](const spirv_cross::Resource& resource)
+			{
+				const uint32_t set = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
+				const uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
+				compiler.unset_decoration(resource.id, spv::DecorationDescriptorSet);
+				compiler.set_decoration(resource.id, spv::DecorationBinding, set * kBindingsPerSet + binding);
+			};
+
+			for (const auto& resource : resources.uniform_buffers)  flatten(resource);
+			for (const auto& resource : resources.storage_buffers)  flatten(resource);
+			for (const auto& resource : resources.sampled_images)   flatten(resource);
+			for (const auto& resource : resources.storage_images)   flatten(resource);
+
+			return compiler.compile();
+		}
+		catch (const std::exception& e)
+		{
+			RV_CORE_ERROR("SPIR-V -> GLSL cross-compilation failed: {0}", e.what());
+			return std::nullopt;
+		}
+	}
+}
