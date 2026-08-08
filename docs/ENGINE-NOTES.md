@@ -392,6 +392,49 @@ so what reached the screen can be measured rather than assumed.
 
 ---
 
+## 7c. Two backends only pay off if you compare them
+
+The RHI's whole claim is that Vulkan and OpenGL produce the same image. For two
+roadmap phases that claim was checked one backend at a time: run each, confirm
+no validation lines, confirm `exit 0`, look at a screenshot. Both passed. Both
+were wrong.
+
+Every fullscreen post pass reads one render target and writes another. The
+comment in each said the backends' conventions cancel — Vulkan's framebuffer
+origin is top-left and its textures are top-down, OpenGL's are both bottom-up.
+That is true of a texture *drawn* by geometry, and false of one *sampled* by a
+fullscreen triangle: a fragment at the top of the destination samples `v = 1`,
+which is the source's last row, and the last row is the bottom on Vulkan and
+the top on OpenGL. So Vulkan flips and OpenGL does not.
+
+It survived because the number of passes hid it. With anti-aliasing on the
+scene goes through tone mapping and then FXAA — two flips, which cancel — and
+comes out the right way up. The bloom chain has an odd number, so bloom was
+added to the frame mirrored about its middle. In a scene lit to a maximum of
+about 2, nothing crossed the bloom threshold hard enough for that to be
+visible. The moment metals reflected an HDR sky, every specular highlight also
+appeared as a blob floating on the opposite side of the frame.
+
+Three things follow, in increasing order of how much they matter:
+
+1. **A convention that "cancels" deserves a test, not a comment.** The comment
+   was written confidently and repeated in six shaders.
+2. **Cross-backend comparison is a different check from per-backend
+   correctness.** Each backend was internally consistent. The bug was that they
+   disagreed, and nothing was looking for disagreement.
+3. **A renderer bug can be dormant because the content is too dim.** The scene
+   was the test, and the scene was not demanding enough. Adding a bright sky
+   found a bug that had been in the build for a phase and a half — which is an
+   argument for content that stresses the renderer, not only content that
+   demonstrates it.
+
+The same reasoning is why cube faces are converted on the CPU (§5) and why the
+one place the backends' row order genuinely differs —
+`RHICommandList::CopyToTextureLayer` — is a single function with the derivation
+written above it.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

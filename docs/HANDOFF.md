@@ -3,7 +3,7 @@
 **Read this first.** Updated 2026-08-08.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
-finished with. **Two commits are unpushed** (3.1 and 3.2); `origin/main` is at
+finished with. **Everything since 3.1 is unpushed**; `origin/main` is at
 `5b579d3`.
 
 Companion docs:
@@ -21,9 +21,9 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.2. The engine
-loop closes — a project can be imported into, placed in, scripted, played, and
-packaged into a folder someone else can run.
+**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.3, plus the
+specular half of 3.4. The engine loop closes — a project can be imported into,
+placed in, scripted, played, and packaged into a folder someone else can run.
 
 **Prove it still works** (from the repo root, ~2 minutes):
 
@@ -33,13 +33,13 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-371 checks, `exit 0`. Then look at a frame:
+420 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
 ```
 
-**Three things that are easy to get wrong here, all learned the hard way:**
+**Four things that are easy to get wrong here, all learned the hard way:**
 
 1. **Run each tool from its own directory.** Assets are staged per target.
 2. **`--validation=on` for the runtime.** It ships with validation *off*, so a
@@ -48,6 +48,10 @@ build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --scr
 3. **Verify by exiting, not by killing.** `exit 0` is part of the bar. A killed
    process runs no destructors, which hid a leak of every scene and every
    render target for months.
+4. **Compare the two backends' frames, not just each on its own.** A
+   Vulkan-only bloom flip survived a whole roadmap phase of clean runs, because
+   nothing in the scene was bright enough for a mirrored contribution to show.
+   `--screenshot` on both and look at them side by side.
 
 **What to read before changing something:** §5 of this document. Every entry
 was a real bug, and most fail silently rather than obviously.
@@ -182,18 +186,29 @@ only in where the finished image lands (an imported viewport target, or the
 backbuffer):
 
 ```
-Scene            -> SceneHDR   RGBA16F, linear, no tone curve
-Overlay          -> SceneHDR   colliders, preserved load, depth-tested
-Bloom prefilter  -> Bloom0     threshold with a soft knee, half res
-Bloom down 1..4  -> Bloom1..4  13-tap, halving each time
-Bloom up 4..1    -> Bloom3..0  3x3 tent, ADDITIVE, accumulates in place
-Tonemap          -> LDR        exposure, + bloom, ACES, 1/2.2
-FXAA             -> Output     on the tone-mapped image, not the linear one
+(probe faces)    -> probe cube  0..6 scene renders, BEFORE the graph opens
+Scene            -> SceneHDR    RGBA16F, linear, no tone curve
+  meshes                        reflect the environment cube
+  sky                           after the meshes, depth-tested, no depth write
+  quads                         blended, so they need the sky behind them
+Overlay          -> SceneHDR    colliders, preserved load, depth-tested
+Bloom prefilter  -> Bloom0      13-tap, Karis weighted, clamped, soft knee
+Bloom down 1..4  -> Bloom1..4   13-tap, halving each time
+Bloom up 4..1    -> Bloom3..0   3x3 tent, ADDITIVE, accumulates in place
+Tonemap          -> LDR         exposure, + bloom, ACES, 1/2.2
+FXAA             -> Output      on the tone-mapped image, not the linear one
 ```
 
 Eleven passes and seven pooled targets at 1600x900. Adding a Phase 3 feature
 means a target and a pass in `FrameGraphBuilder.cpp` and nothing else -- that
 is what 3.1 was for, and it held for 3.2.
+
+The sky and the probe captures are the two things *not* in `BuildFrame`. The
+sky adds no target and belongs inside the scene pass, between the opaque meshes
+and the blended quads. A probe capture opens render passes of its own, so it
+cannot be inside one -- both applications call
+`Scene::CaptureReflectionProbes()` between `Renderer::BeginFrame` and the
+graph.
 
 **`Renderer::SetTargetFormats` is told what the *scene* pass writes**
 (RGBA16F/D32), not what the viewport texture is. Getting that backwards builds
@@ -380,6 +395,32 @@ or silence rather than an obvious failure.
   command buffer has bound destroys images it is holding.
 - **The bloom upsample is additive and loads rather than clears.** That is what
   lets the chain use one target per level instead of two.
+- **A fullscreen pass must flip its sampling coordinate on Vulkan and must not
+  on OpenGL.** This is the one that hurt. The RHI gives Vulkan a
+  negative-height viewport so geometry lands identically on both -- but that
+  decides where a fragment *writes*, not what a texture coordinate *reads*. A
+  fragment at the top of the destination samples `v = 1`, which is the last row
+  of the source: the bottom on Vulkan, the top on OpenGL. `PostProcess::Dispatch`
+  fills `FlipY` for every post shader; nothing else samples a render target.
+
+  An **even** number of passes hides it, which is why it shipped in 3.2 and
+  survived until 3.3: with anti-aliasing on, the scene goes tonemap -> FXAA and
+  comes out the right way up. The bloom chain has an odd number, so its
+  contribution was added mirrored about the middle of the frame -- invisible
+  until something was bright enough to bleed, then unmistakable as blobs
+  floating on the opposite side of the image from every highlight.
+- **The cube-map face table is the contract between capture and sampling.**
+  `CubeFaceDirection` is what both specifications give and they agree, so one
+  CPU conversion feeds both backends. A probe's capture basis is checked against
+  that table in `scenetest` rather than by looking, because a mirrored face, a
+  rotated one and an upside-down one all produce a reflection that tracks the
+  camera correctly and is simply wrong.
+- **`CopyToTextureLayer` is where the two backends' row order is reconciled**,
+  and the only place. Vulkan blits flipped; OpenGL copies straight through.
+- **A solid primitive's triangles must face away from its centre.** The sphere
+  was wound inside out for four roadmap phases: back-face culling kept the far
+  hemisphere and drew its inside, which has the same silhouette and only looks
+  wrong once something reads the normal. `scenetest` checks all of them now.
 
 ### Lifetime and shutdown
 
@@ -525,15 +566,22 @@ report an error.
 
 ## 8. Next steps
 
-**Phases 0, 1, 2 and 4 are done. Phase 3 is at 3.2.**
+**Phases 0, 1, 2 and 4 are done. Phase 3 is at 3.3, and 3.4 is half done.**
 
-1. **Push.** Two commits (3.1, 3.2) exist only on this machine.
-2. **3.3 skybox + cubemaps** (`M`). `TextureType::TextureCube` already exists
-   in the RHI and nothing uses it. This is also the prerequisite for 3.4.
-3. **3.4 IBL** (`L`) — irradiance, prefiltered specular, BRDF LUT. This is what
-   finally replaces the flat ambient constant, and it is the single largest
-   step in how the renderer *looks*.
-4. **3.5 shadows** (`XL`) — CSM directional, cube point, spot. Sphere-fit
+1. **Push.** Everything from 3.1 onwards exists only on this machine.
+2. **Finish 3.4 IBL** (`M` now, was `L`). The specular half is in: surfaces
+   reflect the environment cube, roughness picks a mip, and the split-sum
+   environment BRDF is Lazarov's analytic fit. What is left is the accurate
+   version of both halves:
+   - **A real GGX prefilter.** The mip chain is box filtered, so roughness
+     selects a blur that is monotonic but not the lobe. Needs render-to-cube-face
+     or a compute pass per roughness level.
+   - **Irradiance.** The diffuse ambient is still one flat colour. A 32x32
+     irradiance cube convolved from the environment replaces it, and is the
+     step that makes a scene look lit by its surroundings.
+   - **A BRDF lookup texture**, replacing the analytic fit. Smallest of the
+     three and the least visible.
+3. **3.5 shadows** (`XL`) — CSM directional, cube point, spot. Sphere-fit
    cascades, texel snapping, normal-offset bias; the recipe is ENGINE-NOTES §5.
    The biggest item left anywhere on the roadmap.
 5. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
