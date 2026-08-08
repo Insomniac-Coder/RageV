@@ -315,6 +315,30 @@ defects). Hand-writing barriers six more times is the expensive option.
 4.2 is also a **forcing function**: it proves nothing load-bearing has leaked
 into the editor.
 
+**4.1 and 4.2 are done.** The forcing-function argument held, and then some --
+4.2 found three defects in its first hour that no test and no amount of editor
+use could have surfaced, because all three needed something that draws a scene
+to the swapchain and then exits:
+
+- The Vulkan swapchain barrier assumed one pass per frame, and named
+  `UNDEFINED` as the old layout every time. A second pass could legally come
+  back to a discarded image.
+- The UI pass cleared the backbuffer unconditionally, which is free in the
+  editor and erases the frame in a game. The runtime rendered correctly and
+  showed a blank window.
+- `Layer`'s destructor was not virtual, so no layer's derived members had ever
+  been destroyed -- every scene, render target and material leaked on every
+  shutdown, for the life of the project.
+
+The last one is the argument in miniature. It was not a runtime bug; it was a
+bug the runtime was the first thing to *expose*, because nothing before it had
+ever exited cleanly enough to notice. **Verify by exiting, not by killing** is
+now part of the bar.
+
+Also landed alongside: collider debug draw, click-to-select in the viewport,
+and `RHIDevice::RequestCapture` -- a backbuffer capture, because draw-call
+counts cannot tell a rendered frame from one that was cleared afterwards.
+
 ### Phase 5 — C# scripting *(the second option the user asked for)*
 
 | # | Item | Size |

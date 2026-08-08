@@ -1,13 +1,15 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-08, on branch `vulkan-overhaul`
-(41 commits ahead of `main`, **not merged, not pushed**).
+**Read this first.** Updated 2026-08-08. The `vulkan-overhaul` branch is
+**merged into `main`** (47 commits); `main` is the branch to work on now.
+**Nothing has been pushed** -- `origin` is still at the pre-overhaul state.
 
 Companion docs:
 - [ROADMAP.md](ROADMAP.md) — where this is going, in dependency order.
 - [ENGINE-NOTES.md](ENGINE-NOTES.md) — research distilled into decisions. Read
   §1 before touching the simulation loop, §3 and §3a before touching physics or
-  contacts, and §7a before touching audio.
+  contacts, §7a before touching audio, and **§7b before deciding a change is
+  verified** — it is why exiting and pixels are both part of the bar.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — renderer design detail.
 
 ---
@@ -15,8 +17,8 @@ Companion docs:
 ## 1. What this is
 
 A Windows game engine. Originally a Hazel/Cherno-lineage 2D engine, shelved
-mid-way through a Vulkan port, revived and taken through the first three phases
-of a planned roadmap.
+mid-way through a Vulkan port, revived and taken through phases 0, 1, 2 and
+most of 4 of a planned roadmap.
 
 **Stated goal:** ease of use of Unity, some of Unreal's graphical fidelity,
 scope closer to Godot.
@@ -40,8 +42,9 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 
 | Target | Purpose |
 |---|---|
-| `RageVEditor` | The editor. Opens on a demo scene. |
-| `scenetest` | 278 checks: serialization, undo, assets, scripts, physics, audio. |
+| `RageVEditor` | The editor. Opens the sample project's start scene. |
+| `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
+| `scenetest` | 325 checks: serialization, undo, assets, scripts, physics, audio, project, picking. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
 | `Sandbox` | Stale, predates the RHI, **off by default**. |
@@ -339,13 +342,22 @@ or silence rather than an obvious failure.
 | Contacts | Collision and trigger enter/stay/exit into scripts, both sides |
 | Audio | miniaudio — clips as assets, 4 buses, 3D sources, listener, one-shots |
 | Editor | Two viewports, proportional dock layout, red-on-black theme |
-| Tests | `scenetest`, **278 checks**, green on both backends |
+| Picking | Click to select in the viewport, triangle-exact; colliders too |
+| Debug draw | Collider and trigger wireframes on F3, sleeping bodies dimmed |
+| Projects | A folder is a project; the asset registry roots there |
+| Runtime | `RageVRuntime` opens a project and runs its start scene |
+| Capture | `--screenshot=<file>` writes a PNG of one frame and exits |
+| Tests | `scenetest`, **325 checks**, green on both backends |
 
-**Phase 2 is complete.** The engine loop is *import → place → script → play →
-export* with export the one remaining severed link.
+**Phases 0, 1 and 2 are complete, and 4.1 and 4.2 with them.** What remains of
+Phase 4 is 4.3: turning a project into something someone else can run.
 
 ### Not done
 
+- **Packaging** (4.3). The runtime can run a project in place; nothing cooks
+  one into a distributable folder. **Everything in this project has only ever
+  been built and verified in Debug** -- Release and Dist configurations exist
+  in CMake and have never been compiled, let alone run. 4.3 starts there.
 - **Shadows, IBL, skybox, HDR/post** (Phase 3). Ambient is a flat constant.
 - **Clustered forward** — the 8-light cap stands.
 - **Culling** — everything is drawn every frame.
@@ -360,6 +372,10 @@ export* with export the one remaining severed link.
 - Multi-viewport ImGui on Vulkan (OpenGL only).
 - Audio: no reverb or effects, no Vorbis, no editor preview button, no mixer
   panel — bus volumes are reachable from code only.
+- Lights and cameras are not clickable in the viewport: picking tests geometry
+  and they have none. They need billboard icons first.
+- Materials are still per-component `Ref`s rather than assets, so two entities
+  cannot be pointed at one material from the inspector.
 
 ---
 
@@ -402,33 +418,25 @@ export* with export the one remaining severed link.
 
 ## 8. Next steps
 
-Phases 0, 1 and 2 are done. Two tracks remain and they are independent, so the
-first decision is which to take.
+1. **Push.** `origin` is still at the pre-overhaul state; 47 commits of work
+   exist only on this machine.
+2. **4.3 packaging.** Cook a project into a folder with the runtime beside it.
+   Expect two pieces of work, not one: **no Release build has ever been
+   produced in this project**, and shipping a Debug binary with validation
+   layers and a `.pdb` is not shipping. Get Release building and running on
+   both backends first, then package.
+3. **Phase 3 fidelity** — render graph -> skybox/cubemaps -> IBL -> HDR/post ->
+   shadows -> clustered forward -> culling. A parallel track against a stable
+   RHI. This is where the "somewhat Unreal" half of the goal is won.
+4. **Phase 5 C#.** Last, because it must mirror a stable native surface.
 
-1. **Phase 4 ship** — project concept (4.1), standalone runtime (4.2),
-   packaging (4.3). This is the definition of done for MVP, and 4.1 also fixes
-   the asset-handle problem in §9 rather than working around it. 4.2 is a
-   forcing function: it proves nothing load-bearing has leaked into the editor.
-2. **Phase 3 fidelity** — render graph → skybox/cubemaps → IBL → HDR/post →
-   shadows → clustered forward → culling. A parallel track against a stable
-   RHI; pulling it forward costs no structural debt. This is where the
-   "somewhat Unreal" half of the goal is won or lost.
-3. **Phase 5 C#.** Last, because it must mirror a stable native surface.
+Smaller items, none blocking:
 
-**My recommendation is Phase 4 first**, on two grounds. It is the shorter of
-the two, and until it exists the engine cannot produce anything a person who is
-not running the editor can play — which is the difference between a project and
-a demo. Phase 3 also gets easier afterwards, because the project concept is
-where render settings would naturally live.
-
-Smaller items worth doing whenever they get in the way:
-
-- **Physics debug draw.** Colliders and trigger volumes are invisible, and the
-  demo scene now contains a trigger you cannot see. This is the single biggest
-  gap between "physics works" and "physics is usable".
+- **Billboard icons for lights and cameras**, which would also make them
+  clickable — picking tests geometry and they have none.
+- **Materials as assets**, so two entities can share one from the inspector.
 - **A mixer panel.** Bus volumes exist and are reachable from code only.
-
----
+- **Prefab instances do not update when the prefab changes.**
 
 ## 9. Known rough edges
 

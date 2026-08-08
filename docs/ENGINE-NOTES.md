@@ -322,6 +322,38 @@ scheme. Arbitrary buses can be added later; they cannot be taken away.
 
 ---
 
+## 7b. The runtime is a test, and so is exiting
+
+Written after 4.2. The roadmap called the standalone runtime a forcing
+function. That undersold it.
+
+Three defects turned up in the first hour of running it, none of which any test
+in this project could have caught, because all three needed a program that
+draws a scene to the swapchain and then exits. The editor does neither: its
+scene goes to an offscreen target that a panel samples, and in months of
+development no run of it had ever been *closed* rather than killed.
+
+The general shape is worth naming, because it will recur. **A second consumer
+of a subsystem finds the assumptions the first one embedded in it.** The
+swapchain code assumed one render pass per frame. The UI pass assumed it owned
+the backbuffer. `LayerStack` assumed -- silently, through a non-virtual
+destructor -- that nothing ever needed a layer's derived state to be destroyed.
+Each was true of the editor and only of the editor.
+
+Two things follow for how this project verifies work:
+
+**Exiting is part of the test.** A killed process runs no destructors, so every
+teardown bug is invisible. `exit 0` now sits alongside "zero validation lines"
+as a condition, and `--screenshot` exists partly so any application has a clean
+exit to check.
+
+**Pixels are part of the test.** Draw-call counts cannot distinguish a rendered
+frame from one that was cleared immediately afterwards -- which is exactly what
+shipped. `RHIDevice::RequestCapture` returns the frame about to be presented,
+so what reached the screen can be measured rather than assumed.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
@@ -336,3 +368,5 @@ scheme. Arbitrary buses can be added later; they cannot be taken away.
 | GPU-driven | unstated | explicitly out of scope |
 | Contacts | "route them into scripts" | the routing is easy; sleep, removal and sub-shape granularity are not (§3a) |
 | Audio | "add miniaudio" | the null backend is the design, not a fallback (§7a) |
+| Runtime | "prove nothing leaked into the editor" | it found three defects nothing else could reach (§7b) |
+| Verification | zero validation lines | plus exit 0, plus the pixels (§7b) |
