@@ -83,6 +83,7 @@ namespace RageV
 				case FieldType::Vec3:   EmitVec3(emitter, *(glm::vec3*)value); break;
 				case FieldType::Vec4:   EmitVec4(emitter, *(glm::vec4*)value); break;
 				case FieldType::String: emitter << *(std::string*)value; break;
+				case FieldType::Asset:  emitter << (uint64_t)*(AssetHandle*)value; break;
 			}
 		}
 
@@ -107,6 +108,7 @@ namespace RageV
 				case FieldType::Vec3:   *(glm::vec3*)value = ReadVec3(node, *(glm::vec3*)value); break;
 				case FieldType::Vec4:   *(glm::vec4*)value = ReadVec4(node, *(glm::vec4*)value); break;
 				case FieldType::String: *(std::string*)value = node.as<std::string>(); break;
+				case FieldType::Asset:  *(AssetHandle*)value = AssetHandle(node.as<uint64_t>()); break;
 			}
 			}
 			catch (const YAML::Exception& e)

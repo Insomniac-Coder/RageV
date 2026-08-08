@@ -32,3 +32,6 @@
 [submodule "RageV/vendor/glslang"]
 	path = RageV/vendor/glslang
 	url = https://github.com/KhronosGroup/glslang.git
+[submodule "RageV/vendor/cgltf"]
+	path = RageV/vendor/cgltf
+	url = https://github.com/jkuhlmann/cgltf.git

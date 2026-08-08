@@ -4,6 +4,8 @@
 #include "glm/gtc/type_ptr.hpp"
 #include "EditorTheme.h"
 #include "RageV/Scene/ComponentRegistry.h"
+#include "RageV/Asset/AssetManager.h"
+#include "RageV/Asset/AssetRegistry.h"
 
 RageV::SceneHierarchyPanel::SceneHierarchyPanel(const std::shared_ptr<Scene>& sceneref)
 {
@@ -404,6 +406,43 @@ namespace
 					changed = ImGui::ColorEdit4("##value", glm::value_ptr(*(glm::vec4*)value));
 				else
 					changed = ImGui::DragFloat4("##value", glm::value_ptr(*(glm::vec4*)value), hint.Speed);
+				EndField();
+				break;
+			}
+			case FieldType::Asset:
+			{
+				BeginField(field.Name, hint.Tooltip);
+
+				AssetHandle& handle = *(AssetHandle*)value;
+				const std::string name = AssetManager::GetDisplayName(handle);
+
+				// A button rather than a label: it is the drop target, and a
+				// target you cannot see is one nobody finds.
+				ImGui::Button(name.c_str(), ImVec2(-1.0f, 0.0f));
+
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ASSET"))
+					{
+						const AssetHandle dropped = *(const AssetHandle*)payload->Data;
+						const AssetMetadata& metadata = AssetRegistry::GetMetadata(dropped);
+
+						// Refused rather than stored: a handle of the wrong
+						// type resolves to nothing, and silently accepting it
+						// would present as the field simply not working.
+						if (hint.Accepts == AssetType::None || metadata.Type == hint.Accepts)
+						{
+							handle = dropped;
+							changed = true;
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
+
+				if (ImGui::IsItemHovered() && handle.IsValid())
+					ImGui::SetTooltip("%s\n\nDrop an asset from the Content browser to change it.",
+									  AssetRegistry::GetMetadata(handle).Path.c_str());
+
 				EndField();
 				break;
 			}

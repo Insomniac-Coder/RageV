@@ -13,7 +13,13 @@ namespace RageV
 
 		const char* kLightTypeNames[] = { "Directional", "Point", "Spot" };
 		const char* kProjectionNames[] = { "Perspective", "Orthographic" };
-		const char* kPrimitiveNames[] = { "Cube", "Sphere", "Plane", "Cylinder", "Quad" };
+		FieldHint AssetRef(AssetType accepts, const char* tooltip = nullptr)
+		{
+			FieldHint hint;
+			hint.Accepts = accepts;
+			hint.Tooltip = tooltip;
+			return hint;
+		}
 
 		// The type-erased component operations. Written once here rather than
 		// per registration, since every component needs the same three.
@@ -202,7 +208,8 @@ namespace RageV
 			desc.Name = "MeshComponent";
 			desc.DisplayName = "Mesh";
 			desc.Fields = {
-				Field<&MeshComponent::Primitive>("Primitive", Enum(kPrimitiveNames)),
+				Field<&MeshComponent::Mesh>("Mesh",
+					AssetRef(AssetType::Mesh, "A built-in primitive or an imported model.")),
 			};
 
 			// Materials are the one thing a field list cannot express yet: the
@@ -230,11 +237,22 @@ namespace RageV
 			};
 			desc.DeserializeExtra = [](const YAML::Node& node, void* component)
 			{
+				auto* mesh = static_cast<MeshComponent*>(component);
+
+				// Version 3 and earlier stored a primitive name instead of a
+				// handle. Primitives are virtual assets now, so the name maps
+				// straight onto one.
+				if (const YAML::Node primitive = node["Primitive"]; primitive && !node["Mesh"])
+				{
+					PrimitiveType type = PrimitiveType::Cube;
+					if (PrimitiveTypeFromName(primitive.as<std::string>(), type))
+						mesh->Mesh = PrimitiveHandle(type);
+				}
+
 				auto material = node["Material"];
 				if (!material || !Renderer::HasDevice())
 					return;
 
-				auto* mesh = static_cast<MeshComponent*>(component);
 				mesh->Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
 
 				auto& params = mesh->Material->GetParams();

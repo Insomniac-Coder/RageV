@@ -4,6 +4,8 @@
 #include "Input.h"
 #include "EngineConfig.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Asset/AssetManager.h"
+#include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "Timestep.h"
 #include "Platform/Windows/WindowsPlatform.h"
@@ -47,6 +49,12 @@ namespace RageV {
 
 		Renderer::Init(*m_Device);
 
+		// The registry scans for source files and mints handles; the manager
+		// turns those handles into GPU resources. Both before any layer runs,
+		// since a layer's OnAttach may already want to load something.
+		AssetRegistry::Init("assets");
+		AssetManager::Init(*m_Device);
+
 		if (Platform::GetPlatformType() == PlatformType::Windows)
 		{
 			m_Platform.reset(new WindowsPlatform);
@@ -66,6 +74,9 @@ namespace RageV {
 		// Layers hold GPU resources, so they must be torn down while the device
 		// is still alive.
 		m_LayerStack.Clear();
+
+		AssetManager::Shutdown();
+		AssetRegistry::Shutdown();
 
 		if (m_Device)
 		{

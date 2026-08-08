@@ -3,6 +3,8 @@
 #include "imgui_internal.h"
 #include "UI/EditorTheme.h"
 #include "RageV/Utils/PlatformUtils.h"
+#include "RageV/Asset/AssetManager.h"
+#include "RageV/Asset/AssetRegistry.h"
 #include "ImGuizmo.h"
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/gtx/matrix_decompose.hpp"
@@ -242,6 +244,8 @@ void EditorLayer::DrawMenuBar()
 	{
 		if (ImGui::MenuItem("New Scene", "Ctrl+N"))   NewScene();
 		if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) OpenScene();
+		ImGui::Separator();
+		if (ImGui::MenuItem("Import Model...")) ImportModel();
 		if (ImGui::MenuItem("Save Scene As...", "Ctrl+S")) SaveScene();
 		ImGui::Separator();
 		if (ImGui::MenuItem("Load Demo Scene")) LoadDemoScene();
@@ -921,8 +925,69 @@ void EditorLayer::LoadDemoScene()
 		sun.GetComponent<TransformComponent>().Rotation = glm::radians(glm::vec3(-55.0f, -30.0f, 0.0f));
 	}
 
+	// An imported glTF alongside the generated primitives, so the demo scene
+	// exercises the asset path rather than only the built-in one. Absent
+	// quietly if the file is not there -- a missing sample should not stop the
+	// editor opening.
+	if (const AssetHandle model = AssetRegistry::GetHandle("models/testcube.gltf"); model.IsValid())
+	{
+		if (Entity imported = AssetManager::InstantiateModel(*m_Scene, model))
+		{
+			auto& transform = imported.GetComponent<TransformComponent>();
+			transform.Position = { 6.0f, 0.0f, -1.0f };
+			transform.Scale = glm::vec3(1.6f);
+		}
+	}
+
 	m_SceneHierarchyPanel.SetSelectedEntity({});
+	// Loading is not an edit; without this the demo scene arrives with an undo
+	// history that would delete parts of itself.
+	m_Commands.Clear();
 	RV_INFO("Demo scene loaded");
+}
+
+// glTF only, and deliberately: it is the one interchange format whose material
+// model already matches the renderer's, so an import needs no translation layer
+// that can quietly get a channel wrong.
+void EditorLayer::ImportModel()
+{
+	const std::string filepath = FileDialogs::OpenFile("glTF Model (*.gltf;*.glb)\0*.gltf;*.glb\0");
+	if (filepath.empty())
+		return;
+
+	// Picked up so a file dropped into the folder since startup has a handle.
+	AssetRegistry::Refresh();
+
+	const std::filesystem::path absolute = std::filesystem::absolute(filepath);
+	std::error_code error;
+	const std::filesystem::path relative =
+		std::filesystem::relative(absolute, AssetRegistry::Root(), error);
+
+	if (error || relative.empty() || relative.native().rfind(L"..", 0) == 0)
+	{
+		RV_WARN("'{0}' is outside the assets folder. Copy it in first -- an asset "
+				"the registry cannot see has no handle, so nothing referring to it "
+				"would survive a reload.", filepath);
+		return;
+	}
+
+	const AssetHandle handle = AssetRegistry::GetHandle(relative.generic_string());
+	if (!handle.IsValid())
+	{
+		RV_WARN("No asset handle for '{0}'", relative.generic_string());
+		return;
+	}
+
+	Entity root = AssetManager::InstantiateModel(*m_Scene, handle);
+	if (!root)
+		return;
+
+	m_SceneHierarchyPanel.SetSelectedEntity(root);
+	// One undo step for the whole import: the command snapshots the subtree at
+	// undo time, so the entire imported tree comes back on redo.
+	m_Commands.PushApplied(std::make_unique<CreateEntityCommand>(m_Scene, root.GetUUID(),
+																 root.GetName()));
+	FocusSelection();
 }
 
 void EditorLayer::OpenScene()

@@ -7,6 +7,7 @@
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/EditorCamera.h"
+#include "RageV/Asset/AssetManager.h"
 #include <glm/gtx/matrix_decompose.hpp>
 
 namespace RageV
@@ -343,12 +344,15 @@ namespace RageV
 		{
 			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment);
 
-			auto& device = Renderer::GetDevice();
 			for (auto& item : meshView)
 			{
 				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
-				Renderer3D::DrawMesh(Mesh::GetPrimitive(device, mesh.Primitive),
-									 transform.World, mesh.Material);
+
+				// Null when the handle points at nothing loadable -- a deleted
+				// model, or a scene opened without its assets. Skipped rather
+				// than substituted, so the gap is visible.
+				if (RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh))
+					Renderer3D::DrawMesh(resolved, transform.World, mesh.Material);
 			}
 
 			Renderer3D::EndScene();

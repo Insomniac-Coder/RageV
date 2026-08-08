@@ -22,6 +22,7 @@ public:
 	void NewScene();
 	void OpenScene();
 	void SaveScene();
+	void ImportModel();
 
 private:
 	// --- menu bar and panels ------------------------------------------------

@@ -24,6 +24,9 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
+#include "RageV/Asset/AssetRegistry.h"
+#include "RageV/Asset/AssetManager.h"
+#include "RageV/Asset/GltfImporter.h"
 
 #include <GLFW/glfw3.h>
 #include <set>
@@ -162,6 +165,141 @@ namespace
 
 		Check(allValid, "every entity has a non-zero UUID");
 		Check(unique, "every entity UUID is distinct");
+	}
+
+	// The fixture is a cube with per-face normals under a two-level node tree,
+	// one material with non-default values, and a rotation stored as a
+	// quaternion -- the shapes a real exporter emits.
+	void CheckGltfImport()
+	{
+		const std::filesystem::path path = "assets/models/testcube.gltf";
+
+		ImportedModel model;
+		if (!GltfImporter::Import(path, model))
+		{
+			Check(false, "testcube.gltf imports");
+			return;
+		}
+
+		Check(true, "testcube.gltf imports");
+		Check(model.Primitives.size() == 1, "one primitive");
+		Check(model.Materials.size() == 1, "one material");
+		Check(model.Nodes.size() == 2, "two nodes");
+
+		if (model.Primitives.empty() || model.Materials.empty() || model.Nodes.size() < 2)
+			return;
+
+		const ImportedPrimitive& primitive = model.Primitives[0];
+		Check(primitive.Vertices.size() == 24, "24 vertices (4 per face, so normals are not shared)");
+		Check(primitive.Indices.size() == 36, "36 indices");
+		Check(primitive.Material == 0, "the primitive references material 0");
+
+		// A vertex whose normal is zero renders black under every light, which
+		// is the single most common symptom of a broken accessor read.
+		bool normalsUnit = true;
+		bool positionsInRange = true;
+		for (const MeshVertex& vertex : primitive.Vertices)
+		{
+			normalsUnit = normalsUnit && std::fabs(glm::length(vertex.Normal) - 1.0f) < 1e-3f;
+			positionsInRange = positionsInRange &&
+							   std::fabs(vertex.Position.x) <= 1.001f &&
+							   std::fabs(vertex.Position.y) <= 1.001f &&
+							   std::fabs(vertex.Position.z) <= 1.001f;
+		}
+		Check(normalsUnit, "every normal is unit length");
+		Check(positionsInRange, "positions decode to the cube's bounds");
+
+		const MaterialParams& params = model.Materials[0].Params;
+		Check(std::fabs(params.BaseColor.r - 0.85f) < 1e-3f &&
+			  std::fabs(params.Metallic - 0.25f) < 1e-3f &&
+			  std::fabs(params.Roughness - 0.65f) < 1e-3f,
+			  "material factors decode");
+		Check(model.Materials[0].Name == "TestRed", "material name survives");
+
+		// Parents must precede children, or the scene cannot build the tree in
+		// one pass.
+		Check(model.Nodes[0].Parent == -1 && model.Nodes[1].Parent == 0,
+			  "node parents resolve, parents first");
+		Check(model.Nodes[0].Name == "Pivot" && model.Nodes[1].Name == "CubeNode",
+			  "node names survive");
+
+		Check(std::fabs(model.Nodes[0].Position.x - 2.0f) < 1e-4f &&
+			  std::fabs(model.Nodes[0].Position.z + 1.0f) < 1e-4f,
+			  "node translation decodes");
+
+		// The fixture stores a 45-degree turn about Y as a quaternion. glTF is
+		// xyzw and glm's constructor is wxyz; swapping them is silent and
+		// produces a rotation that merely looks wrong.
+		Check(std::fabs(model.Nodes[1].Rotation.y - glm::radians(45.0f)) < 1e-3f,
+			  "quaternion rotation converts to the right euler angles");
+		Check(std::fabs(model.Nodes[1].Scale.x - 0.5f) < 1e-4f, "node scale decodes");
+	}
+
+	void CheckModelInstantiation()
+	{
+		const AssetHandle handle = AssetRegistry::GetHandle("models/testcube.gltf");
+		Check(handle.IsValid(), "the registry minted a handle for the model");
+		if (!handle.IsValid())
+			return;
+
+		Check(AssetRegistry::GetMetadata(handle).Type == AssetType::Mesh,
+			  "the model is typed as a mesh");
+
+		auto scene = std::make_shared<Scene>();
+		Entity root = AssetManager::InstantiateModel(*scene, handle);
+		Check((bool)root, "the model instantiates into the scene");
+		if (!root)
+			return;
+
+		// One root, the glTF pivot beneath it, and the cube node beneath that.
+		Check(scene->GetChildren(root).size() == 1, "the import has a single root");
+
+		Entity pivot = scene->GetEntityByUUID(scene->GetChildren(root)[0]);
+		Check(pivot && pivot.GetName() == "Pivot", "the pivot node is under the root");
+		if (!pivot)
+			return;
+
+		Check(scene->GetChildren(pivot).size() == 1, "the cube node is under the pivot");
+		Entity cube = scene->GetEntityByUUID(scene->GetChildren(pivot)[0]);
+		Check(cube && cube.HasComponent<MeshComponent>(), "the cube node carries a mesh");
+
+		if (cube && cube.HasComponent<MeshComponent>())
+		{
+			auto& mesh = cube.GetComponent<MeshComponent>();
+			Check((bool)AssetManager::GetMesh(mesh.Mesh), "the mesh handle resolves to GPU geometry");
+			Check((bool)mesh.Material, "the imported material is attached");
+		}
+
+		// The whole point of handles: a saved scene refers to the model, and
+		// reloading resolves it again.
+		SceneSerializer serializer(scene);
+		const std::string saved = serializer.SerializeToString();
+
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer reader(reloaded);
+		reader.DeserializeFromString(saved);
+
+		bool resolved = false;
+		for (auto entity : reloaded->GetRegistry().view<MeshComponent>())
+			resolved = resolved || AssetManager::GetMesh(
+				reloaded->GetRegistry().get<MeshComponent>(entity).Mesh) != nullptr;
+
+		Check(resolved, "a saved scene's mesh handle still resolves after a reload");
+	}
+
+	void CheckPrimitiveHandles()
+	{
+		PrimitiveType type = PrimitiveType::Sphere;
+		Check(AssetManager::IsPrimitive(PrimitiveHandle(PrimitiveType::Cylinder), type) &&
+			  type == PrimitiveType::Cylinder,
+			  "primitive handles round-trip through the builtin range");
+
+		Check((bool)AssetManager::GetMesh(PrimitiveHandle(PrimitiveType::Sphere)),
+			  "a primitive handle resolves to a mesh");
+
+		// A random handle must not be mistaken for a builtin.
+		Check(!AssetManager::IsPrimitive(AssetHandle(), type),
+			  "a random handle is not treated as a primitive");
 	}
 
 	size_t EntityCount(const std::shared_ptr<Scene>& scene)
@@ -340,8 +478,15 @@ int RunTests(int argc, char** argv)
 	// Also compiles both renderers' shaders, so a broken shader fails here
 	// rather than silently later.
 	Renderer::Init(*device);
+	AssetRegistry::Init("assets");
+	AssetManager::Init(*device);
 
 	RV_CORE_INFO("Scene round-trip test on {0}", device->GetCaps().APIName);
+
+	// --- assets --------------------------------------------------------------
+	CheckPrimitiveHandles();
+	CheckGltfImport();
+	CheckModelInstantiation();
 
 	// --- pass 1: fixture -> A ------------------------------------------------
 	std::string a;
@@ -405,6 +550,8 @@ int RunTests(int argc, char** argv)
 		Check(first == second, "loading a scene replaces the current one rather than merging");
 	}
 
+	AssetManager::Shutdown();
+	AssetRegistry::Shutdown();
 	Renderer::Shutdown();
 	device.reset();
 	glfwDestroyWindow(window);

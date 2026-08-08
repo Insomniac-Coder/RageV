@@ -9,6 +9,7 @@
 // job for instancing rather than for merging vertex streams on the CPU.
 
 #include "RageV/Renderer/RHI/RHIDevice.h"
+#include "RageV/Asset/Asset.h"
 #include "glm/glm.hpp"
 
 namespace RageV
@@ -32,6 +33,13 @@ namespace RageV
 
 	const char* PrimitiveTypeName(PrimitiveType type);
 	bool PrimitiveTypeFromName(const std::string& name, PrimitiveType& out);
+
+	// Primitives are addressed as assets like everything else, so a component
+	// needs one handle field rather than "a primitive enum or an asset".
+	constexpr AssetHandle PrimitiveHandle(PrimitiveType type)
+	{
+		return AssetHandle(BuiltinAssets::kPrimitiveBase + (uint64_t)type);
+	}
 
 	class Mesh
 	{

@@ -109,18 +109,19 @@ namespace RageV
 		LightComponent(const RageV::Light& light) : Light(light) {}
 	};
 
-	// 3D geometry. The mesh itself is resolved from Primitive on demand rather
-	// than stored, so the component stays trivially serializable and a scene
-	// file does not embed vertex data.
+	// 3D geometry, referenced by handle rather than embedded. A scene file
+	// carries the handle; the vertex data stays in whatever the handle points
+	// at, which is a built-in primitive or an imported model.
 	struct MeshComponent
 	{
-		PrimitiveType Primitive = PrimitiveType::Cube;
+		AssetHandle Mesh = PrimitiveHandle(PrimitiveType::Cube);
 		// Null means the renderer's shared default material.
 		RHI::Ref<Material> Material;
 
 		MeshComponent() = default;
 		MeshComponent(const MeshComponent&) = default;
-		MeshComponent(PrimitiveType primitive) : Primitive(primitive) {}
+		MeshComponent(PrimitiveType primitive) : Mesh(PrimitiveHandle(primitive)) {}
+		MeshComponent(AssetHandle mesh) : Mesh(mesh) {}
 	};
 
 	// Plain function pointers, not std::function, and captureless lambdas.

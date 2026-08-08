@@ -14,11 +14,12 @@ namespace RageV
 		//      colour component keyed "Color", camera settings nested.
 		//   2  Real UUIDs and parent links.
 		//   3  Registry-driven: camera settings flattened, enums by name.
+		//   4  Meshes referenced by asset handle instead of a primitive name.
 		//
 		// Older files are read and upgraded on load. Version 1 entities get
 		// fresh IDs, since honouring what they contain would collapse every
 		// entity in the scene onto a single identity.
-		static constexpr int kVersion = 3;
+		static constexpr int kVersion = 4;
 
 		SceneSerializer(const std::shared_ptr<Scene>& sceneRef);
 		~SceneSerializer();

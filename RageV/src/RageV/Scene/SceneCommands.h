@@ -72,7 +72,12 @@ namespace RageV
 
 	// --- field edits ---------------------------------------------------------
 	// One value of any type the component registry can describe.
-	using FieldValue = std::variant<bool, int, float, glm::vec3, glm::vec4, std::string>;
+	//
+	// Asset handles are held as uint64_t rather than as AssetHandle: UUID
+	// converts to uint64_t implicitly, so having both in the variant would make
+	// every construction from a handle ambiguous.
+	using FieldValue = std::variant<bool, int, float, glm::vec3, glm::vec4,
+									std::string, uint64_t>;
 
 	FieldValue ReadFieldValue(const FieldDesc& field, void* component);
 	void WriteFieldValue(const FieldDesc& field, void* component, const FieldValue& value);

@@ -118,6 +118,7 @@ namespace RageV
 			case FieldType::Vec3:   return *(glm::vec3*)value;
 			case FieldType::Vec4:   return *(glm::vec4*)value;
 			case FieldType::String: return *(std::string*)value;
+			case FieldType::Asset:  return (uint64_t)*(AssetHandle*)value;
 		}
 
 		return 0;
@@ -136,6 +137,7 @@ namespace RageV
 			case FieldType::Vec3:   *(glm::vec3*)value = std::get<glm::vec3>(source); break;
 			case FieldType::Vec4:   *(glm::vec4*)value = std::get<glm::vec4>(source); break;
 			case FieldType::String: *(std::string*)value = std::get<std::string>(source); break;
+			case FieldType::Asset:  *(AssetHandle*)value = AssetHandle(std::get<uint64_t>(source)); break;
 		}
 	}
 

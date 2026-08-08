@@ -21,6 +21,7 @@ target_link_libraries(RageV
     PRIVATE
         glad
         stb
+        cgltf
         glfw
         volk
         vma

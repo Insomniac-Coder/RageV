@@ -3,6 +3,7 @@
 #include <vector>
 #include <type_traits>
 #include <glm/glm.hpp>
+#include "RageV/Asset/Asset.h"
 #include "yaml-cpp/yaml.h"
 
 namespace RageV
@@ -24,7 +25,7 @@ namespace RageV
 
 	enum class FieldType
 	{
-		Bool, Int, Float, Vec3, Vec4, String, Enum
+		Bool, Int, Float, Vec3, Vec4, String, Enum, Asset
 	};
 
 	// Decides whether a field applies in the component's current state.
@@ -45,6 +46,11 @@ namespace RageV
 		int EnumCount = 0;
 
 		const char* Tooltip = nullptr;
+
+		// Which kind of asset an Asset field accepts, so the content browser
+		// can refuse a drop of the wrong type rather than storing a handle that
+		// resolves to nothing.
+		AssetType Accepts = AssetType::None;
 
 		// For fields that only apply in some states -- cone angles on a spot
 		// light, orthographic size on a perspective camera. Null means always.
@@ -103,7 +109,8 @@ namespace RageV
 		template<typename T>
 		constexpr FieldType TypeOf()
 		{
-			if constexpr (std::is_same_v<T, bool>)             return FieldType::Bool;
+			if constexpr (std::is_same_v<T, AssetHandle>)      return FieldType::Asset;
+			else if constexpr (std::is_same_v<T, bool>)        return FieldType::Bool;
 			else if constexpr (std::is_enum_v<T>)              return FieldType::Enum;
 			else if constexpr (std::is_same_v<T, int>)         return FieldType::Int;
 			else if constexpr (std::is_same_v<T, float>)       return FieldType::Float;

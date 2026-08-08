@@ -19,6 +19,19 @@ target_include_directories(stb PUBLIC stb_image)
 set_target_properties(stb PROPERTIES FOLDER ${VENDOR_FOLDER})
 
 # ---------------------------------------------------------------------------
+# cgltf -- glTF 2.0 parsing (single header, no dependencies)
+#
+# Chosen over fastgltf, which the roadmap named: fastgltf needs simdjson, which
+# means a second submodule and its CMake, in exchange for parse throughput that
+# does not matter at editor scale. cgltf is one file with no dependencies and
+# ships in bgfx, Filament, raylib and Unigine. If import speed ever becomes the
+# bottleneck the swap is contained to one importer.
+# ---------------------------------------------------------------------------
+add_library(cgltf STATIC cgltf_impl/cgltf_impl.c)
+target_include_directories(cgltf PUBLIC cgltf)
+set_target_properties(cgltf PROPERTIES FOLDER ${VENDOR_FOLDER})
+
+# ---------------------------------------------------------------------------
 # GLFW
 # ---------------------------------------------------------------------------
 set(GLFW_BUILD_DOCS      OFF CACHE BOOL "" FORCE)

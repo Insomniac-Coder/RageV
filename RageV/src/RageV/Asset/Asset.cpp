@@ -1,0 +1,64 @@
+#include <rvpch.h>
+#include "Asset.h"
+#include <algorithm>
+
+namespace RageV
+{
+	namespace
+	{
+		struct TypeName { AssetType Type; const char* Name; };
+
+		// By name on disk, not by index: inserting a value into the enum should
+		// not reinterpret every asset already imported.
+		constexpr TypeName kTypeNames[] = {
+			{ AssetType::None,     "None" },
+			{ AssetType::Mesh,     "Mesh" },
+			{ AssetType::Texture,  "Texture" },
+			{ AssetType::Material, "Material" },
+			{ AssetType::Prefab,   "Prefab" },
+			{ AssetType::Scene,    "Scene" },
+		};
+	}
+
+	const char* AssetTypeName(AssetType type)
+	{
+		for (const TypeName& entry : kTypeNames)
+		{
+			if (entry.Type == type)
+				return entry.Name;
+		}
+		return "None";
+	}
+
+	AssetType AssetTypeFromName(const std::string& name)
+	{
+		for (const TypeName& entry : kTypeNames)
+		{
+			if (name == entry.Name)
+				return entry.Type;
+		}
+		return AssetType::None;
+	}
+
+	AssetType AssetTypeFromExtension(const std::string& extension)
+	{
+		std::string lower = extension;
+		std::transform(lower.begin(), lower.end(), lower.begin(),
+					   [](unsigned char c) { return (char)std::tolower(c); });
+
+		if (lower == ".gltf" || lower == ".glb")
+			return AssetType::Mesh;
+
+		if (lower == ".png" || lower == ".jpg" || lower == ".jpeg" ||
+			lower == ".tga" || lower == ".bmp" || lower == ".hdr")
+			return AssetType::Texture;
+
+		if (lower == ".rmat")    return AssetType::Material;
+		if (lower == ".rprefab") return AssetType::Prefab;
+		if (lower == ".rage")    return AssetType::Scene;
+
+		// Shaders, fonts and anything else are files the engine reads directly
+		// rather than assets it hands out by handle.
+		return AssetType::None;
+	}
+}
