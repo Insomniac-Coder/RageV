@@ -20,8 +20,8 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.3, plus the
-specular half of 3.4. The engine loop closes — a project can be imported into,
+**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.3 and 3.5
+(directional only), plus the specular half of 3.4. The engine loop closes — a project can be imported into,
 placed in, scripted, played, and packaged into a folder someone else can run.
 
 **Prove it still works** (from the repo root, ~2 minutes):
@@ -32,7 +32,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-420 checks, `exit 0`. Then look at a frame:
+430 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -185,6 +185,7 @@ only in where the finished image lands (an imported viewport target, or the
 backbuffer):
 
 ```
+(shadow cascades)-> 4 depth maps  4 scene renders, BEFORE the graph opens
 (probe faces)    -> probe cube  0..6 scene renders, BEFORE the graph opens
 Scene            -> SceneHDR    RGBA16F, linear, no tone curve
   meshes                        reflect the environment cube
@@ -202,12 +203,15 @@ Eleven passes and seven pooled targets at 1600x900. Adding a Phase 3 feature
 means a target and a pass in `FrameGraphBuilder.cpp` and nothing else -- that
 is what 3.1 was for, and it held for 3.2.
 
-The sky and the probe captures are the two things *not* in `BuildFrame`. The
+The sky, the shadow cascades and the probe captures are the three things *not*
+in `BuildFrame`. The
 sky adds no target and belongs inside the scene pass, between the opaque meshes
 and the blended quads. A probe capture opens render passes of its own, so it
 cannot be inside one -- both applications call
-`Scene::CaptureReflectionProbes()` between `Renderer::BeginFrame` and the
-graph.
+`Scene::CaptureReflectionProbes()` and `Scene::RenderShadows()` between
+`Renderer::BeginFrame` and the graph. Shadows take the camera they are about
+to be drawn with, because cascades are fitted to a frustum; the editor's two
+viewports therefore fit their own.
 
 **`Renderer::SetTargetFormats` is told what the *scene* pass writes**
 (RGBA16F/D32), not what the viewport texture is. Getting that backwards builds
@@ -416,6 +420,21 @@ or silence rather than an obvious failure.
   camera correctly and is simply wrong.
 - **`CopyToTextureLayer` is where the two backends' row order is reconciled**,
   and the only place. Vulkan blits flipped; OpenGL copies straight through.
+- **OpenGL needs `glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)`.** glm is built
+  with `GLM_FORCE_DEPTH_ZERO_TO_ONE`, and without this GL maps that clip range
+  onto `[0.5, 1]` of the depth buffer. Half the precision, and a stored depth
+  that no longer equals what a shader computes from the same matrix — every
+  shadow comparison passed and the backend drew no shadows at all. The origin
+  stays lower-left: flipping it would invert every render target's row order.
+- **Nothing is culled in the shadow pass, on purpose.** Culling front faces
+  hides acne by recording the back of each caster, and moves every shadow away
+  from its caster by that thickness. On a sphere that is a diameter. Acne
+  belongs to the normal-offset bias.
+- **Cascades are fitted to a sphere and snapped to texels.** Both fix things
+  that are invisible in a still frame: a box fit changes size as the camera
+  turns and makes edges crawl; an unsnapped projection makes them shimmer on
+  sub-texel movement. `scenetest` turns a camera through a circle and nudges it
+  a millimetre at a time, because a screenshot cannot.
 - **A solid primitive's triangles must face away from its centre.** The sphere
   was wound inside out for four roadmap phases: back-face culling kept the far
   hemisphere and drew its inside, which has the same silhouette and only looks
@@ -579,9 +598,15 @@ report an error.
      step that makes a scene look lit by its surroundings.
    - **A BRDF lookup texture**, replacing the analytic fit. Smallest of the
      three and the least visible.
-2. **3.5 shadows** (`XL`) — CSM directional, cube point, spot. Sphere-fit
-   cascades, texel snapping, normal-offset bias; the recipe is ENGINE-NOTES §5.
-   The biggest item left anywhere on the roadmap.
+2. **Finish 3.5 shadows** (`M` now, was `XL`). Directional cascades are in.
+   What is left is the other two light types, which are a smaller problem
+   because each has a frustum and a range of its own -- no cascades to fit:
+   - **Spot**: one perspective depth map per light, the same pass with a
+     different matrix.
+   - **Point**: a cube of six, which the probe machinery already knows how to
+     fill.
+   - Only one light casts at a time today, and the shader shadows only that
+     one. More than one means an array of maps and a per-light index.
 3. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
    **3.7 skeletal animation**.
 4. **Phase 5 C#.** Last, because it must mirror a stable native surface.
