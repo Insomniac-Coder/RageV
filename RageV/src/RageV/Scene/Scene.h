@@ -7,12 +7,14 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <memory>
 
 namespace RageV
 {
 	class Entity;
 	class Camera;
 	class EditorCamera;
+	class PhysicsWorld;
 
 	class Scene
 	{
@@ -70,7 +72,17 @@ namespace RageV
 		void UpdateWorldTransforms();
 
 		// --- frame ----------------------------------------------------------
-		// Per rendered frame while playing. Presentational work only.
+		// Creates the physics world and every body in it. Called on Play.
+		void OnRuntimeStart();
+		// Tears it down. Called on Stop, before the scene is restored -- every
+		// body refers to entities that are about to be replaced.
+		void OnRuntimeStop();
+
+		// Null outside play mode.
+		PhysicsWorld* GetPhysics() { return m_Physics.get(); }
+
+		// Per rendered frame while playing. Presentational work only, plus
+		// pulling simulated transforms across at the frame's blend factor.
 		void OnUpdateRuntime(Timestep ts);
 
 		// Per fixed simulation step while playing. Scripts and, later, physics.
@@ -121,6 +133,7 @@ namespace RageV
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 		SceneEnvironment m_Environment;
 		std::vector<UUID> m_PendingDestroy;
+		std::unique_ptr<PhysicsWorld> m_Physics;
 
 		friend class Entity;
 		friend class SceneHierarchyPanel;

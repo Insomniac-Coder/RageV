@@ -276,6 +276,9 @@ void EditorLayer::OnScenePlay()
 	m_SceneSnapshot = serializer.SerializeToString();
 
 	m_SceneState = SceneState::Play;
+	// After the snapshot: the bodies are built from the scene as it is being
+	// left, and torn down before it is restored.
+	m_Scene->OnRuntimeStart();
 	// Undo across a mode change would apply an edit to entities the restore is
 	// about to replace.
 	m_Commands.Clear();
@@ -293,6 +296,7 @@ void EditorLayer::OnSceneStop()
 		return;
 
 	m_SceneState = SceneState::Edit;
+	m_Scene->OnRuntimeStop();
 	m_SceneHierarchyPanel.SetSelectedEntity({});
 
 	SceneSerializer serializer(m_Scene);
@@ -1279,6 +1283,40 @@ void EditorLayer::LoadDemoScene()
 	// rotation unmistakable, which is what a demonstration has to be.
 	if (Entity cube = m_Scene->FindEntityByName("Cube (dielectric)"))
 		cube.AddComponent<NativeScriptComponent>("Spinner");
+
+	// The ground becomes a static body, and a small stack is dropped onto it,
+	// so Play shows the simulation rather than only the script. Stop puts every
+	// one of them back where it started.
+	if (Entity ground = m_Scene->FindEntityByName("Ground"))
+	{
+		ground.AddComponent<RigidBodyComponent>(BodyType::Static);
+		auto& collider = ground.AddComponent<ColliderComponent>();
+		// The plane primitive is a unit quad scaled to 20; the collider is a
+		// thin slab under its surface rather than a plane, because an
+		// infinitely thin box is something a fast body can pass through.
+		collider.HalfExtents = { 10.0f, 0.25f, 10.0f };
+		collider.Offset = { 0.0f, -0.25f, 0.0f };
+	}
+
+	for (int i = 0; i < 4; i++)
+	{
+		Entity box = m_Scene->CreateEntity("Falling Box " + std::to_string(i + 1));
+
+		auto& mesh = box.AddComponent<MeshComponent>(PrimitiveType::Cube);
+		mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), "Falling Box");
+		auto& params = mesh.Material->GetParams();
+		params.BaseColor = { 0.30f, 0.55f, 0.85f, 1.0f };
+		params.Roughness = 0.4f;
+
+		auto& transform = box.GetComponent<TransformComponent>();
+		// Offset slightly on each axis so they topple rather than landing in a
+		// perfect column, which reads as nothing happening.
+		transform.Position = { -0.4f + i * 0.22f, 4.0f + i * 1.6f, 0.35f - i * 0.18f };
+		transform.Scale = glm::vec3(0.7f);
+
+		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+		box.AddComponent<ColliderComponent>().HalfExtents = glm::vec3(0.5f);
+	}
 
 	m_SceneHierarchyPanel.SetSelectedEntity({});
 	// Loading is not an edit; without this the demo scene arrives with an undo

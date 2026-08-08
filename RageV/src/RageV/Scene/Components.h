@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "RageV/Core/UUID.h"
+#include "RageV/Physics/PhysicsTypes.h"
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include "RageV/Renderer/Camera.h"
@@ -131,6 +132,62 @@ namespace RageV
 		MeshComponent(const MeshComponent&) = default;
 		MeshComponent(PrimitiveType primitive) : Mesh(PrimitiveHandle(primitive)) {}
 		MeshComponent(AssetHandle mesh) : Mesh(mesh) {}
+	};
+
+	// Takes part in the physics simulation. Needs a ColliderComponent to have
+	// any shape; without one the entity is simulated as a point and falls
+	// through everything.
+	struct RigidBodyComponent
+	{
+		BodyType Type = BodyType::Dynamic;
+
+		float Mass = 1.0f;
+		float Friction = 0.4f;
+		// 0 is a dead drop, 1 bounces back to the height it fell from. Above
+		// about 0.95 a stack gains energy and never settles.
+		float Restitution = 0.1f;
+
+		// Bleeds off velocity over time. A little of both is what stops light
+		// objects drifting forever on a flat surface.
+		float LinearDamping = 0.05f;
+		float AngularDamping = 0.05f;
+
+		// Scales gravity for this body alone: 0 floats, negative rises.
+		float GravityFactor = 1.0f;
+
+		// Locks rotation. What a character controller wants, since a capsule
+		// that tips over stops being a character.
+		bool FreezeRotation = false;
+
+		RigidBodyComponent() = default;
+		RigidBodyComponent(const RigidBodyComponent&) = default;
+		RigidBodyComponent(BodyType type) : Type(type) {}
+	};
+
+	struct ColliderComponent
+	{
+		ColliderShape Shape = ColliderShape::Box;
+
+		// Box. Half-extents, so the default is a 1x1x1 cube -- matching the
+		// cube primitive, so a cube with a collider lines up without tuning.
+		glm::vec3 HalfExtents{ 0.5f };
+
+		// Sphere and capsule.
+		float Radius = 0.5f;
+		// Capsule: the cylindrical section between the two caps, so the total
+		// height is this plus two radii.
+		float Height = 1.0f;
+
+		// Moves the shape relative to the entity, for a collider that should
+		// not sit on the origin -- feet at the bottom of a character, say.
+		glm::vec3 Offset{ 0.0f };
+
+		// Reports overlaps without resisting them.
+		bool IsTrigger = false;
+
+		ColliderComponent() = default;
+		ColliderComponent(const ColliderComponent&) = default;
+		ColliderComponent(ColliderShape shape) : Shape(shape) {}
 	};
 
 	// Marks the root of an entity tree stamped out from a prefab asset.

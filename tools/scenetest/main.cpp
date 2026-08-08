@@ -28,6 +28,7 @@
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/KeyCodes.h"
 #include "RageV/Scene/ScriptRegistry.h"
+#include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
@@ -662,6 +663,123 @@ namespace
 		ProbeScript::Reset();
 	}
 
+	// Physics, checked by simulating rather than by asserting on plumbing.
+	// "A body was created" says nothing about whether it falls.
+	void CheckPhysics()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		// A floor.
+		Entity ground = scene->CreateEntity("Ground");
+		ground.GetComponent<TransformComponent>().Position = { 0.0f, -1.0f, 0.0f };
+		ground.AddComponent<RigidBodyComponent>(BodyType::Static);
+		auto& groundCollider = ground.AddComponent<ColliderComponent>();
+		groundCollider.HalfExtents = { 25.0f, 1.0f, 25.0f };
+
+		// A box above it.
+		Entity box = scene->CreateEntity("Box");
+		box.GetComponent<TransformComponent>().Position = { 0.0f, 8.0f, 0.0f };
+		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+		box.AddComponent<ColliderComponent>();
+
+		// And a static one that must never move.
+		Entity pillar = scene->CreateEntity("Pillar");
+		pillar.GetComponent<TransformComponent>().Position = { 10.0f, 0.0f, 0.0f };
+		pillar.AddComponent<RigidBodyComponent>(BodyType::Static);
+		pillar.AddComponent<ColliderComponent>();
+
+		scene->OnRuntimeStart();
+		PhysicsWorld* physics = scene->GetPhysics();
+		Check(physics != nullptr, "play creates a physics world");
+		if (!physics)
+			return;
+
+		Check(physics->GetBodyCount() == 3, "one body per entity with a rigid body and a collider");
+
+		const float startY = box.GetComponent<TransformComponent>().Position.y;
+
+		// Half a second of simulation. Gravity alone should move it several
+		// units; a body that is in the world but not simulated does not.
+		constexpr float dt = 1.0f / 60.0f;
+		for (int i = 0; i < 30; i++)
+			scene->OnFixedUpdateRuntime(dt);
+		scene->OnUpdateRuntime(dt);
+
+		const float afterFalling = box.GetComponent<TransformComponent>().Position.y;
+		Check(afterFalling < startY - 0.5f, "a dynamic body falls under gravity");
+		Check(pillar.GetComponent<TransformComponent>().Position.x == 10.0f &&
+			  pillar.GetComponent<TransformComponent>().Position.y == 0.0f,
+			  "a static body does not move");
+
+		// Long enough to land and settle. The interesting property is that it
+		// stops on the floor rather than passing through it -- tunnelling is
+		// what a degenerate broad phase produces.
+		for (int i = 0; i < 300; i++)
+			scene->OnFixedUpdateRuntime(dt);
+		scene->OnUpdateRuntime(dt);
+
+		const float resting = box.GetComponent<TransformComponent>().Position.y;
+		// Ground top is at y = 0, the box is a unit cube with half-extent 0.5.
+		Check(resting > -0.2f && resting < 0.8f, "it comes to rest on the floor rather than through it");
+
+		const glm::vec3 velocity = physics->GetLinearVelocity(box.GetUUID());
+		Check(glm::length(velocity) < 0.5f, "and settles rather than jittering forever");
+
+		// A ray straight down from above the box must hit it.
+		const RayHit hit = physics->CastRay({ 0.0f, 20.0f, 0.0f }, { 0.0f, -40.0f, 0.0f });
+		Check(hit.Hit, "a ray finds a body");
+		Check(hit.Entity == box.GetUUID(), "and reports which entity it belongs to");
+		Check(hit.Normal.y > 0.5f, "with a surface normal pointing back at the ray");
+
+		const RayHit miss = physics->CastRay({ 500.0f, 20.0f, 500.0f }, { 0.0f, -40.0f, 0.0f });
+		Check(!miss.Hit, "a ray through empty space finds nothing");
+
+		// Runtime control.
+		physics->SetLinearVelocity(box.GetUUID(), { 5.0f, 0.0f, 0.0f });
+		Check(std::fabs(physics->GetLinearVelocity(box.GetUUID()).x - 5.0f) < 0.01f,
+			  "velocity can be set from code");
+
+		// A body removed mid-run must stop being simulated.
+		scene->DestroyDeferred(box);
+		scene->OnFixedUpdateRuntime(dt);
+		Check(physics->GetBodyCount() == 2, "destroying an entity removes its body");
+
+		scene->OnRuntimeStop();
+		Check(scene->GetPhysics() == nullptr, "stop tears the physics world down");
+	}
+
+	// Stop has to put the scene back exactly, including everything physics
+	// moved -- which is most of the scene after a run.
+	void CheckPhysicsRestoresOnStop()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		Entity ground = scene->CreateEntity("Ground");
+		ground.GetComponent<TransformComponent>().Position = { 0.0f, -1.0f, 0.0f };
+		ground.AddComponent<RigidBodyComponent>(BodyType::Static);
+		ground.AddComponent<ColliderComponent>().HalfExtents = { 25.0f, 1.0f, 25.0f };
+
+		Entity box = scene->CreateEntity("Box");
+		box.GetComponent<TransformComponent>().Position = { 0.0f, 6.0f, 0.0f };
+		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+		box.AddComponent<ColliderComponent>();
+
+		SceneSerializer serializer(scene);
+		const std::string snapshot = serializer.SerializeToString();
+
+		scene->OnRuntimeStart();
+		for (int i = 0; i < 120; i++)
+			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		scene->OnUpdateRuntime(1.0f / 60.0f);
+
+		Check(serializer.SerializeToString() != snapshot, "the simulation moved things");
+
+		scene->OnRuntimeStop();
+		Check(serializer.DeserializeFromString(snapshot), "the snapshot restores");
+		Check(serializer.SerializeToString() == snapshot,
+			  "stopping puts everything physics moved back exactly");
+	}
+
 	void CheckInputMap()
 	{
 		InputMap::ClearBindings();
@@ -926,6 +1044,10 @@ int RunTests(int argc, char** argv)
 	CheckInputMap();
 	CheckScriptApi();
 	CheckLiveScriptChanges();
+
+	// --- physics -------------------------------------------------------------
+	CheckPhysics();
+	CheckPhysicsRestoresOnStop();
 	CheckPlayModeRestore();
 
 	// --- cameras -------------------------------------------------------------

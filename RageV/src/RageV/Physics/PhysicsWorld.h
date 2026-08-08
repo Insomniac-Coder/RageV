@@ -1,0 +1,88 @@
+#pragma once
+#include "PhysicsTypes.h"
+#include "RageV/Core/UUID.h"
+#include <glm/glm.hpp>
+#include <memory>
+#include <vector>
+
+namespace RageV
+{
+	class Scene;
+	class Entity;
+
+	struct RayHit
+	{
+		bool Hit = false;
+		UUID Entity = UUID::Invalid();
+		glm::vec3 Position{ 0.0f };
+		glm::vec3 Normal{ 0.0f };
+		float Distance = 0.0f;
+
+		explicit operator bool() const { return Hit; }
+	};
+
+	// The simulation, for one scene, for the duration of one play session.
+	//
+	// Created when Play is pressed and destroyed on Stop, because the scene is
+	// restored from a snapshot at that point and every body in here refers to
+	// entities that are about to be replaced.
+	//
+	// Jolt's own types are kept out of this header. They pull in a large amount
+	// of machinery and carry compile definitions that must match exactly
+	// between the library and everything that includes it -- confining that to
+	// one translation unit is the cheapest way to never debug an ABI mismatch.
+	class PhysicsWorld
+	{
+	public:
+		PhysicsWorld();
+		~PhysicsWorld();
+
+		PhysicsWorld(const PhysicsWorld&) = delete;
+		PhysicsWorld& operator=(const PhysicsWorld&) = delete;
+
+		// Creates a body for every entity in the scene that has a rigid body,
+		// in one batch.
+		//
+		// Batching is not an optimisation here. Adding bodies one at a time
+		// leaves the broad-phase tree degenerate, and a degenerate tree misses
+		// collisions -- not just slowly, wrongly. Loading a scene adds every
+		// body at once, so this is the first thing that would have gone wrong.
+		void Build(Scene& scene);
+
+		void Step(float deltaTime, int collisionSteps = 1);
+
+		// Copies simulated positions back onto the entities' transforms,
+		// blended between the last two steps. Rendering the raw state means
+		// anything fast visibly stutters, because the display refreshes
+		// between two discrete simulation positions rather than on them.
+		void SyncTransforms(Scene& scene, float interpolationAlpha = 1.0f);
+
+		// Bodies for entities created after Build -- something a script
+		// spawned. Cheap for a handful; a large batch should go through Build.
+		void AddBody(Scene& scene, Entity entity);
+		void RemoveBody(UUID entity);
+		bool HasBody(UUID entity) const;
+
+		// --- queries ---------------------------------------------------------
+		// Nearest hit along the ray. Direction need not be normalised; the ray
+		// extends to its length.
+		RayHit CastRay(const glm::vec3& origin, const glm::vec3& direction) const;
+
+		// --- runtime control -------------------------------------------------
+		void SetLinearVelocity(UUID entity, const glm::vec3& velocity);
+		glm::vec3 GetLinearVelocity(UUID entity) const;
+		void AddForce(UUID entity, const glm::vec3& force);
+		void AddImpulse(UUID entity, const glm::vec3& impulse);
+		void SetPosition(UUID entity, const glm::vec3& position);
+
+		void SetGravity(const glm::vec3& gravity);
+		glm::vec3 GetGravity() const;
+
+		size_t GetBodyCount() const;
+
+	private:
+		// Jolt's headers stay in the .cpp.
+		struct Impl;
+		std::unique_ptr<Impl> m_Impl;
+	};
+}

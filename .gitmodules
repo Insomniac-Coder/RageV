@@ -35,3 +35,6 @@
 [submodule "RageV/vendor/cgltf"]
 	path = RageV/vendor/cgltf
 	url = https://github.com/jkuhlmann/cgltf.git
+[submodule "RageV/vendor/JoltPhysics"]
+	path = RageV/vendor/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git

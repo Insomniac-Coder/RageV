@@ -22,6 +22,7 @@ target_link_libraries(RageV
         glad
         stb
         cgltf
+        Jolt
         glfw
         volk
         vma

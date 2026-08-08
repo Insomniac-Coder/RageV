@@ -14,6 +14,9 @@ namespace RageV
 
 		const char* kLightTypeNames[] = { "Directional", "Point", "Spot" };
 		const char* kProjectionNames[] = { "Perspective", "Orthographic" };
+		const char* kBodyTypeNames[] = { "Static", "Kinematic", "Dynamic" };
+		const char* kColliderShapeNames[] = { "Box", "Sphere", "Capsule" };
+
 		FieldHint AssetRef(AssetType accepts, const char* tooltip = nullptr)
 		{
 			FieldHint hint;
@@ -105,6 +108,27 @@ namespace RageV
 		bool IsPositional(const void* component)
 		{
 			return static_cast<const LightComponent*>(component)->Light.Type != Light::LightType::Directional;
+		}
+
+		bool IsDynamicBody(const void* component)
+		{
+			return static_cast<const RigidBodyComponent*>(component)->Type == BodyType::Dynamic;
+		}
+
+		bool IsBoxCollider(const void* component)
+		{
+			return static_cast<const ColliderComponent*>(component)->Shape == ColliderShape::Box;
+		}
+
+		bool IsCapsuleCollider(const void* component)
+		{
+			return static_cast<const ColliderComponent*>(component)->Shape == ColliderShape::Capsule;
+		}
+
+		// Sphere and capsule both have one.
+		bool IsRoundCollider(const void* component)
+		{
+			return static_cast<const ColliderComponent*>(component)->Shape != ColliderShape::Box;
 		}
 
 		bool IsPerspective(const void* component)
@@ -313,6 +337,59 @@ namespace RageV
 					OnlyWhen(IsSpot, Slider(0.0f, 89.0f))),
 			};
 			Bind<LightComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- Rigid body ------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "RigidBodyComponent";
+			desc.DisplayName = "Rigid Body";
+			desc.Fields = {
+				Field<&RigidBodyComponent::Type>("Type",
+					Enum(kBodyTypeNames, "Static never moves and is cheapest. Kinematic is "
+										 "moved by code and pushes dynamic bodies. Dynamic is "
+										 "moved by the solver.")),
+				Field<&RigidBodyComponent::Mass>("Mass",
+					OnlyWhen(IsDynamicBody, Drag(0.1f, 0.001f, 10000.0f))),
+				Field<&RigidBodyComponent::Friction>("Friction", Slider(0.0f, 2.0f)),
+				Field<&RigidBodyComponent::Restitution>("Restitution",
+					Slider(0.0f, 1.0f, "Bounciness. Above about 0.95 a stack gains energy "
+										"and never settles.")),
+				Field<&RigidBodyComponent::LinearDamping>("LinearDamping",
+					OnlyWhen(IsDynamicBody, Slider(0.0f, 1.0f))),
+				Field<&RigidBodyComponent::AngularDamping>("AngularDamping",
+					OnlyWhen(IsDynamicBody, Slider(0.0f, 1.0f))),
+				Field<&RigidBodyComponent::GravityFactor>("GravityFactor",
+					OnlyWhen(IsDynamicBody, Drag(0.05f, -10.0f, 10.0f,
+						"Scales gravity for this body alone: 0 floats, negative rises."))),
+				Field<&RigidBodyComponent::FreezeRotation>("FreezeRotation",
+					OnlyWhen(IsDynamicBody, FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f,
+						nullptr, 0, "What a character wants: a capsule that tips over stops "
+									"being a character." })),
+			};
+			Bind<RigidBodyComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- Collider --------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "ColliderComponent";
+			desc.DisplayName = "Collider";
+			desc.Fields = {
+				Field<&ColliderComponent::Shape>("Shape", Enum(kColliderShapeNames)),
+				Field<&ColliderComponent::HalfExtents>("HalfExtents", OnlyWhen(IsBoxCollider)),
+				Field<&ColliderComponent::Radius>("Radius",
+					OnlyWhen(IsRoundCollider, Drag(0.05f, 0.01f, 1000.0f))),
+				Field<&ColliderComponent::Height>("Height",
+					OnlyWhen(IsCapsuleCollider, Drag(0.05f, 0.01f, 1000.0f))),
+				Field<&ColliderComponent::Offset>("Offset"),
+				Field<&ColliderComponent::IsTrigger>("IsTrigger",
+					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+							   "Reports overlaps without resisting them." }),
+			};
+			Bind<ColliderComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
 

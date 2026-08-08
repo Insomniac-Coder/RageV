@@ -4,6 +4,8 @@
 #include "ScriptableEntity.h"
 #include "Components.h"
 #include "ScriptRegistry.h"
+#include "RageV/Physics/PhysicsWorld.h"
+#include "RageV/Core/Application.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
@@ -106,6 +108,11 @@ namespace RageV
 	{
 		if (!entity)
 			return;
+
+		// Out of the simulation before it leaves the scene, or the body would
+		// keep colliding with things on behalf of an entity that is gone.
+		if (m_Physics)
+			m_Physics->RemoveBody(entity.GetUUID());
 
 		// By id, not by handle: whatever runs the queue may be several steps
 		// later, and handles are recycled.
@@ -328,6 +335,17 @@ namespace RageV
 		}
 	}
 
+	void Scene::OnRuntimeStart()
+	{
+		m_Physics = std::make_unique<PhysicsWorld>();
+		m_Physics->Build(*this);
+	}
+
+	void Scene::OnRuntimeStop()
+	{
+		m_Physics.reset();
+	}
+
 	void Scene::OnUpdateEditor(Timestep ts)
 	{
 		// Nothing. Editing a scene must not run it.
@@ -337,6 +355,11 @@ namespace RageV
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		(void)ts;
+
+		// Per frame, not per step: this is where the blend between the last two
+		// simulation states is applied, and it is the frame that needs it.
+		if (m_Physics)
+			m_Physics->SyncTransforms(*this, Application::GetInterpolationAlpha());
 	}
 
 	void Scene::OnFixedUpdateRuntime(Timestep dt)
@@ -399,6 +422,11 @@ namespace RageV
 		// including itself -- without deleting the object it is executing in.
 		FlushDestroyQueue();
 		UpdateWorldTransforms();
+
+		// After the scripts, so a script's forces and velocity changes are part
+		// of the step they were issued for rather than the next one.
+		if (m_Physics)
+			m_Physics->Step(dt.GetSeconds());
 	}
 
 	void Scene::OnRenderRuntime(float aspectRatio)

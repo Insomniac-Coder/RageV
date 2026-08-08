@@ -32,6 +32,50 @@ target_include_directories(cgltf PUBLIC cgltf)
 set_target_properties(cgltf PROPERTIES FOLDER ${VENDOR_FOLDER})
 
 # ---------------------------------------------------------------------------
+# Jolt Physics
+#
+# Not written here for the same reason Godot stopped writing its own: a
+# competitive rigid-body solver is not a good use of a solo project's time, and
+# Jolt is what Godot 4.6 ships as its default.
+#
+# The options matter more than usual:
+#   OVERRIDE_CXX_FLAGS  Jolt rewrites CMAKE_CXX_FLAGS_DEBUG/RELEASE globally,
+#                       which would silently replace this project's own.
+#   ENABLE_ALL_WARNINGS Warnings-as-errors inside a vendored dependency turns
+#                       every compiler upgrade into a build break.
+#   AVX / AVX2          On by default. Left off so a build runs on any x86-64
+#                       rather than crashing with an illegal instruction on
+#                       hardware that predates them; at this scale SSE4.2 costs
+#                       nothing measurable.
+#   CPP_EXCEPTIONS      On, to match the rest of the project -- mixing exception
+#                       settings across a static library boundary is a class of
+#                       bug nobody enjoys finding.
+#   USE_ASSERTS         On. Jolt's asserts catch misuse (a body added twice, a
+#                       shape with zero extent) that otherwise shows up as
+#                       nonsense simulation much later.
+# ---------------------------------------------------------------------------
+#   USE_STATIC_MSVC_RUNTIME_LIBRARY
+#                       Jolt defaults to the static CRT while this project uses
+#                       the dynamic one. Mixing them is a hard link error, and
+#                       the project's choice wins.
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(CPP_EXCEPTIONS_ENABLED ON CACHE BOOL "" FORCE)
+set(CPP_RTTI_ENABLED OFF CACHE BOOL "" FORCE)
+set(DOUBLE_PRECISION OFF CACHE BOOL "" FORCE)
+set(USE_ASSERTS ON CACHE BOOL "" FORCE)
+set(USE_AVX OFF CACHE BOOL "" FORCE)
+set(USE_AVX2 OFF CACHE BOOL "" FORCE)
+set(USE_AVX512 OFF CACHE BOOL "" FORCE)
+set(USE_F16C OFF CACHE BOOL "" FORCE)
+set(USE_FMADD OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(JoltPhysics/Build)
+set_target_properties(Jolt PROPERTIES FOLDER ${VENDOR_FOLDER})
+
+# ---------------------------------------------------------------------------
 # GLFW
 # ---------------------------------------------------------------------------
 set(GLFW_BUILD_DOCS      OFF CACHE BOOL "" FORCE)
