@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "PhysicsWorld.h"
+#include "ColliderShapes.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
@@ -149,10 +150,6 @@ namespace RageV
 			return type == BodyType::Static ? Layers::NonMoving : Layers::Moving;
 		}
 
-		// Jolt refuses shapes smaller than its convex radius, and a zero extent
-		// is almost always an unset field rather than an intention.
-		constexpr float kMinExtent = 0.01f;
-
 		// Jolt's globals are process-wide and have to exist before *anything*
 		// Jolt allocates.
 		//
@@ -181,33 +178,28 @@ namespace RageV
 			// Scale is baked in rather than wrapped in a ScaledShape: it never
 			// changes for a body during a run, and a baked shape is one fewer
 			// indirection per query.
-			const glm::vec3 absScale = glm::abs(scale);
+			//
+			// The dimensions come from ScaleCollider rather than being worked
+			// out here, so the debug overlay draws exactly what is simulated.
+			// They were two copies of this arithmetic until the overlay existed
+			// to disagree with it.
+			const ScaledCollider sized = ScaleCollider(collider, scale);
 			JPH::ShapeSettings::ShapeResult result;
 
 			switch (collider.Shape)
 			{
 				case ColliderShape::Sphere:
-				{
-					// A sphere has one radius, so a non-uniform scale has no
-					// honest answer; the largest axis at least encloses the mesh.
-					const float radius = glm::max(collider.Radius * glm::compMax(absScale), kMinExtent);
-					result = JPH::SphereShapeSettings(radius).Create();
+					result = JPH::SphereShapeSettings(sized.Radius).Create();
 					break;
-				}
+
 				case ColliderShape::Capsule:
-				{
-					const float radius = glm::max(collider.Radius * glm::max(absScale.x, absScale.z), kMinExtent);
-					const float halfHeight = glm::max(collider.Height * 0.5f * absScale.y, kMinExtent);
-					result = JPH::CapsuleShapeSettings(halfHeight, radius).Create();
+					result = JPH::CapsuleShapeSettings(sized.HalfHeight, sized.Radius).Create();
 					break;
-				}
+
 				case ColliderShape::Box:
 				default:
-				{
-					const glm::vec3 extents = glm::max(collider.HalfExtents * absScale, glm::vec3(kMinExtent));
-					result = JPH::BoxShapeSettings(ToJolt(extents)).Create();
+					result = JPH::BoxShapeSettings(ToJolt(sized.HalfExtents)).Create();
 					break;
-				}
 			}
 
 			if (result.HasError())
@@ -218,10 +210,10 @@ namespace RageV
 
 			JPH::ShapeRefC shape = result.Get();
 
-			if (glm::dot(collider.Offset, collider.Offset) > 0.0f)
+			if (glm::dot(sized.Offset, sized.Offset) > 0.0f)
 			{
 				auto offset = JPH::RotatedTranslatedShapeSettings(
-					ToJolt(collider.Offset * scale), JPH::Quat::sIdentity(), shape).Create();
+					ToJolt(sized.Offset), JPH::Quat::sIdentity(), shape).Create();
 
 				if (!offset.HasError())
 					shape = offset.Get();
@@ -769,6 +761,12 @@ namespace RageV
 	bool PhysicsWorld::HasBody(UUID entity) const
 	{
 		return m_Impl->Find(entity) != nullptr;
+	}
+
+	bool PhysicsWorld::IsBodyAwake(UUID entity) const
+	{
+		const Impl::Body* record = m_Impl->Find(entity);
+		return record && m_Impl->Interface().IsActive(record->Id);
 	}
 
 	size_t PhysicsWorld::GetBodyCount() const

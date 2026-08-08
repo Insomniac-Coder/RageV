@@ -21,6 +21,20 @@ namespace RageV
 		glm::vec2 TexCoord;
 	};
 
+	// An axis-aligned box in the mesh's own space.
+	//
+	// Lives here because this is where geometry is created and therefore the
+	// only place it can be computed for free. Frustum culling will want the
+	// same type; when it arrives this probably moves to a header of its own.
+	struct AABB
+	{
+		glm::vec3 Min{ 0.0f };
+		glm::vec3 Max{ 0.0f };
+
+		glm::vec3 Centre() const { return (Min + Max) * 0.5f; }
+		glm::vec3 Extents() const { return (Max - Min) * 0.5f; }
+	};
+
 	// Serialized by name, so the values must stay stable.
 	enum class PrimitiveType : uint32_t
 	{
@@ -53,6 +67,23 @@ namespace RageV
 		const RHI::Ref<RHI::RHIBuffer>& GetIndexBuffer()  const { return m_IndexBuffer; }
 		uint32_t GetIndexCount() const { return m_IndexCount; }
 
+		const AABB& GetBounds() const { return m_Bounds; }
+
+		// Positions and indices kept on the CPU.
+		//
+		// Needed because clicking in the viewport has to answer "what is under
+		// this pixel" and the geometry that could answer it is on the GPU. The
+		// alternative is an id buffer -- render entity ids to a second
+		// attachment and read one pixel back -- which is pixel-exact and needs
+		// a readback path plus an extra output in every shader. This is the
+		// cheaper half of that trade, and it is also what frustum culling and
+		// mesh colliders will want.
+		//
+		// Positions only: picking never asks about normals or texture
+		// coordinates, and keeping those would double the cost for nothing.
+		const std::vector<glm::vec3>& GetPositions() const { return m_Positions; }
+		const std::vector<uint32_t>& GetIndices() const { return m_Indices; }
+
 		// Primitives are cached per device: placing a hundred cubes should not
 		// allocate a hundred identical vertex buffers.
 		static RHI::Ref<Mesh> GetPrimitive(RHI::RHIDevice& device, PrimitiveType type);
@@ -62,6 +93,10 @@ namespace RageV
 		RHI::Ref<RHI::RHIBuffer> m_VertexBuffer;
 		RHI::Ref<RHI::RHIBuffer> m_IndexBuffer;
 		uint32_t m_IndexCount = 0;
+
+		AABB m_Bounds;
+		std::vector<glm::vec3> m_Positions;
+		std::vector<uint32_t> m_Indices;
 	};
 
 	namespace Primitives

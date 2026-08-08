@@ -1,0 +1,103 @@
+#include <rvpch.h>
+#include "PhysicsDebugDraw.h"
+#include "ColliderShapes.h"
+#include "PhysicsWorld.h"
+#include "RageV/Renderer/DebugRenderer.h"
+#include "RageV/Scene/Scene.h"
+#include "RageV/Scene/Entity.h"
+#include "RageV/Scene/Components.h"
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
+
+namespace RageV
+{
+	namespace
+	{
+		glm::vec4 ColorFor(const RigidBodyComponent* body, bool trigger,
+						   const PhysicsDebugStyle& style)
+		{
+			// A trigger's colour wins over its body type: what matters about it
+			// is that it does not stop anything, and that is true whether it is
+			// static or kinematic.
+			if (trigger)
+				return style.Trigger;
+
+			if (!body)
+				return style.Static;   // a collider with no body is static geometry
+
+			switch (body->Type)
+			{
+				case BodyType::Kinematic: return style.Kinematic;
+				case BodyType::Dynamic:   return style.Dynamic;
+				case BodyType::Static:
+				default:                  return style.Static;
+			}
+		}
+	}
+
+	void DrawPhysicsColliders(Scene& scene, UUID selected, const PhysicsDebugStyle& style)
+	{
+		// The overlay reads the same world matrices everything else does, so
+		// what it draws is where the object is being drawn -- not where it was
+		// at the last simulation step.
+		scene.UpdateWorldTransforms();
+
+		// Null outside play mode, which is fine: sleep only exists while
+		// something is simulating.
+		PhysicsWorld* physics = scene.GetPhysics();
+
+		auto view = scene.GetRegistry().view<ColliderComponent, TransformComponent>();
+		for (auto handle : view)
+		{
+			Entity entity{ handle, &scene };
+			auto [collider, transform] = view.get<ColliderComponent, TransformComponent>(handle);
+
+			glm::vec3 position, worldScale, skew;
+			glm::quat rotation;
+			glm::vec4 perspective;
+			if (!glm::decompose(transform.World, worldScale, rotation, position, skew, perspective))
+				continue;
+
+			const ScaledCollider sized = ScaleCollider(collider, worldScale);
+
+			const auto* body = scene.GetRegistry().try_get<RigidBodyComponent>(handle);
+			const bool isSelected = selected.IsValid() && entity.GetUUID() == selected;
+
+			glm::vec4 color = isSelected ? style.Selected : ColorFor(body, collider.IsTrigger, style);
+
+			// Dimmed rather than hidden, and only for bodies that could be
+			// awake: a static body is never active, so dimming every one of
+			// them would say "asleep" about the half of the scene where the
+			// word does not apply.
+			if (style.DimSleeping && physics && body && body->Type != BodyType::Static &&
+				!physics->IsBodyAwake(entity.GetUUID()))
+			{
+				color = glm::vec4(glm::vec3(color) * style.SleepingDim, color.a);
+			}
+
+			// Rotation and the offset, but not scale: the size is already baked
+			// into `sized`, and carrying it in the matrix as well would apply
+			// it twice.
+			const glm::mat4 shapeTransform =
+				glm::translate(glm::mat4(1.0f), position) *
+				glm::toMat4(rotation) *
+				glm::translate(glm::mat4(1.0f), sized.Offset);
+
+			switch (collider.Shape)
+			{
+				case ColliderShape::Sphere:
+					DebugRenderer::DrawSphere(shapeTransform, sized.Radius, color);
+					break;
+
+				case ColliderShape::Capsule:
+					DebugRenderer::DrawCapsule(shapeTransform, sized.Radius, sized.HalfHeight, color);
+					break;
+
+				case ColliderShape::Box:
+				default:
+					DebugRenderer::DrawBox(shapeTransform, sized.HalfExtents, color);
+					break;
+			}
+		}
+	}
+}

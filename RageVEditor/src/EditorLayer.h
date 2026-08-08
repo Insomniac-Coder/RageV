@@ -106,6 +106,8 @@ private:
 	glm::vec2 m_RequestedViewportSize = { 0.0f, 0.0f };
 	glm::vec2 m_RequestedGameSize = { 0.0f, 0.0f };
 	void ApplyPendingResizes();
+	void DrawColliderOverlay();
+	void HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2& imageSize);
 	bool m_IsViewportFocused = false, m_IsViewportHovered = false;
 
 	// Panel visibility, driven by the Window menu.
@@ -117,6 +119,12 @@ private:
 	bool m_ShowGameViewport = true;
 	bool m_ShowContentBrowser = true;
 	bool m_ResetLayoutRequested = false;
+
+	// Collider wireframes in the scene view. Off by default: it is a diagnostic
+	// overlay, and a scene that always draws one is a scene nobody looks at
+	// properly. Scene view only -- the game view is meant to be what a player
+	// would see.
+	bool m_ShowColliders = false;
 
 	// Whether the game panel was actually visible last frame. A panel that is
 	// collapsed or behind another tab still has m_ShowGameViewport set, and

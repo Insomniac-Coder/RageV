@@ -5,6 +5,9 @@
 #include "RageV/Utils/PlatformUtils.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
+#include "RageV/Renderer/DebugRenderer.h"
+#include "RageV/Physics/PhysicsDebugDraw.h"
+#include "RageV/Scene/ScenePicking.h"
 #include "ImGuizmo.h"
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/gtx/matrix_decompose.hpp"
@@ -203,6 +206,11 @@ void EditorLayer::OnUpdate(Timestep ts)
 	else if (m_ViewportSize.y > 0.0f)
 		m_Scene->OnRenderRuntime(m_ViewportSize.x / m_ViewportSize.y);
 
+	// Inside the same pass and after the scene, so the lines are depth-tested
+	// against what was just drawn rather than against an empty buffer.
+	if (m_ShowColliders)
+		DrawColliderOverlay();
+
 	cmd->EndRenderPass();
 	cmd->PopDebugGroup();
 
@@ -226,6 +234,114 @@ void EditorLayer::OnUpdate(Timestep ts)
 		cmd->EndRenderPass();
 		cmd->PopDebugGroup();
 	}
+}
+
+// Click to select, the way every editor works.
+//
+// A ray through the cursor rather than an id buffer. The id-buffer version --
+// render entity ids to a second attachment and read the pixel back -- is
+// pixel-exact and costs an extra output in every shader plus a readback path
+// in both backends. A ray tested against the triangles it hits is accurate
+// enough that the difference is not visible in use, and it also answers
+// questions an id buffer cannot: where on the surface the click landed, and
+// what is behind the thing in front.
+void EditorLayer::HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2& imageSize)
+{
+	if (imageSize.x <= 0.0f || imageSize.y <= 0.0f)
+		return;
+
+	// On release, not press, and only if the mouse has not moved far since:
+	// dragging inside the viewport is how the camera is flown, and every one
+	// of those drags ends with a release that must not change the selection.
+	if (!ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+		return;
+
+	if (!m_IsViewportHovered || ImGuizmo::IsOver() || ImGuizmo::IsUsing())
+		return;
+
+	// The threshold is in screen pixels and deliberately small. Large enough to
+	// forgive the hand moving on the way up, small enough that a deliberate
+	// drag is never mistaken for a click.
+	constexpr float kClickSlop = 4.0f;
+	if (ImGui::GetMouseDragDelta(ImGuiMouseButton_Left).x != 0.0f ||
+		ImGui::GetMouseDragDelta(ImGuiMouseButton_Left).y != 0.0f)
+	{
+		const ImVec2 drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
+		if (std::sqrt(drag.x * drag.x + drag.y * drag.y) > kClickSlop)
+			return;
+	}
+
+	const ImVec2 mouse = ImGui::GetMousePos();
+	const glm::vec2 local{ mouse.x - imageOrigin.x, mouse.y - imageOrigin.y };
+
+	if (local.x < 0.0f || local.y < 0.0f || local.x > imageSize.x || local.y > imageSize.y)
+		return;
+
+	// Into normalised device coordinates. The y flip is because a window's
+	// origin is top-left and clip space's is bottom-left; forgetting it gives
+	// picking that works perfectly along the horizontal centre line and is
+	// mirrored everywhere else.
+	const glm::vec2 ndc{
+		(local.x / imageSize.x) * 2.0f - 1.0f,
+		1.0f - (local.y / imageSize.y) * 2.0f,
+	};
+
+	Ray ray;
+	if (m_UseEditorCamera)
+	{
+		ray = ScreenPointToRay(m_EditorCamera, m_EditorCamera.GetTransform(), ndc);
+	}
+	else
+	{
+		Entity camera = m_Scene->GetPrimaryCameraEntity();
+		if (!camera)
+			return;
+
+		auto& component = camera.GetComponent<CameraComponent>();
+		if (!component.fixedAspectRatio)
+			component.Camera.SetAspectRatio(imageSize.x / imageSize.y);
+
+		ray = ScreenPointToRay(component.Camera,
+							   camera.GetComponent<TransformComponent>().World, ndc);
+	}
+
+	// Clicking nothing clears the selection, which is how a click becomes a way
+	// to deselect rather than a thing that can only ever select.
+	const PickResult hit = PickEntity(*m_Scene, ray);
+	m_SceneHierarchyPanel.SetSelectedEntity(hit ? hit.Entity : Entity{});
+}
+
+// The collider overlay, drawn through whichever camera the scene view is using.
+//
+// It has to agree with that camera rather than always using the editor one:
+// the scene view can be switched to the game camera, and an overlay drawn from
+// a different viewpoint than the image under it is worse than none.
+void EditorLayer::DrawColliderOverlay()
+{
+	const UUID selected = m_SceneHierarchyPanel.GetSelectedEntity()
+						? m_SceneHierarchyPanel.GetSelectedEntity().GetUUID()
+						: UUID::Invalid();
+
+	if (m_UseEditorCamera)
+	{
+		DebugRenderer::BeginScene(m_EditorCamera, m_EditorCamera.GetTransform());
+	}
+	else
+	{
+		Entity camera = m_Scene->GetPrimaryCameraEntity();
+		if (!camera || m_ViewportSize.y <= 0.0f)
+			return;
+
+		auto& component = camera.GetComponent<CameraComponent>();
+		if (!component.fixedAspectRatio)
+			component.Camera.SetAspectRatio(m_ViewportSize.x / m_ViewportSize.y);
+
+		DebugRenderer::BeginScene(component.Camera,
+								  camera.GetComponent<TransformComponent>().World);
+	}
+
+	DrawPhysicsColliders(*m_Scene, selected);
+	DebugRenderer::EndScene();
 }
 
 // Applied at the top of a frame rather than where the size is discovered.
@@ -542,6 +658,16 @@ void EditorLayer::DrawMenuBar()
 		ImGui::MenuItem("Statistics",      nullptr, &m_ShowStatistics);
 		ImGui::MenuItem("Render Settings", nullptr, &m_ShowRenderSettings);
 		ImGui::Separator();
+
+		ImGui::MenuItem("Show Colliders", "F3", &m_ShowColliders);
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Wireframe every collider in the scene view.\n\n"
+							  "Green is static, bright green dynamic, blue kinematic,\n"
+							  "amber a trigger. While playing, a body the simulation\n"
+							  "has put to sleep is drawn dimmed.");
+		}
+
 		ImGui::Separator();
 		if (ImGui::MenuItem("Reset Layout"))
 			m_ResetLayoutRequested = true;
@@ -850,6 +976,11 @@ void EditorLayer::DrawViewportPanel()
 	const ImVec2 viewportSize = ImGui::GetContentRegionAvail();
 	m_RequestedViewportSize = { viewportSize.x, viewportSize.y };
 
+	// Where the image starts on screen, captured before it is drawn: a click is
+	// reported in screen coordinates and has to be turned into a position
+	// within this image.
+	const ImVec2 imageOrigin = ImGui::GetCursorScreenPos();
+
 	// GL hands back a texture name, Vulkan a descriptor set the ImGui backend
 	// owns; both are opaque to ImGui::Image.
 	if (auto color = m_SceneTarget->GetColorTexture(0))
@@ -861,6 +992,10 @@ void EditorLayer::DrawViewportPanel()
 		ImGui::Image(handle, viewportSize,
 					 ImVec2{ 0, flip ? 1.0f : 0.0f }, ImVec2{ 1, flip ? 0.0f : 1.0f });
 	}
+
+	// Before the gizmo, so ImGuizmo has not yet claimed the mouse this frame,
+	// and after the image, so the origin above is the image's.
+	HandleViewportPicking(imageOrigin, viewportSize);
 
 	DrawGizmo();
 
@@ -1107,6 +1242,11 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 
 		// Frame the selection, the one navigation shortcut every editor shares.
 		case RV_KEY_F: if (!control && !ImGui::GetIO().WantTextInput) { FocusSelection(); return true; } break;
+
+		// A function key rather than a letter: the overlay is toggled while
+		// looking at the scene, often with the other hand on the camera
+		// controls, and every unmodified letter near WASD is already a gizmo.
+		case RV_KEY_F3: m_ShowColliders = !m_ShowColliders; return true;
 
 		case RV_KEY_DELETE:
 		{

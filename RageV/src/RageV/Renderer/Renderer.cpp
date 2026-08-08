@@ -2,6 +2,7 @@
 #include "Renderer.h"
 #include "Renderer2D.h"
 #include "Renderer3D.h"
+#include "DebugRenderer.h"
 
 namespace RageV
 {
@@ -16,10 +17,12 @@ namespace RageV
 		s_Device = &device;
 		Renderer2D::Init(device);
 		Renderer3D::Init(device);
+		DebugRenderer::Init(device);
 	}
 
 	void Renderer::Shutdown()
 	{
+		DebugRenderer::Shutdown();
 		Renderer3D::Shutdown();
 		Renderer2D::Shutdown();
 		s_CommandList = nullptr;
@@ -34,6 +37,7 @@ namespace RageV
 		// than once per frame depends on this having run first.
 		Renderer2D::BeginFrame();
 		Renderer3D::BeginFrame();
+		DebugRenderer::BeginFrame();
 	}
 
 	void Renderer::EndFrame()
@@ -78,5 +82,6 @@ namespace RageV
 	{
 		Renderer2D::SetTargetFormats(color, depth);
 		Renderer3D::SetTargetFormats(color, depth);
+		DebugRenderer::SetTargetFormats(color, depth);
 	}
 }

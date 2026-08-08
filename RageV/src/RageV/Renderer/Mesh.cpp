@@ -52,6 +52,24 @@ namespace RageV
 		indexDesc.DebugName = debugName + ".indices";
 		m_IndexBuffer = device.CreateBuffer(indexDesc);
 		m_IndexBuffer->Upload(indices.data(), indexDesc.Size);
+
+		// Kept for picking and, later, culling. Extracted here rather than
+		// asked for again, since this is the one moment the data is in hand.
+		m_Indices = indices;
+		m_Positions.reserve(vertices.size());
+
+		// Seeded from the first vertex rather than from infinities: an empty
+		// mesh then has a zero-sized box at the origin instead of an inverted
+		// one, and an inverted box passes every intersection test.
+		if (!vertices.empty())
+			m_Bounds.Min = m_Bounds.Max = vertices[0].Position;
+
+		for (const MeshVertex& vertex : vertices)
+		{
+			m_Positions.push_back(vertex.Position);
+			m_Bounds.Min = glm::min(m_Bounds.Min, vertex.Position);
+			m_Bounds.Max = glm::max(m_Bounds.Max, vertex.Position);
+		}
 	}
 
 	namespace

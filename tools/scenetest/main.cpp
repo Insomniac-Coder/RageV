@@ -30,6 +30,11 @@
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Audio/AudioEngine.h"
+#include "RageV/Physics/PhysicsDebugDraw.h"
+#include "RageV/Physics/ColliderShapes.h"
+#include "RageV/Renderer/DebugRenderer.h"
+#include "RageV/Renderer/EditorCamera.h"
+#include "RageV/Scene/ScenePicking.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
@@ -937,6 +942,196 @@ namespace
 		scene->OnRuntimeStop();
 	}
 
+	// Clicking in the viewport.
+	//
+	// Worth testing rather than trying by hand, because every failure mode here
+	// looks like "picking is slightly wrong" and they are hard to tell apart by
+	// eye: a flipped y axis is only visible off the centre line, a missing
+	// inverse only when something is rotated, and an ignored scale only when
+	// something is not unit-sized.
+	void CheckPicking()
+	{
+		// A camera at +Z looking back at the origin, which is the convention
+		// everything else in the engine uses.
+		EditorCamera camera(45.0f, 1.0f, 0.1f, 1000.0f);
+		const glm::mat4 cameraTransform = glm::translate(glm::mat4(1.0f), { 0.0f, 0.0f, 10.0f });
+
+		// --- the ray itself ----------------------------------------------------
+		const Ray centre = ScreenPointToRay(camera, cameraTransform, { 0.0f, 0.0f });
+		Check(centre.Direction.z < -0.99f, "the centre of the screen looks straight forward");
+
+		const Ray right = ScreenPointToRay(camera, cameraTransform, { 0.9f, 0.0f });
+		Check(right.Direction.x > 0.05f, "the right of the screen looks right");
+
+		// The y flip is the classic one: a window's origin is top-left and clip
+		// space's is bottom-left, and getting it wrong is invisible along the
+		// horizontal centre line.
+		const Ray top = ScreenPointToRay(camera, cameraTransform, { 0.0f, 0.9f });
+		Check(top.Direction.y > 0.05f, "and the top of the screen looks up");
+
+		// --- boxes -------------------------------------------------------------
+		{
+			Ray ray;
+			ray.Origin = { 0.0f, 0.0f, 10.0f };
+			ray.Direction = { 0.0f, 0.0f, -1.0f };
+
+			float distance = 0.0f;
+			Check(RayIntersectsBox(ray, { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f }, distance) &&
+				  std::fabs(distance - 9.0f) < 1e-3f,
+				  "a ray hits a box at its near face");
+
+			// Behind the ray is a miss, not a hit at a negative distance.
+			ray.Direction = { 0.0f, 0.0f, 1.0f };
+			Check(!RayIntersectsBox(ray, { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f }, distance),
+				  "and misses one behind it");
+
+			// Parallel to two slabs at once, which is where a per-axis branch
+			// on a zero direction component gets it wrong.
+			ray.Origin = { 5.0f, 0.0f, 0.0f };
+			ray.Direction = { -1.0f, 0.0f, 0.0f };
+			Check(RayIntersectsBox(ray, { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f }, distance),
+				  "a ray exactly parallel to two axes still hits");
+		}
+
+		// --- picking a scene ---------------------------------------------------
+		auto scene = std::make_shared<Scene>();
+
+		Entity front = scene->CreateEntity("Front");
+		front.AddComponent<MeshComponent>(PrimitiveType::Cube);
+		front.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 2.0f };
+
+		Entity behind = scene->CreateEntity("Behind");
+		behind.AddComponent<MeshComponent>(PrimitiveType::Cube);
+		behind.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, -4.0f };
+
+		Entity aside = scene->CreateEntity("Aside");
+		aside.AddComponent<MeshComponent>(PrimitiveType::Cube);
+		aside.GetComponent<TransformComponent>().Position = { 6.0f, 0.0f, 0.0f };
+
+		Ray down;
+		down.Origin = { 0.0f, 0.0f, 10.0f };
+		down.Direction = { 0.0f, 0.0f, -1.0f };
+
+		PickResult hit = PickEntity(*scene, down);
+		Check((bool)hit, "a ray through two objects picks one");
+		Check(hit.Entity == front, "and it is the nearer of them");
+
+		// Empty space picks nothing rather than the closest thing to the ray.
+		Ray miss;
+		miss.Origin = { 0.0f, 40.0f, 10.0f };
+		miss.Direction = { 0.0f, 0.0f, -1.0f };
+		Check(!PickEntity(*scene, miss), "a ray through empty space picks nothing");
+
+		// The cube's own geometry, not its bounding box: a ray through the gap
+		// beside it must miss even though it passes near.
+		Ray beside;
+		beside.Origin = { 0.9f, 0.9f, 10.0f };
+		beside.Direction = { 0.0f, 0.0f, -1.0f };
+		Check(!PickEntity(*scene, beside),
+			  "a ray just outside a mesh misses rather than hitting its bounds");
+
+		// Scale has to reach the test, or a scaled-up object is pickable only
+		// over its original size.
+		aside.GetComponent<TransformComponent>().Scale = glm::vec3(8.0f);
+		Ray atAside;
+		atAside.Origin = { 6.0f, 3.0f, 10.0f };
+		atAside.Direction = { 0.0f, 0.0f, -1.0f };
+		Check(PickEntity(*scene, atAside).Entity == aside,
+			  "a scaled object is pickable over its scaled size");
+
+		// A trigger volume has no mesh at all, and finding it in the hierarchy
+		// is the only alternative to picking it by its collider.
+		Entity trigger = scene->CreateEntity("Trigger");
+		trigger.GetComponent<TransformComponent>().Position = { -6.0f, 0.0f, 0.0f };
+		auto& collider = trigger.AddComponent<ColliderComponent>();
+		collider.HalfExtents = { 2.0f, 2.0f, 2.0f };
+		collider.IsTrigger = true;
+
+		Ray atTrigger;
+		atTrigger.Origin = { -6.0f, 0.0f, 10.0f };
+		atTrigger.Direction = { 0.0f, 0.0f, -1.0f };
+		Check(PickEntity(*scene, atTrigger).Entity == trigger,
+			  "an entity with only a collider is still selectable");
+
+		// The hit point is on the surface, which is what a future "place at
+		// cursor" would be built on.
+		hit = PickEntity(*scene, down);
+		Check(std::fabs(hit.Point.z - 2.5f) < 0.05f, "the hit lands on the surface it struck");
+	}
+
+	// The collider overlay.
+	//
+	// Checked by counting the lines it emits, which is the part that can be
+	// wrong without anyone noticing: a shape silently drawing nothing looks
+	// exactly like a scene with no collider in it. Whether it looks right is
+	// not something a test can answer, but whether it drew is.
+	void CheckColliderOverlay()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		// A camera to draw through. The overlay never reaches a command list
+		// here -- there is no frame -- so it accumulates lines and is measured
+		// before EndScene throws them away.
+		EditorCamera camera(45.0f, 1.6f, 0.1f, 1000.0f);
+
+		auto lineCountFor = [&](ColliderShape shape)
+		{
+			auto probe = std::make_shared<Scene>();
+			Entity entity = probe->CreateEntity("Collider");
+			entity.AddComponent<ColliderComponent>(shape);
+
+			DebugRenderer::BeginScene(camera, camera.GetTransform());
+			DrawPhysicsColliders(*probe);
+			const uint32_t lines = DebugRenderer::GetLineCount();
+			DebugRenderer::EndScene();
+			return lines;
+		};
+
+		Check(lineCountFor(ColliderShape::Box) == 12, "a box collider draws its twelve edges");
+		Check(lineCountFor(ColliderShape::Sphere) == 72,
+			  "a sphere draws three rings rather than a lat/long mesh");
+		Check(lineCountFor(ColliderShape::Capsule) == 100,
+			  "a capsule draws two rings, four struts and four cap arcs");
+
+		// Nothing to draw is not the same as failing to draw.
+		DebugRenderer::BeginScene(camera, camera.GetTransform());
+		DrawPhysicsColliders(*scene);
+		Check(DebugRenderer::GetLineCount() == 0, "a scene with no colliders draws nothing");
+		DebugRenderer::EndScene();
+
+		// An entity with a collider but no rigid body still draws: a collider
+		// is scene geometry whether or not anything simulates it.
+		Entity bare = scene->CreateEntity("Bare");
+		bare.AddComponent<ColliderComponent>();
+		DebugRenderer::BeginScene(camera, camera.GetTransform());
+		DrawPhysicsColliders(*scene);
+		Check(DebugRenderer::GetLineCount() == 12, "a collider with no rigid body still draws");
+		DebugRenderer::EndScene();
+
+		// The overlay must describe what is simulated, so the sizing has to be
+		// the same function the shape is built from.
+		{
+			ColliderComponent box;
+			box.HalfExtents = { 0.5f, 0.5f, 0.5f };
+			const ScaledCollider sized = ScaleCollider(box, { 2.0f, 3.0f, 4.0f });
+			Check(std::fabs(sized.HalfExtents.x - 1.0f) < 1e-5f &&
+				  std::fabs(sized.HalfExtents.y - 1.5f) < 1e-5f &&
+				  std::fabs(sized.HalfExtents.z - 2.0f) < 1e-5f,
+				  "a box collider takes the entity's scale per axis");
+
+			ColliderComponent sphere(ColliderShape::Sphere);
+			sphere.Radius = 1.0f;
+			// A sphere has one radius, so the largest axis wins -- enclosing
+			// the mesh rather than cutting into it.
+			Check(std::fabs(ScaleCollider(sphere, { 2.0f, 3.0f, 1.0f }).Radius - 3.0f) < 1e-5f,
+				  "a sphere takes the largest axis, so it encloses rather than clips");
+
+			// A mirrored entity has a size, not a negative size.
+			Check(ScaleCollider(box, { -2.0f, 1.0f, 1.0f }).HalfExtents.x > 0.0f,
+				  "a negative scale mirrors rather than inverting the shape");
+		}
+	}
+
 	// Audio, checked through the scene rather than through the mixer.
 	//
 	// Whether a sound is audible depends on the machine; what the scene does
@@ -1726,6 +1921,8 @@ int RunTests(int argc, char** argv)
 
 	// --- physics -------------------------------------------------------------
 	CheckPhysics();
+	CheckColliderOverlay();
+	CheckPicking();
 	CheckContactCallbacks();
 	CheckTriggerCallbacks();
 	CheckPhysicsRestoresOnStop();

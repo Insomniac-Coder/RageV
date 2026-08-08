@@ -104,6 +104,16 @@ namespace RageV
 		void RemoveBody(UUID entity);
 		bool HasBody(UUID entity) const;
 
+		// False for a body that has settled and been put to sleep, and for a
+		// static one, which is never active.
+		//
+		// Worth exposing rather than keeping internal: sleep is the single
+		// least visible thing the simulation does and the cause of the
+		// subtlest behaviour in it -- contacts are withdrawn when a body falls
+		// asleep. Being able to see which bodies are asleep turns that from a
+		// thing you have to know into a thing you can look at.
+		bool IsBodyAwake(UUID entity) const;
+
 		// --- contacts --------------------------------------------------------
 		// Moves everything that happened during the last Step into `out`,
 		// leaving the queue empty.
