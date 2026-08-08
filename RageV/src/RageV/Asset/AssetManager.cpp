@@ -141,6 +141,20 @@ namespace RageV
 		return cube;
 	}
 
+	RHI::Ref<RHI::RHITexture> AssetManager::GetIrradiance(AssetHandle handle)
+	{
+		if (!s_Device || !handle.IsValid())
+			return nullptr;
+
+		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
+		if (path.empty())
+			return nullptr;
+
+		// Cached inside the loader alongside the cube it came from, so this is
+		// a lookup after the first call rather than a second convolution.
+		return TextureLoader::LoadIrradiance(*s_Device, path.string());
+	}
+
 	AssetHandle AssetManager::CreatePrefab(Scene& scene, Entity root,
 										   const std::filesystem::path& relativePath)
 	{

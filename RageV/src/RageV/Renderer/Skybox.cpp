@@ -46,6 +46,7 @@ namespace RageV
 			// only when one of the three colours changes, which in the editor
 			// is while a colour picker is open and never otherwise.
 			Ref<RHITexture> GradientCube;
+			Ref<RHITexture> GradientIrradiance;
 			glm::vec3 GradientHorizon{ -1.0f };
 			glm::vec3 GradientZenith{ -1.0f };
 			glm::vec3 GradientGround{ -1.0f };
@@ -183,6 +184,14 @@ namespace RageV
 			}
 
 			s_Data->GradientCube = TextureLoader::CreateCube(*s_Data->Device, faces, "sky.gradient");
+
+			// Convolved from the same 32-pixel faces. A gradient has nothing in
+			// it above the lowest frequencies, so a coarse source is not a
+			// compromise here -- it is the whole signal.
+			const CubeFaces irradiance = IrradianceFromCube(faces, 16);
+			s_Data->GradientIrradiance =
+				TextureLoader::CreateCube(*s_Data->Device, irradiance, "sky.gradient.irradiance");
+
 			s_Data->GradientHorizon = environment.SkyHorizon;
 			s_Data->GradientZenith = environment.SkyZenith;
 			s_Data->GradientGround = environment.SkyGround;
@@ -190,6 +199,27 @@ namespace RageV
 
 		return s_Data->GradientCube ? s_Data->GradientCube
 									: TextureLoader::BlackCube(*s_Data->Device);
+	}
+
+	Ref<RHITexture> Skybox::ResolveIrradiance(const SceneEnvironment& environment,
+											  const Ref<RHITexture>& irradiance)
+	{
+		if (!s_Data || !s_Data->Device)
+			return nullptr;
+
+		if (environment.Sky == SkyType::Cubemap && irradiance)
+			return irradiance;
+
+		// A flat background contributes no light. The ambient colour is still
+		// added on top of this, so a scene with no sky is not black.
+		if (environment.Sky == SkyType::Color)
+			return TextureLoader::BlackCube(*s_Data->Device);
+
+		// Builds the gradient cube if it is stale, which also builds this.
+		ResolveEnvironment(environment, nullptr);
+
+		return s_Data->GradientIrradiance ? s_Data->GradientIrradiance
+										  : TextureLoader::BlackCube(*s_Data->Device);
 	}
 
 	glm::mat4 Skybox::BuildDirectionMatrix(const glm::mat4& projection,

@@ -57,4 +57,25 @@ namespace RageV
 	// every loader hands back and what the format's +Y-up convention means.
 	CubeFaces EquirectangularToCube(const float* pixels, uint32_t width, uint32_t height,
 									uint32_t faceSize);
+
+	// Diffuse irradiance: for every direction, the cosine-weighted average of
+	// everything the hemisphere around it can see.
+	//
+	// This is the half of image-based lighting that replaces a flat ambient
+	// colour. The specular half asks "what does this surface reflect"; this one
+	// asks "how much light arrives here, and from where" -- and the answer
+	// being different on the sky side of an object from the ground side is
+	// most of what makes a scene look lit by its surroundings rather than by a
+	// constant.
+	//
+	// The result is deliberately tiny. Irradiance is the integral of a whole
+	// hemisphere, so it has no detail worth resolving: 16 texels a side is
+	// indistinguishable from 64 and costs a sixteenth as much to compute.
+	//
+	// Convolved on the CPU, for the same reasons the panorama conversion is --
+	// it can be checked by the test suite, and it gives the same answer on both
+	// backends because it never reaches one. The cost is roughly 200 ms for a
+	// 512-pixel source, once per environment map.
+	CubeFaces IrradianceFromCube(const CubeFaces& source, uint32_t faceSize,
+								 uint32_t samplesPerAxis = 32);
 }

@@ -32,7 +32,8 @@ namespace RageV
 		static void BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
 							   const LightList& lights = {},
 							   const SceneEnvironment& environment = {},
-							   const RHI::Ref<RHI::RHITexture>& environmentMap = nullptr);
+							   const RHI::Ref<RHI::RHITexture>& environmentMap = nullptr,
+							   const RHI::Ref<RHI::RHITexture>& irradianceMap = nullptr);
 		static void EndScene();
 
 		// Depth only, from a light. Wraps the same mesh binding the lit path

@@ -258,7 +258,8 @@ namespace RageV
 
 	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
 								const LightList& lights, const SceneEnvironment& environment,
-								const Ref<RHITexture>& environmentMap)
+								const Ref<RHITexture>& environmentMap,
+								const Ref<RHITexture>& irradianceMap)
 	{
 		if (!s_Data)
 			return;
@@ -376,6 +377,9 @@ namespace RageV
 		// is the same lesson the tonemap pass learned about its bloom input.
 		sceneSet->SetTexture(1, environmentMap ? environmentMap
 											   : TextureLoader::BlackCube(*s_Data->Device),
+							 s_Data->EnvironmentSampler);
+		sceneSet->SetTexture(5, irradianceMap ? irradianceMap
+											  : TextureLoader::BlackCube(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
 
 		// All four, always. A comparison sampler the layout declares and the

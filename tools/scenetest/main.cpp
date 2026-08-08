@@ -1712,6 +1712,134 @@ namespace
 		}
 	}
 
+	// Diffuse irradiance.
+	//
+	// The half of image-based lighting that replaces a flat ambient colour, and
+	// a convolution whose output is a very blurry cube -- so "looks about
+	// right" is the only thing a screenshot can say about it, and it says that
+	// about a wrong answer too. These are the properties that pin it down.
+	void CheckIrradiance()
+	{
+		auto uniform = [](uint32_t size, const glm::vec3& colour)
+		{
+			CubeFaces cube;
+			cube.Size = size;
+			cube.Pixels.resize((size_t)CubeFaces::kFaceCount * size * size * 4);
+
+			for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+			{
+				float* pixels = cube.Face(face);
+				for (uint32_t i = 0; i < size * size; i++)
+				{
+					pixels[i * 4 + 0] = colour.r;
+					pixels[i * 4 + 1] = colour.g;
+					pixels[i * 4 + 2] = colour.b;
+					pixels[i * 4 + 3] = 1.0f;
+				}
+			}
+			return cube;
+		};
+
+		// The strongest single property: the cosine-weighted average of a
+		// constant is that constant. It fails if the weights are wrong, if the
+		// hemisphere is the wrong size, or if the normalisation is off -- which
+		// covers most of the ways to get an integral wrong.
+		{
+			const CubeFaces source = uniform(8, glm::vec3(0.6f, 0.3f, 0.9f));
+			const CubeFaces result = IrradianceFromCube(source, 8, 24);
+
+			Check(result.Valid() && result.Size == 8, "irradiance produces a complete cube");
+
+			bool constant = true;
+			for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+			{
+				for (uint32_t y = 0; y < 8; y++)
+				{
+					for (uint32_t x = 0; x < 8; x++)
+					{
+						const glm::vec3 value = result.Sample(face, x, y);
+						constant = constant && glm::length(value - glm::vec3(0.6f, 0.3f, 0.9f)) < 0.02f;
+					}
+				}
+			}
+
+			Check(constant, "and a uniform environment convolves to that same colour everywhere");
+		}
+
+		// Direction. A sky that is bright above and dark below has to produce
+		// irradiance that is bright facing up and dark facing down -- which is
+		// the entire reason this exists rather than one number.
+		{
+			CubeFaces source = uniform(16, glm::vec3(0.0f));
+			float* top = source.Face(2);   // +Y
+			for (uint32_t i = 0; i < 16 * 16; i++)
+			{
+				top[i * 4 + 0] = 1.0f;
+				top[i * 4 + 1] = 1.0f;
+				top[i * 4 + 2] = 1.0f;
+			}
+
+			const CubeFaces result = IrradianceFromCube(source, 8, 32);
+			const glm::vec3 up = result.Sample(2, 4, 4);
+			const glm::vec3 down = result.Sample(3, 4, 4);
+			const glm::vec3 side = result.Sample(4, 4, 4);
+
+			Check(up.r > side.r && side.r > down.r,
+				  "a bright sky lights upward faces most and downward faces least");
+			Check(down.r < 0.02f, "with nothing at all arriving from below");
+			// Energy: no direction can receive more than the brightest thing
+			// visible anywhere.
+			Check(up.r <= 1.001f, "and no surface receives more than was emitted");
+		}
+
+		// The lookup has to be the inverse of the face table, on every axis. If
+		// they disagree the irradiance cube comes out rotated relative to the
+		// sky it was made from, which looks like nothing at all until a scene is
+		// lit by it and then looks like the sun is in the wrong place.
+		//
+		// Light one face at a time and the brightest direction must be that
+		// face's own. Doing all six catches an axis swap, which lighting only
+		// +Y would not -- +Y is the one direction the tangent frame special
+		// cases.
+		{
+			bool aligned = true;
+
+			for (uint32_t lit = 0; lit < CubeFaces::kFaceCount; lit++)
+			{
+				CubeFaces source = uniform(8, glm::vec3(0.0f));
+				float* pixels = source.Face(lit);
+				for (uint32_t i = 0; i < 8 * 8; i++)
+					pixels[i * 4 + 0] = 1.0f;
+
+				const CubeFaces result = IrradianceFromCube(source, 4, 32);
+
+				uint32_t brightest = 0;
+				float best = -1.0f;
+				for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+				{
+					const float value = result.Sample(face, 2, 2).r;
+					if (value > best)
+					{
+						best = value;
+						brightest = face;
+					}
+				}
+
+				if (brightest != lit)
+				{
+					RV_CORE_ERROR("  lighting face {0} produced most irradiance on face {1}",
+								  lit, brightest);
+					aligned = false;
+				}
+			}
+
+			Check(aligned, "and the brightest direction is the one the light came from, on every axis");
+		}
+
+		Check(!IrradianceFromCube(CubeFaces{}, 8).Valid(),
+			  "an empty environment convolves to nothing rather than crashing");
+	}
+
 	// Reflection probes.
 	//
 	// The capture basis is the whole thing worth checking, and it cannot be
@@ -3106,6 +3234,7 @@ int RunTests(int argc, char** argv)
 	CheckFieldLabels();
 	CheckShadowToggle();
 	CheckShadowCascades();
+	CheckIrradiance();
 	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();

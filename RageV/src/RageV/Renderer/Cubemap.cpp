@@ -87,6 +87,137 @@ namespace RageV
 		return glm::vec3(0.0f, 0.0f, 1.0f);
 	}
 
+	namespace
+	{
+		// Which face a direction lands on, and where. The inverse of
+		// CubeFaceDirection, and it has to stay its inverse -- the test suite
+		// checks the round trip, because the two disagreeing would show up as
+		// an irradiance cube that is subtly rotated relative to the sky it came
+		// from.
+		glm::vec3 SampleCube(const CubeFaces& cube, const glm::vec3& direction)
+		{
+			const float ax = std::fabs(direction.x);
+			const float ay = std::fabs(direction.y);
+			const float az = std::fabs(direction.z);
+
+			uint32_t face;
+			float sc, tc, ma;
+
+			if (ax >= ay && ax >= az)
+			{
+				ma = ax;
+				if (direction.x > 0.0f) { face = 0; sc = -direction.z; tc = -direction.y; }
+				else                    { face = 1; sc =  direction.z; tc = -direction.y; }
+			}
+			else if (ay >= az)
+			{
+				ma = ay;
+				if (direction.y > 0.0f) { face = 2; sc = direction.x; tc =  direction.z; }
+				else                    { face = 3; sc = direction.x; tc = -direction.z; }
+			}
+			else
+			{
+				ma = az;
+				if (direction.z > 0.0f) { face = 4; sc =  direction.x; tc = -direction.y; }
+				else                    { face = 5; sc = -direction.x; tc = -direction.y; }
+			}
+
+			if (ma < 1e-9f)
+				return glm::vec3(0.0f);
+
+			const float u = (sc / ma) * 0.5f + 0.5f;
+			const float v = (tc / ma) * 0.5f + 0.5f;
+
+			const uint32_t x = (uint32_t)glm::clamp((int)(u * (float)cube.Size), 0,
+													(int)cube.Size - 1);
+			const uint32_t y = (uint32_t)glm::clamp((int)(v * (float)cube.Size), 0,
+													(int)cube.Size - 1);
+
+			return cube.Sample(face, x, y);
+		}
+	}
+
+	CubeFaces IrradianceFromCube(const CubeFaces& source, uint32_t faceSize,
+								 uint32_t samplesPerAxis)
+	{
+		CubeFaces result;
+		if (!source.Valid() || faceSize == 0)
+			return result;
+
+		samplesPerAxis = glm::clamp(samplesPerAxis, 4u, 256u);
+
+		result.Size = faceSize;
+		result.Pixels.resize((size_t)CubeFaces::kFaceCount * faceSize * faceSize * 4);
+
+		const float inverse = 1.0f / (float)faceSize;
+		const float deltaPhi = glm::two_pi<float>() / (float)samplesPerAxis;
+		const float deltaTheta = glm::half_pi<float>() / (float)samplesPerAxis;
+
+		for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+		{
+			float* output = result.Face(face);
+
+			for (uint32_t y = 0; y < faceSize; y++)
+			{
+				for (uint32_t x = 0; x < faceSize; x++)
+				{
+					const glm::vec3 normal =
+						CubeFaceDirection(face, ((float)x + 0.5f) * inverse,
+												((float)y + 0.5f) * inverse);
+
+					// A frame around the normal. Any tangent will do -- the
+					// integral is rotationally symmetric about the normal --
+					// as long as it is not parallel to it.
+					glm::vec3 up = std::fabs(normal.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f)
+															   : glm::vec3(0.0f, 1.0f, 0.0f);
+					const glm::vec3 right = glm::normalize(glm::cross(up, normal));
+					up = glm::cross(normal, right);
+
+					glm::vec3 sum(0.0f);
+					float weight = 0.0f;
+
+					// Riemann sum over the hemisphere in spherical coordinates.
+					// sin(theta) is the area of the ring being sampled and
+					// cos(theta) is Lambert's law; the two together are what
+					// make this irradiance rather than an average.
+					for (float phi = 0.0f; phi < glm::two_pi<float>(); phi += deltaPhi)
+					{
+						for (float theta = 0.0f; theta < glm::half_pi<float>(); theta += deltaTheta)
+						{
+							const float sinTheta = std::sin(theta);
+							const float cosTheta = std::cos(theta);
+
+							const glm::vec3 tangentSample(sinTheta * std::cos(phi),
+														  sinTheta * std::sin(phi),
+														  cosTheta);
+
+							const glm::vec3 direction = right * tangentSample.x +
+														up * tangentSample.y +
+														normal * tangentSample.z;
+
+							sum += SampleCube(source, direction) * cosTheta * sinTheta;
+							weight += cosTheta * sinTheta;
+						}
+					}
+
+					// Normalised by the weights rather than by pi times the
+					// sample count: the loops step in fixed increments and do
+					// not land exactly on the hemisphere's edge, so the exact
+					// count is not what was actually summed.
+					const glm::vec3 irradiance = weight > 0.0f ? sum / weight : glm::vec3(0.0f);
+
+					float* texel = output + ((size_t)y * faceSize + x) * 4;
+					texel[0] = irradiance.r;
+					texel[1] = irradiance.g;
+					texel[2] = irradiance.b;
+					texel[3] = 1.0f;
+				}
+			}
+		}
+
+		return result;
+	}
+
 	CubeFaces EquirectangularToCube(const float* pixels, uint32_t width, uint32_t height,
 									uint32_t faceSize)
 	{

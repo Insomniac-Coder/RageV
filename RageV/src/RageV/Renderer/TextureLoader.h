@@ -41,6 +41,16 @@ namespace RageV
 												  const std::string& path,
 												  uint32_t faceSize = kDefaultFaceSize);
 
+		// The diffuse irradiance of the same environment map, convolved while
+		// its faces are still in memory and cached in their place.
+		//
+		// Computed during LoadCube rather than on demand, because the input is
+		// 25 MB of float faces and the output is 6 KB: keeping the answer and
+		// throwing away the question is the whole trade.
+		static RHI::Ref<RHI::RHITexture> LoadIrradiance(RHI::RHIDevice& device,
+														const std::string& path,
+														uint32_t faceSize = kDefaultFaceSize);
+
 		// Uploads faces that are already in memory. Separate from LoadCube so
 		// the conversion can be tested without a file and a cube can be built
 		// from something other than an image.

@@ -11,6 +11,7 @@ namespace RageV
 	{
 		std::unordered_map<std::string, Ref<RHITexture>> s_Cache;
 		std::unordered_map<std::string, Ref<RHITexture>> s_CubeCache;
+		std::unordered_map<std::string, Ref<RHITexture>> s_IrradianceCache;
 		Ref<RHITexture> s_White;
 		Ref<RHITexture> s_Black;
 		Ref<RHITexture> s_FlatNormal;
@@ -22,6 +23,10 @@ namespace RageV
 		{
 			"_px", "_nx", "_py", "_ny", "_pz", "_nz"
 		};
+
+		// The integral of a whole hemisphere has no detail worth resolving, so
+		// this is as small as it is useful to be. 16 a side is six 1 KB faces.
+		constexpr uint32_t kIrradianceSize = 16;
 
 		uint16_t FloatToHalf(float value)
 		{
@@ -232,10 +237,34 @@ namespace RageV
 		if (!texture)
 			return nullptr;
 
+		// Convolved now, while the faces are in hand. Doing it later would mean
+		// keeping 25 MB of float faces resident against the chance that
+		// something asks.
+		const CubeFaces irradiance = IrradianceFromCube(faces, kIrradianceSize);
+		s_IrradianceCache[key] = CreateCube(device, irradiance, path + " (irradiance)");
+
 		s_CubeCache[key] = texture;
 		RV_CORE_INFO("Loaded environment map {0} ({1} per face, {2})", path, faces.Size,
 					 suffixIndex >= 0 ? "six files" : "equirectangular");
 		return texture;
+	}
+
+	Ref<RHITexture> TextureLoader::LoadIrradiance(RHIDevice& device, const std::string& path,
+												  uint32_t faceSize)
+	{
+		if (path.empty() || faceSize == 0)
+			return nullptr;
+
+		const std::string key = path + "|cube" + std::to_string(faceSize);
+		if (const auto it = s_IrradianceCache.find(key); it != s_IrradianceCache.end())
+			return it->second;
+
+		// Not loaded yet, or loaded before this existed. LoadCube fills both.
+		if (!LoadCube(device, path, faceSize))
+			return nullptr;
+
+		const auto it = s_IrradianceCache.find(key);
+		return it != s_IrradianceCache.end() ? it->second : nullptr;
 	}
 
 	Ref<RHITexture> TextureLoader::BlackCube(RHIDevice& device)
@@ -282,6 +311,7 @@ namespace RageV
 		// Must run before the device is destroyed; these hold GPU images.
 		s_Cache.clear();
 		s_CubeCache.clear();
+		s_IrradianceCache.clear();
 		s_White.reset();
 		s_Black.reset();
 		s_FlatNormal.reset();

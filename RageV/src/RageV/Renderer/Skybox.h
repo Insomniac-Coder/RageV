@@ -51,6 +51,13 @@ namespace RageV
 		static RHI::Ref<RHI::RHITexture> ResolveEnvironment(const SceneEnvironment& environment,
 															const RHI::Ref<RHI::RHITexture>& cubemap);
 
+		// The diffuse half: how much light arrives at a surface facing each
+		// direction. A gradient sky is convolved the same way an environment
+		// map is, so a scene lit by the default sky is still lit from above
+		// rather than by one flat colour.
+		static RHI::Ref<RHI::RHITexture> ResolveIrradiance(const SceneEnvironment& environment,
+														   const RHI::Ref<RHI::RHITexture>& irradiance);
+
 		// The matrix the shader uses: clip space to a world direction, camera
 		// translation removed and the sky's rotation folded in. Exposed so the
 		// test suite can check the reconstruction against known directions

@@ -110,6 +110,7 @@ layout(set = 0, binding = 0) uniform SceneData
 } u_Scene;
 
 layout(set = 0, binding = 1) uniform samplerCube u_Environment;
+layout(set = 0, binding = 5) uniform samplerCube u_Irradiance;
 
 // Comparison samplers: the hardware compares against the reference and filters
 // the answers, which is a 2x2 percentage-closer filter for one fetch. Four
@@ -478,11 +479,23 @@ void main()
 	// roughness the way a real environment does -- but it is driven by the
 	// scene now rather than by two constants buried in this file, and it is
 	// what IBL will fall back to when a scene has no environment map.
+	// Diffuse image-based lighting: how much light actually arrives at a
+	// surface facing this way, rather than one number for every direction.
+	//
+	// The flat ambient is still added, and is now a floor rather than the whole
+	// answer -- it is what a scene with no sky at all is lit by, and what keeps
+	// the inside of an unlit room from being pure black. The irradiance cube
+	// carries the part that varies: the sky side of an object is lit by sky and
+	// the ground side by ground, which is most of what makes a scene look like
+	// it is somewhere.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
+	vec3 irradiance = textureLod(u_Irradiance, RotateIntoSky(N), 0.0).rgb *
+					  u_Scene.Environment.x;
+
 	float NdotV = max(dot(N, V), 0.0);
 	vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
 	vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-	vec3 ambient = kD * albedo * ambientLight * occlusion;
+	vec3 ambient = kD * albedo * (ambientLight + irradiance) * occlusion;
 
 	// The environment, reflected. Roughness selects a mip rather than driving
 	// a real GGX convolution -- the chain is box filtered, so this is an

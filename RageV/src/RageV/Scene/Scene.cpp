@@ -951,12 +951,17 @@ namespace RageV
 		// surfaces and the background, so a mirror cannot disagree with what is
 		// behind it.
 		RHI::Ref<RHI::RHITexture> sky;
+		RHI::Ref<RHI::RHITexture> irradiance;
 		if (Renderer::HasDevice())
 		{
 			if (m_Environment.Sky == SkyType::Cubemap)
+			{
 				sky = AssetManager::GetCubemap(m_Environment.SkyTexture);
+				irradiance = AssetManager::GetIrradiance(m_Environment.SkyTexture);
+			}
 
 			sky = Skybox::ResolveEnvironment(m_Environment, sky);
+			irradiance = Skybox::ResolveIrradiance(m_Environment, irradiance);
 		}
 
 		// The sky still draws the sky; only the surfaces reflect the probe.
@@ -970,7 +975,8 @@ namespace RageV
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
 		{
-			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment, environment);
+			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment,
+								   environment, irradiance);
 
 			for (auto& item : meshView)
 			{

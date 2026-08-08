@@ -31,6 +31,9 @@ namespace RageV
 		// sixty times a second.
 		static RHI::Ref<RHI::RHITexture> GetCubemap(AssetHandle handle);
 
+		// Its diffuse irradiance, convolved when the map was loaded.
+		static RHI::Ref<RHI::RHITexture> GetIrradiance(AssetHandle handle);
+
 		// The primitives, registered as virtual assets at Init.
 		static AssetHandle GetPrimitiveHandle(PrimitiveType type);
 		static bool IsPrimitive(AssetHandle handle, PrimitiveType& out);
