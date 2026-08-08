@@ -3,6 +3,7 @@
 #include "Cameranew.h"
 #include "Light.h"
 #include "Mesh.h"
+#include "Material.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
 
 namespace RageV
@@ -13,8 +14,6 @@ namespace RageV
 	class Renderer3D
 	{
 	public:
-		using LightData = std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>>;
-
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
 
@@ -22,10 +21,14 @@ namespace RageV
 		static void SetWireframe(bool enabled);
 
 		static void BeginScene(const Cameranew& camera, const glm::mat4& cameraTransform,
-							   const LightData& lightData = {});
+							   const LightList& lights = {});
 		static void EndScene();
 
-		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform, const glm::vec4& color);
+		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,
+							 const RHI::Ref<Material>& material);
+
+		// Shared by every mesh that has no material of its own.
+		static RHI::Ref<Material> GetDefaultMaterial();
 
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetTriangleCount();

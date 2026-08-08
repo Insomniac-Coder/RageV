@@ -2,6 +2,8 @@
 #include "Renderer3D.h"
 #include "Renderer.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
+#include "TextureLoader.h"
+#include <glm/gtc/constants.hpp>
 
 namespace RageV
 {
@@ -11,25 +13,30 @@ namespace RageV
 	{
 		constexpr unsigned int kMaxLights = 8;   // must match mesh.rvshader
 
-		// Mirrors the std140 SceneData block in mesh.rvshader.
+		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
 		{
 			glm::mat4 ViewProjection;
 			glm::vec4 CameraPosition;
+			// xyz = position, w = 0 for directional
 			glm::vec4 LightPositions[kMaxLights];
+			// xyz = forward axis, for directional travel and spot cones
+			glm::vec4 LightDirections[kMaxLights];
+			// rgb = colour, a = intensity
 			glm::vec4 LightColors[kMaxLights];
+			// x = range, y = cos(inner cone), z = cos(outer cone)
+			glm::vec4 LightParams[kMaxLights];
 			int32_t   LightCount;
 			int32_t   _padding[3];
 		};
 
-		// Mirrors the push_constant block. 80 bytes, inside Vulkan's guaranteed
-		// 128-byte minimum.
+		// Just the model matrix now: base colour moved into the material, which
+		// is where every other surface parameter lives.
 		struct ObjectPushConstants
 		{
 			glm::mat4 Model;
-			glm::vec4 BaseColor;
 		};
-		static_assert(sizeof(ObjectPushConstants) == 80, "Push constant block must stay within 128 bytes");
+		static_assert(sizeof(ObjectPushConstants) == 64, "Push constant block must stay within 128 bytes");
 
 		struct Renderer3DData
 		{
@@ -46,6 +53,7 @@ namespace RageV
 			// a single buffer would be overwritten while the GPU still read it.
 			std::vector<Ref<RHIBuffer>>      SceneBuffers;
 			std::vector<Ref<RHIResourceSet>> SceneSets;
+			Ref<Material> DefaultMaterial;
 
 			SceneUniforms Scene{};
 			bool SceneActive = false;
@@ -63,10 +71,10 @@ namespace RageV
 		s_Data->Device = &device;
 
 		ShaderCompiler::Init();
-		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/mesh.rvshader");
+		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader");
 		if (!compiled)
 		{
-			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/mesh.rvshader");
+			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr.rvshader");
 			return;
 		}
 		s_Data->Shader = device.CreateShader(*compiled);
@@ -83,13 +91,21 @@ namespace RageV
 			s_Data->SceneBuffers[i] = device.CreateBuffer(desc);
 		}
 
-		RV_CORE_INFO("Renderer3D ready");
+		s_Data->DefaultMaterial = Material::CreateDefault(device);
+
+		RV_CORE_INFO("Renderer3D ready (Cook-Torrance PBR)");
 	}
 
 	void Renderer3D::Shutdown()
 	{
 		Mesh::ClearCache();
+		TextureLoader::ClearCache();
 		s_Data.reset();
+	}
+
+	Ref<Material> Renderer3D::GetDefaultMaterial()
+	{
+		return s_Data ? s_Data->DefaultMaterial : nullptr;
 	}
 
 	void Renderer3D::SetTargetFormats(Format color, Format depth)
@@ -118,7 +134,7 @@ namespace RageV
 			return;
 
 		GraphicsPipelineDesc desc;
-		desc.Name = "Renderer3D.mesh";
+		desc.Name = "Renderer3D.pbr";
 		desc.Shader = s_Data->Shader;
 		desc.Topology = PrimitiveTopology::TriangleList;
 		// Primitives are generated counter-clockwise when viewed from outside.
@@ -141,7 +157,7 @@ namespace RageV
 	}
 
 	void Renderer3D::BeginScene(const Cameranew& camera, const glm::mat4& cameraTransform,
-								const LightData& lightData)
+								const LightList& lights)
 	{
 		if (!s_Data)
 			return;
@@ -153,17 +169,25 @@ namespace RageV
 		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(cameraTransform);
 		s_Data->Scene.CameraPosition = glm::vec4(glm::vec3(cameraTransform[3]), 1.0f);
 
-		const int lightCount = (int)std::min<size_t>(lightData.size(), kMaxLights);
+		const int lightCount = (int)std::min<size_t>(lights.size(), kMaxLights);
 		for (int i = 0; i < lightCount; i++)
 		{
-			const glm::vec3& position = std::get<0>(lightData[i]);
-			const glm::vec3& color = std::get<1>(lightData[i]);
-			const Light::LightType type = std::get<2>(lightData[i]);
+			const LightRenderData& light = lights[i];
+			const bool directional = light.Type == Light::LightType::Directional;
 
-			// w distinguishes the two cases for the shader: 0 means the xyz is a
-			// direction and distance attenuation does not apply.
-			s_Data->Scene.LightPositions[i] = glm::vec4(position, type == Light::LightType::Directional ? 0.0f : 1.0f);
-			s_Data->Scene.LightColors[i] = glm::vec4(color, 1.0f);
+			// w == 0 tells the shader distance attenuation does not apply.
+			s_Data->Scene.LightPositions[i] = glm::vec4(light.Position, directional ? 0.0f : 1.0f);
+			s_Data->Scene.LightDirections[i] = glm::vec4(light.Direction, 0.0f);
+			s_Data->Scene.LightColors[i] = glm::vec4(light.Color, light.Intensity);
+
+			// Cones are compared as cosines in the shader, so convert once here
+			// rather than per fragment. Equal angles disable the cone test.
+			const float inner = light.Type == Light::LightType::Spot
+							  ? std::cos(glm::radians(light.InnerCone)) : 1.0f;
+			const float outer = light.Type == Light::LightType::Spot
+							  ? std::cos(glm::radians(light.OuterCone)) : 1.0f;
+
+			s_Data->Scene.LightParams[i] = { std::max(light.Range, 0.0001f), inner, outer, 0.0f };
 		}
 		s_Data->Scene.LightCount = lightCount;
 
@@ -194,7 +218,8 @@ namespace RageV
 			s_Data->SceneActive = false;
 	}
 
-	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const glm::vec4& color)
+	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& transform,
+							  const Ref<Material>& material)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
@@ -203,11 +228,14 @@ namespace RageV
 		if (!cmd)
 			return;
 
+		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
+		if (effective)
+			effective->Bind(*cmd, s_Data->Pipeline, 1);
+
 		ObjectPushConstants object;
 		object.Model = transform;
-		object.BaseColor = color;
 
-		cmd->PushConstants(ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(object), &object);
+		cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
 		cmd->BindVertexBuffer(0, mesh->GetVertexBuffer());
 		cmd->BindIndexBuffer(mesh->GetIndexBuffer(), IndexType::UInt32);
 		cmd->DrawIndexed(mesh->GetIndexCount());

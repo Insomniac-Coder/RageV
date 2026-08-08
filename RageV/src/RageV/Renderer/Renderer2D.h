@@ -11,8 +11,6 @@ namespace RageV
 	// Vulkan; the backend is chosen once at startup by EngineConfig.
 	class Renderer2D {
 	public:
-		using LightData = std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>>;
-
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
 
@@ -26,7 +24,7 @@ namespace RageV
 		static bool IsWireframe();
 
 		static void BeginScene(const OrthographicCamera& camera);
-		static void BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightData& lightData = {});
+		static void BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightList& lights = {});
 		static void EndScene();
 
 		static void DrawQuad(const glm::mat4& transform, const glm::vec4& color);

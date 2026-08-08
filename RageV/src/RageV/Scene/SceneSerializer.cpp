@@ -2,6 +2,7 @@
 #include "SceneSerializer.h"
 #include <fstream>
 #include "Components.h"
+#include "RageV/Renderer/Renderer.h"
 
 namespace YAML
 {
@@ -172,7 +173,20 @@ namespace RageV
 			// By name, not by index: reordering the enum should not silently
 			// turn every saved cube into a sphere.
 			emitter << YAML::Key << "Primitive" << YAML::Value << PrimitiveTypeName(mesh.Primitive);
-			emitter << YAML::Key << "Color" << YAML::Value << mesh.Color;
+
+			if (mesh.Material)
+			{
+				const auto& params = mesh.Material->GetParams();
+				emitter << YAML::Key << "Material";
+				emitter << YAML::BeginMap;
+				emitter << YAML::Key << "BaseColor" << YAML::Value << params.BaseColor;
+				emitter << YAML::Key << "Emissive" << YAML::Value << params.EmissiveColor;
+				emitter << YAML::Key << "Metallic" << YAML::Value << params.Metallic;
+				emitter << YAML::Key << "Roughness" << YAML::Value << params.Roughness;
+				emitter << YAML::Key << "Occlusion" << YAML::Value << params.Occlusion;
+				emitter << YAML::EndMap;
+			}
+
 			emitter << YAML::EndMap;
 		}
 
@@ -185,6 +199,10 @@ namespace RageV
 			emitter << YAML::BeginMap;
 			emitter << YAML::Key << "Type" << YAML::Value << (int)light.Light.GetLightType();
 			emitter << YAML::Key << "Color" << YAML::Value << light.Light.GetLightColor();
+			emitter << YAML::Key << "Intensity" << YAML::Value << light.Light.GetIntensity();
+			emitter << YAML::Key << "Range" << YAML::Value << light.Light.GetRange();
+			emitter << YAML::Key << "InnerCone" << YAML::Value << light.Light.GetInnerCone();
+			emitter << YAML::Key << "OuterCone" << YAML::Value << light.Light.GetOuterCone();
 			emitter << YAML::EndMap;
 		}
 
@@ -263,7 +281,18 @@ namespace RageV
 					PrimitiveType primitive = PrimitiveType::Cube;
 					if (PrimitiveTypeFromName(mesh["Primitive"].as<std::string>(), primitive))
 						mc.Primitive = primitive;
-					mc.Color = mesh["Color"].as<glm::vec4>();
+
+					if (auto material = mesh["Material"]; material && Renderer::HasDevice())
+					{
+						mc.Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
+						auto& params = mc.Material->GetParams();
+						params.BaseColor = material["BaseColor"].as<glm::vec4>();
+						params.EmissiveColor = material["Emissive"].as<glm::vec4>();
+						params.Metallic = material["Metallic"].as<float>();
+						params.Roughness = material["Roughness"].as<float>();
+						params.Occlusion = material["Occlusion"].as<float>();
+						mc.Material->Invalidate();
+					}
 				}
 
 				auto light = entity["LightComponent"];
@@ -272,6 +301,11 @@ namespace RageV
 					auto& lc = newEntity.AddComponent<LightComponent>();
 					lc.Light.SetLightType((Light::LightType)light["Type"].as<int>());
 					lc.Light.GetLightColor() = light["Color"].as<glm::vec3>();
+					// Optional: scenes saved before these existed still load.
+					if (light["Intensity"]) lc.Light.SetIntensity(light["Intensity"].as<float>());
+					if (light["Range"])     lc.Light.SetRange(light["Range"].as<float>());
+					if (light["InnerCone"]) lc.Light.SetInnerCone(light["InnerCone"].as<float>());
+					if (light["OuterCone"]) lc.Light.SetOuterCone(light["OuterCone"].as<float>());
 				}
 			}
 		}

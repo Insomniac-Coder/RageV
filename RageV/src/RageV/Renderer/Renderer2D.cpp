@@ -263,7 +263,7 @@ namespace RageV
 		s_Data->Scene.LightCount = 0;
 	}
 
-	void Renderer2D::BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightData& lightData)
+	void Renderer2D::BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightList& lights)
 	{
 		if (!s_Data)
 			return;
@@ -275,11 +275,13 @@ namespace RageV
 		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(transform);
 		s_Data->Scene.CameraPosition = glm::vec4(glm::vec3(transform[3]), 1.0f);
 
-		const int lightCount = (int)std::min<size_t>(lightData.size(), kMaxLights);
+		const int lightCount = (int)std::min<size_t>(lights.size(), kMaxLights);
 		for (int i = 0; i < lightCount; i++)
 		{
-			s_Data->Scene.LightPositions[i] = glm::vec4(std::get<0>(lightData[i]), 1.0f);
-			s_Data->Scene.LightColors[i] = glm::vec4(std::get<1>(lightData[i]), 1.0f);
+			// The quad shader has no attenuation model, so intensity is folded
+			// into the colour rather than carried separately.
+			s_Data->Scene.LightPositions[i] = glm::vec4(lights[i].Position, 1.0f);
+			s_Data->Scene.LightColors[i] = glm::vec4(lights[i].Color * lights[i].Intensity, 1.0f);
 		}
 		s_Data->Scene.LightCount = lightCount;
 	}

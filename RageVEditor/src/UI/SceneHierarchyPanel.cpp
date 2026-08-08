@@ -328,6 +328,33 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			}
 			ImGui::Columns(1);
 			ImGui::PopStyleVar();
+
+			ImGui::SeparatorText("Intensity");
+			float intensity = component.Light.GetIntensity();
+			// Positional lights fall off with inverse square, so useful values
+			// run into the hundreds; a 0-1 slider would be useless for them.
+			const bool positional = component.Light.GetLightType() != Light::LightType::Directional;
+			if (ImGui::DragFloat("Intensity", &intensity, positional ? 1.0f : 0.05f, 0.0f,
+								 positional ? 1000.0f : 20.0f))
+				component.Light.SetIntensity(std::max(intensity, 0.0f));
+
+			if (positional)
+			{
+				float range = component.Light.GetRange();
+				if (ImGui::DragFloat("Range", &range, 0.25f, 0.01f, 500.0f))
+					component.Light.SetRange(std::max(range, 0.01f));
+			}
+
+			if (component.Light.GetLightType() == Light::LightType::Spot)
+			{
+				float inner = component.Light.GetInnerCone();
+				float outer = component.Light.GetOuterCone();
+				if (ImGui::SliderFloat("Inner Cone", &inner, 0.0f, 89.0f))
+					component.Light.SetInnerCone(std::min(inner, component.Light.GetOuterCone()));
+				if (ImGui::SliderFloat("Outer Cone", &outer, 0.0f, 89.0f))
+					component.Light.SetOuterCone(std::max(outer, component.Light.GetInnerCone()));
+			}
+
 			ImGui::PopID();
 			ImGui::Spacing();
 		}
@@ -363,15 +390,41 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			ImGui::Columns(1);
 			ImGui::PopStyleVar();
 
-			ImGui::Columns(2);
-			ImGui::SetColumnWidth(0, 150.f);
-			ImGui::Text("Base Colour");
-			ImGui::NextColumn();
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-			ImGui::ColorEdit4("##MeshColor", glm::value_ptr(component.Color));
-			ImGui::Columns(1);
-			ImGui::PopStyleVar();
 			ImGui::PopID();
+
+			if (!component.Material)
+			{
+				ImGui::TextDisabled("Using the shared default material.");
+				if (ImGui::Button("Create Material", ImVec2(-1.0f, 0.0f)) && Renderer::HasDevice())
+					component.Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
+			}
+			else
+			{
+				auto& params = component.Material->GetParams();
+				bool changed = false;
+
+				ImGui::SeparatorText("Material");
+				changed |= ImGui::ColorEdit4("Base Colour", glm::value_ptr(params.BaseColor));
+				changed |= ImGui::SliderFloat("Metallic", &params.Metallic, 0.0f, 1.0f);
+				changed |= ImGui::SliderFloat("Roughness", &params.Roughness, 0.0f, 1.0f);
+				changed |= ImGui::SliderFloat("Occlusion", &params.Occlusion, 0.0f, 1.0f);
+				changed |= ImGui::ColorEdit3("Emissive", glm::value_ptr(params.EmissiveColor));
+
+				// Metals have no diffuse response, so a half-metallic surface is
+				// not physical -- it is almost always an authoring mistake.
+				if (params.Metallic > 0.05f && params.Metallic < 0.95f)
+				{
+					ImGui::TextColored(EditorTheme::Color::AccentHover, "Partially metallic");
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Real materials are either metal or not. Intermediate "
+										  "values only make sense where a texture blends between "
+										  "the two across a surface.");
+				}
+
+				if (changed)
+					component.Material->Invalidate();
+			}
+
 			ImGui::Spacing();
 		}
 	);

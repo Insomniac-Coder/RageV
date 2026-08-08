@@ -253,8 +253,25 @@ namespace RageV::Vk
 	void VulkanCommandList::PushConstants(RHI::ShaderStage stages, uint32_t offset, uint32_t size, const void* data)
 	{
 		RV_CORE_ASSERT(m_BoundPipeline, "PushConstants requires a bound pipeline");
+
+		// The spec requires stageFlags to include every stage of every range
+		// that overlaps these bytes, so the shader's own declaration decides
+		// this rather than the caller. Passing a narrower mask than the shader
+		// declares is a validation error that is easy to write and easy to
+		// miss, since it does not necessarily misbehave.
+		RHI::ShaderStage effective = RHI::ShaderStage::None;
+		for (const auto& range : m_BoundPipeline->GetReflection().PushConstants)
+		{
+			const uint32_t rangeEnd = range.Offset + range.Size;
+			if (offset < rangeEnd && range.Offset < offset + size)
+				effective = effective | range.Stages;
+		}
+
+		if (effective == RHI::ShaderStage::None)
+			effective = stages;   // no reflected range; trust the caller
+
 		vkCmdPushConstants(m_CommandBuffer, m_BoundPipeline->GetLayout(),
-						   ToVkShaderStages(stages), offset, size, data);
+						   ToVkShaderStages(effective), offset, size, data);
 	}
 
 	void VulkanCommandList::Draw(uint32_t vertexCount, uint32_t instanceCount,

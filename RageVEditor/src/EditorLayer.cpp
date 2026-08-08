@@ -101,7 +101,10 @@ Entity EditorLayer::CreateQuad()
 Entity EditorLayer::CreateMesh(PrimitiveType primitive)
 {
 	Entity entity = CreateEmpty(PrimitiveTypeName(primitive));
-	entity.AddComponent<MeshComponent>(primitive);
+	auto& mesh = entity.AddComponent<MeshComponent>(primitive);
+	// Its own material rather than the shared default, so editing one object's
+	// surface does not change every other object using the default.
+	mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), PrimitiveTypeName(primitive));
 	return entity;
 }
 
@@ -450,12 +453,11 @@ void EditorLayer::DrawRenderSettingsPanel()
 						  "render targets, comparison samplers, slope-scaled depth bias,\n"
 						  "cubemap and array textures -- but no shadow pass exists.");
 
-	bool pbr = false;
-	ImGui::BeginDisabled();
-	ImGui::Checkbox("PBR shading", &pbr);
-	ImGui::EndDisabled();
-	if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-		ImGui::SetTooltip("Not implemented yet.\n\nquad.rvshader is still Blinn-Phong.");
+	ImGui::TextDisabled("Shading: Cook-Torrance PBR");
+	HelpMarker("Meshes use pbr.rvshader with the metallic-roughness parameterisation. "
+			   "Image-based lighting is not in yet, so the ambient term is a flat "
+			   "approximation, and tone mapping runs in the shader rather than as a "
+			   "dedicated pass over an HDR target.");
 
 	ImGui::End();
 }
@@ -673,46 +675,75 @@ void EditorLayer::LoadDemoScene()
 		transform.Rotation = glm::radians(glm::vec3(-12.0f, 0.0f, 0.0f));
 	}
 
-	auto place = [&](PrimitiveType primitive, const glm::vec3& position,
-					 const glm::vec3& scale, const glm::vec4& color, const char* name)
+	auto place = [&](PrimitiveType primitive, const glm::vec3& position, const glm::vec3& scale,
+					 const glm::vec4& color, float metallic, float roughness, const char* name)
 	{
 		Entity entity = m_Scene->CreateEntity(name);
 		auto& mesh = entity.AddComponent<MeshComponent>(primitive);
-		mesh.Color = color;
+
+		mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), name);
+		auto& params = mesh.Material->GetParams();
+		params.BaseColor = color;
+		params.Metallic = metallic;
+		params.Roughness = roughness;
+
 		auto& transform = entity.GetComponent<TransformComponent>();
 		transform.Position = position;
 		transform.Scale = scale;
 		return entity;
 	};
 
+	// Spread across the metallic and roughness axes: a scene where everything
+	// shares one surface tells you nothing about whether the BRDF is right.
 	place(PrimitiveType::Plane, { 0.0f, -1.0f, 0.0f }, { 20.0f, 1.0f, 20.0f },
-		  { 0.16f, 0.16f, 0.18f, 1.0f }, "Ground");
+		  { 0.14f, 0.14f, 0.16f, 1.0f }, 0.0f, 0.85f, "Ground");
 
-	place(PrimitiveType::Cube,     { -3.0f, 0.0f,  0.0f }, glm::vec3(1.5f),
-		  { 0.85f, 0.17f, 0.19f, 1.0f }, "Cube");
-	place(PrimitiveType::Sphere,   {  0.0f, 0.1f,  0.0f }, glm::vec3(1.8f),
-		  { 0.80f, 0.80f, 0.84f, 1.0f }, "Sphere");
-	place(PrimitiveType::Cylinder, {  3.0f, 0.0f,  0.0f }, glm::vec3(1.4f),
-		  { 0.30f, 0.32f, 0.38f, 1.0f }, "Cylinder");
+	place(PrimitiveType::Cube,     { -3.0f, 0.0f, 0.0f }, glm::vec3(1.5f),
+		  { 0.85f, 0.17f, 0.19f, 1.0f }, 0.0f, 0.35f, "Cube (dielectric)");
+	place(PrimitiveType::Sphere,   {  0.0f, 0.1f, 0.0f }, glm::vec3(1.8f),
+		  { 0.94f, 0.78f, 0.38f, 1.0f }, 1.0f, 0.20f, "Sphere (gold)");
+	place(PrimitiveType::Cylinder, {  3.0f, 0.0f, 0.0f }, glm::vec3(1.4f),
+		  { 0.90f, 0.91f, 0.92f, 1.0f }, 1.0f, 0.45f, "Cylinder (brushed metal)");
 
-	// Smaller cubes behind, to give the depth buffer something to sort.
-	place(PrimitiveType::Cube, { -1.6f, -0.5f, -3.0f }, glm::vec3(0.8f),
-		  { 0.45f, 0.12f, 0.14f, 1.0f }, "Cube Small");
-	place(PrimitiveType::Cube, {  1.6f, -0.5f, -3.5f }, glm::vec3(0.8f),
-		  { 0.25f, 0.26f, 0.30f, 1.0f }, "Cube Small 2");
+	// A rough/smooth pair behind, to make the roughness axis visible directly.
+	place(PrimitiveType::Sphere, { -1.6f, -0.5f, -3.0f }, glm::vec3(0.9f),
+		  { 0.80f, 0.80f, 0.82f, 1.0f }, 0.0f, 0.08f, "Sphere (smooth)");
+	place(PrimitiveType::Sphere, {  1.6f, -0.5f, -3.5f }, glm::vec3(0.9f),
+		  { 0.80f, 0.80f, 0.82f, 1.0f }, 0.0f, 0.95f, "Sphere (rough)");
 
 	// A warm key light and a cool fill from the opposite side: a single white
 	// light flattens everything, which is what makes untextured primitives look
 	// like a debug view rather than a scene.
+	// Intensities are large because the falloff is inverse-square: a point
+	// light of intensity 1 is essentially invisible a few units away.
 	Entity key = m_Scene->CreateEntity("Key Light");
-	key.AddComponent<LightComponent>().Light.SetLightType(Light::LightType::Point);
-	key.GetComponent<LightComponent>().Light.GetLightColor() = { 1.0f, 0.85f, 0.7f };
-	key.GetComponent<TransformComponent>().Position = { 4.0f, 5.0f, 4.0f };
+	{
+		auto& light = key.AddComponent<LightComponent>().Light;
+		light.SetLightType(Light::LightType::Point);
+		light.GetLightColor() = { 1.0f, 0.87f, 0.72f };
+		light.SetIntensity(120.0f);
+		light.SetRange(30.0f);
+		key.GetComponent<TransformComponent>().Position = { 4.0f, 5.0f, 4.0f };
+	}
 
 	Entity fill = m_Scene->CreateEntity("Fill Light");
-	fill.AddComponent<LightComponent>().Light.SetLightType(Light::LightType::Point);
-	fill.GetComponent<LightComponent>().Light.GetLightColor() = { 0.35f, 0.45f, 0.75f };
-	fill.GetComponent<TransformComponent>().Position = { -5.0f, 3.0f, -2.0f };
+	{
+		auto& light = fill.AddComponent<LightComponent>().Light;
+		light.SetLightType(Light::LightType::Point);
+		light.GetLightColor() = { 0.38f, 0.50f, 0.85f };
+		light.SetIntensity(60.0f);
+		light.SetRange(30.0f);
+		fill.GetComponent<TransformComponent>().Position = { -5.0f, 3.0f, -2.0f };
+	}
+
+	Entity sun = m_Scene->CreateEntity("Sun");
+	{
+		auto& light = sun.AddComponent<LightComponent>().Light;
+		light.SetLightType(Light::LightType::Directional);
+		light.GetLightColor() = { 0.55f, 0.58f, 0.65f };
+		light.SetIntensity(1.2f);
+		sun.GetComponent<TransformComponent>().Rotation = glm::radians(glm::vec3(-55.0f, -30.0f, 0.0f));
+	}
 
 	m_SceneHierarchyPanel.SetSelectedEntity({});
 	RV_INFO("Demo scene loaded");

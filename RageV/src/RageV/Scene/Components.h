@@ -7,6 +7,7 @@
 #include "ScriptableEntity.h"
 #include "RageV/Renderer/Light.h"
 #include "RageV/Renderer/Mesh.h"
+#include "RageV/Renderer/Material.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
@@ -75,7 +76,8 @@ namespace RageV
 	struct MeshComponent
 	{
 		PrimitiveType Primitive = PrimitiveType::Cube;
-		glm::vec4 Color{ 0.78f, 0.78f, 0.80f, 1.0f };
+		// Null means the renderer's shared default material.
+		RHI::Ref<Material> Material;
 
 		MeshComponent() = default;
 		MeshComponent(const MeshComponent&) = default;

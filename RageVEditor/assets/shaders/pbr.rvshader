@@ -1,0 +1,283 @@
+// Cook-Torrance PBR with the metallic-roughness parameterisation glTF uses.
+//
+// No image-based lighting yet, so the ambient term is a flat approximation --
+// this is the piece that gets replaced once cubemaps and the irradiance /
+// prefiltered-specular chain exist. Tone mapping happens here rather than in a
+// separate pass because the render target is still LDR; a float target and a
+// dedicated tonemap pass is the next step up.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_TexCoord;
+
+const int MAX_LIGHTS = 8;
+
+layout(set = 0, binding = 0) uniform SceneData
+{
+	mat4 ViewProjection;
+	vec4 CameraPosition;
+	// xyz = position, w = 0 for directional (where position is unused)
+	vec4 LightPositions[MAX_LIGHTS];
+	// xyz = forward axis: the direction a directional light travels, and the
+	// cone axis of a spot. Independent of position, which is why it cannot be
+	// derived from it.
+	vec4 LightDirections[MAX_LIGHTS];
+	// rgb = colour, a = intensity
+	vec4 LightColors[MAX_LIGHTS];
+	// x = range, y = cos(inner cone), z = cos(outer cone)
+	vec4 LightParams[MAX_LIGHTS];
+	int  LightCount;
+} u_Scene;
+
+layout(push_constant) uniform ObjectData
+{
+	mat4 Model;
+} u_Object;
+
+layout(location = 0) out vec3 v_WorldPos;
+layout(location = 1) out vec3 v_Normal;
+layout(location = 2) out vec2 v_TexCoord;
+
+void main()
+{
+	vec4 world = u_Object.Model * vec4(a_Position, 1.0);
+
+	v_WorldPos = world.xyz;
+	// Non-uniform scale does not preserve normals under the model matrix.
+	v_Normal   = transpose(inverse(mat3(u_Object.Model))) * a_Normal;
+	v_TexCoord = a_TexCoord;
+
+	gl_Position = u_Scene.ViewProjection * world;
+}
+
+#type fragment
+#version 450 core
+
+const int MAX_LIGHTS = 8;
+const float PI = 3.14159265359;
+
+const int MAP_BASE_COLOR         = 1 << 0;
+const int MAP_NORMAL             = 1 << 1;
+const int MAP_METALLIC_ROUGHNESS = 1 << 2;
+const int MAP_OCCLUSION          = 1 << 3;
+const int MAP_EMISSIVE           = 1 << 4;
+
+layout(set = 0, binding = 0) uniform SceneData
+{
+	mat4 ViewProjection;
+	vec4 CameraPosition;
+	vec4 LightPositions[MAX_LIGHTS];
+	vec4 LightDirections[MAX_LIGHTS];
+	vec4 LightColors[MAX_LIGHTS];
+	vec4 LightParams[MAX_LIGHTS];
+	int  LightCount;
+} u_Scene;
+
+layout(set = 1, binding = 0) uniform MaterialData
+{
+	vec4  BaseColor;
+	vec4  EmissiveColor;
+	float Metallic;
+	float Roughness;
+	float Occlusion;
+	float NormalScale;
+	int   MapFlags;
+} u_Material;
+
+layout(set = 1, binding = 1) uniform sampler2D u_BaseColorMap;
+layout(set = 1, binding = 2) uniform sampler2D u_NormalMap;
+layout(set = 1, binding = 3) uniform sampler2D u_MetallicRoughnessMap;
+layout(set = 1, binding = 4) uniform sampler2D u_OcclusionMap;
+layout(set = 1, binding = 5) uniform sampler2D u_EmissiveMap;
+
+layout(location = 0) in vec3 v_WorldPos;
+layout(location = 1) in vec3 v_Normal;
+layout(location = 2) in vec2 v_TexCoord;
+
+layout(location = 0) out vec4 o_Color;
+
+bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
+
+// Trowbridge-Reitz GGX: the microfacet distribution.
+float DistributionGGX(vec3 N, vec3 H, float roughness)
+{
+	// Squaring roughness makes the perceptual slider behave linearly, which is
+	// the convention glTF and every DCC tool assume.
+	float a  = roughness * roughness;
+	float a2 = a * a;
+	float NdotH = max(dot(N, H), 0.0);
+	float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+	return a2 / max(PI * denom * denom, 0.0001);
+}
+
+// Smith geometry term with the Schlick-GGX approximation.
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+	float r = roughness + 1.0;
+	float k = (r * r) / 8.0;   // direct lighting remapping
+	return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
+	return GeometrySchlickGGX(max(dot(N, V), 0.0), roughness) *
+		   GeometrySchlickGGX(max(dot(N, L), 0.0), roughness);
+}
+
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
+{
+	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
+{
+	vec3 F90 = max(vec3(1.0 - roughness), F0);
+	return F0 + (F90 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// Screen-space derivative TBN. Avoids needing tangents in the vertex format,
+// which means generated primitives and imported meshes work the same way.
+vec3 ApplyNormalMap(vec3 N, vec3 worldPos, vec2 uv)
+{
+	vec3 tangentNormal = texture(u_NormalMap, uv).xyz * 2.0 - 1.0;
+	tangentNormal.xy *= u_Material.NormalScale;
+
+	vec3 dp1 = dFdx(worldPos);
+	vec3 dp2 = dFdy(worldPos);
+	vec2 duv1 = dFdx(uv);
+	vec2 duv2 = dFdy(uv);
+
+	vec3 dp2perp = cross(dp2, N);
+	vec3 dp1perp = cross(N, dp1);
+	vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+	vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+
+	float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+	mat3 TBN = mat3(T * invmax, B * invmax, N);
+	return normalize(TBN * tangentNormal);
+}
+
+// ACES filmic approximation. Without tone mapping, any light brighter than 1.0
+// clips to white and the specular highlights that make PBR read as PBR are the
+// first thing lost.
+vec3 TonemapACES(vec3 x)
+{
+	const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+	return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+void main()
+{
+	vec4 baseColor = u_Material.BaseColor;
+	if (HasMap(MAP_BASE_COLOR))
+		baseColor *= texture(u_BaseColorMap, v_TexCoord);
+
+	vec3 albedo = baseColor.rgb;
+
+	float metallic  = u_Material.Metallic;
+	float roughness = u_Material.Roughness;
+	if (HasMap(MAP_METALLIC_ROUGHNESS))
+	{
+		// glTF packing: roughness in green, metallic in blue.
+		vec3 mr = texture(u_MetallicRoughnessMap, v_TexCoord).rgb;
+		roughness *= mr.g;
+		metallic  *= mr.b;
+	}
+	roughness = clamp(roughness, 0.045, 1.0);   // fully smooth aliases badly
+	metallic  = clamp(metallic, 0.0, 1.0);
+
+	float occlusion = u_Material.Occlusion;
+	if (HasMap(MAP_OCCLUSION))
+		occlusion *= texture(u_OcclusionMap, v_TexCoord).r;
+
+	vec3 N = normalize(v_Normal);
+	if (HasMap(MAP_NORMAL))
+		N = ApplyNormalMap(N, v_WorldPos, v_TexCoord);
+
+	vec3 V = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
+
+	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
+	// the reflectance and have no diffuse response at all.
+	vec3 F0 = mix(vec3(0.04), albedo, metallic);
+
+	vec3 Lo = vec3(0.0);
+
+	for (int i = 0; i < u_Scene.LightCount && i < MAX_LIGHTS; ++i)
+	{
+		vec3  lightColor = u_Scene.LightColors[i].rgb * u_Scene.LightColors[i].a;
+		float isPositional = u_Scene.LightPositions[i].w;
+
+		vec3  L;
+		float attenuation = 1.0;
+
+		if (isPositional == 0.0)
+		{
+			// Directional: L points towards the light, the opposite of travel.
+			L = normalize(-u_Scene.LightDirections[i].xyz);
+		}
+		else
+		{
+			vec3 toLight = u_Scene.LightPositions[i].xyz - v_WorldPos;
+			float distance = length(toLight);
+			L = toLight / max(distance, 0.0001);
+
+			// Inverse-square falloff, windowed so the light reaches zero at its
+			// range instead of trailing off forever.
+			float range = max(u_Scene.LightParams[i].x, 0.0001);
+			float ratio = clamp(1.0 - pow(distance / range, 4.0), 0.0, 1.0);
+			attenuation = (ratio * ratio) / max(distance * distance, 0.0001);
+
+			// Spot cone, when the inner and outer angles differ. Measured
+			// against the light's own axis, not against its position -- those
+			// only coincide when the light sits at the origin.
+			float cosInner = u_Scene.LightParams[i].y;
+			float cosOuter = u_Scene.LightParams[i].z;
+			if (cosOuter < cosInner)
+			{
+				float theta = dot(L, normalize(-u_Scene.LightDirections[i].xyz));
+				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+			}
+		}
+
+		vec3 H = normalize(V + L);
+		vec3 radiance = lightColor * attenuation;
+
+		float NDF = DistributionGGX(N, H, roughness);
+		float G   = GeometrySmith(N, V, L, roughness);
+		vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+		vec3 numerator = NDF * G * F;
+		float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+		vec3 specular = numerator / denominator;
+
+		// Energy conservation: what is not reflected is refracted, and metals
+		// refract nothing.
+		vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+
+		float NdotL = max(dot(N, L), 0.0);
+		Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+	}
+
+	// Placeholder ambient until IBL exists. A constant term is wrong -- it does
+	// not vary with view angle or roughness -- but it keeps unlit faces from
+	// going pure black.
+	vec3 F = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+	vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+	vec3 ambient = (kD * albedo * 0.06 + F * 0.02) * occlusion;
+
+	vec3 emissive = u_Material.EmissiveColor.rgb;
+	if (HasMap(MAP_EMISSIVE))
+		emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
+
+	vec3 color = ambient + Lo + emissive;
+
+	color = TonemapACES(color);
+	// The swapchain is UNORM rather than sRGB, so the transfer function is
+	// applied here instead of by the hardware.
+	color = pow(color, vec3(1.0 / 2.2));
+
+	o_Color = vec4(color, baseColor.a);
+}

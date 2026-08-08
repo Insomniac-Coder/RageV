@@ -97,13 +97,25 @@ namespace RageV
 			return;
 
 		auto group2 = m_Registry.view<TransformComponent, LightComponent>();
-		std::vector <std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData;
-		
+		LightList lights;
+
 		for (auto& item : group2)
 		{
 			auto [transform, light] = group2.get<TransformComponent, LightComponent>(item);
-		
-			lightData.push_back(std::make_tuple(glm::vec3(transform.GetTransform()[3]), light.Light.GetLightColor(), light.Light.GetLightType()));
+			const glm::mat4 worldTransform = transform.GetTransform();
+
+			LightRenderData data;
+			data.Position = glm::vec3(worldTransform[3]);
+			// A light's forward axis is -Z, matching the camera convention.
+			data.Direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+			data.Color = light.Light.GetLightColor();
+			data.Intensity = light.Light.GetIntensity();
+			data.Range = light.Light.GetRange();
+			data.InnerCone = light.Light.GetInnerCone();
+			data.OuterCone = light.Light.GetOuterCone();
+			data.Type = light.Light.GetLightType();
+
+			lights.push_back(data);
 		}
 
 
@@ -113,20 +125,20 @@ namespace RageV
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
 		{
-			Renderer3D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lightData);
+			Renderer3D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lights);
 
 			auto& device = Renderer::GetDevice();
 			for (auto& item : meshView)
 			{
 				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
 				Renderer3D::DrawMesh(Mesh::GetPrimitive(device, mesh.Primitive),
-									 transform.GetTransform(), mesh.Color);
+									 transform.GetTransform(), mesh.Material);
 			}
 
 			Renderer3D::EndScene();
 		}
 
-		Renderer2D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lightData);
+		Renderer2D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lights);
 
 		auto group = m_Registry.group<TransformComponent>(entt::get<ColorComponent>);
 
