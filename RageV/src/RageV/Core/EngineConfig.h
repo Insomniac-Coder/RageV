@@ -1,0 +1,54 @@
+#pragma once
+
+// Engine-wide startup settings, resolved once before the window exists and
+// immutable afterwards.
+//
+// The graphics backend is deliberately a restart-time choice rather than a
+// runtime toggle: the window itself is created differently per backend (Vulkan
+// needs GLFW_CLIENT_API=GLFW_NO_API before creation, OpenGL needs a context),
+// so switching live would mean tearing down and recreating the window, the
+// swapchain and every GPU resource. A flag plus a restart is the honest
+// version of that.
+//
+// Resolution order, later wins:
+//   1. built-in defaults
+//   2. ragev.ini next to the executable
+//   3. command line
+//
+// Command line:
+//   --rhi=vulkan|opengl     graphics backend
+//   --vsync=on|off
+//   --validation=on|off     Vulkan validation layers (no effect without the SDK)
+//   --frames-in-flight=N
+
+#include "RageV/Renderer/RHI/RHITypes.h"
+#include <string>
+#include <filesystem>
+
+namespace RageV
+{
+	struct EngineConfig
+	{
+		RHI::Backend Backend        = RHI::Backend::OpenGL;
+		bool         VSync          = true;
+		uint32_t     FramesInFlight = 2;
+#ifdef RV_DEBUG
+		bool         EnableValidation = true;
+#else
+		bool         EnableValidation = false;
+#endif
+
+		// Parses ragev.ini (if present) then the command line. Call once, before
+		// anything creates a window.
+		static void Init(int argc, char** argv);
+
+		static const EngineConfig& Get();
+
+		static const char* BackendName(RHI::Backend backend);
+
+	private:
+		static bool ApplyKeyValue(EngineConfig& config, std::string key, std::string value);
+		static void LoadFile(EngineConfig& config, const std::filesystem::path& path);
+		static void LoadCommandLine(EngineConfig& config, int argc, char** argv);
+	};
+}

@@ -24,6 +24,9 @@ namespace RageV {
 		virtual void DrawIndexed(const std::shared_ptr<VertexArray>& vertexArray, const unsigned int& count) = 0;
 		virtual void Init() = 0;
 		static API GetAPI() { return m_API; }
+		// Set once at startup by EngineConfig, before any window exists.
+		// Changing it later would leave the window created for the wrong API.
+		static void SetAPI(API api) { m_API = api; }
 	private:
 		static API m_API;
 	};

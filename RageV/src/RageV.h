@@ -3,6 +3,7 @@
 // For use by applications
 #include "RageV/Core/Log.h"
 #include "RageV/Core/Application.h"
+#include "RageV/Core/EngineConfig.h"
 
 //Layer stuff
 #include "RageV/Core/Layer.h"

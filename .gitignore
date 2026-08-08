@@ -14,3 +14,7 @@ CMakeCache.txt
 # Editor/sandbox stdout capture
 out.txt
 err.txt
+o1.txt
+o2.txt
+e1.txt
+e2.txt

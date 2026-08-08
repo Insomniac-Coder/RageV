@@ -16,6 +16,14 @@ add_custom_command(TARGET RageVEditor POST_BUILD
         "$<TARGET_FILE_DIR:RageVEditor>/assets"
     COMMENT "Staging RageVEditor assets")
 
+# copy_if_different so a backend switch made in the deployed ragev.ini is not
+# reverted by the next build.
+add_custom_command(TARGET RageVEditor POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/ragev.ini"
+        "$<TARGET_FILE_DIR:RageVEditor>/ragev.ini"
+    COMMENT "Staging RageVEditor config")
+
 # Each app gets its own directory. They ship different copies of assets/ and a
 # shared output directory let whichever built last overwrite the other's.
 set_target_properties(RageVEditor PROPERTIES
