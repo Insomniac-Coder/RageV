@@ -50,7 +50,7 @@ namespace RageV
 		entity.AddComponent<TransformComponent>();
 		TagComponent& tag = entity.AddComponent<TagComponent>();
 
-		tag.Name = name.empty() ? "GameObject" : name;
+		tag.Name = name.empty() ? "Entity" : name;
 		return entity;
 	}
 

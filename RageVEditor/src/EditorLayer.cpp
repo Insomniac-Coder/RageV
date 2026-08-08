@@ -80,7 +80,7 @@ void EditorLayer::OnAttach()
 }
 
 // -----------------------------------------------------------------------------
-// GameObject creation
+// Entity creation
 // -----------------------------------------------------------------------------
 Entity EditorLayer::CreateEmpty(const std::string& name)
 {
@@ -238,9 +238,9 @@ void EditorLayer::DrawMenuBar()
 		ImGui::EndMenu();
 	}
 
-	if (ImGui::BeginMenu("GameObject"))
+	if (ImGui::BeginMenu("Entity"))
 	{
-		if (ImGui::MenuItem("Create Empty")) CreateEmpty("GameObject");
+		if (ImGui::MenuItem("Create Empty", "Ctrl+Shift+N")) CreateEmpty("Entity");
 
 		if (ImGui::BeginMenu("2D Object"))
 		{
@@ -589,10 +589,16 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 		return false;
 
 	const bool control = Input::IsKeyPressed(RV_KEY_LEFT_CONTROL) || Input::IsKeyPressed(RV_KEY_RIGHT_CONTROL);
+	const bool shift = Input::IsKeyPressed(RV_KEY_LEFT_SHIFT) || Input::IsKeyPressed(RV_KEY_RIGHT_SHIFT);
 
 	switch (e.GetKeyCode())
 	{
-		case RV_KEY_N: if (control) { NewScene();  return true; } break;
+		case RV_KEY_N:
+		{
+			if (control && shift) { CreateEmpty("Entity"); return true; }
+			if (control)          { NewScene();            return true; }
+			break;
+		}
 		case RV_KEY_O: if (control) { OpenScene(); return true; } break;
 		case RV_KEY_S: if (control) { SaveScene(); return true; } break;
 

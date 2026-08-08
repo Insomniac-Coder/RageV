@@ -33,7 +33,7 @@ private:
 	void DrawAboutPopup();
 	void DrawGizmo();
 
-	// --- GameObject creation ------------------------------------------------
+	// --- Entity creation ----------------------------------------------------
 	RageV::Entity CreateEmpty(const std::string& name);
 	RageV::Entity CreateQuad();
 	RageV::Entity CreateLight(RageV::Light::LightType type);

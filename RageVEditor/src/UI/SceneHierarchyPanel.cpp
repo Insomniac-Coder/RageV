@@ -60,7 +60,7 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 
 		if (ImGui::BeginPopupContextItem())
 		{
-			if (ImGui::MenuItem("Delete GameOject"))
+			if (ImGui::MenuItem("Delete Entity"))
 				isDeleted = true;
 
 			ImGui::EndPopup();
@@ -85,7 +85,7 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 
 	if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 	{
-		if (ImGui::MenuItem("Create GameOject"))
+		if (ImGui::MenuItem("Create Entity"))
 			m_SceneRef->CreateEntity();
 
 		ImGui::EndPopup();
