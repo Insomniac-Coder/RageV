@@ -34,7 +34,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-453 checks, `exit 0`. Then look at a frame:
+461 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -437,9 +437,13 @@ or silence rather than an obvious failure.
   the copy silently moves a corner and the rest of the face keeps what it had.
 - **A render target's depth attachment is `TransferSrc`.** Nothing copied one
   until point shadows did, and Vulkan refused the blit.
-- **A module that logs "ready" must mean it.** `EnvironmentIBL` announced
-  itself unconditionally, so a prefilter shader that failed to compile looked
-  like a working feature that silently did nothing. Report the failure.
+- **A module that logs "ready" must mean it, and must be askable.** Seven
+  renderer subsystems announced readiness unconditionally, so a shader that
+  would not compile produced a feature present in every sense except that it
+  did nothing — nothing failed, nothing was red, and the only symptom was a
+  picture that looked slightly wrong. The log is not the fix, because a log
+  line cannot be tested: every subsystem now carries an `IsReady()` and
+  `scenetest` asks all of them.
 - **Nothing is culled in the shadow pass, on purpose.** Culling front faces
   hides acne by recording the back of each caster, and moves every shadow away
   from its caster by that thickness. On a sphere that is a diameter. Acne
