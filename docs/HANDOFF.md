@@ -21,7 +21,7 @@ Companion docs:
 The five-minute version, for picking this up with no memory of it.
 
 **Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through 3.3 and **3.5**,
-plus the specular half of 3.4. The engine loop closes — a project can be imported into,
+plus 3.4's specular approximation and its irradiance. The engine loop closes — a project can be imported into,
 placed in, scripted, played, and packaged into a folder someone else can run.
 
 **Prove it still works** (from the repo root, ~2 minutes):
@@ -32,7 +32,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-430 checks, `exit 0`. Then look at a frame:
+447 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -594,18 +594,14 @@ report an error.
 
 **Phases 0, 1, 2 and 4 are done. Phase 3 is at 3.3, and 3.4 is half done.**
 
-1. **Finish 3.4 IBL** (`M` now, was `L`). The specular half is in: surfaces
-   reflect the environment cube, roughness picks a mip, and the split-sum
-   environment BRDF is Lazarov's analytic fit. What is left is the accurate
-   version of both halves:
+1. **Finish 3.4 IBL** (`S` now). Irradiance is in, and so is a specular
+   approximation. Two pieces remain, both refinements rather than gaps:
    - **A real GGX prefilter.** The mip chain is box filtered, so roughness
-     selects a blur that is monotonic but not the lobe. Needs render-to-cube-face
-     or a compute pass per roughness level.
-   - **Irradiance.** The diffuse ambient is still one flat colour. A 32x32
-     irradiance cube convolved from the environment replaces it, and is the
-     step that makes a scene look lit by its surroundings.
-   - **A BRDF lookup texture**, replacing the analytic fit. Smallest of the
-     three and the least visible.
+     selects a blur that is monotonic but is not the lobe. Needs a convolution
+     per roughness level — the CPU path would be slow at 512, so this is the
+     one piece that probably wants render-to-cube-face.
+   - **A BRDF lookup texture**, replacing Lazarov's analytic fit. Smallest of
+     everything left and the least visible.
 2. **3.6 culling**, **3.8 clustered forward** (removes the 8-light cap),
    **3.7 skeletal animation**.
 3. **Phase 5 C#.** Last, because it must mirror a stable native surface.
