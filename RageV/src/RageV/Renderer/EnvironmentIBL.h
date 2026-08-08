@@ -24,6 +24,15 @@ namespace RageV
 		// buys accuracy far faster than a uniform estimator would.
 		static constexpr uint32_t kPrefilterSamples = 128;
 
+		// How many roughness levels a source of this size can actually carry:
+		// one per mip it has, capped at kRoughnessLevels, and 0 when it is too
+		// small to be worth filtering at all.
+		//
+		// Exists as a function because the guard it replaces was wrong by one
+		// power of two, and rejected the gradient sky -- the default, and so
+		// the common case -- from being prefiltered at all.
+		static uint32_t LevelsFor(uint32_t faceSize);
+
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
 		static bool IsReady();

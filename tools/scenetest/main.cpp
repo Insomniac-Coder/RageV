@@ -1465,6 +1465,23 @@ namespace
 		Check(PostProcess::IsReady(), "the post chain came up");
 		Check(EnvironmentIBL::IsReady(), "image-based lighting came up");
 		Check(EnvironmentIBL::GetBRDF() != nullptr, "with a BRDF table behind it");
+
+		// Coming up is not the same as doing anything.
+		//
+		// The prefilter refused any source smaller than 64 pixels a face, and
+		// the default sky's cube is 32 -- so on a scene with no environment map,
+		// which is the common case, reflections fell back to the box-filtered
+		// chain and IsReady() said yes the whole time. A subsystem reporting
+		// itself healthy is worth exactly as much as the work it then does.
+		Check(EnvironmentIBL::LevelsFor(32) >= 2,
+			  "and the default sky's 32 px cube is large enough to prefilter");
+		Check(EnvironmentIBL::LevelsFor(512) == EnvironmentIBL::kRoughnessLevels,
+			  "with a full set of roughness levels once the source is large");
+		Check(EnvironmentIBL::LevelsFor(8) >= 2 &&
+			  EnvironmentIBL::LevelsFor(8) < EnvironmentIBL::kRoughnessLevels,
+			  "a small source carries fewer levels rather than none");
+		Check(EnvironmentIBL::LevelsFor(1) == 0 && EnvironmentIBL::LevelsFor(0) == 0,
+			  "and one texel carries none at all");
 	}
 
 	// Inspector labels.

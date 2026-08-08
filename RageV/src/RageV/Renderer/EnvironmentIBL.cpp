@@ -87,6 +87,20 @@ namespace RageV
 		}
 	}
 
+	uint32_t EnvironmentIBL::LevelsFor(uint32_t faceSize)
+	{
+		// Two levels is the least that means anything: one mirror and one
+		// blur. Below that the answer really is "do not bother".
+		if (faceSize < 2)
+			return 0;
+
+		uint32_t levels = 1;
+		while ((faceSize >> levels) >= 1 && levels < kRoughnessLevels)
+			levels++;
+
+		return levels >= 2 ? levels : 0;
+	}
+
 	void EnvironmentIBL::Init(RHIDevice& device)
 	{
 		s_Data = std::make_unique<IBLData>();
@@ -201,11 +215,16 @@ namespace RageV
 			return it->second ? it->second : source;
 
 		const uint32_t base = source->GetWidth();
-		if (base < (1u << kRoughnessLevels))
+		const uint32_t levels = LevelsFor(base);
+		if (levels == 0)
 		{
-			// Too small to have a level per roughness step. The gradient sky's
-			// 32-pixel cube lands here, and its box-filtered chain is a fine
-			// answer for something with no detail in it.
+			// Genuinely too small to filter. Reported rather than passed over
+			// in silence: falling back to the box-filtered chain is the same
+			// thing as not having image-based specular at all, and the whole
+			// point of this module knowing whether it is ready was to stop
+			// that happening quietly.
+			RV_CORE_WARN("Environment of {0} px faces is too small to prefilter; "
+						 "its reflections use the box-filtered chain", base);
 			s_Data->Prefiltered[source.get()] = nullptr;
 			return source;
 		}
@@ -217,7 +236,7 @@ namespace RageV
 		desc.Type = TextureType::TextureCube;
 		desc.Format = Format::R16G16B16A16_SFLOAT;
 		desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst | TextureUsage::TransferSrc;
-		desc.MipLevels = kRoughnessLevels;
+		desc.MipLevels = levels;
 		desc.DebugName = "ibl.prefiltered";
 
 		Ref<RHITexture> destination = s_Data->Device->CreateTexture(desc);
@@ -262,7 +281,7 @@ namespace RageV
 
 		uint32_t setCursor = 0;
 
-		for (uint32_t level = 0; level < kRoughnessLevels; level++)
+		for (uint32_t level = 0; level < levels; level++)
 		{
 			const uint32_t size = glm::max(base >> level, 1u);
 
@@ -281,7 +300,7 @@ namespace RageV
 			if (!s_Data->Scratch[level])
 				continue;
 
-			const float roughness = (float)level / (float)(kRoughnessLevels - 1);
+			const float roughness = (float)level / (float)(levels - 1);
 			const Ref<RHITexture> rendered = s_Data->Scratch[level]->GetColorTexture(0);
 
 			for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
@@ -327,7 +346,7 @@ namespace RageV
 
 		s_Data->Prefiltered[source.get()] = destination;
 		RV_CORE_INFO("Prefiltered an environment map ({0} levels from {1} px faces)",
-					 kRoughnessLevels, base);
+					 levels, base);
 
 		return destination;
 	}
