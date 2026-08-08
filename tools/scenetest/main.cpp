@@ -35,6 +35,8 @@
 #include "RageV/Asset/GltfImporter.h"
 
 #include <GLFW/glfw3.h>
+#include <fstream>
+#include <functional>
 #include <set>
 
 using namespace RageV;
@@ -1098,6 +1100,278 @@ namespace
 		Check(AudioEngine::GetVoiceCount() == 0, "and stop silences it");
 	}
 
+	// Renders a short arrangement through the engine's own mixer and writes it
+	// to a .wav.
+	//
+	// The measurements below prove the mixer produces the right numbers. This
+	// exists because a person cannot check a number by ear, and "audio works"
+	// is a claim they are entitled to verify themselves: the file this writes
+	// is what the engine would have sent to the speakers, and it opens in
+	// anything.
+	//
+	// Not part of the test run -- it is behind --dump-audio=<file>.
+	void DumpRenderedAudio(const std::string& path)
+	{
+		const uint32_t rate = AudioEngine::GetSampleRate();
+		const uint32_t channels = AudioEngine::GetChannels();
+		if (AudioEngine::GetMode() != AudioMode::Offline || rate == 0 || channels != 2)
+		{
+			RV_CORE_ERROR("--dump-audio needs the offline mixer");
+			return;
+		}
+
+		const AssetHandle impact = AssetRegistry::GetHandle("audio/impact.wav");
+		const AssetHandle chime = AssetRegistry::GetHandle("audio/chime.wav");
+		const AssetHandle hum = AssetRegistry::GetHandle("audio/hum.wav");
+
+		AudioEngine::StopAll();
+		AudioEngine::SetListener({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f });
+
+		std::vector<float> mix;
+
+		// Rendered in small blocks so the arrangement can change between them,
+		// which is exactly what a frame does.
+		constexpr float kBlock = 1.0f / 60.0f;
+		const uint64_t blockFrames = (uint64_t)(kBlock * rate);
+		std::vector<float> block(blockFrames * channels);
+
+		auto advance = [&](float seconds, const std::function<void(float)>& each)
+		{
+			// Rounded, not truncated. 0.5 / (1/60) is 29.999998 in float, so
+			// truncating renders 29 blocks and every section starts fractionally
+			// earlier than the last -- an error that accumulates down the
+			// arrangement.
+			const int blocks = (int)std::lround(seconds / kBlock);
+			for (int i = 0; i < blocks; i++)
+			{
+				each((float)i * kBlock);
+				const uint64_t got = AudioEngine::RenderFrames(block.data(), blockFrames);
+				mix.insert(mix.end(), block.begin(), block.begin() + got * channels);
+				AudioEngine::Update();
+			}
+		};
+
+		// 1. Three impacts at falling volume: the clip plays, and volume works.
+		for (int i = 0; i < 3; i++)
+		{
+			AudioPlayback hit;
+			hit.Clip = impact;
+			hit.Spatial = false;
+			hit.Volume = 1.0f - i * 0.3f;
+			AudioEngine::Play(hit);
+			advance(0.5f, [](float) {});
+		}
+
+		// 2. A chime on its own: a second clip, and a different decode path.
+		AudioPlayback bell;
+		bell.Clip = chime;
+		bell.Spatial = false;
+		AudioEngine::Play(bell);
+		advance(1.2f, [](float) {});
+
+		// 3. The drone travelling from left to right, twice round its
+		// two-second loop.
+		//
+		// The drone rather than the chime, which is what this was first: a
+		// bell decays in under a second, so it had gone quiet long before it
+		// reached the right-hand side and the sweep demonstrated nothing. A
+		// sustained sound shows the pan and the seamless loop at once.
+		AudioPlayback drone;
+		drone.Clip = hum;
+		drone.Loop = true;
+		drone.Spatial = true;
+		drone.Volume = 0.8f;
+		drone.MinDistance = 3.0f;
+		drone.MaxDistance = 60.0f;
+		drone.Position = { -10.0f, 0.0f, -2.0f };
+
+		const AudioVoice travelling = AudioEngine::Play(drone);
+		constexpr float kSweep = 4.5f;
+		advance(kSweep, [&](float t)
+		{
+			const float x = -10.0f + (t / kSweep) * 20.0f;
+			AudioEngine::SetVoicePosition(travelling, { x, 0.0f, -2.0f });
+		});
+		AudioEngine::Stop(travelling);
+
+		// --- write it out ----------------------------------------------------
+		// 16-bit PCM, by hand. miniaudio is built with MA_NO_ENCODING, and a
+		// canonical WAV header is 44 bytes -- pulling in an encoder to write
+		// them would be the larger change.
+		std::ofstream file(path, std::ios::binary);
+		if (!file)
+		{
+			RV_CORE_ERROR("Could not write {0}", path);
+			return;
+		}
+
+		const uint32_t frames = (uint32_t)(mix.size() / channels);
+		const uint32_t dataBytes = frames * channels * 2;
+		const uint32_t byteRate = rate * channels * 2;
+
+		auto u32 = [&](uint32_t v) { file.write((const char*)&v, 4); };
+		auto u16 = [&](uint16_t v) { file.write((const char*)&v, 2); };
+
+		file.write("RIFF", 4);   u32(36 + dataBytes);   file.write("WAVE", 4);
+		file.write("fmt ", 4);   u32(16);
+		u16(1);                                  // PCM
+		u16((uint16_t)channels);
+		u32(rate);
+		u32(byteRate);
+		u16((uint16_t)(channels * 2));           // block align
+		u16(16);                                 // bits
+		file.write("data", 4);   u32(dataBytes);
+
+		for (float sample : mix)
+		{
+			const float clamped = glm::clamp(sample, -1.0f, 1.0f);
+			u16((uint16_t)(int16_t)(clamped * 32767.0f));
+		}
+
+		RV_CORE_INFO("Wrote {0}: {1:.2f}s, {2} Hz, {3} channels",
+					 path, (float)frames / (float)rate, rate, channels);
+	}
+
+	// The one check that looks at the sound itself.
+	//
+	// Everything else about audio can pass while the engine emits silence: a
+	// voice being created, tracked and retired says nothing about whether a
+	// sample ever came out of it. Offline mode drives the same mixing graph a
+	// device would pull and hands back what it produced, so the output can be
+	// measured instead of listened to -- which is the only way to check it on a
+	// machine nobody is sitting at.
+	void CheckRenderedAudio()
+	{
+		Check(AudioEngine::GetMode() == AudioMode::Offline, "the offline mixer is running");
+		Check(AudioEngine::GetChannels() == 2 && AudioEngine::GetSampleRate() == 48000,
+			  "with a stated format, so the mix is the same on every machine");
+
+		const uint32_t channels = AudioEngine::GetChannels();
+		const uint32_t rate = AudioEngine::GetSampleRate();
+		if (channels != 2 || rate == 0)
+			return;
+
+		const AssetHandle clip = AssetRegistry::GetHandle("audio/impact.wav");
+
+		std::vector<float> buffer;
+
+		// Root mean square of one channel: the loudness of the block, rather
+		// than of whichever sample the block happened to start on.
+		auto render = [&](float seconds, float& leftRms, float& rightRms)
+		{
+			const uint64_t frames = (uint64_t)(seconds * rate);
+			buffer.assign((size_t)frames * channels, 0.0f);
+
+			const uint64_t got = AudioEngine::RenderFrames(buffer.data(), frames);
+
+			double left = 0.0, right = 0.0;
+			for (uint64_t i = 0; i < got; i++)
+			{
+				left += (double)buffer[i * channels] * buffer[i * channels];
+				right += (double)buffer[i * channels + 1] * buffer[i * channels + 1];
+			}
+
+			leftRms = got ? (float)std::sqrt(left / (double)got) : 0.0f;
+			rightRms = got ? (float)std::sqrt(right / (double)got) : 0.0f;
+		};
+
+		float left = 0.0f, right = 0.0f;
+
+		// --- silence in, silence out -----------------------------------------
+		AudioEngine::StopAll();
+		render(0.05f, left, right);
+		Check(left == 0.0f && right == 0.0f, "nothing playing renders exact silence");
+
+		// --- a clip actually produces samples --------------------------------
+		AudioPlayback flat;
+		flat.Clip = clip;
+		flat.Spatial = false;
+		const AudioVoice loud = AudioEngine::Play(flat);
+		render(0.1f, left, right);
+		const float loudLevel = glm::max(left, right);
+
+		Check(loudLevel > 0.01f, "playing a clip renders audible samples");
+		Check(std::fabs(left - right) < 1e-5f, "and an unpositioned sound is centred");
+		AudioEngine::Stop(loud);
+
+		// --- volume scales it ------------------------------------------------
+		flat.Volume = 0.25f;
+		const AudioVoice quiet = AudioEngine::Play(flat);
+		render(0.1f, left, right);
+		const float quietLevel = glm::max(left, right);
+		AudioEngine::Stop(quiet);
+
+		// A quarter of the amplitude, within a wide tolerance: the block starts
+		// at the same point in the same clip, so the two are directly
+		// comparable, but resampling makes an exact ratio the wrong thing to
+		// demand.
+		Check(quietLevel > 0.0f && quietLevel < loudLevel * 0.5f,
+			  "volume scales what is rendered");
+
+		// --- 3D positioning pans ---------------------------------------------
+		AudioEngine::SetListener({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f });
+
+		AudioPlayback placed;
+		placed.Clip = clip;
+		placed.Spatial = true;
+		placed.MinDistance = 1.0f;
+		placed.MaxDistance = 100.0f;
+
+		placed.Position = { 5.0f, 0.0f, 0.0f };
+		const AudioVoice onTheRight = AudioEngine::Play(placed);
+		render(0.1f, left, right);
+		AudioEngine::Stop(onTheRight);
+		const float rightSideL = left, rightSideR = right;
+
+		placed.Position = { -5.0f, 0.0f, 0.0f };
+		const AudioVoice onTheLeft = AudioEngine::Play(placed);
+		render(0.1f, left, right);
+		AudioEngine::Stop(onTheLeft);
+		const float leftSideL = left, leftSideR = right;
+
+		Check(rightSideR > rightSideL * 1.2f, "a sound to the right is louder in the right ear");
+		Check(leftSideL > leftSideR * 1.2f, "and one to the left in the left");
+
+		// --- and distance attenuates -----------------------------------------
+		// Not `near` and `far`: both are macros in the Windows headers, which
+		// turns them into a declaration with no name.
+		placed.Position = { 0.0f, 0.0f, -1.0f };
+		const AudioVoice closeBy = AudioEngine::Play(placed);
+		render(0.1f, left, right);
+		const float nearLevel = glm::max(left, right);
+		AudioEngine::Stop(closeBy);
+
+		placed.Position = { 0.0f, 0.0f, -60.0f };
+		const AudioVoice distant = AudioEngine::Play(placed);
+		render(0.1f, left, right);
+		const float farLevel = glm::max(left, right);
+		AudioEngine::Stop(distant);
+
+		Check(nearLevel > farLevel * 2.0f, "and further away is quieter");
+
+		// --- stopping is silent again ----------------------------------------
+		render(0.05f, left, right);
+		Check(left == 0.0f && right == 0.0f, "stopping every voice returns it to silence");
+
+		// --- a one-shot ends on its own --------------------------------------
+		// impact.wav is 0.28s. Rendering past the end of it is the only way to
+		// exercise the retirement path against real playback rather than
+		// against a voice that was stopped by hand.
+		AudioPlayback oneShot;
+		oneShot.Clip = clip;
+		oneShot.Spatial = false;
+		AudioEngine::Play(oneShot);
+
+		render(0.5f, left, right);
+		Check(glm::max(left, right) > 0.0f, "a one-shot renders");
+
+		AudioEngine::Update();
+		Check(AudioEngine::GetVoiceCount() == 0, "and retires itself once it has played out");
+
+		render(0.05f, left, right);
+		Check(left == 0.0f && right == 0.0f, "leaving silence behind it");
+	}
+
 	// The source's settings are scene data and have to survive a save; the
 	// voice is not and must not.
 	void CheckAudioSerialization()
@@ -1469,10 +1743,26 @@ int RunTests(int argc, char** argv)
 	// desk with speakers.
 	RV_CORE_INFO("Audio again, with no output device");
 	AudioEngine::Shutdown();
-	AudioEngine::Init(false);
+	AudioEngine::Init(AudioMode::Silent);
 	Check(!AudioEngine::IsAvailable(), "the silent path really is silent");
 	CheckAudio();
 	CheckCollisionSound();
+
+	// And once more against the mixer itself, where the output can be measured.
+	RV_CORE_INFO("Audio again, offline, measuring the mix");
+	AudioEngine::Shutdown();
+	AudioEngine::Init(AudioMode::Offline);
+	CheckAudio();
+	CheckCollisionSound();
+	CheckRenderedAudio();
+
+	// Opt-in, and after the checks so it cannot affect them.
+	for (int i = 1; i < argc; i++)
+	{
+		const std::string argument = argv[i];
+		if (argument.rfind("--dump-audio=", 0) == 0)
+			DumpRenderedAudio(argument.substr(std::string("--dump-audio=").size()));
+	}
 
 	// --- cameras -------------------------------------------------------------
 	CheckCameraRanking();

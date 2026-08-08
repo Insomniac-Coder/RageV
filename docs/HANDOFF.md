@@ -41,7 +41,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 | Target | Purpose |
 |---|---|
 | `RageVEditor` | The editor. Opens on a demo scene. |
-| `scenetest` | 239 checks: serialization, undo, assets, scripts, physics, audio. |
+| `scenetest` | 278 checks: serialization, undo, assets, scripts, physics, audio. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
 | `Sandbox` | Stale, predates the RHI, **off by default**. |
@@ -62,7 +62,21 @@ Command line or `ragev.ini` next to the executable; command line wins.
 
 `--audio=off` is not only a mute switch. It takes the same path a machine with
 no sound card takes, which is how that path stays working rather than being
-assumed to. `scenetest` runs its whole audio suite on both.
+assumed to.
+
+`AudioEngine` has three modes — `Device`, `Silent`, and `Offline`, which drives
+the same mixing graph with no device and hands back what it produced.
+`scenetest` runs its whole audio suite on all three, and measures the mix on
+the third. That last one matters more than it looks: every other audio check
+can pass while the engine emits silence, because "a voice was created" says
+nothing about whether a sample came out of it.
+
+```bash
+build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan --dump-audio=out.wav
+```
+
+writes what the engine would have sent to the speakers, as a file anyone can
+open. Use it when audio is suspected and nobody is sitting at the machine.
 
 ### Verifying a change
 
@@ -306,7 +320,7 @@ or silence rather than an obvious failure.
 | Contacts | Collision and trigger enter/stay/exit into scripts, both sides |
 | Audio | miniaudio — clips as assets, 4 buses, 3D sources, listener, one-shots |
 | Editor | Two viewports, proportional dock layout, red-on-black theme |
-| Tests | `scenetest`, **239 checks**, green on both backends |
+| Tests | `scenetest`, **278 checks**, green on both backends |
 
 **Phase 2 is complete.** The engine loop is *import → place → script → play →
 export* with export the one remaining severed link.

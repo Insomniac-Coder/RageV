@@ -64,7 +64,7 @@ namespace RageV {
 
 		// After the registry, because a clip is resolved through it. Never
 		// fatal: a machine with no output device still runs the editor.
-		AudioEngine::Init(config.EnableAudio);
+		AudioEngine::Init(config.EnableAudio ? AudioMode::Device : AudioMode::Silent);
 
 		if (Platform::GetPlatformType() == PlatformType::Windows)
 		{

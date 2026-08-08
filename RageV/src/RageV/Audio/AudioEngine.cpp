@@ -28,7 +28,12 @@ namespace RageV
 		struct AudioState
 		{
 			bool Initialised = false;
-			bool Available = false;
+			AudioMode Mode = AudioMode::Silent;
+
+			// A real ma_engine exists, so voices have a sound behind them.
+			// True for Device and Offline; distinct from Available, which asks
+			// the different question of whether anyone will hear it.
+			bool HasEngine = false;
 
 			ma_engine Engine{};
 			// One per bus except Master, which is the engine's own volume --
@@ -51,7 +56,7 @@ namespace RageV
 		{
 			// Master has no group of its own. A sound assigned to it goes
 			// straight to the endpoint, which the engine's volume scales.
-			if (!s_Audio.Available || bus == AudioBus::Master || bus >= AudioBus::Count)
+			if (!s_Audio.HasEngine || bus == AudioBus::Master || bus >= AudioBus::Count)
 				return nullptr;
 
 			return &s_Audio.Groups[(size_t)bus];
@@ -82,17 +87,17 @@ namespace RageV
 		}
 	}
 
-	void AudioEngine::Init(bool openDevice)
+	void AudioEngine::Init(AudioMode mode)
 	{
 		if (s_Audio.Initialised)
 			return;
 
 		s_Audio.Initialised = true;
+		s_Audio.Mode = mode;
 
-		if (!openDevice)
+		if (mode == AudioMode::Silent)
 		{
 			RV_CORE_INFO("Audio: disabled; playback will be silent");
-			s_Audio.Available = false;
 			return;
 		}
 
@@ -102,17 +107,27 @@ namespace RageV
 		// sound.
 		config.listenerCount = 1;
 
+		if (mode == AudioMode::Offline)
+		{
+			config.noDevice = MA_TRUE;
+			// A device would have supplied these. Without one they have to be
+			// stated, and stated values also make the rendered mix identical
+			// on every machine -- which is the point of rendering it.
+			config.channels = 2;
+			config.sampleRate = 48000;
+		}
+
 		if (ma_engine_init(&config, &s_Audio.Engine) != MA_SUCCESS)
 		{
 			// Not an error. A machine with no output device, a remote session,
 			// or a test host is a normal thing to run on, and none of them
 			// should stop the engine starting.
 			RV_CORE_WARN("Audio: no output device; playback will be silent");
-			s_Audio.Available = false;
+			s_Audio.Mode = AudioMode::Silent;
 			return;
 		}
 
-		s_Audio.Available = true;
+		s_Audio.HasEngine = true;
 
 		for (uint32_t i = 0; i < (uint32_t)AudioBus::Count; i++)
 		{
@@ -123,9 +138,10 @@ namespace RageV
 				RV_CORE_ERROR("Audio: could not create the {0} bus", AudioBusName((AudioBus)i));
 		}
 
-		RV_CORE_INFO("Audio: {0} Hz, {1} channels",
+		RV_CORE_INFO("Audio: {0} Hz, {1} channels{2}",
 					 ma_engine_get_sample_rate(&s_Audio.Engine),
-					 ma_engine_get_channels(&s_Audio.Engine));
+					 ma_engine_get_channels(&s_Audio.Engine),
+					 mode == AudioMode::Offline ? ", offline" : "");
 	}
 
 	void AudioEngine::Shutdown()
@@ -138,7 +154,7 @@ namespace RageV
 		// audio thread reading freed memory.
 		StopAll();
 
-		if (s_Audio.Available)
+		if (s_Audio.HasEngine)
 		{
 			for (uint32_t i = 0; i < (uint32_t)AudioBus::Count; i++)
 			{
@@ -149,7 +165,8 @@ namespace RageV
 			ma_engine_uninit(&s_Audio.Engine);
 		}
 
-		s_Audio.Available = false;
+		s_Audio.HasEngine = false;
+		s_Audio.Mode = AudioMode::Silent;
 		s_Audio.Initialised = false;
 		s_Audio.NextVoice = 1;
 		s_Audio.Warned.clear();
@@ -160,7 +177,37 @@ namespace RageV
 
 	bool AudioEngine::IsAvailable()
 	{
-		return s_Audio.Available;
+		return s_Audio.Mode == AudioMode::Device && s_Audio.HasEngine;
+	}
+
+	AudioMode AudioEngine::GetMode()
+	{
+		return s_Audio.Mode;
+	}
+
+	uint32_t AudioEngine::GetChannels()
+	{
+		return s_Audio.HasEngine ? ma_engine_get_channels(&s_Audio.Engine) : 0;
+	}
+
+	uint32_t AudioEngine::GetSampleRate()
+	{
+		return s_Audio.HasEngine ? ma_engine_get_sample_rate(&s_Audio.Engine) : 0;
+	}
+
+	uint64_t AudioEngine::RenderFrames(float* out, uint64_t frameCount)
+	{
+		// Device mode has a device pulling this graph already; reading it here
+		// too would steal frames from it and produce a stutter that would look
+		// like a performance problem.
+		if (s_Audio.Mode != AudioMode::Offline || !s_Audio.HasEngine || !out || frameCount == 0)
+			return 0;
+
+		ma_uint64 read = 0;
+		if (ma_engine_read_pcm_frames(&s_Audio.Engine, out, frameCount, &read) != MA_SUCCESS)
+			return 0;
+
+		return (uint64_t)read;
 	}
 
 	AudioVoice AudioEngine::Play(const AudioPlayback& playback)
@@ -184,7 +231,7 @@ namespace RageV
 		Voice voice;
 		voice.Loop = playback.Loop;
 
-		if (!s_Audio.Available)
+		if (!s_Audio.HasEngine)
 		{
 			// Tracked with no sound behind it, so the bookkeeping a caller
 			// depends on is identical either way.
@@ -303,7 +350,7 @@ namespace RageV
 		volume = glm::max(volume, 0.0f);
 		s_Audio.BusVolume[(size_t)bus] = volume;
 
-		if (!s_Audio.Available)
+		if (!s_Audio.HasEngine)
 			return;
 
 		if (bus == AudioBus::Master)
@@ -322,7 +369,7 @@ namespace RageV
 	void AudioEngine::SetListener(const glm::vec3& position, const glm::vec3& forward,
 								  const glm::vec3& up)
 	{
-		if (!s_Audio.Available)
+		if (!s_Audio.HasEngine)
 			return;
 
 		ma_engine_listener_set_position(&s_Audio.Engine, 0, position.x, position.y, position.z);

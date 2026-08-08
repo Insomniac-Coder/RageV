@@ -24,6 +24,24 @@ namespace RageV
 
 	const char* AudioBusName(AudioBus bus);
 
+	enum class AudioMode
+	{
+		// Normal: open an output device and let it pull the mix.
+		Device,
+		// No device and no mixing. Voices are still allocated, tracked and
+		// retired, so engine behaviour does not depend on the hardware. This is
+		// what a machine with no sound card gets, and what --audio=off selects.
+		Silent,
+		// A real mixer with no device, pulled by RenderFrames.
+		//
+		// This exists so the output can be *looked at*. Every other check on
+		// audio can pass while the engine produces silence -- "a voice was
+		// created" says nothing about whether a sample came out of it, which is
+		// the one thing that matters and the one thing nobody can verify by
+		// listening on someone else's machine.
+		Offline,
+	};
+
 	// One playing sound. Zero means nothing is playing.
 	//
 	// A handle rather than a pointer because voices are retired from underneath
@@ -73,16 +91,27 @@ namespace RageV
 	class AudioEngine
 	{
 	public:
-		// Passing false skips opening a device and takes the silent path
-		// deliberately. That is the same path a machine with no sound card
-		// takes, so it is how that path stays working rather than being
-		// assumed to.
-		static void Init(bool openDevice = true);
+		static void Init(AudioMode mode = AudioMode::Device);
 		static void Shutdown();
 
-		// False when no output device could be opened. Only worth asking in
-		// order to tell the user; nothing else needs to branch on it.
+		// False when nothing will actually be heard -- no device was opened, or
+		// the mode never intended to open one. Only worth asking in order to
+		// tell the user; nothing else needs to branch on it.
 		static bool IsAvailable();
+
+		static AudioMode GetMode();
+		// Zero before Init, and in Silent mode: there is no mix to have a
+		// format.
+		static uint32_t GetChannels();
+		static uint32_t GetSampleRate();
+
+		// Offline mode only; returns 0 otherwise.
+		//
+		// Mixes `frameCount` frames into `out`, which must hold
+		// frameCount * GetChannels() floats, and returns how many it wrote.
+		// This is the same graph a device pulls, so what it writes is what
+		// would have been heard.
+		static uint64_t RenderFrames(float* out, uint64_t frameCount);
 
 		// Zero if the clip resolves to no file. Starts immediately.
 		static AudioVoice Play(const AudioPlayback& playback);
