@@ -285,6 +285,25 @@ or silence rather than an obvious failure.
   frame with no steps must not lose a press, and two steps must not see one
   press twice.
 
+### Lifetime and shutdown
+
+- **`Layer`'s destructor is virtual, and must stay so.** `LayerStack` owns
+  layers as `Layer*` and deletes through that pointer. Without it only `~Layer`
+  ran and every derived member leaked — the editor's scene, its render targets,
+  every material in them. Undefined behaviour that survived months because
+  nothing exited cleanly enough to notice.
+- **Anything released on the deletion queue must tolerate the systems it talks
+  to being gone.** The queue's final flush is in the device destructor, by
+  which point the ImGui backend has shut down and taken its descriptor pool.
+  `VulkanTexture` checks `IsImGuiVulkanReady()` before freeing its set.
+- **Verify shutdown by exiting, not by killing.** Every one of these was
+  invisible for as long as runs were terminated rather than closed. `exit 0`
+  is part of the bar now; `--screenshot` gives any app a clean exit to check.
+- An assert with no debugger attached **exits** rather than showing the modal
+  dialog (`Entrypoint.h`). The dialog parks the process with every subsystem
+  live, and an abandoned instance holding the audio device repeats a fragment
+  of whatever it was playing — several at once sound like a broken machine.
+
 ### Build
 
 - **A translation unit whose only contents are static registrars will be
