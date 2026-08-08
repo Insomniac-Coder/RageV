@@ -7,7 +7,71 @@
 
 namespace RageV
 {
-	namespace
+		// PascalCase to a sentence.
+	//
+	// The rule is the usual one: a word ends where a lowercase letter is
+	// followed by an uppercase one, and an acronym ends where an uppercase run
+	// is followed by a lowercase one. Everything after the first word is
+	// lowercased unless it is an acronym, so "PerspectiveFOV" reads
+	// "Perspective FOV" and "OrthographicNearClip" reads "Orthographic near
+	// clip".
+	std::string HumanFieldName(const char* name)
+	{
+		if (!name || !*name)
+			return {};
+
+		const std::string source(name);
+		std::vector<std::string> words;
+		std::string current;
+
+		for (size_t i = 0; i < source.size(); i++)
+		{
+			const char c = source[i];
+			const bool upper = c >= 'A' && c <= 'Z';
+
+			if (upper && !current.empty())
+			{
+				const char previous = source[i - 1];
+				const bool previousLower = (previous >= 'a' && previous <= 'z') ||
+										   (previous >= '0' && previous <= '9');
+				const bool nextLower = i + 1 < source.size() &&
+									   source[i + 1] >= 'a' && source[i + 1] <= 'z';
+
+				if (previousLower || nextLower)
+				{
+					words.push_back(current);
+					current.clear();
+				}
+			}
+
+			current += c;
+		}
+
+		if (!current.empty())
+			words.push_back(current);
+
+		std::string result;
+		for (size_t i = 0; i < words.size(); i++)
+		{
+			std::string word = words[i];
+
+			// Acronyms keep their case; ordinary words after the first do not.
+			const bool acronym = word.size() > 1 &&
+								 std::all_of(word.begin(), word.end(),
+											 [](unsigned char c) { return std::isupper(c) != 0; });
+
+			if (i > 0 && !acronym)
+				word[0] = (char)std::tolower((unsigned char)word[0]);
+
+			if (i > 0)
+				result += ' ';
+			result += word;
+		}
+
+		return result;
+	}
+
+namespace
 	{
 		std::vector<ComponentDesc> s_Components;
 		bool s_Initialised = false;

@@ -324,14 +324,14 @@ namespace
 		{
 			case FieldType::Bool:
 			{
-				BeginField(field.Name, hint.Tooltip);
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 				changed = ImGui::Checkbox("##value", (bool*)value);
 				EndField();
 				break;
 			}
 			case FieldType::Int:
 			{
-				BeginField(field.Name, hint.Tooltip);
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 				changed = ImGui::DragInt("##value", (int*)value, hint.Speed,
 										 (int)hint.Min, (int)hint.Max);
 				EndField();
@@ -339,7 +339,7 @@ namespace
 			}
 			case FieldType::Enum:
 			{
-				BeginField(field.Name, hint.Tooltip);
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 				int& current = *(int*)value;
 				const char* preview = (hint.EnumNames && current >= 0 && current < hint.EnumCount)
 									? hint.EnumNames[current] : "?";
@@ -364,7 +364,7 @@ namespace
 			}
 			case FieldType::Float:
 			{
-				BeginField(field.Name, hint.Tooltip);
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 				float* target = (float*)value;
 
 				if (hint.Kind == FieldHint::Widget::Slider)
@@ -378,7 +378,7 @@ namespace
 			{
 				if (hint.Kind == FieldHint::Widget::Color)
 				{
-					BeginField(field.Name, hint.Tooltip);
+					BeginField(field.DisplayName.c_str(), hint.Tooltip);
 					changed = ImGui::ColorEdit3("##value", glm::value_ptr(*(glm::vec3*)value));
 					EndField();
 				}
@@ -402,7 +402,7 @@ namespace
 			}
 			case FieldType::Vec4:
 			{
-				BeginField(field.Name, hint.Tooltip);
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 				if (hint.Kind == FieldHint::Widget::Color)
 					changed = ImGui::ColorEdit4("##value", glm::value_ptr(*(glm::vec4*)value));
 				else
@@ -412,7 +412,7 @@ namespace
 			}
 			case FieldType::Asset:
 			{
-				BeginField(field.Name, hint.Tooltip);
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 
 				AssetHandle& handle = *(AssetHandle*)value;
 				const std::string name = AssetManager::GetDisplayName(handle);
@@ -449,7 +449,7 @@ namespace
 			}
 			case FieldType::String:
 			{
-				BeginField(field.Name, hint.Tooltip);
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 
 				// Scripts are picked from what is registered, not typed. A
 				// free-text field lets a typo produce an entity that does

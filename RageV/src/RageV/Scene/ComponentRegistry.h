@@ -59,9 +59,25 @@ namespace RageV
 		FieldVisibility VisibleIf = nullptr;
 	};
 
+	// "CastShadows" to "Cast shadows".
+	//
+	// Derived rather than written out per field, because a second string per
+	// field is a second thing to keep in step -- and the one that would rot is
+	// the label, since nothing breaks when it is wrong.
+	//
+	// Runs of capitals are left alone, so PerspectiveFOV reads "Perspective
+	// FOV" rather than "Perspective f o v".
+	std::string HumanFieldName(const char* name);
+
 	struct FieldDesc
 	{
-		const char* Name = nullptr;      // serialized key and inspector label
+		// The serialized key. Never derived from the label and never changed:
+		// this is what every saved scene on disk is keyed by.
+		const char* Name = nullptr;
+
+		// What the inspector shows. Filled from Name at registration.
+		std::string DisplayName;
+
 		FieldType Type = FieldType::Float;
 		void* (*Access)(void*) = nullptr;
 		FieldHint Hint;
@@ -132,6 +148,7 @@ namespace RageV
 
 		FieldDesc field;
 		field.Name = name;
+		field.DisplayName = HumanFieldName(name);
 		field.Type = Detail::TypeOf<typename Traits::Type>();
 		field.Access = [](void* component) -> void*
 		{
@@ -152,6 +169,7 @@ namespace RageV
 
 		FieldDesc field;
 		field.Name = name;
+		field.DisplayName = HumanFieldName(name);
 		field.Type = Detail::TypeOf<typename InnerTraits::Type>();
 		field.Access = [](void* component) -> void*
 		{

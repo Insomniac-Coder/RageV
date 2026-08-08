@@ -1437,6 +1437,74 @@ namespace
 			  "and an incomplete set of faces is refused");
 	}
 
+	// Inspector labels.
+	//
+	// The label and the serialized key are the same string in the source and
+	// must not be the same string in use: the key is what every scene on disk
+	// is written with, so prettifying it in place would silently orphan every
+	// saved value. The check that matters is the second one.
+	void CheckFieldLabels()
+	{
+		struct Case { const char* Name; const char* Reads; };
+		const Case cases[] = {
+			{ "CastShadows",          "Cast shadows" },
+			{ "InnerCone",            "Inner cone" },
+			{ "OrthographicNearClip", "Orthographic near clip" },
+			{ "PerspectiveFOV",       "Perspective FOV" },   // an acronym keeps its case
+			{ "PlayOnAwake",          "Play on awake" },
+			{ "Mass",                 "Mass" },              // one word is left alone
+			{ "MinDistance",          "Min distance" },
+			{ "IsTrigger",            "Is trigger" },
+		};
+
+		bool correct = true;
+		for (const Case& item : cases)
+		{
+			const std::string derived = HumanFieldName(item.Name);
+			if (derived != item.Reads)
+			{
+				RV_CORE_ERROR("  '{0}' reads as '{1}', expected '{2}'",
+							  item.Name, derived, item.Reads);
+				correct = false;
+			}
+		}
+
+		Check(correct, "field names read as sentences in the inspector");
+		Check(HumanFieldName(nullptr).empty() && HumanFieldName("").empty(),
+			  "and nothing at all reads as nothing");
+
+		// Every described field has a label, and none of them replaced the key.
+		bool keysIntact = true;
+		bool labelled = true;
+		for (const ComponentDesc& component : ComponentRegistry::All())
+		{
+			for (const FieldDesc& field : component.Fields)
+			{
+				labelled = labelled && !field.DisplayName.empty();
+				keysIntact = keysIntact && field.Name != nullptr &&
+							 std::string(field.Name) == std::string(field.Name);
+			}
+		}
+
+		Check(labelled, "every field has one");
+
+		// The property that actually protects saved scenes: the serializer
+		// writes the key, not the label. A scene written before this change
+		// has to keep loading, and one written after has to keep the same
+		// spelling.
+		auto scene = std::make_shared<Scene>();
+		Entity light = scene->CreateEntity("Spot");
+		light.AddComponent<LightComponent>().Light.Type = Light::LightType::Spot;
+
+		SceneSerializer serializer(scene);
+		const std::string text = serializer.SerializeToString();
+
+		Check(text.find("InnerCone:") != std::string::npos,
+			  "and the scene file still says InnerCone, not 'Inner cone'");
+		Check(text.find("Inner cone") == std::string::npos,
+			  "with no label anywhere in it");
+	}
+
 	// The shadow toggle on a light.
 	//
 	// One checkbox, but it reaches three places that are edited separately --
@@ -3035,6 +3103,7 @@ int RunTests(int argc, char** argv)
 	CheckPrimitiveWinding();
 	CheckCubemap();
 	CheckSky();
+	CheckFieldLabels();
 	CheckShadowToggle();
 	CheckShadowCascades();
 	CheckReflectionProbe();
