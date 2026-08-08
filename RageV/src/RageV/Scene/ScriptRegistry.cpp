@@ -6,6 +6,10 @@
 
 namespace RageV
 {
+	// Defined in Scripts/BuiltinScripts.cpp. Declared here so that translation
+	// unit is referenced, and therefore linked.
+	void RegisterBuiltinScripts();
+
 	namespace
 	{
 		// Ordered, and a function-local static: registration happens from other
@@ -15,6 +19,20 @@ namespace RageV
 		{
 			static std::map<std::string, ScriptRegistry::Factory> factories;
 			return factories;
+		}
+
+		// On demand, so no caller has to remember it -- the same reason
+		// ComponentRegistry initialises itself.
+		void EnsureBuiltins()
+		{
+			static bool done = false;
+			if (done)
+				return;
+
+			// Set first: RegisterBuiltinScripts calls Register, which comes
+			// back through here.
+			done = true;
+			RegisterBuiltinScripts();
 		}
 	}
 
@@ -36,6 +54,7 @@ namespace RageV
 
 	ScriptableEntity* ScriptRegistry::Create(const std::string& name)
 	{
+		EnsureBuiltins();
 		const auto it = Factories().find(name);
 		if (it == Factories().end())
 		{
@@ -50,11 +69,13 @@ namespace RageV
 
 	bool ScriptRegistry::IsRegistered(const std::string& name)
 	{
+		EnsureBuiltins();
 		return Factories().count(name) > 0;
 	}
 
 	std::vector<std::string> ScriptRegistry::GetNames()
 	{
+		EnsureBuiltins();
 		std::vector<std::string> names;
 		names.reserve(Factories().size());
 		for (const auto& [name, factory] : Factories())

@@ -527,6 +527,13 @@ namespace
 
 	void CheckScriptApi()
 	{
+		// The engine's own scripts live in a translation unit whose only
+		// contents are static registrar objects. A linker is free to drop an
+		// object file from a static library when nothing references a symbol in
+		// it -- and then the registrations never run.
+		Check(ScriptRegistry::IsRegistered("Spinner"), "the built-in Spinner script is registered");
+		Check(ScriptRegistry::IsRegistered("Mover"), "the built-in Mover script is registered");
+
 		ScriptRegistry::Register("ProbeScript", []() -> ScriptableEntity* { return new ProbeScript(); });
 		Check(ScriptRegistry::IsRegistered("ProbeScript"), "a script registers by name");
 		Check(ScriptRegistry::Create("NoSuchScript") == nullptr,

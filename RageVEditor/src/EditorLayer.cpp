@@ -1270,6 +1270,12 @@ void EditorLayer::LoadDemoScene()
 		}
 	}
 
+	// Something scripted, so pressing Play does something without having to
+	// set it up first. Stop puts it back where it started, which is the whole
+	// point of the snapshot.
+	if (Entity sphere = m_Scene->FindEntityByName("Sphere (gold)"))
+		sphere.AddComponent<NativeScriptComponent>("Spinner");
+
 	m_SceneHierarchyPanel.SetSelectedEntity({});
 	// Loading is not an edit; without this the demo scene arrives with an undo
 	// history that would delete parts of itself.

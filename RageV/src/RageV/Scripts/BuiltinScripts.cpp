@@ -88,9 +88,24 @@ namespace RageV
 		float m_Sharpness = 4.0f;
 		Entity m_Target;
 	};
-	// Inside the namespace, so the registered names are "Spinner" and not
-	// "RageV::Spinner" -- those strings end up in scene files.
-	RV_REGISTER_SCRIPT(Spinner);
-	RV_REGISTER_SCRIPT(Mover);
-	RV_REGISTER_SCRIPT(Follow);
+	// Called explicitly rather than registered by a static initializer.
+	//
+	// This file's only contents used to be registrar objects, and a linker may
+	// drop an object file from a static library when nothing references a
+	// symbol in it. It did: the registrations never ran, the inspector's script
+	// dropdown was empty, and pressing Play could do nothing because no script
+	// could be attached in the first place.
+	//
+	// An explicit function referenced from ScriptRegistry forces this
+	// translation unit to be linked. Scripts compiled straight into an
+	// executable do not have the problem -- object files handed to the linker
+	// directly are always included -- so RV_REGISTER_SCRIPT remains the right
+	// tool for game code.
+	void RegisterBuiltinScripts()
+	{
+		// Unqualified names on purpose: these strings go into scene files.
+		ScriptRegistry::Register("Spinner", []() -> ScriptableEntity* { return new Spinner(); });
+		ScriptRegistry::Register("Mover",   []() -> ScriptableEntity* { return new Mover(); });
+		ScriptRegistry::Register("Follow",  []() -> ScriptableEntity* { return new Follow(); });
+	}
 }
