@@ -2,6 +2,11 @@
 .vs/
 bin/
 bin-int/
+build/
+build-ninja/
+out/
+CMakeUserPresets.json
 
 #Files
 *.user
+CMakeCache.txt

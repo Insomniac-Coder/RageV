@@ -1,9 +1,7 @@
 #include <rvpch.h>
-//including this for now since glfw is the only window creation API in use
-#define VK_USE_PLATFORM_WIN32_KHR
-#define GLFW_INCLUDE_VULKAN
-#include "GLFW/glfw3.h"
 #include "VulkanContext.h"
+//including this for now since glfw is the only window creation API in use
+#include "GLFW/glfw3.h"
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include "GLFW/glfw3native.h"
 #include <set>
@@ -397,6 +395,13 @@ static void CreateImageViews(VkDevice& logicalDevice, std::vector<VkImageView>& 
 
 void RageV::VulkanContext::Init()
 {
+	// volk owns every Vulkan entry point; nothing may be called before this.
+	if (volkInitialize() != VK_SUCCESS)
+	{
+		RV_CORE_ERROR("Could not load the Vulkan loader (vulkan-1.dll missing?)");
+		return;
+	}
+
 	unsigned int extensionCount = 0;
 	vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
 	RV_CORE_INFO("Supported vulkan extension count: {0}", extensionCount);
@@ -452,6 +457,8 @@ void RageV::VulkanContext::Init()
 		RV_CORE_INFO("Vulkan instantiated successfully");
 	}
 
+	volkLoadInstance(m_Instance);
+
 	if (enableValidationLayers)
 		SetupDebugMessenger(m_Instance, DebugMessenger);
 
@@ -468,6 +475,7 @@ void RageV::VulkanContext::Init()
 		RV_CORE_INFO("Chosen physical device has all the relevant features");
 
 	CreateLogicalDevice(m_PhysicalDevice, m_LogicalDevice, m_QueueIndicies);
+	volkLoadDevice(m_LogicalDevice);
 	vkGetDeviceQueue(m_LogicalDevice, m_QueueIndicies.graphicsFamily.value(), 0, &m_GraphicsQueue);
 	vkGetDeviceQueue(m_LogicalDevice, m_QueueIndicies.presentFamily.value(), 0, &m_PresentQueue);
 

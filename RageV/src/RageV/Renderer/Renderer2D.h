@@ -13,11 +13,13 @@ namespace RageV
 	public:
 		static void Init();
 		static void Shutdown();
+		using LightData = std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>>;
+
 		static void BeginScene(const OrthographicCamera& camera);
-		static void BeginScene(Cameranew& camera, glm::mat4& transform, std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData = {});
+		static void BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightData& lightData = {});
 		static void EndScene();
-		static void DrawQuad(glm::mat4& transform, glm::vec4& color);
-		static void DrawQuad(glm::mat4& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor = 1.0f);
+		static void DrawQuad(const glm::mat4& transform, const glm::vec4& color);
+		static void DrawQuad(const glm::mat4& transform, const std::shared_ptr<Texture2D>& texture, float tilingfactor = 1.0f);
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetVerticesCount();
 		static unsigned int GetIndiciesCount();

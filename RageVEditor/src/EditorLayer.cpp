@@ -58,7 +58,7 @@ void EditorLayer::OnAttach()
 	//serializer.Deserialize("assets/scenes/test.rage");
 
 	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
-	auto& camera = m_Scene->CreateEntity("Scene Camera");
+	auto camera = m_Scene->CreateEntity("Scene Camera");
 	camera.AddComponent<RageV::CameraComponent>();
 	auto& camComponent = camera.GetComponent<RageV::CameraComponent>();
 	camComponent.Camera.SetProjectionType(RageV::SceneCamera::ProjectionType::Perspective);
@@ -276,7 +276,7 @@ void EditorLayer::NewScene()
 {
 	m_Scene = std::make_shared<RageV::Scene>();
 	m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
-	auto& camera = m_Scene->CreateEntity("Scene Camera");
+	auto camera = m_Scene->CreateEntity("Scene Camera");
 	camera.AddComponent<RageV::CameraComponent>();
 	auto& camComponent = camera.GetComponent<RageV::CameraComponent>();
 	camComponent.Camera.SetProjectionType(RageV::SceneCamera::ProjectionType::Perspective);

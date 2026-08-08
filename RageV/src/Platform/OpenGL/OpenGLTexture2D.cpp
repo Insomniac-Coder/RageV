@@ -25,7 +25,7 @@ namespace RageV
 			m_DataFormat = GL_RGB;
 			m_InternalFormat = GL_RGB8;
 		}
-		RV_CORE_ASSERT(dataFormat & internalFormat, "Image format not supported!");
+		RV_CORE_ASSERT(m_DataFormat && m_InternalFormat, "Image format not supported!");
 
 		glCreateTextures(GL_TEXTURE_2D, 1, &m_ID);
 		glTextureStorage2D(m_ID, 1, m_InternalFormat, m_Width, m_Height);

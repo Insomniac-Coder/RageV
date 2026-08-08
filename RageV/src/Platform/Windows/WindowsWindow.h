@@ -1,5 +1,4 @@
 #pragma once
-#include "vulkan.h"
 #include "GLFW/glfw3.h"
 #include <RageV/Core/Window.h>
 #include "RageV/Renderer/GraphicsContext.h"

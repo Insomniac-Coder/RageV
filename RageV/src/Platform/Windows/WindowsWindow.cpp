@@ -64,7 +64,7 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 	if (!s_GLFWInitialized)
 	{
 		int success = glfwInit();
-		RV_CORE_ASSERT(sucess, "Could not initialize GLFW!");
+		RV_CORE_ASSERT(success, "Could not initialize GLFW!");
 		glfwSetErrorCallback(GLFWErrorCallback);
 		s_GLFWInitialized = true;
 	}

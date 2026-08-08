@@ -123,7 +123,7 @@ namespace RageV
 		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
 	}
 
-	void Renderer2D::BeginScene(Cameranew& camera, glm::mat4& transform, std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData)
+	void Renderer2D::BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightData& lightData)
 	{
 		glm::mat4 viewprojectionmatrix = camera.GetProjection() * glm::inverse(transform);
 		renderer2DData->DrawCalls = 0;
@@ -162,7 +162,7 @@ namespace RageV
 		RenderCommand::DrawIndexed(renderer2DData->VertexArray2D, renderer2DData->IndiciesCount);
 	}
 
-	void Renderer2D::DrawQuad(glm::mat4& transform, glm::vec4& color)
+	void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& color)
 	{
 		if (renderer2DData->MaxQuads <= renderer2DData->QuadCount)
 		{
@@ -188,7 +188,7 @@ namespace RageV
 
 	}
 
-	void Renderer2D::DrawQuad(glm::mat4& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor)
+	void Renderer2D::DrawQuad(const glm::mat4& transform, const std::shared_ptr<Texture2D>& texture, float tilingfactor)
 	{
 		if (renderer2DData->MaxQuads <= renderer2DData->QuadCount)
 		{

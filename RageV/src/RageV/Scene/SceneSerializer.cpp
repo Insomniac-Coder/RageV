@@ -212,7 +212,7 @@ namespace RageV
 					cc.isPrimary = cam["isPrimary"].as<bool>();
 					cc.fixedAspectRatio = cam["FixedAspectRatio"].as<bool>();
 
-					auto& camDetails = cam["Camera"];
+					auto camDetails = cam["Camera"];
 
 					cc.Camera.SetProjectionType(SceneCamera::ProjectionType(camDetails["ProjectionType"].as<int>()));
 					cc.Camera.SetOrthgraphicSize(camDetails["OrthographicScale"].as<float>());

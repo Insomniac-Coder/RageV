@@ -11,7 +11,7 @@ namespace RageV
 		return m_GInfo;
 	}
 
-	void GraphicsInformation::SetGraphicsInfo(GraphicsInfo& graphicsinfo)
+	void GraphicsInformation::SetGraphicsInfo(const GraphicsInfo& graphicsinfo)
 	{
 		m_GInfo = graphicsinfo;
 	}

@@ -1,5 +1,6 @@
 #pragma once
 #include "RageV/Renderer/GraphicsContext.h"
+#include <volk.h>
 #include <optional>
 
 struct GLFWwindow;
