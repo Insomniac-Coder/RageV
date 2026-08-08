@@ -16,6 +16,7 @@ public:
 
 	void OnAttach() override;
 	void OnUpdate(RageV::Timestep ts) override;
+	void OnFixedUpdate(RageV::Timestep dt) override;
 	void OnImGuiRender() override;
 	void OnEvent(RageV::Event& e) override;
 	bool OnKeyPressed(RageV::KeyPressedEvent& e);
@@ -24,6 +25,9 @@ public:
 	void OpenScene();
 	void SaveScene();
 	void ImportModel();
+	void OnScenePlay();
+	void OnSceneStop();
+	void OnScenePause(bool paused);
 	void SaveSelectionAsPrefab();
 	void OnAssetActivated(RageV::AssetHandle handle, RageV::AssetType type);
 
@@ -53,6 +57,13 @@ private:
 	// The viewport's own camera. The scene's primary CameraComponent is still
 	// used, but only when the viewport is explicitly switched to it -- a scene
 	// no longer has to contain a camera to be visible.
+	// Editing, running, or running-but-frozen. Play snapshots the scene and
+	// Stop restores it, so anything done while running is discarded -- which
+	// is what makes pressing Play feel free.
+	enum class SceneState { Edit, Play, Paused };
+	SceneState m_SceneState = SceneState::Edit;
+	std::string m_SceneSnapshot;
+
 	RageV::EditorCamera m_EditorCamera;
 	bool m_UseEditorCamera = true;
 

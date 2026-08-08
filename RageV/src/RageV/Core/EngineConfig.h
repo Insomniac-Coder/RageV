@@ -20,6 +20,7 @@
 //   --vsync=on|off
 //   --validation=on|off     Vulkan validation layers (no effect without the SDK)
 //   --frames-in-flight=N
+//   --fixed-hz=N            simulation steps per second (default 60)
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include <string>
@@ -32,6 +33,10 @@ namespace RageV
 		RHI::Backend Backend        = RHI::Backend::OpenGL;
 		bool         VSync          = true;
 		uint32_t     FramesInFlight = 2;
+
+		// Simulation rate. 60 matches what most physics engines are tuned for;
+		// higher costs CPU, lower makes fast collisions tunnel.
+		uint32_t     FixedHz = 60;
 #ifdef RV_DEBUG
 		bool         EnableValidation = true;
 #else

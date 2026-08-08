@@ -89,6 +89,24 @@ namespace RageV
 			}
 		}
 
+		if (key == "fixed-hz" || key == "fixedhz")
+		{
+			try
+			{
+				const int parsed = std::stoi(value);
+				// Below 20 the simulation is visibly steppy and fast collisions
+				// tunnel through thin geometry; above 240 it burns CPU for
+				// nothing a display can show.
+				config.FixedHz = (uint32_t)std::clamp(parsed, 20, 240);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("fixed-hz expects an integer, got '{0}'", value);
+				return false;
+			}
+		}
+
 		RV_CORE_WARN("Unknown config key '{0}'", key);
 		return false;
 	}

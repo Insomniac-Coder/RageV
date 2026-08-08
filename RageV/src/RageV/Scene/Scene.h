@@ -58,10 +58,17 @@ namespace RageV
 		void UpdateWorldTransforms();
 
 		// --- frame ----------------------------------------------------------
-		// Simulation only. Split from rendering so the editor can draw a scene
-		// from its own camera without stepping it, and so the play/edit split
-		// has somewhere to land later.
-		void OnUpdate(Timestep ts);
+		// Per rendered frame while playing. Presentational work only.
+		void OnUpdateRuntime(Timestep ts);
+
+		// Per fixed simulation step while playing. Scripts and, later, physics.
+		// Nothing here may depend on the frame rate.
+		void OnFixedUpdateRuntime(Timestep dt);
+
+		// Per frame while editing. Deliberately empty of simulation: scripts
+		// used to run in the editor, which meant a script could modify a scene
+		// nobody had pressed Play on -- and those edits were then saved.
+		void OnUpdateEditor(Timestep ts);
 
 		// Draws through the primary camera entity. Draws nothing without one.
 		void OnRenderRuntime();

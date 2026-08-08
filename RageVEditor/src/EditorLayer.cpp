@@ -187,9 +187,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 	pass.Clear.Color[2] = m_ClearColor.b;
 	pass.Clear.Color[3] = 1.0f;
 
-	// Simulation once, rendering once per view. The play/edit split lands on
-	// the first of these; the rest only choose a viewpoint.
-	m_Scene->OnUpdate(ts);
+	// Presentational per-frame work. Simulation happens on the fixed step in
+	// OnFixedUpdate, and only while playing.
+	if (m_SceneState == SceneState::Edit)
+		m_Scene->OnUpdateEditor(ts);
+	else
+		m_Scene->OnUpdateRuntime(ts);
 
 	cmd->PushDebugGroup("Scene view");
 	cmd->BeginRenderPass(pass);
@@ -249,6 +252,64 @@ void EditorLayer::ApplyPendingResizes()
 		// actually renders into.
 		m_Scene->OnViewportResize(m_GameViewportSize.x, m_GameViewportSize.y);
 	}
+}
+
+// Zero or more times a frame, always with the same dt. Paused stops stepping
+// without leaving play mode, so the scene stays as it was mid-run.
+void EditorLayer::OnFixedUpdate(Timestep dt)
+{
+	if (m_SceneState == SceneState::Play && m_Scene)
+		m_Scene->OnFixedUpdateRuntime(dt);
+}
+
+// Play snapshots the scene; Stop restores it. Everything done while running --
+// by a script, by physics, or by hand in the inspector -- is discarded, which
+// is what makes pressing Play cost nothing.
+//
+// This is only as safe as serialization is lossless, which is why the
+// round-trip test came first.
+void EditorLayer::OnScenePlay()
+{
+	if (!m_Scene || m_SceneState != SceneState::Edit)
+		return;
+
+	SceneSerializer serializer(m_Scene);
+	m_SceneSnapshot = serializer.SerializeToString();
+
+	m_SceneState = SceneState::Play;
+	// Undo across a mode change would apply an edit to entities the restore is
+	// about to replace.
+	m_Commands.Clear();
+
+	// The game view is what matters while running.
+	m_UseEditorCamera = false;
+	RV_INFO("Play");
+}
+
+void EditorLayer::OnSceneStop()
+{
+	if (!m_Scene || m_SceneState == SceneState::Edit)
+		return;
+
+	m_SceneState = SceneState::Edit;
+	m_SceneHierarchyPanel.SetSelectedEntity({});
+
+	SceneSerializer serializer(m_Scene);
+	if (!serializer.DeserializeFromString(m_SceneSnapshot))
+		RV_ERROR("Could not restore the scene; what is on screen is the state Play left behind");
+
+	m_SceneSnapshot.clear();
+	m_Commands.Clear();
+	m_UseEditorCamera = true;
+	RV_INFO("Stop");
+}
+
+void EditorLayer::OnScenePause(bool paused)
+{
+	if (m_SceneState == SceneState::Edit)
+		return;
+
+	m_SceneState = paused ? SceneState::Paused : SceneState::Play;
 }
 
 void EditorLayer::OnImGuiRender()
@@ -457,6 +518,42 @@ void EditorLayer::DrawToolbar()
 	ImGui::Checkbox("Snap", &m_SnapEnabled);
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Hold Ctrl while dragging for the same effect.");
+
+	ImGui::Dummy(ImVec2(8.0f, 0.0f));
+	ImGui::SameLine();
+
+	// Transport. Accented while running, per the theme rule: red means "this is
+	// acting now".
+	{
+		const bool running = m_SceneState != SceneState::Edit;
+
+		if (running)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Color::Accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Color::AccentHover);
+		}
+		if (ImGui::Button(running ? "Stop" : "Play", ImVec2(48.0f, 0.0f)))
+		{
+			if (running) OnSceneStop();
+			else         OnScenePlay();
+		}
+		if (running)
+			ImGui::PopStyleColor(2);
+
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip(running
+				? "Stop and restore the scene to exactly what it was when Play was pressed."
+				: "Run the scene. Everything that happens while running is discarded on Stop.");
+
+		ImGui::SameLine();
+		ImGui::BeginDisabled(!running);
+		const bool paused = m_SceneState == SceneState::Paused;
+		if (ImGui::Button(paused ? "Resume" : "Pause", ImVec2(60.0f, 0.0f)))
+			OnScenePause(!paused);
+		ImGui::EndDisabled();
+		if (ImGui::IsItemHovered() && running)
+			ImGui::SetTooltip("Stop stepping the simulation without leaving play mode.");
+	}
 
 	// Which camera the viewport draws through. Right-aligned because it
 	// describes the view rather than the edit operation.

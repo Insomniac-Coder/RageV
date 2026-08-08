@@ -24,6 +24,7 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
+#include "RageV/Core/FixedStep.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
@@ -373,6 +374,104 @@ namespace
 			  "the instance keeps the prefab's transform");
 	}
 
+	// The loop that makes physics possible. Every failure mode here is
+	// invisible at a glance and only shows up as "the simulation feels wrong on
+	// this machine".
+	void CheckFixedStep()
+	{
+		FixedStep step;
+		step.Timestep = 1.0f / 60.0f;
+
+		// Exactly one step's worth is one step, and lands back on zero rather
+		// than leaving an alpha of 1.0 -- which would render a step that has
+		// not been simulated.
+		Check(step.Advance(step.Timestep) == 1, "one step's worth of time runs exactly one step");
+		Check(step.Alpha < 1.0f && step.Alpha >= 0.0f, "the blend factor stays in [0, 1)");
+
+		// Above the simulation rate, most frames run no steps at all. This is
+		// the normal case at 144 Hz, and the whole reason rendering has to
+		// interpolate rather than read the simulation directly.
+		step.Reset();
+		const int fastFrames = step.Advance(1.0f / 240.0f);
+		Check(fastFrames == 0, "a frame shorter than the timestep runs no steps");
+		Check(step.Alpha > 0.0f, "but it still advances the blend factor");
+
+		// Below it, one frame runs several.
+		step.Reset();
+		Check(step.Advance(1.0f / 15.0f) == 4, "a slow frame runs several steps");
+
+		// A stall must not queue a burst that can never be worked off.
+		step.Reset();
+		const int afterStall = step.Advance(10.0f);
+		Check(afterStall == (int)(0.25f * 60.0f),
+			  "a stall is clamped rather than queueing hundreds of steps");
+
+		// Over a long run, simulated time tracks real time. Drift here would
+		// mean the game slowly running fast or slow.
+		step.Reset();
+		int total = 0;
+		constexpr int kFrames = 1000;
+		constexpr float kFrameTime = 1.0f / 144.0f;
+		for (int i = 0; i < kFrames; i++)
+			total += step.Advance(kFrameTime);
+
+		const float simulated = total * step.Timestep;
+		const float real = kFrames * kFrameTime;
+		Check(std::fabs(simulated - real) < step.Timestep,
+			  "simulated time tracks real time over a long run");
+
+		// Reset must not leave time behind, or restoring a minimised window
+		// spends the whole gap at once.
+		step.Reset();
+		Check(step.Accumulator == 0.0f && step.Alpha == 0.0f, "reset discards pending time");
+	}
+
+	// Play mode is snapshot, run, restore. The property is that the restore is
+	// exact -- not "close", not "mostly" -- because anything less means pressing
+	// Play quietly damages the scene.
+	void CheckPlayModeRestore()
+	{
+		auto scene = BuildFixture();
+		SceneSerializer serializer(scene);
+
+		const std::string snapshot = serializer.SerializeToString();
+
+		// Everything a running game might do: move things, add and remove
+		// components, delete an entity, spawn new ones, change the environment.
+		for (auto handle : scene->GetRegistry().view<TransformComponent>())
+		{
+			auto& transform = scene->GetRegistry().get<TransformComponent>(handle);
+			transform.Position += glm::vec3(11.0f, -4.0f, 7.5f);
+			transform.Rotation.y += 1.25f;
+		}
+
+		Entity spawned = scene->CreateEntity("Spawned At Runtime");
+		spawned.AddComponent<MeshComponent>(PrimitiveType::Sphere);
+
+		for (auto handle : scene->GetRegistry().view<TagComponent>())
+		{
+			Entity entity{ handle, scene.get() };
+			if (entity.GetName() == "Grandchild")
+			{
+				scene->DeleteEntity(entity);
+				break;
+			}
+		}
+
+		scene->GetEnvironment().AmbientIntensity = 3.0f;
+
+		Check(serializer.SerializeToString() != snapshot, "running the scene changed it");
+
+		// Stop.
+		Check(serializer.DeserializeFromString(snapshot), "the snapshot restores");
+		Check(serializer.SerializeToString() == snapshot,
+			  "stopping restores the scene byte for byte");
+
+		// And the restored scene is a working scene, not just matching bytes:
+		// the hierarchy has to be rebuilt, not merely serialized.
+		CheckHierarchyPreserved(scene);
+	}
+
 	void CheckCameraRanking()
 	{
 		auto scene = std::make_shared<Scene>();
@@ -591,6 +690,10 @@ int RunTests(int argc, char** argv)
 	AssetManager::Init(*device);
 
 	RV_CORE_INFO("Scene round-trip test on {0}", device->GetCaps().APIName);
+
+	// --- simulation loop -----------------------------------------------------
+	CheckFixedStep();
+	CheckPlayModeRestore();
 
 	// --- cameras -------------------------------------------------------------
 	CheckCameraRanking();

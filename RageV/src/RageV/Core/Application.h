@@ -7,12 +7,19 @@
 #include "RageV/Core/GraphicsInformation.h"
 #include "RageV/ImGui/ImGuiLayer.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
+#include "FixedStep.h"
 
 
 namespace RageV {
 	class RV_API Application
 	{
 	public:
+		// [0, 1): how far the frame being rendered sits between the last
+		// completed simulation step and the next. Anything simulated should
+		// draw at lerp(previous, current, alpha) or it will stutter.
+		static float GetInterpolationAlpha();
+		static float GetFixedTimestep();
+
 		Application(const std::string& appname);
 		virtual ~Application();
 		void Run();
@@ -37,6 +44,10 @@ namespace RageV {
 		LayerStack m_LayerStack;
 		static Application* m_Instance;
 		float m_LastTime = 0.0f;
+
+		// Real time not yet spent in fixed steps, plus where the renderer sits
+		// between the last completed step and the next one.
+		FixedStep m_FixedStep;
 		std::unique_ptr<Platform> m_Platform;
 		std::function<double()> GetTime;
 

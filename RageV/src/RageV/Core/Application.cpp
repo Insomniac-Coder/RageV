@@ -13,6 +13,8 @@
 #include <GLFW/glfw3.h>
 
 namespace RageV {
+
+
 #define RV_BIND_FUNCTION(x) std::bind(&x, this, std::placeholders::_1)
 
 	Application* Application::m_Instance = nullptr;
@@ -124,17 +126,51 @@ namespace RageV {
 		return false;
 	}
 
+	// Fixed-step simulation, variable-rate rendering.
+	//
+	// Simulation cannot run on the frame's elapsed time: integrator behaviour
+	// depends on dt, so the same scene would settle at 300 fps and explode at
+	// 40. Rendering cannot run on the fixed step either, or the frame rate is
+	// pinned to it. So: accumulate real time, spend it in fixed steps, and hand
+	// the renderer how far through the next step it is.
+	//
+	// See docs/ENGINE-NOTES.md section 1.
+	float Application::GetInterpolationAlpha()
+	{
+		return m_Instance ? m_Instance->m_FixedStep.Alpha : 0.0f;
+	}
+
+	float Application::GetFixedTimestep()
+	{
+		return 1.0f / (float)EngineConfig::Get().FixedHz;
+	}
+
 	void Application::Run() {
 
+		m_FixedStep.Timestep = 1.0f / (float)EngineConfig::Get().FixedHz;
+
 		while (m_Running) {
-			float time = (float)GetTime();
-			Timestep ts = time - m_LastTime;
+			const float time = (float)GetTime();
+			const float frameTime = time - m_LastTime;
 			m_LastTime = time;
 
 			m_Window->OnUpdate();
 
 			if (m_Minimised)
+			{
+				// Nothing is being shown, so nothing accumulates. Otherwise
+				// restoring the window would spend the whole minimised
+				// duration in one burst of steps.
+				m_FixedStep.Reset();
 				continue;
+			}
+
+			const int steps = m_FixedStep.Advance(frameTime);
+			for (int i = 0; i < steps; i++)
+			{
+				for (Layer* layer : m_LayerStack)
+					layer->OnFixedUpdate(m_FixedStep.Timestep);
+			}
 
 			// Null means the frame must be skipped -- a resized or minimised
 			// window. EndFrame must not be called in that case.
@@ -144,6 +180,7 @@ namespace RageV {
 
 			Renderer::BeginFrame(cmd);
 
+			const Timestep ts = frameTime;
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate(ts);
 

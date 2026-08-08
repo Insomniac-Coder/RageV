@@ -279,7 +279,18 @@ namespace RageV
 		}
 	}
 
-	void Scene::OnUpdate(Timestep ts)
+	void Scene::OnUpdateEditor(Timestep ts)
+	{
+		// Nothing. Editing a scene must not run it.
+		(void)ts;
+	}
+
+	void Scene::OnUpdateRuntime(Timestep ts)
+	{
+		(void)ts;
+	}
+
+	void Scene::OnFixedUpdateRuntime(Timestep dt)
 	{
 		m_Registry.view<NativeScriptComponent>().each([&](auto handle, NativeScriptComponent& script)
 			{
@@ -293,7 +304,9 @@ namespace RageV
 					script.Instance->OnCreate();
 				}
 
-				script.Instance->OnUpdate(ts);
+				// On the fixed step, not the frame: a script that moves
+				// something has to agree with the physics that will push it.
+				script.Instance->OnUpdate(dt);
 			}
 		);
 	}
