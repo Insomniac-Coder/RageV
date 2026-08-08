@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <vector>
+#include "RageV/Core/UUID.h"
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include "RageV/Renderer/Camera.h"
@@ -12,6 +14,34 @@
 
 namespace RageV
 {
+	// Stable identity. Added to every entity at creation, preserved across
+	// save/load, and the only durable way to name an entity -- entt::entity
+	// handles are recycled and mean nothing outside one registry instance.
+	struct IDComponent
+	{
+		UUID ID;
+
+		IDComponent() = default;
+		IDComponent(const IDComponent&) = default;
+		IDComponent(UUID id) : ID(id) {}
+	};
+
+	// Parent/child links, by UUID rather than by handle so they survive
+	// serialization.
+	//
+	// Children is derived state: only Parent is written to disk, and the child
+	// lists are rebuilt on load. Storing both would let them disagree, and a
+	// hierarchy that disagrees with itself is the kind of bug that only shows
+	// up three features later.
+	struct RelationshipComponent
+	{
+		UUID Parent = UUID::Invalid();
+		std::vector<UUID> Children;
+
+		RelationshipComponent() = default;
+		RelationshipComponent(const RelationshipComponent&) = default;
+	};
+
 	struct TagComponent {
 		std::string Name;
 
@@ -22,16 +52,26 @@ namespace RageV
 
 	struct TransformComponent
 	{
+		// Local, relative to the parent. World is derived from these.
 		glm::vec3 Position{ 0.0f, 0.0f, 0.0f };
 		glm::vec3 Rotation{ 0.0f, 0.0f, 0.0f };
 		glm::vec3 Scale{ 1.0f };
 
+		// Recomputed unconditionally by Scene::UpdateWorldTransforms in one
+		// top-down pass per frame.
+		//
+		// Deliberately not a dirty-flag cache. A flag has to be set at every
+		// write site -- the inspector, the gizmo, scripts, the serializer, and
+		// everything added later -- and a single missed one leaves an object
+		// silently rendering in the wrong place. Recomputing is O(n) at scene
+		// scale and cannot be got wrong.
+		glm::mat4 World{ 1.0f };
+
 		TransformComponent() = default;
 		TransformComponent(const TransformComponent&) = default;
 		TransformComponent(const glm::vec3& position) { Position = position; }
-		
 
-		glm::mat4 GetTransform()
+		glm::mat4 GetLocalTransform() const
 		{
 			glm::mat4 rotation = glm::toMat4(glm::quat(Rotation));
 			return	glm::translate(glm::mat4(1.0f), Position) *

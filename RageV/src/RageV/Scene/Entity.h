@@ -1,6 +1,7 @@
 #pragma once
 #include "Scene.h"
 #include "RageV/Core/Log.h"
+#include "RageV/Core/UUID.h"
 
 namespace RageV
 {
@@ -10,6 +11,11 @@ namespace RageV
 		Entity() = default;
 		Entity(entt::entity entity, Scene* scene) : m_Entity(entity), m_Scene(scene) {}
 		Entity(const Entity& entity) = default;
+
+		// Defined in Entity.cpp: Components.h includes this header (through
+		// ScriptableEntity.h), so IDComponent cannot be visible here.
+		UUID GetUUID();
+		const std::string& GetName();
 
 		template<typename T, typename... Args>
 		T& AddComponent(Args&& ... args)

@@ -62,6 +62,7 @@ endif()
 if(RAGEV_BUILD_TOOLS)
     add_subdirectory(tools/shaderinfo)
     add_subdirectory(tools/rhismoke)
+    add_subdirectory(tools/scenetest)
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio")

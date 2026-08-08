@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "SceneSerializer.h"
 #include <fstream>
+#include <algorithm>
 #include "Components.h"
 #include "RageV/Renderer/Renderer.h"
 
@@ -24,7 +25,7 @@ namespace YAML
 		{
 			if (!node.IsSequence() || node.size() != 3)
 				return false;
-			
+
 			v.x = node[0].as<float>();
 			v.y = node[1].as<float>();
 			v.z = node[2].as<float>();
@@ -63,14 +64,14 @@ namespace YAML
 
 namespace RageV
 {
-	YAML::Emitter& operator << (YAML::Emitter& emitter, glm::vec3& vec)
+	YAML::Emitter& operator << (YAML::Emitter& emitter, const glm::vec3& vec)
 	{
 		emitter << YAML::Flow;
 		emitter << YAML::BeginSeq << vec.x << vec.y << vec.z << YAML::EndSeq;
 		return emitter;
 	}
 
-	YAML::Emitter& operator << (YAML::Emitter& emitter, glm::vec4 vec)
+	YAML::Emitter& operator << (YAML::Emitter& emitter, const glm::vec4& vec)
 	{
 		emitter << YAML::Flow;
 		emitter << YAML::BeginSeq << vec.x << vec.y << vec.z << vec.w << YAML::EndSeq;
@@ -86,42 +87,78 @@ namespace RageV
 	{
 	}
 
-	void SceneSerializer::Serialize(const std::string& filepath)
+	std::string SceneSerializer::SerializeToString()
 	{
 		YAML::Emitter emitter;
 		emitter << YAML::BeginMap;
 		emitter << YAML::Key << "Scene" << YAML::Value << "Untitled";
+		emitter << YAML::Key << "Version" << YAML::Value << kVersion;
 		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-		m_SceneRef->m_Registry.each([&](auto& entityID)
-			{
-				Entity entity = { entityID, m_SceneRef.get() };
-				if (!entity)
-					return;
 
-				SerializeEntity(emitter, entity);
-			}
-		);
+		// EnTT iterates its entity storage in reverse creation order. Writing
+		// that directly would flip the file's entity order on every save/load
+		// cycle, so the round trip would never be stable. Reversing restores
+		// creation order, which the deserializer then reproduces exactly.
+		std::vector<entt::entity> handles;
+		m_SceneRef->m_Registry.each([&](auto handle) { handles.push_back(handle); });
+		std::reverse(handles.begin(), handles.end());
+
+		for (entt::entity handle : handles)
+		{
+			Entity entity = { handle, m_SceneRef.get() };
+			if (!entity)
+				continue;
+
+			SerializeEntity(emitter, entity);
+		}
 
 		emitter << YAML::EndSeq;
 		emitter << YAML::EndMap;
 
+		return std::string(emitter.c_str());
+	}
+
+	bool SceneSerializer::Serialize(const std::string& filepath)
+	{
 		std::ofstream file(filepath.c_str());
-		file << emitter.c_str();
-		file.close();
+		if (!file)
+		{
+			RV_CORE_ERROR("Could not open '{0}' for writing", filepath);
+			return false;
+		}
+
+		file << SerializeToString();
+		return true;
 	}
 
 	void SceneSerializer::SerializeEntity(YAML::Emitter& emitter, Entity entity)
 	{
 		emitter << YAML::BeginMap;
-		emitter << YAML::Key << "EntityID" << YAML::Value << "12345678890";
+		// A real identity now. This used to be the literal string
+		// "12345678890" for every entity in every scene.
+		emitter << YAML::Key << "EntityID" << YAML::Value << (uint64_t)entity.GetUUID();
 
 		if (entity.HasComponent<TagComponent>())
 		{
 			auto& tag = entity.GetComponent<TagComponent>();
 			emitter << YAML::Key << "TagComponent";
 			emitter << YAML::BeginMap;
-			emitter << YAML::Key << "Tag" << YAML::Key << tag.Name;
+			emitter << YAML::Key << "Tag" << YAML::Value << tag.Name;
 			emitter << YAML::EndMap;
+		}
+
+		// Only the parent link is written. Child lists are derived from it on
+		// load, so the two can never disagree on disk.
+		if (entity.HasComponent<RelationshipComponent>())
+		{
+			auto& relationship = entity.GetComponent<RelationshipComponent>();
+			if (relationship.Parent.IsValid())
+			{
+				emitter << YAML::Key << "RelationshipComponent";
+				emitter << YAML::BeginMap;
+				emitter << YAML::Key << "Parent" << YAML::Value << (uint64_t)relationship.Parent;
+				emitter << YAML::EndMap;
+			}
 		}
 
 		if (entity.HasComponent<TransformComponent>())
@@ -129,6 +166,7 @@ namespace RageV
 			auto& transform = entity.GetComponent<TransformComponent>();
 			emitter << YAML::Key << "TransformComponent";
 			emitter << YAML::BeginMap;
+			// Local. World is derived every frame and is not persisted.
 			emitter << YAML::Key << "Position" << YAML::Value << transform.Position;
 			emitter << YAML::Key << "Rotation" << YAML::Value << transform.Rotation;
 			emitter << YAML::Key << "Scale" << YAML::Value << transform.Scale;
@@ -159,9 +197,11 @@ namespace RageV
 		if (entity.HasComponent<ColorComponent>())
 		{
 			auto& color = entity.GetComponent<ColorComponent>();
-			emitter << YAML::Key << "Color";
+			// Was keyed "Color" while every other component used its type name.
+			// Version 1 files are still read under the old key below.
+			emitter << YAML::Key << "ColorComponent";
 			emitter << YAML::BeginMap;
-			emitter << YAML::Key << "ColorValue" << color.Color;
+			emitter << YAML::Key << "ColorValue" << YAML::Value << color.Color;
 			emitter << YAML::EndMap;
 		}
 
@@ -212,106 +252,172 @@ namespace RageV
 	bool SceneSerializer::Deserialize(const std::string& filepath)
 	{
 		std::ifstream file(filepath);
-		std::stringstream ss;
-		ss << file.rdbuf();
-
-		YAML::Node node = YAML::Load(ss.str());
-
-		if (!node["Scene"])
+		if (!file)
 		{
-			RV_CORE_ERROR("Invalid scene file!");
+			RV_CORE_ERROR("Could not open '{0}' for reading", filepath);
 			return false;
 		}
 
-		std::string sceneName = node["Scene"].as<std::string>();
+		std::stringstream ss;
+		ss << file.rdbuf();
+		return DeserializeFromString(ss.str());
+	}
+
+	bool SceneSerializer::DeserializeFromString(const std::string& yaml)
+	{
+		YAML::Node node;
+		try
+		{
+			node = YAML::Load(yaml);
+		}
+		catch (const YAML::Exception& e)
+		{
+			RV_CORE_ERROR("Scene parse failed: {0}", e.what());
+			return false;
+		}
+
+		if (!node["Scene"])
+		{
+			RV_CORE_ERROR("Invalid scene file: no Scene key");
+			return false;
+		}
+
+		const int version = node["Version"] ? node["Version"].as<int>() : 1;
+		if (version > kVersion)
+		{
+			RV_CORE_ERROR("Scene was written by a newer version ({0} > {1})", version, kVersion);
+			return false;
+		}
+		if (version < kVersion)
+		{
+			RV_CORE_WARN("Loading a version {0} scene; entity IDs and hierarchy will be regenerated", version);
+		}
+
+		// Loading replaces the scene. Without this, opening a file merged it
+		// into whatever was already there.
+		m_SceneRef->m_Registry.clear();
+		m_SceneRef->m_EntityMap.clear();
 
 		auto entities = node["Entities"];
+		if (!entities)
+			return true;
 
-		if (entities)
+		// Parents are resolved after every entity exists: a child can appear
+		// before its parent in the file.
+		std::vector<std::pair<UUID, UUID>> pendingParents;
+
+		for (auto entity : entities)
 		{
-			for (auto entity : entities)
+			// Version 1 wrote the same hardcoded ID for every entity, so those
+			// files get fresh ones -- honouring what is on disk would collapse
+			// the whole scene onto a single identity.
+			UUID id = (version >= 2 && entity["EntityID"])
+					? UUID(entity["EntityID"].as<uint64_t>())
+					: UUID();
+
+			std::string name;
+			if (auto tag = entity["TagComponent"])
+				name = tag["Tag"].as<std::string>();
+
+			Entity newEntity = m_SceneRef->CreateEntityWithUUID(id, name);
+
+			if (auto relationship = entity["RelationshipComponent"])
 			{
-				uint64_t entityID = entity["EntityID"].as<uint64_t>();
-				std::string name;
-				auto tag = entity["TagComponent"];
-				if (tag)
-					name = tag["Tag"].as<std::string>();
+				if (auto parent = relationship["Parent"])
+					pendingParents.emplace_back(id, UUID(parent.as<uint64_t>()));
+			}
 
-				Entity newEntity = m_SceneRef->CreateEntity(name);
+			if (auto transform = entity["TransformComponent"])
+			{
+				auto& tc = newEntity.GetComponent<TransformComponent>();
+				tc.Position = transform["Position"].as<glm::vec3>();
+				tc.Rotation = transform["Rotation"].as<glm::vec3>();
+				tc.Scale = transform["Scale"].as<glm::vec3>();
+			}
 
-				auto transform = entity["TransformComponent"];
-				if (transform)
+			if (auto cam = entity["CameraComponent"])
+			{
+				auto& cc = newEntity.AddComponent<CameraComponent>();
+				cc.isPrimary = cam["isPrimary"].as<bool>();
+				cc.fixedAspectRatio = cam["FixedAspectRatio"].as<bool>();
+
+				auto camDetails = cam["Camera"];
+
+				cc.Camera.SetProjectionType(SceneCamera::ProjectionType(camDetails["ProjectionType"].as<int>()));
+				cc.Camera.SetOrthgraphicSize(camDetails["OrthographicScale"].as<float>());
+				cc.Camera.SetOrthoNearClip(camDetails["OrthographicNearClip"].as<float>());
+				cc.Camera.SetOrthoFarClip(camDetails["OrthographicFarClip"].as<float>());
+
+				cc.Camera.SetPerspectiveFOV(camDetails["PerspectiveFOV"].as<float>());
+				cc.Camera.SetPerspectiveNearClip(camDetails["PerspectiveNearClip"].as<float>());
+				cc.Camera.SetPerspectiveFarClip(camDetails["PerspectiveFarClip"].as<float>());
+			}
+
+			// "Color" is the version 1 key.
+			auto color = entity["ColorComponent"];
+			if (!color)
+				color = entity["Color"];
+			if (color)
+			{
+				auto& cc = newEntity.AddComponent<ColorComponent>();
+				cc.Color = color["ColorValue"].as<glm::vec4>();
+			}
+
+			if (auto mesh = entity["MeshComponent"])
+			{
+				auto& mc = newEntity.AddComponent<MeshComponent>();
+				PrimitiveType primitive = PrimitiveType::Cube;
+				if (PrimitiveTypeFromName(mesh["Primitive"].as<std::string>(), primitive))
+					mc.Primitive = primitive;
+
+				if (auto material = mesh["Material"]; material && Renderer::HasDevice())
 				{
-					auto& tc = newEntity.GetComponent<TransformComponent>();
-					tc.Position = transform["Position"].as<glm::vec3>();
-					tc.Rotation = transform["Rotation"].as<glm::vec3>();
-					tc.Scale = transform["Scale"].as<glm::vec3>();
+					mc.Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
+					auto& params = mc.Material->GetParams();
+					params.BaseColor = material["BaseColor"].as<glm::vec4>();
+					params.EmissiveColor = material["Emissive"].as<glm::vec4>();
+					params.Metallic = material["Metallic"].as<float>();
+					params.Roughness = material["Roughness"].as<float>();
+					params.Occlusion = material["Occlusion"].as<float>();
+					mc.Material->Invalidate();
 				}
+			}
 
-				auto cam = entity["CameraComponent"];
-				if (cam)
-				{
-					auto& cc = newEntity.AddComponent<CameraComponent>();
-					cc.isPrimary = cam["isPrimary"].as<bool>();
-					cc.fixedAspectRatio = cam["FixedAspectRatio"].as<bool>();
-
-					auto camDetails = cam["Camera"];
-
-					cc.Camera.SetProjectionType(SceneCamera::ProjectionType(camDetails["ProjectionType"].as<int>()));
-					cc.Camera.SetOrthgraphicSize(camDetails["OrthographicScale"].as<float>());
-					cc.Camera.SetOrthoNearClip(camDetails["OrthographicNearClip"].as<float>());
-					cc.Camera.SetOrthoFarClip(camDetails["OrthographicFarClip"].as<float>());
-
-					cc.Camera.SetPerspectiveFOV(camDetails["PerspectiveFOV"].as<float>());
-					cc.Camera.SetPerspectiveNearClip(camDetails["PerspectiveNearClip"].as<float>());
-					cc.Camera.SetPerspectiveFarClip(camDetails["PerspectiveFarClip"].as<float>());
-				}
-
-				auto color = entity["Color"];
-				if (color)
-				{
-					auto& cc = newEntity.AddComponent<ColorComponent>();
-					cc.Color = color["ColorValue"].as<glm::vec4>();
-				}
-
-				auto mesh = entity["MeshComponent"];
-				if (mesh)
-				{
-					auto& mc = newEntity.AddComponent<MeshComponent>();
-					PrimitiveType primitive = PrimitiveType::Cube;
-					if (PrimitiveTypeFromName(mesh["Primitive"].as<std::string>(), primitive))
-						mc.Primitive = primitive;
-
-					if (auto material = mesh["Material"]; material && Renderer::HasDevice())
-					{
-						mc.Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
-						auto& params = mc.Material->GetParams();
-						params.BaseColor = material["BaseColor"].as<glm::vec4>();
-						params.EmissiveColor = material["Emissive"].as<glm::vec4>();
-						params.Metallic = material["Metallic"].as<float>();
-						params.Roughness = material["Roughness"].as<float>();
-						params.Occlusion = material["Occlusion"].as<float>();
-						mc.Material->Invalidate();
-					}
-				}
-
-				auto light = entity["LightComponent"];
-				if (light)
-				{
-					auto& lc = newEntity.AddComponent<LightComponent>();
-					lc.Light.SetLightType((Light::LightType)light["Type"].as<int>());
-					lc.Light.GetLightColor() = light["Color"].as<glm::vec3>();
-					// Optional: scenes saved before these existed still load.
-					if (light["Intensity"]) lc.Light.SetIntensity(light["Intensity"].as<float>());
-					if (light["Range"])     lc.Light.SetRange(light["Range"].as<float>());
-					if (light["InnerCone"]) lc.Light.SetInnerCone(light["InnerCone"].as<float>());
-					if (light["OuterCone"]) lc.Light.SetOuterCone(light["OuterCone"].as<float>());
-				}
+			if (auto light = entity["LightComponent"])
+			{
+				auto& lc = newEntity.AddComponent<LightComponent>();
+				lc.Light.SetLightType((Light::LightType)light["Type"].as<int>());
+				lc.Light.GetLightColor() = light["Color"].as<glm::vec3>();
+				// Optional: scenes saved before these existed still load.
+				if (light["Intensity"]) lc.Light.SetIntensity(light["Intensity"].as<float>());
+				if (light["Range"])     lc.Light.SetRange(light["Range"].as<float>());
+				if (light["InnerCone"]) lc.Light.SetInnerCone(light["InnerCone"].as<float>());
+				if (light["OuterCone"]) lc.Light.SetOuterCone(light["OuterCone"].as<float>());
 			}
 		}
 
-		return false;
+		// Linked directly rather than through Scene::SetParent. SetParent
+		// preserves the world transform by recomputing the local one, which is
+		// right for an editor drag and wrong here: what is on disk already is
+		// the local transform.
+		for (const auto& [childID, parentID] : pendingParents)
+		{
+			Entity child = m_SceneRef->GetEntityByUUID(childID);
+			Entity parent = m_SceneRef->GetEntityByUUID(parentID);
+
+			if (!child || !parent)
+			{
+				RV_CORE_WARN("Scene references a parent that is not in the file; entity left at the root");
+				continue;
+			}
+
+			child.GetComponent<RelationshipComponent>().Parent = parentID;
+			parent.GetComponent<RelationshipComponent>().Children.push_back(childID);
+		}
+
+		m_SceneRef->UpdateWorldTransforms();
+		// Used to return false unconditionally, so every caller that checked
+		// the result saw a successful load as a failure.
+		return true;
 	}
-
-
 }

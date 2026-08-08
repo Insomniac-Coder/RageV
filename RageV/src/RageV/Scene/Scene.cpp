@@ -7,18 +7,25 @@
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/EditorCamera.h"
+#include <glm/gtx/matrix_decompose.hpp>
 
 namespace RageV
 {
+	namespace
+	{
+		const std::vector<UUID> s_NoChildren;
+	}
+
 	Scene::Scene()
 	{
 		m_Registry.on_destroy<NativeScriptComponent>().connect<&Scene::OnNativeScriptDestroyed>(this);
+		m_Registry.on_destroy<IDComponent>().connect<&Scene::OnIDDestroyed>(this);
 	}
 
 	Scene::~Scene()
 	{
 		// Explicit, in the destructor body, rather than left to the registry's
-		// own destructor: this way the on_destroy handler runs while every
+		// own destructor: this way the on_destroy handlers run while every
 		// member is still alive. Without it script instances leaked -- nothing
 		// in the engine ever called the destroy hooks at all.
 		m_Registry.clear();
@@ -35,6 +42,201 @@ namespace RageV
 			component.DestroyScript(&component);
 	}
 
+	void Scene::OnIDDestroyed(entt::registry& registry, entt::entity handle)
+	{
+		m_EntityMap.erase(registry.get<IDComponent>(handle).ID);
+	}
+
+	// -------------------------------------------------------------------------
+	// Entities
+	// -------------------------------------------------------------------------
+	Entity Scene::CreateEntity(const std::string& name)
+	{
+		return CreateEntityWithUUID(UUID(), name);
+	}
+
+	Entity Scene::CreateEntityWithUUID(UUID id, const std::string& name)
+	{
+		Entity entity = { m_Registry.create(), this };
+		entity.AddComponent<IDComponent>(id);
+		entity.AddComponent<TransformComponent>();
+		entity.AddComponent<RelationshipComponent>();
+		TagComponent& tag = entity.AddComponent<TagComponent>();
+
+		tag.Name = name.empty() ? "Entity" : name;
+		m_EntityMap[id] = entity;
+		return entity;
+	}
+
+	Entity Scene::GetEntityByUUID(UUID id)
+	{
+		auto it = m_EntityMap.find(id);
+		if (it == m_EntityMap.end())
+			return {};
+		return { it->second, this };
+	}
+
+	void Scene::DeleteEntity(Entity entity)
+	{
+		if (!entity)
+			return;
+
+		// Copied, not referenced: destroying a child mutates the parent's list
+		// through UnlinkFromParent, and iterating a container being modified
+		// underneath is how this becomes an intermittent crash.
+		if (entity.HasComponent<RelationshipComponent>())
+		{
+			const std::vector<UUID> children = entity.GetComponent<RelationshipComponent>().Children;
+			for (UUID childID : children)
+				DeleteEntity(GetEntityByUUID(childID));
+		}
+
+		UnlinkFromParent(entity);
+		m_Registry.destroy(entity);
+	}
+
+	// -------------------------------------------------------------------------
+	// Hierarchy
+	// -------------------------------------------------------------------------
+	void Scene::UnlinkFromParent(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<RelationshipComponent>())
+			return;
+
+		auto& relationship = entity.GetComponent<RelationshipComponent>();
+		if (!relationship.Parent.IsValid())
+			return;
+
+		if (Entity parent = GetEntityByUUID(relationship.Parent))
+		{
+			auto& siblings = parent.GetComponent<RelationshipComponent>().Children;
+			siblings.erase(std::remove(siblings.begin(), siblings.end(), entity.GetUUID()), siblings.end());
+		}
+
+		relationship.Parent = UUID::Invalid();
+	}
+
+	bool Scene::IsDescendantOf(Entity entity, Entity possibleAncestor)
+	{
+		if (!entity || !possibleAncestor)
+			return false;
+
+		Entity current = GetParent(entity);
+		while (current)
+		{
+			if (current == possibleAncestor)
+				return true;
+			current = GetParent(current);
+		}
+		return false;
+	}
+
+	bool Scene::SetParent(Entity child, Entity parent)
+	{
+		if (!child || !child.HasComponent<RelationshipComponent>())
+			return false;
+
+		// Parenting an entity to itself or to one of its own descendants would
+		// detach the subtree from every root and make PropagateTransform
+		// recurse forever. This is the only place a cycle can form.
+		if (parent && (child == parent || IsDescendantOf(parent, child)))
+			return false;
+
+		// Captured before the move so the entity does not visibly jump when its
+		// new parent has a different transform.
+		const glm::mat4 world = GetWorldTransform(child);
+
+		UnlinkFromParent(child);
+
+		if (parent && parent.HasComponent<RelationshipComponent>())
+		{
+			child.GetComponent<RelationshipComponent>().Parent = parent.GetUUID();
+			parent.GetComponent<RelationshipComponent>().Children.push_back(child.GetUUID());
+		}
+
+		// Re-express the same world transform relative to the new parent.
+		const glm::mat4 local = glm::inverse(GetParentWorldTransform(child)) * world;
+
+		glm::vec3 position, scale, skew;
+		glm::quat rotation;
+		glm::vec4 perspective;
+		if (glm::decompose(local, scale, rotation, position, skew, perspective))
+		{
+			auto& transform = child.GetComponent<TransformComponent>();
+			transform.Position = position;
+			transform.Rotation = glm::eulerAngles(rotation);
+			transform.Scale = scale;
+		}
+
+		UpdateWorldTransforms();
+		return true;
+	}
+
+	Entity Scene::GetParent(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<RelationshipComponent>())
+			return {};
+		return GetEntityByUUID(entity.GetComponent<RelationshipComponent>().Parent);
+	}
+
+	const std::vector<UUID>& Scene::GetChildren(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<RelationshipComponent>())
+			return s_NoChildren;
+		return entity.GetComponent<RelationshipComponent>().Children;
+	}
+
+	glm::mat4 Scene::GetParentWorldTransform(Entity entity)
+	{
+		Entity parent = GetParent(entity);
+		if (!parent)
+			return glm::mat4(1.0f);
+		return GetWorldTransform(parent);
+	}
+
+	glm::mat4 Scene::GetWorldTransform(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<TransformComponent>())
+			return glm::mat4(1.0f);
+
+		// Walks the chain rather than reading the cached World, so callers that
+		// have just mutated a local transform get the current answer without
+		// having to remember to run the pass first.
+		const auto& transform = entity.GetComponent<TransformComponent>();
+		return GetParentWorldTransform(entity) * transform.GetLocalTransform();
+	}
+
+	void Scene::PropagateTransform(entt::entity handle, const glm::mat4& parentWorld)
+	{
+		auto& transform = m_Registry.get<TransformComponent>(handle);
+		transform.World = parentWorld * transform.GetLocalTransform();
+
+		// Copied out before recursing: the reference above stays valid only
+		// while the registry is not restructured, and the copy costs one matrix.
+		const glm::mat4 world = transform.World;
+
+		for (UUID childID : m_Registry.get<RelationshipComponent>(handle).Children)
+		{
+			if (Entity child = GetEntityByUUID(childID))
+				PropagateTransform(child, world);
+		}
+	}
+
+	void Scene::UpdateWorldTransforms()
+	{
+		auto view = m_Registry.view<TransformComponent, RelationshipComponent>();
+		for (auto handle : view)
+		{
+			// Roots only; children are reached by recursion, and starting from
+			// every entity would compute deep nodes once per ancestor.
+			if (!view.get<RelationshipComponent>(handle).Parent.IsValid())
+				PropagateTransform(handle, glm::mat4(1.0f));
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Frame
+	// -------------------------------------------------------------------------
 	Entity Scene::GetPrimaryCameraEntity()
 	{
 		auto view = m_Registry.view<CameraComponent>();
@@ -64,23 +266,6 @@ namespace RageV
 		}
 	}
 
-	Entity Scene::CreateEntity(const std::string& name)
-	{
-		Entity entity = { m_Registry.create(), this };
-		entity.AddComponent<TransformComponent>();
-		TagComponent& tag = entity.AddComponent<TagComponent>();
-
-		tag.Name = name.empty() ? "Entity" : name;
-		return entity;
-	}
-
-	void Scene::DeleteEntity(Entity entity)
-	{
-		if (!entity)
-			return;
-		m_Registry.destroy(entity);
-	}
-
 	void Scene::OnUpdate(Timestep ts)
 	{
 		m_Registry.view<NativeScriptComponent>().each([&](auto handle, NativeScriptComponent& script)
@@ -102,6 +287,8 @@ namespace RageV
 
 	void Scene::OnRenderRuntime()
 	{
+		UpdateWorldTransforms();
+
 		auto view = m_Registry.view<CameraComponent, TransformComponent>();
 
 		for (auto& item : view)
@@ -110,7 +297,8 @@ namespace RageV
 			if (!camera.isPrimary)
 				continue;
 
-			OnRender(camera.Camera, transform.GetTransform());
+			// World, so a camera parented to a rig follows it.
+			OnRender(camera.Camera, transform.World);
 			return;
 		}
 
@@ -120,6 +308,7 @@ namespace RageV
 
 	void Scene::OnRenderEditor(const EditorCamera& camera)
 	{
+		UpdateWorldTransforms();
 		OnRender(camera, camera.GetTransform());
 	}
 
@@ -131,12 +320,11 @@ namespace RageV
 		for (auto& item : lightView)
 		{
 			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
-			const glm::mat4 worldTransform = transform.GetTransform();
 
 			LightRenderData data;
-			data.Position = glm::vec3(worldTransform[3]);
+			data.Position = glm::vec3(transform.World[3]);
 			// A light's forward axis is -Z, matching the camera convention.
-			data.Direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+			data.Direction = glm::normalize(glm::vec3(transform.World * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 			data.Color = light.Light.GetLightColor();
 			data.Intensity = light.Light.GetIntensity();
 			data.Range = light.Light.GetRange();
@@ -160,7 +348,7 @@ namespace RageV
 			{
 				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
 				Renderer3D::DrawMesh(Mesh::GetPrimitive(device, mesh.Primitive),
-									 transform.GetTransform(), mesh.Material);
+									 transform.World, mesh.Material);
 			}
 
 			Renderer3D::EndScene();
@@ -174,7 +362,7 @@ namespace RageV
 		{
 			auto [transform, color] = group.get<TransformComponent, ColorComponent>(item);
 
-			Renderer2D::DrawQuad(transform.GetTransform(), color.Color);
+			Renderer2D::DrawQuad(transform.World, color.Color);
 		}
 
 		Renderer2D::EndScene();

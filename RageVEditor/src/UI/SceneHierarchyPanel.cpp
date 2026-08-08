@@ -33,55 +33,34 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 
 	ImGui::Begin("Scene Hierarchy", showHierarchy);
 
-	auto view = m_SceneRef->m_Registry.view<TagComponent>();
+	m_PendingDelete = {};
+	m_PendingReparent = false;
+	m_PendingCreateChild = false;
 
+	// Roots only; children are drawn by the recursion.
+	auto view = m_SceneRef->m_Registry.view<TagComponent, RelationshipComponent>();
 	for (auto& item : view)
 	{
-		auto& tag = m_SceneRef->m_Registry.get<TagComponent>(item).Name;
-		ImGuiTreeNodeFlags flags = ((m_Selected == Entity{ item, m_SceneRef.get() }) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-
-		//returns wheter item was opened or not, imgui stuff
-		const bool selected = (flags & ImGuiTreeNodeFlags_Selected) != 0;
-		if (selected)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Header, EditorTheme::Color::AccentMuted);
-			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, EditorTheme::Color::AccentMuted);
-			ImGui::PushStyleColor(ImGuiCol_HeaderActive, EditorTheme::Color::Accent);
-		}
-		bool isOpened = ImGui::TreeNodeEx((void*)(uint64_t)(unsigned int)item, flags, tag.c_str());
-		if (selected)
-			ImGui::PopStyleColor(3);
-		if (ImGui::IsItemClicked())
-		{
-			m_Selected = Entity{ item, m_SceneRef.get() };
-		}
-
-		bool isDeleted = false;
-
-		if (ImGui::BeginPopupContextItem())
-		{
-			if (ImGui::MenuItem("Delete Entity"))
-				isDeleted = true;
-
-			ImGui::EndPopup();
-		}
-
-		if (isOpened)
-		{
-			ImGui::TreePop();
-		}
-
-		if (isDeleted)
-		{
-			Entity temp{ item, m_SceneRef.get()};
-			m_SceneRef->DeleteEntity(temp);
-			if(temp == m_Selected)
-				m_Selected = {};
-		}
+		if (!view.get<RelationshipComponent>(item).Parent.IsValid())
+			DrawEntityNode(Entity{ item, m_SceneRef.get() });
 	}
 
 	if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 		m_Selected = {};
+
+	// Dropping onto empty space unparents, which is otherwise impossible to
+	// express by dragging.
+	ImGui::Dummy(ImGui::GetContentRegionAvail());
+	if (ImGui::BeginDragDropTarget())
+	{
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
+		{
+			m_PendingReparentChild = Entity{ *(const entt::entity*)payload->Data, m_SceneRef.get() };
+			m_PendingReparentParent = {};
+			m_PendingReparent = true;
+		}
+		ImGui::EndDragDropTarget();
+	}
 
 	if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 	{
@@ -89,6 +68,30 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 			m_SceneRef->CreateEntity();
 
 		ImGui::EndPopup();
+	}
+
+	// Structural changes are applied after the walk: mutating the hierarchy
+	// mid-traversal invalidates the child lists the recursion is iterating.
+	if (m_PendingCreateChild)
+	{
+		Entity child = m_SceneRef->CreateEntity("Entity");
+		m_SceneRef->SetParent(child, m_PendingCreateChildParent);
+		m_Selected = child;
+	}
+
+	if (m_PendingReparent)
+	{
+		if (!m_SceneRef->SetParent(m_PendingReparentChild, m_PendingReparentParent))
+			RV_WARN("Cannot parent an entity to itself or to its own descendant");
+	}
+
+	if (m_PendingDelete)
+	{
+		// Selection may be a descendant of what is being deleted, so it is
+		// cleared whenever the deleted subtree contains it.
+		if (m_Selected == m_PendingDelete || m_SceneRef->IsDescendantOf(m_Selected, m_PendingDelete))
+			m_Selected = {};
+		m_SceneRef->DeleteEntity(m_PendingDelete);
 	}
 
 	ImGui::End();
@@ -102,6 +105,93 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 		else
 			ImGui::TextDisabled("Nothing selected.");
 		ImGui::End();
+	}
+}
+
+void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
+{
+	const auto& children = m_SceneRef->GetChildren(entity);
+
+	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+	if (m_Selected == entity)
+		flags |= ImGuiTreeNodeFlags_Selected;
+	// A leaf still needs to be a drop target, so it keeps the arrow slot but
+	// cannot be expanded.
+	if (children.empty())
+		flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+	const bool selected = (flags & ImGuiTreeNodeFlags_Selected) != 0;
+	if (selected)
+	{
+		ImGui::PushStyleColor(ImGuiCol_Header, EditorTheme::Color::AccentMuted);
+		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, EditorTheme::Color::AccentMuted);
+		ImGui::PushStyleColor(ImGuiCol_HeaderActive, EditorTheme::Color::Accent);
+	}
+
+	// Keyed by UUID rather than by handle: EnTT recycles handles, so a deleted
+	// entity could hand its expansion state to an unrelated one.
+	const uint64_t id = entity.GetUUID();
+	const bool opened = ImGui::TreeNodeEx((void*)id, flags, "%s", entity.GetName().c_str());
+
+	if (selected)
+		ImGui::PopStyleColor(3);
+
+	if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+		m_Selected = entity;
+
+	// --- drag and drop ------------------------------------------------------
+	if (ImGui::BeginDragDropSource())
+	{
+		const entt::entity handle = entity;
+		ImGui::SetDragDropPayload("RAGEV_ENTITY", &handle, sizeof(handle));
+		ImGui::TextUnformatted(entity.GetName().c_str());
+		ImGui::EndDragDropSource();
+	}
+
+	if (ImGui::BeginDragDropTarget())
+	{
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
+		{
+			m_PendingReparentChild = Entity{ *(const entt::entity*)payload->Data, m_SceneRef.get() };
+			m_PendingReparentParent = entity;
+			m_PendingReparent = true;
+		}
+		ImGui::EndDragDropTarget();
+	}
+
+	if (ImGui::BeginPopupContextItem())
+	{
+		if (ImGui::MenuItem("Create Child"))
+		{
+			m_PendingCreateChildParent = entity;
+			m_PendingCreateChild = true;
+		}
+		if (ImGui::MenuItem("Unparent", nullptr, false, (bool)m_SceneRef->GetParent(entity)))
+		{
+			m_PendingReparentChild = entity;
+			m_PendingReparentParent = {};
+			m_PendingReparent = true;
+		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Delete Entity"))
+			m_PendingDelete = entity;
+
+		ImGui::EndPopup();
+	}
+
+	if (opened && !children.empty())
+	{
+		// Copied rather than iterated in place. Every structural change in this
+		// function is deferred, so nothing should mutate the list here -- but a
+		// reference into a vector that some future menu item appends to is a
+		// dangling read waiting to happen, and the copy is one allocation.
+		const std::vector<UUID> snapshot = children;
+		for (UUID childID : snapshot)
+		{
+			if (Entity child = m_SceneRef->GetEntityByUUID(childID))
+				DrawEntityNode(child);
+		}
+		ImGui::TreePop();
 	}
 }
 

@@ -7,7 +7,6 @@
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/gtx/matrix_decompose.hpp"
 #include "glm/gtx/component_wise.hpp"
-#include "RageV/Renderer/Chunk.h"
 
 using namespace RageV;
 
@@ -292,7 +291,11 @@ void EditorLayer::DrawMenuBar()
 		if (ImGui::MenuItem("Camera")) CreateCamera();
 
 		ImGui::Separator();
-		if (ImGui::MenuItem("Generate Terrain Chunk")) Generate();
+		PendingMenuItem("Generate Terrain Chunk",
+						"Moved to experiments/terrain and no longer built.\n\n"
+						"It generated one entity per cube face -- thousands per\n"
+						"chunk. A real version needs a greedy mesher producing\n"
+						"one mesh per chunk. Terrain is a non-goal for now.");
 		ImGui::EndMenu();
 	}
 
@@ -564,7 +567,7 @@ void EditorLayer::DrawGizmo()
 		if (!cameraEntity)
 			return;
 
-		cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
+		cameraView = glm::inverse(m_Scene->GetWorldTransform(cameraEntity));
 		cameraProjection = cameraEntity.GetComponent<CameraComponent>().Camera.GetProjection();
 	}
 
@@ -573,8 +576,11 @@ void EditorLayer::DrawGizmo()
 	ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
 					  (float)ImGui::GetWindowWidth(), (float)ImGui::GetWindowHeight());
 
+	// The gizmo manipulates in world space; the component stores local. With a
+	// hierarchy those differ, so the result is converted back through the
+	// parent before being written.
 	auto& tc = selected.GetComponent<TransformComponent>();
-	glm::mat4 transform = tc.GetTransform();
+	glm::mat4 transform = m_Scene->GetWorldTransform(selected);
 
 	const bool snap = m_SnapEnabled || Input::IsKeyPressed(RV_KEY_LEFT_CONTROL);
 	float snapValue = m_SnapTranslate;
@@ -592,10 +598,15 @@ void EditorLayer::DrawGizmo()
 
 	if (ImGuizmo::IsUsing())
 	{
+		// Back into the parent's space before decomposing, or dragging a child
+		// would write its world transform into a local field and the object
+		// would leap by the parent's transform.
+		const glm::mat4 local = glm::inverse(m_Scene->GetParentWorldTransform(selected)) * transform;
+
 		glm::vec3 position, scale, skew;
 		glm::quat rotation;
 		glm::vec4 perspective;
-		glm::decompose(transform, scale, rotation, position, skew, perspective);
+		glm::decompose(local, scale, rotation, position, skew, perspective);
 
 		const glm::vec3 euler = glm::eulerAngles(rotation);
 		// Accumulate the delta rather than assigning: decompose cannot
@@ -745,7 +756,8 @@ void EditorLayer::LoadDemoScene()
 	}
 
 	auto place = [&](PrimitiveType primitive, const glm::vec3& position, const glm::vec3& scale,
-					 const glm::vec4& color, float metallic, float roughness, const char* name)
+					 const glm::vec4& color, float metallic, float roughness, const char* name,
+					 Entity parent = {})
 	{
 		Entity entity = m_Scene->CreateEntity(name);
 		auto& mesh = entity.AddComponent<MeshComponent>(primitive);
@@ -759,6 +771,12 @@ void EditorLayer::LoadDemoScene()
 		auto& transform = entity.GetComponent<TransformComponent>();
 		transform.Position = position;
 		transform.Scale = scale;
+
+		// Parented after the transform is set, so SetParent converts the value
+		// just written into the parent's space rather than the default.
+		if (parent)
+			m_Scene->SetParent(entity, parent);
+
 		return entity;
 	};
 
@@ -779,6 +797,17 @@ void EditorLayer::LoadDemoScene()
 		  { 0.80f, 0.80f, 0.82f, 1.0f }, 0.0f, 0.08f, "Sphere (smooth)");
 	place(PrimitiveType::Sphere, {  1.6f, -0.5f, -3.5f }, glm::vec3(0.9f),
 		  { 0.80f, 0.80f, 0.82f, 1.0f }, 0.0f, 0.95f, "Sphere (rough)");
+
+	// A parented arrangement, so the hierarchy is exercised by the scene the
+	// editor opens on rather than only by the round-trip test. Dragging the
+	// pedestal moves the whole stack; the children keep their local offsets.
+	Entity pedestal = m_Scene->CreateEntity("Pedestal");
+	pedestal.GetComponent<TransformComponent>().Position = { -6.5f, -1.0f, -1.0f };
+
+	place(PrimitiveType::Cylinder, { -6.5f, -0.6f, -1.0f }, { 1.2f, 0.6f, 1.2f },
+		  { 0.22f, 0.23f, 0.26f, 1.0f }, 0.0f, 0.7f, "Pedestal Base", pedestal);
+	place(PrimitiveType::Cube, { -6.5f, 0.2f, -1.0f }, glm::vec3(0.55f),
+		  { 0.85f, 0.17f, 0.19f, 1.0f }, 0.0f, 0.25f, "Pedestal Ornament", pedestal);
 
 	// A warm key light and a cool fill from the opposite side: a single white
 	// light flattens everything, which is what makes untextured primitives look
@@ -843,28 +872,3 @@ void EditorLayer::SaveScene()
 	serializer.Serialize(filepath);
 }
 
-void EditorLayer::Generate()
-{
-	Chunk chunk(0, 0, 1453422, 1349244, 4832123);
-	unsigned int counter = 0;
-
-	for (const auto& point : chunk.GetData())
-	{
-		Entity entity = m_Scene->CreateEntity("TerrainObject" + std::to_string(counter));
-		entity.AddComponent<ColorComponent>();
-
-		auto& transform = entity.GetComponent<TransformComponent>();
-		transform.Position = { point.x, point.y, point.z };
-
-		switch (point.faceType)
-		{
-			case FaceType::TOP:    transform.Rotation = glm::radians(glm::vec3(-90.f, 0.f, 0.f));  break;
-			case FaceType::BOTTOM: transform.Rotation = glm::radians(glm::vec3(90.f, 0.f, 0.f));   break;
-			case FaceType::LEFT:   transform.Rotation = glm::radians(glm::vec3(0.f, -90.f, 0.f));  break;
-			case FaceType::RIGHT:  transform.Rotation = glm::radians(glm::vec3(0.f, 90.f, 0.f));   break;
-			case FaceType::FRONT:  transform.Rotation = glm::radians(glm::vec3(0.f, 0.f, 0.f));    break;
-			case FaceType::BACK:   transform.Rotation = glm::radians(glm::vec3(0.f, 180.f, 0.f));  break;
-		}
-		counter++;
-	}
-}

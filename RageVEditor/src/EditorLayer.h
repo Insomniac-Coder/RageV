@@ -21,7 +21,6 @@ public:
 	void NewScene();
 	void OpenScene();
 	void SaveScene();
-	void Generate();
 
 private:
 	// --- menu bar and panels ------------------------------------------------
