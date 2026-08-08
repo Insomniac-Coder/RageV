@@ -1,7 +1,15 @@
 # RageV
 
-A Windows game engine: EnTT scene system, ImGui editor with docking and gizmos,
-YAML scene serialization, batched 2D renderer, and a Vulkan RHI.
+A Windows game engine with a backend-agnostic RHI over **Vulkan and OpenGL**,
+Cook-Torrance PBR mesh rendering, an EnTT scene system, and an ImGui editor with
+docking and gizmos.
+
+Switch backend at startup:
+
+```bash
+RageVEditor.exe --rhi=vulkan
+RageVEditor.exe --rhi=opengl
+```
 
 ## Build
 
@@ -27,8 +35,8 @@ git clone --recurse-submodules <url>
 - `RageVEditor/` — the editor application
 - `Sandbox/` — sample application
 - `tools/shaderinfo` — compile a shader and dump its reflection
-- `tools/vksmoke` — exercise the Vulkan backend headlessly
+- `tools/rhismoke` — exercise either backend headlessly
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the renderer design, the
-Vulkan invariants worth knowing before changing anything, and the roadmap to PBR
-and shadows.
+**Start with [docs/HANDOFF.md](docs/HANDOFF.md)** — current state, what is done
+and what is not, and the invariants that are load-bearing.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the renderer design in detail.
