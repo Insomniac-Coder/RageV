@@ -3,6 +3,13 @@ Version: 5
 Environment:
   AmbientColor: [0.42, 0.47, 0.58]
   AmbientIntensity: 0.12
+  Sky: 2
+  SkyHorizon: [0.52, 0.6, 0.72]
+  SkyZenith: [0.18, 0.31, 0.62]
+  SkyGround: [0.16, 0.15, 0.14]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 17858281879166177050
 Entities:
   - EntityID: 11161551729011358508
     TagComponent:

@@ -20,6 +20,10 @@ namespace RageV
 		// on the file.
 		std::unordered_map<AssetHandle, RHI::Ref<Mesh>> s_Meshes;
 
+		// Environment maps, keyed on the handle rather than the path, so a scene
+		// that reloads keeps the cube it already paid to build.
+		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Cubemaps;
+
 		constexpr PrimitiveType kPrimitives[] = {
 			PrimitiveType::Cube, PrimitiveType::Sphere, PrimitiveType::Plane,
 			PrimitiveType::Cylinder, PrimitiveType::Quad,
@@ -62,6 +66,7 @@ namespace RageV
 	void AssetManager::ClearCache()
 	{
 		s_Meshes.clear();
+		s_Cubemaps.clear();
 	}
 
 	std::string AssetManager::GetDisplayName(AssetHandle handle)
@@ -113,6 +118,27 @@ namespace RageV
 										   model.Primitives[0].Indices, model.Primitives[0].Name);
 		s_Meshes[handle] = mesh;
 		return mesh;
+	}
+
+	RHI::Ref<RHI::RHITexture> AssetManager::GetCubemap(AssetHandle handle)
+	{
+		if (!s_Device || !handle.IsValid())
+			return nullptr;
+
+		const auto cached = s_Cubemaps.find(handle);
+		if (cached != s_Cubemaps.end())
+			return cached->second;
+
+		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
+		if (path.empty())
+		{
+			s_Cubemaps[handle] = nullptr;
+			return nullptr;
+		}
+
+		auto cube = TextureLoader::LoadCube(*s_Device, path.string());
+		s_Cubemaps[handle] = cube;
+		return cube;
 	}
 
 	AssetHandle AssetManager::CreatePrefab(Scene& scene, Entity root,

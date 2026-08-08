@@ -9,6 +9,7 @@
 #include "RageV/Renderer/Renderer2D.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Asset/AssetManager.h"
 #include <glm/gtx/matrix_decompose.hpp>
@@ -686,6 +687,23 @@ namespace RageV
 			}
 
 			Renderer3D::EndScene();
+		}
+
+		// After the meshes and before the quads. After, because the depth test
+		// is what keeps the sky out of the pixels the scene already covers, and
+		// it has nothing to test against until they are written. Before,
+		// because a blended quad needs something behind it.
+		//
+		// Unconditional, unlike the mesh block above: a scene with no meshes in
+		// it still has a sky, and an empty scene showing the clear colour is
+		// how this looked before.
+		if (Renderer::HasDevice() && m_Environment.Sky != SkyType::Color)
+		{
+			RHI::Ref<RHI::RHITexture> sky;
+			if (m_Environment.Sky == SkyType::Cubemap)
+				sky = AssetManager::GetCubemap(m_Environment.SkyTexture);
+
+			Skybox::Draw(camera, cameraTransform, m_Environment, sky);
 		}
 
 		Renderer2D::BeginScene(camera, cameraTransform, lights);

@@ -285,6 +285,39 @@ namespace RageV::GL
 			GenerateMips();
 	}
 
+	void OpenGLTextureRHI::UploadLayer(const void* data, uint64_t size, uint32_t layer)
+	{
+		if (!data || size == 0)
+			return;
+
+		const bool isCube = m_Desc.Type == TextureType::TextureCube ||
+							m_Desc.Type == TextureType::TextureCubeArray;
+		const uint32_t layers = isCube ? std::max(6u, m_Desc.Layers) : m_Desc.Layers;
+
+		if (layer >= layers)
+		{
+			RV_CORE_WARN("Texture '{0}' has {1} layers; asked to upload layer {2}",
+						 m_Desc.DebugName, layers, layer);
+			return;
+		}
+
+		const GLFormat format = ToGLFormat(m_Desc.Format);
+
+		if (m_Desc.Type == TextureType::Texture2D)
+		{
+			glTextureSubImage2D(m_Handle, 0, 0, 0, (GLsizei)m_Desc.Width, (GLsizei)m_Desc.Height,
+								format.Format, format.Type, data);
+			return;
+		}
+
+		// Cube faces go through the 3D entry point with the face as the Z
+		// offset -- the per-face GL_TEXTURE_CUBE_MAP_POSITIVE_X targets are the
+		// old bound-texture API and have no DSA equivalent.
+		glTextureSubImage3D(m_Handle, 0, 0, 0, (GLint)layer,
+							(GLsizei)m_Desc.Width, (GLsizei)m_Desc.Height, 1,
+							format.Format, format.Type, data);
+	}
+
 	void OpenGLTextureRHI::GenerateMips()
 	{
 		if (m_Desc.MipLevels > 1)
@@ -894,6 +927,12 @@ namespace RageV::GL
 		// Scissor is always on so the RHI's SetScissor is meaningful; it is set
 		// to the full target at the start of every render pass.
 		glEnable(GL_SCISSOR_TEST);
+
+		// Vulkan filters across cube face edges and has no way not to. GL does
+		// not unless asked, and the difference shows as a visible cross of
+		// seams over a blurred environment map -- so ask once, here, rather
+		// than letting the two backends disagree about what a cube map is.
+		glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
 		QueryCaps();
 

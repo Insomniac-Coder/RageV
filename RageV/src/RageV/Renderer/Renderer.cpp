@@ -3,6 +3,7 @@
 #include "Renderer2D.h"
 #include "Renderer3D.h"
 #include "DebugRenderer.h"
+#include "Skybox.h"
 #include "PostProcess.h"
 
 namespace RageV
@@ -19,12 +20,14 @@ namespace RageV
 		Renderer2D::Init(device);
 		Renderer3D::Init(device);
 		DebugRenderer::Init(device);
+		Skybox::Init(device);
 		PostProcess::Init(device);
 	}
 
 	void Renderer::Shutdown()
 	{
 		PostProcess::Shutdown();
+		Skybox::Shutdown();
 		DebugRenderer::Shutdown();
 		Renderer3D::Shutdown();
 		Renderer2D::Shutdown();
@@ -41,6 +44,7 @@ namespace RageV
 		Renderer2D::BeginFrame();
 		Renderer3D::BeginFrame();
 		DebugRenderer::BeginFrame();
+		Skybox::BeginFrame();
 		PostProcess::BeginFrame();
 	}
 
@@ -87,5 +91,6 @@ namespace RageV
 		Renderer2D::SetTargetFormats(color, depth);
 		Renderer3D::SetTargetFormats(color, depth);
 		DebugRenderer::SetTargetFormats(color, depth);
+		Skybox::SetTargetFormats(color, depth);
 	}
 }

@@ -25,6 +25,12 @@ namespace RageV
 		// is on demand and cached, so asking repeatedly is cheap.
 		static RHI::Ref<Mesh> GetMesh(AssetHandle handle);
 
+		// An environment map, built from whatever image the handle names. The
+		// conversion from a panorama is not cheap, so a failure is cached as
+		// null too -- a scene pointing at a missing sky must not try again
+		// sixty times a second.
+		static RHI::Ref<RHI::RHITexture> GetCubemap(AssetHandle handle);
+
 		// The primitives, registered as virtual assets at Init.
 		static AssetHandle GetPrimitiveHandle(PrimitiveType type);
 		static bool IsPrimitive(AssetHandle handle, PrimitiveType& out);

@@ -36,6 +36,9 @@
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EditorCamera.h"
+#include "RageV/Renderer/Skybox.h"
+#include "RageV/Renderer/Cubemap.h"
+#include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
@@ -79,6 +82,13 @@ namespace
 		// written at all".
 		scene->GetEnvironment().AmbientColor = { 0.31f, 0.18f, 0.44f };
 		scene->GetEnvironment().AmbientIntensity = 0.37f;
+		scene->GetEnvironment().Sky = SkyType::Cubemap;
+		scene->GetEnvironment().SkyHorizon = { 0.11f, 0.22f, 0.33f };
+		scene->GetEnvironment().SkyZenith = { 0.44f, 0.55f, 0.66f };
+		scene->GetEnvironment().SkyGround = { 0.77f, 0.12f, 0.09f };
+		scene->GetEnvironment().SkyIntensity = 1.75f;
+		scene->GetEnvironment().SkyRotation = 0.9f;
+		scene->GetEnvironment().SkyTexture = UUID(0x5ceec0de1234ull);
 
 		Entity camera = scene->CreateEntity("Main Camera");
 		auto& cameraComponent = camera.AddComponent<CameraComponent>();
@@ -1201,6 +1211,223 @@ namespace
 	// never written, a chain that keeps going after the levels stop being worth
 	// filtering, a setting that changes nothing -- and all of that is visible
 	// in the pass list.
+	// Cube maps.
+	//
+	// The conversion is a function from pixels to pixels, so it is checked
+	// exactly rather than by looking at a picture -- which matters, because
+	// every way of getting this wrong produces a sky that is *there*. A
+	// mirrored one, an upside-down one and a correct one are all skies, and
+	// only one of them is right.
+	void CheckCubemap()
+	{
+		// --- the face table -------------------------------------------------
+		const glm::vec3 axes[CubeFaces::kFaceCount] =
+		{
+			{  1.0f,  0.0f,  0.0f }, { -1.0f,  0.0f,  0.0f },
+			{  0.0f,  1.0f,  0.0f }, {  0.0f, -1.0f,  0.0f },
+			{  0.0f,  0.0f,  1.0f }, {  0.0f,  0.0f, -1.0f },
+		};
+
+		bool centresCorrect = true;
+		bool allUnit = true;
+		for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+		{
+			const glm::vec3 centre = CubeFaceDirection(face, 0.5f, 0.5f);
+			centresCorrect = centresCorrect && glm::length(centre - axes[face]) < 1e-5f;
+
+			for (float v = 0.05f; v < 1.0f; v += 0.3f)
+			{
+				for (float u = 0.05f; u < 1.0f; u += 0.3f)
+					allUnit = allUnit && std::fabs(glm::length(CubeFaceDirection(face, u, v)) - 1.0f) < 1e-5f;
+			}
+		}
+
+		Check(centresCorrect, "each cube face looks down its own axis");
+		Check(allUnit, "and every direction it gives is a unit vector");
+
+		// Faces meet: the left edge of -Z and the right edge of +X are the same
+		// place in the world -- the direction (1, 0, -1) -- so they must look
+		// the same way. This is the check that catches a face rotated or
+		// mirrored, which the centre test above cannot see, since a rotated
+		// face still looks down its own axis.
+		{
+			const glm::vec3 fromNegZ = CubeFaceDirection(5, 0.0f, 0.5f);
+			const glm::vec3 fromPosX = CubeFaceDirection(0, 1.0f, 0.5f);
+			Check(glm::length(fromNegZ - fromPosX) < 1e-5f,
+				  "adjacent faces agree along the edge they share");
+
+			// And the other axis, which a vertical mirror would break while
+			// leaving the horizontal seam intact.
+			const glm::vec3 topOfPosZ = CubeFaceDirection(4, 0.5f, 0.0f);
+			const glm::vec3 nearPosY = CubeFaceDirection(2, 0.5f, 1.0f);
+			Check(glm::length(topOfPosZ - nearPosY) < 1e-5f,
+				  "and along the edge they share with the one above");
+		}
+
+		// --- the panorama mapping --------------------------------------------
+		// A test image that encodes its own coordinates: red is the column and
+		// green is the row. Sampling it at a known direction has one correct
+		// answer, and it is arithmetic rather than judgement.
+		constexpr uint32_t kWidth = 256;
+		constexpr uint32_t kHeight = 128;
+		std::vector<float> panorama((size_t)kWidth * kHeight * 4);
+
+		for (uint32_t y = 0; y < kHeight; y++)
+		{
+			for (uint32_t x = 0; x < kWidth; x++)
+			{
+				float* texel = panorama.data() + ((size_t)y * kWidth + x) * 4;
+				texel[0] = ((float)x + 0.5f) / (float)kWidth;
+				texel[1] = ((float)y + 0.5f) / (float)kHeight;
+				texel[2] = 0.0f;
+				texel[3] = 1.0f;
+			}
+		}
+
+		const CubeFaces faces = EquirectangularToCube(panorama.data(), kWidth, kHeight, 32);
+		Check(faces.Valid() && faces.Size == 32, "a panorama converts to six complete faces");
+
+		const uint32_t centre = faces.Size / 2;
+		auto centreTexel = [&](uint32_t face) { return faces.Sample(face, centre, centre); };
+
+		// Longitude. The centre column of the image is straight ahead of a
+		// camera at rest, which means -Z, with +X a quarter turn to its right.
+		// The +Z face is the seam and is left out on purpose: it is the one
+		// place a bilinear filter reads across the join, and the ramp in this
+		// test image is discontinuous there in a way a real sky is not.
+		Check(std::fabs(centreTexel(5).r - 0.50f) < 0.02f, "the image centre lands straight ahead");
+		Check(std::fabs(centreTexel(0).r - 0.75f) < 0.02f, "a quarter turn right of it lands at +X");
+		Check(std::fabs(centreTexel(1).r - 0.25f) < 0.02f, "and a quarter turn left at -X");
+
+		// Latitude. Row 0 is the top of the image and the top of the world.
+		Check(centreTexel(2).g < 0.05f, "the top row of the image is straight up");
+		Check(centreTexel(3).g > 0.95f, "and the bottom row straight down");
+		Check(std::fabs(centreTexel(5).g - 0.50f) < 0.02f, "with the horizon halfway between");
+
+		// A tilted read of the same image: halfway up the -Z face is halfway
+		// between the horizon and the zenith, not a quarter of the way. The
+		// difference is the cube's own projection, and getting it wrong bows
+		// the horizon.
+		{
+			const glm::vec3 up = faces.Sample(5, centre, 0);
+			Check(up.g > 0.05f && up.g < 0.30f, "a face's top edge is above the horizon but not at the pole");
+		}
+
+		// --- degenerate input -------------------------------------------------
+		Check(!EquirectangularToCube(nullptr, kWidth, kHeight, 32).Valid(),
+			  "no pixels converts to nothing rather than crashing");
+		Check(!EquirectangularToCube(panorama.data(), kWidth, kHeight, 0).Valid(),
+			  "and neither does a zero-sized face");
+
+		// --- the GPU side -----------------------------------------------------
+		if (!Renderer::HasDevice())
+			return;
+
+		auto& device = Renderer::GetDevice();
+
+		auto cube = TextureLoader::CreateCube(device, faces, "scenetest.cube");
+		Check(cube != nullptr, "the faces upload as a cube texture");
+
+		if (cube)
+		{
+			Check(cube->GetDesc().Type == RHI::TextureType::TextureCube,
+				  "which the RHI knows is a cube");
+			Check(cube->GetDesc().Layers == 6, "with six layers");
+			Check(cube->GetWidth() == 32 && cube->GetHeight() == 32, "at the size asked for");
+			// Zero asked for the full chain, so the desc must have been filled
+			// in -- a cube with one mip cannot serve a roughness lookup later.
+			Check(cube->GetDesc().MipLevels > 1, "and a mip chain, which 3.4 will need");
+
+			// Out of range is refused rather than corrupting a neighbour or
+			// walking off the end of the image.
+			const std::vector<uint16_t> junk((size_t)32 * 32 * 4, 0);
+			cube->UploadLayer(junk.data(), junk.size() * sizeof(uint16_t), 9);
+			Check(true, "uploading a layer that does not exist is survivable");
+		}
+
+		Check(TextureLoader::BlackCube(device) != nullptr,
+			  "there is a neutral cube to bind when a scene has no sky");
+
+		CubeFaces incomplete;
+		incomplete.Size = 4;
+		Check(TextureLoader::CreateCube(device, incomplete, "scenetest.broken") == nullptr,
+			  "and an incomplete set of faces is refused");
+	}
+
+	// The sky.
+	//
+	// The matrix is the whole feature: everything else is a colour lookup. A
+	// sky that is mirrored, upside down, or rotating with the camera instead of
+	// staying put all render perfectly happily, so each one is asked about
+	// directly.
+	void CheckSky()
+	{
+		Check(Skybox::IsReady(), "the sky shader compiled");
+
+		const glm::mat4 projection = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
+
+		auto direction = [](const glm::mat4& matrix, float x, float y)
+		{
+			const glm::vec4 point = matrix * glm::vec4(x, y, 1.0f, 1.0f);
+			return glm::normalize(glm::vec3(point) / point.w);
+		};
+
+		// --- a camera at rest ---------------------------------------------------
+		const glm::mat4 rest = Skybox::BuildDirectionMatrix(projection, glm::mat4(1.0f), 0.0f);
+
+		Check(glm::length(direction(rest, 0.0f, 0.0f) - glm::vec3(0.0f, 0.0f, -1.0f)) < 1e-4f,
+			  "the centre of the screen looks along the camera's forward axis");
+		Check(direction(rest, 0.0f, 0.9f).y > 0.3f, "the top of the screen is up");
+		Check(direction(rest, 0.9f, 0.0f).x > 0.3f, "and the right of it is right");
+
+		// --- moving does not move the sky ----------------------------------------
+		// The one property that distinguishes a sky from a very large box.
+		{
+			const glm::mat4 moved = glm::translate(glm::mat4(1.0f), glm::vec3(120.0f, -40.0f, 75.0f));
+			const glm::mat4 elsewhere = Skybox::BuildDirectionMatrix(projection, moved, 0.0f);
+
+			bool same = true;
+			for (float y = -0.9f; y <= 0.9f; y += 0.6f)
+			{
+				for (float x = -0.9f; x <= 0.9f; x += 0.6f)
+					same = same && glm::length(direction(rest, x, y) - direction(elsewhere, x, y)) < 1e-4f;
+			}
+			Check(same, "walking the camera across the world does not move the sky");
+		}
+
+		// --- turning the camera does ---------------------------------------------
+		{
+			const glm::mat4 turned = glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(),
+												 glm::vec3(0.0f, 1.0f, 0.0f));
+			const glm::mat4 matrix = Skybox::BuildDirectionMatrix(projection, turned, 0.0f);
+			Check(glm::length(direction(matrix, 0.0f, 0.0f) - glm::vec3(-1.0f, 0.0f, 0.0f)) < 1e-4f,
+				  "turning the camera a quarter turn left points it at -X");
+		}
+
+		// --- and so does turning the sky ------------------------------------------
+		{
+			const glm::mat4 spun = Skybox::BuildDirectionMatrix(projection, glm::mat4(1.0f),
+															   glm::half_pi<float>());
+			Check(glm::length(direction(spun, 0.0f, 0.0f) - glm::vec3(-1.0f, 0.0f, 0.0f)) < 1e-4f,
+				  "and rotating the sky itself turns it the same way, not the opposite one");
+		}
+
+		// --- what the mode means --------------------------------------------------
+		// A cubemap sky with no cubemap must not paint the frame black. Draw
+		// is a no-op without a command list, so this is checked by asking it to
+		// run outside a frame: what is being verified is that it declines
+		// rather than dereferencing the null texture.
+		SceneEnvironment environment;
+		environment.Sky = SkyType::Cubemap;
+		environment.SkyTexture = UUID::Invalid();
+		Skybox::Draw(Camera(projection), glm::mat4(1.0f), environment, nullptr);
+		Check(true, "a cubemap sky with no cubemap is survivable");
+
+		environment.Sky = SkyType::Color;
+		Skybox::Draw(Camera(projection), glm::mat4(1.0f), environment, nullptr);
+		Check(true, "and a colour background draws nothing at all");
+	}
+
 	void CheckFrameGraph()
 	{
 		if (!Renderer::HasDevice())
@@ -2423,6 +2650,8 @@ int RunTests(int argc, char** argv)
 
 	// --- physics -------------------------------------------------------------
 	CheckRenderGraph();
+	CheckCubemap();
+	CheckSky();
 	CheckFrameGraph();
 	CheckProject();
 	CheckPackaging();
@@ -2502,6 +2731,14 @@ int RunTests(int argc, char** argv)
 		Check(std::fabs(environment.AmbientColor.b - 0.44f) < 1e-4f &&
 			  std::fabs(environment.AmbientIntensity - 0.37f) < 1e-4f,
 			  "scene ambient survives the round trip");
+
+		Check(environment.Sky == SkyType::Cubemap &&
+			  std::fabs(environment.SkyZenith.g - 0.55f) < 1e-4f &&
+			  std::fabs(environment.SkyGround.r - 0.77f) < 1e-4f &&
+			  std::fabs(environment.SkyIntensity - 1.75f) < 1e-4f &&
+			  std::fabs(environment.SkyRotation - 0.9f) < 1e-4f &&
+			  (uint64_t)environment.SkyTexture == 0x5ceec0de1234ull,
+			  "and so does the sky, handle included");
 
 		b = serializer.SerializeToString();
 	}

@@ -53,12 +53,14 @@ namespace RageV::Vk
 					stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
 					access = 0;
 					break;
+				// ALL_TRANSFER rather than COPY: mip generation blits, and the
+				// blit stage is not part of the copy stage.
 				case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-					stage = VK_PIPELINE_STAGE_2_COPY_BIT;
+					stage = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
 					access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 					break;
 				case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-					stage = VK_PIPELINE_STAGE_2_COPY_BIT;
+					stage = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
 					access = VK_ACCESS_2_TRANSFER_READ_BIT;
 					break;
 				case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
@@ -329,9 +331,6 @@ namespace RageV::Vk
 		AccessForLayout(m_Layout, srcStage, srcAccess);
 		AccessForLayout(newLayout, dstStage, dstAccess);
 
-		const bool isCube = m_Desc.Type == RHI::TextureType::TextureCube ||
-							m_Desc.Type == RHI::TextureType::TextureCubeArray;
-
 		VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 		barrier.srcStageMask = srcStage;
 		barrier.srcAccessMask = srcAccess;
@@ -344,7 +343,7 @@ namespace RageV::Vk
 		barrier.image = m_Image;
 		barrier.subresourceRange.aspectMask = m_Aspect;
 		barrier.subresourceRange.levelCount = m_Desc.MipLevels;
-		barrier.subresourceRange.layerCount = isCube ? std::max(6u, m_Desc.Layers) : m_Desc.Layers;
+		barrier.subresourceRange.layerCount = EffectiveLayers();
 
 		VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 		dependency.imageMemoryBarrierCount = 1;
@@ -354,11 +353,43 @@ namespace RageV::Vk
 		m_Layout = newLayout;
 	}
 
+	uint32_t VulkanTexture::EffectiveLayers() const
+	{
+		const bool isCube = m_Desc.Type == RHI::TextureType::TextureCube ||
+							m_Desc.Type == RHI::TextureType::TextureCubeArray;
+		return isCube ? std::max(6u, m_Desc.Layers) : m_Desc.Layers;
+	}
+
 	void VulkanTexture::Upload(const void* data, uint64_t size)
 	{
 		if (!data || size == 0)
 			return;
 
+		StageInto(data, size, 0);
+
+		if (m_Desc.MipLevels > 1)
+			GenerateMips();
+	}
+
+	void VulkanTexture::UploadLayer(const void* data, uint64_t size, uint32_t layer)
+	{
+		if (!data || size == 0)
+			return;
+
+		if (layer >= EffectiveLayers())
+		{
+			RV_CORE_WARN("Texture '{0}' has {1} layers; asked to upload layer {2}",
+						 m_Desc.DebugName, EffectiveLayers(), layer);
+			return;
+		}
+
+		// No mip generation here. The caller does it once the last layer is in,
+		// because a blit chain reads every layer of the level above.
+		StageInto(data, size, layer);
+	}
+
+	void VulkanTexture::StageInto(const void* data, uint64_t size, uint32_t layer)
+	{
 		VkBufferCreateInfo stagingInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 		stagingInfo.size = size;
 		stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -383,7 +414,7 @@ namespace RageV::Vk
 			VkBufferImageCopy region{};
 			region.imageSubresource.aspectMask = m_Aspect;
 			region.imageSubresource.mipLevel = 0;
-			region.imageSubresource.baseArrayLayer = 0;
+			region.imageSubresource.baseArrayLayer = layer;
 			region.imageSubresource.layerCount = 1;
 			region.imageExtent = { m_Desc.Width, m_Desc.Height, 1 };
 
@@ -393,9 +424,6 @@ namespace RageV::Vk
 		});
 
 		vmaDestroyBuffer(m_Device.GetAllocator(), staging, stagingAllocation);
-
-		if (m_Desc.MipLevels > 1)
-			GenerateMips();
 	}
 
 	void VulkanTexture::GenerateMips()
@@ -411,17 +439,29 @@ namespace RageV::Vk
 			return;
 		}
 
+		const uint32_t layers = EffectiveLayers();
+
 		m_Device.ImmediateSubmit([&](VkCommandBuffer cmd)
 		{
 			int32_t width = (int32_t)m_Desc.Width;
 			int32_t height = (int32_t)m_Desc.Height;
 
-			auto barrierFor = [&](uint32_t level, VkImageLayout oldLayout, VkImageLayout newLayout,
-								  VkAccessFlags2 srcAccess, VkAccessFlags2 dstAccess)
+			// Stages come from the layouts rather than from the caller. The
+			// version that named the blit stage for both sides of every barrier
+			// was wrong in one direction each time -- these levels arrive
+			// readable by the fragment shader and leave readable by it again,
+			// and neither of those is a transfer. It went unseen because
+			// nothing in the project had a mip chain until environment maps did.
+			auto barrierFor = [&](uint32_t level, VkImageLayout oldLayout, VkImageLayout newLayout)
 			{
+				VkPipelineStageFlags2 srcStage, dstStage;
+				VkAccessFlags2 srcAccess, dstAccess;
+				AccessForLayout(oldLayout, srcStage, srcAccess);
+				AccessForLayout(newLayout, dstStage, dstAccess);
+
 				VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-				barrier.srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-				barrier.dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+				barrier.srcStageMask = srcStage;
+				barrier.dstStageMask = dstStage;
 				barrier.srcAccessMask = srcAccess;
 				barrier.dstAccessMask = dstAccess;
 				barrier.oldLayout = oldLayout;
@@ -432,7 +472,7 @@ namespace RageV::Vk
 				barrier.subresourceRange.aspectMask = m_Aspect;
 				barrier.subresourceRange.baseMipLevel = level;
 				barrier.subresourceRange.levelCount = 1;
-				barrier.subresourceRange.layerCount = m_Desc.Layers;
+				barrier.subresourceRange.layerCount = layers;
 
 				VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 				dependency.imageMemoryBarrierCount = 1;
@@ -444,15 +484,13 @@ namespace RageV::Vk
 			// by level, blitting each mip from the one above.
 			for (uint32_t level = 1; level < m_Desc.MipLevels; level++)
 			{
-				barrierFor(level - 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-						   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-				barrierFor(level, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-						   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+				barrierFor(level - 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+				barrierFor(level, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
 				VkImageBlit blit{};
 				blit.srcSubresource.aspectMask = m_Aspect;
 				blit.srcSubresource.mipLevel = level - 1;
-				blit.srcSubresource.layerCount = m_Desc.Layers;
+				blit.srcSubresource.layerCount = layers;
 				blit.srcOffsets[1] = { width, height, 1 };
 
 				width  = std::max(1, width / 2);
@@ -460,7 +498,7 @@ namespace RageV::Vk
 
 				blit.dstSubresource.aspectMask = m_Aspect;
 				blit.dstSubresource.mipLevel = level;
-				blit.dstSubresource.layerCount = m_Desc.Layers;
+				blit.dstSubresource.layerCount = layers;
 				blit.dstOffsets[1] = { width, height, 1 };
 
 				vkCmdBlitImage(cmd,
@@ -468,10 +506,8 @@ namespace RageV::Vk
 							   m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 							   1, &blit, VK_FILTER_LINEAR);
 
-				barrierFor(level - 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-						   VK_ACCESS_2_TRANSFER_READ_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-				barrierFor(level, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-						   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+				barrierFor(level - 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+				barrierFor(level, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			}
 		});
 

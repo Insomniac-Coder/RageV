@@ -999,6 +999,88 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "replaces it, and falls back to it for scenes with no environment map.\n\n"
 				   "Set the intensity to 0 for pure direct lighting.");
 
+		ImGui::SeparatorText("Sky");
+
+		const char* skyModes[] = { "Colour", "Gradient", "Environment map" };
+		int sky = (int)environment.Sky;
+		if (ImGui::Combo("Background", &sky, skyModes, IM_ARRAYSIZE(skyModes)))
+		{
+			const SceneEnvironment before = environment;
+			environment.Sky = (SkyType)sky;
+			const SceneEnvironment after = environment;
+			std::weak_ptr<Scene> scene = m_Scene;
+
+			// Pushed here rather than through trackAmbient: a combo commits on
+			// the click that closes it, so there is no activate/deactivate pair
+			// for a drag to sit between.
+			m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
+				"Background",
+				[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
+				[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
+		}
+		HelpMarker("Colour draws nothing and leaves the clear colour, which is what a 2D or "
+				   "UI-only scene wants.\n\nGradient costs no asset.\n\nAn environment map is "
+				   "a panorama -- .hdr for values brighter than white -- or one face of a "
+				   "six-file set, in which case the other five come with it.");
+
+		if (environment.Sky == SkyType::Gradient)
+		{
+			ImGui::ColorEdit3("Horizon", glm::value_ptr(environment.SkyHorizon));
+			trackAmbient("Sky horizon");
+			ImGui::ColorEdit3("Zenith", glm::value_ptr(environment.SkyZenith));
+			trackAmbient("Sky zenith");
+			ImGui::ColorEdit3("Ground", glm::value_ptr(environment.SkyGround));
+			trackAmbient("Sky ground");
+		}
+
+		if (environment.Sky == SkyType::Cubemap)
+		{
+			const std::string name = AssetManager::GetDisplayName(environment.SkyTexture);
+			ImGui::Button(name.c_str(), ImVec2(-1.0f, 0.0f));
+
+			if (ImGui::BeginDragDropTarget())
+			{
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ASSET"))
+				{
+					const AssetHandle dropped = *(const AssetHandle*)payload->Data;
+
+					// Refused rather than stored, for the same reason the
+					// inspector's asset fields refuse: a handle of the wrong
+					// type resolves to nothing, and the field would present as
+					// simply not working.
+					if (AssetRegistry::GetMetadata(dropped).Type == AssetType::Texture)
+					{
+						const SceneEnvironment before = environment;
+						environment.SkyTexture = dropped;
+						const SceneEnvironment after = environment;
+						std::weak_ptr<Scene> scene = m_Scene;
+
+						m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
+							"Environment map",
+							[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
+							[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
+					}
+				}
+				ImGui::EndDragDropTarget();
+			}
+
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Drop a texture from the Content browser.");
+
+			float degrees = glm::degrees(environment.SkyRotation);
+			if (ImGui::DragFloat("Sky rotation", &degrees, 0.5f, -360.0f, 360.0f, "%.1f deg"))
+				environment.SkyRotation = glm::radians(degrees);
+			trackAmbient("Sky rotation");
+			HelpMarker("A panorama points wherever it was shot, and the scene was not built "
+					   "to match it.");
+		}
+
+		if (environment.Sky != SkyType::Color)
+		{
+			ImGui::DragFloat("Sky intensity", &environment.SkyIntensity, 0.01f, 0.0f, 16.0f);
+			trackAmbient("Sky intensity");
+		}
+
 		ImGui::SeparatorText("Post processing");
 
 		ImGui::DragFloat("Exposure", &environment.Exposure, 0.01f, 0.01f, 16.0f);

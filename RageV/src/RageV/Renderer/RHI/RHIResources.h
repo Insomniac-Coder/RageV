@@ -51,6 +51,17 @@ namespace RageV::RHI
 		Format   GetFormat() const { return m_Desc.Format; }
 
 		virtual void Upload(const void* data, uint64_t size) = 0;
+
+		// One array layer of mip 0. A cube's six faces are layers 0..5 in the
+		// +X, -X, +Y, -Y, +Z, -Z order both APIs use, so a caller that gets the
+		// order right for one backend has it right for the other.
+		//
+		// Separate from Upload rather than a defaulted parameter because the
+		// caller must also decide when the chain is generated: doing it per
+		// face would filter each face five times over and still be wrong at the
+		// seams, so mips are generated once, after the last face lands.
+		virtual void UploadLayer(const void* data, uint64_t size, uint32_t layer) = 0;
+
 		virtual void GenerateMips() = 0;
 
 		// Opaque handle for ImGui::Image. GL hands back the texture name;

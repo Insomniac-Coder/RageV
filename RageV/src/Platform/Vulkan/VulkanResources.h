@@ -52,6 +52,7 @@ namespace RageV::Vk
 		~VulkanTexture() override;
 
 		void Upload(const void* data, uint64_t size) override;
+		void UploadLayer(const void* data, uint64_t size, uint32_t layer) override;
 		void GenerateMips() override;
 		uint64_t GetImGuiHandle() override;
 
@@ -65,6 +66,14 @@ namespace RageV::Vk
 
 	private:
 		void CreateImage();
+
+		// Copies one mip-0 array layer through a staging buffer. Shared by
+		// Upload and UploadLayer, which differ only in which layer they name.
+		void StageInto(const void* data, uint64_t size, uint32_t layer);
+
+		// A cube is six layers whether or not the desc said so, which is what
+		// CreateImage allocated. Anything walking layers has to agree with it.
+		uint32_t EffectiveLayers() const;
 
 		VulkanDevice& m_Device;
 		std::shared_ptr<DeletionQueue> m_Deletion;

@@ -165,6 +165,16 @@ namespace RageV
 		emitter << YAML::Key << "AmbientColor" << YAML::Value;
 		EmitVec3(emitter, environment.AmbientColor);
 		emitter << YAML::Key << "AmbientIntensity" << YAML::Value << environment.AmbientIntensity;
+		emitter << YAML::Key << "Sky" << YAML::Value << (uint32_t)environment.Sky;
+		emitter << YAML::Key << "SkyHorizon" << YAML::Value;
+		EmitVec3(emitter, environment.SkyHorizon);
+		emitter << YAML::Key << "SkyZenith" << YAML::Value;
+		EmitVec3(emitter, environment.SkyZenith);
+		emitter << YAML::Key << "SkyGround" << YAML::Value;
+		EmitVec3(emitter, environment.SkyGround);
+		emitter << YAML::Key << "SkyIntensity" << YAML::Value << environment.SkyIntensity;
+		emitter << YAML::Key << "SkyRotation" << YAML::Value << environment.SkyRotation;
+		emitter << YAML::Key << "SkyTexture" << YAML::Value << (uint64_t)environment.SkyTexture;
 		emitter << YAML::Key << "Exposure" << YAML::Value << environment.Exposure;
 		emitter << YAML::Key << "BloomEnabled" << YAML::Value << environment.BloomEnabled;
 		emitter << YAML::Key << "BloomThreshold" << YAML::Value << environment.BloomThreshold;
@@ -368,6 +378,22 @@ namespace RageV
 				target.AmbientColor = ReadVec3(environment["AmbientColor"], target.AmbientColor);
 				if (const YAML::Node intensity = environment["AmbientIntensity"])
 					target.AmbientIntensity = intensity.as<float>();
+
+				// Absent in a scene written before the sky existed. Left at the
+				// struct's default, which is the gradient -- an older scene
+				// gains a sky rather than a black void, and that is the better
+				// of the two surprises.
+				if (const YAML::Node value = environment["Sky"])
+					target.Sky = (SkyType)value.as<uint32_t>();
+				target.SkyHorizon = ReadVec3(environment["SkyHorizon"], target.SkyHorizon);
+				target.SkyZenith = ReadVec3(environment["SkyZenith"], target.SkyZenith);
+				target.SkyGround = ReadVec3(environment["SkyGround"], target.SkyGround);
+				if (const YAML::Node value = environment["SkyIntensity"])
+					target.SkyIntensity = value.as<float>();
+				if (const YAML::Node value = environment["SkyRotation"])
+					target.SkyRotation = value.as<float>();
+				if (const YAML::Node value = environment["SkyTexture"])
+					target.SkyTexture = UUID(value.as<uint64_t>());
 
 				// Absent in a scene written before post processing existed, which is
 				// why each is read only if present rather than defaulted to zero.
