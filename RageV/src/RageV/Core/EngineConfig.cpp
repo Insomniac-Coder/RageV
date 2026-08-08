@@ -89,6 +89,21 @@ namespace RageV
 			}
 		}
 
+		if (key == "width" || key == "height")
+		{
+			try
+			{
+				const int parsed = std::clamp(std::stoi(value), 640, 16384);
+				(key == "width" ? config.WindowWidth : config.WindowHeight) = (uint32_t)parsed;
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("{0} expects an integer, got '{1}'", key, value);
+				return false;
+			}
+		}
+
 		if (key == "fixed-hz" || key == "fixedhz")
 		{
 			try

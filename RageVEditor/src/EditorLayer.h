@@ -39,6 +39,15 @@ private:
 	void DrawRenderSettingsPanel();
 	void DrawViewportPanel();
 	void DrawGameViewportPanel();
+	// Proportional dock layout, built on first run and rebuilt by
+	// Window > Reset Layout.
+	void BuildDefaultLayout(unsigned int dockspaceID);
+	static bool LayoutVersionMatches();
+	static void WriteLayoutVersion();
+
+	// Bump when the default arrangement changes, so an existing imgui.ini does
+	// not pin people to the old one.
+	static constexpr int kLayoutVersion = 1;
 	void DrawAboutPopup();
 	void DrawGizmo();
 
@@ -107,6 +116,13 @@ private:
 	bool m_ShowViewport = true;
 	bool m_ShowGameViewport = true;
 	bool m_ShowContentBrowser = true;
+	bool m_ResetLayoutRequested = false;
+
+	// Whether the game panel was actually visible last frame. A panel that is
+	// collapsed or behind another tab still has m_ShowGameViewport set, and
+	// rendering the scene a second time for something nobody can see is a whole
+	// extra pass wasted.
+	bool m_GameViewportVisible = false;
 	bool m_ShowDemoWindow = false;
 	bool m_ShowAbout = false;
 

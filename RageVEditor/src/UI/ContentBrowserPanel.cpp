@@ -23,6 +23,11 @@ namespace RageV
 			}
 		}
 
+		// Below this many columns the grid stops reading as a grid, so cells
+		// shrink instead. Below kMinCell they stop being clickable.
+		constexpr int kMinColumns = 3;
+		constexpr float kMinCell = 34.0f;
+
 		ImVec4 TypeColor(AssetType type)
 		{
 			// Only the two types that can be dragged somewhere useful are
@@ -60,11 +65,20 @@ namespace RageV
 		DrawBreadcrumbs();
 		ImGui::Separator();
 
-		// Grid, sized to the panel. A list would be easier but scanning a
-		// hundred assets down a single column is worse than it sounds.
-		const float cellSize = m_Thumbnail + m_Padding;
 		const float width = ImGui::GetContentRegionAvail().x;
-		const int columns = std::max(1, (int)(width / cellSize));
+
+		// The cell shrinks to fit rather than the column count collapsing to
+		// one. A fixed cell size means a narrow panel shows a single column of
+		// enormous icons, which is the worst of both -- and the panel is narrow
+		// exactly when space is scarce.
+		float cellSize = m_Thumbnail + m_Padding;
+		int columns = std::max(1, (int)(width / cellSize));
+
+		if (columns < kMinColumns && width > 0.0f)
+		{
+			columns = std::max(1, std::min(kMinColumns, (int)(width / (kMinCell + m_Padding))));
+			cellSize = std::max(kMinCell, width / (float)columns - m_Padding);
+		}
 
 		ImGui::BeginChild("##entries");
 
@@ -128,6 +142,12 @@ namespace RageV
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Rescan the assets folder. New files get a handle; the sidecar\n"
 							  "beside each one is what makes that handle survive a rename.");
+
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(90.0f);
+		ImGui::SliderFloat("##thumb", &m_Thumbnail, 34.0f, 128.0f, "%.0f px");
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Icon size. Cells shrink below this on their own when the panel is narrow.");
 
 		ImGui::SameLine();
 
@@ -204,7 +224,22 @@ namespace RageV
 			}
 		}
 
-		ImGui::TextWrapped("%s", filename.c_str());
+		// Clipped to the cell rather than wrapped: a long filename in a narrow
+		// cell wraps into a tower of single characters and pushes every row
+		// below it out of alignment.
+		const float available = ImGui::GetContentRegionAvail().x;
+		std::string label = filename;
+		if (ImGui::CalcTextSize(label.c_str()).x > available)
+		{
+			while (label.size() > 1 && ImGui::CalcTextSize((label + "...").c_str()).x > available)
+				label.pop_back();
+			label += "...";
+		}
+
+		ImGui::TextUnformatted(label.c_str());
+		if (ImGui::IsItemHovered() && label != filename)
+			ImGui::SetTooltip("%s", filename.c_str());
+
 		ImGui::PopID();
 	}
 }

@@ -9,6 +9,7 @@
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/gtx/matrix_decompose.hpp"
 #include "glm/gtx/component_wise.hpp"
+#include <fstream>
 
 using namespace RageV;
 
@@ -209,7 +210,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// Drawing a scene twice in one frame is what the renderers' per-batch
 	// storage exists for -- with one buffer per frame, this pass would
 	// overwrite the data the pass above is about to read.
-	if (m_ShowGameViewport)
+	if (m_ShowGameViewport && m_GameViewportVisible)
 	{
 		RHI::RenderPassBeginInfo gamePass;
 		gamePass.Target = m_GameTarget.get();
@@ -334,8 +335,27 @@ void EditorLayer::OnImGuiRender()
 
 	ImGuiStyle& style = ImGui::GetStyle();
 	const float minWindowSize = style.WindowMinSize.x;
-	style.WindowMinSize.x = 280.0f;
-	ImGui::DockSpace(ImGui::GetID("EditorDockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+
+	// Proportional, not a fixed 280. A hard minimum is fine on a wide monitor
+	// and ruinous in a small window: every panel refuses to shrink, the space
+	// has to come from somewhere, and one panel absorbs the entire shortfall.
+	// That is how the content browser ended up 59 pixels tall.
+	style.WindowMinSize.x = ImClamp(viewport->WorkSize.x * 0.08f, 90.0f, 280.0f);
+
+	const ImGuiID dockspaceID = ImGui::GetID("EditorDockSpace");
+
+	// Rebuild when the layout has never been built, when the user asked, or
+	// when the default has changed since the saved one was written. Without
+	// that last case an existing imgui.ini pins everyone to the old
+	// arrangement, and the fix only reaches people who find the menu item.
+	if (m_ResetLayoutRequested || ImGui::DockBuilderGetNode(dockspaceID) == nullptr ||
+		!LayoutVersionMatches())
+	{
+		m_ResetLayoutRequested = false;
+		BuildDefaultLayout(dockspaceID);
+	}
+
+	ImGui::DockSpace(dockspaceID, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 	style.WindowMinSize.x = minWindowSize;
 
 	DrawMenuBar();
@@ -354,6 +374,57 @@ void EditorLayer::OnImGuiRender()
 	if (m_ShowDemoWindow)      ImGui::ShowDemoWindow(&m_ShowDemoWindow);
 
 	DrawAboutPopup();
+}
+
+// Splits are declared as fractions of what is left, so the arrangement is
+// proportional by construction and survives a resize. The previous layout had
+// never been designed at all -- it was whatever ImGui's automatic docking
+// produced on first run, saved to imgui.ini with absolute pixel sizes, and
+// those do not re-derive sensibly at another window size.
+// The saved arrangement lives in imgui.ini, which has no room for a version.
+// A file beside it is the least surprising place to keep one.
+bool EditorLayer::LayoutVersionMatches()
+{
+	std::ifstream file("layout.version");
+	int saved = 0;
+	if (file >> saved)
+		return saved == kLayoutVersion;
+	return false;
+}
+
+void EditorLayer::WriteLayoutVersion()
+{
+	std::ofstream file("layout.version");
+	if (file)
+		file << kLayoutVersion;
+}
+
+void EditorLayer::BuildDefaultLayout(unsigned int dockspaceID)
+{
+	ImGui::DockBuilderRemoveNode(dockspaceID);
+	ImGui::DockBuilderAddNode(dockspaceID, ImGuiDockNodeFlags_DockSpace);
+	ImGui::DockBuilderSetNodeSize(dockspaceID, ImGui::GetMainViewport()->WorkSize);
+
+	ImGuiID centre = dockspaceID;
+	ImGuiID left   = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left,  0.17f, nullptr, &centre);
+	ImGuiID right  = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.24f, nullptr, &centre);
+	ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down,  0.26f, nullptr, &centre);
+	ImGuiID rightLower = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
+
+	ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
+	ImGui::DockBuilderDockWindow("Properties", right);
+	ImGui::DockBuilderDockWindow("Render Settings", rightLower);
+	ImGui::DockBuilderDockWindow("Statistics", rightLower);
+	ImGui::DockBuilderDockWindow("Content", bottom);
+
+	// Tabbed rather than side by side. Two 3D views sharing the centre column
+	// leaves both too small to work in at anything below a large monitor, and
+	// the tab that is not on top costs nothing to keep.
+	ImGui::DockBuilderDockWindow("Viewport", centre);
+	ImGui::DockBuilderDockWindow("Game", centre);
+
+	ImGui::DockBuilderFinish(dockspaceID);
+	WriteLayoutVersion();
 }
 
 void EditorLayer::DrawMenuBar()
@@ -448,6 +519,11 @@ void EditorLayer::DrawMenuBar()
 		ImGui::MenuItem("Statistics",      nullptr, &m_ShowStatistics);
 		ImGui::MenuItem("Render Settings", nullptr, &m_ShowRenderSettings);
 		ImGui::Separator();
+		ImGui::Separator();
+		if (ImGui::MenuItem("Reset Layout"))
+			m_ResetLayoutRequested = true;
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Restore the default panel arrangement.");
 		ImGui::MenuItem("ImGui Demo",      nullptr, &m_ShowDemoWindow);
 		ImGui::EndMenu();
 	}
@@ -762,10 +838,15 @@ void EditorLayer::DrawGameViewportPanel()
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 	if (!ImGui::Begin("Game", &m_ShowGameViewport))
 	{
+		// Collapsed, or behind another tab. Read next frame to skip the whole
+		// second render pass rather than drawing for nobody.
+		m_GameViewportVisible = false;
 		ImGui::End();
 		ImGui::PopStyleVar();
 		return;
 	}
+
+	m_GameViewportVisible = true;
 
 	// Recorded, not applied: see ApplyPendingResizes.
 	const ImVec2 size = ImGui::GetContentRegionAvail();

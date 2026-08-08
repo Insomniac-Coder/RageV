@@ -21,6 +21,7 @@
 //   --validation=on|off     Vulkan validation layers (no effect without the SDK)
 //   --frames-in-flight=N
 //   --fixed-hz=N            simulation steps per second (default 60)
+//   --width=N --height=N    window size
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include <string>
@@ -37,6 +38,11 @@ namespace RageV
 		// Simulation rate. 60 matches what most physics engines are tuned for;
 		// higher costs CPU, lower makes fast collisions tunnel.
 		uint32_t     FixedHz = 60;
+
+		// Startup window size. Worth having as a flag rather than a constant:
+		// panel layout only misbehaves at sizes you have to reproduce to see.
+		uint32_t     WindowWidth = 1600;
+		uint32_t     WindowHeight = 900;
 #ifdef RV_DEBUG
 		bool         EnableValidation = true;
 #else

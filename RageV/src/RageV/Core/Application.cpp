@@ -25,7 +25,8 @@ namespace RageV {
 
 		const EngineConfig& config = EngineConfig::Get();
 
-		m_Window = std::unique_ptr<Window>(Window::Create(WindowProps(appname)));
+		m_Window = std::unique_ptr<Window>(Window::Create(
+			WindowProps(appname, config.WindowWidth, config.WindowHeight)));
 		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
 
 		RHI::DeviceDesc deviceDesc;
