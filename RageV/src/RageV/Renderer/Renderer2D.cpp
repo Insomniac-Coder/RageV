@@ -47,6 +47,9 @@ namespace RageV
 		std::shared_ptr<Shader> QuadShader;
 		std::shared_ptr<Texture2D> WhiteTexture;
 
+		// Slot 0 is permanently the 1x1 white texture used by untextured quads.
+		std::vector<std::shared_ptr<Texture2D>> TextureSlots;
+
 		// Built once. These used to be concatenated with std::to_string on every
 		// light, every frame.
 		std::string LightPosNames[MaxLights];
@@ -103,7 +106,10 @@ namespace RageV
 		renderer2DData->WhiteTexture = Texture2D::Create(1, 1);
 		unsigned int whiteData = 0xffffffff;
 		renderer2DData->WhiteTexture->SetData(&whiteData, sizeof(unsigned int));
-		renderer2DData->WhiteTexture->Bind(); //White texture will remain bound to slot 0
+		renderer2DData->WhiteTexture->Bind(0); //White texture will remain bound to slot 0
+
+		renderer2DData->TextureSlots.resize(renderer2DData->MaxTextureSlots);
+		renderer2DData->TextureSlots[0] = renderer2DData->WhiteTexture;
 
 		//shader stuff
 		renderer2DData->Renderer2DShaderManager.LoadShader("assets/shaders/quadshader.glsl");
@@ -172,6 +178,11 @@ namespace RageV
 		renderer2DData->QuadCount = 0;
 		renderer2DData->IndiciesCount = 0;
 		renderer2DData->QuadVerticiesPtr = renderer2DData->QuadVerticiesBuffer;
+
+		// Release the references held for the batch that just flushed.
+		for (unsigned int i = 1; i < renderer2DData->CurrentTextureSlotId; i++)
+			renderer2DData->TextureSlots[i].reset();
+		renderer2DData->CurrentTextureSlotId = 1;
 	}
 
 	void Renderer2D::EndScene()
@@ -181,69 +192,111 @@ namespace RageV
 		if (renderer2DData->QuadCount == 0)
 			return;
 
-		renderer2DData->WhiteTexture->Bind();
+		// Textures are bound once here rather than on every DrawQuad call.
+		renderer2DData->WhiteTexture->Bind(0);
+		for (unsigned int i = 1; i < renderer2DData->CurrentTextureSlotId; i++)
+			renderer2DData->TextureSlots[i]->Bind(i);
+
 		renderer2DData->DrawCalls++;
 		renderer2DData->VertexBuffer2D->SetData(renderer2DData->QuadVerticiesBuffer, renderer2DData->QuadCount * 4 * sizeof(VertexData));
 
 		RenderCommand::DrawIndexed(renderer2DData->VertexArray2D, renderer2DData->IndiciesCount);
 	}
 
+	namespace
+	{
+		constexpr glm::vec2 kQuadTexCoords[4] = {
+			{ 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f }
+		};
+
+		// The quad's object-space normal, rotated into world space. Deriving
+		// this needs the inverse-transpose only when the transform has
+		// non-uniform scale or shear; the common case is a rigid transform
+		// where the upper 3x3, renormalised, is already correct.
+		glm::vec3 WorldSpaceNormal(const glm::mat4& transform)
+		{
+			const glm::mat3 upper(transform);
+			return glm::normalize(upper * glm::vec3(0.0f, 0.0f, -1.0f));
+		}
+	}
+
 	void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& color)
 	{
 		if (renderer2DData->MaxQuads <= renderer2DData->QuadCount)
-		{
-			EndScene();
-			ResetScene();
-		}
+			FlushAndReset();
 
-		glm::vec2 texcoords[4] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
+		// Hoisted out of the vertex loop. This used to run a 4x4 inverse and a
+		// transpose per *vertex*, i.e. four per quad -- a million matrix
+		// inversions per frame in the 250k-quad stress test.
+		const glm::vec3 normal = WorldSpaceNormal(transform);
 
-		for (int i = 0; i < 4; i++)
+		VertexData* vertex = renderer2DData->QuadVerticiesPtr;
+		for (int i = 0; i < 4; i++, vertex++)
 		{
-			renderer2DData->QuadVerticiesPtr->Position = transform * renderer2DData->QuadVerts[i];
-			renderer2DData->QuadVerticiesPtr->Normal = glm::mat3(glm::transpose(glm::inverse(transform))) * glm::vec3(0.0f, 0.0f, -1.0f);
-			renderer2DData->QuadVerticiesPtr->Color = color;
-			renderer2DData->QuadVerticiesPtr->TexCoord = texcoords[i];
-			renderer2DData->QuadVerticiesPtr->TextureID = 0.0f;
-			renderer2DData->QuadVerticiesPtr->TilingFactor = 1.0f;
-			renderer2DData->QuadVerticiesPtr++;
+			vertex->Position = glm::vec3(transform * renderer2DData->QuadVerts[i]);
+			vertex->Normal = normal;
+			vertex->Color = color;
+			vertex->TexCoord = kQuadTexCoords[i];
+			vertex->TextureID = 0.0f;
+			vertex->TilingFactor = 1.0f;
 		}
-	
+		renderer2DData->QuadVerticiesPtr = vertex;
+
 		renderer2DData->QuadCount++;
 		renderer2DData->IndiciesCount += 6;
-
 	}
 
 	void Renderer2D::DrawQuad(const glm::mat4& transform, const std::shared_ptr<Texture2D>& texture, float tilingfactor)
 	{
 		if (renderer2DData->MaxQuads <= renderer2DData->QuadCount)
+			FlushAndReset();
+
+		const float textureSlot = (float)ResolveTextureSlot(texture);
+
+		const glm::vec3 normal = WorldSpaceNormal(transform);
+
+		VertexData* vertex = renderer2DData->QuadVerticiesPtr;
+		for (int i = 0; i < 4; i++, vertex++)
 		{
-			EndScene();
-			ResetScene();
+			vertex->Position = glm::vec3(transform * renderer2DData->QuadVerts[i]);
+			vertex->Normal = normal;
+			vertex->Color = glm::vec4(1.0f);
+			vertex->TexCoord = kQuadTexCoords[i];
+			vertex->TextureID = textureSlot;
+			vertex->TilingFactor = tilingfactor;
 		}
+		renderer2DData->QuadVerticiesPtr = vertex;
 
-		texture->Bind(renderer2DData->CurrentTextureSlotId);
-
-		glm::vec2 texcoords[4] = {{ 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f }};
-
-		for (int i = 0; i < 4; i++)
-		{
-			renderer2DData->QuadVerticiesPtr->Position = transform * renderer2DData->QuadVerts[i];
-			renderer2DData->QuadVerticiesPtr->Normal = glm::mat3(glm::transpose(glm::inverse(transform))) * glm::vec3(0.0f, 0.0f, -1.0f);
-			renderer2DData->QuadVerticiesPtr->Color = glm::vec4(1.0f);
-			renderer2DData->QuadVerticiesPtr->TexCoord = texcoords[i];
-			renderer2DData->QuadVerticiesPtr->TextureID = (float)renderer2DData->CurrentTextureSlotId;
-			renderer2DData->QuadVerticiesPtr->TilingFactor = tilingfactor;
-			renderer2DData->QuadVerticiesPtr++;
-		}
-		
 		renderer2DData->QuadCount++;
 		renderer2DData->IndiciesCount += 6;
+	}
 
-		if (renderer2DData->CurrentTextureSlotId != renderer2DData->MaxTextureSlots - 1)
-			renderer2DData->CurrentTextureSlotId++;
-		else
-			renderer2DData->CurrentTextureSlotId = 1;
+	// Slot assignment used to advance blindly on every call and wrap back to 1
+	// when it ran out. Drawing the same texture N times burned N slots, and once
+	// past 32 the wrap silently rebound occupied slots, so quads already in the
+	// batch sampled whatever texture landed there. Deduplicate, and flush when
+	// the batch genuinely runs out of slots.
+	unsigned int Renderer2D::ResolveTextureSlot(const std::shared_ptr<Texture2D>& texture)
+	{
+		for (unsigned int i = 1; i < renderer2DData->CurrentTextureSlotId; i++)
+		{
+			if (renderer2DData->TextureSlots[i] == texture)
+				return i;
+		}
+
+		if (renderer2DData->CurrentTextureSlotId >= renderer2DData->MaxTextureSlots)
+			FlushAndReset();
+
+		const unsigned int slot = renderer2DData->CurrentTextureSlotId;
+		renderer2DData->TextureSlots[slot] = texture;
+		renderer2DData->CurrentTextureSlotId++;
+		return slot;
+	}
+
+	void Renderer2D::FlushAndReset()
+	{
+		EndScene();
+		ResetScene();
 	}
 
 	unsigned int Renderer2D::GetDrawCallCount()

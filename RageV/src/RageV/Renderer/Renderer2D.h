@@ -26,6 +26,11 @@ namespace RageV
 		static unsigned int GetQuadCount();
 	private:
 		static void ResetScene();
+		static void FlushAndReset();
+		// Returns the sampler slot to use for this texture, reusing an existing
+		// slot when the texture is already in the batch and flushing when the
+		// batch has no slots left.
+		static unsigned int ResolveTextureSlot(const std::shared_ptr<Texture2D>& texture);
 	};
 
 }
