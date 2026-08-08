@@ -623,6 +623,45 @@ namespace
 		}
 	}
 
+	// Attaching or swapping a script while the scene is already running.
+	void CheckLiveScriptChanges()
+	{
+		ProbeScript::Reset();
+		ScriptRegistry::Register("SecondProbe", []() -> ScriptableEntity* { return new ProbeScript(); });
+
+		auto scene = std::make_shared<Scene>();
+		Entity entity = scene->CreateEntity("Live");
+
+		// Already running, with nothing scripted.
+		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Created == 0, "a scene with no scripts steps without doing anything");
+
+		// A bare component with no script chosen yet -- what the inspector
+		// produces the instant Add Component is clicked.
+		auto& component = entity.AddComponent<NativeScriptComponent>();
+		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Created == 0, "an unassigned script component does nothing");
+
+		// Then a script is picked from the dropdown, mid-run.
+		component.ScriptName = "ProbeScript";
+		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Created == 1, "a script attached mid-run starts on the next step");
+		Check(ProbeScript::Updated == 1, "and updates on that same step");
+
+		// Swapping the choice has to take effect, not keep running the old one.
+		entity.GetComponent<NativeScriptComponent>().ScriptName = "SecondProbe";
+		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Destroyed == 1, "swapping the script destroys the old instance");
+		Check(ProbeScript::Created == 2, "and creates the new one");
+
+		// Clearing it back to none stops the script and cleans up.
+		entity.GetComponent<NativeScriptComponent>().ScriptName.clear();
+		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Destroyed == 2, "clearing the choice destroys the instance");
+
+		ProbeScript::Reset();
+	}
+
 	void CheckInputMap()
 	{
 		InputMap::ClearBindings();
@@ -886,6 +925,7 @@ int RunTests(int argc, char** argv)
 	CheckFixedStep();
 	CheckInputMap();
 	CheckScriptApi();
+	CheckLiveScriptChanges();
 	CheckPlayModeRestore();
 
 	// --- cameras -------------------------------------------------------------

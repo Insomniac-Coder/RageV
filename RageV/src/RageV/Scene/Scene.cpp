@@ -355,23 +355,40 @@ namespace RageV
 			if (!script)
 				continue;
 
-			if (!script->Instance)
+			// Reconciled rather than created-once, so choosing a different
+			// script in the inspector mid-run actually takes effect. Assigning
+			// ActiveScript even when creation fails is what stops an unknown
+			// name from being retried, and warned about, every single step.
+			if (script->ActiveScript != script->ScriptName)
 			{
-				if (script->ScriptName.empty())
-					continue;
+				if (script->Instance)
+				{
+					script->Instance->OnDestroy();
+					delete script->Instance;
+					script->Instance = nullptr;
+				}
 
-				script->Instance = ScriptRegistry::Create(script->ScriptName);
-				if (!script->Instance)
-					continue;
+				script->ActiveScript = script->ScriptName;
 
-				script->Instance->m_Entity = Entity{ handle, this };
-				script->Instance->OnCreate();
+				if (!script->ScriptName.empty())
+				{
+					script->Instance = ScriptRegistry::Create(script->ScriptName);
+					if (script->Instance)
+					{
+						script->Instance->m_Entity = Entity{ handle, this };
+						script->Instance->OnCreate();
 
-				// OnCreate may have destroyed something, including this entity.
-				script = m_Registry.try_get<NativeScriptComponent>(handle);
-				if (!script || !script->Instance)
-					continue;
+						// OnCreate may have destroyed something, including this
+						// entity.
+						script = m_Registry.try_get<NativeScriptComponent>(handle);
+						if (!script)
+							continue;
+					}
+				}
 			}
+
+			if (!script->Instance)
+				continue;
 
 			// On the fixed step, not the frame: a script that moves something
 			// has to agree with the physics that will push it.

@@ -167,8 +167,14 @@ namespace RageV
 		std::string ScriptName;
 
 		// Runtime only. Created on the first simulation step after Play and
-		// destroyed with the component, so it is never serialized.
+		// destroyed with the component, so neither is serialized.
 		ScriptableEntity* Instance = nullptr;
+
+		// Which name the live instance was built from. Without it, changing the
+		// choice in the inspector while the scene runs does nothing at all --
+		// the step only ever created an instance when there was not one, so the
+		// old script kept running under the new name.
+		std::string ActiveScript;
 
 		NativeScriptComponent() = default;
 		NativeScriptComponent(const std::string& script) : ScriptName(script) {}
@@ -176,6 +182,8 @@ namespace RageV
 		// Copying a component must not copy the pointer, or two components
 		// would own one instance and both would delete it. EnTT copies
 		// components when a scene is duplicated.
+		// Neither the instance nor what it was built from is copied: two
+		// components owning one instance would both delete it.
 		NativeScriptComponent(const NativeScriptComponent& other)
 			: ScriptName(other.ScriptName) {}
 
