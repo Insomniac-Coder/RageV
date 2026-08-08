@@ -1051,6 +1051,50 @@ namespace
 		AssetRegistry::Init(Project::AssetRoot());
 	}
 
+	// What the standalone runtime does, without the window.
+	//
+	// The runtime is three steps -- open the project, load its start scene,
+	// run it -- and each of them is a place a shipped game silently shows an
+	// empty window. Checking them here means the failure is a red test rather
+	// than a bug report from someone who cannot see a log.
+	void CheckRuntimePath()
+	{
+		Check(Project::GetActive() != nullptr, "a project is open");
+		if (!Project::GetActive())
+			return;
+
+		const std::string& start = Project::Config().StartScene;
+		Check(!start.empty(), "the project names a start scene");
+
+		const std::filesystem::path scenePath = Project::AssetPath(start);
+		Check(std::filesystem::exists(scenePath), "which exists on disk");
+		if (!std::filesystem::exists(scenePath))
+			return;
+
+		auto scene = std::make_shared<Scene>();
+		SceneSerializer serializer(scene);
+		Check(serializer.Deserialize(scenePath.string()), "and loads");
+
+		Check(scene->GetRegistry().view<IDComponent>().size() > 0,
+			  "into a scene with something in it");
+		Check((bool)scene->GetPrimaryCameraEntity(),
+			  "including a camera, without which a game renders nothing");
+
+		// A runtime starts running: there is no Play button, and this is most
+		// of what separates it from the editor.
+		scene->OnRuntimeStart();
+		Check(scene->GetPhysics() != nullptr, "starting it builds the physics world");
+
+		constexpr float dt = 1.0f / 60.0f;
+		for (int i = 0; i < 30; i++)
+			scene->OnFixedUpdateRuntime(dt);
+		scene->OnUpdateRuntime(dt);
+
+		Check(scene->GetPhysics()->GetBodyCount() > 0, "with bodies in it");
+
+		scene->OnRuntimeStop();
+	}
+
 	// Clicking in the viewport.
 	//
 	// Worth testing rather than trying by hand, because every failure mode here
@@ -2034,6 +2078,7 @@ int RunTests(int argc, char** argv)
 
 	// --- physics -------------------------------------------------------------
 	CheckProject();
+	CheckRuntimePath();
 	CheckPhysics();
 	CheckColliderOverlay();
 	CheckPicking();

@@ -53,5 +53,13 @@ namespace RageV::Vk
 		// swapchain. Needed at EndRenderPass to restore image layouts.
 		VulkanRenderTarget* m_ActiveTarget = nullptr;
 		bool m_InRenderPass = false;
+
+		// Whether the swapchain image has already been rendered into this frame.
+		//
+		// The editor never draws to it more than once -- the scene goes to an
+		// offscreen target and only the UI reaches the swapchain -- so the second
+		// pass case did not exist until the standalone runtime drew its scene
+		// there and the UI on top.
+		bool m_SwapchainWritten = false;
 	};
 }

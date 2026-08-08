@@ -114,13 +114,20 @@ namespace RageV
 
 		ImGui::Render();
 
-		// The UI is the only thing drawn to the swapchain; the scene renders
-		// into an offscreen target that the viewport panel samples.
+		// In the editor the UI is the only thing on the swapchain, because the
+		// scene renders into an offscreen target that the viewport panel
+		// samples -- so clearing here is free.
+		//
+		// A game draws its scene to the swapchain directly and puts the UI on
+		// top, and clearing then erases the frame this pass exists to annotate.
+		// Which is exactly what it did: the standalone runtime rendered its
+		// scene correctly and showed a blank window, because this ran
+		// afterwards and wiped it.
 		if (RHI::RHICommandList* cmd = Renderer::GetCommandList())
 		{
 			RHI::RenderPassBeginInfo pass;
 			pass.Target = nullptr;
-			pass.ClearColor = true;
+			pass.ClearColor = m_ClearsBackbuffer;
 			// The overlay does no depth testing, and declaring a depth
 			// attachment would force ImGui's pipeline to match its format.
 			pass.UseDepth = false;

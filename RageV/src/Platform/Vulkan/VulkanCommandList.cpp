@@ -15,6 +15,7 @@ namespace RageV::Vk
 		m_BoundPipeline = nullptr;
 		m_ActiveTarget = nullptr;
 		m_InRenderPass = false;
+		m_SwapchainWritten = false;
 
 		VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -30,12 +31,20 @@ namespace RageV::Vk
 		}
 
 		// The swapchain image has to be back in PRESENT_SRC before submission.
+		//
+		// A frame that never rendered into it leaves it in whatever layout the
+		// acquire produced, so claiming it was a colour attachment would be a
+		// lie about state the driver is entitled to act on.
 		VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 		barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-		barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+		barrier.srcAccessMask = m_SwapchainWritten
+							  ? VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+							  : VkAccessFlags2(0);
 		barrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
 		barrier.dstAccessMask = 0;
-		barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		barrier.oldLayout = m_SwapchainWritten
+						  ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+						  : VK_IMAGE_LAYOUT_UNDEFINED;
 		barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -100,22 +109,32 @@ namespace RageV::Vk
 		{
 			extent = m_Device.GetSwapchainExtent();
 
-			// The acquired swapchain image is in UNDEFINED (or PRESENT_SRC from
-			// a previous frame); either way its contents are being cleared.
+			// The first pass of a frame acquires the image; a later one
+			// inherits what the previous pass left.
 			//
-			// srcStageMask must be COLOR_ATTACHMENT_OUTPUT, not TOP_OF_PIPE:
-			// the submit waits on the acquire semaphore at that stage, and a
-			// TOP_OF_PIPE source forms no execution dependency with it. The
-			// layout transition -- a write -- could then run before the
-			// presentation engine finished reading the image. Synchronization
-			// validation reports this as WRITE_AFTER_READ against
-			// vkAcquireNextImageKHR.
+			// The distinction is not cosmetic. UNDEFINED as an old layout
+			// permits the driver to discard the image contents, so a second
+			// pass that loads rather than clears -- the runtime's UI over its
+			// scene -- could legally come back to garbage. It also has to name
+			// the previous pass's write as the source, or the layout
+			// transition races the store it is meant to follow.
+			//
+			// srcStageMask must be COLOR_ATTACHMENT_OUTPUT in both cases, not
+			// TOP_OF_PIPE: the submit waits on the acquire semaphore at that
+			// stage, and a TOP_OF_PIPE source forms no execution dependency
+			// with it. The layout transition -- a write -- could then run
+			// before the presentation engine finished reading the image.
 			VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 			barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-			barrier.srcAccessMask = 0;
+			barrier.srcAccessMask = m_SwapchainWritten
+								  ? VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+								  : VkAccessFlags2(0);
 			barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-			barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+									VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+			barrier.oldLayout = m_SwapchainWritten
+							  ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+							  : VK_IMAGE_LAYOUT_UNDEFINED;
 			barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -128,6 +147,7 @@ namespace RageV::Vk
 			dependency.imageMemoryBarrierCount = 1;
 			dependency.pImageMemoryBarriers = &barrier;
 			vkCmdPipelineBarrier2(m_CommandBuffer, &dependency);
+			m_SwapchainWritten = true;
 
 			VkRenderingAttachmentInfo attachment{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 			attachment.imageView = m_Device.GetCurrentSwapchainImageView();

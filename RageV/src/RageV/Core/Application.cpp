@@ -63,7 +63,12 @@ namespace RageV {
 		// The project decides where assets live, so it is opened first. Without
 		// one the registry has no root and every handle resolves to nothing,
 		// which the editor reports rather than papering over.
-		Project::OpenConfigured();
+		//
+		// Only if none is open: an application may need the project before its
+		// base constructor runs -- the runtime titles its window after it --
+		// and re-reading the file would be wasted work, not a correction.
+		if (!Project::GetActive())
+			Project::OpenConfigured();
 
 		if (Project::GetActive())
 			AssetRegistry::Init(Project::AssetRoot());
