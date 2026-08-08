@@ -24,55 +24,50 @@ namespace RageV
 			desc.DebugName = m_Name + ".params." + std::to_string(i);
 			m_ParamBuffers[i] = device.CreateBuffer(desc);
 		}
-		m_TexturesDirty.assign(frames, true);
+		m_FrameDirty.assign(frames, true);
 	}
 
 	namespace
 	{
 		void AssignMap(Ref<RHITexture>& slot, const Ref<RHITexture>& texture,
-					   int32_t& flags, MaterialMap bit, std::vector<bool>& dirty)
+					   int32_t& flags, MaterialMap bit)
 		{
 			slot = texture;
 			if (texture)
 				flags |= bit;
 			else
 				flags &= ~bit;
-
-			// Every frame's descriptor set needs rewriting, not just the
-			// current one.
-			for (size_t i = 0; i < dirty.size(); i++)
-				dirty[i] = true;
 		}
 	}
 
 	void Material::SetBaseColorMap(const Ref<RHITexture>& texture)
 	{
-		AssignMap(m_BaseColor, texture, m_Params.MapFlags, MaterialMap_BaseColor, m_TexturesDirty);
-		m_ParamsDirty = true;
+		AssignMap(m_BaseColor, texture, m_Params.MapFlags, MaterialMap_BaseColor);
+		Invalidate();
 	}
 
 	void Material::SetNormalMap(const Ref<RHITexture>& texture)
 	{
-		AssignMap(m_Normal, texture, m_Params.MapFlags, MaterialMap_Normal, m_TexturesDirty);
-		m_ParamsDirty = true;
+		AssignMap(m_Normal, texture, m_Params.MapFlags, MaterialMap_Normal);
+		Invalidate();
 	}
 
 	void Material::SetMetallicRoughnessMap(const Ref<RHITexture>& texture)
 	{
-		AssignMap(m_MetallicRoughness, texture, m_Params.MapFlags, MaterialMap_MetallicRoughness, m_TexturesDirty);
-		m_ParamsDirty = true;
+		AssignMap(m_MetallicRoughness, texture, m_Params.MapFlags, MaterialMap_MetallicRoughness);
+		Invalidate();
 	}
 
 	void Material::SetOcclusionMap(const Ref<RHITexture>& texture)
 	{
-		AssignMap(m_Occlusion, texture, m_Params.MapFlags, MaterialMap_Occlusion, m_TexturesDirty);
-		m_ParamsDirty = true;
+		AssignMap(m_Occlusion, texture, m_Params.MapFlags, MaterialMap_Occlusion);
+		Invalidate();
 	}
 
 	void Material::SetEmissiveMap(const Ref<RHITexture>& texture)
 	{
-		AssignMap(m_Emissive, texture, m_Params.MapFlags, MaterialMap_Emissive, m_TexturesDirty);
-		m_ParamsDirty = true;
+		AssignMap(m_Emissive, texture, m_Params.MapFlags, MaterialMap_Emissive);
+		Invalidate();
 	}
 
 	void Material::EnsureResources(const Ref<RHIPipeline>& pipeline, uint32_t set)
@@ -85,8 +80,15 @@ namespace RageV
 		for (uint32_t i = 0; i < frames; i++)
 			m_Sets.push_back(m_Device.CreateResourceSet(pipeline, set));
 
-		m_TexturesDirty.assign(frames, true);
+		m_FrameDirty.assign(frames, true);
 		m_Built = true;
+	}
+
+	void Material::Invalidate()
+	{
+		// Every frame's copy, not just the current one: each frame in flight
+		// has its own buffer and set, and a change has to reach all of them.
+		m_FrameDirty.assign(std::max<size_t>(m_FrameDirty.size(), m_ParamBuffers.size()), true);
 	}
 
 	void Material::Bind(RHICommandList& commandList, const Ref<RHIPipeline>& pipeline, uint32_t set)
@@ -94,16 +96,17 @@ namespace RageV
 		EnsureResources(pipeline, set);
 
 		const uint32_t frame = m_Device.GetFrameIndex();
-
-		// Uploaded every frame the parameters changed. Each frame slot has its
-		// own buffer, so this cannot race a frame still reading the old values.
-		m_ParamBuffers[frame]->Upload(&m_Params, sizeof(MaterialParams));
-
 		auto& resourceSet = m_Sets[frame];
-		resourceSet->SetUniformBuffer(0, m_ParamBuffers[frame], 0, sizeof(MaterialParams));
 
-		if (m_TexturesDirty[frame])
+		// Only when something actually changed. Rewriting a descriptor set that
+		// is already bound to a command buffer is a use-after-bind hazard, and
+		// binding one material for several objects -- or drawing one scene into
+		// two viewports -- did exactly that on every draw after the first.
+		if (m_FrameDirty[frame])
 		{
+			m_ParamBuffers[frame]->Upload(&m_Params, sizeof(MaterialParams));
+			resourceSet->SetUniformBuffer(0, m_ParamBuffers[frame], 0, sizeof(MaterialParams));
+
 			// A sampler left unwritten is a validation error even when the
 			// shader will not read it, so absent maps bind a neutral 1x1.
 			resourceSet->SetTexture(1, m_BaseColor         ? m_BaseColor         : TextureLoader::White(m_Device),      m_Sampler);
@@ -111,10 +114,11 @@ namespace RageV
 			resourceSet->SetTexture(3, m_MetallicRoughness ? m_MetallicRoughness : TextureLoader::White(m_Device),      m_Sampler);
 			resourceSet->SetTexture(4, m_Occlusion         ? m_Occlusion         : TextureLoader::White(m_Device),      m_Sampler);
 			resourceSet->SetTexture(5, m_Emissive          ? m_Emissive          : TextureLoader::Black(m_Device),      m_Sampler);
-			m_TexturesDirty[frame] = false;
+
+			resourceSet->Commit();
+			m_FrameDirty[frame] = false;
 		}
 
-		resourceSet->Commit();
 		commandList.BindResourceSet(set, resourceSet);
 	}
 

@@ -302,6 +302,77 @@ namespace
 			  "a random handle is not treated as a primitive");
 	}
 
+	// A prefab is a scene file holding one tree. The property that matters is
+	// that stamping it out twice produces two independent trees -- if the
+	// copies shared ids, every reference to one would resolve to both, and the
+	// hierarchy links would cross-connect them.
+	void CheckPrefabs()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		Entity root = scene->CreateEntity("Turret");
+		root.GetComponent<TransformComponent>().Position = { 3.0f, 1.0f, -2.0f };
+		root.AddComponent<MeshComponent>(PrimitiveType::Cylinder);
+
+		Entity barrel = scene->CreateEntity("Barrel");
+		barrel.GetComponent<TransformComponent>().Position = { 0.0f, 1.5f, 0.0f };
+		barrel.AddComponent<MeshComponent>(PrimitiveType::Cube);
+		scene->SetParent(barrel, root);
+
+		Entity light = scene->CreateEntity("Muzzle Light");
+		light.AddComponent<LightComponent>().Light.Type = Light::LightType::Spot;
+		scene->SetParent(light, barrel);
+
+		const AssetHandle prefab = AssetManager::CreatePrefab(*scene, root, "prefabs/turret.rprefab");
+		Check(prefab.IsValid(), "a prefab is written and gets a handle");
+		if (!prefab.IsValid())
+			return;
+
+		Check(AssetRegistry::GetMetadata(prefab).Type == AssetType::Prefab,
+			  "the prefab is typed as a prefab");
+		Check(root.HasComponent<PrefabComponent>(),
+			  "the source tree becomes an instance of the prefab it produced");
+
+		auto target = std::make_shared<Scene>();
+		Entity first = AssetManager::InstantiatePrefab(*target, prefab);
+		Entity second = AssetManager::InstantiatePrefab(*target, prefab);
+
+		Check(first && second, "a prefab instantiates twice");
+		if (!first || !second)
+			return;
+
+		Check(first.GetUUID() != second.GetUUID(), "two instances have different ids");
+		Check(first.GetName() == "Turret", "the instance keeps the prefab's root name");
+		Check(target->GetRegistry().view<IDComponent>().size() == 6,
+			  "three entities per instance, twice");
+
+		// Each copy's hierarchy must point at its own entities. Sharing an id
+		// here would silently parent one instance's barrel to the other's.
+		Check(scene->GetChildren(root).size() == 1, "the source tree is unchanged");
+		Check(target->GetChildren(first).size() == 1, "the first instance has its child");
+		Check(target->GetChildren(second).size() == 1, "the second instance has its child");
+		Check(target->GetChildren(first)[0] != target->GetChildren(second)[0],
+			  "the two instances do not share a child");
+
+		Entity firstBarrel = target->GetEntityByUUID(target->GetChildren(first)[0]);
+		Check(firstBarrel && target->GetParent(firstBarrel) == first,
+			  "the grandchild chain is rebuilt within the instance");
+		Check(firstBarrel && target->GetChildren(firstBarrel).size() == 1,
+			  "the third level survives");
+
+		// A prefab's root has no parent inside its own file, so instantiating
+		// must not leave it parented to whatever id happened to be recorded.
+		Check(!target->GetParent(first), "an instance root has no parent");
+
+		Check(first.HasComponent<PrefabComponent>() &&
+			  first.GetComponent<PrefabComponent>().Source == prefab,
+			  "an instance records which prefab it came from");
+
+		// Local transforms come across verbatim rather than being re-derived.
+		Check(std::fabs(first.GetComponent<TransformComponent>().Position.x - 3.0f) < 1e-4f,
+			  "the instance keeps the prefab's transform");
+	}
+
 	void CheckCameraRanking()
 	{
 		auto scene = std::make_shared<Scene>();
@@ -523,6 +594,9 @@ int RunTests(int argc, char** argv)
 
 	// --- cameras -------------------------------------------------------------
 	CheckCameraRanking();
+
+	// --- prefabs -------------------------------------------------------------
+	CheckPrefabs();
 
 	// --- assets --------------------------------------------------------------
 	CheckPrimitiveHandles();

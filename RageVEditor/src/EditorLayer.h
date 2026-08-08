@@ -2,6 +2,7 @@
 #include <RageV.h>
 #include <chrono>
 #include "UI/SceneHierarchyPanel.h"
+#include "UI/ContentBrowserPanel.h"
 #include "RageV/Scene/SceneCommands.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
 // first.
@@ -23,6 +24,8 @@ public:
 	void OpenScene();
 	void SaveScene();
 	void ImportModel();
+	void SaveSelectionAsPrefab();
+	void OnAssetActivated(RageV::AssetHandle handle, RageV::AssetType type);
 
 private:
 	// --- menu bar and panels ------------------------------------------------
@@ -71,9 +74,18 @@ private:
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_GameTarget;
 	std::shared_ptr<RageV::Scene> m_Scene;
 	RageV::SceneHierarchyPanel m_SceneHierarchyPanel;
+	RageV::ContentBrowserPanel m_ContentBrowser;
 
 	glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 	glm::vec2 m_GameViewportSize = { 0.0f, 0.0f };
+
+	// Panels run after OnUpdate has already recorded a render pass into these
+	// targets, and resizing one destroys the images the command buffer holds.
+	// So a panel records the size it wants and OnUpdate applies it before
+	// recording anything.
+	glm::vec2 m_RequestedViewportSize = { 0.0f, 0.0f };
+	glm::vec2 m_RequestedGameSize = { 0.0f, 0.0f };
+	void ApplyPendingResizes();
 	bool m_IsViewportFocused = false, m_IsViewportHovered = false;
 
 	// Panel visibility, driven by the Window menu.
@@ -83,6 +95,7 @@ private:
 	bool m_ShowRenderSettings = true;
 	bool m_ShowViewport = true;
 	bool m_ShowGameViewport = true;
+	bool m_ShowContentBrowser = true;
 	bool m_ShowDemoWindow = false;
 	bool m_ShowAbout = false;
 

@@ -54,9 +54,9 @@ namespace RageV
 		void SetOcclusionMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetEmissiveMap(const RHI::Ref<RHI::RHITexture>& texture);
 
-		// Marks the parameter block for re-upload. Call after touching
-		// GetParams() directly.
-		void Invalidate() { m_ParamsDirty = true; }
+		// Marks every frame's descriptor set and parameter buffer as needing a
+		// rewrite. Call after touching GetParams() directly.
+		void Invalidate();
 
 		// Builds the descriptor set against a pipeline layout. Materials are
 		// created before any pipeline exists, so this is deferred rather than
@@ -83,8 +83,16 @@ namespace RageV
 		// rewritten while a previous frame still reads it.
 		std::vector<RHI::Ref<RHI::RHIBuffer>>      m_ParamBuffers;
 		std::vector<RHI::Ref<RHI::RHIResourceSet>> m_Sets;
-		std::vector<bool> m_TexturesDirty;
-		bool m_ParamsDirty = true;
+
+		// Whether this frame's set and buffer still match the material.
+		//
+		// Bind used to upload and commit on every single draw. A descriptor set
+		// that is already bound must not be rewritten -- Vulkan reports it as
+		// "destroyed or updated without UPDATE_AFTER_BIND" -- and it happened
+		// whenever one material was used by two objects, or when the same scene
+		// was drawn into two viewports. Writing only on an actual change fixes
+		// the hazard and removes a per-draw descriptor write.
+		std::vector<bool> m_FrameDirty;
 		bool m_Built = false;
 	};
 }

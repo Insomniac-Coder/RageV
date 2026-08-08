@@ -5,6 +5,9 @@
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
+#include "RageV/Scene/SceneSerializer.h"
+#include <fstream>
+#include <sstream>
 
 namespace RageV
 {
@@ -110,6 +113,85 @@ namespace RageV
 										   model.Primitives[0].Indices, model.Primitives[0].Name);
 		s_Meshes[handle] = mesh;
 		return mesh;
+	}
+
+	AssetHandle AssetManager::CreatePrefab(Scene& scene, Entity root,
+										   const std::filesystem::path& relativePath)
+	{
+		if (!root || !AssetRegistry::IsInitialised())
+			return AssetHandle::Invalid();
+
+		const std::filesystem::path absolute = AssetRegistry::Root() / relativePath;
+
+		std::error_code error;
+		std::filesystem::create_directories(absolute.parent_path(), error);
+
+		// The same subtree snapshot undo uses. A prefab is not a new format --
+		// it is a scene file holding one tree, which is why instantiating one
+		// and restoring a deleted one share a reader.
+		auto shared = std::shared_ptr<Scene>(&scene, [](Scene*) {});
+		SceneSerializer serializer(shared);
+		const std::string yaml = serializer.SerializeSubtree(root);
+
+		std::ofstream file(absolute);
+		if (!file)
+		{
+			RV_CORE_ERROR("Could not write prefab '{0}'", absolute.string());
+			return AssetHandle::Invalid();
+		}
+		file << yaml;
+		file.close();
+
+		// Picks up the new file and mints its sidecar.
+		AssetRegistry::Refresh();
+
+		const AssetHandle handle = AssetRegistry::GetHandle(relativePath.generic_string());
+		if (handle.IsValid())
+		{
+			// The source tree becomes an instance of the prefab it just made,
+			// which is what makes "create prefab" feel like extracting rather
+			// than copying.
+			if (!root.HasComponent<PrefabComponent>())
+				root.AddComponent<PrefabComponent>(handle);
+			else
+				root.GetComponent<PrefabComponent>().Source = handle;
+		}
+
+		return handle;
+	}
+
+	Entity AssetManager::InstantiatePrefab(Scene& scene, AssetHandle handle)
+	{
+		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
+		if (path.empty())
+			return {};
+
+		std::ifstream file(path);
+		if (!file)
+		{
+			RV_CORE_ERROR("Could not read prefab '{0}'", path.string());
+			return {};
+		}
+
+		std::stringstream buffer;
+		buffer << file.rdbuf();
+
+		auto shared = std::shared_ptr<Scene>(&scene, [](Scene*) {});
+		SceneSerializer serializer(shared);
+
+		// Fresh ids: two instances that shared identities would mean every
+		// reference to one resolved to both.
+		Entity root = serializer.Instantiate(buffer.str());
+		if (!root)
+			return {};
+
+		if (!root.HasComponent<PrefabComponent>())
+			root.AddComponent<PrefabComponent>(handle);
+		else
+			root.GetComponent<PrefabComponent>().Source = handle;
+
+		scene.UpdateWorldTransforms();
+		return root;
 	}
 
 	Entity AssetManager::InstantiateModel(Scene& scene, AssetHandle handle)

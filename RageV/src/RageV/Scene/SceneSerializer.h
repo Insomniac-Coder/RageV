@@ -44,9 +44,27 @@ namespace RageV
 		// to be undoing a delete, not duplicating.
 		bool DeserializeAdditive(const std::string& yaml);
 
+		// Adds a copy with fresh ids, remapping internal parent links so the
+		// hierarchy survives. This is what separates stamping out a prefab from
+		// restoring a deleted one: two instances of the same prefab must not
+		// share identities, or every reference to one would resolve to both.
+		//
+		// Returns the root of what was added, or an invalid entity.
+		Entity Instantiate(const std::string& yaml);
+
+	private:
+		enum class ReadMode
+		{
+			Replace,      // opening a scene file
+			Additive,     // undoing a delete: ids preserved
+			Instantiate,  // stamping a prefab: ids remapped
+		};
+
+	public:
+
 	private:
 		void SerializeEntity(YAML::Emitter& emitter, Entity entity);
-		bool Read(const std::string& yaml, bool replace);
+		bool Read(const std::string& yaml, ReadMode mode, Entity* firstRoot = nullptr);
 
 		std::shared_ptr<Scene> m_SceneRef;
 	};

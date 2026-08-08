@@ -133,6 +133,26 @@ namespace RageV
 		MeshComponent(AssetHandle mesh) : Mesh(mesh) {}
 	};
 
+	// Marks the root of an entity tree stamped out from a prefab asset.
+	//
+	// The instance is fully materialised into the scene -- every entity is a
+	// real entity and anything about it can be edited. This records where it
+	// came from, which is what "select all instances" and, later, propagating
+	// an edit back to the source will hang off.
+	//
+	// NOT YET: editing a prefab does not update instances already placed. That
+	// needs each instance entity to remember which prefab entity it came from
+	// and a diff of what has been changed since -- and the hard part is not the
+	// diff, it is deciding what an added or reordered child means.
+	struct PrefabComponent
+	{
+		AssetHandle Source = AssetHandle::Invalid();
+
+		PrefabComponent() = default;
+		PrefabComponent(const PrefabComponent&) = default;
+		PrefabComponent(AssetHandle source) : Source(source) {}
+	};
+
 	// Plain function pointers, not std::function, and captureless lambdas.
 	//
 	// These used to be `[&]` lambdas capturing the enclosing component's `this`.

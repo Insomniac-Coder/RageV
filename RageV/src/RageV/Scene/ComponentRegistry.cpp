@@ -315,6 +315,25 @@ namespace RageV
 			s_Components.push_back(std::move(desc));
 		}
 
+		// --- Prefab ----------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "PrefabComponent";
+			desc.DisplayName = "Prefab Instance";
+			// Not offered in the Add menu: it is created by instantiating a
+			// prefab, and adding it by hand would claim a provenance the
+			// entity does not have.
+			desc.AddableFromMenu = false;
+			desc.Fields = {
+				Field<&PrefabComponent::Source>("Source",
+					AssetRef(AssetType::Prefab, "The prefab this tree was stamped from. "
+											    "Editing a prefab does not yet update "
+											    "instances already placed.")),
+			};
+			Bind<PrefabComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
 		RV_CORE_INFO("Component registry: {0} components described", s_Components.size());
 	}
 

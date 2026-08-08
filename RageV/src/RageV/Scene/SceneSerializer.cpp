@@ -303,15 +303,23 @@ namespace RageV
 
 	bool SceneSerializer::DeserializeAdditive(const std::string& yaml)
 	{
-		return Read(yaml, false);
+		return Read(yaml, ReadMode::Additive);
 	}
 
 	bool SceneSerializer::DeserializeFromString(const std::string& yaml)
 	{
-		return Read(yaml, true);
+		return Read(yaml, ReadMode::Replace);
 	}
 
-	bool SceneSerializer::Read(const std::string& yaml, bool replace)
+	Entity SceneSerializer::Instantiate(const std::string& yaml)
+	{
+		Entity root;
+		if (!Read(yaml, ReadMode::Instantiate, &root))
+			return {};
+		return root;
+	}
+
+	bool SceneSerializer::Read(const std::string& yaml, ReadMode mode, Entity* firstRoot)
 	{
 		YAML::Node node;
 		try
@@ -342,7 +350,7 @@ namespace RageV
 		// Loading a file replaces the scene. Without this, opening one merged
 		// it into whatever was already there. Restoring a subtree for undo does
 		// the opposite and adds to what is there.
-		if (replace)
+		if (mode == ReadMode::Replace)
 		{
 			m_SceneRef->m_Registry.clear();
 			m_SceneRef->m_EntityMap.clear();
@@ -365,6 +373,11 @@ namespace RageV
 		// before its parent in the file.
 		std::vector<std::pair<UUID, UUID>> pendingParents;
 
+		// Old id -> new id, when instantiating. Parent links are rewritten
+		// through it so a copy points at its own copies rather than at the
+		// original's entities.
+		std::unordered_map<UUID, UUID> remapped;
+
 		for (const YAML::Node& entityNode : entities)
 		{
 			// Version 1 wrote the same hardcoded ID for every entity, so those
@@ -374,7 +387,19 @@ namespace RageV
 					? UUID(entityNode["EntityID"].as<uint64_t>())
 					: UUID();
 
+			if (mode == ReadMode::Instantiate)
+			{
+				const UUID fresh;
+				remapped[id] = fresh;
+				id = fresh;
+			}
+
 			Entity entity = m_SceneRef->CreateEntityWithUUID(id);
+
+			// The first entity in the file is the subtree's root, because
+			// SerializeSubtree writes depth first from it.
+			if (firstRoot && !*firstRoot)
+				*firstRoot = entity;
 
 			if (const YAML::Node relationship = entityNode["RelationshipComponent"])
 			{
@@ -419,8 +444,20 @@ namespace RageV
 		// the local transform.
 		for (const auto& [childID, parentID] : pendingParents)
 		{
+			// A parent outside the subtree stays outside: an instantiated
+			// prefab's root has no parent in its own file, and the remap only
+			// covers what the file contained.
+			UUID resolvedParent = parentID;
+			if (mode == ReadMode::Instantiate)
+			{
+				const auto it = remapped.find(parentID);
+				if (it == remapped.end())
+					continue;
+				resolvedParent = it->second;
+			}
+
 			Entity child = m_SceneRef->GetEntityByUUID(childID);
-			Entity parent = m_SceneRef->GetEntityByUUID(parentID);
+			Entity parent = m_SceneRef->GetEntityByUUID(resolvedParent);
 
 			if (!child || !parent)
 			{
@@ -428,7 +465,7 @@ namespace RageV
 				continue;
 			}
 
-			child.GetComponent<RelationshipComponent>().Parent = parentID;
+			child.GetComponent<RelationshipComponent>().Parent = resolvedParent;
 			parent.GetComponent<RelationshipComponent>().Children.push_back(childID);
 		}
 

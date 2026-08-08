@@ -36,6 +36,15 @@ namespace RageV
 		// under one root entity that carries the file's name. Returns the root.
 		static Entity InstantiateModel(Scene& scene, AssetHandle handle);
 
+		// Writes an entity and its descendants to a .rprefab beside the other
+		// assets, and returns the new handle. The entity keeps its identity;
+		// the file gets a copy.
+		static AssetHandle CreatePrefab(Scene& scene, Entity root,
+										const std::filesystem::path& relativePath);
+
+		// Stamps out a copy with fresh ids. Returns the root.
+		static Entity InstantiatePrefab(Scene& scene, AssetHandle handle);
+
 		static void ClearCache();
 	};
 }

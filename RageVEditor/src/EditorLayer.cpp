@@ -80,6 +80,9 @@ void EditorLayer::OnAttach()
 	Renderer::SetTargetFormats(targetDesc.ColorAttachments[0].Format,
 							   targetDesc.DepthAttachment.Format);
 
+	m_ContentBrowser.SetActivateCallback(
+		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
+
 	// Open on something rather than an empty void. File > New Scene gives a
 	// blank scene with just a camera.
 	LoadDemoScene();
@@ -169,6 +172,10 @@ void EditorLayer::OnUpdate(Timestep ts)
 	m_EditorCamera.SetActive(m_IsViewportHovered || m_IsViewportFocused);
 	m_EditorCamera.OnUpdate(ts);
 
+	// Before anything is recorded: resizing a target destroys its images, and
+	// doing that mid-frame invalidates the command buffer that is using them.
+	ApplyPendingResizes();
+
 	RHI::RHICommandList* cmd = Renderer::GetCommandList();
 	if (!cmd)
 		return;
@@ -216,6 +223,34 @@ void EditorLayer::OnUpdate(Timestep ts)
 	}
 }
 
+// Applied at the top of a frame rather than where the size is discovered.
+//
+// The panels are drawn in OnImGuiRender, which runs after OnUpdate has already
+// begun a render pass on these targets. Calling Resize there destroys and
+// recreates images the command buffer has bound, which the validation layer
+// reports as a command buffer "in an invalid state" -- 140 of them on every
+// startup, and more on every window resize.
+void EditorLayer::ApplyPendingResizes()
+{
+	if (m_RequestedViewportSize.x > 0.0f &&
+		(m_ViewportSize.x != m_RequestedViewportSize.x || m_ViewportSize.y != m_RequestedViewportSize.y))
+	{
+		m_ViewportSize = m_RequestedViewportSize;
+		m_SceneTarget->Resize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
+		m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
+	}
+
+	if (m_RequestedGameSize.x > 0.0f &&
+		(m_GameViewportSize.x != m_RequestedGameSize.x || m_GameViewportSize.y != m_RequestedGameSize.y))
+	{
+		m_GameViewportSize = m_RequestedGameSize;
+		m_GameTarget->Resize((unsigned int)m_GameViewportSize.x, (unsigned int)m_GameViewportSize.y);
+		// The scene cameras' aspect follows the game view: it is what the game
+		// actually renders into.
+		m_Scene->OnViewportResize(m_GameViewportSize.x, m_GameViewportSize.y);
+	}
+}
+
 void EditorLayer::OnImGuiRender()
 {
 	// --- dockspace host -----------------------------------------------------
@@ -254,6 +289,7 @@ void EditorLayer::OnImGuiRender()
 	if (m_ShowRenderSettings)  DrawRenderSettingsPanel();
 	if (m_ShowViewport)        DrawViewportPanel();
 	if (m_ShowGameViewport)    DrawGameViewportPanel();
+	if (m_ShowContentBrowser)  m_ContentBrowser.OnImGuiRender(&m_ShowContentBrowser);
 	if (m_ShowDemoWindow)      ImGui::ShowDemoWindow(&m_ShowDemoWindow);
 
 	DrawAboutPopup();
@@ -295,6 +331,9 @@ void EditorLayer::DrawMenuBar()
 			m_Commands.Push(std::make_unique<DeleteEntityCommand>(m_Scene, selected));
 			m_SceneHierarchyPanel.SetSelectedEntity({});
 		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Save Selection as Prefab..."))
+			SaveSelectionAsPrefab();
 		ImGui::EndDisabled();
 		ImGui::EndMenu();
 	}
@@ -344,6 +383,7 @@ void EditorLayer::DrawMenuBar()
 		ImGui::MenuItem("Properties",      nullptr, &m_ShowProperties);
 		ImGui::MenuItem("Viewport",        nullptr, &m_ShowViewport);
 		ImGui::MenuItem("Game",            nullptr, &m_ShowGameViewport);
+		ImGui::MenuItem("Content",         nullptr, &m_ShowContentBrowser);
 		ImGui::MenuItem("Statistics",      nullptr, &m_ShowStatistics);
 		ImGui::MenuItem("Render Settings", nullptr, &m_ShowRenderSettings);
 		ImGui::Separator();
@@ -595,15 +635,9 @@ void EditorLayer::DrawViewportPanel()
 	m_IsViewportHovered = ImGui::IsWindowHovered();
 	Application::Get().GetImGuiLayer()->SetEventBlocker(!m_IsViewportFocused && !m_IsViewportHovered);
 
+	// Recorded, not applied: see ApplyPendingResizes.
 	const ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-	if (m_ViewportSize.x != viewportSize.x || m_ViewportSize.y != viewportSize.y)
-	{
-		m_ViewportSize = { viewportSize.x, viewportSize.y };
-		m_SceneTarget->Resize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
-		// Only on an actual change: this recomputes every camera's projection
-		// and used to run on every single frame.
-		m_EditorCamera.SetViewportSize(viewportSize.x, viewportSize.y);
-	}
+	m_RequestedViewportSize = { viewportSize.x, viewportSize.y };
 
 	// GL hands back a texture name, Vulkan a descriptor set the ImGui backend
 	// owns; both are opaque to ImGui::Image.
@@ -636,17 +670,9 @@ void EditorLayer::DrawGameViewportPanel()
 		return;
 	}
 
+	// Recorded, not applied: see ApplyPendingResizes.
 	const ImVec2 size = ImGui::GetContentRegionAvail();
-	if (size.x > 0.0f && size.y > 0.0f &&
-		(m_GameViewportSize.x != size.x || m_GameViewportSize.y != size.y))
-	{
-		m_GameViewportSize = { size.x, size.y };
-		m_GameTarget->Resize((unsigned int)size.x, (unsigned int)size.y);
-		// The scene cameras' aspect follows *this* panel: it is what the game
-		// actually renders into. Driving it from the editor viewport would give
-		// the game view a stretched image whenever the two panels differed.
-		m_Scene->OnViewportResize(size.x, size.y);
-	}
+	m_RequestedGameSize = { size.x, size.y };
 
 	Entity camera = m_Scene->GetPrimaryCameraEntity();
 	if (!camera)
@@ -1064,6 +1090,55 @@ void EditorLayer::ImportModel()
 	m_SceneHierarchyPanel.SetSelectedEntity(root);
 	// One undo step for the whole import: the command snapshots the subtree at
 	// undo time, so the entire imported tree comes back on redo.
+	m_Commands.PushApplied(std::make_unique<CreateEntityCommand>(m_Scene, root.GetUUID(),
+																 root.GetName()));
+	FocusSelection();
+}
+
+// A prefab is a scene file holding one entity tree -- the same snapshot undo
+// takes when it deletes something. Instantiating one remaps every id, so two
+// copies do not share identities.
+void EditorLayer::SaveSelectionAsPrefab()
+{
+	Entity selected = m_SceneHierarchyPanel.GetSelectedEntity();
+	if (!selected)
+		return;
+
+	const std::string name = selected.GetName();
+	const std::filesystem::path relative = std::filesystem::path("prefabs") / (name + ".rprefab");
+
+	const AssetHandle handle = AssetManager::CreatePrefab(*m_Scene, selected, relative);
+	if (!handle.IsValid())
+	{
+		RV_WARN("Could not create a prefab from '{0}'", name);
+		return;
+	}
+
+	RV_INFO("Saved prefab '{0}'", relative.generic_string());
+}
+
+void EditorLayer::OnAssetActivated(AssetHandle handle, AssetType type)
+{
+	if (!m_Scene)
+		return;
+
+	Entity root;
+
+	switch (type)
+	{
+		case AssetType::Mesh:   root = AssetManager::InstantiateModel(*m_Scene, handle); break;
+		case AssetType::Prefab: root = AssetManager::InstantiatePrefab(*m_Scene, handle); break;
+		default:
+			RV_WARN("Nothing to do with a {0} asset yet", AssetTypeName(type));
+			return;
+	}
+
+	if (!root)
+		return;
+
+	m_SceneHierarchyPanel.SetSelectedEntity(root);
+	// One undo step for the whole thing: the command snapshots the subtree when
+	// it is undone, so redo brings back the entire tree.
 	m_Commands.PushApplied(std::make_unique<CreateEntityCommand>(m_Scene, root.GetUUID(),
 																 root.GetName()));
 	FocusSelection();
