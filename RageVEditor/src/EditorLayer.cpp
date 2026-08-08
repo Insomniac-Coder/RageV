@@ -95,9 +95,25 @@ void EditorLayer::OnAttach()
 	m_ContentBrowser.SetActivateCallback(
 		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
 
-	// Open on something rather than an empty void. File > New Scene gives a
-	// blank scene with just a camera.
-	LoadDemoScene();
+	// Open on the project's start scene -- the one the runtime will run.
+	//
+	// The editor used to build its own demo in code every time, which meant the
+	// two disagreed the moment anyone edited the scene on disk, and disagreed
+	// permanently about anything the file carries and a code-built scene does
+	// not: most visibly the sky, since a scene constructed in memory has the
+	// default environment rather than the project's.
+	//
+	// The built-in demo stays as the fallback, for a project with no start
+	// scene and for no project at all. File > New Scene gives a blank one.
+	const std::filesystem::path start =
+		Project::GetActive() && !Project::Config().StartScene.empty()
+			? Project::AssetPath(Project::Config().StartScene)
+			: std::filesystem::path();
+
+	if (!start.empty() && std::filesystem::exists(start))
+		OpenSceneFile(start);
+	else
+		LoadDemoScene();
 }
 
 // -----------------------------------------------------------------------------
@@ -1140,17 +1156,30 @@ void EditorLayer::DrawRenderSettingsPanel()
 
 	ImGui::TextDisabled("Shading: Cook-Torrance PBR");
 	HelpMarker("Meshes use pbr.rvshader with the metallic-roughness parameterisation. "
-			   "Image-based lighting is not in yet, so the ambient term is a flat "
-			   "approximation, and tone mapping runs in the shader rather than as a "
-			   "dedicated pass over an HDR target.");
+			   "Surfaces reflect the scene's environment, with roughness picking a mip "
+			   "rather than a real prefiltered convolution; the diffuse ambient is still "
+			   "the flat term above. The shader writes linear HDR and the tone curve is "
+			   "its own pass.");
 
 	ImGui::End();
+}
+
+namespace
+{
+	// A viewport is an image, not a document. Nothing in it scrolls, and the
+	// wheel means zoom.
+	constexpr ImGuiWindowFlags kViewportFlags =
+		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 }
 
 void EditorLayer::DrawViewportPanel()
 {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-	if (!ImGui::Begin("Viewport", &m_ShowViewport))
+
+	// The wheel belongs to the camera here, not to the window. Without this the
+	// panel scrolls its own contents at the same time as the camera zooms,
+	// which drags the image around under the cursor.
+	if (!ImGui::Begin("Viewport", &m_ShowViewport, kViewportFlags))
 	{
 		ImGui::End();
 		ImGui::PopStyleVar();
@@ -1198,7 +1227,7 @@ void EditorLayer::DrawViewportPanel()
 void EditorLayer::DrawGameViewportPanel()
 {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-	if (!ImGui::Begin("Game", &m_ShowGameViewport))
+	if (!ImGui::Begin("Game", &m_ShowGameViewport, kViewportFlags))
 	{
 		// Collapsed, or behind another tab. Read next frame to skip the whole
 		// second render pass rather than drawing for nobody.
