@@ -19,6 +19,10 @@ namespace RageV::RHI
 		ClearValue       Clear;
 		bool             ClearColor = true;
 		bool             ClearDepth = true;
+		// Attach depth at all. A pass that declares a depth attachment requires
+		// every pipeline drawn in it to declare a matching depth format, so
+		// passes that do not need depth -- the ImGui overlay -- must opt out.
+		bool             UseDepth = true;
 	};
 
 	class RHICommandList
@@ -49,5 +53,11 @@ namespace RageV::RHI
 		// Debug-marker scopes; show up in RenderDoc and Nsight.
 		virtual void PushDebugGroup(const char* name) = 0;
 		virtual void PopDebugGroup() = 0;
+
+		// Escape hatch for third-party libraries that render themselves and
+		// need the underlying handle -- Dear ImGui's backends being the reason
+		// this exists. Returns a VkCommandBuffer on Vulkan and nullptr on
+		// OpenGL, which has no such object. Engine code should not use it.
+		virtual void* GetNativeHandle() const { return nullptr; }
 	};
 }

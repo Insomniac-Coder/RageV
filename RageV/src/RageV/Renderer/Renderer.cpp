@@ -1,43 +1,57 @@
 #include <rvpch.h>
 #include "Renderer.h"
-#include "OrthographicCamera.h"
-#include "Platform/OpenGL/OpenGLShader.h"
 #include "Renderer2D.h"
 
 namespace RageV
-
 {
-	// Was a leaked `new SceneData` that outlived the renderer.
-	Renderer::SceneData Renderer::m_SceneData;
-
-	void Renderer::Init()
+	namespace
 	{
-		RenderCommand::Init();
-		Renderer2D::Init();
+		RHI::RHIDevice*      s_Device = nullptr;
+		RHI::RHICommandList* s_CommandList = nullptr;
+	}
+
+	void Renderer::Init(RHI::RHIDevice& device)
+	{
+		s_Device = &device;
+		Renderer2D::Init(device);
+	}
+
+	void Renderer::Shutdown()
+	{
+		Renderer2D::Shutdown();
+		s_CommandList = nullptr;
+		s_Device = nullptr;
+	}
+
+	void Renderer::BeginFrame(RHI::RHICommandList* commandList)
+	{
+		s_CommandList = commandList;
+	}
+
+	void Renderer::EndFrame()
+	{
+		s_CommandList = nullptr;
+	}
+
+	RHI::RHICommandList* Renderer::GetCommandList()
+	{
+		return s_CommandList;
+	}
+
+	RHI::RHIDevice& Renderer::GetDevice()
+	{
+		RV_CORE_ASSERT(s_Device, "Renderer has no device");
+		return *s_Device;
+	}
+
+	bool Renderer::HasDevice()
+	{
+		return s_Device != nullptr;
 	}
 
 	void Renderer::OnWindowResize(unsigned int width, unsigned int height)
 	{
-		RenderCommand::ResizeViewport(0, 0, width, height);
+		if (s_Device)
+			s_Device->OnResize(width, height);
 	}
-
-	void Renderer::BeginScene(Camera& camera)
-	{
-		m_SceneData.ViewProjection = camera.GetViewProjectionMatrix();
-	}
-
-	void Renderer::EndScene()
-	{
-	}
-
-	void Renderer::Submit(const std::shared_ptr<Shader>& shader, const std::shared_ptr<VertexArray>& vertexArray, const glm::mat4& transform)
-	{
-		shader->Bind();
-		shader->SetMat4("u_ViewProjection", m_SceneData.ViewProjection);
-		shader->SetMat4("u_Transform", transform);
-		vertexArray->Bind();
-		RenderCommand::DrawIndexed(vertexArray);
-	}
-
-
 }

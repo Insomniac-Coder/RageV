@@ -5,9 +5,10 @@
 #include "ImGuizmo.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "backends/imgui_impl_glfw.h"
+#include "Platform/Vulkan/VulkanImGui.h"
 #include "RageV/Core/Application.h"
+#include "RageV/Renderer/Renderer.h"
 
-#include <glad/glad.h>
 #include "GLFW/glfw3.h"
 
 namespace RageV
@@ -26,41 +27,60 @@ namespace RageV
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
-		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
-		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
-		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
-		//io.ConfigViewportsNoAutoMerge = true;
-		//io.ConfigViewportsNoTaskBarIcon = true;
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-		io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/fonts/RobotoFlex-Regular.ttf", 18.0f);
+		m_Backend = Renderer::HasDevice() ? Renderer::GetDevice().GetBackend() : RHI::Backend::OpenGL;
 
-		// Setup Dear ImGui style
+		// Multi-viewport spawns extra OS windows, each needing its own
+		// swapchain. The OpenGL backend gets that from GLFW for free; on Vulkan
+		// it means a second presentation path this engine does not drive yet.
+		if (m_Backend == RHI::Backend::OpenGL)
+			io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+
+		io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/Fonts/RobotoFlex-Regular.ttf", 18.0f);
+
 		ImGui::StyleColorsDark();
-		//ImGui::StyleColorsClassic();
 
-		auto& colors = ImGui::GetStyle().Colors;
-		colors[ImGuiCol_WindowBg] = ImVec4{0.05f, 0.05f, 0.05f, 1.0f};
-
-		// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
 		ImGuiStyle& style = ImGui::GetStyle();
+		style.Colors[ImGuiCol_WindowBg] = ImVec4{ 0.05f, 0.05f, 0.05f, 1.0f };
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
 			style.WindowRounding = 0.0f;
 			style.Colors[ImGuiCol_WindowBg].w = 1.0f;
 		}
 
-		Application& app = Application::Get();
-		GLFWwindow* window = static_cast<GLFWwindow*>(app.Get().GetWindow().GetNativeWindow());
+		auto* window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 
-		ImGui_ImplGlfw_InitForOpenGL(window, true);
-		ImGui_ImplOpenGL3_Init("#version 460");
+		switch (m_Backend)
+		{
+			case RHI::Backend::Vulkan:
+			{
+				if (!Vk::InitImGuiVulkan(Renderer::GetDevice(), window))
+					RV_CORE_ERROR("Failed to initialise the ImGui Vulkan backend");
+				break;
+			}
+			case RHI::Backend::OpenGL:
+			{
+				ImGui_ImplGlfw_InitForOpenGL(window, true);
+				ImGui_ImplOpenGL3_Init("#version 450");
+				break;
+			}
+		}
 	}
 
 	void ImGuiLayer::OnDetach()
 	{
-		ImGui_ImplOpenGL3_Shutdown();
-		ImGui_ImplGlfw_Shutdown();
+		switch (m_Backend)
+		{
+			case RHI::Backend::Vulkan:
+				Vk::ShutdownImGuiVulkan();
+				break;
+			case RHI::Backend::OpenGL:
+				ImGui_ImplOpenGL3_Shutdown();
+				ImGui_ImplGlfw_Shutdown();
+				break;
+		}
 		ImGui::DestroyContext();
 	}
 
@@ -74,15 +94,13 @@ namespace RageV
 		}
 	}
 
-	//void ImGuiLayer::OnImGuiRender()
-	//{
-	//	static bool show = true;
-	//	ImGui::ShowDemoWindow(&show);
-	//}
-
 	void ImGuiLayer::Begin()
 	{
-		ImGui_ImplOpenGL3_NewFrame();
+		if (m_Backend == RHI::Backend::Vulkan)
+			Vk::ImGuiVulkanNewFrame();
+		else
+			ImGui_ImplOpenGL3_NewFrame();
+
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 		ImGuizmo::BeginFrame();
@@ -95,15 +113,41 @@ namespace RageV
 		io.DisplaySize = ImVec2((float)app.GetWindow().GetWidth(), (float)app.GetWindow().GetHeight());
 
 		ImGui::Render();
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+		// The UI is the only thing drawn to the swapchain; the scene renders
+		// into an offscreen target that the viewport panel samples.
+		if (RHI::RHICommandList* cmd = Renderer::GetCommandList())
+		{
+			RHI::RenderPassBeginInfo pass;
+			pass.Target = nullptr;
+			pass.ClearColor = true;
+			// The overlay does no depth testing, and declaring a depth
+			// attachment would force ImGui's pipeline to match its format.
+			pass.UseDepth = false;
+			pass.ClearDepth = false;
+			pass.Clear.Color[0] = 0.05f;
+			pass.Clear.Color[1] = 0.05f;
+			pass.Clear.Color[2] = 0.05f;
+			pass.Clear.Color[3] = 1.0f;
+
+			cmd->PushDebugGroup("ImGui");
+			cmd->BeginRenderPass(pass);
+
+			if (m_Backend == RHI::Backend::Vulkan)
+				Vk::ImGuiVulkanRenderDrawData(*cmd);
+			else
+				ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+			cmd->EndRenderPass();
+			cmd->PopDebugGroup();
+		}
 
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
-			GLFWwindow* backup_current_context = glfwGetCurrentContext();
+			GLFWwindow* backup = glfwGetCurrentContext();
 			ImGui::UpdatePlatformWindows();
 			ImGui::RenderPlatformWindowsDefault();
-			glfwMakeContextCurrent(backup_current_context);
+			glfwMakeContextCurrent(backup);
 		}
 	}
-
 }

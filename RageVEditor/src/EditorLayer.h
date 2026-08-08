@@ -21,8 +21,9 @@ public:
 private:
 	glm::vec3 m_Color;
 	RageV::OrthographicCameraController m_CameraController;
-	std::shared_ptr<RageV::Texture2D> m_Texture;
-	std::shared_ptr<RageV::FrameBuffer> m_FrameBuffer;
+	// The scene renders here; the viewport panel samples it. Replaces the
+	// GL-only FrameBuffer so the same code works on either backend.
+	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_SceneTarget;
 	std::shared_ptr<RageV::Scene> m_Scene;
 	RageV::Entity m_Entity;
 	std::vector<ProfileData> m_ProfileDataList;

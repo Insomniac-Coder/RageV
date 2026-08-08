@@ -1,5 +1,6 @@
 #pragma once
 #include "RageV/Core/Layer.h"
+#include "RageV/Renderer/RHI/RHITypes.h"
 #include "RageV/Events/KeyEvent.h"
 #include "RageV/Events/MouseEvent.h"
 #include "RageV/Events/ApplicationEvent.h"
@@ -25,6 +26,8 @@ namespace RageV
 		void End();
 	private:
 		bool m_BlockEvents = false;
+		// Captured at OnAttach; the platform backend cannot change afterwards.
+		RHI::Backend m_Backend = RHI::Backend::OpenGL;
 	};
 
 }

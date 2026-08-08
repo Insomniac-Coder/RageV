@@ -305,7 +305,10 @@ namespace RageV::Vk
 		std::vector<VkPhysicalDevice> devices(count);
 		vkEnumeratePhysicalDevices(m_Instance, &count, devices.data());
 
-		const std::vector<const char*> required = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+		const std::vector<const char*> required = {
+			VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+			VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+		};
 
 		VkPhysicalDevice best = VK_NULL_HANDLE;
 		int bestScore = -1;
@@ -406,7 +409,12 @@ namespace RageV::Vk
 		VkPhysicalDeviceVulkan12Features features12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
 		features12.pNext = &features13;
 
-		const std::vector<const char*> extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+		// dynamic_rendering is core in 1.3, but Dear ImGui's Vulkan backend
+		// requires the extension to be enabled explicitly regardless.
+		const std::vector<const char*> extensions = {
+			VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+			VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+		};
 
 		VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 		createInfo.pNext = &features12;
@@ -522,6 +530,10 @@ namespace RageV::Vk
 			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,          500 },
 			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4000 },
 			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,           250 },
+			// Dear ImGui's backend allocates these separately rather than as
+			// combined image samplers.
+			{ VK_DESCRIPTOR_TYPE_SAMPLER,                 250 },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          1000 },
 		};
 
 		VkDescriptorPoolCreateInfo createInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };

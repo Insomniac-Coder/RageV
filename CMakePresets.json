@@ -10,7 +10,7 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
-        "RAGEV_BUILD_SANDBOX": "ON",
+        "RAGEV_BUILD_SANDBOX": "OFF",
         "RAGEV_ENABLE_VALIDATION": "ON"
       }
     },
@@ -21,7 +21,7 @@
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build-ninja",
       "cacheVariables": {
-        "RAGEV_BUILD_SANDBOX": "ON",
+        "RAGEV_BUILD_SANDBOX": "OFF",
         "RAGEV_ENABLE_VALIDATION": "ON"
       }
     }

@@ -74,9 +74,15 @@ int main(int argc, char** argv)
 
     RV_CORE_INFO("Push constant ranges: {0}", reflection.PushConstants.size());
 
+    // The same assignment the OpenGL backend uses, so what is printed here is
+    // exactly what the backend will compile.
+    const FlatBindingMap bindings = ShaderCompiler::BuildFlatBindingMap(reflection);
+    RV_CORE_INFO("Flat GL bindings: {0} uniform buffer(s), {1} texture unit(s)",
+                 bindings.UniformBuffers.size(), bindings.TextureUnitCount);
+
     for (const auto& stage : compiled->Stages)
     {
-        auto glsl = ShaderCompiler::CrossCompileToGLSL(stage, 450);
+        auto glsl = ShaderCompiler::CrossCompileToGLSL(stage, bindings, 450);
         if (!glsl)
         {
             RV_CORE_ERROR("CROSS-COMPILE FAILED for {0}", ShaderStageName(stage.Stage));

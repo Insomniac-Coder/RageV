@@ -43,6 +43,7 @@ namespace RageV::Vk
 		void PopDebugGroup() override;
 
 		VkCommandBuffer GetHandle() const { return m_CommandBuffer; }
+		void* GetNativeHandle() const override { return (void*)m_CommandBuffer; }
 
 	private:
 		VulkanDevice&   m_Device;

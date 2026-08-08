@@ -727,7 +727,7 @@ namespace RageV::GL
 			glClearColor(info.Clear.Color[0], info.Clear.Color[1], info.Clear.Color[2], info.Clear.Color[3]);
 			mask |= GL_COLOR_BUFFER_BIT;
 		}
-		if (info.ClearDepth)
+		if (info.ClearDepth && info.UseDepth)
 		{
 			glClearDepth(info.Clear.Depth);
 			// glClear respects the depth mask, so a pipeline left with depth

@@ -82,7 +82,7 @@ namespace RageV::Vk
 				colorAttachments.push_back(attachment);
 			}
 
-			if (VulkanTexture* depth = target->GetDepth())
+			if (VulkanTexture* depth = info.UseDepth ? target->GetDepth() : nullptr)
 			{
 				const VkImageLayout depthLayout = DepthAttachmentLayout(depth->GetFormat());
 				depth->TransitionTo(m_CommandBuffer, depthLayout);
@@ -137,12 +137,15 @@ namespace RageV::Vk
 			memcpy(attachment.clearValue.color.float32, info.Clear.Color, sizeof(float) * 4);
 			colorAttachments.push_back(attachment);
 
-			depthAttachment.imageView = m_Device.GetSwapchainDepthView();
-			depthAttachment.imageLayout = DepthAttachmentLayout(m_Device.GetSwapchainDepthFormat());
-			depthAttachment.loadOp = info.ClearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-			depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-			depthAttachment.clearValue.depthStencil = { info.Clear.Depth, info.Clear.Stencil };
-			hasDepth = true;
+			if (info.UseDepth)
+			{
+				depthAttachment.imageView = m_Device.GetSwapchainDepthView();
+				depthAttachment.imageLayout = DepthAttachmentLayout(m_Device.GetSwapchainDepthFormat());
+				depthAttachment.loadOp = info.ClearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+				depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+				depthAttachment.clearValue.depthStencil = { info.Clear.Depth, info.Clear.Stencil };
+				hasDepth = true;
+			}
 		}
 
 		VkRenderingInfo renderingInfo{ VK_STRUCTURE_TYPE_RENDERING_INFO };

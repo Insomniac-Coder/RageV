@@ -1,7 +1,6 @@
 #pragma once
 #include "GLFW/glfw3.h"
 #include <RageV/Core/Window.h>
-#include "RageV/Renderer/GraphicsContext.h"
 
 namespace RageV
 {
@@ -29,8 +28,6 @@ namespace RageV
 		
 
 		GLFWwindow* m_Window = nullptr;
-
-		GraphicsContext* m_Context = nullptr;
 
 		struct WindowData {
 			unsigned int Height;

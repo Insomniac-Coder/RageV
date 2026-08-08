@@ -2,9 +2,13 @@
 #include "Application.h"
 #include "Log.h"
 #include "Input.h"
+#include "EngineConfig.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/Renderer2D.h"
 #include "Timestep.h"
 #include "Platform/Windows/WindowsPlatform.h"
+
+#include <GLFW/glfw3.h>
 
 namespace RageV {
 #define RV_BIND_FUNCTION(x) std::bind(&x, this, std::placeholders::_1)
@@ -14,34 +18,61 @@ namespace RageV {
 	Application::Application(const std::string& appname) {
 		RV_CORE_ASSERT(!m_Instance, "Application instance already present present");
 		m_Instance = this;
+
+		const EngineConfig& config = EngineConfig::Get();
+
 		m_Window = std::unique_ptr<Window>(Window::Create(WindowProps(appname)));
-		if (Renderer::GetAPI() != RenderAPI::API::Vulkan)
+		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
+
+		RHI::DeviceDesc deviceDesc;
+		deviceDesc.Backend = config.Backend;
+		deviceDesc.Window = static_cast<GLFWwindow*>(m_Window->GetNativeWindow());
+		deviceDesc.Width = m_Window->GetWidth();
+		deviceDesc.Height = m_Window->GetHeight();
+		deviceDesc.VSync = config.VSync;
+		deviceDesc.EnableValidation = config.EnableValidation;
+		deviceDesc.FramesInFlight = config.FramesInFlight;
+
+		m_Device = RHI::RHIDevice::Create(deviceDesc);
+		if (!m_Device)
 		{
-			m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
-			m_Window->SetVsync(false);
-
-			GraphicsInformation::SetGraphicsInfo(m_Window->GetGraphicsInfo());
-
-			Renderer::Init();
-
-			if (Platform::GetPlatformType() == PlatformType::Windows)
-			{
-				m_Platform.reset(new WindowsPlatform);
-			}
-			else
-			{
-				RV_CORE_ASSERT(false, "Currently only Windows platform is supported!");
-			}
-
-			GetTime = m_Platform->GetTimeFn();
-
-			m_ImGuiLayer = new ImGuiLayer();
-			PushOverlay(m_ImGuiLayer);
+			RV_CORE_ERROR("Could not create a {0} device; the application cannot start",
+						  EngineConfig::BackendName(config.Backend));
+			m_Running = false;
+			return;
 		}
+
+		const auto& caps = m_Device->GetCaps();
+		GraphicsInformation::SetGraphicsInfo({ caps.DeviceName, caps.APIName });
+
+		Renderer::Init(*m_Device);
+
+		if (Platform::GetPlatformType() == PlatformType::Windows)
+		{
+			m_Platform.reset(new WindowsPlatform);
+		}
+		else
+		{
+			RV_CORE_ASSERT(false, "Currently only Windows platform is supported!");
+		}
+
+		GetTime = m_Platform->GetTimeFn();
+
+		m_ImGuiLayer = new ImGuiLayer();
+		PushOverlay(m_ImGuiLayer);
 	}
 
 	Application::~Application() {
+		// Layers hold GPU resources, so they must be torn down while the device
+		// is still alive.
+		m_LayerStack.Clear();
 
+		if (m_Device)
+		{
+			m_Device->WaitIdle();
+			Renderer::Shutdown();
+		}
+		m_Device.reset();
 	}
 
 	void  Application::PushOverlay(Layer* layer)
@@ -57,8 +88,6 @@ namespace RageV {
 	}
 
 	void Application::OnEvent(Event& e) {
-		//RV_CORE_TRACE("{0}", e);
-
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(RV_BIND_FUNCTION(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(RV_BIND_FUNCTION(Application::OnWindowResize));
@@ -70,7 +99,6 @@ namespace RageV {
 			if (e.m_Handled)
 				break;
 		}
-
 	}
 
 	bool Application::OnWindowResize(WindowResizeEvent& e)
@@ -78,7 +106,6 @@ namespace RageV {
 		if (e.GetHeight() == 0 || e.GetWidth() == 0)
 		{
 			m_Minimised = true;
-			RV_INFO(m_Minimised == true ? "True" : "False");
 			return false;
 		}
 		m_Minimised = false;
@@ -88,37 +115,36 @@ namespace RageV {
 
 	void Application::Run() {
 
-		// The Vulkan path used to spin this loop with an empty body: no event
-		// pump, no way to close the window, one core pegged at 100%. It still
-		// has no renderer attached, but it now at least pumps events so the
-		// window responds and the process can exit.
-		const bool hasRenderer = Renderer::GetAPI() != RenderAPI::API::Vulkan;
-
 		while (m_Running) {
-			if (!hasRenderer)
-			{
-				m_Window->OnUpdate();
-				continue;
-			}
-
 			float time = (float)GetTime();
 			Timestep ts = time - m_LastTime;
 			m_LastTime = time;
 
 			m_Window->OnUpdate();
 
-			if (!m_Minimised)
-			{
-				for (Layer* layer : m_LayerStack)
-					layer->OnUpdate(ts);
+			if (m_Minimised)
+				continue;
 
-				m_ImGuiLayer->Begin();
+			// Null means the frame must be skipped -- a resized or minimised
+			// window. EndFrame must not be called in that case.
+			RHI::RHICommandList* cmd = m_Device->BeginFrame();
+			if (!cmd)
+				continue;
 
-				for (Layer* layer : m_LayerStack)
-					layer->OnImGuiRender();
+			Renderer::BeginFrame(cmd);
 
-				m_ImGuiLayer->End();
-			}
+			for (Layer* layer : m_LayerStack)
+				layer->OnUpdate(ts);
+
+			m_ImGuiLayer->Begin();
+
+			for (Layer* layer : m_LayerStack)
+				layer->OnImGuiRender();
+
+			m_ImGuiLayer->End();
+
+			Renderer::EndFrame();
+			m_Device->EndFrame();
 		}
 	}
 

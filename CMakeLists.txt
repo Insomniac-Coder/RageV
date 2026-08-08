@@ -42,7 +42,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>")
 
-option(RAGEV_BUILD_SANDBOX "Build the Sandbox sample application" ON)
+# Sandbox predates the RHI and still targets the removed legacy renderer.
+option(RAGEV_BUILD_SANDBOX "Build the Sandbox sample application (not ported to the RHI)" OFF)
 option(RAGEV_BUILD_TOOLS "Build the offline shader inspection tool" ON)
 option(RAGEV_ENABLE_VALIDATION "Enable Vulkan validation layers in Debug builds" ON)
 

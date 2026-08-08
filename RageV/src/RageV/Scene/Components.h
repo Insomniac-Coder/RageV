@@ -2,7 +2,6 @@
 #include <string>
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
-#include "RageV/Renderer/Texture.h"
 #include "RageV/Renderer/Cameranew.h"
 #include "SceneCamera.h"
 #include "ScriptableEntity.h"

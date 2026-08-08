@@ -14,13 +14,22 @@ EditorLayer::EditorLayer() : Layer("Renderer2D"), m_CameraController(1270.f / 72
 
 void EditorLayer::OnAttach()
 {
-	m_Texture = RageV::Texture2D::Create("assets/textures/square.png");
+	auto& device = RageV::Renderer::GetDevice();
 
-	RageV::FrameBufferData fbdata;
-	fbdata.Width = 1280;
-	fbdata.Height = 720;
+	RageV::RHI::RenderTargetDesc targetDesc;
+	targetDesc.Width = 1280;
+	targetDesc.Height = 720;
+	targetDesc.ColorAttachments = { { RageV::RHI::Format::R8G8B8A8_UNORM } };
+	targetDesc.HasDepth = true;
+	targetDesc.DepthAttachment.Format = RageV::RHI::Format::D32_SFLOAT;
+	targetDesc.DebugName = "SceneViewport";
+	m_SceneTarget = device.CreateRenderTarget(targetDesc);
 
-	m_FrameBuffer = RageV::FrameBuffer::Create(fbdata);
+	// Pipelines bake their attachment formats, so the renderer has to be told
+	// what it is drawing into before the first frame.
+	RageV::Renderer2D::SetTargetFormats(targetDesc.ColorAttachments[0].Format,
+									    targetDesc.DepthAttachment.Format);
+
 	m_Scene = std::make_shared<RageV::Scene>();
 	//auto entity = m_Scene->CreateEntity("Test Square");
 	//entity.AddComponent<RageV::ColorComponent>(glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
@@ -71,13 +80,24 @@ void EditorLayer::OnUpdate(RageV::Timestep ts)
 	if (m_IsViewportFocused)
 		m_CameraController.OnUpdate(ts);
 
-	m_FrameBuffer->Bind();
+	RageV::RHI::RHICommandList* cmd = RageV::Renderer::GetCommandList();
+	if (!cmd)
+		return;
 
-	RageV::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
-	RageV::RenderCommand::Clear();
+	RageV::RHI::RenderPassBeginInfo pass;
+	pass.Target = m_SceneTarget.get();
+	pass.Clear.Color[0] = 0.1f;
+	pass.Clear.Color[1] = 0.1f;
+	pass.Clear.Color[2] = 0.1f;
+	pass.Clear.Color[3] = 1.0f;
+
+	cmd->PushDebugGroup("Scene");
+	cmd->BeginRenderPass(pass);
+
 	m_Scene->OnUpdate(ts);
-		
-	m_FrameBuffer->UnBind();
+
+	cmd->EndRenderPass();
+	cmd->PopDebugGroup();
 }
 
 void EditorLayer::OnImGuiRender()
@@ -170,13 +190,23 @@ void EditorLayer::OnImGuiRender()
 	if (m_ViewportSize.x != viewportSize.x || m_ViewportSize.y != viewportSize.y)
 	{
 		m_ViewportSize = { viewportSize.x, viewportSize.y };
-		m_FrameBuffer->Resize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
+		m_SceneTarget->Resize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
 		// Only on an actual change: this recomputes every camera's projection
 		// and used to run on every single frame.
 		m_Scene->OnViewportResize(viewportSize.x, viewportSize.y);
 	}
-	unsigned int id = m_FrameBuffer->GetColorAttachment();
-	ImGui::Image((ImTextureID)(uintptr_t)id, ImVec2{ viewportSize.x, viewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+
+	// GL hands back a texture name, Vulkan a descriptor set the ImGui backend
+	// owns; both are opaque to ImGui::Image.
+	if (auto color = m_SceneTarget->GetColorTexture(0))
+	{
+		const ImTextureID handle = (ImTextureID)color->GetImGuiHandle();
+		// Vulkan's framebuffer origin is top-left and OpenGL's is bottom-left,
+		// so the sampled image needs flipping on GL only.
+		const bool flip = RageV::Renderer::GetDevice().GetBackend() == RageV::RHI::Backend::OpenGL;
+		ImGui::Image(handle, ImVec2{ viewportSize.x, viewportSize.y },
+					 ImVec2{ 0, flip ? 1.0f : 0.0f }, ImVec2{ 1, flip ? 0.0f : 1.0f });
+	}
 
 	//ImGuizmo stuff
 	RageV::Entity selected = m_SceneHierarchyPanel.GetSelectedEntity();

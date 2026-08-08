@@ -1,6 +1,5 @@
 #include <rvpch.h>
 #include "EngineConfig.h"
-#include "RageV/Renderer/RenderAPI.h"
 
 #include <fstream>
 #include <algorithm>
@@ -162,13 +161,6 @@ namespace RageV
 
 		s_Config = config;
 		s_Initialized = true;
-
-		// Keep the legacy RenderAPI selector in step. Renderer2D, Buffer::Create
-		// and WindowsWindow still branch on it, and they must agree with the RHI
-		// backend or the window gets created for the wrong API.
-		RenderAPI::SetAPI(config.Backend == RHI::Backend::Vulkan
-						  ? RenderAPI::API::Vulkan
-						  : RenderAPI::API::OpenGL);
 
 		RV_CORE_INFO("Graphics backend: {0} (change with --rhi=vulkan|opengl, or ragev.ini)",
 					 BackendName(config.Backend));
