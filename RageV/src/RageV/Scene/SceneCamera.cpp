@@ -14,6 +14,15 @@ namespace RageV
 		Recalculate();
 	}
 
+	void SceneCamera::SetAspectRatio(float aspect)
+	{
+		if (aspect <= 0.0f || AspectRatio == aspect)
+			return;
+
+		AspectRatio = aspect;
+		Recalculate();
+	}
+
 	void SceneCamera::Recalculate()
 	{
 		// Before the viewport has reported a size there is no meaningful

@@ -200,8 +200,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 	if (m_UseEditorCamera)
 		m_Scene->OnRenderEditor(m_EditorCamera);
-	else
-		m_Scene->OnRenderRuntime();
+	else if (m_ViewportSize.y > 0.0f)
+		m_Scene->OnRenderRuntime(m_ViewportSize.x / m_ViewportSize.y);
 
 	cmd->EndRenderPass();
 	cmd->PopDebugGroup();
@@ -221,7 +221,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 		cmd->PushDebugGroup("Game view");
 		cmd->BeginRenderPass(gamePass);
-		m_Scene->OnRenderRuntime();
+		if (m_GameViewportSize.y > 0.0f)
+			m_Scene->OnRenderRuntime(m_GameViewportSize.x / m_GameViewportSize.y);
 		cmd->EndRenderPass();
 		cmd->PopDebugGroup();
 	}
@@ -249,9 +250,6 @@ void EditorLayer::ApplyPendingResizes()
 	{
 		m_GameViewportSize = m_RequestedGameSize;
 		m_GameTarget->Resize((unsigned int)m_GameViewportSize.x, (unsigned int)m_GameViewportSize.y);
-		// The scene cameras' aspect follows the game view: it is what the game
-		// actually renders into.
-		m_Scene->OnViewportResize(m_GameViewportSize.x, m_GameViewportSize.y);
 	}
 }
 
@@ -282,8 +280,10 @@ void EditorLayer::OnScenePlay()
 	// about to replace.
 	m_Commands.Clear();
 
-	// The game view is what matters while running.
-	m_UseEditorCamera = false;
+	// The scene view deliberately stays on the editor camera. Switching it to
+	// the game camera on Play means losing the ability to look around while
+	// something is running, which is most of why you would run it in an editor
+	// at all -- the Game panel is already showing the game's view.
 	RV_INFO("Play");
 }
 
@@ -301,7 +301,6 @@ void EditorLayer::OnSceneStop()
 
 	m_SceneSnapshot.clear();
 	m_Commands.Clear();
-	m_UseEditorCamera = true;
 	RV_INFO("Stop");
 }
 

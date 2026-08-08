@@ -384,7 +384,7 @@ namespace RageV
 		UpdateWorldTransforms();
 	}
 
-	void Scene::OnRenderRuntime()
+	void Scene::OnRenderRuntime(float aspectRatio)
 	{
 		UpdateWorldTransforms();
 
@@ -392,9 +392,18 @@ namespace RageV
 		if (!camera || !camera.HasComponent<TransformComponent>())
 			return;   // nothing to render from
 
+		auto& component = camera.GetComponent<CameraComponent>();
+
+		// Matched to this pass. Without it a scene that was just loaded or
+		// restored draws through a camera at its default aspect -- the stored
+		// one is not serialized, because it describes the surface rather than
+		// the scene -- and the image is stretched until something happens to
+		// resize the panel.
+		if (!component.fixedAspectRatio && aspectRatio > 0.0f)
+			component.Camera.SetAspectRatio(aspectRatio);
+
 		// World, so a camera parented to a rig follows it.
-		OnRender(camera.GetComponent<CameraComponent>().Camera,
-				 camera.GetComponent<TransformComponent>().World);
+		OnRender(component.Camera, camera.GetComponent<TransformComponent>().World);
 	}
 
 	void Scene::OnRenderEditor(const EditorCamera& camera)

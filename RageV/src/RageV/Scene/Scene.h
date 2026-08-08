@@ -83,7 +83,14 @@ namespace RageV
 		void OnUpdateEditor(Timestep ts);
 
 		// Draws through the primary camera entity. Draws nothing without one.
-		void OnRenderRuntime();
+		//
+		// The aspect ratio is per pass, not per scene. A camera carries one
+		// projection but may be drawn into two panels of different shapes -- the
+		// game view and a preview in the scene view -- and a single stored
+		// aspect can only be right for one of them. It is also why a camera's
+		// aspect is not serialized: it belongs to the surface being drawn into,
+		// not to the scene.
+		void OnRenderRuntime(float aspectRatio = 0.0f);
 		// Draws through the viewport's own camera, which needs no entity.
 		void OnRenderEditor(const EditorCamera& camera);
 

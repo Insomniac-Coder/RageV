@@ -36,6 +36,9 @@ namespace RageV
 		float AspectRatio = 0.0f;
 
 		void SetViewport(float width, float height);
+		// Only recalculates when the value actually changes: this is called
+		// every frame by the render passes.
+		void SetAspectRatio(float aspect);
 
 		// Public because the registry calls it after writing any field.
 		void Recalculate();
