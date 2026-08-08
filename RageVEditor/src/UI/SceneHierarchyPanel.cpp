@@ -2,6 +2,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "glm/gtc/type_ptr.hpp"
+#include "EditorTheme.h"
 
 RageV::SceneHierarchyPanel::SceneHierarchyPanel(const std::shared_ptr<Scene>& sceneref)
 {
@@ -14,9 +15,23 @@ void RageV::SceneHierarchyPanel::SetSceneRef(const std::shared_ptr<Scene>& scene
 	m_Selected = {};
 }
 
-void RageV::SceneHierarchyPanel::OnImGuiRender()
+void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showProperties)
 {
-	ImGui::Begin("Scene Hierarchy");
+	if (showHierarchy && !*showHierarchy)
+	{
+		if (showProperties && *showProperties)
+		{
+			ImGui::Begin("Properties", showProperties);
+			if (m_Selected)
+				ShowProperties(m_Selected);
+			else
+				ImGui::TextDisabled("Nothing selected.");
+			ImGui::End();
+		}
+		return;
+	}
+
+	ImGui::Begin("Scene Hierarchy", showHierarchy);
 
 	auto view = m_SceneRef->m_Registry.view<TagComponent>();
 
@@ -26,7 +41,16 @@ void RageV::SceneHierarchyPanel::OnImGuiRender()
 		ImGuiTreeNodeFlags flags = ((m_Selected == Entity{ item, m_SceneRef.get() }) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 
 		//returns wheter item was opened or not, imgui stuff
+		const bool selected = (flags & ImGuiTreeNodeFlags_Selected) != 0;
+		if (selected)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Header, EditorTheme::Color::AccentMuted);
+			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, EditorTheme::Color::AccentMuted);
+			ImGui::PushStyleColor(ImGuiCol_HeaderActive, EditorTheme::Color::Accent);
+		}
 		bool isOpened = ImGui::TreeNodeEx((void*)(uint64_t)(unsigned int)item, flags, tag.c_str());
+		if (selected)
+			ImGui::PopStyleColor(3);
 		if (ImGui::IsItemClicked())
 		{
 			m_Selected = Entity{ item, m_SceneRef.get() };
@@ -70,13 +94,15 @@ void RageV::SceneHierarchyPanel::OnImGuiRender()
 	ImGui::End();
 
 	//Properties panel
-	ImGui::Begin("Properties");
-	if (m_Selected)
+	if (showProperties && *showProperties)
 	{
-		ShowProperties(m_Selected);
-		ImGui::Separator();
+		ImGui::Begin("Properties", showProperties);
+		if (m_Selected)
+			ShowProperties(m_Selected);
+		else
+			ImGui::TextDisabled("Nothing selected.");
+		ImGui::End();
 	}
-	ImGui::End();
 }
 
 static void DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 100.0f)
@@ -94,9 +120,9 @@ static void DrawVec3Control(const std::string& label, glm::vec3& values, float r
 	float lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
 	ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
 
-	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.9f, 0.2f, 0.2f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
+	ImGui::PushStyleColor(ImGuiCol_Button, RageV::EditorTheme::Color::AxisX);
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, RageV::EditorTheme::Color::AccentHover);
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, RageV::EditorTheme::Color::AxisX);
 	if (ImGui::Button("X", buttonSize))
 		values.x = resetValue;
 	ImGui::PopStyleColor(3);
@@ -106,9 +132,9 @@ static void DrawVec3Control(const std::string& label, glm::vec3& values, float r
 	ImGui::PopItemWidth();
 	ImGui::SameLine();
 
-	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.3f, 0.8f, 0.3f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
+	ImGui::PushStyleColor(ImGuiCol_Button, RageV::EditorTheme::Color::AxisY);
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, RageV::EditorTheme::Color::AxisY);
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, RageV::EditorTheme::Color::AxisY);
 	if (ImGui::Button("Y", buttonSize))
 		values.y = resetValue;
 	ImGui::PopStyleColor(3);
@@ -118,9 +144,9 @@ static void DrawVec3Control(const std::string& label, glm::vec3& values, float r
 	ImGui::PopItemWidth();
 	ImGui::SameLine();
 
-	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.2f, 0.35f, 0.9f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
+	ImGui::PushStyleColor(ImGuiCol_Button, RageV::EditorTheme::Color::AxisZ);
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, RageV::EditorTheme::Color::AxisZ);
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, RageV::EditorTheme::Color::AxisZ);
 	if (ImGui::Button("Z", buttonSize))
 		values.z = resetValue;
 	ImGui::PopStyleColor(3);

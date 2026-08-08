@@ -20,6 +20,11 @@ namespace RageV
 		// Pipelines are built against them, so they must be known up front.
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
 
+		// Rebuilds the pipeline with PolygonMode::Line. Both backends support
+		// it, so this is a genuine toggle rather than a GL-only debug aid.
+		static void SetWireframe(bool enabled);
+		static bool IsWireframe();
+
 		static void BeginScene(const OrthographicCamera& camera);
 		static void BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightData& lightData = {});
 		static void EndScene();

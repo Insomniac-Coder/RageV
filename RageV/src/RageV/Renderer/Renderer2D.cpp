@@ -63,6 +63,7 @@ namespace RageV
 			Format TargetColor = Format::B8G8R8A8_UNORM;
 			Format TargetDepth = Format::D24_UNORM_S8_UINT;
 			bool   PipelineDirty = true;
+			bool   Wireframe = false;
 
 			// One per frame in flight. The vertex stream and the scene uniforms
 			// are rewritten every frame, so a single instance would be
@@ -200,6 +201,22 @@ namespace RageV
 		s_Data->PipelineDirty = true;
 	}
 
+	void Renderer2D::SetWireframe(bool enabled)
+	{
+		if (!s_Data || s_Data->Wireframe == enabled)
+			return;
+
+		s_Data->Wireframe = enabled;
+		// Polygon mode is baked into the pipeline on Vulkan, so this rebuilds
+		// rather than toggling state.
+		s_Data->PipelineDirty = true;
+	}
+
+	bool Renderer2D::IsWireframe()
+	{
+		return s_Data && s_Data->Wireframe;
+	}
+
 	void Renderer2D::EnsurePipeline()
 	{
 		if (!s_Data->PipelineDirty || !s_Data->Shader)
@@ -211,6 +228,7 @@ namespace RageV
 		desc.Topology = PrimitiveTopology::TriangleList;
 		// Quads are drawn from both sides; the scene has no winding convention.
 		desc.Rasterizer.Cull = CullMode::None;
+		desc.Rasterizer.Polygon = s_Data->Wireframe ? PolygonMode::Line : PolygonMode::Fill;
 		desc.Blend = BlendPreset::AlphaBlend;
 		desc.DepthStencil.DepthTestEnable = true;
 		desc.DepthStencil.DepthWriteEnable = true;
