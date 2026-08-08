@@ -1,0 +1,5 @@
+Project:
+  Name: Sample
+  AssetDirectory: assets
+  StartScene: scenes/demo.rage
+  FixedHz: 60

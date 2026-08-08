@@ -4,6 +4,7 @@
 [submodule "RageV/vendor/imgui"]
 	path = RageV/vendor/imgui
 	url = https://github.com/ocornut/imgui.git
+	branch = docking
 [submodule "RageV/vendor/glm"]
 	path = RageV/vendor/glm
 	url = https://github.com/g-truc/glm.git
@@ -16,3 +17,27 @@
 [submodule "RageV/vendor/PerlinNoise"]
 	path = RageV/vendor/PerlinNoise
 	url = https://github.com/Reputeless/PerlinNoise.git
+[submodule "RageV/vendor/GLFW"]
+	path = RageV/vendor/GLFW
+	url = https://github.com/glfw/glfw.git
+[submodule "RageV/vendor/Vulkan-Headers"]
+	path = RageV/vendor/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "RageV/vendor/volk"]
+	path = RageV/vendor/volk
+	url = https://github.com/zeux/volk.git
+[submodule "RageV/vendor/VulkanMemoryAllocator"]
+	path = RageV/vendor/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "RageV/vendor/glslang"]
+	path = RageV/vendor/glslang
+	url = https://github.com/KhronosGroup/glslang.git
+[submodule "RageV/vendor/cgltf"]
+	path = RageV/vendor/cgltf
+	url = https://github.com/jkuhlmann/cgltf.git
+[submodule "RageV/vendor/JoltPhysics"]
+	path = RageV/vendor/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "RageV/vendor/miniaudio"]
+	path = RageV/vendor/miniaudio
+	url = https://github.com/mackron/miniaudio.git

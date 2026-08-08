@@ -1,0 +1,233 @@
+#include <rvpch.h>
+#include "EditorCamera.h"
+#include "RageV/Core/Input.h"
+#include "RageV/Core/KeyCodes.h"
+#include "RageV/Core/MouseButtonCodes.h"
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/constants.hpp>
+
+namespace RageV
+{
+	namespace
+	{
+		// Radians per pixel of mouse travel. Applies to both orbit and fly look,
+		// so the two feel like the same camera.
+		constexpr float kLookSensitivity = 0.003f;
+
+		// Just short of straight up/down. At exactly +/- 90 degrees the forward
+		// axis is parallel to world up and the orientation loses its yaw.
+		constexpr float kPitchLimit = glm::half_pi<float>() - 0.01f;
+	}
+
+	EditorCamera::EditorCamera()
+		: EditorCamera(45.0f, 16.0f / 9.0f, 0.1f, 1000.0f)
+	{
+	}
+
+	EditorCamera::EditorCamera(float fovDegrees, float aspectRatio, float nearClip, float farClip)
+		: m_FOV(fovDegrees), m_AspectRatio(aspectRatio), m_Near(nearClip), m_Far(farClip)
+	{
+		// Looking slightly down at the origin from a few units back: the same
+		// framing every editor opens on, and it makes a ground plane visible.
+		m_Yaw = 0.0f;
+		m_Pitch = glm::radians(15.0f);
+		m_Distance = 12.0f;
+
+		RecalculateProjection();
+		RecalculateView();
+	}
+
+	void EditorCamera::SetFOV(float degrees)
+	{
+		m_FOV = glm::clamp(degrees, 10.0f, 120.0f);
+		RecalculateProjection();
+	}
+
+	void EditorCamera::SetMoveSpeed(float speed)
+	{
+		m_MoveSpeed = glm::clamp(speed, 0.05f, 500.0f);
+	}
+
+	void EditorCamera::SetViewportSize(float width, float height)
+	{
+		if (width <= 0.0f || height <= 0.0f)
+			return;
+		if (m_ViewportWidth == width && m_ViewportHeight == height)
+			return;
+
+		m_ViewportWidth = width;
+		m_ViewportHeight = height;
+		m_AspectRatio = width / height;
+		RecalculateProjection();
+	}
+
+	glm::quat EditorCamera::Orientation() const
+	{
+		// Negated because pitch/yaw describe where the camera looks, while the
+		// quaternion rotates the camera's own axes.
+		return glm::quat(glm::vec3(-m_Pitch, -m_Yaw, 0.0f));
+	}
+
+	glm::vec3 EditorCamera::GetForward() const { return glm::rotate(Orientation(), glm::vec3(0.0f, 0.0f, -1.0f)); }
+	glm::vec3 EditorCamera::GetRight()   const { return glm::rotate(Orientation(), glm::vec3(1.0f, 0.0f,  0.0f)); }
+	glm::vec3 EditorCamera::GetUp()      const { return glm::rotate(Orientation(), glm::vec3(0.0f, 1.0f,  0.0f)); }
+
+	glm::mat4 EditorCamera::GetTransform() const
+	{
+		return glm::translate(glm::mat4(1.0f), m_Position) * glm::toMat4(Orientation());
+	}
+
+	void EditorCamera::RecalculateProjection()
+	{
+		// glm is built with GLM_FORCE_DEPTH_ZERO_TO_ONE (see vendor/CMakeLists),
+		// so this already produces Vulkan's [0,1] depth range and the OpenGL
+		// backend compensates once at the swapchain. Nothing to adjust here.
+		m_Projection = glm::perspective(glm::radians(m_FOV), m_AspectRatio, m_Near, m_Far);
+	}
+
+	void EditorCamera::RecalculateView()
+	{
+		m_Position = m_FocalPoint - GetForward() * m_Distance;
+		m_View = glm::inverse(GetTransform());
+	}
+
+	void EditorCamera::Focus(const glm::vec3& point, float radius)
+	{
+		m_FocalPoint = point;
+
+		// Distance at which a sphere of `radius` fills most of the vertical FOV.
+		const float safeRadius = glm::max(radius, 0.1f);
+		m_Distance = glm::max(safeRadius / glm::tan(glm::radians(m_FOV) * 0.5f) * 1.4f, 0.5f);
+
+		RecalculateView();
+	}
+
+	float EditorCamera::ZoomSpeed() const
+	{
+		// Proportional to distance: a fixed step crawls when far out and
+		// overshoots the target when close in.
+		const float distance = glm::max(m_Distance * 0.25f, 0.0f);
+		return glm::min(distance * distance, 100.0f);
+	}
+
+	glm::vec2 EditorCamera::PanSpeed() const
+	{
+		// Quadratic falloff against viewport size, so panning covers a similar
+		// fraction of the screen regardless of how large the panel is.
+		const float x = glm::min(m_ViewportWidth / 1000.0f, 2.4f);
+		const float y = glm::min(m_ViewportHeight / 1000.0f, 2.4f);
+		return { 0.0366f * (x * x) - 0.1778f * x + 0.3021f,
+				 0.0366f * (y * y) - 0.1778f * y + 0.3021f };
+	}
+
+	void EditorCamera::Orbit(const glm::vec2& delta)
+	{
+		// Orbiting past vertical would flip the horizon; clamping instead is
+		// what every DCC tool does and what people expect.
+		m_Yaw += delta.x * kLookSensitivity;
+		m_Pitch = glm::clamp(m_Pitch - delta.y * kLookSensitivity, -kPitchLimit, kPitchLimit);
+		m_Yaw = glm::mod(m_Yaw + glm::pi<float>(), glm::two_pi<float>()) - glm::pi<float>();
+	}
+
+	void EditorCamera::Pan(const glm::vec2& delta)
+	{
+		const glm::vec2 speed = PanSpeed();
+		m_FocalPoint += -GetRight() * delta.x * speed.x * m_Distance * 0.1f;
+		m_FocalPoint += GetUp() * delta.y * speed.y * m_Distance * 0.1f;
+	}
+
+	void EditorCamera::Zoom(float delta)
+	{
+		m_Distance -= delta * ZoomSpeed();
+
+		// Once the pivot is reached, keep going by pushing the pivot ahead
+		// instead of stopping dead or inverting through it.
+		if (m_Distance < 1.0f)
+		{
+			m_FocalPoint += GetForward() * (1.0f - m_Distance);
+			m_Distance = 1.0f;
+		}
+	}
+
+	void EditorCamera::OnUpdate(Timestep ts)
+	{
+		const glm::vec2 mouse = [] {
+			const auto [x, y] = Input::GetMousePosition();
+			return glm::vec2(x, y);
+		}();
+
+		const glm::vec2 delta = mouse - m_LastMousePosition;
+		// Refreshed every frame, not only while dragging: otherwise the first
+		// frame of a drag reports the travel since the last drag ended and the
+		// camera jumps.
+		m_LastMousePosition = mouse;
+
+		if (!m_Active)
+			return;
+
+		const bool alt = Input::IsKeyPressed(RV_KEY_LEFT_ALT) || Input::IsKeyPressed(RV_KEY_RIGHT_ALT);
+		const bool shift = Input::IsKeyPressed(RV_KEY_LEFT_SHIFT) || Input::IsKeyPressed(RV_KEY_RIGHT_SHIFT);
+		const bool left = Input::IsMouseButtonPressed(RV_MOUSE_BUTTON_LEFT);
+		const bool right = Input::IsMouseButtonPressed(RV_MOUSE_BUTTON_RIGHT);
+		const bool middle = Input::IsMouseButtonPressed(RV_MOUSE_BUTTON_MIDDLE);
+
+		if (alt && left)
+		{
+			Orbit(delta);
+		}
+		else if (middle || (alt && middle))
+		{
+			Pan(delta);
+		}
+		else if (alt && right)
+		{
+			// Horizontal travel too, so the gesture works without a wheel.
+			Zoom((delta.x + delta.y) * 0.01f);
+		}
+		else if (right)
+		{
+			// Fly: look with the mouse, move with the keyboard. Translating the
+			// focal point rather than the position means a later orbit pivots
+			// around wherever the flight ended.
+			m_Yaw += delta.x * kLookSensitivity;
+			m_Pitch = glm::clamp(m_Pitch - delta.y * kLookSensitivity, -kPitchLimit, kPitchLimit);
+
+			glm::vec3 movement(0.0f);
+			if (Input::IsKeyPressed(RV_KEY_W)) movement += GetForward();
+			if (Input::IsKeyPressed(RV_KEY_S)) movement -= GetForward();
+			if (Input::IsKeyPressed(RV_KEY_D)) movement += GetRight();
+			if (Input::IsKeyPressed(RV_KEY_A)) movement -= GetRight();
+			if (Input::IsKeyPressed(RV_KEY_E)) movement += glm::vec3(0.0f, 1.0f, 0.0f);
+			if (Input::IsKeyPressed(RV_KEY_Q)) movement -= glm::vec3(0.0f, 1.0f, 0.0f);
+
+			if (glm::dot(movement, movement) > 0.0f)
+				m_FocalPoint += glm::normalize(movement) * m_MoveSpeed * (shift ? 3.0f : 1.0f) * ts.GetSeconds();
+		}
+
+		RecalculateView();
+	}
+
+	void EditorCamera::OnEvent(Event& e)
+	{
+		EventDispatcher dispatcher(e);
+		dispatcher.Dispatch<MouseScrolledEvent>(RV_BIND_EVENT_FN(EditorCamera::OnMouseScrolled));
+	}
+
+	bool EditorCamera::OnMouseScrolled(MouseScrolledEvent& e)
+	{
+		if (!m_Active)
+			return false;
+
+		// While flying, the wheel is the throttle rather than a zoom -- zooming
+		// mid-flight moves the pivot you are not looking at.
+		if (Input::IsMouseButtonPressed(RV_MOUSE_BUTTON_RIGHT))
+		{
+			SetMoveSpeed(m_MoveSpeed * (e.GetYOffset() > 0.0f ? 1.15f : 1.0f / 1.15f));
+			return true;
+		}
+
+		Zoom(e.GetYOffset() * 0.1f);
+		RecalculateView();
+		return true;
+	}
+}

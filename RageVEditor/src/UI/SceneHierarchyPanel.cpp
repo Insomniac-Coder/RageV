@@ -2,6 +2,11 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "glm/gtc/type_ptr.hpp"
+#include "EditorTheme.h"
+#include "RageV/Scene/ComponentRegistry.h"
+#include "RageV/Asset/AssetManager.h"
+#include "RageV/Asset/AssetRegistry.h"
+#include "RageV/Scene/ScriptRegistry.h"
 
 RageV::SceneHierarchyPanel::SceneHierarchyPanel(const std::shared_ptr<Scene>& sceneref)
 {
@@ -14,419 +19,701 @@ void RageV::SceneHierarchyPanel::SetSceneRef(const std::shared_ptr<Scene>& scene
 	m_Selected = {};
 }
 
-void RageV::SceneHierarchyPanel::OnImGuiRender()
+void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showProperties)
 {
-	ImGui::Begin("Scene Hierarchy");
+	if (showHierarchy && !*showHierarchy)
+	{
+		if (showProperties && *showProperties)
+		{
+			ImGui::Begin("Properties", showProperties);
+			if (m_Selected)
+				ShowProperties(m_Selected);
+			else
+				ImGui::TextDisabled("Nothing selected.");
+			ImGui::End();
+		}
+		return;
+	}
 
-	auto& view = m_SceneRef->m_Registry.view<TagComponent>();
+	ImGui::Begin("Scene Hierarchy", showHierarchy);
 
+	m_PendingDelete = {};
+	m_PendingReparent = false;
+	m_PendingCreateChild = false;
+
+	// Roots only; children are drawn by the recursion.
+	auto view = m_SceneRef->m_Registry.view<TagComponent, RelationshipComponent>();
 	for (auto& item : view)
 	{
-		auto& tag = m_SceneRef->m_Registry.get<TagComponent>(item).Name;
-		ImGuiTreeNodeFlags flags = ((m_Selected == Entity{ item, m_SceneRef.get() }) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-
-		//returns wheter item was opened or not, imgui stuff
-		bool isOpened = ImGui::TreeNodeEx((void*)(uint64_t)(unsigned int)item, flags, tag.c_str());
-		if (ImGui::IsItemClicked())
-		{
-			m_Selected = Entity{ item, m_SceneRef.get() };
-		}
-
-		bool isDeleted = false;
-
-		if (ImGui::BeginPopupContextItem())
-		{
-			if (ImGui::MenuItem("Delete GameOject"))
-				isDeleted = true;
-
-			ImGui::EndPopup();
-		}
-
-		if (isOpened)
-		{
-			ImGui::TreePop();
-		}
-
-		if (isDeleted)
-		{
-			Entity temp{ item, m_SceneRef.get()};
-			m_SceneRef->DeleteEntity(temp);
-			if(temp == m_Selected)
-				m_Selected = {};
-		}
+		if (!view.get<RelationshipComponent>(item).Parent.IsValid())
+			DrawEntityNode(Entity{ item, m_SceneRef.get() });
 	}
 
 	if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 		m_Selected = {};
 
-	if (ImGui::BeginPopupContextWindow(0, 1, false))
+	// Dropping onto empty space unparents, which is otherwise impossible to
+	// express by dragging.
+	ImGui::Dummy(ImGui::GetContentRegionAvail());
+	if (ImGui::BeginDragDropTarget())
 	{
-		if (ImGui::MenuItem("Create GameOject"))
-			m_SceneRef->CreateEntity();
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
+		{
+			m_PendingReparentChild = Entity{ *(const entt::entity*)payload->Data, m_SceneRef.get() };
+			m_PendingReparentParent = {};
+			m_PendingReparent = true;
+		}
+		ImGui::EndDragDropTarget();
+	}
+
+	if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
+	{
+		if (ImGui::MenuItem("Create Entity"))
+		{
+			// The id is chosen here rather than inside the command so that redo
+			// recreates the same entity rather than a new one.
+			const UUID id;
+			auto command = std::make_unique<CreateEntityCommand>(m_SceneRef, id, "Entity");
+			if (m_Commands) m_Commands->Push(std::move(command));
+			else            command->Execute();
+			m_Selected = m_SceneRef->GetEntityByUUID(id);
+		}
 
 		ImGui::EndPopup();
+	}
+
+	// Structural changes are applied after the walk: mutating the hierarchy
+	// mid-traversal invalidates the child lists the recursion is iterating.
+	if (m_PendingCreateChild)
+	{
+		const UUID id;
+		auto create = std::make_unique<CreateEntityCommand>(m_SceneRef, id, "Entity");
+		if (m_Commands) m_Commands->Push(std::move(create));
+		else            create->Execute();
+
+		Entity child = m_SceneRef->GetEntityByUUID(id);
+		auto parent = std::make_unique<ReparentCommand>(m_SceneRef, child, m_PendingCreateChildParent);
+		if (m_Commands) m_Commands->Push(std::move(parent));
+		else            parent->Execute();
+
+		m_Selected = child;
+	}
+
+	if (m_PendingReparent)
+	{
+		auto command = std::make_unique<ReparentCommand>(m_SceneRef, m_PendingReparentChild,
+														m_PendingReparentParent);
+		if (!command->IsValid())
+		{
+			RV_WARN("Cannot parent an entity to itself or to its own descendant");
+		}
+		else if (m_Commands)
+		{
+			m_Commands->Push(std::move(command));
+		}
+		else
+		{
+			command->Execute();
+		}
+	}
+
+	if (m_PendingDelete)
+	{
+		// Selection may be a descendant of what is being deleted, so it is
+		// cleared whenever the deleted subtree contains it.
+		if (m_Selected == m_PendingDelete || m_SceneRef->IsDescendantOf(m_Selected, m_PendingDelete))
+			m_Selected = {};
+
+		auto command = std::make_unique<DeleteEntityCommand>(m_SceneRef, m_PendingDelete);
+		if (m_Commands) m_Commands->Push(std::move(command));
+		else            command->Execute();
 	}
 
 	ImGui::End();
 
 	//Properties panel
-	ImGui::Begin("Properties");
-	if (m_Selected)
+	if (showProperties && *showProperties)
 	{
-		ShowProperties(m_Selected);
-		ImGui::Separator();
+		ImGui::Begin("Properties", showProperties);
+		if (m_Selected)
+			ShowProperties(m_Selected);
+		else
+			ImGui::TextDisabled("Nothing selected.");
+		ImGui::End();
 	}
-	ImGui::End();
 }
 
-static void DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 100.0f)
+void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 {
-	ImGui::PushID(label.c_str());
+	const auto& children = m_SceneRef->GetChildren(entity);
 
-	ImGui::Columns(2);
-	ImGui::SetColumnWidth(0, columnWidth);
-	ImGui::Text(label.c_str());
-	ImGui::NextColumn();
+	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+	if (m_Selected == entity)
+		flags |= ImGuiTreeNodeFlags_Selected;
+	// A leaf still needs to be a drop target, so it keeps the arrow slot but
+	// cannot be expanded.
+	if (children.empty())
+		flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 
-	ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-
-	float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
-	ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
-
-	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.9f, 0.2f, 0.2f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
-	if (ImGui::Button("X", buttonSize))
-		values.x = resetValue;
-	ImGui::PopStyleColor(3);
-
-	ImGui::SameLine();
-	ImGui::DragFloat("##X", &values.x, 0.1f, 0.0f, 0.0f, "%.2f");
-	ImGui::PopItemWidth();
-	ImGui::SameLine();
-
-	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.3f, 0.8f, 0.3f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
-	if (ImGui::Button("Y", buttonSize))
-		values.y = resetValue;
-	ImGui::PopStyleColor(3);
-
-	ImGui::SameLine();
-	ImGui::DragFloat("##Y", &values.y, 0.1f, 0.0f, 0.0f, "%.2f");
-	ImGui::PopItemWidth();
-	ImGui::SameLine();
-
-	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.2f, 0.35f, 0.9f, 1.0f });
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
-	if (ImGui::Button("Z", buttonSize))
-		values.z = resetValue;
-	ImGui::PopStyleColor(3);
-
-	ImGui::SameLine();
-	ImGui::DragFloat("##Z", &values.z, 0.1f, 0.0f, 0.0f, "%.2f");
-	ImGui::PopItemWidth();
-
-	ImGui::PopStyleVar();
-
-	ImGui::Columns(1);
-
-	ImGui::PopID();
-}
-
-namespace RageV
-{
-	template<typename T, typename UIFunc>
-	static void DrawComponent(const std::string& name, Entity& entity, UIFunc uiFunction, bool removeable = true)
+	const bool selected = (flags & ImGuiTreeNodeFlags_Selected) != 0;
+	if (selected)
 	{
-		if (entity.HasComponent<T>())
+		ImGui::PushStyleColor(ImGuiCol_Header, EditorTheme::Color::AccentMuted);
+		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, EditorTheme::Color::AccentMuted);
+		ImGui::PushStyleColor(ImGuiCol_HeaderActive, EditorTheme::Color::Accent);
+	}
+
+	// Keyed by UUID rather than by handle: EnTT recycles handles, so a deleted
+	// entity could hand its expansion state to an unrelated one.
+	const uint64_t id = entity.GetUUID();
+	const bool opened = ImGui::TreeNodeEx((void*)id, flags, "%s", entity.GetName().c_str());
+
+	if (selected)
+		ImGui::PopStyleColor(3);
+
+	if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+		m_Selected = entity;
+
+	// --- drag and drop ------------------------------------------------------
+	if (ImGui::BeginDragDropSource())
+	{
+		const entt::entity handle = entity;
+		ImGui::SetDragDropPayload("RAGEV_ENTITY", &handle, sizeof(handle));
+		ImGui::TextUnformatted(entity.GetName().c_str());
+		ImGui::EndDragDropSource();
+	}
+
+	if (ImGui::BeginDragDropTarget())
+	{
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
 		{
-			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_AllowItemOverlap;
+			m_PendingReparentChild = Entity{ *(const entt::entity*)payload->Data, m_SceneRef.get() };
+			m_PendingReparentParent = entity;
+			m_PendingReparent = true;
+		}
+		ImGui::EndDragDropTarget();
+	}
 
-			auto& component = entity.GetComponent<T>();
+	if (ImGui::BeginPopupContextItem())
+	{
+		if (ImGui::MenuItem("Create Child"))
+		{
+			m_PendingCreateChildParent = entity;
+			m_PendingCreateChild = true;
+		}
+		if (ImGui::MenuItem("Unparent", nullptr, false, (bool)m_SceneRef->GetParent(entity)))
+		{
+			m_PendingReparentChild = entity;
+			m_PendingReparentParent = {};
+			m_PendingReparent = true;
+		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Delete Entity"))
+			m_PendingDelete = entity;
 
-			ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
-			float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
-			ImGui::Separator();
-			bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), flags, name.c_str());
-			ImGui::PopStyleVar();
-			
-			if (removeable)
+		ImGui::EndPopup();
+	}
+
+	if (opened && !children.empty())
+	{
+		// Copied rather than iterated in place. Every structural change in this
+		// function is deferred, so nothing should mutate the list here -- but a
+		// reference into a vector that some future menu item appends to is a
+		// dangling read waiting to happen, and the copy is one allocation.
+		const std::vector<UUID> snapshot = children;
+		for (UUID childID : snapshot)
+		{
+			if (Entity child = m_SceneRef->GetEntityByUUID(childID))
+				DrawEntityNode(child);
+		}
+		ImGui::TreePop();
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Properties
+//
+// Generated from ComponentRegistry rather than hand-written per component. The
+// previous version was ~300 lines of ImGui in which a component's widgets, its
+// serialization and its "Add Component" entry were three separate places to
+// remember -- which is how a light's intensity came to exist in the inspector
+// and not on disk.
+// -----------------------------------------------------------------------------
+namespace
+{
+	using namespace RageV;
+
+	// Label in a fixed-width left column, widget filling the rest, so every row
+	// lines up regardless of which component drew it.
+	void BeginField(const char* label, const char* tooltip)
+	{
+		ImGui::PushID(label);
+		ImGui::Columns(2, nullptr, false);
+		ImGui::SetColumnWidth(0, 140.0f);
+		ImGui::TextUnformatted(label);
+
+		if (tooltip && ImGui::IsItemHovered())
+			ImGui::SetTooltip("%s", tooltip);
+
+		ImGui::NextColumn();
+		ImGui::PushItemWidth(-1.0f);
+	}
+
+	void EndField()
+	{
+		ImGui::PopItemWidth();
+		ImGui::Columns(1);
+		ImGui::PopID();
+	}
+
+	bool DrawVec3(const char* label, glm::vec3& values, float resetValue)
+	{
+		bool changed = false;
+		ImGui::PushID(label);
+
+		ImGui::Columns(2, nullptr, false);
+		ImGui::SetColumnWidth(0, 140.0f);
+		ImGui::TextUnformatted(label);
+		ImGui::NextColumn();
+
+		ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+
+		const float lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
+		const ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
+
+		const ImVec4 axisColors[3] = { EditorTheme::Color::AxisX,
+									   EditorTheme::Color::AxisY,
+									   EditorTheme::Color::AxisZ };
+		const char* axisLabels[3] = { "X", "Y", "Z" };
+		const char* dragIds[3] = { "##X", "##Y", "##Z" };
+		float* components[3] = { &values.x, &values.y, &values.z };
+
+		for (int axis = 0; axis < 3; axis++)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, axisColors[axis]);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Color::AccentHover);
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, axisColors[axis]);
+			if (ImGui::Button(axisLabels[axis], buttonSize))
 			{
-				ImGui::SameLine(contentRegionAvailable.x - lineHeight * 0.5f);
-				if (ImGui::Button("*", ImVec2{ lineHeight, lineHeight }))
-					ImGui::OpenPopup("Settings");
+				*components[axis] = resetValue;
+				changed = true;
 			}
-			bool remove = false;
-			if (ImGui::BeginPopup("Settings"))
-			{
-				if (ImGui::MenuItem("Remove Component"))
-					remove = true;
+			ImGui::PopStyleColor(3);
 
-				ImGui::EndPopup();
-			}
-			if (open)
-			{
-				uiFunction(component);
-				ImGui::TreePop();
-			}
+			ImGui::SameLine();
+			changed |= ImGui::DragFloat(dragIds[axis], components[axis], 0.1f, 0.0f, 0.0f, "%.2f");
+			ImGui::PopItemWidth();
+			if (axis < 2)
+				ImGui::SameLine();
+		}
 
-			if (remove)
+		ImGui::PopStyleVar();
+		ImGui::Columns(1);
+		ImGui::PopID();
+		return changed;
+	}
+
+	bool DrawField(const FieldDesc& field, void* component)
+	{
+		void* value = field.Access(component);
+		const FieldHint& hint = field.Hint;
+		bool changed = false;
+
+		switch (field.Type)
+		{
+			case FieldType::Bool:
 			{
-				entity.RemoveComponent<T>();
+				BeginField(field.Name, hint.Tooltip);
+				changed = ImGui::Checkbox("##value", (bool*)value);
+				EndField();
+				break;
+			}
+			case FieldType::Int:
+			{
+				BeginField(field.Name, hint.Tooltip);
+				changed = ImGui::DragInt("##value", (int*)value, hint.Speed,
+										 (int)hint.Min, (int)hint.Max);
+				EndField();
+				break;
+			}
+			case FieldType::Enum:
+			{
+				BeginField(field.Name, hint.Tooltip);
+				int& current = *(int*)value;
+				const char* preview = (hint.EnumNames && current >= 0 && current < hint.EnumCount)
+									? hint.EnumNames[current] : "?";
+
+				if (ImGui::BeginCombo("##value", preview))
+				{
+					for (int i = 0; i < hint.EnumCount; i++)
+					{
+						const bool isSelected = current == i;
+						if (ImGui::Selectable(hint.EnumNames[i], isSelected))
+						{
+							current = i;
+							changed = true;
+						}
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+				EndField();
+				break;
+			}
+			case FieldType::Float:
+			{
+				BeginField(field.Name, hint.Tooltip);
+				float* target = (float*)value;
+
+				if (hint.Kind == FieldHint::Widget::Slider)
+					changed = ImGui::SliderFloat("##value", target, hint.Min, hint.Max);
+				else
+					changed = ImGui::DragFloat("##value", target, hint.Speed, hint.Min, hint.Max);
+				EndField();
+				break;
+			}
+			case FieldType::Vec3:
+			{
+				if (hint.Kind == FieldHint::Widget::Color)
+				{
+					BeginField(field.Name, hint.Tooltip);
+					changed = ImGui::ColorEdit3("##value", glm::value_ptr(*(glm::vec3*)value));
+					EndField();
+				}
+				else if (hint.Kind == FieldHint::Widget::Degrees)
+				{
+					// Stored in radians. Converting here rather than at the call
+					// site means every angle field behaves the same way.
+					glm::vec3 degrees = glm::degrees(*(glm::vec3*)value);
+					if (DrawVec3(field.Name, degrees, 0.0f))
+					{
+						*(glm::vec3*)value = glm::radians(degrees);
+						changed = true;
+					}
+				}
+				else
+				{
+					const float reset = std::string(field.Name) == "Scale" ? 1.0f : 0.0f;
+					changed = DrawVec3(field.Name, *(glm::vec3*)value, reset);
+				}
+				break;
+			}
+			case FieldType::Vec4:
+			{
+				BeginField(field.Name, hint.Tooltip);
+				if (hint.Kind == FieldHint::Widget::Color)
+					changed = ImGui::ColorEdit4("##value", glm::value_ptr(*(glm::vec4*)value));
+				else
+					changed = ImGui::DragFloat4("##value", glm::value_ptr(*(glm::vec4*)value), hint.Speed);
+				EndField();
+				break;
+			}
+			case FieldType::Asset:
+			{
+				BeginField(field.Name, hint.Tooltip);
+
+				AssetHandle& handle = *(AssetHandle*)value;
+				const std::string name = AssetManager::GetDisplayName(handle);
+
+				// A button rather than a label: it is the drop target, and a
+				// target you cannot see is one nobody finds.
+				ImGui::Button(name.c_str(), ImVec2(-1.0f, 0.0f));
+
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ASSET"))
+					{
+						const AssetHandle dropped = *(const AssetHandle*)payload->Data;
+						const AssetMetadata& metadata = AssetRegistry::GetMetadata(dropped);
+
+						// Refused rather than stored: a handle of the wrong
+						// type resolves to nothing, and silently accepting it
+						// would present as the field simply not working.
+						if (hint.Accepts == AssetType::None || metadata.Type == hint.Accepts)
+						{
+							handle = dropped;
+							changed = true;
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
+
+				if (ImGui::IsItemHovered() && handle.IsValid())
+					ImGui::SetTooltip("%s\n\nDrop an asset from the Content browser to change it.",
+									  AssetRegistry::GetMetadata(handle).Path.c_str());
+
+				EndField();
+				break;
+			}
+			case FieldType::String:
+			{
+				BeginField(field.Name, hint.Tooltip);
+
+				// Scripts are picked from what is registered, not typed. A
+				// free-text field lets a typo produce an entity that does
+				// nothing with no indication why.
+				if (std::string(field.Name) == "Script")
+				{
+					std::string& current = *(std::string*)value;
+					const std::vector<std::string> names = ScriptRegistry::GetNames();
+
+					if (ImGui::BeginCombo("##value", current.empty() ? "(none)" : current.c_str()))
+					{
+						if (ImGui::Selectable("(none)", current.empty()))
+						{
+							current.clear();
+							changed = true;
+						}
+						for (const std::string& name : names)
+						{
+							if (ImGui::Selectable(name.c_str(), name == current))
+							{
+								current = name;
+								changed = true;
+							}
+						}
+						ImGui::EndCombo();
+					}
+
+					EndField();
+					break;
+				}
+
+				std::string& text = *(std::string*)value;
+				char buffer[256];
+				memset(buffer, 0, sizeof(buffer));
+				strncpy_s(buffer, text.c_str(), sizeof(buffer) - 1);
+				if (ImGui::InputText("##value", buffer, sizeof(buffer)))
+				{
+					text = buffer;
+					changed = true;
+				}
+				EndField();
+				break;
 			}
 		}
+
+		return changed;
+	}
+
+	// Materials are the one thing a field list cannot describe: the component
+	// holds a Ref, not a value. Phase 1 makes them assets and this goes away.
+	void DrawMaterial(MeshComponent& mesh)
+	{
+		if (!mesh.Material)
+		{
+			ImGui::TextDisabled("Using the shared default material.");
+			if (ImGui::Button("Create Material", ImVec2(-1.0f, 0.0f)) && Renderer::HasDevice())
+				mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
+			return;
+		}
+
+		auto& params = mesh.Material->GetParams();
+		bool changed = false;
+
+		ImGui::SeparatorText("Material");
+		changed |= ImGui::ColorEdit4("Base Colour", glm::value_ptr(params.BaseColor));
+		changed |= ImGui::SliderFloat("Metallic", &params.Metallic, 0.0f, 1.0f);
+		changed |= ImGui::SliderFloat("Roughness", &params.Roughness, 0.0f, 1.0f);
+		changed |= ImGui::SliderFloat("Occlusion", &params.Occlusion, 0.0f, 1.0f);
+		changed |= ImGui::ColorEdit3("Emissive", glm::value_ptr(params.EmissiveColor));
+
+		// Metals have no diffuse response, so a half-metallic surface is not
+		// physical -- it is almost always an authoring mistake.
+		if (params.Metallic > 0.05f && params.Metallic < 0.95f)
+		{
+			ImGui::TextColored(EditorTheme::Color::AccentHover, "Partially metallic");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Real materials are either metal or not. Intermediate "
+								  "values only make sense where a texture blends between "
+								  "the two across a surface.");
+		}
+
+		if (changed)
+			mesh.Material->Invalidate();
 	}
 }
 
 void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 {
-	if (m_Selected.HasComponent<TagComponent>())
+	// --- add component -------------------------------------------------------
+	if (ImGui::Button("Add Component", ImVec2(-1.0f, 0.0f)))
+		ImGui::OpenPopup("AddComponent");
+
+	if (ImGui::BeginPopup("AddComponent"))
 	{
-		TagComponent& tag = entity.GetComponent<TagComponent>();
-		char buffer[256];
-		memset(buffer, 0, sizeof(buffer));
-		strcpy_s(buffer, tag.Name.c_str());
-		ImGui::PushID("Tag");
-		ImGui::Columns(2);
-		ImGui::SetColumnWidth(0, 100.f);
-		ImGui::Text("Tag");
-		ImGui::NextColumn();
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-		if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
+		bool any = false;
+		for (const ComponentDesc& desc : ComponentRegistry::All())
 		{
-			tag = std::string(buffer);
-		}
-		ImGui::Columns(1);
-		ImGui::PopStyleVar();
-		ImGui::PopID();
+			if (!desc.AddableFromMenu || desc.TryGet(entity))
+				continue;
 
-		ImGui::SameLine();
-		ImGui::PushItemWidth(-1);
-		if (ImGui::Button("Add Component"))
-			ImGui::OpenPopup("AddComponent");
-
-		if (ImGui::BeginPopup("AddComponent"))
-		{
-			if (ImGui::MenuItem("Camera"))
+			any = true;
+			if (ImGui::MenuItem(desc.DisplayName))
 			{
-				m_Selected.AddComponent<CameraComponent>();
+				auto command = std::make_unique<AddComponentCommand>(m_SceneRef, entity.GetUUID(),
+																	 desc.Name);
+				if (m_Commands) m_Commands->Push(std::move(command));
+				else            command->Execute();
 				ImGui::CloseCurrentPopup();
 			}
-			if (ImGui::MenuItem("Color Component"))
-			{
-				m_Selected.AddComponent<ColorComponent>();
-				ImGui::CloseCurrentPopup();
-			}
-			if (ImGui::MenuItem("Light Component"))
-			{
-				m_Selected.AddComponent<LightComponent>();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
 		}
-		ImGui::PopItemWidth();
+
+		if (!any)
+			ImGui::TextDisabled("This entity has every component.");
+
+		ImGui::EndPopup();
 	}
-	
-	DrawComponent<TransformComponent>("Transform", entity, [](auto& component) 
-		{
-			DrawVec3Control("Position", component.Position);
-			glm::vec3 rotation = glm::degrees(component.Rotation);
-			DrawVec3Control("Rotation", rotation);
-			component.Rotation = glm::radians(rotation);
-			DrawVec3Control("Scale", component.Scale, 1.0f);
-			ImGui::Spacing();
-		},
-		false
-	);
 
-	DrawComponent<ColorComponent>("Color", entity, [](auto& component)
-		{
-			ImGui::PushID("Color");
-			ImGui::Columns(2);
-			ImGui::SetColumnWidth(0, 100.f);
-			ImGui::Text("Color");
-			ImGui::NextColumn();
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-			ImGui::ColorEdit4("##Color", glm::value_ptr(component.Color));
-			ImGui::SameLine();
-			ImGui::Columns(1);
-			ImGui::PopStyleVar();
-			ImGui::PopID();
-			ImGui::Spacing();
-		}
-	);
+	// --- components ----------------------------------------------------------
+	const ComponentDesc* pendingRemove = nullptr;
 
-	DrawComponent<LightComponent>("Light", entity, [](auto& component)
-		{
-			const char* lightTypes[] = { "Directional", "Point", "Spot"};
-			const char* currentLightType = lightTypes[(int)component.Light.GetLightType()];
+	for (const ComponentDesc& desc : ComponentRegistry::All())
+	{
+		void* component = desc.TryGet(entity);
+		if (!component)
+			continue;
 
-			ImGui::PushID("Light");
-			ImGui::Columns(2);
-			ImGui::SetColumnWidth(0, 150.f);
-			ImGui::Text("Light Color");
-			ImGui::NextColumn();
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-			ImGui::ColorEdit3("##Light", glm::value_ptr(component.Light.GetLightColor()));
-			ImGui::Columns(1);
-			ImGui::PopStyleVar();
-			ImGui::Columns(2);
-			ImGui::SetColumnWidth(0, 150.f);
-			ImGui::Text("Light Type");
-			ImGui::NextColumn();
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-			if (ImGui::BeginCombo("##Light Type", currentLightType))
+		ImGui::PushID(desc.Name);
+
+		const ImVec2 available = ImGui::GetContentRegionAvail();
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
+		const float lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
+		ImGui::Separator();
+
+		const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed |
+										 ImGuiTreeNodeFlags_SpanAvailWidth |
+										 ImGuiTreeNodeFlags_FramePadding |
+										 ImGuiTreeNodeFlags_AllowOverlap;
+		const bool open = ImGui::TreeNodeEx("##header", flags, "%s", desc.DisplayName);
+		ImGui::PopStyleVar();
+
+		if (desc.Removable)
+		{
+			ImGui::SameLine(available.x - lineHeight * 0.5f);
+			if (ImGui::Button("*", ImVec2{ lineHeight, lineHeight }))
+				ImGui::OpenPopup("ComponentSettings");
+
+			if (ImGui::BeginPopup("ComponentSettings"))
 			{
-				for (int i = 0; i < 3; i++)
+				if (ImGui::MenuItem("Remove Component"))
+					pendingRemove = &desc;
+				ImGui::EndPopup();
+			}
+		}
+
+		if (open)
+		{
+			bool changed = false;
+
+			for (const FieldDesc& field : desc.Fields)
+			{
+				// Fields that do not apply in the current state are hidden
+				// rather than disabled: a directional light has no cone, and a
+				// greyed-out one implies it might.
+				if (field.Hint.VisibleIf && !field.Hint.VisibleIf(component))
+					continue;
+
+				// Read before drawing: ImGui writes the new value during the
+				// draw call, so this is the value from before the edit.
+				const FieldValue before = ReadFieldValue(field, component);
+
+				if (DrawField(field, component))
 				{
-					bool isSelected = currentLightType == lightTypes[i];
-					if (ImGui::Selectable(lightTypes[i], isSelected))
+					changed = true;
+					if (!m_PendingEdit.Active)
 					{
-						currentLightType = lightTypes[i];
-						component.Light.SetLightType(Light::LightType(i));
+						m_PendingEdit.Active = true;
+						m_PendingEdit.Entity = entity.GetUUID();
+						m_PendingEdit.Component = desc.Name;
+						m_PendingEdit.Field = field.Name;
+						m_PendingEdit.Before = before;
 					}
-
-					if (isSelected)
-						ImGui::SetItemDefaultFocus();
 				}
-				ImGui::EndCombo();
 			}
-			ImGui::Columns(1);
-			ImGui::PopStyleVar();
-			ImGui::PopID();
-			ImGui::Spacing();
-		}
-	);
 
-	DrawComponent<CameraComponent>("Camera", entity, [](auto& component)
-		{
-			const char* projectionTypes[] = { "Perspective", "Orthographic" };
-			const char* currentProjectionType = projectionTypes[(int)component.Camera.GetProjectionType()];
+			if (std::string(desc.Name) == "MeshComponent")
+				DrawMaterial(*static_cast<MeshComponent*>(component));
 
-			ImGui::Checkbox("Primary", &component.isPrimary);
-			ImGui::Checkbox("Fixed Aspect Ratio", &component.fixedAspectRatio);
-
-			ImGui::PushID("ProjectionType");
-			ImGui::Columns(2);
-			ImGui::SetColumnWidth(0, 150.f);
-			ImGui::Text("Projection Type");
-			ImGui::NextColumn();
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-			if (ImGui::BeginCombo("##Projection Type", currentProjectionType))
+			if (std::string(desc.Name) == "NativeScriptComponent")
 			{
-				for (int i = 0; i < 2; i++)
+				auto* script = static_cast<NativeScriptComponent*>(component);
+				if (!script->ScriptName.empty() && !ScriptRegistry::IsRegistered(script->ScriptName))
 				{
-					bool isSelected = currentProjectionType == projectionTypes[i];
-					if (ImGui::Selectable(projectionTypes[i], isSelected))
-					{
-						currentProjectionType = projectionTypes[i];
-						component.Camera.SetProjectionType(SceneCamera::ProjectionType(i));
-					}
-
-					if (isSelected)
-						ImGui::SetItemDefaultFocus();
+					// A scene can outlive the script it names. Saying so beats
+					// an entity that silently does nothing.
+					ImGui::TextColored(EditorTheme::Color::AccentHover,
+									   "'%s' is not registered", script->ScriptName.c_str());
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("The scene refers to a script this build does not "
+										  "contain. The entity will run nothing.");
 				}
-				ImGui::EndCombo();
+				ImGui::TextDisabled("Runs on the fixed step, only while playing.");
 			}
-			ImGui::Columns(1);
-			ImGui::PopStyleVar();
-			ImGui::PopID();
 
-			if (component.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
-			{
-				float perspectiveFOV = component.Camera.GetPerspectiveFOV();
+			// One place where derived state is refreshed, so a field added
+			// later cannot forget to do it.
+			if (changed && desc.OnChanged)
+				desc.OnChanged(component);
 
-				ImGui::PushID("perspectiveFOV");
-				ImGui::Columns(2);
-				ImGui::SetColumnWidth(0, 150.f);
-				ImGui::Text("Perspective FOV");
-				ImGui::NextColumn();
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-				if (ImGui::DragFloat("", &perspectiveFOV, 0.1f))
-					component.Camera.SetPerspectiveFOV(perspectiveFOV);
-				ImGui::Columns(1);
-				ImGui::PopStyleVar();
-				ImGui::PopID();
-
-
-				float perspectiveNear = component.Camera.GetPerspectiveNearClip();
-
-				ImGui::PushID("perspectiveNearClip");
-				ImGui::Columns(2);
-				ImGui::SetColumnWidth(0, 150.f);
-				ImGui::Text("Near Clip");
-				ImGui::NextColumn();
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-				if (ImGui::DragFloat("", &perspectiveNear, 0.1f))
-					component.Camera.SetPerspectiveNearClip(perspectiveNear);
-				ImGui::Columns(1);
-				ImGui::PopStyleVar();
-				ImGui::PopID();
-
-				float perspectiveFar = component.Camera.GetPerspectiveFarClip();
-
-				ImGui::PushID("perspectiveFarClip");
-				ImGui::Columns(2);
-				ImGui::SetColumnWidth(0, 150.f);
-				ImGui::Text("Far Clip");
-				ImGui::NextColumn();
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-				if (ImGui::DragFloat("", &perspectiveFar, 0.1f))
-					component.Camera.SetPerspectiveFarClip(perspectiveFar);
-				ImGui::Columns(1);
-				ImGui::PopStyleVar();
-				ImGui::PopID();
-			}
-			if (component.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
-			{
-				float orthSize = component.Camera.GetOrthographicSize();
-
-				ImGui::PushID("orthographicSize");
-				ImGui::Columns(2);
-				ImGui::SetColumnWidth(0, 150.f);
-				ImGui::Text("Orthographic Size");
-				ImGui::NextColumn();
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-				if (ImGui::DragFloat("", &orthSize, 0.1f))
-					component.Camera.SetOrthgraphicSize(orthSize);
-				ImGui::Columns(1);
-				ImGui::PopStyleVar();
-				ImGui::PopID();
-
-				float orthNear = component.Camera.GetOrthoNearClip();
-
-				ImGui::PushID("orthographicNearClip");
-				ImGui::Columns(2);
-				ImGui::SetColumnWidth(0, 150.f);
-				ImGui::Text("Near Clip");
-				ImGui::NextColumn();
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-				if (ImGui::DragFloat("", &orthNear, 0.1f))
-					component.Camera.SetOrthoNearClip(orthNear);
-				ImGui::Columns(1);
-				ImGui::PopStyleVar();
-				ImGui::PopID();
-
-				float orthFar = component.Camera.GetOrthoFarClip();
-
-				ImGui::PushID("orthographicFarClip");
-				ImGui::Columns(2);
-				ImGui::SetColumnWidth(0, 150.f);
-				ImGui::Text("Far Clip");
-				ImGui::NextColumn();
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-				if (ImGui::DragFloat("", &orthFar, 0.1f))
-					component.Camera.SetOrthoFarClip(orthFar);
-				ImGui::Columns(1);
-				ImGui::PopStyleVar();
-				ImGui::PopID();
-			}
 			ImGui::Spacing();
+			ImGui::TreePop();
 		}
-	);
 
+		ImGui::PopID();
+	}
+
+	// Applied after the loop: removing a component invalidates the pointer the
+	// iteration is holding.
+	if (pendingRemove)
+	{
+		auto command = std::make_unique<RemoveComponentCommand>(m_SceneRef, entity.GetUUID(),
+															   pendingRemove->Name);
+		if (m_Commands) m_Commands->Push(std::move(command));
+		else            command->Execute();
+	}
+
+	CommitPendingEdit();
+}
+
+// A continuous edit becomes one undo step. The pre-edit value is whatever the
+// field held at the start of the frame in which it first changed -- ImGui
+// applies the change during the draw call, so reading before drawing gives the
+// value from before the drag began.
+void RageV::SceneHierarchyPanel::CommitPendingEdit()
+{
+	if (!m_PendingEdit.Active || ImGui::IsAnyItemActive())
+		return;
+
+	m_PendingEdit.Active = false;
+
+	if (!m_Commands || !m_SceneRef)
+		return;
+
+	const ComponentDesc* desc = ComponentRegistry::Find(m_PendingEdit.Component);
+	Entity entity = m_SceneRef->GetEntityByUUID(m_PendingEdit.Entity);
+	if (!desc || !entity)
+		return;
+
+	void* component = desc->TryGet(entity);
+	if (!component)
+		return;
+
+	for (const FieldDesc& field : desc->Fields)
+	{
+		if (m_PendingEdit.Field != field.Name)
+			continue;
+
+		const FieldValue after = ReadFieldValue(field, component);
+		if (after == m_PendingEdit.Before)
+			return;   // dragged and returned to where it started
+
+		// Already applied by the widget, so it is recorded rather than run.
+		m_Commands->PushApplied(std::make_unique<FieldEditCommand>(
+			m_SceneRef, m_PendingEdit.Entity, m_PendingEdit.Component,
+			m_PendingEdit.Field, m_PendingEdit.Before, after));
+		return;
+	}
 }

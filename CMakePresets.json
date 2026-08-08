@@ -1,0 +1,36 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "vs2022",
+      "displayName": "Visual Studio 2022 (x64)",
+      "description": "Multi-config generator. Produces build/RageV.sln with Debug/Release/Dist.",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "RAGEV_BUILD_SANDBOX": "OFF",
+        "RAGEV_ENABLE_VALIDATION": "ON"
+      }
+    },
+    {
+      "name": "ninja",
+      "displayName": "Ninja Multi-Config (x64)",
+      "description": "Faster iteration. Requires ninja on PATH and an MSVC developer environment.",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build-ninja",
+      "cacheVariables": {
+        "RAGEV_BUILD_SANDBOX": "OFF",
+        "RAGEV_ENABLE_VALIDATION": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "vs2022-debug",   "configurePreset": "vs2022", "configuration": "Debug" },
+    { "name": "vs2022-release", "configurePreset": "vs2022", "configuration": "Release" },
+    { "name": "vs2022-dist",    "configurePreset": "vs2022", "configuration": "Dist" },
+    { "name": "ninja-debug",    "configurePreset": "ninja",  "configuration": "Debug" },
+    { "name": "ninja-release",  "configurePreset": "ninja",  "configuration": "Release" }
+  ]
+}

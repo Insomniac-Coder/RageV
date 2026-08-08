@@ -3,9 +3,7 @@
 #include "RageV/Events/ApplicationEvent.h"
 #include "RageV/Events/KeyEvent.h"
 #include "RageV/Events/MouseEvent.h"
-#include "Platform/OpenGL/OpenGLContext.h"
-#include "Platform/Vulkan/VulkanContext.h"
-#include "RageV/Renderer/Renderer.h"
+#include "RageV/Core/EngineConfig.h"
 
 namespace RageV
 
@@ -35,16 +33,14 @@ RageV::WindowsWindow::~WindowsWindow()
 
 void RageV::WindowsWindow::OnUpdate()
 {
+	// Presentation belongs to the RHI device now; this only pumps input.
 	glfwPollEvents();
-	m_Context->SwapBuffers();
 }
 
 void RageV::WindowsWindow::SetVsync(bool enabled)
 {
-	if (enabled)
-		glfwSwapInterval(1);
-	else
-		glfwSwapInterval(0);
+	// Swap interval is a GL-context concept; on Vulkan the present mode is a
+	// swapchain property. Either way the device owns it.
 	m_Data.VSync = enabled;
 }
 
@@ -64,40 +60,28 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 	if (!s_GLFWInitialized)
 	{
 		int success = glfwInit();
-		RV_CORE_ASSERT(sucess, "Could not initialize GLFW!");
+		RV_CORE_ASSERT(success, "Could not initialize GLFW!");
 		glfwSetErrorCallback(GLFWErrorCallback);
 		s_GLFWInitialized = true;
 	}
-	if (Renderer::GetAPI() == RenderAPI::API::Vulkan)
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
-	if (Renderer::GetAPI() == RenderAPI::API::OpenGL) {
-		m_Context = new OpenGLContext(m_Window);
-	}
-
-	switch (Renderer::GetAPI())
+	// Vulkan drives presentation itself, so GLFW must not create a GL context.
+	// OpenGL needs one, and it has to be requested before the window exists --
+	// which is why the backend is a restart-time choice.
+	if (EngineConfig::Get().Backend == RHI::Backend::Vulkan)
 	{
-		case RenderAPI::API::OpenGL:
-		{
-			m_Context = new OpenGLContext(m_Window);
-			break;
-		}
-		case RenderAPI::API::Vulkan:
-		{
-			m_Context = new VulkanContext(m_Window);
-			break;
-		}
+		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	}
+	else
+	{
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	}
 
-	m_Context->Init();
-
-	if (Renderer::GetAPI() == RenderAPI::API::Vulkan)
-		return;
-
-	m_GraphicsInfo = m_Context->GetGraphicsInfo();
+	m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
+	RV_CORE_ASSERT(m_Window, "Failed to create GLFW window!");
 
 	glfwSetWindowUserPointer(m_Window, &m_Data);
-	SetVsync(true);
 
 	//Set GLFW callbacks
 	glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height) {

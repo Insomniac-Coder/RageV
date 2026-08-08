@@ -1,29 +1,45 @@
 #pragma once
 #include "glm/glm.hpp"
-#include "OrthographicCamera.h"
-#include "Texture.h"
-#include "Cameranew.h"
+#include "Camera.h"
 #include "Light.h"
+#include "RageV/Renderer/RHI/RHIDevice.h"
 
 namespace RageV
 {
-
-
+	// Batched quad renderer on the RHI. Identical code drives OpenGL and
+	// Vulkan; the backend is chosen once at startup by EngineConfig.
 	class Renderer2D {
 	public:
-		static void Init();
+		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
-		static void BeginScene(const OrthographicCamera& camera);
-		static void BeginScene(Cameranew& camera, glm::mat4& transform, std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData = {});
+
+		// Colour and depth formats of the target this renderer draws into.
+		// Pipelines are built against them, so they must be known up front.
+		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
+
+		// Rebuilds the pipeline with PolygonMode::Line. Both backends support
+		// it, so this is a genuine toggle rather than a GL-only debug aid.
+		static void SetWireframe(bool enabled);
+		static bool IsWireframe();
+
+		// Resets the per-frame batch pool. Called by Renderer::BeginFrame.
+		static void BeginFrame();
+
+		static void BeginScene(const Camera& camera, const glm::mat4& transform, const LightList& lights = {});
 		static void EndScene();
-		static void DrawQuad(glm::mat4& transform, glm::vec4& color);
-		static void DrawQuad(glm::mat4& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor = 1.0f);
+
+		static void DrawQuad(const glm::mat4& transform, const glm::vec4& color);
+		static void DrawQuad(const glm::mat4& transform, const RHI::Ref<RHI::RHITexture>& texture, float tilingfactor = 1.0f);
+
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetVerticesCount();
 		static unsigned int GetIndiciesCount();
 		static unsigned int GetQuadCount();
+
 	private:
 		static void ResetScene();
+		static void FlushAndReset();
+		static void EnsurePipeline();
+		static unsigned int ResolveTextureSlot(const RHI::Ref<RHI::RHITexture>& texture);
 	};
-
 }

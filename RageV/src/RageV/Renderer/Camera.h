@@ -3,21 +3,20 @@
 
 namespace RageV
 {
-	enum class ProjectionType
-	{
-		Othrographic = 0,
-		Projection = 1
-	};
+	// Base for anything the renderer can draw from. It holds the projection and
+	// nothing else -- the view comes from a transform the caller supplies. That
+	// split is what lets a camera attached to an entity and a free-flying editor
+	// camera share one interface without either knowing about the other.
 	class Camera
 	{
 	public:
-		virtual const glm::mat4& GetViewMatrix() const = 0;
-		virtual const glm::mat4& GetProjectionMatrix() const = 0;
-		virtual const glm::mat4& GetViewProjectionMatrix() const = 0;
-		virtual void SetPosition(const glm::vec3& position) = 0;
-	private:
-		virtual void  RecalculateViewMatrix() = 0;
-		ProjectionType m_ProjectionType;
-	};
+		Camera() = default;
+		Camera(const glm::mat4& projection) : m_Projection(projection) {}
+		virtual ~Camera() = default;
 
+		const glm::mat4& GetProjection() const { return m_Projection; }
+
+	protected:
+		glm::mat4 m_Projection{ 1.0f };
+	};
 }

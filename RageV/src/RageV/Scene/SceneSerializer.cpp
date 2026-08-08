@@ -1,79 +1,145 @@
 #include <rvpch.h>
 #include "SceneSerializer.h"
 #include <fstream>
+#include <algorithm>
 #include "Components.h"
-
-namespace YAML
-{
-	template <>
-	struct convert<glm::vec3>
-	{
-		static Node encode(const glm::vec3& v)
-		{
-			Node node;
-
-			node.push_back(v.x);
-			node.push_back(v.y);
-			node.push_back(v.z);
-
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec3& v)
-		{
-			if (!node.IsSequence() || node.size() != 3)
-				return false;
-			
-			v.x = node[0].as<float>();
-			v.y = node[1].as<float>();
-			v.z = node[2].as<float>();
-			return true;
-		}
-	};
-
-	template <>
-	struct convert<glm::vec4>
-	{
-		static Node encode(const glm::vec4& v)
-		{
-			Node node;
-
-			node.push_back(v.x);
-			node.push_back(v.y);
-			node.push_back(v.z);
-			node.push_back(v.w);
-
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec4& v)
-		{
-			if (!node.IsSequence() || node.size() != 4)
-				return false;
-
-			v.x = node[0].as<float>();
-			v.y = node[1].as<float>();
-			v.z = node[2].as<float>();
-			v.w = node[3].as<float>();
-			return true;
-		}
-	};
-}
+#include "ComponentRegistry.h"
+#include "RageV/Renderer/Renderer.h"
 
 namespace RageV
 {
-	YAML::Emitter& operator << (YAML::Emitter& emitter, glm::vec3& vec)
+	namespace
 	{
-		emitter << YAML::Flow;
-		emitter << YAML::BeginSeq << vec.x << vec.y << vec.z << YAML::EndSeq;
-		return emitter;
-	}
+		YAML::Emitter& EmitVec3(YAML::Emitter& emitter, const glm::vec3& v)
+		{
+			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
+			return emitter;
+		}
 
-	YAML::Emitter& operator << (YAML::Emitter& emitter, glm::vec4 vec)
-	{
-		emitter << YAML::Flow;
-		emitter << YAML::BeginSeq << vec.x << vec.y << vec.z << vec.w << YAML::EndSeq;
-		return emitter;
+		YAML::Emitter& EmitVec4(YAML::Emitter& emitter, const glm::vec4& v)
+		{
+			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << v.w << YAML::EndSeq;
+			return emitter;
+		}
+
+		glm::vec3 ReadVec3(const YAML::Node& node, const glm::vec3& fallback)
+		{
+			if (!node || !node.IsSequence() || node.size() != 3)
+				return fallback;
+			return { node[0].as<float>(), node[1].as<float>(), node[2].as<float>() };
+		}
+
+		glm::vec4 ReadVec4(const YAML::Node& node, const glm::vec4& fallback)
+		{
+			if (!node || !node.IsSequence() || node.size() != 4)
+				return fallback;
+			return { node[0].as<float>(), node[1].as<float>(),
+					 node[2].as<float>(), node[3].as<float>() };
+		}
+
+		// Enums go to disk by name. Reordering an enum should not silently turn
+		// every saved cube into a sphere -- that was already true of primitives
+		// and is now true of light types and projections too.
+		void WriteEnum(YAML::Emitter& emitter, const FieldDesc& field, int value)
+		{
+			if (field.Hint.EnumNames && value >= 0 && value < field.Hint.EnumCount)
+				emitter << field.Hint.EnumNames[value];
+			else
+				emitter << value;
+		}
+
+		int ReadEnum(const YAML::Node& node, const FieldDesc& field, int fallback)
+		{
+			if (!node)
+				return fallback;
+
+			const std::string text = node.as<std::string>();
+
+			if (field.Hint.EnumNames)
+			{
+				for (int i = 0; i < field.Hint.EnumCount; i++)
+				{
+					if (text == field.Hint.EnumNames[i])
+						return i;
+				}
+			}
+
+			// Version 1 and 2 wrote enums as indices, so those still load.
+			try { return std::stoi(text); }
+			catch (...) { return fallback; }
+		}
+
+		void WriteField(YAML::Emitter& emitter, const FieldDesc& field, void* component)
+		{
+			void* value = field.Access(component);
+			emitter << YAML::Key << field.Name << YAML::Value;
+
+			switch (field.Type)
+			{
+				case FieldType::Bool:   emitter << *(bool*)value; break;
+				case FieldType::Int:    emitter << *(int*)value; break;
+				case FieldType::Enum:   WriteEnum(emitter, field, *(int*)value); break;
+				case FieldType::Float:  emitter << *(float*)value; break;
+				case FieldType::Vec3:   EmitVec3(emitter, *(glm::vec3*)value); break;
+				case FieldType::Vec4:   EmitVec4(emitter, *(glm::vec4*)value); break;
+				case FieldType::String: emitter << *(std::string*)value; break;
+				case FieldType::Asset:  emitter << (uint64_t)*(AssetHandle*)value; break;
+			}
+		}
+
+		void ReadField(const YAML::Node& node, const FieldDesc& field, void* component)
+		{
+			if (!node)
+				return;
+
+			void* value = field.Access(component);
+
+			// A field whose text does not convert leaves its default rather
+			// than taking down the load. One malformed value in a hand-edited
+			// scene should cost that value, not the file.
+			try
+			{
+			switch (field.Type)
+			{
+				case FieldType::Bool:   *(bool*)value = node.as<bool>(); break;
+				case FieldType::Int:    *(int*)value = node.as<int>(); break;
+				case FieldType::Enum:   *(int*)value = ReadEnum(node, field, *(int*)value); break;
+				case FieldType::Float:  *(float*)value = node.as<float>(); break;
+				case FieldType::Vec3:   *(glm::vec3*)value = ReadVec3(node, *(glm::vec3*)value); break;
+				case FieldType::Vec4:   *(glm::vec4*)value = ReadVec4(node, *(glm::vec4*)value); break;
+				case FieldType::String: *(std::string*)value = node.as<std::string>(); break;
+				case FieldType::Asset:  *(AssetHandle*)value = AssetHandle(node.as<uint64_t>()); break;
+			}
+			}
+			catch (const YAML::Exception& e)
+			{
+				RV_CORE_WARN("Field '{0}' could not be read ({1}); left at its default",
+							 field.Name, e.what());
+			}
+		}
+
+		// Which key an entity actually stores a component under. Version 1 keyed
+		// the colour component "Color" while everything else used its type name.
+		//
+		// This returns a key rather than a node on purpose. Two yaml-cpp traps
+		// live here:
+		//
+		//   * Node::operator= assigns *into the document* rather than rebinding
+		//     the handle, so `node = fallback;` silently rewrites the file's
+		//     contents in memory.
+		//   * The non-const operator[] inserts the key when it is missing, so
+		//     merely testing for a component would add it.
+		//
+		// Both are avoided by resolving the key first and indexing a const node
+		// exactly once.
+		const char* ComponentKey(const YAML::Node& entity, const ComponentDesc& desc)
+		{
+			if (entity[desc.Name])
+				return desc.Name;
+			if (std::string(desc.Name) == "ColorComponent" && entity["Color"])
+				return "Color";
+			return nullptr;
+		}
 	}
 
 	SceneSerializer::SceneSerializer(const std::shared_ptr<Scene>& sceneRef)
@@ -85,156 +151,327 @@ namespace RageV
 	{
 	}
 
-	void SceneSerializer::Serialize(const std::string& filepath)
+	std::string SceneSerializer::SerializeToString()
 	{
 		YAML::Emitter emitter;
 		emitter << YAML::BeginMap;
 		emitter << YAML::Key << "Scene" << YAML::Value << "Untitled";
-		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-		m_SceneRef->m_Registry.each([&](auto& entityID)
-			{
-				Entity entity = { entityID, m_SceneRef.get() };
-				if (!entity)
-					return;
+		emitter << YAML::Key << "Version" << YAML::Value << kVersion;
 
-				SerializeEntity(emitter, entity);
-			}
-		);
+		// Scene-wide, not owned by any entity.
+		const SceneEnvironment& environment = m_SceneRef->GetEnvironment();
+		emitter << YAML::Key << "Environment";
+		emitter << YAML::BeginMap;
+		emitter << YAML::Key << "AmbientColor" << YAML::Value;
+		EmitVec3(emitter, environment.AmbientColor);
+		emitter << YAML::Key << "AmbientIntensity" << YAML::Value << environment.AmbientIntensity;
+		emitter << YAML::EndMap;
+
+		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
+
+		// EnTT iterates its entity storage in reverse creation order. Writing
+		// that directly would flip the file's entity order on every save/load
+		// cycle, so the round trip would never be stable. Reversing restores
+		// creation order, which the deserializer then reproduces exactly.
+		std::vector<entt::entity> handles;
+		m_SceneRef->m_Registry.each([&](auto handle) { handles.push_back(handle); });
+		std::reverse(handles.begin(), handles.end());
+
+		for (entt::entity handle : handles)
+		{
+			Entity entity = { handle, m_SceneRef.get() };
+			if (!entity)
+				continue;
+
+			SerializeEntity(emitter, entity);
+		}
 
 		emitter << YAML::EndSeq;
 		emitter << YAML::EndMap;
 
+		return std::string(emitter.c_str());
+	}
+
+	bool SceneSerializer::Serialize(const std::string& filepath)
+	{
 		std::ofstream file(filepath.c_str());
-		file << emitter.c_str();
-		file.close();
+		if (!file)
+		{
+			RV_CORE_ERROR("Could not open '{0}' for writing", filepath);
+			return false;
+		}
+
+		file << SerializeToString();
+		return true;
 	}
 
 	void SceneSerializer::SerializeEntity(YAML::Emitter& emitter, Entity entity)
 	{
 		emitter << YAML::BeginMap;
-		emitter << YAML::Key << "EntityID" << YAML::Value << "12345678890";
+		// A real identity. This used to be the literal string "12345678890"
+		// for every entity in every scene.
+		emitter << YAML::Key << "EntityID" << YAML::Value << (uint64_t)entity.GetUUID();
 
-		if (entity.HasComponent<TagComponent>())
+		// Identity and hierarchy are structural rather than editable data, so
+		// they are written here rather than described in the registry -- a UUID
+		// reference is not a field type the inspector can present.
+		if (entity.HasComponent<RelationshipComponent>())
 		{
-			auto& tag = entity.GetComponent<TagComponent>();
-			emitter << YAML::Key << "TagComponent";
+			auto& relationship = entity.GetComponent<RelationshipComponent>();
+			if (relationship.Parent.IsValid())
+			{
+				// Only the parent link. Child lists are derived from it on
+				// load, so the two cannot disagree on disk.
+				emitter << YAML::Key << "RelationshipComponent";
+				emitter << YAML::BeginMap;
+				emitter << YAML::Key << "Parent" << YAML::Value << (uint64_t)relationship.Parent;
+				emitter << YAML::EndMap;
+			}
+		}
+
+		// Everything else comes from the registry. Adding a field to a
+		// component now writes it here without touching this function.
+		for (const ComponentDesc& desc : ComponentRegistry::All())
+		{
+			void* component = desc.TryGet(entity);
+			if (!component)
+				continue;
+
+			emitter << YAML::Key << desc.Name;
 			emitter << YAML::BeginMap;
-			emitter << YAML::Key << "Tag" << YAML::Key << tag.Name;
+
+			// VisibleIf is ignored on purpose: hiding a field in the inspector
+			// must not drop it from disk, or switching a light away from Spot
+			// and back would lose its cone angles.
+			for (const FieldDesc& field : desc.Fields)
+				WriteField(emitter, field, component);
+
+			if (desc.SerializeExtra)
+				desc.SerializeExtra(emitter, component);
+
 			emitter << YAML::EndMap;
 		}
 
-		if (entity.HasComponent<TransformComponent>())
-		{
-			auto& transform = entity.GetComponent<TransformComponent>();
-			emitter << YAML::Key << "TransformComponent";
-			emitter << YAML::BeginMap;
-			emitter << YAML::Key << "Position" << YAML::Value << transform.Position;
-			emitter << YAML::Key << "Rotation" << YAML::Value << transform.Rotation;
-			emitter << YAML::Key << "Scale" << YAML::Value << transform.Scale;
-			emitter << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<CameraComponent>())
-		{
-			auto& camera = entity.GetComponent<CameraComponent>();
-			emitter << YAML::Key << "CameraComponent";
-			emitter << YAML::BeginMap;
-			emitter << YAML::Key << "Camera";
-			emitter << YAML::BeginMap;
-			emitter << YAML::Key << "ProjectionType" << YAML::Value << (int)camera.Camera.GetProjectionType();
-			emitter << YAML::Key << "PerspectiveFOV" << YAML::Value << camera.Camera.GetPerspectiveFOV();
-			emitter << YAML::Key << "PerspectiveNearClip" << YAML::Value << camera.Camera.GetPerspectiveNearClip();
-			emitter << YAML::Key << "PerspectiveFarClip" << YAML::Value << camera.Camera.GetPerspectiveFarClip();
-			emitter << YAML::Key << "OrthographicScale" << YAML::Value << camera.Camera.GetOrthographicSize();
-			emitter << YAML::Key << "OrthographicNearClip" << YAML::Value << camera.Camera.GetOrthoNearClip();
-			emitter << YAML::Key << "OrthographicFarClip" << YAML::Value << camera.Camera.GetOrthoFarClip();
-			emitter << YAML::EndMap;
-			emitter << YAML::Key << "isPrimary" << YAML::Value << camera.isPrimary;
-			emitter << YAML::Key << "FixedAspectRatio" << YAML::Value << camera.fixedAspectRatio;
-
-			emitter << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<ColorComponent>())
-		{
-			auto& color = entity.GetComponent<ColorComponent>();
-			emitter << YAML::Key << "Color";
-			emitter << YAML::BeginMap;
-			emitter << YAML::Key << "ColorValue" << color.Color;
-			emitter << YAML::EndMap;
-		}
 		emitter << YAML::EndMap;
 	}
 
 	bool SceneSerializer::Deserialize(const std::string& filepath)
 	{
 		std::ifstream file(filepath);
-		std::stringstream ss;
-		ss << file.rdbuf();
-
-		YAML::Node node = YAML::Load(ss.str());
-
-		if (!node["Scene"])
+		if (!file)
 		{
-			RV_CORE_ERROR("Invalid scene file!");
+			RV_CORE_ERROR("Could not open '{0}' for reading", filepath);
 			return false;
 		}
 
-		std::string sceneName = node["Scene"].as<std::string>();
+		std::stringstream ss;
+		ss << file.rdbuf();
+		return DeserializeFromString(ss.str());
+	}
 
-		auto entities = node["Entities"];
+	// Snapshot of a subtree, in the same document shape a whole scene uses so
+	// that one reader handles both.
+	std::string SceneSerializer::SerializeSubtree(Entity root)
+	{
+		YAML::Emitter emitter;
+		emitter << YAML::BeginMap;
+		emitter << YAML::Key << "Scene" << YAML::Value << "Subtree";
+		emitter << YAML::Key << "Version" << YAML::Value << kVersion;
+		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 
-		if (entities)
+		// Depth first from the root, so a parent is always written before its
+		// children and creation order is reproduced on restore.
+		std::vector<Entity> pending{ root };
+		while (!pending.empty())
 		{
-			for (auto entity : entities)
+			Entity entity = pending.back();
+			pending.pop_back();
+			if (!entity)
+				continue;
+
+			SerializeEntity(emitter, entity);
+
+			const auto& children = m_SceneRef->GetChildren(entity);
+			for (auto it = children.rbegin(); it != children.rend(); ++it)
+				pending.push_back(m_SceneRef->GetEntityByUUID(*it));
+		}
+
+		emitter << YAML::EndSeq;
+		emitter << YAML::EndMap;
+		return std::string(emitter.c_str());
+	}
+
+	bool SceneSerializer::DeserializeAdditive(const std::string& yaml)
+	{
+		return Read(yaml, ReadMode::Additive);
+	}
+
+	bool SceneSerializer::DeserializeFromString(const std::string& yaml)
+	{
+		return Read(yaml, ReadMode::Replace);
+	}
+
+	Entity SceneSerializer::Instantiate(const std::string& yaml)
+	{
+		Entity root;
+		if (!Read(yaml, ReadMode::Instantiate, &root))
+			return {};
+		return root;
+	}
+
+	bool SceneSerializer::Read(const std::string& yaml, ReadMode mode, Entity* firstRoot)
+	{
+		YAML::Node node;
+		try
+		{
+			node = YAML::Load(yaml);
+		}
+		catch (const YAML::Exception& e)
+		{
+			RV_CORE_ERROR("Scene parse failed: {0}", e.what());
+			return false;
+		}
+
+		if (!node["Scene"])
+		{
+			RV_CORE_ERROR("Invalid scene file: no Scene key");
+			return false;
+		}
+
+		const int version = node["Version"] ? node["Version"].as<int>() : 1;
+		if (version > kVersion)
+		{
+			RV_CORE_ERROR("Scene was written by a newer version ({0} > {1})", version, kVersion);
+			return false;
+		}
+		if (version < kVersion)
+			RV_CORE_WARN("Loading a version {0} scene and upgrading it to {1}", version, kVersion);
+
+		// Loading a file replaces the scene. Without this, opening one merged
+		// it into whatever was already there. Restoring a subtree for undo does
+		// the opposite and adds to what is there.
+		if (mode == ReadMode::Replace)
+		{
+			m_SceneRef->m_Registry.clear();
+			m_SceneRef->m_EntityMap.clear();
+			m_SceneRef->m_Environment = SceneEnvironment{};
+
+			if (const YAML::Node environment = node["Environment"])
 			{
-				uint64_t entityID = entity["EntityID"].as<uint64_t>();
-				std::string name;
-				auto tag = entity["TagComponent"];
-				if (tag)
-					name = tag["Tag"].as<std::string>();
-
-				Entity newEntity = m_SceneRef->CreateEntity(name);
-
-				auto transform = entity["TransformComponent"];
-				if (transform)
-				{
-					auto& tc = newEntity.GetComponent<TransformComponent>();
-					tc.Position = transform["Position"].as<glm::vec3>();
-					tc.Rotation = transform["Rotation"].as<glm::vec3>();
-					tc.Scale = transform["Scale"].as<glm::vec3>();
-				}
-
-				auto cam = entity["CameraComponent"];
-				if (cam)
-				{
-					auto& cc = newEntity.AddComponent<CameraComponent>();
-					cc.isPrimary = cam["isPrimary"].as<bool>();
-					cc.fixedAspectRatio = cam["FixedAspectRatio"].as<bool>();
-
-					auto& camDetails = cam["Camera"];
-
-					cc.Camera.SetProjectionType(SceneCamera::ProjectionType(camDetails["ProjectionType"].as<int>()));
-					cc.Camera.SetOrthgraphicSize(camDetails["OrthographicScale"].as<float>());
-					cc.Camera.SetOrthoNearClip(camDetails["OrthographicNearClip"].as<float>());
-					cc.Camera.SetOrthoFarClip(camDetails["OrthographicFarClip"].as<float>());
-
-					cc.Camera.SetPerspectiveFOV(camDetails["PerspectiveFOV"].as<float>());
-					cc.Camera.SetPerspectiveNearClip(camDetails["PerspectiveNearClip"].as<float>());
-					cc.Camera.SetPerspectiveFarClip(camDetails["PerspectiveFarClip"].as<float>());
-				}
-
-				auto color = entity["Color"];
-				if (color)
-				{
-					auto& cc = newEntity.AddComponent<ColorComponent>();
-					cc.Color = color["ColorValue"].as<glm::vec4>();
-				}
+				SceneEnvironment& target = m_SceneRef->m_Environment;
+				target.AmbientColor = ReadVec3(environment["AmbientColor"], target.AmbientColor);
+				if (const YAML::Node intensity = environment["AmbientIntensity"])
+					target.AmbientIntensity = intensity.as<float>();
 			}
 		}
 
-		return false;
+		const YAML::Node entities = node["Entities"];
+		if (!entities)
+			return true;
+
+		// Parents are resolved after every entity exists: a child can appear
+		// before its parent in the file.
+		std::vector<std::pair<UUID, UUID>> pendingParents;
+
+		// Old id -> new id, when instantiating. Parent links are rewritten
+		// through it so a copy points at its own copies rather than at the
+		// original's entities.
+		std::unordered_map<UUID, UUID> remapped;
+
+		for (const YAML::Node& entityNode : entities)
+		{
+			// Version 1 wrote the same hardcoded ID for every entity, so those
+			// files get fresh ones -- honouring what is on disk would collapse
+			// the whole scene onto a single identity.
+			UUID id = (version >= 2 && entityNode["EntityID"])
+					? UUID(entityNode["EntityID"].as<uint64_t>())
+					: UUID();
+
+			if (mode == ReadMode::Instantiate)
+			{
+				const UUID fresh;
+				remapped[id] = fresh;
+				id = fresh;
+			}
+
+			Entity entity = m_SceneRef->CreateEntityWithUUID(id);
+
+			// The first entity in the file is the subtree's root, because
+			// SerializeSubtree writes depth first from it.
+			if (firstRoot && !*firstRoot)
+				*firstRoot = entity;
+
+			if (const YAML::Node relationship = entityNode["RelationshipComponent"])
+			{
+				if (const YAML::Node parent = relationship["Parent"])
+					pendingParents.emplace_back(id, UUID(parent.as<uint64_t>()));
+			}
+
+			for (const ComponentDesc& desc : ComponentRegistry::All())
+			{
+				const char* key = ComponentKey(entityNode, desc);
+				if (!key)
+					continue;
+
+				const YAML::Node componentNode = entityNode[key];
+				if (!componentNode.IsMap())
+					continue;
+
+				void* component = desc.Add(entity);
+
+				// Versions 1 and 2 nested the camera's projection settings in a
+				// "Camera" sub-map; the fields are flat now, so both places are
+				// checked per field.
+				const YAML::Node nested = componentNode["Camera"];
+
+				for (const FieldDesc& field : desc.Fields)
+				{
+					const YAML::Node direct = componentNode[field.Name];
+					ReadField(direct ? direct : (nested ? nested[field.Name] : direct),
+							  field, component);
+				}
+
+				if (desc.DeserializeExtra)
+					desc.DeserializeExtra(componentNode, component);
+				if (desc.OnChanged)
+					desc.OnChanged(component);
+			}
+		}
+
+		// Linked directly rather than through Scene::SetParent. SetParent
+		// preserves the world transform by recomputing the local one, which is
+		// right for an editor drag and wrong here: what is on disk already is
+		// the local transform.
+		for (const auto& [childID, parentID] : pendingParents)
+		{
+			// A parent outside the subtree stays outside: an instantiated
+			// prefab's root has no parent in its own file, and the remap only
+			// covers what the file contained.
+			UUID resolvedParent = parentID;
+			if (mode == ReadMode::Instantiate)
+			{
+				const auto it = remapped.find(parentID);
+				if (it == remapped.end())
+					continue;
+				resolvedParent = it->second;
+			}
+
+			Entity child = m_SceneRef->GetEntityByUUID(childID);
+			Entity parent = m_SceneRef->GetEntityByUUID(resolvedParent);
+
+			if (!child || !parent)
+			{
+				RV_CORE_WARN("Scene references a parent that is not in the file; entity left at the root");
+				continue;
+			}
+
+			child.GetComponent<RelationshipComponent>().Parent = resolvedParent;
+			parent.GetComponent<RelationshipComponent>().Children.push_back(childID);
+		}
+
+		m_SceneRef->UpdateWorldTransforms();
+		// Used to return false unconditionally, so every caller that checked
+		// the result saw a successful load as a failure.
+		return true;
 	}
-
-
 }

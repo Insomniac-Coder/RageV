@@ -3,30 +3,332 @@
 #include "Entity.h"
 #include "ScriptableEntity.h"
 #include "Components.h"
+#include "ScriptRegistry.h"
+#include "RageV/Physics/PhysicsWorld.h"
+#include "RageV/Core/Application.h"
 #include "RageV/Renderer/Renderer2D.h"
+#include "RageV/Renderer/Renderer3D.h"
+#include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/EditorCamera.h"
+#include "RageV/Asset/AssetManager.h"
+#include <glm/gtx/matrix_decompose.hpp>
 
 namespace RageV
 {
+	namespace
+	{
+		const std::vector<UUID> s_NoChildren;
+	}
+
 	Scene::Scene()
 	{
+		m_Registry.on_destroy<NativeScriptComponent>().connect<&Scene::OnNativeScriptDestroyed>(this);
+		m_Registry.on_destroy<AudioSourceComponent>().connect<&Scene::OnAudioSourceDestroyed>(this);
+		m_Registry.on_destroy<IDComponent>().connect<&Scene::OnIDDestroyed>(this);
 	}
 
 	Scene::~Scene()
 	{
-
+		// Explicit, in the destructor body, rather than left to the registry's
+		// own destructor: this way the on_destroy handlers run while every
+		// member is still alive. Without it script instances leaked -- nothing
+		// in the engine ever called the destroy hooks at all.
+		m_Registry.clear();
 	}
 
+	void Scene::OnNativeScriptDestroyed(entt::registry& registry, entt::entity handle)
+	{
+		auto& component = registry.get<NativeScriptComponent>(handle);
+		if (!component.Instance)
+			return;
+
+		component.Instance->OnDestroy();
+		// Virtual destructor, so this destroys the derived type.
+		delete component.Instance;
+		component.Instance = nullptr;
+	}
+
+	// A signal rather than a line in DeleteEntity, for the same reason the
+	// script hook is one: destroying an entity, removing the component and
+	// clearing the registry all have to stop the sound, and a signal cannot be
+	// forgotten at one of three call sites. A looping source on a destroyed
+	// entity would otherwise play until the process ended.
+	void Scene::OnAudioSourceDestroyed(entt::registry& registry, entt::entity handle)
+	{
+		AudioEngine::Stop(registry.get<AudioSourceComponent>(handle).Voice);
+	}
+
+	void Scene::OnIDDestroyed(entt::registry& registry, entt::entity handle)
+	{
+		m_EntityMap.erase(registry.get<IDComponent>(handle).ID);
+	}
+
+	// -------------------------------------------------------------------------
+	// Entities
+	// -------------------------------------------------------------------------
+	Entity Scene::CreateEntity(const std::string& name)
+	{
+		return CreateEntityWithUUID(UUID(), name);
+	}
+
+	Entity Scene::CreateEntityWithUUID(UUID id, const std::string& name)
+	{
+		Entity entity = { m_Registry.create(), this };
+		entity.AddComponent<IDComponent>(id);
+		entity.AddComponent<TransformComponent>();
+		entity.AddComponent<RelationshipComponent>();
+		TagComponent& tag = entity.AddComponent<TagComponent>();
+
+		tag.Name = name.empty() ? "Entity" : name;
+		m_EntityMap[id] = entity;
+		return entity;
+	}
+
+	Entity Scene::GetEntityByUUID(UUID id)
+	{
+		auto it = m_EntityMap.find(id);
+		if (it == m_EntityMap.end())
+			return {};
+		return { it->second, this };
+	}
+
+	Entity Scene::FindEntityByName(const std::string& name)
+	{
+		auto view = m_Registry.view<TagComponent>();
+		for (auto handle : view)
+		{
+			if (view.get<TagComponent>(handle).Name == name)
+				return { handle, this };
+		}
+		return {};
+	}
+
+	std::vector<Entity> Scene::FindEntitiesByName(const std::string& name)
+	{
+		std::vector<Entity> found;
+		auto view = m_Registry.view<TagComponent>();
+		for (auto handle : view)
+		{
+			if (view.get<TagComponent>(handle).Name == name)
+				found.push_back({ handle, this });
+		}
+		return found;
+	}
+
+	void Scene::DestroyDeferred(Entity entity)
+	{
+		if (!entity)
+			return;
+
+		// Out of the simulation before it leaves the scene, or the body would
+		// keep colliding with things on behalf of an entity that is gone.
+		if (m_Physics)
+			m_Physics->RemoveBody(entity.GetUUID());
+
+		// By id, not by handle: whatever runs the queue may be several steps
+		// later, and handles are recycled.
+		m_PendingDestroy.push_back(entity.GetUUID());
+	}
+
+	void Scene::FlushDestroyQueue()
+	{
+		if (m_PendingDestroy.empty())
+			return;
+
+		// Moved out first: DeleteEntity recurses into children, and a script's
+		// OnDestroy running during that could queue more.
+		std::vector<UUID> pending;
+		pending.swap(m_PendingDestroy);
+
+		for (UUID id : pending)
+			DeleteEntity(GetEntityByUUID(id));
+	}
+
+	void Scene::DeleteEntity(Entity entity)
+	{
+		if (!entity)
+			return;
+
+		// Copied, not referenced: destroying a child mutates the parent's list
+		// through UnlinkFromParent, and iterating a container being modified
+		// underneath is how this becomes an intermittent crash.
+		if (entity.HasComponent<RelationshipComponent>())
+		{
+			const std::vector<UUID> children = entity.GetComponent<RelationshipComponent>().Children;
+			for (UUID childID : children)
+				DeleteEntity(GetEntityByUUID(childID));
+		}
+
+		UnlinkFromParent(entity);
+		m_Registry.destroy(entity);
+	}
+
+	// -------------------------------------------------------------------------
+	// Hierarchy
+	// -------------------------------------------------------------------------
+	void Scene::UnlinkFromParent(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<RelationshipComponent>())
+			return;
+
+		auto& relationship = entity.GetComponent<RelationshipComponent>();
+		if (!relationship.Parent.IsValid())
+			return;
+
+		if (Entity parent = GetEntityByUUID(relationship.Parent))
+		{
+			auto& siblings = parent.GetComponent<RelationshipComponent>().Children;
+			siblings.erase(std::remove(siblings.begin(), siblings.end(), entity.GetUUID()), siblings.end());
+		}
+
+		relationship.Parent = UUID::Invalid();
+	}
+
+	bool Scene::IsDescendantOf(Entity entity, Entity possibleAncestor)
+	{
+		if (!entity || !possibleAncestor)
+			return false;
+
+		Entity current = GetParent(entity);
+		while (current)
+		{
+			if (current == possibleAncestor)
+				return true;
+			current = GetParent(current);
+		}
+		return false;
+	}
+
+	bool Scene::SetParent(Entity child, Entity parent)
+	{
+		if (!child || !child.HasComponent<RelationshipComponent>())
+			return false;
+
+		// Parenting an entity to itself or to one of its own descendants would
+		// detach the subtree from every root and make PropagateTransform
+		// recurse forever. This is the only place a cycle can form.
+		if (parent && (child == parent || IsDescendantOf(parent, child)))
+			return false;
+
+		// Captured before the move so the entity does not visibly jump when its
+		// new parent has a different transform.
+		const glm::mat4 world = GetWorldTransform(child);
+
+		UnlinkFromParent(child);
+
+		if (parent && parent.HasComponent<RelationshipComponent>())
+		{
+			child.GetComponent<RelationshipComponent>().Parent = parent.GetUUID();
+			parent.GetComponent<RelationshipComponent>().Children.push_back(child.GetUUID());
+		}
+
+		// Re-express the same world transform relative to the new parent.
+		const glm::mat4 local = glm::inverse(GetParentWorldTransform(child)) * world;
+
+		glm::vec3 position, scale, skew;
+		glm::quat rotation;
+		glm::vec4 perspective;
+		if (glm::decompose(local, scale, rotation, position, skew, perspective))
+		{
+			auto& transform = child.GetComponent<TransformComponent>();
+			transform.Position = position;
+			transform.Rotation = glm::eulerAngles(rotation);
+			transform.Scale = scale;
+		}
+
+		UpdateWorldTransforms();
+		return true;
+	}
+
+	Entity Scene::GetParent(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<RelationshipComponent>())
+			return {};
+		return GetEntityByUUID(entity.GetComponent<RelationshipComponent>().Parent);
+	}
+
+	const std::vector<UUID>& Scene::GetChildren(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<RelationshipComponent>())
+			return s_NoChildren;
+		return entity.GetComponent<RelationshipComponent>().Children;
+	}
+
+	glm::mat4 Scene::GetParentWorldTransform(Entity entity)
+	{
+		Entity parent = GetParent(entity);
+		if (!parent)
+			return glm::mat4(1.0f);
+		return GetWorldTransform(parent);
+	}
+
+	glm::mat4 Scene::GetWorldTransform(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<TransformComponent>())
+			return glm::mat4(1.0f);
+
+		// Walks the chain rather than reading the cached World, so callers that
+		// have just mutated a local transform get the current answer without
+		// having to remember to run the pass first.
+		const auto& transform = entity.GetComponent<TransformComponent>();
+		return GetParentWorldTransform(entity) * transform.GetLocalTransform();
+	}
+
+	void Scene::PropagateTransform(entt::entity handle, const glm::mat4& parentWorld)
+	{
+		auto& transform = m_Registry.get<TransformComponent>(handle);
+		transform.World = parentWorld * transform.GetLocalTransform();
+
+		// Copied out before recursing: the reference above stays valid only
+		// while the registry is not restructured, and the copy costs one matrix.
+		const glm::mat4 world = transform.World;
+
+		for (UUID childID : m_Registry.get<RelationshipComponent>(handle).Children)
+		{
+			if (Entity child = GetEntityByUUID(childID))
+				PropagateTransform(child, world);
+		}
+	}
+
+	void Scene::UpdateWorldTransforms()
+	{
+		auto view = m_Registry.view<TransformComponent, RelationshipComponent>();
+		for (auto handle : view)
+		{
+			// Roots only; children are reached by recursion, and starting from
+			// every entity would compute deep nodes once per ancestor.
+			if (!view.get<RelationshipComponent>(handle).Parent.IsValid())
+				PropagateTransform(handle, glm::mat4(1.0f));
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Frame
+	// -------------------------------------------------------------------------
+	// Lowest ViewRank wins. Ties break on entity id rather than on registry
+	// order, so two cameras at the same rank resolve the same way on every run
+	// instead of depending on what was created when.
 	Entity Scene::GetPrimaryCameraEntity()
 	{
-		auto view = m_Registry.view<CameraComponent>();
+		Entity best;
+		int bestRank = std::numeric_limits<int>::max();
+		uint64_t bestID = std::numeric_limits<uint64_t>::max();
+
+		auto view = m_Registry.view<CameraComponent, IDComponent>();
 		for (auto item : view)
 		{
-			auto& camera = view.get<CameraComponent>(item);
+			const int rank = view.get<CameraComponent>(item).ViewRank;
+			const uint64_t id = view.get<IDComponent>(item).ID;
 
-			return { item,  this };
+			if (rank < bestRank || (rank == bestRank && id < bestID))
+			{
+				best = { item, this };
+				bestRank = rank;
+				bestID = id;
+			}
 		}
-		
-		return {};
+
+		return best;
 	}
 
 	void Scene::OnViewportResize(float width, float height)
@@ -44,63 +346,349 @@ namespace RageV
 		}
 	}
 
-	Entity Scene::CreateEntity(const std::string& name)
+	// Lowest ListenerRank wins, on the same rule as cameras. With no listener
+	// component anywhere, the camera is where the scene is heard from -- which
+	// is right often enough that requiring one would mostly produce silent
+	// scenes and a confused user.
+	Entity Scene::GetPrimaryListenerEntity()
 	{
-		Entity entity = { m_Registry.create(), this };
-		entity.AddComponent<TransformComponent>();
-		TagComponent& tag = entity.AddComponent<TagComponent>();
+		Entity best;
+		int bestRank = std::numeric_limits<int>::max();
+		uint64_t bestID = std::numeric_limits<uint64_t>::max();
 
-		tag.Name = name.empty() ? "GameObject" : name;
-		return entity;
-	}
+		auto view = m_Registry.view<AudioListenerComponent, IDComponent>();
+		for (auto item : view)
+		{
+			const int rank = view.get<AudioListenerComponent>(item).ListenerRank;
+			const uint64_t id = view.get<IDComponent>(item).ID;
 
-	void Scene::DeleteEntity(Entity& entity)
-	{
-		m_Registry.destroy(entity);
-	}
-
-	void Scene::OnUpdate(Timestep ts)
-	{
-		m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nscript)
+			if (rank < bestRank || (rank == bestRank && id < bestID))
 			{
-				if (!nscript.m_ScriptableEntity)
+				best = { item, this };
+				bestRank = rank;
+				bestID = id;
+			}
+		}
+
+		return best ? best : GetPrimaryCameraEntity();
+	}
+
+	void Scene::StartAudioSources()
+	{
+		UpdateWorldTransforms();
+
+		auto view = m_Registry.view<AudioSourceComponent, TransformComponent>();
+		for (auto handle : view)
+		{
+			auto [source, transform] = view.get<AudioSourceComponent, TransformComponent>(handle);
+
+			// Whatever was left in the component is not this run's. A scene
+			// saved while playing would otherwise start believing it already
+			// owns a voice that no longer exists.
+			source.Voice = 0;
+
+			if (!source.PlayOnAwake || !source.Clip.IsValid())
+				continue;
+
+			AudioPlayback playback;
+			playback.Clip = source.Clip;
+			playback.Bus = source.Bus;
+			playback.Volume = source.Volume;
+			playback.Pitch = source.Pitch;
+			playback.Loop = source.Loop;
+			playback.Stream = source.Stream;
+			playback.Spatial = source.Spatial;
+			playback.Position = glm::vec3(transform.World[3]);
+			playback.MinDistance = source.MinDistance;
+			playback.MaxDistance = source.MaxDistance;
+
+			source.Voice = AudioEngine::Play(playback);
+		}
+	}
+
+	void Scene::StopAudioSources()
+	{
+		auto view = m_Registry.view<AudioSourceComponent>();
+		for (auto handle : view)
+		{
+			AudioSourceComponent& source = view.get<AudioSourceComponent>(handle);
+			AudioEngine::Stop(source.Voice);
+			source.Voice = 0;
+		}
+
+		// Everything else the run started -- one-shots a script fired, and
+		// sounds belonging to entities that have since been destroyed. Stop
+		// means silence, not "silence except for whatever is still in flight".
+		AudioEngine::StopAll();
+	}
+
+	void Scene::UpdateAudio()
+	{
+		if (Entity listener = GetPrimaryListenerEntity())
+		{
+			const glm::mat4& world = listener.GetComponent<TransformComponent>().World;
+
+			// -Z forward, matching the camera and light convention.
+			AudioEngine::SetListener(glm::vec3(world[3]),
+									 glm::vec3(world * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)),
+									 glm::vec3(world * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)));
+		}
+
+		// Positions follow the entity every frame, so a sound attached to
+		// something moving is heard where it is rather than where it started.
+		auto view = m_Registry.view<AudioSourceComponent, TransformComponent>();
+		for (auto handle : view)
+		{
+			auto [source, transform] = view.get<AudioSourceComponent, TransformComponent>(handle);
+
+			if (source.Voice != 0 && source.Spatial)
+				AudioEngine::SetVoicePosition(source.Voice, glm::vec3(transform.World[3]));
+		}
+	}
+
+	void Scene::OnRuntimeStart()
+	{
+		m_Physics = std::make_unique<PhysicsWorld>();
+		m_Physics->Build(*this);
+
+		StartAudioSources();
+	}
+
+	void Scene::OnRuntimeStop()
+	{
+		StopAudioSources();
+		m_Physics.reset();
+	}
+
+	void Scene::OnUpdateEditor(Timestep ts)
+	{
+		// Nothing. Editing a scene must not run it.
+		(void)ts;
+	}
+
+	void Scene::OnUpdateRuntime(Timestep ts)
+	{
+		(void)ts;
+
+		// Per frame, not per step: this is where the blend between the last two
+		// simulation states is applied, and it is the frame that needs it.
+		if (m_Physics)
+			m_Physics->SyncTransforms(*this, Application::GetInterpolationAlpha());
+
+		// After the sync, so a sound on a simulated body is placed where it is
+		// being drawn rather than one step behind it. Audio is presentation,
+		// like rendering, and belongs on the frame for the same reason.
+		UpdateWorldTransforms();
+		UpdateAudio();
+	}
+
+	void Scene::OnFixedUpdateRuntime(Timestep dt)
+	{
+		// The handles are collected before stepping any of them. A script may
+		// spawn an entity, attach a script to it, or remove one -- any of which
+		// restructures the pool a view is iterating.
+		std::vector<entt::entity> scripted;
+		m_Registry.view<NativeScriptComponent>().each(
+			[&](auto handle, NativeScriptComponent&) { scripted.push_back(handle); });
+
+		for (entt::entity handle : scripted)
+		{
+			// May have been destroyed by an earlier script in this same step.
+			auto* script = m_Registry.try_get<NativeScriptComponent>(handle);
+			if (!script)
+				continue;
+
+			// Reconciled rather than created-once, so choosing a different
+			// script in the inspector mid-run actually takes effect. Assigning
+			// ActiveScript even when creation fails is what stops an unknown
+			// name from being retried, and warned about, every single step.
+			if (script->ActiveScript != script->ScriptName)
+			{
+				if (script->Instance)
 				{
-					nscript.OnInstantiateFunction();
-					nscript.m_ScriptableEntity->m_Entity = Entity{ entity, this };
-					nscript.OnCreateFunction(nscript.m_ScriptableEntity);
+					script->Instance->OnDestroy();
+					delete script->Instance;
+					script->Instance = nullptr;
 				}
 
-				nscript.OnUpdateFunction(nscript.m_ScriptableEntity, ts);
+				script->ActiveScript = script->ScriptName;
+
+				if (!script->ScriptName.empty())
+				{
+					script->Instance = ScriptRegistry::Create(script->ScriptName);
+					if (script->Instance)
+					{
+						script->Instance->m_Entity = Entity{ handle, this };
+						script->Instance->OnCreate();
+
+						// OnCreate may have destroyed something, including this
+						// entity.
+						script = m_Registry.try_get<NativeScriptComponent>(handle);
+						if (!script)
+							continue;
+					}
+				}
 			}
-		);
 
-		auto view = m_Registry.view<CameraComponent, TransformComponent>();
-		TransformComponent cameraTransform;
-		Cameranew* mainCamera;
+			if (!script->Instance)
+				continue;
 
-		for (auto& item : view)
+			// On the fixed step, not the frame: a script that moves something
+			// has to agree with the physics that will push it.
+			script->Instance->OnUpdate(dt);
+		}
+
+		// Applied once the pass is over, so a script can destroy anything --
+		// including itself -- without deleting the object it is executing in.
+		FlushDestroyQueue();
+		UpdateWorldTransforms();
+
+		// After the scripts, so a script's forces and velocity changes are part
+		// of the step they were issued for rather than the next one.
+		if (m_Physics)
 		{
-			auto [camera, transform] = view.get<CameraComponent, TransformComponent>(item);
-			if (camera.isPrimary)
+			m_Physics->Step(dt.GetSeconds());
+
+			// After the step, not during it: a contact callback that pushes
+			// something back should push it in the world the solver has already
+			// finished with, and Jolt forbids touching bodies from inside the
+			// callback at all.
+			DispatchContactEvents();
+
+			// A collision handler is as entitled to destroy something as any
+			// other script code is.
+			FlushDestroyQueue();
+		}
+	}
+
+	void Scene::DispatchContactEvents()
+	{
+		m_Physics->TakeContactEvents(m_ContactEvents);
+
+		for (const ContactEvent& event : m_ContactEvents)
+		{
+			// The stored normal runs from A towards B, so B is the one it
+			// already points at and A is the one that needs it reversed.
+			DeliverContact(event, event.A, event.B, true);
+			DeliverContact(event, event.B, event.A, false);
+		}
+
+		// Not cleared: the buffer is swapped back next step, and holding the
+		// events until then costs nothing.
+	}
+
+	void Scene::DeliverContact(const ContactEvent& event, UUID to, UUID other, bool flip)
+	{
+		Entity entity = GetEntityByUUID(to);
+		if (!entity)
+			return;   // destroyed since the step, which is not an error
+
+		auto* script = m_Registry.try_get<NativeScriptComponent>(entity);
+		if (!script || !script->Instance)
+			return;
+
+		Collision collision;
+		collision.Other = GetEntityByUUID(other);
+		collision.Trigger = event.Trigger;
+		collision.Point = event.Point;
+		collision.Normal = flip ? -event.Normal : event.Normal;
+		collision.ImpactSpeed = event.ImpactSpeed;
+
+		ScriptableEntity* instance = script->Instance;
+
+		if (event.Trigger)
+		{
+			switch (event.Phase)
 			{
-				mainCamera = &camera.Camera;
-				cameraTransform = transform;
-				break;
+				case ContactPhase::Enter: instance->OnTriggerEnter(collision); break;
+				case ContactPhase::Stay:  instance->OnTriggerStay(collision);  break;
+				case ContactPhase::Exit:  instance->OnTriggerExit(collision);  break;
 			}
+			return;
 		}
 
-		auto group2 = m_Registry.view<TransformComponent, LightComponent>();
-		std::vector <std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData;
-		
-		for (auto& item : group2)
+		switch (event.Phase)
 		{
-			auto [transform, light] = group2.get<TransformComponent, LightComponent>(item);
-		
-			lightData.push_back(std::make_tuple(glm::vec3(transform.GetTransform()[3]), light.Light.GetLightColor(), light.Light.GetLightType()));
+			case ContactPhase::Enter: instance->OnCollisionEnter(collision); break;
+			case ContactPhase::Stay:  instance->OnCollisionStay(collision);  break;
+			case ContactPhase::Exit:  instance->OnCollisionExit(collision);  break;
+		}
+	}
+
+	void Scene::OnRenderRuntime(float aspectRatio)
+	{
+		UpdateWorldTransforms();
+
+		Entity camera = GetPrimaryCameraEntity();
+		if (!camera || !camera.HasComponent<TransformComponent>())
+			return;   // nothing to render from
+
+		auto& component = camera.GetComponent<CameraComponent>();
+
+		// Matched to this pass. Without it a scene that was just loaded or
+		// restored draws through a camera at its default aspect -- the stored
+		// one is not serialized, because it describes the surface rather than
+		// the scene -- and the image is stretched until something happens to
+		// resize the panel.
+		if (!component.fixedAspectRatio && aspectRatio > 0.0f)
+			component.Camera.SetAspectRatio(aspectRatio);
+
+		// World, so a camera parented to a rig follows it.
+		OnRender(component.Camera, camera.GetComponent<TransformComponent>().World);
+	}
+
+	void Scene::OnRenderEditor(const EditorCamera& camera)
+	{
+		UpdateWorldTransforms();
+		OnRender(camera, camera.GetTransform());
+	}
+
+	void Scene::OnRender(const Camera& camera, const glm::mat4& cameraTransform)
+	{
+		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
+		LightList lights;
+
+		for (auto& item : lightView)
+		{
+			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
+
+			LightRenderData data;
+			data.Position = glm::vec3(transform.World[3]);
+			// A light's forward axis is -Z, matching the camera convention.
+			data.Direction = glm::normalize(glm::vec3(transform.World * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+			data.Color = light.Light.Color;
+			data.Intensity = light.Light.Intensity;
+			data.Range = light.Light.Range;
+			data.InnerCone = light.Light.InnerCone;
+			data.OuterCone = light.Light.OuterCone;
+			data.Type = light.Light.Type;
+
+			lights.push_back(data);
 		}
 
+		// Meshes first: they are opaque and depth-tested, so drawing them ahead
+		// of the alpha-blended quads means the quads blend against a complete
+		// depth buffer rather than over each other arbitrarily.
+		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
+		{
+			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment);
 
-		Renderer2D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lightData);
+			for (auto& item : meshView)
+			{
+				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+
+				// Null when the handle points at nothing loadable -- a deleted
+				// model, or a scene opened without its assets. Skipped rather
+				// than substituted, so the gap is visible.
+				if (RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh))
+					Renderer3D::DrawMesh(resolved, transform.World, mesh.Material);
+			}
+
+			Renderer3D::EndScene();
+		}
+
+		Renderer2D::BeginScene(camera, cameraTransform, lights);
 
 		auto group = m_Registry.group<TransformComponent>(entt::get<ColorComponent>);
 
@@ -108,11 +696,9 @@ namespace RageV
 		{
 			auto [transform, color] = group.get<TransformComponent, ColorComponent>(item);
 
-			Renderer2D::DrawQuad(transform.GetTransform(), color.Color);
+			Renderer2D::DrawQuad(transform.World, color.Color);
 		}
 
 		Renderer2D::EndScene();
-
 	}
-
 }

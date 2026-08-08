@@ -22,7 +22,7 @@
 
 #ifdef RV_ENABLE_ASSERTS
 	#define RV_ASSERT(x, ...) { if(!(x)) { RV_ERROR("Assertion Failed: {0}", __VA_ARGS__); __debugbreak(); } }
-	#define RV_CORE_ASSERT(x, ...) { if(!(x)) { RV_CORE_ERROR("Assertion Failed: {0}", __VA_ARGS__); __debug_break(); } }
+	#define RV_CORE_ASSERT(x, ...) { if(!(x)) { RV_CORE_ERROR("Assertion Failed: {0}", __VA_ARGS__); __debugbreak(); } }
 #else
 	#define RV_ASSERT(x, ...)
 	#define RV_CORE_ASSERT(x, ...)

@@ -1,5 +1,3 @@
-#pragma once
-#include "rvpch.h"
-#define IMGUI_IMPL_OPENGL_LOADER_GLAD
-#include "backends/imgui_impl_opengl3.cpp"
-#include "backends/imgui_impl_glfw.cpp"
+// The GLFW/OpenGL3/Vulkan backends are compiled as part of the vendored imgui
+// target (see RageV/vendor/CMakeLists.txt). Including their .cpp files here as
+// well would define every symbol twice.

@@ -1,0 +1,448 @@
+Scene: Untitled
+Version: 5
+Environment:
+  AmbientColor: [0.42, 0.47, 0.58]
+  AmbientIntensity: 0.12
+Entities:
+  - EntityID: 11161551729011358508
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 2.5, 8]
+      Rotation: [-0.20943952, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 2116982370786357563
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [20, 1, 20]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material:
+        BaseColor: [0.14, 0.14, 0.16, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.85
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.4
+      Restitution: 0.1
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [10, 0.25, 10]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, -0.25, 0]
+      IsTrigger: false
+  - EntityID: 1625973782283264890
+    TagComponent:
+      Tag: Cube (dielectric)
+    TransformComponent:
+      Position: [-3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.17, 0.19, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.35
+        Occlusion: 1
+    NativeScriptComponent:
+      Script: Spinner
+  - EntityID: 13871191845555187975
+    TagComponent:
+      Tag: Sphere (gold)
+    TransformComponent:
+      Position: [0, 0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.94, 0.78, 0.38, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.2
+        Occlusion: 1
+  - EntityID: 17663757809894776477
+    TagComponent:
+      Tag: Cylinder (brushed metal)
+    TransformComponent:
+      Position: [3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.4, 1.4, 1.4]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.9, 0.91, 0.92, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.45
+        Occlusion: 1
+  - EntityID: 14105287064397593774
+    TagComponent:
+      Tag: Sphere (smooth)
+    TransformComponent:
+      Position: [-1.6, -0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.9, 0.9, 0.9]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.8, 0.8, 0.82, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.08
+        Occlusion: 1
+  - EntityID: 17132997578554225804
+    TagComponent:
+      Tag: Sphere (rough)
+    TransformComponent:
+      Position: [1.6, -0.5, -3.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.9, 0.9, 0.9]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.8, 0.8, 0.82, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.95
+        Occlusion: 1
+  - EntityID: 6370971351885114703
+    TagComponent:
+      Tag: Pedestal
+    TransformComponent:
+      Position: [-6.5, -1, -1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    AudioSourceComponent:
+      Clip: 11706423746662484290
+      Bus: Music
+      Volume: 0.35
+      Pitch: 1
+      Loop: true
+      PlayOnAwake: true
+      Stream: false
+      Spatial: true
+      MinDistance: 2
+      MaxDistance: 25
+  - EntityID: 15511314562919751621
+    RelationshipComponent:
+      Parent: 6370971351885114703
+    TagComponent:
+      Tag: Pedestal Base
+    TransformComponent:
+      Position: [0, 0.39999998, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1.2, 0.6, 1.2]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.22, 0.23, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+  - EntityID: 12080736543617860364
+    RelationshipComponent:
+      Parent: 6370971351885114703
+    TagComponent:
+      Tag: Pedestal Ornament
+    TransformComponent:
+      Position: [0, 1.2, 0]
+      Rotation: [0, -0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.17, 0.19, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.25
+        Occlusion: 1
+  - EntityID: 4663895190268937246
+    TagComponent:
+      Tag: Key Light
+    TransformComponent:
+      Position: [4, 5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.87, 0.72]
+      Intensity: 120
+      Range: 30
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 6830962756425660972
+    TagComponent:
+      Tag: Fill Light
+    TransformComponent:
+      Position: [-5, 3, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.38, 0.5, 0.85]
+      Intensity: 60
+      Range: 30
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 17106466824111096354
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.9599311, -0.5235988, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [0.55, 0.58, 0.65]
+      Intensity: 1.2
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 3590914368618080122
+    TagComponent:
+      Tag: testcube
+    TransformComponent:
+      Position: [6, 0, -1]
+      Rotation: [0, 0, 0]
+      Scale: [1.6, 1.6, 1.6]
+  - EntityID: 3978153096293703175
+    RelationshipComponent:
+      Parent: 3590914368618080122
+    TagComponent:
+      Tag: Pivot
+    TransformComponent:
+      Position: [2, 0.5, -1]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6275495337674643950
+    RelationshipComponent:
+      Parent: 3978153096293703175
+    TagComponent:
+      Tag: CubeNode
+    TransformComponent:
+      Position: [-2, -0.5, 1]
+      Rotation: [0, 0.78539807, 0]
+      Scale: [0.5, 0.5, 0.5]
+    MeshComponent:
+      Mesh: 7094569269084948827
+      Material:
+        BaseColor: [0.85, 0.17, 0.19, 1]
+        Emissive: [0.02, 0, 0, 1]
+        Metallic: 0.25
+        Roughness: 0.65
+        Occlusion: 1
+  - EntityID: 17560664727926947894
+    TagComponent:
+      Tag: Falling Box 1
+    TransformComponent:
+      Position: [-0.4, 4, 0.35]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.3, 0.55, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.4
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.4
+      Restitution: 0.1
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    NativeScriptComponent:
+      Script: ImpactFlash
+  - EntityID: 10061604235763643196
+    TagComponent:
+      Tag: Falling Box 2
+    TransformComponent:
+      Position: [-0.18, 5.6, 0.16999999]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.3, 0.55, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.4
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.4
+      Restitution: 0.1
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    AudioSourceComponent:
+      Clip: 7622274306199633311
+      Bus: SFX
+      Volume: 1
+      Pitch: 1
+      Loop: false
+      PlayOnAwake: false
+      Stream: false
+      Spatial: true
+      MinDistance: 1
+      MaxDistance: 40
+    NativeScriptComponent:
+      Script: ImpactSound
+  - EntityID: 586830120030577985
+    TagComponent:
+      Tag: Falling Box 3
+    TransformComponent:
+      Position: [0.03999999, 7.2, -0.01000002]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.3, 0.55, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.4
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.4
+      Restitution: 0.1
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    NativeScriptComponent:
+      Script: ImpactFlash
+  - EntityID: 12068825542644745259
+    TagComponent:
+      Tag: Falling Box 4
+    TransformComponent:
+      Position: [0.25999996, 8.8, -0.19000003]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.3, 0.55, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.4
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.4
+      Restitution: 0.1
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    AudioSourceComponent:
+      Clip: 7622274306199633311
+      Bus: SFX
+      Volume: 1
+      Pitch: 1
+      Loop: false
+      PlayOnAwake: false
+      Stream: false
+      Spatial: true
+      MinDistance: 1
+      MaxDistance: 40
+    NativeScriptComponent:
+      Script: ImpactSound
+  - EntityID: 11741161845662677473
+    TagComponent:
+      Tag: Trigger Zone
+    TransformComponent:
+      Position: [0, 2.2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.4
+      Restitution: 0.1
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [3, 0.6, 3]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: true
+    AudioSourceComponent:
+      Clip: 4876371458843502635
+      Bus: SFX
+      Volume: 0.7
+      Pitch: 1
+      Loop: false
+      PlayOnAwake: false
+      Stream: false
+      Spatial: true
+      MinDistance: 1
+      MaxDistance: 50
+    NativeScriptComponent:
+      Script: TriggerZone

@@ -1,8 +1,6 @@
 #pragma once
-#include "vulkan.h"
 #include "GLFW/glfw3.h"
 #include <RageV/Core/Window.h>
-#include "RageV/Renderer/GraphicsContext.h"
 
 namespace RageV
 {
@@ -29,9 +27,7 @@ namespace RageV
 		virtual void Shutdown();
 		
 
-		GLFWwindow* m_Window;
-
-		GraphicsContext* m_Context;
+		GLFWwindow* m_Window = nullptr;
 
 		struct WindowData {
 			unsigned int Height;

@@ -14,7 +14,7 @@ namespace RageV
 	public:
 		static GraphicsInfo GetGraphicsInfo();
 	private:
-		static void SetGraphicsInfo(GraphicsInfo& graphicsinfo);
+		static void SetGraphicsInfo(const GraphicsInfo& graphicsinfo);
 		static GraphicsInfo m_GInfo;
 	};
 

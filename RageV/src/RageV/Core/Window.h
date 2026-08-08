@@ -2,7 +2,6 @@
 #include <rvpch.h>
 #include "RageV/Events/Event.h"
 #include "Core.h"
-#include "RageV/Renderer/GraphicsContext.h"
 #include "RageV/Core/GraphicsInformation.h"
 
 namespace RageV {

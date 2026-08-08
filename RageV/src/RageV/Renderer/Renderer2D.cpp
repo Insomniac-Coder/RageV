@@ -1,244 +1,459 @@
 #include <rvpch.h>
 #include "Renderer2D.h"
-#include "Buffer.h"
-#include "Platform/OpenGL/OpenGLShader.h"
-#include "RenderCommand.h"
-#include "Perlin.h"
-#include "stb_write_image.h"
-#include "stb_image.h"
+#include "Renderer.h"
+#include "RageV/Renderer/RHI/ShaderCompiler.h"
 
 namespace RageV
 {
-	struct VertexData
+	using namespace RageV::RHI;
+
+	namespace
 	{
-		glm::vec3 Position;
-		glm::vec3 Normal;
-		glm::vec4 Color;
-		glm::vec2 TexCoord;
-		float TextureID;
-		float TilingFactor;
-	};
+		constexpr unsigned int kMaxQuads = 20000;
+		constexpr unsigned int kMaxVertices = kMaxQuads * 4;
+		constexpr unsigned int kMaxIndices = kMaxQuads * 6;
+		constexpr unsigned int kMaxTextureSlots = 32;   // must match quad.rvshader
+		constexpr unsigned int kMaxLights = 8;          // must match quad.rvshader
 
-	struct Renderer2DData {
-		unsigned int MaxQuads = 10000;
-		unsigned int MaxVertices = 4 * MaxQuads;
-		unsigned int MaxIndicies = 6 * MaxQuads;
-		unsigned int MaxTextureSlots = 32;
-		unsigned int WhiteTextureSlotId = 0;
-		unsigned int CurrentTextureSlotId = 1;
-
-		VertexData* QuadVerticiesBuffer = nullptr;
-		VertexData* QuadVerticiesPtr = nullptr;
-
-		std::shared_ptr<VertexArray> VertexArray2D;
-		std::shared_ptr<VertexBuffer> VertexBuffer2D;
-		std::shared_ptr<IndexBuffer> IndexBuffer2D;
-		unsigned int QuadCount = 0;
-		unsigned int IndiciesCount = 0;
-		unsigned int DrawCalls = 0;
-
-		glm::vec4 QuadVerts[4];
-
-		ShaderManager Renderer2DShaderManager;
-		std::shared_ptr<Texture2D> WhiteTexture;
-	};
-
-	static std::unique_ptr<Renderer2DData> renderer2DData;
-
-	void Renderer2D::Init()
-	{
-		renderer2DData = std::make_unique<Renderer2DData>();
-
-		renderer2DData->QuadVerts[0] = {-0.5f, -0.5f, 0.0f, 1.0f};
-		renderer2DData->QuadVerts[1] = { 0.5f, -0.5f, 0.0f, 1.0f };
-		renderer2DData->QuadVerts[2] = { 0.5f, 0.5f, 0.0f, 1.0f };
-		renderer2DData->QuadVerts[3] = { -0.5f, 0.5f, 0.0f, 1.0f };
-
-		//Flat color tiles
-		renderer2DData->VertexArray2D = RageV::VertexArray::Create();
-
-		renderer2DData->VertexBuffer2D = RageV::VertexBuffer::Create(sizeof(VertexData) * renderer2DData->MaxVertices);
-		RageV::BufferLayout sqbufferLayout = {
-			{ "a_Position", ShaderDataType::Float3 },
-			{ "a_Normal", ShaderDataType::Float3 },
-			{ "a_Color", ShaderDataType::Float4 },
-			{ "a_TexCord", RageV::ShaderDataType::Float2 },
-			{ "a_TextureID", RageV::ShaderDataType::Float },
-			{ "a_TilingFactor", RageV::ShaderDataType::Float }
+		constexpr glm::vec4 kQuadCorners[4] = {
+			{ -0.5f, -0.5f, 0.0f, 1.0f }, {  0.5f, -0.5f, 0.0f, 1.0f },
+			{  0.5f,  0.5f, 0.0f, 1.0f }, { -0.5f,  0.5f, 0.0f, 1.0f },
 		};
-		renderer2DData->VertexBuffer2D->SetBufferLayout(sqbufferLayout);
-		renderer2DData->VertexArray2D->AddVertexBuffer(renderer2DData->VertexBuffer2D);
+		constexpr glm::vec2 kQuadTexCoords[4] = {
+			{ 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f }
+		};
 
-		unsigned int* QuadIndicies = new unsigned int[renderer2DData->MaxIndicies];
-
-		unsigned int offset = 0;
-
-		for (int i = 0; i < renderer2DData->MaxIndicies; i += 6)
+		struct VertexData
 		{
-			QuadIndicies[i + 0] = 0 + offset;
-			QuadIndicies[i + 1] = 1 + offset;
-			QuadIndicies[i + 2] = 2 + offset;
-			QuadIndicies[i + 3] = 2 + offset;
-			QuadIndicies[i + 4] = 3 + offset;
-			QuadIndicies[i + 5] = 0 + offset;
-			
-			offset += 4;
+			glm::vec3 Position;
+			glm::vec3 Normal;
+			glm::vec4 Color;
+			glm::vec2 TexCoord;
+			float     TextureIndex;
+			float     TilingFactor;
+		};
+		static_assert(sizeof(VertexData) == 56, "Must match the vertex stride reflected from quad.rvshader");
+
+		// Mirrors the std140 SceneData block in quad.rvshader.
+		struct SceneUniforms
+		{
+			glm::mat4 ViewProjection;
+			glm::vec4 CameraPosition;
+			glm::vec4 LightPositions[kMaxLights];
+			glm::vec4 LightColors[kMaxLights];
+			int32_t   LightCount;
+			int32_t   _padding[3];
+		};
+
+		// The quad's object-space normal rotated into world space. The
+		// inverse-transpose is only needed under non-uniform scale or shear;
+		// for the rigid transforms quads use, the renormalised upper 3x3 is
+		// equivalent and far cheaper.
+		glm::vec3 WorldSpaceNormal(const glm::mat4& transform)
+		{
+			return glm::normalize(glm::mat3(transform) * glm::vec3(0.0f, 0.0f, -1.0f));
 		}
 
-		renderer2DData->IndexBuffer2D = RageV::IndexBuffer::Create(QuadIndicies, renderer2DData->MaxIndicies);
-		renderer2DData->VertexArray2D->SetIndexBuffer(renderer2DData->IndexBuffer2D);
-
-		delete[] QuadIndicies;
-
-		renderer2DData->WhiteTexture = Texture2D::Create(1, 1);
-		unsigned int whiteData = 0xffffffff;
-		renderer2DData->WhiteTexture->SetData(&whiteData, sizeof(unsigned int));
-		renderer2DData->WhiteTexture->Bind(); //White texture will remain bound to slot 0
-
-		//shader stuff
-		renderer2DData->Renderer2DShaderManager.LoadShader("assets/shaders/quadshader.glsl");
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->Bind();
-		int* array = new int[renderer2DData->MaxTextureSlots];
-
-		for (int i = 0; i < renderer2DData->MaxTextureSlots; i++)
+		struct Renderer2DData
 		{
-			array[i] = i;
+			RHIDevice* Device = nullptr;
+
+			Ref<RHIShader>   Shader;
+			Ref<RHIPipeline> Pipeline;
+			Format TargetColor = Format::B8G8R8A8_UNORM;
+			Format TargetDepth = Format::D24_UNORM_S8_UINT;
+			bool   PipelineDirty = true;
+			bool   Wireframe = false;
+
+			// One set of storage per *batch*, not per frame in flight.
+			//
+			// Per-frame alone was not enough. A batch's draw is recorded against
+			// whatever buffer it was bound to, and the data has to still be
+			// there when the GPU runs it -- so anything that ends a scene more
+			// than once in a frame needs separate storage each time. Two things
+			// do: a scene that overflows kMaxQuads and flushes mid-way, and
+			// drawing the same scene into two viewports. The first was already
+			// a live bug; it just needed 20000 quads to show itself.
+			struct Batch
+			{
+				Ref<RHIBuffer>      Vertices;
+				Ref<RHIBuffer>      Scene;
+				Ref<RHIResourceSet> SceneSet;
+				Ref<RHIResourceSet> TextureSet;
+			};
+
+			// [frame in flight][batch within the frame]
+			std::vector<std::vector<Batch>> Batches;
+			uint32_t BatchCursor = 0;
+
+			Ref<RHIBuffer>  IndexBuffer;
+			Ref<RHITexture> WhiteTexture;
+			Ref<RHISampler> Sampler;
+
+			// CPU-side staging for the current batch, copied into the frame's
+			// vertex buffer at flush.
+			std::vector<VertexData> Vertices;
+			VertexData* VertexCursor = nullptr;
+
+			std::vector<Ref<RHITexture>> TextureSlots;
+			unsigned int NextTextureSlot = 1;   // 0 is the white texture
+
+			unsigned int QuadCount = 0;
+			unsigned int IndexCount = 0;
+			unsigned int DrawCalls = 0;
+
+			SceneUniforms Scene{};
+		};
+
+		std::unique_ptr<Renderer2DData> s_Data;
+
+		// The batch storage for the current scene. Grown on demand and kept, so a
+		// scene that needs three batches allocates them once and reuses them every
+		// frame after.
+		Renderer2DData::Batch& AcquireBatch()
+		{
+			const uint32_t frame = s_Data->Device->GetFrameIndex();
+			auto& batches = s_Data->Batches[frame];
+
+			if (s_Data->BatchCursor >= batches.size())
+			{
+				const std::string index = std::to_string(frame) + "." + std::to_string(batches.size());
+
+				Renderer2DData::Batch batch;
+
+				BufferDesc vertexDesc;
+				vertexDesc.Size = (uint64_t)kMaxVertices * sizeof(VertexData);
+				vertexDesc.Usage = BufferUsage::Vertex;
+				vertexDesc.Memory = MemoryDomain::HostVisible;
+				vertexDesc.DebugName = "Renderer2D.vertices." + index;
+				batch.Vertices = s_Data->Device->CreateBuffer(vertexDesc);
+
+				BufferDesc sceneDesc;
+				sceneDesc.Size = sizeof(SceneUniforms);
+				sceneDesc.Usage = BufferUsage::Uniform;
+				sceneDesc.Memory = MemoryDomain::HostVisible;
+				sceneDesc.DebugName = "Renderer2D.scene." + index;
+				batch.Scene = s_Data->Device->CreateBuffer(sceneDesc);
+
+				batches.push_back(std::move(batch));
+			}
+
+			Renderer2DData::Batch& batch = batches[s_Data->BatchCursor++];
+
+			// Created lazily rather than in Init: sets need a pipeline, and the
+			// pipeline is built from the target formats, which Init does not know.
+			if (!batch.SceneSet)
+				batch.SceneSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+			if (!batch.TextureSet)
+				batch.TextureSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 1);
+
+			return batch;
+		}
+	}
+
+	void Renderer2D::Init(RHIDevice& device)
+	{
+		s_Data = std::make_unique<Renderer2DData>();
+		s_Data->Device = &device;
+
+		const uint32_t frames = device.GetFramesInFlight();
+
+		ShaderCompiler::Init();
+		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/quad.rvshader");
+		if (!compiled)
+		{
+			RV_CORE_ERROR("Renderer2D: failed to compile assets/shaders/quad.rvshader");
+			return;
+		}
+		s_Data->Shader = device.CreateShader(*compiled);
+
+		// Index data never changes, so it lives in device-local memory and is
+		// uploaded once through the staging path.
+		{
+			std::vector<uint32_t> indices(kMaxIndices);
+			uint32_t offset = 0;
+			for (unsigned int i = 0; i < kMaxIndices; i += 6)
+			{
+				indices[i + 0] = offset + 0;
+				indices[i + 1] = offset + 1;
+				indices[i + 2] = offset + 2;
+				indices[i + 3] = offset + 2;
+				indices[i + 4] = offset + 3;
+				indices[i + 5] = offset + 0;
+				offset += 4;
+			}
+
+			BufferDesc desc;
+			desc.Size = indices.size() * sizeof(uint32_t);
+			desc.Usage = BufferUsage::Index;
+			desc.Memory = MemoryDomain::DeviceLocal;
+			desc.DebugName = "Renderer2D.indices";
+			s_Data->IndexBuffer = device.CreateBuffer(desc);
+			s_Data->IndexBuffer->Upload(indices.data(), desc.Size);
 		}
 
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetIntArray("u_Textures", array, renderer2DData->MaxTextureSlots);
+		// Batches are created on demand; most frames need one.
+		s_Data->Batches.resize(frames);
 
-		renderer2DData->QuadVerticiesBuffer = new VertexData[renderer2DData->MaxQuads * 4];
-		renderer2DData->QuadVerticiesPtr = renderer2DData->QuadVerticiesBuffer;
+		{
+			TextureDesc desc;
+			desc.Width = 1;
+			desc.Height = 1;
+			desc.Format = Format::R8G8B8A8_UNORM;
+			desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+			desc.DebugName = "Renderer2D.white";
+			s_Data->WhiteTexture = device.CreateTexture(desc);
+			const uint32_t white = 0xffffffff;
+			s_Data->WhiteTexture->Upload(&white, sizeof(white));
+		}
+
+		SamplerDesc samplerDesc;
+		samplerDesc.MaxLod = 0.0f;   // no mips on the batch textures yet
+		s_Data->Sampler = device.CreateSampler(samplerDesc);
+
+		s_Data->Vertices.resize(kMaxVertices);
+		s_Data->VertexCursor = s_Data->Vertices.data();
+
+		s_Data->TextureSlots.assign(kMaxTextureSlots, nullptr);
+		s_Data->TextureSlots[0] = s_Data->WhiteTexture;
+
+		RV_CORE_INFO("Renderer2D ready ({0} frames in flight, {1} quads per batch)", frames, kMaxQuads);
 	}
 
 	void Renderer2D::Shutdown()
 	{
-		delete renderer2DData.get();
+		// Resources must be released before the device outlives them.
+		s_Data.reset();
+		ShaderCompiler::Shutdown();
 	}
 
-	void Renderer2D::BeginScene(const OrthographicCamera& camera)
+	void Renderer2D::SetTargetFormats(Format color, Format depth)
 	{
-		renderer2DData->DrawCalls = 0;
-		Renderer2D::ResetScene();
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
+		if (!s_Data)
+			return;
+		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth && s_Data->Pipeline)
+			return;
+
+		s_Data->TargetColor = color;
+		s_Data->TargetDepth = depth;
+		s_Data->PipelineDirty = true;
 	}
 
-	void Renderer2D::BeginScene(Cameranew& camera, glm::mat4& transform, std::vector<std::tuple<glm::vec3, glm::vec3, Light::LightType>> lightData)
+	void Renderer2D::SetWireframe(bool enabled)
 	{
-		glm::mat4 viewprojectionmatrix = camera.GetProjection() * glm::inverse(transform);
-		renderer2DData->DrawCalls = 0;
-		Renderer2D::ResetScene();
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetMat4("u_ViewProjection", viewprojectionmatrix);
-		renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_CamPos", transform[3]);
+		if (!s_Data || s_Data->Wireframe == enabled)
+			return;
 
-		for (int i = 0; i < lightData.size(); i++)
-		{
-			glm::vec3 lPos = std::get<0>(lightData[i]);
-			glm::vec3 lColor = std::get<1>(lightData[i]);
-			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightPos[" + std::to_string(i) + "]", lPos);
-			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightColor[" + std::to_string(i) + "]", lColor);
-		}
+		s_Data->Wireframe = enabled;
+		// Polygon mode is baked into the pipeline on Vulkan, so this rebuilds
+		// rather than toggling state.
+		s_Data->PipelineDirty = true;
+	}
 
-		if (lightData.empty())
+	bool Renderer2D::IsWireframe()
+	{
+		return s_Data && s_Data->Wireframe;
+	}
+
+	void Renderer2D::EnsurePipeline()
+	{
+		if (!s_Data->PipelineDirty || !s_Data->Shader)
+			return;
+
+		GraphicsPipelineDesc desc;
+		desc.Name = "Renderer2D.quad";
+		desc.Shader = s_Data->Shader;
+		desc.Topology = PrimitiveTopology::TriangleList;
+		// Quads are drawn from both sides; the scene has no winding convention.
+		desc.Rasterizer.Cull = CullMode::None;
+		desc.Rasterizer.Polygon = s_Data->Wireframe ? PolygonMode::Line : PolygonMode::Fill;
+		desc.Blend = BlendPreset::AlphaBlend;
+		desc.DepthStencil.DepthTestEnable = true;
+		desc.DepthStencil.DepthWriteEnable = true;
+		desc.ColorFormats = { s_Data->TargetColor };
+		desc.DepthFormat = s_Data->TargetDepth;
+
+		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
+		s_Data->PipelineDirty = false;
+
+		// Resource sets are tied to a pipeline layout, so every batch's sets are
+		// discarded with the pipeline and recreated on demand.
+		for (auto& frame : s_Data->Batches)
+			frame.clear();
+	}
+
+	void Renderer2D::BeginFrame()
+	{
+		if (!s_Data)
+			return;
+
+		// The GPU has finished with this frame's slot, so its batches are free
+		// to reuse.
+		s_Data->BatchCursor = 0;
+		s_Data->DrawCalls = 0;
+	}
+
+	void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& transform, const LightList& lights)
+	{
+		if (!s_Data)
+			return;
+
+		ResetScene();
+
+		s_Data->Scene = {};
+		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(transform);
+		s_Data->Scene.CameraPosition = glm::vec4(glm::vec3(transform[3]), 1.0f);
+
+		const int lightCount = (int)std::min<size_t>(lights.size(), kMaxLights);
+		for (int i = 0; i < lightCount; i++)
 		{
-			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightPos[0]", glm::vec3(1.0f));
-			renderer2DData->Renderer2DShaderManager.GetShader("quadshader")->SetFloat3("u_LightColor[0]", glm::vec3(0.1f));
+			// The quad shader has no attenuation model, so intensity is folded
+			// into the colour rather than carried separately.
+			s_Data->Scene.LightPositions[i] = glm::vec4(lights[i].Position, 1.0f);
+			s_Data->Scene.LightColors[i] = glm::vec4(lights[i].Color * lights[i].Intensity, 1.0f);
 		}
+		s_Data->Scene.LightCount = lightCount;
 	}
 
 	void Renderer2D::ResetScene()
 	{
-		renderer2DData->QuadCount = 0;
-		renderer2DData->IndiciesCount = 0;
-		renderer2DData->QuadVerticiesPtr = renderer2DData->QuadVerticiesBuffer;
+		s_Data->QuadCount = 0;
+		s_Data->IndexCount = 0;
+		s_Data->VertexCursor = s_Data->Vertices.data();
+
+		for (unsigned int i = 1; i < s_Data->NextTextureSlot; i++)
+			s_Data->TextureSlots[i].reset();
+		s_Data->NextTextureSlot = 1;
 	}
 
 	void Renderer2D::EndScene()
 	{
-		renderer2DData->WhiteTexture->Bind();
-		renderer2DData->DrawCalls++;
-		renderer2DData->VertexBuffer2D->SetData(renderer2DData->QuadVerticiesBuffer, renderer2DData->QuadCount * 4 * sizeof(VertexData));
+		if (!s_Data || s_Data->QuadCount == 0)
+			return;
 
-		RenderCommand::DrawIndexed(renderer2DData->VertexArray2D, renderer2DData->IndiciesCount);
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		EnsurePipeline();
+		if (!s_Data->Pipeline)
+			return;
+
+		// Its own storage, so this draw's data survives until the GPU runs it
+		// even if another batch is recorded before the frame ends.
+		Renderer2DData::Batch& batch = AcquireBatch();
+
+		batch.Vertices->Upload(s_Data->Vertices.data(),
+							   (uint64_t)s_Data->QuadCount * 4 * sizeof(VertexData));
+		batch.Scene->Upload(&s_Data->Scene, sizeof(SceneUniforms));
+
+		auto& sceneSet = batch.SceneSet;
+		sceneSet->SetUniformBuffer(0, batch.Scene, 0, sizeof(SceneUniforms));
+		sceneSet->Commit();
+
+		// Every element of the sampler array has to be written even though only
+		// the occupied slots are read: the shader indexes it dynamically, so
+		// validation treats all of them as potentially accessed.
+		auto& textureSet = batch.TextureSet;
+		for (unsigned int slot = 0; slot < kMaxTextureSlots; slot++)
+		{
+			const auto& texture = slot < s_Data->NextTextureSlot && s_Data->TextureSlots[slot]
+								? s_Data->TextureSlots[slot]
+								: s_Data->WhiteTexture;
+			textureSet->SetTexture(0, texture, s_Data->Sampler, slot);
+		}
+		textureSet->Commit();
+
+		cmd->BindPipeline(s_Data->Pipeline);
+		cmd->BindResourceSet(0, sceneSet);
+		cmd->BindResourceSet(1, textureSet);
+		cmd->BindVertexBuffer(0, batch.Vertices);
+		cmd->BindIndexBuffer(s_Data->IndexBuffer, IndexType::UInt32);
+		cmd->DrawIndexed(s_Data->IndexCount);
+
+		s_Data->DrawCalls++;
 	}
 
-	void Renderer2D::DrawQuad(glm::mat4& transform, glm::vec4& color)
+	void Renderer2D::FlushAndReset()
 	{
-		if (renderer2DData->MaxQuads <= renderer2DData->QuadCount)
+		EndScene();
+		ResetScene();
+	}
+
+	unsigned int Renderer2D::ResolveTextureSlot(const Ref<RHITexture>& texture)
+	{
+		for (unsigned int i = 1; i < s_Data->NextTextureSlot; i++)
 		{
-			EndScene();
-			ResetScene();
+			if (s_Data->TextureSlots[i] == texture)
+				return i;
 		}
 
-		glm::vec2 texcoords[4] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
+		if (s_Data->NextTextureSlot >= kMaxTextureSlots)
+			FlushAndReset();
 
-		for (int i = 0; i < 4; i++)
+		const unsigned int slot = s_Data->NextTextureSlot;
+		s_Data->TextureSlots[slot] = texture;
+		s_Data->NextTextureSlot++;
+		return slot;
+	}
+
+	void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& color)
+	{
+		if (!s_Data)
+			return;
+
+		if (s_Data->QuadCount >= kMaxQuads)
+			FlushAndReset();
+
+		// Hoisted out of the vertex loop: this used to run a 4x4 inverse and a
+		// transpose per vertex to produce the same vector four times.
+		const glm::vec3 normal = WorldSpaceNormal(transform);
+
+		VertexData* vertex = s_Data->VertexCursor;
+		for (int i = 0; i < 4; i++, vertex++)
 		{
-			renderer2DData->QuadVerticiesPtr->Position = transform * renderer2DData->QuadVerts[i];
-			renderer2DData->QuadVerticiesPtr->Normal = glm::mat3(glm::transpose(glm::inverse(transform))) * glm::vec3(0.0f, 0.0f, -1.0f);
-			renderer2DData->QuadVerticiesPtr->Color = color;
-			renderer2DData->QuadVerticiesPtr->TexCoord = texcoords[i];
-			renderer2DData->QuadVerticiesPtr->TextureID = 0.0f;
-			renderer2DData->QuadVerticiesPtr->TilingFactor = 1.0f;
-			renderer2DData->QuadVerticiesPtr++;
+			vertex->Position = glm::vec3(transform * kQuadCorners[i]);
+			vertex->Normal = normal;
+			vertex->Color = color;
+			vertex->TexCoord = kQuadTexCoords[i];
+			vertex->TextureIndex = 0.0f;
+			vertex->TilingFactor = 1.0f;
 		}
-	
-		renderer2DData->QuadCount++;
-		renderer2DData->IndiciesCount += 6;
+		s_Data->VertexCursor = vertex;
 
+		s_Data->QuadCount++;
+		s_Data->IndexCount += 6;
 	}
 
-	void Renderer2D::DrawQuad(glm::mat4& transform, std::shared_ptr<Texture2D>& texture, float tilingfactor)
+	void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<RHITexture>& texture, float tilingfactor)
 	{
-		if (renderer2DData->MaxQuads <= renderer2DData->QuadCount)
+		if (!s_Data)
+			return;
+
+		if (s_Data->QuadCount >= kMaxQuads)
+			FlushAndReset();
+
+		const float slot = (float)ResolveTextureSlot(texture);
+		const glm::vec3 normal = WorldSpaceNormal(transform);
+
+		VertexData* vertex = s_Data->VertexCursor;
+		for (int i = 0; i < 4; i++, vertex++)
 		{
-			EndScene();
-			ResetScene();
+			vertex->Position = glm::vec3(transform * kQuadCorners[i]);
+			vertex->Normal = normal;
+			vertex->Color = glm::vec4(1.0f);
+			vertex->TexCoord = kQuadTexCoords[i];
+			vertex->TextureIndex = slot;
+			vertex->TilingFactor = tilingfactor;
 		}
+		s_Data->VertexCursor = vertex;
 
-		texture->Bind(renderer2DData->CurrentTextureSlotId);
-
-		glm::vec2 texcoords[4] = {{ 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f }};
-
-		for (int i = 0; i < 4; i++)
-		{
-			renderer2DData->QuadVerticiesPtr->Position = transform * renderer2DData->QuadVerts[i];
-			renderer2DData->QuadVerticiesPtr->Normal = glm::mat3(glm::transpose(glm::inverse(transform))) * glm::vec3(0.0f, 0.0f, -1.0f);
-			renderer2DData->QuadVerticiesPtr->Color = glm::vec4(1.0f);
-			renderer2DData->QuadVerticiesPtr->TexCoord = texcoords[i];
-			renderer2DData->QuadVerticiesPtr->TextureID = (float)renderer2DData->CurrentTextureSlotId;
-			renderer2DData->QuadVerticiesPtr->TilingFactor = tilingfactor;
-			renderer2DData->QuadVerticiesPtr++;
-		}
-		
-		renderer2DData->QuadCount++;
-		renderer2DData->IndiciesCount += 6;
-
-		if (renderer2DData->CurrentTextureSlotId != renderer2DData->MaxTextureSlots - 1)
-			renderer2DData->CurrentTextureSlotId++;
-		else
-			renderer2DData->CurrentTextureSlotId = 1;
+		s_Data->QuadCount++;
+		s_Data->IndexCount += 6;
 	}
 
-	unsigned int Renderer2D::GetDrawCallCount()
-	{
-		return renderer2DData->DrawCalls;
-	}
-
-	unsigned int Renderer2D::GetVerticesCount()
-	{
-		return renderer2DData->QuadCount * 4;
-	}
-
-	unsigned int Renderer2D::GetIndiciesCount()
-	{
-		return renderer2DData->IndiciesCount;
-	}
-
-	unsigned int Renderer2D::GetQuadCount()
-	{
-		return renderer2DData->QuadCount;
-	}
-
-
+	unsigned int Renderer2D::GetDrawCallCount() { return s_Data ? s_Data->DrawCalls : 0; }
+	unsigned int Renderer2D::GetVerticesCount() { return s_Data ? s_Data->QuadCount * 4 : 0; }
+	unsigned int Renderer2D::GetIndiciesCount() { return s_Data ? s_Data->IndexCount : 0; }
+	unsigned int Renderer2D::GetQuadCount()     { return s_Data ? s_Data->QuadCount : 0; }
 }

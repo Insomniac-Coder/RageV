@@ -7,8 +7,18 @@ RageV::LayerStack::LayerStack()
 
 RageV::LayerStack::~LayerStack()
 {
+	Clear();
+}
+
+void RageV::LayerStack::Clear()
+{
 	for (auto layer : m_Layers)
+	{
+		layer->OnDetach();
 		delete layer;
+	}
+	m_Layers.clear();
+	m_LayerInsertIndex = 0;
 }
 
 void RageV::LayerStack::PushLayer(Layer* layer)

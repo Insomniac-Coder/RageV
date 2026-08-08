@@ -1,0 +1,133 @@
+#include <rvpch.h>
+#include "Material.h"
+#include "TextureLoader.h"
+
+namespace RageV
+{
+	using namespace RageV::RHI;
+
+	Material::Material(RHIDevice& device, std::string name)
+		: m_Device(device), m_Name(std::move(name))
+	{
+		SamplerDesc samplerDesc;
+		samplerDesc.MaxAnisotropy = device.GetCaps().SupportsAnisotropy ? 8.0f : 1.0f;
+		m_Sampler = device.CreateSampler(samplerDesc);
+
+		const uint32_t frames = device.GetFramesInFlight();
+		m_ParamBuffers.resize(frames);
+		for (uint32_t i = 0; i < frames; i++)
+		{
+			BufferDesc desc;
+			desc.Size = sizeof(MaterialParams);
+			desc.Usage = BufferUsage::Uniform;
+			desc.Memory = MemoryDomain::HostVisible;
+			desc.DebugName = m_Name + ".params." + std::to_string(i);
+			m_ParamBuffers[i] = device.CreateBuffer(desc);
+		}
+		m_FrameDirty.assign(frames, true);
+	}
+
+	namespace
+	{
+		void AssignMap(Ref<RHITexture>& slot, const Ref<RHITexture>& texture,
+					   int32_t& flags, MaterialMap bit)
+		{
+			slot = texture;
+			if (texture)
+				flags |= bit;
+			else
+				flags &= ~bit;
+		}
+	}
+
+	void Material::SetBaseColorMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_BaseColor, texture, m_Params.MapFlags, MaterialMap_BaseColor);
+		Invalidate();
+	}
+
+	void Material::SetNormalMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_Normal, texture, m_Params.MapFlags, MaterialMap_Normal);
+		Invalidate();
+	}
+
+	void Material::SetMetallicRoughnessMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_MetallicRoughness, texture, m_Params.MapFlags, MaterialMap_MetallicRoughness);
+		Invalidate();
+	}
+
+	void Material::SetOcclusionMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_Occlusion, texture, m_Params.MapFlags, MaterialMap_Occlusion);
+		Invalidate();
+	}
+
+	void Material::SetEmissiveMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_Emissive, texture, m_Params.MapFlags, MaterialMap_Emissive);
+		Invalidate();
+	}
+
+	void Material::EnsureResources(const Ref<RHIPipeline>& pipeline, uint32_t set)
+	{
+		if (m_Built)
+			return;
+
+		const uint32_t frames = m_Device.GetFramesInFlight();
+		m_Sets.clear();
+		for (uint32_t i = 0; i < frames; i++)
+			m_Sets.push_back(m_Device.CreateResourceSet(pipeline, set));
+
+		m_FrameDirty.assign(frames, true);
+		m_Built = true;
+	}
+
+	void Material::Invalidate()
+	{
+		// Every frame's copy, not just the current one: each frame in flight
+		// has its own buffer and set, and a change has to reach all of them.
+		m_FrameDirty.assign(std::max<size_t>(m_FrameDirty.size(), m_ParamBuffers.size()), true);
+	}
+
+	void Material::Bind(RHICommandList& commandList, const Ref<RHIPipeline>& pipeline, uint32_t set)
+	{
+		EnsureResources(pipeline, set);
+
+		const uint32_t frame = m_Device.GetFrameIndex();
+		auto& resourceSet = m_Sets[frame];
+
+		// Only when something actually changed. Rewriting a descriptor set that
+		// is already bound to a command buffer is a use-after-bind hazard, and
+		// binding one material for several objects -- or drawing one scene into
+		// two viewports -- did exactly that on every draw after the first.
+		if (m_FrameDirty[frame])
+		{
+			m_ParamBuffers[frame]->Upload(&m_Params, sizeof(MaterialParams));
+			resourceSet->SetUniformBuffer(0, m_ParamBuffers[frame], 0, sizeof(MaterialParams));
+
+			// A sampler left unwritten is a validation error even when the
+			// shader will not read it, so absent maps bind a neutral 1x1.
+			resourceSet->SetTexture(1, m_BaseColor         ? m_BaseColor         : TextureLoader::White(m_Device),      m_Sampler);
+			resourceSet->SetTexture(2, m_Normal            ? m_Normal            : TextureLoader::FlatNormal(m_Device), m_Sampler);
+			resourceSet->SetTexture(3, m_MetallicRoughness ? m_MetallicRoughness : TextureLoader::White(m_Device),      m_Sampler);
+			resourceSet->SetTexture(4, m_Occlusion         ? m_Occlusion         : TextureLoader::White(m_Device),      m_Sampler);
+			resourceSet->SetTexture(5, m_Emissive          ? m_Emissive          : TextureLoader::Black(m_Device),      m_Sampler);
+
+			resourceSet->Commit();
+			m_FrameDirty[frame] = false;
+		}
+
+		commandList.BindResourceSet(set, resourceSet);
+	}
+
+	Ref<Material> Material::CreateDefault(RHIDevice& device)
+	{
+		auto material = std::make_shared<Material>(device, "Default");
+		material->GetParams().BaseColor = { 0.78f, 0.78f, 0.80f, 1.0f };
+		material->GetParams().Metallic = 0.0f;
+		material->GetParams().Roughness = 0.55f;
+		return material;
+	}
+}
