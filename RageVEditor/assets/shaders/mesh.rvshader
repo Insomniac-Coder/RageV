@@ -1,0 +1,135 @@
+// Lit mesh shader. Per-object data arrives as push constants rather than a
+// descriptor set, so drawing N meshes costs N push-constant writes instead of N
+// descriptor updates. Still Blinn-Phong; this is the shader PBR will replace.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_TexCoord;
+
+const int MAX_LIGHTS = 8;
+
+layout(set = 0, binding = 0) uniform SceneData
+{
+	mat4 ViewProjection;
+	vec4 CameraPosition;
+	vec4 LightPositions[MAX_LIGHTS];
+	vec4 LightColors[MAX_LIGHTS];
+	int  LightCount;
+} u_Scene;
+
+// 80 bytes. Vulkan only guarantees 128 for push constants, so a normal matrix
+// is not sent alongside -- it is derived below instead, which leaves headroom
+// for material parameters later.
+layout(push_constant) uniform ObjectData
+{
+	mat4 Model;
+	vec4 BaseColor;
+} u_Object;
+
+layout(location = 0) out vec3 v_WorldPos;
+layout(location = 1) out vec3 v_Normal;
+layout(location = 2) out vec2 v_TexCoord;
+
+void main()
+{
+	vec4 world = u_Object.Model * vec4(a_Position, 1.0);
+
+	v_WorldPos = world.xyz;
+	// Non-uniform scale does not preserve normals under the model matrix, so
+	// the inverse-transpose is required. Done per vertex rather than sent as
+	// push constants, which do not have room for it.
+	v_Normal   = transpose(inverse(mat3(u_Object.Model))) * a_Normal;
+	v_TexCoord = a_TexCoord;
+
+	gl_Position = u_Scene.ViewProjection * world;
+}
+
+#type fragment
+#version 450 core
+
+const int MAX_LIGHTS = 8;
+
+layout(set = 0, binding = 0) uniform SceneData
+{
+	mat4 ViewProjection;
+	vec4 CameraPosition;
+	vec4 LightPositions[MAX_LIGHTS];
+	vec4 LightColors[MAX_LIGHTS];
+	int  LightCount;
+} u_Scene;
+
+layout(push_constant) uniform ObjectData
+{
+	mat4 Model;
+	vec4 BaseColor;
+} u_Object;
+
+layout(location = 0) in vec3 v_WorldPos;
+layout(location = 1) in vec3 v_Normal;
+layout(location = 2) in vec2 v_TexCoord;
+
+layout(location = 0) out vec4 o_Color;
+
+void main()
+{
+	vec3 albedo = u_Object.BaseColor.rgb;
+
+	if (u_Scene.LightCount == 0)
+	{
+		// Unlit scenes would otherwise render black, which reads as "broken"
+		// rather than "no lights". Fake a headlamp from the camera instead.
+		vec3 normal = normalize(v_Normal);
+		vec3 toCamera = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
+		float wrap = max(dot(normal, toCamera), 0.0) * 0.75 + 0.25;
+		o_Color = vec4(albedo * wrap, u_Object.BaseColor.a);
+		return;
+	}
+
+	const float ambientStrength  = 0.08;
+	const float specularStrength = 0.35;
+	const float shininess        = 48.0;
+
+	vec3 normal  = normalize(v_Normal);
+	vec3 viewDir = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
+
+	vec3 lighting = vec3(0.0);
+
+	for (int i = 0; i < u_Scene.LightCount && i < MAX_LIGHTS; ++i)
+	{
+		vec3 lightColor = u_Scene.LightColors[i].rgb;
+		vec3 toLight    = u_Scene.LightPositions[i].xyz - v_WorldPos;
+
+		// w == 0 marks a directional light, where the position is a direction
+		// and distance attenuation does not apply.
+		float attenuation = 1.0;
+		vec3 lightDir;
+		if (u_Scene.LightPositions[i].w == 0.0)
+		{
+			lightDir = normalize(-u_Scene.LightPositions[i].xyz);
+		}
+		else
+		{
+			float distance = length(toLight);
+			lightDir = toLight / max(distance, 0.0001);
+			attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * distance * distance);
+		}
+
+		vec3 ambient = ambientStrength * lightColor;
+
+		float diff = max(dot(normal, lightDir), 0.0);
+		vec3 diffuse = diff * lightColor;
+
+		// Blinn-Phong halfway vector: cheaper than a reflect() and better
+		// behaved at grazing angles.
+		vec3 halfway = normalize(lightDir + viewDir);
+		float spec = pow(max(dot(normal, halfway), 0.0), shininess);
+		vec3 specular = specularStrength * spec * lightColor;
+
+		lighting += (ambient + diffuse + specular) * attenuation;
+	}
+
+	o_Color = vec4(lighting * albedo, u_Object.BaseColor.a);
+}

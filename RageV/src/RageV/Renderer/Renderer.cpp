@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "Renderer.h"
 #include "Renderer2D.h"
+#include "Renderer3D.h"
 
 namespace RageV
 {
@@ -14,10 +15,12 @@ namespace RageV
 	{
 		s_Device = &device;
 		Renderer2D::Init(device);
+		Renderer3D::Init(device);
 	}
 
 	void Renderer::Shutdown()
 	{
+		Renderer3D::Shutdown();
 		Renderer2D::Shutdown();
 		s_CommandList = nullptr;
 		s_Device = nullptr;
@@ -53,5 +56,22 @@ namespace RageV
 	{
 		if (s_Device)
 			s_Device->OnResize(width, height);
+	}
+
+	void Renderer::SetWireframe(bool enabled)
+	{
+		Renderer2D::SetWireframe(enabled);
+		Renderer3D::SetWireframe(enabled);
+	}
+
+	bool Renderer::IsWireframe()
+	{
+		return Renderer2D::IsWireframe();
+	}
+
+	void Renderer::SetTargetFormats(RHI::Format color, RHI::Format depth)
+	{
+		Renderer2D::SetTargetFormats(color, depth);
+		Renderer3D::SetTargetFormats(color, depth);
 	}
 }

@@ -4,6 +4,8 @@
 #include "ScriptableEntity.h"
 #include "Components.h"
 #include "RageV/Renderer/Renderer2D.h"
+#include "RageV/Renderer/Renderer3D.h"
+#include "RageV/Renderer/Renderer.h"
 
 namespace RageV
 {
@@ -104,6 +106,25 @@ namespace RageV
 			lightData.push_back(std::make_tuple(glm::vec3(transform.GetTransform()[3]), light.Light.GetLightColor(), light.Light.GetLightType()));
 		}
 
+
+		// Meshes first: they are opaque and depth-tested, so drawing them ahead
+		// of the alpha-blended quads means the quads blend against a complete
+		// depth buffer rather than over each other arbitrarily.
+		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
+		{
+			Renderer3D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lightData);
+
+			auto& device = Renderer::GetDevice();
+			for (auto& item : meshView)
+			{
+				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+				Renderer3D::DrawMesh(Mesh::GetPrimitive(device, mesh.Primitive),
+									 transform.GetTransform(), mesh.Color);
+			}
+
+			Renderer3D::EndScene();
+		}
 
 		Renderer2D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lightData);
 

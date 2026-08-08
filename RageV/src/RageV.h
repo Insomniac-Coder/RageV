@@ -17,6 +17,8 @@
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/Renderer2D.h"
+#include "RageV/Renderer/Renderer3D.h"
+#include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/Camera.h"
 #include "RageV/Renderer/OrthographicCamera.h"
 #include "RageV/Renderer/OrthographicCameraController.h"

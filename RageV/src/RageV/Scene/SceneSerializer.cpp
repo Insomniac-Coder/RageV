@@ -163,6 +163,31 @@ namespace RageV
 			emitter << YAML::Key << "ColorValue" << color.Color;
 			emitter << YAML::EndMap;
 		}
+
+		if (entity.HasComponent<MeshComponent>())
+		{
+			auto& mesh = entity.GetComponent<MeshComponent>();
+			emitter << YAML::Key << "MeshComponent";
+			emitter << YAML::BeginMap;
+			// By name, not by index: reordering the enum should not silently
+			// turn every saved cube into a sphere.
+			emitter << YAML::Key << "Primitive" << YAML::Value << PrimitiveTypeName(mesh.Primitive);
+			emitter << YAML::Key << "Color" << YAML::Value << mesh.Color;
+			emitter << YAML::EndMap;
+		}
+
+		// Lights were never serialized, so saving and reloading a scene silently
+		// dropped every light in it.
+		if (entity.HasComponent<LightComponent>())
+		{
+			auto& light = entity.GetComponent<LightComponent>();
+			emitter << YAML::Key << "LightComponent";
+			emitter << YAML::BeginMap;
+			emitter << YAML::Key << "Type" << YAML::Value << (int)light.Light.GetLightType();
+			emitter << YAML::Key << "Color" << YAML::Value << light.Light.GetLightColor();
+			emitter << YAML::EndMap;
+		}
+
 		emitter << YAML::EndMap;
 	}
 
@@ -229,6 +254,24 @@ namespace RageV
 				{
 					auto& cc = newEntity.AddComponent<ColorComponent>();
 					cc.Color = color["ColorValue"].as<glm::vec4>();
+				}
+
+				auto mesh = entity["MeshComponent"];
+				if (mesh)
+				{
+					auto& mc = newEntity.AddComponent<MeshComponent>();
+					PrimitiveType primitive = PrimitiveType::Cube;
+					if (PrimitiveTypeFromName(mesh["Primitive"].as<std::string>(), primitive))
+						mc.Primitive = primitive;
+					mc.Color = mesh["Color"].as<glm::vec4>();
+				}
+
+				auto light = entity["LightComponent"];
+				if (light)
+				{
+					auto& lc = newEntity.AddComponent<LightComponent>();
+					lc.Light.SetLightType((Light::LightType)light["Type"].as<int>());
+					lc.Light.GetLightColor() = light["Color"].as<glm::vec3>();
 				}
 			}
 		}

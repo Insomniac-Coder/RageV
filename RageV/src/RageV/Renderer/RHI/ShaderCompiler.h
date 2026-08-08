@@ -32,6 +32,13 @@ namespace RageV::RHI
 		uint32_t LookupTexture(uint32_t set, uint32_t binding) const;
 
 		uint32_t TextureUnitCount = 0;
+
+		// GL has no push constants. SPIRV-Cross re-emits the block as a uniform
+		// buffer and the backend keeps a small buffer behind it, so this is the
+		// binding point that buffer occupies. UINT32_MAX when the shader has no
+		// push constants.
+		uint32_t PushConstantBinding = UINT32_MAX;
+		uint32_t PushConstantSize = 0;
 	};
 
 	class ShaderCompiler

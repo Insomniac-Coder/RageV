@@ -73,10 +73,12 @@ void EditorLayer::OnAttach()
 
 	// Pipelines bake their attachment formats, so the renderer has to be told
 	// what it is drawing into before the first frame.
-	Renderer2D::SetTargetFormats(targetDesc.ColorAttachments[0].Format,
-								 targetDesc.DepthAttachment.Format);
+	Renderer::SetTargetFormats(targetDesc.ColorAttachments[0].Format,
+							   targetDesc.DepthAttachment.Format);
 
-	NewScene();
+	// Open on something rather than an empty void. File > New Scene gives a
+	// blank scene with just a camera.
+	LoadDemoScene();
 }
 
 // -----------------------------------------------------------------------------
@@ -93,6 +95,13 @@ Entity EditorLayer::CreateQuad()
 {
 	Entity entity = CreateEmpty("Quad");
 	entity.AddComponent<ColorComponent>(glm::vec4(0.8f, 0.8f, 0.82f, 1.0f));
+	return entity;
+}
+
+Entity EditorLayer::CreateMesh(PrimitiveType primitive)
+{
+	Entity entity = CreateEmpty(PrimitiveTypeName(primitive));
+	entity.AddComponent<MeshComponent>(primitive);
 	return entity;
 }
 
@@ -218,6 +227,8 @@ void EditorLayer::DrawMenuBar()
 		if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) OpenScene();
 		if (ImGui::MenuItem("Save Scene As...", "Ctrl+S")) SaveScene();
 		ImGui::Separator();
+		if (ImGui::MenuItem("Load Demo Scene")) LoadDemoScene();
+		ImGui::Separator();
 		if (ImGui::MenuItem("Exit", "Alt+F4")) Application::Get().Close();
 		ImGui::EndMenu();
 	}
@@ -242,9 +253,19 @@ void EditorLayer::DrawMenuBar()
 	{
 		if (ImGui::MenuItem("Create Empty", "Ctrl+Shift+N")) CreateEmpty("Entity");
 
+		if (ImGui::BeginMenu("3D Object"))
+		{
+			if (ImGui::MenuItem("Cube"))     CreateMesh(PrimitiveType::Cube);
+			if (ImGui::MenuItem("Sphere"))   CreateMesh(PrimitiveType::Sphere);
+			if (ImGui::MenuItem("Cylinder")) CreateMesh(PrimitiveType::Cylinder);
+			if (ImGui::MenuItem("Plane"))    CreateMesh(PrimitiveType::Plane);
+			if (ImGui::MenuItem("Quad"))     CreateMesh(PrimitiveType::Quad);
+			ImGui::EndMenu();
+		}
+
 		if (ImGui::BeginMenu("2D Object"))
 		{
-			if (ImGui::MenuItem("Quad")) CreateQuad();
+			if (ImGui::MenuItem("Sprite Quad")) CreateQuad();
 			ImGui::EndMenu();
 		}
 
@@ -366,10 +387,10 @@ void EditorLayer::DrawStatisticsPanel()
 	ImGui::SeparatorText("Renderer");
 	if (ImGui::BeginTable("##RendererStats", 2, ImGuiTableFlags_SizingStretchProp))
 	{
-		StatRow("Draw calls", std::to_string(Renderer2D::GetDrawCallCount()));
+		StatRow("Mesh draws", std::to_string(Renderer3D::GetDrawCallCount()));
+		StatRow("Triangles",  std::to_string(Renderer3D::GetTriangleCount()));
+		StatRow("Quad batches", std::to_string(Renderer2D::GetDrawCallCount()));
 		StatRow("Quads",      std::to_string(Renderer2D::GetQuadCount()));
-		StatRow("Vertices",   std::to_string(Renderer2D::GetVerticesCount()));
-		StatRow("Indices",    std::to_string(Renderer2D::GetIndiciesCount()));
 		ImGui::EndTable();
 	}
 
@@ -410,7 +431,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 	ImGui::SeparatorText("Debug");
 
 	if (ImGui::Checkbox("Wireframe", &m_Wireframe))
-		Renderer2D::SetWireframe(m_Wireframe);
+		Renderer::SetWireframe(m_Wireframe);
 	HelpMarker("Rebuilds the pipeline with a line polygon mode. Polygon mode is baked into "
 			   "the pipeline on Vulkan, so this is not a free state toggle.");
 
@@ -635,6 +656,66 @@ void EditorLayer::NewScene()
 	auto& cameraComponent = camera.AddComponent<CameraComponent>();
 	cameraComponent.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
 	camera.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 6.0f };
+}
+
+// A scene worth opening the editor to: a ground plane, a row of primitives and
+// two coloured lights from opposite sides so the shading reads as shading
+// rather than flat colour.
+void EditorLayer::LoadDemoScene()
+{
+	NewScene();
+
+	Entity camera = m_Scene->GetPrimaryCameraEntity();
+	if (camera)
+	{
+		auto& transform = camera.GetComponent<TransformComponent>();
+		transform.Position = { 0.0f, 2.5f, 8.0f };
+		transform.Rotation = glm::radians(glm::vec3(-12.0f, 0.0f, 0.0f));
+	}
+
+	auto place = [&](PrimitiveType primitive, const glm::vec3& position,
+					 const glm::vec3& scale, const glm::vec4& color, const char* name)
+	{
+		Entity entity = m_Scene->CreateEntity(name);
+		auto& mesh = entity.AddComponent<MeshComponent>(primitive);
+		mesh.Color = color;
+		auto& transform = entity.GetComponent<TransformComponent>();
+		transform.Position = position;
+		transform.Scale = scale;
+		return entity;
+	};
+
+	place(PrimitiveType::Plane, { 0.0f, -1.0f, 0.0f }, { 20.0f, 1.0f, 20.0f },
+		  { 0.16f, 0.16f, 0.18f, 1.0f }, "Ground");
+
+	place(PrimitiveType::Cube,     { -3.0f, 0.0f,  0.0f }, glm::vec3(1.5f),
+		  { 0.85f, 0.17f, 0.19f, 1.0f }, "Cube");
+	place(PrimitiveType::Sphere,   {  0.0f, 0.1f,  0.0f }, glm::vec3(1.8f),
+		  { 0.80f, 0.80f, 0.84f, 1.0f }, "Sphere");
+	place(PrimitiveType::Cylinder, {  3.0f, 0.0f,  0.0f }, glm::vec3(1.4f),
+		  { 0.30f, 0.32f, 0.38f, 1.0f }, "Cylinder");
+
+	// Smaller cubes behind, to give the depth buffer something to sort.
+	place(PrimitiveType::Cube, { -1.6f, -0.5f, -3.0f }, glm::vec3(0.8f),
+		  { 0.45f, 0.12f, 0.14f, 1.0f }, "Cube Small");
+	place(PrimitiveType::Cube, {  1.6f, -0.5f, -3.5f }, glm::vec3(0.8f),
+		  { 0.25f, 0.26f, 0.30f, 1.0f }, "Cube Small 2");
+
+	// A warm key light and a cool fill from the opposite side: a single white
+	// light flattens everything, which is what makes untextured primitives look
+	// like a debug view rather than a scene.
+	Entity key = m_Scene->CreateEntity("Key Light");
+	key.AddComponent<LightComponent>().Light.SetLightType(Light::LightType::Point);
+	key.GetComponent<LightComponent>().Light.GetLightColor() = { 1.0f, 0.85f, 0.7f };
+	key.GetComponent<TransformComponent>().Position = { 4.0f, 5.0f, 4.0f };
+
+	Entity fill = m_Scene->CreateEntity("Fill Light");
+	fill.AddComponent<LightComponent>().Light.SetLightType(Light::LightType::Point);
+	fill.GetComponent<LightComponent>().Light.GetLightColor() = { 0.35f, 0.45f, 0.75f };
+	fill.GetComponent<TransformComponent>().Position = { -5.0f, 3.0f, -2.0f };
+
+	m_SceneHierarchyPanel.SetSelectedEntity({});
+	RV_INFO("Demo scene loaded");
 }
 
 void EditorLayer::OpenScene()

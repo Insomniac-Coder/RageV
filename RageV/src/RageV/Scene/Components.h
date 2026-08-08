@@ -6,6 +6,7 @@
 #include "SceneCamera.h"
 #include "ScriptableEntity.h"
 #include "RageV/Renderer/Light.h"
+#include "RageV/Renderer/Mesh.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
@@ -66,6 +67,19 @@ namespace RageV
 		LightComponent() = default;
 		LightComponent(const LightComponent&) = default;
 		LightComponent(const RageV::Light& light) : Light(light) {}
+	};
+
+	// 3D geometry. The mesh itself is resolved from Primitive on demand rather
+	// than stored, so the component stays trivially serializable and a scene
+	// file does not embed vertex data.
+	struct MeshComponent
+	{
+		PrimitiveType Primitive = PrimitiveType::Cube;
+		glm::vec4 Color{ 0.78f, 0.78f, 0.80f, 1.0f };
+
+		MeshComponent() = default;
+		MeshComponent(const MeshComponent&) = default;
+		MeshComponent(PrimitiveType primitive) : Primitive(primitive) {}
 	};
 
 	struct NativeScriptComponent

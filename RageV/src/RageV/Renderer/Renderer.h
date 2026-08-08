@@ -23,5 +23,13 @@ namespace RageV
 		static bool HasDevice();
 
 		static void OnWindowResize(unsigned int width, unsigned int height);
+
+		// Applied to both the 2D and 3D renderers, since a wireframe view that
+		// only covered half the scene would be misleading.
+		static void SetWireframe(bool enabled);
+		static bool IsWireframe();
+
+		// Formats of whatever both renderers are currently drawing into.
+		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
 	};
 }

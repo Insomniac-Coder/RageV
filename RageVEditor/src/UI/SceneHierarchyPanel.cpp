@@ -252,6 +252,11 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 				m_Selected.AddComponent<LightComponent>();
 				ImGui::CloseCurrentPopup();
 			}
+			if (ImGui::MenuItem("Mesh Component"))
+			{
+				m_Selected.AddComponent<MeshComponent>();
+				ImGui::CloseCurrentPopup();
+			}
 			ImGui::EndPopup();
 		}
 		ImGui::PopItemWidth();
@@ -328,6 +333,49 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 		}
 	);
 
+	DrawComponent<MeshComponent>("Mesh", entity, [](auto& component)
+		{
+			const char* primitives[] = { "Cube", "Sphere", "Plane", "Cylinder", "Quad" };
+			const char* current = PrimitiveTypeName(component.Primitive);
+
+			ImGui::PushID("Mesh");
+			ImGui::Columns(2);
+			ImGui::SetColumnWidth(0, 150.f);
+			ImGui::Text("Primitive");
+			ImGui::NextColumn();
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+			if (ImGui::BeginCombo("##Primitive", current))
+			{
+				for (int i = 0; i < IM_ARRAYSIZE(primitives); i++)
+				{
+					PrimitiveType type;
+					if (!PrimitiveTypeFromName(primitives[i], type))
+						continue;
+
+					const bool selected = component.Primitive == type;
+					if (ImGui::Selectable(primitives[i], selected))
+						component.Primitive = type;
+					if (selected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::Columns(1);
+			ImGui::PopStyleVar();
+
+			ImGui::Columns(2);
+			ImGui::SetColumnWidth(0, 150.f);
+			ImGui::Text("Base Colour");
+			ImGui::NextColumn();
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
+			ImGui::ColorEdit4("##MeshColor", glm::value_ptr(component.Color));
+			ImGui::Columns(1);
+			ImGui::PopStyleVar();
+			ImGui::PopID();
+			ImGui::Spacing();
+		}
+	);
+
 	DrawComponent<CameraComponent>("Camera", entity, [](auto& component)
 		{
 			const char* projectionTypes[] = { "Perspective", "Orthographic" };
@@ -335,6 +383,32 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 
 			ImGui::Checkbox("Primary", &component.isPrimary);
 			ImGui::Checkbox("Fixed Aspect Ratio", &component.fixedAspectRatio);
+
+			// The projection type is the 2D/3D switch, so it gets a pair of
+			// segmented buttons rather than being buried in the combo below.
+			// Perspective is 3D, orthographic is 2D.
+			ImGui::Spacing();
+			{
+				const bool is3D = component.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective;
+				const float width = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+
+				if (is3D) ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Color::Accent);
+				if (ImGui::Button("3D", ImVec2(width, 0.0f)))
+					component.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
+				if (is3D) ImGui::PopStyleColor();
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Perspective projection.");
+
+				ImGui::SameLine();
+
+				if (!is3D) ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Color::Accent);
+				if (ImGui::Button("2D", ImVec2(width, 0.0f)))
+					component.Camera.SetProjectionType(SceneCamera::ProjectionType::Orthographic);
+				if (!is3D) ImGui::PopStyleColor();
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Orthographic projection.");
+			}
+			ImGui::Spacing();
 
 			ImGui::PushID("ProjectionType");
 			ImGui::Columns(2);

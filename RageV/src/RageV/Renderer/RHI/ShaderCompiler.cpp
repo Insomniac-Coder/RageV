@@ -478,6 +478,15 @@ namespace RageV::RHI
 			}
 		}
 
+		// Push constants become a uniform buffer on GL, so they need a binding
+		// point of their own after the real ones.
+		if (!reflection.PushConstants.empty())
+		{
+			map.PushConstantBinding = nextUniformBuffer++;
+			for (const auto& range : reflection.PushConstants)
+				map.PushConstantSize = std::max(map.PushConstantSize, range.Offset + range.Size);
+		}
+
 		map.TextureUnitCount = nextTextureUnit;
 		return map;
 	}
@@ -497,6 +506,9 @@ namespace RageV::RHI
 			// binding points survive.
 			options.enable_420pack_extension = true;
 			options.emit_uniform_buffer_as_plain_uniforms = false;
+			// GL has no push-constant concept, so the block is re-emitted as a
+			// uniform buffer the backend fills per draw.
+			options.emit_push_constant_as_uniform_buffer = true;
 			compiler.set_common_options(options);
 
 			const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
@@ -539,6 +551,12 @@ namespace RageV::RHI
 			{
 				const auto [set, binding] = setAndBinding(resource);
 				rewrite(resource, bindings.LookupTexture(set, binding));
+			}
+
+			for (const auto& resource : resources.push_constant_buffers)
+			{
+				compiler.unset_decoration(resource.id, spv::DecorationDescriptorSet);
+				compiler.set_decoration(resource.id, spv::DecorationBinding, bindings.PushConstantBinding);
 			}
 
 			return compiler.compile();

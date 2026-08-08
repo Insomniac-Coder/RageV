@@ -80,9 +80,13 @@ namespace RageV::GL
 
 		uint32_t GetProgram() const { return m_Program; }
 		const FlatBindingMap& GetBindings() const { return m_Bindings; }
+		// Backing store for the push-constant block, which SPIRV-Cross re-emits
+		// as a uniform buffer. Zero when the shader declares none.
+		uint32_t GetPushConstantBuffer() const { return m_PushConstantBuffer; }
 
 	private:
 		uint32_t       m_Program = 0;
+		uint32_t       m_PushConstantBuffer = 0;
 		FlatBindingMap m_Bindings;
 	};
 
@@ -99,6 +103,7 @@ namespace RageV::GL
 		uint32_t GetProgram() const;
 		const FlatBindingMap& GetBindings() const;
 		uint32_t GetTopology() const { return m_GLTopology; }
+		uint32_t GetPushConstantBuffer() const;
 
 	private:
 		void BuildVertexArray();
@@ -192,9 +197,6 @@ namespace RageV::GL
 		OpenGLPipelineRHI* m_BoundPipeline = nullptr;
 		uint32_t m_IndexType = 0;
 		uint64_t m_IndexOffset = 0;
-		// GL has no push constants; they are emulated with a uniform buffer
-		// kept per pipeline layout.
-		uint32_t m_PushConstantBuffer = 0;
 	};
 
 	class OpenGLDevice final : public RHIDevice

@@ -366,10 +366,22 @@ namespace RageV::GL
 
 		if (!compiled.Name.empty())
 			glObjectLabel(GL_PROGRAM, m_Program, -1, compiled.Name.c_str());
+
+		if (m_Bindings.PushConstantSize > 0)
+		{
+			// Sized from reflection and rewritten per draw, so it is dynamic
+			// storage rather than immutable.
+			glCreateBuffers(1, &m_PushConstantBuffer);
+			glNamedBufferStorage(m_PushConstantBuffer, (GLsizeiptr)m_Bindings.PushConstantSize,
+								 nullptr, GL_DYNAMIC_STORAGE_BIT);
+			glObjectLabel(GL_BUFFER, m_PushConstantBuffer, -1, (compiled.Name + ".pushconstants").c_str());
+		}
 	}
 
 	OpenGLShaderRHI::~OpenGLShaderRHI()
 	{
+		if (m_PushConstantBuffer)
+			glDeleteBuffers(1, &m_PushConstantBuffer);
 		glDeleteProgram(m_Program);
 	}
 
@@ -400,6 +412,11 @@ namespace RageV::GL
 	const FlatBindingMap& OpenGLPipelineRHI::GetBindings() const
 	{
 		return std::static_pointer_cast<OpenGLShaderRHI>(m_Desc.Shader)->GetBindings();
+	}
+
+	uint32_t OpenGLPipelineRHI::GetPushConstantBuffer() const
+	{
+		return std::static_pointer_cast<OpenGLShaderRHI>(m_Desc.Shader)->GetPushConstantBuffer();
 	}
 
 	void OpenGLPipelineRHI::BuildVertexArray()
@@ -806,13 +823,23 @@ namespace RageV::GL
 		m_IndexOffset = offset;
 	}
 
-	void OpenGLCommandListRHI::PushConstants(ShaderStage, uint32_t, uint32_t, const void*)
+	void OpenGLCommandListRHI::PushConstants(ShaderStage, uint32_t offset, uint32_t size, const void* data)
 	{
-		// Not implemented: nothing in the engine uses push constants yet, and
-		// GL has no direct equivalent. Emulating them means a dedicated uniform
-		// buffer per pipeline layout, which is only worth adding alongside the
-		// first shader that needs it.
-		RV_CORE_WARN("PushConstants is not implemented on the OpenGL backend");
+		RV_CORE_ASSERT(m_BoundPipeline, "PushConstants requires a bound pipeline");
+
+		const uint32_t buffer = m_BoundPipeline->GetPushConstantBuffer();
+		if (!buffer)
+		{
+			RV_CORE_WARN("Pipeline '{0}' declares no push constants", m_BoundPipeline->GetDesc().Name);
+			return;
+		}
+
+		// GL has no push constants, so this is a small uniform buffer rewritten
+		// per draw. The driver renames the storage behind the scenes when a
+		// previous draw still references it, so it is correct -- but it is a
+		// buffer update per draw, not the free path Vulkan gives.
+		glNamedBufferSubData(buffer, (GLintptr)offset, (GLsizeiptr)size, data);
+		glBindBufferBase(GL_UNIFORM_BUFFER, m_BoundPipeline->GetBindings().PushConstantBinding, buffer);
 	}
 
 	void OpenGLCommandListRHI::Draw(uint32_t vertexCount, uint32_t instanceCount,
