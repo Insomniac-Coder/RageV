@@ -413,7 +413,77 @@ namespace RageV::RHI
 		}
 	}
 
+	uint32_t FlatBindingMap::LookupUniformBuffer(uint32_t set, uint32_t binding) const
+	{
+		const auto it = UniformBuffers.find(Key(set, binding));
+		return it == UniformBuffers.end() ? UINT32_MAX : it->second;
+	}
+
+	uint32_t FlatBindingMap::LookupStorageBuffer(uint32_t set, uint32_t binding) const
+	{
+		const auto it = StorageBuffers.find(Key(set, binding));
+		return it == StorageBuffers.end() ? UINT32_MAX : it->second;
+	}
+
+	uint32_t FlatBindingMap::LookupTexture(uint32_t set, uint32_t binding) const
+	{
+		const auto it = Textures.find(Key(set, binding));
+		return it == Textures.end() ? UINT32_MAX : it->second;
+	}
+
+	FlatBindingMap ShaderCompiler::BuildFlatBindingMap(const ShaderReflection& reflection)
+	{
+		FlatBindingMap map;
+
+		// Walk sets and bindings in ascending order so the assignment is
+		// deterministic and identical everywhere it is recomputed.
+		std::vector<const ResourceSetLayoutDesc*> sets;
+		sets.reserve(reflection.Sets.size());
+		for (const auto& set : reflection.Sets)
+			sets.push_back(&set);
+		std::sort(sets.begin(), sets.end(),
+				  [](const ResourceSetLayoutDesc* a, const ResourceSetLayoutDesc* b) { return a->Set < b->Set; });
+
+		uint32_t nextUniformBuffer = 0;
+		uint32_t nextStorageBuffer = 0;
+		uint32_t nextTextureUnit = 0;
+
+		for (const ResourceSetLayoutDesc* set : sets)
+		{
+			std::vector<const ResourceBinding*> bindings;
+			bindings.reserve(set->Bindings.size());
+			for (const auto& binding : set->Bindings)
+				bindings.push_back(&binding);
+			std::sort(bindings.begin(), bindings.end(),
+					  [](const ResourceBinding* a, const ResourceBinding* b) { return a->Binding < b->Binding; });
+
+			for (const ResourceBinding* binding : bindings)
+			{
+				const uint32_t key = FlatBindingMap::Key(set->Set, binding->Binding);
+				switch (binding->Type)
+				{
+					case ResourceType::UniformBuffer:
+						map.UniformBuffers[key] = nextUniformBuffer++;
+						break;
+					case ResourceType::StorageBuffer:
+						map.StorageBuffers[key] = nextStorageBuffer++;
+						break;
+					case ResourceType::CombinedImageSampler:
+					case ResourceType::StorageImage:
+						map.Textures[key] = nextTextureUnit;
+						// An array consumes one unit per element.
+						nextTextureUnit += std::max(1u, binding->Count);
+						break;
+				}
+			}
+		}
+
+		map.TextureUnitCount = nextTextureUnit;
+		return map;
+	}
+
 	std::optional<std::string> ShaderCompiler::CrossCompileToGLSL(const CompiledStage& stage,
+																  const FlatBindingMap& bindings,
 																  uint32_t glslVersion)
 	{
 		try
@@ -429,24 +499,47 @@ namespace RageV::RHI
 			options.emit_uniform_buffer_as_plain_uniforms = false;
 			compiler.set_common_options(options);
 
-			// GL has one flat binding-point namespace per resource kind, so a
-			// (set, binding) pair has to collapse to a single number. Sets are
-			// spaced far enough apart that they cannot collide.
-			constexpr uint32_t kBindingsPerSet = 16;
 			const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
-			auto flatten = [&](const spirv_cross::Resource& resource)
+			auto rewrite = [&](const spirv_cross::Resource& resource, uint32_t assigned)
 			{
-				const uint32_t set = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
-				const uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
+				if (assigned == UINT32_MAX)
+				{
+					RV_CORE_WARN("No flat binding assigned for '{0}'", resource.name);
+					return;
+				}
 				compiler.unset_decoration(resource.id, spv::DecorationDescriptorSet);
-				compiler.set_decoration(resource.id, spv::DecorationBinding, set * kBindingsPerSet + binding);
+				compiler.set_decoration(resource.id, spv::DecorationBinding, assigned);
 			};
 
-			for (const auto& resource : resources.uniform_buffers)  flatten(resource);
-			for (const auto& resource : resources.storage_buffers)  flatten(resource);
-			for (const auto& resource : resources.sampled_images)   flatten(resource);
-			for (const auto& resource : resources.storage_images)   flatten(resource);
+			auto setAndBinding = [&](const spirv_cross::Resource& resource)
+			{
+				return std::pair<uint32_t, uint32_t>{
+					compiler.get_decoration(resource.id, spv::DecorationDescriptorSet),
+					compiler.get_decoration(resource.id, spv::DecorationBinding)
+				};
+			};
+
+			for (const auto& resource : resources.uniform_buffers)
+			{
+				const auto [set, binding] = setAndBinding(resource);
+				rewrite(resource, bindings.LookupUniformBuffer(set, binding));
+			}
+			for (const auto& resource : resources.storage_buffers)
+			{
+				const auto [set, binding] = setAndBinding(resource);
+				rewrite(resource, bindings.LookupStorageBuffer(set, binding));
+			}
+			for (const auto& resource : resources.sampled_images)
+			{
+				const auto [set, binding] = setAndBinding(resource);
+				rewrite(resource, bindings.LookupTexture(set, binding));
+			}
+			for (const auto& resource : resources.storage_images)
+			{
+				const auto [set, binding] = setAndBinding(resource);
+				rewrite(resource, bindings.LookupTexture(set, binding));
+			}
 
 			return compiler.compile();
 		}

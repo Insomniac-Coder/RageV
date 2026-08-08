@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "RHIDevice.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/OpenGL/OpenGLRHI.h"
 
 namespace RageV::RHI
 {
@@ -22,9 +23,15 @@ namespace RageV::RHI
 			}
 			case Backend::OpenGL:
 			{
-				RV_CORE_ERROR("The OpenGL RHI backend is not implemented yet; "
-							  "the legacy OpenGL renderer is still in use for that path");
-				return nullptr;
+				try
+				{
+					return std::make_unique<GL::OpenGLDevice>(desc);
+				}
+				catch (const std::exception& e)
+				{
+					RV_CORE_ERROR("OpenGL device creation failed: {0}", e.what());
+					return nullptr;
+				}
 			}
 		}
 		return nullptr;

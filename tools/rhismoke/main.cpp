@@ -1,10 +1,10 @@
-// Vulkan backend smoke test. Brings up a window, creates the device, compiles
-// the real quad shader, builds a pipeline and descriptor sets from its
-// reflection, and renders a fixed number of frames. Exercises the whole path
-// -- swapchain, frames in flight, staging uploads, descriptor updates, dynamic
-// rendering and present -- without needing the editor.
+// RHI backend smoke test. Brings up a window, creates the device, compiles the
+// real quad shader, builds a pipeline and resource sets from its reflection,
+// and renders a fixed number of frames. Exercises the whole path -- swapchain,
+// frames in flight, staging uploads, resource-set updates and present --
+// against either backend, without needing the editor.
 //
-//   vksmoke [frameCount]
+//   rhismoke [frameCount] [--rhi=vulkan|opengl]
 #include <rvpch.h>
 #include "RageV/Core/Log.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
@@ -47,7 +47,19 @@ int main(int argc, char** argv)
 {
 	Log::Init();
 
-	const int frameCount = argc > 1 ? atoi(argv[1]) : 120;
+	int frameCount = 120;
+	Backend backend = Backend::Vulkan;
+
+	for (int i = 1; i < argc; i++)
+	{
+		const std::string argument = argv[i];
+		if (argument == "--rhi=opengl" || argument == "--rhi=gl")
+			backend = Backend::OpenGL;
+		else if (argument == "--rhi=vulkan" || argument == "--rhi=vk")
+			backend = Backend::Vulkan;
+		else if (isdigit((unsigned char)argument[0]))
+			frameCount = atoi(argument.c_str());
+	}
 
 	if (!glfwInit())
 	{
@@ -55,8 +67,17 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "RageV Vulkan smoke test", nullptr, nullptr);
+	// Vulkan owns presentation itself, so GLFW must not create a GL context.
+	if (backend == Backend::Vulkan)
+		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	else
+	{
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	}
+
+	GLFWwindow* window = glfwCreateWindow(1280, 720, "RageV RHI smoke test", nullptr, nullptr);
 	if (!window)
 	{
 		RV_CORE_ERROR("window creation failed");
@@ -64,7 +85,7 @@ int main(int argc, char** argv)
 	}
 
 	DeviceDesc deviceDesc;
-	deviceDesc.Backend = Backend::Vulkan;
+	deviceDesc.Backend = backend;
 	deviceDesc.Window = window;
 	deviceDesc.Width = 1280;
 	deviceDesc.Height = 720;

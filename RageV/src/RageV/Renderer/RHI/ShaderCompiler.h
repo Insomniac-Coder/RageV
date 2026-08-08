@@ -12,6 +12,28 @@
 
 namespace RageV::RHI
 {
+	// Vulkan addresses resources by (set, binding); OpenGL has one flat
+	// namespace per resource type. Collapsing them densely from 0 per type
+	// matters rather than being cosmetic: GL_MAX_TEXTURE_IMAGE_UNITS is
+	// commonly 32, so any scheme that spaces sets apart -- set * 16 + binding,
+	// say -- pushes the 32-element sampler array in the quad shader past the
+	// limit and the shader fails to link.
+	struct FlatBindingMap
+	{
+		static uint32_t Key(uint32_t set, uint32_t binding) { return (set << 16) | binding; }
+
+		std::unordered_map<uint32_t, uint32_t> UniformBuffers;
+		std::unordered_map<uint32_t, uint32_t> StorageBuffers;
+		// Value is the *first* unit; an array of N samplers occupies N of them.
+		std::unordered_map<uint32_t, uint32_t> Textures;
+
+		uint32_t LookupUniformBuffer(uint32_t set, uint32_t binding) const;
+		uint32_t LookupStorageBuffer(uint32_t set, uint32_t binding) const;
+		uint32_t LookupTexture(uint32_t set, uint32_t binding) const;
+
+		uint32_t TextureUnitCount = 0;
+	};
+
 	class ShaderCompiler
 	{
 	public:
@@ -25,10 +47,16 @@ namespace RageV::RHI
 
 		static std::optional<CompiledShader> Compile(const ShaderDesc& desc);
 
-		// SPIR-V -> GLSL for the OpenGL backend. Rewrites descriptor bindings
-		// into the flat binding-point namespace GL uses.
+		// SPIR-V -> GLSL for the OpenGL backend, with descriptor bindings
+		// rewritten into GL's flat binding namespace.
 		static std::optional<std::string> CrossCompileToGLSL(const CompiledStage& stage,
+															const FlatBindingMap& bindings,
 															uint32_t glslVersion = 450);
+
+		// Assigns the flat binding points. Must be computed once per shader and
+		// shared by the GLSL generation and the resource-set binding code, or
+		// the two disagree about where a resource lives.
+		static FlatBindingMap BuildFlatBindingMap(const ShaderReflection& reflection);
 
 		// Compiled SPIR-V is cached here keyed by source hash. Empty disables
 		// caching.
