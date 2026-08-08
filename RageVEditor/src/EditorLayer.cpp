@@ -5,8 +5,8 @@
 #include "RageV/Utils/PlatformUtils.h"
 #include "ImGuizmo.h"
 #include "glm/gtc/type_ptr.hpp"
-#define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/matrix_decompose.hpp"
+#include "glm/gtx/component_wise.hpp"
 #include "RageV/Renderer/Chunk.h"
 
 using namespace RageV;
@@ -52,7 +52,7 @@ namespace
 }
 
 EditorLayer::EditorLayer()
-	: Layer("EditorLayer"), m_CameraController(1270.f / 720.f, true)
+	: Layer("EditorLayer"), m_EditorCamera(45.0f, 1280.0f / 720.0f, 0.1f, 1000.0f)
 {
 }
 
@@ -154,8 +154,10 @@ void EditorLayer::OnUpdate(Timestep ts)
 		m_FrameHistoryIndex = (m_FrameHistoryIndex + 1) % IM_ARRAYSIZE(m_FrameHistory);
 	}
 
-	if (m_IsViewportFocused)
-		m_CameraController.OnUpdate(ts);
+	// Navigation only responds over the viewport, so a drag inside a panel
+	// does not also fly the camera.
+	m_EditorCamera.SetActive(m_IsViewportHovered || m_IsViewportFocused);
+	m_EditorCamera.OnUpdate(ts);
 
 	RHI::RHICommandList* cmd = Renderer::GetCommandList();
 	if (!cmd)
@@ -171,7 +173,14 @@ void EditorLayer::OnUpdate(Timestep ts)
 	cmd->PushDebugGroup("Scene");
 	cmd->BeginRenderPass(pass);
 
+	// Simulation and rendering are separate calls now. The play/edit split
+	// lands on the first of these; the second only chooses a viewpoint.
 	m_Scene->OnUpdate(ts);
+
+	if (m_UseEditorCamera)
+		m_Scene->OnRenderEditor(m_EditorCamera);
+	else
+		m_Scene->OnRenderRuntime();
 
 	cmd->EndRenderPass();
 	cmd->PopDebugGroup();
@@ -366,6 +375,34 @@ void EditorLayer::DrawToolbar()
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Hold Ctrl while dragging for the same effect.");
 
+	// Which camera the viewport draws through. Right-aligned because it
+	// describes the view rather than the edit operation.
+	{
+		const char* label = m_UseEditorCamera ? "Editor Cam" : "Game Cam";
+		const float width = 92.0f;
+		ImGui::SameLine(ImGui::GetContentRegionAvail().x - width + ImGui::GetCursorPosX());
+
+		if (!m_UseEditorCamera)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Color::Accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Color::AccentHover);
+		}
+		if (ImGui::Button(label, ImVec2(width, 0.0f)))
+			m_UseEditorCamera = !m_UseEditorCamera;
+		if (!m_UseEditorCamera)
+			ImGui::PopStyleColor(2);
+
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip(m_UseEditorCamera
+				? "Viewport draws through the editor camera.\n\n"
+				  "Alt+LMB orbit, MMB pan, RMB fly (WASD, QE, Shift),\n"
+				  "wheel zoom, F frames the selection.\n\n"
+				  "Click to preview the scene's primary camera instead."
+				: "Viewport draws through the scene's primary camera.\n\n"
+				  "Nothing renders if the scene has no camera entity.\n"
+				  "Click to return to the editor camera.");
+	}
+
 	ImGui::EndChild();
 	ImGui::PopStyleVar(2);
 }
@@ -484,6 +521,7 @@ void EditorLayer::DrawViewportPanel()
 		// Only on an actual change: this recomputes every camera's projection
 		// and used to run on every single frame.
 		m_Scene->OnViewportResize(viewportSize.x, viewportSize.y);
+		m_EditorCamera.SetViewportSize(viewportSize.x, viewportSize.y);
 	}
 
 	// GL hands back a texture name, Vulkan a descriptor set the ImGui backend
@@ -510,18 +548,30 @@ void EditorLayer::DrawGizmo()
 	if (!selected || !selected.HasComponent<TransformComponent>())
 		return;
 
-	Entity cameraEntity = m_Scene->GetPrimaryCameraEntity();
-	if (!cameraEntity)
-		return;
+	// The gizmo has to be projected with whatever the viewport is actually
+	// showing, or the handles land somewhere other than the object.
+	glm::mat4 cameraView;
+	glm::mat4 cameraProjection;
+
+	if (m_UseEditorCamera)
+	{
+		cameraView = m_EditorCamera.GetView();
+		cameraProjection = m_EditorCamera.GetProjection();
+	}
+	else
+	{
+		Entity cameraEntity = m_Scene->GetPrimaryCameraEntity();
+		if (!cameraEntity)
+			return;
+
+		cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
+		cameraProjection = cameraEntity.GetComponent<CameraComponent>().Camera.GetProjection();
+	}
 
 	ImGuizmo::SetOrthographic(false);
 	ImGuizmo::SetDrawlist();
 	ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
 					  (float)ImGui::GetWindowWidth(), (float)ImGui::GetWindowHeight());
-
-	const auto& camera = cameraEntity.GetComponent<CameraComponent>();
-	glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
-	const glm::mat4 cameraProjection = camera.Camera.GetProjection();
 
 	auto& tc = selected.GetComponent<TransformComponent>();
 	glm::mat4 transform = tc.GetTransform();
@@ -598,7 +648,7 @@ void EditorLayer::DrawAboutPopup()
 // -----------------------------------------------------------------------------
 void EditorLayer::OnEvent(Event& e)
 {
-	m_CameraController.OnEvent(e);
+	m_EditorCamera.OnEvent(e);
 
 	EventDispatcher dispatcher(e);
 	dispatcher.Dispatch<KeyPressedEvent>(RV_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
@@ -631,6 +681,9 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 		case RV_KEY_E: if (!control && !ImGui::GetIO().WantTextInput) { m_GizmoOperation = ImGuizmo::OPERATION::ROTATE;    return true; } break;
 		case RV_KEY_R: if (!control && !ImGui::GetIO().WantTextInput) { m_GizmoOperation = ImGuizmo::OPERATION::SCALE;     return true; } break;
 
+		// Frame the selection, the one navigation shortcut every editor shares.
+		case RV_KEY_F: if (!control && !ImGui::GetIO().WantTextInput) { FocusSelection(); return true; } break;
+
 		case RV_KEY_DELETE:
 		{
 			if (Entity selected = m_SceneHierarchyPanel.GetSelectedEntity())
@@ -644,6 +697,22 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 	}
 
 	return false;
+}
+
+void EditorLayer::FocusSelection()
+{
+	Entity selected = m_SceneHierarchyPanel.GetSelectedEntity();
+	if (!selected || !selected.HasComponent<TransformComponent>())
+	{
+		m_EditorCamera.Focus({ 0.0f, 0.0f, 0.0f }, 5.0f);
+		return;
+	}
+
+	const auto& transform = selected.GetComponent<TransformComponent>();
+	// Approximate the object's extent from its scale. Real bounds need mesh
+	// AABBs, which arrive with the asset system.
+	const float radius = glm::compMax(glm::abs(transform.Scale)) * 1.2f;
+	m_EditorCamera.Focus(transform.Position, radius);
 }
 
 void EditorLayer::NewScene()

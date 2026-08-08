@@ -41,8 +41,15 @@ private:
 	RageV::Entity CreateCamera();
 	void LoadDemoScene();
 
+	// Frames the selection, or the origin when nothing is selected.
+	void FocusSelection();
+
 private:
-	RageV::OrthographicCameraController m_CameraController;
+	// The viewport's own camera. The scene's primary CameraComponent is still
+	// used, but only when the viewport is explicitly switched to it -- a scene
+	// no longer has to contain a camera to be visible.
+	RageV::EditorCamera m_EditorCamera;
+	bool m_UseEditorCamera = true;
 	// The scene renders here; the viewport panel samples it. Replaces the
 	// GL-only FrameBuffer so the same code works on either backend.
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_SceneTarget;

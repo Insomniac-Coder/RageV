@@ -1,7 +1,6 @@
 #pragma once
 #include "glm/glm.hpp"
-#include "OrthographicCamera.h"
-#include "Cameranew.h"
+#include "Camera.h"
 #include "Light.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
 
@@ -23,8 +22,7 @@ namespace RageV
 		static void SetWireframe(bool enabled);
 		static bool IsWireframe();
 
-		static void BeginScene(const OrthographicCamera& camera);
-		static void BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightList& lights = {});
+		static void BeginScene(const Camera& camera, const glm::mat4& transform, const LightList& lights = {});
 		static void EndScene();
 
 		static void DrawQuad(const glm::mat4& transform, const glm::vec4& color);

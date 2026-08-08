@@ -6,16 +6,33 @@
 #include "RageV/Renderer/Renderer2D.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/EditorCamera.h"
 
 namespace RageV
 {
 	Scene::Scene()
 	{
+		m_Registry.on_destroy<NativeScriptComponent>().connect<&Scene::OnNativeScriptDestroyed>(this);
 	}
 
 	Scene::~Scene()
 	{
+		// Explicit, in the destructor body, rather than left to the registry's
+		// own destructor: this way the on_destroy handler runs while every
+		// member is still alive. Without it script instances leaked -- nothing
+		// in the engine ever called the destroy hooks at all.
+		m_Registry.clear();
+	}
 
+	void Scene::OnNativeScriptDestroyed(entt::registry& registry, entt::entity handle)
+	{
+		auto& component = registry.get<NativeScriptComponent>(handle);
+		if (!component.Instance)
+			return;
+
+		component.Instance->OnDestroy();
+		if (component.DestroyScript)
+			component.DestroyScript(&component);
 	}
 
 	Entity Scene::GetPrimaryCameraEntity()
@@ -23,11 +40,12 @@ namespace RageV
 		auto view = m_Registry.view<CameraComponent>();
 		for (auto item : view)
 		{
-			auto& camera = view.get<CameraComponent>(item);
-
-			return { item,  this };
+			// Used to return the first camera whether or not it was primary,
+			// which disagreed with what the renderer picked.
+			if (view.get<CameraComponent>(item).isPrimary)
+				return { item, this };
 		}
-		
+
 		return {};
 	}
 
@@ -56,52 +74,63 @@ namespace RageV
 		return entity;
 	}
 
-	void Scene::DeleteEntity(Entity& entity)
+	void Scene::DeleteEntity(Entity entity)
 	{
+		if (!entity)
+			return;
 		m_Registry.destroy(entity);
 	}
 
 	void Scene::OnUpdate(Timestep ts)
 	{
-		m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nscript)
+		m_Registry.view<NativeScriptComponent>().each([&](auto handle, NativeScriptComponent& script)
 			{
-				if (!nscript.m_ScriptableEntity)
+				if (!script.Instance)
 				{
-					nscript.OnInstantiateFunction();
-					nscript.m_ScriptableEntity->m_Entity = Entity{ entity, this };
-					nscript.OnCreateFunction(nscript.m_ScriptableEntity);
+					if (!script.InstantiateScript)
+						return;
+
+					script.Instance = script.InstantiateScript();
+					script.Instance->m_Entity = Entity{ handle, this };
+					script.Instance->OnCreate();
 				}
 
-				nscript.OnUpdateFunction(nscript.m_ScriptableEntity, ts);
+				script.Instance->OnUpdate(ts);
 			}
 		);
+	}
 
+	void Scene::OnRenderRuntime()
+	{
 		auto view = m_Registry.view<CameraComponent, TransformComponent>();
-		TransformComponent cameraTransform;
-		Cameranew* mainCamera = nullptr;
 
 		for (auto& item : view)
 		{
 			auto [camera, transform] = view.get<CameraComponent, TransformComponent>(item);
-			if (camera.isPrimary)
-			{
-				mainCamera = &camera.Camera;
-				cameraTransform = transform;
-				break;
-			}
+			if (!camera.isPrimary)
+				continue;
+
+			OnRender(camera.Camera, transform.GetTransform());
+			return;
 		}
 
-		// A scene with no primary camera used to dereference an uninitialised
-		// pointer below. There is nothing to render from, so stop here.
-		if (!mainCamera)
-			return;
+		// No primary camera: there is nothing to render from. This used to
+		// dereference an uninitialised pointer.
+	}
 
-		auto group2 = m_Registry.view<TransformComponent, LightComponent>();
+	void Scene::OnRenderEditor(const EditorCamera& camera)
+	{
+		OnRender(camera, camera.GetTransform());
+	}
+
+	void Scene::OnRender(const Camera& camera, const glm::mat4& cameraTransform)
+	{
+		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
 		LightList lights;
 
-		for (auto& item : group2)
+		for (auto& item : lightView)
 		{
-			auto [transform, light] = group2.get<TransformComponent, LightComponent>(item);
+			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
 			const glm::mat4 worldTransform = transform.GetTransform();
 
 			LightRenderData data;
@@ -118,14 +147,13 @@ namespace RageV
 			lights.push_back(data);
 		}
 
-
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
 		// of the alpha-blended quads means the quads blend against a complete
 		// depth buffer rather than over each other arbitrarily.
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
 		{
-			Renderer3D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lights);
+			Renderer3D::BeginScene(camera, cameraTransform, lights);
 
 			auto& device = Renderer::GetDevice();
 			for (auto& item : meshView)
@@ -138,7 +166,7 @@ namespace RageV
 			Renderer3D::EndScene();
 		}
 
-		Renderer2D::BeginScene(*mainCamera, cameraTransform.GetTransform(), lights);
+		Renderer2D::BeginScene(camera, cameraTransform, lights);
 
 		auto group = m_Registry.group<TransformComponent>(entt::get<ColorComponent>);
 
@@ -150,7 +178,5 @@ namespace RageV
 		}
 
 		Renderer2D::EndScene();
-
 	}
-
 }

@@ -2,13 +2,12 @@
 #include <string>
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
-#include "RageV/Renderer/Cameranew.h"
+#include "RageV/Renderer/Camera.h"
 #include "SceneCamera.h"
 #include "ScriptableEntity.h"
 #include "RageV/Renderer/Light.h"
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/Material.h"
-#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
 namespace RageV
@@ -84,24 +83,36 @@ namespace RageV
 		MeshComponent(PrimitiveType primitive) : Primitive(primitive) {}
 	};
 
+	// Plain function pointers, not std::function, and captureless lambdas.
+	//
+	// These used to be `[&]` lambdas capturing the enclosing component's `this`.
+	// EnTT relocates components when its storage grows, so the moment a second
+	// entity got a script the earlier component's lambdas pointed at freed
+	// memory. Capturing nothing makes that failure unrepresentable rather than
+	// merely fixed.
+	//
+	// The per-type OnCreate/OnUpdate/OnDestroy thunks are gone too:
+	// ScriptableEntity already declares them virtual, so the extra indirection
+	// bought nothing and was three more places to get the cast wrong.
 	struct NativeScriptComponent
 	{
-		RageV::ScriptableEntity* m_ScriptableEntity = nullptr;
+		ScriptableEntity* Instance = nullptr;
 
-		std::function<void()> OnInstantiateFunction;
-		std::function<void(ScriptableEntity*)> OnCreateFunction;
-		std::function<void(ScriptableEntity*, Timestep)> OnUpdateFunction;
-		std::function<void(ScriptableEntity*)> OnDestroyFunction;
-		std::function<void()> DestroyInstanceFunction;
+		ScriptableEntity* (*InstantiateScript)() = nullptr;
+		void (*DestroyScript)(NativeScriptComponent*) = nullptr;
 
 		template <typename T>
 		void Bind()
 		{
-			OnInstantiateFunction = [&]() { m_ScriptableEntity = new T(); };
-			OnCreateFunction = [](ScriptableEntity* instance) { ((T*)instance)->OnCreate(); };
-			OnUpdateFunction = [](ScriptableEntity* instance, Timestep ts) { ((T*)instance)->OnUpdate(ts); };
-			OnDestroyFunction = [](ScriptableEntity* instance) { ((T*)instance)->OnDestroy(); };
-			DestroyInstanceFunction = [&]() { delete ((T*)m_ScriptableEntity); };
+			static_assert(std::is_base_of_v<ScriptableEntity, T>,
+						  "Bound script type must derive from ScriptableEntity");
+
+			InstantiateScript = []() { return static_cast<ScriptableEntity*>(new T()); };
+			DestroyScript = [](NativeScriptComponent* component)
+			{
+				delete static_cast<T*>(component->Instance);
+				component->Instance = nullptr;
+			};
 		}
 	};
 

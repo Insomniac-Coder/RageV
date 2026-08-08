@@ -1,6 +1,6 @@
 #pragma once
 #include "glm/glm.hpp"
-#include "Cameranew.h"
+#include "Camera.h"
 #include "Light.h"
 #include "Mesh.h"
 #include "Material.h"
@@ -20,7 +20,7 @@ namespace RageV
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
 		static void SetWireframe(bool enabled);
 
-		static void BeginScene(const Cameranew& camera, const glm::mat4& cameraTransform,
+		static void BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
 							   const LightList& lights = {});
 		static void EndScene();
 

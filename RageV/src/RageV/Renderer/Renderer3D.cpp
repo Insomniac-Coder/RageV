@@ -156,7 +156,7 @@ namespace RageV
 			s_Data->SceneSets.push_back(s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0));
 	}
 
-	void Renderer3D::BeginScene(const Cameranew& camera, const glm::mat4& cameraTransform,
+	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
 								const LightList& lights)
 	{
 		if (!s_Data)

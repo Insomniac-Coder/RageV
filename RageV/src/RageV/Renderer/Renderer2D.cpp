@@ -250,20 +250,7 @@ namespace RageV
 		}
 	}
 
-	void Renderer2D::BeginScene(const OrthographicCamera& camera)
-	{
-		if (!s_Data)
-			return;
-
-		s_Data->DrawCalls = 0;
-		ResetScene();
-
-		s_Data->Scene = {};
-		s_Data->Scene.ViewProjection = camera.GetViewProjectionMatrix();
-		s_Data->Scene.LightCount = 0;
-	}
-
-	void Renderer2D::BeginScene(const Cameranew& camera, const glm::mat4& transform, const LightList& lights)
+	void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& transform, const LightList& lights)
 	{
 		if (!s_Data)
 			return;

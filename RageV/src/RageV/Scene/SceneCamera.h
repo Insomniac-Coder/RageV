@@ -1,9 +1,9 @@
 #pragma once
-#include "RageV/Renderer/Cameranew.h"
+#include "RageV/Renderer/Camera.h"
 
 namespace RageV
 {
-	class SceneCamera : public Cameranew
+	class SceneCamera : public Camera
 	{
 	public:
 		enum class ProjectionType

@@ -1,5 +1,9 @@
 #pragma once
-#define _CRT_SECURE_NO_WARNINGS
+// The top-level CMakeLists already defines this for every target on MSVC.
+// Defining it again here is what produced the C4005 redefinition warnings.
+#ifndef _CRT_SECURE_NO_WARNINGS
+	#define _CRT_SECURE_NO_WARNINGS
+#endif
 
 #include <iostream>
 #include <string>
