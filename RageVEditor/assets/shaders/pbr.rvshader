@@ -35,6 +35,11 @@ layout(set = 0, binding = 0) uniform SceneData
 	// sky's rotation. Intensity is zero when there is nothing to reflect,
 	// which is how the term is switched off without a branch.
 	vec4 Environment;
+	// x = the environment's mip-0 face size in texels. Passed rather than
+	// derived from the mip count: exp2(highest mip) is only the face size when
+	// the chain runs all the way down to one texel, and a prefiltered cube
+	// stops at its roughness levels.
+	vec4 EnvironmentSize;
 
 	// Shadows. CascadeLookup takes a world position straight to lookup
 	// coordinates -- xy texture, z the depth to compare -- with the
@@ -99,6 +104,7 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 LightColors[MAX_LIGHTS];
 	vec4 LightParams[MAX_LIGHTS];
 	vec4 Environment;
+	vec4 EnvironmentSize;
 	mat4 CascadeLookup[4];
 	vec4 CascadeSplits;
 	vec4 CascadeTexel;
@@ -545,11 +551,10 @@ void main()
 	// argument: measure how fast the coordinate changes across the screen.
 	//
 	// A cube face spans 90 degrees across its width, so the rate of change of
-	// a unit direction converts to texels with 2/pi and the face size -- which
-	// the highest mip index already encodes.
+	// a unit direction converts to texels with 2/pi and the face size.
 	vec3 dRdx = dFdx(reflection);
 	vec3 dRdy = dFdy(reflection);
-	float faceSize = exp2(u_Scene.Environment.y);
+	float faceSize = max(u_Scene.EnvironmentSize.x, 1.0);
 	float texelsPerPixel = max(length(dRdx), length(dRdy)) * (2.0 / PI) * faceSize;
 
 	// The coarser of the two: what roughness asks for, and what the screen

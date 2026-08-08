@@ -33,6 +33,8 @@ namespace RageV
 			// x = environment intensity, y = its highest mip, zw = cos and sin
 			// of the sky's rotation
 			glm::vec4 Environment;
+			// x = the environment's mip-0 face size, in texels.
+			glm::vec4 EnvironmentSize;
 
 			// World space straight to shadow lookup coordinates, per cascade.
 			glm::mat4 CascadeLookup[4];
@@ -313,6 +315,13 @@ namespace RageV
 			glm::max(mips - 1.0f, 0.0f),
 			std::cos(environment.SkyRotation),
 			std::sin(environment.SkyRotation),
+		};
+
+		// Sent, not derived. A prefiltered cube stops at its roughness levels,
+		// so exp2(highest mip) is a sixteenth of its real face size -- which
+		// quietly turned the reflection's anti-aliasing term off.
+		s_Data->Scene.EnvironmentSize = {
+			environmentMap ? (float)environmentMap->GetWidth() : 1.0f, 0.0f, 0.0f, 0.0f,
 		};
 
 		// Cascades come from ShadowMap rather than being passed in: this runs

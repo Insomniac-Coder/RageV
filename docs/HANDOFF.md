@@ -453,6 +453,12 @@ or silence rather than an obvious failure.
 - **A per-frame descriptor cursor resets per frame, not per call.** Same bug,
   second form: the prefilter reset its cursor on entry, so a second environment
   filtered in the same frame rewrote sets the first had already bound.
+- **A cube's face size is sent to the shader, not derived from its mip count.**
+  `exp2(highest mip)` equals the face size only when the chain runs down to one
+  texel. A prefiltered cube stops at its roughness levels, so the derivation
+  gave a sixteenth of the real size and silently switched off the reflection's
+  screen-space anti-aliasing term — a regression introduced by the prefilter
+  itself, in code that had been correct until the thing it read changed shape.
 - **A frustum's near plane is row 2 alone, not row 3 plus row 2.** glm is built
   with `GLM_FORCE_DEPTH_ZERO_TO_ONE`. The OpenGL form of that plane sits half
   the frustum away and culls geometry in plain view.
