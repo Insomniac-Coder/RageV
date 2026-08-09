@@ -160,6 +160,9 @@ private:
 	// asks whether to restart now.
 	bool m_ShowBackendRestart = false;
 	RageV::RHI::Backend m_PendingBackend = RageV::RHI::Backend::Vulkan;
+	// The preference is written once per popup, not once per frame it is drawn.
+	bool m_BackendSaveAttempted = false;
+	bool m_BackendSaved = false;
 
 	// Gizmo mode is state now rather than being recomputed from the keyboard
 	// every frame, so the toolbar and the shortcuts drive the same value.
@@ -179,6 +182,11 @@ private:
 	float m_FrameTimeMs = 0.0f;
 	float m_FrameTimeAccum = 0.0f;
 	int   m_FrameTimeSamples = 0;
+	// Seconds since the readout and the graph were last updated. Time rather
+	// than frames, so the rate they change at does not depend on the rate the
+	// engine runs at.
+	float m_ReadoutElapsed = 0.0f;
+	float m_HistoryElapsed = 0.0f;
 	float m_FrameHistory[120] = {};
 	int   m_FrameHistoryIndex = 0;
 };

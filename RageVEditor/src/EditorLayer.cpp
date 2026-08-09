@@ -184,17 +184,42 @@ Entity EditorLayer::CreateCamera()
 // -----------------------------------------------------------------------------
 void EditorLayer::OnUpdate(Timestep ts)
 {
-	// Rolling average; the instantaneous value is too noisy to read.
+	// Averaged over a fixed slice of *time*, not a fixed number of frames.
+	//
+	// Ten frames is a quarter of a second at 40 FPS and a twenty-fourth of one
+	// at 240, so the same code that reads steadily on a slow machine flickers
+	// too fast to read on a quick one -- which is exactly what it did once the
+	// editor started holding 240. A window in seconds updates at the same rate
+	// whatever the frame rate.
+	//
+	// The graph is sampled more often than the number is redrawn: a plot needs
+	// resolution and a readout needs to hold still long enough to be read.
+	constexpr float kReadoutSeconds = 0.25f;
+	constexpr float kHistorySeconds = 0.10f;
+
+	const float elapsed = ts.GetSeconds();
+
 	m_FrameTimeAccum += ts.GetMilliSeconds();
 	m_FrameTimeSamples++;
-	if (m_FrameTimeSamples >= 10)
+	m_ReadoutElapsed += elapsed;
+	m_HistoryElapsed += elapsed;
+
+	if (m_FrameTimeSamples > 0 && m_HistoryElapsed >= kHistorySeconds)
 	{
-		m_FrameTimeMs = m_FrameTimeAccum / (float)m_FrameTimeSamples;
+		const float average = m_FrameTimeAccum / (float)m_FrameTimeSamples;
+
+		m_FrameHistory[m_FrameHistoryIndex] = average;
+		m_FrameHistoryIndex = (m_FrameHistoryIndex + 1) % IM_ARRAYSIZE(m_FrameHistory);
+		m_HistoryElapsed = 0.0f;
+
+		if (m_ReadoutElapsed >= kReadoutSeconds)
+		{
+			m_FrameTimeMs = average;
+			m_ReadoutElapsed = 0.0f;
+		}
+
 		m_FrameTimeAccum = 0.0f;
 		m_FrameTimeSamples = 0;
-
-		m_FrameHistory[m_FrameHistoryIndex] = m_FrameTimeMs;
-		m_FrameHistoryIndex = (m_FrameHistoryIndex + 1) % IM_ARRAYSIZE(m_FrameHistory);
 	}
 
 	// Navigation only responds over the viewport, so a drag inside a panel
@@ -247,6 +272,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// BuildFrame, so bloom and tone mapping cannot end up applied to one and
 	// not the other -- which is exactly the drift that put two transfer
 	// functions in one image before this.
+	// Nothing to draw into until the dock layout has run, which is the frame
+	// after this one. Skipped rather than described: BuildFrame adds no passes
+	// for a zero-sized target, and compiling an empty graph reported "the graph
+	// has no passes" on every startup -- an error for something that is simply
+	// not ready yet.
+	if (m_ViewportSize.x >= 1.0f && m_ViewportSize.y >= 1.0f)
 	{
 	RV_PROFILE_PHASE(FramePhase::Graph);
 
@@ -1545,6 +1576,7 @@ void EditorLayer::DrawBackendRestartPopup()
 	{
 		ImGui::OpenPopup("Restart required");
 		m_ShowBackendRestart = false;
+		m_BackendSaveAttempted = false;
 	}
 
 	ImGui::SetNextWindowSize(ImVec2(430.0f, 0.0f), ImGuiCond_Appearing);
@@ -1567,10 +1599,19 @@ void EditorLayer::DrawBackendRestartPopup()
 	ImGui::Separator();
 	ImGui::Spacing();
 
-	// Written before either button: whichever the user picks, the preference is
-	// what they asked for. Restarting later must not mean forgetting.
-	const bool saved = EngineConfig::SaveBackendPreference(m_PendingBackend);
-	if (!saved)
+	// Written once, on the frame the popup opens, and not on every frame it is
+	// visible -- which is what a call in the draw path means, and what put two
+	// "preference saved" lines in the log for one change.
+	//
+	// Still before either button: whichever the user picks, the preference is
+	// what they asked for, and restarting later must not mean forgetting.
+	if (!m_BackendSaveAttempted)
+	{
+		m_BackendSaved = EngineConfig::SaveBackendPreference(m_PendingBackend);
+		m_BackendSaveAttempted = true;
+	}
+
+	if (!m_BackendSaved)
 	{
 		ImGui::TextColored(EditorTheme::Color::Accent,
 						   "Could not write ragev.ini; the choice will not survive.");
