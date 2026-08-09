@@ -177,6 +177,130 @@ public class Example : Script
 		}
 	}
 
+	namespace
+	{
+		// The C++ half of a project: a Source/ folder that builds to
+		// <project>/bin/<Config>/<name>.dll, the game module the engine loads.
+		//
+		// The same portability rule the .csproj follows: where the engine lives
+		// is not knowable when the project is created, so the generated build
+		// takes it as -DRAGEV_ENGINE=<engine build dir> rather than baking in a
+		// path that is only true on this machine. The editor supplies it when it
+		// builds; the fatal-error fallback exists so a hand-run cmake fails with
+		// a sentence rather than a missing-target cascade.
+		void WriteSourceModule(const std::filesystem::path& directory, const std::string& name)
+		{
+			const std::filesystem::path source = directory / "Source";
+
+			if (std::ofstream lists(source / "CMakeLists.txt"); lists)
+			{
+				lists << R"(cmake_minimum_required(VERSION 3.21)
+
+# The same three configurations as the engine. They must match: an import
+# library is per-config, and a config the engine does not have is a link error.
+set(CMAKE_CONFIGURATION_TYPES "Debug;Release;Dist" CACHE STRING "" FORCE)
+
+project()" << name << R"(Module LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Dist inherits Release codegen, exactly as the engine's top level does.
+foreach(lang C CXX)
+    set(CMAKE_${lang}_FLAGS_DIST "${CMAKE_${lang}_FLAGS_RELEASE}" CACHE STRING "" FORCE)
+endforeach()
+foreach(kind EXE SHARED MODULE STATIC)
+    set(CMAKE_${kind}_LINKER_FLAGS_DIST "${CMAKE_${kind}_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
+endforeach()
+
+# The editor passes -DRAGEV_ENGINE=<engine build directory> when it configures
+# this. The engine's build writes RageVTargets.cmake there, and importing it is
+# what makes RageV::RageV exist here with its include paths, definitions and
+# import libraries carried along -- nothing about the engine is spelled out in
+# this file, so this file does not go stale when the engine changes.
+if(NOT DEFINED RAGEV_ENGINE OR NOT EXISTS "${RAGEV_ENGINE}/RageVTargets.cmake")
+    message(FATAL_ERROR
+        "RAGEV_ENGINE must point at a RageV build directory "
+        "(one containing RageVTargets.cmake). The editor passes it "
+        "automatically; by hand: cmake -S Source -B bin/module "
+        "-DRAGEV_ENGINE=<engine>/build")
+endif()
+
+# GLFW's exported interface names Threads::Threads, which comes from
+# find_package rather than from the export file -- so it has to exist before
+# the include, or the import fails naming a target this file never mentions.
+find_package(Threads REQUIRED)
+
+include("${RAGEV_ENGINE}/RageVTargets.cmake")
+
+# Scripts sit flat in Source/, the way C# scripts sit flat in Scripts/.
+# A plain GLOB, not GLOB_RECURSE: recursing would sweep up any build
+# directory somebody configures inside Source/, including CMake's own
+# compiler-probe .cpp files.
+file(GLOB MODULE_SOURCES CONFIGURE_DEPENDS "*.cpp" "*.h")
+
+add_library()" << name << R"( SHARED ${MODULE_SOURCES})
+target_link_libraries()" << name << R"( PRIVATE RageV::RageV)
+
+# The DLL lands beside the project's other build output, where the engine
+# looks for it: <project>/bin/<Config>/. Because this property contains a
+# generator expression, CMake does not append a per-config subdirectory of
+# its own.
+set_target_properties()" << name << R"( PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../bin/$<CONFIG>")
+
+if(MSVC)
+    # /utf-8 is load-bearing: spdlog's bundled fmt refuses to compile without
+    # it, and Log.h reaches it from almost every engine header.
+    target_compile_options()" << name << R"( PRIVATE /MP /W3 /utf-8)
+endif()
+)";
+			}
+
+			// One script that already compiles and registers, for the same
+			// reason Scripts/ gets Example.cs: the first five minutes should
+			// not be spent working out what a script has to look like.
+			if (std::ofstream sample(source / "Rotator.cpp"); sample)
+			{
+				sample << R"(#include <rvpch.h>
+#include "RageV/Scene/ScriptRegistry.h"
+#include "RageV/Scene/Components.h"
+
+namespace RageV
+{
+	// Attach this to an entity and press Play.
+	class Rotator : public ScriptableEntity
+	{
+	public:
+		// Public so the registration below can name it. C++ has no
+		// reflection, so an editable field has to be declared explicitly --
+		// unlike C#, where the inspector finds private fields on its own.
+		float Speed = 1.0f;
+
+		void OnCreate() override
+		{
+		}
+
+		// Every fixed simulation step, not every frame. A frame may run zero
+		// steps, one, or several -- so multiply rates by dt and the behaviour
+		// stays the same at any simulation frequency.
+		void OnUpdate(Timestep dt) override
+		{
+			Rotate({ 0.0f, Speed * dt.GetSeconds(), 0.0f });
+		}
+	};
+
+	// The name here is what scene files store, so renaming it breaks every
+	// scene that used it. Fields declared on the same line show up in the
+	// inspector.
+	RV_REGISTER_SCRIPT(Rotator).Field<&Rotator::Speed>("Speed");
+}
+)";
+			}
+		}
+	}
+
 	bool Project::Create(const std::filesystem::path& directory, const std::string& name)
 	{
 		std::error_code error;
@@ -218,6 +342,12 @@ public class Example : Script
 		// a script is editing a file that already exists.
 		std::filesystem::create_directories(directory / "Scripts", error);
 		WriteScriptProject(directory, name);
+
+		// And its C++: a Source/ that builds to bin/<Config>/<name>.dll, the
+		// game module. Same reasoning -- adding a C++ script should be adding a
+		// file to a build that already exists and already links.
+		std::filesystem::create_directories(directory / "Source", error);
+		WriteSourceModule(directory, name);
 
 		// Builds land here. Created up front so it is visible in the content
 		// browser and in Explorer before the first build rather than appearing

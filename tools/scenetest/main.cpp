@@ -1076,6 +1076,39 @@ namespace
 		Check(std::filesystem::exists(root / ".gitignore"),
 			  "and a .gitignore, because bin/ must not be committed");
 
+		// --- the C++ game module scaffold --------------------------------------
+		//
+		// Content checks, not just existence: an empty CMakeLists.txt would pass
+		// an exists() and configure nothing. What is checked is what the scaffold
+		// promises -- the engine arrives via RAGEV_ENGINE at configure time, the
+		// module links the exported target, and the starter script registers
+		// itself under its own name.
+		{
+			Check(std::filesystem::is_directory(root / "Source"),
+				  "a project gets a Source/ for its C++ game module");
+
+			std::ifstream lists(root / "Source" / "CMakeLists.txt");
+			std::stringstream cmake;
+			cmake << lists.rdbuf();
+			const std::string build = cmake.str();
+
+			Check(build.find("RAGEV_ENGINE") != std::string::npos,
+				  "whose build takes the engine location at configure time");
+			Check(build.find("RageV::RageV") != std::string::npos,
+				  "and links the exported engine target");
+			Check(build.find("add_library(Probe SHARED") != std::string::npos,
+				  "as a DLL named after the project");
+			Check(build.find("/utf-8") != std::string::npos,
+				  "with /utf-8, which spdlog's fmt refuses to build without");
+
+			std::ifstream script(root / "Source" / "Rotator.cpp");
+			std::stringstream starter;
+			starter << script.rdbuf();
+
+			Check(starter.str().find("RV_REGISTER_SCRIPT(Rotator)") != std::string::npos,
+				  "and a starter script that registers itself");
+		}
+
 		// Refused rather than overwritten: a project file is the only thing
 		// that says where a game's assets are.
 		Check(!Project::Create(root, "Probe"), "creating over an existing project is refused");

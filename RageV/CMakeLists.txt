@@ -115,6 +115,36 @@ target_compile_definitions(RageV PUBLIC
 # in the tree so every build checks that the generated shape both compiles and
 # registers.
 
+# The build-tree export: what lets a project's game module link the engine
+# from outside this build tree.
+#
+# A project's Source/CMakeLists.txt does include("<here>/RageVTargets.cmake")
+# and links RageV::RageV, and the imported target carries the include
+# directories, compile definitions and per-config import library locations --
+# the same interface in-tree consumers get, kept correct by CMake rather than
+# by a hand-maintained list in every generated project.
+#
+# The set is RageV plus the transitive closure of its PUBLIC dependencies,
+# because an export file may not reference a target outside its own set. imgui
+# is the reason glfw is here: it links glfw PUBLIC.
+#
+# install(TARGETS) rather than export(TARGETS): only install() may name
+# targets defined in other directories, and the vendor targets are. Nothing
+# actually installs -- the EXPORT set is the point, and export(EXPORT) below
+# writes it into the build tree.
+install(TARGETS RageV entt spdlog imgui imguizmo yaml-cpp volk_headers glfw
+    EXPORT RageVTargets)
+export(EXPORT RageVTargets
+    NAMESPACE RageV::
+    FILE "${CMAKE_BINARY_DIR}/RageVTargets.cmake")
+
+# Where that export file is, baked in so the editor can configure a project's
+# game module at runtime -- the same trick RV_ENGINE_SCRIPTS_DIR uses. Only
+# meaningful in a build tree; a packaged editor has RAGEV_ENGINE passed to it
+# or does without.
+target_compile_definitions(RageV PUBLIC
+    RV_ENGINE_EXPORT_DIR="${CMAKE_BINARY_DIR}")
+
 # Where "New Script..." puts a generated C++ script.
 #
 # Only meaningful in a build tree -- an installed editor has no engine source to
