@@ -35,7 +35,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-506 checks, `exit 0`. Then look at a frame:
+523 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -100,7 +100,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 506 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
+| `scenetest` | 523 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -631,7 +631,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
 | Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
-| Tests | `scenetest`, **506 checks**, green on both backends |
+| Tests | `scenetest`, **523 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete except for
 skeletal animation (3.7).**
@@ -758,20 +758,44 @@ not, which is the same mistake as the culling number, caught this time.
 
 Start here, in this order.
 
-### START HERE — 3.7, skeletal animation (`XL`)
+### START HERE — 3.7, skeletal animation, continued (`L` remaining)
 
-The largest remaining item anywhere and the one that decides whether a game
-with characters can be made. Skinning, clips, blending. Nothing exists yet.
+**Two of the five pieces are done and committed.** Both are tested and
+neither is visible yet, which is the honest state: there is no skinned mesh
+on screen.
 
-Phase 3 is otherwise complete. Two smaller leads the profiler turned up,
-neither urgent, both measurable:
+Done:
 
-- **Shadow maps cost more CPU than GPU** — 0.598 ms against 0.244 on the stress
-  scene. That phase is scene walking and instance building, not rasterising.
-  Sorting casters once and reusing the list across cascades is the obvious
-  thing to try.
-- **OpenGL spends ten times Vulkan's CPU on the same near-empty ImGui frame**
-  (0.619 ms against 0.069). Unexplained.
+- **`RageV/src/RageV/Animation/Skeleton.{h,cpp}`** — bones, clips, sampling,
+  hierarchy composition, blending. 21 checks in `scenetest`, including the one
+  everything rests on: at the bind pose every skinning matrix is the identity.
+  Verified it can fail by removing the inverse-bind multiply.
+- **Shader includes**, and `pbr.rvshader` split so the skinned variant can
+  share the lighting instead of copying it.
+
+Left, in dependency order:
+
+1. **A skinned vertex format.** `SkinnedVertex` = the current 32 bytes plus
+   four joint indices and four weights, as its own struct and its own single
+   vertex binding. Do *not* widen `MeshVertex`: static meshes are almost all of
+   them and would pay 32 bytes a vertex for nothing. `Mesh` needs to be able to
+   hold either.
+2. **`pbr_skinned.rvshader`.** A thin variant like `pbr.rvshader` is now: the
+   two extra attributes, a bone-matrix storage buffer, and
+   `sum(weight[i] * bone[joint[i]])` before the model matrix. Everything else
+   is the shared include.
+3. **The renderer path.** A second pipeline, and the pose's skinning matrices
+   in a storage buffer per skinned instance. The shadow pass needs the same
+   treatment or a skinned character casts its bind pose.
+4. **glTF import** — `cgltf` already parses skins and animations; the importer
+   reads neither. Needs `JOINTS_0`/`WEIGHTS_0`, the skin's inverse bind
+   accessor, and the animation channels. **There is no skinned test asset in
+   the repository**; generating a minimal two-bone one from a script, the way
+   `tools/scripts/` generates the sky and the stress scene, would make the
+   whole path testable without a download.
+5. **The components** — a skinned mesh renderer and something that advances
+   time and picks a clip, plus registry entries so they serialize and appear
+   in the inspector.
 
 ### 1. Phase 5 — C# scripting (`XL`)
 
