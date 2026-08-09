@@ -302,7 +302,7 @@ namespace
 			desc.OnChanged = [](void* component)
 			{
 				auto* camera = static_cast<CameraComponent*>(component);
-				camera->ViewRank = glm::clamp(camera->ViewRank, 0, 99);
+				camera->ViewRank = Math::Clamp(camera->ViewRank, 0, 99);
 				camera->Camera.Recalculate();
 			};
 			Bind<CameraComponent>(desc);
@@ -376,11 +376,11 @@ namespace
 				mesh->Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
 
 				auto& params = mesh->Material->GetParams();
-				auto readVec4 = [](const YAML::Node& n, glm::vec4 fallback)
+				auto readVec4 = [](const YAML::Node& n, Vec4 fallback)
 				{
 					if (!n || !n.IsSequence() || n.size() != 4)
 						return fallback;
-					return glm::vec4(n[0].as<float>(), n[1].as<float>(),
+					return Vec4(n[0].as<float>(), n[1].as<float>(),
 									 n[2].as<float>(), n[3].as<float>());
 				};
 
@@ -568,8 +568,8 @@ namespace
 				auto* source = static_cast<AudioSourceComponent*>(component);
 				// A max below the min inverts the falloff curve, which is
 				// audible as a sound that gets louder as it recedes.
-				source->MinDistance = glm::max(source->MinDistance, 0.01f);
-				source->MaxDistance = glm::max(source->MaxDistance, source->MinDistance + 0.01f);
+				source->MinDistance = Math::Max(source->MinDistance, 0.01f);
+				source->MaxDistance = Math::Max(source->MaxDistance, source->MinDistance + 0.01f);
 			};
 
 			Bind<AudioSourceComponent>(desc);
@@ -590,7 +590,7 @@ namespace
 			desc.OnChanged = [](void* component)
 			{
 				auto* listener = static_cast<AudioListenerComponent*>(component);
-				listener->ListenerRank = glm::clamp(listener->ListenerRank, 0, 99);
+				listener->ListenerRank = Math::Clamp(listener->ListenerRank, 0, 99);
 			};
 			Bind<AudioListenerComponent>(desc);
 			s_Components.push_back(std::move(desc));

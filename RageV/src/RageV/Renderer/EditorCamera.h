@@ -3,7 +3,7 @@
 #include "RageV/Core/Timestep.h"
 #include "RageV/Events/Event.h"
 #include "RageV/Events/MouseEvent.h"
-#include <glm/gtx/quaternion.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -33,18 +33,18 @@ namespace RageV
 		void SetActive(bool active) { m_Active = active; }
 		bool IsActive() const { return m_Active; }
 
-		const glm::mat4& GetView() const { return m_View; }
-		glm::mat4 GetViewProjection() const { return m_Projection * m_View; }
+		const Mat4& GetView() const { return m_View; }
+		Mat4 GetViewProjection() const { return m_Projection * m_View; }
 		// Renderer2D/3D take a camera *transform*, not a view matrix.
-		glm::mat4 GetTransform() const;
+		Mat4 GetTransform() const;
 
-		glm::vec3 GetPosition() const { return m_Position; }
-		glm::vec3 GetForward() const;
-		glm::vec3 GetRight() const;
-		glm::vec3 GetUp() const;
+		Vec3 GetPosition() const { return m_Position; }
+		Vec3 GetForward() const;
+		Vec3 GetRight() const;
+		Vec3 GetUp() const;
 
 		// Frames a point at a distance that fits the given radius. Bound to F.
-		void Focus(const glm::vec3& point, float radius = 1.0f);
+		void Focus(const Vec3& point, float radius = 1.0f);
 
 		float GetFOV() const { return m_FOV; }
 		void  SetFOV(float degrees);
@@ -60,14 +60,14 @@ namespace RageV
 		void RecalculateProjection();
 		void RecalculateView();
 
-		glm::quat Orientation() const;
+		Quat Orientation() const;
 
-		void Orbit(const glm::vec2& delta);
-		void Pan(const glm::vec2& delta);
+		void Orbit(const Vec2& delta);
+		void Pan(const Vec2& delta);
 		void Zoom(float delta);
 
 		float ZoomSpeed() const;
-		glm::vec2 PanSpeed() const;
+		Vec2 PanSpeed() const;
 
 	private:
 		float m_FOV = 45.0f;
@@ -76,16 +76,16 @@ namespace RageV
 		float m_Far = 1000.0f;
 		float m_ViewportWidth = 1280.0f, m_ViewportHeight = 720.0f;
 
-		glm::mat4 m_View{ 1.0f };
-		glm::vec3 m_Position{ 0.0f, 0.0f, 0.0f };
+		Mat4 m_View{ 1.0f };
+		Vec3 m_Position{ 0.0f, 0.0f, 0.0f };
 
 		// The orbit pivot. Fly mode translates this and lets position follow, so
 		// a subsequent orbit turns around wherever flying finished.
-		glm::vec3 m_FocalPoint{ 0.0f, 0.0f, 0.0f };
+		Vec3 m_FocalPoint{ 0.0f, 0.0f, 0.0f };
 		float m_Distance = 10.0f;
 		float m_Yaw = 0.0f, m_Pitch = 0.0f;   // radians
 
-		glm::vec2 m_LastMousePosition{ 0.0f };
+		Vec2 m_LastMousePosition{ 0.0f };
 		float m_MoveSpeed = 6.0f;
 		bool  m_Active = false;
 	};

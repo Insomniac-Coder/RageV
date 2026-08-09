@@ -1,6 +1,6 @@
 #pragma once
 #include "RageV/Renderer/Mesh.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -17,30 +17,30 @@ namespace RageV
 	{
 	public:
 		Frustum() = default;
-		explicit Frustum(const glm::mat4& viewProjection) { Build(viewProjection); }
+		explicit Frustum(const Mat4& viewProjection) { Build(viewProjection); }
 
 		// Gribb-Hartmann: the planes fall out of sums and differences of the
 		// matrix rows, whatever projection produced it. Normalised, so the
 		// distance a test computes is a real distance.
-		void Build(const glm::mat4& viewProjection);
+		void Build(const Mat4& viewProjection);
 
 		// A box in world space. Conservative: a box that straddles a plane
 		// counts as inside, because the cost of drawing something invisible is
 		// a draw and the cost of skipping something visible is a hole.
-		bool Intersects(const glm::vec3& centre, const glm::vec3& extents) const;
+		bool Intersects(const Vec3& centre, const Vec3& extents) const;
 
 		// The mesh's own bounds put through a transform. The transformed box is
 		// the axis-aligned box *around* the rotated one, so it grows under
 		// rotation -- correct, and the reason a rotating object is culled
 		// slightly late rather than slightly early.
-		static void TransformBounds(const AABB& bounds, const glm::mat4& transform,
-									glm::vec3& centre, glm::vec3& extents);
+		static void TransformBounds(const AABB& bounds, const Mat4& transform,
+									Vec3& centre, Vec3& extents);
 
-		const glm::vec4& Plane(int index) const { return m_Planes[index]; }
+		const Vec4& Plane(int index) const { return m_Planes[index]; }
 
 	private:
 		// Left, right, bottom, top, near, far. Each is a normal in xyz and a
 		// distance in w, pointing inwards.
-		glm::vec4 m_Planes[6]{};
+		Vec4 m_Planes[6]{};
 	};
 }

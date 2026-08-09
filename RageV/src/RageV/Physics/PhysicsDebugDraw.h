@@ -1,6 +1,6 @@
 #pragma once
 #include "RageV/Core/UUID.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -15,16 +15,16 @@ namespace RageV
 	// three engines someone may already know beats internal consistency here.
 	struct PhysicsDebugStyle
 	{
-		glm::vec4 Static{ 0.32f, 0.72f, 0.44f, 0.70f };
-		glm::vec4 Kinematic{ 0.35f, 0.72f, 0.92f, 0.85f };
-		glm::vec4 Dynamic{ 0.45f, 0.95f, 0.50f, 0.90f };
+		Vec4 Static{ 0.32f, 0.72f, 0.44f, 0.70f };
+		Vec4 Kinematic{ 0.35f, 0.72f, 0.92f, 0.85f };
+		Vec4 Dynamic{ 0.45f, 0.95f, 0.50f, 0.90f };
 
 		// Amber, because a trigger is the one collider that does not stop
 		// anything and reading it as solid is the mistake worth preventing.
-		glm::vec4 Trigger{ 0.98f, 0.76f, 0.24f, 0.90f };
+		Vec4 Trigger{ 0.98f, 0.76f, 0.24f, 0.90f };
 
 		// The selected entity, whatever kind it is.
-		glm::vec4 Selected{ 1.00f, 1.00f, 1.00f, 0.95f };
+		Vec4 Selected{ 1.00f, 1.00f, 1.00f, 0.95f };
 
 		// Bodies the simulation has put to sleep are drawn dimmer. Sleep is
 		// otherwise invisible, and it is what makes contacts get withdrawn --

@@ -3,7 +3,7 @@
 #include "Renderer.h"
 #include "TextureLoader.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
-#include <glm/gtc/matrix_transform.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -13,10 +13,10 @@ namespace RageV
 	{
 		struct SkyParams
 		{
-			glm::mat4 InvViewRotationProjection{ 1.0f };
-			glm::vec4 Horizon{ 0.0f };   // rgb, a = intensity
-			glm::vec4 Zenith{ 0.0f };    // rgb, a = mode
-			glm::vec4 Ground{ 0.0f };
+			Mat4 InvViewRotationProjection{ 1.0f };
+			Vec4 Horizon{ 0.0f };   // rgb, a = intensity
+			Vec4 Zenith{ 0.0f };    // rgb, a = mode
+			Vec4 Ground{ 0.0f };
 		};
 
 		// 112 bytes, inside the 128 every implementation guarantees. Worth
@@ -47,9 +47,9 @@ namespace RageV
 			// is while a colour picker is open and never otherwise.
 			Ref<RHITexture> GradientCube;
 			Ref<RHITexture> GradientIrradiance;
-			glm::vec3 GradientHorizon{ -1.0f };
-			glm::vec3 GradientZenith{ -1.0f };
-			glm::vec3 GradientGround{ -1.0f };
+			Vec3 GradientHorizon{ -1.0f };
+			Vec3 GradientZenith{ -1.0f };
+			Vec3 GradientGround{ -1.0f };
 
 			bool Ready = false;
 		};
@@ -62,14 +62,14 @@ namespace RageV
 
 		// Shared with sky.rvshader. Both have to agree, or a mirrored surface
 		// shows a different sky from the one behind it.
-		glm::vec3 GradientAt(const glm::vec3& direction, const SceneEnvironment& environment)
+		Vec3 GradientAt(const Vec3& direction, const SceneEnvironment& environment)
 		{
-			const float height = glm::clamp(std::fabs(direction.y), 0.0f, 1.0f);
+			const float height = Math::Clamp(std::fabs(direction.y), 0.0f, 1.0f);
 			const float t = std::pow(height, 0.45f);
 
 			return direction.y >= 0.0f
-				 ? glm::mix(environment.SkyHorizon, environment.SkyZenith, t)
-				 : glm::mix(environment.SkyHorizon, environment.SkyGround, t);
+				 ? Math::Mix(environment.SkyHorizon, environment.SkyZenith, t)
+				 : Math::Mix(environment.SkyHorizon, environment.SkyGround, t);
 		}
 
 		std::unique_ptr<SkyboxData> s_Data;
@@ -172,10 +172,10 @@ namespace RageV
 				{
 					for (uint32_t x = 0; x < kGradientCubeSize; x++)
 					{
-						const glm::vec3 direction =
+						const Vec3 direction =
 							CubeFaceDirection(face, ((float)x + 0.5f) * inverse,
 													((float)y + 0.5f) * inverse);
-						const glm::vec3 colour = GradientAt(direction, environment);
+						const Vec3 colour = GradientAt(direction, environment);
 
 						float* texel = output + ((size_t)y * kGradientCubeSize + x) * 4;
 						texel[0] = colour.r;
@@ -243,24 +243,24 @@ namespace RageV
 										  : TextureLoader::BlackCube(*s_Data->Device);
 	}
 
-	glm::mat4 Skybox::BuildDirectionMatrix(const glm::mat4& projection,
-										   const glm::mat4& cameraTransform,
+	Mat4 Skybox::BuildDirectionMatrix(const Mat4& projection,
+										   const Mat4& cameraTransform,
 										   float rotation)
 	{
 		// Translation dropped: a sky is infinitely far away, so moving the
 		// camera must not move it. Keeping only the rotation of the view matrix
 		// is what expresses that.
-		const glm::mat4 view = glm::mat4(glm::mat3(glm::inverse(cameraTransform)));
+		const Mat4 view = Mat4(Mat3(Math::Inverse(cameraTransform)));
 
 		// Applied to the result rather than to the view, so it turns the sky
 		// and not the camera. The two differ by a sign, and confusing them is
 		// the reason this function exists to be tested.
-		const glm::mat4 spin = glm::rotate(glm::mat4(1.0f), rotation, glm::vec3(0.0f, 1.0f, 0.0f));
+		const Mat4 spin = Math::Rotate(Mat4(1.0f), rotation, Vec3(0.0f, 1.0f, 0.0f));
 
-		return spin * glm::inverse(projection * view);
+		return spin * Math::Inverse(projection * view);
 	}
 
-	void Skybox::Draw(const Camera& camera, const glm::mat4& cameraTransform,
+	void Skybox::Draw(const Camera& camera, const Mat4& cameraTransform,
 					  const SceneEnvironment& environment, const Ref<RHITexture>& cubemap)
 	{
 		if (!s_Data || !s_Data->Ready || environment.Sky == SkyType::Color)
@@ -331,9 +331,9 @@ namespace RageV
 		SkyParams params;
 		params.InvViewRotationProjection =
 			BuildDirectionMatrix(camera.GetProjection(), cameraTransform, environment.SkyRotation);
-		params.Horizon = glm::vec4(environment.SkyHorizon, environment.SkyIntensity);
-		params.Zenith = glm::vec4(environment.SkyZenith, (float)mode);
-		params.Ground = glm::vec4(environment.SkyGround, 0.0f);
+		params.Horizon = Vec4(environment.SkyHorizon, environment.SkyIntensity);
+		params.Zenith = Vec4(environment.SkyZenith, (float)mode);
+		params.Ground = Vec4(environment.SkyGround, 0.0f);
 
 		cmd->BindPipeline(s_Data->Pipeline);
 		cmd->BindResourceSet(0, set);

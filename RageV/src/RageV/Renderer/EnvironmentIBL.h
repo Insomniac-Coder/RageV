@@ -1,6 +1,6 @@
 #pragma once
 #include "RageV/Renderer/RHI/RHIDevice.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {

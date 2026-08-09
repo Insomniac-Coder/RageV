@@ -17,16 +17,16 @@ namespace RageV
 			// The face's direction table, as the three vectors it is built
 			// from. Passed rather than switched on an index in the shader, so
 			// the table stays in one place and the two cannot drift.
-			glm::vec4 Axis{ 0.0f };
-			glm::vec4 Right{ 0.0f };
-			glm::vec4 Up{ 0.0f };
+			Vec4 Axis{ 0.0f };
+			Vec4 Right{ 0.0f };
+			Vec4 Up{ 0.0f };
 			// x = roughness, y = source face size, z = sample count
-			glm::vec4 Settings{ 0.0f };
+			Vec4 Settings{ 0.0f };
 		};
 
 		// CubeFaceDirection(face, u, v) = normalize(Axis + Right * s + Up * t)
 		// with s = 2u-1 and t = 2v-1. Kept beside the table it mirrors.
-		struct FaceBasis { glm::vec3 Axis, Right, Up; };
+		struct FaceBasis { Vec3 Axis, Right, Up; };
 
 		constexpr FaceBasis kBasis[CubeFaces::kFaceCount] =
 		{
@@ -312,7 +312,7 @@ namespace RageV
 
 		for (uint32_t level = 0; level < levels; level++)
 		{
-			const uint32_t size = glm::max(base >> level, 1u);
+			const uint32_t size = Math::Max(base >> level, 1u);
 
 			Ref<RHIRenderTarget>& scratch = s_Data->Scratch[size];
 			if (!scratch)
@@ -357,9 +357,9 @@ namespace RageV
 				set->Commit();
 
 				PrefilterParams params;
-				params.Axis = glm::vec4(kBasis[face].Axis, 0.0f);
-				params.Right = glm::vec4(kBasis[face].Right, 0.0f);
-				params.Up = glm::vec4(kBasis[face].Up, 0.0f);
+				params.Axis = Vec4(kBasis[face].Axis, 0.0f);
+				params.Right = Vec4(kBasis[face].Right, 0.0f);
+				params.Up = Vec4(kBasis[face].Up, 0.0f);
 				params.Settings = { roughness, (float)base, (float)kPrefilterSamples, 0.0f };
 
 				cmd.BindPipeline(s_Data->Pipeline);

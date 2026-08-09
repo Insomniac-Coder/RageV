@@ -10,15 +10,15 @@
 // shader will not sample it.
 
 #include "RageV/Renderer/RHI/RHIDevice.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
 	// Mirrors the std140 MaterialData block in pbr.rvshader.
 	struct MaterialParams
 	{
-		glm::vec4 BaseColor{ 1.0f, 1.0f, 1.0f, 1.0f };
-		glm::vec4 EmissiveColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+		Vec4 BaseColor{ 1.0f, 1.0f, 1.0f, 1.0f };
+		Vec4 EmissiveColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 		float Metallic = 0.0f;
 		float Roughness = 0.5f;
 		float Occlusion = 1.0f;

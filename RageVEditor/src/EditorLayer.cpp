@@ -14,9 +14,7 @@
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Core/EngineConfig.h"
 #include "ImGuizmo.h"
-#include "glm/gtc/type_ptr.hpp"
-#include "glm/gtx/matrix_decompose.hpp"
-#include "glm/gtx/component_wise.hpp"
+#include "RageV/Math/Math.h"
 #include <fstream>
 
 using namespace RageV;
@@ -137,7 +135,7 @@ Entity EditorLayer::CreateEmpty(const std::string& name)
 Entity EditorLayer::CreateQuad()
 {
 	Entity entity = CreateEmpty("Quad");
-	entity.AddComponent<ColorComponent>(glm::vec4(0.8f, 0.8f, 0.82f, 1.0f));
+	entity.AddComponent<ColorComponent>(Vec4(0.8f, 0.8f, 0.82f, 1.0f));
 	return entity;
 }
 
@@ -166,7 +164,7 @@ Entity EditorLayer::CreateLight(Light::LightType type)
 	auto& transform = entity.GetComponent<TransformComponent>();
 	transform.Position = { 2.0f, 3.0f, 2.0f };
 	if (type == Light::LightType::Directional)
-		transform.Rotation = glm::radians(glm::vec3(-45.0f, -30.0f, 0.0f));
+		transform.Rotation = Math::Radians(Vec3(-45.0f, -30.0f, 0.0f));
 
 	return entity;
 }
@@ -288,7 +286,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Width = (uint32_t)m_ViewportSize.x;
 	scene.Height = (uint32_t)m_ViewportSize.y;
 	scene.Environment = m_Scene->GetEnvironment();
-	scene.ClearColor = glm::vec4(m_ClearColor, 1.0f);
+	scene.ClearColor = Vec4(m_ClearColor, 1.0f);
 	scene.OutputFormat = kViewportFormat;
 	scene.DrawScene = [this](RGPassContext&)
 	{
@@ -337,7 +335,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Width = (uint32_t)m_GameViewportSize.x;
 		game.Height = (uint32_t)m_GameViewportSize.y;
 		game.Environment = m_Scene->GetEnvironment();
-		game.ClearColor = glm::vec4(m_ClearColor, 1.0f);
+		game.ClearColor = Vec4(m_ClearColor, 1.0f);
 		game.OutputFormat = kViewportFormat;
 		game.DrawScene = [this](RGPassContext&)
 		{
@@ -392,7 +390,7 @@ void EditorLayer::HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2&
 	}
 
 	const ImVec2 mouse = ImGui::GetMousePos();
-	const glm::vec2 local{ mouse.x - imageOrigin.x, mouse.y - imageOrigin.y };
+	const Vec2 local{ mouse.x - imageOrigin.x, mouse.y - imageOrigin.y };
 
 	if (local.x < 0.0f || local.y < 0.0f || local.x > imageSize.x || local.y > imageSize.y)
 		return;
@@ -401,7 +399,7 @@ void EditorLayer::HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2&
 	// origin is top-left and clip space's is bottom-left; forgetting it gives
 	// picking that works perfectly along the horizontal centre line and is
 	// mirrored everywhere else.
-	const glm::vec2 ndc{
+	const Vec2 ndc{
 		(local.x / imageSize.x) * 2.0f - 1.0f,
 		1.0f - (local.y / imageSize.y) * 2.0f,
 	};
@@ -1106,7 +1104,7 @@ void EditorLayer::DrawStatisticsPanel()
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn(); ImGui::TextDisabled("waiting");
 		ImGui::TableNextColumn();
-		ImGui::TextDisabled("%.3f", glm::max(m_FrameTimeMs - cpuTotal, 0.0f));
+		ImGui::TextDisabled("%.3f", Math::Max(m_FrameTimeMs - cpuTotal, 0.0f));
 		ImGui::TableNextColumn(); ImGui::TextDisabled("--");
 
 		ImGui::EndTable();
@@ -1195,7 +1193,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 	HelpMarker("Rebuilds the pipeline with a line polygon mode. Polygon mode is baked into "
 			   "the pipeline on Vulkan, so this is not a free state toggle.");
 
-	ImGui::ColorEdit3("Clear colour", glm::value_ptr(m_ClearColor));
+	ImGui::ColorEdit3("Clear colour", Math::ValuePtr(m_ClearColor));
 
 	ImGui::SeparatorText("Environment");
 
@@ -1226,7 +1224,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 			}
 		};
 
-		ImGui::ColorEdit3("Ambient colour", glm::value_ptr(environment.AmbientColor));
+		ImGui::ColorEdit3("Ambient colour", Math::ValuePtr(environment.AmbientColor));
 		trackAmbient("Ambient colour");
 		ImGui::DragFloat("Ambient intensity", &environment.AmbientIntensity, 0.005f, 0.0f, 4.0f);
 		trackAmbient("Ambient intensity");
@@ -1261,11 +1259,11 @@ void EditorLayer::DrawRenderSettingsPanel()
 
 		if (environment.Sky == SkyType::Gradient)
 		{
-			ImGui::ColorEdit3("Horizon", glm::value_ptr(environment.SkyHorizon));
+			ImGui::ColorEdit3("Horizon", Math::ValuePtr(environment.SkyHorizon));
 			trackAmbient("Sky horizon");
-			ImGui::ColorEdit3("Zenith", glm::value_ptr(environment.SkyZenith));
+			ImGui::ColorEdit3("Zenith", Math::ValuePtr(environment.SkyZenith));
 			trackAmbient("Sky zenith");
-			ImGui::ColorEdit3("Ground", glm::value_ptr(environment.SkyGround));
+			ImGui::ColorEdit3("Ground", Math::ValuePtr(environment.SkyGround));
 			trackAmbient("Sky ground");
 		}
 
@@ -1303,9 +1301,9 @@ void EditorLayer::DrawRenderSettingsPanel()
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Drop a texture from the Content browser.");
 
-			float degrees = glm::degrees(environment.SkyRotation);
+			float degrees = Math::Degrees(environment.SkyRotation);
 			if (ImGui::DragFloat("Sky rotation", &degrees, 0.5f, -360.0f, 360.0f, "%.1f deg"))
-				environment.SkyRotation = glm::radians(degrees);
+				environment.SkyRotation = Math::Radians(degrees);
 			trackAmbient("Sky rotation");
 			HelpMarker("A panorama points wherever it was shot, and the scene was not built "
 					   "to match it.");
@@ -1501,8 +1499,8 @@ void EditorLayer::DrawGizmo()
 
 	// The gizmo has to be projected with whatever the viewport is actually
 	// showing, or the handles land somewhere other than the object.
-	glm::mat4 cameraView;
-	glm::mat4 cameraProjection;
+	Mat4 cameraView;
+	Mat4 cameraProjection;
 
 	if (m_UseEditorCamera)
 	{
@@ -1515,7 +1513,7 @@ void EditorLayer::DrawGizmo()
 		if (!cameraEntity)
 			return;
 
-		cameraView = glm::inverse(m_Scene->GetWorldTransform(cameraEntity));
+		cameraView = Math::Inverse(m_Scene->GetWorldTransform(cameraEntity));
 		cameraProjection = cameraEntity.GetComponent<CameraComponent>().Camera.GetProjection();
 	}
 
@@ -1528,7 +1526,7 @@ void EditorLayer::DrawGizmo()
 	// hierarchy those differ, so the result is converted back through the
 	// parent before being written.
 	auto& tc = selected.GetComponent<TransformComponent>();
-	glm::mat4 transform = m_Scene->GetWorldTransform(selected);
+	Mat4 transform = m_Scene->GetWorldTransform(selected);
 
 	const bool snap = m_SnapEnabled || Input::IsKeyPressed(RV_KEY_LEFT_CONTROL);
 	float snapValue = m_SnapTranslate;
@@ -1540,8 +1538,8 @@ void EditorLayer::DrawGizmo()
 	const ImGuizmo::MODE mode = (m_GizmoLocal || m_GizmoOperation == ImGuizmo::OPERATION::SCALE)
 							  ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
 
-	ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
-						 m_GizmoOperation, mode, glm::value_ptr(transform),
+	ImGuizmo::Manipulate(Math::ValuePtr(cameraView), Math::ValuePtr(cameraProjection),
+						 m_GizmoOperation, mode, Math::ValuePtr(transform),
 						 nullptr, snap ? snapValues : nullptr);
 
 	if (ImGuizmo::IsUsing())
@@ -1557,14 +1555,13 @@ void EditorLayer::DrawGizmo()
 		// Back into the parent's space before decomposing, or dragging a child
 		// would write its world transform into a local field and the object
 		// would leap by the parent's transform.
-		const glm::mat4 local = glm::inverse(m_Scene->GetParentWorldTransform(selected)) * transform;
+		const Mat4 local = Math::Inverse(m_Scene->GetParentWorldTransform(selected)) * transform;
 
-		glm::vec3 position, scale, skew;
-		glm::quat rotation;
-		glm::vec4 perspective;
-		glm::decompose(local, scale, rotation, position, skew, perspective);
+		Vec3 position, scale;
+		Quat rotation;
+		Math::Decompose(local, position, rotation, scale);
 
-		const glm::vec3 euler = glm::eulerAngles(rotation);
+		const Vec3 euler = Math::ToEuler(rotation);
 		// Accumulate the delta rather than assigning: decompose cannot
 		// distinguish equivalent Euler representations, so assigning directly
 		// makes the object snap when a rotation crosses a wrap boundary.
@@ -1791,7 +1788,7 @@ void EditorLayer::FocusSelection()
 	const auto& transform = selected.GetComponent<TransformComponent>();
 	// Approximate the object's extent from its scale. Real bounds need mesh
 	// AABBs, which arrive with the asset system.
-	const float radius = glm::compMax(glm::abs(transform.Scale)) * 1.2f;
+	const float radius = Math::MaxComponent(Math::Abs(transform.Scale)) * 1.2f;
 	m_EditorCamera.Focus(transform.Position, radius);
 }
 
@@ -1824,11 +1821,11 @@ void EditorLayer::LoadDemoScene()
 	{
 		auto& transform = camera.GetComponent<TransformComponent>();
 		transform.Position = { 0.0f, 2.5f, 8.0f };
-		transform.Rotation = glm::radians(glm::vec3(-12.0f, 0.0f, 0.0f));
+		transform.Rotation = Math::Radians(Vec3(-12.0f, 0.0f, 0.0f));
 	}
 
-	auto place = [&](PrimitiveType primitive, const glm::vec3& position, const glm::vec3& scale,
-					 const glm::vec4& color, float metallic, float roughness, const char* name,
+	auto place = [&](PrimitiveType primitive, const Vec3& position, const Vec3& scale,
+					 const Vec4& color, float metallic, float roughness, const char* name,
 					 Entity parent = {})
 	{
 		Entity entity = m_Scene->CreateEntity(name);
@@ -1857,17 +1854,17 @@ void EditorLayer::LoadDemoScene()
 	place(PrimitiveType::Plane, { 0.0f, -1.0f, 0.0f }, { 20.0f, 1.0f, 20.0f },
 		  { 0.14f, 0.14f, 0.16f, 1.0f }, 0.0f, 0.85f, "Ground");
 
-	place(PrimitiveType::Cube,     { -3.0f, 0.0f, 0.0f }, glm::vec3(1.5f),
+	place(PrimitiveType::Cube,     { -3.0f, 0.0f, 0.0f }, Vec3(1.5f),
 		  { 0.85f, 0.17f, 0.19f, 1.0f }, 0.0f, 0.35f, "Cube (dielectric)");
-	place(PrimitiveType::Sphere,   {  0.0f, 0.1f, 0.0f }, glm::vec3(1.8f),
+	place(PrimitiveType::Sphere,   {  0.0f, 0.1f, 0.0f }, Vec3(1.8f),
 		  { 0.94f, 0.78f, 0.38f, 1.0f }, 1.0f, 0.20f, "Sphere (gold)");
-	place(PrimitiveType::Cylinder, {  3.0f, 0.0f, 0.0f }, glm::vec3(1.4f),
+	place(PrimitiveType::Cylinder, {  3.0f, 0.0f, 0.0f }, Vec3(1.4f),
 		  { 0.90f, 0.91f, 0.92f, 1.0f }, 1.0f, 0.45f, "Cylinder (brushed metal)");
 
 	// A rough/smooth pair behind, to make the roughness axis visible directly.
-	place(PrimitiveType::Sphere, { -1.6f, -0.5f, -3.0f }, glm::vec3(0.9f),
+	place(PrimitiveType::Sphere, { -1.6f, -0.5f, -3.0f }, Vec3(0.9f),
 		  { 0.80f, 0.80f, 0.82f, 1.0f }, 0.0f, 0.08f, "Sphere (smooth)");
-	place(PrimitiveType::Sphere, {  1.6f, -0.5f, -3.5f }, glm::vec3(0.9f),
+	place(PrimitiveType::Sphere, {  1.6f, -0.5f, -3.5f }, Vec3(0.9f),
 		  { 0.80f, 0.80f, 0.82f, 1.0f }, 0.0f, 0.95f, "Sphere (rough)");
 
 	// A parented arrangement, so the hierarchy is exercised by the scene the
@@ -1878,7 +1875,7 @@ void EditorLayer::LoadDemoScene()
 
 	place(PrimitiveType::Cylinder, { -6.5f, -0.6f, -1.0f }, { 1.2f, 0.6f, 1.2f },
 		  { 0.22f, 0.23f, 0.26f, 1.0f }, 0.0f, 0.7f, "Pedestal Base", pedestal);
-	place(PrimitiveType::Cube, { -6.5f, 0.2f, -1.0f }, glm::vec3(0.55f),
+	place(PrimitiveType::Cube, { -6.5f, 0.2f, -1.0f }, Vec3(0.55f),
 		  { 0.85f, 0.17f, 0.19f, 1.0f }, 0.0f, 0.25f, "Pedestal Ornament", pedestal);
 
 	// A warm key light and a cool fill from the opposite side: a single white
@@ -1912,7 +1909,7 @@ void EditorLayer::LoadDemoScene()
 		light.Type = Light::LightType::Directional;
 		light.Color = { 0.55f, 0.58f, 0.65f };
 		light.Intensity = 1.2f;
-		sun.GetComponent<TransformComponent>().Rotation = glm::radians(glm::vec3(-55.0f, -30.0f, 0.0f));
+		sun.GetComponent<TransformComponent>().Rotation = Math::Radians(Vec3(-55.0f, -30.0f, 0.0f));
 	}
 
 	// An imported glTF alongside the generated primitives, so the demo scene
@@ -1925,7 +1922,7 @@ void EditorLayer::LoadDemoScene()
 		{
 			auto& transform = imported.GetComponent<TransformComponent>();
 			transform.Position = { 6.0f, 0.0f, -1.0f };
-			transform.Scale = glm::vec3(1.6f);
+			transform.Scale = Vec3(1.6f);
 		}
 	}
 
@@ -1968,10 +1965,10 @@ void EditorLayer::LoadDemoScene()
 		// Offset slightly on each axis so they topple rather than landing in a
 		// perfect column, which reads as nothing happening.
 		transform.Position = { -0.4f + i * 0.22f, 4.0f + i * 1.6f, 0.35f - i * 0.18f };
-		transform.Scale = glm::vec3(0.7f);
+		transform.Scale = Vec3(0.7f);
 
 		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
-		box.AddComponent<ColliderComponent>().HalfExtents = glm::vec3(0.5f);
+		box.AddComponent<ColliderComponent>().HalfExtents = Vec3(0.5f);
 
 		// Landing shown as an event rather than only as a change of position.
 		// Alternating, because an entity carries one script: half the boxes

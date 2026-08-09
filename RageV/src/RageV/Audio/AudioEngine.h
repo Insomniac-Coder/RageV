@@ -1,6 +1,6 @@
 #pragma once
 #include "RageV/Asset/Asset.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 #include <cstdint>
 
 namespace RageV
@@ -69,7 +69,7 @@ namespace RageV
 		// panned by direction. False for music and UI, which should not get
 		// quieter because the listener walked away.
 		bool Spatial = false;
-		glm::vec3 Position{ 0.0f };
+		Vec3 Position{ 0.0f };
 
 		// Full volume within MinDistance, falling off to MaxDistance.
 		float MinDistance = 1.0f;
@@ -122,7 +122,7 @@ namespace RageV
 
 		// Ignored for a voice that has already ended, so a caller never has to
 		// check first.
-		static void SetVoicePosition(AudioVoice voice, const glm::vec3& position);
+		static void SetVoicePosition(AudioVoice voice, const Vec3& position);
 		static void SetVoiceVolume(AudioVoice voice, float volume);
 		static void SetVoicePitch(AudioVoice voice, float pitch);
 
@@ -131,8 +131,8 @@ namespace RageV
 		static float GetBusVolume(AudioBus bus);
 
 		// Where the world is heard from. Forward and up need not be normalised.
-		static void SetListener(const glm::vec3& position, const glm::vec3& forward,
-								const glm::vec3& up = { 0.0f, 1.0f, 0.0f });
+		static void SetListener(const Vec3& position, const Vec3& forward,
+								const Vec3& up = { 0.0f, 1.0f, 0.0f });
 
 		// Retires voices that have played to their end. Once per frame, from
 		// the application loop -- without it, one-shots accumulate for the

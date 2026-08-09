@@ -1,6 +1,6 @@
 #pragma once
 #include "RageV/Renderer/RHI/RHIDevice.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include <functional>
 #include <string>
 #include <vector>
@@ -95,7 +95,7 @@ namespace RageV
 		// and what makes the frame's shape visible without reading the passes.
 		void Sample(RGResource target);
 
-		void SetClearColor(const glm::vec4& color);
+		void SetClearColor(const Vec4& color);
 		void SetClearDepth(float depth);
 
 		// Skip the depth attachment even though the target has one. The UI
@@ -213,7 +213,7 @@ namespace RageV
 			RGLoad Load = RGLoad::Clear;
 			std::vector<RGResource> Samples;
 
-			glm::vec4 ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+			Vec4 ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 			float ClearDepth = 1.0f;
 			bool UseDepth = true;
 		};

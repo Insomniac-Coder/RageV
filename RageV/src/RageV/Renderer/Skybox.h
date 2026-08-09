@@ -2,7 +2,7 @@
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/Camera.h"
 #include "RageV/Renderer/Environment.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -34,7 +34,7 @@ namespace RageV
 		//
 		// `cubemap` may be null; the shader declares the binding whether or not
 		// the scene uses it, so a neutral cube is bound in its place.
-		static void Draw(const Camera& camera, const glm::mat4& cameraTransform,
+		static void Draw(const Camera& camera, const Mat4& cameraTransform,
 						 const SceneEnvironment& environment,
 						 const RHI::Ref<RHI::RHITexture>& cubemap);
 
@@ -72,8 +72,8 @@ namespace RageV
 		// test suite can check the reconstruction against known directions
 		// without a GPU -- getting this wrong tilts or mirrors the whole sky,
 		// and it is not obvious from a still image which of the two happened.
-		static glm::mat4 BuildDirectionMatrix(const glm::mat4& projection,
-											  const glm::mat4& cameraTransform,
+		static Mat4 BuildDirectionMatrix(const Mat4& projection,
+											  const Mat4& cameraTransform,
 											  float rotation);
 	};
 }

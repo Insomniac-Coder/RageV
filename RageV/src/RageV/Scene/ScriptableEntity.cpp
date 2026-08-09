@@ -5,8 +5,7 @@
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/Application.h"
 #include "RageV/Asset/AssetManager.h"
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/quaternion.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -22,58 +21,58 @@ namespace RageV
 	// -------------------------------------------------------------------------
 	// Transform
 	// -------------------------------------------------------------------------
-	glm::vec3& ScriptableEntity::GetPosition() { return GetComponent<TransformComponent>().Position; }
-	glm::vec3& ScriptableEntity::GetRotation() { return GetComponent<TransformComponent>().Rotation; }
-	glm::vec3& ScriptableEntity::GetScale()    { return GetComponent<TransformComponent>().Scale; }
+	Vec3& ScriptableEntity::GetPosition() { return GetComponent<TransformComponent>().Position; }
+	Vec3& ScriptableEntity::GetRotation() { return GetComponent<TransformComponent>().Rotation; }
+	Vec3& ScriptableEntity::GetScale()    { return GetComponent<TransformComponent>().Scale; }
 
-	void ScriptableEntity::Translate(const glm::vec3& delta)
+	void ScriptableEntity::Translate(const Vec3& delta)
 	{
 		GetComponent<TransformComponent>().Position += delta;
 	}
 
-	void ScriptableEntity::Rotate(const glm::vec3& eulerDelta)
+	void ScriptableEntity::Rotate(const Vec3& eulerDelta)
 	{
 		GetComponent<TransformComponent>().Rotation += eulerDelta;
 	}
 
-	void ScriptableEntity::LookAt(const glm::vec3& target, const glm::vec3& up)
+	void ScriptableEntity::LookAt(const Vec3& target, const Vec3& up)
 	{
-		const glm::vec3 from = GetWorldPosition();
-		const glm::vec3 direction = target - from;
+		const Vec3 from = GetWorldPosition();
+		const Vec3 direction = target - from;
 
 		// A zero-length direction has no rotation to describe, and normalising
 		// it would produce NaNs that then spread through every transform below.
-		if (glm::dot(direction, direction) < 1e-12f)
+		if (Math::Dot(direction, direction) < 1e-12f)
 			return;
 
 		// -Z is forward, matching the camera and light convention.
-		const glm::mat4 view = glm::lookAt(from, target, up);
-		GetComponent<TransformComponent>().Rotation = glm::eulerAngles(glm::quat_cast(glm::inverse(view)));
+		const Mat4 view = Math::LookAt(from, target, up);
+		GetComponent<TransformComponent>().Rotation = Math::ToEuler(Math::ToQuat(Math::Inverse(view)));
 	}
 
-	glm::mat4 ScriptableEntity::GetWorldTransform()
+	Mat4 ScriptableEntity::GetWorldTransform()
 	{
 		return GetScene().GetWorldTransform(m_Entity);
 	}
 
-	glm::vec3 ScriptableEntity::GetWorldPosition()
+	Vec3 ScriptableEntity::GetWorldPosition()
 	{
-		return glm::vec3(GetWorldTransform()[3]);
+		return Vec3(GetWorldTransform()[3]);
 	}
 
-	glm::vec3 ScriptableEntity::GetForward()
+	Vec3 ScriptableEntity::GetForward()
 	{
-		return glm::normalize(glm::vec3(GetWorldTransform() * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+		return Math::Normalize(Vec3(GetWorldTransform() * Vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 	}
 
-	glm::vec3 ScriptableEntity::GetRight()
+	Vec3 ScriptableEntity::GetRight()
 	{
-		return glm::normalize(glm::vec3(GetWorldTransform() * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f)));
+		return Math::Normalize(Vec3(GetWorldTransform() * Vec4(1.0f, 0.0f, 0.0f, 0.0f)));
 	}
 
-	glm::vec3 ScriptableEntity::GetUp()
+	Vec3 ScriptableEntity::GetUp()
 	{
-		return glm::normalize(glm::vec3(GetWorldTransform() * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)));
+		return Math::Normalize(Vec3(GetWorldTransform() * Vec4(0.0f, 1.0f, 0.0f, 0.0f)));
 	}
 
 	// -------------------------------------------------------------------------
@@ -142,32 +141,32 @@ namespace RageV
 	// play mode, but it can be stepped by a tool or a test that never started
 	// one, and asking a scene at rest to push something is a no-op rather than
 	// a mistake.
-	void ScriptableEntity::AddForce(const glm::vec3& force)
+	void ScriptableEntity::AddForce(const Vec3& force)
 	{
 		if (PhysicsWorld* physics = GetScene().GetPhysics())
 			physics->AddForce(m_Entity.GetUUID(), force);
 	}
 
-	void ScriptableEntity::AddImpulse(const glm::vec3& impulse)
+	void ScriptableEntity::AddImpulse(const Vec3& impulse)
 	{
 		if (PhysicsWorld* physics = GetScene().GetPhysics())
 			physics->AddImpulse(m_Entity.GetUUID(), impulse);
 	}
 
-	void ScriptableEntity::SetLinearVelocity(const glm::vec3& velocity)
+	void ScriptableEntity::SetLinearVelocity(const Vec3& velocity)
 	{
 		if (PhysicsWorld* physics = GetScene().GetPhysics())
 			physics->SetLinearVelocity(m_Entity.GetUUID(), velocity);
 	}
 
-	glm::vec3 ScriptableEntity::GetLinearVelocity()
+	Vec3 ScriptableEntity::GetLinearVelocity()
 	{
 		if (PhysicsWorld* physics = GetScene().GetPhysics())
 			return physics->GetLinearVelocity(m_Entity.GetUUID());
-		return glm::vec3(0.0f);
+		return Vec3(0.0f);
 	}
 
-	RayHit ScriptableEntity::Raycast(const glm::vec3& origin, const glm::vec3& direction)
+	RayHit ScriptableEntity::Raycast(const Vec3& origin, const Vec3& direction)
 	{
 		if (PhysicsWorld* physics = GetScene().GetPhysics())
 			return physics->CastRay(origin, direction);

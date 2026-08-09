@@ -62,8 +62,8 @@ namespace RageV
 		// Empty when the primitive is not skinned, which is the test for it.
 		// The indices address ImportedModel::Skeleton, already reordered --
 		// glTF's own joint order is arbitrary and the skeleton's is not.
-		std::vector<glm::uvec4> Joints;
-		std::vector<glm::vec4> Weights;
+		std::vector<UVec4> Joints;
+		std::vector<Vec4> Weights;
 
 		bool IsSkinned() const { return !Joints.empty() && Joints.size() == Vertices.size(); }
 	};
@@ -71,9 +71,9 @@ namespace RageV
 	struct ImportedNode
 	{
 		std::string Name = "Node";
-		glm::vec3 Position{ 0.0f };
-		glm::vec3 Rotation{ 0.0f };   // radians, XYZ euler
-		glm::vec3 Scale{ 1.0f };
+		Vec3 Position{ 0.0f };
+		Vec3 Rotation{ 0.0f };   // radians, XYZ euler
+		Vec3 Scale{ 1.0f };
 
 		int Parent = -1;
 		// Indices into ImportedModel::Primitives.

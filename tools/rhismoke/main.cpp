@@ -11,8 +11,7 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include "RageV/Math/Math.h"
 
 using namespace RageV;
 using namespace RageV::RHI;
@@ -21,10 +20,10 @@ namespace
 {
 	struct Vertex
 	{
-		glm::vec3 Position;
-		glm::vec3 Normal;
-		glm::vec4 Color;
-		glm::vec2 TexCoord;
+		Vec3 Position;
+		Vec3 Normal;
+		Vec4 Color;
+		Vec2 TexCoord;
 		float     TextureIndex;
 		float     TilingFactor;
 	};
@@ -33,10 +32,10 @@ namespace
 	// Mirrors the std140 SceneData block in quad.rvshader.
 	struct SceneData
 	{
-		glm::mat4 ViewProjection;
-		glm::vec4 CameraPosition;
-		glm::vec4 LightPositions[8];
-		glm::vec4 LightColors[8];
+		Mat4 ViewProjection;
+		Vec4 CameraPosition;
+		Vec4 LightPositions[8];
+		Vec4 LightColors[8];
 		int32_t   LightCount;
 		int32_t   _pad[3];
 	};
@@ -132,21 +131,21 @@ int main(int argc, char** argv)
 	RV_CORE_INFO("Pipeline created");
 
 	// Two quads so the batch touches more than one primitive.
-	const glm::vec4 corners[4] = {
+	const Vec4 corners[4] = {
 		{ -0.5f, -0.5f, 0.0f, 1.0f }, {  0.5f, -0.5f, 0.0f, 1.0f },
 		{  0.5f,  0.5f, 0.0f, 1.0f }, { -0.5f,  0.5f, 0.0f, 1.0f },
 	};
-	const glm::vec2 uvs[4] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+	const Vec2 uvs[4] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
 
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
-	auto pushQuad = [&](const glm::mat4& transform, const glm::vec4& color)
+	auto pushQuad = [&](const Mat4& transform, const Vec4& color)
 	{
 		const uint32_t base = (uint32_t)vertices.size();
 		for (int i = 0; i < 4; i++)
 		{
 			Vertex vertex{};
-			vertex.Position = glm::vec3(transform * corners[i]);
+			vertex.Position = Vec3(transform * corners[i]);
 			vertex.Normal = { 0.0f, 0.0f, -1.0f };
 			vertex.Color = color;
 			vertex.TexCoord = uvs[i];
@@ -158,8 +157,8 @@ int main(int argc, char** argv)
 			indices.push_back(base + i);
 	};
 
-	pushQuad(glm::translate(glm::mat4(1.0f), { -0.6f, 0.0f, 0.0f }), { 0.9f, 0.2f, 0.2f, 1.0f });
-	pushQuad(glm::translate(glm::mat4(1.0f), {  0.6f, 0.0f, 0.0f }), { 0.2f, 0.5f, 0.9f, 1.0f });
+	pushQuad(Math::Translate(Mat4(1.0f), { -0.6f, 0.0f, 0.0f }), { 0.9f, 0.2f, 0.2f, 1.0f });
+	pushQuad(Math::Translate(Mat4(1.0f), {  0.6f, 0.0f, 0.0f }), { 0.2f, 0.5f, 0.9f, 1.0f });
 
 	BufferDesc vertexDesc;
 	vertexDesc.Size = vertices.size() * sizeof(Vertex);
@@ -219,7 +218,7 @@ int main(int argc, char** argv)
 
 		SceneData scene{};
 		const float aspect = (float)device->GetSwapchainWidth() / (float)device->GetSwapchainHeight();
-		scene.ViewProjection = glm::ortho(-aspect, aspect, -1.0f, 1.0f, -1.0f, 1.0f);
+		scene.ViewProjection = Math::Orthographic(-aspect, aspect, -1.0f, 1.0f, -1.0f, 1.0f);
 		scene.CameraPosition = { 0.0f, 0.0f, 1.0f, 0.0f };
 		scene.LightCount = 0;
 		uniformBuffer->Upload(&scene, sizeof(scene));

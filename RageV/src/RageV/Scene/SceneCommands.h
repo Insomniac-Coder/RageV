@@ -76,7 +76,7 @@ namespace RageV
 	// Asset handles are held as uint64_t rather than as AssetHandle: UUID
 	// converts to uint64_t implicitly, so having both in the variant would make
 	// every construction from a handle ambiguous.
-	using FieldValue = std::variant<bool, int, float, glm::vec3, glm::vec4,
+	using FieldValue = std::variant<bool, int, float, Vec3, Vec4,
 									std::string, uint64_t>;
 
 	FieldValue ReadFieldValue(const FieldDesc& field, void* component);
@@ -123,8 +123,8 @@ namespace RageV
 
 		std::weak_ptr<Scene> m_Scene;
 		UUID m_Entity;
-		glm::vec3 m_BeforePosition, m_BeforeRotation, m_BeforeScale;
-		glm::vec3 m_AfterPosition, m_AfterRotation, m_AfterScale;
+		Vec3 m_BeforePosition, m_BeforeRotation, m_BeforeScale;
+		Vec3 m_AfterPosition, m_AfterRotation, m_AfterScale;
 	};
 
 	// --- structural ----------------------------------------------------------
@@ -196,8 +196,8 @@ namespace RageV
 		// quaternion converted back to Euler angles need not reproduce the
 		// angles it came from, even when the rotation is identical. Undo has to
 		// put back the numbers that were there, not numbers that mean the same.
-		glm::vec3 m_BeforePosition{ 0.0f }, m_BeforeRotation{ 0.0f }, m_BeforeScale{ 1.0f };
-		glm::vec3 m_AfterPosition{ 0.0f }, m_AfterRotation{ 0.0f }, m_AfterScale{ 1.0f };
+		Vec3 m_BeforePosition{ 0.0f }, m_BeforeRotation{ 0.0f }, m_BeforeScale{ 1.0f };
+		Vec3 m_AfterPosition{ 0.0f }, m_AfterRotation{ 0.0f }, m_AfterScale{ 1.0f };
 		bool m_HasAfter = false;
 	};
 

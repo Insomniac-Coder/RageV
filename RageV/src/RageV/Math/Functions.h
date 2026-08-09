@@ -83,6 +83,7 @@ namespace RageV::Math
 	Vec4& operator+=(Vec4& a, const Vec4& b);
 	Vec4& operator-=(Vec4& a, const Vec4& b);
 	Vec4& operator*=(Vec4& v, float s);
+	Vec4& operator/=(Vec4& v, float s);
 
 	bool operator==(const Vec4& a, const Vec4& b);
 	bool operator!=(const Vec4& a, const Vec4& b);
@@ -111,6 +112,14 @@ namespace RageV::Math
 	inline const float* ValuePtr(const Vec3& v) { return &v.x; }
 	inline const float* ValuePtr(const Vec4& v) { return &v.x; }
 
+	// Writable, because ImGui's colour and drag widgets edit through the pointer
+	// they are given. glm has the same pair for the same reason.
+	inline float* ValuePtr(Mat4& m) { return &m[0].x; }
+	inline float* ValuePtr(Mat3& m) { return &m[0].x; }
+	inline float* ValuePtr(Vec2& v) { return &v.x; }
+	inline float* ValuePtr(Vec3& v) { return &v.x; }
+	inline float* ValuePtr(Vec4& v) { return &v.x; }
+
 	Mat4 Inverse(const Mat4& m);
 	Mat4 Transpose(const Mat4& m);
 	Mat3 Inverse(const Mat3& m);
@@ -132,6 +141,11 @@ namespace RageV::Math
 
 	float Radians(float degrees);
 	float Degrees(float radians);
+
+	// Component-wise, for the inspector -- Euler angles are stored in radians and
+	// shown in degrees, three at a time.
+	Vec3 Radians(const Vec3& degrees);
+	Vec3 Degrees(const Vec3& radians);
 
 	float Min(float a, float b);
 	float Max(float a, float b);
@@ -166,6 +180,8 @@ namespace RageV::Math
 	Vec4 Mix(const Vec4& a, const Vec4& b, float t);
 
 	Vec3 Abs(const Vec3& v);
+	Vec3 Round(const Vec3& v);
+	Vec4 Round(const Vec4& v);
 
 	// The largest component. Named for what it does rather than for glm's
 	// `compMax`, which reads like a comparison.
@@ -203,10 +219,29 @@ namespace RageV::Math
 
 	Quat  Normalize(const Quat& q);
 	Quat  Conjugate(const Quat& q);
+
+	// Negating a quaternion leaves the rotation it describes unchanged -- it is
+	// the other half of the double cover. Needed wherever two rotations have to
+	// be brought into the same hemisphere before interpolating.
+	Quat  operator-(const Quat& q);
+	float Dot(const Quat& a, const Quat& b);
+
+	// Component-wise, which is not a rotation of anything -- it is how you ask
+	// how far apart two quaternions are numerically, and that is what a test
+	// comparing poses wants.
+	Quat  operator+(const Quat& a, const Quat& b);
+	Quat  operator-(const Quat& a, const Quat& b);
+	float Length(const Quat& q);
+
 	Quat  operator*(const Quat& a, const Quat& b);
 	Vec3  operator*(const Quat& q, const Vec3& v);
 
 	Quat  AngleAxis(float radians, const Vec3& axis);
+
+	// Applies the rotation to a vector. The same thing `q * v` does, spelled for
+	// call sites where the verb reads better than the operator.
+	Vec3  Rotate(const Quat& q, const Vec3& v);
+
 	float Angle(const Quat& q);
 
 	// Radians, in the engine's XYZ order -- the same order the inspector shows

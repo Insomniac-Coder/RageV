@@ -31,7 +31,7 @@ namespace RageV
 
 		SceneEnvironment Environment;
 
-		glm::vec4 ClearColor{ 0.05f, 0.05f, 0.06f, 1.0f };
+		Vec4 ClearColor{ 0.05f, 0.05f, 0.06f, 1.0f };
 
 		// The format the output expects. The chain's last pass writes it.
 		RHI::Format OutputFormat = RHI::Format::R8G8B8A8_UNORM;

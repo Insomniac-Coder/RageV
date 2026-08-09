@@ -1,6 +1,6 @@
 #include <rvpch.h>
 #include "Mesh.h"
-#include <glm/gtc/constants.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -67,8 +67,8 @@ namespace RageV
 		for (const MeshVertex& vertex : vertices)
 		{
 			m_Positions.push_back(vertex.Position);
-			m_Bounds.Min = glm::min(m_Bounds.Min, vertex.Position);
-			m_Bounds.Max = glm::max(m_Bounds.Max, vertex.Position);
+			m_Bounds.Min = Math::Min(m_Bounds.Min, vertex.Position);
+			m_Bounds.Max = Math::Max(m_Bounds.Max, vertex.Position);
 		}
 	}
 
@@ -108,8 +108,8 @@ namespace RageV
 		for (const SkinnedVertex& vertex : vertices)
 		{
 			m_Positions.push_back(vertex.Position);
-			m_Bounds.Min = glm::min(m_Bounds.Min, vertex.Position);
-			m_Bounds.Max = glm::max(m_Bounds.Max, vertex.Position);
+			m_Bounds.Min = Math::Min(m_Bounds.Min, vertex.Position);
+			m_Bounds.Max = Math::Max(m_Bounds.Max, vertex.Position);
 		}
 	}
 
@@ -156,8 +156,8 @@ namespace RageV
 		namespace
 		{
 			void AddQuadFace(std::vector<MeshVertex>& vertices, std::vector<uint32_t>& indices,
-							 const glm::vec3& origin, const glm::vec3& right, const glm::vec3& up,
-							 const glm::vec3& normal)
+							 const Vec3& origin, const Vec3& right, const Vec3& up,
+							 const Vec3& normal)
 			{
 				const uint32_t base = (uint32_t)vertices.size();
 
@@ -179,7 +179,7 @@ namespace RageV
 			// Six independent faces rather than eight shared corners: a cube's
 			// normals are discontinuous at the edges, so sharing vertices would
 			// average them and round off the lighting.
-			const glm::vec3 h(0.5f);
+			const Vec3 h(0.5f);
 
 			AddQuadFace(vertices, indices, { -h.x, -h.y,  h.z }, {  1, 0, 0 }, { 0, 1, 0 }, {  0,  0,  1 }); // front
 			AddQuadFace(vertices, indices, {  h.x, -h.y, -h.z }, { -1, 0, 0 }, { 0, 1, 0 }, {  0,  0, -1 }); // back
@@ -219,14 +219,14 @@ namespace RageV
 			for (uint32_t ring = 0; ring <= rings; ring++)
 			{
 				const float v = (float)ring / (float)rings;
-				const float phi = v * glm::pi<float>();
+				const float phi = v * Math::Pi;
 
 				for (uint32_t segment = 0; segment <= segments; segment++)
 				{
 					const float u = (float)segment / (float)segments;
-					const float theta = u * glm::two_pi<float>();
+					const float theta = u * Math::TwoPi;
 
-					glm::vec3 position{
+					Vec3 position{
 						std::sin(phi) * std::cos(theta),
 						std::cos(phi),
 						std::sin(phi) * std::sin(theta)
@@ -234,7 +234,7 @@ namespace RageV
 
 					// Unit sphere centred on the origin, so the position is the
 					// normal.
-					vertices.push_back({ position * 0.5f, glm::normalize(position), { u, 1.0f - v } });
+					vertices.push_back({ position * 0.5f, Math::Normalize(position), { u, 1.0f - v } });
 				}
 			}
 
@@ -279,8 +279,8 @@ namespace RageV
 			for (uint32_t i = 0; i <= segments; i++)
 			{
 				const float u = (float)i / (float)segments;
-				const float theta = u * glm::two_pi<float>();
-				const glm::vec3 normal{ std::cos(theta), 0.0f, std::sin(theta) };
+				const float theta = u * Math::TwoPi;
+				const Vec3 normal{ std::cos(theta), 0.0f, std::sin(theta) };
 
 				vertices.push_back({ { normal.x * radius, -halfHeight, normal.z * radius }, normal, { u, 0.0f } });
 				vertices.push_back({ { normal.x * radius,  halfHeight, normal.z * radius }, normal, { u, 1.0f } });
@@ -293,14 +293,14 @@ namespace RageV
 			}
 
 			// Caps, as triangle fans around a centre vertex.
-			auto addCap = [&](float y, const glm::vec3& normal, bool flip)
+			auto addCap = [&](float y, const Vec3& normal, bool flip)
 			{
 				const uint32_t centre = (uint32_t)vertices.size();
 				vertices.push_back({ { 0.0f, y, 0.0f }, normal, { 0.5f, 0.5f } });
 
 				for (uint32_t i = 0; i <= segments; i++)
 				{
-					const float theta = (float)i / (float)segments * glm::two_pi<float>();
+					const float theta = (float)i / (float)segments * Math::TwoPi;
 					const float x = std::cos(theta);
 					const float z = std::sin(theta);
 					vertices.push_back({ { x * radius, y, z * radius }, normal,

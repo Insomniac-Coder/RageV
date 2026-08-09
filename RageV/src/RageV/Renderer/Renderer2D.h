@@ -1,5 +1,5 @@
 #pragma once
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include "Camera.h"
 #include "Light.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
@@ -28,11 +28,11 @@ namespace RageV
 		// Resets the per-frame batch pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();
 
-		static void BeginScene(const Camera& camera, const glm::mat4& transform, const LightList& lights = {});
+		static void BeginScene(const Camera& camera, const Mat4& transform, const LightList& lights = {});
 		static void EndScene();
 
-		static void DrawQuad(const glm::mat4& transform, const glm::vec4& color);
-		static void DrawQuad(const glm::mat4& transform, const RHI::Ref<RHI::RHITexture>& texture, float tilingfactor = 1.0f);
+		static void DrawQuad(const Mat4& transform, const Vec4& color);
+		static void DrawQuad(const Mat4& transform, const RHI::Ref<RHI::RHITexture>& texture, float tilingfactor = 1.0f);
 
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetVerticesCount();

@@ -1,9 +1,7 @@
 #include <rvpch.h>
 #include "GltfImporter.h"
 #include "RageV/Core/Log.h"
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtx/quaternion.hpp>
+#include "RageV/Math/Math.h"
 #include <cgltf.h>
 
 namespace RageV
@@ -42,14 +40,12 @@ namespace RageV
 		{
 			if (node.has_matrix)
 			{
-				glm::mat4 matrix;
+				Mat4 matrix;
 				std::memcpy(&matrix[0][0], node.matrix, sizeof(float) * 16);
 
-				glm::vec3 skew;
-				glm::vec4 perspective;
-				glm::quat rotation;
-				if (glm::decompose(matrix, out.Scale, rotation, out.Position, skew, perspective))
-					out.Rotation = glm::eulerAngles(rotation);
+				Quat rotation;
+				if (Math::Decompose(matrix, out.Position, rotation, out.Scale))
+					out.Rotation = Math::ToEuler(rotation);
 				return;
 			}
 
@@ -58,10 +54,10 @@ namespace RageV
 
 			if (node.has_rotation)
 			{
-				// glTF stores quaternions xyzw; glm's constructor takes wxyz.
-				const glm::quat rotation(node.rotation[3], node.rotation[0],
+				// glTF stores quaternions xyzw; Quat's constructor takes wxyz.
+				const Quat rotation(node.rotation[3], node.rotation[0],
 										 node.rotation[1], node.rotation[2]);
-				out.Rotation = glm::eulerAngles(rotation);
+				out.Rotation = Math::ToEuler(rotation);
 			}
 
 			if (node.has_scale)
@@ -234,14 +230,11 @@ namespace RageV
 				{
 					// A node given as a matrix has to be taken apart, because
 					// the pose is stored as three components.
-					glm::mat4 matrix;
+					Mat4 matrix;
 					memcpy(&matrix[0][0], node->matrix, sizeof(float) * 16);
 
-					glm::vec3 skew;
-					glm::vec4 perspective;
-					glm::quat rotation;
-					if (glm::decompose(matrix, target.RestScale, rotation, target.RestPosition,
-									   skew, perspective))
+					Quat rotation;
+					if (Math::Decompose(matrix, target.RestPosition, rotation, target.RestScale))
 					{
 						target.RestRotation = rotation;
 					}
@@ -253,8 +246,8 @@ namespace RageV
 												node->translation[2] };
 					if (node->has_rotation)
 					{
-						// glTF stores xyzw; glm's constructor takes wxyz.
-						target.RestRotation = glm::quat(node->rotation[3], node->rotation[0],
+						// glTF stores xyzw; Quat's constructor takes wxyz.
+						target.RestRotation = Quat(node->rotation[3], node->rotation[0],
 														node->rotation[1], node->rotation[2]);
 					}
 					if (node->has_scale)
@@ -337,10 +330,10 @@ namespace RageV
 
 						case cgltf_animation_path_type_rotation:
 							cgltf_accessor_read_float(output, k, value, 4);
-							// xyzw on disk, wxyz in glm.
+							// xyzw on disk, wxyz in the constructor.
 							track.Rotation.Times.push_back(time);
 							track.Rotation.Values.push_back(
-								glm::quat(value[3], value[0], value[1], value[2]));
+								Quat(value[3], value[0], value[1], value[2]));
 							break;
 
 						case cgltf_animation_path_type_scale:
@@ -485,8 +478,8 @@ namespace RageV
 					MeshVertex& b = out.Vertices[out.Indices[i + 1]];
 					MeshVertex& c = out.Vertices[out.Indices[i + 2]];
 
-					const glm::vec3 normal = glm::normalize(
-						glm::cross(b.Position - a.Position, c.Position - a.Position));
+					const Vec3 normal = Math::Normalize(
+						Math::Cross(b.Position - a.Position, c.Position - a.Position));
 
 					a.Normal += normal;
 					b.Normal += normal;
@@ -495,9 +488,9 @@ namespace RageV
 
 				for (MeshVertex& vertex : out.Vertices)
 				{
-					vertex.Normal = glm::dot(vertex.Normal, vertex.Normal) > 0.0f
-								  ? glm::normalize(vertex.Normal)
-								  : glm::vec3(0.0f, 1.0f, 0.0f);
+					vertex.Normal = Math::Dot(vertex.Normal, vertex.Normal) > 0.0f
+								  ? Math::Normalize(vertex.Normal)
+								  : Vec3(0.0f, 1.0f, 0.0f);
 				}
 			}
 
@@ -582,7 +575,7 @@ namespace RageV
 				// know the two ever differed.
 				if (primitive.IsSkinned() && !mapping.ToBone.empty())
 				{
-					for (glm::uvec4& joint : primitive.Joints)
+					for (UVec4& joint : primitive.Joints)
 					{
 						for (int component = 0; component < 4; component++)
 						{

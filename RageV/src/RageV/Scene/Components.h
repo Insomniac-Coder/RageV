@@ -4,8 +4,6 @@
 #include "RageV/Core/UUID.h"
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsTypes.h"
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
 #include "RageV/Renderer/Camera.h"
 #include "RageV/Animation/Skeleton.h"
 #include "SceneCamera.h"
@@ -14,7 +12,7 @@
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/Material.h"
 #include "RageV/Renderer/ReflectionProbe.h"
-#include <glm/gtx/quaternion.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -57,9 +55,9 @@ namespace RageV
 	struct TransformComponent
 	{
 		// Local, relative to the parent. World is derived from these.
-		glm::vec3 Position{ 0.0f, 0.0f, 0.0f };
-		glm::vec3 Rotation{ 0.0f, 0.0f, 0.0f };
-		glm::vec3 Scale{ 1.0f };
+		Vec3 Position{ 0.0f, 0.0f, 0.0f };
+		Vec3 Rotation{ 0.0f, 0.0f, 0.0f };
+		Vec3 Scale{ 1.0f };
 
 		// Recomputed unconditionally by Scene::UpdateWorldTransforms in one
 		// top-down pass per frame.
@@ -69,28 +67,28 @@ namespace RageV
 		// everything added later -- and a single missed one leaves an object
 		// silently rendering in the wrong place. Recomputing is O(n) at scene
 		// scale and cannot be got wrong.
-		glm::mat4 World{ 1.0f };
+		Mat4 World{ 1.0f };
 
 		TransformComponent() = default;
 		TransformComponent(const TransformComponent&) = default;
-		TransformComponent(const glm::vec3& position) { Position = position; }
+		TransformComponent(const Vec3& position) { Position = position; }
 
-		glm::mat4 GetLocalTransform() const
+		Mat4 GetLocalTransform() const
 		{
-			glm::mat4 rotation = glm::toMat4(glm::quat(Rotation));
-			return	glm::translate(glm::mat4(1.0f), Position) *
+			Mat4 rotation = Math::ToMat4(Math::FromEuler(Rotation));
+			return	Math::Translate(Mat4(1.0f), Position) *
 					rotation *
-					glm::scale(glm::mat4(1.0f), Scale);
+					Math::Scale(Mat4(1.0f), Scale);
 		}
 	};
 
 	struct ColorComponent
 	{
-		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		Vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 
 		ColorComponent() = default;
 		ColorComponent(const ColorComponent&) = default;
-		ColorComponent(const glm::vec4& color) { Color = color; }
+		ColorComponent(const Vec4& color) { Color = color; }
 	};
 
 	struct CameraComponent
@@ -222,7 +220,7 @@ namespace RageV
 		// so a script can read a bone's position -- a weapon in a hand needs
 		// exactly this, and recomputing it would be a second answer to a
 		// question already answered.
-		std::vector<glm::mat4> Skinning;
+		std::vector<Mat4> Skinning;
 
 		AnimatorComponent() = default;
 		AnimatorComponent(const AnimatorComponent&) = default;
@@ -264,7 +262,7 @@ namespace RageV
 
 		// Box. Half-extents, so the default is a 1x1x1 cube -- matching the
 		// cube primitive, so a cube with a collider lines up without tuning.
-		glm::vec3 HalfExtents{ 0.5f };
+		Vec3 HalfExtents{ 0.5f };
 
 		// Sphere and capsule.
 		float Radius = 0.5f;
@@ -274,7 +272,7 @@ namespace RageV
 
 		// Moves the shape relative to the entity, for a collider that should
 		// not sit on the origin -- feet at the bottom of a character, say.
-		glm::vec3 Offset{ 0.0f };
+		Vec3 Offset{ 0.0f };
 
 		// Reports overlaps without resisting them.
 		bool IsTrigger = false;

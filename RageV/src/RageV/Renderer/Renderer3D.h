@@ -1,5 +1,5 @@
 #pragma once
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include "Camera.h"
 #include "Light.h"
 #include "Environment.h"
@@ -33,7 +33,7 @@ namespace RageV
 		// cube. Null means nothing is reflected, not that the term is
 		// undefined: the binding is filled with a neutral cube and the
 		// intensity set to zero.
-		static void BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
+		static void BeginScene(const Camera& camera, const Mat4& cameraTransform,
 							   const LightList& lights = {},
 							   const SceneEnvironment& environment = {},
 							   const RHI::Ref<RHI::RHITexture>& environmentMap = nullptr,
@@ -47,16 +47,16 @@ namespace RageV
 		// The light's view-projection is folded into each draw's model matrix,
 		// so a caster costs one push constant and nothing else -- no descriptor
 		// set is bound in this pass at all.
-		static void BeginShadow(const glm::mat4& viewProjection);
-		static void DrawMeshShadow(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform);
+		static void BeginShadow(const Mat4& viewProjection);
+		static void DrawMeshShadow(const RHI::Ref<Mesh>& mesh, const Mat4& transform);
 
 		// The same pose the lit pass was given. Without this a skinned figure
 		// walks and its shadow stands still in the bind pose.
-		static void DrawSkinnedMeshShadow(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,
-										  const std::vector<glm::mat4>& bones);
+		static void DrawSkinnedMeshShadow(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
+										  const std::vector<Mat4>& bones);
 		static void EndShadow();
 
-		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,
+		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 							 const RHI::Ref<Material>& material);
 
 		// A mesh a skeleton moves. `bones` is one matrix per bone, already
@@ -67,9 +67,9 @@ namespace RageV
 		// because a skinned mesh must never reach the static pipeline: the
 		// vertex layouts differ and the static one would read joint indices as
 		// texture coordinates.
-		static void DrawSkinnedMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,
+		static void DrawSkinnedMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 									const RHI::Ref<Material>& material,
-									const std::vector<glm::mat4>& bones);
+									const std::vector<Mat4>& bones);
 
 		// Shared by every mesh that has no material of its own.
 		static RHI::Ref<Material> GetDefaultMaterial();

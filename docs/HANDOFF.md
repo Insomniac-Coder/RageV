@@ -28,9 +28,11 @@ the .NET runtime boots in-process and calls managed code. The engine loop closes
 a project can be imported into, placed in, scripted, played, and packaged into a
 folder someone else can run.
 
-**In flight, and not finished:** 5.0, which wraps every third-party type out of
-the public API. `RageV/Math` exists and is verified against glm; migrating the
-call sites onto it has not started. See §8.
+**5.0 is done too** — no third-party type appears in a public RageV header any
+more. `glm::vec3` is `RageV::Math::Vec3`, glm survives only inside `Math.cpp`,
+`GlmBridge.h` and the one scenetest block that compares the two. What has *not*
+been done is the second half of 5.0: `RageV::Audio::`, `RageV::Physics::` and
+the other domain namespaces. See §8.
 
 **Prove it still works** (from the repo root, ~2 minutes):
 
@@ -911,9 +913,31 @@ Two decisions in it are worth not re-litigating:
   NaNs, a NaN in a transform takes the object and every child with it, and
   nothing reports anything. There is a check for it.
 
-**What is left:** the call sites. 10 public headers and 35 `.cpp` files, around
-a thousand `glm::` mentions. Then re-run the benchmark in §9 against the
-recorded baseline, and only then move on to 5.2.
+**The call sites are migrated.** 31 public headers and 35 `.cpp` files. The
+mechanical part was a substitution table; three things were deliberately left
+for the compiler to catch rather than guessed at, and all three were real:
+
+- `glm::decompose(m, scale, rotation, translation, skew, perspective)` against
+  `Math::Decompose(m, translation, rotation, scale)` — **the argument order
+  differs**. A blind rename would have compiled and silently swapped position
+  with scale.
+- `glm::quat(euler)` is `Math::FromEuler`, not a constructor. A `Quat(Vec3)`
+  constructor was considered and rejected: a constructor that silently means
+  "these are Euler angles" is how that mistake gets made.
+- `glm::max<uint32_t>` is `std::max`. `Math::Max` is float-only on purpose —
+  integer maxima are not a graphics library's job.
+
+> **The migration script rewrote the glm comparison test too**, leaving it
+> comparing `RageV::Math` against `RageV::Math` — a test that would have passed
+> forever while proving nothing. It was caught, the file was restored, and the
+> block now carries a comment saying it must not be migrated. This is the exact
+> failure mode the reference-drift check was built to prevent, arriving in a
+> place nobody was watching.
+
+**What is left of 5.0:** the domain namespaces — `RageV::Audio::`,
+`RageV::Physics::`, `RageV::Assets::`. `RageV::Math::` and `RageV::RHI::` are
+already in that shape. Watch for `Renderer`, `Scene` and `Input`, which exist as
+*types* at the scope those namespaces would occupy.
 
 ### After MVP+ — phases 6, 7 and 8
 
@@ -969,23 +993,32 @@ because the alternative is someone finding each one by being confused.
   semantics, surprising the first time.
 - **Nothing culls by distance.** A mesh behind the camera is skipped; a mesh a
   kilometre away that is two pixels across is drawn in full.
-- **The math abstraction's cost: baseline recorded, not yet compared.**
-  `RageV/Math` declares its operators and defines them in one translation unit
-  so no public header includes glm. Link-time code generation is now on for
-  Release and Dist (`INTERPROCEDURAL_OPTIMIZATION_RELEASE/DIST` on `RageV`,
-  `RageVEditor`, `RageVRuntime`) so the optimiser folds glm's bodies back into
-  the call sites.
+- **The math abstraction costs about 3% of a CPU-bound frame. Measured.**
 
-  Whether that fully pays for the boundary is **not yet known**, because nothing
-  hot uses the new types until the migration lands. The before-number is
-  recorded so the after-number means something -- Release, Vulkan, vsync off,
-  600 frames, three runs:
+  Release, Vulkan, vsync off, 600 frames, three runs each, LTCG on for both:
 
-      2.213 ms   2.245 ms   2.279 ms
+      glm at the call sites   2.213  2.245  2.279   mean 2.246 ms
+      RageV::Math             2.299  2.300  2.341   mean 2.313 ms   +3.0%
 
-  Re-run exactly that after the call sites move. A regression outside that
-  spread is the abstraction costing something, and the answer then is to inline
-  the trivial operators in the header rather than to accept it quietly.
+  The ranges do not overlap, so it is real rather than noise. It is also 0.07 ms
+  on a frame running at 430 FPS, in a scene that is CPU bound with 0.48 ms of
+  GPU work.
+
+  **It is not the call boundary.** That was checked rather than assumed: `/GL` is
+  on the compile line and `/LTCG` on the link line, confirmed from the tlogs, so
+  the optimiser already has glm's bodies at every call site.
+
+  One hypothesis was tested and did not explain it. RageV's vectors
+  zero-initialise on default construction; glm's leave the members
+  uninitialised, and glm is not built with `GLM_FORCE_CTOR_INIT`. Building with
+  glm's semantics gave 2.274 / 2.280 / 2.319 — it recovers 0.022 ms of a 0.068 ms
+  gap, which is inside the run-to-run spread. Zero-initialisation was kept: it is
+  worth more than a third of 3% in a codebase that has lost objects to NaNs.
+
+  **Left as it is, deliberately.** The remaining cost is the abstraction, and
+  buying it back means writing the trivial operators out in the header, which is
+  the thing the owner asked not to do. Revisit only if a real game turns out to
+  be CPU bound — and re-run exactly the benchmark above, not a different one.
 
 ### Performance, all unmeasured
 

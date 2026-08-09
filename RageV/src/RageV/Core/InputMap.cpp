@@ -4,7 +4,7 @@
 #include "KeyCodes.h"
 #include "MouseButtonCodes.h"
 #include "Log.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 #include <algorithm>
 
 namespace RageV
@@ -53,8 +53,8 @@ namespace RageV
 		std::unordered_map<std::string, AxisState> s_Axes;
 		std::unordered_map<std::string, bool> s_Contexts;
 
-		glm::vec2 s_LastMouse{ 0.0f };
-		glm::vec2 s_MouseDelta{ 0.0f };
+		Vec2 s_LastMouse{ 0.0f };
+		Vec2 s_MouseDelta{ 0.0f };
 		float s_WheelDelta = 0.0f;
 		bool s_HaveMouse = false;
 
@@ -167,11 +167,11 @@ namespace RageV
 	void InputMap::Update()
 	{
 		const auto [mouseX, mouseY] = Input::GetMousePosition();
-		const glm::vec2 mouse{ mouseX, mouseY };
+		const Vec2 mouse{ mouseX, mouseY };
 
 		// The first sample has no previous position, so the delta would be the
 		// whole screen and every look-axis would snap on frame one.
-		s_MouseDelta = s_HaveMouse ? mouse - s_LastMouse : glm::vec2(0.0f);
+		s_MouseDelta = s_HaveMouse ? mouse - s_LastMouse : Vec2(0.0f);
 		s_LastMouse = mouse;
 		s_HaveMouse = true;
 

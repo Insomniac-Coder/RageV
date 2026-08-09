@@ -74,6 +74,7 @@ namespace RageV::Math
 	Vec4& operator+=(Vec4& a, const Vec4& b) { a = a + b; return a; }
 	Vec4& operator-=(Vec4& a, const Vec4& b) { a = a - b; return a; }
 	Vec4& operator*=(Vec4& v, float s)       { v = v * s; return v; }
+	Vec4& operator/=(Vec4& v, float s)       { v = v / s; return v; }
 
 	bool operator==(const Vec4& a, const Vec4& b) { return ToGlm(a) == ToGlm(b); }
 	bool operator!=(const Vec4& a, const Vec4& b) { return ToGlm(a) != ToGlm(b); }
@@ -151,6 +152,9 @@ namespace RageV::Math
 	float Radians(float degrees) { return glm::radians(degrees); }
 	float Degrees(float radians) { return glm::degrees(radians); }
 
+	Vec3 Radians(const Vec3& degrees) { return FromGlm(glm::radians(ToGlm(degrees))); }
+	Vec3 Degrees(const Vec3& radians) { return FromGlm(glm::degrees(ToGlm(radians))); }
+
 	float Min(float a, float b) { return glm::min(a, b); }
 	float Max(float a, float b) { return glm::max(a, b); }
 	float Clamp(float v, float lo, float hi) { return glm::clamp(v, lo, hi); }
@@ -178,7 +182,9 @@ namespace RageV::Math
 	Vec3 Mix(const Vec3& a, const Vec3& b, float t) { return FromGlm(glm::mix(ToGlm(a), ToGlm(b), t)); }
 	Vec4 Mix(const Vec4& a, const Vec4& b, float t) { return FromGlm(glm::mix(ToGlm(a), ToGlm(b), t)); }
 
-	Vec3 Abs(const Vec3& v) { return FromGlm(glm::abs(ToGlm(v))); }
+	Vec3 Abs(const Vec3& v)   { return FromGlm(glm::abs(ToGlm(v))); }
+	Vec3 Round(const Vec3& v) { return FromGlm(glm::round(ToGlm(v))); }
+	Vec4 Round(const Vec4& v) { return FromGlm(glm::round(ToGlm(v))); }
 
 	float MaxComponent(const Vec3& v) { return glm::compMax(ToGlm(v)); }
 	float MinComponent(const Vec3& v) { return glm::compMin(ToGlm(v)); }
@@ -224,6 +230,13 @@ namespace RageV::Math
 
 	Quat Normalize(const Quat& q) { return FromGlm(glm::normalize(ToGlm(q))); }
 	Quat Conjugate(const Quat& q) { return FromGlm(glm::conjugate(ToGlm(q))); }
+	Quat operator-(const Quat& q) { return FromGlm(-ToGlm(q)); }
+
+	float Dot(const Quat& a, const Quat& b) { return glm::dot(ToGlm(a), ToGlm(b)); }
+
+	Quat operator+(const Quat& a, const Quat& b) { return FromGlm(ToGlm(a) + ToGlm(b)); }
+	Quat operator-(const Quat& a, const Quat& b) { return FromGlm(ToGlm(a) - ToGlm(b)); }
+	float Length(const Quat& q) { return glm::length(ToGlm(q)); }
 
 	Quat operator*(const Quat& a, const Quat& b) { return FromGlm(ToGlm(a) * ToGlm(b)); }
 	Vec3 operator*(const Quat& q, const Vec3& v) { return FromGlm(ToGlm(q) * ToGlm(v)); }
@@ -234,6 +247,8 @@ namespace RageV::Math
 	}
 
 	float Angle(const Quat& q) { return glm::angle(ToGlm(q)); }
+
+	Vec3 Rotate(const Quat& q, const Vec3& v) { return FromGlm(ToGlm(q) * ToGlm(v)); }
 
 	Quat FromEuler(const Vec3& radians) { return FromGlm(glm::quat(ToGlm(radians))); }
 	Vec3 ToEuler(const Quat& q)         { return FromGlm(glm::eulerAngles(ToGlm(q))); }

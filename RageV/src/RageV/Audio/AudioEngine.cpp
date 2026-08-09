@@ -255,17 +255,17 @@ namespace RageV
 			return 0;
 		}
 
-		ma_sound_set_volume(voice.Sound.get(), glm::max(playback.Volume, 0.0f));
-		ma_sound_set_pitch(voice.Sound.get(), glm::max(playback.Pitch, 0.01f));
+		ma_sound_set_volume(voice.Sound.get(), Math::Max(playback.Volume, 0.0f));
+		ma_sound_set_pitch(voice.Sound.get(), Math::Max(playback.Pitch, 0.01f));
 		ma_sound_set_looping(voice.Sound.get(), playback.Loop ? MA_TRUE : MA_FALSE);
 
 		if (playback.Spatial)
 		{
 			ma_sound_set_position(voice.Sound.get(), playback.Position.x,
 								  playback.Position.y, playback.Position.z);
-			ma_sound_set_min_distance(voice.Sound.get(), glm::max(playback.MinDistance, 0.01f));
+			ma_sound_set_min_distance(voice.Sound.get(), Math::Max(playback.MinDistance, 0.01f));
 			ma_sound_set_max_distance(voice.Sound.get(),
-									  glm::max(playback.MaxDistance, playback.MinDistance + 0.01f));
+									  Math::Max(playback.MaxDistance, playback.MinDistance + 0.01f));
 		}
 
 		ma_sound_start(voice.Sound.get());
@@ -315,7 +315,7 @@ namespace RageV
 		return ma_sound_is_playing(it->second.Sound.get()) == MA_TRUE;
 	}
 
-	void AudioEngine::SetVoicePosition(AudioVoice voice, const glm::vec3& position)
+	void AudioEngine::SetVoicePosition(AudioVoice voice, const Vec3& position)
 	{
 		const auto it = s_Audio.Voices.find(voice);
 		if (it == s_Audio.Voices.end() || !it->second.Sound)
@@ -330,7 +330,7 @@ namespace RageV
 		if (it == s_Audio.Voices.end() || !it->second.Sound)
 			return;
 
-		ma_sound_set_volume(it->second.Sound.get(), glm::max(volume, 0.0f));
+		ma_sound_set_volume(it->second.Sound.get(), Math::Max(volume, 0.0f));
 	}
 
 	void AudioEngine::SetVoicePitch(AudioVoice voice, float pitch)
@@ -339,7 +339,7 @@ namespace RageV
 		if (it == s_Audio.Voices.end() || !it->second.Sound)
 			return;
 
-		ma_sound_set_pitch(it->second.Sound.get(), glm::max(pitch, 0.01f));
+		ma_sound_set_pitch(it->second.Sound.get(), Math::Max(pitch, 0.01f));
 	}
 
 	void AudioEngine::SetBusVolume(AudioBus bus, float volume)
@@ -347,7 +347,7 @@ namespace RageV
 		if (bus >= AudioBus::Count)
 			return;
 
-		volume = glm::max(volume, 0.0f);
+		volume = Math::Max(volume, 0.0f);
 		s_Audio.BusVolume[(size_t)bus] = volume;
 
 		if (!s_Audio.HasEngine)
@@ -366,8 +366,8 @@ namespace RageV
 		return bus < AudioBus::Count ? s_Audio.BusVolume[(size_t)bus] : 1.0f;
 	}
 
-	void AudioEngine::SetListener(const glm::vec3& position, const glm::vec3& forward,
-								  const glm::vec3& up)
+	void AudioEngine::SetListener(const Vec3& position, const Vec3& forward,
+								  const Vec3& up)
 	{
 		if (!s_Audio.HasEngine)
 			return;
@@ -377,15 +377,15 @@ namespace RageV
 		// A zero-length direction would leave miniaudio normalising a zero
 		// vector, and every sound panned by a NaN is silent in a way that looks
 		// like a missing file.
-		if (glm::dot(forward, forward) > 1e-8f)
+		if (Math::Dot(forward, forward) > 1e-8f)
 		{
-			const glm::vec3 f = glm::normalize(forward);
+			const Vec3 f = Math::Normalize(forward);
 			ma_engine_listener_set_direction(&s_Audio.Engine, 0, f.x, f.y, f.z);
 		}
 
-		if (glm::dot(up, up) > 1e-8f)
+		if (Math::Dot(up, up) > 1e-8f)
 		{
-			const glm::vec3 u = glm::normalize(up);
+			const Vec3 u = Math::Normalize(up);
 			ma_engine_listener_set_world_up(&s_Audio.Engine, 0, u.x, u.y, u.z);
 		}
 	}

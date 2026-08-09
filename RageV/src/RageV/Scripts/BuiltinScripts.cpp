@@ -9,7 +9,7 @@
 #include <rvpch.h>
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Scene/Components.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 #include <unordered_map>
 
 namespace RageV
@@ -39,17 +39,17 @@ namespace RageV
 	public:
 		void OnUpdate(Timestep dt) override
 		{
-			const glm::vec3 direction =
+			const Vec3 direction =
 				GetForward() * GetAxis("MoveForward") +
 				GetRight()   * GetAxis("MoveRight") +
-				glm::vec3(0.0f, 1.0f, 0.0f) * GetAxis("MoveUp");
+				Vec3(0.0f, 1.0f, 0.0f) * GetAxis("MoveUp");
 
 			// Normalising a zero vector produces NaNs, which then spread
 			// through every transform derived from this one.
-			if (glm::dot(direction, direction) > 0.0f)
+			if (Math::Dot(direction, direction) > 0.0f)
 			{
 				const float speed = IsActionDown("Sprint") ? m_Speed * 3.0f : m_Speed;
-				Translate(glm::normalize(direction) * speed * dt.GetSeconds());
+				Translate(Math::Normalize(direction) * speed * dt.GetSeconds());
 			}
 		}
 
@@ -74,7 +74,7 @@ namespace RageV
 			if (!m_Target)
 				return;
 
-			const glm::vec3 goal =
+			const Vec3 goal =
 				m_Target.GetComponent<TransformComponent>().Position + m_Offset;
 
 			// Framerate-independent smoothing: a plain lerp by a constant
@@ -85,7 +85,7 @@ namespace RageV
 
 	private:
 		std::string m_TargetName = "Player";
-		glm::vec3 m_Offset{ 0.0f, 3.0f, 8.0f };
+		Vec3 m_Offset{ 0.0f, 3.0f, 8.0f };
 		float m_Sharpness = 4.0f;
 		Entity m_Target;
 	};
@@ -118,7 +118,7 @@ namespace RageV
 			// Saturating rather than linear: a fall from any real height lands
 			// at well over the speed that already reads as a bright flash, so a
 			// linear scale would make every impact past the first look the same.
-			m_Flash = glm::max(m_Flash, glm::min(collision.ImpactSpeed / 8.0f, 1.0f));
+			m_Flash = Math::Max(m_Flash, Math::Min(collision.ImpactSpeed / 8.0f, 1.0f));
 		}
 
 		void OnUpdate(Timestep dt) override
@@ -126,10 +126,10 @@ namespace RageV
 			if (!m_Material || m_Flash <= 0.0f)
 				return;
 
-			m_Flash = glm::max(m_Flash - dt.GetSeconds() / m_FadeSeconds, 0.0f);
+			m_Flash = Math::Max(m_Flash - dt.GetSeconds() / m_FadeSeconds, 0.0f);
 
 			auto& params = m_Material->GetParams();
-			params.EmissiveColor = m_Rest + glm::vec4(m_Colour * m_Flash, 0.0f);
+			params.EmissiveColor = m_Rest + Vec4(m_Colour * m_Flash, 0.0f);
 			// The parameter block is a GPU buffer; without this the write above
 			// never reaches it.
 			m_Material->Invalidate();
@@ -149,8 +149,8 @@ namespace RageV
 
 	private:
 		RHI::Ref<Material> m_Material;
-		glm::vec4 m_Rest{ 0.0f };
-		glm::vec3 m_Colour{ 1.0f, 0.55f, 0.25f };
+		Vec4 m_Rest{ 0.0f };
+		Vec3 m_Colour{ 1.0f, 0.55f, 0.25f };
 		float m_Flash = 0.0f;
 		float m_FadeSeconds = 0.45f;
 	};
@@ -180,7 +180,7 @@ namespace RageV
 			if (collision.ImpactSpeed < m_QuietestAudibleSpeed)
 				return;
 
-			const float loudness = glm::min(collision.ImpactSpeed / m_FullVolumeSpeed, 1.0f);
+			const float loudness = Math::Min(collision.ImpactSpeed / m_FullVolumeSpeed, 1.0f);
 			PlayOneShot(source.Clip, loudness * source.Volume);
 		}
 
@@ -250,7 +250,7 @@ namespace RageV
 		struct Tinted
 		{
 			RHI::Ref<Material> Material;
-			glm::vec4 Original{ 1.0f };
+			Vec4 Original{ 1.0f };
 		};
 
 		void Restore(UUID id)
@@ -268,7 +268,7 @@ namespace RageV
 		}
 
 		std::unordered_map<UUID, Tinted> m_Occupants;
-		glm::vec4 m_Tint{ 0.95f, 0.24f, 0.26f, 1.0f };
+		Vec4 m_Tint{ 0.95f, 0.24f, 0.26f, 1.0f };
 	};
 
 	// Called explicitly rather than registered by a static initializer.

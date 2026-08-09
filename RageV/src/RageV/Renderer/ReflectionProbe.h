@@ -1,7 +1,7 @@
 #pragma once
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/Camera.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include <functional>
 
 namespace RageV
@@ -35,7 +35,7 @@ namespace RageV
 
 		// Draws the scene from one face's camera. Given the projection and the
 		// camera's world transform, exactly as a viewport would be.
-		using DrawScene = std::function<void(const Camera&, const glm::mat4&)>;
+		using DrawScene = std::function<void(const Camera&, const Mat4&)>;
 
 		// Renders `count` faces starting at `first`, wrapping round. Returns the
 		// face to start from next time.
@@ -46,7 +46,7 @@ namespace RageV
 		// on a reflection, which nobody has ever noticed in a moving image.
 		//
 		// Must be called outside a render pass.
-		uint32_t CaptureFaces(RHI::RHICommandList& cmd, const glm::vec3& position,
+		uint32_t CaptureFaces(RHI::RHICommandList& cmd, const Vec3& position,
 							  float nearClip, float farClip,
 							  uint32_t first, uint32_t count, const DrawScene& draw);
 
@@ -56,8 +56,8 @@ namespace RageV
 		// Exposed because it is the part worth checking without a GPU. Every way
 		// of getting the basis wrong -- a mirrored face, a rotated one, an
 		// upside-down one -- still produces a plausible reflection.
-		static glm::mat4 FaceTransform(uint32_t face, const glm::vec3& position);
-		static glm::mat4 FaceProjection(float nearClip, float farClip);
+		static Mat4 FaceTransform(uint32_t face, const Vec3& position);
+		static Mat4 FaceProjection(float nearClip, float farClip);
 
 	private:
 		RHI::RHIDevice& m_Device;

@@ -117,15 +117,15 @@ private:
 	RageV::SceneHierarchyPanel m_SceneHierarchyPanel;
 	RageV::ContentBrowserPanel m_ContentBrowser;
 
-	glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
-	glm::vec2 m_GameViewportSize = { 0.0f, 0.0f };
+	RageV::Vec2 m_ViewportSize = { 0.0f, 0.0f };
+	RageV::Vec2 m_GameViewportSize = { 0.0f, 0.0f };
 
 	// Panels run after OnUpdate has already recorded a render pass into these
 	// targets, and resizing one destroys the images the command buffer holds.
 	// So a panel records the size it wants and OnUpdate applies it before
 	// recording anything.
-	glm::vec2 m_RequestedViewportSize = { 0.0f, 0.0f };
-	glm::vec2 m_RequestedGameSize = { 0.0f, 0.0f };
+	RageV::Vec2 m_RequestedViewportSize = { 0.0f, 0.0f };
+	RageV::Vec2 m_RequestedGameSize = { 0.0f, 0.0f };
 	void ApplyPendingResizes();
 	void DrawColliderOverlay();
 	void HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2& imageSize);
@@ -176,7 +176,7 @@ private:
 	// Render settings.
 	bool m_VSync = true;
 	bool m_Wireframe = false;
-	glm::vec3 m_ClearColor = { 0.1f, 0.1f, 0.1f };
+	RageV::Vec3 m_ClearColor = { 0.1f, 0.1f, 0.1f };
 
 	// Rolling frame-time average for the statistics panel.
 	float m_FrameTimeMs = 0.0f;

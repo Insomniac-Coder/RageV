@@ -1,5 +1,5 @@
 #pragma once
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include "Camera.h"
 #include "Frustum.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
@@ -37,7 +37,7 @@ namespace RageV
 		// lives here rather than in each caller because the callers are debug
 		// code scattered across the engine, and a rule that has to be
 		// remembered in twenty places is a rule that holds in nineteen.
-		static void BeginScene(const Camera& camera, const glm::mat4& cameraTransform);
+		static void BeginScene(const Camera& camera, const Mat4& cameraTransform);
 		static void EndScene();
 
 		// Shapes dropped by the frustum since BeginScene. Exposed so the
@@ -50,21 +50,21 @@ namespace RageV
 		// taken from the shape's own arguments rather than the matrix, because
 		// a collider's size is its own property and does not follow the
 		// entity's scale twice.
-		static void DrawLine(const glm::vec3& from, const glm::vec3& to, const glm::vec4& color);
+		static void DrawLine(const Vec3& from, const Vec3& to, const Vec4& color);
 
 		// Twelve edges.
-		static void DrawBox(const glm::mat4& transform, const glm::vec3& halfExtents,
-							const glm::vec4& color);
+		static void DrawBox(const Mat4& transform, const Vec3& halfExtents,
+							const Vec4& color);
 
 		// Three great circles, one per axis. Not a wireframe sphere: a lat/long
 		// mesh costs an order of magnitude more lines and reads as a solid
 		// blob, which is the opposite of what a debug overlay is for.
-		static void DrawSphere(const glm::mat4& transform, float radius, const glm::vec4& color);
+		static void DrawSphere(const Mat4& transform, float radius, const Vec4& color);
 
 		// A cylinder between two hemispheres. `halfHeight` is the cylindrical
 		// section only, matching ColliderComponent and Jolt.
-		static void DrawCapsule(const glm::mat4& transform, float radius, float halfHeight,
-								const glm::vec4& color);
+		static void DrawCapsule(const Mat4& transform, float radius, float halfHeight,
+								const Vec4& color);
 
 		static uint32_t GetLineCount();
 
@@ -75,6 +75,6 @@ namespace RageV
 		// A sphere around the shape, tested against the scene's frustum. True
 		// when nothing has begun a scene, so debug draw never disappears
 		// because of a missing frustum.
-		static bool Visible(const glm::vec3& centre, float radius);
+		static bool Visible(const Vec3& centre, float radius);
 	};
 }

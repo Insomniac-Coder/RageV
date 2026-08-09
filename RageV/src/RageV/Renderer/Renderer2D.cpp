@@ -15,20 +15,20 @@ namespace RageV
 		constexpr unsigned int kMaxTextureSlots = 32;   // must match quad.rvshader
 		constexpr unsigned int kMaxLights = 8;          // must match quad.rvshader
 
-		constexpr glm::vec4 kQuadCorners[4] = {
+		constexpr Vec4 kQuadCorners[4] = {
 			{ -0.5f, -0.5f, 0.0f, 1.0f }, {  0.5f, -0.5f, 0.0f, 1.0f },
 			{  0.5f,  0.5f, 0.0f, 1.0f }, { -0.5f,  0.5f, 0.0f, 1.0f },
 		};
-		constexpr glm::vec2 kQuadTexCoords[4] = {
+		constexpr Vec2 kQuadTexCoords[4] = {
 			{ 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f }
 		};
 
 		struct VertexData
 		{
-			glm::vec3 Position;
-			glm::vec3 Normal;
-			glm::vec4 Color;
-			glm::vec2 TexCoord;
+			Vec3 Position;
+			Vec3 Normal;
+			Vec4 Color;
+			Vec2 TexCoord;
 			float     TextureIndex;
 			float     TilingFactor;
 		};
@@ -37,10 +37,10 @@ namespace RageV
 		// Mirrors the std140 SceneData block in quad.rvshader.
 		struct SceneUniforms
 		{
-			glm::mat4 ViewProjection;
-			glm::vec4 CameraPosition;
-			glm::vec4 LightPositions[kMaxLights];
-			glm::vec4 LightColors[kMaxLights];
+			Mat4 ViewProjection;
+			Vec4 CameraPosition;
+			Vec4 LightPositions[kMaxLights];
+			Vec4 LightColors[kMaxLights];
 			int32_t   LightCount;
 			int32_t   _padding[3];
 		};
@@ -49,9 +49,9 @@ namespace RageV
 		// inverse-transpose is only needed under non-uniform scale or shear;
 		// for the rigid transforms quads use, the renormalised upper 3x3 is
 		// equivalent and far cheaper.
-		glm::vec3 WorldSpaceNormal(const glm::mat4& transform)
+		Vec3 WorldSpaceNormal(const Mat4& transform)
 		{
-			return glm::normalize(glm::mat3(transform) * glm::vec3(0.0f, 0.0f, -1.0f));
+			return Math::Normalize(Mat3(transform) * Vec3(0.0f, 0.0f, -1.0f));
 		}
 
 		struct Renderer2DData
@@ -306,7 +306,7 @@ namespace RageV
 		s_Data->DrawCalls = 0;
 	}
 
-	void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& transform, const LightList& lights)
+	void Renderer2D::BeginScene(const Camera& camera, const Mat4& transform, const LightList& lights)
 	{
 		if (!s_Data)
 			return;
@@ -314,16 +314,16 @@ namespace RageV
 		ResetScene();
 
 		s_Data->Scene = {};
-		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(transform);
-		s_Data->Scene.CameraPosition = glm::vec4(glm::vec3(transform[3]), 1.0f);
+		s_Data->Scene.ViewProjection = camera.GetProjection() * Math::Inverse(transform);
+		s_Data->Scene.CameraPosition = Vec4(Vec3(transform[3]), 1.0f);
 
 		const int lightCount = (int)std::min<size_t>(lights.size(), kMaxLights);
 		for (int i = 0; i < lightCount; i++)
 		{
 			// The quad shader has no attenuation model, so intensity is folded
 			// into the colour rather than carried separately.
-			s_Data->Scene.LightPositions[i] = glm::vec4(lights[i].Position, 1.0f);
-			s_Data->Scene.LightColors[i] = glm::vec4(lights[i].Color * lights[i].Intensity, 1.0f);
+			s_Data->Scene.LightPositions[i] = Vec4(lights[i].Position, 1.0f);
+			s_Data->Scene.LightColors[i] = Vec4(lights[i].Color * lights[i].Intensity, 1.0f);
 		}
 		s_Data->Scene.LightCount = lightCount;
 	}
@@ -410,7 +410,7 @@ namespace RageV
 		return slot;
 	}
 
-	void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& color)
+	void Renderer2D::DrawQuad(const Mat4& transform, const Vec4& color)
 	{
 		if (!s_Data)
 			return;
@@ -420,12 +420,12 @@ namespace RageV
 
 		// Hoisted out of the vertex loop: this used to run a 4x4 inverse and a
 		// transpose per vertex to produce the same vector four times.
-		const glm::vec3 normal = WorldSpaceNormal(transform);
+		const Vec3 normal = WorldSpaceNormal(transform);
 
 		VertexData* vertex = s_Data->VertexCursor;
 		for (int i = 0; i < 4; i++, vertex++)
 		{
-			vertex->Position = glm::vec3(transform * kQuadCorners[i]);
+			vertex->Position = Vec3(transform * kQuadCorners[i]);
 			vertex->Normal = normal;
 			vertex->Color = color;
 			vertex->TexCoord = kQuadTexCoords[i];
@@ -438,7 +438,7 @@ namespace RageV
 		s_Data->IndexCount += 6;
 	}
 
-	void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<RHITexture>& texture, float tilingfactor)
+	void Renderer2D::DrawQuad(const Mat4& transform, const Ref<RHITexture>& texture, float tilingfactor)
 	{
 		if (!s_Data)
 			return;
@@ -447,14 +447,14 @@ namespace RageV
 			FlushAndReset();
 
 		const float slot = (float)ResolveTextureSlot(texture);
-		const glm::vec3 normal = WorldSpaceNormal(transform);
+		const Vec3 normal = WorldSpaceNormal(transform);
 
 		VertexData* vertex = s_Data->VertexCursor;
 		for (int i = 0; i < 4; i++, vertex++)
 		{
-			vertex->Position = glm::vec3(transform * kQuadCorners[i]);
+			vertex->Position = Vec3(transform * kQuadCorners[i]);
 			vertex->Normal = normal;
-			vertex->Color = glm::vec4(1.0f);
+			vertex->Color = Vec4(1.0f);
 			vertex->TexCoord = kQuadTexCoords[i];
 			vertex->TextureIndex = slot;
 			vertex->TilingFactor = tilingfactor;

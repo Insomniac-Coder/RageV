@@ -1,16 +1,16 @@
 #include <rvpch.h>
 #include "ColliderShapes.h"
 #include "RageV/Scene/Components.h"
-#include <glm/gtx/component_wise.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
-	ScaledCollider ScaleCollider(const ColliderComponent& collider, const glm::vec3& scale)
+	ScaledCollider ScaleCollider(const ColliderComponent& collider, const Vec3& scale)
 	{
 		// Absolute, because a negative scale mirrors an object rather than
 		// giving it a negative size, and a shape with a negative extent is not
 		// a shape.
-		const glm::vec3 absScale = glm::abs(scale);
+		const Vec3 absScale = Math::Abs(scale);
 
 		ScaledCollider out;
 		out.Offset = collider.Offset * scale;
@@ -22,19 +22,19 @@ namespace RageV
 				// answer. The largest axis at least encloses the mesh, which is
 				// the failure that produces too much collision rather than too
 				// little.
-				out.Radius = glm::max(collider.Radius * glm::compMax(absScale), kMinColliderExtent);
+				out.Radius = Math::Max(collider.Radius * Math::MaxComponent(absScale), kMinColliderExtent);
 				break;
 
 			case ColliderShape::Capsule:
-				out.Radius = glm::max(collider.Radius * glm::max(absScale.x, absScale.z),
+				out.Radius = Math::Max(collider.Radius * Math::Max(absScale.x, absScale.z),
 									  kMinColliderExtent);
-				out.HalfHeight = glm::max(collider.Height * 0.5f * absScale.y, kMinColliderExtent);
+				out.HalfHeight = Math::Max(collider.Height * 0.5f * absScale.y, kMinColliderExtent);
 				break;
 
 			case ColliderShape::Box:
 			default:
-				out.HalfExtents = glm::max(collider.HalfExtents * absScale,
-										   glm::vec3(kMinColliderExtent));
+				out.HalfExtents = Math::Max(collider.HalfExtents * absScale,
+										   Vec3(kMinColliderExtent));
 				break;
 		}
 

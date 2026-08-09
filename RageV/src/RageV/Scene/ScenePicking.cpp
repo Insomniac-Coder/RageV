@@ -4,9 +4,7 @@
 #include "Components.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Physics/ColliderShapes.h"
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtx/quaternion.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -17,15 +15,15 @@ namespace RageV
 		// Double-sided on purpose: an editor has no business refusing to select
 		// something because you are looking at the back of it, and imported
 		// meshes routinely have inconsistent winding.
-		bool RayIntersectsTriangle(const Ray& ray, const glm::vec3& a, const glm::vec3& b,
-								   const glm::vec3& c, float& distance)
+		bool RayIntersectsTriangle(const Ray& ray, const Vec3& a, const Vec3& b,
+								   const Vec3& c, float& distance)
 		{
 			constexpr float kEpsilon = 1e-7f;
 
-			const glm::vec3 ab = b - a;
-			const glm::vec3 ac = c - a;
-			const glm::vec3 p = glm::cross(ray.Direction, ac);
-			const float determinant = glm::dot(ab, p);
+			const Vec3 ab = b - a;
+			const Vec3 ac = c - a;
+			const Vec3 p = Math::Cross(ray.Direction, ac);
+			const float determinant = Math::Dot(ab, p);
 
 			// Near zero means the ray is parallel to the triangle's plane. Not
 			// culled by sign, which is what would make this single-sided.
@@ -33,23 +31,23 @@ namespace RageV
 				return false;
 
 			const float inverse = 1.0f / determinant;
-			const glm::vec3 t = ray.Origin - a;
+			const Vec3 t = ray.Origin - a;
 
-			const float u = glm::dot(t, p) * inverse;
+			const float u = Math::Dot(t, p) * inverse;
 			if (u < 0.0f || u > 1.0f)
 				return false;
 
-			const glm::vec3 q = glm::cross(t, ab);
-			const float v = glm::dot(ray.Direction, q) * inverse;
+			const Vec3 q = Math::Cross(t, ab);
+			const float v = Math::Dot(ray.Direction, q) * inverse;
 			if (v < 0.0f || u + v > 1.0f)
 				return false;
 
-			distance = glm::dot(ac, q) * inverse;
+			distance = Math::Dot(ac, q) * inverse;
 			return distance > kEpsilon;   // ahead of the ray, not behind it
 		}
 	}
 
-	bool RayIntersectsBox(const Ray& ray, const glm::vec3& min, const glm::vec3& max,
+	bool RayIntersectsBox(const Ray& ray, const Vec3& min, const Vec3& max,
 						  float& distance)
 	{
 		// The slab method. Division by a zero component gives an infinity,
@@ -72,8 +70,8 @@ namespace RageV
 			if (t0 > t1)
 				std::swap(t0, t1);
 
-			entry = glm::max(entry, t0);
-			exitAt = glm::min(exitAt, t1);
+			entry = Math::Max(entry, t0);
+			exitAt = Math::Min(exitAt, t1);
 
 			if (entry > exitAt)
 				return false;
@@ -88,11 +86,11 @@ namespace RageV
 		return true;
 	}
 
-	Ray ScreenPointToRay(const Camera& camera, const glm::mat4& cameraTransform,
-						 const glm::vec2& ndc)
+	Ray ScreenPointToRay(const Camera& camera, const Mat4& cameraTransform,
+						 const Vec2& ndc)
 	{
-		const glm::mat4 view = glm::inverse(cameraTransform);
-		const glm::mat4 inverseViewProjection = glm::inverse(camera.GetProjection() * view);
+		const Mat4 view = Math::Inverse(cameraTransform);
+		const Mat4 inverseViewProjection = Math::Inverse(camera.GetProjection() * view);
 
 		// Two points on the ray rather than an origin and a direction: the
 		// origin of a perspective ray is the eye but the origin of an
@@ -101,8 +99,8 @@ namespace RageV
 		//
 		// z = 0 is the near plane and z = 1 the far one: the project is built
 		// with GLM_FORCE_DEPTH_ZERO_TO_ONE to match Vulkan's clip range.
-		glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndc.x, ndc.y, 0.0f, 1.0f);
-		glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndc.x, ndc.y, 1.0f, 1.0f);
+		Vec4 nearPoint = inverseViewProjection * Vec4(ndc.x, ndc.y, 0.0f, 1.0f);
+		Vec4 farPoint = inverseViewProjection * Vec4(ndc.x, ndc.y, 1.0f, 1.0f);
 
 		if (std::fabs(nearPoint.w) < 1e-9f || std::fabs(farPoint.w) < 1e-9f)
 			return {};
@@ -111,13 +109,13 @@ namespace RageV
 		farPoint /= farPoint.w;
 
 		Ray ray;
-		ray.Origin = glm::vec3(nearPoint);
+		ray.Origin = Vec3(nearPoint);
 
-		const glm::vec3 along = glm::vec3(farPoint) - glm::vec3(nearPoint);
-		if (glm::dot(along, along) < 1e-12f)
+		const Vec3 along = Vec3(farPoint) - Vec3(nearPoint);
+		if (Math::Dot(along, along) < 1e-12f)
 			return {};
 
-		ray.Direction = glm::normalize(along);
+		ray.Direction = Math::Normalize(along);
 		return ray;
 	}
 
@@ -154,15 +152,15 @@ namespace RageV
 			// The ray is moved into the mesh's space rather than the mesh into
 			// the world: one matrix inverse against thousands of vertex
 			// transforms.
-			const glm::mat4 inverseWorld = glm::inverse(transform.World);
+			const Mat4 inverseWorld = Math::Inverse(transform.World);
 			Ray local;
-			local.Origin = glm::vec3(inverseWorld * glm::vec4(ray.Origin, 1.0f));
-			local.Direction = glm::vec3(inverseWorld * glm::vec4(ray.Direction, 0.0f));
+			local.Origin = Vec3(inverseWorld * Vec4(ray.Origin, 1.0f));
+			local.Direction = Vec3(inverseWorld * Vec4(ray.Direction, 0.0f));
 
 			// Not normalised: leaving the scale in means a distance in local
 			// space is still a distance in world units, so results from
 			// differently scaled objects remain comparable.
-			const float lengthScale = glm::length(local.Direction);
+			const float lengthScale = Math::Length(local.Direction);
 			if (lengthScale < 1e-9f)
 				continue;
 			local.Direction /= lengthScale;
@@ -183,7 +181,7 @@ namespace RageV
 				if (RayIntersectsTriangle(local, positions[indices[i]], positions[indices[i + 1]],
 										  positions[indices[i + 2]], distance))
 				{
-					nearest = glm::min(nearest, distance);
+					nearest = Math::Min(nearest, distance);
 				}
 			}
 
@@ -202,10 +200,9 @@ namespace RageV
 
 			auto [collider, transform] = colliders.get<ColliderComponent, TransformComponent>(handle);
 
-			glm::vec3 position, worldScale, skew;
-			glm::quat rotation;
-			glm::vec4 perspective;
-			if (!glm::decompose(transform.World, worldScale, rotation, position, skew, perspective))
+			Vec3 position, worldScale;
+			Quat rotation;
+			if (!Math::Decompose(transform.World, position, rotation, worldScale))
 				continue;
 
 			const ScaledCollider sized = ScaleCollider(collider, worldScale);
@@ -213,23 +210,23 @@ namespace RageV
 			// Every shape as its own bounding box. A sphere collider picked by
 			// its box is imprecise, but a collider is a handle for selecting
 			// rather than something being aimed at.
-			glm::vec3 extents = sized.HalfExtents;
+			Vec3 extents = sized.HalfExtents;
 			if (collider.Shape == ColliderShape::Sphere)
-				extents = glm::vec3(sized.Radius);
+				extents = Vec3(sized.Radius);
 			else if (collider.Shape == ColliderShape::Capsule)
 				extents = { sized.Radius, sized.HalfHeight + sized.Radius, sized.Radius };
 
-			const glm::mat4 shapeTransform =
-				glm::translate(glm::mat4(1.0f), position) *
-				glm::toMat4(rotation) *
-				glm::translate(glm::mat4(1.0f), sized.Offset);
+			const Mat4 shapeTransform =
+				Math::Translate(Mat4(1.0f), position) *
+				Math::ToMat4(rotation) *
+				Math::Translate(Mat4(1.0f), sized.Offset);
 
-			const glm::mat4 inverseShape = glm::inverse(shapeTransform);
+			const Mat4 inverseShape = Math::Inverse(shapeTransform);
 			Ray local;
-			local.Origin = glm::vec3(inverseShape * glm::vec4(ray.Origin, 1.0f));
-			local.Direction = glm::vec3(inverseShape * glm::vec4(ray.Direction, 0.0f));
+			local.Origin = Vec3(inverseShape * Vec4(ray.Origin, 1.0f));
+			local.Direction = Vec3(inverseShape * Vec4(ray.Direction, 0.0f));
 
-			const float lengthScale = glm::length(local.Direction);
+			const float lengthScale = Math::Length(local.Direction);
 			if (lengthScale < 1e-9f)
 				continue;
 			local.Direction /= lengthScale;

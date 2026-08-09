@@ -3,7 +3,7 @@
 #include "Renderer.h"
 #include "ReflectionProbe.h"
 #include "Cubemap.h"
-#include <glm/gtc/matrix_transform.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -50,15 +50,15 @@ namespace RageV
 		std::unique_ptr<ShadowData> s_Data;
 
 		// The eight corners of a frustum slice, in world space.
-		void SliceCorners(const glm::mat4& cameraTransform, float fovYRadians, float aspect,
-						  float nearDistance, float farDistance, glm::vec3* out)
+		void SliceCorners(const Mat4& cameraTransform, float fovYRadians, float aspect,
+						  float nearDistance, float farDistance, Vec3* out)
 		{
 			const float tanHalf = std::tan(fovYRadians * 0.5f);
 
-			const glm::vec3 forward = glm::normalize(glm::vec3(cameraTransform * glm::vec4(0, 0, -1, 0)));
-			const glm::vec3 up = glm::normalize(glm::vec3(cameraTransform * glm::vec4(0, 1, 0, 0)));
-			const glm::vec3 right = glm::normalize(glm::vec3(cameraTransform * glm::vec4(1, 0, 0, 0)));
-			const glm::vec3 eye = glm::vec3(cameraTransform[3]);
+			const Vec3 forward = Math::Normalize(Vec3(cameraTransform * Vec4(0, 0, -1, 0)));
+			const Vec3 up = Math::Normalize(Vec3(cameraTransform * Vec4(0, 1, 0, 0)));
+			const Vec3 right = Math::Normalize(Vec3(cameraTransform * Vec4(1, 0, 0, 0)));
+			const Vec3 eye = Vec3(cameraTransform[3]);
 
 			int index = 0;
 			for (int end = 0; end < 2; end++)
@@ -66,7 +66,7 @@ namespace RageV
 				const float distance = end == 0 ? nearDistance : farDistance;
 				const float halfHeight = tanHalf * distance;
 				const float halfWidth = halfHeight * aspect;
-				const glm::vec3 centre = eye + forward * distance;
+				const Vec3 centre = eye + forward * distance;
 
 				out[index++] = centre - right * halfWidth - up * halfHeight;
 				out[index++] = centre + right * halfWidth - up * halfHeight;
@@ -250,12 +250,12 @@ namespace RageV
 	}
 
 	void ShadowMap::RenderSpot(RHICommandList& cmd, uint32_t slot, uint32_t resolution,
-							   const glm::mat4& viewProjection, const DrawCasters& draw)
+							   const Mat4& viewProjection, const DrawCasters& draw)
 	{
 		if (!s_Data || !s_Data->Ready || !draw || slot >= kMaxLocal)
 			return;
 
-		resolution = glm::clamp(resolution, 256u, 4096u);
+		resolution = Math::Clamp(resolution, 256u, 4096u);
 
 		if (s_Data->LocalResolution != resolution)
 		{
@@ -296,7 +296,7 @@ namespace RageV
 	}
 
 	void ShadowMap::RenderPoint(RHICommandList& cmd, uint32_t slot, uint32_t resolution,
-								const glm::vec3& position, float farClip,
+								const Vec3& position, float farClip,
 								const DrawCasters& draw)
 	{
 		if (!s_Data || !s_Data->Ready || !draw || slot >= kMaxLocal)
@@ -305,7 +305,7 @@ namespace RageV
 		// Smaller than a spot map by default and deliberately: this is six of
 		// them, and a point light's shadow is seen from every direction at once
 		// so no single face carries much of the frame.
-		resolution = glm::clamp(resolution, 128u, 2048u);
+		resolution = Math::Clamp(resolution, 128u, 2048u);
 
 		if (s_Data->PointResolution != resolution)
 		{
@@ -348,7 +348,7 @@ namespace RageV
 		if (!s_Data->PointCubes[slot] || !s_Data->PointScratch)
 			return;
 
-		const glm::mat4 projection = ReflectionProbe::FaceProjection(kPointShadowNear, farClip);
+		const Mat4 projection = ReflectionProbe::FaceProjection(kPointShadowNear, farClip);
 		const Ref<RHITexture> face = s_Data->PointScratch->GetDepthTexture();
 
 		cmd.PushDebugGroup("Point shadow");
@@ -366,7 +366,7 @@ namespace RageV
 			// The same face basis a reflection probe captures with. Two
 			// features that disagreed about which way a cube face points would
 			// be two features that could not be debugged together.
-			draw(projection * glm::inverse(ReflectionProbe::FaceTransform(i, position)));
+			draw(projection * Math::Inverse(ReflectionProbe::FaceTransform(i, position)));
 			cmd.EndRenderPass();
 
 			cmd.CopyToTextureLayer(face, s_Data->PointCubes[slot], i);
@@ -375,10 +375,10 @@ namespace RageV
 		cmd.PopDebugGroup();
 	}
 
-	void ShadowMap::ComputeCascades(const glm::mat4& cameraTransform,
+	void ShadowMap::ComputeCascades(const Mat4& cameraTransform,
 									float fovYRadians, float aspect,
 									float nearClip, float farClip,
-									const glm::vec3& lightDirection,
+									const Vec3& lightDirection,
 									uint32_t count, uint32_t resolution,
 									float lambda, bool flipLookupY,
 									ShadowCascade* out)
@@ -386,20 +386,20 @@ namespace RageV
 		if (!out || count == 0)
 			return;
 
-		count = glm::min(count, kMaxCascades);
-		resolution = glm::max(resolution, 16u);
+		count = Math::Min(count, kMaxCascades);
+		resolution = Math::Max(resolution, 16u);
 
 		// The camera's own near plane is far too close to split logarithmically
 		// from -- at 0.01 the first cascade would be centimetres deep. Shadows
 		// start where they are visible, not where geometry does.
-		const float start = glm::max(nearClip, 0.1f);
-		const float end = glm::max(farClip, start + 0.1f);
+		const float start = Math::Max(nearClip, 0.1f);
+		const float end = Math::Max(farClip, start + 0.1f);
 		const float ratio = end / start;
 
-		glm::vec3 direction = lightDirection;
-		if (glm::dot(direction, direction) < 1e-8f)
-			direction = glm::vec3(0.0f, -1.0f, 0.0f);
-		direction = glm::normalize(direction);
+		Vec3 direction = lightDirection;
+		if (Math::Dot(direction, direction) < 1e-8f)
+			direction = Vec3(0.0f, -1.0f, 0.0f);
+		direction = Math::Normalize(direction);
 
 		float previous = start;
 
@@ -413,7 +413,7 @@ namespace RageV
 			const float uniform = start + (end - start) * fraction;
 			const float split = lambda * logarithmic + (1.0f - lambda) * uniform;
 
-			glm::vec3 corners[8];
+			Vec3 corners[8];
 			SliceCorners(cameraTransform, fovYRadians, aspect, previous, split, corners);
 
 			// Fit a sphere, not the corners.
@@ -424,14 +424,14 @@ namespace RageV
 			// edge in the cascade crawls. A sphere's radius depends only on the
 			// split distances and the field of view, so it is the same however
 			// the camera is pointed -- which is the entire trick.
-			glm::vec3 centre(0.0f);
-			for (const glm::vec3& corner : corners)
+			Vec3 centre(0.0f);
+			for (const Vec3& corner : corners)
 				centre += corner;
 			centre /= 8.0f;
 
 			float radius = 0.0f;
-			for (const glm::vec3& corner : corners)
-				radius = glm::max(radius, glm::length(corner - centre));
+			for (const Vec3& corner : corners)
+				radius = Math::Max(radius, Math::Length(corner - centre));
 
 			// Rounded up, so a sub-texel change in the frustum cannot change
 			// the radius and rescale the whole projection.
@@ -442,17 +442,17 @@ namespace RageV
 			// Far enough back that casters between the light and the slice are
 			// still inside the frustum. Without the margin, an object above the
 			// cascade fails to cast into it.
-			const float margin = glm::max(radius, 1.0f) * 2.0f;
+			const float margin = Math::Max(radius, 1.0f) * 2.0f;
 
-			const glm::vec3 eye = centre - direction * (radius + margin);
+			const Vec3 eye = centre - direction * (radius + margin);
 			// Any up vector not parallel to the light does; a directional light
 			// has no roll worth preserving.
-			const glm::vec3 up = std::fabs(direction.y) > 0.99f
-							   ? glm::vec3(0.0f, 0.0f, 1.0f)
-							   : glm::vec3(0.0f, 1.0f, 0.0f);
+			const Vec3 up = std::fabs(direction.y) > 0.99f
+							   ? Vec3(0.0f, 0.0f, 1.0f)
+							   : Vec3(0.0f, 1.0f, 0.0f);
 
-			glm::mat4 view = glm::lookAt(eye, centre, up);
-			glm::mat4 projection = glm::ortho(-radius, radius, -radius, radius,
+			Mat4 view = Math::LookAt(eye, centre, up);
+			Mat4 projection = Math::Orthographic(-radius, radius, -radius, radius,
 											  0.0f, radius * 2.0f + margin);
 
 			// Snap to the texel grid.
@@ -463,12 +463,12 @@ namespace RageV
 			// frame and shimmers. Rounding the projection's origin to a whole
 			// texel makes the sampled grid move in texel steps instead.
 			{
-				const glm::mat4 shadow = projection * view;
-				glm::vec4 origin = shadow * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+				const Mat4 shadow = projection * view;
+				Vec4 origin = shadow * Vec4(0.0f, 0.0f, 0.0f, 1.0f);
 				origin *= (float)resolution * 0.5f;
 
-				const glm::vec4 rounded = glm::round(origin);
-				glm::vec4 offset = (rounded - origin) * (2.0f / (float)resolution);
+				const Vec4 rounded = Math::Round(origin);
+				Vec4 offset = (rounded - origin) * (2.0f / (float)resolution);
 				offset.z = 0.0f;
 				offset.w = 0.0f;
 
@@ -486,12 +486,12 @@ namespace RageV
 			// has to read it upside down. Folding it into the matrix keeps the
 			// difference on the CPU, where it is visible, rather than in a
 			// branch in the shader where it is not.
-			glm::mat4 bias(1.0f);
+			Mat4 bias(1.0f);
 			bias[0][0] = 0.5f;
 			bias[1][1] = flipLookupY ? -0.5f : 0.5f;
 			bias[3][0] = 0.5f;
 			bias[3][1] = 0.5f;
-			// Depth already arrives in [0, 1]: glm is built with
+			// Depth already arrives in [0, 1]: this engine's projections use
 			// GLM_FORCE_DEPTH_ZERO_TO_ONE, so no z remap belongs here.
 
 			cascade.LookupMatrix = bias * cascade.ViewProjection;
@@ -506,8 +506,8 @@ namespace RageV
 		if (!s_Data || !s_Data->Ready || !cascades || !draw || count == 0)
 			return;
 
-		count = glm::min(count, kMaxCascades);
-		resolution = glm::clamp(resolution, 256u, 8192u);
+		count = Math::Min(count, kMaxCascades);
+		resolution = Math::Clamp(resolution, 256u, 8192u);
 
 		// Reallocated only when the resolution changes, which is an editor
 		// action rather than a per-frame one.

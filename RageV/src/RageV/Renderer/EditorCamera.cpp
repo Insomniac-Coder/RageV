@@ -3,8 +3,7 @@
 #include "RageV/Core/Input.h"
 #include "RageV/Core/KeyCodes.h"
 #include "RageV/Core/MouseButtonCodes.h"
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/constants.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -16,7 +15,7 @@ namespace RageV
 
 		// Just short of straight up/down. At exactly +/- 90 degrees the forward
 		// axis is parallel to world up and the orientation loses its yaw.
-		constexpr float kPitchLimit = glm::half_pi<float>() - 0.01f;
+		constexpr float kPitchLimit = Math::HalfPi - 0.01f;
 	}
 
 	EditorCamera::EditorCamera()
@@ -30,7 +29,7 @@ namespace RageV
 		// Looking slightly down at the origin from a few units back: the same
 		// framing every editor opens on, and it makes a ground plane visible.
 		m_Yaw = 0.0f;
-		m_Pitch = glm::radians(15.0f);
+		m_Pitch = Math::Radians(15.0f);
 		m_Distance = 12.0f;
 
 		RecalculateProjection();
@@ -39,13 +38,13 @@ namespace RageV
 
 	void EditorCamera::SetFOV(float degrees)
 	{
-		m_FOV = glm::clamp(degrees, 10.0f, 120.0f);
+		m_FOV = Math::Clamp(degrees, 10.0f, 120.0f);
 		RecalculateProjection();
 	}
 
 	void EditorCamera::SetMoveSpeed(float speed)
 	{
-		m_MoveSpeed = glm::clamp(speed, 0.05f, 500.0f);
+		m_MoveSpeed = Math::Clamp(speed, 0.05f, 500.0f);
 	}
 
 	void EditorCamera::SetViewportSize(float width, float height)
@@ -61,43 +60,43 @@ namespace RageV
 		RecalculateProjection();
 	}
 
-	glm::quat EditorCamera::Orientation() const
+	Quat EditorCamera::Orientation() const
 	{
 		// Negated because pitch/yaw describe where the camera looks, while the
 		// quaternion rotates the camera's own axes.
-		return glm::quat(glm::vec3(-m_Pitch, -m_Yaw, 0.0f));
+		return Math::FromEuler(Vec3(-m_Pitch, -m_Yaw, 0.0f));
 	}
 
-	glm::vec3 EditorCamera::GetForward() const { return glm::rotate(Orientation(), glm::vec3(0.0f, 0.0f, -1.0f)); }
-	glm::vec3 EditorCamera::GetRight()   const { return glm::rotate(Orientation(), glm::vec3(1.0f, 0.0f,  0.0f)); }
-	glm::vec3 EditorCamera::GetUp()      const { return glm::rotate(Orientation(), glm::vec3(0.0f, 1.0f,  0.0f)); }
+	Vec3 EditorCamera::GetForward() const { return Math::Rotate(Orientation(), Vec3(0.0f, 0.0f, -1.0f)); }
+	Vec3 EditorCamera::GetRight()   const { return Math::Rotate(Orientation(), Vec3(1.0f, 0.0f,  0.0f)); }
+	Vec3 EditorCamera::GetUp()      const { return Math::Rotate(Orientation(), Vec3(0.0f, 1.0f,  0.0f)); }
 
-	glm::mat4 EditorCamera::GetTransform() const
+	Mat4 EditorCamera::GetTransform() const
 	{
-		return glm::translate(glm::mat4(1.0f), m_Position) * glm::toMat4(Orientation());
+		return Math::Translate(Mat4(1.0f), m_Position) * Math::ToMat4(Orientation());
 	}
 
 	void EditorCamera::RecalculateProjection()
 	{
-		// glm is built with GLM_FORCE_DEPTH_ZERO_TO_ONE (see vendor/CMakeLists),
+		// Math::Perspective emits depth in [0, 1] rather than [-1, 1],
 		// so this already produces Vulkan's [0,1] depth range and the OpenGL
 		// backend compensates once at the swapchain. Nothing to adjust here.
-		m_Projection = glm::perspective(glm::radians(m_FOV), m_AspectRatio, m_Near, m_Far);
+		m_Projection = Math::Perspective(Math::Radians(m_FOV), m_AspectRatio, m_Near, m_Far);
 	}
 
 	void EditorCamera::RecalculateView()
 	{
 		m_Position = m_FocalPoint - GetForward() * m_Distance;
-		m_View = glm::inverse(GetTransform());
+		m_View = Math::Inverse(GetTransform());
 	}
 
-	void EditorCamera::Focus(const glm::vec3& point, float radius)
+	void EditorCamera::Focus(const Vec3& point, float radius)
 	{
 		m_FocalPoint = point;
 
 		// Distance at which a sphere of `radius` fills most of the vertical FOV.
-		const float safeRadius = glm::max(radius, 0.1f);
-		m_Distance = glm::max(safeRadius / glm::tan(glm::radians(m_FOV) * 0.5f) * 1.4f, 0.5f);
+		const float safeRadius = Math::Max(radius, 0.1f);
+		m_Distance = Math::Max(safeRadius / std::tan(Math::Radians(m_FOV) * 0.5f) * 1.4f, 0.5f);
 
 		RecalculateView();
 	}
@@ -106,32 +105,32 @@ namespace RageV
 	{
 		// Proportional to distance: a fixed step crawls when far out and
 		// overshoots the target when close in.
-		const float distance = glm::max(m_Distance * 0.25f, 0.0f);
-		return glm::min(distance * distance, 100.0f);
+		const float distance = Math::Max(m_Distance * 0.25f, 0.0f);
+		return Math::Min(distance * distance, 100.0f);
 	}
 
-	glm::vec2 EditorCamera::PanSpeed() const
+	Vec2 EditorCamera::PanSpeed() const
 	{
 		// Quadratic falloff against viewport size, so panning covers a similar
 		// fraction of the screen regardless of how large the panel is.
-		const float x = glm::min(m_ViewportWidth / 1000.0f, 2.4f);
-		const float y = glm::min(m_ViewportHeight / 1000.0f, 2.4f);
+		const float x = Math::Min(m_ViewportWidth / 1000.0f, 2.4f);
+		const float y = Math::Min(m_ViewportHeight / 1000.0f, 2.4f);
 		return { 0.0366f * (x * x) - 0.1778f * x + 0.3021f,
 				 0.0366f * (y * y) - 0.1778f * y + 0.3021f };
 	}
 
-	void EditorCamera::Orbit(const glm::vec2& delta)
+	void EditorCamera::Orbit(const Vec2& delta)
 	{
 		// Orbiting past vertical would flip the horizon; clamping instead is
 		// what every DCC tool does and what people expect.
 		m_Yaw += delta.x * kLookSensitivity;
-		m_Pitch = glm::clamp(m_Pitch - delta.y * kLookSensitivity, -kPitchLimit, kPitchLimit);
-		m_Yaw = glm::mod(m_Yaw + glm::pi<float>(), glm::two_pi<float>()) - glm::pi<float>();
+		m_Pitch = Math::Clamp(m_Pitch - delta.y * kLookSensitivity, -kPitchLimit, kPitchLimit);
+		m_Yaw = Math::Mod(m_Yaw + Math::Pi, Math::TwoPi) - Math::Pi;
 	}
 
-	void EditorCamera::Pan(const glm::vec2& delta)
+	void EditorCamera::Pan(const Vec2& delta)
 	{
-		const glm::vec2 speed = PanSpeed();
+		const Vec2 speed = PanSpeed();
 		m_FocalPoint += -GetRight() * delta.x * speed.x * m_Distance * 0.1f;
 		m_FocalPoint += GetUp() * delta.y * speed.y * m_Distance * 0.1f;
 	}
@@ -151,12 +150,12 @@ namespace RageV
 
 	void EditorCamera::OnUpdate(Timestep ts)
 	{
-		const glm::vec2 mouse = [] {
+		const Vec2 mouse = [] {
 			const auto [x, y] = Input::GetMousePosition();
-			return glm::vec2(x, y);
+			return Vec2(x, y);
 		}();
 
-		const glm::vec2 delta = mouse - m_LastMousePosition;
+		const Vec2 delta = mouse - m_LastMousePosition;
 		// Refreshed every frame, not only while dragging: otherwise the first
 		// frame of a drag reports the travel since the last drag ended and the
 		// camera jumps.
@@ -190,18 +189,18 @@ namespace RageV
 			// focal point rather than the position means a later orbit pivots
 			// around wherever the flight ended.
 			m_Yaw += delta.x * kLookSensitivity;
-			m_Pitch = glm::clamp(m_Pitch - delta.y * kLookSensitivity, -kPitchLimit, kPitchLimit);
+			m_Pitch = Math::Clamp(m_Pitch - delta.y * kLookSensitivity, -kPitchLimit, kPitchLimit);
 
-			glm::vec3 movement(0.0f);
+			Vec3 movement(0.0f);
 			if (Input::IsKeyPressed(RV_KEY_W)) movement += GetForward();
 			if (Input::IsKeyPressed(RV_KEY_S)) movement -= GetForward();
 			if (Input::IsKeyPressed(RV_KEY_D)) movement += GetRight();
 			if (Input::IsKeyPressed(RV_KEY_A)) movement -= GetRight();
-			if (Input::IsKeyPressed(RV_KEY_E)) movement += glm::vec3(0.0f, 1.0f, 0.0f);
-			if (Input::IsKeyPressed(RV_KEY_Q)) movement -= glm::vec3(0.0f, 1.0f, 0.0f);
+			if (Input::IsKeyPressed(RV_KEY_E)) movement += Vec3(0.0f, 1.0f, 0.0f);
+			if (Input::IsKeyPressed(RV_KEY_Q)) movement -= Vec3(0.0f, 1.0f, 0.0f);
 
-			if (glm::dot(movement, movement) > 0.0f)
-				m_FocalPoint += glm::normalize(movement) * m_MoveSpeed * (shift ? 3.0f : 1.0f) * ts.GetSeconds();
+			if (Math::Dot(movement, movement) > 0.0f)
+				m_FocalPoint += Math::Normalize(movement) * m_MoveSpeed * (shift ? 3.0f : 1.0f) * ts.GetSeconds();
 		}
 
 		RecalculateView();

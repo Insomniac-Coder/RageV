@@ -1,6 +1,6 @@
 #pragma once
 #include "RageV/Core/UUID.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -57,7 +57,7 @@ namespace RageV
 	// not have to include the scene layer to be handed one.
 	struct SceneEnvironment
 	{
-		glm::vec3 AmbientColor{ 0.42f, 0.47f, 0.58f };   // cool, sky-ish
+		Vec3 AmbientColor{ 0.42f, 0.47f, 0.58f };   // cool, sky-ish
 		float AmbientIntensity = 0.12f;
 
 		// --- sky ---------------------------------------------------------------
@@ -66,9 +66,9 @@ namespace RageV
 		// Read bottom to top: the colour at the horizon, straight up, and
 		// straight down. Linear, like everything else that reaches the scene
 		// target.
-		glm::vec3 SkyHorizon{ 0.52f, 0.60f, 0.72f };
-		glm::vec3 SkyZenith { 0.18f, 0.31f, 0.62f };
-		glm::vec3 SkyGround { 0.16f, 0.15f, 0.14f };
+		Vec3 SkyHorizon{ 0.52f, 0.60f, 0.72f };
+		Vec3 SkyZenith { 0.18f, 0.31f, 0.62f };
+		Vec3 SkyGround { 0.16f, 0.15f, 0.14f };
 
 		float SkyIntensity = 1.0f;
 		// Radians about the world Y axis. A panorama arrives pointing wherever

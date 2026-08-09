@@ -15,7 +15,7 @@
 #include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Asset/AssetManager.h"
-#include <glm/gtx/matrix_decompose.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -216,7 +216,7 @@ namespace RageV
 
 		// Captured before the move so the entity does not visibly jump when its
 		// new parent has a different transform.
-		const glm::mat4 world = GetWorldTransform(child);
+		const Mat4 world = GetWorldTransform(child);
 
 		UnlinkFromParent(child);
 
@@ -227,16 +227,15 @@ namespace RageV
 		}
 
 		// Re-express the same world transform relative to the new parent.
-		const glm::mat4 local = glm::inverse(GetParentWorldTransform(child)) * world;
+		const Mat4 local = Math::Inverse(GetParentWorldTransform(child)) * world;
 
-		glm::vec3 position, scale, skew;
-		glm::quat rotation;
-		glm::vec4 perspective;
-		if (glm::decompose(local, scale, rotation, position, skew, perspective))
+		Vec3 position, scale;
+		Quat rotation;
+		if (Math::Decompose(local, position, rotation, scale))
 		{
 			auto& transform = child.GetComponent<TransformComponent>();
 			transform.Position = position;
-			transform.Rotation = glm::eulerAngles(rotation);
+			transform.Rotation = Math::ToEuler(rotation);
 			transform.Scale = scale;
 		}
 
@@ -258,18 +257,18 @@ namespace RageV
 		return entity.GetComponent<RelationshipComponent>().Children;
 	}
 
-	glm::mat4 Scene::GetParentWorldTransform(Entity entity)
+	Mat4 Scene::GetParentWorldTransform(Entity entity)
 	{
 		Entity parent = GetParent(entity);
 		if (!parent)
-			return glm::mat4(1.0f);
+			return Mat4(1.0f);
 		return GetWorldTransform(parent);
 	}
 
-	glm::mat4 Scene::GetWorldTransform(Entity entity)
+	Mat4 Scene::GetWorldTransform(Entity entity)
 	{
 		if (!entity || !entity.HasComponent<TransformComponent>())
-			return glm::mat4(1.0f);
+			return Mat4(1.0f);
 
 		// Walks the chain rather than reading the cached World, so callers that
 		// have just mutated a local transform get the current answer without
@@ -278,14 +277,14 @@ namespace RageV
 		return GetParentWorldTransform(entity) * transform.GetLocalTransform();
 	}
 
-	void Scene::PropagateTransform(entt::entity handle, const glm::mat4& parentWorld)
+	void Scene::PropagateTransform(entt::entity handle, const Mat4& parentWorld)
 	{
 		auto& transform = m_Registry.get<TransformComponent>(handle);
 		transform.World = parentWorld * transform.GetLocalTransform();
 
 		// Copied out before recursing: the reference above stays valid only
 		// while the registry is not restructured, and the copy costs one matrix.
-		const glm::mat4 world = transform.World;
+		const Mat4 world = transform.World;
 
 		for (UUID childID : m_Registry.get<RelationshipComponent>(handle).Children)
 		{
@@ -302,7 +301,7 @@ namespace RageV
 			// Roots only; children are reached by recursion, and starting from
 			// every entity would compute deep nodes once per ancestor.
 			if (!view.get<RelationshipComponent>(handle).Parent.IsValid())
-				PropagateTransform(handle, glm::mat4(1.0f));
+				PropagateTransform(handle, Mat4(1.0f));
 		}
 	}
 
@@ -402,7 +401,7 @@ namespace RageV
 			playback.Loop = source.Loop;
 			playback.Stream = source.Stream;
 			playback.Spatial = source.Spatial;
-			playback.Position = glm::vec3(transform.World[3]);
+			playback.Position = Vec3(transform.World[3]);
 			playback.MinDistance = source.MinDistance;
 			playback.MaxDistance = source.MaxDistance;
 
@@ -430,12 +429,12 @@ namespace RageV
 	{
 		if (Entity listener = GetPrimaryListenerEntity())
 		{
-			const glm::mat4& world = listener.GetComponent<TransformComponent>().World;
+			const Mat4& world = listener.GetComponent<TransformComponent>().World;
 
 			// -Z forward, matching the camera and light convention.
-			AudioEngine::SetListener(glm::vec3(world[3]),
-									 glm::vec3(world * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)),
-									 glm::vec3(world * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)));
+			AudioEngine::SetListener(Vec3(world[3]),
+									 Vec3(world * Vec4(0.0f, 0.0f, -1.0f, 0.0f)),
+									 Vec3(world * Vec4(0.0f, 1.0f, 0.0f, 0.0f)));
 		}
 
 		// Positions follow the entity every frame, so a sound attached to
@@ -446,7 +445,7 @@ namespace RageV
 			auto [source, transform] = view.get<AudioSourceComponent, TransformComponent>(handle);
 
 			if (source.Voice != 0 && source.Spatial)
-				AudioEngine::SetVoicePosition(source.Voice, glm::vec3(transform.World[3]));
+				AudioEngine::SetVoicePosition(source.Voice, Vec3(transform.World[3]));
 		}
 	}
 
@@ -677,7 +676,7 @@ namespace RageV
 		EnvironmentIBL::Prefilter(*cmd, sky);
 	}
 
-	void Scene::RenderShadows(const Camera& camera, const glm::mat4& cameraTransform)
+	void Scene::RenderShadows(const Camera& camera, const Mat4& cameraTransform)
 	{
 		// A probe capture draws the scene, and the scene samples shadows. Doing
 		// this during one would fit cascades to a cube face's 90-degree frustum
@@ -701,13 +700,13 @@ namespace RageV
 			return;
 
 		const uint32_t localResolution =
-			(uint32_t)glm::clamp(m_Environment.ShadowResolution / 2, 256, 4096);
+			(uint32_t)Math::Clamp(m_Environment.ShadowResolution / 2, 256, 4096);
 		const uint32_t pointResolution =
-			(uint32_t)glm::clamp(m_Environment.ShadowResolution / 4, 128, 2048);
+			(uint32_t)Math::Clamp(m_Environment.ShadowResolution / 4, 128, 2048);
 
 		// Drawing every caster, once per map. Culling is roadmap 3.6, and until
 		// it exists a shadow map costs a full scene walk.
-		auto drawCasters = [this, &meshView](const glm::mat4& viewProjection)
+		auto drawCasters = [this, &meshView](const Mat4& viewProjection)
 		{
 			// Against this pass's own frustum, not the camera's. A cascade sees
 			// a different volume from the viewer, and culling it against the
@@ -725,7 +724,7 @@ namespace RageV
 				if (!resolved)
 					continue;
 
-				glm::vec3 centre, extents;
+				Vec3 centre, extents;
 				Frustum::TransformBounds(resolved->GetBounds(), transform.World, centre, extents);
 
 				if (!frustum.Intersects(centre, extents))
@@ -749,7 +748,7 @@ namespace RageV
 					}
 					else if (const Skeleton* skeleton = AssetManager::GetSkeleton(mesh.Mesh))
 					{
-						const std::vector<glm::mat4> bind(skeleton->Size(), glm::mat4(1.0f));
+						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
 						Renderer3D::DrawSkinnedMeshShadow(resolved, transform.World, bind);
 					}
 
@@ -766,7 +765,7 @@ namespace RageV
 
 		// Clip space to lookup coordinates, with the vertical flip one backend
 		// needs. The same construction the cascades use.
-		glm::mat4 bias(1.0f);
+		Mat4 bias(1.0f);
 		bias[0][0] = 0.5f;
 		bias[1][1] = flip ? -0.5f : 0.5f;
 		bias[3][0] = 0.5f;
@@ -779,7 +778,7 @@ namespace RageV
 		int casterIndex = -1;
 		uint32_t spotSlot = 0;
 		uint32_t pointSlot = 0;
-		glm::vec3 direction(0.0f, -1.0f, 0.0f);
+		Vec3 direction(0.0f, -1.0f, 0.0f);
 
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
 		for (auto& item : lightView)
@@ -793,9 +792,9 @@ namespace RageV
 			if (!light.Light.CastShadows)
 				continue;
 
-			const glm::vec3 position = glm::vec3(transform.World[3]);
-			const glm::vec3 forward = glm::normalize(
-				glm::vec3(transform.World * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+			const Vec3 position = Vec3(transform.World[3]);
+			const Vec3 forward = Math::Normalize(
+				Vec3(transform.World * Vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 
 			switch (light.Light.Type)
 			{
@@ -838,17 +837,17 @@ namespace RageV
 					// The light's own cone, widened a little: the outer angle is
 					// where the light reaches zero, and a shadow that ends
 					// exactly there has a hard edge at the cone's rim.
-					const float fov = glm::radians(
-						glm::clamp(light.Light.OuterCone * 2.2f, 10.0f, 170.0f));
-					const float reach = glm::max(light.Light.Range, 0.5f);
+					const float fov = Math::Radians(
+						Math::Clamp(light.Light.OuterCone * 2.2f, 10.0f, 170.0f));
+					const float reach = Math::Max(light.Light.Range, 0.5f);
 
-					const glm::vec3 up = std::fabs(forward.y) > 0.99f
-									   ? glm::vec3(0.0f, 0.0f, 1.0f)
-									   : glm::vec3(0.0f, 1.0f, 0.0f);
+					const Vec3 up = std::fabs(forward.y) > 0.99f
+									   ? Vec3(0.0f, 0.0f, 1.0f)
+									   : Vec3(0.0f, 1.0f, 0.0f);
 
-					const glm::mat4 view = glm::lookAt(position, position + forward, up);
-					const glm::mat4 projection =
-						glm::perspective(fov, 1.0f, kPointShadowNear, reach);
+					const Mat4 view = Math::LookAt(position, position + forward, up);
+					const Mat4 projection =
+						Math::Perspective(fov, 1.0f, kPointShadowNear, reach);
 
 					LocalShadow assigned;
 					assigned.Type = LocalShadow::Kind::Spot;
@@ -877,7 +876,7 @@ namespace RageV
 						break;
 					}
 
-					const float reach = glm::max(light.Light.Range, 0.5f);
+					const float reach = Math::Max(light.Light.Range, 0.5f);
 
 					LocalShadow assigned;
 					assigned.Type = LocalShadow::Kind::Point;
@@ -899,16 +898,16 @@ namespace RageV
 		if (casterIndex < 0)
 			return;
 
-		const uint32_t count = (uint32_t)glm::clamp(m_Environment.ShadowCascades, 1,
+		const uint32_t count = (uint32_t)Math::Clamp(m_Environment.ShadowCascades, 1,
 													(int)ShadowMap::kMaxCascades);
-		const uint32_t resolution = (uint32_t)glm::clamp(m_Environment.ShadowResolution, 256, 8192);
+		const uint32_t resolution = (uint32_t)Math::Clamp(m_Environment.ShadowResolution, 256, 8192);
 
 		// Aspect and field of view come from the projection rather than being
 		// passed alongside it: an editor camera and a scene camera describe
 		// theirs differently and the matrix is what actually gets used.
-		const glm::mat4& projection = camera.GetProjection();
-		const float fovY = 2.0f * std::atan(1.0f / glm::max(projection[1][1], 1e-4f));
-		const float aspect = glm::max(projection[1][1] / glm::max(projection[0][0], 1e-4f), 1e-4f);
+		const Mat4& projection = camera.GetProjection();
+		const float fovY = 2.0f * std::atan(1.0f / Math::Max(projection[1][1], 1e-4f));
+		const float aspect = Math::Max(projection[1][1] / Math::Max(projection[0][0], 1e-4f), 1e-4f);
 
 		ShadowCascade cascades[ShadowMap::kMaxCascades];
 		ShadowMap::ComputeCascades(cameraTransform, fovY, aspect,
@@ -953,7 +952,7 @@ namespace RageV
 			if (!realtime && captured && !probe.Dirty)
 				continue;
 
-			const uint32_t resolution = (uint32_t)glm::clamp(probe.Resolution, 16, 1024);
+			const uint32_t resolution = (uint32_t)Math::Clamp(probe.Resolution, 16, 1024);
 			if (!probe.Probe || probe.Probe->GetFaceSize() != resolution)
 			{
 				probe.Probe = std::make_shared<ReflectionProbe>(Renderer::GetDevice(), resolution);
@@ -964,13 +963,13 @@ namespace RageV
 			// delay the moment anything can reflect at all, since an incomplete
 			// cube is not usable.
 			const uint32_t faces = probe.Probe->IsComplete()
-								 ? (uint32_t)glm::clamp(probe.FacesPerFrame, 1, 6)
+								 ? (uint32_t)Math::Clamp(probe.FacesPerFrame, 1, 6)
 								 : 6u;
 
 			probe.NextFace = probe.Probe->CaptureFaces(
-				*cmd, glm::vec3(transform.World[3]), probe.NearClip, probe.FarClip,
+				*cmd, Vec3(transform.World[3]), probe.NearClip, probe.FarClip,
 				probe.NextFace, faces,
-				[this](const Camera& faceCamera, const glm::mat4& faceTransform)
+				[this](const Camera& faceCamera, const Mat4& faceTransform)
 				{
 					OnRender(faceCamera, faceTransform);
 				});
@@ -997,7 +996,7 @@ namespace RageV
 		m_CapturingProbes = false;
 	}
 
-	RHI::Ref<RHI::RHITexture> Scene::ResolveEnvironment(const glm::mat4& cameraTransform,
+	RHI::Ref<RHI::RHITexture> Scene::ResolveEnvironment(const Mat4& cameraTransform,
 														const RHI::Ref<RHI::RHITexture>& sky)
 	{
 		// A probe capture reflects the sky, never another probe. Two probes
@@ -1010,7 +1009,7 @@ namespace RageV
 		// right answer and needs the scene descriptor set rebound per draw, or
 		// a cube array indexed per object; neither is worth building before one
 		// probe works. With one probe in a scene the two agree anyway.
-		const glm::vec3 eye = glm::vec3(cameraTransform[3]);
+		const Vec3 eye = Vec3(cameraTransform[3]);
 
 		RHI::Ref<RHI::RHITexture> best = sky;
 		float nearest = std::numeric_limits<float>::max();
@@ -1025,7 +1024,7 @@ namespace RageV
 			if (!probe.Probe || !probe.Probe->IsComplete())
 				continue;
 
-			const float distance = glm::distance(eye, glm::vec3(transform.World[3]));
+			const float distance = Math::Distance(eye, Vec3(transform.World[3]));
 			if (distance > probe.Influence || distance >= nearest)
 				continue;
 
@@ -1073,7 +1072,7 @@ namespace RageV
 		}
 	}
 
-	void Scene::OnRender(const Camera& camera, const glm::mat4& cameraTransform)
+	void Scene::OnRender(const Camera& camera, const Mat4& cameraTransform)
 	{
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
 		LightList lights;
@@ -1083,9 +1082,9 @@ namespace RageV
 			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
 
 			LightRenderData data;
-			data.Position = glm::vec3(transform.World[3]);
+			data.Position = Vec3(transform.World[3]);
 			// A light's forward axis is -Z, matching the camera convention.
-			data.Direction = glm::normalize(glm::vec3(transform.World * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+			data.Direction = Math::Normalize(Vec3(transform.World * Vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 			data.Color = light.Light.Color;
 			data.Intensity = light.Light.Intensity;
 			data.Range = light.Light.Range;
@@ -1132,7 +1131,7 @@ namespace RageV
 		// the pass, not to one kind of geometry -- keeping it in there is how
 		// the quads ended up being the one thing in the renderer that drew
 		// whatever the registry held.
-		const Frustum frustum(camera.GetProjection() * glm::inverse(cameraTransform));
+		const Frustum frustum(camera.GetProjection() * Math::Inverse(cameraTransform));
 
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
 		// of the alpha-blended quads means the quads blend against a complete
@@ -1154,7 +1153,7 @@ namespace RageV
 				if (!resolved)
 					continue;
 
-				glm::vec3 centre, extents;
+				Vec3 centre, extents;
 				Frustum::TransformBounds(resolved->GetBounds(), transform.World, centre, extents);
 
 				if (!frustum.Intersects(centre, extents))
@@ -1185,7 +1184,7 @@ namespace RageV
 					}
 					else if (const Skeleton* skeleton = AssetManager::GetSkeleton(mesh.Mesh))
 					{
-						const std::vector<glm::mat4> bind(skeleton->Size(), glm::mat4(1.0f));
+						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
 						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material, bind);
 					}
 				}
@@ -1216,14 +1215,14 @@ namespace RageV
 		// The unit quad every one of these is, in its own space. Zero depth:
 		// TransformBounds takes the absolute value of the basis rows, so a
 		// rotated quad still gets a box that contains it.
-		static const AABB kQuadBounds{ glm::vec3(-0.5f, -0.5f, 0.0f),
-									   glm::vec3( 0.5f,  0.5f, 0.0f) };
+		static const AABB kQuadBounds{ Vec3(-0.5f, -0.5f, 0.0f),
+									   Vec3( 0.5f,  0.5f, 0.0f) };
 
 		for (auto& item : group)
 		{
 			auto [transform, color] = group.get<TransformComponent, ColorComponent>(item);
 
-			glm::vec3 centre, extents;
+			Vec3 centre, extents;
 			Frustum::TransformBounds(kQuadBounds, transform.World, centre, extents);
 
 			if (!frustum.Intersects(centre, extents))

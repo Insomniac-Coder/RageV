@@ -16,7 +16,7 @@ namespace RageV
 		// cost four bytes each and save a branch per pass.
 		struct PostParams
 		{
-			glm::vec2 TexelSize{ 0.0f };
+			Vec2 TexelSize{ 0.0f };
 			float A = 0.0f;
 			float B = 0.0f;
 			float C = 0.0f;
@@ -244,10 +244,10 @@ namespace RageV
 								float threshold, float knee, float clamp)
 	{
 		PostParams params;
-		params.TexelSize = { 1.0f / (float)glm::max(width, 1u), 1.0f / (float)glm::max(height, 1u) };
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u), 1.0f / (float)Math::Max(height, 1u) };
 		params.A = threshold;
 		params.B = knee;
-		params.C = glm::max(clamp, threshold);
+		params.C = Math::Max(clamp, threshold);
 		Dispatch(cmd, Shader::Prefilter, outputFormat, source, nullptr, &params, sizeof(params));
 	}
 
@@ -255,8 +255,8 @@ namespace RageV
 								 uint32_t sourceWidth, uint32_t sourceHeight, Format outputFormat)
 	{
 		PostParams params;
-		params.TexelSize = { 1.0f / (float)glm::max(sourceWidth, 1u),
-							 1.0f / (float)glm::max(sourceHeight, 1u) };
+		params.TexelSize = { 1.0f / (float)Math::Max(sourceWidth, 1u),
+							 1.0f / (float)Math::Max(sourceHeight, 1u) };
 		Dispatch(cmd, Shader::Downsample, outputFormat, source, nullptr, &params, sizeof(params));
 	}
 
@@ -265,8 +265,8 @@ namespace RageV
 							   Format outputFormat, float radius)
 	{
 		PostParams params;
-		params.TexelSize = { 1.0f / (float)glm::max(sourceWidth, 1u),
-							 1.0f / (float)glm::max(sourceHeight, 1u) };
+		params.TexelSize = { 1.0f / (float)Math::Max(sourceWidth, 1u),
+							 1.0f / (float)Math::Max(sourceHeight, 1u) };
 		params.A = radius;
 		Dispatch(cmd, Shader::Upsample, outputFormat, source, nullptr, &params, sizeof(params));
 	}
@@ -287,7 +287,7 @@ namespace RageV
 						   float contrastThreshold, float relativeThreshold)
 	{
 		PostParams params;
-		params.TexelSize = { 1.0f / (float)glm::max(width, 1u), 1.0f / (float)glm::max(height, 1u) };
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u), 1.0f / (float)Math::Max(height, 1u) };
 		params.A = contrastThreshold;
 		params.B = relativeThreshold;
 		Dispatch(cmd, Shader::FXAA, outputFormat, source, nullptr, &params, sizeof(params));

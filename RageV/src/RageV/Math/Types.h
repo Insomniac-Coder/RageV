@@ -42,6 +42,8 @@ namespace RageV::Math
 		constexpr Vec2() = default;
 		constexpr explicit Vec2(float scalar) : x(scalar), y(scalar) {}
 		constexpr Vec2(float x, float y) : x(x), y(y) {}
+		constexpr explicit Vec2(const struct Vec3& v);
+		constexpr explicit Vec2(const struct Vec4& v);
 
 		float& operator[](int index)             { return (&x)[index]; }
 		const float& operator[](int index) const { return (&x)[index]; }
@@ -57,6 +59,7 @@ namespace RageV::Math
 		constexpr explicit Vec3(float scalar) : x(scalar), y(scalar), z(scalar) {}
 		constexpr Vec3(float x, float y, float z) : x(x), y(y), z(z) {}
 		constexpr Vec3(const Vec2& xy, float z) : x(xy.x), y(xy.y), z(z) {}
+		constexpr explicit Vec3(const struct Vec4& v);
 
 		float& operator[](int index)             { return (&x)[index]; }
 		const float& operator[](int index) const { return (&x)[index]; }
@@ -87,6 +90,7 @@ namespace RageV::Math
 		uint32_t x = 0, y = 0, z = 0, w = 0;
 
 		constexpr UVec4() = default;
+		constexpr explicit UVec4(uint32_t scalar) : x(scalar), y(scalar), z(scalar), w(scalar) {}
 		constexpr UVec4(uint32_t x, uint32_t y, uint32_t z, uint32_t w) : x(x), y(y), z(z), w(w) {}
 
 		uint32_t& operator[](int index)             { return (&x)[index]; }
@@ -108,6 +112,10 @@ namespace RageV::Math
 			: Columns{ { diagonal, 0.0f, 0.0f }, { 0.0f, diagonal, 0.0f }, { 0.0f, 0.0f, diagonal } } {}
 		constexpr Mat3(const Vec3& c0, const Vec3& c1, const Vec3& c2) : Columns{ c0, c1, c2 } {}
 
+		// The upper-left 3x3: a transform with its translation dropped, which is
+		// what a normal or a direction wants applied to it.
+		constexpr explicit Mat3(const struct Mat4& m);
+
 		constexpr Vec3& operator[](int column)             { return Columns[column]; }
 		constexpr const Vec3& operator[](int column) const { return Columns[column]; }
 
@@ -126,6 +134,10 @@ namespace RageV::Math
 					   { 0.0f, 0.0f, diagonal, 0.0f }, { 0.0f, 0.0f, 0.0f, diagonal } } {}
 		constexpr Mat4(const Vec4& c0, const Vec4& c1, const Vec4& c2, const Vec4& c3)
 			: Columns{ c0, c1, c2, c3 } {}
+
+		// A 3x3 promoted: same rotation and scale, no translation. The inverse of
+		// Mat3(Mat4), and what a normal matrix is stored as.
+		constexpr explicit Mat4(const Mat3& m);
 
 		constexpr Vec4& operator[](int column)             { return Columns[column]; }
 		constexpr const Vec4& operator[](int column) const { return Columns[column]; }
@@ -152,6 +164,15 @@ namespace RageV::Math
 
 		static constexpr Quat Identity() { return Quat(1.0f, 0.0f, 0.0f, 0.0f); }
 	};
+
+	constexpr Mat4::Mat4(const Mat3& m)
+		: Columns{ Vec4(m[0], 0.0f), Vec4(m[1], 0.0f), Vec4(m[2], 0.0f), Vec4(0.0f, 0.0f, 0.0f, 1.0f) } {}
+
+	constexpr Vec2::Vec2(const Vec3& v) : x(v.x), y(v.y) {}
+	constexpr Vec2::Vec2(const Vec4& v) : x(v.x), y(v.y) {}
+	constexpr Vec3::Vec3(const Vec4& v) : x(v.x), y(v.y), z(v.z) {}
+	constexpr Mat3::Mat3(const Mat4& m)
+		: Columns{ Vec3(m[0]), Vec3(m[1]), Vec3(m[2]) } {}
 
 	static_assert(sizeof(Vec2)  ==  8, "Vec2 must be two tightly packed floats");
 	static_assert(sizeof(Vec3)  == 12, "Vec3 must be three tightly packed floats");

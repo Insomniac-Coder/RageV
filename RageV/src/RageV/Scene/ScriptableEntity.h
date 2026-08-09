@@ -5,7 +5,7 @@
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "Entity.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 #include <string>
 #include <vector>
 
@@ -31,10 +31,10 @@ namespace RageV
 
 		// World space, and both zero on Exit -- there is no contact left to
 		// describe by then.
-		glm::vec3 Point{ 0.0f };
+		Vec3 Point{ 0.0f };
 		// Points from Other towards this entity, so moving along it is moving
 		// away from whatever was hit.
-		glm::vec3 Normal{ 0.0f };
+		Vec3 Normal{ 0.0f };
 
 		// Closing speed along the normal when they met, in units per second,
 		// never negative. Scale an impact sound or a damage value by it.
@@ -109,22 +109,22 @@ namespace RageV
 
 		// --- transform -------------------------------------------------------
 		// Local, relative to the parent. World is derived.
-		glm::vec3& GetPosition();
-		glm::vec3& GetRotation();   // radians
-		glm::vec3& GetScale();
+		Vec3& GetPosition();
+		Vec3& GetRotation();   // radians
+		Vec3& GetScale();
 
-		void Translate(const glm::vec3& delta);
-		void Rotate(const glm::vec3& eulerDelta);
-		void LookAt(const glm::vec3& target, const glm::vec3& up = { 0.0f, 1.0f, 0.0f });
+		void Translate(const Vec3& delta);
+		void Rotate(const Vec3& eulerDelta);
+		void LookAt(const Vec3& target, const Vec3& up = { 0.0f, 1.0f, 0.0f });
 
-		glm::mat4 GetWorldTransform();
-		glm::vec3 GetWorldPosition();
+		Mat4 GetWorldTransform();
+		Vec3 GetWorldPosition();
 
 		// The entity's own axes, so "forward" means forward for this object
 		// rather than for the world.
-		glm::vec3 GetForward();
-		glm::vec3 GetRight();
-		glm::vec3 GetUp();
+		Vec3 GetForward();
+		Vec3 GetRight();
+		Vec3 GetUp();
 
 		// --- other entities --------------------------------------------------
 		// Invalid when nothing matches; test with `if (entity)`.
@@ -153,14 +153,14 @@ namespace RageV
 		//
 		// Forces accumulate over a step and are cleared by it; impulses change
 		// velocity at once. A jump is an impulse, a thruster is a force.
-		void AddForce(const glm::vec3& force);
-		void AddImpulse(const glm::vec3& impulse);
-		void SetLinearVelocity(const glm::vec3& velocity);
-		glm::vec3 GetLinearVelocity();
+		void AddForce(const Vec3& force);
+		void AddImpulse(const Vec3& impulse);
+		void SetLinearVelocity(const Vec3& velocity);
+		Vec3 GetLinearVelocity();
 
 		// Nearest body along the ray, which may be this one. Direction need not
 		// be normalised; the ray extends to its length. Test with `if (hit)`.
-		RayHit Raycast(const glm::vec3& origin, const glm::vec3& direction);
+		RayHit Raycast(const Vec3& origin, const Vec3& direction);
 
 		// --- audio -----------------------------------------------------------
 		// This entity's AudioSourceComponent. Restarts it if it is already

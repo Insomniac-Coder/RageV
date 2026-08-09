@@ -67,7 +67,7 @@ namespace RageV
 		pass.Samples.push_back(target);
 	}
 
-	void RGPassBuilder::SetClearColor(const glm::vec4& color)
+	void RGPassBuilder::SetClearColor(const Vec4& color)
 	{
 		m_Graph.m_Passes[m_Pass].ClearColor = color;
 	}
@@ -281,10 +281,10 @@ namespace RageV
 
 			const uint32_t width = resource.Desc.Width != 0
 								 ? resource.Desc.Width
-								 : (uint32_t)glm::max(1.0f, (float)m_Width * resource.Desc.Scale);
+								 : (uint32_t)Math::Max(1.0f, (float)m_Width * resource.Desc.Scale);
 			const uint32_t height = resource.Desc.Height != 0
 								  ? resource.Desc.Height
-								  : (uint32_t)glm::max(1.0f, (float)m_Height * resource.Desc.Scale);
+								  : (uint32_t)Math::Max(1.0f, (float)m_Height * resource.Desc.Scale);
 
 			resource.Target = AcquireTarget(resource.Desc, width, height);
 		}

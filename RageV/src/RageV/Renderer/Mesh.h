@@ -10,15 +10,15 @@
 
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Asset/Asset.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
 	struct MeshVertex
 	{
-		glm::vec3 Position;
-		glm::vec3 Normal;
-		glm::vec2 TexCoord;
+		Vec3 Position;
+		Vec3 Normal;
+		Vec2 TexCoord;
 	};
 
 	// A vertex that a skeleton moves.
@@ -34,14 +34,14 @@ namespace RageV
 	// only thing written twice: how a vertex reaches world space.
 	struct SkinnedVertex
 	{
-		glm::vec3  Position;
-		glm::vec3  Normal;
-		glm::vec2  TexCoord;
+		Vec3  Position;
+		Vec3  Normal;
+		Vec2  TexCoord;
 		// Indices into the bone matrices, already in skeleton order -- the
 		// importer remaps glTF's own joint order away before this is built.
-		glm::uvec4 Joints{ 0 };
+		UVec4 Joints{ 0 };
 		// Sum to one. The importer normalises rather than trusting the file.
-		glm::vec4  Weights{ 1.0f, 0.0f, 0.0f, 0.0f };
+		Vec4  Weights{ 1.0f, 0.0f, 0.0f, 0.0f };
 	};
 
 	// An axis-aligned box in the mesh's own space.
@@ -51,11 +51,11 @@ namespace RageV
 	// same type; when it arrives this probably moves to a header of its own.
 	struct AABB
 	{
-		glm::vec3 Min{ 0.0f };
-		glm::vec3 Max{ 0.0f };
+		Vec3 Min{ 0.0f };
+		Vec3 Max{ 0.0f };
 
-		glm::vec3 Centre() const { return (Min + Max) * 0.5f; }
-		glm::vec3 Extents() const { return (Max - Min) * 0.5f; }
+		Vec3 Centre() const { return (Min + Max) * 0.5f; }
+		Vec3 Extents() const { return (Max - Min) * 0.5f; }
 	};
 
 	// Serialized by name, so the values must stay stable.
@@ -116,7 +116,7 @@ namespace RageV
 		//
 		// Positions only: picking never asks about normals or texture
 		// coordinates, and keeping those would double the cost for nothing.
-		const std::vector<glm::vec3>& GetPositions() const { return m_Positions; }
+		const std::vector<Vec3>& GetPositions() const { return m_Positions; }
 		const std::vector<uint32_t>& GetIndices() const { return m_Indices; }
 
 		// Primitives are cached per device: placing a hundred cubes should not
@@ -130,7 +130,7 @@ namespace RageV
 		uint32_t m_IndexCount = 0;
 
 		AABB m_Bounds;
-		std::vector<glm::vec3> m_Positions;
+		std::vector<Vec3> m_Positions;
 		std::vector<uint32_t> m_Indices;
 		bool m_Skinned = false;
 	};

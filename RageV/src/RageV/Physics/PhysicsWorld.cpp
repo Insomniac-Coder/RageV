@@ -23,9 +23,7 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
-#include <glm/gtx/quaternion.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtx/component_wise.hpp>
+#include "RageV/Math/Math.h"
 #include <algorithm>
 #include <cstdarg>
 #include <mutex>
@@ -37,15 +35,15 @@ namespace RageV
 	namespace
 	{
 		// --- conversions -----------------------------------------------------
-		JPH::Vec3 ToJolt(const glm::vec3& v) { return { v.x, v.y, v.z }; }
+		JPH::Vec3 ToJolt(const Vec3& v) { return { v.x, v.y, v.z }; }
 
 		// One overload, not two: with DOUBLE_PRECISION off -- which is how this
 		// build is configured -- JPH::RVec3 is an alias for JPH::Vec3, so a
 		// second overload is a redefinition rather than a convenience.
-		glm::vec3 ToGlm(const JPH::Vec3& v) { return { v.GetX(), v.GetY(), v.GetZ() }; }
+		Vec3 ToGlm(const JPH::Vec3& v) { return { v.GetX(), v.GetY(), v.GetZ() }; }
 
-		JPH::Quat ToJolt(const glm::quat& q) { return { q.x, q.y, q.z, q.w }; }
-		glm::quat ToGlm(const JPH::Quat& q)  { return { q.GetW(), q.GetX(), q.GetY(), q.GetZ() }; }
+		JPH::Quat ToJolt(const Quat& q) { return { q.x, q.y, q.z, q.w }; }
+		Quat ToGlm(const JPH::Quat& q)  { return { q.GetW(), q.GetX(), q.GetY(), q.GetZ() }; }
 
 		// --- layers ----------------------------------------------------------
 		namespace BroadPhase
@@ -173,7 +171,7 @@ namespace RageV
 			JPH::RegisterTypes();
 		}
 
-		JPH::ShapeRefC MakeShape(const ColliderComponent& collider, const glm::vec3& scale)
+		JPH::ShapeRefC MakeShape(const ColliderComponent& collider, const Vec3& scale)
 		{
 			// Scale is baked in rather than wrapped in a ScaledShape: it never
 			// changes for a body during a run, and a baked shape is one fewer
@@ -210,7 +208,7 @@ namespace RageV
 
 			JPH::ShapeRefC shape = result.Get();
 
-			if (glm::dot(sized.Offset, sized.Offset) > 0.0f)
+			if (Math::Dot(sized.Offset, sized.Offset) > 0.0f)
 			{
 				auto offset = JPH::RotatedTranslatedShapeSettings(
 					ToJolt(sized.Offset), JPH::Quat::sIdentity(), shape).Create();
@@ -244,8 +242,8 @@ namespace RageV
 			UUID B = UUID::Invalid();
 
 			bool Trigger = false;
-			glm::vec3 Point{ 0.0f };
-			glm::vec3 Normal{ 0.0f };
+			Vec3 Point{ 0.0f };
+			Vec3 Normal{ 0.0f };
 			float ImpactSpeed = 0.0f;
 		};
 
@@ -328,13 +326,13 @@ namespace RageV
 
 				// Safe on a static body: Jolt returns zero rather than reading
 				// motion properties it does not have.
-				const glm::vec3 relative = ToGlm(body2.GetLinearVelocity()) -
+				const Vec3 relative = ToGlm(body2.GetLinearVelocity()) -
 										   ToGlm(body1.GetLinearVelocity());
 
 				// The normal runs from body 1 into body 2, so approaching means
 				// body 2 moves against it. Negative is separating, which a
 				// speculative contact can be, and is reported as no impact.
-				contact.ImpactSpeed = glm::max(-glm::dot(relative, contact.Normal), 0.0f);
+				contact.ImpactSpeed = Math::Max(-Math::Dot(relative, contact.Normal), 0.0f);
 
 				std::lock_guard<std::mutex> lock(m_Queue.Mutex);
 				m_Queue.Raw.push_back(contact);
@@ -356,10 +354,10 @@ namespace RageV
 			UUID Entity = UUID::Invalid();
 			bool Simulated = false;   // false for static: nothing to interpolate
 
-			glm::vec3 PreviousPosition{ 0.0f };
-			glm::vec3 CurrentPosition{ 0.0f };
-			glm::quat PreviousRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
-			glm::quat CurrentRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+			Vec3 PreviousPosition{ 0.0f };
+			Vec3 CurrentPosition{ 0.0f };
+			Quat PreviousRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+			Quat CurrentRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
 		};
 
 		// Two bodies that are touching, and how the engine last reported them.
@@ -386,7 +384,7 @@ namespace RageV
 			  // One less than the hardware supports: the main thread is doing
 			  // the rest of the frame and taking every core starves it.
 			  JobSystem(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
-						(int)glm::max(1u, std::thread::hardware_concurrency() - 1u)),
+						(int)Math::Max(1u, std::thread::hardware_concurrency() - 1u)),
 			  Listener(Queue)
 		{
 			System.Init(kMaxBodies, kBodyMutexes, kMaxBodyPairs, kMaxContactConstraints,
@@ -459,12 +457,11 @@ namespace RageV
 			// World, not local: a body parented under something else still
 			// simulates in world space, and its parent's transform is part of
 			// where it actually is.
-			const glm::mat4 world = scene.GetWorldTransform(entity);
+			const Mat4 world = scene.GetWorldTransform(entity);
 
-			glm::vec3 position, scale, skew;
-			glm::quat rotation;
-			glm::vec4 perspective;
-			if (!glm::decompose(world, scale, rotation, position, skew, perspective))
+			Vec3 position, scale;
+			Quat rotation;
+			if (!Math::Decompose(world, position, rotation, scale))
 				return false;
 
 			JPH::ShapeRefC shape = MakeShape(collider, scale);
@@ -472,13 +469,13 @@ namespace RageV
 				return false;
 
 			out = JPH::BodyCreationSettings(shape, JPH::RVec3(position.x, position.y, position.z),
-											ToJolt(glm::normalize(rotation)),
+											ToJolt(Math::Normalize(rotation)),
 											ToMotionType(body.Type), ToObjectLayer(body.Type));
 
-			out.mFriction = glm::max(body.Friction, 0.0f);
-			out.mRestitution = glm::clamp(body.Restitution, 0.0f, 1.0f);
-			out.mLinearDamping = glm::max(body.LinearDamping, 0.0f);
-			out.mAngularDamping = glm::max(body.AngularDamping, 0.0f);
+			out.mFriction = Math::Max(body.Friction, 0.0f);
+			out.mRestitution = Math::Clamp(body.Restitution, 0.0f, 1.0f);
+			out.mLinearDamping = Math::Max(body.LinearDamping, 0.0f);
+			out.mAngularDamping = Math::Max(body.AngularDamping, 0.0f);
 			out.mGravityFactor = body.GravityFactor;
 			out.mIsSensor = collider.IsTrigger;
 
@@ -487,7 +484,7 @@ namespace RageV
 				// Inertia is derived from the shape; only the total mass is
 				// overridden, or a heavy object would also spin like a light one.
 				out.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-				out.mMassPropertiesOverride.mMass = glm::max(body.Mass, 0.001f);
+				out.mMassPropertiesOverride.mMass = Math::Max(body.Mass, 0.001f);
 			}
 
 			if (body.FreezeRotation)
@@ -640,8 +637,8 @@ namespace RageV
 			}
 		}
 
-		void Record(UUID entity, JPH::BodyID id, BodyType type, const glm::vec3& position,
-					const glm::quat& rotation)
+		void Record(UUID entity, JPH::BodyID id, BodyType type, const Vec3& position,
+					const Quat& rotation)
 		{
 			Body record;
 			record.Id = id;
@@ -820,7 +817,7 @@ namespace RageV
 
 	void PhysicsWorld::SyncTransforms(Scene& scene, float interpolationAlpha)
 	{
-		const float alpha = glm::clamp(interpolationAlpha, 0.0f, 1.0f);
+		const float alpha = Math::Clamp(interpolationAlpha, 0.0f, 1.0f);
 
 		for (auto& [id, record] : m_Impl->Bodies)
 		{
@@ -831,29 +828,28 @@ namespace RageV
 			if (!entity || !entity.HasComponent<TransformComponent>())
 				continue;
 
-			const glm::vec3 position = glm::mix(record.PreviousPosition, record.CurrentPosition, alpha);
+			const Vec3 position = Math::Mix(record.PreviousPosition, record.CurrentPosition, alpha);
 			// slerp, not mix: interpolating quaternions linearly does not
 			// travel at a constant angular rate, and the result is not unit
 			// length.
-			const glm::quat rotation = glm::slerp(record.PreviousRotation, record.CurrentRotation, alpha);
+			const Quat rotation = Math::Slerp(record.PreviousRotation, record.CurrentRotation, alpha);
 
 			auto& transform = entity.GetComponent<TransformComponent>();
 
 			// The simulation works in world space; the transform is local. A
 			// body under a parent has to come back through it.
-			const glm::mat4 world = glm::translate(glm::mat4(1.0f), position) *
-									glm::toMat4(rotation) *
-									glm::scale(glm::mat4(1.0f), transform.Scale);
+			const Mat4 world = Math::Translate(Mat4(1.0f), position) *
+									Math::ToMat4(rotation) *
+									Math::Scale(Mat4(1.0f), transform.Scale);
 
-			const glm::mat4 local = glm::inverse(scene.GetParentWorldTransform(entity)) * world;
+			const Mat4 local = Math::Inverse(scene.GetParentWorldTransform(entity)) * world;
 
-			glm::vec3 outPosition, outScale, skew;
-			glm::quat outRotation;
-			glm::vec4 perspective;
-			if (glm::decompose(local, outScale, outRotation, outPosition, skew, perspective))
+			Vec3 outPosition, outScale;
+			Quat outRotation;
+			if (Math::Decompose(local, outPosition, outRotation, outScale))
 			{
 				transform.Position = outPosition;
-				transform.Rotation = glm::eulerAngles(outRotation);
+				transform.Rotation = Math::ToEuler(outRotation);
 			}
 		}
 	}
@@ -861,7 +857,7 @@ namespace RageV
 	// -------------------------------------------------------------------------
 	// Queries and control
 	// -------------------------------------------------------------------------
-	RayHit PhysicsWorld::CastRay(const glm::vec3& origin, const glm::vec3& direction) const
+	RayHit PhysicsWorld::CastRay(const Vec3& origin, const Vec3& direction) const
 	{
 		RayHit hit;
 
@@ -872,7 +868,7 @@ namespace RageV
 			return hit;
 
 		hit.Hit = true;
-		hit.Distance = result.mFraction * glm::length(direction);
+		hit.Distance = result.mFraction * Math::Length(direction);
 		hit.Position = origin + direction * result.mFraction;
 
 		JPH::BodyLockRead lock(m_Impl->System.GetBodyLockInterface(), result.mBodyID);
@@ -887,32 +883,32 @@ namespace RageV
 		return hit;
 	}
 
-	void PhysicsWorld::SetLinearVelocity(UUID entity, const glm::vec3& velocity)
+	void PhysicsWorld::SetLinearVelocity(UUID entity, const Vec3& velocity)
 	{
 		if (Impl::Body* record = m_Impl->Find(entity))
 			m_Impl->Interface().SetLinearVelocity(record->Id, ToJolt(velocity));
 	}
 
-	glm::vec3 PhysicsWorld::GetLinearVelocity(UUID entity) const
+	Vec3 PhysicsWorld::GetLinearVelocity(UUID entity) const
 	{
 		if (const Impl::Body* record = m_Impl->Find(entity))
 			return ToGlm(m_Impl->Interface().GetLinearVelocity(record->Id));
-		return glm::vec3(0.0f);
+		return Vec3(0.0f);
 	}
 
-	void PhysicsWorld::AddForce(UUID entity, const glm::vec3& force)
+	void PhysicsWorld::AddForce(UUID entity, const Vec3& force)
 	{
 		if (Impl::Body* record = m_Impl->Find(entity))
 			m_Impl->Interface().AddForce(record->Id, ToJolt(force), JPH::EActivation::Activate);
 	}
 
-	void PhysicsWorld::AddImpulse(UUID entity, const glm::vec3& impulse)
+	void PhysicsWorld::AddImpulse(UUID entity, const Vec3& impulse)
 	{
 		if (Impl::Body* record = m_Impl->Find(entity))
 			m_Impl->Interface().AddImpulse(record->Id, ToJolt(impulse));
 	}
 
-	void PhysicsWorld::SetPosition(UUID entity, const glm::vec3& position)
+	void PhysicsWorld::SetPosition(UUID entity, const Vec3& position)
 	{
 		Impl::Body* record = m_Impl->Find(entity);
 		if (!record)
@@ -926,12 +922,12 @@ namespace RageV
 		record->PreviousPosition = record->CurrentPosition = position;
 	}
 
-	void PhysicsWorld::SetGravity(const glm::vec3& gravity)
+	void PhysicsWorld::SetGravity(const Vec3& gravity)
 	{
 		m_Impl->System.SetGravity(ToJolt(gravity));
 	}
 
-	glm::vec3 PhysicsWorld::GetGravity() const
+	Vec3 PhysicsWorld::GetGravity() const
 	{
 		return ToGlm(m_Impl->System.GetGravity());
 	}

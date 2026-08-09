@@ -1065,7 +1065,7 @@ namespace RageV::GL
 		// than letting the two backends disagree about what a cube map is.
 		glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
-		// Depth in [0, 1], matching Vulkan and matching the projections glm
+		// Depth in [0, 1], matching Vulkan and matching the projections RageV::Math
 		// produces -- it is built with GLM_FORCE_DEPTH_ZERO_TO_ONE. Without
 		// this, GL maps that same clip range onto [0.5, 1] of the depth buffer:
 		// half the precision thrown away, and, worse, a stored depth that no

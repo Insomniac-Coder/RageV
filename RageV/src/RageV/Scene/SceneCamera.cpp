@@ -1,7 +1,6 @@
 #include <rvpch.h>
 #include "SceneCamera.h"
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -35,11 +34,11 @@ namespace RageV
 			const float right = 0.5f * aspect * OrthographicSize;
 			const float bottom = -0.5f * OrthographicSize;
 			const float top = 0.5f * OrthographicSize;
-			m_Projection = glm::ortho(left, right, bottom, top, OrthographicNear, OrthographicFar);
+			m_Projection = Math::Orthographic(left, right, bottom, top, OrthographicNear, OrthographicFar);
 		}
 		else
 		{
-			m_Projection = glm::perspective(glm::radians(PerspectiveFOV), aspect,
+			m_Projection = Math::Perspective(Math::Radians(PerspectiveFOV), aspect,
 											PerspectiveNear, PerspectiveFar);
 		}
 	}

@@ -1,10 +1,10 @@
 #pragma once
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include <vector>
 
 namespace RageV
 {
-	typedef glm::vec3 color;
+	typedef Vec3 color;
 
 	// Plain data. Every accessor this used to have was a bare assignment with
 	// no invariant to protect, and private members cannot be described to the
@@ -45,9 +45,9 @@ namespace RageV
 	// being readable well before that.
 	struct LightRenderData
 	{
-		glm::vec3 Position{ 0.0f };
-		glm::vec3 Direction{ 0.0f, -1.0f, 0.0f };
-		glm::vec3 Color{ 1.0f };
+		Vec3 Position{ 0.0f };
+		Vec3 Direction{ 0.0f, -1.0f, 0.0f };
+		Vec3 Color{ 1.0f };
 		float Intensity = 1.0f;
 		float Range = 10.0f;
 		float InnerCone = 20.0f;   // degrees

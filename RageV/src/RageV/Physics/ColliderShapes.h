@@ -1,6 +1,6 @@
 #pragma once
 #include "PhysicsTypes.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -15,15 +15,15 @@ namespace RageV
 	// doing it.
 	struct ScaledCollider
 	{
-		glm::vec3 HalfExtents{ 0.5f };   // box
+		Vec3 HalfExtents{ 0.5f };   // box
 		float Radius = 0.5f;             // sphere, capsule
 		float HalfHeight = 0.5f;         // capsule, cylindrical section only
-		glm::vec3 Offset{ 0.0f };        // in the entity's rotated local space
+		Vec3 Offset{ 0.0f };        // in the entity's rotated local space
 	};
 
 	// Jolt refuses shapes below its convex radius, and a zero extent is almost
 	// always an unset field rather than an intention.
 	constexpr float kMinColliderExtent = 0.01f;
 
-	ScaledCollider ScaleCollider(const ColliderComponent& collider, const glm::vec3& scale);
+	ScaledCollider ScaleCollider(const ColliderComponent& collider, const Vec3& scale);
 }

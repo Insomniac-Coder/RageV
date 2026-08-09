@@ -1,7 +1,7 @@
 #pragma once
 #include "Entity.h"
 #include "RageV/Renderer/Camera.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -9,18 +9,18 @@ namespace RageV
 
 	struct Ray
 	{
-		glm::vec3 Origin{ 0.0f };
+		Vec3 Origin{ 0.0f };
 		// Normalised, so a distance along it is a distance in world units.
-		glm::vec3 Direction{ 0.0f, 0.0f, -1.0f };
+		Vec3 Direction{ 0.0f, 0.0f, -1.0f };
 
-		glm::vec3 At(float distance) const { return Origin + Direction * distance; }
+		Vec3 At(float distance) const { return Origin + Direction * distance; }
 	};
 
 	struct PickResult
 	{
 		Entity Entity;
 		float Distance = 0.0f;
-		glm::vec3 Point{ 0.0f };
+		Vec3 Point{ 0.0f };
 
 		explicit operator bool() const { return (bool)Entity; }
 	};
@@ -31,8 +31,8 @@ namespace RageV
 	// caller converts from pixels, because only it knows where the panel is and
 	// how big it is -- and getting that conversion wrong is the usual reason
 	// picking is off by a consistent offset.
-	Ray ScreenPointToRay(const Camera& camera, const glm::mat4& cameraTransform,
-						 const glm::vec2& ndc);
+	Ray ScreenPointToRay(const Camera& camera, const Mat4& cameraTransform,
+						 const Vec2& ndc);
 
 	// The nearest entity the ray hits, or an invalid result.
 	//
@@ -49,6 +49,6 @@ namespace RageV
 	// Ray against an axis-aligned box in the box's own space. Exposed because
 	// it is the useful half of picking for anything without geometry.
 	// Returns false when the ray misses or the box is behind it.
-	bool RayIntersectsBox(const Ray& ray, const glm::vec3& min, const glm::vec3& max,
+	bool RayIntersectsBox(const Ray& ray, const Vec3& min, const Vec3& max,
 						  float& distance);
 }

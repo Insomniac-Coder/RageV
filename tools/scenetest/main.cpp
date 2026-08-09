@@ -60,11 +60,13 @@
 #include "RageV/Managed/DotNetHost.h"
 #include "RageV/Math/Math.h"
 #include "RageV/Math/GlmBridge.h"
+#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/component_wise.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include "RageV/Math/GlmBridge.h"
 #include "RageV/Core/EngineConfig.h"
 
 #include <GLFW/glfw3.h>
@@ -143,7 +145,7 @@ namespace
 		scene->SetParent(child, root);
 
 		Entity grandchild = scene->CreateEntity("Grandchild");
-		grandchild.AddComponent<ColorComponent>(glm::vec4(0.2f, 0.4f, 0.9f, 0.75f));
+		grandchild.AddComponent<ColorComponent>(Vec4(0.2f, 0.4f, 0.9f, 0.75f));
 		scene->SetParent(grandchild, child);
 
 		Entity spot = scene->CreateEntity("Spot Light");
@@ -188,9 +190,9 @@ namespace
 		// The world transform must compose through both levels. A hierarchy
 		// that serializes but does not compose is worse than none.
 		scene->UpdateWorldTransforms();
-		const glm::mat4 expected = scene->GetWorldTransform(child) *
+		const Mat4 expected = scene->GetWorldTransform(child) *
 								   grandchild.GetComponent<TransformComponent>().GetLocalTransform();
-		const glm::mat4 actual = grandchild.GetComponent<TransformComponent>().World;
+		const Mat4 actual = grandchild.GetComponent<TransformComponent>().World;
 
 		bool equal = true;
 		for (int column = 0; column < 4; column++)
@@ -251,7 +253,7 @@ namespace
 		bool positionsInRange = true;
 		for (const MeshVertex& vertex : primitive.Vertices)
 		{
-			normalsUnit = normalsUnit && std::fabs(glm::length(vertex.Normal) - 1.0f) < 1e-3f;
+			normalsUnit = normalsUnit && std::fabs(Math::Length(vertex.Normal) - 1.0f) < 1e-3f;
 			positionsInRange = positionsInRange &&
 							   std::fabs(vertex.Position.x) <= 1.001f &&
 							   std::fabs(vertex.Position.y) <= 1.001f &&
@@ -281,7 +283,7 @@ namespace
 		// The fixture stores a 45-degree turn about Y as a quaternion. glTF is
 		// xyzw and glm's constructor is wxyz; swapping them is silent and
 		// produces a rotation that merely looks wrong.
-		Check(std::fabs(model.Nodes[1].Rotation.y - glm::radians(45.0f)) < 1e-3f,
+		Check(std::fabs(model.Nodes[1].Rotation.y - Math::Radians(45.0f)) < 1e-3f,
 			  "quaternion rotation converts to the right euler angles");
 		Check(std::fabs(model.Nodes[1].Scale.x - 0.5f) < 1e-4f, "node scale decodes");
 	}
@@ -534,7 +536,7 @@ namespace
 		for (auto handle : scene->GetRegistry().view<TransformComponent>())
 		{
 			auto& transform = scene->GetRegistry().get<TransformComponent>(handle);
-			transform.Position += glm::vec3(11.0f, -4.0f, 7.5f);
+			transform.Position += Vec3(11.0f, -4.0f, 7.5f);
 			transform.Rotation.y += 1.25f;
 		}
 
@@ -811,8 +813,8 @@ namespace
 		// Ground top is at y = 0, the box is a unit cube with half-extent 0.5.
 		Check(resting > -0.2f && resting < 0.8f, "it comes to rest on the floor rather than through it");
 
-		const glm::vec3 velocity = physics->GetLinearVelocity(box.GetUUID());
-		Check(glm::length(velocity) < 0.5f, "and settles rather than jittering forever");
+		const Vec3 velocity = physics->GetLinearVelocity(box.GetUUID());
+		Check(Math::Length(velocity) < 0.5f, "and settles rather than jittering forever");
 
 		// A ray straight down from above the box must hit it.
 		const RayHit hit = physics->CastRay({ 0.0f, 20.0f, 0.0f }, { 0.0f, -40.0f, 0.0f });
@@ -847,7 +849,7 @@ namespace
 			int Enter = 0, Stay = 0, Exit = 0;
 			int TriggerEnter = 0, TriggerStay = 0, TriggerExit = 0;
 			std::string LastOther;
-			glm::vec3 LastNormal{ 0.0f };
+			Vec3 LastNormal{ 0.0f };
 			float LastImpact = 0.0f;
 			bool SawInvalidOther = false;
 		};
@@ -883,7 +885,7 @@ namespace
 				log.SawInvalidOther = true;
 
 			log.LastNormal = collision.Normal;
-			log.LastImpact = glm::max(log.LastImpact, collision.ImpactSpeed);
+			log.LastImpact = Math::Max(log.LastImpact, collision.ImpactSpeed);
 			return log;
 		}
 	};
@@ -1268,24 +1270,24 @@ namespace
 				continue;
 			}
 
-			const std::vector<glm::vec3>& positions = mesh->GetPositions();
+			const std::vector<Vec3>& positions = mesh->GetPositions();
 			const std::vector<uint32_t>& indices = mesh->GetIndices();
 
-			glm::vec3 centroid(0.0f);
-			for (const glm::vec3& position : positions)
+			Vec3 centroid(0.0f);
+			for (const Vec3& position : positions)
 				centroid += position;
-			centroid /= (float)glm::max<size_t>(positions.size(), 1);
+			centroid /= (float)std::max<size_t>(positions.size(), 1);
 
 			size_t inward = 0;
 			size_t degenerate = 0;
 
 			for (size_t i = 0; i + 2 < indices.size(); i += 3)
 			{
-				const glm::vec3& a = positions[indices[i]];
-				const glm::vec3& b = positions[indices[i + 1]];
-				const glm::vec3& c = positions[indices[i + 2]];
+				const Vec3& a = positions[indices[i]];
+				const Vec3& b = positions[indices[i + 1]];
+				const Vec3& c = positions[indices[i + 2]];
 
-				const glm::vec3 face = glm::cross(b - a, c - a);
+				const Vec3 face = Math::Cross(b - a, c - a);
 
 				// The poles of a UV sphere collapse to triangles of no area.
 				// They render nothing and have no winding to be wrong about --
@@ -1293,13 +1295,13 @@ namespace
 				// -8.7e-8 rather than zero, which is enough to flip one. These
 				// primitives are unit sized, so the smallest triangle that
 				// covers anything is many orders of magnitude above this.
-				if (glm::length(face) < 1e-6f)
+				if (Math::Length(face) < 1e-6f)
 				{
 					degenerate++;
 					continue;
 				}
 
-				if (glm::dot(face, (a + b + c) / 3.0f - centroid) <= 0.0f)
+				if (Math::Dot(face, (a + b + c) / 3.0f - centroid) <= 0.0f)
 					inward++;
 			}
 
@@ -1321,7 +1323,7 @@ namespace
 	void CheckCubemap()
 	{
 		// --- the face table -------------------------------------------------
-		const glm::vec3 axes[CubeFaces::kFaceCount] =
+		const Vec3 axes[CubeFaces::kFaceCount] =
 		{
 			{  1.0f,  0.0f,  0.0f }, { -1.0f,  0.0f,  0.0f },
 			{  0.0f,  1.0f,  0.0f }, {  0.0f, -1.0f,  0.0f },
@@ -1332,13 +1334,13 @@ namespace
 		bool allUnit = true;
 		for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
 		{
-			const glm::vec3 centre = CubeFaceDirection(face, 0.5f, 0.5f);
-			centresCorrect = centresCorrect && glm::length(centre - axes[face]) < 1e-5f;
+			const Vec3 centre = CubeFaceDirection(face, 0.5f, 0.5f);
+			centresCorrect = centresCorrect && Math::Length(centre - axes[face]) < 1e-5f;
 
 			for (float v = 0.05f; v < 1.0f; v += 0.3f)
 			{
 				for (float u = 0.05f; u < 1.0f; u += 0.3f)
-					allUnit = allUnit && std::fabs(glm::length(CubeFaceDirection(face, u, v)) - 1.0f) < 1e-5f;
+					allUnit = allUnit && std::fabs(Math::Length(CubeFaceDirection(face, u, v)) - 1.0f) < 1e-5f;
 			}
 		}
 
@@ -1351,16 +1353,16 @@ namespace
 		// mirrored, which the centre test above cannot see, since a rotated
 		// face still looks down its own axis.
 		{
-			const glm::vec3 fromNegZ = CubeFaceDirection(5, 0.0f, 0.5f);
-			const glm::vec3 fromPosX = CubeFaceDirection(0, 1.0f, 0.5f);
-			Check(glm::length(fromNegZ - fromPosX) < 1e-5f,
+			const Vec3 fromNegZ = CubeFaceDirection(5, 0.0f, 0.5f);
+			const Vec3 fromPosX = CubeFaceDirection(0, 1.0f, 0.5f);
+			Check(Math::Length(fromNegZ - fromPosX) < 1e-5f,
 				  "adjacent faces agree along the edge they share");
 
 			// And the other axis, which a vertical mirror would break while
 			// leaving the horizontal seam intact.
-			const glm::vec3 topOfPosZ = CubeFaceDirection(4, 0.5f, 0.0f);
-			const glm::vec3 nearPosY = CubeFaceDirection(2, 0.5f, 1.0f);
-			Check(glm::length(topOfPosZ - nearPosY) < 1e-5f,
+			const Vec3 topOfPosZ = CubeFaceDirection(4, 0.5f, 0.0f);
+			const Vec3 nearPosY = CubeFaceDirection(2, 0.5f, 1.0f);
+			Check(Math::Length(topOfPosZ - nearPosY) < 1e-5f,
 				  "and along the edge they share with the one above");
 		}
 
@@ -1409,7 +1411,7 @@ namespace
 		// difference is the cube's own projection, and getting it wrong bows
 		// the horizon.
 		{
-			const glm::vec3 up = faces.Sample(5, centre, 0);
+			const Vec3 up = faces.Sample(5, centre, 0);
 			Check(up.g > 0.05f && up.g < 0.30f, "a face's top edge is above the horizon but not at the pole");
 		}
 
@@ -1676,19 +1678,19 @@ namespace
 		constexpr uint32_t kCount = 4;
 		constexpr uint32_t kResolution = 1024;
 
-		const glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.4f, -1.0f, -0.25f));
-		const float fov = glm::radians(60.0f);
+		const Vec3 lightDirection = Math::Normalize(Vec3(-0.4f, -1.0f, -0.25f));
+		const float fov = Math::Radians(60.0f);
 		const float aspect = 16.0f / 9.0f;
 		const float distance = 60.0f;
 
-		auto fit = [&](const glm::mat4& cameraTransform, ShadowCascade* out, bool flip = false)
+		auto fit = [&](const Mat4& cameraTransform, ShadowCascade* out, bool flip = false)
 		{
 			ShadowMap::ComputeCascades(cameraTransform, fov, aspect, 0.1f, distance,
 									   lightDirection, kCount, kResolution, 0.85f, flip, out);
 		};
 
 		ShadowCascade level[kCount];
-		fit(glm::mat4(1.0f), level);
+		fit(Mat4(1.0f), level);
 
 		// --- splits -------------------------------------------------------------
 		{
@@ -1711,11 +1713,11 @@ namespace
 			bool stable = true;
 			for (int step = 1; step < 24; step++)
 			{
-				const float yaw = glm::two_pi<float>() * (float)step / 24.0f;
-				const float pitch = glm::radians(-35.0f) * std::sin(yaw * 3.0f);
+				const float yaw = Math::TwoPi * (float)step / 24.0f;
+				const float pitch = Math::Radians(-35.0f) * std::sin(yaw * 3.0f);
 
-				glm::mat4 turned = glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0, 1, 0));
-				turned = glm::rotate(turned, pitch, glm::vec3(1, 0, 0));
+				Mat4 turned = Math::Rotate(Mat4(1.0f), yaw, Vec3(0, 1, 0));
+				turned = Math::Rotate(turned, pitch, Vec3(1, 0, 0));
 
 				ShadowCascade rotated[kCount];
 				fit(turned, rotated);
@@ -1740,17 +1742,17 @@ namespace
 			{
 				// Deliberately not a multiple of anything: a texel here is
 				// centimetres, and these are millimetre steps.
-				const glm::mat4 nudged = glm::translate(
-					glm::mat4(1.0f), glm::vec3(0.0013f * (float)step, 0.0f, 0.0007f * (float)step));
+				const Mat4 nudged = Math::Translate(
+					Mat4(1.0f), Vec3(0.0013f * (float)step, 0.0f, 0.0007f * (float)step));
 
 				ShadowCascade moved[kCount];
 				fit(nudged, moved);
 
 				for (uint32_t i = 0; i < kCount; i++)
 				{
-					const glm::vec4 origin =
-						moved[i].ViewProjection * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-					const glm::vec2 texels = glm::vec2(origin) * ((float)kResolution * 0.5f);
+					const Vec4 origin =
+						moved[i].ViewProjection * Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+					const Vec2 texels = Vec2(origin) * ((float)kResolution * 0.5f);
 
 					snapped = snapped &&
 							  std::fabs(texels.x - std::round(texels.x)) < 1e-3f &&
@@ -1764,9 +1766,9 @@ namespace
 		// --- the lookup matrix -----------------------------------------------------
 		{
 			// A point in the middle of the near cascade must land inside the map.
-			const glm::vec3 inside(0.0f, 0.0f, -level[0].SplitDepth * 0.5f);
-			const glm::vec4 lookup = level[0].LookupMatrix * glm::vec4(inside, 1.0f);
-			const glm::vec3 coordinate = glm::vec3(lookup) / lookup.w;
+			const Vec3 inside(0.0f, 0.0f, -level[0].SplitDepth * 0.5f);
+			const Vec4 lookup = level[0].LookupMatrix * Vec4(inside, 1.0f);
+			const Vec3 coordinate = Vec3(lookup) / lookup.w;
 
 			Check(coordinate.x > 0.0f && coordinate.x < 1.0f &&
 				  coordinate.y > 0.0f && coordinate.y < 1.0f,
@@ -1779,10 +1781,10 @@ namespace
 			// mirror image of itself, which looks like broken geometry rather
 			// than a wrong matrix.
 			ShadowCascade flipped[kCount];
-			fit(glm::mat4(1.0f), flipped, true);
+			fit(Mat4(1.0f), flipped, true);
 
-			const glm::vec4 other = flipped[0].LookupMatrix * glm::vec4(inside, 1.0f);
-			const glm::vec3 mirrored = glm::vec3(other) / other.w;
+			const Vec4 other = flipped[0].LookupMatrix * Vec4(inside, 1.0f);
+			const Vec3 mirrored = Vec3(other) / other.w;
 
 			Check(std::fabs(mirrored.x - coordinate.x) < 1e-5f &&
 				  std::fabs(mirrored.z - coordinate.z) < 1e-5f &&
@@ -1793,21 +1795,21 @@ namespace
 		// --- degenerate input ------------------------------------------------------
 		{
 			ShadowCascade one[ShadowMap::kMaxCascades];
-			ShadowMap::ComputeCascades(glm::mat4(1.0f), fov, aspect, 0.1f, distance,
-									   glm::vec3(0.0f), 99, kResolution, 0.85f, false, one);
+			ShadowMap::ComputeCascades(Mat4(1.0f), fov, aspect, 0.1f, distance,
+									   Vec3(0.0f), 99, kResolution, 0.85f, false, one);
 			Check(one[ShadowMap::kMaxCascades - 1].SplitDepth > 0.0f,
 				  "asking for more cascades than exist fills the ones that do");
 
 			// A light pointing straight down is the case where an up vector of
 			// +Y is parallel to the view and lookAt degenerates.
 			ShadowCascade overhead[kCount];
-			ShadowMap::ComputeCascades(glm::mat4(1.0f), fov, aspect, 0.1f, distance,
-									   glm::vec3(0.0f, -1.0f, 0.0f), kCount, kResolution,
+			ShadowMap::ComputeCascades(Mat4(1.0f), fov, aspect, 0.1f, distance,
+									   Vec3(0.0f, -1.0f, 0.0f), kCount, kResolution,
 									   0.85f, false, overhead);
 
-			const glm::vec4 lookup =
-				overhead[0].LookupMatrix * glm::vec4(0.0f, 0.0f, -5.0f, 1.0f);
-			const glm::vec3 coordinate = glm::vec3(lookup) / lookup.w;
+			const Vec4 lookup =
+				overhead[0].LookupMatrix * Vec4(0.0f, 0.0f, -5.0f, 1.0f);
+			const Vec3 coordinate = Vec3(lookup) / lookup.w;
 			Check(std::isfinite(coordinate.x) && std::isfinite(coordinate.y) &&
 				  std::isfinite(coordinate.z),
 				  "and a light pointing straight down still produces a usable matrix");
@@ -1822,7 +1824,7 @@ namespace
 	// about a wrong answer too. These are the properties that pin it down.
 	void CheckIrradiance()
 	{
-		auto uniform = [](uint32_t size, const glm::vec3& colour)
+		auto uniform = [](uint32_t size, const Vec3& colour)
 		{
 			CubeFaces cube;
 			cube.Size = size;
@@ -1847,7 +1849,7 @@ namespace
 		// hemisphere is the wrong size, or if the normalisation is off -- which
 		// covers most of the ways to get an integral wrong.
 		{
-			const CubeFaces source = uniform(8, glm::vec3(0.6f, 0.3f, 0.9f));
+			const CubeFaces source = uniform(8, Vec3(0.6f, 0.3f, 0.9f));
 			const CubeFaces result = IrradianceFromCube(source, 8, 24);
 
 			Check(result.Valid() && result.Size == 8, "irradiance produces a complete cube");
@@ -1859,8 +1861,8 @@ namespace
 				{
 					for (uint32_t x = 0; x < 8; x++)
 					{
-						const glm::vec3 value = result.Sample(face, x, y);
-						constant = constant && glm::length(value - glm::vec3(0.6f, 0.3f, 0.9f)) < 0.02f;
+						const Vec3 value = result.Sample(face, x, y);
+						constant = constant && Math::Length(value - Vec3(0.6f, 0.3f, 0.9f)) < 0.02f;
 					}
 				}
 			}
@@ -1872,7 +1874,7 @@ namespace
 		// irradiance that is bright facing up and dark facing down -- which is
 		// the entire reason this exists rather than one number.
 		{
-			CubeFaces source = uniform(16, glm::vec3(0.0f));
+			CubeFaces source = uniform(16, Vec3(0.0f));
 			float* top = source.Face(2);   // +Y
 			for (uint32_t i = 0; i < 16 * 16; i++)
 			{
@@ -1882,9 +1884,9 @@ namespace
 			}
 
 			const CubeFaces result = IrradianceFromCube(source, 8, 32);
-			const glm::vec3 up = result.Sample(2, 4, 4);
-			const glm::vec3 down = result.Sample(3, 4, 4);
-			const glm::vec3 side = result.Sample(4, 4, 4);
+			const Vec3 up = result.Sample(2, 4, 4);
+			const Vec3 down = result.Sample(3, 4, 4);
+			const Vec3 side = result.Sample(4, 4, 4);
 
 			Check(up.r > side.r && side.r > down.r,
 				  "a bright sky lights upward faces most and downward faces least");
@@ -1908,7 +1910,7 @@ namespace
 
 			for (uint32_t lit = 0; lit < CubeFaces::kFaceCount; lit++)
 			{
-				CubeFaces source = uniform(8, glm::vec3(0.0f));
+				CubeFaces source = uniform(8, Vec3(0.0f));
 				float* pixels = source.Face(lit);
 				for (uint32_t i = 0; i < 8 * 8; i++)
 					pixels[i * 4 + 0] = 1.0f;
@@ -2022,11 +2024,11 @@ namespace
 			Pose rest;
 			RestPose(skeleton, rest);
 
-			std::vector<glm::mat4> global;
+			std::vector<Mat4> global;
 			ComposeGlobal(skeleton, rest, global);
 
 			for (size_t i = 0; i < skeleton.Bones.size(); i++)
-				skeleton.Bones[i].InverseBind = glm::inverse(global[i]);
+				skeleton.Bones[i].InverseBind = Math::Inverse(global[i]);
 		}
 
 		Check(skeleton.IsWellOrdered(), "a skeleton lists parents before children");
@@ -2041,7 +2043,7 @@ namespace
 			Check(!broken.IsWellOrdered(), "and a child before its parent is rejected");
 		}
 
-		auto nearlyIdentity = [](const glm::mat4& m)
+		auto nearlyIdentity = [](const Mat4& m)
 		{
 			for (int c = 0; c < 4; c++)
 			{
@@ -2060,11 +2062,11 @@ namespace
 			Pose rest;
 			RestPose(skeleton, rest);
 
-			std::vector<glm::mat4> skinning;
+			std::vector<Mat4> skinning;
 			ComposeSkinning(skeleton, rest, skinning);
 
 			bool identity = skinning.size() == 3;
-			for (const glm::mat4& m : skinning)
+			for (const Mat4& m : skinning)
 				identity = identity && nearlyIdentity(m);
 
 			Check(identity, "at the bind pose every skinning matrix is the identity");
@@ -2079,11 +2081,11 @@ namespace
 			Pose pose;
 			SamplePose(skeleton, empty, 0.5f, true, pose);
 
-			std::vector<glm::mat4> skinning;
+			std::vector<Mat4> skinning;
 			ComposeSkinning(skeleton, pose, skinning);
 
 			bool identity = true;
-			for (const glm::mat4& m : skinning)
+			for (const Mat4& m : skinning)
 				identity = identity && nearlyIdentity(m);
 
 			Check(identity, "a clip that animates no bone holds them all at rest");
@@ -2097,14 +2099,14 @@ namespace
 		{
 			clip.Tracks[1].Rotation.Times = { 0.0f, 2.0f };
 			clip.Tracks[1].Rotation.Values = {
-				glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
-				glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+				Quat(1.0f, 0.0f, 0.0f, 0.0f),
+				Math::AngleAxis(Math::Radians(90.0f), Vec3(0.0f, 0.0f, 1.0f)),
 			};
 
 			// A second channel type, so the sampler is exercised on more than
 			// rotation alone.
 			clip.Tracks[0].Position.Times = { 0.0f, 2.0f };
-			clip.Tracks[0].Position.Values = { glm::vec3(0.0f), glm::vec3(0.0f) };
+			clip.Tracks[0].Position.Values = { Vec3(0.0f), Vec3(0.0f) };
 		}
 		clip.RecomputeDuration();
 
@@ -2116,15 +2118,15 @@ namespace
 			Pose pose;
 			SamplePose(skeleton, clip, time, loop, pose);
 
-			std::vector<glm::mat4> global;
+			std::vector<Mat4> global;
 			ComposeGlobal(skeleton, pose, global);
 
-			return glm::vec3(global[2][3]);
+			return Vec3(global[2][3]);
 		};
 
-		Check(glm::length(tipAt(0.0f, false) - glm::vec3(0.0f, 2.0f, 0.0f)) < 1e-4f,
+		Check(Math::Length(tipAt(0.0f, false) - Vec3(0.0f, 2.0f, 0.0f)) < 1e-4f,
 			  "the chain starts straight");
-		Check(glm::length(tipAt(2.0f, false) - glm::vec3(-1.0f, 1.0f, 0.0f)) < 1e-4f,
+		Check(Math::Length(tipAt(2.0f, false) - Vec3(-1.0f, 1.0f, 0.0f)) < 1e-4f,
 			  "and a ninety degree bend swings the tip out to the side");
 
 		// Halfway the bone is at 45 degrees, so the tip is on the arc rather
@@ -2132,21 +2134,21 @@ namespace
 		// reason the sampler slerps.
 		{
 			const float leg = std::sqrt(0.5f);
-			Check(glm::length(tipAt(1.0f, false) - glm::vec3(-leg, 1.0f + leg, 0.0f)) < 1e-3f,
+			Check(Math::Length(tipAt(1.0f, false) - Vec3(-leg, 1.0f + leg, 0.0f)) < 1e-3f,
 				  "halfway through, the tip is on the arc and not on the chord");
 		}
 
 		// Time outside the clip.
 		{
-			Check(glm::length(tipAt(50.0f, false) - glm::vec3(-1.0f, 1.0f, 0.0f)) < 1e-4f,
+			Check(Math::Length(tipAt(50.0f, false) - Vec3(-1.0f, 1.0f, 0.0f)) < 1e-4f,
 				  "a time past the end holds the last pose when not looping");
-			Check(glm::length(tipAt(2.5f, true) - tipAt(0.5f, true)) < 1e-4f,
+			Check(Math::Length(tipAt(2.5f, true) - tipAt(0.5f, true)) < 1e-4f,
 				  "and wraps when looping");
 
 			// fmod keeps the numerator's sign, so a negative time lands outside
 			// the clip unless it is pushed back in. A blend running backwards
 			// produces one.
-			Check(glm::length(tipAt(-0.5f, true) - tipAt(1.5f, true)) < 1e-4f,
+			Check(Math::Length(tipAt(-0.5f, true) - tipAt(1.5f, true)) < 1e-4f,
 				  "including backwards, where fmod alone would leave the clip");
 		}
 
@@ -2160,11 +2162,11 @@ namespace
 			spin.Tracks.resize(1);
 			spin.Tracks[0].Rotation.Times = { 0.0f, 1.0f };
 			spin.Tracks[0].Rotation.Values = {
-				glm::angleAxis(glm::radians(10.0f), glm::vec3(0.0f, 1.0f, 0.0f)),
+				Math::AngleAxis(Math::Radians(10.0f), Vec3(0.0f, 1.0f, 0.0f)),
 				// The same rotation as minus ten degrees, written with the
 				// opposite sign -- which is what an exporter emits about half
 				// the time.
-				-glm::angleAxis(glm::radians(-10.0f), glm::vec3(0.0f, 1.0f, 0.0f)),
+				-Math::AngleAxis(Math::Radians(-10.0f), Vec3(0.0f, 1.0f, 0.0f)),
 			};
 			spin.RecomputeDuration();
 
@@ -2173,7 +2175,7 @@ namespace
 
 			// Halfway between plus and minus ten is zero, so the bone faces
 			// forward. The long way round would put it at 180.
-			const glm::vec3 forward = pose[0].Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+			const Vec3 forward = pose[0].Rotation * Vec3(0.0f, 0.0f, -1.0f);
 			Check(forward.z < -0.99f, "a quaternion pair takes the short arc between them");
 		}
 
@@ -2184,15 +2186,15 @@ namespace
 			SamplePose(skeleton, clip, 2.0f, false, b);
 
 			BlendPoses(a, b, 0.0f, mixed);
-			Check(glm::length(mixed[1].Rotation - a[1].Rotation) < 1e-4f,
+			Check(Math::Length(mixed[1].Rotation - a[1].Rotation) < 1e-4f,
 				  "a blend of zero is the first pose");
 
 			BlendPoses(a, b, 1.0f, mixed);
-			Check(std::fabs(glm::dot(mixed[1].Rotation, b[1].Rotation)) > 0.9999f,
+			Check(std::fabs(Math::Dot(mixed[1].Rotation, b[1].Rotation)) > 0.9999f,
 				  "and a blend of one is the second");
 
 			BlendPoses(a, b, 0.5f, mixed);
-			const float angle = glm::degrees(glm::angle(glm::normalize(mixed[1].Rotation)));
+			const float angle = Math::Degrees(Math::Angle(Math::Normalize(mixed[1].Rotation)));
 			Check(std::fabs(angle - 45.0f) < 0.5f, "and halfway is halfway round the arc");
 		}
 
@@ -2203,7 +2205,7 @@ namespace
 			Pose pose;
 			SamplePose(none, clipless, 1.0f, true, pose);
 
-			std::vector<glm::mat4> skinning;
+			std::vector<Mat4> skinning;
 			ComposeSkinning(none, pose, skinning);
 
 			Check(pose.empty() && skinning.empty(),
@@ -2242,16 +2244,16 @@ namespace
 			  "with the chain intact");
 
 		// The rest transform, straight off the node.
-		Check(glm::length(imported.Skeleton.Bones[1].RestPosition -
-						  glm::vec3(0.0f, 1.0f, 0.0f)) < 1e-5f,
+		Check(Math::Length(imported.Skeleton.Bones[1].RestPosition -
+						  Vec3(0.0f, 1.0f, 0.0f)) < 1e-5f,
 			  "the second bone rests a metre above the first");
 
 		// The inverse bind, which is the thing an importer most often ignores.
 		// Identity for both would look right in every other respect.
 		{
-			const glm::mat4& bind = imported.Skeleton.Bones[1].InverseBind;
-			const glm::vec3 offset = glm::vec3(bind[3]);
-			Check(glm::length(offset - glm::vec3(0.0f, -1.0f, 0.0f)) < 1e-5f,
+			const Mat4& bind = imported.Skeleton.Bones[1].InverseBind;
+			const Vec3 offset = Vec3(bind[3]);
+			Check(Math::Length(offset - Vec3(0.0f, -1.0f, 0.0f)) < 1e-5f,
 				  "and its inverse bind subtracts that metre rather than being the identity");
 		}
 
@@ -2261,11 +2263,11 @@ namespace
 			Pose rest;
 			RestPose(imported.Skeleton, rest);
 
-			std::vector<glm::mat4> skinning;
+			std::vector<Mat4> skinning;
 			ComposeSkinning(imported.Skeleton, rest, skinning);
 
 			bool identity = true;
-			for (const glm::mat4& m : skinning)
+			for (const Mat4& m : skinning)
 			{
 				for (int c = 0; c < 4 && identity; c++)
 				{
@@ -2299,7 +2301,7 @@ namespace
 			bool inRange = true;
 			for (size_t i = 0; i < primitive.Weights.size(); i++)
 			{
-				const glm::vec4& w = primitive.Weights[i];
+				const Vec4& w = primitive.Weights[i];
 				normalised = normalised && std::fabs(w.x + w.y + w.z + w.w - 1.0f) < 1e-4f;
 
 				for (int c = 0; c < 4; c++)
@@ -2357,22 +2359,22 @@ namespace
 			SamplePose(imported.Skeleton, clip, 0.0f, true, start);
 			SamplePose(imported.Skeleton, clip, clip.Duration * 0.25f, true, bent);
 
-			std::vector<glm::mat4> a, b;
+			std::vector<Mat4> a, b;
 			ComposeGlobal(imported.Skeleton, start, a);
 			ComposeGlobal(imported.Skeleton, bent, b);
 
-			const glm::vec3 restTip = glm::vec3(a[1][3]);
-			const glm::vec3 bentTip = glm::vec3(b[1][3]);
+			const Vec3 restTip = Vec3(a[1][3]);
+			const Vec3 bentTip = Vec3(b[1][3]);
 
 			// The bone's origin does not move -- it is the child that swings --
 			// so the check is on its orientation instead.
-			Check(glm::length(restTip - bentTip) < 1e-5f,
+			Check(Math::Length(restTip - bentTip) < 1e-5f,
 				  "the animated bone's own origin stays put");
 
-			const glm::vec3 restAxis = glm::vec3(a[1] * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
-			const glm::vec3 bentAxis = glm::vec3(b[1] * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+			const Vec3 restAxis = Vec3(a[1] * Vec4(0.0f, 1.0f, 0.0f, 0.0f));
+			const Vec3 bentAxis = Vec3(b[1] * Vec4(0.0f, 1.0f, 0.0f, 0.0f));
 
-			Check(glm::length(restAxis - bentAxis) > 0.1f,
+			Check(Math::Length(restAxis - bentAxis) > 0.1f,
 				  "and the direction it points does not");
 			// The rotation is about +Z, so the axis leans towards -X.
 			Check(bentAxis.x < -0.05f, "leaning the way the clip says");
@@ -2505,8 +2507,8 @@ namespace
 
 		// Binning. A camera at the origin looking down -Z, as everywhere else.
 		{
-			const glm::mat4 projection =
-				glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, nearPlane, farPlane);
+			const Mat4 projection =
+				Math::Perspective(Math::Radians(60.0f), 16.0f / 9.0f, nearPlane, farPlane);
 			Camera camera(projection);
 
 			float derivedNear = 0.0f, derivedFar = 0.0f;
@@ -2540,7 +2542,7 @@ namespace
 			light.Range = 3.0f;
 			one.push_back(light);
 
-			grid.Build(camera, glm::mat4(1.0f), one, 0);
+			grid.Build(camera, Mat4(1.0f), one, 0);
 
 			uint32_t occupied = 0;
 			for (const LightGrid::Cell& cell : grid.Cells())
@@ -2557,7 +2559,7 @@ namespace
 			back.Position = { 0.0f, 0.0f, 200.0f };
 			behind.push_back(back);
 
-			grid.Build(camera, glm::mat4(1.0f), behind, 0);
+			grid.Build(camera, Mat4(1.0f), behind, 0);
 			Check(grid.Indices().empty(), "a light behind the camera lands in none of it");
 
 			// Directional lights are skipped rather than binned: they reach
@@ -2568,7 +2570,7 @@ namespace
 			sun.push_back(directional);
 			sun.push_back(light);
 
-			grid.Build(camera, glm::mat4(1.0f), sun, 1);
+			grid.Build(camera, Mat4(1.0f), sun, 1);
 			Check(grid.MaxCellLoad() == 1,
 				  "the directional light is not binned, only the point light");
 
@@ -2586,7 +2588,7 @@ namespace
 			big.Range = 10000.0f;
 			huge.push_back(big);
 
-			grid.Build(camera, glm::mat4(1.0f), huge, 0);
+			grid.Build(camera, Mat4(1.0f), huge, 0);
 			Check(grid.MaxCellLoad() == 1 && grid.Indices().size() > LightGrid::kCellCount / 2,
 				  "a light reaching everything is binned into nearly every cell");
 		}
@@ -2600,45 +2602,45 @@ namespace
 	// and only the last is about culling what should not.
 	void CheckFrustumCulling()
 	{
-		const glm::mat4 projection = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
+		const Mat4 projection = Math::Perspective(Math::Radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
 		// At the origin looking down -Z, which is where a camera with an
 		// identity transform points.
-		const Frustum frustum(projection * glm::inverse(glm::mat4(1.0f)));
+		const Frustum frustum(projection * Math::Inverse(Mat4(1.0f)));
 
-		const glm::vec3 unit(0.5f);
+		const Vec3 unit(0.5f);
 
-		Check(frustum.Intersects(glm::vec3(0.0f, 0.0f, -10.0f), unit),
+		Check(frustum.Intersects(Vec3(0.0f, 0.0f, -10.0f), unit),
 			  "a box in front of the camera is drawn");
-		Check(!frustum.Intersects(glm::vec3(0.0f, 0.0f, 10.0f), unit),
+		Check(!frustum.Intersects(Vec3(0.0f, 0.0f, 10.0f), unit),
 			  "one behind it is not");
-		Check(!frustum.Intersects(glm::vec3(100.0f, 0.0f, -10.0f), unit),
+		Check(!frustum.Intersects(Vec3(100.0f, 0.0f, -10.0f), unit),
 			  "one far to the side is not");
-		Check(!frustum.Intersects(glm::vec3(0.0f, 0.0f, -500.0f), unit),
+		Check(!frustum.Intersects(Vec3(0.0f, 0.0f, -500.0f), unit),
 			  "and one beyond the far plane is not");
 
 		// The near plane is z = 0, not z = -w: glm is built with
 		// GLM_FORCE_DEPTH_ZERO_TO_ONE. Building it the OpenGL way puts the
 		// plane half the frustum away and culls things that are plainly in
 		// view, which is the mistake this check exists for.
-		Check(frustum.Intersects(glm::vec3(0.0f, 0.0f, -0.3f), glm::vec3(0.05f)),
+		Check(frustum.Intersects(Vec3(0.0f, 0.0f, -0.3f), Vec3(0.05f)),
 			  "something just past the near plane is drawn, not culled");
 
 		// Conservative: straddling counts as inside. A box half out of view is
 		// half in it.
-		Check(frustum.Intersects(glm::vec3(0.0f, 0.0f, -10.0f), glm::vec3(50.0f)),
+		Check(frustum.Intersects(Vec3(0.0f, 0.0f, -10.0f), Vec3(50.0f)),
 			  "a box straddling the frustum is drawn");
 
 		// A shadow cascade's frustum is orthographic and points somewhere else
 		// entirely. Culling has to work against whatever matrix it is given.
 		{
-			const glm::mat4 ortho = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.0f, 50.0f);
-			const glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 20.0f, 0.0f),
-											   glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			const Mat4 ortho = Math::Orthographic(-10.0f, 10.0f, -10.0f, 10.0f, 0.0f, 50.0f);
+			const Mat4 view = Math::LookAt(Vec3(0.0f, 20.0f, 0.0f),
+											   Vec3(0.0f), Vec3(0.0f, 0.0f, 1.0f));
 			const Frustum cascade(ortho * view);
 
-			Check(cascade.Intersects(glm::vec3(0.0f), unit),
+			Check(cascade.Intersects(Vec3(0.0f), unit),
 				  "an orthographic frustum contains what is under it");
-			Check(!cascade.Intersects(glm::vec3(60.0f, 0.0f, 0.0f), unit),
+			Check(!cascade.Intersects(Vec3(60.0f, 0.0f, 0.0f), unit),
 				  "and not what is well outside it");
 		}
 
@@ -2646,26 +2648,26 @@ namespace
 		// to -- shrinking it would cull something still on screen.
 		{
 			AABB box;
-			box.Min = glm::vec3(-0.5f);
-			box.Max = glm::vec3(0.5f);
+			box.Min = Vec3(-0.5f);
+			box.Max = Vec3(0.5f);
 
-			glm::vec3 centre, extents;
-			Frustum::TransformBounds(box, glm::mat4(1.0f), centre, extents);
-			Check(glm::length(centre) < 1e-5f && std::fabs(extents.x - 0.5f) < 1e-5f,
+			Vec3 centre, extents;
+			Frustum::TransformBounds(box, Mat4(1.0f), centre, extents);
+			Check(Math::Length(centre) < 1e-5f && std::fabs(extents.x - 0.5f) < 1e-5f,
 				  "an untransformed box keeps its own bounds");
 
-			const glm::mat4 turned = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f),
-												 glm::vec3(0.0f, 1.0f, 0.0f));
+			const Mat4 turned = Math::Rotate(Mat4(1.0f), Math::Radians(45.0f),
+												 Vec3(0.0f, 1.0f, 0.0f));
 			Frustum::TransformBounds(box, turned, centre, extents);
 			Check(extents.x > 0.69f && extents.x < 0.72f,
 				  "and a box turned 45 degrees grows to contain itself");
 
-			const glm::mat4 moved = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
+			const Mat4 moved = Math::Translate(Mat4(1.0f), Vec3(3.0f, 0.0f, 0.0f));
 			Frustum::TransformBounds(box, moved, centre, extents);
 			Check(std::fabs(centre.x - 3.0f) < 1e-5f && std::fabs(extents.x - 0.5f) < 1e-5f,
 				  "moving a box moves its bounds and does not grow them");
 
-			const glm::mat4 scaled = glm::scale(glm::mat4(1.0f), glm::vec3(4.0f));
+			const Mat4 scaled = Math::Scale(Mat4(1.0f), Vec3(4.0f));
 			Frustum::TransformBounds(box, scaled, centre, extents);
 			Check(std::fabs(extents.x - 2.0f) < 1e-5f, "and scaling scales them");
 		}
@@ -2685,7 +2687,7 @@ namespace
 
 		auto at = [&](uint32_t x, uint32_t y)
 		{
-			return glm::vec2(table[((size_t)y * kSize + x) * 2 + 0],
+			return Vec2(table[((size_t)y * kSize + x) * 2 + 0],
 							 table[((size_t)y * kSize + x) * 2 + 1]);
 		};
 
@@ -2694,7 +2696,7 @@ namespace
 		// if the geometry term, the importance sampling or the Fresnel split is
 		// wrong.
 		{
-			const glm::vec2 mirror = at(kSize - 1, 0);
+			const Vec2 mirror = at(kSize - 1, 0);
 			Check(std::fabs(mirror.x - 1.0f) < 0.02f && mirror.y < 0.02f,
 				  "a smooth surface seen head on reflects its F0 and nothing more");
 		}
@@ -2708,7 +2710,7 @@ namespace
 			{
 				for (uint32_t x = 0; x < kSize; x++)
 				{
-					const glm::vec2 value = at(x, y);
+					const Vec2 value = at(x, y);
 					conserving = conserving && (value.x + value.y) <= 1.02f;
 					positive = positive && value.x >= 0.0f && value.y >= 0.0f;
 				}
@@ -2744,7 +2746,7 @@ namespace
 	// the feature is decoration.
 	void CheckReflectionProbe()
 	{
-		const glm::vec3 origin(3.0f, -2.0f, 7.0f);
+		const Vec3 origin(3.0f, -2.0f, 7.0f);
 
 		bool centred = true;
 		bool positioned = true;
@@ -2753,18 +2755,18 @@ namespace
 
 		for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
 		{
-			const glm::mat4 transform = ReflectionProbe::FaceTransform(face, origin);
+			const Mat4 transform = ReflectionProbe::FaceTransform(face, origin);
 
 			// A camera looks down its own -Z, here and everywhere else.
-			const glm::vec3 forward = glm::normalize(glm::vec3(transform * glm::vec4(0, 0, -1, 0)));
-			const glm::vec3 up = glm::normalize(glm::vec3(transform * glm::vec4(0, 1, 0, 0)));
-			const glm::vec3 right = glm::normalize(glm::vec3(transform * glm::vec4(1, 0, 0, 0)));
+			const Vec3 forward = Math::Normalize(Vec3(transform * Vec4(0, 0, -1, 0)));
+			const Vec3 up = Math::Normalize(Vec3(transform * Vec4(0, 1, 0, 0)));
+			const Vec3 right = Math::Normalize(Vec3(transform * Vec4(1, 0, 0, 0)));
 
-			positioned = positioned && glm::length(glm::vec3(transform[3]) - origin) < 1e-5f;
+			positioned = positioned && Math::Length(Vec3(transform[3]) - origin) < 1e-5f;
 
 			// The middle of a face image looks down that face's axis.
 			centred = centred &&
-					  glm::length(forward - CubeFaceDirection(face, 0.5f, 0.5f)) < 1e-5f;
+					  Math::Length(forward - CubeFaceDirection(face, 0.5f, 0.5f)) < 1e-5f;
 
 			// The top row of a face image is the camera's *down*, not its up:
 			// a face is captured with the basis every cube-map tutorial uses,
@@ -2774,16 +2776,16 @@ namespace
 			//
 			// The frustum is 90 degrees, so the edge of the image is exactly
 			// one unit of up per unit of forward.
-			const glm::vec3 top = glm::normalize(forward - up);
+			const Vec3 top = Math::Normalize(forward - up);
 			verticalMatches = verticalMatches &&
-							  glm::length(top - CubeFaceDirection(face, 0.5f, 0.0f)) < 1e-5f;
+							  Math::Length(top - CubeFaceDirection(face, 0.5f, 0.0f)) < 1e-5f;
 
 			// Horizontally nothing is flipped, so the right of the image is the
 			// camera's right. A cube map is addressed left-handed, which is why
 			// this does not simply fall out and is worth stating.
-			const glm::vec3 edge = glm::normalize(forward + right);
+			const Vec3 edge = Math::Normalize(forward + right);
 			horizontalMatches = horizontalMatches &&
-								glm::length(edge - CubeFaceDirection(face, 1.0f, 0.5f)) < 1e-5f;
+								Math::Length(edge - CubeFaceDirection(face, 1.0f, 0.5f)) < 1e-5f;
 		}
 
 		Check(positioned, "a probe's faces are all captured from its own position");
@@ -2794,8 +2796,8 @@ namespace
 		// A 90-degree square frustum: six of them tile the sphere of directions
 		// exactly, which is the reason a cube map is six squares.
 		{
-			const glm::mat4 projection = ReflectionProbe::FaceProjection(0.1f, 50.0f);
-			const glm::vec4 corner = projection * glm::vec4(1.0f, 1.0f, -1.0f, 1.0f);
+			const Mat4 projection = ReflectionProbe::FaceProjection(0.1f, 50.0f);
+			const Vec4 corner = projection * Vec4(1.0f, 1.0f, -1.0f, 1.0f);
 			Check(std::fabs(corner.x / corner.w - 1.0f) < 1e-4f &&
 				  std::fabs(corner.y / corner.w - 1.0f) < 1e-4f,
 				  "the face frustum is exactly 90 degrees and square");
@@ -2835,18 +2837,18 @@ namespace
 	{
 		Check(Skybox::IsReady(), "the sky shader compiled");
 
-		const glm::mat4 projection = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
+		const Mat4 projection = Math::Perspective(Math::Radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
 
-		auto direction = [](const glm::mat4& matrix, float x, float y)
+		auto direction = [](const Mat4& matrix, float x, float y)
 		{
-			const glm::vec4 point = matrix * glm::vec4(x, y, 1.0f, 1.0f);
-			return glm::normalize(glm::vec3(point) / point.w);
+			const Vec4 point = matrix * Vec4(x, y, 1.0f, 1.0f);
+			return Math::Normalize(Vec3(point) / point.w);
 		};
 
 		// --- a camera at rest ---------------------------------------------------
-		const glm::mat4 rest = Skybox::BuildDirectionMatrix(projection, glm::mat4(1.0f), 0.0f);
+		const Mat4 rest = Skybox::BuildDirectionMatrix(projection, Mat4(1.0f), 0.0f);
 
-		Check(glm::length(direction(rest, 0.0f, 0.0f) - glm::vec3(0.0f, 0.0f, -1.0f)) < 1e-4f,
+		Check(Math::Length(direction(rest, 0.0f, 0.0f) - Vec3(0.0f, 0.0f, -1.0f)) < 1e-4f,
 			  "the centre of the screen looks along the camera's forward axis");
 		Check(direction(rest, 0.0f, 0.9f).y > 0.3f, "the top of the screen is up");
 		Check(direction(rest, 0.9f, 0.0f).x > 0.3f, "and the right of it is right");
@@ -2854,32 +2856,32 @@ namespace
 		// --- moving does not move the sky ----------------------------------------
 		// The one property that distinguishes a sky from a very large box.
 		{
-			const glm::mat4 moved = glm::translate(glm::mat4(1.0f), glm::vec3(120.0f, -40.0f, 75.0f));
-			const glm::mat4 elsewhere = Skybox::BuildDirectionMatrix(projection, moved, 0.0f);
+			const Mat4 moved = Math::Translate(Mat4(1.0f), Vec3(120.0f, -40.0f, 75.0f));
+			const Mat4 elsewhere = Skybox::BuildDirectionMatrix(projection, moved, 0.0f);
 
 			bool same = true;
 			for (float y = -0.9f; y <= 0.9f; y += 0.6f)
 			{
 				for (float x = -0.9f; x <= 0.9f; x += 0.6f)
-					same = same && glm::length(direction(rest, x, y) - direction(elsewhere, x, y)) < 1e-4f;
+					same = same && Math::Length(direction(rest, x, y) - direction(elsewhere, x, y)) < 1e-4f;
 			}
 			Check(same, "walking the camera across the world does not move the sky");
 		}
 
 		// --- turning the camera does ---------------------------------------------
 		{
-			const glm::mat4 turned = glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(),
-												 glm::vec3(0.0f, 1.0f, 0.0f));
-			const glm::mat4 matrix = Skybox::BuildDirectionMatrix(projection, turned, 0.0f);
-			Check(glm::length(direction(matrix, 0.0f, 0.0f) - glm::vec3(-1.0f, 0.0f, 0.0f)) < 1e-4f,
+			const Mat4 turned = Math::Rotate(Mat4(1.0f), Math::HalfPi,
+												 Vec3(0.0f, 1.0f, 0.0f));
+			const Mat4 matrix = Skybox::BuildDirectionMatrix(projection, turned, 0.0f);
+			Check(Math::Length(direction(matrix, 0.0f, 0.0f) - Vec3(-1.0f, 0.0f, 0.0f)) < 1e-4f,
 				  "turning the camera a quarter turn left points it at -X");
 		}
 
 		// --- and so does turning the sky ------------------------------------------
 		{
-			const glm::mat4 spun = Skybox::BuildDirectionMatrix(projection, glm::mat4(1.0f),
-															   glm::half_pi<float>());
-			Check(glm::length(direction(spun, 0.0f, 0.0f) - glm::vec3(-1.0f, 0.0f, 0.0f)) < 1e-4f,
+			const Mat4 spun = Skybox::BuildDirectionMatrix(projection, Mat4(1.0f),
+															   Math::HalfPi);
+			Check(Math::Length(direction(spun, 0.0f, 0.0f) - Vec3(-1.0f, 0.0f, 0.0f)) < 1e-4f,
 				  "and rotating the sky itself turns it the same way, not the opposite one");
 		}
 
@@ -2891,11 +2893,11 @@ namespace
 		SceneEnvironment environment;
 		environment.Sky = SkyType::Cubemap;
 		environment.SkyTexture = UUID::Invalid();
-		Skybox::Draw(Camera(projection), glm::mat4(1.0f), environment, nullptr);
+		Skybox::Draw(Camera(projection), Mat4(1.0f), environment, nullptr);
 		Check(true, "a cubemap sky with no cubemap is survivable");
 
 		environment.Sky = SkyType::Color;
-		Skybox::Draw(Camera(projection), glm::mat4(1.0f), environment, nullptr);
+		Skybox::Draw(Camera(projection), Mat4(1.0f), environment, nullptr);
 		Check(true, "and a colour background draws nothing at all");
 	}
 
@@ -3150,7 +3152,7 @@ namespace
 		// A camera at +Z looking back at the origin, which is the convention
 		// everything else in the engine uses.
 		EditorCamera camera(45.0f, 1.0f, 0.1f, 1000.0f);
-		const glm::mat4 cameraTransform = glm::translate(glm::mat4(1.0f), { 0.0f, 0.0f, 10.0f });
+		const Mat4 cameraTransform = Math::Translate(Mat4(1.0f), { 0.0f, 0.0f, 10.0f });
 
 		// --- the ray itself ----------------------------------------------------
 		const Ray centre = ScreenPointToRay(camera, cameraTransform, { 0.0f, 0.0f });
@@ -3228,7 +3230,7 @@ namespace
 
 		// Scale has to reach the test, or a scaled-up object is pickable only
 		// over its original size.
-		aside.GetComponent<TransformComponent>().Scale = glm::vec3(8.0f);
+		aside.GetComponent<TransformComponent>().Scale = Vec3(8.0f);
 		Ray atAside;
 		atAside.Origin = { 6.0f, 3.0f, 10.0f };
 		atAside.Direction = { 0.0f, 0.0f, -1.0f };
@@ -3658,7 +3660,7 @@ namespace
 
 		for (float sample : mix)
 		{
-			const float clamped = glm::clamp(sample, -1.0f, 1.0f);
+			const float clamped = Math::Clamp(sample, -1.0f, 1.0f);
 			u16((uint16_t)(int16_t)(clamped * 32767.0f));
 		}
 
@@ -3722,7 +3724,7 @@ namespace
 		flat.Spatial = false;
 		const AudioVoice loud = AudioEngine::Play(flat);
 		render(0.1f, left, right);
-		const float loudLevel = glm::max(left, right);
+		const float loudLevel = Math::Max(left, right);
 
 		Check(loudLevel > 0.01f, "playing a clip renders audible samples");
 		Check(std::fabs(left - right) < 1e-5f, "and an unpositioned sound is centred");
@@ -3732,7 +3734,7 @@ namespace
 		flat.Volume = 0.25f;
 		const AudioVoice quiet = AudioEngine::Play(flat);
 		render(0.1f, left, right);
-		const float quietLevel = glm::max(left, right);
+		const float quietLevel = Math::Max(left, right);
 		AudioEngine::Stop(quiet);
 
 		// A quarter of the amplitude, within a wide tolerance: the block starts
@@ -3772,13 +3774,13 @@ namespace
 		placed.Position = { 0.0f, 0.0f, -1.0f };
 		const AudioVoice closeBy = AudioEngine::Play(placed);
 		render(0.1f, left, right);
-		const float nearLevel = glm::max(left, right);
+		const float nearLevel = Math::Max(left, right);
 		AudioEngine::Stop(closeBy);
 
 		placed.Position = { 0.0f, 0.0f, -60.0f };
 		const AudioVoice distant = AudioEngine::Play(placed);
 		render(0.1f, left, right);
-		const float farLevel = glm::max(left, right);
+		const float farLevel = Math::Max(left, right);
 		AudioEngine::Stop(distant);
 
 		Check(nearLevel > farLevel * 2.0f, "and further away is quieter");
@@ -3797,7 +3799,7 @@ namespace
 		AudioEngine::Play(oneShot);
 
 		render(0.5f, left, right);
-		Check(glm::max(left, right) > 0.0f, "a one-shot renders");
+		Check(Math::Max(left, right) > 0.0f, "a one-shot renders");
 
 		AudioEngine::Update();
 		Check(AudioEngine::GetVoiceCount() == 0, "and retires itself once it has played out");
@@ -4364,6 +4366,11 @@ int RunTests(int argc, char** argv)
 		}
 	}
 
+	// NOTE: this block names glm deliberately and must not be migrated with the
+	// rest of the tree. It is the only thing that can tell whether RageV::Math
+	// agrees with the library it delegates to; rewritten to use RageV::Math on
+	// both sides it would compare the wrapper against itself and pass forever.
+	// That happened once during the migration and was caught here.
 	// --- the math layer against the library it replaces ----------------------
 	//
 	// RageV::Math exists so that no public header names glm. That only holds up

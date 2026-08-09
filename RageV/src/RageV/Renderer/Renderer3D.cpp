@@ -6,7 +6,7 @@
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
 #include "LightGrid.h"
-#include <glm/gtc/constants.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -21,48 +21,48 @@ namespace RageV
 		// a uniform block must declare a length. A storage buffer does not.
 		struct GpuLight
 		{
-			glm::vec4 Position;    // xyz, w = 1 positional / 0 directional
-			glm::vec4 Direction;   // xyz forward axis
-			glm::vec4 Color;       // rgb, a = intensity
-			glm::vec4 Params;      // range, cos(inner), cos(outer)
-			glm::vec4 Shadow;      // kind, slot, far, texel scale
+			Vec4 Position;    // xyz, w = 1 positional / 0 directional
+			Vec4 Direction;   // xyz forward axis
+			Vec4 Color;       // rgb, a = intensity
+			Vec4 Params;      // range, cos(inner), cos(outer)
+			Vec4 Shadow;      // kind, slot, far, texel scale
 		};
 		static_assert(sizeof(GpuLight) == 80, "Must match GpuLight in pbr.rvshader");
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
 		{
-			glm::mat4 ViewProjection;
-			glm::vec4 CameraPosition;
+			Mat4 ViewProjection;
+			Vec4 CameraPosition;
 			// rgb = ambient colour, a = ambient intensity
-			glm::vec4 Ambient;
+			Vec4 Ambient;
 			// x = environment intensity, y = its highest mip, zw = cos and sin
 			// of the sky's rotation
-			glm::vec4 Environment;
+			Vec4 Environment;
 			// x = the environment's mip-0 face size, in texels.
-			glm::vec4 EnvironmentSize;
+			Vec4 EnvironmentSize;
 
 			// xyz = tiles across, tiles down, depth slices. w = how many
 			// directional lights sit at the front of the light buffer.
-			glm::vec4 ClusterGrid;
+			Vec4 ClusterGrid;
 			// x near, y far, zw the scale and bias that map a view depth to a
 			// slice.
-			glm::vec4 ClusterDepth;
+			Vec4 ClusterDepth;
 
 			// World space straight to shadow lookup coordinates, per cascade.
-			glm::mat4 CascadeLookup[4];
+			Mat4 CascadeLookup[4];
 			// Far view-space distance of each cascade, for selection.
-			glm::vec4 CascadeSplits;
+			Vec4 CascadeSplits;
 			// World size of one texel in each, for normal-offset bias.
-			glm::vec4 CascadeTexel;
+			Vec4 CascadeTexel;
 			// The camera's forward axis: cascade selection needs a view depth
 			// and the shader has no view matrix, only a view-projection.
-			glm::vec4 CameraForward;
+			Vec4 CameraForward;
 			// x = cascades rendered (0 = no shadows), y = normal offset scale,
 			// z = one cascade texel in lookup coordinates, w unused
-			glm::vec4 ShadowParams;
+			Vec4 ShadowParams;
 
-			glm::mat4 SpotLookup[4];
+			Mat4 SpotLookup[4];
 
 			int32_t   LightCount;
 			int32_t   _padding[3];
@@ -93,19 +93,19 @@ namespace RageV
 		// Mirrors InstanceData in pbr.rvshader, std430.
 		struct InstanceData
 		{
-			glm::mat4 Model;
+			Mat4 Model;
 			// transpose(inverse(mat3(Model))), as a mat4 because std430 pads a
 			// mat3 to the same size anyway and a mat4 has no surprises in it.
 			// Computed once per instance rather than once per vertex, which is
 			// where it used to happen.
-			glm::mat4 NormalMatrix;
-			glm::vec4 BaseColor;
-			glm::vec4 EmissiveColor;
+			Mat4 NormalMatrix;
+			Vec4 BaseColor;
+			Vec4 EmissiveColor;
 			// metallic, roughness, occlusion, normal scale
-			glm::vec4 Surface;
+			Vec4 Surface;
 			// x = where this instance's bones start in the bone buffer. Zero
 			// for anything the skinned pipeline does not draw.
-			glm::vec4 Skin{ 0.0f };
+			Vec4 Skin{ 0.0f };
 		};
 		static_assert(sizeof(InstanceData) == 192,
 					  "Must match InstanceData in include/scene_vertex.glsl");
@@ -138,7 +138,7 @@ namespace RageV
 			const Mesh* MeshKey = nullptr;
 			Ref<Mesh> MeshRef;
 			// Light view-projection times model, already multiplied out.
-			glm::mat4 LightMVP{ 1.0f };
+			Mat4 LightMVP{ 1.0f };
 			bool Skinned = false;
 			// Where this caster's bones start. -1 when it has none.
 			int32_t BoneBase = -1;
@@ -240,13 +240,13 @@ namespace RageV
 
 			// The depth pass carries only a matrix per caster.
 			std::vector<PendingShadowDraw> ShadowPending;
-			std::vector<glm::mat4> ShadowScratch;
+			std::vector<Mat4> ShadowScratch;
 
 			// Bone matrices for this scene and this shadow pass. Appended to as
 			// skinned meshes are submitted; each draw remembers where its own
 			// run began.
-			std::vector<glm::mat4> BoneScratch;
-			std::vector<glm::mat4> ShadowBoneScratch;
+			std::vector<Mat4> BoneScratch;
+			std::vector<Mat4> ShadowBoneScratch;
 
 			Ref<Material> DefaultMaterial;
 
@@ -257,7 +257,7 @@ namespace RageV
 			Ref<RHIShader>   ShadowSkinnedShader;
 			Ref<RHIPipeline> ShadowSkinnedPipeline;
 			Format ShadowDepth = Format::D32_SFLOAT;
-			glm::mat4 ShadowViewProjection{ 1.0f };
+			Mat4 ShadowViewProjection{ 1.0f };
 			bool ShadowActive = false;
 
 			// Mip-filtered and clamped, unlike the material sampler: roughness
@@ -503,7 +503,7 @@ namespace RageV
 		s_Data->Culled = 0;
 	}
 
-	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& cameraTransform,
+	void Renderer3D::BeginScene(const Camera& camera, const Mat4& cameraTransform,
 								const LightList& lights, const SceneEnvironment& environment,
 								const Ref<RHITexture>& environmentMap,
 								const Ref<RHITexture>& irradianceMap)
@@ -512,9 +512,9 @@ namespace RageV
 			return;
 
 		s_Data->Scene = {};
-		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(cameraTransform);
-		s_Data->Scene.CameraPosition = glm::vec4(glm::vec3(cameraTransform[3]), 1.0f);
-		s_Data->Scene.Ambient = glm::vec4(environment.AmbientColor, environment.AmbientIntensity);
+		s_Data->Scene.ViewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
+		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
+		s_Data->Scene.Ambient = Vec4(environment.AmbientColor, environment.AmbientIntensity);
 
 		// Every light, with no cap. The shader reads them from a storage buffer
 		// whose length is decided here rather than declared in a block.
@@ -555,19 +555,19 @@ namespace RageV
 
 			GpuLight entry{};
 			// w == 0 tells the shader distance attenuation does not apply.
-			entry.Position = glm::vec4(light.Position, directional ? 0.0f : 1.0f);
-			entry.Direction = glm::vec4(light.Direction, 0.0f);
-			entry.Color = glm::vec4(light.Color, light.Intensity);
+			entry.Position = Vec4(light.Position, directional ? 0.0f : 1.0f);
+			entry.Direction = Vec4(light.Direction, 0.0f);
+			entry.Color = Vec4(light.Color, light.Intensity);
 
 			// Cones are compared as cosines in the shader, so convert once here
 			// rather than per fragment. Equal angles disable the cone test.
 			const float inner = light.Type == Light::LightType::Spot
-							  ? std::cos(glm::radians(light.InnerCone)) : 1.0f;
+							  ? std::cos(Math::Radians(light.InnerCone)) : 1.0f;
 			const float outer = light.Type == Light::LightType::Spot
-							  ? std::cos(glm::radians(light.OuterCone)) : 1.0f;
+							  ? std::cos(Math::Radians(light.OuterCone)) : 1.0f;
 
 			entry.Params = { std::max(light.Range, 0.0001f), inner, outer, 0.0f };
-			entry.Shadow = glm::vec4(0.0f);
+			entry.Shadow = Vec4(0.0f);
 
 			s_Data->LightScratch.push_back(entry);
 		}
@@ -579,7 +579,7 @@ namespace RageV
 		const float mips = environmentMap ? (float)environmentMap->GetDesc().MipLevels : 1.0f;
 		s_Data->Scene.Environment = {
 			environmentMap ? environment.SkyIntensity : 0.0f,
-			glm::max(mips - 1.0f, 0.0f),
+			Math::Max(mips - 1.0f, 0.0f),
 			std::cos(environment.SkyRotation),
 			std::sin(environment.SkyRotation),
 		};
@@ -594,14 +594,14 @@ namespace RageV
 		// Cascades come from ShadowMap rather than being passed in: this runs
 		// once per viewport, and the cascades belong to the frame.
 		s_Data->Scene.CameraForward =
-			glm::vec4(glm::normalize(glm::vec3(cameraTransform * glm::vec4(0, 0, -1, 0))), 0.0f);
-		s_Data->Scene.ShadowParams = glm::vec4(0.0f, 0.0f, 0.0f, -1.0f);
+			Vec4(Math::Normalize(Vec3(cameraTransform * Vec4(0, 0, -1, 0))), 0.0f);
+		s_Data->Scene.ShadowParams = Vec4(0.0f, 0.0f, 0.0f, -1.0f);
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;
 		if (cascadeCount > 0)
 		{
 			const ShadowCascade* cascades = ShadowMap::GetCascades();
-			const uint32_t resolution = glm::max(ShadowMap::GetResolution(), 1u);
+			const uint32_t resolution = Math::Max(ShadowMap::GetResolution(), 1u);
 
 			for (uint32_t i = 0; i < cascadeCount; i++)
 			{
@@ -651,7 +651,7 @@ namespace RageV
 
 			s_Data->LightScratch[slot].Shadow = {
 				(float)(uint32_t)assigned.Type,
-				(float)glm::max(assigned.Slot, 0),
+				(float)Math::Max(assigned.Slot, 0),
 				assigned.FarClip,
 				assigned.TexelScale,
 			};
@@ -674,7 +674,7 @@ namespace RageV
 		// The light buffer. Always at least one element: a zero-length storage
 		// buffer is not a binding, and a scene with no lights at all still has
 		// to bind something the layout is happy with.
-		const uint32_t lightSlots = glm::max<uint32_t>((uint32_t)s_Data->LightScratch.size(), 1u);
+		const uint32_t lightSlots = std::max<uint32_t>((uint32_t)s_Data->LightScratch.size(), 1u);
 		if (!EnsureInstanceBuffer(slot.Lights, slot.LightCapacity, lightSlots,
 								  sizeof(GpuLight), "Renderer3D.lights"))
 		{
@@ -694,7 +694,7 @@ namespace RageV
 
 		const auto& cells = s_Data->Grid.Cells();
 		const auto& cellIndices = s_Data->Grid.Indices();
-		const uint32_t indexSlots = glm::max<uint32_t>((uint32_t)cellIndices.size(), 1u);
+		const uint32_t indexSlots = std::max<uint32_t>((uint32_t)cellIndices.size(), 1u);
 
 		if (!EnsureInstanceBuffer(slot.Cells, slot.CellCapacity, (uint32_t)cells.size(),
 								  sizeof(LightGrid::Cell), "Renderer3D.cells") ||
@@ -857,22 +857,22 @@ namespace RageV
 		// declares the binding whether or not this frame uses it, and a
 		// declared binding left unwritten is a validation error rather than an
 		// unread one. One identity is the smallest honest filler.
-		const uint32_t boneCount = glm::max((uint32_t)s_Data->BoneScratch.size(), 1u);
+		const uint32_t boneCount = Math::Max((uint32_t)s_Data->BoneScratch.size(), 1u);
 		if (!EnsureInstanceBuffer(slot.Bones, slot.BoneCapacity, boneCount,
-								  sizeof(glm::mat4), "Renderer3D.bones"))
+								  sizeof(Mat4), "Renderer3D.bones"))
 		{
 			return;
 		}
 
 		if (s_Data->BoneScratch.empty())
 		{
-			const glm::mat4 identity(1.0f);
+			const Mat4 identity(1.0f);
 			slot.Bones->Upload(&identity, sizeof(identity));
 		}
 		else
 		{
 			slot.Bones->Upload(s_Data->BoneScratch.data(),
-							   s_Data->BoneScratch.size() * sizeof(glm::mat4));
+							   s_Data->BoneScratch.size() * sizeof(Mat4));
 		}
 
 		// The instance buffer to both, the bones only to the set whose layout
@@ -882,7 +882,7 @@ namespace RageV
 			slot.SkinnedSet->SetStorageBuffer(7, slot.Instances, 0,
 											  (uint64_t)count * sizeof(InstanceData));
 			slot.SkinnedSet->SetStorageBuffer(11, slot.Bones, 0,
-											  (uint64_t)boneCount * sizeof(glm::mat4));
+											  (uint64_t)boneCount * sizeof(Mat4));
 			slot.SkinnedSet->Commit();
 		}
 
@@ -957,7 +957,7 @@ namespace RageV
 		s_Data->Pending.clear();
 	}
 
-	void Renderer3D::BeginShadow(const glm::mat4& viewProjection)
+	void Renderer3D::BeginShadow(const Mat4& viewProjection)
 	{
 		if (!s_Data || !s_Data->ShadowShader)
 			return;
@@ -1045,7 +1045,7 @@ namespace RageV
 		s_Data->ShadowActive = true;
 	}
 
-	void Renderer3D::DrawMeshShadow(const Ref<Mesh>& mesh, const glm::mat4& transform)
+	void Renderer3D::DrawMeshShadow(const Ref<Mesh>& mesh, const Mat4& transform)
 	{
 		if (!s_Data || !s_Data->ShadowActive || !mesh)
 			return;
@@ -1058,8 +1058,8 @@ namespace RageV
 		s_Data->ShadowPending.push_back(std::move(draw));
 	}
 
-	void Renderer3D::DrawSkinnedMeshShadow(const Ref<Mesh>& mesh, const glm::mat4& transform,
-										   const std::vector<glm::mat4>& bones)
+	void Renderer3D::DrawSkinnedMeshShadow(const Ref<Mesh>& mesh, const Mat4& transform,
+										   const std::vector<Mat4>& bones)
 	{
 		if (!s_Data || !s_Data->ShadowActive || !mesh)
 			return;
@@ -1121,7 +1121,7 @@ namespace RageV
 		const uint32_t count = (uint32_t)s_Data->ShadowPending.size();
 
 		if (!EnsureInstanceBuffer(slot.Instances, slot.InstanceCapacity, count,
-								  sizeof(glm::mat4), "Renderer3D.shadowInstances"))
+								  sizeof(Mat4), "Renderer3D.shadowInstances"))
 		{
 			s_Data->ShadowPending.clear();
 			return;
@@ -1133,9 +1133,9 @@ namespace RageV
 			s_Data->ShadowScratch.push_back(draw.LightMVP);
 
 		slot.Instances->Upload(s_Data->ShadowScratch.data(),
-							   (uint64_t)count * sizeof(glm::mat4));
+							   (uint64_t)count * sizeof(Mat4));
 
-		slot.Set->SetStorageBuffer(0, slot.Instances, 0, (uint64_t)count * sizeof(glm::mat4));
+		slot.Set->SetStorageBuffer(0, slot.Instances, 0, (uint64_t)count * sizeof(Mat4));
 		slot.Set->Commit();
 
 		// The skinned depth pass has a second set, because its layout declares
@@ -1145,20 +1145,20 @@ namespace RageV
 		if (anySkinned && s_Data->ShadowSkinnedPipeline)
 		{
 			const uint32_t boneCount =
-				glm::max((uint32_t)s_Data->ShadowBoneScratch.size(), 1u);
+				Math::Max((uint32_t)s_Data->ShadowBoneScratch.size(), 1u);
 
 			if (EnsureInstanceBuffer(slot.Bones, slot.BoneCapacity, boneCount,
-									 sizeof(glm::mat4), "Renderer3D.shadowBones"))
+									 sizeof(Mat4), "Renderer3D.shadowBones"))
 			{
 				if (s_Data->ShadowBoneScratch.empty())
 				{
-					const glm::mat4 identity(1.0f);
+					const Mat4 identity(1.0f);
 					slot.Bones->Upload(&identity, sizeof(identity));
 				}
 				else
 				{
 					slot.Bones->Upload(s_Data->ShadowBoneScratch.data(),
-									   s_Data->ShadowBoneScratch.size() * sizeof(glm::mat4));
+									   s_Data->ShadowBoneScratch.size() * sizeof(Mat4));
 				}
 
 				if (!slot.SkinnedSet)
@@ -1168,9 +1168,9 @@ namespace RageV
 				}
 
 				slot.SkinnedSet->SetStorageBuffer(0, slot.Instances, 0,
-												  (uint64_t)count * sizeof(glm::mat4));
+												  (uint64_t)count * sizeof(Mat4));
 				slot.SkinnedSet->SetStorageBuffer(1, slot.Bones, 0,
-												  (uint64_t)boneCount * sizeof(glm::mat4));
+												  (uint64_t)boneCount * sizeof(Mat4));
 				slot.SkinnedSet->Commit();
 			}
 		}
@@ -1242,7 +1242,7 @@ namespace RageV
 		s_Data->ShadowPending.clear();
 	}
 
-	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& transform,
+	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const Mat4& transform,
 							  const Ref<Material>& material)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
@@ -1264,7 +1264,7 @@ namespace RageV
 		// Once per object rather than once per vertex, which is where the
 		// shader was doing it -- an inverse and a transpose of a 3x3 for every
 		// vertex of every mesh, all producing the same matrix.
-		draw.Instance.NormalMatrix = glm::mat4(glm::transpose(glm::inverse(glm::mat3(transform))));
+		draw.Instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
 		draw.Instance.BaseColor = params.BaseColor;
 		draw.Instance.EmissiveColor = params.EmissiveColor;
 		draw.Instance.Surface = { params.Metallic, params.Roughness,
@@ -1276,9 +1276,9 @@ namespace RageV
 		s_Data->Pending.push_back(std::move(draw));
 	}
 
-	void Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const glm::mat4& transform,
+	void Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const Mat4& transform,
 									 const Ref<Material>& material,
-									 const std::vector<glm::mat4>& bones)
+									 const std::vector<Mat4>& bones)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
@@ -1309,7 +1309,7 @@ namespace RageV
 		draw.MaterialRef = effective;
 
 		draw.Instance.Model = transform;
-		draw.Instance.NormalMatrix = glm::mat4(glm::transpose(glm::inverse(glm::mat3(transform))));
+		draw.Instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
 		draw.Instance.BaseColor = params.BaseColor;
 		draw.Instance.EmissiveColor = params.EmissiveColor;
 		draw.Instance.Surface = { params.Metallic, params.Roughness,

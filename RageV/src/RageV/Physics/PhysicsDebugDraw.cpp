@@ -6,14 +6,13 @@
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtx/quaternion.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
 	namespace
 	{
-		glm::vec4 ColorFor(const RigidBodyComponent* body, bool trigger,
+		Vec4 ColorFor(const RigidBodyComponent* body, bool trigger,
 						   const PhysicsDebugStyle& style)
 		{
 			// A trigger's colour wins over its body type: what matters about it
@@ -52,10 +51,9 @@ namespace RageV
 			Entity entity{ handle, &scene };
 			auto [collider, transform] = view.get<ColliderComponent, TransformComponent>(handle);
 
-			glm::vec3 position, worldScale, skew;
-			glm::quat rotation;
-			glm::vec4 perspective;
-			if (!glm::decompose(transform.World, worldScale, rotation, position, skew, perspective))
+			Vec3 position, worldScale;
+			Quat rotation;
+			if (!Math::Decompose(transform.World, position, rotation, worldScale))
 				continue;
 
 			const ScaledCollider sized = ScaleCollider(collider, worldScale);
@@ -63,7 +61,7 @@ namespace RageV
 			const auto* body = scene.GetRegistry().try_get<RigidBodyComponent>(handle);
 			const bool isSelected = selected.IsValid() && entity.GetUUID() == selected;
 
-			glm::vec4 color = isSelected ? style.Selected : ColorFor(body, collider.IsTrigger, style);
+			Vec4 color = isSelected ? style.Selected : ColorFor(body, collider.IsTrigger, style);
 
 			// Dimmed rather than hidden, and only for bodies that could be
 			// awake: a static body is never active, so dimming every one of
@@ -72,16 +70,16 @@ namespace RageV
 			if (style.DimSleeping && physics && body && body->Type != BodyType::Static &&
 				!physics->IsBodyAwake(entity.GetUUID()))
 			{
-				color = glm::vec4(glm::vec3(color) * style.SleepingDim, color.a);
+				color = Vec4(Vec3(color) * style.SleepingDim, color.a);
 			}
 
 			// Rotation and the offset, but not scale: the size is already baked
 			// into `sized`, and carrying it in the matrix as well would apply
 			// it twice.
-			const glm::mat4 shapeTransform =
-				glm::translate(glm::mat4(1.0f), position) *
-				glm::toMat4(rotation) *
-				glm::translate(glm::mat4(1.0f), sized.Offset);
+			const Mat4 shapeTransform =
+				Math::Translate(Mat4(1.0f), position) *
+				Math::ToMat4(rotation) *
+				Math::Translate(Mat4(1.0f), sized.Offset);
 
 			switch (collider.Shape)
 			{

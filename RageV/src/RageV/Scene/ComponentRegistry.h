@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include <type_traits>
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 #include "RageV/Asset/Asset.h"
 #include "yaml-cpp/yaml.h"
 
@@ -148,8 +148,8 @@ namespace RageV
 			else if constexpr (std::is_enum_v<T>)              return FieldType::Enum;
 			else if constexpr (std::is_same_v<T, int>)         return FieldType::Int;
 			else if constexpr (std::is_same_v<T, float>)       return FieldType::Float;
-			else if constexpr (std::is_same_v<T, glm::vec3>)   return FieldType::Vec3;
-			else if constexpr (std::is_same_v<T, glm::vec4>)   return FieldType::Vec4;
+			else if constexpr (std::is_same_v<T, Vec3>)   return FieldType::Vec3;
+			else if constexpr (std::is_same_v<T, Vec4>)   return FieldType::Vec4;
 			else if constexpr (std::is_same_v<T, std::string>) return FieldType::String;
 			else static_assert(sizeof(T) == 0, "No FieldType for this member type");
 		}

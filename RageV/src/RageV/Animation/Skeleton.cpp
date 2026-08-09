@@ -1,6 +1,6 @@
 #include <rvpch.h>
 #include "Skeleton.h"
-#include <glm/gtc/matrix_transform.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -42,11 +42,11 @@ namespace RageV
 			const float span = end - start;
 
 			// Two keys at the same time is a step, not a division by zero.
-			blend = span > 1e-8f ? glm::clamp((time - start) / span, 0.0f, 1.0f) : 0.0f;
+			blend = span > 1e-8f ? Math::Clamp((time - start) / span, 0.0f, 1.0f) : 0.0f;
 		}
 
-		glm::vec3 SampleVec3(const AnimationChannel<glm::vec3>& channel, float time,
-							 const glm::vec3& fallback)
+		Vec3 SampleVec3(const AnimationChannel<Vec3>& channel, float time,
+							 const Vec3& fallback)
 		{
 			if (channel.Values.empty())
 				return fallback;
@@ -60,45 +60,45 @@ namespace RageV
 			if (index + 1 >= channel.Values.size())
 				return channel.Values.back();
 
-			return glm::mix(channel.Values[index], channel.Values[index + 1], blend);
+			return Math::Mix(channel.Values[index], channel.Values[index + 1], blend);
 		}
 
-		glm::quat SampleQuat(const AnimationChannel<glm::quat>& channel, float time,
-							 const glm::quat& fallback)
+		Quat SampleQuat(const AnimationChannel<Quat>& channel, float time,
+							 const Quat& fallback)
 		{
 			if (channel.Values.empty())
 				return fallback;
 			if (channel.Values.size() == 1)
-				return glm::normalize(channel.Values[0]);
+				return Math::Normalize(channel.Values[0]);
 
 			size_t index = 0;
 			float blend = 0.0f;
 			FindKey(channel, time, index, blend);
 
 			if (index + 1 >= channel.Values.size())
-				return glm::normalize(channel.Values.back());
+				return Math::Normalize(channel.Values.back());
 
-			// slerp, and glm's takes the short way only if the two are in the
+			// slerp, and Math::Slerp takes the short way only if the two are in the
 			// same hemisphere -- so the sign is fixed first. Without it a pair
 			// of keys either side of the antipode spins the bone the long way
 			// round, which is a limb briefly rotating backwards through the
 			// body.
-			glm::quat from = channel.Values[index];
-			glm::quat to = channel.Values[index + 1];
-			if (glm::dot(from, to) < 0.0f)
+			Quat from = channel.Values[index];
+			Quat to = channel.Values[index + 1];
+			if (Math::Dot(from, to) < 0.0f)
 				to = -to;
 
-			return glm::normalize(glm::slerp(from, to, blend));
+			return Math::Normalize(Math::Slerp(from, to, blend));
 		}
 	}
 
-	glm::mat4 BoneTransform::ToMatrix() const
+	Mat4 BoneTransform::ToMatrix() const
 	{
 		// Scale, then rotate, then translate -- the order every authoring tool
 		// composes a node in, and the order glTF specifies.
-		return glm::translate(glm::mat4(1.0f), Position) *
-			   glm::mat4_cast(Rotation) *
-			   glm::scale(glm::mat4(1.0f), Scale);
+		return Math::Translate(Mat4(1.0f), Position) *
+			   Math::ToMat4(Rotation) *
+			   Math::Scale(Mat4(1.0f), Scale);
 	}
 
 	int Skeleton::Find(const std::string& name) const
@@ -134,11 +134,11 @@ namespace RageV
 		for (const BoneTrack& track : Tracks)
 		{
 			if (!track.Position.Times.empty())
-				Duration = glm::max(Duration, track.Position.Times.back());
+				Duration = Math::Max(Duration, track.Position.Times.back());
 			if (!track.Rotation.Times.empty())
-				Duration = glm::max(Duration, track.Rotation.Times.back());
+				Duration = Math::Max(Duration, track.Rotation.Times.back());
 			if (!track.Scale.Times.empty())
-				Duration = glm::max(Duration, track.Scale.Times.back());
+				Duration = Math::Max(Duration, track.Scale.Times.back());
 		}
 	}
 
@@ -176,7 +176,7 @@ namespace RageV
 			}
 			else
 			{
-				t = glm::clamp(time, 0.0f, clip.Duration);
+				t = Math::Clamp(time, 0.0f, clip.Duration);
 			}
 		}
 		else
@@ -206,14 +206,14 @@ namespace RageV
 	}
 
 	void ComposeGlobal(const Skeleton& skeleton, const Pose& pose,
-					   std::vector<glm::mat4>& out)
+					   std::vector<Mat4>& out)
 	{
 		const size_t count = skeleton.Bones.size();
 		out.resize(count);
 
 		for (size_t i = 0; i < count; i++)
 		{
-			const glm::mat4 local = i < pose.size() ? pose[i].ToMatrix() : glm::mat4(1.0f);
+			const Mat4 local = i < pose.size() ? pose[i].ToMatrix() : Mat4(1.0f);
 			const int parent = skeleton.Bones[i].Parent;
 
 			// One forward pass, no recursion and no depth guard. Both are
@@ -224,7 +224,7 @@ namespace RageV
 	}
 
 	void ComposeSkinning(const Skeleton& skeleton, const Pose& pose,
-						 std::vector<glm::mat4>& out)
+						 std::vector<Mat4>& out)
 	{
 		ComposeGlobal(skeleton, pose, out);
 
@@ -234,23 +234,23 @@ namespace RageV
 
 	void BlendPoses(const Pose& a, const Pose& b, float weight, Pose& out)
 	{
-		const size_t count = glm::min(a.size(), b.size());
+		const size_t count = Math::Min(a.size(), b.size());
 		out.resize(count);
 
-		const float t = glm::clamp(weight, 0.0f, 1.0f);
+		const float t = Math::Clamp(weight, 0.0f, 1.0f);
 
 		for (size_t i = 0; i < count; i++)
 		{
-			out[i].Position = glm::mix(a[i].Position, b[i].Position, t);
-			out[i].Scale = glm::mix(a[i].Scale, b[i].Scale, t);
+			out[i].Position = Math::Mix(a[i].Position, b[i].Position, t);
+			out[i].Scale = Math::Mix(a[i].Scale, b[i].Scale, t);
 
 			// Same hemisphere fix as the sampler, for the same reason.
-			glm::quat from = a[i].Rotation;
-			glm::quat to = b[i].Rotation;
-			if (glm::dot(from, to) < 0.0f)
+			Quat from = a[i].Rotation;
+			Quat to = b[i].Rotation;
+			if (Math::Dot(from, to) < 0.0f)
 				to = -to;
 
-			out[i].Rotation = glm::normalize(glm::slerp(from, to, t));
+			out[i].Rotation = Math::Normalize(Math::Slerp(from, to, t));
 		}
 	}
 }

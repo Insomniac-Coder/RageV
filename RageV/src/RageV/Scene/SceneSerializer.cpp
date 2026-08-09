@@ -10,26 +10,26 @@ namespace RageV
 {
 	namespace
 	{
-		YAML::Emitter& EmitVec3(YAML::Emitter& emitter, const glm::vec3& v)
+		YAML::Emitter& EmitVec3(YAML::Emitter& emitter, const Vec3& v)
 		{
 			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
 			return emitter;
 		}
 
-		YAML::Emitter& EmitVec4(YAML::Emitter& emitter, const glm::vec4& v)
+		YAML::Emitter& EmitVec4(YAML::Emitter& emitter, const Vec4& v)
 		{
 			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << v.w << YAML::EndSeq;
 			return emitter;
 		}
 
-		glm::vec3 ReadVec3(const YAML::Node& node, const glm::vec3& fallback)
+		Vec3 ReadVec3(const YAML::Node& node, const Vec3& fallback)
 		{
 			if (!node || !node.IsSequence() || node.size() != 3)
 				return fallback;
 			return { node[0].as<float>(), node[1].as<float>(), node[2].as<float>() };
 		}
 
-		glm::vec4 ReadVec4(const YAML::Node& node, const glm::vec4& fallback)
+		Vec4 ReadVec4(const YAML::Node& node, const Vec4& fallback)
 		{
 			if (!node || !node.IsSequence() || node.size() != 4)
 				return fallback;
@@ -80,8 +80,8 @@ namespace RageV
 				case FieldType::Int:    emitter << *(int*)value; break;
 				case FieldType::Enum:   WriteEnum(emitter, field, *(int*)value); break;
 				case FieldType::Float:  emitter << *(float*)value; break;
-				case FieldType::Vec3:   EmitVec3(emitter, *(glm::vec3*)value); break;
-				case FieldType::Vec4:   EmitVec4(emitter, *(glm::vec4*)value); break;
+				case FieldType::Vec3:   EmitVec3(emitter, *(Vec3*)value); break;
+				case FieldType::Vec4:   EmitVec4(emitter, *(Vec4*)value); break;
 				case FieldType::String: emitter << *(std::string*)value; break;
 				case FieldType::Asset:  emitter << (uint64_t)*(AssetHandle*)value; break;
 			}
@@ -105,8 +105,8 @@ namespace RageV
 				case FieldType::Int:    *(int*)value = node.as<int>(); break;
 				case FieldType::Enum:   *(int*)value = ReadEnum(node, field, *(int*)value); break;
 				case FieldType::Float:  *(float*)value = node.as<float>(); break;
-				case FieldType::Vec3:   *(glm::vec3*)value = ReadVec3(node, *(glm::vec3*)value); break;
-				case FieldType::Vec4:   *(glm::vec4*)value = ReadVec4(node, *(glm::vec4*)value); break;
+				case FieldType::Vec3:   *(Vec3*)value = ReadVec3(node, *(Vec3*)value); break;
+				case FieldType::Vec4:   *(Vec4*)value = ReadVec4(node, *(Vec4*)value); break;
 				case FieldType::String: *(std::string*)value = node.as<std::string>(); break;
 				case FieldType::Asset:  *(AssetHandle*)value = AssetHandle(node.as<uint64_t>()); break;
 			}

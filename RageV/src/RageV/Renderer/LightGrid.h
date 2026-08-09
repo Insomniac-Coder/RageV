@@ -1,7 +1,7 @@
 #pragma once
 #include "RageV/Renderer/Light.h"
 #include "RageV/Renderer/Camera.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include <cstdint>
 #include <vector>
 
@@ -55,9 +55,11 @@ namespace RageV
 		// also the more honest source: it is the projection the frame is
 		// actually drawn with, not a field somebody may have changed since.
 		//
-		// glm is built with GLM_FORCE_DEPTH_ZERO_TO_ONE, which is what makes
-		// these two expressions the right ones.
-		static void DepthRangeOf(const glm::mat4& projection, float& nearPlane, float& farPlane);
+		// The engine's projections put clip-space depth in [0, 1] rather than
+		// [-1, 1] -- Vulkan's convention, which the OpenGL backend is configured
+		// to match so one projection serves both. That is what makes these two
+		// expressions the right ones; the [-1, 1] forms differ.
+		static void DepthRangeOf(const Mat4& projection, float& nearPlane, float& farPlane);
 
 		// Depth slices are exponential, not linear.
 		//
@@ -82,7 +84,7 @@ namespace RageV
 		// `lightIndices` indexes the *light buffer*, so the offset by
 		// `firstPositional` is folded in here and the shader needs no
 		// arithmetic to undo it.
-		void Build(const Camera& camera, const glm::mat4& cameraTransform,
+		void Build(const Camera& camera, const Mat4& cameraTransform,
 				   const LightList& lights, uint32_t firstPositional);
 
 		const std::vector<Cell>& Cells() const { return m_Cells; }

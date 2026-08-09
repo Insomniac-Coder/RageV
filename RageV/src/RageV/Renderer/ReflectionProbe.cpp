@@ -2,7 +2,7 @@
 #include "ReflectionProbe.h"
 #include "Renderer.h"
 #include "Cubemap.h"
-#include <glm/gtc/matrix_transform.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -22,8 +22,8 @@ namespace RageV
 		// are reconciled.
 		struct FaceBasis
 		{
-			glm::vec3 Forward;
-			glm::vec3 Up;
+			Vec3 Forward;
+			Vec3 Up;
 		};
 
 		constexpr FaceBasis kFaces[CubeFaces::kFaceCount] =
@@ -38,7 +38,7 @@ namespace RageV
 	}
 
 	ReflectionProbe::ReflectionProbe(RHIDevice& device, uint32_t faceSize)
-		: m_Device(device), m_FaceSize(glm::max(faceSize, 8u))
+		: m_Device(device), m_FaceSize(Math::Max(faceSize, 8u))
 	{
 		TextureDesc cube;
 		cube.Width = m_FaceSize;
@@ -68,29 +68,29 @@ namespace RageV
 		m_Scratch = device.CreateRenderTarget(scratch);
 	}
 
-	glm::mat4 ReflectionProbe::FaceProjection(float nearClip, float farClip)
+	Mat4 ReflectionProbe::FaceProjection(float nearClip, float farClip)
 	{
 		// 90 degrees and square: six of these tile the sphere of directions
 		// exactly, which is the entire reason a cube map is six squares.
-		return glm::perspective(glm::radians(90.0f), 1.0f,
-								glm::max(nearClip, 0.001f),
-								glm::max(farClip, nearClip + 0.01f));
+		return Math::Perspective(Math::Radians(90.0f), 1.0f,
+								Math::Max(nearClip, 0.001f),
+								Math::Max(farClip, nearClip + 0.01f));
 	}
 
-	glm::mat4 ReflectionProbe::FaceTransform(uint32_t face, const glm::vec3& position)
+	Mat4 ReflectionProbe::FaceTransform(uint32_t face, const Vec3& position)
 	{
 		if (face >= CubeFaces::kFaceCount)
-			return glm::mat4(1.0f);
+			return Mat4(1.0f);
 
 		const FaceBasis& basis = kFaces[face];
 
 		// A view matrix inverted, because the renderer takes a camera's world
 		// transform rather than a view: a camera is an entity everywhere else in
 		// this engine, and a probe should not be the one exception.
-		return glm::inverse(glm::lookAt(position, position + basis.Forward, basis.Up));
+		return Math::Inverse(Math::LookAt(position, position + basis.Forward, basis.Up));
 	}
 
-	uint32_t ReflectionProbe::CaptureFaces(RHICommandList& cmd, const glm::vec3& position,
+	uint32_t ReflectionProbe::CaptureFaces(RHICommandList& cmd, const Vec3& position,
 										   float nearClip, float farClip,
 										   uint32_t first, uint32_t count, const DrawScene& draw)
 	{

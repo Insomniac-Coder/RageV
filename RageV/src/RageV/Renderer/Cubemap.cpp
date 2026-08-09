@@ -1,6 +1,6 @@
 #include <rvpch.h>
 #include "Cubemap.h"
-#include <glm/gtc/constants.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -9,7 +9,7 @@ namespace RageV
 		// Bilinear fetch. Longitude wraps, because the panorama's left and right
 		// edges are the same meridian; latitude clamps, because there is nothing
 		// above the north pole.
-		glm::vec4 SampleEquirect(const float* pixels, uint32_t width, uint32_t height,
+		Vec4 SampleEquirect(const float* pixels, uint32_t width, uint32_t height,
 								 float u, float v)
 		{
 			// Texel centres: the -0.5 is what stops the whole image drifting half
@@ -36,7 +36,7 @@ namespace RageV
 			const int xs[2] = { wrapX(x0), wrapX(x0 + 1) };
 			const int ys[2] = { clampY(y0), clampY(y0 + 1) };
 
-			glm::vec4 result(0.0f);
+			Vec4 result(0.0f);
 			const float weights[2][2] =
 			{
 				{ (1.0f - fx) * (1.0f - fy), fx * (1.0f - fy) },
@@ -48,7 +48,7 @@ namespace RageV
 				for (int i = 0; i < 2; i++)
 				{
 					const size_t index = ((size_t)ys[j] * width + xs[i]) * 4;
-					result += weights[j][i] * glm::vec4(pixels[index + 0], pixels[index + 1],
+					result += weights[j][i] * Vec4(pixels[index + 0], pixels[index + 1],
 														pixels[index + 2], pixels[index + 3]);
 				}
 			}
@@ -57,16 +57,16 @@ namespace RageV
 		}
 	}
 
-	glm::vec3 CubeFaces::Sample(uint32_t face, uint32_t x, uint32_t y) const
+	Vec3 CubeFaces::Sample(uint32_t face, uint32_t x, uint32_t y) const
 	{
 		if (!Valid() || face >= kFaceCount || x >= Size || y >= Size)
-			return glm::vec3(0.0f);
+			return Vec3(0.0f);
 
 		const float* data = Face(face) + ((size_t)y * Size + x) * 4;
 		return { data[0], data[1], data[2] };
 	}
 
-	glm::vec3 CubeFaceDirection(uint32_t face, float u, float v)
+	Vec3 CubeFaceDirection(uint32_t face, float u, float v)
 	{
 		// Face-local coordinates in [-1, 1]. s runs left to right across the
 		// face image and t runs top to bottom, which is why t is negated below
@@ -76,15 +76,15 @@ namespace RageV
 
 		switch (face)
 		{
-			case 0: return glm::normalize(glm::vec3( 1.0f, -t, -s));   // +X
-			case 1: return glm::normalize(glm::vec3(-1.0f, -t,  s));   // -X
-			case 2: return glm::normalize(glm::vec3( s,  1.0f,  t));   // +Y
-			case 3: return glm::normalize(glm::vec3( s, -1.0f, -t));   // -Y
-			case 4: return glm::normalize(glm::vec3( s, -t,  1.0f));   // +Z
-			case 5: return glm::normalize(glm::vec3(-s, -t, -1.0f));   // -Z
+			case 0: return Math::Normalize(Vec3( 1.0f, -t, -s));   // +X
+			case 1: return Math::Normalize(Vec3(-1.0f, -t,  s));   // -X
+			case 2: return Math::Normalize(Vec3( s,  1.0f,  t));   // +Y
+			case 3: return Math::Normalize(Vec3( s, -1.0f, -t));   // -Y
+			case 4: return Math::Normalize(Vec3( s, -t,  1.0f));   // +Z
+			case 5: return Math::Normalize(Vec3(-s, -t, -1.0f));   // -Z
 		}
 
-		return glm::vec3(0.0f, 0.0f, 1.0f);
+		return Vec3(0.0f, 0.0f, 1.0f);
 	}
 
 	namespace
@@ -94,7 +94,7 @@ namespace RageV
 		// checks the round trip, because the two disagreeing would show up as
 		// an irradiance cube that is subtly rotated relative to the sky it came
 		// from.
-		glm::vec3 SampleCube(const CubeFaces& cube, const glm::vec3& direction)
+		Vec3 SampleCube(const CubeFaces& cube, const Vec3& direction)
 		{
 			const float ax = std::fabs(direction.x);
 			const float ay = std::fabs(direction.y);
@@ -123,14 +123,14 @@ namespace RageV
 			}
 
 			if (ma < 1e-9f)
-				return glm::vec3(0.0f);
+				return Vec3(0.0f);
 
 			const float u = (sc / ma) * 0.5f + 0.5f;
 			const float v = (tc / ma) * 0.5f + 0.5f;
 
-			const uint32_t x = (uint32_t)glm::clamp((int)(u * (float)cube.Size), 0,
+			const uint32_t x = (uint32_t)Math::Clamp((int)(u * (float)cube.Size), 0,
 													(int)cube.Size - 1);
-			const uint32_t y = (uint32_t)glm::clamp((int)(v * (float)cube.Size), 0,
+			const uint32_t y = (uint32_t)Math::Clamp((int)(v * (float)cube.Size), 0,
 													(int)cube.Size - 1);
 
 			return cube.Sample(face, x, y);
@@ -144,14 +144,14 @@ namespace RageV
 		if (!source.Valid() || faceSize == 0)
 			return result;
 
-		samplesPerAxis = glm::clamp(samplesPerAxis, 4u, 256u);
+		samplesPerAxis = Math::Clamp(samplesPerAxis, 4u, 256u);
 
 		result.Size = faceSize;
 		result.Pixels.resize((size_t)CubeFaces::kFaceCount * faceSize * faceSize * 4);
 
 		const float inverse = 1.0f / (float)faceSize;
-		const float deltaPhi = glm::two_pi<float>() / (float)samplesPerAxis;
-		const float deltaTheta = glm::half_pi<float>() / (float)samplesPerAxis;
+		const float deltaPhi = Math::TwoPi / (float)samplesPerAxis;
+		const float deltaTheta = Math::HalfPi / (float)samplesPerAxis;
 
 		for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
 		{
@@ -161,37 +161,37 @@ namespace RageV
 			{
 				for (uint32_t x = 0; x < faceSize; x++)
 				{
-					const glm::vec3 normal =
+					const Vec3 normal =
 						CubeFaceDirection(face, ((float)x + 0.5f) * inverse,
 												((float)y + 0.5f) * inverse);
 
 					// A frame around the normal. Any tangent will do -- the
 					// integral is rotationally symmetric about the normal --
 					// as long as it is not parallel to it.
-					glm::vec3 up = std::fabs(normal.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f)
-															   : glm::vec3(0.0f, 1.0f, 0.0f);
-					const glm::vec3 right = glm::normalize(glm::cross(up, normal));
-					up = glm::cross(normal, right);
+					Vec3 up = std::fabs(normal.y) > 0.99f ? Vec3(0.0f, 0.0f, 1.0f)
+															   : Vec3(0.0f, 1.0f, 0.0f);
+					const Vec3 right = Math::Normalize(Math::Cross(up, normal));
+					up = Math::Cross(normal, right);
 
-					glm::vec3 sum(0.0f);
+					Vec3 sum(0.0f);
 					float weight = 0.0f;
 
 					// Riemann sum over the hemisphere in spherical coordinates.
 					// sin(theta) is the area of the ring being sampled and
 					// cos(theta) is Lambert's law; the two together are what
 					// make this irradiance rather than an average.
-					for (float phi = 0.0f; phi < glm::two_pi<float>(); phi += deltaPhi)
+					for (float phi = 0.0f; phi < Math::TwoPi; phi += deltaPhi)
 					{
-						for (float theta = 0.0f; theta < glm::half_pi<float>(); theta += deltaTheta)
+						for (float theta = 0.0f; theta < Math::HalfPi; theta += deltaTheta)
 						{
 							const float sinTheta = std::sin(theta);
 							const float cosTheta = std::cos(theta);
 
-							const glm::vec3 tangentSample(sinTheta * std::cos(phi),
+							const Vec3 tangentSample(sinTheta * std::cos(phi),
 														  sinTheta * std::sin(phi),
 														  cosTheta);
 
-							const glm::vec3 direction = right * tangentSample.x +
+							const Vec3 direction = right * tangentSample.x +
 														up * tangentSample.y +
 														normal * tangentSample.z;
 
@@ -204,7 +204,7 @@ namespace RageV
 					// sample count: the loops step in fixed increments and do
 					// not land exactly on the hemisphere's edge, so the exact
 					// count is not what was actually summed.
-					const glm::vec3 irradiance = weight > 0.0f ? sum / weight : glm::vec3(0.0f);
+					const Vec3 irradiance = weight > 0.0f ? sum / weight : Vec3(0.0f);
 
 					float* texel = output + ((size_t)y * faceSize + x) * 4;
 					texel[0] = irradiance.r;
@@ -237,14 +237,14 @@ namespace RageV
 		// A half vector drawn from the GGX distribution for this roughness, in
 		// tangent space. Importance sampling: the samples are placed where the
 		// lobe actually is, so the weighting cancels out of the estimator.
-		glm::vec3 ImportanceSampleGGX(const glm::vec2& random, float roughness)
+		Vec3 ImportanceSampleGGX(const Vec2& random, float roughness)
 		{
 			const float a = roughness * roughness;
 
-			const float phi = glm::two_pi<float>() * random.x;
+			const float phi = Math::TwoPi * random.x;
 			const float cosTheta = std::sqrt((1.0f - random.y) /
 											 (1.0f + (a * a - 1.0f) * random.y));
-			const float sinTheta = std::sqrt(glm::max(1.0f - cosTheta * cosTheta, 0.0f));
+			const float sinTheta = std::sqrt(Math::Max(1.0f - cosTheta * cosTheta, 0.0f));
 
 			return { std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta };
 		}
@@ -263,8 +263,8 @@ namespace RageV
 
 	std::vector<float> IntegrateEnvironmentBRDF(uint32_t size, uint32_t samples)
 	{
-		size = glm::clamp(size, 8u, 1024u);
-		samples = glm::clamp(samples, 16u, 4096u);
+		size = Math::Clamp(size, 8u, 1024u);
+		samples = Math::Clamp(samples, 16u, 4096u);
 
 		std::vector<float> table((size_t)size * size * 2, 0.0f);
 
@@ -277,30 +277,30 @@ namespace RageV
 
 			for (uint32_t x = 0; x < size; x++)
 			{
-				const float NdotV = glm::max(((float)x + 0.5f) / (float)size, 1e-3f);
+				const float NdotV = Math::Max(((float)x + 0.5f) / (float)size, 1e-3f);
 
 				// The view direction in tangent space. Only its angle to the
 				// normal matters, so it can lie in the xz plane.
-				const glm::vec3 view(std::sqrt(1.0f - NdotV * NdotV), 0.0f, NdotV);
+				const Vec3 view(std::sqrt(1.0f - NdotV * NdotV), 0.0f, NdotV);
 
 				float scale = 0.0f;
 				float bias = 0.0f;
 
 				for (uint32_t i = 0; i < samples; i++)
 				{
-					const glm::vec2 random((float)i / (float)samples, RadicalInverse(i));
-					const glm::vec3 half = ImportanceSampleGGX(random, roughness);
-					const glm::vec3 light = glm::normalize(2.0f * glm::dot(view, half) * half - view);
+					const Vec2 random((float)i / (float)samples, RadicalInverse(i));
+					const Vec3 half = ImportanceSampleGGX(random, roughness);
+					const Vec3 light = Math::Normalize(2.0f * Math::Dot(view, half) * half - view);
 
 					const float NdotL = light.z;
 					if (NdotL <= 0.0f)
 						continue;
 
-					const float NdotH = glm::max(half.z, 0.0f);
-					const float VdotH = glm::max(glm::dot(view, half), 0.0f);
+					const float NdotH = Math::Max(half.z, 0.0f);
+					const float VdotH = Math::Max(Math::Dot(view, half), 0.0f);
 
 					const float geometry = GeometrySmithIBL(NdotV, NdotL, roughness);
-					const float visibility = geometry * VdotH / glm::max(NdotH * NdotV, 1e-6f);
+					const float visibility = geometry * VdotH / Math::Max(NdotH * NdotV, 1e-6f);
 
 					// Fresnel split into the two terms F0 multiplies and adds.
 					// That split is the whole point: it takes F0 out of the
@@ -342,7 +342,7 @@ namespace RageV
 				{
 					// Texel centres again, so the six faces meet along their
 					// shared edges instead of overlapping by half a texel.
-					const glm::vec3 direction =
+					const Vec3 direction =
 						CubeFaceDirection(face, ((float)x + 0.5f) * inverse,
 												((float)y + 0.5f) * inverse);
 
@@ -354,10 +354,10 @@ namespace RageV
 					const float longitude = std::atan2(direction.x, -direction.z);
 					const float latitude = std::acos(std::clamp(direction.y, -1.0f, 1.0f));
 
-					const float u = longitude / glm::two_pi<float>() + 0.5f;
-					const float v = latitude / glm::pi<float>();
+					const float u = longitude / Math::TwoPi + 0.5f;
+					const float v = latitude / Math::Pi;
 
-					const glm::vec4 colour = SampleEquirect(pixels, width, height, u, v);
+					const Vec4 colour = SampleEquirect(pixels, width, height, u, v);
 
 					float* texel = output + ((size_t)y * faceSize + x) * 4;
 					texel[0] = colour.r;

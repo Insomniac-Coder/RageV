@@ -1,5 +1,5 @@
 #pragma once
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include <cstdint>
 #include <vector>
 
@@ -36,7 +36,7 @@ namespace RageV
 		float* Face(uint32_t face) { return Pixels.data() + face * FaceFloats(); }
 
 		// Convenience for tests and for the neutral fallback: one texel.
-		glm::vec3 Sample(uint32_t face, uint32_t x, uint32_t y) const;
+		Vec3 Sample(uint32_t face, uint32_t x, uint32_t y) const;
 	};
 
 	// The direction a face texel looks along. u and v run across the face image
@@ -47,7 +47,7 @@ namespace RageV
 	// RenderMan by way of Direct3D and never diverged. That is why a single
 	// conversion feeds both backends, and why the framebuffer-origin difference
 	// that complicates everything else here does not apply.
-	glm::vec3 CubeFaceDirection(uint32_t face, float u, float v);
+	Vec3 CubeFaceDirection(uint32_t face, float u, float v);
 
 	// Equirectangular (latitude-longitude) panorama to cube faces. Bilinear,
 	// wrapping in longitude and clamping in latitude, so the seam behind the

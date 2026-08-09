@@ -1,6 +1,5 @@
 #pragma once
-#include "glm/glm.hpp"
-#include "glm/gtc/quaternion.hpp"
+#include "RageV/Math/Math.h"
 #include <string>
 #include <vector>
 
@@ -31,14 +30,14 @@ namespace RageV
 		// Mesh space to this bone's space, at the pose the mesh was modelled
 		// in. Skinning needs it because vertices are stored in mesh space and
 		// bones move in their own.
-		glm::mat4 InverseBind{ 1.0f };
+		Mat4 InverseBind{ 1.0f };
 
 		// Where the bone sits when nothing animates it. A clip need not have a
 		// track for every bone, and a bone with no track has to hold still
 		// rather than collapse to the origin.
-		glm::vec3 RestPosition{ 0.0f };
-		glm::quat RestRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
-		glm::vec3 RestScale{ 1.0f };
+		Vec3 RestPosition{ 0.0f };
+		Quat RestRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+		Vec3 RestScale{ 1.0f };
 	};
 
 	class Skeleton
@@ -78,9 +77,9 @@ namespace RageV
 
 	struct BoneTrack
 	{
-		AnimationChannel<glm::vec3> Position;
-		AnimationChannel<glm::quat> Rotation;
-		AnimationChannel<glm::vec3> Scale;
+		AnimationChannel<Vec3> Position;
+		AnimationChannel<Quat> Rotation;
+		AnimationChannel<Vec3> Scale;
 
 		bool IsEmpty() const
 		{
@@ -103,11 +102,11 @@ namespace RageV
 	// hierarchy is composed.
 	struct BoneTransform
 	{
-		glm::vec3 Position{ 0.0f };
-		glm::quat Rotation{ 1.0f, 0.0f, 0.0f, 0.0f };
-		glm::vec3 Scale{ 1.0f };
+		Vec3 Position{ 0.0f };
+		Quat Rotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+		Vec3 Scale{ 1.0f };
 
-		glm::mat4 ToMatrix() const;
+		Mat4 ToMatrix() const;
 	};
 
 	using Pose = std::vector<BoneTransform>;
@@ -131,12 +130,12 @@ namespace RageV
 	// there is here: it fails if the bind matrices are wrong, if the hierarchy
 	// composes in the wrong order, or if anything is in the wrong space.
 	void ComposeSkinning(const Skeleton& skeleton, const Pose& pose,
-						 std::vector<glm::mat4>& out);
+						 std::vector<Mat4>& out);
 
 	// The same composition stopping at mesh space, without the inverse bind.
 	// What a socket -- a weapon in a hand, a camera on a head -- needs.
 	void ComposeGlobal(const Skeleton& skeleton, const Pose& pose,
-					   std::vector<glm::mat4>& out);
+					   std::vector<Mat4>& out);
 
 	// Blends two poses. `weight` 0 gives `a`, 1 gives `b`.
 	//

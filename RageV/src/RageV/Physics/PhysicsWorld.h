@@ -1,7 +1,7 @@
 #pragma once
 #include "PhysicsTypes.h"
 #include "RageV/Core/UUID.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 #include <memory>
 #include <vector>
 
@@ -14,8 +14,8 @@ namespace RageV
 	{
 		bool Hit = false;
 		UUID Entity = UUID::Invalid();
-		glm::vec3 Position{ 0.0f };
-		glm::vec3 Normal{ 0.0f };
+		Vec3 Position{ 0.0f };
+		Vec3 Normal{ 0.0f };
 		float Distance = 0.0f;
 
 		explicit operator bool() const { return Hit; }
@@ -48,10 +48,10 @@ namespace RageV
 
 		// World space. Both are zero on Exit: the contact is gone by then, and
 		// inventing a position for it would be worse than reporting none.
-		glm::vec3 Point{ 0.0f };
+		Vec3 Point{ 0.0f };
 		// Points from A towards B. Delivery flips it per recipient so a script
 		// always receives a normal pointing back at itself.
-		glm::vec3 Normal{ 0.0f };
+		Vec3 Normal{ 0.0f };
 
 		// Closing speed along the normal at the moment of contact, in units per
 		// second, never negative. What the volume of an impact sound wants.
@@ -130,17 +130,17 @@ namespace RageV
 		// --- queries ---------------------------------------------------------
 		// Nearest hit along the ray. Direction need not be normalised; the ray
 		// extends to its length.
-		RayHit CastRay(const glm::vec3& origin, const glm::vec3& direction) const;
+		RayHit CastRay(const Vec3& origin, const Vec3& direction) const;
 
 		// --- runtime control -------------------------------------------------
-		void SetLinearVelocity(UUID entity, const glm::vec3& velocity);
-		glm::vec3 GetLinearVelocity(UUID entity) const;
-		void AddForce(UUID entity, const glm::vec3& force);
-		void AddImpulse(UUID entity, const glm::vec3& impulse);
-		void SetPosition(UUID entity, const glm::vec3& position);
+		void SetLinearVelocity(UUID entity, const Vec3& velocity);
+		Vec3 GetLinearVelocity(UUID entity) const;
+		void AddForce(UUID entity, const Vec3& force);
+		void AddImpulse(UUID entity, const Vec3& impulse);
+		void SetPosition(UUID entity, const Vec3& position);
 
-		void SetGravity(const glm::vec3& gravity);
-		glm::vec3 GetGravity() const;
+		void SetGravity(const Vec3& gravity);
+		Vec3 GetGravity() const;
 
 		size_t GetBodyCount() const;
 

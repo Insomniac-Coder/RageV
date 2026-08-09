@@ -1,7 +1,7 @@
 #include "SceneHierarchyPanel.h"
 #include "imgui.h"
 #include "imgui_internal.h"
-#include "glm/gtc/type_ptr.hpp"
+#include "RageV/Math/Math.h"
 #include "EditorTheme.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Asset/AssetManager.h"
@@ -266,7 +266,7 @@ namespace
 		ImGui::PopID();
 	}
 
-	bool DrawVec3(const char* label, glm::vec3& values, float resetValue)
+	bool DrawVec3(const char* label, Vec3& values, float resetValue)
 	{
 		bool changed = false;
 		ImGui::PushID(label);
@@ -379,24 +379,24 @@ namespace
 				if (hint.Kind == FieldHint::Widget::Color)
 				{
 					BeginField(field.DisplayName.c_str(), hint.Tooltip);
-					changed = ImGui::ColorEdit3("##value", glm::value_ptr(*(glm::vec3*)value));
+					changed = ImGui::ColorEdit3("##value", Math::ValuePtr(*(Vec3*)value));
 					EndField();
 				}
 				else if (hint.Kind == FieldHint::Widget::Degrees)
 				{
 					// Stored in radians. Converting here rather than at the call
 					// site means every angle field behaves the same way.
-					glm::vec3 degrees = glm::degrees(*(glm::vec3*)value);
+					Vec3 degrees = Math::Degrees(*(Vec3*)value);
 					if (DrawVec3(field.Name, degrees, 0.0f))
 					{
-						*(glm::vec3*)value = glm::radians(degrees);
+						*(Vec3*)value = Math::Radians(degrees);
 						changed = true;
 					}
 				}
 				else
 				{
 					const float reset = std::string(field.Name) == "Scale" ? 1.0f : 0.0f;
-					changed = DrawVec3(field.Name, *(glm::vec3*)value, reset);
+					changed = DrawVec3(field.Name, *(Vec3*)value, reset);
 				}
 				break;
 			}
@@ -404,9 +404,9 @@ namespace
 			{
 				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 				if (hint.Kind == FieldHint::Widget::Color)
-					changed = ImGui::ColorEdit4("##value", glm::value_ptr(*(glm::vec4*)value));
+					changed = ImGui::ColorEdit4("##value", Math::ValuePtr(*(Vec4*)value));
 				else
-					changed = ImGui::DragFloat4("##value", glm::value_ptr(*(glm::vec4*)value), hint.Speed);
+					changed = ImGui::DragFloat4("##value", Math::ValuePtr(*(Vec4*)value), hint.Speed);
 				EndField();
 				break;
 			}
@@ -514,11 +514,11 @@ namespace
 		bool changed = false;
 
 		ImGui::SeparatorText("Material");
-		changed |= ImGui::ColorEdit4("Base Colour", glm::value_ptr(params.BaseColor));
+		changed |= ImGui::ColorEdit4("Base Colour", Math::ValuePtr(params.BaseColor));
 		changed |= ImGui::SliderFloat("Metallic", &params.Metallic, 0.0f, 1.0f);
 		changed |= ImGui::SliderFloat("Roughness", &params.Roughness, 0.0f, 1.0f);
 		changed |= ImGui::SliderFloat("Occlusion", &params.Occlusion, 0.0f, 1.0f);
-		changed |= ImGui::ColorEdit3("Emissive", glm::value_ptr(params.EmissiveColor));
+		changed |= ImGui::ColorEdit3("Emissive", Math::ValuePtr(params.EmissiveColor));
 
 		// Metals have no diffuse response, so a half-metallic surface is not
 		// physical -- it is almost always an authoring mistake.

@@ -14,7 +14,7 @@ public:
 	void OnEvent(RageV::Event& e) override;
 
 private:
-	glm::vec3 m_Color;
+	Vec3 m_Color;
 	RageV::OrthographicCameraController m_CameraController;
 	std::shared_ptr<RageV::Texture2D> m_Texture;
 	std::shared_ptr<RageV::FrameBuffer> m_FrameBuffer;

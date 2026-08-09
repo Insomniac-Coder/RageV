@@ -1,6 +1,6 @@
 #pragma once
 #include "RageV/Renderer/RHI/RHIDevice.h"
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 #include <functional>
 
 namespace RageV
@@ -13,10 +13,10 @@ namespace RageV
 		// by w. The texture-space bias is folded in on the CPU, including the
 		// vertical flip one backend needs and the other must not have -- see
 		// HANDOFF §5, which is where that cost a day.
-		glm::mat4 LookupMatrix{ 1.0f };
+		Mat4 LookupMatrix{ 1.0f };
 
 		// Without the bias, for rendering the cascade.
-		glm::mat4 ViewProjection{ 1.0f };
+		Mat4 ViewProjection{ 1.0f };
 
 		// How far down the view axis this cascade reaches. Selection compares
 		// against these in order.
@@ -43,7 +43,7 @@ namespace RageV
 		int  Slot = -1;
 
 		// Spot only: world space to lookup coordinates, bias folded in.
-		glm::mat4 LookupMatrix{ 1.0f };
+		Mat4 LookupMatrix{ 1.0f };
 
 		// Point only. The comparison reference is rebuilt in the shader from
 		// the distance along the major axis, so it needs the same far the faces
@@ -85,17 +85,17 @@ namespace RageV
 		// changes size as the camera turns makes shadow edges crawl, and one
 		// that is not snapped to its own texel grid makes them shimmer on every
 		// sub-texel step. Neither shows up in a screenshot.
-		static void ComputeCascades(const glm::mat4& cameraTransform,
+		static void ComputeCascades(const Mat4& cameraTransform,
 									float fovYRadians, float aspect,
 									float nearClip, float farClip,
-									const glm::vec3& lightDirection,
+									const Vec3& lightDirection,
 									uint32_t count, uint32_t resolution,
 									float lambda, bool flipLookupY,
 									ShadowCascade* out);
 
 		// Draws the scene from one cascade's point of view. Given the matrix to
 		// transform world positions by; the caller draws whatever casts.
-		using DrawCasters = std::function<void(const glm::mat4& viewProjection)>;
+		using DrawCasters = std::function<void(const Mat4& viewProjection)>;
 
 		// Renders every cascade. Must be called outside a render pass -- it
 		// opens one per cascade.
@@ -122,12 +122,12 @@ namespace RageV
 		// One perspective depth map. `viewProjection` is the light's own
 		// frustum, so nothing is fitted and nothing crawls.
 		static void RenderSpot(RHI::RHICommandList& cmd, uint32_t slot, uint32_t resolution,
-							   const glm::mat4& viewProjection, const DrawCasters& draw);
+							   const Mat4& viewProjection, const DrawCasters& draw);
 
 		// Six faces of one, into a depth cube. The face basis is the same table
 		// the reflection probes use -- the two features disagree about nothing.
 		static void RenderPoint(RHI::RHICommandList& cmd, uint32_t slot, uint32_t resolution,
-								const glm::vec3& position, float farClip,
+								const Vec3& position, float farClip,
 								const DrawCasters& draw);
 
 		// Which map each light in the scene's list ended up with. Recorded here

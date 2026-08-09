@@ -1596,7 +1596,7 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 
 			if (fieldsInstead)
 			{
-				// `Entity Other;`, `float ImpactSpeed = 0.0f;`, `glm::vec3 Point{ 0.0f };`
+				// `Entity Other;`, `float ImpactSpeed = 0.0f;`, `Vec3 Point{ 0.0f };`
 				if (line.empty() || line.find('(') != std::string::npos)
 					continue;
 				const size_t stop = line.find_first_of(";={");

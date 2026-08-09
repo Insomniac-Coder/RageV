@@ -1,5 +1,5 @@
 #pragma once
-#include "glm/glm.hpp"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -11,12 +11,12 @@ namespace RageV
 	{
 	public:
 		Camera() = default;
-		Camera(const glm::mat4& projection) : m_Projection(projection) {}
+		Camera(const Mat4& projection) : m_Projection(projection) {}
 		virtual ~Camera() = default;
 
-		const glm::mat4& GetProjection() const { return m_Projection; }
+		const Mat4& GetProjection() const { return m_Projection; }
 
 	protected:
-		glm::mat4 m_Projection{ 1.0f };
+		Mat4 m_Projection{ 1.0f };
 	};
 }

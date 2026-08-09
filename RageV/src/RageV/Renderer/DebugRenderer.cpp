@@ -3,7 +3,7 @@
 #include "Renderer.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "RageV/Renderer/Frustum.h"
-#include <glm/gtc/constants.hpp>
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -24,14 +24,14 @@ namespace RageV
 
 		struct VertexData
 		{
-			glm::vec3 Position;
-			glm::vec4 Color;
+			Vec3 Position;
+			Vec4 Color;
 		};
 		static_assert(sizeof(VertexData) == 28, "Must match the vertex stride reflected from debug.rvshader");
 
 		struct SceneUniforms
 		{
-			glm::mat4 ViewProjection;
+			Mat4 ViewProjection;
 		};
 
 		struct DebugRendererData
@@ -115,7 +115,7 @@ namespace RageV
 
 		// The two axes spanning the plane whose normal is `axis`, so one circle
 		// routine serves all three orientations.
-		void CircleBasis(int axis, glm::vec3& u, glm::vec3& v)
+		void CircleBasis(int axis, Vec3& u, Vec3& v)
 		{
 			switch (axis)
 			{
@@ -126,15 +126,15 @@ namespace RageV
 		}
 
 		// A closed circle in the plane of u and v, centred on `centre`.
-		void AddCircle(const glm::vec3& centre, const glm::vec3& u, const glm::vec3& v,
-					   float radius, const glm::vec4& color)
+		void AddCircle(const Vec3& centre, const Vec3& u, const Vec3& v,
+					   float radius, const Vec4& color)
 		{
-			glm::vec3 previous = centre + u * radius;
+			Vec3 previous = centre + u * radius;
 
 			for (int i = 1; i <= kCircleSegments; i++)
 			{
-				const float angle = (float)i / (float)kCircleSegments * glm::two_pi<float>();
-				const glm::vec3 point = centre + (u * std::cos(angle) + v * std::sin(angle)) * radius;
+				const float angle = (float)i / (float)kCircleSegments * Math::TwoPi;
+				const Vec3 point = centre + (u * std::cos(angle) + v * std::sin(angle)) * radius;
 
 				DebugRenderer::DrawLine(previous, point, color);
 				previous = point;
@@ -142,16 +142,16 @@ namespace RageV
 		}
 
 		// Half a circle, from u through v and back to -u. The caps of a capsule.
-		void AddArc(const glm::vec3& centre, const glm::vec3& u, const glm::vec3& v,
-					float radius, const glm::vec4& color)
+		void AddArc(const Vec3& centre, const Vec3& u, const Vec3& v,
+					float radius, const Vec4& color)
 		{
 			const int segments = kCircleSegments / 2;
-			glm::vec3 previous = centre + u * radius;
+			Vec3 previous = centre + u * radius;
 
 			for (int i = 1; i <= segments; i++)
 			{
-				const float angle = (float)i / (float)segments * glm::pi<float>();
-				const glm::vec3 point = centre + (u * std::cos(angle) + v * std::sin(angle)) * radius;
+				const float angle = (float)i / (float)segments * Math::Pi;
+				const Vec3 point = centre + (u * std::cos(angle) + v * std::sin(angle)) * radius;
 
 				DebugRenderer::DrawLine(previous, point, color);
 				previous = point;
@@ -246,7 +246,7 @@ namespace RageV
 		s_Data->BatchCursor = 0;
 	}
 
-	void DebugRenderer::BeginScene(const Camera& camera, const glm::mat4& cameraTransform)
+	void DebugRenderer::BeginScene(const Camera& camera, const Mat4& cameraTransform)
 	{
 		if (!s_Data)
 			return;
@@ -254,11 +254,11 @@ namespace RageV
 		s_Data->LineCount = 0;
 		s_Data->CulledCount = 0;
 		s_Data->InScene = true;
-		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(cameraTransform);
+		s_Data->Scene.ViewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
 		s_Data->View.Build(s_Data->Scene.ViewProjection);
 	}
 
-	bool DebugRenderer::Visible(const glm::vec3& centre, float radius)
+	bool DebugRenderer::Visible(const Vec3& centre, float radius)
 	{
 		if (!s_Data || !s_Data->InScene)
 			return true;
@@ -266,7 +266,7 @@ namespace RageV
 		// A box around the sphere rather than a plane-distance test: it is
 		// conservative in the safe direction -- it can keep something that is
 		// off screen, and never drops something that is on it.
-		if (s_Data->View.Intersects(centre, glm::vec3(radius)))
+		if (s_Data->View.Intersects(centre, Vec3(radius)))
 			return true;
 
 		s_Data->CulledCount++;
@@ -326,7 +326,7 @@ namespace RageV
 	// -------------------------------------------------------------------------
 	// Primitives
 	// -------------------------------------------------------------------------
-	void DebugRenderer::DrawLine(const glm::vec3& from, const glm::vec3& to, const glm::vec4& color)
+	void DebugRenderer::DrawLine(const Vec3& from, const Vec3& to, const Vec4& color)
 	{
 		// Outside a scene rather than inside one: silently dropping is right
 		// here, because debug draw is called from wherever a question is being
@@ -343,30 +343,30 @@ namespace RageV
 		s_Data->LineCount++;
 	}
 
-	void DebugRenderer::DrawBox(const glm::mat4& transform, const glm::vec3& halfExtents,
-								const glm::vec4& color)
+	void DebugRenderer::DrawBox(const Mat4& transform, const Vec3& halfExtents,
+								const Vec4& color)
 	{
 		// The sphere that contains the box however it is turned. Scale is not
 		// assumed to be absent from the matrix even though these callers do not
 		// put it there -- the longest basis vector covers it either way.
-		const float scale = std::max({ glm::length(glm::vec3(transform[0])),
-									   glm::length(glm::vec3(transform[1])),
-									   glm::length(glm::vec3(transform[2])) });
+		const float scale = std::max({ Math::Length(Vec3(transform[0])),
+									   Math::Length(Vec3(transform[1])),
+									   Math::Length(Vec3(transform[2])) });
 
-		if (!Visible(glm::vec3(transform[3]), glm::length(halfExtents) * scale))
+		if (!Visible(Vec3(transform[3]), Math::Length(halfExtents) * scale))
 			return;
 
 		// The eight corners, transformed once each, rather than twelve edges
 		// transformed at both ends.
-		glm::vec3 corner[8];
+		Vec3 corner[8];
 		for (int i = 0; i < 8; i++)
 		{
-			const glm::vec3 sign{
+			const Vec3 sign{
 				(i & 1) ? 1.0f : -1.0f,
 				(i & 2) ? 1.0f : -1.0f,
 				(i & 4) ? 1.0f : -1.0f,
 			};
-			corner[i] = glm::vec3(transform * glm::vec4(sign * halfExtents, 1.0f));
+			corner[i] = Vec3(transform * Vec4(sign * halfExtents, 1.0f));
 		}
 
 		// Two opposing faces, then the four struts between them. Corners differ
@@ -381,41 +381,41 @@ namespace RageV
 			DrawLine(corner[edge[0]], corner[edge[1]], color);
 	}
 
-	void DebugRenderer::DrawSphere(const glm::mat4& transform, float radius, const glm::vec4& color)
+	void DebugRenderer::DrawSphere(const Mat4& transform, float radius, const Vec4& color)
 	{
-		const glm::vec3 centre = glm::vec3(transform[3]);
+		const Vec3 centre = Vec3(transform[3]);
 
 		if (!Visible(centre, radius))
 			return;
 
 		for (int axis = 0; axis < 3; axis++)
 		{
-			glm::vec3 u, v;
+			Vec3 u, v;
 			CircleBasis(axis, u, v);
 
 			// Rotated with the entity so the rings track its orientation, which
 			// is the only way a sphere collider shows that it is rotating.
 			AddCircle(centre,
-					  glm::vec3(transform * glm::vec4(u, 0.0f)),
-					  glm::vec3(transform * glm::vec4(v, 0.0f)),
+					  Vec3(transform * Vec4(u, 0.0f)),
+					  Vec3(transform * Vec4(v, 0.0f)),
 					  radius, color);
 		}
 	}
 
-	void DebugRenderer::DrawCapsule(const glm::mat4& transform, float radius, float halfHeight,
-									const glm::vec4& color)
+	void DebugRenderer::DrawCapsule(const Mat4& transform, float radius, float halfHeight,
+									const Vec4& color)
 	{
-		const glm::vec3 centre = glm::vec3(transform[3]);
-		const glm::vec3 right = glm::vec3(transform * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
-		const glm::vec3 up = glm::vec3(transform * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
-		const glm::vec3 forward = glm::vec3(transform * glm::vec4(0.0f, 0.0f, 1.0f, 0.0f));
+		const Vec3 centre = Vec3(transform[3]);
+		const Vec3 right = Vec3(transform * Vec4(1.0f, 0.0f, 0.0f, 0.0f));
+		const Vec3 up = Vec3(transform * Vec4(0.0f, 1.0f, 0.0f, 0.0f));
+		const Vec3 forward = Vec3(transform * Vec4(0.0f, 0.0f, 1.0f, 0.0f));
 
 		if (!Visible(centre, halfHeight + radius))
 			return;
 
 		// A capsule is Y-up, matching ColliderComponent::Height and Jolt.
-		const glm::vec3 top = centre + up * halfHeight;
-		const glm::vec3 bottom = centre - up * halfHeight;
+		const Vec3 top = centre + up * halfHeight;
+		const Vec3 bottom = centre - up * halfHeight;
 
 		// The rings where the caps meet the cylinder.
 		AddCircle(top, right, forward, radius, color);
@@ -424,8 +424,8 @@ namespace RageV
 		// Four struts, so the cylinder reads as a cylinder from any angle.
 		for (int i = 0; i < 4; i++)
 		{
-			const float angle = (float)i / 4.0f * glm::two_pi<float>();
-			const glm::vec3 offset = (right * std::cos(angle) + forward * std::sin(angle)) * radius;
+			const float angle = (float)i / 4.0f * Math::TwoPi;
+			const Vec3 offset = (right * std::cos(angle) + forward * std::sin(angle)) * radius;
 			DrawLine(bottom + offset, top + offset, color);
 		}
 

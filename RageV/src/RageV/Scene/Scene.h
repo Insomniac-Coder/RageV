@@ -5,7 +5,7 @@
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
 #include "RageV/Renderer/RHI/RHIResources.h"
-#include <glm/glm.hpp>
+#include "RageV/Math/Math.h"
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -64,8 +64,8 @@ namespace RageV
 		const std::vector<UUID>& GetChildren(Entity entity);
 
 		// Identity when the entity has no parent.
-		glm::mat4 GetParentWorldTransform(Entity entity);
-		glm::mat4 GetWorldTransform(Entity entity);
+		Mat4 GetParentWorldTransform(Entity entity);
+		Mat4 GetWorldTransform(Entity entity);
 
 		// One top-down pass writing TransformComponent::World. Called by the
 		// render entry points; call it directly after mutating transforms if a
@@ -127,7 +127,7 @@ namespace RageV
 		// fitted to a frustum: shadows for a camera other than the one looking
 		// at them would be the wrong size in the wrong place. Like the probe
 		// capture, it opens render passes and so must run before the graph.
-		void RenderShadows(const Camera& camera, const glm::mat4& cameraTransform);
+		void RenderShadows(const Camera& camera, const Mat4& cameraTransform);
 
 		// Re-renders whatever the scene's reflection probes can see.
 		//
@@ -153,13 +153,13 @@ namespace RageV
 		entt::registry& GetRegistry() { return m_Registry; }
 
 	private:
-		void OnRender(const Camera& camera, const glm::mat4& cameraTransform);
+		void OnRender(const Camera& camera, const Mat4& cameraTransform);
 
 		// The cube surfaces reflect: the nearest complete probe whose influence
 		// reaches the viewer, and the sky otherwise.
-		RHI::Ref<RHI::RHITexture> ResolveEnvironment(const glm::mat4& cameraTransform,
+		RHI::Ref<RHI::RHITexture> ResolveEnvironment(const Mat4& cameraTransform,
 													 const RHI::Ref<RHI::RHITexture>& sky);
-		void PropagateTransform(entt::entity handle, const glm::mat4& parentWorld);
+		void PropagateTransform(entt::entity handle, const Mat4& parentWorld);
 		void UnlinkFromParent(Entity entity);
 
 		// Wired to EnTT's on_destroy signals rather than called from
