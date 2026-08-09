@@ -790,9 +790,37 @@ side by side, one animated and one in its bind pose. The animated one bends and
 **its shadow bends with it**; the other does not move at all, and is
 pixel-identical between the two backends.
 
-### 1. Phase 5 — C# scripting (`XL`)
+Phase 5 is the last MVP+ item, and the dependency argument for doing it now is
+the strongest one left: C# has to mirror a native surface that has stopped
+moving, and it stopped moving today. Six items in ROADMAP §5 — CoreCLR hosting,
+interop, the managed class library, project assembly build, hot reload, and
+inspector fields.
 
-Last, deliberately: it must mirror a native surface that has stopped moving.
+### After MVP+ — phases 6, 7 and 8
+
+Added 2026-08-09 at the owner's direction. **None of them blocks anything**, and
+they are not in dependency order, because past MVP+ there is no spine left to
+respect. ROADMAP §5 has the detail; the shape is:
+
+- **Phase 6 — text, UI and particles.** The only remaining gap a *player* would
+  notice rather than a developer. MSDF text, a screen-space canvas that is not
+  ImGui, widgets, and CPU-simulated 2D/3D particles with a measurement before
+  any compute pass.
+- **Phase 7 — the deferred debts, collected.** Archive format and the virtual
+  file system it needs, asset cooking, materials as assets, billboard icons,
+  the animation blend nothing currently drives, skinned bounds that cover the
+  animation, per-object probes, depth sorting, SMAA and TAA.
+- **Phase 8 — formerly out of scope, reopened.** GI, bindless, GPU-driven
+  rendering, terrain, navigation, networking, other platforms, XR, FBX, visual
+  scripting, a plugin ecosystem. Each carries the reason it was excluded as its
+  cost. **Two have prerequisites that are decisions rather than work**: bindless
+  means dropping OpenGL or maintaining two binding models, and terrain means
+  deleting `experiments/terrain/Chunk` first, which makes one entity per voxel
+  face.
+
+**The recommendation in ROADMAP §9 is to build a game before starting Phase 6.**
+Forty-odd items with no ordering is a menu, and needing one is the only reliable
+way to know which.
 
 ### Smaller, none blocking
 

@@ -1,7 +1,13 @@
-# RageV — MVP+ roadmap
+# RageV — roadmap
 
-Written 2026-08-08. Companion to [HANDOFF.md](HANDOFF.md) (current state) and
+Written 2026-08-08, extended 2026-08-09. Companion to
+[HANDOFF.md](HANDOFF.md) (current state) and
 [ARCHITECTURE.md](ARCHITECTURE.md) (renderer design).
+
+**Phases 0-5 are MVP+**: the definition of a finished engine for one person.
+**Phases 6-8 are past it**, added once phases 0-4 were done and 3 was complete.
+The split matters — everything up to 5 was ordered by dependency and each item
+blocks something after it. Nothing in 6-8 blocks anything. They are a menu.
 
 **Target positioning, in the user's words:** *ease of use of Unity, somewhat the
 graphical fidelity of Unreal, functionality closer to Godot.*
@@ -13,6 +19,11 @@ graphical fidelity of Unreal, functionality closer to Godot.*
 A survey of what Unity, Godot and Unreal actually provide; a definition of what
 "MVP+" has to mean for a solo-built engine; an honest audit of where RageV
 stands against that; and a roadmap ordered by **dependency**, not by appeal.
+
+That ordering claim holds for phases 0-5 and deliberately does not for 6-8.
+Past MVP+ there is no spine left to respect: text, particles, packing and
+terrain do not depend on each other, and the right next one is whichever a
+real game turns out to need.
 
 The single most important finding is in §4. If you read one section, read that
 one.
@@ -368,6 +379,108 @@ native API after C# exists costs a binding update, a marshalling update and a
 class-library update. Design once, bind twice — in that order. Building C# early
 is, in my judgement, the single most likely way to stall this project.
 
+### Phase 6 — Text, UI and particles *(what a game needs that an engine demo does not)*
+
+Everything up to here draws a *scene*. A game also draws a score, a menu, a
+health bar, a puff of smoke — and none of that is expressible today. This is the
+first phase since Phase 1 whose absence a player would notice rather than a
+developer.
+
+| # | Item | Size |
+|---|---|---|
+| 6.1 | Font atlas and glyph cache — MSDF, so text stays sharp at any size | L |
+| 6.2 | Text rendering — layout, wrapping, alignment, colour | L |
+| 6.3 | Screen-space canvas — anchoring, scaling, a z order that is not the draw order | M |
+| 6.4 | UI widgets — sprite, label, button, slider, with input hit-testing | L |
+| 6.5 | 2D particles — emitters, curves over lifetime, additive and alpha blending | L |
+| 6.6 | 3D particles — the same simulation, billboarded and depth-sorted | M |
+| 6.7 | GPU particle simulation, if 6.5 measures badly and only then | M |
+
+**MSDF rather than a bitmap atlas.** A bitmap font is one texture and an
+afternoon, and it is soft at every size but the one it was baked at. Multi-channel
+signed distance fields cost a generation step and stay crisp from 8px to 200px,
+which is the difference between a UI that scales with the DPI work already done
+and one that does not.
+
+**The canvas is not ImGui.** ImGui is the *editor's* UI and is immediate-mode,
+which is right for tools and wrong for a game: a game's UI is authored in a
+scene, serialized, and driven by scripts. These are entities with components
+like everything else.
+
+**Particles are CPU-simulated first, deliberately.** A CPU emitter is a few
+hundred lines against the existing quad batcher, and the engine draws a
+thousand-mesh scene in 1.9 ms — there is a great deal of headroom to spend
+before a compute pass is the answer. 6.7 exists so the question gets asked with
+a measurement rather than assumed, which is the rule this renderer has been
+wrong about twice.
+
+**Depth sorting arrives here whether or not 3.6 wanted it.** Alpha-blended
+particles must be drawn back to front; opaque geometry merely benefits. The
+sorting infrastructure is shared.
+
+---
+
+### Phase 7 — Finishing the pipeline *(the deferred debts, collected)*
+
+Nothing here blocks a game being made. Everything here is something a person
+shipping one would eventually ask for, and each was deferred with a reason
+rather than missed.
+
+| # | Item | Size |
+|---|---|---|
+| 7.1 | Archive format (`.pak`) **and** the virtual file system it needs | L |
+| 7.2 | Asset cooking — parse glTF and decode images at build time, not at load | L |
+| 7.3 | Materials as assets, so two entities can share one from the inspector | M |
+| 7.4 | Billboard icons for lights, cameras and probes, and picking that hits them | M |
+| 7.5 | Animation blend component — `BlendPoses` is written and tested, nothing drives it | M |
+| 7.6 | Skinned bounds that cover the animation, not just the bind pose | M |
+| 7.7 | Per-object reflection probe selection, replacing the per-scene choice | M |
+| 7.8 | Front-to-back depth sorting for opaque draws | S |
+| 7.9 | SMAA | M |
+| 7.10 | TAA — needs motion vectors first, which also buy motion blur and upscaling | L |
+
+**7.1 and 7.2 are one item wearing two hats.** Packing without a virtual file
+system is worthless, because every asset path in the engine goes through
+`std::filesystem`; and cooking without packing saves load time but not the
+awkwardness of shipping a folder. Do both or neither.
+
+**7.5 and 7.6 are debts skeletal animation created.** Clips snap rather than
+ease because nothing calls the blend that exists, and a limb swinging wide
+leaves a bounding box computed from the bind pose — so a character can be culled
+while part of it is still on screen. Both are recorded in HANDOFF §9.
+
+**7.8 should be justified by a measurement.** Draws are already grouped by mesh
+and material, which is the half of 3.6 that was worth doing; sorting by depth as
+well helps early-z and nothing else. Two "obviously worth it" optimisations in
+this renderer have measured as worth nothing.
+
+---
+
+### Phase 8 — Formerly out of scope *(reopened; read the cost before starting one)*
+
+These were §7 non-goals, each named as "a place a solo engine dies". They are
+future phases now rather than exclusions — but the reasoning that excluded them
+was not wrong, and it is kept here as the price of admission rather than
+deleted. **None of these should be started because it sounds interesting.**
+
+| # | Item | Size | What it costs |
+|---|---|---|---|
+| 8.1 | Global illumination — SDFGI or voxel GI | XL | IBL plus good shadows already gets most of the perceived benefit. This is the largest possible effort for the smallest visible delta in this engine |
+| 8.2 | Bindless resource binding | L | **The first place the two-backend commitment has a real price.** Descriptor indexing is core in Vulkan 1.2; OpenGL 4.5 has no equivalent. Doing this means either dropping OpenGL or maintaining two materially different binding models |
+| 8.3 | GPU-driven rendering — compute-built draw commands, meshlets | XL | Real wins at hundreds of thousands of objects. The renderer draws a thousand in 1.9 ms and is nowhere near the wall |
+| 8.4 | Terrain | L | **`experiments/terrain/Chunk` must be deleted first.** It creates one entity per voxel *face* — thousands of entities per chunk — and is not a starting point for anything |
+| 8.5 | Navigation and AI — navmesh generation, pathfinding | XL | An engine-sized subsystem on its own |
+| 8.6 | Networking / multiplayer | XL | Touches every system that owns state. Retrofitting it is the classic way an engine's architecture is rewritten |
+| 8.7 | Non-Windows platforms | XL | The RHI keeps the door open. Walking through it means a second window layer, a second input layer, and a second CI |
+| 8.8 | XR | XL | Needs stereo rendering, a second projection path and device SDKs |
+| 8.9 | FBX / Collada import | L | glTF covers Blender, Maya, Substance and every online library. This is a second material translation with its own failure modes |
+| 8.10 | Visual scripting | XL | "Two scripting languages is already two" — and this would be the third |
+| 8.11 | Asset store / plugin ecosystem | XL | Needs a stable ABI, which nothing here has |
+
+**The honest ordering, if any of these happen:** 8.4 and 8.9 are ordinary
+features. 8.2 is a decision about the engine's identity, not a feature. The rest
+are each larger than everything built so far.
+
 ---
 
 ## 6. Technology choices
@@ -383,33 +496,25 @@ is, in my judgement, the single most likely way to stall this project.
 
 ---
 
-## 7. Explicit non-goals
+## 7. Scope
 
-Naming these is as important as the roadmap. Each is a place a solo engine dies.
+There is no longer a list of permanent exclusions. What used to be §7's
+non-goals are **Phase 8**, reopened at the owner's direction, with the reasoning
+that excluded them kept beside each item as its cost rather than thrown away.
 
-- **Global illumination** — no SDFGI, VoxelGI, lightmaps, Lumen, Nanite, virtual
-  shadow maps. IBL plus good shadows gets most of the perceived benefit.
-- **Networking / multiplayer**
-- **Navigation / AI / navmeshes**
-- **XR**
-- **Non-Windows platforms.** No mobile, console or web. The RHI keeps the door
-  open; walking through it is not on this roadmap.
-- **FBX and Collada.** glTF only. Blender exports glTF; that covers the path
-  that matters.
-- **Visual scripting.** Two scripting languages is already two.
-- **A Godot-class UI toolkit.** A minimal screen-space canvas — sprites, text,
-  buttons — is the bar.
-- **Terrain.** `Chunk` currently creates one entity per voxel face, which is
-  thousands of entities per chunk. It should be deleted or quarantined, not
-  developed.
-- **Asset store / plugin ecosystem.**
-- **GPU-driven rendering** — compute-generated draw commands, meshlets. Real
-  wins at hundreds of thousands of objects; invisible at this scale.
-- **Bindless resource binding.** Descriptor indexing is core in Vulkan 1.2 and
-  is how modern renderers kill per-draw CPU cost — but OpenGL 4.5 has no
-  equivalent. This is the first place the two-backend commitment has a real
-  price, and it is a decision to make deliberately rather than drift into. Not
-  needed while the renderer is nowhere near CPU-bound.
+Two of them are worth repeating here because they are not merely large:
+
+- **Bindless (8.2) is a decision about what this engine is.** OpenGL 4.5 has no
+  equivalent to Vulkan's descriptor indexing, so adopting it means dropping a
+  backend or maintaining two different binding models. Everything else in this
+  document is compatible with both.
+- **Terrain (8.4) has a false start in the tree.** `experiments/terrain/Chunk`
+  creates one entity per voxel face. It must be deleted before anything is
+  built, not extended.
+
+The bar from §2 still applies to all of it: an item is done when it works on
+both backends, exits cleanly, and has been looked at as pixels rather than as a
+draw count.
 
 ---
 
@@ -441,14 +546,27 @@ files (any time), `Scene::DeleteEntity` taking `Entity&` (0.7).
 
 ## 9. Recommendation
 
-Do **Phase 0 in order, completely, before anything else.** It is the least
-exciting section of this document and the only one where deferral converts a
-day of work into a migration.
+*The original recommendation — do Phase 0 completely, then Phase 1, and pull
+Phase 3 forward only for a visible milestone — was followed, and it held. Phases
+0-4 are done and Phase 3 is complete. What follows replaces it.*
 
-Then Phase 1. Import is the widest gap between RageV and any real engine, and
-the moment a glTF model appears in the viewport is also the moment the engine
-stops being a renderer and starts being an engine.
+**Do Phase 5 next, and finish it.** It is the last MVP+ item and the only one
+left that the roadmap's dependency argument still applies to: C# has to mirror a
+native surface that has stopped moving, and the native surface stopped moving
+today. Every month it waits is a month of API drift it will have to absorb.
 
-If a visible milestone is needed sooner than that: **Phase 3 is a parallel
-track** against a stable RHI. Pulling 3.3 (skybox) and 3.5 (shadows) forward
-costs no structural debt. It just doesn't move the loop.
+**Then build a game with it, before Phase 6.** This is the strongest
+recommendation in this document. Phases 6-8 are a menu of forty-odd items with
+no dependency order, and the only reliable way to know which ones matter is to
+need one. An engine improved from the inside grows features nobody asked for;
+an engine improved from a game grows the ones that were in the way.
+
+If a phase must be picked without that: **Phase 6**. Text and UI are the only
+remaining gap a *player* would notice — everything else on the list is something
+a developer would notice. An engine that cannot draw a score is not finished in
+a way that matters, however good its shadows are.
+
+**Phase 8 items should each be treated as a proposal, not a task.** Every one of
+them was excluded once, with a reason that is still recorded next to it. Two of
+them — bindless and terrain — have prerequisites that are decisions rather than
+work.
