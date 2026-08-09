@@ -210,6 +210,57 @@ into someone's Downloads folder.
 
 ---
 
+## 1a. Namespaces
+
+The public API is segregated by domain. There is no `RV` alias -- `RageV` is the
+only spelling.
+
+| Namespace | Holds |
+|---|---|
+| `RageV` | The engine vocabulary: `Entity`, `Scene`, components, `UUID`, `Timestep`, `Application`, `Layer`, `Project` |
+| `RageV::Math` | `Vec2/3/4`, `UVec4`, `Mat3/4`, `Quat` and all the arithmetic |
+| `RageV::RHI` | Devices, buffers, pipelines, formats |
+| `RageV::Audio` | `Engine`, and the mixer behind it |
+| `RageV::Physics` | `World`, `ScaleCollider`, `DrawColliders` |
+| `RageV::Assets` | `Manager`, `Registry`, `AssetMetadata`, the glTF importer |
+| `RageV::Anim` | `Clip`, `Channel`, pose sampling and blending |
+
+**The rule, and it is one rule:** the *machinery* lives in the namespace, and the
+small value types that appear in other domains' signatures are re-exported into
+`RageV` with a using-declaration. `Audio::Engine::Init` reads as information;
+`Audio::AudioBus` on a component field next to a plain `Vec3` reads as noise. It
+is the same arrangement `RageV::Math` has used for `Vec3` since it was written.
+
+So: `AudioBus`, `AudioVoice`, `RayHit`, `BodyType`, `ColliderShape`,
+`AssetHandle`, `Skeleton`, `AnimationClip` are all still spelled unqualified.
+`Asset`, `AssetHandle` and `AssetType` never moved at all -- they live in
+`Asset.h` at the root, because every subsystem in the engine names them.
+
+**Types were only renamed where the short name was free.** `AudioEngine` became
+`Audio::Engine`, `PhysicsWorld` became `Physics::World`, `AnimationClip` became
+`Anim::Clip`. `AudioMode` and `AssetHandle` kept their prefixes, because this
+engine names members after their types -- `AudioMode Mode`, `AssetHandle Handle`
+-- and a member that shares its type's name hides it, so `Mode::Silent` stops
+compiling inside the very struct that needs it.
+
+> [!TRAP]
+> **Forward declarations do not follow enclosing-namespace lookup.** `class
+> Scene;` inside `namespace RageV::Physics` declares a new
+> `RageV::Physics::Scene` that nothing ever defines, and the error appears at
+> the use site rather than at the declaration. `PhysicsWorld.h`,
+> `PhysicsDebugDraw.h`, `ColliderShapes.h` and `AssetManager.h` all hoist theirs
+> into a `namespace RageV { }` block, with a comment saying why.
+
+> [!TRAP]
+> **Free functions do not come along for free.** A call like
+> `ScaleCollider(collider, scale)` from outside the domain fails even though
+> ADL usually saves you: the argument is `RageV::ColliderComponent`, so ADL
+> searches `RageV`, not `RageV::Physics`. Anim's functions *are* found
+> unqualified, because their arguments are Anim types. The difference is which
+> namespace the arguments live in, not which namespace the function does.
+
+---
+
 ## 2a. The application icon
 
 `tools/scripts/make_icon.py` draws it — a two-tone V taken from the manual's

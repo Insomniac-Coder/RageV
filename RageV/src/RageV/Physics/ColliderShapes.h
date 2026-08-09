@@ -2,9 +2,16 @@
 #include "PhysicsTypes.h"
 #include "RageV/Math/Math.h"
 
+// Declared in the enclosing namespace on purpose. Inside
+// `namespace RageV::Physics` these would declare new types that nothing
+// ever defines, and the error would surface far from here.
 namespace RageV
 {
 	struct ColliderComponent;
+}
+
+namespace RageV::Physics
+{
 
 	// A collider's dimensions after the entity's scale has been applied.
 	//
@@ -26,4 +33,9 @@ namespace RageV
 	constexpr float kMinColliderExtent = 0.01f;
 
 	ScaledCollider ScaleCollider(const ColliderComponent& collider, const Vec3& scale);
+}
+
+namespace RageV
+{
+	using Physics::ScaledCollider;
 }

@@ -226,8 +226,8 @@ namespace
 	{
 		const std::filesystem::path path = Project::AssetPath("models/testcube.gltf");
 
-		ImportedModel model;
-		if (!GltfImporter::Import(path, model))
+		Assets::ImportedModel model;
+		if (!Assets::GltfImporter::Import(path, model))
 		{
 			Check(false, "testcube.gltf imports");
 			return;
@@ -241,7 +241,7 @@ namespace
 		if (model.Primitives.empty() || model.Materials.empty() || model.Nodes.size() < 2)
 			return;
 
-		const ImportedPrimitive& primitive = model.Primitives[0];
+		const Assets::ImportedPrimitive& primitive = model.Primitives[0];
 		Check(primitive.Vertices.size() == 24, "24 vertices (4 per face, so normals are not shared)");
 		Check(primitive.Indices.size() == 36, "36 indices");
 		Check(primitive.Material == 0, "the primitive references material 0");
@@ -289,16 +289,16 @@ namespace
 
 	void CheckModelInstantiation()
 	{
-		const AssetHandle handle = AssetRegistry::GetHandle("models/testcube.gltf");
+		const AssetHandle handle = Assets::Registry::GetHandle("models/testcube.gltf");
 		Check(handle.IsValid(), "the registry minted a handle for the model");
 		if (!handle.IsValid())
 			return;
 
-		Check(AssetRegistry::GetMetadata(handle).Type == AssetType::Mesh,
+		Check(Assets::Registry::GetMetadata(handle).Type == AssetType::Mesh,
 			  "the model is typed as a mesh");
 
 		auto scene = std::make_shared<Scene>();
-		Entity root = AssetManager::InstantiateModel(*scene, handle);
+		Entity root = Assets::Manager::InstantiateModel(*scene, handle);
 		Check((bool)root, "the model instantiates into the scene");
 		if (!root)
 			return;
@@ -318,7 +318,7 @@ namespace
 		if (cube && cube.HasComponent<MeshComponent>())
 		{
 			auto& mesh = cube.GetComponent<MeshComponent>();
-			Check((bool)AssetManager::GetMesh(mesh.Mesh), "the mesh handle resolves to GPU geometry");
+			Check((bool)Assets::Manager::GetMesh(mesh.Mesh), "the mesh handle resolves to GPU geometry");
 			Check((bool)mesh.Material, "the imported material is attached");
 		}
 
@@ -333,7 +333,7 @@ namespace
 
 		bool resolved = false;
 		for (auto entity : reloaded->GetRegistry().view<MeshComponent>())
-			resolved = resolved || AssetManager::GetMesh(
+			resolved = resolved || Assets::Manager::GetMesh(
 				reloaded->GetRegistry().get<MeshComponent>(entity).Mesh) != nullptr;
 
 		Check(resolved, "a saved scene's mesh handle still resolves after a reload");
@@ -342,15 +342,15 @@ namespace
 	void CheckPrimitiveHandles()
 	{
 		PrimitiveType type = PrimitiveType::Sphere;
-		Check(AssetManager::IsPrimitive(PrimitiveHandle(PrimitiveType::Cylinder), type) &&
+		Check(Assets::Manager::IsPrimitive(PrimitiveHandle(PrimitiveType::Cylinder), type) &&
 			  type == PrimitiveType::Cylinder,
 			  "primitive handles round-trip through the builtin range");
 
-		Check((bool)AssetManager::GetMesh(PrimitiveHandle(PrimitiveType::Sphere)),
+		Check((bool)Assets::Manager::GetMesh(PrimitiveHandle(PrimitiveType::Sphere)),
 			  "a primitive handle resolves to a mesh");
 
 		// A random handle must not be mistaken for a builtin.
-		Check(!AssetManager::IsPrimitive(AssetHandle(), type),
+		Check(!Assets::Manager::IsPrimitive(AssetHandle(), type),
 			  "a random handle is not treated as a primitive");
 	}
 
@@ -379,13 +379,13 @@ namespace
 			std::filesystem::remove_all(m_Root, error);
 
 			if (Project::Create(m_Root, name))
-				AssetRegistry::Init(Project::AssetRoot());
+				Assets::Registry::Init(Project::AssetRoot());
 		}
 
 		~ScratchProject()
 		{
 			if (!m_Previous.empty() && Project::Load(m_Previous))
-				AssetRegistry::Init(Project::AssetRoot());
+				Assets::Registry::Init(Project::AssetRoot());
 
 			std::error_code error;
 			std::filesystem::remove_all(m_Root, error);
@@ -418,19 +418,19 @@ namespace
 		light.AddComponent<LightComponent>().Light.Type = Light::LightType::Spot;
 		scene->SetParent(light, barrel);
 
-		const AssetHandle prefab = AssetManager::CreatePrefab(*scene, root, "prefabs/turret.rprefab");
+		const AssetHandle prefab = Assets::Manager::CreatePrefab(*scene, root, "prefabs/turret.rprefab");
 		Check(prefab.IsValid(), "a prefab is written and gets a handle");
 		if (!prefab.IsValid())
 			return;
 
-		Check(AssetRegistry::GetMetadata(prefab).Type == AssetType::Prefab,
+		Check(Assets::Registry::GetMetadata(prefab).Type == AssetType::Prefab,
 			  "the prefab is typed as a prefab");
 		Check(root.HasComponent<PrefabComponent>(),
 			  "the source tree becomes an instance of the prefab it produced");
 
 		auto target = std::make_shared<Scene>();
-		Entity first = AssetManager::InstantiatePrefab(*target, prefab);
-		Entity second = AssetManager::InstantiatePrefab(*target, prefab);
+		Entity first = Assets::Manager::InstantiatePrefab(*target, prefab);
+		Entity second = Assets::Manager::InstantiatePrefab(*target, prefab);
 
 		Check(first && second, "a prefab instantiates twice");
 		if (!first || !second)
@@ -779,7 +779,7 @@ namespace
 		pillar.AddComponent<ColliderComponent>();
 
 		scene->OnRuntimeStart();
-		PhysicsWorld* physics = scene->GetPhysics();
+		Physics::World* physics = scene->GetPhysics();
 		Check(physics != nullptr, "play creates a physics world");
 		if (!physics)
 			return;
@@ -1107,7 +1107,7 @@ namespace
 
 		// Back to the sample, which everything after this depends on.
 		Check(Project::Load(original), "the sample project reopens");
-		AssetRegistry::Init(Project::AssetRoot());
+		Assets::Registry::Init(Project::AssetRoot());
 	}
 
 	// The render graph.
@@ -2095,7 +2095,7 @@ namespace
 		// A clip that animates nothing leaves the skeleton at rest, not at the
 		// origin.
 		{
-			AnimationClip empty;
+			Anim::Clip empty;
 			empty.Duration = 1.0f;
 
 			Pose pose;
@@ -2113,7 +2113,7 @@ namespace
 
 		// A clip that rotates the middle bone, checked by where it puts the
 		// tip -- the observable a person would actually notice.
-		AnimationClip clip;
+		Anim::Clip clip;
 		clip.Name = "bend";
 		clip.Tracks.resize(3);
 		{
@@ -2178,7 +2178,7 @@ namespace
 			Bone solo; solo.Name = "solo"; solo.Parent = -1;
 			one.Bones = { solo };
 
-			AnimationClip spin;
+			Anim::Clip spin;
 			spin.Tracks.resize(1);
 			spin.Tracks[0].Rotation.Times = { 0.0f, 1.0f };
 			spin.Tracks[0].Rotation.Values = {
@@ -2221,7 +2221,7 @@ namespace
 		// Nothing at all, which is what a scene with no skeleton hands in.
 		{
 			Skeleton none;
-			AnimationClip clipless;
+			Anim::Clip clipless;
 			Pose pose;
 			SamplePose(none, clipless, 1.0f, true, pose);
 
@@ -2253,8 +2253,8 @@ namespace
 			return;
 		}
 
-		ImportedModel imported;
-		Check(GltfImporter::Import(model, imported), "a skinned glTF imports");
+		Assets::ImportedModel imported;
+		Check(Assets::GltfImporter::Import(model, imported), "a skinned glTF imports");
 
 		Check(imported.HasSkeleton() && imported.Skeleton.Size() == 2,
 			  "and brings two bones with it");
@@ -2307,7 +2307,7 @@ namespace
 		if (imported.Primitives.empty())
 			return;
 
-		const ImportedPrimitive& primitive = imported.Primitives[0];
+		const Assets::ImportedPrimitive& primitive = imported.Primitives[0];
 		Check(primitive.IsSkinned(), "which is skinned");
 		Check(primitive.Joints.size() == primitive.Vertices.size() &&
 			  primitive.Weights.size() == primitive.Vertices.size(),
@@ -2363,7 +2363,7 @@ namespace
 		if (imported.Clips.empty())
 			return;
 
-		const AnimationClip& clip = imported.Clips[0];
+		const Anim::Clip& clip = imported.Clips[0];
 		Check(clip.Duration > 1.9f && clip.Duration < 2.1f,
 			  "two seconds long, taken from its last key");
 		Check(clip.Tracks.size() == imported.Skeleton.Size(),
@@ -3027,7 +3027,7 @@ namespace
 
 		// A project with one asset and a start scene, built from nothing.
 		Check(Project::Create(root / "src", "Packaged"), "a project to package");
-		AssetRegistry::Init(Project::AssetRoot());
+		Assets::Registry::Init(Project::AssetRoot());
 
 		std::filesystem::create_directories(Project::AssetRoot() / "scenes", error);
 
@@ -3041,7 +3041,7 @@ namespace
 			SceneSerializer serializer(scene);
 			serializer.Serialize((Project::AssetRoot() / "scenes" / "main.rage").string());
 		}
-		AssetRegistry::Refresh();
+		Assets::Registry::Refresh();
 
 		// Stand-ins for the runtime and the engine's own assets. Packaging is
 		// file copying, so what it copies matters and what produced the file
@@ -3113,7 +3113,7 @@ namespace
 		std::filesystem::remove_all(root, error);
 
 		if (!previous.empty() && Project::Load(previous))
-			AssetRegistry::Init(Project::AssetRoot());
+			Assets::Registry::Init(Project::AssetRoot());
 	}
 
 	// What the standalone runtime does, without the window.
@@ -3299,7 +3299,7 @@ namespace
 			entity.AddComponent<ColliderComponent>(shape);
 
 			DebugRenderer::BeginScene(camera, camera.GetTransform());
-			DrawPhysicsColliders(*probe);
+			Physics::DrawColliders(*probe);
 			const uint32_t lines = DebugRenderer::GetLineCount();
 			DebugRenderer::EndScene();
 			return lines;
@@ -3313,7 +3313,7 @@ namespace
 
 		// Nothing to draw is not the same as failing to draw.
 		DebugRenderer::BeginScene(camera, camera.GetTransform());
-		DrawPhysicsColliders(*scene);
+		Physics::DrawColliders(*scene);
 		Check(DebugRenderer::GetLineCount() == 0, "a scene with no colliders draws nothing");
 		DebugRenderer::EndScene();
 
@@ -3322,7 +3322,7 @@ namespace
 		Entity bare = scene->CreateEntity("Bare");
 		bare.AddComponent<ColliderComponent>();
 		DebugRenderer::BeginScene(camera, camera.GetTransform());
-		DrawPhysicsColliders(*scene);
+		Physics::DrawColliders(*scene);
 		Check(DebugRenderer::GetLineCount() == 12, "a collider with no rigid body still draws");
 		DebugRenderer::EndScene();
 
@@ -3339,7 +3339,7 @@ namespace
 			behind.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 4000.0f };
 
 			DebugRenderer::BeginScene(camera, camera.GetTransform());
-			DrawPhysicsColliders(*far_away);
+			Physics::DrawColliders(*far_away);
 			const uint32_t lines = DebugRenderer::GetLineCount();
 			const uint32_t culled = DebugRenderer::GetCulledCount();
 			DebugRenderer::EndScene();
@@ -3355,7 +3355,7 @@ namespace
 			front.AddComponent<ColliderComponent>();
 
 			DebugRenderer::BeginScene(camera, camera.GetTransform());
-			DrawPhysicsColliders(*visible);
+			Physics::DrawColliders(*visible);
 			const uint32_t lines = DebugRenderer::GetLineCount();
 			const uint32_t culled = DebugRenderer::GetCulledCount();
 			DebugRenderer::EndScene();
@@ -3374,7 +3374,7 @@ namespace
 		{
 			ColliderComponent box;
 			box.HalfExtents = { 0.5f, 0.5f, 0.5f };
-			const ScaledCollider sized = ScaleCollider(box, { 2.0f, 3.0f, 4.0f });
+			const ScaledCollider sized = Physics::ScaleCollider(box, { 2.0f, 3.0f, 4.0f });
 			Check(std::fabs(sized.HalfExtents.x - 1.0f) < 1e-5f &&
 				  std::fabs(sized.HalfExtents.y - 1.5f) < 1e-5f &&
 				  std::fabs(sized.HalfExtents.z - 2.0f) < 1e-5f,
@@ -3384,11 +3384,11 @@ namespace
 			sphere.Radius = 1.0f;
 			// A sphere has one radius, so the largest axis wins -- enclosing
 			// the mesh rather than cutting into it.
-			Check(std::fabs(ScaleCollider(sphere, { 2.0f, 3.0f, 1.0f }).Radius - 3.0f) < 1e-5f,
+			Check(std::fabs(Physics::ScaleCollider(sphere, { 2.0f, 3.0f, 1.0f }).Radius - 3.0f) < 1e-5f,
 				  "a sphere takes the largest axis, so it encloses rather than clips");
 
 			// A mirrored entity has a size, not a negative size.
-			Check(ScaleCollider(box, { -2.0f, 1.0f, 1.0f }).HalfExtents.x > 0.0f,
+			Check(Physics::ScaleCollider(box, { -2.0f, 1.0f, 1.0f }).HalfExtents.x > 0.0f,
 				  "a negative scale mirrors rather than inverting the shape");
 		}
 	}
@@ -3396,44 +3396,44 @@ namespace
 	// Audio, checked through the scene rather than through the mixer.
 	//
 	// Whether a sound is audible depends on the machine; what the scene does
-	// about it must not. AudioEngine allocates and tracks voices with or
+	// about it must not. Audio::Engine allocates and tracks voices with or
 	// without an output device precisely so this is testable either way, and
 	// every check below holds in both cases.
 	void CheckAudio()
 	{
-		const AssetHandle clip = AssetRegistry::GetHandle("audio/impact.wav");
+		const AssetHandle clip = Assets::Registry::GetHandle("audio/impact.wav");
 		Check(clip.IsValid(), "a .wav in the assets folder is registered as an audio asset");
-		Check(AssetRegistry::GetMetadata(clip).Type == AssetType::Audio,
+		Check(Assets::Registry::GetMetadata(clip).Type == AssetType::Audio,
 			  "and typed from its extension");
 		// The demo scene refers to all three by path, and a handle that stops
 		// resolving is a silent failure there rather than a loud one.
-		Check(AssetRegistry::GetHandle("audio/chime.wav").IsValid() &&
-			  AssetRegistry::GetHandle("audio/hum.wav").IsValid(),
+		Check(Assets::Registry::GetHandle("audio/chime.wav").IsValid() &&
+			  Assets::Registry::GetHandle("audio/hum.wav").IsValid(),
 			  "as are the other sample clips");
 
-		AudioEngine::StopAll();
+		Audio::Engine::StopAll();
 
 		// --- bus volumes ------------------------------------------------------
-		AudioEngine::SetBusVolume(AudioBus::Music, 0.25f);
-		Check(std::fabs(AudioEngine::GetBusVolume(AudioBus::Music) - 0.25f) < 1e-4f,
+		Audio::Engine::SetBusVolume(AudioBus::Music, 0.25f);
+		Check(std::fabs(Audio::Engine::GetBusVolume(AudioBus::Music) - 0.25f) < 1e-4f,
 			  "a bus volume reads back as it was set");
-		Check(std::fabs(AudioEngine::GetBusVolume(AudioBus::SFX) - 1.0f) < 1e-4f,
+		Check(std::fabs(Audio::Engine::GetBusVolume(AudioBus::SFX) - 1.0f) < 1e-4f,
 			  "and does not affect the other buses");
-		AudioEngine::SetBusVolume(AudioBus::Music, 1.0f);
+		Audio::Engine::SetBusVolume(AudioBus::Music, 1.0f);
 
 		// --- what does and does not produce a voice ---------------------------
 		AudioPlayback missing;
 		missing.Clip = AssetHandle::Invalid();
-		Check(AudioEngine::Play(missing) == 0, "a source with no clip plays nothing");
+		Check(Audio::Engine::Play(missing) == 0, "a source with no clip plays nothing");
 
 		AudioPlayback good;
 		good.Clip = clip;
-		const AudioVoice voice = AudioEngine::Play(good);
+		const AudioVoice voice = Audio::Engine::Play(good);
 		Check(voice != 0, "a valid clip yields a voice");
-		Check(AudioEngine::IsPlaying(voice), "which is playing");
-		AudioEngine::Stop(voice);
-		Check(!AudioEngine::IsPlaying(voice), "and stops when told to");
-		Check(AudioEngine::GetVoiceCount() == 0, "leaving nothing behind");
+		Check(Audio::Engine::IsPlaying(voice), "which is playing");
+		Audio::Engine::Stop(voice);
+		Check(!Audio::Engine::IsPlaying(voice), "and stops when told to");
+		Check(Audio::Engine::GetVoiceCount() == 0, "leaving nothing behind");
 
 		// --- play on awake ----------------------------------------------------
 		auto scene = std::make_shared<Scene>();
@@ -3462,8 +3462,8 @@ namespace
 			  "and leaves one that is not alone");
 
 		scene->OnUpdateRuntime(1.0f / 60.0f);
-		AudioEngine::Update();
-		Check(AudioEngine::GetVoiceCount() == 1, "a looping voice survives a frame");
+		Audio::Engine::Update();
+		Check(Audio::Engine::GetVoiceCount() == 1, "a looping voice survives a frame");
 
 		// --- the listener ------------------------------------------------------
 		Check(!scene->GetPrimaryListenerEntity(),
@@ -3487,7 +3487,7 @@ namespace
 
 		// --- destroying a source stops it --------------------------------------
 		scene->DeleteEntity(speaker);
-		Check(AudioEngine::GetVoiceCount() == 0,
+		Check(Audio::Engine::GetVoiceCount() == 0,
 			  "destroying an entity stops the sound it was playing");
 
 		// --- stop silences everything ------------------------------------------
@@ -3498,10 +3498,10 @@ namespace
 			source.Loop = true;
 		}
 		scene->OnRuntimeStart();
-		Check(AudioEngine::GetVoiceCount() == 1, "restarting play starts it again");
+		Check(Audio::Engine::GetVoiceCount() == 1, "restarting play starts it again");
 
 		scene->OnRuntimeStop();
-		Check(AudioEngine::GetVoiceCount() == 0, "stopping the scene silences everything");
+		Check(Audio::Engine::GetVoiceCount() == 0, "stopping the scene silences everything");
 		Check(again.GetComponent<AudioSourceComponent>().Voice == 0,
 			  "and clears the voice off the component");
 	}
@@ -3514,7 +3514,7 @@ namespace
 	// cannot reach the mixer looks fine from either side.
 	void CheckCollisionSound()
 	{
-		AudioEngine::StopAll();
+		Audio::Engine::StopAll();
 
 		auto scene = std::make_shared<Scene>();
 
@@ -3530,30 +3530,30 @@ namespace
 		box.AddComponent<NativeScriptComponent>("ImpactSound");
 
 		auto& source = box.AddComponent<AudioSourceComponent>();
-		source.Clip = AssetRegistry::GetHandle("audio/impact.wav");
+		source.Clip = Assets::Registry::GetHandle("audio/impact.wav");
 		source.PlayOnAwake = false;
 
 		constexpr float dt = 1.0f / 60.0f;
 		scene->OnRuntimeStart();
 
-		Check(AudioEngine::GetVoiceCount() == 0,
+		Check(Audio::Engine::GetVoiceCount() == 0,
 			  "a source that is not play-on-awake is silent at the start");
 
 		// Falling, not yet landed.
 		for (int i = 0; i < 20; i++)
 			scene->OnFixedUpdateRuntime(dt);
 
-		Check(AudioEngine::GetVoiceCount() == 0, "and while it is still in the air");
+		Check(Audio::Engine::GetVoiceCount() == 0, "and while it is still in the air");
 
 		for (int i = 0; i < 40; i++)
 			scene->OnFixedUpdateRuntime(dt);
 
-		Check(AudioEngine::GetVoiceCount() > 0, "landing plays the clip");
+		Check(Audio::Engine::GetVoiceCount() > 0, "landing plays the clip");
 		Check(box.GetComponent<AudioSourceComponent>().Voice == 0,
 			  "as a one-shot, so a second hit overlaps rather than cutting the first off");
 
 		scene->OnRuntimeStop();
-		Check(AudioEngine::GetVoiceCount() == 0, "and stop silences it");
+		Check(Audio::Engine::GetVoiceCount() == 0, "and stop silences it");
 	}
 
 	// Renders a short arrangement through the engine's own mixer and writes it
@@ -3568,20 +3568,20 @@ namespace
 	// Not part of the test run -- it is behind --dump-audio=<file>.
 	void DumpRenderedAudio(const std::string& path)
 	{
-		const uint32_t rate = AudioEngine::GetSampleRate();
-		const uint32_t channels = AudioEngine::GetChannels();
-		if (AudioEngine::GetMode() != AudioMode::Offline || rate == 0 || channels != 2)
+		const uint32_t rate = Audio::Engine::GetSampleRate();
+		const uint32_t channels = Audio::Engine::GetChannels();
+		if (Audio::Engine::GetMode() != AudioMode::Offline || rate == 0 || channels != 2)
 		{
 			RV_CORE_ERROR("--dump-audio needs the offline mixer");
 			return;
 		}
 
-		const AssetHandle impact = AssetRegistry::GetHandle("audio/impact.wav");
-		const AssetHandle chime = AssetRegistry::GetHandle("audio/chime.wav");
-		const AssetHandle hum = AssetRegistry::GetHandle("audio/hum.wav");
+		const AssetHandle impact = Assets::Registry::GetHandle("audio/impact.wav");
+		const AssetHandle chime = Assets::Registry::GetHandle("audio/chime.wav");
+		const AssetHandle hum = Assets::Registry::GetHandle("audio/hum.wav");
 
-		AudioEngine::StopAll();
-		AudioEngine::SetListener({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f });
+		Audio::Engine::StopAll();
+		Audio::Engine::SetListener({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f });
 
 		std::vector<float> mix;
 
@@ -3601,9 +3601,9 @@ namespace
 			for (int i = 0; i < blocks; i++)
 			{
 				each((float)i * kBlock);
-				const uint64_t got = AudioEngine::RenderFrames(block.data(), blockFrames);
+				const uint64_t got = Audio::Engine::RenderFrames(block.data(), blockFrames);
 				mix.insert(mix.end(), block.begin(), block.begin() + got * channels);
-				AudioEngine::Update();
+				Audio::Engine::Update();
 			}
 		};
 
@@ -3614,7 +3614,7 @@ namespace
 			hit.Clip = impact;
 			hit.Spatial = false;
 			hit.Volume = 1.0f - i * 0.3f;
-			AudioEngine::Play(hit);
+			Audio::Engine::Play(hit);
 			advance(0.5f, [](float) {});
 		}
 
@@ -3622,7 +3622,7 @@ namespace
 		AudioPlayback bell;
 		bell.Clip = chime;
 		bell.Spatial = false;
-		AudioEngine::Play(bell);
+		Audio::Engine::Play(bell);
 		advance(1.2f, [](float) {});
 
 		// 3. The drone travelling from left to right, twice round its
@@ -3641,14 +3641,14 @@ namespace
 		drone.MaxDistance = 60.0f;
 		drone.Position = { -10.0f, 0.0f, -2.0f };
 
-		const AudioVoice travelling = AudioEngine::Play(drone);
+		const AudioVoice travelling = Audio::Engine::Play(drone);
 		constexpr float kSweep = 4.5f;
 		advance(kSweep, [&](float t)
 		{
 			const float x = -10.0f + (t / kSweep) * 20.0f;
-			AudioEngine::SetVoicePosition(travelling, { x, 0.0f, -2.0f });
+			Audio::Engine::SetVoicePosition(travelling, { x, 0.0f, -2.0f });
 		});
-		AudioEngine::Stop(travelling);
+		Audio::Engine::Stop(travelling);
 
 		// --- write it out ----------------------------------------------------
 		// 16-bit PCM, by hand. miniaudio is built with MA_NO_ENCODING, and a
@@ -3698,16 +3698,16 @@ namespace
 	// machine nobody is sitting at.
 	void CheckRenderedAudio()
 	{
-		Check(AudioEngine::GetMode() == AudioMode::Offline, "the offline mixer is running");
-		Check(AudioEngine::GetChannels() == 2 && AudioEngine::GetSampleRate() == 48000,
+		Check(Audio::Engine::GetMode() == AudioMode::Offline, "the offline mixer is running");
+		Check(Audio::Engine::GetChannels() == 2 && Audio::Engine::GetSampleRate() == 48000,
 			  "with a stated format, so the mix is the same on every machine");
 
-		const uint32_t channels = AudioEngine::GetChannels();
-		const uint32_t rate = AudioEngine::GetSampleRate();
+		const uint32_t channels = Audio::Engine::GetChannels();
+		const uint32_t rate = Audio::Engine::GetSampleRate();
 		if (channels != 2 || rate == 0)
 			return;
 
-		const AssetHandle clip = AssetRegistry::GetHandle("audio/impact.wav");
+		const AssetHandle clip = Assets::Registry::GetHandle("audio/impact.wav");
 
 		std::vector<float> buffer;
 
@@ -3718,7 +3718,7 @@ namespace
 			const uint64_t frames = (uint64_t)(seconds * rate);
 			buffer.assign((size_t)frames * channels, 0.0f);
 
-			const uint64_t got = AudioEngine::RenderFrames(buffer.data(), frames);
+			const uint64_t got = Audio::Engine::RenderFrames(buffer.data(), frames);
 
 			double left = 0.0, right = 0.0;
 			for (uint64_t i = 0; i < got; i++)
@@ -3734,7 +3734,7 @@ namespace
 		float left = 0.0f, right = 0.0f;
 
 		// --- silence in, silence out -----------------------------------------
-		AudioEngine::StopAll();
+		Audio::Engine::StopAll();
 		render(0.05f, left, right);
 		Check(left == 0.0f && right == 0.0f, "nothing playing renders exact silence");
 
@@ -3742,20 +3742,20 @@ namespace
 		AudioPlayback flat;
 		flat.Clip = clip;
 		flat.Spatial = false;
-		const AudioVoice loud = AudioEngine::Play(flat);
+		const AudioVoice loud = Audio::Engine::Play(flat);
 		render(0.1f, left, right);
 		const float loudLevel = Math::Max(left, right);
 
 		Check(loudLevel > 0.01f, "playing a clip renders audible samples");
 		Check(std::fabs(left - right) < 1e-5f, "and an unpositioned sound is centred");
-		AudioEngine::Stop(loud);
+		Audio::Engine::Stop(loud);
 
 		// --- volume scales it ------------------------------------------------
 		flat.Volume = 0.25f;
-		const AudioVoice quiet = AudioEngine::Play(flat);
+		const AudioVoice quiet = Audio::Engine::Play(flat);
 		render(0.1f, left, right);
 		const float quietLevel = Math::Max(left, right);
-		AudioEngine::Stop(quiet);
+		Audio::Engine::Stop(quiet);
 
 		// A quarter of the amplitude, within a wide tolerance: the block starts
 		// at the same point in the same clip, so the two are directly
@@ -3765,7 +3765,7 @@ namespace
 			  "volume scales what is rendered");
 
 		// --- 3D positioning pans ---------------------------------------------
-		AudioEngine::SetListener({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f });
+		Audio::Engine::SetListener({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f });
 
 		AudioPlayback placed;
 		placed.Clip = clip;
@@ -3774,15 +3774,15 @@ namespace
 		placed.MaxDistance = 100.0f;
 
 		placed.Position = { 5.0f, 0.0f, 0.0f };
-		const AudioVoice onTheRight = AudioEngine::Play(placed);
+		const AudioVoice onTheRight = Audio::Engine::Play(placed);
 		render(0.1f, left, right);
-		AudioEngine::Stop(onTheRight);
+		Audio::Engine::Stop(onTheRight);
 		const float rightSideL = left, rightSideR = right;
 
 		placed.Position = { -5.0f, 0.0f, 0.0f };
-		const AudioVoice onTheLeft = AudioEngine::Play(placed);
+		const AudioVoice onTheLeft = Audio::Engine::Play(placed);
 		render(0.1f, left, right);
-		AudioEngine::Stop(onTheLeft);
+		Audio::Engine::Stop(onTheLeft);
 		const float leftSideL = left, leftSideR = right;
 
 		Check(rightSideR > rightSideL * 1.2f, "a sound to the right is louder in the right ear");
@@ -3792,16 +3792,16 @@ namespace
 		// Not `near` and `far`: both are macros in the Windows headers, which
 		// turns them into a declaration with no name.
 		placed.Position = { 0.0f, 0.0f, -1.0f };
-		const AudioVoice closeBy = AudioEngine::Play(placed);
+		const AudioVoice closeBy = Audio::Engine::Play(placed);
 		render(0.1f, left, right);
 		const float nearLevel = Math::Max(left, right);
-		AudioEngine::Stop(closeBy);
+		Audio::Engine::Stop(closeBy);
 
 		placed.Position = { 0.0f, 0.0f, -60.0f };
-		const AudioVoice distant = AudioEngine::Play(placed);
+		const AudioVoice distant = Audio::Engine::Play(placed);
 		render(0.1f, left, right);
 		const float farLevel = Math::Max(left, right);
-		AudioEngine::Stop(distant);
+		Audio::Engine::Stop(distant);
 
 		Check(nearLevel > farLevel * 2.0f, "and further away is quieter");
 
@@ -3816,13 +3816,13 @@ namespace
 		AudioPlayback oneShot;
 		oneShot.Clip = clip;
 		oneShot.Spatial = false;
-		AudioEngine::Play(oneShot);
+		Audio::Engine::Play(oneShot);
 
 		render(0.5f, left, right);
 		Check(Math::Max(left, right) > 0.0f, "a one-shot renders");
 
-		AudioEngine::Update();
-		Check(AudioEngine::GetVoiceCount() == 0, "and retires itself once it has played out");
+		Audio::Engine::Update();
+		Check(Audio::Engine::GetVoiceCount() == 0, "and retires itself once it has played out");
 
 		render(0.05f, left, right);
 		Check(left == 0.0f && right == 0.0f, "leaving silence behind it");
@@ -3836,7 +3836,7 @@ namespace
 
 		Entity entity = scene->CreateEntity("Source");
 		auto& source = entity.AddComponent<AudioSourceComponent>();
-		source.Clip = AssetRegistry::GetHandle("audio/chime.wav");
+		source.Clip = Assets::Registry::GetHandle("audio/chime.wav");
 		source.Bus = AudioBus::Music;
 		source.Volume = 0.42f;
 		source.Pitch = 1.35f;
@@ -4169,12 +4169,12 @@ int RunTests(int argc, char** argv)
 	// The same resolution the editor and the runtime use, so the tests exercise
 	// a real project rather than a folder that happens to be beside them.
 	Project::OpenConfigured();
-	AssetRegistry::Init(Project::GetActive() ? Project::AssetRoot()
+	Assets::Registry::Init(Project::GetActive() ? Project::AssetRoot()
 											 : std::filesystem::path("assets"));
-	AssetManager::Init(*device);
+	Assets::Manager::Init(*device);
 	// Opens a real device if there is one. The audio checks are written to
 	// hold either way, so a machine with no sound card is not a failing build.
-	AudioEngine::Init();
+	Audio::Engine::Init();
 
 	RV_CORE_INFO("Scene round-trip test on {0}", device->GetCaps().APIName);
 
@@ -4224,16 +4224,16 @@ int RunTests(int argc, char** argv)
 	// believing, since the day it stops being true is a day nobody notices on a
 	// desk with speakers.
 	RV_CORE_INFO("Audio again, with no output device");
-	AudioEngine::Shutdown();
-	AudioEngine::Init(AudioMode::Silent);
-	Check(!AudioEngine::IsAvailable(), "the silent path really is silent");
+	Audio::Engine::Shutdown();
+	Audio::Engine::Init(AudioMode::Silent);
+	Check(!Audio::Engine::IsAvailable(), "the silent path really is silent");
 	CheckAudio();
 	CheckCollisionSound();
 
 	// And once more against the mixer itself, where the output can be measured.
 	RV_CORE_INFO("Audio again, offline, measuring the mix");
-	AudioEngine::Shutdown();
-	AudioEngine::Init(AudioMode::Offline);
+	Audio::Engine::Shutdown();
+	Audio::Engine::Init(AudioMode::Offline);
 	CheckAudio();
 	CheckCollisionSound();
 	CheckRenderedAudio();
@@ -4607,9 +4607,9 @@ int RunTests(int argc, char** argv)
 		Check(!DotNetHost::IsAvailable(), "Shutdown leaves the host unavailable");
 	}
 
-	AudioEngine::Shutdown();
-	AssetManager::Shutdown();
-	AssetRegistry::Shutdown();
+	Audio::Engine::Shutdown();
+	Assets::Manager::Shutdown();
+	Assets::Registry::Shutdown();
 	Renderer::Shutdown();
 	device.reset();
 	glfwDestroyWindow(window);

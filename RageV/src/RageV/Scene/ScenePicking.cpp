@@ -145,7 +145,7 @@ namespace RageV
 		{
 			auto [mesh, transform] = meshes.get<MeshComponent, TransformComponent>(handle);
 
-			RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh);
+			RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
 			if (!resolved || resolved->GetPositions().empty())
 				continue;
 
@@ -205,7 +205,7 @@ namespace RageV
 			if (!Math::Decompose(transform.World, position, rotation, worldScale))
 				continue;
 
-			const ScaledCollider sized = ScaleCollider(collider, worldScale);
+			const ScaledCollider sized = Physics::ScaleCollider(collider, worldScale);
 
 			// Every shape as its own bounding box. A sphere collider picked by
 			// its box is imprecise, but a collider is a handle for selecting

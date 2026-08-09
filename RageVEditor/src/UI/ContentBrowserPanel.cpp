@@ -53,7 +53,7 @@ namespace RageV
 			return;
 		}
 
-		if (!AssetRegistry::IsInitialised())
+		if (!Assets::Registry::IsInitialised())
 		{
 			ImGui::TextDisabled("No asset registry.");
 			ImGui::End();
@@ -61,7 +61,7 @@ namespace RageV
 		}
 
 		if (m_Current.empty() || !std::filesystem::exists(m_Current))
-			m_Current = AssetRegistry::Root();
+			m_Current = Assets::Registry::Root();
 
 		DrawBreadcrumbs();
 		ImGui::Separator();
@@ -125,7 +125,7 @@ namespace RageV
 
 	void ContentBrowserPanel::DrawBreadcrumbs()
 	{
-		const std::filesystem::path& root = AssetRegistry::Root();
+		const std::filesystem::path& root = Assets::Registry::Root();
 
 		ImGui::BeginDisabled(m_Current == root);
 		if (ImGui::Button("<"))
@@ -138,7 +138,7 @@ namespace RageV
 			// Files arrive from outside the editor -- an exporter writing into
 			// the folder, a git pull -- so the registry is rescanned on demand
 			// rather than only at startup.
-			AssetRegistry::Refresh();
+			Assets::Registry::Refresh();
 		}
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Rescan the assets folder. New files get a handle; the sidecar\n"
@@ -177,11 +177,11 @@ namespace RageV
 		{
 			std::error_code error;
 			const std::filesystem::path relative =
-				std::filesystem::relative(path, AssetRegistry::Root(), error);
+				std::filesystem::relative(path, Assets::Registry::Root(), error);
 			if (!error)
 			{
-				handle = AssetRegistry::GetHandle(relative.generic_string());
-				type = AssetRegistry::GetMetadata(handle).Type;
+				handle = Assets::Registry::GetHandle(relative.generic_string());
+				type = Assets::Registry::GetMetadata(handle).Type;
 			}
 		}
 

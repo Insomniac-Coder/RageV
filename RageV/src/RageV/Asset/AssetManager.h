@@ -6,17 +6,24 @@
 #include "RageV/Animation/Skeleton.h"
 #include "RageV/Renderer/Material.h"
 
+// Declared in the enclosing namespace on purpose. Inside
+// `namespace RageV::Assets` these would declare new types that nothing ever
+// defines, and the error surfaces at the use site rather than here.
 namespace RageV
 {
 	class Scene;
 	class Entity;
+}
+
+namespace RageV::Assets
+{
 
 	// Turns handles into loaded assets, and caches the result.
 	//
-	// Split from AssetRegistry on purpose: the registry knows what exists and
+	// Split from Registry on purpose: the registry knows what exists and
 	// needs no GPU, so a headless tool can inspect a project. The manager
 	// creates GPU resources and needs a device.
-	class AssetManager
+	class Manager
 	{
 	public:
 		static void Init(RHI::RHIDevice& device);
@@ -32,7 +39,7 @@ namespace RageV
 		// of the same parse and a second one to fetch them would be the file
 		// read twice.
 		static const Skeleton* GetSkeleton(AssetHandle handle);
-		static const std::vector<AnimationClip>* GetClips(AssetHandle handle);
+		static const std::vector<Anim::Clip>* GetClips(AssetHandle handle);
 
 		// An environment map, built from whatever image the handle names. The
 		// conversion from a panorama is not cheap, so a failure is cached as

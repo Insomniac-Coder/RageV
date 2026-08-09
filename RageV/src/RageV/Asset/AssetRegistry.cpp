@@ -4,7 +4,7 @@
 #include "yaml-cpp/yaml.h"
 #include <fstream>
 
-namespace RageV
+namespace RageV::Assets
 {
 	namespace
 	{
@@ -37,11 +37,11 @@ namespace RageV
 		}
 	}
 
-	bool AssetRegistry::IsInitialised() { return s_Initialised; }
-	const std::filesystem::path& AssetRegistry::Root() { return s_Root; }
-	const std::map<std::string, AssetMetadata>& AssetRegistry::All() { return s_ByPath; }
+	bool Registry::IsInitialised() { return s_Initialised; }
+	const std::filesystem::path& Registry::Root() { return s_Root; }
+	const std::map<std::string, AssetMetadata>& Registry::All() { return s_ByPath; }
 
-	void AssetRegistry::Init(const std::filesystem::path& assetsRoot)
+	void Registry::Init(const std::filesystem::path& assetsRoot)
 	{
 		s_Root = std::filesystem::absolute(assetsRoot);
 		s_Initialised = true;
@@ -57,7 +57,7 @@ namespace RageV
 		Refresh();
 	}
 
-	void AssetRegistry::Shutdown()
+	void Registry::Shutdown()
 	{
 		s_ByPath.clear();
 		s_PathByHandle.clear();
@@ -65,7 +65,7 @@ namespace RageV
 		s_Initialised = false;
 	}
 
-	void AssetRegistry::Refresh()
+	void Registry::Refresh()
 	{
 		if (!s_Initialised)
 			return;
@@ -87,7 +87,7 @@ namespace RageV
 		ScanDirectory(s_Root);
 	}
 
-	void AssetRegistry::ScanDirectory(const std::filesystem::path& directory)
+	void Registry::ScanDirectory(const std::filesystem::path& directory)
 	{
 		std::error_code error;
 		for (const auto& entry : std::filesystem::directory_iterator(directory, error))
@@ -114,7 +114,7 @@ namespace RageV
 		}
 	}
 
-	AssetMetadata AssetRegistry::ReadOrCreateMeta(const std::filesystem::path& file, AssetType type)
+	AssetMetadata Registry::ReadOrCreateMeta(const std::filesystem::path& file, AssetType type)
 	{
 		const std::filesystem::path metaPath = file.string() + ".meta";
 
@@ -158,7 +158,7 @@ namespace RageV
 		return metadata;
 	}
 
-	void AssetRegistry::WriteMeta(const std::filesystem::path& file, const AssetMetadata& metadata)
+	void Registry::WriteMeta(const std::filesystem::path& file, const AssetMetadata& metadata)
 	{
 		const std::filesystem::path metaPath = file.string() + ".meta";
 
@@ -180,7 +180,7 @@ namespace RageV
 		out << emitter.c_str();
 	}
 
-	const AssetMetadata& AssetRegistry::GetMetadata(AssetHandle handle)
+	const AssetMetadata& Registry::GetMetadata(AssetHandle handle)
 	{
 		const auto path = s_PathByHandle.find(handle);
 		if (path == s_PathByHandle.end())
@@ -190,13 +190,13 @@ namespace RageV
 		return metadata == s_ByPath.end() ? s_Invalid : metadata->second;
 	}
 
-	AssetHandle AssetRegistry::GetHandle(const std::string& relativePath)
+	AssetHandle Registry::GetHandle(const std::string& relativePath)
 	{
 		const auto it = s_ByPath.find(relativePath);
 		return it == s_ByPath.end() ? AssetHandle::Invalid() : it->second.Handle;
 	}
 
-	std::filesystem::path AssetRegistry::GetAbsolutePath(AssetHandle handle)
+	std::filesystem::path Registry::GetAbsolutePath(AssetHandle handle)
 	{
 		const AssetMetadata& metadata = GetMetadata(handle);
 		if (!metadata.IsValid() || metadata.Path.rfind("virtual:", 0) == 0)
@@ -205,7 +205,7 @@ namespace RageV
 		return s_Root / metadata.Path;
 	}
 
-	AssetHandle AssetRegistry::RegisterVirtual(AssetHandle handle, AssetType type,
+	AssetHandle Registry::RegisterVirtual(AssetHandle handle, AssetType type,
 											   const std::string& name)
 	{
 		AssetMetadata metadata;
@@ -225,7 +225,7 @@ namespace RageV
 	// the timestamp without changing anything, and re-importing every model
 	// after a git operation is exactly the kind of thing that makes an asset
 	// pipeline feel slow.
-	uint64_t AssetRegistry::HashFile(const std::filesystem::path& path)
+	uint64_t Registry::HashFile(const std::filesystem::path& path)
 	{
 		std::ifstream file(path, std::ios::binary);
 		if (!file)

@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace RageV
+namespace RageV::Anim
 {
 	// A bone hierarchy and the clips that move it.
 	//
@@ -67,7 +67,7 @@ namespace RageV
 	// how glTF stores it and because a bone that only rotates -- most of them --
 	// then costs nothing for position and scale.
 	template<typename T>
-	struct AnimationChannel
+	struct Channel
 	{
 		std::vector<float> Times;
 		std::vector<T> Values;
@@ -77,9 +77,9 @@ namespace RageV
 
 	struct BoneTrack
 	{
-		AnimationChannel<Vec3> Position;
-		AnimationChannel<Quat> Rotation;
-		AnimationChannel<Vec3> Scale;
+		Channel<Vec3> Position;
+		Channel<Quat> Rotation;
+		Channel<Vec3> Scale;
 
 		bool IsEmpty() const
 		{
@@ -87,7 +87,7 @@ namespace RageV
 		}
 	};
 
-	struct AnimationClip
+	struct Clip
 	{
 		std::string Name;
 		// Seconds. Taken from the last key of any channel, not authored.
@@ -116,7 +116,7 @@ namespace RageV
 	// `time` is wrapped into the clip when `loop`, clamped otherwise. Bones the
 	// clip does not animate take their rest transform, which is why this needs
 	// the skeleton and not just the clip.
-	void SamplePose(const Skeleton& skeleton, const AnimationClip& clip,
+	void SamplePose(const Skeleton& skeleton, const Clip& clip,
 					float time, bool loop, Pose& out);
 
 	// The skeleton at rest, with no clip at all.
@@ -143,4 +143,22 @@ namespace RageV
 	// interpolation: a component-wise blend of two quaternions shortens the arc
 	// and makes a limb dip through the middle of a turn.
 	void BlendPoses(const Pose& a, const Pose& b, float weight, Pose& out);
+}
+
+// Re-exported into RageV. Skeleton hangs off a Mesh and Clip is what an
+// AnimatorComponent plays, so both appear in declarations that are otherwise
+// entirely unqualified -- see AudioEngine.h for the rule.
+//
+// The free functions -- SamplePose, BlendPoses, ComposeSkinning -- deliberately
+// are *not* re-exported and do not need to be: their arguments are Anim types,
+// so argument-dependent lookup finds them unqualified anyway.
+namespace RageV
+{
+	using Anim::Skeleton;
+	using Anim::Bone;
+	using Anim::BoneTrack;
+	using Anim::BoneTransform;
+	using Anim::Pose;
+
+	using AnimationClip = Anim::Clip;
 }

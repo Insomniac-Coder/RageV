@@ -5,10 +5,17 @@
 #include <memory>
 #include <vector>
 
+// Declared in the enclosing namespace on purpose. Inside
+// `namespace RageV::Physics` these would declare new types that nothing
+// ever defines, and the error would surface far from here.
 namespace RageV
 {
 	class Scene;
 	class Entity;
+}
+
+namespace RageV::Physics
+{
 
 	struct RayHit
 	{
@@ -72,14 +79,14 @@ namespace RageV
 	// of machinery and carry compile definitions that must match exactly
 	// between the library and everything that includes it -- confining that to
 	// one translation unit is the cheapest way to never debug an ABI mismatch.
-	class PhysicsWorld
+	class World
 	{
 	public:
-		PhysicsWorld();
-		~PhysicsWorld();
+		World();
+		~World();
 
-		PhysicsWorld(const PhysicsWorld&) = delete;
-		PhysicsWorld& operator=(const PhysicsWorld&) = delete;
+		World(const World&) = delete;
+		World& operator=(const World&) = delete;
 
 		// Creates a body for every entity in the scene that has a rigid body,
 		// in one batch.
@@ -149,4 +156,17 @@ namespace RageV
 		struct Impl;
 		std::unique_ptr<Impl> m_Impl;
 	};
+}
+
+// The value types, re-exported into RageV. See the note in AudioEngine.h for
+// the rule: the machinery stays in the namespace, the small types that appear
+// in other domains' signatures live at the root too.
+//
+// RayHit especially -- it is what a script gets back from Raycast, and the
+// scripting guide's examples read `if (RayHit hit = Raycast(...))`.
+namespace RageV
+{
+	using Physics::RayHit;
+	using Physics::ContactEvent;
+	using Physics::ContactPhase;
 }

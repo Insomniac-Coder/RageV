@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-namespace RageV
+namespace RageV::Physics
 {
 	// How a body participates in the simulation.
 	enum class BodyType : uint32_t
@@ -39,4 +39,13 @@ namespace RageV
 		constexpr uint16_t Moving = 1;
 		constexpr uint16_t Count = 2;
 	}
+}
+
+// Re-exported into RageV: both are fields on components, and a component
+// declaration reading `Physics::ColliderShape Shape` would be the only
+// qualified type in a struct full of plain ones. See AudioEngine.h for the rule.
+namespace RageV
+{
+	using Physics::BodyType;
+	using Physics::ColliderShape;
 }

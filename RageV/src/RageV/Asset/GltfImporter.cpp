@@ -4,7 +4,7 @@
 #include "RageV/Math/Math.h"
 #include <cgltf.h>
 
-namespace RageV
+namespace RageV::Assets
 {
 	namespace
 	{
@@ -275,7 +275,7 @@ namespace RageV
 		}
 
 		void ReadAnimation(const cgltf_animation& source, const SkinMapping& mapping,
-						   size_t boneCount, AnimationClip& out)
+						   size_t boneCount, Anim::Clip& out)
 		{
 			out.Name = source.name ? source.name : "Clip";
 			out.Tracks.assign(boneCount, BoneTrack{});
@@ -652,7 +652,7 @@ namespace RageV
 		{
 			for (cgltf_size i = 0; i < data->animations_count; i++)
 			{
-				AnimationClip clip;
+				Anim::Clip clip;
 				ReadAnimation(data->animations[i], mapping, out.Skeleton.Size(), clip);
 
 				// A clip animating nothing this skeleton owns is not worth

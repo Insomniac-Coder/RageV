@@ -10,7 +10,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace RageV
+namespace RageV::Assets
 {
 	namespace
 	{
@@ -23,7 +23,7 @@ namespace RageV
 		// Cached beside the meshes and cleared with them: they come out of the
 		// same parse, so fetching them separately would read the file twice.
 		std::unordered_map<AssetHandle, Skeleton> s_Skeletons;
-		std::unordered_map<AssetHandle, std::vector<AnimationClip>> s_Clips;
+		std::unordered_map<AssetHandle, std::vector<Anim::Clip>> s_Clips;
 
 		// Environment maps, keyed on the handle rather than the path, so a scene
 		// that reloads keeps the cube it already paid to build.
@@ -36,12 +36,12 @@ namespace RageV
 		};
 	}
 
-	AssetHandle AssetManager::GetPrimitiveHandle(PrimitiveType type)
+	AssetHandle Manager::GetPrimitiveHandle(PrimitiveType type)
 	{
 		return AssetHandle(BuiltinAssets::kPrimitiveBase + (uint64_t)type);
 	}
 
-	bool AssetManager::IsPrimitive(AssetHandle handle, PrimitiveType& out)
+	bool Manager::IsPrimitive(AssetHandle handle, PrimitiveType& out)
 	{
 		const uint64_t value = handle;
 		if (value < BuiltinAssets::kPrimitiveBase ||
@@ -52,24 +52,24 @@ namespace RageV
 		return true;
 	}
 
-	void AssetManager::Init(RHI::RHIDevice& device)
+	void Manager::Init(RHI::RHIDevice& device)
 	{
 		s_Device = &device;
 
 		for (PrimitiveType type : kPrimitives)
 		{
-			AssetRegistry::RegisterVirtual(GetPrimitiveHandle(type), AssetType::Mesh,
+			Registry::RegisterVirtual(GetPrimitiveHandle(type), AssetType::Mesh,
 										   PrimitiveTypeName(type));
 		}
 	}
 
-	void AssetManager::Shutdown()
+	void Manager::Shutdown()
 	{
 		ClearCache();
 		s_Device = nullptr;
 	}
 
-	void AssetManager::ClearCache()
+	void Manager::ClearCache()
 	{
 		s_Meshes.clear();
 		s_Skeletons.clear();
@@ -86,7 +86,7 @@ namespace RageV
 		EnvironmentIBL::ClearCache();
 	}
 
-	std::string AssetManager::GetDisplayName(AssetHandle handle)
+	std::string Manager::GetDisplayName(AssetHandle handle)
 	{
 		if (!handle.IsValid())
 			return "(none)";
@@ -95,7 +95,7 @@ namespace RageV
 		if (IsPrimitive(handle, primitive))
 			return PrimitiveTypeName(primitive);
 
-		const AssetMetadata& metadata = AssetRegistry::GetMetadata(handle);
+		const AssetMetadata& metadata = Registry::GetMetadata(handle);
 		if (!metadata.IsValid())
 			return "(missing)";
 
@@ -103,7 +103,7 @@ namespace RageV
 		return slash == std::string::npos ? metadata.Path : metadata.Path.substr(slash + 1);
 	}
 
-	RHI::Ref<Mesh> AssetManager::GetMesh(AssetHandle handle)
+	RHI::Ref<Mesh> Manager::GetMesh(AssetHandle handle)
 	{
 		if (!s_Device || !handle.IsValid())
 			return nullptr;
@@ -119,7 +119,7 @@ namespace RageV
 		// A model file holds several primitives; only the first is addressable
 		// by the file's own handle. InstantiateModel is the entry point that
 		// reaches the rest, and it populates this cache as it goes.
-		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 		if (path.empty())
 			return nullptr;
 
@@ -171,7 +171,7 @@ namespace RageV
 		return mesh;
 	}
 
-	const Skeleton* AssetManager::GetSkeleton(AssetHandle handle)
+	const Skeleton* Manager::GetSkeleton(AssetHandle handle)
 	{
 		// GetMesh first: the skeleton is cached by the same parse, and asking
 		// for it before anything has loaded the model would report that a
@@ -182,7 +182,7 @@ namespace RageV
 		return found != s_Skeletons.end() ? &found->second : nullptr;
 	}
 
-	const std::vector<AnimationClip>* AssetManager::GetClips(AssetHandle handle)
+	const std::vector<Anim::Clip>* Manager::GetClips(AssetHandle handle)
 	{
 		GetMesh(handle);
 
@@ -190,7 +190,7 @@ namespace RageV
 		return found != s_Clips.end() ? &found->second : nullptr;
 	}
 
-	RHI::Ref<RHI::RHITexture> AssetManager::GetCubemap(AssetHandle handle)
+	RHI::Ref<RHI::RHITexture> Manager::GetCubemap(AssetHandle handle)
 	{
 		if (!s_Device || !handle.IsValid())
 			return nullptr;
@@ -199,7 +199,7 @@ namespace RageV
 		if (cached != s_Cubemaps.end())
 			return cached->second;
 
-		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 		if (path.empty())
 		{
 			s_Cubemaps[handle] = nullptr;
@@ -211,7 +211,7 @@ namespace RageV
 		return cube;
 	}
 
-	RHI::Ref<RHI::RHITexture> AssetManager::GetIrradiance(AssetHandle handle)
+	RHI::Ref<RHI::RHITexture> Manager::GetIrradiance(AssetHandle handle)
 	{
 		if (!s_Device || !handle.IsValid())
 			return nullptr;
@@ -223,7 +223,7 @@ namespace RageV
 		if (cached != s_Irradiance.end())
 			return cached->second;
 
-		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 		if (path.empty())
 		{
 			s_Irradiance[handle] = nullptr;
@@ -235,13 +235,13 @@ namespace RageV
 		return irradiance;
 	}
 
-	AssetHandle AssetManager::CreatePrefab(Scene& scene, Entity root,
+	AssetHandle Manager::CreatePrefab(Scene& scene, Entity root,
 										   const std::filesystem::path& relativePath)
 	{
-		if (!root || !AssetRegistry::IsInitialised())
+		if (!root || !Registry::IsInitialised())
 			return AssetHandle::Invalid();
 
-		const std::filesystem::path absolute = AssetRegistry::Root() / relativePath;
+		const std::filesystem::path absolute = Registry::Root() / relativePath;
 
 		std::error_code error;
 		std::filesystem::create_directories(absolute.parent_path(), error);
@@ -263,9 +263,9 @@ namespace RageV
 		file.close();
 
 		// Picks up the new file and mints its sidecar.
-		AssetRegistry::Refresh();
+		Registry::Refresh();
 
-		const AssetHandle handle = AssetRegistry::GetHandle(relativePath.generic_string());
+		const AssetHandle handle = Registry::GetHandle(relativePath.generic_string());
 		if (handle.IsValid())
 		{
 			// The source tree becomes an instance of the prefab it just made,
@@ -280,9 +280,9 @@ namespace RageV
 		return handle;
 	}
 
-	Entity AssetManager::InstantiatePrefab(Scene& scene, AssetHandle handle)
+	Entity Manager::InstantiatePrefab(Scene& scene, AssetHandle handle)
 	{
-		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 		if (path.empty())
 			return {};
 
@@ -314,12 +314,12 @@ namespace RageV
 		return root;
 	}
 
-	Entity AssetManager::InstantiateModel(Scene& scene, AssetHandle handle)
+	Entity Manager::InstantiateModel(Scene& scene, AssetHandle handle)
 	{
 		if (!s_Device)
 			return {};
 
-		const std::filesystem::path path = AssetRegistry::GetAbsolutePath(handle);
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 		if (path.empty())
 		{
 			RV_CORE_ERROR("No source file for asset {0}", (uint64_t)handle);

@@ -59,7 +59,7 @@ namespace RageV
 	// entity would otherwise play until the process ended.
 	void Scene::OnAudioSourceDestroyed(entt::registry& registry, entt::entity handle)
 	{
-		AudioEngine::Stop(registry.get<AudioSourceComponent>(handle).Voice);
+		Audio::Engine::Stop(registry.get<AudioSourceComponent>(handle).Voice);
 	}
 
 	void Scene::OnIDDestroyed(entt::registry& registry, entt::entity handle)
@@ -405,7 +405,7 @@ namespace RageV
 			playback.MinDistance = source.MinDistance;
 			playback.MaxDistance = source.MaxDistance;
 
-			source.Voice = AudioEngine::Play(playback);
+			source.Voice = Audio::Engine::Play(playback);
 		}
 	}
 
@@ -415,14 +415,14 @@ namespace RageV
 		for (auto handle : view)
 		{
 			AudioSourceComponent& source = view.get<AudioSourceComponent>(handle);
-			AudioEngine::Stop(source.Voice);
+			Audio::Engine::Stop(source.Voice);
 			source.Voice = 0;
 		}
 
 		// Everything else the run started -- one-shots a script fired, and
 		// sounds belonging to entities that have since been destroyed. Stop
 		// means silence, not "silence except for whatever is still in flight".
-		AudioEngine::StopAll();
+		Audio::Engine::StopAll();
 	}
 
 	void Scene::UpdateAudio()
@@ -432,7 +432,7 @@ namespace RageV
 			const Mat4& world = listener.GetComponent<TransformComponent>().World;
 
 			// -Z forward, matching the camera and light convention.
-			AudioEngine::SetListener(Vec3(world[3]),
+			Audio::Engine::SetListener(Vec3(world[3]),
 									 Vec3(world * Vec4(0.0f, 0.0f, -1.0f, 0.0f)),
 									 Vec3(world * Vec4(0.0f, 1.0f, 0.0f, 0.0f)));
 		}
@@ -445,13 +445,13 @@ namespace RageV
 			auto [source, transform] = view.get<AudioSourceComponent, TransformComponent>(handle);
 
 			if (source.Voice != 0 && source.Spatial)
-				AudioEngine::SetVoicePosition(source.Voice, Vec3(transform.World[3]));
+				Audio::Engine::SetVoicePosition(source.Voice, Vec3(transform.World[3]));
 		}
 	}
 
 	void Scene::OnRuntimeStart()
 	{
-		m_Physics = std::make_unique<PhysicsWorld>();
+		m_Physics = std::make_unique<Physics::World>();
 		m_Physics->Build(*this);
 
 		StartAudioSources();
@@ -667,7 +667,7 @@ namespace RageV
 
 		RHI::Ref<RHI::RHITexture> sky;
 		if (m_Environment.Sky == SkyType::Cubemap)
-			sky = AssetManager::GetCubemap(m_Environment.SkyTexture);
+			sky = Assets::Manager::GetCubemap(m_Environment.SkyTexture);
 
 		sky = Skybox::ResolveEnvironment(m_Environment, sky);
 
@@ -720,7 +720,7 @@ namespace RageV
 			{
 				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
 
-				RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh);
+				RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
 				if (!resolved)
 					continue;
 
@@ -746,7 +746,7 @@ namespace RageV
 						Renderer3D::DrawSkinnedMeshShadow(resolved, transform.World,
 														  animator->Skinning);
 					}
-					else if (const Skeleton* skeleton = AssetManager::GetSkeleton(mesh.Mesh))
+					else if (const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh))
 					{
 						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
 						Renderer3D::DrawSkinnedMeshShadow(resolved, transform.World, bind);
@@ -1043,19 +1043,19 @@ namespace RageV
 		{
 			auto [mesh, animator] = view.get<MeshComponent, AnimatorComponent>(item);
 
-			const Skeleton* skeleton = AssetManager::GetSkeleton(mesh.Mesh);
+			const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh);
 			if (!skeleton || skeleton->IsEmpty())
 			{
 				animator.Skinning.clear();
 				continue;
 			}
 
-			const std::vector<AnimationClip>* clips = AssetManager::GetClips(mesh.Mesh);
+			const std::vector<Anim::Clip>* clips = Assets::Manager::GetClips(mesh.Mesh);
 
 			// A clip index of -1, or one past the end, is the bind pose. Both
 			// are states a person can reach in the inspector and neither is an
 			// error worth a log line every frame.
-			const AnimationClip* clip = nullptr;
+			const Anim::Clip* clip = nullptr;
 			if (clips && animator.Clip >= 0 && animator.Clip < (int)clips->size())
 				clip = &(*clips)[animator.Clip];
 
@@ -1105,8 +1105,8 @@ namespace RageV
 		{
 			if (m_Environment.Sky == SkyType::Cubemap)
 			{
-				sky = AssetManager::GetCubemap(m_Environment.SkyTexture);
-				irradiance = AssetManager::GetIrradiance(m_Environment.SkyTexture);
+				sky = Assets::Manager::GetCubemap(m_Environment.SkyTexture);
+				irradiance = Assets::Manager::GetIrradiance(m_Environment.SkyTexture);
 			}
 
 			// Before ResolveEnvironment replaces `sky` with the gradient cube:
@@ -1149,7 +1149,7 @@ namespace RageV
 				// Null when the handle points at nothing loadable -- a deleted
 				// model, or a scene opened without its assets. Skipped rather
 				// than substituted, so the gap is visible.
-				RHI::Ref<Mesh> resolved = AssetManager::GetMesh(mesh.Mesh);
+				RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
 				if (!resolved)
 					continue;
 
@@ -1182,7 +1182,7 @@ namespace RageV
 						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material,
 													animator->Skinning);
 					}
-					else if (const Skeleton* skeleton = AssetManager::GetSkeleton(mesh.Mesh))
+					else if (const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh))
 					{
 						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
 						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material, bind);

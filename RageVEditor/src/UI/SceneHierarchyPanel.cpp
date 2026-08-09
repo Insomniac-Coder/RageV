@@ -415,7 +415,7 @@ namespace
 				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 
 				AssetHandle& handle = *(AssetHandle*)value;
-				const std::string name = AssetManager::GetDisplayName(handle);
+				const std::string name = Assets::Manager::GetDisplayName(handle);
 
 				// A button rather than a label: it is the drop target, and a
 				// target you cannot see is one nobody finds.
@@ -426,7 +426,7 @@ namespace
 					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ASSET"))
 					{
 						const AssetHandle dropped = *(const AssetHandle*)payload->Data;
-						const AssetMetadata& metadata = AssetRegistry::GetMetadata(dropped);
+						const AssetMetadata& metadata = Assets::Registry::GetMetadata(dropped);
 
 						// Refused rather than stored: a handle of the wrong
 						// type resolves to nothing, and silently accepting it
@@ -442,7 +442,7 @@ namespace
 
 				if (ImGui::IsItemHovered() && handle.IsValid())
 					ImGui::SetTooltip("%s\n\nDrop an asset from the Content browser to change it.",
-									  AssetRegistry::GetMetadata(handle).Path.c_str());
+									  Assets::Registry::GetMetadata(handle).Path.c_str());
 
 				EndField();
 				break;

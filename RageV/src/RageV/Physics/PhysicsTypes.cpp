@@ -1,7 +1,7 @@
 #include <rvpch.h>
 #include "PhysicsTypes.h"
 
-namespace RageV
+namespace RageV::Physics
 {
 	const char* BodyTypeName(BodyType type)
 	{

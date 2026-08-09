@@ -5,7 +5,7 @@
 #include <map>
 #include <unordered_map>
 
-namespace RageV
+namespace RageV::Assets
 {
 	struct AssetMetadata
 	{
@@ -41,7 +41,7 @@ namespace RageV
 	// added to the *source* tree keep their handle, because the copy carries
 	// the sidecar along. The real fix is the project concept in roadmap 4.1 --
 	// a project folder that is the root, with no copying.
-	class AssetRegistry
+	class Registry
 	{
 	public:
 		// Scans the root and reads or creates a sidecar for every asset file
@@ -78,4 +78,13 @@ namespace RageV
 		static AssetMetadata ReadOrCreateMeta(const std::filesystem::path& file, AssetType type);
 		static void WriteMeta(const std::filesystem::path& file, const AssetMetadata& metadata);
 	};
+}
+
+// See AudioEngine.h for the rule: the machinery lives in the namespace, the
+// value types that appear in other domains' signatures live at the root too.
+// Asset, AssetHandle and AssetType never moved at all -- they are in Asset.h,
+// and every subsystem in the engine names them.
+namespace RageV
+{
+	using Assets::AssetMetadata;
 }

@@ -458,7 +458,7 @@ void EditorLayer::DrawColliderOverlay()
 								  camera.GetComponent<TransformComponent>().World);
 	}
 
-	DrawPhysicsColliders(*m_Scene, selected);
+	Physics::DrawColliders(*m_Scene, selected);
 	DebugRenderer::EndScene();
 }
 
@@ -1275,7 +1275,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 
 		if (environment.Sky == SkyType::Cubemap)
 		{
-			const std::string name = AssetManager::GetDisplayName(environment.SkyTexture);
+			const std::string name = Assets::Manager::GetDisplayName(environment.SkyTexture);
 			ImGui::Button(name.c_str(), ImVec2(-1.0f, 0.0f));
 
 			if (ImGui::BeginDragDropTarget())
@@ -1288,7 +1288,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 					// inspector's asset fields refuse: a handle of the wrong
 					// type resolves to nothing, and the field would present as
 					// simply not working.
-					if (AssetRegistry::GetMetadata(dropped).Type == AssetType::Texture)
+					if (Assets::Registry::GetMetadata(dropped).Type == AssetType::Texture)
 					{
 						const SceneEnvironment before = environment;
 						environment.SkyTexture = dropped;
@@ -1922,9 +1922,9 @@ void EditorLayer::LoadDemoScene()
 	// exercises the asset path rather than only the built-in one. Absent
 	// quietly if the file is not there -- a missing sample should not stop the
 	// editor opening.
-	if (const AssetHandle model = AssetRegistry::GetHandle("models/testcube.gltf"); model.IsValid())
+	if (const AssetHandle model = Assets::Registry::GetHandle("models/testcube.gltf"); model.IsValid())
 	{
-		if (Entity imported = AssetManager::InstantiateModel(*m_Scene, model))
+		if (Entity imported = Assets::Manager::InstantiateModel(*m_Scene, model))
 		{
 			auto& transform = imported.GetComponent<TransformComponent>();
 			transform.Position = { 6.0f, 0.0f, -1.0f };
@@ -1989,7 +1989,7 @@ void EditorLayer::LoadDemoScene()
 			box.AddComponent<NativeScriptComponent>("ImpactSound");
 
 			auto& sound = box.AddComponent<AudioSourceComponent>();
-			sound.Clip = AssetRegistry::GetHandle("audio/impact.wav");
+			sound.Clip = Assets::Registry::GetHandle("audio/impact.wav");
 			// The script starts it. On awake it would fire as the scene loads,
 			// before the box has hit anything.
 			sound.PlayOnAwake = false;
@@ -2015,7 +2015,7 @@ void EditorLayer::LoadDemoScene()
 		zone.AddComponent<NativeScriptComponent>("TriggerZone");
 
 		auto& chime = zone.AddComponent<AudioSourceComponent>();
-		chime.Clip = AssetRegistry::GetHandle("audio/chime.wav");
+		chime.Clip = Assets::Registry::GetHandle("audio/chime.wav");
 		chime.PlayOnAwake = false;
 		chime.Volume = 0.7f;
 	}
@@ -2026,7 +2026,7 @@ void EditorLayer::LoadDemoScene()
 	// panned and attenuated by where it is relative to the camera.
 	{
 		auto& ambience = pedestal.AddComponent<AudioSourceComponent>();
-		ambience.Clip = AssetRegistry::GetHandle("audio/hum.wav");
+		ambience.Clip = Assets::Registry::GetHandle("audio/hum.wav");
 		ambience.Bus = AudioBus::Music;
 		ambience.Loop = true;
 		ambience.PlayOnAwake = true;
@@ -2052,12 +2052,12 @@ void EditorLayer::ImportModel()
 		return;
 
 	// Picked up so a file dropped into the folder since startup has a handle.
-	AssetRegistry::Refresh();
+	Assets::Registry::Refresh();
 
 	const std::filesystem::path absolute = std::filesystem::absolute(filepath);
 	std::error_code error;
 	const std::filesystem::path relative =
-		std::filesystem::relative(absolute, AssetRegistry::Root(), error);
+		std::filesystem::relative(absolute, Assets::Registry::Root(), error);
 
 	if (error || relative.empty() || relative.native().rfind(L"..", 0) == 0)
 	{
@@ -2067,14 +2067,14 @@ void EditorLayer::ImportModel()
 		return;
 	}
 
-	const AssetHandle handle = AssetRegistry::GetHandle(relative.generic_string());
+	const AssetHandle handle = Assets::Registry::GetHandle(relative.generic_string());
 	if (!handle.IsValid())
 	{
 		RV_WARN("No asset handle for '{0}'", relative.generic_string());
 		return;
 	}
 
-	Entity root = AssetManager::InstantiateModel(*m_Scene, handle);
+	Entity root = Assets::Manager::InstantiateModel(*m_Scene, handle);
 	if (!root)
 		return;
 
@@ -2098,7 +2098,7 @@ void EditorLayer::SaveSelectionAsPrefab()
 	const std::string name = selected.GetName();
 	const std::filesystem::path relative = std::filesystem::path("prefabs") / (name + ".rprefab");
 
-	const AssetHandle handle = AssetManager::CreatePrefab(*m_Scene, selected, relative);
+	const AssetHandle handle = Assets::Manager::CreatePrefab(*m_Scene, selected, relative);
 	if (!handle.IsValid())
 	{
 		RV_WARN("Could not create a prefab from '{0}'", name);
@@ -2117,8 +2117,8 @@ void EditorLayer::OnAssetActivated(AssetHandle handle, AssetType type)
 
 	switch (type)
 	{
-		case AssetType::Mesh:   root = AssetManager::InstantiateModel(*m_Scene, handle); break;
-		case AssetType::Prefab: root = AssetManager::InstantiatePrefab(*m_Scene, handle); break;
+		case AssetType::Mesh:   root = Assets::Manager::InstantiateModel(*m_Scene, handle); break;
+		case AssetType::Prefab: root = Assets::Manager::InstantiatePrefab(*m_Scene, handle); break;
 		default:
 			RV_WARN("Nothing to do with a {0} asset yet", AssetTypeName(type));
 			return;
@@ -2206,8 +2206,8 @@ void EditorLayer::NewProject()
 	// pointed at them before anything can be saved into it -- a scene written
 	// while the registry points at the *old* project mints handles that mean
 	// nothing here.
-	AssetManager::ClearCache();
-	AssetRegistry::Init(Project::AssetRoot());
+	Assets::Manager::ClearCache();
+	Assets::Registry::Init(Project::AssetRoot());
 
 	NewScene();
 	PopulateStarterScene();
@@ -2290,8 +2290,8 @@ void EditorLayer::OpenProject()
 
 	// The cache is keyed by handle, and handles from the old project mean
 	// something else -- or nothing -- in the new one.
-	AssetManager::ClearCache();
-	AssetRegistry::Init(Project::AssetRoot());
+	Assets::Manager::ClearCache();
+	Assets::Registry::Init(Project::AssetRoot());
 
 	const std::string& start = Project::Config().StartScene;
 	if (!start.empty() && std::filesystem::exists(Project::AssetPath(start)))

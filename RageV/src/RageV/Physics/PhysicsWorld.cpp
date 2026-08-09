@@ -30,7 +30,7 @@
 #include <thread>
 #include <unordered_map>
 
-namespace RageV
+namespace RageV::Physics
 {
 	namespace
 	{
@@ -151,7 +151,7 @@ namespace RageV
 		// Jolt's globals are process-wide and have to exist before *anything*
 		// Jolt allocates.
 		//
-		// This cannot live in PhysicsWorld::Impl's constructor body, which is
+		// This cannot live in World::Impl's constructor body, which is
 		// where it was: TempAllocatorImpl allocates in its own constructor, and
 		// member construction runs before the enclosing constructor's body. The
 		// allocator function pointers were still null at that point and the
@@ -343,7 +343,7 @@ namespace RageV
 	}
 
 	// -------------------------------------------------------------------------
-	struct PhysicsWorld::Impl
+	struct World::Impl
 	{
 		// Per body, so rendering can interpolate. Without the previous state,
 		// anything moving fast stutters: the display refreshes between two
@@ -652,14 +652,14 @@ namespace RageV
 	};
 
 	// -------------------------------------------------------------------------
-	PhysicsWorld::PhysicsWorld()
+	World::World()
 	{
 		// Before the members exist, not after: see EnsureJoltGlobals.
 		EnsureJoltGlobals();
 		m_Impl = std::make_unique<Impl>();
 	}
 
-	PhysicsWorld::~PhysicsWorld()
+	World::~World()
 	{
 		// Bodies have to leave the simulation before their memory does.
 		JPH::BodyInterface& bodies = m_Impl->Interface();
@@ -671,7 +671,7 @@ namespace RageV
 		m_Impl->Bodies.clear();
 	}
 
-	void PhysicsWorld::Build(Scene& scene)
+	void World::Build(Scene& scene)
 	{
 		scene.UpdateWorldTransforms();
 
@@ -721,7 +721,7 @@ namespace RageV
 		RV_CORE_INFO("Physics: {0} bodies", pending.size());
 	}
 
-	void PhysicsWorld::AddBody(Scene& scene, Entity entity)
+	void World::AddBody(Scene& scene, Entity entity)
 	{
 		if (!entity || HasBody(entity.GetUUID()))
 			return;
@@ -739,7 +739,7 @@ namespace RageV
 					   ToGlm(settings.mPosition), ToGlm(settings.mRotation));
 	}
 
-	void PhysicsWorld::RemoveBody(UUID entity)
+	void World::RemoveBody(UUID entity)
 	{
 		Impl::Body* record = m_Impl->Find(entity);
 		if (!record)
@@ -755,23 +755,23 @@ namespace RageV
 		m_Impl->Bodies.erase(entity);
 	}
 
-	bool PhysicsWorld::HasBody(UUID entity) const
+	bool World::HasBody(UUID entity) const
 	{
 		return m_Impl->Find(entity) != nullptr;
 	}
 
-	bool PhysicsWorld::IsBodyAwake(UUID entity) const
+	bool World::IsBodyAwake(UUID entity) const
 	{
 		const Impl::Body* record = m_Impl->Find(entity);
 		return record && m_Impl->Interface().IsActive(record->Id);
 	}
 
-	size_t PhysicsWorld::GetBodyCount() const
+	size_t World::GetBodyCount() const
 	{
 		return m_Impl->Bodies.size();
 	}
 
-	void PhysicsWorld::Step(float deltaTime, int collisionSteps)
+	void World::Step(float deltaTime, int collisionSteps)
 	{
 		if (deltaTime <= 0.0f)
 			return;
@@ -804,18 +804,18 @@ namespace RageV
 		}
 	}
 
-	void PhysicsWorld::TakeContactEvents(std::vector<ContactEvent>& out)
+	void World::TakeContactEvents(std::vector<ContactEvent>& out)
 	{
 		out.clear();
 		out.swap(m_Impl->Events);
 	}
 
-	size_t PhysicsWorld::GetContactPairCount() const
+	size_t World::GetContactPairCount() const
 	{
 		return m_Impl->Pairs.size();
 	}
 
-	void PhysicsWorld::SyncTransforms(Scene& scene, float interpolationAlpha)
+	void World::SyncTransforms(Scene& scene, float interpolationAlpha)
 	{
 		const float alpha = Math::Clamp(interpolationAlpha, 0.0f, 1.0f);
 
@@ -857,7 +857,7 @@ namespace RageV
 	// -------------------------------------------------------------------------
 	// Queries and control
 	// -------------------------------------------------------------------------
-	RayHit PhysicsWorld::CastRay(const Vec3& origin, const Vec3& direction) const
+	RayHit World::CastRay(const Vec3& origin, const Vec3& direction) const
 	{
 		RayHit hit;
 
@@ -883,32 +883,32 @@ namespace RageV
 		return hit;
 	}
 
-	void PhysicsWorld::SetLinearVelocity(UUID entity, const Vec3& velocity)
+	void World::SetLinearVelocity(UUID entity, const Vec3& velocity)
 	{
 		if (Impl::Body* record = m_Impl->Find(entity))
 			m_Impl->Interface().SetLinearVelocity(record->Id, ToJolt(velocity));
 	}
 
-	Vec3 PhysicsWorld::GetLinearVelocity(UUID entity) const
+	Vec3 World::GetLinearVelocity(UUID entity) const
 	{
 		if (const Impl::Body* record = m_Impl->Find(entity))
 			return ToGlm(m_Impl->Interface().GetLinearVelocity(record->Id));
 		return Vec3(0.0f);
 	}
 
-	void PhysicsWorld::AddForce(UUID entity, const Vec3& force)
+	void World::AddForce(UUID entity, const Vec3& force)
 	{
 		if (Impl::Body* record = m_Impl->Find(entity))
 			m_Impl->Interface().AddForce(record->Id, ToJolt(force), JPH::EActivation::Activate);
 	}
 
-	void PhysicsWorld::AddImpulse(UUID entity, const Vec3& impulse)
+	void World::AddImpulse(UUID entity, const Vec3& impulse)
 	{
 		if (Impl::Body* record = m_Impl->Find(entity))
 			m_Impl->Interface().AddImpulse(record->Id, ToJolt(impulse));
 	}
 
-	void PhysicsWorld::SetPosition(UUID entity, const Vec3& position)
+	void World::SetPosition(UUID entity, const Vec3& position)
 	{
 		Impl::Body* record = m_Impl->Find(entity);
 		if (!record)
@@ -922,12 +922,12 @@ namespace RageV
 		record->PreviousPosition = record->CurrentPosition = position;
 	}
 
-	void PhysicsWorld::SetGravity(const Vec3& gravity)
+	void World::SetGravity(const Vec3& gravity)
 	{
 		m_Impl->System.SetGravity(ToJolt(gravity));
 	}
 
-	Vec3 PhysicsWorld::GetGravity() const
+	Vec3 World::GetGravity() const
 	{
 		return ToGlm(m_Impl->System.GetGravity());
 	}

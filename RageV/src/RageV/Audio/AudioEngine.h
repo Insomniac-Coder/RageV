@@ -3,7 +3,7 @@
 #include "RageV/Math/Math.h"
 #include <cstdint>
 
-namespace RageV
+namespace RageV::Audio
 {
 	// Where a sound is mixed.
 	//
@@ -88,7 +88,7 @@ namespace RageV
 	// on whether the machine can play it back. A remote session, a machine with
 	// audio disabled, and a headless test all take that path, and none of them
 	// should behave differently from a machine that can.
-	class AudioEngine
+	class Engine
 	{
 	public:
 		static void Init(AudioMode mode = AudioMode::Device);
@@ -141,4 +141,24 @@ namespace RageV
 
 		static size_t GetVoiceCount();
 	};
+}
+
+// The value types are re-exported into RageV.
+//
+// The rule for every domain namespace in this engine: the *machinery* lives in
+// the namespace, and the small types that appear in other domains' signatures
+// live at the root as well. AudioBus is a field on a component, AudioVoice is
+// what a script gets back from PlayOneShot -- spelling either as `Audio::` in
+// the middle of an otherwise unqualified signature reads as noise rather than
+// as information. It is the same arrangement RageV::Math uses for Vec3.
+//
+// Note what is *not* here: Engine. Calling it is `Audio::Engine::Init`, and
+// that is the readability the namespace was for.
+namespace RageV
+{
+	using Audio::AudioBus;
+	using Audio::AudioMode;
+	using Audio::AudioVoice;
+	using Audio::AudioPlayback;
+	using Audio::AudioBusName;
 }

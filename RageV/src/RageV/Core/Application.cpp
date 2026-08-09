@@ -75,13 +75,13 @@ namespace RageV {
 			Project::OpenConfigured();
 
 		if (Project::GetActive())
-			AssetRegistry::Init(Project::AssetRoot());
+			Assets::Registry::Init(Project::AssetRoot());
 
-		AssetManager::Init(*m_Device);
+		Assets::Manager::Init(*m_Device);
 
 		// After the registry, because a clip is resolved through it. Never
 		// fatal: a machine with no output device still runs the editor.
-		AudioEngine::Init(config.EnableAudio ? AudioMode::Device : AudioMode::Silent);
+		Audio::Engine::Init(config.EnableAudio ? AudioMode::Device : AudioMode::Silent);
 
 		if (Platform::GetPlatformType() == PlatformType::Windows)
 		{
@@ -117,11 +117,11 @@ namespace RageV {
 		// After the layers, so any scene still playing has already stopped what
 		// it started, and before anything else, because a sound outliving the
 		// mixer is a use-after-free on the audio thread.
-		AudioEngine::Shutdown();
+		Audio::Engine::Shutdown();
 
 		InputMap::Shutdown();
-		AssetManager::Shutdown();
-		AssetRegistry::Shutdown();
+		Assets::Manager::Shutdown();
+		Assets::Registry::Shutdown();
 
 		if (m_Device)
 		{
@@ -322,7 +322,7 @@ namespace RageV {
 			// Retires sounds that have played out. Once a frame, unconditional:
 			// a one-shot fired from a script belongs to nothing that would
 			// otherwise clean it up.
-			AudioEngine::Update();
+			Audio::Engine::Update();
 
 			// Armed before EndFrame, which is the call that consumes it.
 			if (!config.ScreenshotPath.empty() && ++frameNumber == config.ScreenshotFrame)

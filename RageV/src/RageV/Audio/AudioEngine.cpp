@@ -12,7 +12,7 @@
 #include <memory>
 #include <unordered_map>
 
-namespace RageV
+namespace RageV::Audio
 {
 	namespace
 	{
@@ -67,7 +67,7 @@ namespace RageV
 			if (!clip.IsValid())
 				return {};
 
-			const std::filesystem::path path = AssetRegistry::GetAbsolutePath(clip);
+			const std::filesystem::path path = Assets::Registry::GetAbsolutePath(clip);
 			if (path.empty() || !std::filesystem::exists(path))
 				return {};
 
@@ -87,7 +87,7 @@ namespace RageV
 		}
 	}
 
-	void AudioEngine::Init(AudioMode mode)
+	void Engine::Init(AudioMode mode)
 	{
 		if (s_Audio.Initialised)
 			return;
@@ -144,7 +144,7 @@ namespace RageV
 					 mode == AudioMode::Offline ? ", offline" : "");
 	}
 
-	void AudioEngine::Shutdown()
+	void Engine::Shutdown()
 	{
 		if (!s_Audio.Initialised)
 			return;
@@ -175,27 +175,27 @@ namespace RageV
 			volume = 1.0f;
 	}
 
-	bool AudioEngine::IsAvailable()
+	bool Engine::IsAvailable()
 	{
 		return s_Audio.Mode == AudioMode::Device && s_Audio.HasEngine;
 	}
 
-	AudioMode AudioEngine::GetMode()
+	AudioMode Engine::GetMode()
 	{
 		return s_Audio.Mode;
 	}
 
-	uint32_t AudioEngine::GetChannels()
+	uint32_t Engine::GetChannels()
 	{
 		return s_Audio.HasEngine ? ma_engine_get_channels(&s_Audio.Engine) : 0;
 	}
 
-	uint32_t AudioEngine::GetSampleRate()
+	uint32_t Engine::GetSampleRate()
 	{
 		return s_Audio.HasEngine ? ma_engine_get_sample_rate(&s_Audio.Engine) : 0;
 	}
 
-	uint64_t AudioEngine::RenderFrames(float* out, uint64_t frameCount)
+	uint64_t Engine::RenderFrames(float* out, uint64_t frameCount)
 	{
 		// Device mode has a device pulling this graph already; reading it here
 		// too would steal frames from it and produce a stutter that would look
@@ -210,7 +210,7 @@ namespace RageV
 		return (uint64_t)read;
 	}
 
-	AudioVoice AudioEngine::Play(const AudioPlayback& playback)
+	AudioVoice Engine::Play(const AudioPlayback& playback)
 	{
 		// Resolved before the device is considered, so a broken clip reference
 		// is reported the same way whether or not anything can be heard. A bug
@@ -273,7 +273,7 @@ namespace RageV
 		return id;
 	}
 
-	void AudioEngine::Stop(AudioVoice voice)
+	void Engine::Stop(AudioVoice voice)
 	{
 		const auto it = s_Audio.Voices.find(voice);
 		if (it == s_Audio.Voices.end())
@@ -288,7 +288,7 @@ namespace RageV
 		s_Audio.Voices.erase(it);
 	}
 
-	void AudioEngine::StopAll()
+	void Engine::StopAll()
 	{
 		for (auto& [id, voice] : s_Audio.Voices)
 		{
@@ -301,7 +301,7 @@ namespace RageV
 		s_Audio.Voices.clear();
 	}
 
-	bool AudioEngine::IsPlaying(AudioVoice voice)
+	bool Engine::IsPlaying(AudioVoice voice)
 	{
 		const auto it = s_Audio.Voices.find(voice);
 		if (it == s_Audio.Voices.end())
@@ -315,7 +315,7 @@ namespace RageV
 		return ma_sound_is_playing(it->second.Sound.get()) == MA_TRUE;
 	}
 
-	void AudioEngine::SetVoicePosition(AudioVoice voice, const Vec3& position)
+	void Engine::SetVoicePosition(AudioVoice voice, const Vec3& position)
 	{
 		const auto it = s_Audio.Voices.find(voice);
 		if (it == s_Audio.Voices.end() || !it->second.Sound)
@@ -324,7 +324,7 @@ namespace RageV
 		ma_sound_set_position(it->second.Sound.get(), position.x, position.y, position.z);
 	}
 
-	void AudioEngine::SetVoiceVolume(AudioVoice voice, float volume)
+	void Engine::SetVoiceVolume(AudioVoice voice, float volume)
 	{
 		const auto it = s_Audio.Voices.find(voice);
 		if (it == s_Audio.Voices.end() || !it->second.Sound)
@@ -333,7 +333,7 @@ namespace RageV
 		ma_sound_set_volume(it->second.Sound.get(), Math::Max(volume, 0.0f));
 	}
 
-	void AudioEngine::SetVoicePitch(AudioVoice voice, float pitch)
+	void Engine::SetVoicePitch(AudioVoice voice, float pitch)
 	{
 		const auto it = s_Audio.Voices.find(voice);
 		if (it == s_Audio.Voices.end() || !it->second.Sound)
@@ -342,7 +342,7 @@ namespace RageV
 		ma_sound_set_pitch(it->second.Sound.get(), Math::Max(pitch, 0.01f));
 	}
 
-	void AudioEngine::SetBusVolume(AudioBus bus, float volume)
+	void Engine::SetBusVolume(AudioBus bus, float volume)
 	{
 		if (bus >= AudioBus::Count)
 			return;
@@ -359,14 +359,14 @@ namespace RageV
 			ma_sound_group_set_volume(&s_Audio.Groups[(size_t)bus], volume);
 	}
 
-	float AudioEngine::GetBusVolume(AudioBus bus)
+	float Engine::GetBusVolume(AudioBus bus)
 	{
 		// Read back from the cached value rather than from miniaudio, so it
 		// reads the same with and without a device.
 		return bus < AudioBus::Count ? s_Audio.BusVolume[(size_t)bus] : 1.0f;
 	}
 
-	void AudioEngine::SetListener(const Vec3& position, const Vec3& forward,
+	void Engine::SetListener(const Vec3& position, const Vec3& forward,
 								  const Vec3& up)
 	{
 		if (!s_Audio.HasEngine)
@@ -390,7 +390,7 @@ namespace RageV
 		}
 	}
 
-	void AudioEngine::Update()
+	void Engine::Update()
 	{
 		for (auto it = s_Audio.Voices.begin(); it != s_Audio.Voices.end(); )
 		{
@@ -423,7 +423,7 @@ namespace RageV
 		}
 	}
 
-	size_t AudioEngine::GetVoiceCount()
+	size_t Engine::GetVoiceCount()
 	{
 		return s_Audio.Voices.size();
 	}

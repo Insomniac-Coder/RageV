@@ -100,7 +100,7 @@ namespace RageV
 
 	Entity ScriptableEntity::SpawnPrefab(AssetHandle prefab)
 	{
-		return AssetManager::InstantiatePrefab(GetScene(), prefab);
+		return Assets::Manager::InstantiatePrefab(GetScene(), prefab);
 	}
 
 	void ScriptableEntity::Destroy()          { GetScene().DestroyDeferred(m_Entity); }
@@ -143,32 +143,32 @@ namespace RageV
 	// a mistake.
 	void ScriptableEntity::AddForce(const Vec3& force)
 	{
-		if (PhysicsWorld* physics = GetScene().GetPhysics())
+		if (Physics::World* physics = GetScene().GetPhysics())
 			physics->AddForce(m_Entity.GetUUID(), force);
 	}
 
 	void ScriptableEntity::AddImpulse(const Vec3& impulse)
 	{
-		if (PhysicsWorld* physics = GetScene().GetPhysics())
+		if (Physics::World* physics = GetScene().GetPhysics())
 			physics->AddImpulse(m_Entity.GetUUID(), impulse);
 	}
 
 	void ScriptableEntity::SetLinearVelocity(const Vec3& velocity)
 	{
-		if (PhysicsWorld* physics = GetScene().GetPhysics())
+		if (Physics::World* physics = GetScene().GetPhysics())
 			physics->SetLinearVelocity(m_Entity.GetUUID(), velocity);
 	}
 
 	Vec3 ScriptableEntity::GetLinearVelocity()
 	{
-		if (PhysicsWorld* physics = GetScene().GetPhysics())
+		if (Physics::World* physics = GetScene().GetPhysics())
 			return physics->GetLinearVelocity(m_Entity.GetUUID());
 		return Vec3(0.0f);
 	}
 
 	RayHit ScriptableEntity::Raycast(const Vec3& origin, const Vec3& direction)
 	{
-		if (PhysicsWorld* physics = GetScene().GetPhysics())
+		if (Physics::World* physics = GetScene().GetPhysics())
 			return physics->CastRay(origin, direction);
 		return {};
 	}
@@ -186,7 +186,7 @@ namespace RageV
 		// Restart rather than overlap. Two copies of one source playing over
 		// each other is a bug in every case where a component is involved --
 		// overlapping repeats are what PlayOneShot is for.
-		AudioEngine::Stop(source.Voice);
+		Audio::Engine::Stop(source.Voice);
 
 		AudioPlayback playback;
 		playback.Clip = source.Clip;
@@ -200,7 +200,7 @@ namespace RageV
 		playback.MinDistance = source.MinDistance;
 		playback.MaxDistance = source.MaxDistance;
 
-		source.Voice = AudioEngine::Play(playback);
+		source.Voice = Audio::Engine::Play(playback);
 		return source.Voice;
 	}
 
@@ -210,7 +210,7 @@ namespace RageV
 			return;
 
 		auto& source = GetComponent<AudioSourceComponent>();
-		AudioEngine::Stop(source.Voice);
+		Audio::Engine::Stop(source.Voice);
 		source.Voice = 0;
 	}
 
@@ -219,7 +219,7 @@ namespace RageV
 		if (!HasComponent<AudioSourceComponent>())
 			return false;
 
-		return AudioEngine::IsPlaying(GetComponent<AudioSourceComponent>().Voice);
+		return Audio::Engine::IsPlaying(GetComponent<AudioSourceComponent>().Voice);
 	}
 
 	AudioVoice ScriptableEntity::PlayOneShot(AssetHandle clip, float volume)
@@ -229,7 +229,7 @@ namespace RageV
 		playback.Volume = volume;
 		playback.Spatial = true;
 		playback.Position = GetWorldPosition();
-		return AudioEngine::Play(playback);
+		return Audio::Engine::Play(playback);
 	}
 
 	AudioVoice ScriptableEntity::PlayOneShot2D(AssetHandle clip, float volume)
@@ -239,7 +239,7 @@ namespace RageV
 		playback.Bus = AudioBus::UI;
 		playback.Volume = volume;
 		playback.Spatial = false;
-		return AudioEngine::Play(playback);
+		return Audio::Engine::Play(playback);
 	}
 
 	// -------------------------------------------------------------------------

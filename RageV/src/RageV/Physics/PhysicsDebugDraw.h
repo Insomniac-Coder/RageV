@@ -2,9 +2,16 @@
 #include "RageV/Core/UUID.h"
 #include "RageV/Math/Math.h"
 
+// Declared in the enclosing namespace on purpose. Inside
+// `namespace RageV::Physics` these would declare new types that nothing
+// ever defines, and the error would surface far from here.
 namespace RageV
 {
 	class Scene;
+}
+
+namespace RageV::Physics
+{
 
 	// How each kind of body is coloured.
 	//
@@ -13,7 +20,7 @@ namespace RageV
 	// is neither chrome nor actionable, it is data drawn over the scene. Green
 	// for colliders is also what Unity, Godot and Unreal all use, and matching
 	// three engines someone may already know beats internal consistency here.
-	struct PhysicsDebugStyle
+	struct DebugStyle
 	{
 		Vec4 Static{ 0.32f, 0.72f, 0.44f, 0.70f };
 		Vec4 Kinematic{ 0.35f, 0.72f, 0.92f, 0.85f };
@@ -39,6 +46,6 @@ namespace RageV
 	// too, where there is no simulation: the shapes come from the components,
 	// which is the whole reason a collider can be set up before Play is
 	// pressed and be seen to be right.
-	void DrawPhysicsColliders(Scene& scene, UUID selected = UUID::Invalid(),
-							  const PhysicsDebugStyle& style = {});
+	void DrawColliders(Scene& scene, UUID selected = UUID::Invalid(),
+							  const DebugStyle& style = {});
 }

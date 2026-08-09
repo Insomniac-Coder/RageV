@@ -3,7 +3,7 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Math/Math.h"
 
-namespace RageV
+namespace RageV::Physics
 {
 	ScaledCollider ScaleCollider(const ColliderComponent& collider, const Vec3& scale)
 	{

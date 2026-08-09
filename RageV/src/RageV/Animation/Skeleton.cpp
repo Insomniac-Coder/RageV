@@ -2,7 +2,7 @@
 #include "Skeleton.h"
 #include "RageV/Math/Math.h"
 
-namespace RageV
+namespace RageV::Anim
 {
 	namespace
 	{
@@ -12,7 +12,7 @@ namespace RageV
 		// A linear scan would be fine for a clip of a few keys and is not for a
 		// motion-captured one of a few thousand, sampled per bone per frame.
 		template<typename T>
-		void FindKey(const AnimationChannel<T>& channel, float time,
+		void FindKey(const Channel<T>& channel, float time,
 					 size_t& index, float& blend)
 		{
 			index = 0;
@@ -45,7 +45,7 @@ namespace RageV
 			blend = span > 1e-8f ? Math::Clamp((time - start) / span, 0.0f, 1.0f) : 0.0f;
 		}
 
-		Vec3 SampleVec3(const AnimationChannel<Vec3>& channel, float time,
+		Vec3 SampleVec3(const Channel<Vec3>& channel, float time,
 							 const Vec3& fallback)
 		{
 			if (channel.Values.empty())
@@ -63,7 +63,7 @@ namespace RageV
 			return Math::Mix(channel.Values[index], channel.Values[index + 1], blend);
 		}
 
-		Quat SampleQuat(const AnimationChannel<Quat>& channel, float time,
+		Quat SampleQuat(const Channel<Quat>& channel, float time,
 							 const Quat& fallback)
 		{
 			if (channel.Values.empty())
@@ -127,7 +127,7 @@ namespace RageV
 		return true;
 	}
 
-	void AnimationClip::RecomputeDuration()
+	void Clip::RecomputeDuration()
 	{
 		Duration = 0.0f;
 
@@ -154,7 +154,7 @@ namespace RageV
 		}
 	}
 
-	void SamplePose(const Skeleton& skeleton, const AnimationClip& clip,
+	void SamplePose(const Skeleton& skeleton, const Clip& clip,
 					float time, bool loop, Pose& out)
 	{
 		out.resize(skeleton.Bones.size());

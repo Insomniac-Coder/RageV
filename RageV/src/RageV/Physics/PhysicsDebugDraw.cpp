@@ -8,12 +8,12 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Math/Math.h"
 
-namespace RageV
+namespace RageV::Physics
 {
 	namespace
 	{
 		Vec4 ColorFor(const RigidBodyComponent* body, bool trigger,
-						   const PhysicsDebugStyle& style)
+						   const DebugStyle& style)
 		{
 			// A trigger's colour wins over its body type: what matters about it
 			// is that it does not stop anything, and that is true whether it is
@@ -34,7 +34,7 @@ namespace RageV
 		}
 	}
 
-	void DrawPhysicsColliders(Scene& scene, UUID selected, const PhysicsDebugStyle& style)
+	void DrawColliders(Scene& scene, UUID selected, const DebugStyle& style)
 	{
 		// The overlay reads the same world matrices everything else does, so
 		// what it draws is where the object is being drawn -- not where it was
@@ -43,7 +43,7 @@ namespace RageV
 
 		// Null outside play mode, which is fine: sleep only exists while
 		// something is simulating.
-		PhysicsWorld* physics = scene.GetPhysics();
+		World* physics = scene.GetPhysics();
 
 		auto view = scene.GetRegistry().view<ColliderComponent, TransformComponent>();
 		for (auto handle : view)

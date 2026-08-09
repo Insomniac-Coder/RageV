@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-namespace RageV
+namespace RageV::Assets
 {
 	struct ImportedTexture
 	{
@@ -97,7 +97,7 @@ namespace RageV
 		// supporting it would mean every skinned primitive carrying which
 		// skeleton it belongs to for a case nobody exports.
 		Skeleton Skeleton;
-		std::vector<AnimationClip> Clips;
+		std::vector<Anim::Clip> Clips;
 
 		bool HasSkeleton() const { return !Skeleton.IsEmpty(); }
 

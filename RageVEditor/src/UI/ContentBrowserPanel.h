@@ -31,7 +31,7 @@ namespace RageV
 
 	private:
 		// Empty until the first draw, when it is set to the registry root.
-		// AssetRegistry::Init runs after the panel is constructed.
+		// Assets::Registry::Init runs after the panel is constructed.
 		std::filesystem::path m_Current;
 		std::function<void(AssetHandle, AssetType)> m_OnActivate;
 

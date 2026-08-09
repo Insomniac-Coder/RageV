@@ -87,7 +87,7 @@ namespace RageV
 		void OnRuntimeStop();
 
 		// Null outside play mode.
-		PhysicsWorld* GetPhysics() { return m_Physics.get(); }
+		Physics::World* GetPhysics() { return m_Physics.get(); }
 
 		// Per rendered frame while playing. Presentational work only, plus
 		// pulling simulated transforms across at the frame's blend factor.
@@ -198,7 +198,7 @@ namespace RageV
 
 		SceneEnvironment m_Environment;
 		std::vector<UUID> m_PendingDestroy;
-		std::unique_ptr<PhysicsWorld> m_Physics;
+		std::unique_ptr<Physics::World> m_Physics;
 
 		// Kept between steps rather than allocated each one: TakeContactEvents
 		// swaps, so the two buffers trade places and neither reallocates once
