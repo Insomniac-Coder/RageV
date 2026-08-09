@@ -459,6 +459,24 @@ namespace
 			s_Components.push_back(std::move(desc));
 		}
 
+		// --- Animator ---------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "AnimatorComponent";
+			desc.DisplayName = "Animator";
+			desc.Fields = {
+				Field<&AnimatorComponent::Clip>("Clip",
+					Drag(1.0f, -1.0f, 64.0f, "Which clip of the model's own list. "
+											 "-1 holds the bind pose.")),
+				Field<&AnimatorComponent::Playing>("Playing"),
+				Field<&AnimatorComponent::Loop>("Loop"),
+				Field<&AnimatorComponent::Speed>("Speed",
+					Drag(0.05f, -4.0f, 4.0f, "Negative plays the clip backwards.")),
+			};
+			Bind<AnimatorComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
 		// --- Rigid body ------------------------------------------------------
 		{
 			ComponentDesc desc;

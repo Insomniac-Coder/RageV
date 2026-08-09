@@ -1,0 +1,95 @@
+Scene: Skinning
+Version: 5
+Environment:
+  AmbientColor: [0.42, 0.47, 0.58]
+  AmbientIntensity: 0.18
+  Sky: 2
+  SkyHorizon: [0.52, 0.6, 0.72]
+  SkyZenith: [0.18, 0.31, 0.62]
+  SkyGround: [0.16, 0.15, 0.14]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 17858281879166177050
+Entities:
+  - EntityID: 4001001001001001001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 1.4, 4.2]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 500
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 4001001001001001002
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [14, 1, 14]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material:
+        BaseColor: [0.16, 0.17, 0.2, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.85
+        Occlusion: 1
+  - EntityID: 4001001001001001003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.85, -0.7, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.96, 0.9]
+      Intensity: 2.4
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 4001001001001001004
+    TagComponent:
+      Tag: Animated Limb
+    TransformComponent:
+      Position: [-0.9, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 6029076841131168559
+      Material:
+        BaseColor: [0.82, 0.31, 0.28, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.5
+        Occlusion: 1
+    AnimatorComponent:
+      Clip: 0
+      Playing: true
+      Loop: true
+      Speed: 1
+  - EntityID: 4001001001001001005
+    TagComponent:
+      Tag: Bind Pose Limb
+    TransformComponent:
+      Position: [0.9, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 6029076841131168559
+      Material:
+        BaseColor: [0.35, 0.55, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.5
+        Occlusion: 1

@@ -20,6 +20,10 @@ namespace RageV
 		// several meshes, so the cache is keyed on the sub-handle rather than
 		// on the file.
 		std::unordered_map<AssetHandle, RHI::Ref<Mesh>> s_Meshes;
+		// Cached beside the meshes and cleared with them: they come out of the
+		// same parse, so fetching them separately would read the file twice.
+		std::unordered_map<AssetHandle, Skeleton> s_Skeletons;
+		std::unordered_map<AssetHandle, std::vector<AnimationClip>> s_Clips;
 
 		// Environment maps, keyed on the handle rather than the path, so a scene
 		// that reloads keeps the cube it already paid to build.
@@ -68,6 +72,8 @@ namespace RageV
 	void AssetManager::ClearCache()
 	{
 		s_Meshes.clear();
+		s_Skeletons.clear();
+		s_Clips.clear();
 		s_Cubemaps.clear();
 		s_Irradiance.clear();
 
@@ -125,10 +131,63 @@ namespace RageV
 			return nullptr;
 		}
 
+		// A skinned primitive becomes a skinned mesh, and the skeleton it is
+		// posed by is remembered under the same handle.
+		if (model.HasSkeleton())
+		{
+			s_Skeletons[handle] = model.Skeleton;
+			s_Clips[handle] = model.Clips;
+		}
+
+		if (model.Primitives[0].IsSkinned())
+		{
+			std::vector<SkinnedVertex> skinned;
+			skinned.reserve(model.Primitives[0].Vertices.size());
+
+			for (size_t i = 0; i < model.Primitives[0].Vertices.size(); i++)
+			{
+				const MeshVertex& source = model.Primitives[0].Vertices[i];
+
+				SkinnedVertex vertex;
+				vertex.Position = source.Position;
+				vertex.Normal = source.Normal;
+				vertex.TexCoord = source.TexCoord;
+				vertex.Joints = model.Primitives[0].Joints[i];
+				vertex.Weights = model.Primitives[0].Weights[i];
+
+				skinned.push_back(vertex);
+			}
+
+			auto skinnedMesh = std::make_shared<Mesh>(*s_Device, skinned,
+													  model.Primitives[0].Indices,
+													  model.Primitives[0].Name);
+			s_Meshes[handle] = skinnedMesh;
+			return skinnedMesh;
+		}
+
 		auto mesh = std::make_shared<Mesh>(*s_Device, model.Primitives[0].Vertices,
 										   model.Primitives[0].Indices, model.Primitives[0].Name);
 		s_Meshes[handle] = mesh;
 		return mesh;
+	}
+
+	const Skeleton* AssetManager::GetSkeleton(AssetHandle handle)
+	{
+		// GetMesh first: the skeleton is cached by the same parse, and asking
+		// for it before anything has loaded the model would report that a
+		// perfectly good rig has none.
+		GetMesh(handle);
+
+		const auto found = s_Skeletons.find(handle);
+		return found != s_Skeletons.end() ? &found->second : nullptr;
+	}
+
+	const std::vector<AnimationClip>* AssetManager::GetClips(AssetHandle handle)
+	{
+		GetMesh(handle);
+
+		const auto found = s_Clips.find(handle);
+		return found != s_Clips.end() ? &found->second : nullptr;
 	}
 
 	RHI::Ref<RHI::RHITexture> AssetManager::GetCubemap(AssetHandle handle)

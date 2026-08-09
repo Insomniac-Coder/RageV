@@ -35,7 +35,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-544 checks, `exit 0`. Then look at a frame:
+553 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -62,12 +62,9 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**What to do next:** §8. Everything in Phase 3 is done except **3.7, skeletal
-animation**, and three of its five pieces are already in — the skeleton, the
-shader includes and the glTF import, all tested. What is missing is the part
-that puts a character on screen: the skinned vertex format, the skinned shader,
-the renderer and shadow paths, and the components. `limb.gltf` in the sample
-project is the end-to-end check waiting for them.
+**What to do next:** §8. **Phase 3 is complete** — the renderer does everything
+the roadmap asked of it. What is left is Phase 5, C# scripting, deliberately
+last because it has to mirror a native surface that has stopped moving.
 
 ---
 
@@ -101,7 +98,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 544 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
+| `scenetest` | 553 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -538,6 +535,20 @@ or silence rather than an obvious failure.
   only because the shader is given the slice scale and bias derived from the
   same value, so the two sides agree with each other whatever the arithmetic
   did.
+- **A vertex attribute's reflected format must carry its vector width.** The
+  reflection switched on the base type and returned a one-component format for
+  every integer, so a `uvec4` of joint indices came back as four bytes where the
+  buffer holds sixteen. Every attribute after it then sat at the wrong offset
+  and the mesh drew as a spray of triangles. Nothing about that is visible in a
+  compile, a validation layer or a draw count -- `scenetest` reflects the
+  skinned shader and checks the stride against `sizeof(SkinnedVertex)`.
+- **A skinned mesh needs a full pose, never a short one.** Its vertices name
+  bones by index, so a run shorter than the skeleton leaves them reading past
+  their own instance's bones into the next character's. A mesh with no animator
+  is given one identity *per bone*, which is what the bind pose is.
+- **Whatever poses the lit pass must pose the depth pass.** Skinning the lit
+  shader alone leaves a character walking while its shadow stands still in the
+  bind pose, and that reads as a shadow bug for an afternoon.
 - **A timestamp slot is claimed per scope, never fixed per phase.** A phase can
   run more than once in a frame — the editor fits shadows to each viewport and
   runs the graph for both — and the second pass then rewrites a query the first
@@ -632,7 +643,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
 | Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
-| Tests | `scenetest`, **544 checks**, green on both backends |
+| Tests | `scenetest`, **553 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete except for
 skeletal animation (3.7).**
@@ -759,47 +770,18 @@ not, which is the same mistake as the culling number, caught this time.
 
 Start here, in this order.
 
-### START HERE — 3.7, skeletal animation, continued (`L` remaining)
+### START HERE — Phase 5, C# scripting (`XL`)
 
-**Three of the five pieces are done and committed.** All tested, and none of
-them visible yet, which is the honest state: **no skinned mesh renders**.
+**Phase 3 is complete.** Skeletal animation landed with the rest of it: a
+skinned vertex format, a skinned PBR shader and a skinned depth shader sharing
+the static ones' lighting through includes, a second pipeline in `Renderer3D`,
+per-instance bone matrices, and an `AnimatorComponent` that advances a clip and
+composes a pose.
 
-Done:
-
-- **`RageV/src/RageV/Animation/Skeleton.{h,cpp}`** — bones, clips, sampling,
-  hierarchy composition, blending. 21 checks, including the one everything
-  rests on: at the bind pose every skinning matrix is the identity. Verified it
-  can fail, by removing the inverse-bind multiply and watching it go red.
-- **Shader includes**, and `pbr.rvshader` split so the skinned variant shares
-  the lighting rather than copying six hundred lines of it.
-- **glTF skin and animation import**, against `limb.gltf` — a two-bone post
-  that bends, written by `tools/scripts/make_skinned_gltf.py` so the tests
-  assert against numbers chosen here rather than against a downloaded model.
-  Joints are reordered parents-first at import and everything referring to them
-  is remapped, so the runtime never sees glTF's arbitrary order. 21 more checks.
-
-Left, in dependency order. **The first three are one piece of work** — none of
-them shows anything on its own:
-
-1. **A skinned vertex format.** `SkinnedVertex` = the current 32 bytes plus
-   four joint indices and four weights, as its own struct with its own vertex
-   binding. Do *not* widen `MeshVertex`: static meshes are almost all of them
-   and would pay 32 bytes a vertex for nothing. `Mesh` has to hold either, and
-   `ImportedPrimitive::IsSkinned()` already says which it is.
-2. **`pbr_skinned.rvshader`.** Thin, like `pbr.rvshader` is now: two extra
-   attributes, a bone-matrix storage buffer, and
-   `sum(weight[i] * bone[joint[i]])` before the model matrix. The rest is the
-   shared include.
-3. **The renderer path.** A second pipeline and the pose's skinning matrices in
-   a storage buffer per skinned instance. **The shadow pass needs the same
-   treatment or a skinned character casts its bind pose** — which is the kind of
-   thing that looks like a shadow bug for an afternoon.
-4. **The components** — a skinned mesh renderer, and something that advances
-   time and chooses a clip, with registry entries so both serialize and appear
-   in the inspector.
-
-Once those land, `limb.gltf` in the sample project is the end-to-end check:
-it should stand up straight and bend.
+`scenes/skinning.rage` in the sample project is the end-to-end check: two posts
+side by side, one animated and one in its bind pose. The animated one bends and
+**its shadow bends with it**; the other does not move at all, and is
+pixel-identical between the two backends.
 
 ### 1. Phase 5 — C# scripting (`XL`)
 

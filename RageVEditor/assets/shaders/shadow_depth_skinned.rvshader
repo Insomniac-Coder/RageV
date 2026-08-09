@@ -1,0 +1,66 @@
+// Depth only, for meshes a skeleton deforms.
+//
+// This exists because without it a skinned character casts the shadow of its
+// bind pose: the lit pass moves the vertices and the depth pass does not, so
+// the figure walks and its shadow stands still. That reads as a shadow bug for
+// an afternoon before anyone suspects the skinning.
+//
+// Same instance buffer and the same bone buffer as the lit skinned shader, so
+// the two cannot disagree about where a vertex is. What it does not have is a
+// material, a normal or a varying -- a depth pass needs none of them.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) in vec3 a_Position;
+// Locations 1 and 2 are the normal and texture coordinate. Declared and unused
+// so the vertex layout matches the lit skinned pipeline's: both read the same
+// buffer, and a stride that disagrees walks through it reading joints as
+// positions.
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_TexCoord;
+layout(location = 3) in uvec4 a_Joints;
+layout(location = 4) in vec4 a_Weights;
+
+// Light view-projection times model, one per caster, multiplied out on the CPU.
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBlock
+{
+	mat4 LightMVP[];
+} u_Instances;
+
+// The same bones the lit pass uses, at the same offsets.
+layout(std430, set = 0, binding = 1) readonly buffer BoneBlock
+{
+	mat4 Bones[];
+} u_Bones;
+
+// x = where this batch starts, y = where this instance's bones start.
+//
+// The bone base is a push constant here and per instance in the lit pass,
+// because a shadow batch is one caster's worth of geometry at a time: the depth
+// pass sorts by mesh alone and a skinned mesh is drawn once per character
+// anyway, so there is nothing to gain from carrying it per instance.
+layout(push_constant) uniform ObjectData
+{
+	int BaseInstance;
+	int BoneBase;
+} u_Object;
+
+void main()
+{
+	mat4 skin =
+		a_Weights.x * u_Bones.Bones[u_Object.BoneBase + int(a_Joints.x)] +
+		a_Weights.y * u_Bones.Bones[u_Object.BoneBase + int(a_Joints.y)] +
+		a_Weights.z * u_Bones.Bones[u_Object.BoneBase + int(a_Joints.z)] +
+		a_Weights.w * u_Bones.Bones[u_Object.BoneBase + int(a_Joints.w)];
+
+	gl_Position = u_Instances.LightMVP[u_Object.BaseInstance + gl_InstanceIndex] *
+				  (skin * vec4(a_Position, 1.0));
+}
+
+#type fragment
+#version 450 core
+
+void main()
+{
+}

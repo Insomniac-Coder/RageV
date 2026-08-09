@@ -58,8 +58,31 @@ namespace RageV::RHI
 						default: break;
 					}
 					break;
-				case BT::Int:  return Format::R32_SINT;
-				case BT::UInt: return Format::R32_UINT;
+				// Vector width matters here as much as it does for floats. It
+				// used to be ignored, so a uvec4 of joint indices reflected as
+				// one uint: four bytes where the buffer holds sixteen, every
+				// later attribute at the wrong offset, and the mesh drawn as a
+				// spray of triangles across the world.
+				case BT::Int:
+					switch (type.vecsize)
+					{
+						case 1: return Format::R32_SINT;
+						case 2: return Format::R32G32_SINT;
+						case 3: return Format::R32G32B32_SINT;
+						case 4: return Format::R32G32B32A32_SINT;
+						default: break;
+					}
+					break;
+				case BT::UInt:
+					switch (type.vecsize)
+					{
+						case 1: return Format::R32_UINT;
+						case 2: return Format::R32G32_UINT;
+						case 3: return Format::R32G32B32_UINT;
+						case 4: return Format::R32G32B32A32_UINT;
+						default: break;
+					}
+					break;
 				default: break;
 			}
 			return Format::Undefined;

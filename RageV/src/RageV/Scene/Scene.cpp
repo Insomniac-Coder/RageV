@@ -466,12 +466,22 @@ namespace RageV
 
 	void Scene::OnUpdateEditor(Timestep ts)
 	{
+		// Animated in the editor too, so a character previews without pressing
+		// Play. Scripts and physics deliberately do not run here; an animation
+		// is presentation and changes nothing anyone can save.
+		UpdateAnimators(ts);
+
 		// Nothing. Editing a scene must not run it.
 		(void)ts;
 	}
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		// On the frame rather than the fixed step, for the same reason the
+		// audio positions are: an animation is presentation, and pinning it to
+		// the simulation rate would make it stutter at any other frame rate.
+		UpdateAnimators(ts);
+
 		(void)ts;
 
 		// Per frame, not per step: this is where the blend between the last two
@@ -721,6 +731,28 @@ namespace RageV
 				if (!frustum.Intersects(centre, extents))
 				{
 					Renderer3D::CountCulled();
+					continue;
+				}
+
+				// The same pose the lit pass will be given. Without this a
+				// skinned figure walks and its shadow stands still in the bind
+				// pose -- which reads as a shadow bug rather than a skinning
+				// one, and is why the depth pass has a skinned shader at all.
+				if (resolved->IsSkinned())
+				{
+					const auto* animator = m_Registry.try_get<AnimatorComponent>(item);
+
+					if (animator && !animator->Skinning.empty())
+					{
+						Renderer3D::DrawSkinnedMeshShadow(resolved, transform.World,
+														  animator->Skinning);
+					}
+					else if (const Skeleton* skeleton = AssetManager::GetSkeleton(mesh.Mesh))
+					{
+						const std::vector<glm::mat4> bind(skeleton->Size(), glm::mat4(1.0f));
+						Renderer3D::DrawSkinnedMeshShadow(resolved, transform.World, bind);
+					}
+
 					continue;
 				}
 
@@ -1004,6 +1036,43 @@ namespace RageV
 		return best;
 	}
 
+	void Scene::UpdateAnimators(Timestep ts)
+	{
+		auto view = m_Registry.view<MeshComponent, AnimatorComponent>();
+
+		for (auto& item : view)
+		{
+			auto [mesh, animator] = view.get<MeshComponent, AnimatorComponent>(item);
+
+			const Skeleton* skeleton = AssetManager::GetSkeleton(mesh.Mesh);
+			if (!skeleton || skeleton->IsEmpty())
+			{
+				animator.Skinning.clear();
+				continue;
+			}
+
+			const std::vector<AnimationClip>* clips = AssetManager::GetClips(mesh.Mesh);
+
+			// A clip index of -1, or one past the end, is the bind pose. Both
+			// are states a person can reach in the inspector and neither is an
+			// error worth a log line every frame.
+			const AnimationClip* clip = nullptr;
+			if (clips && animator.Clip >= 0 && animator.Clip < (int)clips->size())
+				clip = &(*clips)[animator.Clip];
+
+			if (animator.Playing && clip)
+				animator.Time += ts.GetSeconds() * animator.Speed;
+
+			Pose pose;
+			if (clip)
+				SamplePose(*skeleton, *clip, animator.Time, animator.Loop, pose);
+			else
+				RestPose(*skeleton, pose);
+
+			ComposeSkinning(*skeleton, pose, animator.Skinning);
+		}
+	}
+
 	void Scene::OnRender(const Camera& camera, const glm::mat4& cameraTransform)
 	{
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
@@ -1094,7 +1163,36 @@ namespace RageV
 					continue;
 				}
 
-				Renderer3D::DrawMesh(resolved, transform.World, mesh.Material);
+			// A skinned mesh has to reach the skinned pipeline whether or not
+				// anything is animating it: its vertex layout is the wider one,
+				// and the static pipeline would read joint indices as texture
+				// coordinates. Without an animator it draws its bind pose.
+				if (resolved->IsSkinned())
+				{
+					const auto* animator = m_Registry.try_get<AnimatorComponent>(item);
+
+					// A skinned mesh with no animator still needs a full pose,
+					// not an empty one: its vertices name bones by index, and a
+					// short run leaves them reading past the end of their own
+					// instance's bones into the next character's. The bind pose
+					// is every bone at identity -- which is exactly what
+					// ComposeSkinning produces at rest, and is why that is the
+					// property the tests assert.
+					if (animator && !animator->Skinning.empty())
+					{
+						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material,
+													animator->Skinning);
+					}
+					else if (const Skeleton* skeleton = AssetManager::GetSkeleton(mesh.Mesh))
+					{
+						const std::vector<glm::mat4> bind(skeleton->Size(), glm::mat4(1.0f));
+						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material, bind);
+					}
+				}
+				else
+				{
+					Renderer3D::DrawMesh(resolved, transform.World, mesh.Material);
+				}
 			}
 
 			Renderer3D::EndScene();

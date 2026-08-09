@@ -49,10 +49,27 @@ namespace RageV
 		// set is bound in this pass at all.
 		static void BeginShadow(const glm::mat4& viewProjection);
 		static void DrawMeshShadow(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform);
+
+		// The same pose the lit pass was given. Without this a skinned figure
+		// walks and its shadow stands still in the bind pose.
+		static void DrawSkinnedMeshShadow(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,
+										  const std::vector<glm::mat4>& bones);
 		static void EndShadow();
 
 		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,
 							 const RHI::Ref<Material>& material);
+
+		// A mesh a skeleton moves. `bones` is one matrix per bone, already
+		// composed with the inverse binds -- ComposeSkinning produces exactly
+		// this, and an empty list draws the bind pose.
+		//
+		// Separate from DrawMesh rather than an overload with a default,
+		// because a skinned mesh must never reach the static pipeline: the
+		// vertex layouts differ and the static one would read joint indices as
+		// texture coordinates.
+		static void DrawSkinnedMesh(const RHI::Ref<Mesh>& mesh, const glm::mat4& transform,
+									const RHI::Ref<Material>& material,
+									const std::vector<glm::mat4>& bones);
 
 		// Shared by every mesh that has no material of its own.
 		static RHI::Ref<Material> GetDefaultMaterial();

@@ -21,6 +21,29 @@ namespace RageV
 		glm::vec2 TexCoord;
 	};
 
+	// A vertex that a skeleton moves.
+	//
+	// Its own struct rather than four more fields on MeshVertex. Static
+	// geometry is almost all the geometry in almost every scene, and widening
+	// the common vertex would cost every one of them thirty-two bytes for
+	// influences they do not have -- on the thousand-mesh stress scene that is
+	// megabytes of bandwidth a frame to carry zeroes.
+	//
+	// The two therefore have separate pipelines and separate shaders. They
+	// share the lighting through an include, so the thing that differs is the
+	// only thing written twice: how a vertex reaches world space.
+	struct SkinnedVertex
+	{
+		glm::vec3  Position;
+		glm::vec3  Normal;
+		glm::vec2  TexCoord;
+		// Indices into the bone matrices, already in skeleton order -- the
+		// importer remaps glTF's own joint order away before this is built.
+		glm::uvec4 Joints{ 0 };
+		// Sum to one. The importer normalises rather than trusting the file.
+		glm::vec4  Weights{ 1.0f, 0.0f, 0.0f, 0.0f };
+	};
+
 	// An axis-aligned box in the mesh's own space.
 	//
 	// Lives here because this is where geometry is created and therefore the
@@ -63,6 +86,18 @@ namespace RageV
 			 const std::vector<uint32_t>& indices,
 			 const std::string& debugName);
 
+		// The skinned form. Same index buffer, wider vertices, and a flag the
+		// renderer reads to pick a pipeline.
+		Mesh(RHI::RHIDevice& device,
+			 const std::vector<SkinnedVertex>& vertices,
+			 const std::vector<uint32_t>& indices,
+			 const std::string& debugName);
+
+		// Which pipeline draws this. Not a guess from the buffer size: a
+		// skinned mesh with no animator still has to be drawn by the skinned
+		// shader, because its vertex layout is the wider one.
+		bool IsSkinned() const { return m_Skinned; }
+
 		const RHI::Ref<RHI::RHIBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
 		const RHI::Ref<RHI::RHIBuffer>& GetIndexBuffer()  const { return m_IndexBuffer; }
 		uint32_t GetIndexCount() const { return m_IndexCount; }
@@ -97,6 +132,7 @@ namespace RageV
 		AABB m_Bounds;
 		std::vector<glm::vec3> m_Positions;
 		std::vector<uint32_t> m_Indices;
+		bool m_Skinned = false;
 	};
 
 	namespace Primitives

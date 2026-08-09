@@ -72,6 +72,13 @@ namespace RageV
 		// world value is needed before the next frame.
 		void UpdateWorldTransforms();
 
+		// Advances every animator and rebuilds its pose.
+		//
+		// Public because both update paths call it and neither is the other's
+		// business. On the frame rather than the fixed step: an animation is
+		// presentation, like the audio positions and the transform blend.
+		void UpdateAnimators(Timestep ts);
+
 		// --- frame ----------------------------------------------------------
 		// Creates the physics world and every body in it. Called on Play.
 		void OnRuntimeStart();

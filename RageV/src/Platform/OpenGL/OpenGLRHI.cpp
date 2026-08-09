@@ -117,6 +117,12 @@ namespace RageV::GL
 				case Format::R32_SFLOAT:
 				case Format::R32_UINT:
 				case Format::R32_SINT:            return 1;
+				case Format::R32G32_UINT:
+				case Format::R32G32_SINT:         return 2;
+				case Format::R32G32B32_UINT:
+				case Format::R32G32B32_SINT:      return 3;
+				case Format::R32G32B32A32_UINT:
+				case Format::R32G32B32A32_SINT:   return 4;
 				case Format::R32G32_SFLOAT:       return 2;
 				case Format::R32G32B32_SFLOAT:    return 3;
 				case Format::R32G32B32A32_SFLOAT: return 4;
@@ -126,16 +132,31 @@ namespace RageV::GL
 
 		bool IsIntegerFormat(Format format)
 		{
-			return format == Format::R32_UINT || format == Format::R32_SINT;
+			switch (format)
+			{
+				case Format::R32_UINT:          case Format::R32_SINT:
+				case Format::R32G32_UINT:       case Format::R32G32_SINT:
+				case Format::R32G32B32_UINT:    case Format::R32G32B32_SINT:
+				case Format::R32G32B32A32_UINT: case Format::R32G32B32A32_SINT:
+					return true;
+				default:
+					return false;
+			}
 		}
 
 		GLenum AttributeType(Format format)
 		{
 			switch (format)
 			{
-				case Format::R32_UINT: return GL_UNSIGNED_INT;
-				case Format::R32_SINT: return GL_INT;
-				default:               return GL_FLOAT;
+				case Format::R32_UINT:
+				case Format::R32G32_UINT:
+				case Format::R32G32B32_UINT:
+				case Format::R32G32B32A32_UINT: return GL_UNSIGNED_INT;
+				case Format::R32_SINT:
+				case Format::R32G32_SINT:
+				case Format::R32G32B32_SINT:
+				case Format::R32G32B32A32_SINT: return GL_INT;
+				default:                        return GL_FLOAT;
 			}
 		}
 	}

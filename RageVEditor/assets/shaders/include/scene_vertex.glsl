@@ -76,6 +76,12 @@ struct InstanceData
 	vec4 EmissiveColor;
 	// metallic, roughness, occlusion, normal scale
 	vec4 Surface;
+	// x = where this instance's bones start in the bone buffer. Only the
+	// skinned pipeline reads it; a static instance leaves it zero.
+	//
+	// Per instance rather than pushed per batch, because two characters sharing
+	// one mesh are one instanced draw and each is in its own pose.
+	vec4 Skin;
 };
 
 layout(std430, set = 0, binding = 7) readonly buffer InstanceBlock

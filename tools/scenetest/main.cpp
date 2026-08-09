@@ -54,6 +54,7 @@
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
+#include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Project/ProjectPackager.h"
 
@@ -2369,6 +2370,62 @@ namespace
 		}
 	}
 
+	// The skinned vertex path.
+	//
+	// The check that matters is the stride. Vertex layouts are reflected from
+	// the shader, and the reflection ignored a vector's width for integers --
+	// so a uvec4 of joint indices came back as one uint, four bytes where the
+	// buffer holds sixteen. Every attribute after it then sat at the wrong
+	// offset and the mesh drew as a spray of triangles across the world.
+	//
+	// Nothing about that is visible in a compile, a validation layer or a draw
+	// count. It is visible in a screenshot, and in this.
+	void CheckSkinnedVertexLayout()
+	{
+		Check(sizeof(SkinnedVertex) == 64, "a skinned vertex is the size the shader expects");
+		Check(offsetof(SkinnedVertex, Joints) == 32 && offsetof(SkinnedVertex, Weights) == 48,
+			  "with its influences where the shader expects them");
+
+		// Integer vectors reflect at their real width.
+		Check(RHI::FormatSize(RHI::Format::R32G32B32A32_UINT) == 16 &&
+			  RHI::FormatSize(RHI::Format::R32G32B32A32_SINT) == 16,
+			  "a four-component integer format is sixteen bytes");
+		Check(RHI::FormatSize(RHI::Format::R32G32_UINT) == 8 &&
+			  RHI::FormatSize(RHI::Format::R32G32B32_UINT) == 12,
+			  "and the narrower ones are not sixteen");
+
+		// The shader itself, reflected. This is the end of the chain the bug
+		// was in: whatever the enum says, what matters is the stride the
+		// pipeline is built with.
+		auto compiled = RHI::ShaderCompiler::CompileFromFile("assets/shaders/pbr_skinned.rvshader");
+		Check(compiled.has_value(), "the skinned shader compiles");
+		if (!compiled)
+			return;
+
+		const RHI::VertexLayout& layout = compiled->Reflection.VertexInput;
+		Check(layout.Bindings.size() == 1, "and reflects one vertex binding");
+		if (layout.Bindings.empty())
+			return;
+
+		Check(layout.Bindings[0].Stride == sizeof(SkinnedVertex),
+			  "whose stride matches SkinnedVertex exactly");
+		Check(layout.Attributes.size() == 5,
+			  "with five attributes: position, normal, uv, joints and weights");
+
+		// The joints specifically, since they are the ones that were wrong.
+		bool joints = false;
+		for (const RHI::VertexAttribute& attribute : layout.Attributes)
+		{
+			if (attribute.Location != 3)
+				continue;
+
+			joints = attribute.Format == RHI::Format::R32G32B32A32_UINT &&
+					 attribute.Offset == offsetof(SkinnedVertex, Joints);
+		}
+
+		Check(joints, "and the joint indices reflect as four unsigned integers, not one");
+	}
+
 	// The light grid.
 	//
 	// The failure that matters is the CPU and the shader disagreeing about
@@ -4111,6 +4168,7 @@ int RunTests(int argc, char** argv)
 	CheckLightGrid();
 	CheckSkeleton();
 	CheckSkinnedImport();
+	CheckSkinnedVertexLayout();
 	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();

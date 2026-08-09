@@ -77,6 +77,19 @@ namespace RageV
 		};
 		static_assert(sizeof(ObjectPushConstants) == 4, "Push constant block must stay within 128 bytes");
 
+		// The skinned depth pass needs one more: where this caster's bones sit.
+		//
+		// Two structs rather than one with an unused member, because an unused
+		// push constant is optimised out of the shader and the reflected range
+		// shrinks with it -- writing eight bytes into a four-byte range is a
+		// validation error rather than a harmless extra.
+		struct SkinnedShadowPushConstants
+		{
+			int32_t BaseInstance;
+			int32_t BoneBase;
+		};
+		static_assert(sizeof(SkinnedShadowPushConstants) == 8, "Must match shadow_depth_skinned.rvshader");
+
 		// Mirrors InstanceData in pbr.rvshader, std430.
 		struct InstanceData
 		{
@@ -90,8 +103,12 @@ namespace RageV
 			glm::vec4 EmissiveColor;
 			// metallic, roughness, occlusion, normal scale
 			glm::vec4 Surface;
+			// x = where this instance's bones start in the bone buffer. Zero
+			// for anything the skinned pipeline does not draw.
+			glm::vec4 Skin{ 0.0f };
 		};
-		static_assert(sizeof(InstanceData) == 176, "Must match InstanceData in pbr.rvshader");
+		static_assert(sizeof(InstanceData) == 192,
+					  "Must match InstanceData in include/scene_vertex.glsl");
 
 		// One submitted mesh, held until EndScene can sort them.
 		//
@@ -106,6 +123,9 @@ namespace RageV
 			// materials within a mesh so a run is contiguous in both.
 			const Mesh* MeshKey = nullptr;
 			uint64_t MaterialKey = 0;
+			// First in the sort key: skinned and static are different
+			// pipelines, and a run has to be one or the other.
+			bool Skinned = false;
 
 			Ref<Mesh> MeshRef;
 			Ref<Material> MaterialRef;
@@ -119,6 +139,9 @@ namespace RageV
 			Ref<Mesh> MeshRef;
 			// Light view-projection times model, already multiplied out.
 			glm::mat4 LightMVP{ 1.0f };
+			bool Skinned = false;
+			// Where this caster's bones start. -1 when it has none.
+			int32_t BoneBase = -1;
 		};
 
 		struct Renderer3DData
@@ -127,6 +150,11 @@ namespace RageV
 
 			Ref<RHIShader>   Shader;
 			Ref<RHIPipeline> Pipeline;
+			// The same lighting through a wider vertex. Its own pipeline
+			// because the vertex layout differs, and its own shader because the
+			// vertex stage does; everything below that is a shared include.
+			Ref<RHIShader>   SkinnedShader;
+			Ref<RHIPipeline> SkinnedPipeline;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
 			Format TargetDepth = Format::D32_SFLOAT;
 			bool   PipelineDirty = true;
@@ -157,6 +185,17 @@ namespace RageV
 				uint32_t            CellCapacity = 0;
 				Ref<RHIBuffer>      CellIndices;
 				uint32_t            CellIndexCapacity = 0;
+				// Every skinned instance's bones, back to back. One buffer for
+				// the scene rather than one per character: forty characters
+				// would otherwise want forty bindings.
+				Ref<RHIBuffer>      Bones;
+				uint32_t            BoneCapacity = 0;
+				// The skinned pipeline's layout declares one binding the static
+				// one does not -- the bones -- so it needs a set of its own.
+				// Writing a binding a shader never declared is the hazard
+				// recorded in HANDOFF section 5, and the validation layer says
+				// so immediately.
+				Ref<RHIResourceSet> SkinnedSet;
 			};
 
 			// [frame in flight][scene within the frame]
@@ -172,6 +211,11 @@ namespace RageV
 				Ref<RHIBuffer>      Instances;
 				Ref<RHIResourceSet> Set;
 				uint32_t            InstanceCapacity = 0;
+				// The depth pass needs the same bones the lit pass used, or a
+				// character casts the shadow of its bind pose.
+				Ref<RHIBuffer>      Bones;
+				uint32_t            BoneCapacity = 0;
+				Ref<RHIResourceSet> SkinnedSet;
 			};
 
 			std::vector<std::vector<ShadowSlot>> ShadowSlots;
@@ -198,12 +242,20 @@ namespace RageV
 			std::vector<PendingShadowDraw> ShadowPending;
 			std::vector<glm::mat4> ShadowScratch;
 
+			// Bone matrices for this scene and this shadow pass. Appended to as
+			// skinned meshes are submitted; each draw remembers where its own
+			// run began.
+			std::vector<glm::mat4> BoneScratch;
+			std::vector<glm::mat4> ShadowBoneScratch;
+
 			Ref<Material> DefaultMaterial;
 
 			// The depth-only pipeline. Its own shader and its own pipeline
 			// object: no colour attachment, so it cannot share the lit one.
 			Ref<RHIShader>   ShadowShader;
 			Ref<RHIPipeline> ShadowPipeline;
+			Ref<RHIShader>   ShadowSkinnedShader;
+			Ref<RHIPipeline> ShadowSkinnedPipeline;
 			Format ShadowDepth = Format::D32_SFLOAT;
 			glm::mat4 ShadowViewProjection{ 1.0f };
 			bool ShadowActive = false;
@@ -323,10 +375,20 @@ namespace RageV
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
 
+		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr_skinned.rvshader"))
+			s_Data->SkinnedShader = device.CreateShader(*compiled);
+		else
+			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_skinned.rvshader");
+
 		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/shadow_depth.rvshader"))
 			s_Data->ShadowShader = device.CreateShader(*compiled);
 		else
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/shadow_depth.rvshader");
+
+		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/shadow_depth_skinned.rvshader"))
+			s_Data->ShadowSkinnedShader = device.CreateShader(*compiled);
+		else
+			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/shadow_depth_skinned.rvshader");
 
 		SamplerDesc environment;
 		environment.WrapU = WrapMode::ClampToEdge;
@@ -400,6 +462,18 @@ namespace RageV
 		desc.DepthFormat = s_Data->TargetDepth;
 
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
+
+		// The same description with the other shader. Its vertex layout is
+		// reflected from that shader, so the wider vertex needs nothing stated
+		// here -- and both pipelines share every raster and depth setting,
+		// which is what stops a skinned mesh being subtly differently lit.
+		if (s_Data->SkinnedShader)
+		{
+			desc.Name = "Renderer3D.pbr.skinned";
+			desc.Shader = s_Data->SkinnedShader;
+			s_Data->SkinnedPipeline = s_Data->Device->CreatePipeline(desc);
+		}
+
 		s_Data->PipelineDirty = false;
 
 		// Resource sets are tied to a pipeline layout, so they go with it and
@@ -407,7 +481,10 @@ namespace RageV
 		for (auto& frame : s_Data->SceneSlots)
 		{
 			for (auto& slot : frame)
+			{
 				slot.Set.reset();
+				slot.SkinnedSet.reset();
+			}
 		}
 	}
 
@@ -648,7 +725,20 @@ namespace RageV
 		// above and the block is uploaded once.
 		slot.Buffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
 
-		auto& sceneSet = slot.Set;
+		// Both sets get every write. Two sets rather than one because their
+		// layouts differ by a single binding, and one loop rather than two
+		// copies because the day they drift is the day a skinned mesh is lit
+		// from a different environment than the mesh beside it.
+		if (s_Data->SkinnedPipeline && !slot.SkinnedSet)
+			slot.SkinnedSet = s_Data->Device->CreateResourceSet(s_Data->SkinnedPipeline, 0);
+
+		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet };
+
+		for (const Ref<RHIResourceSet>& sceneSet : targets)
+		{
+		if (!sceneSet)
+			continue;
+
 		sceneSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
 		sceneSet->SetStorageBuffer(8, slot.Lights, 0, (uint64_t)lightSlots * sizeof(GpuLight));
 		sceneSet->SetStorageBuffer(9, slot.Cells, 0, cells.size() * sizeof(LightGrid::Cell));
@@ -698,6 +788,7 @@ namespace RageV
 				sceneSet->SetTexture(4, point ? point : emptyCube, shadowSampler, i);
 			}
 		}
+		}   // both sets
 
 		// Not committed and not bound yet.
 		//
@@ -707,6 +798,7 @@ namespace RageV
 		// descriptor set that is already bound to a command buffer, which is
 		// the hazard recorded in HANDOFF §5.
 		s_Data->Pending.clear();
+		s_Data->BoneScratch.clear();
 		s_Data->SceneActive = true;
 	}
 
@@ -731,6 +823,12 @@ namespace RageV
 		std::sort(s_Data->Pending.begin(), s_Data->Pending.end(),
 				  [](const PendingDraw& a, const PendingDraw& b)
 				  {
+					  // Pipeline first. Static and skinned are different
+					  // pipelines and different vertex layouts, so a run has to
+					  // be entirely one or the other -- sorting them together
+					  // would put a pipeline switch in the middle of a batch.
+					  if (a.Skinned != b.Skinned)
+						  return !a.Skinned;
 					  if (a.MeshKey != b.MeshKey)
 						  return a.MeshKey < b.MeshKey;
 					  return a.MaterialKey < b.MaterialKey;
@@ -754,10 +852,47 @@ namespace RageV
 
 		slot.Set->SetStorageBuffer(7, slot.Instances, 0,
 								   (uint64_t)count * sizeof(InstanceData));
+
+		// Always bound, even with nothing skinned in the scene: the layout
+		// declares the binding whether or not this frame uses it, and a
+		// declared binding left unwritten is a validation error rather than an
+		// unread one. One identity is the smallest honest filler.
+		const uint32_t boneCount = glm::max((uint32_t)s_Data->BoneScratch.size(), 1u);
+		if (!EnsureInstanceBuffer(slot.Bones, slot.BoneCapacity, boneCount,
+								  sizeof(glm::mat4), "Renderer3D.bones"))
+		{
+			return;
+		}
+
+		if (s_Data->BoneScratch.empty())
+		{
+			const glm::mat4 identity(1.0f);
+			slot.Bones->Upload(&identity, sizeof(identity));
+		}
+		else
+		{
+			slot.Bones->Upload(s_Data->BoneScratch.data(),
+							   s_Data->BoneScratch.size() * sizeof(glm::mat4));
+		}
+
+		// The instance buffer to both, the bones only to the set whose layout
+		// declares them.
+		if (slot.SkinnedSet)
+		{
+			slot.SkinnedSet->SetStorageBuffer(7, slot.Instances, 0,
+											  (uint64_t)count * sizeof(InstanceData));
+			slot.SkinnedSet->SetStorageBuffer(11, slot.Bones, 0,
+											  (uint64_t)boneCount * sizeof(glm::mat4));
+			slot.SkinnedSet->Commit();
+		}
+
 		slot.Set->Commit();
 
-		cmd->BindPipeline(s_Data->Pipeline);
-		cmd->BindResourceSet(0, slot.Set);
+		// Bound per run rather than once, because the run decides which of the
+		// two pipelines draws it.
+		const Mesh* boundPipelineFor = nullptr;
+		bool boundSkinned = false;
+		bool anyPipelineBound = false;
 
 		// One draw per run of identical mesh and bound material state.
 		uint32_t start = 0;
@@ -773,10 +908,37 @@ namespace RageV
 
 			const PendingDraw& first = s_Data->Pending[start];
 
+			// A skinned run needs the skinned pipeline. Without one it is
+			// skipped rather than drawn by the static one: the vertex layouts
+			// differ, and the static pipeline would read joint indices as
+			// texture coordinates and scatter the mesh across the world.
+			const Ref<RHIPipeline>& pipeline = first.Skinned ? s_Data->SkinnedPipeline
+															 : s_Data->Pipeline;
+			if (!pipeline)
+			{
+				start = end;
+				continue;
+			}
+
+			const Ref<RHIResourceSet>& sceneSet = first.Skinned ? slot.SkinnedSet : slot.Set;
+			if (!sceneSet)
+			{
+				start = end;
+				continue;
+			}
+
+			if (!anyPipelineBound || boundSkinned != first.Skinned)
+			{
+				cmd->BindPipeline(pipeline);
+				cmd->BindResourceSet(0, sceneSet);
+				boundSkinned = first.Skinned;
+				anyPipelineBound = true;
+			}
+
 			// Any material in the run would do: the key is exactly the state
 			// this binds, so they are interchangeable by construction.
 			if (first.MaterialRef)
-				first.MaterialRef->Bind(*cmd, s_Data->Pipeline, 1);
+				first.MaterialRef->Bind(*cmd, pipeline, 1);
 
 			ObjectPushConstants object;
 			object.BaseInstance = (int32_t)start;
@@ -857,6 +1019,20 @@ namespace RageV
 			desc.DepthFormat = s_Data->ShadowDepth;
 
 			s_Data->ShadowPipeline = s_Data->Device->CreatePipeline(desc);
+
+			// The skinned depth pipeline. Its vertex layout is reflected from
+			// its own shader -- which declares the normal and texture
+			// coordinate it does not read, precisely so the stride matches the
+			// buffer the lit skinned pass reads. Stating a tighter one here
+			// would walk through the mesh reading joints as positions.
+			if (s_Data->ShadowSkinnedShader)
+			{
+				GraphicsPipelineDesc skinned = desc;
+				skinned.Name = "Renderer3D.shadow.skinned";
+				skinned.Shader = s_Data->ShadowSkinnedShader;
+				skinned.VertexInput = {};   // reflected, unlike the static one
+				s_Data->ShadowSkinnedPipeline = s_Data->Device->CreatePipeline(skinned);
+			}
 		}
 
 		if (!s_Data->ShadowPipeline)
@@ -864,6 +1040,7 @@ namespace RageV
 
 		s_Data->ShadowViewProjection = viewProjection;
 		s_Data->ShadowPending.clear();
+		s_Data->ShadowBoneScratch.clear();
 		cmd->BindPipeline(s_Data->ShadowPipeline);
 		s_Data->ShadowActive = true;
 	}
@@ -877,6 +1054,32 @@ namespace RageV
 		draw.MeshKey = mesh.get();
 		draw.MeshRef = mesh;
 		draw.LightMVP = s_Data->ShadowViewProjection * transform;
+
+		s_Data->ShadowPending.push_back(std::move(draw));
+	}
+
+	void Renderer3D::DrawSkinnedMeshShadow(const Ref<Mesh>& mesh, const glm::mat4& transform,
+										   const std::vector<glm::mat4>& bones)
+	{
+		if (!s_Data || !s_Data->ShadowActive || !mesh)
+			return;
+
+		const int32_t base = (int32_t)s_Data->ShadowBoneScratch.size();
+
+		if (bones.empty())
+			s_Data->ShadowBoneScratch.emplace_back(1.0f);
+		else
+		{
+			s_Data->ShadowBoneScratch.insert(s_Data->ShadowBoneScratch.end(),
+											 bones.begin(), bones.end());
+		}
+
+		PendingShadowDraw draw;
+		draw.MeshKey = mesh.get();
+		draw.MeshRef = mesh;
+		draw.LightMVP = s_Data->ShadowViewProjection * transform;
+		draw.Skinned = true;
+		draw.BoneBase = base;
 
 		s_Data->ShadowPending.push_back(std::move(draw));
 	}
@@ -902,7 +1105,16 @@ namespace RageV
 		std::sort(s_Data->ShadowPending.begin(), s_Data->ShadowPending.end(),
 				  [](const PendingShadowDraw& a, const PendingShadowDraw& b)
 				  {
-					  return a.MeshKey < b.MeshKey;
+					  // Static first, then skinned, for the same reason the lit
+					  // pass does it: two pipelines, two vertex layouts.
+					  if (a.Skinned != b.Skinned)
+						  return !a.Skinned;
+					  if (a.MeshKey != b.MeshKey)
+						  return a.MeshKey < b.MeshKey;
+					  // A skinned run is one caster at a time: each has its own
+					  // pose, and the bone base is pushed rather than carried
+					  // per instance in this pass.
+					  return a.BoneBase < b.BoneBase;
 				  });
 
 		Renderer3DData::ShadowSlot& slot = AcquireShadowSlot();
@@ -926,23 +1138,97 @@ namespace RageV
 		slot.Set->SetStorageBuffer(0, slot.Instances, 0, (uint64_t)count * sizeof(glm::mat4));
 		slot.Set->Commit();
 
-		cmd->BindResourceSet(0, slot.Set);
+		// The skinned depth pass has a second set, because its layout declares
+		// a bone buffer the static one does not. Built only when something in
+		// this pass is actually skinned.
+		const bool anySkinned = s_Data->ShadowPending.back().Skinned;
+		if (anySkinned && s_Data->ShadowSkinnedPipeline)
+		{
+			const uint32_t boneCount =
+				glm::max((uint32_t)s_Data->ShadowBoneScratch.size(), 1u);
+
+			if (EnsureInstanceBuffer(slot.Bones, slot.BoneCapacity, boneCount,
+									 sizeof(glm::mat4), "Renderer3D.shadowBones"))
+			{
+				if (s_Data->ShadowBoneScratch.empty())
+				{
+					const glm::mat4 identity(1.0f);
+					slot.Bones->Upload(&identity, sizeof(identity));
+				}
+				else
+				{
+					slot.Bones->Upload(s_Data->ShadowBoneScratch.data(),
+									   s_Data->ShadowBoneScratch.size() * sizeof(glm::mat4));
+				}
+
+				if (!slot.SkinnedSet)
+				{
+					slot.SkinnedSet =
+						s_Data->Device->CreateResourceSet(s_Data->ShadowSkinnedPipeline, 0);
+				}
+
+				slot.SkinnedSet->SetStorageBuffer(0, slot.Instances, 0,
+												  (uint64_t)count * sizeof(glm::mat4));
+				slot.SkinnedSet->SetStorageBuffer(1, slot.Bones, 0,
+												  (uint64_t)boneCount * sizeof(glm::mat4));
+				slot.SkinnedSet->Commit();
+			}
+		}
+
+		bool boundSkinned = false;
+		bool anyBound = false;
 
 		uint32_t start = 0;
 		while (start < count)
 		{
 			uint32_t end = start + 1;
 			while (end < count &&
-				   s_Data->ShadowPending[end].MeshKey == s_Data->ShadowPending[start].MeshKey)
+				   s_Data->ShadowPending[end].Skinned == s_Data->ShadowPending[start].Skinned &&
+				   s_Data->ShadowPending[end].MeshKey == s_Data->ShadowPending[start].MeshKey &&
+				   // A skinned run is one caster: the bone base is a push
+				   // constant here, so two characters cannot share a draw.
+				   !s_Data->ShadowPending[start].Skinned)
 			{
 				end++;
 			}
 
-			const Ref<Mesh>& mesh = s_Data->ShadowPending[start].MeshRef;
+			const PendingShadowDraw& first = s_Data->ShadowPending[start];
+			const Ref<Mesh>& mesh = first.MeshRef;
 
-			ObjectPushConstants object;
-			object.BaseInstance = (int32_t)start;
-			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+			const Ref<RHIPipeline>& pipeline = first.Skinned ? s_Data->ShadowSkinnedPipeline
+															 : s_Data->ShadowPipeline;
+			const Ref<RHIResourceSet>& set = first.Skinned ? slot.SkinnedSet : slot.Set;
+
+			// A skinned caster with no skinned pipeline is skipped rather than
+			// drawn by the static one: it would cast the shadow of a mesh
+			// scattered across the world, which is worse than casting none.
+			if (!pipeline || !set)
+			{
+				start = end;
+				continue;
+			}
+
+			if (!anyBound || boundSkinned != first.Skinned)
+			{
+				cmd->BindPipeline(pipeline);
+				cmd->BindResourceSet(0, set);
+				boundSkinned = first.Skinned;
+				anyBound = true;
+			}
+
+			if (first.Skinned)
+			{
+				SkinnedShadowPushConstants object;
+				object.BaseInstance = (int32_t)start;
+				object.BoneBase = first.BoneBase < 0 ? 0 : first.BoneBase;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+			}
+			else
+			{
+				ObjectPushConstants object;
+				object.BaseInstance = (int32_t)start;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+			}
 
 			cmd->BindVertexBuffer(0, mesh->GetVertexBuffer());
 			cmd->BindIndexBuffer(mesh->GetIndexBuffer(), IndexType::UInt32);
@@ -987,6 +1273,49 @@ namespace RageV
 		// Recorded, not drawn. EndScene sorts these and issues one draw per run
 		// of identical state; drawing here is what made the count equal the
 		// object count.
+		s_Data->Pending.push_back(std::move(draw));
+	}
+
+	void Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const glm::mat4& transform,
+									 const Ref<Material>& material,
+									 const std::vector<glm::mat4>& bones)
+	{
+		if (!s_Data || !s_Data->SceneActive || !mesh)
+			return;
+
+		// A skinned mesh with no pose is drawn by the skinned pipeline anyway:
+		// its vertex layout is the wider one, and the static pipeline would
+		// read joints as texture coordinates. An empty bone run leaves every
+		// weighted matrix zero, so one identity is supplied instead and the
+		// mesh appears in its bind pose.
+		const uint32_t base = (uint32_t)s_Data->BoneScratch.size();
+
+		if (bones.empty())
+			s_Data->BoneScratch.emplace_back(1.0f);
+		else
+			s_Data->BoneScratch.insert(s_Data->BoneScratch.end(), bones.begin(), bones.end());
+
+		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
+		if (!effective)
+			return;
+
+		const MaterialParams& params = effective->GetParams();
+
+		PendingDraw draw;
+		draw.MeshKey = mesh.get();
+		draw.MaterialKey = effective->GetBatchKey();
+		draw.Skinned = true;
+		draw.MeshRef = mesh;
+		draw.MaterialRef = effective;
+
+		draw.Instance.Model = transform;
+		draw.Instance.NormalMatrix = glm::mat4(glm::transpose(glm::inverse(glm::mat3(transform))));
+		draw.Instance.BaseColor = params.BaseColor;
+		draw.Instance.EmissiveColor = params.EmissiveColor;
+		draw.Instance.Surface = { params.Metallic, params.Roughness,
+								  params.Occlusion, params.NormalScale };
+		draw.Instance.Skin = { (float)base, 0.0f, 0.0f, 0.0f };
+
 		s_Data->Pending.push_back(std::move(draw));
 	}
 

@@ -72,6 +72,47 @@ namespace RageV
 		}
 	}
 
+	Mesh::Mesh(RHIDevice& device,
+			   const std::vector<SkinnedVertex>& vertices,
+			   const std::vector<uint32_t>& indices,
+			   const std::string& debugName)
+		: m_IndexCount((uint32_t)indices.size()), m_Skinned(true)
+	{
+		BufferDesc vertexDesc;
+		vertexDesc.Size = vertices.size() * sizeof(SkinnedVertex);
+		vertexDesc.Usage = BufferUsage::Vertex;
+		vertexDesc.Memory = MemoryDomain::DeviceLocal;
+		vertexDesc.DebugName = debugName + ".skinnedvertices";
+		m_VertexBuffer = device.CreateBuffer(vertexDesc);
+		m_VertexBuffer->Upload(vertices.data(), vertexDesc.Size);
+
+		BufferDesc indexDesc;
+		indexDesc.Size = indices.size() * sizeof(uint32_t);
+		indexDesc.Usage = BufferUsage::Index;
+		indexDesc.Memory = MemoryDomain::DeviceLocal;
+		indexDesc.DebugName = debugName + ".indices";
+		m_IndexBuffer = device.CreateBuffer(indexDesc);
+		m_IndexBuffer->Upload(indices.data(), indexDesc.Size);
+
+		m_Indices = indices;
+		m_Positions.reserve(vertices.size());
+
+		if (!vertices.empty())
+			m_Bounds.Min = m_Bounds.Max = vertices[0].Position;
+
+		// The *bind pose* bounds, which is the honest thing to store and not
+		// the whole truth: a limb swinging out leaves this box, so a skinned
+		// mesh can be culled while part of it is still on screen. Fixing that
+		// properly means bounds per clip, or a box grown to cover every pose.
+		// Recorded in HANDOFF section 9 rather than pretended about.
+		for (const SkinnedVertex& vertex : vertices)
+		{
+			m_Positions.push_back(vertex.Position);
+			m_Bounds.Min = glm::min(m_Bounds.Min, vertex.Position);
+			m_Bounds.Max = glm::max(m_Bounds.Max, vertex.Position);
+		}
+	}
+
 	namespace
 	{
 		std::unordered_map<uint32_t, Ref<Mesh>> s_PrimitiveCache;

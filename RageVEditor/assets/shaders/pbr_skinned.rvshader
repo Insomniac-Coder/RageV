@@ -1,0 +1,84 @@
+// Cook-Torrance PBR for meshes a skeleton deforms.
+//
+// The static variant with one extra step. Everything below the vertex stage --
+// the scene block, the clustered light lookup, the shadows, the whole of the
+// shading -- is the same include pbr.rvshader uses, so the two cannot drift
+// into shading the same surface differently.
+//
+// What differs is the only thing that genuinely differs: a vertex here is
+// carried by up to four bones before the model matrix touches it.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_TexCoord;
+// Indices into the bone buffer, already in skeleton order. The importer
+// remapped glTF's own joint order away, so nothing here has to know it existed.
+layout(location = 3) in uvec4 a_Joints;
+// Normalised at import, so this sums to one and the weighted matrix below is a
+// convex combination rather than an arbitrary scale.
+layout(location = 4) in vec4 a_Weights;
+
+#include "include/scene_vertex.glsl"
+
+// Every bone of every skinned instance drawn this frame, back to back.
+//
+// One flat buffer rather than one per instance: a scene with forty characters
+// would otherwise want forty bindings, and the instance already carries where
+// its own bones start.
+layout(std430, set = 0, binding = 11) readonly buffer BoneBlock
+{
+	mat4 Bones[];
+} u_Bones;
+
+void main()
+{
+	InstanceData instance = u_Instances.Instances[u_Object.BaseInstance + gl_InstanceIndex];
+
+	// Where this instance's bones begin. Carried in the instance rather than
+	// pushed, because a batch of several characters is one draw and each has
+	// its own skeleton somewhere in the buffer.
+	int base = int(instance.Skin.x);
+
+	// The weighted sum of the four. Weights sum to one, so this is an average
+	// of the bones' transforms -- which is what makes an elbow bend smoothly
+	// rather than tear into two rigid halves.
+	//
+	// Summing the matrices and transforming once, rather than transforming four
+	// times and blending the results: the two are identical for an affine
+	// transform and this is a quarter of the work.
+	mat4 skin =
+		a_Weights.x * u_Bones.Bones[base + int(a_Joints.x)] +
+		a_Weights.y * u_Bones.Bones[base + int(a_Joints.y)] +
+		a_Weights.z * u_Bones.Bones[base + int(a_Joints.z)] +
+		a_Weights.w * u_Bones.Bones[base + int(a_Joints.w)];
+
+	vec4 skinned = skin * vec4(a_Position, 1.0);
+	vec4 world = instance.Model * skinned;
+
+	v_WorldPos = world.xyz;
+
+	// The normal goes through the skin as well, or a bent limb keeps the
+	// lighting of its bind pose and reads as flat.
+	//
+	// mat3 of the blended matrix, not its inverse transpose: a bone transform
+	// is a rotation and a translation, and the inverse transpose of a rotation
+	// is the rotation. Non-uniform scale on a bone would need the full form and
+	// is not a thing any exporter emits.
+	v_Normal = mat3(instance.NormalMatrix) * (mat3(skin) * a_Normal);
+	v_TexCoord = a_TexCoord;
+
+	v_BaseColor     = instance.BaseColor;
+	v_EmissiveColor = instance.EmissiveColor;
+	v_Surface       = instance.Surface;
+
+	gl_Position = u_Scene.ViewProjection * world;
+	v_ClipPos = gl_Position;
+}
+
+#type fragment
+#version 450 core
+
+#include "include/pbr_fragment.glsl"

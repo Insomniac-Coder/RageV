@@ -7,6 +7,7 @@
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include "RageV/Renderer/Camera.h"
+#include "RageV/Animation/Skeleton.h"
 #include "SceneCamera.h"
 #include "ScriptableEntity.h"
 #include "RageV/Renderer/Light.h"
@@ -195,6 +196,36 @@ namespace RageV
 		MeshComponent(const MeshComponent&) = default;
 		MeshComponent(PrimitiveType primitive) : Mesh(PrimitiveHandle(primitive)) {}
 		MeshComponent(AssetHandle mesh) : Mesh(mesh) {}
+	};
+
+	// Plays a clip from the model a MeshComponent points at.
+	//
+	// Separate from MeshComponent so a character's body, head and clothing can
+	// be three meshes driven by one animator, which is how every rig of any
+	// size is built. The animator lives on the entity that owns the skeleton
+	// and the meshes are its children.
+	struct AnimatorComponent
+	{
+		// Which clip of the model's own list. -1 is the bind pose, which is a
+		// legitimate state and not an error -- it is what a character that has
+		// never been told to move should look like.
+		int Clip = 0;
+		bool Playing = true;
+		bool Loop = true;
+		float Speed = 1.0f;
+
+		// Seconds into the clip. Not serialized: it means nothing outside the
+		// run that produced it, for the same reason an audio voice is not.
+		float Time = 0.0f;
+
+		// The pose, rebuilt each frame. Kept here rather than in the renderer
+		// so a script can read a bone's position -- a weapon in a hand needs
+		// exactly this, and recomputing it would be a second answer to a
+		// question already answered.
+		std::vector<glm::mat4> Skinning;
+
+		AnimatorComponent() = default;
+		AnimatorComponent(const AnimatorComponent&) = default;
 	};
 
 	// Takes part in the physics simulation. Needs a ColliderComponent to have

@@ -3,6 +3,7 @@
 #include "AssetRegistry.h"
 #include "GltfImporter.h"
 #include "RageV/Renderer/Mesh.h"
+#include "RageV/Animation/Skeleton.h"
 #include "RageV/Renderer/Material.h"
 
 namespace RageV
@@ -24,6 +25,14 @@ namespace RageV
 		// Null when the handle is unknown or the source will not load. Loading
 		// is on demand and cached, so asking repeatedly is cheap.
 		static RHI::Ref<Mesh> GetMesh(AssetHandle handle);
+
+		// The skeleton and clips a model brought with it, or null.
+		//
+		// Cached beside the mesh and keyed the same way, because they come out
+		// of the same parse and a second one to fetch them would be the file
+		// read twice.
+		static const Skeleton* GetSkeleton(AssetHandle handle);
+		static const std::vector<AnimationClip>* GetClips(AssetHandle handle);
 
 		// An environment map, built from whatever image the handle names. The
 		// conversion from a panorama is not cheap, so a failure is cached as

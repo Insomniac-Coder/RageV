@@ -48,6 +48,15 @@ namespace RageV::RHI
 
 		R32_UINT,
 		R32_SINT,
+		// Integer vectors. Added for skinning: joint indices are a uvec4, and
+		// without these the reflection fell back to a single component, which
+		// makes the vertex stride wrong and scatters the mesh.
+		R32G32_UINT,
+		R32G32B32_UINT,
+		R32G32B32A32_UINT,
+		R32G32_SINT,
+		R32G32B32_SINT,
+		R32G32B32A32_SINT,
 
 		D16_UNORM,
 		D32_SFLOAT,
