@@ -35,7 +35,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-523 checks, `exit 0`. Then look at a frame:
+544 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -62,11 +62,12 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**What to do next:** §8. The frame is measured now (§6 has the numbers) and the
-next unknown is where Vulkan's remaining 1.88 ms goes, which needs GPU
-timestamps. The other candidate for going first is the OpenGL frame-to-frame
-flicker in §9, which is a correctness bug. After those, 3.8 — clustered forward
-— removes the eight-light cap, the last hard limit in the lighting.
+**What to do next:** §8. Everything in Phase 3 is done except **3.7, skeletal
+animation**, and three of its five pieces are already in — the skeleton, the
+shader includes and the glTF import, all tested. What is missing is the part
+that puts a character on screen: the skinned vertex format, the skinned shader,
+the renderer and shadow paths, and the components. `limb.gltf` in the sample
+project is the end-to-end check waiting for them.
 
 ---
 
@@ -100,7 +101,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 523 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
+| `scenetest` | 544 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -631,7 +632,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
 | Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
-| Tests | `scenetest`, **523 checks**, green on both backends |
+| Tests | `scenetest`, **544 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete except for
 skeletal animation (3.7).**
