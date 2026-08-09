@@ -20,19 +20,31 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0, 1, 2, **3 and 4 complete** — the render graph, HDR
-post, sky and cube maps, full image-based lighting, shadows for every light
-type, frustum culling, instanced draw batching, clustered forward lighting and
-skeletal animation. **Phase 5, C# scripting, is under way** — 5.1 is done, and
-the .NET runtime boots in-process and calls managed code. The engine loop closes:
-a project can be imported into, placed in, scripted, played, and packaged into a
-folder someone else can run.
+**Where it is:** phases 0-4 complete, and **phase 5 is complete except hot
+reload**. The render graph, HDR post, sky and cube maps, image-based lighting,
+shadows for every light type, frustum culling, instanced batching, clustered
+forward lighting and skeletal animation are all done. So is C# scripting: the
+.NET runtime boots in-process, the interop boundary works both ways, there is a
+managed class library, a project builds its own script assembly, and a C# script
+can be attached to an entity with its fields editable in the inspector.
 
-**5.0 is done too** — no third-party type appears in a public RageV header any
-more. `glm::vec3` is `RageV::Math::Vec3`, glm survives only inside `Math.cpp`,
-`GlmBridge.h` and the one scenetest block that compares the two. What has *not*
-been done is the second half of 5.0: `RageV::Audio::`, `RageV::Physics::` and
-the other domain namespaces. See §8.
+**A project can have both languages on the same entity.** C++ scripts declare
+their editable fields at registration; C# scripts have theirs found by
+reflection. Both converge on one inspector, one scene format.
+
+**What is left of phase 5:** 5.5, hot reload via a collectible
+`AssemblyLoadContext`. Today a C# change needs Build Scripts and a restart.
+
+**The one remaining asymmetry:** a C++ script is compiled into the engine
+binary, so a project cannot add one without rebuilding the engine. C# has no
+such limit.
+
+**Also done, off-roadmap:** the developer manual and its generator (§2b), the
+application icon (§2a), project creation with a per-project `bin/` (§2), and
+5.0 -- no third-party type in a public header, and the public API segregated
+into `RageV::Math::`, `RageV::Audio::`, `RageV::Physics::`, `RageV::Assets::`
+and `RageV::Anim::` (§1a). The renderer was deliberately left out of that last
+one; see §1a for why.
 
 **Prove it still works** (from the repo root, ~2 minutes):
 
@@ -970,11 +982,40 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-**Phases 0, 1, 2, 3 and 4 are done.**
+**Phases 0-4 are done, and phase 5 is done except hot reload.**
 
-Start here, in this order.
+### START HERE — 5.5, hot reload (`L`)
 
-### START HERE — Phase 5, C# scripting (`XL`)
+The last phase-5 item. A C# change currently needs File > Build Scripts and a
+restart; hot reload removes the restart.
+
+What it has to do, and the order matters:
+
+1. Load the project assembly into a **collectible** `AssemblyLoadContext`
+   instead of the default one. It is in the default context today -- see
+   `ScriptHost.LoadAssembly`, which says so.
+2. **Load from a byte array, not a path.** `Assembly.LoadFrom` keeps the file
+   open, and the next `dotnet build` then fails with the file in use. Read the
+   `.dll` and its `.pdb` into memory and use `LoadFromStream`.
+3. Capture live script state before unloading and restore it after. 5.6 defines
+   exactly what that state is: the values in `ScriptFieldOverrides`, plus
+   whatever the instance currently holds. **Store primitives and strings only** --
+   holding any object whose type came from the collectible context keeps the
+   whole context alive.
+4. **Verify the unload actually happened**, with a `WeakReference` to the
+   context and a few `GC.Collect()` passes. This is the failure that matters: a
+   collectible context that never collects leaks the old code, keeps running it,
+   and looks exactly like success. A test that only checks "the new assembly
+   loaded" would pass forever.
+5. The `AssemblyLoadContext.Default.Resolving` handler in `ScriptHost` already
+   points a project assembly at the one `RageV.ScriptCore` in the process. The
+   collectible context needs the same thing, or every reloaded script becomes a
+   different type from the one the engine holds -- see the note there.
+
+After that, phase 5 is finished. ROADMAP §9 recommends **building a game with it
+before starting phase 6**, and that recommendation has not been revisited.
+
+### Done — Phase 5, C# scripting (`XL`)
 
 **Phase 3 is complete.** Skeletal animation landed with the rest of it: a
 skinned vertex format, a skinned PBR shader and a skinned depth shader sharing
