@@ -12,6 +12,7 @@
 #include "RageV/Project/Project.h"
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Core/FrameProfiler.h"
+#include "RageV/Core/EngineConfig.h"
 #include "ImGuizmo.h"
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/gtx/matrix_decompose.hpp"
@@ -965,6 +966,62 @@ void EditorLayer::DrawStatisticsPanel()
 	ImGui::PlotLines("##FrameTimes", m_FrameHistory, IM_ARRAYSIZE(m_FrameHistory),
 					 m_FrameHistoryIndex, nullptr, 0.0f, FLT_MAX,
 					 ImVec2(-1.0f, 48.0f));
+
+	// Where the frame goes, on both processors.
+	//
+	// CPU is wall time around each phase and GPU is a timestamp pair inside the
+	// command buffer, so the two answer different questions: the first says
+	// where the thread spent itself, the second where the work ran. A phase can
+	// be large on one and small on the other, and which one it is decides what
+	// there is to do about it.
+	ImGui::SeparatorText("Frame");
+	if (ImGui::BeginTable("##PhaseStats", 3, ImGuiTableFlags_SizingStretchProp |
+											 ImGuiTableFlags_RowBg))
+	{
+		ImGui::TableSetupColumn("Phase");
+		ImGui::TableSetupColumn("CPU");
+		ImGui::TableSetupColumn("GPU");
+		ImGui::TableHeadersRow();
+
+		float cpuTotal = 0.0f;
+		for (int i = 0; i < (int)FramePhase::Count; i++)
+		{
+			const auto phase = (FramePhase)i;
+			const float cpu = FrameProfiler::LivePhaseMs(phase);
+			const float gpu = FrameProfiler::LiveGpuPhaseMs(phase);
+			cpuTotal += cpu;
+
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn(); ImGui::TextUnformatted(FramePhaseName(phase));
+			ImGui::TableNextColumn(); ImGui::Text("%.3f", cpu);
+			ImGui::TableNextColumn();
+			if (gpu > 0.0f)
+				ImGui::Text("%.3f", gpu);
+			else
+				ImGui::TextDisabled("--");
+		}
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::TextDisabled("total");
+		ImGui::TableNextColumn(); ImGui::TextDisabled("%.3f", cpuTotal);
+		ImGui::TableNextColumn();
+		if (const float gpuFrame = FrameProfiler::LiveGpuFrameMs(); gpuFrame > 0.0f)
+			ImGui::TextDisabled("%.3f", gpuFrame);
+		else
+			ImGui::TextDisabled("--");
+
+		ImGui::EndTable();
+	}
+
+	if (!FrameProfiler::HasGpuTimings())
+		ImGui::TextDisabled("No GPU timings: this device has no timestamp queries.");
+	else if (EngineConfig::Get().VSync)
+	{
+		// Said here because it is the single most common way to misread this
+		// panel, and it has already happened once in this project's history.
+		ImGui::TextDisabled("Vsync is on: the frame time is the display's refresh, "
+							"not the renderer's cost.");
+	}
 
 	ImGui::SeparatorText("Renderer");
 	if (ImGui::BeginTable("##RendererStats", 2, ImGuiTableFlags_SizingStretchProp))

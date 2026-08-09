@@ -286,6 +286,13 @@ namespace RageV {
 
 			Renderer::BeginFrame(cmd);
 
+			// The device recycled a query pool inside BeginFrame, so this is
+			// where a couple of frames' worth of GPU results become readable.
+			FrameProfiler::CollectGpu();
+
+			// The whole frame's GPU span, either side of everything recorded.
+			cmd->WriteTimestamp(kWholeFrameBeginSlot);
+
 			const Timestep ts = frameTime;
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate(ts);
@@ -315,6 +322,8 @@ namespace RageV {
 					WriteScreenshot(path, rgba, w, h);
 				});
 			}
+
+			cmd->WriteTimestamp(kWholeFrameEndSlot);
 
 			{
 				RV_PROFILE_PHASE(FramePhase::Present);

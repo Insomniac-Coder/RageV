@@ -62,6 +62,13 @@ namespace RageV::RHI
 		// luck: their orientation comes from a face table both specifications
 		// share, and the data has to match it. So one backend copies and the
 		// other blits upside down, and callers see neither.
+		// Records a GPU timestamp into this frame's pool at `slot`.
+		//
+		// After every command already recorded, not at the top of the pipe: the
+		// point is when the work *finished*, and a top-of-pipe timestamp
+		// answers a different question that looks the same in a report.
+		virtual void WriteTimestamp(uint32_t slot) = 0;
+
 		// Builds a texture's mip chain *in this command buffer*, in order with
 		// everything already recorded into it.
 		//

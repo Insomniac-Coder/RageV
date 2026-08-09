@@ -927,6 +927,11 @@ namespace RageV::GL
 			(GLsizei)instanceCount, vertexOffset, firstInstance);
 	}
 
+	void OpenGLCommandListRHI::WriteTimestamp(uint32_t slot)
+	{
+		m_Device.RecordTimestamp(slot);
+	}
+
 	void OpenGLCommandListRHI::GenerateMips(const Ref<RHITexture>& texture)
 	{
 		// GL has one queue and no recording, so issuing it here is already in
@@ -1059,6 +1064,7 @@ namespace RageV::GL
 			RV_CORE_ERROR("OpenGL 4.5 is required for glClipControl; depth will not match Vulkan");
 
 		QueryCaps();
+		CreateTimestampQueries();
 
 		m_CommandList = std::make_unique<OpenGLCommandListRHI>(*this);
 
@@ -1094,6 +1100,74 @@ namespace RageV::GL
 		m_Caps.MaxPushConstantSize = 0;
 	}
 
+	void OpenGLDevice::CreateTimestampQueries()
+	{
+		m_TimestampsSupported = m_Caps.SupportsTimestampQueries;
+		if (!m_TimestampsSupported)
+		{
+			RV_CORE_WARN("This context does not report timestamp queries; GPU timings "
+						 "will read zero");
+			return;
+		}
+
+		for (int half = 0; half < 2; half++)
+		{
+			m_TimestampQueries[half].assign(RHIDevice::kTimestampSlots, 0);
+			m_TimestampWritten[half].assign(RHIDevice::kTimestampSlots, 0);
+			glGenQueries((GLsizei)RHIDevice::kTimestampSlots, m_TimestampQueries[half].data());
+		}
+
+		m_ResolvedTicks.assign(RHIDevice::kTimestampSlots, 0);
+		m_ResolvedWritten.assign(RHIDevice::kTimestampSlots, 0);
+	}
+
+	void OpenGLDevice::RecordTimestamp(uint32_t slot)
+	{
+		if (!m_TimestampsSupported || slot >= RHIDevice::kTimestampSlots)
+			return;
+
+		glQueryCounter(m_TimestampQueries[m_TimestampRing][slot], GL_TIMESTAMP);
+		m_TimestampWritten[m_TimestampRing][slot] = 1;
+	}
+
+	void OpenGLDevice::RecycleTimestampQueries()
+	{
+		if (!m_TimestampsSupported)
+			return;
+
+		// The half that is *not* about to be written -- last frame's. Its
+		// results are ready because a frame has been submitted and swapped
+		// since, so nothing here blocks.
+		const uint32_t previous = 1u - m_TimestampRing;
+
+		for (uint32_t i = 0; i < RHIDevice::kTimestampSlots; i++)
+		{
+			m_ResolvedWritten[i] = 0;
+			m_ResolvedTicks[i] = 0;
+
+			if (!m_TimestampWritten[previous][i])
+				continue;
+
+			// Asked rather than assumed. A query that is not ready would block
+			// on glGetQueryObjectui64v, and a profiler that stalls the thread
+			// it is measuring reports its own cost.
+			GLint ready = 0;
+			glGetQueryObjectiv(m_TimestampQueries[previous][i], GL_QUERY_RESULT_AVAILABLE, &ready);
+			if (!ready)
+				continue;
+
+			GLuint64 ticks = 0;
+			glGetQueryObjectui64v(m_TimestampQueries[previous][i], GL_QUERY_RESULT, &ticks);
+			m_ResolvedTicks[i] = (uint64_t)ticks;
+			m_ResolvedWritten[i] = 1;
+		}
+
+		// This frame writes the half just read.
+		m_TimestampRing = previous;
+		std::fill(m_TimestampWritten[m_TimestampRing].begin(),
+				  m_TimestampWritten[m_TimestampRing].end(), (uint8_t)0);
+	}
+
 	RHICommandList* OpenGLDevice::BeginFrame()
 	{
 		int width = 0, height = 0;
@@ -1103,6 +1177,9 @@ namespace RageV::GL
 
 		m_Width = (uint32_t)width;
 		m_Height = (uint32_t)height;
+
+		RecycleTimestampQueries();
+
 		return m_CommandList.get();
 	}
 

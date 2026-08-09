@@ -306,6 +306,19 @@ namespace RageV::Vk
 		vkCmdDrawIndexed(m_CommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 	}
 
+	void VulkanCommandList::WriteTimestamp(uint32_t slot)
+	{
+		VkQueryPool pool = m_Device.GetTimestampPool();
+		if (pool == VK_NULL_HANDLE || slot >= RHI::RHIDevice::kTimestampSlots)
+			return;
+
+		// ALL_COMMANDS, so the timestamp waits for everything recorded before
+		// it. TOP_OF_PIPE would be written as soon as the GPU reached this
+		// point in the stream, which is not when the preceding work finished --
+		// and every duration would come out implausibly short.
+		vkCmdWriteTimestamp2(m_CommandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, pool, slot);
+	}
+
 	void VulkanCommandList::GenerateMips(const RHI::Ref<RHI::RHITexture>& texture)
 	{
 		if (!texture)

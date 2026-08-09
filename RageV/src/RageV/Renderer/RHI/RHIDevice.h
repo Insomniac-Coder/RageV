@@ -67,6 +67,36 @@ namespace RageV::RHI
 		virtual void OnResize(uint32_t width, uint32_t height) = 0;
 		virtual void SetVSync(bool enabled) = 0;
 
+		// --- GPU timing ---------------------------------------------------
+		// Timestamps go into a pool of numbered slots, one pool per frame in
+		// flight. A frame writes into its own pool; the results are read back
+		// when that pool comes round again, by which point the fence has
+		// already guaranteed the GPU finished with it. That is why the numbers
+		// a profiler reports are a couple of frames old, and why reading them
+		// costs no stall.
+		//
+		// Slots are the caller's to assign. FrameProfiler maps two per phase.
+		static constexpr uint32_t kTimestampSlots = 64;
+
+		// Nanoseconds per tick. Vulkan reports it per device; OpenGL is already
+		// nanoseconds.
+		virtual double GetTimestampPeriodNs() const { return 1.0; }
+
+		// Ticks for the frame whose pool was just recycled, one per slot, and a
+		// parallel flag for whether that slot was actually written -- a phase
+		// that did not run this frame has no timestamp, and a stale value from
+		// two frames ago would read as a plausible duration.
+		virtual const std::vector<uint64_t>& GetResolvedTimestamps() const
+		{
+			static const std::vector<uint64_t> none;
+			return none;
+		}
+		virtual const std::vector<uint8_t>& GetResolvedTimestampFlags() const
+		{
+			static const std::vector<uint8_t> none;
+			return none;
+		}
+
 		virtual uint32_t GetFramesInFlight() const = 0;
 		// Which frame slot is currently being recorded. Per-frame resources
 		// (uniform buffers, descriptor sets) must be indexed by this.

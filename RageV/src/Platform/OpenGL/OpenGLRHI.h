@@ -197,6 +197,7 @@ namespace RageV::GL
 		void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1,
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
+		void WriteTimestamp(uint32_t slot) override;
 		void GenerateMips(const Ref<RHITexture>& texture) override;
 		void CopyToTextureLayer(const Ref<RHITexture>& source,
 								const Ref<RHITexture>& destination,
@@ -255,8 +256,22 @@ namespace RageV::GL
 
 		GLFWwindow* GetWindow() const { return m_Window; }
 
+		// GL timestamps are already nanoseconds.
+		double GetTimestampPeriodNs() const override { return 1.0; }
+		const std::vector<uint64_t>& GetResolvedTimestamps() const override { return m_ResolvedTicks; }
+		const std::vector<uint8_t>& GetResolvedTimestampFlags() const override { return m_ResolvedWritten; }
+
+		// Called by the command list. Records into the ring half this frame is
+		// writing, and notes the slot so the readback knows it holds anything.
+		void RecordTimestamp(uint32_t slot);
+
 	private:
 		void QueryCaps();
+		void CreateTimestampQueries();
+		// Reads the half written last frame and swaps. GL has one queue and no
+		// frames in flight, so the ring is what keeps the readback from being a
+		// stall: last frame's results are ready, this frame's are not.
+		void RecycleTimestampQueries();
 
 		GLFWwindow* m_Window = nullptr;
 		uint32_t m_Width = 0;
@@ -267,5 +282,14 @@ namespace RageV::GL
 
 		// Armed by RequestCapture, consumed and cleared by the next EndFrame.
 		CaptureCallback m_Capture;
+
+		// Two halves: one being written, one being read.
+		std::vector<uint32_t> m_TimestampQueries[2];
+		std::vector<uint8_t>  m_TimestampWritten[2];
+		uint32_t m_TimestampRing = 0;
+		bool m_TimestampsSupported = false;
+
+		std::vector<uint64_t> m_ResolvedTicks;
+		std::vector<uint8_t>  m_ResolvedWritten;
 	};
 }

@@ -144,6 +144,7 @@ namespace RageV::Vk
 		QueryCaps();
 		CreateFrameContexts();
 		CreateDescriptorPool();
+		CreateTimestampPools();
 		CreateSwapchain();
 
 		m_CommandList = std::make_unique<VulkanCommandList>(*this);
@@ -177,6 +178,10 @@ namespace RageV::Vk
 
 		if (m_ImGuiPool) vkDestroyDescriptorPool(m_Device, m_ImGuiPool, nullptr);
 		m_ImGuiPool = VK_NULL_HANDLE;
+
+		for (VkQueryPool pool : m_TimestampPools)
+			vkDestroyQueryPool(m_Device, pool, nullptr);
+		m_TimestampPools.clear();
 		if (m_ImmediateFence) vkDestroyFence(m_Device, m_ImmediateFence, nullptr);
 		if (m_ImmediatePool)  vkDestroyCommandPool(m_Device, m_ImmediatePool, nullptr);
 		if (m_Allocator)      vmaDestroyAllocator(m_Allocator);
@@ -488,6 +493,14 @@ namespace RageV::Vk
 		m_Caps.MaxAnisotropy = properties.limits.maxSamplerAnisotropy;
 		m_Caps.SupportsDynamicRendering = true;
 		m_Caps.SupportsTimestampQueries = properties.limits.timestampComputeAndGraphics == VK_TRUE;
+		m_TimestampsSupported = m_Caps.SupportsTimestampQueries;
+		// Zero means the device does not support them at all, whatever the
+		// limit above said; a period of zero would turn every duration into
+		// zero rather than into an error.
+		m_TimestampPeriodNs = properties.limits.timestampPeriod > 0.0f
+							? (double)properties.limits.timestampPeriod : 0.0;
+		if (m_TimestampPeriodNs == 0.0)
+			m_TimestampsSupported = false;
 
 		for (uint32_t i = 0; i < memory.memoryHeapCount; i++)
 		{
@@ -608,6 +621,73 @@ namespace RageV::Vk
 		RV_CORE_ERROR("A descriptor set request of {0} does not fit an empty pool of {1}",
 					  count, kDescriptorSetsPerPool);
 		return VK_NULL_HANDLE;
+	}
+
+	void VulkanDevice::CreateTimestampPools()
+	{
+		if (!m_TimestampsSupported)
+		{
+			RV_CORE_WARN("This device does not support timestamp queries; GPU timings "
+						 "will read zero");
+			return;
+		}
+
+		const uint32_t frames = GetFramesInFlight();
+		m_TimestampPools.resize(frames);
+
+		for (uint32_t i = 0; i < frames; i++)
+		{
+			VkQueryPoolCreateInfo info{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+			info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+			info.queryCount = RHI::RHIDevice::kTimestampSlots;
+
+			VK_CHECK(vkCreateQueryPool(m_Device, &info, nullptr, &m_TimestampPools[i]));
+		}
+
+		m_TimestampPoolUsed.assign(frames, 0);
+		m_ResolvedTicks.assign(RHI::RHIDevice::kTimestampSlots, 0);
+		m_ResolvedWritten.assign(RHI::RHIDevice::kTimestampSlots, 0);
+		// Two values per query: the tick and whether it was written at all.
+		m_TimestampScratch.assign((size_t)RHI::RHIDevice::kTimestampSlots * 2, 0);
+	}
+
+	void VulkanDevice::RecycleTimestampPool(VkCommandBuffer cmd)
+	{
+		if (m_TimestampPools.empty())
+			return;
+
+		VkQueryPool pool = m_TimestampPools[m_FrameIndex];
+
+		// A pool that has never been reset holds nothing readable, and asking
+		// is a validation error rather than an empty answer. The first pass
+		// through each frame slot therefore resets without reading.
+		const bool readable = m_TimestampPoolUsed[m_FrameIndex] != 0;
+
+		// Read what this pool holds before resetting it. The fence for this
+		// frame slot has already been waited on, so the GPU is finished with
+		// everything that wrote into it -- which is what makes this free rather
+		// than a stall.
+		const VkResult result = readable
+			? vkGetQueryPoolResults(
+				m_Device, pool, 0, RHI::RHIDevice::kTimestampSlots,
+				m_TimestampScratch.size() * sizeof(uint64_t), m_TimestampScratch.data(),
+				sizeof(uint64_t) * 2,
+				VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT)
+			: VK_NOT_READY;
+
+		if (readable && (result == VK_SUCCESS || result == VK_NOT_READY))
+		{
+			for (uint32_t i = 0; i < RHI::RHIDevice::kTimestampSlots; i++)
+			{
+				m_ResolvedTicks[i] = m_TimestampScratch[(size_t)i * 2];
+				// Availability, not the tick: a slot nothing wrote reads zero
+				// here, and a zero tick is a legal value.
+				m_ResolvedWritten[i] = m_TimestampScratch[(size_t)i * 2 + 1] != 0 ? 1 : 0;
+			}
+		}
+
+		vkCmdResetQueryPool(cmd, pool, 0, RHI::RHIDevice::kTimestampSlots);
+		m_TimestampPoolUsed[m_FrameIndex] = 1;
 	}
 
 	VkFormat VulkanDevice::SelectDepthFormat() const
@@ -905,6 +985,10 @@ namespace RageV::Vk
 
 		VK_CHECK(vkResetCommandPool(m_Device, frame.CommandPool, 0));
 		m_CommandList->Begin(frame.CommandBuffer);
+
+		// After Begin, because resetting a query pool is a recorded command.
+		RecycleTimestampPool(frame.CommandBuffer);
+
 		m_FrameActive = true;
 
 		return m_CommandList.get();

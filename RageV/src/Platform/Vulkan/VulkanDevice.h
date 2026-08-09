@@ -85,6 +85,11 @@ namespace RageV::Vk
 		// full, and returns the block that served the request -- which the
 		// caller must keep, because a set is freed to the pool that owns it.
 		// Returns VK_NULL_HANDLE and logs if the allocation genuinely failed.
+		double GetTimestampPeriodNs() const override { return m_TimestampPeriodNs; }
+		const std::vector<uint64_t>& GetResolvedTimestamps() const override { return m_ResolvedTicks; }
+		const std::vector<uint8_t>& GetResolvedTimestampFlags() const override { return m_ResolvedWritten; }
+		VkQueryPool GetTimestampPool() const { return m_TimestampPools.empty() ? VK_NULL_HANDLE : m_TimestampPools[m_FrameIndex]; }
+
 		VkDescriptorPool AllocateDescriptorSets(const VkDescriptorSetLayout* layouts,
 												uint32_t count, VkDescriptorSet* out);
 
@@ -115,6 +120,11 @@ namespace RageV::Vk
 		void CreateFrameContexts();
 		void CreateDescriptorPool();
 		VkDescriptorPool CreateDescriptorPoolBlock();
+		void CreateTimestampPools();
+		// Reads back the pool this frame slot used last time round, then resets
+		// it for this frame. Must run after the fence wait and after the
+		// command buffer has begun -- vkCmdResetQueryPool is a command.
+		void RecycleTimestampPool(VkCommandBuffer cmd);
 		void CreateSwapchain();
 		void DestroySwapchain();
 		void RecreateSwapchain();
@@ -169,6 +179,21 @@ namespace RageV::Vk
 		// Not in the chain: ImGui holds this handle forever and cannot be moved
 		// to a new block when one fills.
 		VkDescriptorPool m_ImGuiPool = VK_NULL_HANDLE;
+
+		// One pool per frame in flight, so a frame never resets a pool the GPU
+		// is still writing into.
+		std::vector<VkQueryPool> m_TimestampPools;
+		// Whether each pool has been through a reset yet. Reading a query that
+		// has never been reset is a validation error, and every pool starts
+		// that way -- so the first pass through each frame slot resets without
+		// reading.
+		std::vector<uint8_t> m_TimestampPoolUsed;
+		std::vector<uint64_t> m_ResolvedTicks;
+		std::vector<uint8_t>  m_ResolvedWritten;
+		// Scratch for the readback: value and availability per query.
+		std::vector<uint64_t> m_TimestampScratch;
+		double m_TimestampPeriodNs = 1.0;
+		bool m_TimestampsSupported = false;
 
 		std::shared_ptr<DeletionQueue> m_Deletion;
 		std::vector<FrameContext> m_Frames;

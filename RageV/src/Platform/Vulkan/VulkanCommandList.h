@@ -39,6 +39,7 @@ namespace RageV::Vk
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
 
+		void WriteTimestamp(uint32_t slot) override;
 		void GenerateMips(const RHI::Ref<RHI::RHITexture>& texture) override;
 		void CopyToTextureLayer(const RHI::Ref<RHI::RHITexture>& source,
 								const RHI::Ref<RHI::RHITexture>& destination,
