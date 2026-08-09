@@ -1056,12 +1056,15 @@ void EditorLayer::DrawStatisticsPanel()
 		ImGui::TableHeadersRow();
 
 		float cpuTotal = 0.0f;
+		float gpuAccounted = 0.0f;
 		for (int i = 0; i < (int)FramePhase::Count; i++)
 		{
 			const auto phase = (FramePhase)i;
 			const float cpu = FrameProfiler::LivePhaseMs(phase);
 			const float gpu = FrameProfiler::LiveGpuPhaseMs(phase);
 			cpuTotal += cpu;
+			if (gpu > 0.0f)
+				gpuAccounted += gpu;
 
 			ImGui::TableNextRow();
 			ImGui::TableNextColumn(); ImGui::TextUnformatted(FramePhaseName(phase));
@@ -1074,25 +1077,57 @@ void EditorLayer::DrawStatisticsPanel()
 		}
 
 		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::TextDisabled("total");
+		// Two different kinds of number, so two rows rather than one.
+		//
+		// "accounted" is the sum of the phases above it. "whole frame" is a
+		// single span from the first timestamp to the last, which includes any
+		// gap between passes and is not the sum of anything. Putting them in
+		// one row labelled "total" made the CPU column drop with its phases
+		// while the GPU column did not, which reads as a bug in the numbers.
+		const float gpuFrame = FrameProfiler::LiveGpuFrameMs();
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::TextDisabled("accounted");
 		ImGui::TableNextColumn(); ImGui::TextDisabled("%.3f", cpuTotal);
+		ImGui::TableNextColumn(); ImGui::TextDisabled("%.3f", gpuAccounted);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::TextDisabled("whole frame");
+		ImGui::TableNextColumn(); ImGui::TextDisabled("%.3f", m_FrameTimeMs);
 		ImGui::TableNextColumn();
-		if (const float gpuFrame = FrameProfiler::LiveGpuFrameMs(); gpuFrame > 0.0f)
+		if (gpuFrame > 0.0f)
 			ImGui::TextDisabled("%.3f", gpuFrame);
 		else
 			ImGui::TextDisabled("--");
 
+		// The line the panel was missing, and the reason the numbers looked
+		// like they should add up to the frame and did not. On a vsync-locked
+		// frame this is most of it.
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::TextDisabled("waiting");
+		ImGui::TableNextColumn();
+		ImGui::TextDisabled("%.3f", glm::max(m_FrameTimeMs - cpuTotal, 0.0f));
+		ImGui::TableNextColumn(); ImGui::TextDisabled("--");
+
 		ImGui::EndTable();
 	}
 
+	const bool vsync = Renderer::HasDevice() && Renderer::GetDevice().IsVSync();
+
 	if (!FrameProfiler::HasGpuTimings())
 		ImGui::TextDisabled("No GPU timings: this device has no timestamp queries.");
-	else if (EngineConfig::Get().VSync)
+	else if (vsync)
 	{
-		// Said here because it is the single most common way to misread this
-		// panel, and it has already happened once in this project's history.
-		ImGui::TextDisabled("Vsync is on: the frame time is the display's refresh, "
-							"not the renderer's cost.");
+		// Read from the device, not from the startup config: the config is
+		// what was asked for at launch and says nothing about what the
+		// swapchain is presenting with now.
+		ImGui::TextDisabled("Vsync is on, so \"waiting\" is the display holding the "
+							"frame. Turn it off in Render Settings to see the cost.");
+	}
+	else
+	{
+		ImGui::TextDisabled("Vsync is off; \"waiting\" is the CPU idle on the GPU "
+							"or the present.");
 	}
 
 	ImGui::SeparatorText("Renderer");
@@ -1135,6 +1170,12 @@ void EditorLayer::DrawRenderSettingsPanel()
 	}
 
 	ImGui::SeparatorText("Presentation");
+
+	// Seeded from the device every frame rather than remembered, so a window
+	// that started with --vsync=off does not show a ticked box, and so the
+	// control and the readout above can never disagree.
+	if (Renderer::HasDevice())
+		m_VSync = Renderer::GetDevice().IsVSync();
 
 	if (ImGui::Checkbox("VSync", &m_VSync) && Renderer::HasDevice())
 		Renderer::GetDevice().SetVSync(m_VSync);

@@ -67,6 +67,12 @@ namespace RageV::RHI
 		virtual void OnResize(uint32_t width, uint32_t height) = 0;
 		virtual void SetVSync(bool enabled) = 0;
 
+		// What the swapchain is actually presenting with, which is not the
+		// same as what the config asked for once anything has toggled it.
+		// Anything reporting the frame time has to read this rather than the
+		// startup setting, or it keeps saying "vsync is on" after it is off.
+		virtual bool IsVSync() const = 0;
+
 		// --- GPU timing ---------------------------------------------------
 		// Timestamps go into a pool of numbered slots, one pool per frame in
 		// flight. A frame writes into its own pool; the results are read back

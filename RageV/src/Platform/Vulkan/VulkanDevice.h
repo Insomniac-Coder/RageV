@@ -48,6 +48,7 @@ namespace RageV::Vk
 		void CaptureSwapchainImage();
 		void OnResize(uint32_t width, uint32_t height) override;
 		void SetVSync(bool enabled) override;
+		bool IsVSync() const override { return m_VSync; }
 
 		uint32_t GetFramesInFlight() const override { return m_FramesInFlight; }
 		uint32_t GetFrameIndex() const override { return m_FrameIndex; }

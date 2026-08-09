@@ -234,6 +234,7 @@ namespace RageV::GL
 		void RequestCapture(CaptureCallback callback) override;
 		void OnResize(uint32_t width, uint32_t height) override;
 		void SetVSync(bool enabled) override;
+		bool IsVSync() const override { return m_VSync; }
 
 		// GL has no frames-in-flight concept the application must manage; the
 		// driver pipelines internally. Reporting 1 keeps per-frame resource
