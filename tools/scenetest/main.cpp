@@ -58,6 +58,7 @@
 #include "RageV/Project/Project.h"
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Managed/DotNetHost.h"
+#include "RageV/Managed/Interop.h"
 #include "RageV/Math/Math.h"
 #include "GlmBridge.h"
 #include <glm/glm.hpp>
@@ -4601,6 +4602,85 @@ int RunTests(int argc, char** argv)
 			Check(DotNetHost::GetFunctionPointer(assembly, "RageV.Interop, RageV.ScriptCore",
 												 "NoSuchMethod") == nullptr,
 				  "and so does binding a method that does not exist");
+		}
+
+		// --- the interop table, against a real scene -------------------------
+		//
+		// "The table was handed over" and "the table works" are different
+		// claims, and only the second one matters. The managed self-test walks
+		// every shape that crosses the boundary and reports each as its own
+		// bit, so a failure says which marshalling is wrong rather than that
+		// something is.
+		if (booted && staged)
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity probe = scene->CreateEntity("InteropProbe");
+			probe.GetComponent<TransformComponent>().Position = { 3.0f, 4.0f, 5.0f };
+
+			Managed::Interop::SetScene(scene.get());
+			Check(Managed::Interop::Init(assembly), "the interop table is handed to managed code");
+
+			if (Managed::Interop::IsReady())
+			{
+				using SelfTestFn = int32_t(__cdecl*)(uint64_t);
+				const auto selfTest = (SelfTestFn)DotNetHost::GetFunctionPointer(
+					assembly, "RageV.Interop, RageV.ScriptCore", "SelfTest");
+
+				Check(selfTest != nullptr, "and the managed self-test binds");
+
+				if (selfTest)
+				{
+					const int32_t result = selfTest((uint64_t)probe.GetUUID());
+
+					// Reported bit by bit. A single pass/fail here would say
+					// "interop is broken" and leave the next person to find out
+					// which of nine things it was.
+					static const char* const kShapes[] = {
+						"the table is bound on the managed side",
+						"a struct out-parameter crosses (GetPosition)",
+						"a struct in-parameter crosses and sticks (SetPosition)",
+						"a string crosses outward (FindEntityByName)",
+						"a truncated string still reports the length that would have fit",
+						"a string crosses back (GetEntityName)",
+						"a float return crosses, from a call with no arguments",
+						"a destroyed or unknown entity answers rather than faults",
+						"managed code can reach the engine log",
+					};
+
+					for (int bit = 0; bit < (int)std::size(kShapes); bit++)
+						Check((result & (1 << bit)) != 0, kShapes[bit]);
+
+					Check(result == 511, "every shape that crosses the boundary works");
+				}
+
+				// The engine's own view of the table, so a change to it is
+				// caught here rather than only in managed code.
+				const Managed::NativeApi& api = Managed::Interop::Api();
+				Check(api.Log && api.GetPosition && api.GetEntityName && api.GetFixedDeltaTime,
+					  "the native table is fully populated");
+
+				Vec3 position{};
+				Check(api.GetPosition((uint64_t)probe.GetUUID(), &position) != 0,
+					  "and is callable from the native side too");
+
+				// The managed self-test moved it, and the value has to have
+				// landed in the actual component rather than in a copy.
+				Check(std::fabs(position.x - 1.5f) < 1e-5f &&
+					  std::fabs(position.y + 2.25f) < 1e-5f &&
+					  std::fabs(position.z - 0.75f) < 1e-5f,
+					  "a transform written from C# is the transform the engine reads");
+
+				Check(api.EntityExists(0) == 0, "entity zero is the invalid entity");
+			}
+
+			// Managed code must not be able to keep a scene alive past Stop,
+			// which is why the binding is a raw pointer and is cleared here.
+			Managed::Interop::SetScene(nullptr);
+			Check(Managed::Interop::Api().EntityExists((uint64_t)probe.GetUUID()) == 0,
+				  "and with no scene bound, every entity lookup answers 'no'");
+
+			Managed::Interop::Shutdown();
+			Check(!Managed::Interop::IsReady(), "interop reports itself shut down");
 		}
 
 		DotNetHost::Shutdown();

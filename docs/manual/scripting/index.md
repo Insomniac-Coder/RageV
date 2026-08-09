@@ -8,7 +8,7 @@ rather than merely sitting there.
 
 | | C++ | C# |
 |---|---|---|
-| State | **Available now** | In development |
+| State | **Available now** | In development — the runtime hosts and the boundary works; the class library does not exist yet |
 | Base class | `ScriptableEntity` | `Script` |
 | Iteration | Recompile and restart | Hot reload, planned |
 | Cost of a mistake | Crashes the editor | Throws, and the editor survives |

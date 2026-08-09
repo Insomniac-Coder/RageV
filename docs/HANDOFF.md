@@ -42,7 +42,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-610 checks, `exit 0`. Then look at a frame:
+636 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -106,7 +106,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 610 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain, settings writer, .NET hosting, the math layer against glm. |
+| `scenetest` | 636 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -829,7 +829,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Skeletal animation | Skinned vertex format, skinned PBR and depth shaders, per-instance bone matrices, `AnimatorComponent` (3.7) |
 | Batching | Instanced draws keyed on mesh and material; 3238 draws down to 60 on the stress scene |
 | Profiler | CPU wall time and GPU timestamps per phase, live in the editor and printed by `--benchmark` |
-| Tests | `scenetest`, **610 checks**, green on both backends |
+| Tests | `scenetest`, **636 checks**, green on both backends |
 
 **Phases 0, 1, 2, 3 and 4 are complete.** Phase 5, C# scripting, is in
 progress -- 5.1 (hosting) is done, and **5.0 now precedes the rest**: no
@@ -1003,7 +1003,39 @@ knowing before touching it:
   that leaves one side stale is otherwise a stack corruption somewhere
   unrelated, minutes later.
 
-**5.0 comes next, and it comes before 5.2.** No third-party type in a public
+**5.2 is done.** `RageV/src/RageV/Managed/Interop.h` is the boundary, and it
+uses a different mechanism in each direction on purpose:
+
+- **Managed calling native: a table of function pointers**, handed over once at
+  bootstrap. Not `[DllImport]` -- P/Invoke by name needs the symbols exported
+  from a shared library, and this engine is a static library linked into an
+  executable, so there is no `RageV.dll` to import from. Inventing one would be
+  a build-system change to work around a choice nobody made. It also skips the
+  per-call marshalling stub.
+- **Native calling managed: `[UnmanagedCallersOnly]` entry points**, reached
+  through hostfxr. Static, blittable arguments only, and **no exception may
+  leave one** -- an exception crossing an unmanaged frame terminates the process
+  rather than unwinding, so each entry point catches at its own edge.
+
+`NativeApi`'s field order *is* the ABI, mirrored field for field in `Native.cs`.
+Adding to the end is the only safe edit; inserting in the middle rebinds every
+field after it on one side only, and the result is a call through a pointer to
+the wrong function. `Interop::kProtocolVersion` and `Interop.ProtocolVersion`
+are compared before anything else is called, which turns a partial rebuild into
+a sentence rather than a crash somewhere unrelated.
+
+An entity crosses as a **UUID, never a pointer** -- play mode restores a scene
+by recreating entities, so a pointer handed to a script dangles the moment Stop
+is pressed. The scene binding is a raw `Scene*` for the same reason: managed
+code must not be able to keep a scene alive past Stop.
+
+The managed `SelfTest` walks every shape that crosses -- struct in, struct out,
+string out, string back including the truncation contract, a float return, an
+unknown entity, the log -- and reports each as its own bit. `scenetest` asserts
+them individually, because a single pass/fail would say "interop is broken" and
+leave the next person to work out which of nine things it was.
+
+**5.0 was completed before 5.2, as planned.** No third-party type in a public
 header, and the public API segregated into `RageV::Math::`, `RageV::Audio::`,
 `RageV::Physics::` and so on. Binding C# against `glm::vec3` and then renaming it
 means writing the interop, the marshalling and the class library twice — which
