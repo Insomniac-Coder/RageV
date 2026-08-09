@@ -42,6 +42,7 @@
 #include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/Frustum.h"
+#include "RageV/Renderer/LightGrid.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/PostProcess.h"
@@ -1973,6 +1974,163 @@ namespace
 		}
 	}
 
+	// The light grid.
+	//
+	// The failure that matters is the CPU and the shader disagreeing about
+	// which cell a point is in. Where they do, a fragment reads a neighbour's
+	// light list -- which is not a crash, not a validation error, and looks
+	// like lighting that snaps as the camera moves rather than like an
+	// indexing bug. So the shader's formula is reproduced here and checked
+	// against the function that bins the lights.
+	void CheckLightGrid()
+	{
+		const float nearPlane = 0.05f;
+		const float farPlane = 1000.0f;
+
+		Check(LightGrid::SliceForDepth(nearPlane, nearPlane, farPlane) == 0,
+			  "the near plane lands in the first depth slice");
+		Check(LightGrid::SliceForDepth(farPlane, nearPlane, farPlane) == LightGrid::kSlices - 1,
+			  "and the far plane in the last");
+		Check(LightGrid::SliceForDepth(0.0f, nearPlane, farPlane) == 0 &&
+			  LightGrid::SliceForDepth(-50.0f, nearPlane, farPlane) == 0,
+			  "a depth at or behind the eye does not take a logarithm of it");
+		Check(LightGrid::SliceForDepth(farPlane * 10.0f, nearPlane, farPlane) == LightGrid::kSlices - 1,
+			  "and one past the far plane clamps rather than running off the grid");
+
+		// Monotonic, and it actually spreads across the slices rather than
+		// collapsing everything into one.
+		{
+			bool rising = true;
+			uint32_t distinct = 0;
+			uint32_t previous = 0;
+			for (int i = 0; i <= 200; i++)
+			{
+				const float t = (float)i / 200.0f;
+				const float depth = nearPlane * std::pow(farPlane / nearPlane, t);
+				const uint32_t slice = LightGrid::SliceForDepth(depth, nearPlane, farPlane);
+
+				rising = rising && slice >= previous;
+				if (i == 0 || slice != previous)
+					distinct++;
+				previous = slice;
+			}
+
+			Check(rising, "slices never go backwards as depth increases");
+			Check(distinct == LightGrid::kSlices,
+				  "and a sweep from near to far visits every one of them");
+		}
+
+		// The shader computes the slice as log(z) * scale + bias, with those
+		// two arriving in a uniform. If that disagrees with the binning above,
+		// the lights are in the wrong cells.
+		{
+			const float scale = LightGrid::SliceScale(nearPlane, farPlane);
+			const float bias = LightGrid::SliceBias(nearPlane, farPlane);
+
+			bool agrees = true;
+			for (int i = 1; i <= 200; i++)
+			{
+				const float t = (float)i / 200.0f;
+				const float depth = nearPlane * std::pow(farPlane / nearPlane, t);
+
+				const uint32_t fromShader = (uint32_t)std::clamp(
+					(int)(std::log(depth) * scale + bias), 0, (int)LightGrid::kSlices - 1);
+
+				agrees = agrees && fromShader == LightGrid::SliceForDepth(depth, nearPlane, farPlane);
+			}
+
+			Check(agrees, "the shader's scale and bias reproduce the binning exactly");
+		}
+
+		// Binning. A camera at the origin looking down -Z, as everywhere else.
+		{
+			const glm::mat4 projection =
+				glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, nearPlane, farPlane);
+			Camera camera(projection);
+
+			float derivedNear = 0.0f, derivedFar = 0.0f;
+			LightGrid::DepthRangeOf(projection, derivedNear, derivedFar);
+
+			Check(std::fabs(derivedNear - nearPlane) < 1e-4f,
+				  "the near plane comes back out of the projection matrix exactly");
+
+			// The far plane does not, and cannot.
+			//
+			// It is recovered from P[2][2] + 1, and with a far-to-near ratio of
+			// twenty thousand P[2][2] is -1.00005 -- so the addition cancels
+			// almost every significant bit a float has and 1000 comes back as
+			// 1001.08. A tenth of a percent, and inherent rather than fixable.
+			//
+			// It does not matter, and the reason is worth stating: the shader
+			// is handed the slice scale and bias computed from this same
+			// derived value, so the two sides agree with each other exactly
+			// whatever the arithmetic did. Nothing compares it against the
+			// number the camera was built with.
+			Check(std::fabs(derivedFar - farPlane) / farPlane < 0.01f,
+				  "and the far plane to within a fraction of a percent");
+
+			LightGrid grid;
+
+			// One small light straight ahead reaches some cells and not most.
+			LightList one;
+			LightRenderData light;
+			light.Type = Light::LightType::Point;
+			light.Position = { 0.0f, 0.0f, -20.0f };
+			light.Range = 3.0f;
+			one.push_back(light);
+
+			grid.Build(camera, glm::mat4(1.0f), one, 0);
+
+			uint32_t occupied = 0;
+			for (const LightGrid::Cell& cell : grid.Cells())
+				occupied += cell.Count > 0 ? 1 : 0;
+
+			Check(occupied > 0, "a light in front of the camera lands in the grid");
+			Check(occupied < LightGrid::kCellCount / 2,
+				  "and a small one does not land in half of it");
+			Check(grid.MaxCellLoad() == 1, "with one light in the busiest cell");
+
+			// Behind the camera: no cell at all.
+			LightList behind;
+			LightRenderData back = light;
+			back.Position = { 0.0f, 0.0f, 200.0f };
+			behind.push_back(back);
+
+			grid.Build(camera, glm::mat4(1.0f), behind, 0);
+			Check(grid.Indices().empty(), "a light behind the camera lands in none of it");
+
+			// Directional lights are skipped rather than binned: they reach
+			// everything, so binning them would put a copy in every cell.
+			LightList sun;
+			LightRenderData directional;
+			directional.Type = Light::LightType::Directional;
+			sun.push_back(directional);
+			sun.push_back(light);
+
+			grid.Build(camera, glm::mat4(1.0f), sun, 1);
+			Check(grid.MaxCellLoad() == 1,
+				  "the directional light is not binned, only the point light");
+
+			bool indicesPointPastTheSun = true;
+			for (uint32_t index : grid.Indices())
+				indicesPointPastTheSun = indicesPointPastTheSun && index == 1;
+			Check(indicesPointPastTheSun,
+				  "and the indices address the light buffer, not the positional subset");
+
+			// A light that reaches the whole scene is in every cell, which is
+			// the case clustering cannot help and is worth knowing is handled
+			// rather than mis-binned.
+			LightList huge;
+			LightRenderData big = light;
+			big.Range = 10000.0f;
+			huge.push_back(big);
+
+			grid.Build(camera, glm::mat4(1.0f), huge, 0);
+			Check(grid.MaxCellLoad() == 1 && grid.Indices().size() > LightGrid::kCellCount / 2,
+				  "a light reaching everything is binned into nearly every cell");
+		}
+	}
+
 	// Frustum culling.
 	//
 	// The failure that matters is asymmetric: drawing something invisible costs
@@ -3555,6 +3713,7 @@ int RunTests(int argc, char** argv)
 	CheckIrradiance();
 	CheckEnvironmentBRDF();
 	CheckFrustumCulling();
+	CheckLightGrid();
 	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();

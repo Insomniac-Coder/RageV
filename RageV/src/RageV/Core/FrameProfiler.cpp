@@ -405,6 +405,8 @@ namespace RageV
 			RV_CORE_WARN("[benchmark]   no GPU timings resolved; the split above is CPU only");
 		}
 
+		RV_CORE_INFO("[benchmark]   {0} lights, busiest cluster holds {1}",
+					 Renderer3D::GetLightCount(), Renderer3D::GetMaxCellLoad());
 		RV_CORE_INFO("[benchmark]   {0} mesh draws, {1} culled, {2} triangles",
 					 Renderer3D::GetDrawCallCount(), Renderer3D::GetCulledCount(),
 					 Renderer3D::GetTriangleCount());

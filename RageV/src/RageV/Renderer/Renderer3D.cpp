@@ -5,6 +5,7 @@
 #include "TextureLoader.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
+#include "LightGrid.h"
 #include <glm/gtc/constants.hpp>
 
 namespace RageV
@@ -40,6 +41,13 @@ namespace RageV
 			glm::vec4 Environment;
 			// x = the environment's mip-0 face size, in texels.
 			glm::vec4 EnvironmentSize;
+
+			// xyz = tiles across, tiles down, depth slices. w = how many
+			// directional lights sit at the front of the light buffer.
+			glm::vec4 ClusterGrid;
+			// x near, y far, zw the scale and bias that map a view depth to a
+			// slice.
+			glm::vec4 ClusterDepth;
 
 			// World space straight to shadow lookup coordinates, per cascade.
 			glm::mat4 CascadeLookup[4];
@@ -143,6 +151,12 @@ namespace RageV
 				// Every light in this scene, however many that is.
 				Ref<RHIBuffer>      Lights;
 				uint32_t            LightCapacity = 0;
+				// The cluster grid: a range per cell, and the indices those
+				// ranges point into.
+				Ref<RHIBuffer>      Cells;
+				uint32_t            CellCapacity = 0;
+				Ref<RHIBuffer>      CellIndices;
+				uint32_t            CellIndexCapacity = 0;
 			};
 
 			// [frame in flight][scene within the frame]
@@ -170,6 +184,11 @@ namespace RageV
 
 			// Built in BeginScene, uploaded there too.
 			std::vector<GpuLight> LightScratch;
+			// Original light indices, directional first. The shadow assignment
+			// is keyed on the original order and has to be undone through this.
+			std::vector<uint32_t> LightOrder;
+			LightList Ordered;
+			LightGrid Grid;
 
 			// Accumulated between BeginScene and EndScene, then sorted.
 			std::vector<PendingDraw> Pending;
@@ -422,11 +441,38 @@ namespace RageV
 
 		// Every light, with no cap. The shader reads them from a storage buffer
 		// whose length is decided here rather than declared in a block.
+		//
+		// Reordered so the directional lights come first. They have no position
+		// and reach every cell, so binning them would put a copy of each in all
+		// 3456 cells; instead the shader reads the first N unconditionally and
+		// takes the rest from its own cell.
 		const int lightCount = (int)lights.size();
+
+		s_Data->LightOrder.clear();
+		s_Data->LightOrder.reserve(lights.size());
+		for (uint32_t i = 0; i < (uint32_t)lights.size(); i++)
+		{
+			if (lights[i].Type == Light::LightType::Directional)
+				s_Data->LightOrder.push_back(i);
+		}
+
+		const uint32_t directionalCount = (uint32_t)s_Data->LightOrder.size();
+
+		for (uint32_t i = 0; i < (uint32_t)lights.size(); i++)
+		{
+			if (lights[i].Type != Light::LightType::Directional)
+				s_Data->LightOrder.push_back(i);
+		}
+
+		s_Data->Ordered.clear();
+		s_Data->Ordered.reserve(lights.size());
+		for (uint32_t index : s_Data->LightOrder)
+			s_Data->Ordered.push_back(lights[index]);
+
 		s_Data->LightScratch.clear();
 		s_Data->LightScratch.reserve(lights.size());
 
-		for (const LightRenderData& light : lights)
+		for (const LightRenderData& light : s_Data->Ordered)
 		{
 			const bool directional = light.Type == Light::LightType::Directional;
 
@@ -515,12 +561,18 @@ namespace RageV
 		// point cubes however many lights a scene has. Past that a light lights
 		// and does not cast, which is the budget rather than the cap that used
 		// to sit here.
-		const int shadowed = glm::min(lightCount, (int)ShadowMap::kMaxLights);
-		for (int i = 0; i < shadowed; i++)
+		// Indexed by the light's *original* position, not its position after the
+		// reorder above -- ShadowMap assigned slots while walking the scene, and
+		// asking it about the wrong light gives a light somebody else's map.
+		for (uint32_t slot = 0; slot < (uint32_t)s_Data->LightOrder.size(); slot++)
 		{
-			const LocalShadow& assigned = ShadowMap::GetAssignment((uint32_t)i);
+			const uint32_t original = s_Data->LightOrder[slot];
+			if (original >= ShadowMap::kMaxLights)
+				continue;
 
-			s_Data->LightScratch[i].Shadow = {
+			const LocalShadow& assigned = ShadowMap::GetAssignment(original);
+
+			s_Data->LightScratch[slot].Shadow = {
 				(float)(uint32_t)assigned.Type,
 				(float)glm::max(assigned.Slot, 0),
 				assigned.FarClip,
@@ -541,7 +593,6 @@ namespace RageV
 
 		Renderer3DData::SceneSlot& slot = AcquireSceneSlot();
 		s_Data->ActiveScene = &slot;
-		slot.Buffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
 
 		// The light buffer. Always at least one element: a zero-length storage
 		// buffer is not a binding, and a scene with no lights at all still has
@@ -559,9 +610,50 @@ namespace RageV
 								s_Data->LightScratch.size() * sizeof(GpuLight));
 		}
 
+		// The cluster grid. Built here rather than in the scene, because it is
+		// keyed to the camera this pass is drawing with -- the editor's two
+		// viewports need one each, for the same reason their shadow cascades do.
+		s_Data->Grid.Build(camera, cameraTransform, s_Data->Ordered, directionalCount);
+
+		const auto& cells = s_Data->Grid.Cells();
+		const auto& cellIndices = s_Data->Grid.Indices();
+		const uint32_t indexSlots = glm::max<uint32_t>((uint32_t)cellIndices.size(), 1u);
+
+		if (!EnsureInstanceBuffer(slot.Cells, slot.CellCapacity, (uint32_t)cells.size(),
+								  sizeof(LightGrid::Cell), "Renderer3D.cells") ||
+			!EnsureInstanceBuffer(slot.CellIndices, slot.CellIndexCapacity, indexSlots,
+								  sizeof(uint32_t), "Renderer3D.cellIndices"))
+		{
+			return;
+		}
+
+		slot.Cells->Upload(cells.data(), cells.size() * sizeof(LightGrid::Cell));
+		if (!cellIndices.empty())
+			slot.CellIndices->Upload(cellIndices.data(), cellIndices.size() * sizeof(uint32_t));
+
+		float nearPlane = 0.1f, farPlane = 1000.0f;
+		LightGrid::DepthRangeOf(camera.GetProjection(), nearPlane, farPlane);
+
+		s_Data->Scene.ClusterGrid = {
+			(float)LightGrid::kTilesX, (float)LightGrid::kTilesY,
+			(float)LightGrid::kSlices, (float)directionalCount,
+		};
+		s_Data->Scene.ClusterDepth = {
+			nearPlane, farPlane,
+			LightGrid::SliceScale(nearPlane, farPlane),
+			LightGrid::SliceBias(nearPlane, farPlane),
+		};
+
+		// Written after the grid, because the grid decides the two vectors
+		// above and the block is uploaded once.
+		slot.Buffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
+
 		auto& sceneSet = slot.Set;
 		sceneSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
 		sceneSet->SetStorageBuffer(8, slot.Lights, 0, (uint64_t)lightSlots * sizeof(GpuLight));
+		sceneSet->SetStorageBuffer(9, slot.Cells, 0, cells.size() * sizeof(LightGrid::Cell));
+		sceneSet->SetStorageBuffer(10, slot.CellIndices, 0,
+								   (uint64_t)indexSlots * sizeof(uint32_t));
 		// Never left unwritten. A binding the layout declares and the set does
 		// not fill is a validation error rather than a harmless omission, which
 		// is the same lesson the tonemap pass learned about its bloom input.
@@ -905,6 +997,9 @@ namespace RageV
 	{
 		return s_Data && s_Data->Ready;
 	}
+
+	unsigned int Renderer3D::GetMaxCellLoad() { return s_Data ? s_Data->Grid.MaxCellLoad() : 0; }
+	unsigned int Renderer3D::GetLightCount() { return s_Data ? (unsigned int)s_Data->LightScratch.size() : 0; }
 
 	unsigned int Renderer3D::GetDrawCallCount() { return s_Data ? s_Data->DrawCalls : 0; }
 	unsigned int Renderer3D::GetTriangleCount() { return s_Data ? s_Data->Triangles : 0; }

@@ -62,6 +62,12 @@ namespace RageV
 		static unsigned int GetCulledCount();
 		static void CountCulled();
 
+		// The most lights any one cluster ended up holding, and the number that
+		// actually decides a fragment's cost. If it equals the scene's light
+		// count, clustering did nothing and is pure overhead.
+		static unsigned int GetMaxCellLoad();
+		static unsigned int GetLightCount();
+
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetTriangleCount();
 

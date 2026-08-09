@@ -61,7 +61,7 @@ def mesh(shape, base_color, metallic, roughness, indent):
     )
 
 
-def build(count, extent, seed, lights, probe):
+def build(count, extent, seed, lights, probe, light_reach):
     rng = random.Random(seed)
     ids = iter(range(1, 1 << 62))
 
@@ -133,6 +133,12 @@ def build(count, extent, seed, lights, probe):
     # one needs an image with detail left in it.
     light_intensity = 90.0 * min(1.0, 8.0 / max(lights, 1))
 
+    # How far each light reaches. The default is the whole field, which is the
+    # honest default for a handful of lights and pathological for many: a light
+    # that reaches everywhere lands in every cluster, and clustering then costs
+    # an indirection and saves nothing. Real scenes are mostly small lights.
+    light_range = extent if light_reach <= 0.0 else light_reach
+
     for i in range(lights):
         angle = 2.0 * math.pi * i / max(lights, 1)
         radius = extent * (0.30 if (i % 2) else 0.55)
@@ -146,8 +152,8 @@ def build(count, extent, seed, lights, probe):
             "      Type: Point\n"
             f"      Color: [{0.6 + 0.4 * rng.random():.3g}, "
             f"{0.6 + 0.4 * rng.random():.3g}, {0.6 + 0.4 * rng.random():.3g}]\n"
-            "      Intensity: 90\n"
-            f"      Range: {extent:g}\n"
+            f"      Intensity: {light_intensity:g}\n"
+            f"      Range: {light_range:g}\n"
             "      InnerCone: 20\n"
             "      OuterCone: 30\n"
             # Only the first two cast: four spot and four point maps exist, and
@@ -209,13 +215,16 @@ def main():
     parser.add_argument("--extent", type=float, default=60.0,
                         help="half the width of the field they are spread over")
     parser.add_argument("--lights", type=int, default=7, help="point lights")
+    parser.add_argument("--light-reach", type=float, default=0.0,
+                        help="how far each light reaches; 0 means the whole field, "
+                             "which is what makes clustering useless")
     parser.add_argument("--no-probe", action="store_true", help="omit the reflection probe")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     text, placed = build(args.count, args.extent, args.seed, args.lights,
-                         not args.no_probe)
+                         not args.no_probe, args.light_reach)
 
     with open(args.output, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(text)

@@ -29,6 +29,14 @@ layout(set = 0, binding = 0) uniform SceneData
 	// stops at its roughness levels.
 	vec4 EnvironmentSize;
 
+	// The cluster grid. xyz = tiles across, tiles down, depth slices;
+	// w = how many directional lights sit at the front of the light buffer.
+	vec4 ClusterGrid;
+	// x = near plane, y = far plane, zw = the scale and bias that turn a view
+	// depth into a slice. Precomputed, so the shader does not repeat a log
+	// division per fragment.
+	vec4 ClusterDepth;
+
 	// Shadows. CascadeLookup takes a world position straight to lookup
 	// coordinates -- xy texture, z the depth to compare -- with the
 	// texture-space bias and one backend's vertical flip already folded in.
@@ -94,6 +102,12 @@ layout(location = 2) out vec2 v_TexCoord;
 layout(location = 3) flat out vec4 v_BaseColor;
 layout(location = 4) flat out vec4 v_EmissiveColor;
 layout(location = 5) flat out vec4 v_Surface;
+// The clip-space position, so the fragment can recover its own normalised
+// device coordinate. That is the space the light grid's tiles were cut in, and
+// unlike gl_FragCoord it needs neither the target's pixel size nor a per-backend
+// flip -- the two backends differ in where NDC lands on the framebuffer, not in
+// the NDC itself.
+layout(location = 6) out vec4 v_ClipPos;
 
 void main()
 {
@@ -111,6 +125,7 @@ void main()
 	v_Surface       = instance.Surface;
 
 	gl_Position = u_Scene.ViewProjection * world;
+	v_ClipPos = gl_Position;
 }
 
 #type fragment
@@ -131,6 +146,8 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 Ambient;
 	vec4 Environment;
 	vec4 EnvironmentSize;
+	vec4 ClusterGrid;
+	vec4 ClusterDepth;
 	mat4 CascadeLookup[4];
 	vec4 CascadeSplits;
 	vec4 CascadeTexel;
@@ -166,6 +183,27 @@ layout(std430, set = 0, binding = 8) readonly buffer LightBlock
 {
 	GpuLight Lights[];
 } u_Lights;
+
+// The cluster grid: which lights reach which cell of the view frustum.
+//
+// Cells hold a range into the index list rather than the lights themselves,
+// because a light reaching several cells would otherwise be stored several
+// times.
+struct LightCell
+{
+	uint Offset;
+	uint Count;
+};
+
+layout(std430, set = 0, binding = 9) readonly buffer CellBlock
+{
+	LightCell Cells[];
+} u_Cells;
+
+layout(std430, set = 0, binding = 10) readonly buffer CellIndexBlock
+{
+	uint Indices[];
+} u_CellIndices;
 
 layout(set = 0, binding = 1) uniform samplerCube u_Environment;
 layout(set = 0, binding = 5) uniform samplerCube u_Irradiance;
@@ -212,10 +250,48 @@ layout(location = 2) in vec2 v_TexCoord;
 layout(location = 3) flat in vec4 v_BaseColor;
 layout(location = 4) flat in vec4 v_EmissiveColor;
 layout(location = 5) flat in vec4 v_Surface;
+layout(location = 6) in vec4 v_ClipPos;
 
 layout(location = 0) out vec4 o_Color;
 
 bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
+
+// Which cell of the grid this fragment falls in.
+//
+// The tile comes from the fragment's normalised device coordinate and the slice
+// from how far down the view axis it is. The slice mapping is the inverse of the
+// geometric series the grid was built with -- scale and bias arrive already
+// folded, so this is a log and a multiply-add rather than a search.
+//
+// It has to agree with LightGrid::Build exactly. Where they disagree a fragment
+// reads another cell's lights, which looks like lighting that snaps as the
+// camera moves rather than like an indexing bug.
+uint ClusterIndexFor(vec3 worldPos)
+{
+	vec2 tileCount = u_Scene.ClusterGrid.xy;
+	float sliceCount = u_Scene.ClusterGrid.z;
+
+	// The fragment's own normalised device coordinate, from the interpolated
+	// clip position. Independent of the target's size and of which corner the
+	// backend calls the origin, both of which gl_FragCoord would drag in.
+	vec2 ndc = v_ClipPos.xy / max(abs(v_ClipPos.w), 1e-6) * sign(v_ClipPos.w);
+	vec2 unit = clamp(ndc * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
+
+	uvec2 tile = uvec2(unit * tileCount);
+
+	// Distance along the camera's forward axis, which is what the slices were
+	// cut against -- not distance to the camera, which would make the slice
+	// boundaries spheres instead of planes.
+	float viewDepth = dot(worldPos - u_Scene.CameraPosition.xyz, u_Scene.CameraForward.xyz);
+
+	float slice = 0.0;
+	if (viewDepth > u_Scene.ClusterDepth.x)
+		slice = log(viewDepth) * u_Scene.ClusterDepth.z + u_Scene.ClusterDepth.w;
+
+	uint z = uint(clamp(slice, 0.0, sliceCount - 1.0));
+
+	return (z * uint(tileCount.y) + tile.y) * uint(tileCount.x) + tile.x;
+}
 
 float SampleCascade(int cascade, vec3 coordinate)
 {
@@ -493,8 +569,25 @@ void main()
 
 	vec3 Lo = vec3(0.0);
 
-	for (int i = 0; i < u_Scene.LightCount; ++i)
+	// Directional lights first, unconditionally: they have no position, so they
+	// reach every cell and binning them would put a copy in all 3456 of them.
+	// Everything after them is positional and comes from this fragment's cell.
+	int directionalCount = int(u_Scene.ClusterGrid.w);
+
+	uint cell = ClusterIndexFor(v_WorldPos);
+	uint cellOffset = u_Cells.Cells[cell].Offset;
+	uint cellCount = u_Cells.Cells[cell].Count;
+
+	int total = directionalCount + int(cellCount);
+
+	// `entry`, not `slot`: the loop body already has a `slot`, which is the
+	// shadow map this light was given.
+	for (int entry = 0; entry < total; ++entry)
 	{
+		int i = entry < directionalCount
+			  ? entry
+			  : int(u_CellIndices.Indices[cellOffset + uint(entry - directionalCount)]);
+
 		GpuLight light = u_Lights.Lights[i];
 
 		vec3  lightColor = light.Color.rgb * light.Color.a;

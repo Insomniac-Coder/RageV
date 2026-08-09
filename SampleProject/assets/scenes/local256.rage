@@ -68,7 +68,7 @@ Entities:
       Type: Point
       Color: [0.654, 0.939, 0.906]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: true
@@ -83,7 +83,7 @@ Entities:
       Type: Point
       Color: [0.702, 0.798, 0.78]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: true
@@ -98,7 +98,7 @@ Entities:
       Type: Point
       Color: [0.861, 0.915, 0.638]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -113,7 +113,7 @@ Entities:
       Type: Point
       Color: [0.611, 0.934, 0.773]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -128,7 +128,7 @@ Entities:
       Type: Point
       Color: [0.905, 0.601, 0.778]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -143,7 +143,7 @@ Entities:
       Type: Point
       Color: [0.889, 0.692, 0.978]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -158,7 +158,7 @@ Entities:
       Type: Point
       Color: [0.961, 0.612, 0.61]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -173,7 +173,7 @@ Entities:
       Type: Point
       Color: [0.817, 0.976, 0.752]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -188,7 +188,7 @@ Entities:
       Type: Point
       Color: [0.687, 0.769, 0.612]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -203,7 +203,7 @@ Entities:
       Type: Point
       Color: [0.689, 0.775, 0.798]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -218,7 +218,7 @@ Entities:
       Type: Point
       Color: [0.693, 0.692, 0.688]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -233,7 +233,7 @@ Entities:
       Type: Point
       Color: [0.784, 0.716, 0.609]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -248,7 +248,7 @@ Entities:
       Type: Point
       Color: [0.935, 0.823, 0.857]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -263,7 +263,7 @@ Entities:
       Type: Point
       Color: [0.674, 0.997, 0.944]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -278,7 +278,7 @@ Entities:
       Type: Point
       Color: [0.648, 0.733, 0.889]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -293,7 +293,7 @@ Entities:
       Type: Point
       Color: [0.884, 0.975, 0.769]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -308,7 +308,7 @@ Entities:
       Type: Point
       Color: [0.932, 0.868, 0.721]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -323,7 +323,7 @@ Entities:
       Type: Point
       Color: [0.835, 0.953, 0.938]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -338,7 +338,7 @@ Entities:
       Type: Point
       Color: [0.802, 0.836, 0.614]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -353,7 +353,7 @@ Entities:
       Type: Point
       Color: [0.697, 0.919, 0.766]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -368,7 +368,7 @@ Entities:
       Type: Point
       Color: [0.669, 0.82, 0.881]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -383,7 +383,7 @@ Entities:
       Type: Point
       Color: [0.87, 0.75, 0.776]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -398,7 +398,7 @@ Entities:
       Type: Point
       Color: [0.803, 0.911, 0.808]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -413,7 +413,7 @@ Entities:
       Type: Point
       Color: [0.757, 0.796, 0.612]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -428,7 +428,7 @@ Entities:
       Type: Point
       Color: [0.617, 0.881, 0.993]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -443,7 +443,7 @@ Entities:
       Type: Point
       Color: [0.837, 0.757, 0.668]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -458,7 +458,7 @@ Entities:
       Type: Point
       Color: [0.801, 0.993, 0.908]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -473,7 +473,7 @@ Entities:
       Type: Point
       Color: [0.816, 0.944, 0.693]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -488,7 +488,7 @@ Entities:
       Type: Point
       Color: [0.806, 0.981, 0.831]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -503,7 +503,7 @@ Entities:
       Type: Point
       Color: [0.784, 0.708, 0.819]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -518,7 +518,7 @@ Entities:
       Type: Point
       Color: [0.983, 0.602, 0.913]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -533,7 +533,7 @@ Entities:
       Type: Point
       Color: [0.928, 0.954, 0.896]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -548,7 +548,7 @@ Entities:
       Type: Point
       Color: [0.924, 0.807, 0.825]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -563,7 +563,7 @@ Entities:
       Type: Point
       Color: [0.77, 0.622, 0.948]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -578,7 +578,7 @@ Entities:
       Type: Point
       Color: [0.828, 0.68, 0.802]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -593,7 +593,7 @@ Entities:
       Type: Point
       Color: [0.794, 0.743, 0.738]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -608,7 +608,7 @@ Entities:
       Type: Point
       Color: [0.815, 0.849, 0.845]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -623,7 +623,7 @@ Entities:
       Type: Point
       Color: [0.783, 0.611, 0.692]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -638,7 +638,7 @@ Entities:
       Type: Point
       Color: [0.671, 0.834, 0.944]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -653,7 +653,7 @@ Entities:
       Type: Point
       Color: [0.919, 0.919, 0.927]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -668,7 +668,7 @@ Entities:
       Type: Point
       Color: [0.702, 0.937, 0.869]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -683,7 +683,7 @@ Entities:
       Type: Point
       Color: [0.633, 0.607, 0.606]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -698,7 +698,7 @@ Entities:
       Type: Point
       Color: [0.902, 0.7, 0.644]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -713,7 +713,7 @@ Entities:
       Type: Point
       Color: [0.85, 0.738, 0.628]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -728,7 +728,7 @@ Entities:
       Type: Point
       Color: [0.664, 0.811, 0.667]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -743,7 +743,7 @@ Entities:
       Type: Point
       Color: [0.709, 0.885, 0.782]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -758,7 +758,7 @@ Entities:
       Type: Point
       Color: [0.729, 0.79, 0.609]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -773,7 +773,7 @@ Entities:
       Type: Point
       Color: [0.755, 0.768, 0.675]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -788,7 +788,7 @@ Entities:
       Type: Point
       Color: [0.644, 0.96, 0.804]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -803,7 +803,7 @@ Entities:
       Type: Point
       Color: [0.684, 0.842, 0.927]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -818,7 +818,7 @@ Entities:
       Type: Point
       Color: [0.608, 0.607, 0.659]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -833,7 +833,7 @@ Entities:
       Type: Point
       Color: [0.888, 0.664, 0.882]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -848,7 +848,7 @@ Entities:
       Type: Point
       Color: [0.871, 0.818, 0.688]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -863,7 +863,7 @@ Entities:
       Type: Point
       Color: [0.99, 0.919, 0.807]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -878,7 +878,7 @@ Entities:
       Type: Point
       Color: [0.689, 0.859, 0.758]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -893,7 +893,7 @@ Entities:
       Type: Point
       Color: [0.83, 0.728, 0.852]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -908,7 +908,7 @@ Entities:
       Type: Point
       Color: [0.624, 0.719, 0.987]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -923,7 +923,7 @@ Entities:
       Type: Point
       Color: [0.95, 0.723, 0.943]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -938,7 +938,7 @@ Entities:
       Type: Point
       Color: [0.724, 0.976, 0.898]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -953,7 +953,7 @@ Entities:
       Type: Point
       Color: [0.766, 0.701, 0.603]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -968,7 +968,7 @@ Entities:
       Type: Point
       Color: [0.951, 0.615, 0.928]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -983,7 +983,7 @@ Entities:
       Type: Point
       Color: [0.985, 0.828, 0.669]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -998,7 +998,7 @@ Entities:
       Type: Point
       Color: [0.947, 0.99, 0.882]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1013,7 +1013,7 @@ Entities:
       Type: Point
       Color: [0.804, 0.751, 0.739]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1028,7 +1028,7 @@ Entities:
       Type: Point
       Color: [0.682, 0.87, 0.773]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1043,7 +1043,7 @@ Entities:
       Type: Point
       Color: [0.678, 0.642, 0.866]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1058,7 +1058,7 @@ Entities:
       Type: Point
       Color: [0.718, 0.8, 0.73]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1073,7 +1073,7 @@ Entities:
       Type: Point
       Color: [0.949, 0.96, 0.607]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1088,7 +1088,7 @@ Entities:
       Type: Point
       Color: [0.68, 0.731, 0.995]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1103,7 +1103,7 @@ Entities:
       Type: Point
       Color: [0.913, 0.736, 0.685]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1118,7 +1118,7 @@ Entities:
       Type: Point
       Color: [0.87, 0.935, 0.973]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1133,7 +1133,7 @@ Entities:
       Type: Point
       Color: [0.738, 0.953, 0.875]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1148,7 +1148,7 @@ Entities:
       Type: Point
       Color: [0.794, 0.994, 0.694]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1163,7 +1163,7 @@ Entities:
       Type: Point
       Color: [0.89, 0.634, 0.668]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1178,7 +1178,7 @@ Entities:
       Type: Point
       Color: [0.964, 0.685, 0.904]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1193,7 +1193,7 @@ Entities:
       Type: Point
       Color: [0.84, 0.936, 0.747]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1208,7 +1208,7 @@ Entities:
       Type: Point
       Color: [0.736, 0.716, 0.947]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1223,7 +1223,7 @@ Entities:
       Type: Point
       Color: [0.842, 0.982, 0.955]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1238,7 +1238,7 @@ Entities:
       Type: Point
       Color: [0.654, 0.82, 0.642]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1253,7 +1253,7 @@ Entities:
       Type: Point
       Color: [0.616, 0.629, 0.946]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1268,7 +1268,7 @@ Entities:
       Type: Point
       Color: [0.915, 0.931, 0.736]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1283,7 +1283,7 @@ Entities:
       Type: Point
       Color: [0.846, 0.913, 0.751]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1298,7 +1298,7 @@ Entities:
       Type: Point
       Color: [0.828, 0.689, 0.633]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1313,7 +1313,7 @@ Entities:
       Type: Point
       Color: [0.707, 0.956, 0.826]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1328,7 +1328,7 @@ Entities:
       Type: Point
       Color: [0.97, 0.783, 0.711]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1343,7 +1343,7 @@ Entities:
       Type: Point
       Color: [0.915, 0.931, 0.605]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1358,7 +1358,7 @@ Entities:
       Type: Point
       Color: [0.868, 0.637, 0.646]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1373,7 +1373,7 @@ Entities:
       Type: Point
       Color: [0.954, 0.616, 0.696]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1388,7 +1388,7 @@ Entities:
       Type: Point
       Color: [0.995, 0.768, 0.646]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1403,7 +1403,7 @@ Entities:
       Type: Point
       Color: [0.667, 0.697, 0.898]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1418,7 +1418,7 @@ Entities:
       Type: Point
       Color: [0.641, 0.964, 0.751]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1433,7 +1433,7 @@ Entities:
       Type: Point
       Color: [0.988, 0.964, 0.718]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1448,7 +1448,7 @@ Entities:
       Type: Point
       Color: [0.701, 0.791, 0.64]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1463,7 +1463,7 @@ Entities:
       Type: Point
       Color: [0.861, 0.616, 0.604]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1478,7 +1478,7 @@ Entities:
       Type: Point
       Color: [0.993, 0.718, 0.839]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1493,7 +1493,7 @@ Entities:
       Type: Point
       Color: [0.78, 0.725, 0.625]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1508,7 +1508,7 @@ Entities:
       Type: Point
       Color: [0.965, 0.988, 0.988]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1523,7 +1523,7 @@ Entities:
       Type: Point
       Color: [0.645, 0.686, 0.847]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1538,7 +1538,7 @@ Entities:
       Type: Point
       Color: [0.992, 0.817, 0.875]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1553,7 +1553,7 @@ Entities:
       Type: Point
       Color: [0.865, 0.704, 0.817]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1568,7 +1568,7 @@ Entities:
       Type: Point
       Color: [0.723, 0.699, 0.633]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1583,7 +1583,7 @@ Entities:
       Type: Point
       Color: [0.712, 0.993, 0.779]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1598,7 +1598,7 @@ Entities:
       Type: Point
       Color: [0.861, 0.857, 0.976]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1613,7 +1613,7 @@ Entities:
       Type: Point
       Color: [0.756, 0.723, 0.731]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1628,7 +1628,7 @@ Entities:
       Type: Point
       Color: [0.727, 0.939, 0.957]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1643,7 +1643,7 @@ Entities:
       Type: Point
       Color: [0.721, 0.734, 0.818]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1658,7 +1658,7 @@ Entities:
       Type: Point
       Color: [0.832, 0.838, 0.698]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1673,7 +1673,7 @@ Entities:
       Type: Point
       Color: [0.608, 0.698, 0.629]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1688,7 +1688,7 @@ Entities:
       Type: Point
       Color: [0.82, 0.628, 0.63]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1703,7 +1703,7 @@ Entities:
       Type: Point
       Color: [0.854, 0.716, 0.917]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1718,7 +1718,7 @@ Entities:
       Type: Point
       Color: [0.797, 0.945, 0.662]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1733,7 +1733,7 @@ Entities:
       Type: Point
       Color: [0.801, 0.918, 0.631]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1748,7 +1748,7 @@ Entities:
       Type: Point
       Color: [0.98, 0.669, 0.91]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1763,7 +1763,7 @@ Entities:
       Type: Point
       Color: [0.994, 0.929, 0.728]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1778,7 +1778,7 @@ Entities:
       Type: Point
       Color: [0.643, 0.806, 0.968]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1793,7 +1793,7 @@ Entities:
       Type: Point
       Color: [0.717, 0.958, 0.657]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1808,7 +1808,7 @@ Entities:
       Type: Point
       Color: [0.964, 0.613, 0.726]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1823,7 +1823,7 @@ Entities:
       Type: Point
       Color: [0.961, 0.922, 0.963]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1838,7 +1838,7 @@ Entities:
       Type: Point
       Color: [0.936, 0.898, 0.876]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1853,7 +1853,7 @@ Entities:
       Type: Point
       Color: [0.671, 0.773, 0.663]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1868,7 +1868,7 @@ Entities:
       Type: Point
       Color: [0.886, 0.867, 0.701]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1883,7 +1883,7 @@ Entities:
       Type: Point
       Color: [0.626, 0.985, 0.923]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1898,7 +1898,7 @@ Entities:
       Type: Point
       Color: [0.82, 0.817, 0.941]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1913,7 +1913,7 @@ Entities:
       Type: Point
       Color: [0.781, 0.758, 0.735]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1928,7 +1928,7 @@ Entities:
       Type: Point
       Color: [0.703, 0.61, 0.859]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1943,7 +1943,7 @@ Entities:
       Type: Point
       Color: [0.767, 0.828, 0.625]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1958,7 +1958,7 @@ Entities:
       Type: Point
       Color: [0.742, 0.655, 0.65]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1973,7 +1973,7 @@ Entities:
       Type: Point
       Color: [0.704, 0.932, 0.759]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -1988,7 +1988,7 @@ Entities:
       Type: Point
       Color: [0.76, 0.845, 0.693]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2003,7 +2003,7 @@ Entities:
       Type: Point
       Color: [0.603, 0.811, 0.8]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2018,7 +2018,7 @@ Entities:
       Type: Point
       Color: [0.86, 0.775, 0.875]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2033,7 +2033,7 @@ Entities:
       Type: Point
       Color: [0.893, 0.695, 0.798]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2048,7 +2048,7 @@ Entities:
       Type: Point
       Color: [0.792, 0.69, 0.765]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2063,7 +2063,7 @@ Entities:
       Type: Point
       Color: [0.824, 0.963, 0.967]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2078,7 +2078,7 @@ Entities:
       Type: Point
       Color: [0.71, 0.859, 0.619]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2093,7 +2093,7 @@ Entities:
       Type: Point
       Color: [0.629, 0.805, 0.951]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2108,7 +2108,7 @@ Entities:
       Type: Point
       Color: [0.664, 0.906, 0.953]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2123,7 +2123,7 @@ Entities:
       Type: Point
       Color: [0.725, 0.877, 0.94]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2138,7 +2138,7 @@ Entities:
       Type: Point
       Color: [0.749, 0.881, 0.895]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2153,7 +2153,7 @@ Entities:
       Type: Point
       Color: [0.838, 0.943, 0.959]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2168,7 +2168,7 @@ Entities:
       Type: Point
       Color: [0.984, 0.828, 0.671]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2183,7 +2183,7 @@ Entities:
       Type: Point
       Color: [0.7, 0.687, 0.828]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2198,7 +2198,7 @@ Entities:
       Type: Point
       Color: [0.903, 0.621, 0.873]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2213,7 +2213,7 @@ Entities:
       Type: Point
       Color: [0.887, 0.739, 0.806]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2228,7 +2228,7 @@ Entities:
       Type: Point
       Color: [0.666, 0.892, 0.616]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2243,7 +2243,7 @@ Entities:
       Type: Point
       Color: [0.992, 0.923, 0.851]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2258,7 +2258,7 @@ Entities:
       Type: Point
       Color: [0.707, 0.965, 0.984]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2273,7 +2273,7 @@ Entities:
       Type: Point
       Color: [0.656, 0.91, 0.937]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2288,7 +2288,7 @@ Entities:
       Type: Point
       Color: [0.864, 0.88, 0.778]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2303,7 +2303,7 @@ Entities:
       Type: Point
       Color: [0.97, 0.988, 0.753]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2318,7 +2318,7 @@ Entities:
       Type: Point
       Color: [0.921, 0.773, 0.666]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2333,7 +2333,7 @@ Entities:
       Type: Point
       Color: [0.73, 0.651, 0.964]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2348,7 +2348,7 @@ Entities:
       Type: Point
       Color: [0.984, 0.648, 0.84]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2363,7 +2363,7 @@ Entities:
       Type: Point
       Color: [0.763, 0.647, 0.718]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2378,7 +2378,7 @@ Entities:
       Type: Point
       Color: [0.699, 0.9, 0.602]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2393,7 +2393,7 @@ Entities:
       Type: Point
       Color: [0.676, 0.776, 0.608]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2408,7 +2408,7 @@ Entities:
       Type: Point
       Color: [0.851, 0.842, 0.934]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2423,7 +2423,7 @@ Entities:
       Type: Point
       Color: [0.683, 0.714, 0.817]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2438,7 +2438,7 @@ Entities:
       Type: Point
       Color: [0.709, 0.834, 0.7]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2453,7 +2453,7 @@ Entities:
       Type: Point
       Color: [0.873, 0.916, 0.923]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2468,7 +2468,7 @@ Entities:
       Type: Point
       Color: [0.989, 0.818, 0.796]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2483,7 +2483,7 @@ Entities:
       Type: Point
       Color: [0.942, 0.908, 0.828]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2498,7 +2498,7 @@ Entities:
       Type: Point
       Color: [0.753, 0.714, 0.643]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2513,7 +2513,7 @@ Entities:
       Type: Point
       Color: [0.923, 0.647, 0.899]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2528,7 +2528,7 @@ Entities:
       Type: Point
       Color: [0.818, 0.986, 0.904]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2543,7 +2543,7 @@ Entities:
       Type: Point
       Color: [0.989, 0.655, 0.8]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2558,7 +2558,7 @@ Entities:
       Type: Point
       Color: [0.829, 0.725, 0.801]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2573,7 +2573,7 @@ Entities:
       Type: Point
       Color: [0.743, 0.811, 0.6]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2588,7 +2588,7 @@ Entities:
       Type: Point
       Color: [0.777, 0.78, 0.722]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2603,7 +2603,7 @@ Entities:
       Type: Point
       Color: [0.76, 0.913, 0.873]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2618,7 +2618,7 @@ Entities:
       Type: Point
       Color: [0.797, 0.859, 0.751]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2633,7 +2633,7 @@ Entities:
       Type: Point
       Color: [0.682, 0.602, 0.711]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2648,7 +2648,7 @@ Entities:
       Type: Point
       Color: [0.839, 0.953, 0.932]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2663,7 +2663,7 @@ Entities:
       Type: Point
       Color: [0.804, 0.995, 0.785]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2678,7 +2678,7 @@ Entities:
       Type: Point
       Color: [0.934, 0.764, 0.898]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2693,7 +2693,7 @@ Entities:
       Type: Point
       Color: [0.995, 0.722, 0.668]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2708,7 +2708,7 @@ Entities:
       Type: Point
       Color: [0.848, 0.812, 0.744]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2723,7 +2723,7 @@ Entities:
       Type: Point
       Color: [0.601, 0.756, 0.77]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2738,7 +2738,7 @@ Entities:
       Type: Point
       Color: [0.762, 0.944, 0.834]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2753,7 +2753,7 @@ Entities:
       Type: Point
       Color: [0.894, 0.959, 0.9]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2768,7 +2768,7 @@ Entities:
       Type: Point
       Color: [0.797, 0.898, 0.856]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2783,7 +2783,7 @@ Entities:
       Type: Point
       Color: [0.859, 0.852, 0.763]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2798,7 +2798,7 @@ Entities:
       Type: Point
       Color: [0.852, 0.853, 0.975]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2813,7 +2813,7 @@ Entities:
       Type: Point
       Color: [0.913, 0.939, 0.907]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2828,7 +2828,7 @@ Entities:
       Type: Point
       Color: [0.926, 0.842, 0.74]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2843,7 +2843,7 @@ Entities:
       Type: Point
       Color: [0.706, 0.883, 0.95]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2858,7 +2858,7 @@ Entities:
       Type: Point
       Color: [0.818, 0.661, 0.933]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2873,7 +2873,7 @@ Entities:
       Type: Point
       Color: [0.794, 0.787, 0.618]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2888,7 +2888,7 @@ Entities:
       Type: Point
       Color: [0.804, 0.898, 0.769]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2903,7 +2903,7 @@ Entities:
       Type: Point
       Color: [0.742, 0.863, 0.608]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2918,7 +2918,7 @@ Entities:
       Type: Point
       Color: [0.803, 0.978, 0.876]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2933,7 +2933,7 @@ Entities:
       Type: Point
       Color: [0.761, 0.876, 0.842]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2948,7 +2948,7 @@ Entities:
       Type: Point
       Color: [0.684, 0.683, 0.954]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2963,7 +2963,7 @@ Entities:
       Type: Point
       Color: [0.708, 0.63, 0.932]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2978,7 +2978,7 @@ Entities:
       Type: Point
       Color: [0.809, 0.747, 0.805]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -2993,7 +2993,7 @@ Entities:
       Type: Point
       Color: [0.895, 0.667, 0.861]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3008,7 +3008,7 @@ Entities:
       Type: Point
       Color: [0.885, 0.926, 0.708]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3023,7 +3023,7 @@ Entities:
       Type: Point
       Color: [0.844, 0.693, 0.824]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3038,7 +3038,7 @@ Entities:
       Type: Point
       Color: [0.669, 0.916, 0.947]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3053,7 +3053,7 @@ Entities:
       Type: Point
       Color: [0.732, 0.689, 0.986]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3068,7 +3068,7 @@ Entities:
       Type: Point
       Color: [0.883, 0.938, 0.612]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3083,7 +3083,7 @@ Entities:
       Type: Point
       Color: [0.96, 0.849, 0.727]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3098,7 +3098,7 @@ Entities:
       Type: Point
       Color: [0.773, 0.905, 0.914]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3113,7 +3113,7 @@ Entities:
       Type: Point
       Color: [0.676, 0.85, 0.666]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3128,7 +3128,7 @@ Entities:
       Type: Point
       Color: [0.989, 0.777, 0.965]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3143,7 +3143,7 @@ Entities:
       Type: Point
       Color: [0.891, 0.843, 0.705]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3158,7 +3158,7 @@ Entities:
       Type: Point
       Color: [0.811, 0.655, 0.655]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3173,7 +3173,7 @@ Entities:
       Type: Point
       Color: [0.886, 0.744, 0.901]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3188,7 +3188,7 @@ Entities:
       Type: Point
       Color: [0.696, 0.887, 0.887]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3203,7 +3203,7 @@ Entities:
       Type: Point
       Color: [0.722, 0.643, 0.759]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3218,7 +3218,7 @@ Entities:
       Type: Point
       Color: [0.797, 0.64, 0.675]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3233,7 +3233,7 @@ Entities:
       Type: Point
       Color: [0.622, 0.839, 0.956]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3248,7 +3248,7 @@ Entities:
       Type: Point
       Color: [0.687, 0.614, 0.882]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3263,7 +3263,7 @@ Entities:
       Type: Point
       Color: [0.926, 0.986, 0.845]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3278,7 +3278,7 @@ Entities:
       Type: Point
       Color: [0.737, 0.935, 0.647]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3293,7 +3293,7 @@ Entities:
       Type: Point
       Color: [0.877, 0.638, 0.76]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3308,7 +3308,7 @@ Entities:
       Type: Point
       Color: [0.798, 0.751, 0.667]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3323,7 +3323,7 @@ Entities:
       Type: Point
       Color: [0.693, 0.928, 0.785]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3338,7 +3338,7 @@ Entities:
       Type: Point
       Color: [0.832, 0.685, 0.886]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3353,7 +3353,7 @@ Entities:
       Type: Point
       Color: [0.732, 0.837, 0.964]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3368,7 +3368,7 @@ Entities:
       Type: Point
       Color: [0.998, 0.618, 0.919]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3383,7 +3383,7 @@ Entities:
       Type: Point
       Color: [0.943, 0.728, 0.753]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3398,7 +3398,7 @@ Entities:
       Type: Point
       Color: [0.832, 0.968, 0.76]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3413,7 +3413,7 @@ Entities:
       Type: Point
       Color: [0.952, 0.903, 0.661]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3428,7 +3428,7 @@ Entities:
       Type: Point
       Color: [0.965, 0.606, 0.658]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3443,7 +3443,7 @@ Entities:
       Type: Point
       Color: [0.866, 0.623, 0.752]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3458,7 +3458,7 @@ Entities:
       Type: Point
       Color: [0.652, 0.785, 0.936]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3473,7 +3473,7 @@ Entities:
       Type: Point
       Color: [0.962, 0.614, 0.624]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3488,7 +3488,7 @@ Entities:
       Type: Point
       Color: [0.936, 0.617, 0.709]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3503,7 +3503,7 @@ Entities:
       Type: Point
       Color: [0.647, 0.636, 0.611]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3518,7 +3518,7 @@ Entities:
       Type: Point
       Color: [0.855, 0.898, 0.875]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3533,7 +3533,7 @@ Entities:
       Type: Point
       Color: [0.938, 0.865, 0.756]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3548,7 +3548,7 @@ Entities:
       Type: Point
       Color: [0.852, 0.988, 0.857]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3563,7 +3563,7 @@ Entities:
       Type: Point
       Color: [0.697, 0.624, 0.974]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3578,7 +3578,7 @@ Entities:
       Type: Point
       Color: [0.836, 0.74, 0.842]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3593,7 +3593,7 @@ Entities:
       Type: Point
       Color: [0.824, 0.809, 0.624]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3608,7 +3608,7 @@ Entities:
       Type: Point
       Color: [0.741, 0.765, 0.68]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3623,7 +3623,7 @@ Entities:
       Type: Point
       Color: [0.952, 0.77, 0.865]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3638,7 +3638,7 @@ Entities:
       Type: Point
       Color: [0.885, 0.897, 0.888]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3653,7 +3653,7 @@ Entities:
       Type: Point
       Color: [0.901, 0.701, 0.991]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3668,7 +3668,7 @@ Entities:
       Type: Point
       Color: [0.66, 0.967, 0.942]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3683,7 +3683,7 @@ Entities:
       Type: Point
       Color: [0.941, 0.621, 0.636]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3698,7 +3698,7 @@ Entities:
       Type: Point
       Color: [0.925, 0.788, 0.748]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3713,7 +3713,7 @@ Entities:
       Type: Point
       Color: [0.994, 0.616, 0.813]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3728,7 +3728,7 @@ Entities:
       Type: Point
       Color: [0.777, 0.651, 0.758]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3743,7 +3743,7 @@ Entities:
       Type: Point
       Color: [0.883, 0.953, 0.61]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3758,7 +3758,7 @@ Entities:
       Type: Point
       Color: [0.81, 0.636, 0.92]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3773,7 +3773,7 @@ Entities:
       Type: Point
       Color: [0.634, 0.614, 0.754]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3788,7 +3788,7 @@ Entities:
       Type: Point
       Color: [0.893, 0.725, 0.652]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3803,7 +3803,7 @@ Entities:
       Type: Point
       Color: [0.918, 0.923, 0.942]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3818,7 +3818,7 @@ Entities:
       Type: Point
       Color: [0.721, 0.77, 0.698]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3833,7 +3833,7 @@ Entities:
       Type: Point
       Color: [0.823, 0.732, 0.735]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3848,7 +3848,7 @@ Entities:
       Type: Point
       Color: [0.913, 0.983, 0.834]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3863,7 +3863,7 @@ Entities:
       Type: Point
       Color: [0.642, 0.861, 0.779]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3878,7 +3878,7 @@ Entities:
       Type: Point
       Color: [0.995, 0.888, 0.934]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
@@ -3893,7 +3893,7 @@ Entities:
       Type: Point
       Color: [0.881, 0.814, 0.959]
       Intensity: 2.8125
-      Range: 40
+      Range: 9
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
