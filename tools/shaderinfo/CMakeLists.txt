@@ -6,3 +6,6 @@ add_custom_command(TARGET shaderinfo POST_BUILD
 set_target_properties(shaderinfo PROPERTIES
     FOLDER "Tools"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/shaderinfo")
+
+# RageV.dll, beside this executable. See RageV/CMakeLists.txt.
+ragev_stage_engine(shaderinfo)

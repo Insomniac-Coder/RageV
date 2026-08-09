@@ -81,6 +81,10 @@ void RageV::WindowsWindow::Init(const WindowProps& props)
 		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	}
 
+	// Always set, never left to whatever the last window asked for: GLFW's hints
+	// are sticky.
+	glfwWindowHint(GLFW_VISIBLE, props.Visible ? GLFW_TRUE : GLFW_FALSE);
+
 	m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
 	RV_CORE_ASSERT(m_Window, "Failed to create GLFW window!");
 

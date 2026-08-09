@@ -12,6 +12,14 @@ namespace RageV {
 		unsigned int Width;
 		unsigned int Height;
 
+		// A window nobody is meant to look at, for a test or a tool that needs a
+		// device rather than a display. It exists because the alternative --
+		// creating the window with GLFW directly -- means a second copy of GLFW
+		// in the calling executable, and GLFW keeps its state in globals: the
+		// engine then cannot see the window at all, and reports it as a null
+		// HWND or a context it cannot load functions from.
+		bool Visible = true;
+
 		WindowProps(const std::string& title = "RageV Engine", unsigned int width = 1600, unsigned int height = 900)
 			: Title(title), Width(width), Height(height) {}
 	};

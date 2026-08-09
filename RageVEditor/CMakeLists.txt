@@ -38,3 +38,6 @@ set_target_properties(RageVEditor PROPERTIES
 
 # The C# script assembly, when the .NET SDK was present at configure time.
 ragev_stage_managed(RageVEditor)
+
+# RageV.dll, beside this executable. See RageV/CMakeLists.txt.
+ragev_stage_engine(RageVEditor)

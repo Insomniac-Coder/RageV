@@ -2,6 +2,7 @@
 #include "RageV/Project/Project.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "imgui.h"
+#include "RageV/ImGui/ImGuiBinding.h"
 
 using namespace RageV;
 
@@ -12,6 +13,10 @@ RuntimeLayer::RuntimeLayer()
 
 void RuntimeLayer::OnAttach()
 {
+	// The engine is a DLL and ImGui's state is a global, so this executable
+	// starts with its own empty one. See ImGuiBinding.h.
+	ImGuiBinding::Bind();
+
 	if (!Project::GetActive())
 	{
 		RV_ERROR("No project. Pass --project=<folder>, or put a .rvproject "

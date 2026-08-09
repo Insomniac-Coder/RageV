@@ -176,6 +176,19 @@ namespace RageV
 		else if (!fs::exists(runtime, error))
 			result.Errors.push_back("no runtime at " + runtime.string());
 
+		// The engine is a DLL, so it is part of the build rather than something
+		// the player's machine is assumed to have. Checked here, with the other
+		// refusals, so a package that cannot start is never half-written: the
+		// failure would otherwise surface on the first machine that is not the
+		// one it was built on.
+		const fs::path engineDll = runtime.empty() ? fs::path()
+												   : runtime.parent_path() / "RageV.dll";
+		if (!runtime.empty() && !fs::exists(engineDll, error))
+		{
+			result.Errors.push_back("no RageV.dll beside " + runtime.filename().string() +
+									"; the packaged game would not start");
+		}
+
 		const fs::path engineAssets = desc.EngineAssets.empty()
 									? runtime.parent_path() / "assets"
 									: desc.EngineAssets;
@@ -233,6 +246,11 @@ namespace RageV
 		// nothing about what they are running.
 		const fs::path executable = desc.OutputDirectory / (name + ".exe");
 		if (!CopyOne(runtime, executable, result))
+			return result;
+
+		// Named as the engine names it, not after the game: the import table in
+		// the executable says "RageV.dll", and Windows resolves that by name.
+		if (!CopyOne(engineDll, desc.OutputDirectory / "RageV.dll", result))
 			return result;
 
 		if (!CopyTree(engineAssets, desc.OutputDirectory / "assets", result))

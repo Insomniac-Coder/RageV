@@ -70,7 +70,10 @@
 #include <glm/gtx/quaternion.hpp>
 #include "RageV/Core/EngineConfig.h"
 
-#include <GLFW/glfw3.h>
+// No <GLFW/glfw3.h> here on purpose: this executable must not link its own copy
+// of GLFW, or it gets a second set of GLFW's globals that the engine DLL cannot
+// see. Windows come from Window::Create.
+#include "RageV/Core/Window.h"
 #include <fstream>
 #include <functional>
 #include <set>
@@ -3074,10 +3077,22 @@ namespace
 		Project::Config().StartScene = "scenes/missing.rage";
 		Check(!PackageProject(desc).Success, "nor one whose start scene does not exist");
 
-		// --- the real thing ----------------------------------------------------
+		// The engine is a DLL, so a package without it is an executable that
+		// cannot start -- and it would not be found out here, but on the first
+		// machine that is not the one it was built on.
 		Project::Config().StartScene = "scenes/main.rage";
+		Check(!PackageProject(desc).Success, "nor one with no engine DLL beside the runtime");
+		Check(!std::filesystem::exists(output),
+			  "and that one is refused before anything is written too");
+
+		{ std::ofstream stream(fakeRuntime.parent_path() / "RageV.dll"); stream << "not really a DLL"; }
+
+		// --- the real thing ----------------------------------------------------
 		result = PackageProject(desc);
 		Check(result.Success, "a complete project packages");
+
+		Check(std::filesystem::exists(output / "RageV.dll"),
+			  "the engine ships with it, under the name its import table asks for");
 
 		Check(std::filesystem::exists(output / "Packaged.exe"),
 			  "the executable is named after the game, not after the engine");
@@ -4144,26 +4159,24 @@ int RunTests(int argc, char** argv)
 			backend = Backend::Vulkan;
 	}
 
-	if (!glfwInit())
-	{
-		RV_CORE_ERROR("glfwInit failed");
-		return 1;
-	}
+	// The engine's window, not one this executable makes with GLFW directly.
+	//
+	// GLFW keeps its state in globals, and the engine is a DLL with its own copy
+	// of them. A window created here would be invisible to the engine: on Vulkan
+	// it asks for the HWND and gets null, on OpenGL it tries to load the function
+	// pointers and finds no current context. Both fail at device creation, which
+	// is a long way from the cause.
+	//
+	// Going through Window::Create also means the tests exercise the same
+	// startup the editor and the runtime do, hints and all -- and the backend has
+	// to reach EngineConfig for those hints to be right, which is what Init does
+	// with the same --rhi argument parsed above.
+	EngineConfig::Init(argc, argv);
 
-	if (backend == Backend::Vulkan)
-	{
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	}
-	else
-	{
-		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	}
-	// Nothing is drawn; the device exists only so materials can allocate.
-	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+	WindowProps props("RageV scene test", 640, 480);
+	props.Visible = false;   // nothing is drawn; the device exists so materials can allocate
 
-	GLFWwindow* window = glfwCreateWindow(640, 480, "RageV scene test", nullptr, nullptr);
+	std::unique_ptr<Window> window(Window::Create(props));
 	if (!window)
 	{
 		RV_CORE_ERROR("window creation failed");
@@ -4172,7 +4185,9 @@ int RunTests(int argc, char** argv)
 
 	DeviceDesc deviceDesc;
 	deviceDesc.Backend = backend;
-	deviceDesc.Window = window;
+	// GLFWwindow is forward-declared by RHIDevice.h, so the cast needs no GLFW
+	// header -- and must not have one. See the include note at the top.
+	deviceDesc.Window = static_cast<GLFWwindow*>(window->GetNativeWindow());
 	deviceDesc.Width = 640;
 	deviceDesc.Height = 480;
 	deviceDesc.VSync = true;
@@ -5165,8 +5180,7 @@ int RunTests(int argc, char** argv)
 	Assets::Registry::Shutdown();
 	Renderer::Shutdown();
 	device.reset();
-	glfwDestroyWindow(window);
-	glfwTerminate();
+	window.reset();
 
 	if (g_Failures > 0)
 	{

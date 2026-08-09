@@ -14,7 +14,10 @@ namespace RageV
 	public:
 		virtual std::function<double()> GetTimeFn() = 0;
 
-		static PlatformType& GetPlatformType() { return m_Platform; }
+		// Out of line for the same reason Application::Get and Log's accessors
+		// are: a static data member read inline does not survive the crossing
+		// into another module.
+		static PlatformType& GetPlatformType();
 	private:
 		static PlatformType m_Platform;
 	};

@@ -8,8 +8,15 @@ namespace RageV {
 	{
 	public:
 		static void Init();
-		inline static std::shared_ptr<spdlog::logger>& GetClientLogger() { return m_ClientLogger; }
-		inline static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return m_CoreLogger; }
+
+		// Out of line, not inline, because the engine is a DLL. An inline
+		// accessor reads the static member directly, which puts a *data* symbol
+		// in every consumer -- and data does not cross a module boundary the way
+		// a call does. A function is exported and called; the member stays where
+		// it was defined, so a game module logs through the same two loggers the
+		// engine does rather than through its own uninitialised pair.
+		static std::shared_ptr<spdlog::logger>& GetClientLogger();
+		static std::shared_ptr<spdlog::logger>& GetCoreLogger();
 	private:
 		static std::shared_ptr<spdlog::logger> m_CoreLogger;
 		static std::shared_ptr<spdlog::logger> m_ClientLogger;

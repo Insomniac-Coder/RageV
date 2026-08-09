@@ -5,6 +5,11 @@
 std::shared_ptr<spdlog::logger> RageV::Log::m_ClientLogger;
 std::shared_ptr<spdlog::logger> RageV::Log::m_CoreLogger;
 
+// Defined here rather than in the header: see the declaration for why an
+// accessor that crosses a DLL boundary cannot be inline.
+std::shared_ptr<spdlog::logger>& RageV::Log::GetClientLogger() { return m_ClientLogger; }
+std::shared_ptr<spdlog::logger>& RageV::Log::GetCoreLogger() { return m_CoreLogger; }
+
 void RageV::Log::Init()
 {
 	spdlog::set_pattern("%^[%T] %n: %v%$");

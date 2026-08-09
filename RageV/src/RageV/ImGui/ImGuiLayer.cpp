@@ -12,6 +12,22 @@
 
 #include "GLFW/glfw3.h"
 
+namespace RageV::ImGuiBinding
+{
+	// The two halves of the handoff described in ImGuiBinding.h. They read this
+	// module's ImGui globals, which is the whole point -- the caller is in
+	// another module reading its own, and cannot get at these any other way.
+	ImGuiContext* Context()
+	{
+		return ImGui::GetCurrentContext();
+	}
+
+	void Allocators(ImGuiMemAllocFunc* alloc, ImGuiMemFreeFunc* free, void** userData)
+	{
+		ImGui::GetAllocatorFunctions(alloc, free, userData);
+	}
+}
+
 namespace RageV
 {
 	ImGuiLayer::ImGuiLayer()
@@ -142,7 +158,13 @@ namespace RageV
 
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
-		ImGuizmo::BeginFrame();
+
+		// ImGuizmo::BeginFrame() is deliberately not called here. ImGuizmo keeps
+		// its state in a global of its own, so the engine's copy and the
+		// editor's are two different gizmos -- beginning the frame on this one
+		// while the editor manipulates that one leaves the editor's holding no
+		// draw list at all. The editor begins its own, which is where every
+		// other ImGuizmo call already lives. The runtime has no gizmos.
 	}
 
 	void ImGuiLayer::End()

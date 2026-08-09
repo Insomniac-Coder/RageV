@@ -2,8 +2,38 @@ file(GLOB_RECURSE RAGEV_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h")
 
-add_library(RageV STATIC ${RAGEV_SOURCES})
+# A DLL, not a static library.
+#
+# Not a packaging preference -- it is what lets a game have C++ scripts without
+# rebuilding the engine. ScriptRegistry keeps its factories in a function-local
+# static; a project module that linked the engine statically would get its own
+# copy of that map, register into it, and the editor would never see a thing.
+# The registrations would look exactly like a silent failure. One engine module
+# means one registry, one Application, one Renderer, for every module that
+# loads it.
+#
+# The cost: everything that links this must be built by the same toolchain with
+# the same runtime library. That is Unreal's rule too, and the shared /MD
+# runtime set at the top level is what makes memory allocated on one side
+# free-able on the other.
+add_library(RageV SHARED ${RAGEV_SOURCES})
 add_library(RageV::RageV ALIAS RageV)
+
+# Export every symbol rather than annotating the public API by hand.
+#
+# The tempting alternative -- __declspec(dllexport) on the classes a game module
+# needs -- does not survive contact with the editor, which reaches into the
+# renderer, the RHI and the asset system. Its export surface is "most of the
+# engine", so a hand-maintained list would be a list nobody can keep correct,
+# and the failure mode is an unresolved symbol at link time in whichever target
+# was forgotten.
+#
+# Two things this does not cover, both handled elsewhere:
+#   - static data members read by an inline accessor. Those are *data* symbols,
+#     and a consumer links its own copy rather than the engine's. Application,
+#     Log and Platform had exactly that shape and now call out of line instead.
+#   - ImGui, which keeps its context in a global. See ImGuiBinding.h.
+set_target_properties(RageV PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${RAGEV_SOURCES})
 
@@ -38,6 +68,7 @@ target_link_libraries(RageV
         opengl32)
 
 target_precompile_headers(RageV PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/rvpch.h")
+set_target_properties(RageV PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
 
 target_compile_definitions(RageV
     PUBLIC
@@ -51,20 +82,19 @@ target_compile_definitions(RageV
         VK_USE_PLATFORM_WIN32_KHR
         GLFW_INCLUDE_NONE)             # we include vulkan/volk ourselves
 
-# Link-time code generation, for Release and Dist only.
+# No link-time code generation here, unlike the executables.
 #
-# Kept from when RageV/Math delegated across a translation-unit boundary and
-# needed the optimiser's help to inline it. The trivial operators are in the
-# header now so it matters less, but it still lets the out-of-line half --
-# inversion, projections, quaternions -- fold into its callers, and it costs
-# nothing but link time in configurations nobody iterates in.
+# It was enabled for Release and Dist, from when RageV/Math delegated across a
+# translation-unit boundary and needed the optimiser's help to inline it. It is
+# incompatible with WINDOWS_EXPORT_ALL_SYMBOLS: /GL writes intermediate
+# language into the object files, and the tool that scans them to build the
+# export list cannot read those -- so the DLL would export nothing and every
+# consumer would fail to link.
 #
-# Not enabled for Debug, where the link time is the thing being spent. Not
-# enabled for the vendored libraries either: they gain nothing and would cost
-# minutes each.
-set_target_properties(RageV PROPERTIES
-    INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
-    INTERPROCEDURAL_OPTIMIZATION_DIST TRUE)
+# The loss is smaller than it sounds. The trivial math operators are in the
+# header, so they still inline; and cross-module inlining into the editor was
+# never going to survive a DLL boundary anyway. The executables keep their own
+# LTCG for their own code.
 
 # Where a build run out of the build tree finds a project when nobody says.
 # Absent from an installed build, which then relies on a .rvproject sitting
@@ -72,27 +102,18 @@ set_target_properties(RageV PROPERTIES
 target_compile_definitions(RageV PUBLIC
     RV_DEFAULT_PROJECT="${CMAKE_SOURCE_DIR}/SampleProject")
 
-# Every object file in RageV.lib is linked, whether or not anything references
-# a symbol in it.
+# The /WHOLEARCHIVE that used to be here is gone, and deliberately.
 #
-# Without this, a translation unit whose only contents are a static registrar --
-# which is exactly what a script file is -- gets discarded, and the script
-# compiles, links, and never appears in the inspector. There is no fix on the
-# library side: a `#pragma comment(linker, "/include:...")` lives in the object
-# file being discarded, so the directive never reaches the linker. The engine's
-# own built-in scripts work around it by being registered from an explicitly
-# called function, which a file somebody just created cannot do.
+# It existed because a static library drops any object file nothing references,
+# and a script file's only content is a static registrar -- so the script would
+# compile, link, and never appear in the inspector. A DLL is linked from its
+# object files directly rather than from an archive, so every translation unit
+# is in it whether or not anything calls into it. The same is true of a project's
+# game module, which is why a script there needs no equivalent.
 #
-# The cost is link time and a larger binary, unmeasured -- the alternative is a
-# script that silently does not exist, so it was not a trade worth measuring
-# before making.
-#
-# Applied as an INTERFACE property so every consumer gets it -- an executable
-# that forgets it would have scripts silently missing, which is the whole
-# failure being fixed.
-if(MSVC)
-    target_link_options(RageV INTERFACE "/WHOLEARCHIVE:$<TARGET_FILE:RageV>")
-endif()
+# TemplateProbe.cpp still proves it: it is the file "New Script" generates, kept
+# in the tree so every build checks that the generated shape both compiles and
+# registers.
 
 # Where "New Script..." puts a generated C++ script.
 #
@@ -116,3 +137,22 @@ if(MSVC)
 endif()
 
 set_target_properties(RageV PROPERTIES FOLDER "Engine")
+
+# Put RageV.dll beside whatever links it.
+#
+# Every application here gets its own output directory -- they ship different
+# copies of assets/ and a shared one let whichever built last overwrite the
+# other's -- and Windows looks for a DLL next to the executable, not in the
+# directory above it. Without this an application builds cleanly and then fails
+# to start with a dialog naming a file that is plainly there, one folder up.
+#
+# TARGET_RUNTIME_DLLS rather than a hard-coded RageV.dll: it resolves whatever
+# the target actually depends on, so adding a shared dependency later does not
+# mean remembering to add another copy rule to seven CMakeLists.
+function(ragev_stage_engine target)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_RUNTIME_DLLS:${target}>" "$<TARGET_FILE_DIR:${target}>"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Staging the engine DLL beside ${target}")
+endfunction()

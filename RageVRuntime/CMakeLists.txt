@@ -50,3 +50,6 @@ set_target_properties(RageVRuntime PROPERTIES
 
 # The C# script assembly, when the .NET SDK was present at configure time.
 ragev_stage_managed(RageVRuntime)
+
+# RageV.dll, beside this executable. See RageV/CMakeLists.txt.
+ragev_stage_engine(RageVRuntime)

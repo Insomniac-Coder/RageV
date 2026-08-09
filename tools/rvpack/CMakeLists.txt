@@ -5,3 +5,6 @@ target_link_libraries(rvpack PRIVATE RageV::RageV glfw)
 set_target_properties(rvpack PROPERTIES
     FOLDER "Tools"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/rvpack")
+
+# RageV.dll, beside this executable. See RageV/CMakeLists.txt.
+ragev_stage_engine(rvpack)

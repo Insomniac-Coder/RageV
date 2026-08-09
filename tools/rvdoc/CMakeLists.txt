@@ -14,3 +14,6 @@ add_custom_target(manual
     COMMENT "Generating the developer manual"
     VERBATIM)
 set_target_properties(manual PROPERTIES FOLDER "Tools")
+
+# RageV.dll, beside this executable. See RageV/CMakeLists.txt.
+ragev_stage_engine(rvdoc)

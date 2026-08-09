@@ -25,6 +25,11 @@ namespace RageV {
 
 	Application* Application::m_Instance = nullptr;
 
+	// See the declarations: these are calls rather than inline reads of
+	// m_Instance so that a module outside the engine DLL sees the one instance.
+	Application& Application::Get() { return *m_Instance; }
+	bool Application::Exists() { return m_Instance != nullptr; }
+
 	Application::Application(const std::string& appname) {
 		RV_CORE_ASSERT(!m_Instance, "Application instance already present present");
 		m_Instance = this;

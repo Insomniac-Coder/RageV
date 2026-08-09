@@ -40,11 +40,15 @@ namespace RageV {
 		void PushOverlay(Layer* layer);
 		void PushLayer(Layer* layer);
 		inline Window& GetWindow() { return *m_Window; }
-		inline static Application& Get() { return *m_Instance; }
+		// Out of line: an inline accessor would read m_Instance directly, and a
+		// static data member does not cross a DLL boundary the way a call does.
+		// A game module asking for the application would otherwise link against
+		// its own copy of the pointer, which is always null.
+		static Application& Get();
 		// Get() dereferences unconditionally, so anything that may run without
 		// an application -- a headless tool, or code during construction --
 		// has to ask first.
-		inline static bool Exists() { return m_Instance != nullptr; }
+		static bool Exists();
 		ImGuiLayer* GetImGuiLayer() const { return m_ImGuiLayer; }
 		RHI::RHIDevice& GetDevice() { return *m_Device; }
 	private:

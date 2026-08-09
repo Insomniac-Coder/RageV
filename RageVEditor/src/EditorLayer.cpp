@@ -15,6 +15,7 @@
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Core/EngineConfig.h"
 #include "ImGuizmo.h"
+#include "RageV/ImGui/ImGuiBinding.h"
 #include "RageV/Math/Math.h"
 #include <fstream>
 
@@ -67,6 +68,11 @@ EditorLayer::EditorLayer()
 
 void EditorLayer::OnAttach()
 {
+	// Before the first ImGui call in this module, theme included. The engine is
+	// a DLL and ImGui's state hides behind a global, so this executable has its
+	// own until it is handed the engine's. See ImGuiBinding.h.
+	ImGuiBinding::Bind();
+
 	EditorTheme::Apply();
 
 	auto& device = Renderer::GetDevice();
@@ -553,6 +559,10 @@ void EditorLayer::OnScenePause(bool paused)
 
 void EditorLayer::OnImGuiRender()
 {
+	// This module's ImGuizmo, not the engine's -- they are separate globals, and
+	// every other ImGuizmo call in the editor is against this one.
+	ImGuizmo::BeginFrame();
+
 	// --- dockspace host -----------------------------------------------------
 	static bool open = true;
 	ImGuiWindowFlags hostFlags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking |
