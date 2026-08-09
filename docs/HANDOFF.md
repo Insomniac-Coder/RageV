@@ -760,42 +760,45 @@ Start here, in this order.
 
 ### START HERE — 3.7, skeletal animation, continued (`L` remaining)
 
-**Two of the five pieces are done and committed.** Both are tested and
-neither is visible yet, which is the honest state: there is no skinned mesh
-on screen.
+**Three of the five pieces are done and committed.** All tested, and none of
+them visible yet, which is the honest state: **no skinned mesh renders**.
 
 Done:
 
 - **`RageV/src/RageV/Animation/Skeleton.{h,cpp}`** — bones, clips, sampling,
-  hierarchy composition, blending. 21 checks in `scenetest`, including the one
-  everything rests on: at the bind pose every skinning matrix is the identity.
-  Verified it can fail by removing the inverse-bind multiply.
-- **Shader includes**, and `pbr.rvshader` split so the skinned variant can
-  share the lighting instead of copying it.
+  hierarchy composition, blending. 21 checks, including the one everything
+  rests on: at the bind pose every skinning matrix is the identity. Verified it
+  can fail, by removing the inverse-bind multiply and watching it go red.
+- **Shader includes**, and `pbr.rvshader` split so the skinned variant shares
+  the lighting rather than copying six hundred lines of it.
+- **glTF skin and animation import**, against `limb.gltf` — a two-bone post
+  that bends, written by `tools/scripts/make_skinned_gltf.py` so the tests
+  assert against numbers chosen here rather than against a downloaded model.
+  Joints are reordered parents-first at import and everything referring to them
+  is remapped, so the runtime never sees glTF's arbitrary order. 21 more checks.
 
-Left, in dependency order:
+Left, in dependency order. **The first three are one piece of work** — none of
+them shows anything on its own:
 
 1. **A skinned vertex format.** `SkinnedVertex` = the current 32 bytes plus
-   four joint indices and four weights, as its own struct and its own single
-   vertex binding. Do *not* widen `MeshVertex`: static meshes are almost all of
-   them and would pay 32 bytes a vertex for nothing. `Mesh` needs to be able to
-   hold either.
-2. **`pbr_skinned.rvshader`.** A thin variant like `pbr.rvshader` is now: the
-   two extra attributes, a bone-matrix storage buffer, and
-   `sum(weight[i] * bone[joint[i]])` before the model matrix. Everything else
-   is the shared include.
-3. **The renderer path.** A second pipeline, and the pose's skinning matrices
-   in a storage buffer per skinned instance. The shadow pass needs the same
-   treatment or a skinned character casts its bind pose.
-4. **glTF import** — `cgltf` already parses skins and animations; the importer
-   reads neither. Needs `JOINTS_0`/`WEIGHTS_0`, the skin's inverse bind
-   accessor, and the animation channels. **There is no skinned test asset in
-   the repository**; generating a minimal two-bone one from a script, the way
-   `tools/scripts/` generates the sky and the stress scene, would make the
-   whole path testable without a download.
-5. **The components** — a skinned mesh renderer and something that advances
-   time and picks a clip, plus registry entries so they serialize and appear
+   four joint indices and four weights, as its own struct with its own vertex
+   binding. Do *not* widen `MeshVertex`: static meshes are almost all of them
+   and would pay 32 bytes a vertex for nothing. `Mesh` has to hold either, and
+   `ImportedPrimitive::IsSkinned()` already says which it is.
+2. **`pbr_skinned.rvshader`.** Thin, like `pbr.rvshader` is now: two extra
+   attributes, a bone-matrix storage buffer, and
+   `sum(weight[i] * bone[joint[i]])` before the model matrix. The rest is the
+   shared include.
+3. **The renderer path.** A second pipeline and the pose's skinning matrices in
+   a storage buffer per skinned instance. **The shadow pass needs the same
+   treatment or a skinned character casts its bind pose** — which is the kind of
+   thing that looks like a shadow bug for an afternoon.
+4. **The components** — a skinned mesh renderer, and something that advances
+   time and chooses a clip, with registry entries so both serialize and appear
    in the inspector.
+
+Once those land, `limb.gltf` in the sample project is the end-to-end check:
+it should stand up straight and bend.
 
 ### 1. Phase 5 — C# scripting (`XL`)
 
