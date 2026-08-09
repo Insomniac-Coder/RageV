@@ -1,0 +1,623 @@
+// No #version here: an include is spliced into a file that already has
+// one, and GLSL requires it to be the first thing in the shader.
+// Shared by every shader that lights a surface.
+//
+// Included rather than copied. There are two mesh shaders -- static and
+// skinned -- differing only in how a vertex reaches world space, and the
+// lighting underneath them has to be one implementation. Two copies of six
+// hundred lines of PBR would drift, and the way that failure shows up is two
+// objects in the same scene shaded differently, which reads as a material
+// problem rather than as a duplicated shader.
+
+// The whole of the lighting: clustered light lookup, Cook-Torrance,
+// shadows and image-based lighting, ending in main().
+
+const float PI = 3.14159265359;
+
+const int MAP_BASE_COLOR         = 1 << 0;
+const int MAP_NORMAL             = 1 << 1;
+const int MAP_METALLIC_ROUGHNESS = 1 << 2;
+const int MAP_OCCLUSION          = 1 << 3;
+const int MAP_EMISSIVE           = 1 << 4;
+
+layout(set = 0, binding = 0) uniform SceneData
+{
+	mat4 ViewProjection;
+	vec4 CameraPosition;
+	vec4 Ambient;
+	vec4 Environment;
+	vec4 EnvironmentSize;
+	vec4 ClusterGrid;
+	vec4 ClusterDepth;
+	mat4 CascadeLookup[4];
+	vec4 CascadeSplits;
+	vec4 CascadeTexel;
+	vec4 CameraForward;
+	vec4 ShadowParams;
+	mat4 SpotLookup[4];
+	int  LightCount;
+} u_Scene;
+
+// Every light in the scene, however many that is.
+//
+// A storage buffer rather than an array in the scene block, and that is the
+// whole of what removes the eight-light cap: a uniform block has to declare a
+// fixed length, and the length it declared was eight. Nothing else about the
+// lighting changed with this -- the loop below still reads every light -- so
+// the picture is a strict check that the move itself was faithful.
+struct GpuLight
+{
+	// xyz position, w = 1 for positional and 0 for directional
+	vec4 Position;
+	// xyz forward axis: the direction a directional light travels and the cone
+	// axis of a spot. Not derivable from the position, which is why it is here.
+	vec4 Direction;
+	// rgb colour, a intensity
+	vec4 Color;
+	// x range, y cos(inner cone), z cos(outer cone)
+	vec4 Params;
+	// x kind of shadow map (0 none), y slot, z far distance, w texel scale
+	vec4 Shadow;
+};
+
+layout(std430, set = 0, binding = 8) readonly buffer LightBlock
+{
+	GpuLight Lights[];
+} u_Lights;
+
+// The cluster grid: which lights reach which cell of the view frustum.
+//
+// Cells hold a range into the index list rather than the lights themselves,
+// because a light reaching several cells would otherwise be stored several
+// times.
+struct LightCell
+{
+	uint Offset;
+	uint Count;
+};
+
+layout(std430, set = 0, binding = 9) readonly buffer CellBlock
+{
+	LightCell Cells[];
+} u_Cells;
+
+layout(std430, set = 0, binding = 10) readonly buffer CellIndexBlock
+{
+	uint Indices[];
+} u_CellIndices;
+
+layout(set = 0, binding = 1) uniform samplerCube u_Environment;
+layout(set = 0, binding = 5) uniform samplerCube u_Irradiance;
+layout(set = 0, binding = 6) uniform sampler2D u_BRDF;
+
+// Comparison samplers: the hardware compares against the reference and filters
+// the answers, which is a 2x2 percentage-closer filter for one fetch. Four
+// separate maps rather than one array texture, because indexing an array of
+// samplers by a value that varies per fragment is not dynamically uniform --
+// the switch below keeps every index constant, which is always legal.
+layout(set = 0, binding = 2) uniform sampler2DShadow u_ShadowMaps[4];
+layout(set = 0, binding = 3) uniform sampler2DShadow u_SpotShadows[4];
+layout(set = 0, binding = 4) uniform samplerCubeShadow u_PointShadows[4];
+
+// Shared with ShadowMap.cpp. A point light's faces are all rendered with the
+// same near plane, so it does not need storing per light -- but the two have to
+// agree, or every comparison is against a depth from a different projection.
+const float POINT_SHADOW_NEAR = 0.05;
+
+layout(set = 1, binding = 0) uniform MaterialData
+{
+	vec4  BaseColor;
+	vec4  EmissiveColor;
+	float Metallic;
+	float Roughness;
+	float Occlusion;
+	float NormalScale;
+	int   MapFlags;
+} u_Material;
+
+layout(set = 1, binding = 1) uniform sampler2D u_BaseColorMap;
+layout(set = 1, binding = 2) uniform sampler2D u_NormalMap;
+layout(set = 1, binding = 3) uniform sampler2D u_MetallicRoughnessMap;
+layout(set = 1, binding = 4) uniform sampler2D u_OcclusionMap;
+layout(set = 1, binding = 5) uniform sampler2D u_EmissiveMap;
+
+layout(location = 0) in vec3 v_WorldPos;
+layout(location = 1) in vec3 v_Normal;
+layout(location = 2) in vec2 v_TexCoord;
+// Per instance, so the scalar surface parameters come from the instance stream
+// rather than the material block. Only MapFlags is still read from the
+// material, because which maps exist is a property of the texture set -- and
+// the texture set is what decides whether two objects can share a draw.
+layout(location = 3) flat in vec4 v_BaseColor;
+layout(location = 4) flat in vec4 v_EmissiveColor;
+layout(location = 5) flat in vec4 v_Surface;
+layout(location = 6) in vec4 v_ClipPos;
+
+layout(location = 0) out vec4 o_Color;
+
+bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
+
+// Which cell of the grid this fragment falls in.
+//
+// The tile comes from the fragment's normalised device coordinate and the slice
+// from how far down the view axis it is. The slice mapping is the inverse of the
+// geometric series the grid was built with -- scale and bias arrive already
+// folded, so this is a log and a multiply-add rather than a search.
+//
+// It has to agree with LightGrid::Build exactly. Where they disagree a fragment
+// reads another cell's lights, which looks like lighting that snaps as the
+// camera moves rather than like an indexing bug.
+uint ClusterIndexFor(vec3 worldPos)
+{
+	vec2 tileCount = u_Scene.ClusterGrid.xy;
+	float sliceCount = u_Scene.ClusterGrid.z;
+
+	// The fragment's own normalised device coordinate, from the interpolated
+	// clip position. Independent of the target's size and of which corner the
+	// backend calls the origin, both of which gl_FragCoord would drag in.
+	vec2 ndc = v_ClipPos.xy / max(abs(v_ClipPos.w), 1e-6) * sign(v_ClipPos.w);
+	vec2 unit = clamp(ndc * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
+
+	uvec2 tile = uvec2(unit * tileCount);
+
+	// Distance along the camera's forward axis, which is what the slices were
+	// cut against -- not distance to the camera, which would make the slice
+	// boundaries spheres instead of planes.
+	float viewDepth = dot(worldPos - u_Scene.CameraPosition.xyz, u_Scene.CameraForward.xyz);
+
+	float slice = 0.0;
+	if (viewDepth > u_Scene.ClusterDepth.x)
+		slice = log(viewDepth) * u_Scene.ClusterDepth.z + u_Scene.ClusterDepth.w;
+
+	uint z = uint(clamp(slice, 0.0, sliceCount - 1.0));
+
+	return (z * uint(tileCount.y) + tile.y) * uint(tileCount.x) + tile.x;
+}
+
+float SampleCascade(int cascade, vec3 coordinate)
+{
+	if (cascade == 0) return texture(u_ShadowMaps[0], coordinate);
+	if (cascade == 1) return texture(u_ShadowMaps[1], coordinate);
+	if (cascade == 2) return texture(u_ShadowMaps[2], coordinate);
+	return texture(u_ShadowMaps[3], coordinate);
+}
+
+// One cascade's answer. Split out so the band between two of them can ask both.
+float CascadeFactor(int cascade, vec3 worldPos, vec3 N, vec3 L)
+{
+	float NdotL = clamp(dot(N, L), 0.0, 1.0);
+	// tan of the angle to the light, clamped: at grazing incidence this runs
+	// away, and an offset larger than the geometry detaches the shadow.
+	float slope = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
+	float offset = u_Scene.CascadeTexel[cascade] * u_Scene.ShadowParams.y *
+				   (1.0 + min(slope, 4.0));
+
+	vec4 lightSpace = u_Scene.CascadeLookup[cascade] * vec4(worldPos + N * offset, 1.0);
+	vec3 coordinate = lightSpace.xyz / lightSpace.w;
+
+	// Beyond the far plane of the cascade there is nothing recorded, and the
+	// honest answer is lit.
+	if (coordinate.z > 1.0)
+		return 1.0;
+
+	// 3x3 of hardware 2x2 taps. Nine fetches is the point at which the edge
+	// stops looking like a staircase and starts looking like a penumbra.
+	float texel = u_Scene.ShadowParams.z;
+	float sum = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+			sum += SampleCascade(cascade, vec3(coordinate.xy + vec2(x, y) * texel, coordinate.z));
+	}
+
+	return sum / 9.0;
+}
+
+// How lit a point is, from 0 (fully shadowed) to 1.
+//
+// Two biases, because one is not enough and the reason is geometric. The
+// shadow pass writes back faces, which pushes each caster's recorded depth
+// behind it by its own thickness -- free, and proportional to the object. That
+// does nothing for a surface nearly edge-on to the light, where one shadow
+// texel spans a lot of depth, so the sample is also moved along the surface
+// normal by a texel scaled by the slope. Pure depth bias is the option that
+// was not taken: there is no constant that avoids both acne and shadows
+// detaching from their casters.
+float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
+{
+	int count = int(u_Scene.ShadowParams.x);
+	if (count <= 0)
+		return 1.0;
+
+	float viewDepth = dot(worldPos - u_Scene.CameraPosition.xyz, u_Scene.CameraForward.xyz);
+
+	int cascade = count - 1;
+	for (int i = 0; i < count; ++i)
+	{
+		if (viewDepth < u_Scene.CascadeSplits[i])
+		{
+			cascade = i;
+			break;
+		}
+	}
+
+	float lit = CascadeFactor(cascade, worldPos, N, L);
+
+	// Fade into the next cascade over the last tenth of this one.
+	//
+	// Selection is a step function, and two cascades disagree slightly at their
+	// boundary -- different texel sizes, different bias. Without a band the
+	// disagreement is a line across the ground that slides as the camera moves,
+	// which reads as a rendering artefact rather than as a shadow.
+	if (cascade + 1 < count)
+	{
+		float start = cascade == 0 ? 0.0 : u_Scene.CascadeSplits[cascade - 1];
+		float end = u_Scene.CascadeSplits[cascade];
+		float band = (end - start) * 0.1;
+
+		if (band > 0.0 && viewDepth > end - band)
+		{
+			float t = clamp((viewDepth - (end - band)) / band, 0.0, 1.0);
+			lit = mix(lit, CascadeFactor(cascade + 1, worldPos, N, L), t);
+		}
+	}
+
+	return lit;
+}
+
+float SampleSpot(int slot, vec3 coordinate)
+{
+	if (slot == 0) return texture(u_SpotShadows[0], coordinate);
+	if (slot == 1) return texture(u_SpotShadows[1], coordinate);
+	if (slot == 2) return texture(u_SpotShadows[2], coordinate);
+	return texture(u_SpotShadows[3], coordinate);
+}
+
+float SamplePoint(int slot, vec4 coordinate)
+{
+	if (slot == 0) return texture(u_PointShadows[0], coordinate);
+	if (slot == 1) return texture(u_PointShadows[1], coordinate);
+	if (slot == 2) return texture(u_PointShadows[2], coordinate);
+	return texture(u_PointShadows[3], coordinate);
+}
+
+// A spot light's own frustum, so there is nothing to fit and nothing to select.
+float SpotShadow(int slot, vec3 lightPos, float texelScale, vec3 worldPos, vec3 N, vec3 L)
+{
+	float NdotL = clamp(dot(N, L), 0.0, 1.0);
+	float slope = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
+
+	// A texel's world size grows with distance from the light, unlike a
+	// directional cascade where it is constant, so the offset has to as well.
+	float distanceToLight = length(worldPos - lightPos);
+	float offset = texelScale * distanceToLight * u_Scene.ShadowParams.y *
+				   (1.0 + min(slope, 4.0));
+
+	vec4 lightSpace = u_Scene.SpotLookup[slot] * vec4(worldPos + N * offset, 1.0);
+	if (lightSpace.w <= 0.0)
+		return 1.0;
+
+	vec3 coordinate = lightSpace.xyz / lightSpace.w;
+	if (coordinate.z > 1.0)
+		return 1.0;
+
+	return SampleSpot(slot, coordinate);
+}
+
+// Six faces of one, addressed by direction. No matrix: the reference depth is
+// rebuilt from the distance along whichever axis the face was chosen by, which
+// is what the projection did when the face was rendered.
+float PointShadow(int slot, vec3 lightPos, float farClip, float texelScale,
+				  vec3 worldPos, vec3 N)
+{
+	vec3 toFragment = worldPos - lightPos;
+	float distanceToLight = length(toFragment);
+
+	// Offset before the direction is taken, so a surface facing the light is
+	// pushed out of its own shadow rather than sideways along the cube.
+	vec3 offsetPos = worldPos + N * (texelScale * distanceToLight * u_Scene.ShadowParams.y);
+	toFragment = offsetPos - lightPos;
+
+	float major = max(abs(toFragment.x), max(abs(toFragment.y), abs(toFragment.z)));
+	if (major <= POINT_SHADOW_NEAR || major >= farClip)
+		return 1.0;
+
+	// The depth glm's perspective would have written for a point this far down
+	// the face's axis, with GLM_FORCE_DEPTH_ZERO_TO_ONE.
+	float depth = (farClip / (farClip - POINT_SHADOW_NEAR)) *
+				  (1.0 - POINT_SHADOW_NEAR / major);
+
+	return SamplePoint(slot, vec4(toFragment, depth));
+}
+
+// Turns a direction into the sky's own frame. The sky pass folds the same
+// rotation into its matrix on the CPU; a reflection that skipped it would show
+// a different sky from the one visible behind the surface.
+vec3 RotateIntoSky(vec3 v)
+{
+	float c = u_Scene.Environment.z;
+	float s = u_Scene.Environment.w;
+	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
+}
+
+// The split-sum environment BRDF, read from the table.
+//
+// The scale and bias to apply to a material's F0, given how directly the
+// surface faces the viewer and how rough it is. It depends on nothing else --
+// not the environment, not the material's colour -- which is what makes one
+// table serve every surface in every scene.
+//
+// This replaced Lazarov's analytic fit, which is within a couple of percent
+// across most of the range and visibly wrong at grazing angles on smooth
+// metal, which is the one case anybody looks at.
+vec2 EnvBRDF(float NoV, float roughness)
+{
+	return texture(u_BRDF, vec2(clamp(NoV, 0.0, 1.0), clamp(roughness, 0.0, 1.0))).rg;
+}
+
+// Trowbridge-Reitz GGX: the microfacet distribution.
+float DistributionGGX(vec3 N, vec3 H, float roughness)
+{
+	// Squaring roughness makes the perceptual slider behave linearly, which is
+	// the convention glTF and every DCC tool assume.
+	float a  = roughness * roughness;
+	float a2 = a * a;
+	float NdotH = max(dot(N, H), 0.0);
+	float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+	return a2 / max(PI * denom * denom, 0.0001);
+}
+
+// Smith geometry term with the Schlick-GGX approximation.
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+	float r = roughness + 1.0;
+	float k = (r * r) / 8.0;   // direct lighting remapping
+	return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
+	return GeometrySchlickGGX(max(dot(N, V), 0.0), roughness) *
+		   GeometrySchlickGGX(max(dot(N, L), 0.0), roughness);
+}
+
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
+{
+	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
+{
+	vec3 F90 = max(vec3(1.0 - roughness), F0);
+	return F0 + (F90 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// Screen-space derivative TBN. Avoids needing tangents in the vertex format,
+// which means generated primitives and imported meshes work the same way.
+vec3 ApplyNormalMap(vec3 N, vec3 worldPos, vec2 uv)
+{
+	vec3 tangentNormal = texture(u_NormalMap, uv).xyz * 2.0 - 1.0;
+	tangentNormal.xy *= v_Surface.w;
+
+	vec3 dp1 = dFdx(worldPos);
+	vec3 dp2 = dFdy(worldPos);
+	vec2 duv1 = dFdx(uv);
+	vec2 duv2 = dFdy(uv);
+
+	vec3 dp2perp = cross(dp2, N);
+	vec3 dp1perp = cross(N, dp1);
+	vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+	vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+
+	float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+	mat3 TBN = mat3(T * invmax, B * invmax, N);
+	return normalize(TBN * tangentNormal);
+}
+
+void main()
+{
+	vec4 baseColor = v_BaseColor;
+	if (HasMap(MAP_BASE_COLOR))
+		baseColor *= texture(u_BaseColorMap, v_TexCoord);
+
+	vec3 albedo = baseColor.rgb;
+
+	float metallic  = v_Surface.x;
+	float roughness = v_Surface.y;
+	if (HasMap(MAP_METALLIC_ROUGHNESS))
+	{
+		// glTF packing: roughness in green, metallic in blue.
+		vec3 mr = texture(u_MetallicRoughnessMap, v_TexCoord).rgb;
+		roughness *= mr.g;
+		metallic  *= mr.b;
+	}
+	roughness = clamp(roughness, 0.045, 1.0);   // fully smooth aliases badly
+	metallic  = clamp(metallic, 0.0, 1.0);
+
+	float occlusion = v_Surface.z;
+	if (HasMap(MAP_OCCLUSION))
+		occlusion *= texture(u_OcclusionMap, v_TexCoord).r;
+
+	vec3 N = normalize(v_Normal);
+	if (HasMap(MAP_NORMAL))
+		N = ApplyNormalMap(N, v_WorldPos, v_TexCoord);
+
+	vec3 V = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
+
+	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
+	// the reflectance and have no diffuse response at all.
+	vec3 F0 = mix(vec3(0.04), albedo, metallic);
+
+	vec3 Lo = vec3(0.0);
+
+	// Directional lights first, unconditionally: they have no position, so they
+	// reach every cell and binning them would put a copy in all 3456 of them.
+	// Everything after them is positional and comes from this fragment's cell.
+	int directionalCount = int(u_Scene.ClusterGrid.w);
+
+	uint cell = ClusterIndexFor(v_WorldPos);
+	uint cellOffset = u_Cells.Cells[cell].Offset;
+	uint cellCount = u_Cells.Cells[cell].Count;
+
+	int total = directionalCount + int(cellCount);
+
+	// `entry`, not `slot`: the loop body already has a `slot`, which is the
+	// shadow map this light was given.
+	for (int entry = 0; entry < total; ++entry)
+	{
+		int i = entry < directionalCount
+			  ? entry
+			  : int(u_CellIndices.Indices[cellOffset + uint(entry - directionalCount)]);
+
+		GpuLight light = u_Lights.Lights[i];
+
+		vec3  lightColor = light.Color.rgb * light.Color.a;
+		float isPositional = light.Position.w;
+
+		vec3  L;
+		float attenuation = 1.0;
+
+		if (isPositional == 0.0)
+		{
+			// Directional: L points towards the light, the opposite of travel.
+			L = normalize(-light.Direction.xyz);
+		}
+		else
+		{
+			vec3 toLight = light.Position.xyz - v_WorldPos;
+			float distance = length(toLight);
+			L = toLight / max(distance, 0.0001);
+
+			// Inverse-square falloff, windowed so the light reaches zero at its
+			// range instead of trailing off forever.
+			float range = max(light.Params.x, 0.0001);
+			float ratio = clamp(1.0 - pow(distance / range, 4.0), 0.0, 1.0);
+			attenuation = (ratio * ratio) / max(distance * distance, 0.0001);
+
+			// Spot cone, when the inner and outer angles differ. Measured
+			// against the light's own axis, not against its position -- those
+			// only coincide when the light sits at the origin.
+			float cosInner = light.Params.y;
+			float cosOuter = light.Params.z;
+			if (cosOuter < cosInner)
+			{
+				float theta = dot(L, normalize(-light.Direction.xyz));
+				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+			}
+		}
+
+		vec3 H = normalize(V + L);
+		vec3 radiance = lightColor * attenuation;
+
+		float NDF = DistributionGGX(N, H, roughness);
+		float G   = GeometrySmith(N, V, L, roughness);
+		vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+		vec3 numerator = NDF * G * F;
+		float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+		vec3 specular = numerator / denominator;
+
+		// Energy conservation: what is not reflected is refracted, and metals
+		// refract nothing.
+		vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+
+		float NdotL = max(dot(N, L), 0.0);
+
+		// Each light carries which kind of map it has, if any.
+		int kind = int(light.Shadow.x);
+		int slot = int(light.Shadow.y);
+
+		float shadow = 1.0;
+		if (kind == 1)
+			shadow = ShadowFactor(v_WorldPos, N, L);
+		else if (kind == 2)
+			shadow = SpotShadow(slot, light.Position.xyz,
+								light.Shadow.w, v_WorldPos, N, L);
+		else if (kind == 3)
+			shadow = PointShadow(slot, light.Position.xyz,
+								 light.Shadow.z, light.Shadow.w,
+								 v_WorldPos, N);
+
+		Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
+	}
+
+	// A constant environment standing in for IBL: irradiance is the same from
+	// every direction, so one colour serves both the diffuse and specular
+	// response. Still an approximation -- it cannot vary with view angle or
+	// roughness the way a real environment does -- but it is driven by the
+	// scene now rather than by two constants buried in this file, and it is
+	// what IBL will fall back to when a scene has no environment map.
+	// Diffuse image-based lighting: how much light actually arrives at a
+	// surface facing this way, rather than one number for every direction.
+	//
+	// The flat ambient is still added, and is now a floor rather than the whole
+	// answer -- it is what a scene with no sky at all is lit by, and what keeps
+	// the inside of an unlit room from being pure black. The irradiance cube
+	// carries the part that varies: the sky side of an object is lit by sky and
+	// the ground side by ground, which is most of what makes a scene look like
+	// it is somewhere.
+	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
+	vec3 irradiance = textureLod(u_Irradiance, RotateIntoSky(N), 0.0).rgb *
+					  u_Scene.Environment.x;
+
+	float NdotV = max(dot(N, V), 0.0);
+	vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
+	vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+	vec3 ambient = kD * albedo * (ambientLight + irradiance) * occlusion;
+
+	// The environment, reflected. Roughness selects a mip rather than driving
+	// a real GGX convolution -- the chain is box filtered, so this is an
+	// approximation of the lobe rather than the lobe -- but it is monotonic in
+	// roughness, which is what makes a rough metal read as rough.
+	//
+	// This is the specular half of image-based lighting. The diffuse half is
+	// still the flat ambient above; 3.4 replaces it with real irradiance.
+	vec3 reflection = RotateIntoSky(reflect(-V, N));
+
+	// Roughness alone is not enough to pick a mip.
+	//
+	// Near a silhouette the reflection vector sweeps a large part of the
+	// environment across a handful of pixels, so a smooth surface samples a
+	// sharp mip at points that are far apart in the cube. Anything small and
+	// bright in there -- a sun -- then lands in scattered single pixels, and
+	// the bloom pass turns each one into a blob that appears to float in the
+	// air beside the object. It is the same aliasing hardware mip selection
+	// exists to prevent for ordinary textures, and the fix is the same
+	// argument: measure how fast the coordinate changes across the screen.
+	//
+	// A cube face spans 90 degrees across its width, so the rate of change of
+	// a unit direction converts to texels with 2/pi and the face size.
+	vec3 dRdx = dFdx(reflection);
+	vec3 dRdy = dFdy(reflection);
+	float faceSize = max(u_Scene.EnvironmentSize.x, 1.0);
+	float texelsPerPixel = max(length(dRdx), length(dRdy)) * (2.0 / PI) * faceSize;
+
+	// The coarser of the two: what roughness asks for, and what the screen
+	// demands. Taking the maximum means a mirror still looks like a mirror
+	// everywhere it is not aliasing.
+	//
+	// The roughness term indexes a real GGX convolution now rather than a box
+	// filtered chain, so a level means a lobe width rather than "blurrier than
+	// the last one".
+	float lod = max(roughness * u_Scene.Environment.y,
+					log2(max(texelsPerPixel, 1.0)));
+
+	vec3 prefiltered = textureLod(u_Environment, reflection, lod).rgb *
+					   u_Scene.Environment.x;
+
+	vec2 envBRDF = EnvBRDF(NdotV, roughness);
+	ambient += prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;
+
+	vec3 emissive = v_EmissiveColor.rgb;
+	if (HasMap(MAP_EMISSIVE))
+		emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
+
+	vec3 color = ambient + Lo + emissive;
+
+	// Linear, unbounded, untouched. Tone mapping and the transfer function
+	// moved to the tonemap pass, for two reasons: bloom needs these values
+	// before the curve compresses them, and every shader that wrote to the
+	// screen used to have to agree on the display transform -- which only this
+	// one did, so quads and meshes were being shown through different ones.
+	o_Color = vec4(color, baseColor.a);
+}

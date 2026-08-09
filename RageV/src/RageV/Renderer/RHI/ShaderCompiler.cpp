@@ -164,14 +164,98 @@ namespace RageV::RHI
 		s_CacheDirectory = directory;
 	}
 
+	namespace
+	{
+		// Splices `#include "file"` in place, relative to the including file.
+		//
+		// Added for skinning, which needs a second variant of the PBR shader
+		// differing only in how it computes a vertex position. Without this the
+		// choice is to copy six hundred lines of lighting and let the two
+		// drift, which is the mistake `BuildFrame` exists to prevent one level
+		// up -- a frame described twice ended up with two transfer functions in
+		// one image, and a surface shaded twice would go the same way.
+		//
+		// `seen` guards against a cycle. A shader that includes itself is a
+		// hang otherwise, and a compiler that hangs is much harder to diagnose
+		// than one that complains.
+		bool SpliceIncludes(const std::filesystem::path& path, std::string& out,
+							std::vector<std::filesystem::path>& seen, int depth)
+		{
+			if (depth > 16)
+			{
+				RV_CORE_ERROR("Shader includes nested more than 16 deep at {0}", path.string());
+				return false;
+			}
+
+			std::error_code error;
+			const std::filesystem::path resolved = std::filesystem::weakly_canonical(path, error);
+			const std::filesystem::path key = error ? path : resolved;
+
+			for (const std::filesystem::path& already : seen)
+			{
+				if (already == key)
+				{
+					RV_CORE_ERROR("Shader include cycle at {0}", path.string());
+					return false;
+				}
+			}
+			seen.push_back(key);
+
+			std::ifstream file(path);
+			if (!file)
+			{
+				RV_CORE_ERROR("Shader file not found: {0}", path.string());
+				return false;
+			}
+
+			const std::string marker = "#include";
+			std::string line;
+
+			while (std::getline(file, line))
+			{
+				const size_t pos = line.find(marker);
+				const size_t first = line.find_first_not_of(" \t");
+
+				// Only a line whose first token is the directive. A `#include`
+				// inside a comment is not one, and neither is the word in prose.
+				if (pos == std::string::npos || first != pos)
+				{
+					out += line;
+					out += '\n';
+					continue;
+				}
+
+				const size_t open = line.find('"', pos);
+				const size_t close = open == std::string::npos
+								   ? std::string::npos : line.find('"', open + 1);
+				if (open == std::string::npos || close == std::string::npos)
+				{
+					RV_CORE_ERROR("Malformed #include in {0}: {1}", path.string(), line);
+					return false;
+				}
+
+				const std::string name = line.substr(open + 1, close - open - 1);
+
+				// Relative to the including file, which is what every other
+				// language means by it and what lets a shader move with its
+				// includes.
+				if (!SpliceIncludes(path.parent_path() / name, out, seen, depth + 1))
+					return false;
+			}
+
+			seen.pop_back();
+			return true;
+		}
+	}
+
 	std::optional<CompiledShader> ShaderCompiler::CompileFromFile(const std::filesystem::path& path)
 	{
-		std::ifstream file(path);
-		if (!file)
-		{
-			RV_CORE_ERROR("Shader file not found: {0}", path.string());
+		std::string source;
+		std::vector<std::filesystem::path> seen;
+		if (!SpliceIncludes(path, source, seen, 0))
 			return std::nullopt;
-		}
+
+		std::istringstream file(source);
 
 		ShaderDesc desc;
 		desc.Name = path.stem().string();
