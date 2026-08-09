@@ -923,6 +923,7 @@ because the pattern in them is more useful than the list.
 | A probe's mips were built before its faces were drawn | Since probes landed | `GenerateMips` submits its own buffer and waits; the faces were still unsubmitted in the frame's. Healed itself six frames later, so it read as a warm-up rather than a bug |
 | The Vulkan descriptor pool was a fixed 2000 sets | Since the port | Twelve objects never reached it. A thousand segfaulted |
 | Every material built its own sampler | Since materials existed | Cost nothing visible until draws were keyed by bound state, then silently prevented all batching |
+| The swapchain was destroyed before its replacement existed | Since the port | `vkDeviceWaitIdle` covers the queues, not the presentation engine. Only crashed when the compositor happened to be a frame behind, so it survived every resize until a present-mode change made it frequent enough to notice |
 | OpenGL had no fence between frames | Since the port | The CPU only laps the GPU once a frame is cheap; before instancing it never got there. ~1% of pixels at delta 20/255 reads as shimmer, not as corruption |
 
 ### What actually catches these
@@ -982,6 +983,13 @@ because the pattern in them is more useful than the list.
   happens. It was reported by a person watching, not by any test, and it took a
   per-frame luminance measurement to show the transition was a hard step at
   frame 7 rather than a fade.
+- **When a timing bug will not reproduce, go looking for the known hazard of
+  that shape.** The vsync crash survived 25 forced toggles under validation in
+  both build configurations. Failing to reproduce it was itself the evidence:
+  a deterministic bug would have fired on the first one, so the search moved
+  from "what did I break" to "what in this path is order-dependent" -- and
+  swapchain teardown had the textbook mistake sitting in it. Confirmed fixed by
+  the person who could reproduce it.
 - **Ask whether a defect predates the change.** The OpenGL flicker was found
   while verifying instancing and looked like its fault. Stashing the work and
   rebuilding took ten minutes and showed it was already there — which is the
