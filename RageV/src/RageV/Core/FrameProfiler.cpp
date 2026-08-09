@@ -34,8 +34,23 @@ namespace RageV
 		// Slots claimed this frame: which phase each pair belongs to, and how
 		// far the bump allocator has got.
 		struct ClaimedScope { FramePhase Phase; uint32_t Begin; uint32_t End; };
-		std::vector<ClaimedScope> s_Claimed;
+
+		// Per frame in flight, not one list.
+		//
+		// The results read this frame belong to the frame that last used this
+		// pool, so the claims that explain them are that frame's too. A single
+		// list is cleared at the top of every frame and is therefore empty by
+		// the time the results arrive -- which showed up as a total GPU time
+		// with no per-phase breakdown behind it.
+		std::vector<std::vector<ClaimedScope>> s_ClaimHistory;
 		uint32_t s_NextSlot = kFirstScopeSlot;
+
+		std::vector<ClaimedScope>& ClaimsFor(uint32_t frame)
+		{
+			if (s_ClaimHistory.size() <= frame)
+				s_ClaimHistory.resize(frame + 1);
+			return s_ClaimHistory[frame];
+		}
 
 		// Exponential moving averages, updated every frame regardless of
 		// whether anything is collecting. The editor reads these.
@@ -72,9 +87,6 @@ namespace RageV
 	{
 		for (float& phase : s_Phases)
 			phase = 0.0f;
-		s_Claimed.clear();
-		s_NextSlot = kFirstScopeSlot;
-
 		s_GpuTotal = -1.0f;
 		for (float& phase : s_GpuPhases)
 			phase = -1.0f;
@@ -82,12 +94,12 @@ namespace RageV
 
 	bool FrameProfiler::ClaimGpuScope(FramePhase phase, uint32_t& beginSlot, uint32_t& endSlot)
 	{
-		if (s_NextSlot + 1 >= RHI::RHIDevice::kTimestampSlots)
+		if (s_NextSlot + 1 >= RHI::RHIDevice::kTimestampSlots || !Renderer::HasDevice())
 			return false;
 
 		beginSlot = s_NextSlot++;
 		endSlot = s_NextSlot++;
-		s_Claimed.push_back({ phase, beginSlot, endSlot });
+		ClaimsFor(Renderer::GetDevice().GetFrameIndex()).push_back({ phase, beginSlot, endSlot });
 		return true;
 	}
 
@@ -98,12 +110,20 @@ namespace RageV
 
 		RHI::RHIDevice& device = Renderer::GetDevice();
 
+		// This frame slot's claims are the ones that produced the results the
+		// device just resolved -- the pool and the list are recycled together.
+		std::vector<ClaimedScope>& claimed = ClaimsFor(device.GetFrameIndex());
+
 		const std::vector<uint64_t>& ticks = device.GetResolvedTimestamps();
 		const std::vector<uint8_t>& written = device.GetResolvedTimestampFlags();
 		const double period = device.GetTimestampPeriodNs();
 
 		if (ticks.empty() || period <= 0.0)
+		{
+			claimed.clear();
+			s_NextSlot = kFirstScopeSlot;
 			return;
+		}
 
 		auto span = [&](uint32_t first, uint32_t last) -> float
 		{
@@ -123,13 +143,13 @@ namespace RageV
 		// Summed per phase, so a phase that ran twice reports both. The editor
 		// fits shadows to each viewport and runs the graph for both, and
 		// reporting only one of them would understate it by half.
-		for (const ClaimedScope& claimed : s_Claimed)
+		for (const ClaimedScope& scope : claimed)
 		{
-			const float ms = span(claimed.Begin, claimed.End);
+			const float ms = span(scope.Begin, scope.End);
 			if (ms < 0.0f)
 				continue;
 
-			const int index = (int)claimed.Phase;
+			const int index = (int)scope.Phase;
 			s_GpuPhases[index] = s_GpuPhases[index] < 0.0f ? ms : s_GpuPhases[index] + ms;
 			s_GpuSeen = true;
 		}
@@ -137,6 +157,10 @@ namespace RageV
 		s_GpuTotal = span(kWholeFrameBeginSlot, kWholeFrameEndSlot);
 		if (s_GpuTotal >= 0.0f)
 			s_GpuSeen = true;
+
+		// Read, so this slot is free for the frame about to record into it.
+		claimed.clear();
+		s_NextSlot = kFirstScopeSlot;
 	}
 
 	bool FrameProfiler::HasGpuTimings() { return s_GpuSeen; }
@@ -224,6 +248,8 @@ namespace RageV
 		s_Frames.clear();
 		s_Collecting = false;
 		s_GpuSeen = false;
+		s_ClaimHistory.clear();
+		s_NextSlot = kFirstScopeSlot;
 	}
 
 	namespace

@@ -344,14 +344,20 @@ namespace RageV {
 
 				if (m_BenchmarkFrame == benchmarkWarmup)
 					FrameProfiler::StartCollecting();
+			}
 
-				FrameProfiler::EndFrame(frameTime * 1000.0f);
+			// Every frame, not only under --benchmark.
+			//
+			// This also updates the rolling averages the editor's Statistics
+			// panel reads, and having it inside the benchmark branch meant that
+			// panel showed 0.000 for every phase in normal use -- a profiler
+			// that only works when nobody is looking at it.
+			FrameProfiler::EndFrame(frameTime * 1000.0f);
 
-				if (m_BenchmarkFrame >= benchmarkWarmup + benchmarkFrames)
-				{
-					FrameProfiler::LogReport(m_Name.c_str());
-					m_Running = false;
-				}
+			if (benchmarkFrames > 0 && m_BenchmarkFrame >= benchmarkWarmup + benchmarkFrames)
+			{
+				FrameProfiler::LogReport(m_Name.c_str());
+				m_Running = false;
 			}
 		}
 	}

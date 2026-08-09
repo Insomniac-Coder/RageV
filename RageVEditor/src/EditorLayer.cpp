@@ -582,6 +582,7 @@ void EditorLayer::OnImGuiRender()
 	if (m_ShowDemoWindow)      ImGui::ShowDemoWindow(&m_ShowDemoWindow);
 
 	DrawAboutPopup();
+	DrawBackendRestartPopup();
 }
 
 // Splits are declared as fractions of what is left, so the arrangement is
@@ -806,17 +807,57 @@ void EditorLayer::DrawMenuBar()
 		ImGui::EndMenu();
 	}
 
-	// Right-aligned backend readout: which API this process is running is the
-	// single most useful thing to see at a glance while both are supported.
+	// Right-aligned backend picker.
+	//
+	// A readout first and a control second: which API this process is running
+	// is the most useful thing to see at a glance while both are supported, and
+	// switching it is rare. Hence plain text that only colours on hover --
+	// the theme rule is that red means "you can act on this", and a permanently
+	// red label in the menu bar reads as a warning rather than as a button.
+	//
+	// The switch cannot take effect in place. The window itself is created
+	// differently per backend, so this records a preference and restarts.
 	if (Renderer::HasDevice())
 	{
 		const auto& caps = Renderer::GetDevice().GetCaps();
-		const char* backend = Renderer::GetDevice().GetBackend() == RHI::Backend::Vulkan ? "Vulkan" : "OpenGL";
-		const float width = ImGui::CalcTextSize(backend).x + ImGui::GetStyle().ItemSpacing.x * 3.0f;
-		ImGui::SetCursorPosX(ImGui::GetWindowWidth() - width);
-		ImGui::TextColored(EditorTheme::Color::Accent, "%s", backend);
+		const RHI::Backend current = Renderer::GetDevice().GetBackend();
+		const char* names[] = { "Vulkan", "OpenGL" };
+		const int currentIndex = current == RHI::Backend::Vulkan ? 0 : 1;
+
+		const float arrow = ImGui::GetFrameHeight();
+		const float width = ImGui::CalcTextSize("OpenGL").x + arrow +
+							ImGui::GetStyle().ItemSpacing.x * 2.0f;
+
+		ImGui::SetCursorPosX(ImGui::GetWindowWidth() - width - ImGui::GetStyle().ItemSpacing.x);
+		ImGui::SetNextItemWidth(width);
+
+		// Transparent until hovered, so it sits in the menu bar as a label and
+		// announces itself as a control only when reached for.
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+		ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, EditorTheme::Color::AccentMuted);
+		ImGui::PushStyleColor(ImGuiCol_FrameBgActive, EditorTheme::Color::Accent);
+		ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Color::Text);
+
+		if (ImGui::BeginCombo("##Backend", names[currentIndex], ImGuiComboFlags_HeightSmall))
+		{
+			for (int i = 0; i < 2; i++)
+			{
+				const bool selected = i == currentIndex;
+				if (ImGui::Selectable(names[i], selected) && !selected)
+				{
+					m_PendingBackend = i == 0 ? RHI::Backend::Vulkan : RHI::Backend::OpenGL;
+					m_ShowBackendRestart = true;
+				}
+				if (selected)
+					ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+
+		ImGui::PopStyleColor(4);
+
 		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("%s\n%s\n\nRestart with --rhi=vulkan|opengl to switch.",
+			ImGui::SetTooltip("%s\n%s\n\nSwitching restarts the editor.",
 							  caps.DeviceName.c_str(), caps.APIName.c_str());
 	}
 
@@ -1493,6 +1534,74 @@ void EditorLayer::DrawAboutPopup()
 	ImGui::Spacing();
 
 	if (ImGui::Button("Close", ImVec2(-1.0f, 0.0f)))
+		ImGui::CloseCurrentPopup();
+
+	ImGui::EndPopup();
+}
+
+void EditorLayer::DrawBackendRestartPopup()
+{
+	if (m_ShowBackendRestart)
+	{
+		ImGui::OpenPopup("Restart required");
+		m_ShowBackendRestart = false;
+	}
+
+	ImGui::SetNextWindowSize(ImVec2(430.0f, 0.0f), ImGuiCond_Appearing);
+	if (!ImGui::BeginPopupModal("Restart required", nullptr, ImGuiWindowFlags_NoResize))
+		return;
+
+	const char* name = EngineConfig::BackendName(m_PendingBackend);
+
+	ImGui::TextWrapped("The graphics backend is chosen when the window is created, "
+					   "so switching to %s takes effect the next time the editor "
+					   "starts.", name);
+	ImGui::Spacing();
+	ImGui::TextDisabled("Saved to ragev.ini, so a manual start uses it too.");
+	ImGui::Spacing();
+	// Said rather than worked around. The editor has no dirty tracking and
+	// loses unsaved work when it closes for any other reason too; quietly
+	// saving here would be this one button behaving unlike the rest.
+	ImGui::TextDisabled("Restarting closes the editor. Save your scene first.");
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Spacing();
+
+	// Written before either button: whichever the user picks, the preference is
+	// what they asked for. Restarting later must not mean forgetting.
+	const bool saved = EngineConfig::SaveBackendPreference(m_PendingBackend);
+	if (!saved)
+	{
+		ImGui::TextColored(EditorTheme::Color::Accent,
+						   "Could not write ragev.ini; the choice will not survive.");
+		ImGui::Spacing();
+	}
+
+	const float width = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+
+	if (ImGui::Button("Restart Now", ImVec2(width, 0.0f)))
+	{
+		const std::string arguments =
+			std::string("--rhi=") + (m_PendingBackend == RHI::Backend::Vulkan ? "vulkan" : "opengl");
+
+		if (Process::RelaunchSelf(arguments))
+		{
+			ImGui::CloseCurrentPopup();
+			Application::Get().Close();
+		}
+		else
+		{
+			// The new process did not start, so this one stays. Closing here
+			// would leave the user with no editor at all.
+			RV_ERROR("Could not relaunch; the preference is saved, so start the "
+					 "editor again when convenient.");
+			ImGui::CloseCurrentPopup();
+		}
+	}
+
+	ImGui::SameLine();
+
+	if (ImGui::Button("Restart Later", ImVec2(width, 0.0f)))
 		ImGui::CloseCurrentPopup();
 
 	ImGui::EndPopup();

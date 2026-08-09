@@ -269,6 +269,62 @@ namespace RageV
 					 BackendName(config.Backend));
 	}
 
+	bool EngineConfig::SaveBackendPreference(RHI::Backend backend)
+	{
+		std::error_code ec;
+		const std::filesystem::path path = std::filesystem::current_path(ec) / "ragev.ini";
+		if (ec)
+		{
+			RV_CORE_ERROR("Could not resolve the working directory; backend not saved");
+			return false;
+		}
+
+		const std::string value = backend == RHI::Backend::Vulkan ? "vulkan" : "opengl";
+
+		// Read, rewrite, replace. Every other setting in the file is somebody
+		// else's and has to survive -- a picker that silently discarded the
+		// audio or window settings would be a worse bug than the one it fixes.
+		std::vector<std::string> lines;
+		bool replaced = false;
+
+		if (std::ifstream existing(path); existing)
+		{
+			std::string line;
+			while (std::getline(existing, line))
+			{
+				const std::string trimmed = Trim(line);
+				const size_t equals = trimmed.find('=');
+
+				if (!trimmed.empty() && trimmed[0] != '#' && trimmed[0] != ';' &&
+					trimmed[0] != '[' && equals != std::string::npos &&
+					ToLower(Trim(trimmed.substr(0, equals))) == "rhi")
+				{
+					lines.push_back("rhi=" + value);
+					replaced = true;
+					continue;
+				}
+
+				lines.push_back(line);
+			}
+		}
+
+		if (!replaced)
+			lines.push_back("rhi=" + value);
+
+		std::ofstream out(path, std::ios::trunc);
+		if (!out)
+		{
+			RV_CORE_ERROR("Could not write {0}; backend not saved", path.string());
+			return false;
+		}
+
+		for (const std::string& line : lines)
+			out << line << '\n';
+
+		RV_CORE_INFO("Graphics backend preference saved: {0}", value);
+		return true;
+	}
+
 	const EngineConfig& EngineConfig::Get()
 	{
 		if (!s_Initialized)

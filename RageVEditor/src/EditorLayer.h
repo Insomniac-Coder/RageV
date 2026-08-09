@@ -54,6 +54,7 @@ private:
 	// not pin people to the old one.
 	static constexpr int kLayoutVersion = 1;
 	void DrawAboutPopup();
+	void DrawBackendRestartPopup();
 	void DrawGizmo();
 
 	// --- Entity creation ----------------------------------------------------
@@ -153,6 +154,12 @@ private:
 	bool m_GameViewportVisible = false;
 	bool m_ShowDemoWindow = false;
 	bool m_ShowAbout = false;
+
+	// The backend picker. The switch cannot happen in place -- the window is
+	// created differently per backend -- so a change records a preference and
+	// asks whether to restart now.
+	bool m_ShowBackendRestart = false;
+	RageV::RHI::Backend m_PendingBackend = RageV::RHI::Backend::Vulkan;
 
 	// Gizmo mode is state now rather than being recomputed from the keyboard
 	// every frame, so the toolbar and the shortcuts drive the same value.

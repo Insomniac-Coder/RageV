@@ -119,6 +119,16 @@ namespace RageV
 
 		static const char* BackendName(RHI::Backend backend);
 
+		// Writes `rhi=` into ragev.ini beside the executable, preserving every
+		// other line.
+		//
+		// So that the editor's backend picker survives a plain restart and not
+		// only the relaunch it offers. The backend is a restart-time choice by
+		// design -- the window itself is created differently per backend -- so
+		// the only way to make it changeable from the UI is to record the
+		// choice and act on it next time.
+		static bool SaveBackendPreference(RHI::Backend backend);
+
 	private:
 		static bool ApplyKeyValue(EngineConfig& config, std::string key, std::string value);
 		static void LoadFile(EngineConfig& config, const std::filesystem::path& path);
