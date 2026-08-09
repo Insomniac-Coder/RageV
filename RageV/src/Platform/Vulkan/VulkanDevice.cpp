@@ -745,11 +745,37 @@ namespace RageV::Vk
 		m_PresentMode = VK_PRESENT_MODE_FIFO_KHR;   // always available
 		if (!m_VSync)
 		{
+			// IMMEDIATE first, MAILBOX only if there is no IMMEDIATE.
+			//
+			// MAILBOX is the nicer mode on paper -- unsynchronised without
+			// tearing -- and it is what this used to prefer. It is also silently
+			// wrong on this driver in the case that matters most: a swapchain
+			// created in MAILBOX *as the replacement for a FIFO one* presents at
+			// exactly the refresh rate anyway. Measured, four runs each:
+			// created MAILBOX at startup, ~450 FPS; recreated MAILBOX after the
+			// surface had been presenting FIFO, 240.0 FPS every single run.
+			// IMMEDIATE does not care -- 442 FPS from the identical toggle --
+			// and startup-with-vsync-off measures the same in either mode.
+			//
+			// Ruled out before landing on the mode itself: oldSwapchain (fully
+			// destroying the old swapchain first changes nothing), image count,
+			// and resizing the window so the compositor re-evaluates it. None
+			// of the three moved the number off 240.0.
+			//
+			// Unchecking VSync in the editor is the case this has to serve, so
+			// the mode that always works wins. Tearing is what vsync off means.
+			bool hasImmediate = false;
+			bool hasMailbox = false;
 			for (VkPresentModeKHR mode : presentModes)
 			{
-				if (mode == VK_PRESENT_MODE_MAILBOX_KHR) { m_PresentMode = mode; break; }
-				if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR) m_PresentMode = mode;
+				hasImmediate = hasImmediate || mode == VK_PRESENT_MODE_IMMEDIATE_KHR;
+				hasMailbox = hasMailbox || mode == VK_PRESENT_MODE_MAILBOX_KHR;
 			}
+
+			if (hasImmediate)
+				m_PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+			else if (hasMailbox)
+				m_PresentMode = VK_PRESENT_MODE_MAILBOX_KHR;
 		}
 
 		if (capabilities.currentExtent.width != UINT32_MAX)

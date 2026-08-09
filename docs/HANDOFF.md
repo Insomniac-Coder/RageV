@@ -35,7 +35,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-553 checks, `exit 0`. Then look at a frame:
+560 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -99,7 +99,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 553 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
+| `scenetest` | 560 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain, settings writer. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -288,6 +288,17 @@ Every one was a real bug. Breaking them tends to produce intermittent corruption
 or silence rather than an obvious failure.
 
 ### Renderer
+
+- **Vsync off means `VK_PRESENT_MODE_IMMEDIATE_KHR`, not mailbox.** Mailbox is
+  the nicer mode on paper and was the original preference. It is also silently
+  wrong in the case that matters: a swapchain created in mailbox *as the
+  replacement for a FIFO one* presents at exactly the refresh rate anyway.
+  Measured on the RTX 5070 Ti, four runs each -- created mailbox at startup,
+  ~450 FPS; recreated mailbox after the surface had been presenting FIFO,
+  240.0 FPS every run; immediate from the identical toggle, 442 FPS. So
+  unchecking VSync in the editor did nothing at all, while starting with
+  `--vsync=off` worked, which is what made it look like a compositor decision
+  rather than a mode decision.
 
 - **The PBR shader outputs linear HDR and nothing else.** Tone mapping and the
   transfer function belong to the tonemap pass. They were in the PBR shader,
@@ -585,6 +596,13 @@ or silence rather than an obvious failure.
   to being gone.** The queue's final flush is in the device destructor, by
   which point the ImGui backend has shut down and taken its descriptor pool.
   `VulkanTexture` checks `IsImGuiVulkanReady()` before freeing its set.
+- **Wait for the device to go idle before destroying anything, not partway
+  through.** The loop can exit with frames still executing -- `--benchmark` and
+  `--screenshot` both stop it in the iteration that submitted one, and a window
+  close does the same -- so `~Application` idles first and clears the layers
+  after. It used to be the other way round, and every benchmark run produced
+  seven "currently in use by VkCommandBuffer" errors as the layers destroyed
+  buffers, samplers, descriptor sets and pipelines out from under the GPU.
 - **Verify shutdown by exiting, not by killing.** Every one of these was
   invisible for as long as runs were terminated rather than closed. `exit 0`
   is part of the bar now; `--screenshot` gives any app a clean exit to check.
@@ -651,10 +669,12 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
 | Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
-| Tests | `scenetest`, **553 checks**, green on both backends |
+| Skeletal animation | Skinned vertex format, skinned PBR and depth shaders, per-instance bone matrices, `AnimatorComponent` (3.7) |
+| Batching | Instanced draws keyed on mesh and material; 3238 draws down to 60 on the stress scene |
+| Profiler | CPU wall time and GPU timestamps per phase, live in the editor and printed by `--benchmark` |
+| Tests | `scenetest`, **560 checks**, green on both backends |
 
-**Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete except for
-skeletal animation (3.7).**
+**Phases 0, 1, 2, 3 and 4 are complete.** Only Phase 5, C# scripting, remains.
 
 ### Works, with a caveat worth knowing
 
@@ -780,7 +800,7 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-**Phases 0, 1, 2 and 4 are done. Phase 3 is done except for 3.7.**
+**Phases 0, 1, 2, 3 and 4 are done.**
 
 Start here, in this order.
 
@@ -857,7 +877,6 @@ because the alternative is someone finding each one by being confused.
   semantics, surprising the first time.
 - **Nothing culls by distance.** A mesh behind the camera is skipped; a mesh a
   kilometre away that is two pixels across is drawn in full.
-
 ### Performance, all unmeasured
 
 - **Both applications still ship with `vsync = on`**, which is right for a game
@@ -944,6 +963,16 @@ because the pattern in them is more useful than the list.
    shader on purpose and confirming the run went red — not by watching it pass.
 7. **A flag can be tested; a log line cannot.** Anything worth announcing is
    worth exposing as state.
+8. **A setting that works one way round is not a working setting.** Vsync off
+   at startup was fast and vsync off at runtime was not, and the shared code
+   path made "the OS decides" sound obvious enough to write down as a
+   conclusion. It was wrong, and it was wrong for two sessions. Varying the one
+   thing that had never been varied -- the present mode itself -- took ten
+   minutes and answered it.
+9. **Read the whole log, not the tail.** `--benchmark` prints its summary last,
+   so `| tail` showed the numbers and hid seven validation errors underneath
+   them. They had been printed on every benchmark run for as long as the flag
+   had existed.
 
 ### Mistakes in the work itself, not in the code
 

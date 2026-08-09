@@ -129,7 +129,14 @@ namespace RageV
 		// choice and act on it next time.
 		static bool SaveBackendPreference(RHI::Backend backend);
 
+		// Writes `vsync=` the same way, so the editor's checkbox survives a
+		// plain restart rather than only the session it was clicked in.
+		static bool SaveVSyncPreference(bool enabled);
+
 	private:
+		// Rewrites one `key=value` line in ragev.ini, preserving every other.
+		static bool SaveSetting(const std::string& key, const std::string& value);
+
 		static bool ApplyKeyValue(EngineConfig& config, std::string key, std::string value);
 		static void LoadFile(EngineConfig& config, const std::filesystem::path& path);
 		static void LoadCommandLine(EngineConfig& config, int argc, char** argv);

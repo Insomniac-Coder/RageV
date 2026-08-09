@@ -57,6 +57,7 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Project/ProjectPackager.h"
+#include "RageV/Core/EngineConfig.h"
 
 #include <GLFW/glfw3.h>
 #include <fstream>
@@ -4294,6 +4295,65 @@ int RunTests(int argc, char** argv)
 		const size_t second = scene->GetRegistry().view<IDComponent>().size();
 
 		Check(first == second, "loading a scene replaces the current one rather than merging");
+	}
+
+	// --- the settings writer -------------------------------------------------
+	//
+	// The backend picker and the vsync checkbox each rewrite one line of
+	// ragev.ini and must leave every other line exactly as it was. Worth a
+	// check because the failure mode is silent and permanent: a writer that
+	// truncates the file takes the audio, window and ui-scale settings with it,
+	// and nobody finds out until the next start.
+	{
+		namespace fs = std::filesystem;
+		std::error_code ec;
+		const fs::path ini = fs::current_path(ec) / "ragev.ini";
+
+		// Whatever is staged here belongs to the tools, not to this test.
+		const bool had = fs::exists(ini, ec);
+		std::string saved;
+		if (had)
+		{
+			std::ifstream in(ini, std::ios::binary);
+			saved.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		}
+
+		{
+			std::ofstream out(ini, std::ios::trunc);
+			out << "# a comment\n[section]\naudio=off\nrhi=opengl\nwidth=1280\n";
+		}
+
+		Check(EngineConfig::SaveBackendPreference(Backend::Vulkan), "the backend preference writes");
+		Check(EngineConfig::SaveVSyncPreference(false), "the vsync preference writes");
+
+		std::string written;
+		{
+			std::ifstream in(ini);
+			written.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		}
+
+		Check(written.find("rhi=vulkan") != std::string::npos,
+			  "the key it was asked to change is changed");
+		Check(written.find("rhi=opengl") == std::string::npos,
+			  "and the old value is gone, not merely shadowed by a later line");
+		Check(written.find("vsync=off") != std::string::npos,
+			  "a key that was absent is appended");
+		Check(written.find("audio=off") != std::string::npos &&
+			  written.find("width=1280") != std::string::npos,
+			  "every other setting survives the rewrite");
+		Check(written.find("# a comment") != std::string::npos &&
+			  written.find("[section]") != std::string::npos,
+			  "so do comments and section headers");
+
+		if (had)
+		{
+			std::ofstream out(ini, std::ios::trunc | std::ios::binary);
+			out << saved;
+		}
+		else
+		{
+			fs::remove(ini, ec);
+		}
 	}
 
 	AudioEngine::Shutdown();

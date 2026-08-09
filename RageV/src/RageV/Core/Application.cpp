@@ -99,6 +99,17 @@ namespace RageV {
 	}
 
 	Application::~Application() {
+		// Idle before anything is destroyed.
+		//
+		// The loop can exit with frames still executing -- --benchmark and
+		// --screenshot both stop it in the same iteration that submitted one,
+		// and a window close does the same -- and the layers below destroy the
+		// buffers, samplers, descriptor sets and pipelines those frames are
+		// still reading. Seven validation errors on every close, all of them
+		// "currently in use by VkCommandBuffer".
+		if (m_Device)
+			m_Device->WaitIdle();
+
 		// Layers hold GPU resources, so they must be torn down while the device
 		// is still alive.
 		m_LayerStack.Clear();

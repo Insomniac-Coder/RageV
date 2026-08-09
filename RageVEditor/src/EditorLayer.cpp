@@ -1178,8 +1178,15 @@ void EditorLayer::DrawRenderSettingsPanel()
 		m_VSync = Renderer::GetDevice().IsVSync();
 
 	if (ImGui::Checkbox("VSync", &m_VSync) && Renderer::HasDevice())
+	{
 		Renderer::GetDevice().SetVSync(m_VSync);
-	HelpMarker("Vulkan swaps present mode between FIFO and mailbox; OpenGL sets the swap interval.");
+
+		// Saved as well as applied, so a plain restart keeps the choice --
+		// the same contract as the backend picker above.
+		EngineConfig::SaveVSyncPreference(m_VSync);
+	}
+	HelpMarker("Vulkan swaps present mode between FIFO and immediate; OpenGL sets the swap interval.\n"
+			   "Off tears, and is saved for the next start.");
 
 	ImGui::SeparatorText("Debug");
 

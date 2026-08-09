@@ -271,18 +271,26 @@ namespace RageV
 
 	bool EngineConfig::SaveBackendPreference(RHI::Backend backend)
 	{
+		return SaveSetting("rhi", backend == RHI::Backend::Vulkan ? "vulkan" : "opengl");
+	}
+
+	bool EngineConfig::SaveVSyncPreference(bool enabled)
+	{
+		return SaveSetting("vsync", enabled ? "on" : "off");
+	}
+
+	bool EngineConfig::SaveSetting(const std::string& key, const std::string& value)
+	{
 		std::error_code ec;
 		const std::filesystem::path path = std::filesystem::current_path(ec) / "ragev.ini";
 		if (ec)
 		{
-			RV_CORE_ERROR("Could not resolve the working directory; backend not saved");
+			RV_CORE_ERROR("Could not resolve the working directory; {0} not saved", key);
 			return false;
 		}
 
-		const std::string value = backend == RHI::Backend::Vulkan ? "vulkan" : "opengl";
-
 		// Read, rewrite, replace. Every other setting in the file is somebody
-		// else's and has to survive -- a picker that silently discarded the
+		// else's and has to survive -- a setting that silently discarded the
 		// audio or window settings would be a worse bug than the one it fixes.
 		std::vector<std::string> lines;
 		bool replaced = false;
@@ -297,9 +305,9 @@ namespace RageV
 
 				if (!trimmed.empty() && trimmed[0] != '#' && trimmed[0] != ';' &&
 					trimmed[0] != '[' && equals != std::string::npos &&
-					ToLower(Trim(trimmed.substr(0, equals))) == "rhi")
+					ToLower(Trim(trimmed.substr(0, equals))) == key)
 				{
-					lines.push_back("rhi=" + value);
+					lines.push_back(key + "=" + value);
 					replaced = true;
 					continue;
 				}
@@ -309,19 +317,19 @@ namespace RageV
 		}
 
 		if (!replaced)
-			lines.push_back("rhi=" + value);
+			lines.push_back(key + "=" + value);
 
 		std::ofstream out(path, std::ios::trunc);
 		if (!out)
 		{
-			RV_CORE_ERROR("Could not write {0}; backend not saved", path.string());
+			RV_CORE_ERROR("Could not write {0}; {1} not saved", path.string(), key);
 			return false;
 		}
 
 		for (const std::string& line : lines)
 			out << line << '\n';
 
-		RV_CORE_INFO("Graphics backend preference saved: {0}", value);
+		RV_CORE_INFO("Saved to ragev.ini: {0}={1}", key, value);
 		return true;
 	}
 
