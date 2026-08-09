@@ -57,6 +57,14 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Project/ProjectPackager.h"
+#include "RageV/Managed/DotNetHost.h"
+#include "RageV/Math/Math.h"
+#include "RageV/Math/GlmBridge.h"
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/component_wise.hpp>
 #include "RageV/Core/EngineConfig.h"
 
 #include <GLFW/glfw3.h>
@@ -4354,6 +4362,222 @@ int RunTests(int argc, char** argv)
 		{
 			fs::remove(ini, ec);
 		}
+	}
+
+	// --- the math layer against the library it replaces ----------------------
+	//
+	// RageV::Math exists so that no public header names glm. That only holds up
+	// if it computes the same answers, and "looks right on screen" is not a way
+	// to find a transposed matrix or a quaternion interpolated the long way
+	// round -- both of which are visible only in specific poses.
+	//
+	// So every operation is checked against glm directly, here, once. After the
+	// migration there will be no glm left at these call sites to compare
+	// against, which is exactly why the comparison is worth writing now.
+	{
+		using namespace RageV::Math;
+
+		const auto closeF = [](float a, float b) { return std::fabs(a - b) < 1e-4f; };
+		const auto closeV3 = [&](const Vec3& a, const glm::vec3& b)
+		{
+			return closeF(a.x, b.x) && closeF(a.y, b.y) && closeF(a.z, b.z);
+		};
+		const auto closeV4 = [&](const Vec4& a, const glm::vec4& b)
+		{
+			return closeF(a.x, b.x) && closeF(a.y, b.y) && closeF(a.z, b.z) && closeF(a.w, b.w);
+		};
+		const auto closeM4 = [&](const Mat4& a, const glm::mat4& b)
+		{
+			for (int c = 0; c < 4; c++)
+			{
+				if (!closeV4(a[c], b[c]))
+					return false;
+			}
+			return true;
+		};
+		const auto closeQ = [&](const Quat& a, const glm::quat& b)
+		{
+			// A quaternion and its negation are the same rotation, so the
+			// comparison has to allow either. Requiring identical components
+			// would fail on a correct answer.
+			const bool same = closeF(a.x, b.x) && closeF(a.y, b.y) && closeF(a.z, b.z) && closeF(a.w, b.w);
+			const bool flipped = closeF(a.x, -b.x) && closeF(a.y, -b.y) && closeF(a.z, -b.z) && closeF(a.w, -b.w);
+			return same || flipped;
+		};
+
+		// Deliberately awkward numbers. Axis-aligned test values pass through a
+		// transposed matrix unharmed, which is how that bug survives a test.
+		const Vec3 a{ 1.5f, -2.25f, 0.75f };
+		const Vec3 b{ -0.5f, 3.0f, 2.5f };
+		const glm::vec3 ga = ToGlm(a);
+		const glm::vec3 gb = ToGlm(b);
+
+		Check(closeF(Dot(a, b), glm::dot(ga, gb)), "Dot matches glm");
+		Check(closeV3(Cross(a, b), glm::cross(ga, gb)), "Cross matches glm, including handedness");
+		Check(closeF(Length(a), glm::length(ga)), "Length matches glm");
+		Check(closeF(Distance(a, b), glm::distance(ga, gb)), "Distance matches glm");
+		Check(closeV3(Normalize(a), glm::normalize(ga)), "Normalize matches glm");
+		Check(closeV3(a + b, ga + gb) && closeV3(a - b, ga - gb) && closeV3(a * b, ga * gb),
+			  "component-wise arithmetic matches glm");
+		Check(closeV3(a * 2.5f, ga * 2.5f) && closeV3(a / 2.5f, ga / 2.5f), "scalar arithmetic matches glm");
+		Check(closeF(MaxComponent(a), glm::compMax(ga)), "MaxComponent matches glm::compMax");
+		Check(closeV3(Mix(a, b, 0.3f), glm::mix(ga, gb, 0.3f)), "Mix matches glm");
+		Check(closeF(Radians(90.0f), glm::radians(90.0f)), "Radians matches glm");
+
+		// Deliberately *not* glm's behaviour, and the reason it is worth a
+		// check: glm returns NaNs here, those NaNs propagate into every derived
+		// transform, and the object and its children vanish with no error.
+		Check(Normalize(Vec3{ 0.0f, 0.0f, 0.0f }) == Vec3{}, "normalising a zero vector yields zero, not NaN");
+
+		Check(closeF(Mod(-1.0f, TwoPi), 5.2831855f), "Mod takes the sign of the divisor, so angles wrap forwards");
+
+		// --- matrices ---
+		const glm::mat4 gm = glm::translate(glm::mat4(1.0f), ga) *
+							 glm::rotate(glm::mat4(1.0f), 0.7f, glm::normalize(gb)) *
+							 glm::scale(glm::mat4(1.0f), glm::vec3(1.5f, 0.5f, 2.0f));
+		const Mat4 m = FromGlm(gm);
+
+		Check(closeM4(m, gm), "a matrix survives the round trip through the bridge");
+		Check(std::memcmp(ValuePtr(m), glm::value_ptr(gm), sizeof(float) * 16) == 0,
+			  "ValuePtr is byte-identical to glm::value_ptr, so uniform uploads are unchanged");
+
+		const glm::mat4 gn = glm::rotate(glm::mat4(1.0f), -0.35f, glm::vec3(0.0f, 1.0f, 0.0f));
+		Check(closeM4(m * FromGlm(gn), gm * gn), "Mat4 * Mat4 matches glm, in the same order");
+		Check(closeV4(m * Vec4(a, 1.0f), gm * glm::vec4(ga, 1.0f)), "Mat4 * Vec4 matches glm");
+		Check(closeM4(Inverse(m), glm::inverse(gm)), "Inverse matches glm");
+		Check(closeM4(Transpose(m), glm::transpose(gm)), "Transpose matches glm");
+		Check(closeM4(Translate(m, b), glm::translate(gm, gb)), "Translate matches glm");
+		Check(closeM4(Rotate(m, 0.4f, Normalize(b)), glm::rotate(gm, 0.4f, glm::normalize(gb))),
+			  "Rotate matches glm");
+		Check(closeM4(Scale(m, b), glm::scale(gm, gb)), "Scale matches glm");
+
+		Check(closeM4(Perspective(Radians(60.0f), 16.0f / 9.0f, 0.1f, 500.0f),
+					  glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 500.0f)),
+			  "Perspective matches glm");
+		Check(closeM4(Orthographic(-4.0f, 4.0f, -3.0f, 3.0f, 0.1f, 100.0f),
+					  glm::ortho(-4.0f, 4.0f, -3.0f, 3.0f, 0.1f, 100.0f)),
+			  "Orthographic matches glm");
+		Check(closeM4(LookAt(a, b, Vec3{ 0.0f, 1.0f, 0.0f }),
+					  glm::lookAt(ga, gb, glm::vec3(0.0f, 1.0f, 0.0f))),
+			  "LookAt matches glm");
+
+		// --- decomposition ---
+		{
+			Vec3 translation{}, scale{};
+			Quat rotation{};
+			Check(Decompose(m, translation, rotation, scale), "Decompose succeeds on a valid transform");
+			Check(closeV3(translation, ga), "and recovers the translation");
+			Check(closeF(scale.x, 1.5f) && closeF(scale.y, 0.5f) && closeF(scale.z, 2.0f),
+				  "and the scale");
+
+			// The check that matters: what came apart must go back together.
+			const Mat4 rebuilt = Translate(Mat4::Identity(), translation) * ToMat4(rotation) *
+								 Scale(Mat4::Identity(), scale);
+			Check(closeM4(rebuilt, gm), "and recomposing reproduces the original matrix");
+		}
+
+		// --- rotations ---
+		const glm::quat gq = glm::angleAxis(0.9f, glm::normalize(gb));
+		const Quat q = AngleAxis(0.9f, Normalize(b));
+
+		Check(closeQ(q, gq), "AngleAxis matches glm");
+		Check(closeF(Angle(q), glm::angle(gq)), "Angle matches glm");
+		Check(closeM4(ToMat4(q), glm::toMat4(gq)), "Quat to Mat4 matches glm");
+		Check(closeQ(ToQuat(ToMat4(q)), gq), "Mat4 back to Quat matches glm");
+		Check(closeV3(q * a, gq * ga), "rotating a vector matches glm");
+
+		const glm::quat gq2 = glm::angleAxis(-0.4f, glm::vec3(1.0f, 0.0f, 0.0f));
+		Check(closeQ(q * FromGlm(gq2), gq * gq2), "Quat * Quat matches glm, in the same order");
+
+		const Vec3 euler{ 0.3f, -1.1f, 0.65f };
+		Check(closeQ(FromEuler(euler), glm::quat(ToGlm(euler))), "FromEuler matches glm");
+		Check(closeV3(ToEuler(FromEuler(euler)), ToGlm(euler)), "and ToEuler inverts it");
+
+		Check(closeQ(Slerp(q, FromGlm(gq2), 0.35f), glm::slerp(gq, gq2, 0.35f)), "Slerp matches glm");
+
+		// The hemisphere fix. Negating a quaternion leaves the rotation
+		// unchanged, so interpolating towards it must take the short way -- and
+		// glm::slerp, handed the negated form directly, does not.
+		{
+			const Quat negated{ -gq2.w, -gq2.x, -gq2.y, -gq2.z };
+			Check(closeQ(Slerp(q, negated, 0.35f), glm::slerp(gq, gq2, 0.35f)),
+				  "Slerp takes the short way round a negated quaternion");
+		}
+	}
+
+	// --- hosting the .NET runtime -------------------------------------------
+	//
+	// Optional by design: the engine builds and runs with no .NET installed, so
+	// these checks describe whichever of the two states this machine is in
+	// rather than failing on one of them. What is *not* optional is that the
+	// unavailable path be honest -- an engine that silently pretends C# works
+	// is the failure this whole section exists to catch.
+	{
+		const std::filesystem::path managed = std::filesystem::path("managed");
+		const std::filesystem::path assembly = managed / "RageV.ScriptCore.dll";
+		const std::filesystem::path config = managed / "RageV.ScriptCore.runtimeconfig.json";
+
+		const bool staged = std::filesystem::exists(assembly);
+		if (!staged)
+		{
+			RV_CORE_WARN("No managed assembly staged; C# checks describe the unavailable path only");
+		}
+		else
+		{
+			// EnableDynamicLoading in the csproj is what produces this, and its
+			// absence is the most common reason a first attempt at hosting .NET
+			// fails -- with an error code rather than a sentence.
+			Check(std::filesystem::exists(config),
+				  "the script assembly ships a runtimeconfig.json");
+		}
+
+		const std::filesystem::path root = DotNetHost::FindRuntimeRoot();
+		const bool booted = DotNetHost::Init(config);
+
+		if (!booted)
+		{
+			Check(!DotNetHost::IsAvailable(), "an unavailable runtime reports itself unavailable");
+			Check(!DotNetHost::GetUnavailableReason().empty(),
+				  "and says why, in a sentence fit to show someone");
+			RV_CORE_WARN("C# scripting unavailable here: {0}", DotNetHost::GetUnavailableReason());
+		}
+		else
+		{
+			Check(DotNetHost::IsAvailable(), "the runtime reports itself available");
+			Check(DotNetHost::GetUnavailableReason().empty(), "and offers no reason it should not be");
+			Check(!DotNetHost::GetRuntimeVersion().empty(), "the loaded framework version is known");
+			Check(!root.empty(), "the installation it came from is known");
+
+			Check(DotNetHost::Init(config), "Init is idempotent");
+
+			using HandshakeFn = int(__cdecl*)(int);
+			const auto handshake = (HandshakeFn)DotNetHost::GetFunctionPointer(
+				assembly, "RageV.Interop, RageV.ScriptCore", "Handshake");
+
+			Check(handshake != nullptr, "a static managed method binds to a function pointer");
+
+			if (handshake)
+			{
+				// The whole point of 5.1 in one line: native code called managed
+				// code and got an answer back.
+				Check(handshake(1) == 1, "native calls managed, and the protocol versions agree");
+
+				// The mismatch path is worth a check of its own. It is the one
+				// that fires after a partial rebuild, and it has to report which
+				// version it is talking to rather than merely failing.
+				Check(handshake(99) == -1, "a protocol mismatch is reported, with the managed version");
+			}
+
+			Check(DotNetHost::GetFunctionPointer(assembly, "RageV.NoSuchType, RageV.ScriptCore",
+												 "Handshake") == nullptr,
+				  "binding a type that does not exist fails rather than returning something");
+			Check(DotNetHost::GetFunctionPointer(assembly, "RageV.Interop, RageV.ScriptCore",
+												 "NoSuchMethod") == nullptr,
+				  "and so does binding a method that does not exist");
+		}
+
+		DotNetHost::Shutdown();
+		Check(!DotNetHost::IsAvailable(), "Shutdown leaves the host unavailable");
 	}
 
 	AudioEngine::Shutdown();

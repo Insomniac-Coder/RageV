@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The RageV developer manual — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link is-current" href="index.html" aria-current="page">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="the-ragev-developer-manual">The RageV developer manual<a class="anchor" href="#the-ragev-developer-manual" aria-label="Link to this section">#</a></h1>
+<p>RageV is a Windows game engine with an editor, a standalone runtime, and a packager that turns a project into a folder somebody else can run.</p>
+<p>This manual is for people <strong>making a game with it</strong>. It describes the surfaces you write against — scenes, components, assets, and scripts — and it is written against the engine as it exists, not as it is planned. Where something is missing, this manual says so rather than describing it in the future tense.</p>
+<p>If you are working on the engine <em>itself</em>, the documents you want are <code>docs/ARCHITECTURE.md</code>, <code>docs/ENGINE-NOTES.md</code> and <code>docs/HANDOFF.md</code> in the repository. They are a different kind of document for a different reader.</p>
+<h2 id="what-the-engine-does-today">What the engine does today<a class="anchor" href="#what-the-engine-does-today" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Area</th><th style="text-align:left">State</th></tr></thead><tbody>
+<tr><td style="text-align:left">Scenes and entities</td><td style="text-align:left">Entity-component scenes with a transform hierarchy, stable UUIDs, and lossless save/load</td></tr>
+<tr><td style="text-align:left">Assets</td><td style="text-align:left">Meshes, materials, textures and prefabs, imported from glTF, referenced by handle</td></tr>
+<tr><td style="text-align:left">Rendering</td><td style="text-align:left">Physically based shading, image-based lighting, shadows for every light type, clustered forward lighting, instanced batching, skeletal animation, HDR post</td></tr>
+<tr><td style="text-align:left">Physics</td><td style="text-align:left">Rigid bodies, colliders, triggers, raycasts, and contact events delivered to scripts</td></tr>
+<tr><td style="text-align:left">Audio</td><td style="text-align:left">Positional and unpositioned playback, driven from scripts or from a component</td></tr>
+<tr><td style="text-align:left">Scripting</td><td style="text-align:left">C++ today. C# is <a href="scripting/index.html">in progress</a></td></tr>
+<tr><td style="text-align:left">Shipping</td><td style="text-align:left">A standalone runtime and a packager</td></tr>
+</tbody></table></div>
+<h2 id="what-it-does-not-do-yet">What it does not do yet<a class="anchor" href="#what-it-does-not-do-yet" aria-label="Link to this section">#</a></h2>
+<p>Stated plainly, because finding out halfway through a project is worse than finding out now.</p>
+<ul>
+<li><strong>No text rendering and no game UI.</strong> The editor has an interface; your game cannot currently draw a score, a menu or a health bar.</li>
+<li><strong>No particle system.</strong></li>
+<li><strong>No animation state machine.</strong> Skeletal meshes play clips; blending between them is a manual operation.</li>
+<li><strong>No navigation, no networking, no terrain tooling.</strong></li>
+<li><strong>Windows only.</strong></li>
+</ul>
+<h2 id="how-to-read-this">How to read this<a class="anchor" href="#how-to-read-this" aria-label="Link to this section">#</a></h2>
+<p>Read <a href="getting-started.html">Getting started</a> first — it gets the editor open in about five minutes. <a href="concepts.html">Core concepts</a> is the vocabulary the rest of the manual assumes. After that, <a href="scripting/index.html">Scripting</a> is where the actual work happens.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Press <code>/</code> anywhere in this manual to search it. Results are ranked by heading, so searching for a method name usually lands you on the exact section.</p>
+</aside>
+</article>
+<nav class="pager"><a class="pager-link pager-next" href="getting-started.html"><span class="pager-label">Next</span><span class="pager-title">Getting started</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#what-the-engine-does-today">What the engine does today</a><a class="toc-link toc-l2" href="#what-it-does-not-do-yet">What it does not do yet</a><a class="toc-link toc-l2" href="#how-to-read-this">How to read this</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C++ API reference — RageV manual</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="../index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link" href="../scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link is-current" href="../scripting/cpp-reference.html" aria-current="page">C++ API reference</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="c-api-reference">C++ API reference<a class="anchor" href="#c-api-reference" aria-label="Link to this section">#</a></h1>
+<p>Every member of <code>ScriptableEntity</code>, the base class of every C++ script.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>This page is <strong>checked against the header</strong>. <code>rvdoc --check</code> fails if a member exists in <code>ScriptableEntity.h</code> with no entry here, or if an entry here names a member that no longer exists. A reference page that silently drifts is worse than no reference page, so it is not allowed to.</p>
+</aside>
+<h2 id="lifecycle">Lifecycle<a class="anchor" href="#lifecycle" aria-label="Link to this section">#</a></h2>
+<p>Override these. All are optional; the default does nothing.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>OnCreate</code></td><td style="text-align:left">Once, on the first simulation step after Play. Every entity in the scene exists by then, so lookups are safe here — unlike in a constructor.</td></tr>
+<tr><td style="text-align:left"><code>OnUpdate</code></td><td style="text-align:left">Every fixed simulation step, <strong>not</strong> every frame. <code>dt</code> is the fixed timestep and is the same value on every call.</td></tr>
+<tr><td style="text-align:left"><code>OnDestroy</code></td><td style="text-align:left">On destruction, and when play mode stops.</td></tr>
+</tbody></table></div>
+<h2 id="collision-callbacks">Collision callbacks<a class="anchor" href="#collision-callbacks" aria-label="Link to this section">#</a></h2>
+<p>Delivered after the simulation step that produced them. The same event reaches both entities, each with <code>Other</code> set to the one it is not.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>OnCollisionEnter</code></td><td style="text-align:left">A solid pair began touching. Once per pair.</td></tr>
+<tr><td style="text-align:left"><code>OnCollisionStay</code></td><td style="text-align:left">Every step the pair remains in contact.</td></tr>
+<tr><td style="text-align:left"><code>OnCollisionExit</code></td><td style="text-align:left">The pair separated. Once per pair. <strong>Not</strong> fired when the pair falls asleep still touching.</td></tr>
+<tr><td style="text-align:left"><code>OnTriggerEnter</code></td><td style="text-align:left">A body entered a collider marked <code>IsTrigger</code>.</td></tr>
+<tr><td style="text-align:left"><code>OnTriggerStay</code></td><td style="text-align:left">Every step the body remains inside. Only while it is awake.</td></tr>
+<tr><td style="text-align:left"><code>OnTriggerExit</code></td><td style="text-align:left">The body left the trigger.</td></tr>
+</tbody></table></div>
+<h3 id="the-collision-struct">The Collision struct<a class="anchor" href="#the-collision-struct" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Other</code></td><td style="text-align:left">The entity on the other side. May already have been destroyed this step — test it with <code>if (collision.Other)</code>.</td></tr>
+<tr><td style="text-align:left"><code>Trigger</code></td><td style="text-align:left">Either collider is a trigger. Always true in <code>OnTrigger*</code>, always false in <code>OnCollision*</code>; carried so one shared handler can tell.</td></tr>
+<tr><td style="text-align:left"><code>Point</code></td><td style="text-align:left">Contact point, world space. Zero on Exit — there is no contact left to describe.</td></tr>
+<tr><td style="text-align:left"><code>Normal</code></td><td style="text-align:left">Points from <code>Other</code> towards this entity, so moving along it moves away from what was hit.</td></tr>
+<tr><td style="text-align:left"><code>ImpactSpeed</code></td><td style="text-align:left">Closing speed along the normal when they met, units per second, never negative. Scale an impact sound or a damage value by it.</td></tr>
+</tbody></table></div>
+<h2 id="identity">Identity<a class="anchor" href="#identity" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>GetEntity</code></td><td style="text-align:left">This script&#39;s entity.</td></tr>
+<tr><td style="text-align:left"><code>GetScene</code></td><td style="text-align:left">The scene it belongs to.</td></tr>
+<tr><td style="text-align:left"><code>GetUUID</code></td><td style="text-align:left">Stable across save, load, duplication and play mode. What to store when you need to remember an entity.</td></tr>
+<tr><td style="text-align:left"><code>GetName</code></td><td style="text-align:left">The display name. Not unique.</td></tr>
+<tr><td style="text-align:left"><code>SetName</code></td><td style="text-align:left">Renames the entity.</td></tr>
+</tbody></table></div>
+<h2 id="components">Components<a class="anchor" href="#components" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>GetComponent</code></td><td style="text-align:left">Unchecked. Ask <code>HasComponent</code> first or be certain.</td></tr>
+<tr><td style="text-align:left"><code>HasComponent</code></td><td style="text-align:left">Whether the component is present.</td></tr>
+<tr><td style="text-align:left"><code>AddComponent</code></td><td style="text-align:left">Adds and returns it, forwarding constructor arguments.</td></tr>
+<tr><td style="text-align:left"><code>RemoveComponent</code></td><td style="text-align:left">Removes it.</td></tr>
+</tbody></table></div>
+<h2 id="transform">Transform<a class="anchor" href="#transform" aria-label="Link to this section">#</a></h2>
+<p>Local, relative to the parent. Rotation is in <strong>radians</strong>. The three getters return references into the component, so you may assign through them.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>GetPosition</code></td><td style="text-align:left">Local position, by reference.</td></tr>
+<tr><td style="text-align:left"><code>GetRotation</code></td><td style="text-align:left">Local rotation in radians, by reference.</td></tr>
+<tr><td style="text-align:left"><code>GetScale</code></td><td style="text-align:left">Local scale, by reference.</td></tr>
+<tr><td style="text-align:left"><code>Translate</code></td><td style="text-align:left">Adds a delta to the local position.</td></tr>
+<tr><td style="text-align:left"><code>Rotate</code></td><td style="text-align:left">Adds an Euler delta, in radians.</td></tr>
+<tr><td style="text-align:left"><code>LookAt</code></td><td style="text-align:left">Orients towards a world-space target. <code>up</code> defaults to +Y.</td></tr>
+<tr><td style="text-align:left"><code>GetWorldTransform</code></td><td style="text-align:left">The composed world matrix.</td></tr>
+<tr><td style="text-align:left"><code>GetWorldPosition</code></td><td style="text-align:left">World-space position.</td></tr>
+<tr><td style="text-align:left"><code>GetForward</code></td><td style="text-align:left">The entity&#39;s own forward axis.</td></tr>
+<tr><td style="text-align:left"><code>GetRight</code></td><td style="text-align:left">The entity&#39;s own right axis.</td></tr>
+<tr><td style="text-align:left"><code>GetUp</code></td><td style="text-align:left">The entity&#39;s own up axis.</td></tr>
+</tbody></table></div>
+<h2 id="other-entities">Other entities<a class="anchor" href="#other-entities" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>FindEntityByName</code></td><td style="text-align:left">First match, or an invalid entity. Linear — do it in <code>OnCreate</code>, not every step.</td></tr>
+<tr><td style="text-align:left"><code>FindEntityByUUID</code></td><td style="text-align:left">By stable identity. The right way to hold a reference over time.</td></tr>
+<tr><td style="text-align:left"><code>FindEntitiesByName</code></td><td style="text-align:left">Every match, for names that are not unique.</td></tr>
+<tr><td style="text-align:left"><code>Spawn</code></td><td style="text-align:left">A new, empty entity with the given name.</td></tr>
+<tr><td style="text-align:left"><code>SpawnPrefab</code></td><td style="text-align:left">Instantiates a prefab asset, hierarchy included.</td></tr>
+<tr><td style="text-align:left"><code>Destroy</code></td><td style="text-align:left">Destroys this entity, or a given one. <strong>Deferred to the end of the step</strong>: it is still findable for the rest of that step.</td></tr>
+</tbody></table></div>
+<h2 id="hierarchy">Hierarchy<a class="anchor" href="#hierarchy" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>GetParent</code></td><td style="text-align:left">The parent, or an invalid entity at the root.</td></tr>
+<tr><td style="text-align:left"><code>SetParent</code></td><td style="text-align:left">Re-parents. The local transform is preserved as authored, so the world position changes.</td></tr>
+<tr><td style="text-align:left"><code>GetChildren</code></td><td style="text-align:left">Direct children only.</td></tr>
+</tbody></table></div>
+<h2 id="physics">Physics<a class="anchor" href="#physics" aria-label="Link to this section">#</a></h2>
+<p>No-ops outside play mode and on an entity with no rigid body. World space.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>AddForce</code></td><td style="text-align:left">Accumulates over a step and is cleared by it. A thruster.</td></tr>
+<tr><td style="text-align:left"><code>AddImpulse</code></td><td style="text-align:left">Changes velocity at once. A jump.</td></tr>
+<tr><td style="text-align:left"><code>SetLinearVelocity</code></td><td style="text-align:left">Sets velocity directly, ignoring mass.</td></tr>
+<tr><td style="text-align:left"><code>GetLinearVelocity</code></td><td style="text-align:left">Current velocity.</td></tr>
+<tr><td style="text-align:left"><code>Raycast</code></td><td style="text-align:left">Nearest body along the ray, which may be this one. Direction need not be normalised — the ray extends to its length. Test with <code>if (hit)</code>.</td></tr>
+</tbody></table></div>
+<h2 id="audio">Audio<a class="anchor" href="#audio" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>PlaySource</code></td><td style="text-align:left">Plays this entity&#39;s <code>AudioSourceComponent</code>, restarting it if already playing. Does nothing without the component.</td></tr>
+<tr><td style="text-align:left"><code>StopSource</code></td><td style="text-align:left">Stops it.</td></tr>
+<tr><td style="text-align:left"><code>IsSourcePlaying</code></td><td style="text-align:left">Whether it is playing.</td></tr>
+<tr><td style="text-align:left"><code>PlayOneShot</code></td><td style="text-align:left">Fire and forget, at this entity&#39;s position.</td></tr>
+<tr><td style="text-align:left"><code>PlayOneShot2D</code></td><td style="text-align:left">Unpositioned — full volume wherever the listener is. UI, narration, a stinger. Static.</td></tr>
+</tbody></table></div>
+<h2 id="input">Input<a class="anchor" href="#input" aria-label="Link to this section">#</a></h2>
+<p>By action name, never by key code. See <code>RageV/Core/InputMap.h</code> for the bindings.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>IsActionDown</code></td><td style="text-align:left">Held this step.</td></tr>
+<tr><td style="text-align:left"><code>WasActionPressed</code></td><td style="text-align:left">Went down since the last step. Consumed by the first step that runs, so it is never missed and never seen twice.</td></tr>
+<tr><td style="text-align:left"><code>WasActionReleased</code></td><td style="text-align:left">Came up since the last step.</td></tr>
+<tr><td style="text-align:left"><code>GetAxis</code></td><td style="text-align:left">Axis value. Unknown axes read zero rather than failing.</td></tr>
+</tbody></table></div>
+<h2 id="time">Time<a class="anchor" href="#time" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>GetFixedDeltaTime</code></td><td style="text-align:left">The fixed timestep — the same value <code>OnUpdate</code> is handed. Static.</td></tr>
+<tr><td style="text-align:left"><code>GetTime</code></td><td style="text-align:left">Seconds since the process started. Static.</td></tr>
+</tbody></table></div>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="../scripting/cpp.html"><span class="pager-label">Previous</span><span class="pager-title">Writing a script in C++</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#lifecycle">Lifecycle</a><a class="toc-link toc-l2" href="#collision-callbacks">Collision callbacks</a><a class="toc-link toc-l3" href="#the-collision-struct">The Collision struct</a><a class="toc-link toc-l2" href="#identity">Identity</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#transform">Transform</a><a class="toc-link toc-l2" href="#other-entities">Other entities</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#time">Time</a></nav></aside>
+</div>
+<script src="../search-index.js"></script>
+<script src="../manual.js"></script>
+</body>
+</html>

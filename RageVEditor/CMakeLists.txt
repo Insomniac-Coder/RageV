@@ -26,7 +26,14 @@ add_custom_command(TARGET RageVEditor POST_BUILD
 
 # Each app gets its own directory. They ship different copies of assets/ and a
 # shared output directory let whichever built last overwrite the other's.
+# Matches RageV: lets the optimiser inline glm through RageV/Math at the call
+# sites in this target too. See RageV/CMakeLists.txt for why.
 set_target_properties(RageVEditor PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    INTERPROCEDURAL_OPTIMIZATION_DIST TRUE
     FOLDER "Applications"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/RageVEditor"
     VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:RageVEditor>")
+
+# The C# script assembly, when the .NET SDK was present at configure time.
+ragev_stage_managed(RageVEditor)

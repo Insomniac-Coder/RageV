@@ -367,6 +367,7 @@ counts cannot tell a rendered frame from one that was cleared afterwards.
 
 | # | Item | Size |
 |---|---|---|
+| 5.0 | **Wrap every third-party type out of the public API** | L |
 | 5.1 | CoreCLR host via `nethost`/`hostfxr` | L |
 | 5.2 | Interop layer — `[UnmanagedCallersOnly]` + function-pointer tables | L |
 | 5.3 | Managed class library mirroring the native API | L |
@@ -378,6 +379,39 @@ counts cannot tell a rendered frame from one that was cleared afterwards.
 native API after C# exists costs a binding update, a marshalling update and a
 class-library update. Design once, bind twice — in that order. Building C# early
 is, in my judgement, the single most likely way to stall this project.
+
+**5.0 is new, and it is first for that same reason.** No third-party type may
+appear in a public RageV header: `glm::vec3` becomes an engine type, and every
+other library the engine uses but did not write — EnTT, Jolt, miniaudio, spdlog,
+yaml-cpp — is checked for the same leakage. The engine should read as one engine
+rather than as an assembly of libraries, and nobody writing a script should have
+to learn glm's name to use it.
+
+The same change segregates the public API into domain namespaces —
+`RageV::Math::Vec3`, `RageV::Audio::`, `RageV::Physics::`, `RageV::Assets::`,
+with `RageV::RHI::` already in that shape. Both halves are one API break, so they
+land together rather than breaking every include twice.
+
+Two naming rules, settled rather than assumed. **Types are PascalCase** —
+`Vec3`, `Mat4`, `Quat` — matching `Entity`, `Timestep` and `AssetHandle` rather
+than glm's lowercase, so that a reader can see the type is the engine's and not
+glm's under a different include. And **there is no `RV` namespace or alias**;
+`RageV` is the only spelling.
+
+One thing still to watch: `Renderer`, `Scene` and `Input` already exist as
+*types* at the scope where those namespaces would go. Each needs a different
+namespace name or the type moved, and finding that out during the rename is the
+expensive way.
+
+It has to be a real wrapper rather than a typedef. An alias still puts
+`glm::vec3` in every compiler error, in every IDE tooltip and in the generated
+manual, so it hides nothing. Keeping the wrappers layout-compatible makes the
+conversion at the `.cpp` boundary free, and demotes the third-party header to an
+implementation include.
+
+The ordering is not a preference. 5.1 carries no engine types and is unaffected,
+but binding 5.2 and 5.3 against `glm::vec3` and *then* renaming it means doing
+the interop, the marshalling and the class library twice.
 
 ### Phase 6 — Text, UI and particles *(what a game needs that an engine demo does not)*
 

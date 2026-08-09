@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scripting — RageV manual</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="../index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link is-current" href="../scripting/index.html" aria-current="page">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="scripting">Scripting<a class="anchor" href="#scripting" aria-label="Link to this section">#</a></h1>
+<p>A script is a class attached to an entity that receives lifecycle and physics callbacks while the scene is playing. It is how anything in RageV does something rather than merely sitting there.</p>
+<h2 id="two-languages-one-surface">Two languages, one surface<a class="anchor" href="#two-languages-one-surface" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left">C++</th><th style="text-align:left">C#</th></tr></thead><tbody>
+<tr><td style="text-align:left">State</td><td style="text-align:left"><strong>Available now</strong></td><td style="text-align:left">In development</td></tr>
+<tr><td style="text-align:left">Base class</td><td style="text-align:left"><code>ScriptableEntity</code></td><td style="text-align:left"><code>Script</code></td></tr>
+<tr><td style="text-align:left">Iteration</td><td style="text-align:left">Recompile and restart</td><td style="text-align:left">Hot reload, planned</td></tr>
+<tr><td style="text-align:left">Cost of a mistake</td><td style="text-align:left">Crashes the editor</td><td style="text-align:left">Throws, and the editor survives</td></tr>
+</tbody></table></div>
+<p>The C# API is a mirror of the C++ one — the same names, the same lifecycle, the same rules — deliberately, so that this manual describes one engine rather than two. Where the two genuinely differ, the difference is called out.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>The native surface was finished and frozen <em>before</em> C# work began. Every change to it afterwards costs a binding update, a marshalling update and a class-library update, so it was worth designing once. If you are writing C++ scripts today, what you learn transfers.</p>
+</aside>
+<h2 id="the-shape-of-a-script">The shape of a script<a class="anchor" href="#the-shape-of-a-script" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">class</span> Spinner : <span class="tok-keyword">public</span> <span class="tok-type">ScriptableEntity</span>
+{
+<span class="tok-keyword">public</span>:
+    <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
+    {
+        <span class="tok-call">Rotate</span>({ <span class="tok-number">0.0f</span>, m_Speed * dt.<span class="tok-call">GetSeconds</span>(), <span class="tok-number">0.0f</span> });
+    }
+
+<span class="tok-keyword">private</span>:
+    <span class="tok-type">float</span> m_Speed = <span class="tok-number">1.2f</span>;
+};
+
+<span class="tok-call">RV_REGISTER_SCRIPT</span>(Spinner);
+</code></pre></figure>
+<p>That is a complete, working script. Attach it to an entity in the inspector, press Play, and the entity turns.</p>
+<h2 id="what-a-script-can-reach">What a script can reach<a class="anchor" href="#what-a-script-can-reach" aria-label="Link to this section">#</a></h2>
+<p>Scripts get a deliberately narrow surface, stated in engine terms rather than in the terms of the ECS underneath:</p>
+<ul>
+<li><strong>Its own entity</strong> — components, transform, name, UUID.</li>
+<li><strong>Other entities</strong> — found by name or UUID, spawned, destroyed, re-parented.</li>
+<li><strong>Physics</strong> — forces, impulses, velocity, raycasts, and contact events.</li>
+<li><strong>Audio</strong> — its own source, or a fire-and-forget one-shot.</li>
+<li><strong>Input</strong> — by action name, never by key code.</li>
+<li><strong>Time</strong> — the fixed step, and seconds since start.</li>
+</ul>
+<p>What it deliberately does <em>not</em> get is a raw handle into the entity registry. See the <a href="../concepts.html#play-mode">trap about play mode</a> for why.</p>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="cpp.html">Writing a script in C++</a> — the guide, with worked examples.</li>
+<li><a href="cpp-reference.html">C++ API reference</a> — every member, what it does, and what it costs.</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="../concepts.html"><span class="pager-label">Previous</span><span class="pager-title">Core concepts</span></a><a class="pager-link pager-next" href="../scripting/cpp.html"><span class="pager-label">Next</span><span class="pager-title">Writing a script in C++</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#two-languages-one-surface">Two languages, one surface</a><a class="toc-link toc-l2" href="#the-shape-of-a-script">The shape of a script</a><a class="toc-link toc-l2" href="#what-a-script-can-reach">What a script can reach</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="../search-index.js"></script>
+<script src="../manual.js"></script>
+</body>
+</html>

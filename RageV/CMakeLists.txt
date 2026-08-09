@@ -49,6 +49,22 @@ target_compile_definitions(RageV
         VK_USE_PLATFORM_WIN32_KHR
         GLFW_INCLUDE_NONE)             # we include vulkan/volk ourselves
 
+# Link-time code generation, for Release and Dist only.
+#
+# RageV/Math declares its operators and defines them in one translation unit, so
+# that no public header has to include glm. Without this, `a + b` on two vectors
+# would be a call across a translation-unit boundary in the hot path of a
+# renderer. With it, the optimiser sees glm's bodies at every call site and folds
+# them in -- the arithmetic is glm's, and the abstraction costs nothing.
+#
+# Not enabled for Debug: it would slow the link for a configuration nobody
+# measures, and the call boundary is affordable there. Not enabled for the
+# vendored libraries either -- they gain nothing here and would cost minutes of
+# link time each.
+set_target_properties(RageV PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    INTERPROCEDURAL_OPTIMIZATION_DIST TRUE)
+
 # Where a build run out of the build tree finds a project when nobody says.
 # Absent from an installed build, which then relies on a .rvproject sitting
 # beside the executable -- the shape a packaged game has.

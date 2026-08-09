@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>RageV.ScriptCore</AssemblyName>
+    <RootNamespace>RageV</RootNamespace>
+
+    <!-- The interop layer passes raw pointers by design, so unsafe is not an
+         escape hatch here, it is the mechanism. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+
+    <!-- Emits RageV.ScriptCore.runtimeconfig.json beside the assembly.
+         hostfxr_initialize_for_runtime_config needs that file to exist, and a
+         class library does not produce one without this. Its absence is the
+         single most common reason a first attempt at hosting .NET fails, and it
+         fails with an error code rather than a sentence. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+
+    <!-- This assembly is loaded into a game engine's process. A warning here is
+         a defect that will surface as a crash in someone's game. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Nothing here is culture-sensitive, and satellite assemblies would only
+         be more files to stage next to every executable. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>

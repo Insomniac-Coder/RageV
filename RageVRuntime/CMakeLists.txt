@@ -31,7 +31,14 @@ add_custom_command(TARGET RageVRuntime POST_BUILD
         "$<TARGET_FILE_DIR:RageVRuntime>/ragev.ini"
     COMMENT "Staging RageVRuntime config")
 
+# Matches RageV: lets the optimiser inline glm through RageV/Math at the call
+# sites in this target too. See RageV/CMakeLists.txt for why.
 set_target_properties(RageVRuntime PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    INTERPROCEDURAL_OPTIMIZATION_DIST TRUE
     FOLDER "Applications"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/RageVRuntime"
     VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:RageVRuntime>")
+
+# The C# script assembly, when the .NET SDK was present at configure time.
+ragev_stage_managed(RageVRuntime)

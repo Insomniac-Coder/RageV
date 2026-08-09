@@ -23,9 +23,14 @@ The five-minute version, for picking this up with no memory of it.
 **Where it is:** phases 0, 1, 2, **3 and 4 complete** — the render graph, HDR
 post, sky and cube maps, full image-based lighting, shadows for every light
 type, frustum culling, instanced draw batching, clustered forward lighting and
-skeletal animation. Only Phase 5, C# scripting, remains. The engine loop closes
-— a project can be imported into, placed in, scripted, played, and packaged
-into a folder someone else can run.
+skeletal animation. **Phase 5, C# scripting, is under way** — 5.1 is done, and
+the .NET runtime boots in-process and calls managed code. The engine loop closes:
+a project can be imported into, placed in, scripted, played, and packaged into a
+folder someone else can run.
+
+**In flight, and not finished:** 5.0, which wraps every third-party type out of
+the public API. `RageV/Math` exists and is verified against glm; migrating the
+call sites onto it has not started. See §8.
 
 **Prove it still works** (from the repo root, ~2 minutes):
 
@@ -35,7 +40,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-560 checks, `exit 0`. Then look at a frame:
+610 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -99,7 +104,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 560 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain, settings writer. |
+| `scenetest` | 610 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain, settings writer, .NET hosting, the math layer against glm. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -154,6 +159,41 @@ build/bin/Debug/rhismoke/rhismoke.exe 120 --rhi=opengl
 Then run the editor on both backends. **Zero `[Vulkan]` lines in the log** is
 the bar — validation and synchronization validation are both on in Debug, and
 every `[Vulkan]` line so far has been a real defect.
+
+If the change touched a public script API, also run:
+
+```bash
+build/bin/Debug/rvdoc/rvdoc.exe --check
+```
+
+It fails when `ScriptableEntity.h` gained a member the manual does not document,
+or the manual documents one that no longer exists — in either direction, and
+also when it manages to parse suspiciously few members, because a check that
+passes by parsing nothing is worse than no check at all.
+
+---
+
+## 2a. The developer manual
+
+`docs/manual/` is Markdown; `docs/site/` is the generated HTML. Regenerate with
+the `manual` target, or by hand:
+
+```bash
+build/bin/Debug/rvdoc/rvdoc.exe --in docs/manual --out docs/site
+```
+
+`tools/rvdoc` is a C++ target like the others — a Markdown subset, a syntax
+highlighter, a client-side search index inlined as JS so the site works from a
+folder without a server, and the reference check above. No new submodule, and no
+Node toolchain to install before the docs will build.
+
+`docs/manual/SUMMARY.md` is the table of contents. A page not listed there is not
+part of the manual and will not be emitted.
+
+This is a **different document from this one**. The manual is for someone making
+a game with the engine; HANDOFF, ROADMAP, ARCHITECTURE and ENGINE-NOTES are for
+someone working on the engine. Do not merge them — the first is a description of
+supported surfaces, the second is a record of decisions and traps.
 
 ---
 
@@ -672,9 +712,13 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Skeletal animation | Skinned vertex format, skinned PBR and depth shaders, per-instance bone matrices, `AnimatorComponent` (3.7) |
 | Batching | Instanced draws keyed on mesh and material; 3238 draws down to 60 on the stress scene |
 | Profiler | CPU wall time and GPU timestamps per phase, live in the editor and printed by `--benchmark` |
-| Tests | `scenetest`, **560 checks**, green on both backends |
+| Tests | `scenetest`, **610 checks**, green on both backends |
 
-**Phases 0, 1, 2, 3 and 4 are complete.** Only Phase 5, C# scripting, remains.
+**Phases 0, 1, 2, 3 and 4 are complete.** Phase 5, C# scripting, is in
+progress -- 5.1 (hosting) is done, and **5.0 now precedes the rest**: no
+third-party type may appear in a public header, and the public API is being
+segregated into `RV::Math::`, `RV::Audio::` and friends. That is an API break
+the C# bindings must not be written before, or they get written twice.
 
 ### Works, with a caveat worth knowing
 
@@ -704,7 +748,9 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 
 ### Not built
 
-- **C# scripting** (Phase 5). Native only, and the last roadmap item.
+- **C# scripting** (Phase 5). The runtime hosts and calls managed code (5.1);
+  the interop layer, class library, build integration, hot reload and inspector
+  fields (5.2-5.6) are not built. Scripts are native-only today.
 - **Front-to-back depth sorting.** Opaque draws are grouped by mesh and
   material so they batch, which is the half of 3.6 that was worth measuring.
   Sorting them by depth as well would let early-z reject more, and is worth a
@@ -819,9 +865,55 @@ pixel-identical between the two backends.
 
 Phase 5 is the last MVP+ item, and the dependency argument for doing it now is
 the strongest one left: C# has to mirror a native surface that has stopped
-moving, and it stopped moving today. Six items in ROADMAP §5 — CoreCLR hosting,
-interop, the managed class library, project assembly build, hot reload, and
-inspector fields.
+moving. Seven items in ROADMAP §5.
+
+**5.1 is done.** `RageV/src/RageV/Managed/DotNetHost.h` boots CoreCLR through
+hostfxr and hands back function pointers to static managed methods;
+`RageVScriptCore/` is the managed assembly; `scenetest` proves the round trip
+both ways, including the protocol-mismatch path. Three things about it worth
+knowing before touching it:
+
+- **The engine does not link nethost and does not need the .NET SDK to build.**
+  `hostfxr.dll` is found at runtime (`DOTNET_ROOT`, then the registry, then
+  `%ProgramFiles%\dotnet`) and the four API types are hand-declared. A clone
+  still builds with nothing but a compiler; CMake reports C# as unavailable and
+  moves on.
+- **`EnableDynamicLoading` in the csproj** is what emits
+  `RageV.ScriptCore.runtimeconfig.json`. Without that file
+  `hostfxr_initialize_for_runtime_config` fails with a number rather than a
+  sentence, and it is the usual reason a first attempt at hosting .NET fails.
+- **`Interop.ProtocolVersion` is checked on the first call.** A partial rebuild
+  that leaves one side stale is otherwise a stack corruption somewhere
+  unrelated, minutes later.
+
+**5.0 comes next, and it comes before 5.2.** No third-party type in a public
+header, and the public API segregated into `RageV::Math::`, `RageV::Audio::`,
+`RageV::Physics::` and so on. Binding C# against `glm::vec3` and then renaming it
+means writing the interop, the marshalling and the class library twice — which
+is the exact failure the "C# last" argument was meant to avoid, arriving through
+a different door.
+
+**Where 5.0 has got to.** `RageV/src/RageV/Math/` exists: `Vec2/3/4`, `UVec4`,
+`Mat3/4` and `Quat`, with `Math.h` as the umbrella. Nothing in it reimplements
+arithmetic — every body is in `Math.cpp` and delegates to glm, and `GlmBridge.h`
+is the internal converter that no public header may include. 38 checks in
+`scenetest` compare it against glm operation by operation, on deliberately
+awkward numbers, because axis-aligned test values pass through a transposed
+matrix unharmed.
+
+Two decisions in it are worth not re-litigating:
+
+- **Conversions are member-wise, never a `reinterpret_cast`.** The layouts match
+  today and casting would work today, but glm has shipped quaternions both
+  `w`-first and `w`-last depending on version and build flags. A cast that is
+  right in one configuration rotates everything wrongly in another, silently.
+- **`Normalize` guards against zero length**, which glm does not. glm returns
+  NaNs, a NaN in a transform takes the object and every child with it, and
+  nothing reports anything. There is a check for it.
+
+**What is left:** the call sites. 10 public headers and 35 `.cpp` files, around
+a thousand `glm::` mentions. Then re-run the benchmark in §9 against the
+recorded baseline, and only then move on to 5.2.
 
 ### After MVP+ — phases 6, 7 and 8
 
@@ -877,6 +969,24 @@ because the alternative is someone finding each one by being confused.
   semantics, surprising the first time.
 - **Nothing culls by distance.** A mesh behind the camera is skipped; a mesh a
   kilometre away that is two pixels across is drawn in full.
+- **The math abstraction's cost: baseline recorded, not yet compared.**
+  `RageV/Math` declares its operators and defines them in one translation unit
+  so no public header includes glm. Link-time code generation is now on for
+  Release and Dist (`INTERPROCEDURAL_OPTIMIZATION_RELEASE/DIST` on `RageV`,
+  `RageVEditor`, `RageVRuntime`) so the optimiser folds glm's bodies back into
+  the call sites.
+
+  Whether that fully pays for the boundary is **not yet known**, because nothing
+  hot uses the new types until the migration lands. The before-number is
+  recorded so the after-number means something -- Release, Vulkan, vsync off,
+  600 frames, three runs:
+
+      2.213 ms   2.245 ms   2.279 ms
+
+  Re-run exactly that after the call sites move. A regression outside that
+  spread is the abstraction costing something, and the answer then is to inline
+  the trivial operators in the header rather than to accept it quietly.
+
 ### Performance, all unmeasured
 
 - **Both applications still ship with `vsync = on`**, which is right for a game

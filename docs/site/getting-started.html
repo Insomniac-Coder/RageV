@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link is-current" href="getting-started.html" aria-current="page">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="getting-started">Getting started<a class="anchor" href="#getting-started" aria-label="Link to this section">#</a></h1>
+<h2 id="what-you-need">What you need<a class="anchor" href="#what-you-need" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Windows 10 or 11</strong>, 64-bit.</li>
+<li><strong>Visual Studio 2022</strong>, or just the Build Tools. Either provides the compiler and CMake.</li>
+<li><strong>A GPU with Vulkan 1.3 or OpenGL 4.5.</strong> Both backends ship; the engine picks one at startup and you can change it from the editor.</li>
+</ul>
+<p>You do <strong>not</strong> need the Vulkan SDK to build. The headers, <code>volk</code> and the memory allocator are vendored. Install the SDK only if you want validation layers, which you do if you intend to touch the renderer.</p>
+<h2 id="build-it">Build it<a class="anchor" href="#build-it" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>bash</figcaption><pre><code><span class="tok-keyword">cmake</span> --preset vs2022
+<span class="tok-keyword">cmake</span> --build build --config Debug
+</code></pre></figure>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>CMake is not on <code>PATH</code> on a stock Visual Studio install. It ships inside the Build Tools at <code>C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin</code>. Add that to <code>PATH</code> or call it by full path — otherwise the first command above fails with &quot;command not found&quot; and looks like a missing dependency when it is not.</p>
+</aside>
+<p>Three configurations exist and mean different things:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Configuration</th><th style="text-align:left">What it is for</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Debug</code></td><td style="text-align:left">Development. Validation layers and synchronization validation are on.</td></tr>
+<tr><td style="text-align:left"><code>Release</code></td><td style="text-align:left">Optimised, with the editor and assertions still present.</td></tr>
+<tr><td style="text-align:left"><code>Dist</code></td><td style="text-align:left">What you ship. No editor tooling, no validation.</td></tr>
+</tbody></table></div>
+<h2 id="run-the-editor">Run the editor<a class="anchor" href="#run-the-editor" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>bash</figcaption><pre><code>build/bin/Debug/RageVEditor/RageVEditor.exe
+</code></pre></figure>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Run each executable <strong>from its own directory</strong>. Assets are staged per target, so launching the editor from the repository root finds no shaders and shows you a black window that looks like a driver problem.</p>
+</aside>
+<p>The editor opens the sample project&#39;s start scene. From here you can select entities in the hierarchy, edit them in the inspector, drag assets in from the content browser, and press <strong>Play</strong> to run the scene.</p>
+<h2 id="run-a-project-without-the-editor">Run a project without the editor<a class="anchor" href="#run-a-project-without-the-editor" aria-label="Link to this section">#</a></h2>
+<p><code>RageVRuntime</code> is the same engine with the editor removed — it is what your players will effectively be running.</p>
+<figure class="code"><figcaption>bash</figcaption><pre><code>build/bin/Debug/RageVRuntime/RageVRuntime.exe --project=SampleProject
+</code></pre></figure>
+<h2 id="package-a-project">Package a project<a class="anchor" href="#package-a-project" aria-label="Link to this section">#</a></h2>
+<p><code>rvpack</code> copies a project, its assets and the runtime into one folder that can be zipped and handed to someone else. It is headless and needs no GPU.</p>
+<figure class="code"><figcaption>bash</figcaption><pre><code>build/bin/Debug/rvpack/rvpack.exe --project=SampleProject --out=dist/MyGame
+</code></pre></figure>
+<h2 id="command-line-flags">Command-line flags<a class="anchor" href="#command-line-flags" aria-label="Link to this section">#</a></h2>
+<p>Every flag below can also go in a <code>ragev.ini</code> file next to the executable, as <code>key=value</code> lines. The command line wins over the file.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Flag</th><th style="text-align:left">Meaning</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>--rhi=vulkan\|opengl</code></td><td style="text-align:left">Graphics backend. Restart-time by design.</td></tr>
+<tr><td style="text-align:left"><code>--vsync=on\|off</code></td><td style="text-align:left">Present synchronised to the display.</td></tr>
+<tr><td style="text-align:left"><code>--validation=on\|off</code></td><td style="text-align:left">Vulkan validation layers. On in <code>Debug</code>, off in the runtime.</td></tr>
+<tr><td style="text-align:left"><code>--fixed-hz=N</code></td><td style="text-align:left">Simulation rate, 20–240. Default 60.</td></tr>
+<tr><td style="text-align:left"><code>--width=N</code> <code>--height=N</code></td><td style="text-align:left">Window size.</td></tr>
+<tr><td style="text-align:left"><code>--audio=on\|off</code></td><td style="text-align:left">Whether to open an output device at all.</td></tr>
+<tr><td style="text-align:left"><code>--project=&lt;path&gt;</code></td><td style="text-align:left">The <code>.rvproject</code> to open, or a folder containing one.</td></tr>
+<tr><td style="text-align:left"><code>--scene=&lt;path&gt;</code></td><td style="text-align:left">Open this scene instead of the project&#39;s start scene.</td></tr>
+<tr><td style="text-align:left"><code>--screenshot=&lt;file&gt;</code></td><td style="text-align:left">Write a PNG of one frame and exit.</td></tr>
+<tr><td style="text-align:left"><code>--benchmark=N</code></td><td style="text-align:left">Run N frames, print what they cost, and exit.</td></tr>
+<tr><td style="text-align:left"><code>--ui-scale=N\|auto</code></td><td style="text-align:left">Editor font and spacing. <code>auto</code> follows the monitor.</td></tr>
+</tbody></table></div>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><code>--vsync=off</code> set at startup and unchecked at runtime are not the same thing. Turning it off from the editor&#39;s checkbox saves the choice and applies what it can, but on Windows the frame rate does not fully unlock until the next start — the compositor decides how a window presents when that window first presents. The checkbox says so in place.</p>
+</aside>
+<h2 id="where-things-live">Where things live<a class="anchor" href="#where-things-live" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>text</figcaption><pre><code>RageV/            the engine library
+RageVEditor/      the editor
+RageVRuntime/     the standalone runtime
+SampleProject/    a project you can open and take apart
+tools/            scenetest, rvpack, rvdoc, shaderinfo, rhismoke
+docs/             this manual, plus the engine<span class="tok-string">&#39;s own design notes</span>
+</code></pre></figure>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="index.html"><span class="pager-label">Previous</span><span class="pager-title">Introduction</span></a><a class="pager-link pager-next" href="concepts.html"><span class="pager-label">Next</span><span class="pager-title">Core concepts</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#what-you-need">What you need</a><a class="toc-link toc-l2" href="#build-it">Build it</a><a class="toc-link toc-l2" href="#run-the-editor">Run the editor</a><a class="toc-link toc-l2" href="#run-a-project-without-the-editor">Run a project without the editor</a><a class="toc-link toc-l2" href="#package-a-project">Package a project</a><a class="toc-link toc-l2" href="#command-line-flags">Command-line flags</a><a class="toc-link toc-l2" href="#where-things-live">Where things live</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

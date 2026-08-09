@@ -54,6 +54,8 @@ if(MSVC)
 endif()
 
 add_subdirectory(RageV/vendor)
+# Before the executables: it defines ragev_stage_managed, which they call.
+add_subdirectory(RageVScriptCore)
 add_subdirectory(RageV)
 add_subdirectory(RageVEditor)
 add_subdirectory(RageVRuntime)
@@ -65,6 +67,7 @@ if(RAGEV_BUILD_TOOLS)
     add_subdirectory(tools/rhismoke)
     add_subdirectory(tools/scenetest)
     add_subdirectory(tools/rvpack)
+    add_subdirectory(tools/rvdoc)
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio")

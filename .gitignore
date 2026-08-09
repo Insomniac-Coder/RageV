@@ -5,6 +5,10 @@ bin-int/
 build/
 build-ninja/
 out/
+
+# .NET intermediates. The script assembly's *output* goes to build/ like
+# everything else; obj/ is what dotnet leaves beside the csproj regardless.
+obj/
 CMakeUserPresets.json
 
 #Files

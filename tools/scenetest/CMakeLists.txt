@@ -10,3 +10,6 @@ add_custom_command(TARGET scenetest POST_BUILD
 set_target_properties(scenetest PROPERTIES
     FOLDER "Tools"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/scenetest")
+
+# The C# script assembly, when the .NET SDK was present at configure time.
+ragev_stage_managed(scenetest)

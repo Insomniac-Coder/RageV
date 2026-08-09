@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Core concepts — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link is-current" href="concepts.html" aria-current="page">Core concepts</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="core-concepts">Core concepts<a class="anchor" href="#core-concepts" aria-label="Link to this section">#</a></h1>
+<p>Six words carry most of the manual. This page defines them once.</p>
+<h2 id="project">Project<a class="anchor" href="#project" aria-label="Link to this section">#</a></h2>
+<p>A <code>.rvproject</code> file naming an asset root, a start scene, and a simulation rate. Everything an asset refers to is relative to that root, which is what lets a project be copied, packaged and opened on another machine.</p>
+<p>The engine can run without a project. It shows you that state rather than inventing one.</p>
+<h2 id="scene">Scene<a class="anchor" href="#scene" aria-label="Link to this section">#</a></h2>
+<p>A container of entities, saved as a text file you can read and diff. Scenes are <strong>losslessly round-trippable</strong>: loading one and saving it again produces the same bytes, every time. That is not a nicety — play mode is implemented as snapshot-then-restore, so pressing Stop is only as correct as saving is.</p>
+<h2 id="entity">Entity<a class="anchor" href="#entity" aria-label="Link to this section">#</a></h2>
+<p>A thing in a scene. An entity is an identity and nothing else: it has no behaviour and no data of its own until components are added to it.</p>
+<p>Every entity carries a <strong>UUID</strong> that survives saving, loading, duplication and play mode. Names do not have to be unique; UUIDs are. When you need to remember <em>which</em> entity across time, remember the UUID.</p>
+<h2 id="component">Component<a class="anchor" href="#component" aria-label="Link to this section">#</a></h2>
+<p>Data attached to an entity. A transform, a mesh, a rigid body, a light, an audio source, a script.</p>
+<p>Components are registered with a reflection layer, which is why adding one shows up in the inspector and in the scene file without either being taught about it individually.</p>
+<h3 id="the-transform-is-a-hierarchy">The transform is a hierarchy<a class="anchor" href="#the-transform-is-a-hierarchy" aria-label="Link to this section">#</a></h3>
+<p><code>TransformComponent</code> holds a <strong>local</strong> position, rotation (radians) and scale, relative to its parent. World transforms are derived by walking up the chain. Parenting one entity to another moves it with the parent.</p>
+<h2 id="asset">Asset<a class="anchor" href="#asset" aria-label="Link to this section">#</a></h2>
+<p>A mesh, material, texture, prefab, audio clip or scene stored under the project&#39;s asset root and referenced by an <code>AssetHandle</code> — a stable identifier, not a file path. A <code>.meta</code> sidecar next to each asset records the handle, so moving or renaming a file does not break the scenes that use it.</p>
+<p>A <strong>prefab</strong> is a saved entity, hierarchy and all, that can be spawned at runtime.</p>
+<h2 id="play-mode">Play mode<a class="anchor" href="#play-mode" aria-label="Link to this section">#</a></h2>
+<p>The editor has two states, and the difference matters more than it looks.</p>
+<ul>
+<li><strong>Editing.</strong> Nothing steps. What you see is the scene as saved.</li>
+<li><strong>Playing.</strong> The scene is snapshotted, then stepped: physics runs, scripts run, audio plays.</li>
+</ul>
+<p>Pressing <strong>Stop</strong> restores the snapshot exactly. Nothing your game did during play survives, which is what makes it safe to iterate.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Because Stop restores by <em>recreating</em> entities, any handle held across the boundary is dangling afterwards. Scripts are handed <code>Entity</code> values, and those are safe to use within a run; storing one in a static, or in anything that outlives play mode, is not. Store a <code>UUID</code> and look it up.</p>
+</aside>
+<h2 id="the-fixed-step">The fixed step<a class="anchor" href="#the-fixed-step" aria-label="Link to this section">#</a></h2>
+<p>Simulation runs at a fixed rate — 60 Hz by default, <code>--fixed-hz</code> to change it — independently of how fast frames are drawn. A frame may run zero, one, or several simulation steps depending on how long it took.</p>
+<p>This is why script updates are <strong>per step, not per frame</strong>. A script that moves something has to agree with the physics that will push it, and physics cannot be correct at a variable rate. Everything in <a href="scripting/index.html">Scripting</a> follows from this one decision.</p>
+<p>Rendering is still per frame, so the frame rate and the simulation rate are genuinely different numbers. The editor&#39;s statistics panel shows both.</p>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="getting-started.html"><span class="pager-label">Previous</span><span class="pager-title">Getting started</span></a><a class="pager-link pager-next" href="scripting/index.html"><span class="pager-label">Next</span><span class="pager-title">Scripting</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#project">Project</a><a class="toc-link toc-l2" href="#scene">Scene</a><a class="toc-link toc-l2" href="#entity">Entity</a><a class="toc-link toc-l2" href="#component">Component</a><a class="toc-link toc-l3" href="#the-transform-is-a-hierarchy">The transform is a hierarchy</a><a class="toc-link toc-l2" href="#asset">Asset</a><a class="toc-link toc-l2" href="#play-mode">Play mode</a><a class="toc-link toc-l2" href="#the-fixed-step">The fixed step</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

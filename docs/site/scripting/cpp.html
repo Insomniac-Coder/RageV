@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Writing a script in C++ — RageV manual</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="../index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link" href="../scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link is-current" href="../scripting/cpp.html" aria-current="page">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="writing-a-script-in-c">Writing a script in C++<a class="anchor" href="#writing-a-script-in-c" aria-label="Link to this section">#</a></h1>
+<h2 id="your-first-script">Your first script<a class="anchor" href="#your-first-script" aria-label="Link to this section">#</a></h2>
+<p>Create a <code>.cpp</code> file anywhere that gets compiled into your game, and write:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-pre">#include &quot;RageV/Scene/ScriptRegistry.h&quot;</span>
+<span class="tok-pre">#include &quot;RageV/Scene/Components.h&quot;</span>
+
+<span class="tok-keyword">using</span> <span class="tok-keyword">namespace</span> RageV;
+
+<span class="tok-keyword">class</span> Bobber : <span class="tok-keyword">public</span> <span class="tok-type">ScriptableEntity</span>
+{
+<span class="tok-keyword">public</span>:
+    <span class="tok-keyword">void</span> <span class="tok-call">OnCreate</span>() <span class="tok-keyword">override</span>
+    {
+        m_Origin = <span class="tok-call">GetPosition</span>();
+    }
+
+    <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
+    {
+        m_Elapsed += dt.<span class="tok-call">GetSeconds</span>();
+        <span class="tok-type">glm</span>::<span class="tok-type">vec3</span> position = m_Origin;
+        position.y += <span class="tok-type">std</span>::<span class="tok-call">sin</span>(m_Elapsed * <span class="tok-number">2.0f</span>) * <span class="tok-number">0.5f</span>;
+        <span class="tok-call">GetPosition</span>() = position;
+    }
+
+<span class="tok-keyword">private</span>:
+    <span class="tok-type">glm</span>::<span class="tok-type">vec3</span> m_Origin{ <span class="tok-number">0.0f</span> };
+    <span class="tok-type">float</span>     m_Elapsed = <span class="tok-number">0.0f</span>;
+};
+
+<span class="tok-call">RV_REGISTER_SCRIPT</span>(Bobber);
+</code></pre></figure>
+<p>Build, open the editor, select an entity, <strong>Add Component → Native Script</strong>, and choose <code>Bobber</code> from the dropdown. Press Play.</p>
+<p>The name in the dropdown is the string <code>RV_REGISTER_SCRIPT</code> derived from the type name, and that string is what gets written into the scene file.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Renaming a registered script breaks every scene that used it.</strong> The name is the durable reference, exactly as an asset handle is for assets — the same way renaming a C# class does in Unity. Registered names are API. Rename with the same care you would rename a public function.</p>
+</aside>
+<h2 id="registering-and-one-linker-trap">Registering, and one linker trap<a class="anchor" href="#registering-and-one-linker-trap" aria-label="Link to this section">#</a></h2>
+<p><code>RV_REGISTER_SCRIPT</code> places a static registrar object at file scope, which runs before <code>main</code> and adds your factory to the registry.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>This works for scripts compiled <strong>directly into an executable</strong>, and fails silently for scripts inside a <strong>static library</strong> whose object file contains nothing else that is referenced. The linker is allowed to drop such an object file entirely, the registration never runs, your script does not appear in the dropdown, and there is no error anywhere. The engine&#39;s own built-in scripts hit this: they are registered from an explicit function that something else calls, for exactly this reason. If your script vanishes from the dropdown, this is why.</p>
+</aside>
+<h2 id="the-lifecycle">The lifecycle<a class="anchor" href="#the-lifecycle" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Callback</th><th style="text-align:left">When</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>OnCreate()</code></td><td style="text-align:left">Once, on the first simulation step after Play.</td></tr>
+<tr><td style="text-align:left"><code>OnUpdate(Timestep dt)</code></td><td style="text-align:left">Every fixed simulation step.</td></tr>
+<tr><td style="text-align:left"><code>OnDestroy()</code></td><td style="text-align:left">On destruction, and when play mode stops.</td></tr>
+</tbody></table></div>
+<p><code>OnCreate</code> runs on the first <em>step</em>, not when the component is added. By then every entity in the scene exists, so it is safe to look others up — which is not true of a constructor.</p>
+<h3 id="onupdate-is-not-per-frame">OnUpdate is not per frame<a class="anchor" href="#onupdate-is-not-per-frame" aria-label="Link to this section">#</a></h3>
+<p>This is the single most important thing on this page.</p>
+<p><code>OnUpdate</code> runs once per <strong>fixed simulation step</strong>, at 60 Hz by default. A frame may run zero steps, one, or several. The <code>dt</code> you are handed is the fixed timestep, and it is the same value every call.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Do not use <code>OnUpdate</code> for anything that should happen once per <em>frame</em>, and do not assume it is called at the frame rate. On a fast machine with vsync off it is called far less often than frames are drawn; on a slow one, several times per frame. Both are correct.</p>
+</aside>
+<p>Multiply rates by <code>dt</code> anyway. It is what keeps behaviour identical when someone runs the game at <code>--fixed-hz=120</code>:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
+{
+    <span class="tok-call">Translate</span>(<span class="tok-call">GetForward</span>() * m_Speed * dt.<span class="tok-call">GetSeconds</span>());   <span class="tok-comment">// correct</span>
+    <span class="tok-comment">// Translate(GetForward() * 0.05f);                    // tied to the rate</span>
+}
+</code></pre></figure>
+<h2 id="reading-and-writing-the-transform">Reading and writing the transform<a class="anchor" href="#reading-and-writing-the-transform" aria-label="Link to this section">#</a></h2>
+<p><code>GetPosition</code>, <code>GetRotation</code> and <code>GetScale</code> return <strong>references into the component</strong>, so you can read them or assign through them. Rotation is in <strong>radians</strong>.</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">GetPosition</span>().y = <span class="tok-number">3.0f</span>;          <span class="tok-comment">// assign a component</span>
+<span class="tok-call">Translate</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">0.0f</span>, -<span class="tok-number">1.0f</span> }); <span class="tok-comment">// add a delta</span>
+<span class="tok-call">Rotate</span>({ <span class="tok-number">0.0f</span>, <span class="tok-type">glm</span>::<span class="tok-call">radians</span>(<span class="tok-number">90.0f</span>) * dt.<span class="tok-call">GetSeconds</span>(), <span class="tok-number">0.0f</span> });
+<span class="tok-call">LookAt</span>(target.GetComponent&lt;<span class="tok-type">TransformComponent</span>&gt;().Position);
+</code></pre></figure>
+<p>These are <strong>local</strong> — relative to the parent. When you need the answer in world space, ask for it:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-type">glm</span>::<span class="tok-type">vec3</span> here = <span class="tok-call">GetWorldPosition</span>();
+<span class="tok-type">glm</span>::<span class="tok-type">mat4</span> me   = <span class="tok-call">GetWorldTransform</span>();
+</code></pre></figure>
+<p><code>GetForward</code>, <code>GetRight</code> and <code>GetUp</code> give the entity&#39;s own axes, so &quot;forward&quot; means forward <em>for this object</em> rather than for the world. That is what makes a character controller work when the character is turned:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">const</span> <span class="tok-type">glm</span>::<span class="tok-type">vec3</span> direction =
+    <span class="tok-call">GetForward</span>() * <span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;MoveForward&quot;</span>) +
+    <span class="tok-call">GetRight</span>()   * <span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;MoveRight&quot;</span>);
+
+<span class="tok-keyword">if</span> (<span class="tok-type">glm</span>::<span class="tok-call">dot</span>(direction, direction) &gt; <span class="tok-number">0.0f</span>)
+    <span class="tok-call">Translate</span>(<span class="tok-type">glm</span>::<span class="tok-call">normalize</span>(direction) * m_Speed * dt.<span class="tok-call">GetSeconds</span>());
+</code></pre></figure>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Normalising a zero-length vector produces NaNs, and a NaN in a transform spreads to every transform derived from it — the object and all its children disappear, permanently, with no error. Guard the normalise, as above. This is the most common way to lose an object in this engine.</p>
+</aside>
+<h2 id="components">Components<a class="anchor" href="#components" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">if</span> (HasComponent&lt;<span class="tok-type">MeshComponent</span>&gt;())
+{
+    <span class="tok-keyword">auto</span>&amp; mesh = GetComponent&lt;<span class="tok-type">MeshComponent</span>&gt;();
+    <span class="tok-comment">// ...</span>
+}
+
+<span class="tok-keyword">auto</span>&amp; body = AddComponent&lt;<span class="tok-type">RigidBodyComponent</span>&gt;();
+RemoveComponent&lt;AudioSourceComponent&gt;();
+</code></pre></figure>
+<p><code>GetComponent</code> does not check. Ask <code>HasComponent</code> first, or be certain.</p>
+<h2 id="finding-other-entities">Finding other entities<a class="anchor" href="#finding-other-entities" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-type">Entity</span> player = <span class="tok-call">FindEntityByName</span>(<span class="tok-string">&quot;Player&quot;</span>);
+<span class="tok-keyword">if</span> (player)                                    <span class="tok-comment">// always test</span>
+    <span class="tok-call">LookAt</span>(player.GetComponent&lt;<span class="tok-type">TransformComponent</span>&gt;().Position);
+</code></pre></figure>
+<p>An <code>Entity</code> converts to <code>bool</code>, and an invalid one is what you get when nothing matched. <code>FindEntitiesByName</code> returns every match when names are not unique.</p>
+<p>For anything you intend to remember, use the UUID:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnCreate</span>() <span class="tok-keyword">override</span>
+{
+    <span class="tok-keyword">if</span> (<span class="tok-type">Entity</span> player = <span class="tok-call">FindEntityByName</span>(<span class="tok-string">&quot;Player&quot;</span>))
+        m_Player = player.<span class="tok-call">GetUUID</span>();
+}
+
+<span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span>) <span class="tok-keyword">override</span>
+{
+    <span class="tok-type">Entity</span> player = <span class="tok-call">FindEntityByUUID</span>(m_Player);
+    <span class="tok-keyword">if</span> (!player)
+        <span class="tok-keyword">return</span>;    <span class="tok-comment">// destroyed since</span>
+    <span class="tok-comment">// ...</span>
+}
+</code></pre></figure>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Looking up by name every step is a linear scan of the scene. Once, in <code>OnCreate</code>, into a <code>UUID</code> — then look the UUID up. On a small scene the difference is invisible; on a large one it is the script&#39;s whole cost.</p>
+</aside>
+<h2 id="spawning-and-destroying">Spawning and destroying<a class="anchor" href="#spawning-and-destroying" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-type">Entity</span> spark = <span class="tok-call">Spawn</span>(<span class="tok-string">&quot;Spark&quot;</span>);
+spark.AddComponent&lt;<span class="tok-type">MeshComponent</span>&gt;();
+
+<span class="tok-type">Entity</span> enemy = <span class="tok-call">SpawnPrefab</span>(m_EnemyPrefab);   <span class="tok-comment">// an AssetHandle</span>
+
+<span class="tok-call">Destroy</span>(enemy);    <span class="tok-comment">// that one</span>
+<span class="tok-call">Destroy</span>();         <span class="tok-comment">// this one</span>
+</code></pre></figure>
+<p>Destruction is <strong>deferred to the end of the simulation step</strong>. It has to be: destroying an entity while the script pass is walking them would invalidate the iteration, and a script destroying itself mid-update would delete the object currently executing.</p>
+<p>The practical consequence is that a destroyed entity is still there for the rest of the step, and every script that looks it up in the same step will find it. Test validity rather than assuming a <code>Destroy</code> has already taken effect.</p>
+<h2 id="physics">Physics<a class="anchor" href="#physics" aria-label="Link to this section">#</a></h2>
+<p>All of these are no-ops outside play mode and on an entity with no rigid body. Velocities and impulses are <strong>world space</strong>.</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">AddForce</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">20.0f</span>, <span class="tok-number">0.0f</span> });      <span class="tok-comment">// accumulates over a step, cleared by it</span>
+<span class="tok-call">AddImpulse</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">5.0f</span>, <span class="tok-number">0.0f</span> });     <span class="tok-comment">// changes velocity at once</span>
+<span class="tok-call">SetLinearVelocity</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">0.0f</span>, <span class="tok-number">0.0f</span> });
+<span class="tok-type">glm</span>::<span class="tok-type">vec3</span> v = <span class="tok-call">GetLinearVelocity</span>();
+</code></pre></figure>
+<p><strong>A jump is an impulse; a thruster is a force.</strong> Applying a force for one step and expecting a jump gets you a twitch, because the force is cleared by the step that consumed it.</p>
+<h3 id="raycasts">Raycasts<a class="anchor" href="#raycasts" aria-label="Link to this section">#</a></h3>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">if</span> (<span class="tok-type">RayHit</span> hit = <span class="tok-call">Raycast</span>(<span class="tok-call">GetWorldPosition</span>(), <span class="tok-call">GetForward</span>() * <span class="tok-number">10.0f</span>))
+{
+    <span class="tok-comment">// hit.Entity, hit.Point, hit.Normal, hit.Distance</span>
+}
+</code></pre></figure>
+<p>The direction need not be normalised — the ray extends to its length, which is how you set the range. The nearest body along it wins, and that may be the entity casting the ray; check for that if it matters.</p>
+<h2 id="collisions-and-triggers">Collisions and triggers<a class="anchor" href="#collisions-and-triggers" aria-label="Link to this section">#</a></h2>
+<p>Six callbacks, delivered <strong>after</strong> the simulation step that produced them — so a script reacting to a hit is reacting to a resolved one.</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnCollisionEnter</span>(<span class="tok-keyword">const</span> <span class="tok-type">Collision</span>&amp; collision) <span class="tok-keyword">override</span>
+{
+    <span class="tok-keyword">if</span> (collision.ImpactSpeed &gt; <span class="tok-number">3.0f</span>)
+        <span class="tok-call">PlayOneShot</span>(m_ThudClip, <span class="tok-type">glm</span>::<span class="tok-call">min</span>(collision.ImpactSpeed / <span class="tok-number">10.0f</span>, <span class="tok-number">1.0f</span>));
+}
+</code></pre></figure>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Callback</th><th style="text-align:left">Fires</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>OnCollisionEnter</code> / <code>Exit</code></td><td style="text-align:left">Once per pair, for solid colliders</td></tr>
+<tr><td style="text-align:left"><code>OnCollisionStay</code></td><td style="text-align:left">Every step in between</td></tr>
+<tr><td style="text-align:left"><code>OnTriggerEnter</code> / <code>Stay</code> / <code>Exit</code></td><td style="text-align:left">The same, for colliders marked <code>IsTrigger</code></td></tr>
+</tbody></table></div>
+<p>The same event reaches <strong>both</strong> entities, each with <code>Other</code> set to the one it is not, and <code>Normal</code> pointing back at itself. So a script can be written without knowing which side of the pair it happens to be on.</p>
+<p><code>Collision::Other</code> may already have been destroyed this step. Test it:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">if</span> (!collision.Other)
+    <span class="tok-keyword">return</span>;
+</code></pre></figure>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>A pair that comes to rest does not report Exit when the simulation puts it to sleep.</strong> The objects are still touching, and the engine only reports what changed physically. If you are counting occupants, a sleeping body stays counted — which is correct, and is not what most people expect.</p>
+</aside>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>A trigger only sees bodies that are awake.</strong> Something that falls asleep inside a trigger stops being reported until it moves again. If a trigger must notice a resting object, keep the object awake or poll it instead.</p>
+</aside>
+<h2 id="audio">Audio<a class="anchor" href="#audio" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">PlaySource</span>();                        <span class="tok-comment">// this entity&#39;s AudioSourceComponent</span>
+<span class="tok-call">StopSource</span>();
+<span class="tok-keyword">if</span> (<span class="tok-call">IsSourcePlaying</span>()) { }
+
+<span class="tok-call">PlayOneShot</span>(m_ClipHandle, <span class="tok-number">0.8f</span>);     <span class="tok-comment">// at this entity&#39;s position</span>
+<span class="tok-call">PlayOneShot2D</span>(m_UiClip);             <span class="tok-comment">// unpositioned: UI, narration, a stinger</span>
+</code></pre></figure>
+<p><code>PlaySource</code> restarts the source if it is already playing, and does nothing if the entity has no <code>AudioSourceComponent</code>. One-shots are fire-and-forget; the returned <code>AudioVoice</code> is only useful for a sound long enough to want to interrupt.</p>
+<h2 id="input">Input<a class="anchor" href="#input" aria-label="Link to this section">#</a></h2>
+<p>By <strong>action name</strong>, never by key code:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">if</span> (<span class="tok-call">WasActionPressed</span>(<span class="tok-string">&quot;Jump&quot;</span>))
+    <span class="tok-call">AddImpulse</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">5.0f</span>, <span class="tok-number">0.0f</span> });
+
+<span class="tok-keyword">if</span> (<span class="tok-call">IsActionDown</span>(<span class="tok-string">&quot;Sprint&quot;</span>))
+    speed *= <span class="tok-number">3.0f</span>;
+
+<span class="tok-keyword">const</span> <span class="tok-type">float</span> turn = <span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;LookX&quot;</span>);
+</code></pre></figure>
+<p>This is not ceremony. A script written against <code>&quot;Jump&quot;</code> keeps working when the player rebinds it, when a gamepad is added, and when the same action is bound to two things at once. A script written against a key code does none of that.</p>
+<p>Edges — <code>WasActionPressed</code> and <code>WasActionReleased</code> — are consumed by the first step that runs, and a frame with no steps carries them forward rather than losing them. So a press is never missed and never seen twice.</p>
+<h2 id="time">Time<a class="anchor" href="#time" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">const</span> <span class="tok-type">float</span> step = <span class="tok-call">GetFixedDeltaTime</span>();   <span class="tok-comment">// the same value dt carries</span>
+<span class="tok-keyword">const</span> <span class="tok-type">float</span> now  = <span class="tok-call">GetTime</span>();             <span class="tok-comment">// seconds since the process started</span>
+</code></pre></figure>
+<h2 id="the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples<a class="anchor" href="#the-engine-s-own-scripts-as-worked-examples" aria-label="Link to this section">#</a></h2>
+<p><code>RageV/src/RageV/Scripts/BuiltinScripts.cpp</code> contains six scripts that ship with the engine and are readable in about ten minutes:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Script</th><th style="text-align:left">What it demonstrates</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Spinner</code></td><td style="text-align:left">The minimum: one override, rate multiplied by <code>dt</code></td></tr>
+<tr><td style="text-align:left"><code>Mover</code></td><td style="text-align:left">Input by action, movement relative to the entity&#39;s own axes</td></tr>
+<tr><td style="text-align:left"><code>Follow</code></td><td style="text-align:left">Reaching another entity, held by UUID</td></tr>
+<tr><td style="text-align:left"><code>ImpactFlash</code></td><td style="text-align:left">Collision events driving a material change</td></tr>
+<tr><td style="text-align:left"><code>ImpactSound</code></td><td style="text-align:left">Scaling a sound by <code>ImpactSpeed</code></td></tr>
+<tr><td style="text-align:left"><code>TriggerZone</code></td><td style="text-align:left">Trigger enter/exit bookkeeping, including the sleep caveat</td></tr>
+</tbody></table></div>
+<p>They exist partly so that pressing Play does something observable out of the box, and partly to be exactly this: the worked examples of what reads well.</p>
+<h2 id="common-mistakes">Common mistakes<a class="anchor" href="#common-mistakes" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Symptom</th><th style="text-align:left">Cause</th></tr></thead><tbody>
+<tr><td style="text-align:left">Script missing from the dropdown</td><td style="text-align:left">Registered in a static library, object file dropped by the linker</td></tr>
+<tr><td style="text-align:left">Object vanishes and never returns</td><td style="text-align:left">NaN in the transform, usually from normalising a zero vector</td></tr>
+<tr><td style="text-align:left">Behaviour changes with <code>--fixed-hz</code></td><td style="text-align:left">A rate not multiplied by <code>dt</code></td></tr>
+<tr><td style="text-align:left">A jump barely twitches</td><td style="text-align:left"><code>AddForce</code> where <code>AddImpulse</code> was meant</td></tr>
+<tr><td style="text-align:left">Trigger never reports Exit</td><td style="text-align:left">The body fell asleep inside it</td></tr>
+<tr><td style="text-align:left">Stale entity after Stop</td><td style="text-align:left">An <code>Entity</code> stored across play mode instead of a <code>UUID</code></td></tr>
+<tr><td style="text-align:left">Scene loses its scripts on save</td><td style="text-align:left">The script&#39;s registered name was changed</td></tr>
+</tbody></table></div>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="../scripting/index.html"><span class="pager-label">Previous</span><span class="pager-title">Scripting</span></a><a class="pager-link pager-next" href="../scripting/cpp-reference.html"><span class="pager-label">Next</span><span class="pager-title">C++ API reference</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#registering-and-one-linker-trap">Registering, and one linker trap</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#onupdate-is-not-per-frame">OnUpdate is not per frame</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#finding-other-entities">Finding other entities</a><a class="toc-link toc-l2" href="#spawning-and-destroying">Spawning and destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l3" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#time">Time</a><a class="toc-link toc-l2" href="#the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+</div>
+<script src="../search-index.js"></script>
+<script src="../manual.js"></script>
+</body>
+</html>
