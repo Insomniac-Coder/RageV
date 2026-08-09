@@ -1886,6 +1886,49 @@ namespace
 
 		Check(!IrradianceFromCube(CubeFaces{}, 8).Valid(),
 			  "an empty environment convolves to nothing rather than crashing");
+
+		// Which sky the ambient comes from when the irradiance is missing.
+		//
+		// There are two ways to have no irradiance and they want opposite
+		// answers, which is the whole reason this takes the cube as well. With
+		// no cube, Draw is showing the gradient and the gradient's irradiance
+		// matches the screen. With a cube but no irradiance, Draw is showing
+		// the cube -- and the gradient's colours then describe a sky that is
+		// not there. That case used to fall through to the gradient anyway and
+		// light the scene a plausible wrong colour in silence.
+		if (Renderer::HasDevice())
+		{
+			auto& device = Renderer::GetDevice();
+
+			SceneEnvironment gradientSky;
+			gradientSky.Sky = SkyType::Gradient;
+
+			SceneEnvironment cubemapSky;
+			cubemapSky.Sky = SkyType::Cubemap;
+
+			// Any real cube will do as a stand-in for a loaded sky; the
+			// gradient's own is one that certainly exists and is not the black
+			// cube the failure path returns.
+			auto someCube = Skybox::ResolveEnvironment(gradientSky, nullptr);
+			auto black = TextureLoader::BlackCube(device);
+			auto gradientIrradiance = Skybox::ResolveIrradiance(gradientSky, nullptr, nullptr);
+
+			Check(someCube != nullptr && black != nullptr && gradientIrradiance != nullptr &&
+				  someCube != black && gradientIrradiance != black,
+				  "the gradient sky has a cube and an irradiance of its own");
+
+			Check(Skybox::ResolveIrradiance(cubemapSky, someCube, someCube) == someCube,
+				  "a cubemap sky with an irradiance uses it");
+
+			const auto orphaned = Skybox::ResolveIrradiance(cubemapSky, someCube, nullptr);
+			Check(orphaned == black,
+				  "a cubemap sky with a cube but no irradiance contributes no ambient");
+			Check(orphaned != gradientIrradiance,
+				  "and specifically not the gradient's, which is a sky that is not on screen");
+
+			Check(Skybox::ResolveIrradiance(cubemapSky, nullptr, nullptr) == gradientIrradiance,
+				  "but with no cube at all the gradient is what is drawn, so it is what lights");
+		}
 	}
 
 	// Frustum culling.
@@ -2599,6 +2642,49 @@ namespace
 		DrawPhysicsColliders(*scene);
 		Check(DebugRenderer::GetLineCount() == 12, "a collider with no rigid body still draws");
 		DebugRenderer::EndScene();
+
+		// The overlay is frustum culled, like the meshes it annotates.
+		//
+		// Checked by the line count rather than by looking, because a shape
+		// drawn a kilometre off screen and a shape not drawn at all produce the
+		// same picture -- which is why this was the last thing in the renderer
+		// still submitting whatever the registry held.
+		{
+			auto far_away = std::make_shared<Scene>();
+			Entity behind = far_away->CreateEntity("Behind the camera");
+			behind.AddComponent<ColliderComponent>();
+			behind.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 4000.0f };
+
+			DebugRenderer::BeginScene(camera, camera.GetTransform());
+			DrawPhysicsColliders(*far_away);
+			const uint32_t lines = DebugRenderer::GetLineCount();
+			const uint32_t culled = DebugRenderer::GetCulledCount();
+			DebugRenderer::EndScene();
+
+			Check(lines == 0 && culled == 1, "a collider outside the frustum is not submitted");
+		}
+
+		// And the other direction, which is the one that costs a hole in the
+		// picture rather than a wasted draw.
+		{
+			auto visible = std::make_shared<Scene>();
+			Entity front = visible->CreateEntity("In view");
+			front.AddComponent<ColliderComponent>();
+
+			DebugRenderer::BeginScene(camera, camera.GetTransform());
+			DrawPhysicsColliders(*visible);
+			const uint32_t lines = DebugRenderer::GetLineCount();
+			const uint32_t culled = DebugRenderer::GetCulledCount();
+			DebugRenderer::EndScene();
+
+			Check(lines == 12 && culled == 0, "and one inside it still is");
+		}
+
+		// Outside a scene there is no frustum, so nothing may be dropped for
+		// being outside one. Debug draw is called from wherever a question is
+		// being asked, and must not need a camera to have been set up first.
+		Check(DebugRenderer::GetCulledCount() == 0,
+			  "with no scene begun, nothing is culled");
 
 		// The overlay must describe what is simulated, so the sizing has to be
 		// the same function the shape is built from.

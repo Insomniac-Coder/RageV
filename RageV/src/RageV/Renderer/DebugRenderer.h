@@ -1,6 +1,7 @@
 #pragma once
 #include "glm/glm.hpp"
 #include "Camera.h"
+#include "Frustum.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
 
 namespace RageV
@@ -32,8 +33,17 @@ namespace RageV
 		// Resets the per-frame batch pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();
 
+		// Also builds the frustum every shape below is tested against. Culling
+		// lives here rather than in each caller because the callers are debug
+		// code scattered across the engine, and a rule that has to be
+		// remembered in twenty places is a rule that holds in nineteen.
 		static void BeginScene(const Camera& camera, const glm::mat4& cameraTransform);
 		static void EndScene();
+
+		// Shapes dropped by the frustum since BeginScene. Exposed so the
+		// culling can be asserted rather than assumed -- a shape that is not
+		// drawn and a shape that is drawn off screen look identical.
+		static uint32_t GetCulledCount();
 
 		// --- primitives -------------------------------------------------------
 		// All world space. `transform` carries position and rotation; scale is
@@ -61,5 +71,10 @@ namespace RageV
 	private:
 		static void EnsurePipeline();
 		static void Flush();
+
+		// A sphere around the shape, tested against the scene's frustum. True
+		// when nothing has begun a scene, so debug draw never disappears
+		// because of a missing frustum.
+		static bool Visible(const glm::vec3& centre, float radius);
 	};
 }

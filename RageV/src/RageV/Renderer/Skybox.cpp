@@ -205,6 +205,7 @@ namespace RageV
 	}
 
 	Ref<RHITexture> Skybox::ResolveIrradiance(const SceneEnvironment& environment,
+											  const Ref<RHITexture>& cubemap,
 											  const Ref<RHITexture>& irradiance)
 	{
 		if (!s_Data || !s_Data->Device)
@@ -217,6 +218,23 @@ namespace RageV
 		// added on top of this, so a scene with no sky is not black.
 		if (environment.Sky == SkyType::Color)
 			return TextureLoader::BlackCube(*s_Data->Device);
+
+		// A cubemap sky that has its cube but not its irradiance. Draw is
+		// putting that cube on screen, so falling through to the gradient
+		// below would light the scene from SkyHorizon / SkyZenith / SkyGround
+		// -- fields a scene using an environment map has no reason to have set
+		// to anything meaningful. The result was ambient light of a plausible
+		// colour with no relationship to the visible sky, and nothing said so.
+		//
+		// TextureLoader now fails a cube whose irradiance will not build, so
+		// this should be unreachable; it is handled rather than asserted
+		// because "unreachable" has been wrong here before.
+		if (environment.Sky == SkyType::Cubemap && cubemap)
+		{
+			RV_CORE_WARN("The sky cube has no irradiance, so the scene has no diffuse "
+						 "ambient from it. The gradient's would be the wrong sky.");
+			return TextureLoader::BlackCube(*s_Data->Device);
+		}
 
 		// Builds the gradient cube if it is stale, which also builds this.
 		ResolveEnvironment(environment, nullptr);

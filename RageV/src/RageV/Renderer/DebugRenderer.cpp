@@ -2,6 +2,7 @@
 #include "DebugRenderer.h"
 #include "Renderer.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
+#include "RageV/Renderer/Frustum.h"
 #include <glm/gtc/constants.hpp>
 
 namespace RageV
@@ -62,6 +63,12 @@ namespace RageV
 
 			SceneUniforms Scene{};
 			bool InScene = false;
+
+			// The volume the current scene can see, and how many shapes fell
+			// outside it. Built in BeginScene from the same matrix the shader
+			// gets, so what is culled and what is drawn cannot disagree.
+			Frustum View;
+			uint32_t CulledCount = 0;
 
 			// False when the shader did not compile. Asked by the test
 			// suite, so a silent failure fails a build rather than a picture.
@@ -245,8 +252,30 @@ namespace RageV
 			return;
 
 		s_Data->LineCount = 0;
+		s_Data->CulledCount = 0;
 		s_Data->InScene = true;
 		s_Data->Scene.ViewProjection = camera.GetProjection() * glm::inverse(cameraTransform);
+		s_Data->View.Build(s_Data->Scene.ViewProjection);
+	}
+
+	bool DebugRenderer::Visible(const glm::vec3& centre, float radius)
+	{
+		if (!s_Data || !s_Data->InScene)
+			return true;
+
+		// A box around the sphere rather than a plane-distance test: it is
+		// conservative in the safe direction -- it can keep something that is
+		// off screen, and never drops something that is on it.
+		if (s_Data->View.Intersects(centre, glm::vec3(radius)))
+			return true;
+
+		s_Data->CulledCount++;
+		return false;
+	}
+
+	uint32_t DebugRenderer::GetCulledCount()
+	{
+		return s_Data ? s_Data->CulledCount : 0;
 	}
 
 	void DebugRenderer::EndScene()
@@ -317,6 +346,16 @@ namespace RageV
 	void DebugRenderer::DrawBox(const glm::mat4& transform, const glm::vec3& halfExtents,
 								const glm::vec4& color)
 	{
+		// The sphere that contains the box however it is turned. Scale is not
+		// assumed to be absent from the matrix even though these callers do not
+		// put it there -- the longest basis vector covers it either way.
+		const float scale = std::max({ glm::length(glm::vec3(transform[0])),
+									   glm::length(glm::vec3(transform[1])),
+									   glm::length(glm::vec3(transform[2])) });
+
+		if (!Visible(glm::vec3(transform[3]), glm::length(halfExtents) * scale))
+			return;
+
 		// The eight corners, transformed once each, rather than twelve edges
 		// transformed at both ends.
 		glm::vec3 corner[8];
@@ -346,6 +385,9 @@ namespace RageV
 	{
 		const glm::vec3 centre = glm::vec3(transform[3]);
 
+		if (!Visible(centre, radius))
+			return;
+
 		for (int axis = 0; axis < 3; axis++)
 		{
 			glm::vec3 u, v;
@@ -367,6 +409,9 @@ namespace RageV
 		const glm::vec3 right = glm::vec3(transform * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
 		const glm::vec3 up = glm::vec3(transform * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
 		const glm::vec3 forward = glm::vec3(transform * glm::vec4(0.0f, 0.0f, 1.0f, 0.0f));
+
+		if (!Visible(centre, halfHeight + radius))
+			return;
 
 		// A capsule is Y-up, matching ColliderComponent::Height and Jolt.
 		const glm::vec3 top = centre + up * halfHeight;

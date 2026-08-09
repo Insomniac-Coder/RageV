@@ -1041,8 +1041,11 @@ namespace RageV
 				irradiance = AssetManager::GetIrradiance(m_Environment.SkyTexture);
 			}
 
+			// Before ResolveEnvironment replaces `sky` with the gradient cube:
+			// what the ambient should be depends on whether the scene has a
+			// real cube, and after that line every path has one.
+			irradiance = Skybox::ResolveIrradiance(m_Environment, sky, irradiance);
 			sky = Skybox::ResolveEnvironment(m_Environment, sky);
-			irradiance = Skybox::ResolveIrradiance(m_Environment, irradiance);
 		}
 
 		// The sky still draws the sky; only the surfaces reflect the probe.
@@ -1055,6 +1058,13 @@ namespace RageV
 		// faces.
 		environment = EnvironmentIBL::GetPrefiltered(environment);
 
+		// One frustum for this pass, shared by the meshes and the quads below.
+		// Built here rather than inside the mesh block because it belongs to
+		// the pass, not to one kind of geometry -- keeping it in there is how
+		// the quads ended up being the one thing in the renderer that drew
+		// whatever the registry held.
+		const Frustum frustum(camera.GetProjection() * glm::inverse(cameraTransform));
+
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
 		// of the alpha-blended quads means the quads blend against a complete
 		// depth buffer rather than over each other arbitrarily.
@@ -1063,8 +1073,6 @@ namespace RageV
 		{
 			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment,
 								   environment, irradiance);
-
-			const Frustum frustum(camera.GetProjection() * glm::inverse(cameraTransform));
 
 			for (auto& item : meshView)
 			{
@@ -1107,9 +1115,24 @@ namespace RageV
 
 		auto group = m_Registry.group<TransformComponent>(entt::get<ColorComponent>);
 
+		// The unit quad every one of these is, in its own space. Zero depth:
+		// TransformBounds takes the absolute value of the basis rows, so a
+		// rotated quad still gets a box that contains it.
+		static const AABB kQuadBounds{ glm::vec3(-0.5f, -0.5f, 0.0f),
+									   glm::vec3( 0.5f,  0.5f, 0.0f) };
+
 		for (auto& item : group)
 		{
 			auto [transform, color] = group.get<TransformComponent, ColorComponent>(item);
+
+			glm::vec3 centre, extents;
+			Frustum::TransformBounds(kQuadBounds, transform.World, centre, extents);
+
+			if (!frustum.Intersects(centre, extents))
+			{
+				Renderer3D::CountCulled();
+				continue;
+			}
 
 			Renderer2D::DrawQuad(transform.World, color.Color);
 		}

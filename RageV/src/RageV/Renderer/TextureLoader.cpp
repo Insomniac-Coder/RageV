@@ -241,8 +241,21 @@ namespace RageV
 		// keeping 25 MB of float faces resident against the chance that
 		// something asks.
 		const CubeFaces irradiance = IrradianceFromCube(faces, kIrradianceSize);
-		s_IrradianceCache[key] = CreateCube(device, irradiance, path + " (irradiance)");
+		auto irradianceTexture = CreateCube(device, irradiance, path + " (irradiance)");
 
+		// Both or neither. A cube without its irradiance is a state nothing
+		// downstream can handle honestly: the sky would draw this map while the
+		// diffuse ambient came from the gradient's colours, which describe a
+		// different sky the scene may never have set. Failing the load makes
+		// that state unrepresentable rather than merely unlikely.
+		if (!irradianceTexture)
+		{
+			RV_CORE_ERROR("Environment map '{0}' loaded but its irradiance could not be "
+						  "created; treating the map as unloaded", path);
+			return nullptr;
+		}
+
+		s_IrradianceCache[key] = irradianceTexture;
 		s_CubeCache[key] = texture;
 		RV_CORE_INFO("Loaded environment map {0} ({1} per face, {2})", path, faces.Size,
 					 suffixIndex >= 0 ? "six files" : "equirectangular");
