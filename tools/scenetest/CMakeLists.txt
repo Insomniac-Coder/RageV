@@ -1,6 +1,9 @@
 add_executable(scenetest main.cpp)
 target_link_libraries(scenetest PRIVATE RageV::RageV glfw)
 # Renderer::Init compiles the 2D and 3D shaders, so the assets have to be here.
+# The skinned test model comes with them: the import checks read it from beside
+# the executable like everything else, and a test that skips because its input
+# is missing is worse than one that is not there at all.
 add_custom_command(TARGET scenetest POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/RageVEditor/assets" "$<TARGET_FILE_DIR:scenetest>/assets")

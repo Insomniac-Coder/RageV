@@ -127,6 +127,238 @@ namespace RageV
 			if (out.EmissiveTexture >= 0)  out.Params.MapFlags |= MaterialMap_Emissive;
 		}
 
+
+		// --- skinning ---------------------------------------------------------
+		// glTF's joints array is in whatever order the exporter wrote it, and
+		// Skeleton requires parents before children so composition can be one
+		// forward pass. So the joints are reordered here and everything that
+		// refers to them -- the vertices' JOINTS_0, the animation channels --
+		// is remapped through the same table.
+		//
+		// Doing it at import rather than at load means the runtime never sees
+		// the arbitrary order, and the invariant is established once by code
+		// that can fail loudly instead of being hoped for.
+		struct SkinMapping
+		{
+			// glTF joint index to skeleton bone index.
+			std::vector<int> ToBone;
+			// cgltf node pointer to glTF joint index.
+			std::unordered_map<const cgltf_node*, int> JointOf;
+		};
+
+		bool ReadSkin(const cgltf_skin& skin, Skeleton& out, SkinMapping& mapping)
+		{
+			const size_t count = skin.joints_count;
+			if (count == 0)
+				return false;
+
+			mapping.JointOf.clear();
+			for (size_t i = 0; i < count; i++)
+				mapping.JointOf[skin.joints[i]] = (int)i;
+
+			// Each joint's parent, as a glTF joint index. A joint whose node
+			// parent is not itself a joint is a root of this skeleton -- which
+			// is the normal case for the topmost bone, whose parent is the
+			// armature node.
+			std::vector<int> parentOf(count, -1);
+			for (size_t i = 0; i < count; i++)
+			{
+				const cgltf_node* parent = skin.joints[i]->parent;
+				const auto found = parent ? mapping.JointOf.find(parent) : mapping.JointOf.end();
+				parentOf[i] = found != mapping.JointOf.end() ? found->second : -1;
+			}
+
+			// Depth first from the roots, so a parent is always emitted before
+			// its children. A cycle would be a malformed file; the visited set
+			// makes that a dropped bone rather than a hang.
+			mapping.ToBone.assign(count, -1);
+			std::vector<int> order;
+			order.reserve(count);
+
+			std::vector<std::vector<int>> childrenOf(count);
+			for (size_t i = 0; i < count; i++)
+			{
+				if (parentOf[i] >= 0)
+					childrenOf[parentOf[i]].push_back((int)i);
+			}
+
+			std::vector<int> stack;
+			for (size_t i = 0; i < count; i++)
+			{
+				if (parentOf[i] < 0)
+					stack.push_back((int)i);
+			}
+			// Reversed, so the first root is processed first once popped.
+			std::reverse(stack.begin(), stack.end());
+
+			while (!stack.empty())
+			{
+				const int joint = stack.back();
+				stack.pop_back();
+
+				if (mapping.ToBone[joint] >= 0)
+					continue;
+
+				mapping.ToBone[joint] = (int)order.size();
+				order.push_back(joint);
+
+				for (auto child = childrenOf[joint].rbegin();
+					 child != childrenOf[joint].rend(); ++child)
+				{
+					stack.push_back(*child);
+				}
+			}
+
+			if (order.size() != count)
+			{
+				RV_CORE_WARN("Skin '{0}' has {1} joints but only {2} are reachable from a "
+							 "root; the rest are dropped",
+							 skin.name ? skin.name : "(unnamed)", count, order.size());
+			}
+
+			out.Bones.clear();
+			out.Bones.resize(order.size());
+
+			for (size_t bone = 0; bone < order.size(); bone++)
+			{
+				const int joint = order[bone];
+				const cgltf_node* node = skin.joints[joint];
+
+				Bone& target = out.Bones[bone];
+				target.Name = node->name ? node->name : ("bone" + std::to_string(bone));
+				target.Parent = parentOf[joint] >= 0 ? mapping.ToBone[parentOf[joint]] : -1;
+
+				// The node's own rest transform, which is what a bone the clip
+				// does not animate holds.
+				if (node->has_matrix)
+				{
+					// A node given as a matrix has to be taken apart, because
+					// the pose is stored as three components.
+					glm::mat4 matrix;
+					memcpy(&matrix[0][0], node->matrix, sizeof(float) * 16);
+
+					glm::vec3 skew;
+					glm::vec4 perspective;
+					glm::quat rotation;
+					if (glm::decompose(matrix, target.RestScale, rotation, target.RestPosition,
+									   skew, perspective))
+					{
+						target.RestRotation = rotation;
+					}
+				}
+				else
+				{
+					if (node->has_translation)
+						target.RestPosition = { node->translation[0], node->translation[1],
+												node->translation[2] };
+					if (node->has_rotation)
+					{
+						// glTF stores xyzw; glm's constructor takes wxyz.
+						target.RestRotation = glm::quat(node->rotation[3], node->rotation[0],
+														node->rotation[1], node->rotation[2]);
+					}
+					if (node->has_scale)
+						target.RestScale = { node->scale[0], node->scale[1], node->scale[2] };
+				}
+
+				// The inverse bind matrix is optional; the identity is the
+				// documented default and means the bind pose is mesh space.
+				if (skin.inverse_bind_matrices)
+				{
+					float values[16] = {};
+					if (cgltf_accessor_read_float(skin.inverse_bind_matrices, joint, values, 16))
+						memcpy(&target.InverseBind[0][0], values, sizeof(values));
+				}
+			}
+
+			if (!out.IsWellOrdered())
+			{
+				RV_CORE_ERROR("Skin '{0}' could not be ordered parents-first",
+							  skin.name ? skin.name : "(unnamed)");
+				return false;
+			}
+
+			return true;
+		}
+
+		void ReadAnimation(const cgltf_animation& source, const SkinMapping& mapping,
+						   size_t boneCount, AnimationClip& out)
+		{
+			out.Name = source.name ? source.name : "Clip";
+			out.Tracks.assign(boneCount, BoneTrack{});
+
+			for (cgltf_size c = 0; c < source.channels_count; c++)
+			{
+				const cgltf_animation_channel& channel = source.channels[c];
+				if (!channel.target_node || !channel.sampler)
+					continue;
+
+				const auto joint = mapping.JointOf.find(channel.target_node);
+				if (joint == mapping.JointOf.end())
+					continue;   // animates something that is not a bone of this skin
+
+				const int bone = mapping.ToBone[joint->second];
+				if (bone < 0 || bone >= (int)boneCount)
+					continue;
+
+				const cgltf_accessor* input = channel.sampler->input;
+				const cgltf_accessor* output = channel.sampler->output;
+				if (!input || !output)
+					continue;
+
+				const cgltf_size keys = std::min(input->count, output->count);
+				BoneTrack& track = out.Tracks[bone];
+
+				// STEP and CUBICSPLINE are read as if they were linear rather
+				// than refused. A clip that plays slightly wrong is a better
+				// failure than a character that does not move, and the two are
+				// rare enough that guessing is the right trade until somebody
+				// hits it.
+				if (channel.sampler->interpolation != cgltf_interpolation_type_linear)
+				{
+					RV_CORE_WARN("Animation '{0}' uses a non-linear interpolation; "
+								 "sampling it linearly", out.Name);
+				}
+
+				for (cgltf_size k = 0; k < keys; k++)
+				{
+					float time = 0.0f;
+					cgltf_accessor_read_float(input, k, &time, 1);
+
+					float value[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+					switch (channel.target_path)
+					{
+						case cgltf_animation_path_type_translation:
+							cgltf_accessor_read_float(output, k, value, 3);
+							track.Position.Times.push_back(time);
+							track.Position.Values.push_back({ value[0], value[1], value[2] });
+							break;
+
+						case cgltf_animation_path_type_rotation:
+							cgltf_accessor_read_float(output, k, value, 4);
+							// xyzw on disk, wxyz in glm.
+							track.Rotation.Times.push_back(time);
+							track.Rotation.Values.push_back(
+								glm::quat(value[3], value[0], value[1], value[2]));
+							break;
+
+						case cgltf_animation_path_type_scale:
+							cgltf_accessor_read_float(output, k, value, 3);
+							track.Scale.Times.push_back(time);
+							track.Scale.Values.push_back({ value[0], value[1], value[2] });
+							break;
+
+						default:
+							// Morph target weights, which nothing here supports.
+							break;
+					}
+				}
+			}
+
+			out.RecomputeDuration();
+		}
+
 		bool ReadPrimitive(const cgltf_data& data, const cgltf_primitive& source,
 						   const std::string& name, ImportedPrimitive& out)
 		{
@@ -138,6 +370,8 @@ namespace RageV
 			const cgltf_accessor* positions = nullptr;
 			const cgltf_accessor* normals = nullptr;
 			const cgltf_accessor* texcoords = nullptr;
+			const cgltf_accessor* joints = nullptr;
+			const cgltf_accessor* weights = nullptr;
 
 			for (cgltf_size i = 0; i < source.attributes_count; i++)
 			{
@@ -150,6 +384,17 @@ namespace RageV
 						// TEXCOORD_0 only; the shader samples one set.
 						if (attribute.index == 0)
 							texcoords = attribute.data;
+						break;
+					// One influence set, so four bones a vertex. glTF allows
+					// more as JOINTS_1 and beyond; four is what almost every
+					// exporter emits and what the vertex format carries.
+					case cgltf_attribute_type_joints:
+						if (attribute.index == 0)
+							joints = attribute.data;
+						break;
+					case cgltf_attribute_type_weights:
+						if (attribute.index == 0)
+							weights = attribute.data;
 						break;
 					default: break;
 				}
@@ -180,6 +425,41 @@ namespace RageV
 				if (texcoords)
 					cgltf_accessor_read_float(texcoords, i, uv, 2);
 				vertex.TexCoord = { uv[0], uv[1] };
+			}
+
+			// Skinning, if the primitive has any. Both attributes or neither:
+			// joints without weights would give every vertex to bone zero and
+			// weights without joints have nothing to address.
+			if (joints && weights)
+			{
+				out.Joints.resize(positions->count);
+				out.Weights.resize(positions->count);
+
+				for (cgltf_size i = 0; i < positions->count; i++)
+				{
+					cgltf_uint indices[4] = { 0, 0, 0, 0 };
+					cgltf_accessor_read_uint(joints, i, indices, 4);
+					out.Joints[i] = { indices[0], indices[1], indices[2], indices[3] };
+
+					float influence[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+					cgltf_accessor_read_float(weights, i, influence, 4);
+
+					// Normalised here rather than trusted. The spec requires
+					// the four to sum to one and exporters round; a sum of 0.98
+					// darkens a whole limb by two percent, which reads as bad
+					// lighting rather than as bad weights.
+					const float sum = influence[0] + influence[1] + influence[2] + influence[3];
+					const float scale = sum > 1e-6f ? 1.0f / sum : 0.0f;
+
+					out.Weights[i] = { influence[0] * scale, influence[1] * scale,
+									   influence[2] * scale, influence[3] * scale };
+
+					// A vertex with no influence at all would collapse to the
+					// origin once skinned. Giving it entirely to the first bone
+					// leaves it somewhere, which is recoverable.
+					if (scale == 0.0f)
+						out.Weights[i].x = 1.0f;
+				}
 			}
 
 			if (source.indices)
@@ -259,6 +539,25 @@ namespace RageV
 		for (cgltf_size i = 0; i < data->materials_count; i++)
 			ReadMaterial(out, data->materials[i], out.Materials[i]);
 
+		// The skin, before the primitives, because reading a primitive's
+		// JOINTS_0 needs the mapping the skin produces.
+		//
+		// The first skin only. A file with two independent characters in it is
+		// a file that should have been two, and supporting it would put a
+		// skeleton reference on every primitive for a case nobody exports.
+		SkinMapping mapping;
+		if (data->skins_count > 0)
+		{
+			if (data->skins_count > 1)
+			{
+				RV_CORE_WARN("'{0}' has {1} skins; importing the first",
+							 filename, data->skins_count);
+			}
+
+			if (!ReadSkin(data->skins[0], out.Skeleton, mapping))
+				out.Skeleton.Bones.clear();
+		}
+
 		// glTF meshes hold primitives; the importer flattens them and remembers
 		// which primitives each mesh contributed, so nodes can point at them.
 		std::vector<std::vector<int>> primitivesByMesh(data->meshes_count);
@@ -277,6 +576,31 @@ namespace RageV
 
 				if (!ReadPrimitive(*data, mesh.primitives[p], name, primitive))
 					continue;
+
+				// JOINTS_0 addresses glTF's joint order and the skeleton is in
+				// its own. Remapped here, once, so nothing downstream has to
+				// know the two ever differed.
+				if (primitive.IsSkinned() && !mapping.ToBone.empty())
+				{
+					for (glm::uvec4& joint : primitive.Joints)
+					{
+						for (int component = 0; component < 4; component++)
+						{
+							const uint32_t index = joint[component];
+							const int bone = index < mapping.ToBone.size()
+										   ? mapping.ToBone[index] : -1;
+							joint[component] = bone >= 0 ? (uint32_t)bone : 0u;
+						}
+					}
+				}
+				else if (primitive.IsSkinned())
+				{
+					// Skinning data with no skin to address. Dropped rather
+					// than kept: the indices point into a skeleton that is not
+					// there.
+					primitive.Joints.clear();
+					primitive.Weights.clear();
+				}
 
 				primitivesByMesh[m].push_back((int)out.Primitives.size());
 				out.Primitives.push_back(std::move(primitive));
@@ -330,11 +654,42 @@ namespace RageV
 				pending.emplace_back(source->children[i], self);
 		}
 
+		// Animations last: they address bones, which the skin above defined.
+		if (!out.Skeleton.IsEmpty())
+		{
+			for (cgltf_size i = 0; i < data->animations_count; i++)
+			{
+				AnimationClip clip;
+				ReadAnimation(data->animations[i], mapping, out.Skeleton.Size(), clip);
+
+				// A clip animating nothing this skeleton owns is not worth
+				// keeping; it would appear in the inspector as a choice that
+				// does nothing.
+				bool animates = false;
+				for (const BoneTrack& track : clip.Tracks)
+					animates = animates || !track.IsEmpty();
+
+				if (animates)
+					out.Clips.push_back(std::move(clip));
+			}
+		}
+		else if (data->animations_count > 0)
+		{
+			RV_CORE_WARN("'{0}' has animations but no skin; they are not imported", filename);
+		}
+
 		cgltf_free(data);
 
 		RV_CORE_INFO("Imported '{0}': {1} primitives, {2} materials, {3} textures, {4} nodes",
 					 filename, out.Primitives.size(), out.Materials.size(),
 					 out.Textures.size(), out.Nodes.size());
+
+		if (!out.Skeleton.IsEmpty())
+		{
+			RV_CORE_INFO("  and a skeleton of {0} bones with {1} clips",
+						 out.Skeleton.Size(), out.Clips.size());
+		}
+
 		return true;
 	}
 }

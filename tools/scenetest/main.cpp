@@ -2201,6 +2201,174 @@ namespace
 		}
 	}
 
+	// Importing a skinned model.
+	//
+	// Against an asset this repository generates rather than one somebody
+	// downloaded, so every number below is a discrepancy against something
+	// known. tools/scripts/make_skinned_gltf.py writes it: a two-bone post,
+	// bone 1 a metre above bone 0, weights crossing over in the middle.
+	void CheckSkinnedImport()
+	{
+		const std::filesystem::path model =
+			std::filesystem::path("assets") / "models" / "limb.gltf";
+
+		if (!std::filesystem::exists(model))
+		{
+			// Staged per target like every other asset. A missing file is a
+			// build problem, not a silent skip -- a test that quietly does
+			// nothing is worse than one that is absent.
+			Check(false, "the skinned test model is staged beside the executable");
+			return;
+		}
+
+		ImportedModel imported;
+		Check(GltfImporter::Import(model, imported), "a skinned glTF imports");
+
+		Check(imported.HasSkeleton() && imported.Skeleton.Size() == 2,
+			  "and brings two bones with it");
+		Check(imported.Skeleton.IsWellOrdered(),
+			  "ordered parents first, whatever order the file listed them in");
+		Check(imported.Skeleton.Bones[0].Parent == -1 && imported.Skeleton.Bones[1].Parent == 0,
+			  "with the chain intact");
+
+		// The rest transform, straight off the node.
+		Check(glm::length(imported.Skeleton.Bones[1].RestPosition -
+						  glm::vec3(0.0f, 1.0f, 0.0f)) < 1e-5f,
+			  "the second bone rests a metre above the first");
+
+		// The inverse bind, which is the thing an importer most often ignores.
+		// Identity for both would look right in every other respect.
+		{
+			const glm::mat4& bind = imported.Skeleton.Bones[1].InverseBind;
+			const glm::vec3 offset = glm::vec3(bind[3]);
+			Check(glm::length(offset - glm::vec3(0.0f, -1.0f, 0.0f)) < 1e-5f,
+				  "and its inverse bind subtracts that metre rather than being the identity");
+		}
+
+		// The bind-pose property again, now on imported data rather than a
+		// fixture: rest pose in, identity out.
+		{
+			Pose rest;
+			RestPose(imported.Skeleton, rest);
+
+			std::vector<glm::mat4> skinning;
+			ComposeSkinning(imported.Skeleton, rest, skinning);
+
+			bool identity = true;
+			for (const glm::mat4& m : skinning)
+			{
+				for (int c = 0; c < 4 && identity; c++)
+				{
+					for (int r = 0; r < 4 && identity; r++)
+					{
+						const float expected = c == r ? 1.0f : 0.0f;
+						identity = std::fabs(m[c][r] - expected) < 1e-4f;
+					}
+				}
+			}
+
+			Check(identity, "the imported skeleton is the identity at its bind pose");
+		}
+
+		// The mesh.
+		Check(!imported.Primitives.empty(), "the model has geometry");
+		if (imported.Primitives.empty())
+			return;
+
+		const ImportedPrimitive& primitive = imported.Primitives[0];
+		Check(primitive.IsSkinned(), "which is skinned");
+		Check(primitive.Joints.size() == primitive.Vertices.size() &&
+			  primitive.Weights.size() == primitive.Vertices.size(),
+			  "with one influence set per vertex");
+
+		// Weights sum to one. The importer normalises rather than trusting the
+		// file, because a sum of 0.98 darkens a limb by two percent and reads
+		// as bad lighting rather than as bad weights.
+		{
+			bool normalised = true;
+			bool inRange = true;
+			for (size_t i = 0; i < primitive.Weights.size(); i++)
+			{
+				const glm::vec4& w = primitive.Weights[i];
+				normalised = normalised && std::fabs(w.x + w.y + w.z + w.w - 1.0f) < 1e-4f;
+
+				for (int c = 0; c < 4; c++)
+					inRange = inRange && primitive.Joints[i][c] < imported.Skeleton.Size();
+			}
+
+			Check(normalised, "every vertex's weights sum to one");
+			Check(inRange, "and every joint index addresses a bone that exists");
+		}
+
+		// The weights actually vary along the post -- the bottom belongs to
+		// bone 0 and the top to bone 1. A rig where every vertex went to one
+		// bone would pass every check above and hinge instead of bending.
+		{
+			float lowest = 1e9f, highest = -1e9f;
+			float weightAtLowest = 0.0f, weightAtHighest = 0.0f;
+
+			for (size_t i = 0; i < primitive.Vertices.size(); i++)
+			{
+				const float y = primitive.Vertices[i].Position.y;
+				// The influence of bone 1, whichever slot holds it.
+				float upper = 0.0f;
+				for (int c = 0; c < 4; c++)
+				{
+					if (primitive.Joints[i][c] == 1)
+						upper += primitive.Weights[i][c];
+				}
+
+				if (y < lowest)  { lowest = y;  weightAtLowest = upper; }
+				if (y > highest) { highest = y; weightAtHighest = upper; }
+			}
+
+			Check(weightAtLowest < 0.01f, "the bottom of the post belongs to the first bone");
+			Check(weightAtHighest > 0.99f, "and the top to the second");
+		}
+
+		// The animation.
+		Check(imported.Clips.size() == 1, "one clip came with it");
+		if (imported.Clips.empty())
+			return;
+
+		const AnimationClip& clip = imported.Clips[0];
+		Check(clip.Duration > 1.9f && clip.Duration < 2.1f,
+			  "two seconds long, taken from its last key");
+		Check(clip.Tracks.size() == imported.Skeleton.Size(),
+			  "with a track for every bone");
+		Check(clip.Tracks[0].IsEmpty() && !clip.Tracks[1].Rotation.IsEmpty(),
+			  "animating the second bone's rotation and nothing else");
+
+		// The clip bends. Sampled at rest and at the quarter point, the tip of
+		// the post must have moved -- which is the end-to-end statement that
+		// import, sampling and composition agree.
+		{
+			Pose start, bent;
+			SamplePose(imported.Skeleton, clip, 0.0f, true, start);
+			SamplePose(imported.Skeleton, clip, clip.Duration * 0.25f, true, bent);
+
+			std::vector<glm::mat4> a, b;
+			ComposeGlobal(imported.Skeleton, start, a);
+			ComposeGlobal(imported.Skeleton, bent, b);
+
+			const glm::vec3 restTip = glm::vec3(a[1][3]);
+			const glm::vec3 bentTip = glm::vec3(b[1][3]);
+
+			// The bone's origin does not move -- it is the child that swings --
+			// so the check is on its orientation instead.
+			Check(glm::length(restTip - bentTip) < 1e-5f,
+				  "the animated bone's own origin stays put");
+
+			const glm::vec3 restAxis = glm::vec3(a[1] * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+			const glm::vec3 bentAxis = glm::vec3(b[1] * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+
+			Check(glm::length(restAxis - bentAxis) > 0.1f,
+				  "and the direction it points does not");
+			// The rotation is about +Z, so the axis leans towards -X.
+			Check(bentAxis.x < -0.05f, "leaning the way the clip says");
+		}
+	}
+
 	// The light grid.
 	//
 	// The failure that matters is the CPU and the shader disagreeing about
@@ -3942,6 +4110,7 @@ int RunTests(int argc, char** argv)
 	CheckFrustumCulling();
 	CheckLightGrid();
 	CheckSkeleton();
+	CheckSkinnedImport();
 	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();

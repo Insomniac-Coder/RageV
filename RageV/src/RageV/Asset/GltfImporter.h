@@ -15,6 +15,7 @@
 #include "Asset.h"
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/Material.h"
+#include "RageV/Animation/Skeleton.h"
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -52,6 +53,19 @@ namespace RageV
 		std::vector<MeshVertex> Vertices;
 		std::vector<uint32_t> Indices;
 		int Material = -1;
+
+		// Skinning, kept in parallel arrays rather than widened into
+		// MeshVertex. Static meshes are almost all of them and would otherwise
+		// pay thirty-two bytes a vertex for four indices and four weights they
+		// never use.
+		//
+		// Empty when the primitive is not skinned, which is the test for it.
+		// The indices address ImportedModel::Skeleton, already reordered --
+		// glTF's own joint order is arbitrary and the skeleton's is not.
+		std::vector<glm::uvec4> Joints;
+		std::vector<glm::vec4> Weights;
+
+		bool IsSkinned() const { return !Joints.empty() && Joints.size() == Vertices.size(); }
 	};
 
 	struct ImportedNode
@@ -75,6 +89,17 @@ namespace RageV
 		// Parents always appear before their children, so one forward pass can
 		// build the entity tree.
 		std::vector<ImportedNode> Nodes;
+
+		// The first skin in the file, if any, and every animation bound to it.
+		//
+		// One skeleton rather than a list: a file with two independent
+		// characters in it is a file that should have been two files, and
+		// supporting it would mean every skinned primitive carrying which
+		// skeleton it belongs to for a case nobody exports.
+		Skeleton Skeleton;
+		std::vector<AnimationClip> Clips;
+
+		bool HasSkeleton() const { return !Skeleton.IsEmpty(); }
 
 		bool IsEmpty() const { return Primitives.empty() && Nodes.empty(); }
 	};
