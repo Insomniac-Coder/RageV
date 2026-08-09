@@ -749,6 +749,9 @@ void RageV::SceneHierarchyPanel::CommitPendingEdit()
 // code reaches every entity that never overrode it.
 void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& script)
 {
+	if (DrawScriptNameRow(script.ScriptName))
+		script.Fields.Values.clear();
+
 	DrawScriptLanguageRow(true);
 
 	if (!Managed::Interop::IsReady())
@@ -838,6 +841,41 @@ std::string RageV::SceneHierarchyPanel::FormatFloat(float value)
 	std::ostringstream out;
 	out << std::setprecision(9) << std::defaultfloat << value;
 	return out.str();
+}
+
+// The script's name, typed rather than picked.
+//
+// Redundant with the dropdown for a script that already exists -- and not
+// redundant at all for one that does not. A C++ script only joins the dropdown
+// once the engine has been rebuilt, so without a text field there is no way to
+// point an entity at a script you have just written.
+//
+// The name is stored on every keystroke, so the box keeps what you type, but
+// overrides are dropped only once editing finishes and the name really did
+// change: clearing per keystroke would delete them on the way to retyping the
+// same name.
+bool RageV::SceneHierarchyPanel::DrawScriptNameRow(std::string& scriptName)
+{
+	BeginField("Name", "The class name written into the scene file.\n"
+					   "Type it to name a script that is not built yet -- a C++\n"
+					   "script only joins the dropdown after an engine rebuild.");
+
+	// Zero-initialised, and copy() is given one byte less than the buffer, so
+	// the terminator survives a name longer than the box.
+	char buffer[128] = {};
+	scriptName.copy(buffer, sizeof(buffer) - 1);
+
+	if (ImGui::InputText("##scriptname", buffer, sizeof(buffer)))
+		scriptName = buffer;
+
+	if (ImGui::IsItemActivated())
+		m_ScriptNameBeforeEdit = scriptName;
+
+	const bool committed = ImGui::IsItemDeactivatedAfterEdit()
+						&& scriptName != m_ScriptNameBeforeEdit;
+
+	EndField();
+	return committed;
 }
 
 // The language row, shared by both script components.
@@ -1115,11 +1153,15 @@ bool RageV::SceneHierarchyPanel::WriteNewScript(const std::filesystem::path& fil
 // The C++ script component.
 void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 {
-	DrawScriptLanguageRow(false);
-
 	// Overrides belong to the script that had them. Carrying them across a
 	// change of script would apply one script's values to another's identically
-	// named field, which is worse than losing them.
+	// named field, which is worse than losing them. Both ways of changing the
+	// script -- typing the name and picking it -- drop them.
+	if (DrawScriptNameRow(script.ScriptName))
+		script.Fields.Values.clear();
+
+	DrawScriptLanguageRow(false);
+
 	if (DrawScriptPicker(ScriptRegistry::GetNames(), script.ScriptName, false))
 		script.Fields.Values.clear();
 
@@ -1149,10 +1191,16 @@ void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 	const std::vector<ScriptField>& fields = ScriptRegistry::FieldsOf(script.ScriptName);
 	if (fields.empty())
 	{
+		// How to add one belongs in a tooltip, not in the panel. It is the same
+		// three lines under every fieldless script, and a wall of text that
+		// never changes stops being read after the second time.
 		ImGui::TextDisabled("No editable fields.");
-		ImGui::TextWrapped("Declare them at registration:");
-		ImGui::TextDisabled("RV_REGISTER_SCRIPT(%s).Field<&%s::Member>(\"Name\");",
-							script.ScriptName.c_str(), script.ScriptName.c_str());
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Declare them where the script is registered:\n"
+							  "RV_REGISTER_SCRIPT(%s).Field<&%s::Member>(\"Name\");",
+							  script.ScriptName.c_str(), script.ScriptName.c_str());
+		}
 		return;
 	}
 

@@ -40,7 +40,11 @@ namespace RageV
 		bool DrawNewScriptPopup(bool managed, std::string& chosenName);
 		bool DrawScriptPicker(const std::vector<std::string>& available,
 							  std::string& scriptName, bool managed);
+		bool DrawScriptNameRow(std::string& scriptName);
 		bool m_OpenNewScript = false;
+		// What the name was when editing began, so overrides survive retyping
+		// the same name and are dropped only for a real change.
+		std::string m_ScriptNameBeforeEdit;
 		static bool WriteNewScript(const std::filesystem::path& file,
 								   const std::string& name);
 		static bool WriteNewNativeScript(const std::filesystem::path& file,
