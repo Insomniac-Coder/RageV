@@ -1016,7 +1016,8 @@ namespace RageV::GL
 	// Device
 	// -------------------------------------------------------------------------
 	OpenGLDevice::OpenGLDevice(const DeviceDesc& desc)
-		: m_Window(desc.Window), m_Width(desc.Width), m_Height(desc.Height), m_VSync(desc.VSync)
+		: m_Window(desc.Window), m_Width(desc.Width), m_Height(desc.Height), m_VSync(desc.VSync),
+		  m_FramesInFlight(std::clamp(desc.FramesInFlight, 1u, 3u))
 	{
 		glfwMakeContextCurrent(m_Window);
 
@@ -1066,12 +1067,36 @@ namespace RageV::GL
 		QueryCaps();
 		CreateTimestampQueries();
 
+		m_FrameFences.assign(m_FramesInFlight, nullptr);
+
 		m_CommandList = std::make_unique<OpenGLCommandListRHI>(*this);
 
 		RV_CORE_INFO("OpenGL device ready: {0} ({1})", m_Caps.DeviceName, m_Caps.APIName);
 	}
 
-	OpenGLDevice::~OpenGLDevice() = default;
+	OpenGLDevice::~OpenGLDevice()
+	{
+		// Every outstanding fence, and the query objects. A sync object left
+		// behind keeps a driver-side allocation alive for the life of the
+		// context, which for a tool that opens and closes devices in a loop --
+		// scenetest does -- accumulates.
+		for (void* fence : m_FrameFences)
+		{
+			if (fence)
+				glDeleteSync((GLsync)fence);
+		}
+		m_FrameFences.clear();
+
+		for (int half = 0; half < 2; half++)
+		{
+			if (!m_TimestampQueries[half].empty())
+			{
+				glDeleteQueries((GLsizei)m_TimestampQueries[half].size(),
+								m_TimestampQueries[half].data());
+				m_TimestampQueries[half].clear();
+			}
+		}
+	}
 
 	void OpenGLDevice::QueryCaps()
 	{
@@ -1168,6 +1193,24 @@ namespace RageV::GL
 				  m_TimestampWritten[m_TimestampRing].end(), (uint8_t)0);
 	}
 
+	void OpenGLDevice::WaitForFrameSlot()
+	{
+		GLsync fence = (GLsync)m_FrameFences[m_FrameIndex];
+		if (!fence)
+			return;
+
+		// GL_SYNC_FLUSH_COMMANDS_BIT, or a fence that has not been flushed to
+		// the driver can never signal and this waits for the timeout every
+		// frame. One second: long enough that no real frame reaches it, short
+		// enough that a lost fence is a stutter rather than a hang.
+		const GLenum result = glClientWaitSync(fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ull);
+		if (result == GL_TIMEOUT_EXPIRED)
+			RV_CORE_WARN("A frame's GPU work did not complete within a second");
+
+		glDeleteSync(fence);
+		m_FrameFences[m_FrameIndex] = nullptr;
+	}
+
 	RHICommandList* OpenGLDevice::BeginFrame()
 	{
 		int width = 0, height = 0;
@@ -1177,6 +1220,9 @@ namespace RageV::GL
 
 		m_Width = (uint32_t)width;
 		m_Height = (uint32_t)height;
+
+		// Before anything writes into this slot's buffers.
+		WaitForFrameSlot();
 
 		RecycleTimestampQueries();
 
@@ -1218,6 +1264,13 @@ namespace RageV::GL
 		}
 
 		glfwSwapBuffers(m_Window);
+
+		// After every command this frame issued. The next pass through this
+		// slot waits on it before touching the buffers those commands read.
+		if (GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0))
+			m_FrameFences[m_FrameIndex] = fence;
+
+		m_FrameIndex = (m_FrameIndex + 1) % m_FramesInFlight;
 	}
 
 	void OpenGLDevice::RequestCapture(CaptureCallback callback)

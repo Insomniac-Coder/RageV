@@ -238,8 +238,16 @@ namespace RageV::GL
 		// GL has no frames-in-flight concept the application must manage; the
 		// driver pipelines internally. Reporting 1 keeps per-frame resource
 		// arrays (uniform buffers, resource sets) correctly sized.
-		uint32_t GetFramesInFlight() const override { return 1; }
-		uint32_t GetFrameIndex() const override { return 0; }
+		// Genuinely more than one now.
+		//
+		// This used to say 1, which meant every subsystem allocated a single
+		// copy of its per-frame buffers and rewrote it while the GPU was still
+		// reading the previous frame out of it. The buffers are persistently
+		// mapped and written with a plain memcpy, so nothing stopped the write
+		// landing mid-read: a static scene came out slightly different from one
+		// frame to the next, worst on surfaces sampling the reflection probe.
+		uint32_t GetFramesInFlight() const override { return m_FramesInFlight; }
+		uint32_t GetFrameIndex() const override { return m_FrameIndex; }
 
 		Format GetSwapchainFormat() const override { return Format::B8G8R8A8_UNORM; }
 		Format GetSwapchainDepthFormat() const override { return Format::D24_UNORM_S8_UINT; }
@@ -268,6 +276,9 @@ namespace RageV::GL
 	private:
 		void QueryCaps();
 		void CreateTimestampQueries();
+		// Blocks until the GPU has finished the frame that last used this slot,
+		// which is what makes the slot's buffers safe to overwrite.
+		void WaitForFrameSlot();
 		// Reads the half written last frame and swaps. GL has one queue and no
 		// frames in flight, so the ring is what keeps the readback from being a
 		// stall: last frame's results are ready, this frame's are not.
@@ -291,5 +302,12 @@ namespace RageV::GL
 
 		std::vector<uint64_t> m_ResolvedTicks;
 		std::vector<uint8_t>  m_ResolvedWritten;
+
+		// One fence per frame slot, signalled when that frame's GPU work is
+		// done. Vulkan has had this from the start; OpenGL's absence of it was
+		// invisible until a frame was cheap enough for the CPU to lap the GPU.
+		uint32_t m_FramesInFlight = 2;
+		uint32_t m_FrameIndex = 0;
+		std::vector<void*> m_FrameFences;   // GLsync, kept opaque in the header
 	};
 }

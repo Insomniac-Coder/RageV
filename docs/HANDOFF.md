@@ -34,7 +34,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-488 checks, `exit 0`. Then look at a frame:
+490 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -99,7 +99,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 488 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
+| `scenetest` | 490 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -513,6 +513,14 @@ or silence rather than an obvious failure.
   `firstInstance`.** Vulkan's `gl_InstanceIndex` includes the base and OpenGL's
   `gl_InstanceID` does not, so reading it from the draw offsets twice on one
   backend and once on the other.
+- **Every backend has more than one frame in flight, and a fence between
+  them.** OpenGL reported 1 and had no fence at all, so every subsystem kept a
+  single copy of its per-frame buffers and memcpy'd into it while the GPU was
+  still reading the previous frame — persistently mapped, coherent, nothing in
+  the way. A static scene rendered three different images across six frames.
+  Invisible until the frame got cheap enough for the CPU to lap the GPU, and it
+  read as a shading shimmer rather than as corruption. `scenetest` asks the
+  device now.
 - **A timestamp slot is claimed per scope, never fixed per phase.** A phase can
   run more than once in a frame — the editor fits shadows to each viewport and
   runs the graph for both — and the second pass then rewrites a query the first
@@ -606,7 +614,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
-| Tests | `scenetest`, **488 checks**, green on both backends |
+| Tests | `scenetest`, **490 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete through 3.5.**
 What is left of Phase 3 is performance (3.6, 3.8) and skeletal animation (3.7).
@@ -733,29 +741,23 @@ not, which is the same mistake as the culling number, caught this time.
 
 Start here, in this order.
 
-### START HERE — the OpenGL flicker (`M`)
+### START HERE — 3.8, clustered forward (`L`)
 
-**This is where the next session begins**, and it is a correctness bug
-rather than a performance one.
+The flicker is fixed and Phase 3 is complete through 3.6, so the next item is
+the last hard limit in the lighting: **eight lights**. Clustered rather than
+deferred, so transparency keeps working — the reasoning is in ENGINE-NOTES §5.
 
-OpenGL renders a *static* scene differently from one frame to the next and
-Vulkan does not. §9 has the reproduction and the leading suspect: the GL
-backend has per-frame-in-flight buffers and no fence, so a frame's write to a
-persistently-mapped buffer can land while the GPU is still reading the previous
-one. Confirm that first — a sync object per frame is a small change if it is
-right, and it being wrong is worth knowing before building on it.
+Two smaller leads the profiler turned up, neither urgent, both now measurable:
 
-The profiler now measures both processors (§6), so the question "where does the
-frame go" has an instrument rather than an argument. What it has already said:
+- **Shadow maps cost more CPU than GPU** — 0.598 ms against 0.244 on the stress
+  scene. That phase is scene walking and instance building, not rasterising.
+  Sorting casters once and reusing the list across cascades is the obvious
+  thing to try.
+- **OpenGL spends ten times Vulkan's CPU on the same near-empty ImGui frame**
+  (0.619 ms against 0.069). Unexplained.
 
-- Shadow maps cost more CPU than GPU (0.598 ms against 0.244 on the stress
-  scene), so that phase is scene walking and instance building, not
-  rasterising. Sorting casters once and reusing the list across cascades is the
-  obvious next thing to try, and now it can be checked.
-- OpenGL spends 0.619 ms of CPU on ImGui against Vulkan's 0.069 for the same
-  near-empty UI. Nearly ten times, unexplained.
-
-Neither is urgent. The frame is 1.3 to 1.6 ms on a thousand meshes.
+The frame is 1.3 ms on Vulkan and 1.7 ms on OpenGL with a thousand meshes, so
+neither is costing anything anyone would notice yet.
 
 ### 1. 3.8 — clustered forward (`L`)
 
@@ -797,18 +799,6 @@ because the alternative is someone finding each one by being confused.
 
 ### Correctness
 
-- **OpenGL renders a static scene differently from one frame to the next.**
-  Found by capturing frames 40, 41, 42, 43, 60 and 90 of a scene with no
-  scripts and no physics bodies and hashing them: Vulkan gives one image six
-  times, OpenGL gives three different ones. About 1% of pixels, worst delta
-  20/255, all below the horizon — lit geometry and shadows, never the sky.
-  **It predates all of this session's work** (checked by stashing and
-  rebuilding), and it is the reason the shiny surfaces shimmer slightly.
-  The leading suspect is that the OpenGL backend has per-frame-in-flight
-  buffers but no fence: its host-visible buffers are persistently mapped and
-  written with a plain memcpy, so frame N's write can land while the GPU is
-  still reading frame N-1. Vulkan waits on a fence and does not flicker.
-  Not yet confirmed. **This is the highest-value correctness bug open.**
 - **Asset handles minted in the build output are lost on a clean build.** The
   assets root is the folder beside the executable, which CMake copies from the
   source tree. Assets added to the *source* tree keep their handle because the
@@ -884,7 +874,7 @@ because the pattern in them is more useful than the list.
 | A probe's mips were built before its faces were drawn | Since probes landed | `GenerateMips` submits its own buffer and waits; the faces were still unsubmitted in the frame's. Healed itself six frames later, so it read as a warm-up rather than a bug |
 | The Vulkan descriptor pool was a fixed 2000 sets | Since the port | Twelve objects never reached it. A thousand segfaulted |
 | Every material built its own sampler | Since materials existed | Cost nothing visible until draws were keyed by bound state, then silently prevented all batching |
-| OpenGL renders a static scene differently frame to frame | Unknown, still open | ~1% of pixels at delta 20/255 reads as shimmer, not as a bug |
+| OpenGL had no fence between frames | Since the port | The CPU only laps the GPU once a frame is cheap; before instancing it never got there. ~1% of pixels at delta 20/255 reads as shimmer, not as corruption |
 
 ### What actually catches these
 

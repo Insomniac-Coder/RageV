@@ -1458,6 +1458,19 @@ namespace
 		if (!Renderer::HasDevice())
 			return;
 
+		// More than one frame in flight, on both backends.
+		//
+		// OpenGL used to report 1, which is what every subsystem sizes its
+		// per-frame buffers by -- so each kept a single copy and rewrote it
+		// while the GPU was still reading the previous frame out of it. A
+		// static scene then rendered differently from one frame to the next.
+		// Checked here rather than left to a screenshot, because the symptom
+		// was a shimmer that looked like a shading artefact.
+		Check(Renderer::GetDevice().GetFramesInFlight() >= 2,
+			  "the device has more than one frame in flight");
+		Check(Renderer::GetDevice().GetFrameIndex() < Renderer::GetDevice().GetFramesInFlight(),
+			  "and its frame index stays inside them");
+
 		Check(Renderer2D::IsReady(), "Renderer2D came up");
 		Check(Renderer3D::IsReady(), "Renderer3D came up, with both its shaders");
 		Check(DebugRenderer::IsReady(), "DebugRenderer came up");
