@@ -781,37 +781,13 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 		}
 	}
 
-	const std::string current = script.ScriptName.empty() ? "(none)" : script.ScriptName;
-
-	if (ImGui::BeginCombo("Script", current.c_str()))
-	{
-		if (ImGui::Selectable("(none)", script.ScriptName.empty()))
-		{
-			script.ScriptName.clear();
-			script.Fields.Values.clear();
-		}
-
-		for (const std::string& name : types)
-		{
-			if (ImGui::Selectable(name.c_str(), name == script.ScriptName))
-			{
-				// Overrides belong to the script that had them. Keeping them
-				// across a change of type would apply values from one script to
-				// another script's identically named field, which is worse than
-				// losing them.
-				if (name != script.ScriptName)
-					script.Fields.Values.clear();
-				script.ScriptName = name;
-			}
-		}
-
-		ImGui::EndCombo();
-	}
+	if (DrawScriptPicker(types, script.ScriptName, true))
+		script.Fields.Values.clear();
 
 	// Creating one selects it, so the next step is Build Scripts rather than
 	// hunting for the new name in a dropdown.
 	std::string created;
-	if (DrawNewScriptButton(true, created))
+	if (DrawNewScriptPopup(true, created))
 	{
 		script.ScriptName = created;
 		script.Fields.Values.clear();
@@ -872,166 +848,158 @@ std::string RageV::SceneHierarchyPanel::FormatFloat(float value)
 // the loop, exactly as component removal already is.
 void RageV::SceneHierarchyPanel::DrawScriptLanguageRow(bool managed)
 {
+	BeginField("Language",
+			   "C++ scripts are compiled into the engine and need a rebuild.\n"
+			   "C# scripts live in the project and rebuild from File > Build Scripts.");
+
 	const char* const kLanguages[] = { "C++", "C#" };
 	int current = managed ? 1 : 0;
 
-	if (ImGui::Combo("Language", &current, kLanguages, 2))
+	if (ImGui::Combo("##language", &current, kLanguages, 2))
 	{
 		if ((current == 1) != managed)
 			m_PendingScriptSwap = (current == 1) ? PendingScriptSwap::ToCSharp
 												 : PendingScriptSwap::ToCpp;
 	}
 
-	if (ImGui::IsItemHovered())
-	{
-		ImGui::SetTooltip("C++ scripts are compiled into the engine and need a rebuild.\n"
-						  "C# scripts live in the project and rebuild from File > Build Scripts.");
-	}
+	EndField();
 }
 
-// "New Script..." -- writes a file the project can actually build.
+// The script row: everything available in this language, and a way to make one
+// more.
 //
-// C# only, and the C++ case says why rather than pretending. Native game code is
-// compiled into the engine binary: a generated .cpp dropped into a project
-// folder is a file nothing in the project can build, and offering a button that
-// produces one would be worse than not offering it. A C# script goes into the
-// project's Scripts/ folder, where Build Scripts picks it up.
+// "New Script..." is the last entry in the dropdown rather than a button beside
+// it. Choosing a script and making a new one are the same decision -- "which
+// script runs here" -- and splitting them across two controls made the row read
+// as two unrelated things.
 //
-// Returns the new script's type name once the file is written, so the caller can
-// select it immediately -- creating a script and then having to find it in a
-// dropdown is a step nobody wants.
-bool RageV::SceneHierarchyPanel::DrawNewScriptButton(bool managed, std::string& chosenName)
+// Returns true when the selection changed.
+bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>& available,
+												  std::string& scriptName, bool managed)
 {
-	const char* const kPopup = "New Script";
+	bool changed = false;
 
-	if (ImGui::Button("New Script..."))
+	BeginField("Script", "The name written into the scene file. Renaming a script\n"
+						 "breaks every scene that used it.");
+
+	const std::string current = scriptName.empty() ? "(none)" : scriptName;
+
+	if (ImGui::BeginCombo("##script", current.c_str()))
 	{
-		m_NewScriptName[0] = '\0';
-		ImGui::OpenPopup(kPopup);
-	}
-
-	bool created = false;
-
-	if (ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-	{
-		if (!managed)
+		if (ImGui::Selectable("(none)", scriptName.empty()))
 		{
-			const std::filesystem::path scripts = EngineScriptsDir();
-
-			if (scripts.empty())
-			{
-				// A packaged editor has no engine source to add a file to. That
-				// is the honest reason C++ scripting is not a per-project
-				// feature, and saying it beats writing a file nothing builds.
-				ImGui::TextWrapped("C++ scripts are compiled into the engine, and this build has "
-								   "no engine source beside it.");
-				ImGui::Spacing();
-				ImGui::TextWrapped("Add a class deriving from ScriptableEntity to the engine or "
-								   "game target and register it:");
-				ImGui::Spacing();
-				ImGui::TextDisabled("    RV_REGISTER_SCRIPT(Spinner).Field<&Spinner::Speed>(\"Speed\");");
-				ImGui::Spacing();
-				ImGui::TextWrapped("Switch Language to C# for a script this project can build itself.");
-
-				ImGui::Separator();
-				if (ImGui::Button("Close"))
-					ImGui::CloseCurrentPopup();
-
-				ImGui::EndPopup();
-				return false;
-			}
-
-			ImGui::Text("Class name");
-			ImGui::SetNextItemWidth(260.0f);
-			ImGui::InputText("##cppname", m_NewScriptName, sizeof(m_NewScriptName));
-
-			const std::string name(m_NewScriptName);
-			const bool valid = IsIdentifier(name);
-
-			std::error_code ec;
-			const std::filesystem::path file = scripts / (name + ".cpp");
-			const bool exists = valid && std::filesystem::exists(file, ec);
-
-			if (!name.empty() && !valid)
-				ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C++ class name");
-			else if (exists)
-				ImGui::TextColored(EditorTheme::Color::AccentHover, "%s.cpp already exists", name.c_str());
-			else if (valid)
-				ImGui::TextDisabled("%s", file.string().c_str());
-			else
-				ImGui::TextDisabled(" ");
-
-			ImGui::Spacing();
-			ImGui::TextWrapped("A C++ script is compiled into the engine, so it appears in the "
-							   "dropdown after a rebuild -- not immediately.");
-
-			ImGui::Separator();
-
-			const bool ok = valid && !exists;
-			ImGui::BeginDisabled(!ok);
-			if (ImGui::Button("Create") && ok)
-			{
-				if (WriteNewNativeScript(file, name))
-					RV_INFO("Created {0} -- rebuild the engine to use it", file.string());
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndDisabled();
-
-			ImGui::SameLine();
-			if (ImGui::Button("Cancel"))
-				ImGui::CloseCurrentPopup();
-
-			ImGui::EndPopup();
-			return false;
+			scriptName.clear();
+			changed = true;
 		}
 
-		if (!Project::GetActive())
+		for (const std::string& name : available)
 		{
-			ImGui::TextWrapped("Open a project first. A script belongs to one.");
+			if (ImGui::Selectable(name.c_str(), name == scriptName) && name != scriptName)
+			{
+				scriptName = name;
+				changed = true;
+			}
+		}
+
+		ImGui::Separator();
+
+		// The popup cannot be opened from inside the combo -- the combo closes
+		// and takes the popup with it. Flagged here, opened after EndCombo.
+		if (ImGui::Selectable("New Script..."))
+			m_OpenNewScript = true;
+
+		ImGui::EndCombo();
+	}
+
+	EndField();
+
+	if (m_OpenNewScript)
+	{
+		m_OpenNewScript = false;
+		m_NewScriptName[0] = '\0';
+		ImGui::OpenPopup("New Script");
+	}
+
+	(void)managed;
+	return changed;
+}
+
+// "New Script..." -- writes a working template, never a blank file.
+//
+// Opened from the last entry of the script dropdown rather than a button beside
+// it: choosing a script and making a new one are the same decision, and
+// splitting them across two controls made the row read as two unrelated things.
+//
+// Returns the new script's type name once the file is written, so the caller can
+// select it immediately. Creating a script and then having to find it in a
+// dropdown is a step nobody wants.
+bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& chosenName)
+{
+	const char* const kPopup = "New Script";
+	bool created = false;
+
+	if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		return false;
+
+	if (!managed)
+	{
+		const std::filesystem::path scripts = EngineScriptsDir();
+
+		if (scripts.empty())
+		{
+			// A packaged editor has no engine source to add a file to. That is
+			// the honest reason C++ scripting is not a per-project feature, and
+			// saying it beats writing a file nothing builds.
+			ImGui::TextWrapped("C++ scripts are compiled into the engine, and this build has no "
+							   "engine source beside it.");
+			ImGui::Spacing();
+			ImGui::TextWrapped("Add a class deriving from ScriptableEntity to the engine or game "
+							   "target and register it:");
+			ImGui::Spacing();
+			ImGui::TextDisabled("RV_REGISTER_SCRIPT(Spinner).Field<&Spinner::Speed>(\"Speed\");");
+			ImGui::Spacing();
+			ImGui::TextWrapped("Switch Language to C# for a script this project can build itself.");
+
 			ImGui::Separator();
 			if (ImGui::Button("Close"))
 				ImGui::CloseCurrentPopup();
+
 			ImGui::EndPopup();
 			return false;
 		}
 
 		ImGui::Text("Class name");
-		ImGui::SetNextItemWidth(260.0f);
-		const bool submitted = ImGui::InputText("##name", m_NewScriptName, sizeof(m_NewScriptName),
-												ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::SetNextItemWidth(280.0f);
+		ImGui::InputText("##cppname", m_NewScriptName, sizeof(m_NewScriptName));
 
 		const std::string name(m_NewScriptName);
-
-		// A C# identifier, checked before anything is written: a file named
-		// `2 things.cs` compiles to nothing and the error would arrive from the
-		// compiler minutes later rather than from the field that caused it.
 		const bool valid = IsIdentifier(name);
 
-		const std::filesystem::path file = Project::Root() / "Scripts" / (name + ".cs");
 		std::error_code ec;
+		const std::filesystem::path file = scripts / (name + ".cpp");
 		const bool exists = valid && std::filesystem::exists(file, ec);
 
 		if (!name.empty() && !valid)
-			ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C# class name");
+			ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C++ class name");
 		else if (exists)
-			ImGui::TextColored(EditorTheme::Color::AccentHover, "Scripts/%s.cs already exists", name.c_str());
+			ImGui::TextColored(EditorTheme::Color::AccentHover, "%s.cpp already exists", name.c_str());
 		else if (valid)
-			ImGui::TextDisabled("Scripts/%s.cs", name.c_str());
+			ImGui::TextDisabled("%s", file.string().c_str());
 		else
 			ImGui::TextDisabled(" ");
+
+		ImGui::Spacing();
+		ImGui::TextWrapped("A C++ script is compiled into the engine, so it appears in the dropdown "
+						   "after a rebuild -- not immediately.");
 
 		ImGui::Separator();
 
 		const bool ok = valid && !exists;
 		ImGui::BeginDisabled(!ok);
-		if ((ImGui::Button("Create") || (submitted && ok)) && ok)
+		if (ImGui::Button("Create") && ok)
 		{
-			if (WriteNewScript(file, name))
-			{
-				chosenName = name;
-				created = true;
-				RV_INFO("Created Scripts/{0}.cs -- File > Build Scripts to compile it", name);
-			}
+			if (WriteNewNativeScript(file, name))
+				RV_INFO("Created {0} -- rebuild the engine to use it", file.string());
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndDisabled();
@@ -1041,8 +1009,64 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptButton(bool managed, std::string& 
 			ImGui::CloseCurrentPopup();
 
 		ImGui::EndPopup();
+		return false;
 	}
 
+	if (!Project::GetActive())
+	{
+		ImGui::TextWrapped("Open a project first. A script belongs to one.");
+		ImGui::Separator();
+		if (ImGui::Button("Close"))
+			ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+		return false;
+	}
+
+	ImGui::Text("Class name");
+	ImGui::SetNextItemWidth(280.0f);
+	const bool submitted = ImGui::InputText("##csname", m_NewScriptName, sizeof(m_NewScriptName),
+											ImGuiInputTextFlags_EnterReturnsTrue);
+
+	const std::string name(m_NewScriptName);
+	const bool valid = IsIdentifier(name);
+
+	std::error_code ec;
+	const std::filesystem::path file = Project::Root() / "Scripts" / (name + ".cs");
+	const bool exists = valid && std::filesystem::exists(file, ec);
+
+	if (!name.empty() && !valid)
+		ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C# class name");
+	else if (exists)
+		ImGui::TextColored(EditorTheme::Color::AccentHover, "Scripts/%s.cs already exists", name.c_str());
+	else if (valid)
+		ImGui::TextDisabled("Scripts/%s.cs", name.c_str());
+	else
+		ImGui::TextDisabled(" ");
+
+	ImGui::Spacing();
+	ImGui::TextWrapped("File > Build Scripts compiles it.");
+
+	ImGui::Separator();
+
+	const bool ok = valid && !exists;
+	ImGui::BeginDisabled(!ok);
+	if ((ImGui::Button("Create") || (submitted && ok)) && ok)
+	{
+		if (WriteNewScript(file, name))
+		{
+			chosenName = name;
+			created = true;
+			RV_INFO("Created Scripts/{0}.cs -- File > Build Scripts to compile it", name);
+		}
+		ImGui::CloseCurrentPopup();
+	}
+	ImGui::EndDisabled();
+
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel"))
+		ImGui::CloseCurrentPopup();
+
+	ImGui::EndPopup();
 	return created;
 }
 
@@ -1050,7 +1074,7 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptButton(bool managed, std::string& 
 //
 // Not empty. The same reasoning as the starter scene and the generated project:
 // the first five minutes should not be spent working out what a script has to
-// look like, and a template that already overrides OnUpdate shows the fixed-step
+// look like, and a template that already overrides OnUpdate puts the fixed-step
 // contract in the one place somebody is certain to read.
 bool RageV::SceneHierarchyPanel::WriteNewScript(const std::filesystem::path& file,
 											    const std::string& name)
@@ -1093,35 +1117,14 @@ void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 {
 	DrawScriptLanguageRow(false);
 
-	const std::vector<std::string> names = ScriptRegistry::GetNames();
-	const std::string current = script.ScriptName.empty() ? "(none)" : script.ScriptName;
-
-	if (ImGui::BeginCombo("Script", current.c_str()))
-	{
-		if (ImGui::Selectable("(none)", script.ScriptName.empty()))
-		{
-			script.ScriptName.clear();
-			script.Fields.Values.clear();
-		}
-
-		for (const std::string& name : names)
-		{
-			if (ImGui::Selectable(name.c_str(), name == script.ScriptName))
-			{
-				// Overrides belong to the script that had them. Carrying them
-				// across a change of script would apply one script's values to
-				// another's identically named field, which is worse than losing
-				// them.
-				if (name != script.ScriptName)
-					script.Fields.Values.clear();
-				script.ScriptName = name;
-			}
-		}
-		ImGui::EndCombo();
-	}
+	// Overrides belong to the script that had them. Carrying them across a
+	// change of script would apply one script's values to another's identically
+	// named field, which is worse than losing them.
+	if (DrawScriptPicker(ScriptRegistry::GetNames(), script.ScriptName, false))
+		script.Fields.Values.clear();
 
 	std::string created;
-	DrawNewScriptButton(false, created);
+	DrawNewScriptPopup(false, created);
 
 	if (script.ScriptName.empty())
 	{
@@ -1147,7 +1150,9 @@ void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 	if (fields.empty())
 	{
 		ImGui::TextDisabled("No editable fields.");
-		ImGui::TextDisabled("Declare them with .Field<&Type::Member>(\"Name\") at registration.");
+		ImGui::TextWrapped("Declare them at registration:");
+		ImGui::TextDisabled("RV_REGISTER_SCRIPT(%s).Field<&%s::Member>(\"Name\");",
+							script.ScriptName.c_str(), script.ScriptName.c_str());
 		return;
 	}
 
@@ -1171,28 +1176,34 @@ void RageV::SceneHierarchyPanel::DrawScriptField(const std::string& name, int ki
 	const std::string* stored = overrides.Find(name);
 	const std::string value = stored ? *stored : defaultValue;
 
-	ImGui::PushID(name.c_str());
+	// Only an overridden field gets a reset, and it takes width from the widget
+	// rather than sitting under it -- so a column of fields stays a column.
+	const float resetWidth = stored ? 52.0f : 0.0f;
+
+	BeginField(name.c_str(), stored ? nullptr : "Unchanged, so the script's own default applies.");
+	if (resetWidth > 0.0f)
+		ImGui::PushItemWidth(-resetWidth);
 
 	switch (kind)
 	{
 		case 0:   // bool
 		{
 			bool flag = (value == "true" || value == "1");
-			if (ImGui::Checkbox(name.c_str(), &flag))
+			if (ImGui::Checkbox("##value", &flag))
 				overrides.Set(name, flag ? "true" : "false");
 			break;
 		}
 		case 1:   // int
 		{
 			int number = std::atoi(value.c_str());
-			if (ImGui::DragInt(name.c_str(), &number))
+			if (ImGui::DragInt("##value", &number))
 				overrides.Set(name, std::to_string(number));
 			break;
 		}
 		case 2:   // float
 		{
 			float number = (float)std::atof(value.c_str());
-			if (ImGui::DragFloat(name.c_str(), &number, 0.01f))
+			if (ImGui::DragFloat("##value", &number, 0.01f))
 				overrides.Set(name, FormatFloat(number));
 			break;
 		}
@@ -1202,7 +1213,7 @@ void RageV::SceneHierarchyPanel::DrawScriptField(const std::string& name, int ki
 			std::istringstream stream(value);
 			stream >> parts[0] >> parts[1] >> parts[2];
 
-			if (ImGui::DragFloat3(name.c_str(), parts, 0.01f))
+			if (ImGui::DragFloat3("##value", parts, 0.01f))
 			{
 				overrides.Set(name, FormatFloat(parts[0]) + " " +
 									 FormatFloat(parts[1]) + " " +
@@ -1214,7 +1225,7 @@ void RageV::SceneHierarchyPanel::DrawScriptField(const std::string& name, int ki
 		{
 			char buffer[256]{};
 			std::strncpy(buffer, value.c_str(), sizeof(buffer) - 1);
-			if (ImGui::InputText(name.c_str(), buffer, sizeof(buffer)))
+			if (ImGui::InputText("##value", buffer, sizeof(buffer)))
 				overrides.Set(name, buffer);
 			break;
 		}
@@ -1222,10 +1233,9 @@ void RageV::SceneHierarchyPanel::DrawScriptField(const std::string& name, int ki
 			break;
 	}
 
-	// Only an overridden field gets a reset, because only it has something to
-	// reset to -- showing the control on every field would suggest otherwise.
-	if (stored)
+	if (resetWidth > 0.0f)
 	{
+		ImGui::PopItemWidth();
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Reset"))
 			overrides.Clear(name);
@@ -1233,7 +1243,7 @@ void RageV::SceneHierarchyPanel::DrawScriptField(const std::string& name, int ki
 			ImGui::SetTooltip("Back to the script's own default (%s)", defaultValue.c_str());
 	}
 
-	ImGui::PopID();
+	EndField();
 }
 
 // The native kinds and the managed ones are separate enums that happen to line

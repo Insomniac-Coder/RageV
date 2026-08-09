@@ -1113,7 +1113,21 @@ demanding `public` there would mean telling people to write worse C# for the
 inspector's benefit. Both languages converge on one set of inspector rows, one
 set of stored values, and one scene format.
 
-The script component draws a **Language** row (C++ / C#) that converts the
+The script component draws its own rows rather than using the generic field
+list, and **`desc.Fields` is deliberately empty for both script components**.
+Listing `ScriptName` there produced two "Script" rows -- one of them a plain text
+box that could name a script which does not exist. The name is still written
+under the same YAML key by `SerializeExtra`, so scenes from before that change
+load unaltered.
+
+Rows use `BeginField`/`EndField` like every other component: label in a
+fixed-width left column, widget filling the rest. **New Script...** is the last
+entry of the script dropdown rather than a button beside it -- choosing a script
+and making one are the same decision. The popup cannot be opened from inside the
+combo (the combo closes and takes it with it), so the entry sets a flag and the
+popup opens after `EndCombo`.
+
+A **Language** row (C++ / C#) converts the
 entity between the two components. The name and field overrides are deliberately
 *not* carried across: two scripts that share a name are still different scripts,
 and moving one's tuning values onto the other applies numbers to fields that only

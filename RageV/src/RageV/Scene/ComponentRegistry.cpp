@@ -605,7 +605,14 @@ namespace
 			// handle is for assets. Presented as a dropdown of what is actually
 			// registered rather than a free-text field, so a typo cannot
 			// produce an entity that silently does nothing.
-			desc.Fields = { Field<&NativeScriptComponent::ScriptName>("Script") };
+			// No generic field list. The script name needs a dropdown of what is
+			// actually registered, and the component draws that itself -- listing
+			// it here as well produced two "Script" rows, one of which was a
+			// plain text box that could name a script that does not exist.
+			//
+			// It is still serialized, below, under the same key the generic path
+			// used, so scenes written before this change still load.
+			desc.Fields = {};
 
 			// The same escape hatch the managed component uses, and for the same
 			// reason: a list of name/value pairs whose shape depends on the
@@ -613,6 +620,9 @@ namespace
 			desc.SerializeExtra = [](YAML::Emitter& out, void* component)
 			{
 				auto* script = static_cast<NativeScriptComponent*>(component);
+
+				out << YAML::Key << "Script" << YAML::Value << script->ScriptName;
+
 				if (script->Fields.Empty())
 					return;
 
@@ -628,6 +638,9 @@ namespace
 				script->Fields.Values.clear();
 
 				const YAML::Node& constNode = node;
+				if (const YAML::Node name = constNode["Script"])
+					script->ScriptName = name.as<std::string>(std::string{});
+
 				const YAML::Node fields = constNode["Fields"];
 				if (!fields || !fields.IsMap())
 					return;
@@ -653,7 +666,8 @@ namespace
 			// name is for a native script. Presented as a dropdown of what the
 			// loaded assemblies actually contain, so a typo cannot produce an
 			// entity that silently does nothing.
-			desc.Fields = { Field<&ManagedScriptComponent::ScriptName>("Script") };
+			// Drawn by the component itself, for the same reason the native one is.
+			desc.Fields = {};
 
 			// The field overrides need the escape hatch: they are a list of
 			// name/value pairs whose shape depends on a C# type the engine
@@ -666,6 +680,9 @@ namespace
 			desc.SerializeExtra = [](YAML::Emitter& out, void* component)
 			{
 				auto* script = static_cast<ManagedScriptComponent*>(component);
+
+				out << YAML::Key << "Script" << YAML::Value << script->ScriptName;
+
 				if (script->Fields.Empty())
 					return;
 
@@ -681,6 +698,9 @@ namespace
 				script->Fields.Values.clear();
 
 				const YAML::Node& constNode = node;
+				if (const YAML::Node name = constNode["Script"])
+					script->ScriptName = name.as<std::string>(std::string{});
+
 				const YAML::Node fields = constNode["Fields"];
 				if (!fields || !fields.IsMap())
 					return;

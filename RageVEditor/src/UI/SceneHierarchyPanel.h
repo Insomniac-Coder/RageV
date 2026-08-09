@@ -37,7 +37,10 @@ namespace RageV
 		// component, which cannot happen while the component list is being
 		// walked -- so it is queued and applied afterwards, the way removal is.
 		void DrawScriptLanguageRow(bool managed);
-		bool DrawNewScriptButton(bool managed, std::string& chosenName);
+		bool DrawNewScriptPopup(bool managed, std::string& chosenName);
+		bool DrawScriptPicker(const std::vector<std::string>& available,
+							  std::string& scriptName, bool managed);
+		bool m_OpenNewScript = false;
 		static bool WriteNewScript(const std::filesystem::path& file,
 								   const std::string& name);
 		static bool WriteNewNativeScript(const std::filesystem::path& file,
