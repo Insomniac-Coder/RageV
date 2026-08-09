@@ -1101,15 +1101,14 @@ before starting phase 6**, and that recommendation has not been revisited.
   an 18px font. Ask what it is being compared against before changing a default.
   The lever is `ui-scale` in the `ragev.ini` beside the executable, or
   `--ui-scale=1`.
-- **`RageV/src/RageV/Scripts/Behaviour2.cpp` is untracked**, and deliberately.
-  It was created through the editor's New Script while testing, and it does
-  prove the generated file compiles and registers. Commit it or delete it; do
-  not leave it in a third state.
-- **`DeviceDesc::Window` was still a `GLFWwindow*`** in a public RHI header,
-  which the namespace rules say it must not be. It survived the A.1 pass only
-  because the type is forward-declared, so nothing failed to compile. A separate
-  session was started on it and its changes may be sitting uncommitted in the
-  working tree -- check `git status` before assuming a build failure is yours.
+- ~~Behaviour2.cpp~~ and ~~DeviceDesc::Window as GLFWwindow*~~ -- both resolved.
+  The test script is deleted, and the RHI header carries an opaque
+  `NativeWindowHandle` now. Deleting the script surfaced a build trap worth
+  keeping: **removing a source file does not regenerate the DLL's
+  `exports.def`**, so the link fails on symbols from a file that no longer
+  exists, and the fix is deleting `build/RageV/RageV.dir/<Config>/exports.def`
+  so it rebuilds. Removing a script from the engine is about to be an ordinary
+  thing to do, so this will come up again.
 
 ### Done — Phase 5, C# scripting (`XL`)
 
