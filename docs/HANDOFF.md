@@ -34,7 +34,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-485 checks, `exit 0`. Then look at a frame:
+488 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -99,7 +99,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 485 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
+| `scenetest` | 488 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -119,6 +119,7 @@ Command line or `ragev.ini` next to the executable; command line wins.
 --audio=on|off           open an output device at all
 --scene=<path>           open this scene, not the project's start scene
 --benchmark=N            run N frames, print what they cost, exit
+--ui-scale=N|auto        editor font and spacing; auto follows the monitor
 ```
 
 `--audio=off` is not only a mute switch. It takes the same path a machine with
@@ -512,6 +513,13 @@ or silence rather than an obvious failure.
   `firstInstance`.** Vulkan's `gl_InstanceIndex` includes the base and OpenGL's
   `gl_InstanceID` does not, so reading it from the draw offsets twice on one
   backend and once on the other.
+- **A timestamp slot is claimed per scope, never fixed per phase.** A phase can
+  run more than once in a frame — the editor fits shadows to each viewport and
+  runs the graph for both — and the second pass then rewrites a query the first
+  already wrote, which Vulkan rejects. Spans are summed per phase.
+- **A query pool that has never been reset cannot be read.** Not an empty
+  answer: a validation error. The first pass through each frame slot resets
+  without reading.
 - **A CPU timer around a call that can block measures the wait, not the work.**
   With vsync on, the profiler attributes the whole frame to whichever call
   happens to stall — the probe capture on Vulkan, ImGui on OpenGL. Neither is
@@ -598,7 +606,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
-| Tests | `scenetest`, **485 checks**, green on both backends |
+| Tests | `scenetest`, **488 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete through 3.5.**
 What is left of Phase 3 is performance (3.6, 3.8) and skeletal animation (3.7).
@@ -725,31 +733,29 @@ not, which is the same mistake as the culling number, caught this time.
 
 Start here, in this order.
 
-### START HERE — GPU timestamps, then Vulkan's remaining cost (`M`)
+### START HERE — the OpenGL flicker (`M`)
 
-**This is where the next session begins.**
+**This is where the next session begins**, and it is a correctness bug
+rather than a performance one.
 
-The frame is measured now (§6) and 3.6 is complete. What is *not* known is
-where Vulkan's 1.88 ms goes. Instancing took OpenGL from 7.17 ms to 1.59 ms and
-barely moved Vulkan, so Vulkan was never submission-bound and its cost is
-somewhere the current instrumentation cannot see.
+OpenGL renders a *static* scene differently from one frame to the next and
+Vulkan does not. §9 has the reproduction and the leading suspect: the GL
+backend has per-frame-in-flight buffers and no fence, so a frame's write to a
+persistently-mapped buffer can land while the GPU is still reading the previous
+one. Confirm that first — a sync object per frame is a small change if it is
+right, and it being wrong is worth knowing before building on it.
 
-`FrameProfiler` measures CPU wall time around calls that can block, which
-locates where the CPU *waits*, not where the work is. That was enough to prove
-the panel was the limit and enough to justify instancing. It is not enough for
-the next step.
+The profiler now measures both processors (§6), so the question "where does the
+frame go" has an instrument rather than an argument. What it has already said:
 
-1. Add timestamp queries to the RHI — `vkCmdWriteTimestamp2` and
-   `glQueryCounter`, both straightforward — and report GPU time per pass beside
-   the CPU time already there.
-2. Then attribute Vulkan's frame: eleven post passes, up to sixteen shadow
-   renders, one probe face, the scene.
-3. Only then decide what to optimise. Two things have already looked obviously
-   worth doing and been worth nothing: culling's 84 draws, and instancing's
-   first 74% draw reduction.
+- Shadow maps cost more CPU than GPU (0.598 ms against 0.244 on the stress
+  scene), so that phase is scene walking and instance building, not
+  rasterising. Sorting casters once and reusing the list across cascades is the
+  obvious next thing to try, and now it can be checked.
+- OpenGL spends 0.619 ms of CPU on ImGui against Vulkan's 0.069 for the same
+  near-empty UI. Nearly ten times, unexplained.
 
-**The OpenGL flicker in §9 is the other candidate for going first**, and it is a
-correctness bug rather than a performance one.
+Neither is urgent. The frame is 1.3 to 1.6 ms on a thousand meshes.
 
 ### 1. 3.8 — clustered forward (`L`)
 
@@ -830,27 +836,29 @@ because the alternative is someone finding each one by being confused.
 
 ### Editor and tooling
 
-- **The editor's font is 18px with no DPI scaling**, so the UI is physically
-  small on a high-DPI display.
 - **Running any application without `--screenshot` opens a window and waits.**
   That is correct behaviour and not a hang, but it will look like one in a
   script. Every verification run should pass the flag.
 - **`Sandbox` predates the RHI and does not build.** Off by default.
-- **Field labels are derived, not authored.** An acronym that is not all-caps
-  in the source — `Fov` rather than `FOV` — reads as a word.
+- **The editor UI does not scale itself.** `--ui-scale=N|auto` exists and
+  defaults to 1.0; `auto` follows the monitor. Deliberate — on a 150% display
+  auto gives a 27px font, which is what the OS asks for and larger than anyone
+  wanted. There is no per-monitor handling and no live reload; it is read once
+  at startup.
 
 ### Housekeeping
 
-- **`.meta` files belong in version control.** They are the identity.
-- Vendored EnTT is 3.10.0, checked in as a 5 MB **UTF-16LE** single header
-  rather than a submodule — the encoding defeats grep.
-- `quadshader.glsl`, `simpleshader.glsl`, `textureshader.glsl` in
-  `RageVEditor/assets/shaders/` are pre-RHI leftovers. Safe to delete.
+- **`.meta` files belong in version control.** They are the identity, and they
+  are tracked — checked, not assumed.
+- Vendored EnTT is 3.10.0, checked in as a single header rather than a
+  submodule. UTF-8 now; it was UTF-16LE, which defeated grep.
 - `Chunk`/`Perlin` are parked in `experiments/terrain/` and not built.
-- **The sample project's `sky.hdr` is generated and the generator is still not
-  in the repository.** `tools/scripts/` now exists and is where it belongs.
-  It produced a 1024x512 Radiance file with a sun at 40 degrees azimuth and 17
-  elevation. **Not done this session.**
+- **`tools/scripts/make_sky_hdr.py` rebuilds the sample's sky, but not
+  identically.** Whole-frame mean luminance 146.0 against the original's 149.1,
+  upper sky 203 against 208, horizon falloff 5.9 per row against 4.2. Nobody
+  has the original generator, so if the sample's `sky.hdr` is ever regenerated
+  the scene will look slightly different and the shadow and probe tuning should
+  be re-checked rather than assumed.
 - The sample scene's shadow distance, bias and probe placement are tuned for
   that scene and are not general defaults.
 
