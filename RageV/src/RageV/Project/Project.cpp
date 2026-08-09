@@ -110,12 +110,41 @@ namespace RageV
 			return false;
 		}
 
-		std::filesystem::create_directories(directory / "assets", error);
-		if (error)
+		// The skeleton, not just a folder.
+		//
+		// An empty project is technically valid and practically useless: the
+		// content browser opens on nothing, there is nowhere obvious to put a
+		// model, and the first thing anybody does is invent a folder layout the
+		// next person will not share. Generating the same one every time is
+		// what makes a path like `models/rock.gltf` mean something across
+		// projects.
+		static const char* const kAssetFolders[] = {
+			"scenes", "models", "textures", "audio", "prefabs"
+		};
+
+		for (const char* folder : kAssetFolders)
 		{
-			RV_CORE_ERROR("Project: could not create {0}: {1}",
-						  directory.string(), error.message());
-			return false;
+			std::filesystem::create_directories(directory / "assets" / folder, error);
+			if (error)
+			{
+				RV_CORE_ERROR("Project: could not create {0}: {1}",
+							  directory.string(), error.message());
+				return false;
+			}
+		}
+
+		// Builds land here. Created up front so it is visible in the content
+		// browser and in Explorer before the first build rather than appearing
+		// mysteriously after it.
+		std::filesystem::create_directories(directory / "bin", error);
+
+		// Generated projects are the kind that end up in version control, and
+		// bin/ holds a copy of the runtime and every asset. Nobody wants that
+		// in a diff.
+		if (std::ofstream ignore(directory / ".gitignore"); ignore)
+		{
+			ignore << "# Build output: the runtime and a copy of every asset.\n";
+			ignore << "bin/\n";
 		}
 
 		auto created = std::make_unique<ActiveProject>();
@@ -125,6 +154,11 @@ namespace RageV
 
 		s_Active = std::move(created);
 		return Save();
+	}
+
+	std::filesystem::path Project::BinaryRoot()
+	{
+		return s_Active ? s_Active->Root / "bin" : std::filesystem::path{};
 	}
 
 	bool Project::Save()

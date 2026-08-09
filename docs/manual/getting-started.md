@@ -50,6 +50,40 @@ The editor opens the sample project's start scene. From here you can select
 entities in the hierarchy, edit them in the inspector, drag assets in from the
 content browser, and press **Play** to run the scene.
 
+## Create a project
+
+**File → New Project…** Pick a name and a location; the engine makes a folder
+named after the project and fills it in:
+
+```text
+MyGame/
+  MyGame.rvproject     name, asset root, start scene, simulation rate
+  assets/
+    scenes/            MyGame.rvproject points at scenes/Main.rage
+    models/
+    textures/
+    audio/
+    prefabs/
+  bin/                 builds land here
+  .gitignore           keeps bin/ out of version control
+```
+
+The starter scene is deliberately not empty — a ground plane, a cube, a sphere
+and an angled directional light. An engine that opens on nothing makes the first
+five minutes a hunt for which of the six things you need is missing, and "there
+is no light so everything is black" reads as a broken install rather than as an
+empty scene. Press **Play** and it already works.
+
+The folder layout is the same in every project on purpose. It is what makes a
+path like `models/rock.gltf` mean the same thing in someone else's project, and
+`scenetest` checks that `Project::Create` still produces it.
+
+> [!NOTE]
+> The dialog asks you to name a *file*, because the editor only has file
+> dialogs so far. What gets created is the **folder** — pick
+> `C:\Games\MyGame` and you get `C:\Games\MyGame\MyGame.rvproject` with
+> everything else beside it, not a loose project file in `C:\Games`.
+
 ## Run a project without the editor
 
 `RageVRuntime` is the same engine with the editor removed — it is what your
@@ -61,12 +95,21 @@ build/bin/Debug/RageVRuntime/RageVRuntime.exe --project=SampleProject
 
 ## Package a project
 
-`rvpack` copies a project, its assets and the runtime into one folder that can
-be zipped and handed to someone else. It is headless and needs no GPU.
+**File → Build Game** packages the open project into its own `bin/` — the
+runtime, the assets, a config file, and no editor. Output goes to
+`<project>/bin/<Name>/`, so the project folder can be zipped, moved or handed
+over with its build intact and nobody has to remember where the last one went.
+**Build Game As…** puts it somewhere else.
+
+The same thing from the command line, for a scripted build:
 
 ```bash
-build/bin/Debug/rvpack/rvpack.exe --project=SampleProject --out=dist/MyGame
+build/bin/Debug/rvpack/rvpack.exe SampleProject SampleProject/bin/Sample --overwrite
 ```
+
+`rvpack` is headless and needs no GPU. It refuses to write into a directory that
+already has files in it unless you pass `--overwrite`, so a scripted build
+cannot quietly flatten a folder somebody pointed it at by mistake.
 
 ## Command-line flags
 

@@ -39,14 +39,33 @@
 <aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Run each executable <strong>from its own directory</strong>. Assets are staged per target, so launching the editor from the repository root finds no shaders and shows you a black window that looks like a driver problem.</p>
 </aside>
 <p>The editor opens the sample project&#39;s start scene. From here you can select entities in the hierarchy, edit them in the inspector, drag assets in from the content browser, and press <strong>Play</strong> to run the scene.</p>
+<h2 id="create-a-project">Create a project<a class="anchor" href="#create-a-project" aria-label="Link to this section">#</a></h2>
+<p><strong>File → New Project…</strong> Pick a name and a location; the engine makes a folder named after the project and fills it in:</p>
+<figure class="code"><figcaption>text</figcaption><pre><code>MyGame/
+  MyGame.rvproject     name, asset root, start scene, simulation rate
+  assets/
+    scenes/            MyGame.rvproject points at scenes/Main.rage
+    models/
+    textures/
+    audio/
+    prefabs/
+  bin/                 builds land here
+  .gitignore           keeps bin/ out of version control
+</code></pre></figure>
+<p>The starter scene is deliberately not empty — a ground plane, a cube, a sphere and an angled directional light. An engine that opens on nothing makes the first five minutes a hunt for which of the six things you need is missing, and &quot;there is no light so everything is black&quot; reads as a broken install rather than as an empty scene. Press <strong>Play</strong> and it already works.</p>
+<p>The folder layout is the same in every project on purpose. It is what makes a path like <code>models/rock.gltf</code> mean the same thing in someone else&#39;s project, and <code>scenetest</code> checks that <code>Project::Create</code> still produces it.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>The dialog asks you to name a <em>file</em>, because the editor only has file dialogs so far. What gets created is the <strong>folder</strong> — pick <code>C:\Games\MyGame</code> and you get <code>C:\Games\MyGame\MyGame.rvproject</code> with everything else beside it, not a loose project file in <code>C:\Games</code>.</p>
+</aside>
 <h2 id="run-a-project-without-the-editor">Run a project without the editor<a class="anchor" href="#run-a-project-without-the-editor" aria-label="Link to this section">#</a></h2>
 <p><code>RageVRuntime</code> is the same engine with the editor removed — it is what your players will effectively be running.</p>
 <figure class="code"><figcaption>bash</figcaption><pre><code>build/bin/Debug/RageVRuntime/RageVRuntime.exe --project=SampleProject
 </code></pre></figure>
 <h2 id="package-a-project">Package a project<a class="anchor" href="#package-a-project" aria-label="Link to this section">#</a></h2>
-<p><code>rvpack</code> copies a project, its assets and the runtime into one folder that can be zipped and handed to someone else. It is headless and needs no GPU.</p>
-<figure class="code"><figcaption>bash</figcaption><pre><code>build/bin/Debug/rvpack/rvpack.exe --project=SampleProject --out=dist/MyGame
+<p><strong>File → Build Game</strong> packages the open project into its own <code>bin/</code> — the runtime, the assets, a config file, and no editor. Output goes to <code>&lt;project&gt;/bin/&lt;Name&gt;/</code>, so the project folder can be zipped, moved or handed over with its build intact and nobody has to remember where the last one went. <strong>Build Game As…</strong> puts it somewhere else.</p>
+<p>The same thing from the command line, for a scripted build:</p>
+<figure class="code"><figcaption>bash</figcaption><pre><code>build/bin/Debug/rvpack/rvpack.exe SampleProject SampleProject/bin/Sample --overwrite
 </code></pre></figure>
+<p><code>rvpack</code> is headless and needs no GPU. It refuses to write into a directory that already has files in it unless you pass <code>--overwrite</code>, so a scripted build cannot quietly flatten a folder somebody pointed it at by mistake.</p>
 <h2 id="command-line-flags">Command-line flags<a class="anchor" href="#command-line-flags" aria-label="Link to this section">#</a></h2>
 <p>Every flag below can also go in a <code>ragev.ini</code> file next to the executable, as <code>key=value</code> lines. The command line wins over the file.</p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Flag</th><th style="text-align:left">Meaning</th></tr></thead><tbody>
@@ -75,7 +94,7 @@ docs/             this manual, plus the engine<span class="tok-string">&#39;s ow
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="index.html"><span class="pager-label">Previous</span><span class="pager-title">Introduction</span></a><a class="pager-link pager-next" href="concepts.html"><span class="pager-label">Next</span><span class="pager-title">Core concepts</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#what-you-need">What you need</a><a class="toc-link toc-l2" href="#build-it">Build it</a><a class="toc-link toc-l2" href="#run-the-editor">Run the editor</a><a class="toc-link toc-l2" href="#run-a-project-without-the-editor">Run a project without the editor</a><a class="toc-link toc-l2" href="#package-a-project">Package a project</a><a class="toc-link toc-l2" href="#command-line-flags">Command-line flags</a><a class="toc-link toc-l2" href="#where-things-live">Where things live</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#what-you-need">What you need</a><a class="toc-link toc-l2" href="#build-it">Build it</a><a class="toc-link toc-l2" href="#run-the-editor">Run the editor</a><a class="toc-link toc-l2" href="#create-a-project">Create a project</a><a class="toc-link toc-l2" href="#run-a-project-without-the-editor">Run a project without the editor</a><a class="toc-link toc-l2" href="#package-a-project">Package a project</a><a class="toc-link toc-l2" href="#command-line-flags">Command-line flags</a><a class="toc-link toc-l2" href="#where-things-live">Where things live</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>

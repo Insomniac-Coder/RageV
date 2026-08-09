@@ -7,6 +7,7 @@ window.RVDOC_INDEX = [
 {"h":"What you need","p":"Getting started","u":"getting-started.html#what-you-need","t":""},
 {"h":"Build it","p":"Getting started","u":"getting-started.html#build-it","t":""},
 {"h":"Run the editor","p":"Getting started","u":"getting-started.html#run-the-editor","t":""},
+{"h":"Create a project","p":"Getting started","u":"getting-started.html#create-a-project","t":""},
 {"h":"Run a project without the editor","p":"Getting started","u":"getting-started.html#run-a-project-without-the-editor","t":""},
 {"h":"Package a project","p":"Getting started","u":"getting-started.html#package-a-project","t":""},
 {"h":"Command-line flags","p":"Getting started","u":"getting-started.html#command-line-flags","t":""},

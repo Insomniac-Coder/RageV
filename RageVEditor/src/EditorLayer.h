@@ -26,9 +26,18 @@ public:
 	void OpenScene();
 	void OpenSceneFile(const std::filesystem::path& filepath);
 	void SaveScene();
+	void NewProject();
 	void OpenProject();
 	void SetStartSceneToCurrent();
+
+	// Into the project's own bin/. BuildGameAs asks for somewhere else.
 	void BuildGame();
+	void BuildGameAs();
+	void BuildInto(const std::filesystem::path& output);
+
+	// The scene a freshly created project opens on. Deliberately not empty --
+	// see the definition.
+	void PopulateStarterScene();
 	void ImportModel();
 	void OnScenePlay();
 	void OnSceneStop();

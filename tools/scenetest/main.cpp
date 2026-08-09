@@ -1047,6 +1047,27 @@ namespace
 		Check(std::filesystem::is_directory(root / "assets"),
 			  "and an assets folder beside it");
 
+		// The skeleton is a contract, not a suggestion. A path like
+		// `models/rock.gltf` only means the same thing across projects if every
+		// project has the same folders, and the only way that stays true is if
+		// something checks.
+		for (const char* folder : { "scenes", "models", "textures", "audio", "prefabs" })
+		{
+			Check(std::filesystem::is_directory(root / "assets" / folder),
+				  std::string("and assets/") + folder);
+		}
+
+		Check(std::filesystem::is_directory(root / "bin"),
+			  "and a bin/ for builds, before the first build rather than after it");
+		Check(Project::BinaryRoot() == root / "bin",
+			  "which is where BinaryRoot points");
+
+		// bin/ holds the runtime and a copy of every asset. Nobody wants that in
+		// a diff, and a generated project is exactly the kind that gets
+		// committed without anyone reading it first.
+		Check(std::filesystem::exists(root / ".gitignore"),
+			  "and a .gitignore, because bin/ must not be committed");
+
 		// Refused rather than overwritten: a project file is the only thing
 		// that says where a game's assets are.
 		Check(!Project::Create(root, "Probe"), "creating over an existing project is refused");

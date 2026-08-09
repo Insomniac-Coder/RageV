@@ -683,14 +683,20 @@ void EditorLayer::DrawMenuBar()
 
 		if (Project::GetActive())
 		{
-			if (ImGui::MenuItem("Build Game..."))
+			if (ImGui::MenuItem("Build Game"))
 				BuildGame();
 			if (ImGui::IsItemHovered())
 			{
 				ImGui::SetTooltip("Package this project into a folder someone else\n"
 								  "can run: the runtime, the assets, and a config\n"
-								  "file, with no editor.");
+								  "file, with no editor.\n\n"
+								  "Goes into this project's own bin/.");
 			}
+
+			if (ImGui::MenuItem("Build Game As..."))
+				BuildGameAs();
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("The same build, somewhere other than bin/.");
 
 			if (ImGui::MenuItem("Set Start Scene"))
 				SetStartSceneToCurrent();
@@ -2170,6 +2176,109 @@ void EditorLayer::SaveScene()
 
 // Switching projects re-roots the asset registry, which is the whole point of
 // a project: handles are minted in and resolved against its folder.
+// Create a project folder, fill it in, and open it.
+//
+// The dialog asks for a file because the platform layer only has file dialogs,
+// but what gets made is a *folder* named after the project with the .rvproject
+// inside it. Creating the project file directly wherever the user pointed would
+// scatter assets/ and bin/ into whatever directory that happened to be, which
+// is how a Downloads folder ends up with a game engine in it.
+void EditorLayer::NewProject()
+{
+	const std::string chosen = FileDialogs::SaveFile("RageV Project (*.rvproject)\0*.rvproject\0");
+	if (chosen.empty())
+		return;
+
+	const std::filesystem::path picked(chosen);
+	const std::string name = picked.stem().string();
+	if (name.empty())
+	{
+		RV_WARN("A project needs a name");
+		return;
+	}
+
+	const std::filesystem::path directory = picked.parent_path() / name;
+
+	if (!Project::Create(directory, name))
+		return;
+
+	// The new project's assets are empty, but the registry still has to be
+	// pointed at them before anything can be saved into it -- a scene written
+	// while the registry points at the *old* project mints handles that mean
+	// nothing here.
+	AssetManager::ClearCache();
+	AssetRegistry::Init(Project::AssetRoot());
+
+	NewScene();
+	PopulateStarterScene();
+
+	const std::filesystem::path scene = Project::AssetPath("scenes/Main.rage");
+	SceneSerializer serializer(m_Scene);
+	if (!serializer.Serialize(scene.string()))
+	{
+		RV_ERROR("Created the project but could not write its first scene");
+		return;
+	}
+
+	m_ScenePath = scene;
+	Project::Config().StartScene = "scenes/Main.rage";
+	Project::Save();
+
+	RV_INFO("Created project '{0}' at {1}", name, directory.string());
+}
+
+// What a new project opens on.
+//
+// Deliberately not an empty scene. An engine that opens on nothing makes the
+// first five minutes an exercise in finding out which of the six things you
+// need is missing -- there is no light, so everything is black, and that reads
+// as a broken install rather than an empty scene. A ground plane, a light and
+// two objects means Play does something immediately and every part of the
+// pipeline has proved itself before the user has touched anything.
+void EditorLayer::PopulateStarterScene()
+{
+	if (Entity camera = m_Scene->GetPrimaryCameraEntity())
+	{
+		auto& transform = camera.GetComponent<TransformComponent>();
+		transform.Position = { 0.0f, 2.0f, 6.0f };
+		transform.Rotation = Math::Radians(Vec3(-12.0f, 0.0f, 0.0f));
+	}
+
+	const auto place = [&](PrimitiveType primitive, const char* name, const Vec3& position,
+						   const Vec3& scale, const Vec4& colour, float metallic, float roughness)
+	{
+		Entity entity = m_Scene->CreateEntity(name);
+		auto& mesh = entity.AddComponent<MeshComponent>(primitive);
+
+		mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), name);
+		auto& params = mesh.Material->GetParams();
+		params.BaseColor = colour;
+		params.Metallic = metallic;
+		params.Roughness = roughness;
+
+		auto& transform = entity.GetComponent<TransformComponent>();
+		transform.Position = position;
+		transform.Scale = scale;
+		return entity;
+	};
+
+	place(PrimitiveType::Plane, "Ground", { 0.0f, 0.0f, 0.0f }, { 12.0f, 1.0f, 12.0f },
+		  { 0.16f, 0.16f, 0.18f, 1.0f }, 0.0f, 0.9f);
+	place(PrimitiveType::Cube, "Cube", { -1.2f, 0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f },
+		  { 0.78f, 0.22f, 0.22f, 1.0f }, 0.0f, 0.45f);
+	place(PrimitiveType::Sphere, "Sphere", { 1.2f, 0.6f, 0.0f }, { 1.2f, 1.2f, 1.2f },
+		  { 0.85f, 0.85f, 0.88f, 1.0f }, 1.0f, 0.2f);
+
+	// A directional light, angled rather than straight down: a light pointing
+	// along an axis produces flat shading and a shadow directly underneath,
+	// which makes it hard to tell whether shadows work at all.
+	Entity sun = m_Scene->CreateEntity("Sun");
+	auto& light = sun.AddComponent<LightComponent>();
+	light.Light.Type = Light::LightType::Directional;
+	light.Light.Intensity = 3.0f;
+	sun.GetComponent<TransformComponent>().Rotation = Math::Radians(Vec3(-55.0f, -35.0f, 0.0f));
+}
+
 void EditorLayer::OpenProject()
 {
 	const std::string filepath = FileDialogs::OpenFile("RageV Project (*.rvproject)\0*.rvproject\0");
@@ -2199,10 +2308,24 @@ void EditorLayer::OpenProject()
 
 // Package the project into a folder someone else can run.
 //
+// Into the project's own bin/ by default, because that is where the output of a
+// project belongs: the folder can be zipped, moved or handed over with its build
+// intact, and nobody has to remember where they put the last one.
+void EditorLayer::BuildGame()
+{
+	if (!Project::GetActive())
+		return;
+
+	BuildInto(Project::BinaryRoot() / Project::Config().Name);
+}
+
+// Somewhere else, for when the default is not what is wanted -- a network share,
+// a folder an installer picks up from.
+//
 // A folder dialog would be better than a file one, but the platform layer only
 // has file dialogs; asking for a name inside the target folder and using its
 // parent is the honest version of that until it grows one.
-void EditorLayer::BuildGame()
+void EditorLayer::BuildGameAs()
 {
 	if (!Project::GetActive())
 		return;
@@ -2211,12 +2334,17 @@ void EditorLayer::BuildGame()
 	if (chosen.empty())
 		return;
 
+	BuildInto(std::filesystem::path(chosen).parent_path());
+}
+
+void EditorLayer::BuildInto(const std::filesystem::path& output)
+{
 	PackageDesc desc;
-	desc.OutputDirectory = std::filesystem::path(chosen).parent_path();
-	// The dialog picked a location inside an existing folder, which will
-	// usually already hold something. Refusing here would make the menu item
-	// unusable; the CLI keeps the guard, where a scripted build could
-	// otherwise flatten a directory nobody looked at.
+	desc.OutputDirectory = output;
+	// The target usually already holds the previous build. Refusing here would
+	// make the menu item unusable after its first use; the CLI keeps the guard,
+	// where a scripted build could otherwise flatten a directory nobody looked
+	// at.
 	desc.Overwrite = true;
 
 	const PackageResult result = PackageProject(desc);

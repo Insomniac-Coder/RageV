@@ -59,6 +59,14 @@ namespace RageV
 
 		// The folder holding the .rvproject.
 		static std::filesystem::path Root();
+		// Root() / "bin". Where a build of this project lands.
+		//
+		// A convention rather than a setting, and per project rather than
+		// somewhere central: a build belongs next to the thing it was built
+		// from, so a project folder can be zipped, moved or handed over with
+		// its output intact. Created by Create(); a project made before this
+		// existed simply has the folder made on first build.
+		static std::filesystem::path BinaryRoot();
 		// Root() / AssetDirectory. Where the asset registry is pointed.
 		static std::filesystem::path AssetRoot();
 		// Absolute path for something stored relative to the asset directory.

@@ -175,6 +175,41 @@ passes by parsing nothing is worse than no check at all.
 
 ---
 
+## 2. Projects
+
+A project is a folder with a `.rvproject` in it. **File > New Project...**
+creates one and fills it in:
+
+```text
+MyGame/
+  MyGame.rvproject     name, asset root, start scene, fixed Hz
+  assets/{scenes,models,textures,audio,prefabs}
+  bin/                 builds land here
+  .gitignore           keeps bin/ out of version control
+```
+
+Three decisions in that worth knowing:
+
+- **The skeleton is fixed and checked.** `scenetest` asserts every folder,
+  because a path like `models/rock.gltf` only means the same thing across
+  projects if every project has the same layout, and conventions that nothing
+  checks do not stay true.
+- **`Project::BinaryRoot()` is `Root()/"bin"`, a convention rather than a
+  setting.** Builds belong next to the thing they were built from, so a project
+  folder can be zipped or handed over with its output intact. **Build Game**
+  goes there; **Build Game As...** asks.
+- **The starter scene is not empty** -- ground, cube, sphere, angled directional
+  light. An engine that opens on nothing makes the first five minutes a hunt for
+  which of six missing things matters, and "no light, so everything is black"
+  reads as a broken install. `EditorLayer::PopulateStarterScene`.
+
+`NewProject` creates a *folder* named after the project, not a loose
+`.rvproject` wherever the dialog pointed -- the platform layer only has file
+dialogs, and taking the picked name literally would scatter `assets/` and `bin/`
+into someone's Downloads folder.
+
+---
+
 ## 2a. The application icon
 
 `tools/scripts/make_icon.py` draws it — a two-tone V taken from the manual's
