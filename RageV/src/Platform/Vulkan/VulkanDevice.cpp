@@ -122,7 +122,10 @@ namespace RageV::Vk
 	}
 
 	VulkanDevice::VulkanDevice(const RHI::DeviceDesc& desc)
-		: m_Window(desc.Window)
+		// DeviceDesc carries the window as an opaque handle so the public
+		// header names no GLFW type. This is the boundary where it becomes one
+		// again, and the only place that assumes GLFW is the windowing library.
+		: m_Window(static_cast<GLFWwindow*>(desc.Window))
 		, m_FramesInFlight(std::max(1u, desc.FramesInFlight))
 		, m_VSync(desc.VSync)
 		, m_ValidationEnabled(desc.EnableValidation)

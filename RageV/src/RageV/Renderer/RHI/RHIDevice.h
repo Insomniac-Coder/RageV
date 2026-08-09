@@ -11,19 +11,24 @@
 #include "RHICommandList.h"
 #include <functional>
 
-struct GLFWwindow;
-
 namespace RageV::RHI
 {
+	// The platform window the swapchain presents to, opaque on purpose: this
+	// is a public header and no third-party type may appear in one. Pass
+	// whatever Window::GetNativeWindow() returns; the backend casts it back to
+	// the windowing library's type in its own .cpp, which is the only place
+	// that knows what the handle really is.
+	using NativeWindowHandle = void*;
+
 	struct DeviceDesc
 	{
-		Backend      Backend      = Backend::Vulkan;
-		GLFWwindow*  Window       = nullptr;
-		uint32_t     Width        = 1600;
-		uint32_t     Height       = 900;
-		bool         VSync        = true;
-		bool         EnableValidation = false;
-		uint32_t     FramesInFlight   = 2;
+		Backend             Backend          = Backend::Vulkan;
+		NativeWindowHandle  Window           = nullptr;
+		uint32_t            Width            = 1600;
+		uint32_t            Height           = 900;
+		bool                VSync            = true;
+		bool                EnableValidation = false;
+		uint32_t            FramesInFlight   = 2;
 	};
 
 	class RHIDevice

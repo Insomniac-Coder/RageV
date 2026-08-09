@@ -1037,7 +1037,11 @@ namespace RageV::GL
 	// Device
 	// -------------------------------------------------------------------------
 	OpenGLDevice::OpenGLDevice(const DeviceDesc& desc)
-		: m_Window(desc.Window), m_Width(desc.Width), m_Height(desc.Height), m_VSync(desc.VSync),
+		// DeviceDesc carries the window as an opaque handle so the public
+		// header names no GLFW type. This is the boundary where it becomes one
+		// again, and the only place that assumes GLFW is the windowing library.
+		: m_Window(static_cast<GLFWwindow*>(desc.Window)),
+		  m_Width(desc.Width), m_Height(desc.Height), m_VSync(desc.VSync),
 		  m_FramesInFlight(std::clamp(desc.FramesInFlight, 1u, 3u))
 	{
 		glfwMakeContextCurrent(m_Window);

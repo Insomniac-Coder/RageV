@@ -4185,9 +4185,10 @@ int RunTests(int argc, char** argv)
 
 	DeviceDesc deviceDesc;
 	deviceDesc.Backend = backend;
-	// GLFWwindow is forward-declared by RHIDevice.h, so the cast needs no GLFW
-	// header -- and must not have one. See the include note at the top.
-	deviceDesc.Window = static_cast<GLFWwindow*>(window->GetNativeWindow());
+	// An opaque handle straight through: DeviceDesc names no windowing type, so
+	// there is nothing here to cast to and no GLFW header to reach for. See the
+	// include note at the top for why this executable must not have one.
+	deviceDesc.Window = window->GetNativeWindow();
 	deviceDesc.Width = 640;
 	deviceDesc.Height = 480;
 	deviceDesc.VSync = true;

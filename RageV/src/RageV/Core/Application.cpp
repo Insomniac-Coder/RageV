@@ -14,7 +14,6 @@
 #include "Timestep.h"
 #include "Platform/Windows/WindowsPlatform.h"
 
-#include <GLFW/glfw3.h>
 #include <stb_write_image.h>
 #include <filesystem>
 
@@ -43,7 +42,7 @@ namespace RageV {
 
 		RHI::DeviceDesc deviceDesc;
 		deviceDesc.Backend = config.Backend;
-		deviceDesc.Window = static_cast<GLFWwindow*>(m_Window->GetNativeWindow());
+		deviceDesc.Window = m_Window->GetNativeWindow();
 		deviceDesc.Width = m_Window->GetWidth();
 		deviceDesc.Height = m_Window->GetHeight();
 		deviceDesc.VSync = config.VSync;
