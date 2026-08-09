@@ -7,6 +7,7 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/Application.h"
+#include "RageV/Physics/PhysicsWorld.h"
 
 #include <cstring>
 
@@ -16,6 +17,7 @@ namespace RageV::Managed
 	{
 		Scene* s_Scene = nullptr;
 		NativeApi s_Api{};
+		ManagedApi s_Managed{};
 		bool s_Ready = false;
 
 		// Every entity function starts here. Returning an invalid Entity rather
@@ -162,6 +164,90 @@ namespace RageV::Managed
 			return Application::GetElapsedTime();
 		}
 
+		// --- appended for protocol 2 -----------------------------------------
+
+		int32_t __cdecl WasActionReleased(const char* action)
+		{
+			return (action && InputMap::WasActionReleased(action)) ? 1 : 0;
+		}
+
+		// The world transform, and the entity's own axes derived from it. Native
+		// rather than computed in C# from the local rotation: the local rotation
+		// says nothing about where a parented entity actually points, and a
+		// script asking for "forward" means the direction it faces in the world.
+		int32_t __cdecl GetWorldPosition(uint64_t entity, Vec3* out)
+		{
+			Entity found = Resolve(entity);
+			if (!found || !out || !s_Scene)
+				return 0;
+			*out = Vec3(s_Scene->GetWorldTransform(found)[3]);
+			return 1;
+		}
+
+		int32_t __cdecl AxisOf(uint64_t entity, Vec3* out, const Vec4& axis)
+		{
+			Entity found = Resolve(entity);
+			if (!found || !out || !s_Scene)
+				return 0;
+			*out = Math::Normalize(Vec3(s_Scene->GetWorldTransform(found) * axis));
+			return 1;
+		}
+
+		int32_t __cdecl GetForward(uint64_t e, Vec3* out) { return AxisOf(e, out, { 0.0f, 0.0f, -1.0f, 0.0f }); }
+		int32_t __cdecl GetRight(uint64_t e, Vec3* out)   { return AxisOf(e, out, { 1.0f, 0.0f,  0.0f, 0.0f }); }
+		int32_t __cdecl GetUp(uint64_t e, Vec3* out)      { return AxisOf(e, out, { 0.0f, 1.0f,  0.0f, 0.0f }); }
+
+		uint64_t __cdecl Spawn(const char* name)
+		{
+			if (!s_Scene)
+				return 0;
+			Entity created = s_Scene->CreateEntity(name ? name : "Entity");
+			return (uint64_t)created.GetUUID();
+		}
+
+		void __cdecl Destroy(uint64_t entity)
+		{
+			if (Entity found = Resolve(entity))
+				s_Scene->DestroyDeferred(found);
+		}
+
+		Physics::World* PhysicsOf()
+		{
+			return s_Scene ? s_Scene->GetPhysics() : nullptr;
+		}
+
+		void __cdecl AddForce(uint64_t entity, const Vec3* force)
+		{
+			if (Physics::World* physics = PhysicsOf(); physics && force && Resolve(entity))
+				physics->AddForce(UUID(entity), *force);
+		}
+
+		void __cdecl AddImpulse(uint64_t entity, const Vec3* impulse)
+		{
+			if (Physics::World* physics = PhysicsOf(); physics && impulse && Resolve(entity))
+				physics->AddImpulse(UUID(entity), *impulse);
+		}
+
+		void __cdecl SetLinearVelocity(uint64_t entity, const Vec3* velocity)
+		{
+			if (Physics::World* physics = PhysicsOf(); physics && velocity && Resolve(entity))
+				physics->SetLinearVelocity(UUID(entity), *velocity);
+		}
+
+		int32_t __cdecl GetLinearVelocity(uint64_t entity, Vec3* out)
+		{
+			if (!out)
+				return 0;
+			Physics::World* physics = PhysicsOf();
+			if (!physics || !Resolve(entity))
+			{
+				*out = Vec3(0.0f);
+				return 0;
+			}
+			*out = physics->GetLinearVelocity(UUID(entity));
+			return 1;
+		}
+
 		NativeApi BuildApi()
 		{
 			NativeApi api{};
@@ -180,6 +266,18 @@ namespace RageV::Managed
 			api.GetAxis = &GetAxis;
 			api.GetFixedDeltaTime = &GetFixedDeltaTime;
 			api.GetTime = &GetTime;
+
+			api.WasActionReleased = &WasActionReleased;
+			api.GetWorldPosition = &GetWorldPosition;
+			api.GetForward = &GetForward;
+			api.GetRight = &GetRight;
+			api.GetUp = &GetUp;
+			api.Spawn = &Spawn;
+			api.Destroy = &Destroy;
+			api.AddForce = &AddForce;
+			api.AddImpulse = &AddImpulse;
+			api.SetLinearVelocity = &SetLinearVelocity;
+			api.GetLinearVelocity = &GetLinearVelocity;
 			return api;
 		}
 	}
@@ -221,6 +319,31 @@ namespace RageV::Managed
 			return false;
 		}
 
+		// The lifecycle entry points. Bound after the handshake, because a
+		// protocol mismatch means these signatures are in doubt too -- and
+		// binding a function pointer to a signature you no longer trust is the
+		// failure the version check exists to prevent.
+		const auto bind = [&assembly](const char* method) -> void*
+		{
+			return DotNetHost::GetFunctionPointer(
+				assembly, "RageV.ScriptHost, RageV.ScriptCore", method);
+		};
+
+		s_Managed.Create        = (decltype(s_Managed.Create))bind("Create");
+		s_Managed.Destroy       = (decltype(s_Managed.Destroy))bind("Destroy");
+		s_Managed.InvokeCreate  = (decltype(s_Managed.InvokeCreate))bind("InvokeCreate");
+		s_Managed.InvokeUpdate  = (decltype(s_Managed.InvokeUpdate))bind("InvokeUpdate");
+		s_Managed.InvokeDestroy = (decltype(s_Managed.InvokeDestroy))bind("InvokeDestroy");
+		s_Managed.InvokeContact = (decltype(s_Managed.InvokeContact))bind("InvokeContact");
+		s_Managed.LiveCount     = (decltype(s_Managed.LiveCount))bind("LiveCount");
+
+		if (!s_Managed.Create || !s_Managed.InvokeUpdate || !s_Managed.Destroy)
+		{
+			RV_CORE_ERROR("C# scripting: the script assembly has no ScriptHost entry points");
+			s_Managed = ManagedApi{};
+			return false;
+		}
+
 		s_Ready = true;
 		RV_CORE_INFO("C# scripting ready: protocol {0}, .NET {1}",
 					 Interop::kProtocolVersion, DotNetHost::GetRuntimeVersion());
@@ -234,6 +357,7 @@ namespace RageV::Managed
 		// collectible load contexts rather than on this.
 		s_Scene = nullptr;
 		s_Api = NativeApi{};
+		s_Managed = ManagedApi{};
 		s_Ready = false;
 	}
 
@@ -241,4 +365,5 @@ namespace RageV::Managed
 	void Interop::SetScene(Scene* s) { s_Scene = s; }
 	Scene* Interop::GetScene()       { return s_Scene; }
 	const NativeApi& Interop::Api()  { return s_Api; }
+	const ManagedApi& Interop::Managed() { return s_Managed; }
 }

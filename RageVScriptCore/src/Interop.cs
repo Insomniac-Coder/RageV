@@ -31,7 +31,10 @@ public static unsafe class Interop
 	/// a crash somewhere unrelated, minutes later, in a stack trace that names
 	/// none of the guilty parties.
 	/// </remarks>
-	public const int ProtocolVersion = 1;
+	// 1: the first table.
+	// 2: appended physics, world transform and spawn/destroy; added the script
+	//    lifecycle and the collision struct.
+	public const int ProtocolVersion = 2;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the

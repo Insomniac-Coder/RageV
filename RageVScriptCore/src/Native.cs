@@ -49,6 +49,23 @@ internal unsafe struct NativeApi
 	// --- time ---
 	public delegate* unmanaged[Cdecl]<float> GetFixedDeltaTime;
 	public delegate* unmanaged[Cdecl]<float> GetTime;
+
+	// --- appended for protocol 2 ---
+	// Appended, never inserted: every field above keeps its offset.
+	public delegate* unmanaged[Cdecl]<byte*, int> WasActionReleased;
+
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, int> GetWorldPosition;
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, int> GetForward;
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, int> GetRight;
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, int> GetUp;
+
+	public delegate* unmanaged[Cdecl]<byte*, ulong> Spawn;
+	public delegate* unmanaged[Cdecl]<ulong, void> Destroy;
+
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, void> AddForce;
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, void> AddImpulse;
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, void> SetLinearVelocity;
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, int> GetLinearVelocity;
 }
 
 /// <summary>

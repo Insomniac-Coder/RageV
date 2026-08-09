@@ -42,7 +42,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-636 checks, `exit 0`. Then look at a frame:
+646 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -106,7 +106,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 636 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
+| `scenetest` | 646 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -157,6 +157,13 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 build/bin/Debug/rhismoke/rhismoke.exe 120 --rhi=vulkan
 build/bin/Debug/rhismoke/rhismoke.exe 120 --rhi=opengl
 ```
+
+> [!TRAP]
+> **The failure marker is `FAIL`, in capitals.** Counting failures by grepping
+> for lowercase `fail` matches nothing and reports every run as clean. The
+> reliable signal is the last line -- `OK`, or `N check(s) failed` -- and the
+> exit code. A whole session's worth of "0 failures" was measured with a broken
+> grep before the `OK` line caught it.
 
 Then run the editor on both backends. **Zero `[Vulkan]` lines in the log** is
 the bar — validation and synchronization validation are both on in Debug, and
@@ -829,7 +836,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Skeletal animation | Skinned vertex format, skinned PBR and depth shaders, per-instance bone matrices, `AnimatorComponent` (3.7) |
 | Batching | Instanced draws keyed on mesh and material; 3238 draws down to 60 on the stress scene |
 | Profiler | CPU wall time and GPU timestamps per phase, live in the editor and printed by `--benchmark` |
-| Tests | `scenetest`, **636 checks**, green on both backends |
+| Tests | `scenetest`, **646 checks**, green on both backends |
 
 **Phases 0, 1, 2, 3 and 4 are complete.** Phase 5, C# scripting, is in
 progress -- 5.1 (hosting) is done, and **5.0 now precedes the rest**: no
@@ -1034,6 +1041,23 @@ string out, string back including the truncation contract, a float return, an
 unknown entity, the log -- and reports each as its own bit. `scenetest` asserts
 them individually, because a single pass/fail would say "interop is broken" and
 leave the next person to work out which of nine things it was.
+
+**5.3 is done.** `RageVScriptCore/src/Engine.cs` is the class library --
+`Entity`, `Script`, `Input`, `Time`, `Log`, `Collision`, `Vector3` -- and
+`ScriptHost.cs` instantiates a `Script` subclass by name, drives its lifecycle,
+and delivers contacts. `BuiltinScripts.cs` has C# `Spinner` and `Mover` that are
+line-for-line comparable with the native ones in `Scripts/BuiltinScripts.cpp`,
+which is the clearest available statement that the two APIs are one API.
+
+**A project still cannot have C# scripts.** The machinery works end to end and
+there is no way to attach it: no managed script component, no inspector entry,
+no scene serialization, and no per-project assembly. Only the two built-in C#
+scripts exist, and only `scenetest` drives them. That needs 5.4 plus a
+`ManagedScriptComponent`, and until then a scene can hold C++ scripts only.
+
+C++ scripts have their own limit worth stating in the same breath: they must be
+compiled into the engine or game binary, so a *project* cannot add one without
+rebuilding the engine.
 
 **5.0 was completed before 5.2, as planned.** No third-party type in a public
 header, and the public API segregated into `RageV::Math::`, `RageV::Audio::`,

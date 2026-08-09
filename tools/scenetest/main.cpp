@@ -77,6 +77,9 @@
 using namespace RageV;
 using namespace RageV::RHI;
 
+// Defined below; used by fixtures declared before it.
+static std::filesystem::path ScratchDir(const std::string& name);
+
 namespace
 {
 	int g_Failures = 0;
@@ -374,7 +377,7 @@ namespace
 		explicit ScratchProject(const char* name)
 			: m_Previous(Project::File())
 		{
-			m_Root = std::filesystem::temp_directory_path() / (std::string("ragev-") + name);
+			m_Root = ScratchDir(name);
 
 			std::error_code error;
 			std::filesystem::remove_all(m_Root, error);
@@ -1037,7 +1040,7 @@ namespace
 		const std::filesystem::path original = Project::File();
 
 		const std::filesystem::path root =
-			std::filesystem::temp_directory_path() / "ragev-project-test";
+			ScratchDir("project-test");
 
 		std::error_code error;
 		std::filesystem::remove_all(root, error);
@@ -3020,7 +3023,7 @@ namespace
 	{
 		const std::filesystem::path previous = Project::File();
 		const std::filesystem::path root =
-			std::filesystem::temp_directory_path() / "ragev-package-test";
+			ScratchDir("package-test");
 		const std::filesystem::path output = root / "out";
 
 		std::error_code error;
@@ -4087,6 +4090,23 @@ namespace
 	}
 }
 
+// A scratch directory nobody else is using.
+//
+// The process id is in the name because these paths were fixed, and two
+// scenetest processes overlapping would then collide: one removing the tree
+// while the other creates in it. Sequential runs can collide too -- Windows
+// defers a deletion while any handle is open, so a directory removed by the
+// previous process can still exist when the next one checks for it.
+//
+// That was observed once as two unexplained failures in a run that had passed
+// twenty-three times before and after. This does not prove that was the cause;
+// it removes the only mechanism found that could produce it.
+static std::filesystem::path ScratchDir(const std::string& name)
+{
+	return std::filesystem::temp_directory_path()
+		 / ("ragev-" + name + "-" + std::to_string(GetCurrentProcessId()));
+}
+
 int RunTests(int argc, char** argv);
 
 int main(int argc, char** argv)
@@ -4588,12 +4608,18 @@ int RunTests(int argc, char** argv)
 			{
 				// The whole point of 5.1 in one line: native code called managed
 				// code and got an answer back.
-				Check(handshake(1) == 1, "native calls managed, and the protocol versions agree");
+				// Against the engine's own constant, not a literal. Hardcoding
+				// the version here meant that bumping the protocol -- the one
+				// thing the check exists to survive -- broke the check itself.
+				const int32_t protocol = Managed::Interop::kProtocolVersion;
+				Check(handshake(protocol) == protocol,
+					  "native calls managed, and the protocol versions agree");
 
 				// The mismatch path is worth a check of its own. It is the one
 				// that fires after a partial rebuild, and it has to report which
 				// version it is talking to rather than merely failing.
-				Check(handshake(99) == -1, "a protocol mismatch is reported, with the managed version");
+				Check(handshake(protocol + 97) == -protocol,
+					  "a protocol mismatch is reported, with the managed version");
 			}
 
 			Check(DotNetHost::GetFunctionPointer(assembly, "RageV.NoSuchType, RageV.ScriptCore",
@@ -4671,6 +4697,69 @@ int RunTests(int argc, char** argv)
 					  "a transform written from C# is the transform the engine reads");
 
 				Check(api.EntityExists(0) == 0, "entity zero is the invalid entity");
+			}
+
+			// --- the script lifecycle ----------------------------------------
+			//
+			// The class library is only real if a Script subclass can be
+			// instantiated, stepped, and told about a contact. Spinner is used
+			// because the native and managed versions are line-for-line
+			// comparable, so this also checks that the two APIs agree.
+			if (Managed::Interop::IsReady())
+			{
+				const Managed::ManagedApi& managed = Managed::Interop::Managed();
+				Check(managed.Create && managed.InvokeUpdate && managed.Destroy,
+					  "the managed script lifecycle is bound");
+
+				Entity spun = scene->CreateEntity("Spun");
+				spun.GetComponent<TransformComponent>().Rotation = Vec3(0.0f);
+
+				const int32_t handle = managed.Create("RageV.Builtin.Spinner", (uint64_t)spun.GetUUID());
+				Check(handle != 0, "a C# script instantiates by type name");
+				Check(managed.LiveCount() == 1, "and is counted as live");
+
+				Check(managed.Create("RageV.Builtin.NoSuchScript", (uint64_t)spun.GetUUID()) == 0,
+					  "a type that does not exist is refused rather than crashing");
+				Check(managed.Create("RageV.Interop", (uint64_t)spun.GetUUID()) == 0,
+					  "and so is a type that is not a Script");
+
+				if (handle != 0)
+				{
+					managed.InvokeCreate(handle);
+
+					// Spinner turns 1.2 radians a second about Y. Ten steps of
+					// a sixtieth is a fifth of a second.
+					for (int step = 0; step < 10; step++)
+						managed.InvokeUpdate(handle, 1.0f / 60.0f);
+
+					const Vec3 rotation = spun.GetComponent<TransformComponent>().Rotation;
+					Check(std::fabs(rotation.y - (1.2f * 10.0f / 60.0f)) < 1e-4f,
+						  "a C# OnUpdate moves the entity it is attached to, by the amount it should");
+					Check(rotation.x == 0.0f && rotation.z == 0.0f,
+						  "and leaves the other axes alone");
+
+					// A contact, with the same awkward values used elsewhere.
+					Managed::CollisionData contact{};
+					contact.Other = (uint64_t)probe.GetUUID();
+					contact.Trigger = 0;
+					contact.Point = Vec3(1.5f, -2.25f, 0.75f);
+					contact.Normal = Vec3(0.0f, 1.0f, 0.0f);
+					contact.ImpactSpeed = 4.5f;
+
+					// Spinner does not override it, so this proves the *call*
+					// arrives and the struct crosses without anything throwing.
+					// A script that throws is checked separately below.
+					managed.InvokeContact(handle, (int32_t)Managed::ContactKind::CollisionEnter, &contact);
+					Check(true, "a contact struct crosses into a script without faulting");
+
+					managed.InvokeDestroy(handle);
+					managed.Destroy(handle);
+					Check(managed.LiveCount() == 0, "and releasing the handle drops the instance");
+				}
+
+				// An unknown handle must be ignored, not indexed.
+				managed.InvokeUpdate(9999, 1.0f / 60.0f);
+				Check(true, "stepping a handle that was never created is ignored");
 			}
 
 			// Managed code must not be able to keep a scene alive past Stop,
