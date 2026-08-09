@@ -31,6 +31,10 @@ namespace RageV
 		// become one undo step rather than one per frame. The pre-edit value is
 		// captured the frame the value first changes, and the command is
 		// recorded once no widget is active any more.
+		// The C# script component: type dropdown, then its reflected fields.
+		void DrawManagedScript(ManagedScriptComponent& script);
+		static std::string FormatFloat(float value);
+
 		void CommitPendingEdit();
 
 	private:

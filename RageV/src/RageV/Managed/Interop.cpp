@@ -339,6 +339,18 @@ namespace RageV::Managed
 		s_Managed.LoadAssembly  = (decltype(s_Managed.LoadAssembly))bind("LoadAssembly");
 		s_Managed.ListScriptTypes = (decltype(s_Managed.ListScriptTypes))bind("ListScriptTypes");
 
+		// A different managed type, so a different assembly-qualified name.
+		const auto bindFields = [&assembly](const char* method) -> void*
+		{
+			return DotNetHost::GetFunctionPointer(
+				assembly, "RageV.ScriptFields, RageV.ScriptCore", method);
+		};
+
+		s_Managed.GetFieldCount  = (decltype(s_Managed.GetFieldCount))bindFields("GetFieldCount");
+		s_Managed.DescribeField  = (decltype(s_Managed.DescribeField))bindFields("DescribeField");
+		s_Managed.GetFieldValue  = (decltype(s_Managed.GetFieldValue))bindFields("GetFieldValue");
+		s_Managed.SetFieldValue  = (decltype(s_Managed.SetFieldValue))bindFields("SetFieldValue");
+
 		if (!s_Managed.Create || !s_Managed.InvokeUpdate || !s_Managed.Destroy)
 		{
 			RV_CORE_ERROR("C# scripting: the script assembly has no ScriptHost entry points");
@@ -366,6 +378,57 @@ namespace RageV::Managed
 	bool Interop::IsReady()          { return s_Ready; }
 	void Interop::SetScene(Scene* s) { s_Scene = s; }
 	Scene* Interop::GetScene()       { return s_Scene; }
+	std::vector<ScriptFieldDesc> Interop::DescribeFields(const std::string& typeName)
+	{
+		std::vector<ScriptFieldDesc> fields;
+
+		if (!s_Ready || !s_Managed.GetFieldCount || !s_Managed.DescribeField || typeName.empty())
+			return fields;
+
+		const int32_t count = s_Managed.GetFieldCount(typeName.c_str());
+		if (count <= 0)
+			return fields;
+
+		for (int32_t index = 0; index < count; index++)
+		{
+			// Sized generously and then checked, rather than asked twice. A
+			// field name and a default value are short, and the second call
+			// exists for the case where they are not.
+			std::string buffer(256, '\0');
+			int32_t needed = s_Managed.DescribeField(typeName.c_str(), index,
+													 buffer.data(), (int32_t)buffer.size());
+			if (needed < 0)
+				continue;
+
+			const auto describe = [&](std::string& target) -> int32_t
+			{
+				return s_Managed.DescribeField(typeName.c_str(), index,
+											   target.data(), (int32_t)target.size());
+			};
+
+			// The type came back in `needed` on the first call; re-reading a
+			// longer buffer gives the same type, so only the text is refetched.
+			if ((size_t)std::strlen(buffer.c_str()) + 1 >= buffer.size())
+			{
+				buffer.assign(4096, '\0');
+				needed = describe(buffer);
+			}
+
+			const std::string packed(buffer.c_str());
+			const size_t split = packed.find('\n');
+
+			ScriptFieldDesc field;
+			field.Type = (ScriptFieldType)needed;
+			field.Name = (split == std::string::npos) ? packed : packed.substr(0, split);
+			field.Default = (split == std::string::npos) ? "" : packed.substr(split + 1);
+
+			if (field.Type != ScriptFieldType::Unsupported && !field.Name.empty())
+				fields.push_back(std::move(field));
+		}
+
+		return fields;
+	}
+
 	const NativeApi& Interop::Api()  { return s_Api; }
 	const ManagedApi& Interop::Managed() { return s_Managed; }
 }

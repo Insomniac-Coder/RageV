@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <algorithm>
 #include "RageV/Core/UUID.h"
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsTypes.h"
@@ -390,6 +391,94 @@ namespace RageV
 	//
 	// The instance is deleted through ScriptableEntity's virtual destructor, so
 	// the per-type destroy thunk this used to carry is gone with it.
+	// A C# script on an entity.
+	//
+	// Deliberately separate from NativeScriptComponent rather than one component
+	// with a language flag. The two have different failure modes, different
+	// lifetimes and different inspector needs -- a managed script can be
+	// recompiled while the editor runs, a native one cannot -- and folding them
+	// together would mean every use site asking which kind it was holding.
+	//
+	// An entity may carry both. Nothing in the design prevents it and the
+	// simulation steps them in a defined order: native first, then managed.
+	struct ManagedScriptComponent
+	{
+		// The C# type, as written in the assembly: "Example" or "Game.Enemy".
+		std::string ScriptName;
+
+		// Values the inspector authored, applied to the instance after it is
+		// created and before OnCreate runs.
+		//
+		// Stored as text keyed by field name, because the scene file is text and
+		// because the alternative -- a variant that must be kept in step with
+		// the managed field types in two languages -- is upkeep bought for
+		// nothing on an operation that happens when somebody types.
+		//
+		// Only fields the user actually changed are stored. A field left alone
+		// keeps whatever the script's own initialiser gave it, so editing a
+		// default in code changes every entity that never overrode it.
+		struct FieldOverride
+		{
+			std::string Name;
+			std::string Value;
+		};
+		std::vector<FieldOverride> Fields;
+
+		// Runtime only, not serialized. Zero means nothing is instantiated.
+		int32_t Handle = 0;
+		// Which name the live instance was built from, so choosing a different
+		// script in the inspector mid-run actually takes effect.
+		std::string ActiveScript;
+
+		ManagedScriptComponent() = default;
+		ManagedScriptComponent(const std::string& script) : ScriptName(script) {}
+
+		// The handle is not copied. Two components owning one managed instance
+		// would both destroy it, and EnTT copies components when a scene is
+		// duplicated -- which is what play mode does on every press of Play.
+		ManagedScriptComponent(const ManagedScriptComponent& other)
+			: ScriptName(other.ScriptName), Fields(other.Fields) {}
+
+		ManagedScriptComponent& operator=(const ManagedScriptComponent& other)
+		{
+			ScriptName = other.ScriptName;
+			Fields = other.Fields;
+			Handle = 0;
+			ActiveScript.clear();
+			return *this;
+		}
+
+		const std::string* Find(const std::string& name) const
+		{
+			for (const FieldOverride& field : Fields)
+			{
+				if (field.Name == name)
+					return &field.Value;
+			}
+			return nullptr;
+		}
+
+		void Set(const std::string& name, const std::string& value)
+		{
+			for (FieldOverride& field : Fields)
+			{
+				if (field.Name == name)
+				{
+					field.Value = value;
+					return;
+				}
+			}
+			Fields.push_back({ name, value });
+		}
+
+		void Clear(const std::string& name)
+		{
+			Fields.erase(std::remove_if(Fields.begin(), Fields.end(),
+										[&name](const FieldOverride& field) { return field.Name == name; }),
+						 Fields.end());
+		}
+	};
+
 	struct NativeScriptComponent
 	{
 		std::string ScriptName;

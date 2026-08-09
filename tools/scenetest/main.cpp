@@ -4851,6 +4851,121 @@ int RunTests(int argc, char** argv)
 				Project::Close();
 			}
 
+			// --- script fields, and a C# script on an entity -------------------
+			//
+			// 5.6: the component exists, its fields come from reflecting the
+			// type, and a scene round-trips both. Checked against Spinner,
+			// whose one field -- `private float m_Speed = 1.2f` -- is also the
+			// case that matters most: private, because that is how C# is
+			// written, and defaulted in the initialiser rather than to zero.
+			if (Managed::Interop::IsReady())
+			{
+				const std::vector<Managed::ScriptFieldDesc> fields =
+					Managed::Interop::DescribeFields("RageV.Builtin.Spinner");
+
+				Check(fields.size() == 1, "a script type reports its editable fields");
+
+				if (!fields.empty())
+				{
+					Check(fields[0].Name == "m_Speed", "including private ones, which is how C# is written");
+					Check(fields[0].Type == Managed::ScriptFieldType::Float, "with the right type");
+					Check(fields[0].Default == "1.2",
+						  "and the default from the field initialiser, not zero");
+				}
+
+				Check(Managed::Interop::DescribeFields("RageV.Builtin.NoSuchScript").empty(),
+					  "an unknown type reports no fields rather than failing");
+
+				// Reading and writing a field on a live instance.
+				const Managed::ManagedApi& managed = Managed::Interop::Managed();
+				const int32_t handle = managed.Create("RageV.Builtin.Spinner",
+													  (uint64_t)probe.GetUUID());
+				if (handle != 0)
+				{
+					std::string readBack(64, '\0');
+					Check(managed.GetFieldValue(handle, "m_Speed", readBack.data(),
+												(int32_t)readBack.size()) > 0,
+						  "a field reads off a live instance");
+					Check(std::string(readBack.c_str()) == "1.2", "as the value it actually holds");
+
+					Check(managed.SetFieldValue(handle, "m_Speed", "4") == 1, "and can be written");
+
+					readBack.assign(64, '\0');
+					managed.GetFieldValue(handle, "m_Speed", readBack.data(), (int32_t)readBack.size());
+					Check(std::string(readBack.c_str()) == "4", "and the write sticks");
+
+					Check(managed.SetFieldValue(handle, "m_NoSuchField", "1") == 0,
+						  "while writing a field that does not exist is refused");
+
+					managed.Destroy(handle);
+				}
+			}
+
+			// --- the component, and a scene round trip --------------------------
+			{
+				auto authored = std::make_shared<Scene>();
+				Entity host = authored->CreateEntity("Scripted");
+				auto& component = host.AddComponent<ManagedScriptComponent>("RageV.Builtin.Spinner");
+				component.Set("m_Speed", "2.5");
+
+				Check(component.Find("m_Speed") && *component.Find("m_Speed") == "2.5",
+					  "a field override is stored on the component");
+
+				component.Set("m_Speed", "3.5");
+				Check(component.Fields.size() == 1, "setting the same field twice replaces rather than appends");
+
+				component.Clear("m_Speed");
+				Check(component.Fields.empty(), "and an override can be cleared back to the default");
+				component.Set("m_Speed", "2.5");
+
+				SceneSerializer writer(authored);
+				const std::string text = writer.SerializeToString();
+				Check(text.find("ManagedScriptComponent") != std::string::npos,
+					  "the component is written to the scene");
+				Check(text.find("m_Speed") != std::string::npos,
+					  "with its field overrides");
+
+				auto reloaded = std::make_shared<Scene>();
+				SceneSerializer reader(reloaded);
+				Check(reader.DeserializeFromString(text), "and the scene loads again");
+
+				Entity restored = reloaded->FindEntityByName("Scripted");
+				Check(restored && restored.HasComponent<ManagedScriptComponent>(),
+					  "with the component still on the entity");
+
+				if (restored && restored.HasComponent<ManagedScriptComponent>())
+				{
+					const auto& back = restored.GetComponent<ManagedScriptComponent>();
+					Check(back.ScriptName == "RageV.Builtin.Spinner", "and the script it names");
+					Check(back.Find("m_Speed") && *back.Find("m_Speed") == "2.5",
+						  "and the value somebody typed");
+					Check(back.Handle == 0, "and no live handle, which belongs to the run rather than the file");
+				}
+
+				// The pass that actually runs them. Spinner turns m_Speed radians
+				// a second about Y, so an overridden speed has to be the speed
+				// that shows up in the transform -- which is the whole point of
+				// the field being editable.
+				if (Managed::Interop::IsReady())
+				{
+					reloaded->OnRuntimeStart();
+					Entity spun = reloaded->FindEntityByName("Scripted");
+					spun.GetComponent<TransformComponent>().Rotation = Vec3(0.0f);
+
+					for (int step = 0; step < 10; step++)
+						reloaded->OnFixedUpdateRuntime(1.0f / 60.0f);
+
+					const float turned = spun.GetComponent<TransformComponent>().Rotation.y;
+					Check(std::fabs(turned - (2.5f * 10.0f / 60.0f)) < 1e-4f,
+						  "and the scene steps it at the overridden speed, not the default");
+
+					reloaded->OnRuntimeStop();
+					Check(reloaded->FindEntityByName("Scripted")
+							  .GetComponent<ManagedScriptComponent>().Handle == 0,
+						  "and Stop releases the instance rather than leaking the handle");
+				}
+			}
+
 			// Managed code must not be able to keep a scene alive past Stop,
 			// which is why the binding is a raw pointer and is cleared here.
 			Managed::Interop::SetScene(nullptr);

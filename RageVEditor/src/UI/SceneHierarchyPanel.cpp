@@ -1,5 +1,9 @@
 #include "SceneHierarchyPanel.h"
 #include "imgui.h"
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
+#include "RageV/Managed/Interop.h"
 #include "imgui_internal.h"
 #include "RageV/Math/Math.h"
 #include "EditorTheme.h"
@@ -637,6 +641,9 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			if (std::string(desc.Name) == "MeshComponent")
 				DrawMaterial(*static_cast<MeshComponent*>(component));
 
+			if (std::string(desc.Name) == "ManagedScriptComponent")
+				DrawManagedScript(*static_cast<ManagedScriptComponent*>(component));
+
 			if (std::string(desc.Name) == "NativeScriptComponent")
 			{
 				auto* script = static_cast<NativeScriptComponent*>(component);
@@ -716,4 +723,181 @@ void RageV::SceneHierarchyPanel::CommitPendingEdit()
 			m_PendingEdit.Field, m_PendingEdit.Before, after));
 		return;
 	}
+}
+
+// The C# script component: which type, and its fields.
+//
+// The fields come from reflecting the *type*, not from anything stored -- so a
+// script that gains a field shows it immediately, and one that loses a field
+// stops showing it without the scene needing a migration. What is stored is
+// only the values somebody actually changed, which is why a default edited in
+// code reaches every entity that never overrode it.
+void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& script)
+{
+	if (!Managed::Interop::IsReady())
+	{
+		ImGui::TextColored(EditorTheme::Color::AccentHover, "C# scripting is not running");
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("The .NET runtime did not start, or no script assembly\n"
+							  "has been built. File > Build Scripts.");
+		}
+		return;
+	}
+
+	// The types actually loaded, rather than a free-text field: a typo would
+	// otherwise produce an entity that silently does nothing.
+	std::string listing(4096, '\0');
+	const int32_t needed = Managed::Interop::Managed().ListScriptTypes
+		? Managed::Interop::Managed().ListScriptTypes(listing.data(), (int32_t)listing.size())
+		: 0;
+
+	std::vector<std::string> types;
+	if (needed > 0)
+	{
+		std::istringstream stream(std::string(listing.c_str()));
+		std::string name;
+		while (std::getline(stream, name))
+		{
+			if (!name.empty())
+				types.push_back(name);
+		}
+	}
+
+	const std::string current = script.ScriptName.empty() ? "(none)" : script.ScriptName;
+
+	if (ImGui::BeginCombo("Script", current.c_str()))
+	{
+		if (ImGui::Selectable("(none)", script.ScriptName.empty()))
+		{
+			script.ScriptName.clear();
+			script.Fields.clear();
+		}
+
+		for (const std::string& name : types)
+		{
+			if (ImGui::Selectable(name.c_str(), name == script.ScriptName))
+			{
+				// Overrides belong to the script that had them. Keeping them
+				// across a change of type would apply values from one script to
+				// another script's identically named field, which is worse than
+				// losing them.
+				if (name != script.ScriptName)
+					script.Fields.clear();
+				script.ScriptName = name;
+			}
+		}
+
+		ImGui::EndCombo();
+	}
+
+	if (script.ScriptName.empty())
+	{
+		ImGui::TextDisabled("Runs on the fixed step, only while playing.");
+		return;
+	}
+
+	const std::vector<Managed::ScriptFieldDesc> fields =
+		Managed::Interop::DescribeFields(script.ScriptName);
+
+	if (types.empty() || std::find(types.begin(), types.end(), script.ScriptName) == types.end())
+	{
+		// A scene can outlive the script it names, or name one from an assembly
+		// that has not been built yet. Saying so beats an entity that silently
+		// does nothing.
+		ImGui::TextColored(EditorTheme::Color::AccentHover,
+						   "'%s' is not in any loaded assembly", script.ScriptName.c_str());
+		return;
+	}
+
+	if (fields.empty())
+	{
+		ImGui::TextDisabled("No editable fields.");
+		return;
+	}
+
+	ImGui::Separator();
+
+	for (const Managed::ScriptFieldDesc& field : fields)
+	{
+		const std::string* stored = script.Find(field.Name);
+		const std::string value = stored ? *stored : field.Default;
+
+		ImGui::PushID(field.Name.c_str());
+
+		switch (field.Type)
+		{
+			case Managed::ScriptFieldType::Bool:
+			{
+				bool flag = (value == "true" || value == "1");
+				if (ImGui::Checkbox(field.Name.c_str(), &flag))
+					script.Set(field.Name, flag ? "true" : "false");
+				break;
+			}
+			case Managed::ScriptFieldType::Int:
+			{
+				int number = std::atoi(value.c_str());
+				if (ImGui::DragInt(field.Name.c_str(), &number))
+					script.Set(field.Name, std::to_string(number));
+				break;
+			}
+			case Managed::ScriptFieldType::Float:
+			{
+				float number = (float)std::atof(value.c_str());
+				if (ImGui::DragFloat(field.Name.c_str(), &number, 0.01f))
+					script.Set(field.Name, FormatFloat(number));
+				break;
+			}
+			case Managed::ScriptFieldType::Vector3:
+			{
+				float parts[3] = { 0.0f, 0.0f, 0.0f };
+				std::istringstream stream(value);
+				stream >> parts[0] >> parts[1] >> parts[2];
+
+				if (ImGui::DragFloat3(field.Name.c_str(), parts, 0.01f))
+				{
+					script.Set(field.Name, FormatFloat(parts[0]) + " " +
+											FormatFloat(parts[1]) + " " +
+											FormatFloat(parts[2]));
+				}
+				break;
+			}
+			case Managed::ScriptFieldType::String:
+			{
+				char buffer[256]{};
+				std::strncpy(buffer, value.c_str(), sizeof(buffer) - 1);
+				if (ImGui::InputText(field.Name.c_str(), buffer, sizeof(buffer)))
+					script.Set(field.Name, buffer);
+				break;
+			}
+			default:
+				break;
+		}
+
+		// Only overridden fields get a reset, because only they have anything
+		// to reset to -- and showing the control on every field would suggest
+		// otherwise.
+		if (stored)
+		{
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Reset"))
+				script.Clear(field.Name);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Back to the script's own default (%s)", field.Default.c_str());
+		}
+
+		ImGui::PopID();
+	}
+}
+
+// Shortest round-trippable text for a float.
+//
+// std::to_string gives six decimals and turns 1.2 into "1.200000", which then
+// appears in the scene file and in the inspector forever. This is what keeps a
+// hand-edited scene readable.
+std::string RageV::SceneHierarchyPanel::FormatFloat(float value)
+{
+	std::ostringstream out;
+	out << std::setprecision(9) << std::defaultfloat << value;
+	return out.str();
 }

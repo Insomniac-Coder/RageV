@@ -85,28 +85,12 @@ public static unsafe class ScriptHost
 			if (string.IsNullOrEmpty(name))
 				return 0;
 
-			// This assembly first, then whatever the project loaded. A project
-			// script shadowing a built-in one is the project's business.
-			Type? type = Type.GetType(name) ?? typeof(ScriptHost).Assembly.GetType(name);
+			// One resolver, shared with the inspector, so describing a type and
+			// instantiating it can never disagree about which type a name is.
+			Type? type = FindScriptType(name);
 			if (type is null)
 			{
-				foreach (Assembly assembly in s_Loaded)
-				{
-					type = assembly.GetType(name);
-					if (type is not null)
-						break;
-				}
-			}
-
-			if (type is null)
-			{
-				Log.Error($"No script type named '{name}'");
-				return 0;
-			}
-
-			if (!typeof(Script).IsAssignableFrom(type) || type.IsAbstract)
-			{
-				Log.Error($"'{name}' is not a Script, or is abstract");
+				Log.Error($"'{name}' is not a script type in any loaded assembly");
 				return 0;
 			}
 
@@ -247,6 +231,36 @@ public static unsafe class ScriptHost
 	{
 		try { return s_Live.Count; }
 		catch { return -1; }
+	}
+
+	/// <summary>The instance behind a handle, or null.</summary>
+	internal static Script? Find(int handle) =>
+		s_Live.TryGetValue(handle, out Script? instance) ? instance : null;
+
+	/// <summary>Resolves a script type name the same way Create does.</summary>
+	/// <remarks>
+	/// Shared so that the inspector describing a type and the engine
+	/// instantiating it can never disagree about which type a name means.
+	/// </remarks>
+	internal static Type? FindScriptType(string? name)
+	{
+		if (string.IsNullOrEmpty(name))
+			return null;
+
+		Type? type = Type.GetType(name) ?? typeof(ScriptHost).Assembly.GetType(name);
+		if (type is null)
+		{
+			foreach (Assembly assembly in s_Loaded)
+			{
+				type = assembly.GetType(name);
+				if (type is not null)
+					break;
+			}
+		}
+
+		return (type is not null && typeof(Script).IsAssignableFrom(type) && !type.IsAbstract)
+			? type
+			: null;
 	}
 
 	// The one place an exception from user code is allowed to stop.

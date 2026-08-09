@@ -163,6 +163,45 @@ namespace RageV::Managed
 		// Every loadable script type, newline-separated, with the same
 		// length-that-would-have-fit contract GetEntityName uses.
 		int32_t (__cdecl* ListScriptTypes)(char* buffer, int32_t capacity);
+
+		// --- appended for protocol 3: script fields --------------------------
+		//
+		// Values cross as text, in the invariant culture. The scene file is text
+		// and the inspector edits text-like values anyway, so a tagged union
+		// would be two languages' worth of upkeep to avoid a float parse on an
+		// operation that happens when somebody types, not per step.
+
+		// How many editable fields a script type has, or -1 if it is unknown.
+		int32_t (__cdecl* GetFieldCount)(const char* typeName);
+
+		// Writes "name\ndefault" into the buffer and returns the field's type
+		// as a ScriptFieldType. Two strings in one call, because the inspector
+		// reads this once when a script is chosen.
+		int32_t (__cdecl* DescribeField)(const char* typeName, int32_t index,
+										 char* buffer, int32_t capacity);
+
+		int32_t (__cdecl* GetFieldValue)(int32_t handle, const char* name,
+										 char* buffer, int32_t capacity);
+		int32_t (__cdecl* SetFieldValue)(int32_t handle, const char* name, const char* value);
+	};
+
+	// What kind of thing a script field is. Matches RageV.ScriptFieldType.
+	enum class ScriptFieldType : int32_t
+	{
+		Unsupported = -1,
+		Bool = 0,
+		Int = 1,
+		Float = 2,
+		String = 3,
+		Vector3 = 4,
+	};
+
+	// One editable field on a script type, as the inspector sees it.
+	struct ScriptFieldDesc
+	{
+		std::string Name;
+		std::string Default;
+		ScriptFieldType Type = ScriptFieldType::Unsupported;
 	};
 
 	class Interop
@@ -197,6 +236,12 @@ namespace RageV::Managed
 		// 1: the first table.
 		// 2: appended physics, world transform and spawn/destroy; added the
 		//    script lifecycle and CollisionData.
-		static constexpr int32_t kProtocolVersion = 2;
+		// 3: appended script field reflection.
+		static constexpr int32_t kProtocolVersion = 3;
+
+		// The editable fields of a script type, for the inspector. Empty when
+		// C# is not running or the type is unknown -- both of which the
+		// inspector shows rather than treating as an error.
+		static std::vector<ScriptFieldDesc> DescribeFields(const std::string& typeName);
 	};
 }

@@ -42,7 +42,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-660 checks, `exit 0`. Then look at a frame:
+682 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -106,7 +106,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 660 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
+| `scenetest` | 682 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -836,7 +836,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Skeletal animation | Skinned vertex format, skinned PBR and depth shaders, per-instance bone matrices, `AnimatorComponent` (3.7) |
 | Batching | Instanced draws keyed on mesh and material; 3238 draws down to 60 on the stress scene |
 | Profiler | CPU wall time and GPU timestamps per phase, live in the editor and printed by `--benchmark` |
-| Tests | `scenetest`, **660 checks**, green on both backends |
+| Tests | `scenetest`, **682 checks**, green on both backends |
 
 **Phases 0, 1, 2, 3 and 4 are complete.** Phase 5, C# scripting, is in
 progress -- 5.1 (hosting) is done, and **5.0 now precedes the rest**: no
@@ -1073,12 +1073,37 @@ Three things in there that were not obvious:
   alarming and still not have produced anything, so success requires the file to
   exist *and* zero errors.
 
-**A project still cannot attach C# scripts to entities.** The machinery works end to end and
+**5.6 is done, and with it a project can have both languages.**
+`ManagedScriptComponent` puts a C# script on an entity: a type dropdown of what
+the loaded assemblies actually contain, the script's fields reflected out of the
+type, and both saved into the scene. `Scene::StepManagedScripts` runs them on
+the fixed step, after the native pass so the ordering between the two languages
+is stated rather than being whatever the component pools do this build.
+
+Four decisions in there:
+
+- **Fields come from reflecting the type, not from anything stored.** A script
+  that gains a field shows it immediately; one that loses a field stops showing
+  it with no scene migration. Only values somebody *changed* are stored, so
+  editing a default in code reaches every entity that never overrode it.
+- **Private fields are editable.** `private float m_Speed = 1.2f;` is how C# is
+  written, and it would otherwise be the one thing nobody can tune. Unity needs
+  a `[SerializeField]` attribute for this; not requiring one is fewer concepts
+  for the same result. `readonly` and `static` are skipped.
+- **Values cross as text, in the invariant culture.** The scene file is text
+  anyway, and a tagged union would be two languages' worth of upkeep on
+  something that happens when a person types. Invariant specifically: a machine
+  with a comma decimal separator would otherwise write `1,5` into a scene that
+  then loads nowhere else.
+- **The handle is not copied and not serialized.** EnTT copies components when a
+  scene is duplicated, which is what play mode does on every press of Play, and
+  two components owning one managed instance would both destroy it.
+
+**C++ scripts still have to be compiled into the engine or game binary**, so a
+project cannot add one without rebuilding the engine. That is the remaining
+asymmetry between the two languages. The machinery works end to end and
 there is no way to attach it: no managed script component, no inspector entry,
-no scene serialization. A project's scripts compile and load, and nothing in the
-editor can put one on an entity. That is a `ManagedScriptComponent` with
-inspector and serializer support -- 5.6's territory -- and until it exists a
-scene can hold C++ scripts only.
+the editor could not put one on an entity. 5.6 fixed that; see below.
 
 C++ scripts have their own limit worth stating in the same breath: they must be
 compiled into the engine or game binary, so a *project* cannot add one without

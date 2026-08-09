@@ -3,6 +3,7 @@
 #include "Entity.h"
 #include "ScriptableEntity.h"
 #include "Components.h"
+#include "RageV/Managed/Interop.h"
 #include "ScriptRegistry.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Core/Application.h"
@@ -460,6 +461,12 @@ namespace RageV
 	void Scene::OnRuntimeStop()
 	{
 		StopAudioSources();
+
+		// Before the physics goes: a managed OnDestroy may still ask about the
+		// entity it was attached to, and answering "no scene" is worse than
+		// answering truthfully.
+		ReleaseManagedScripts();
+
 		m_Physics.reset();
 	}
 
@@ -493,6 +500,112 @@ namespace RageV
 		// like rendering, and belongs on the frame for the same reason.
 		UpdateWorldTransforms();
 		UpdateAudio();
+	}
+
+	// The managed half of the script pass.
+	//
+	// After the native scripts rather than interleaved, so that ordering between
+	// the two languages is defined and stated rather than being whatever the
+	// component pools happen to do this build.
+	void Scene::StepManagedScripts(Timestep dt)
+	{
+		if (!Managed::Interop::IsReady())
+			return;
+
+		const Managed::ManagedApi& managed = Managed::Interop::Managed();
+		if (!managed.Create || !managed.InvokeUpdate)
+			return;
+
+		// The scene the interop functions act on. Set every step rather than
+		// once, because play mode swaps the scene underneath and a stale binding
+		// would have scripts editing the scene that is no longer running.
+		Managed::Interop::SetScene(this);
+
+		std::vector<entt::entity> scripted;
+		m_Registry.view<ManagedScriptComponent>().each(
+			[&](auto handle, ManagedScriptComponent&) { scripted.push_back(handle); });
+
+		for (entt::entity handle : scripted)
+		{
+			auto* script = m_Registry.try_get<ManagedScriptComponent>(handle);
+			if (!script)
+				continue;
+
+			// Reconciled rather than created once, so changing the script in the
+			// inspector mid-run takes effect. ActiveScript is assigned even when
+			// creation fails, which is what stops an unknown name being retried
+			// and warned about every single step.
+			if (script->ActiveScript != script->ScriptName)
+			{
+				if (script->Handle != 0)
+				{
+					managed.InvokeDestroy(script->Handle);
+					managed.Destroy(script->Handle);
+					script->Handle = 0;
+				}
+
+				script->ActiveScript = script->ScriptName;
+
+				if (!script->ScriptName.empty())
+				{
+					Entity entity{ handle, this };
+					script->Handle = managed.Create(script->ScriptName.c_str(),
+													(uint64_t)entity.GetUUID());
+
+					if (script->Handle != 0)
+					{
+						// Fields before OnCreate: a script that reads its own
+						// configuration in OnCreate has to see what the
+						// inspector set, not the constructor's default.
+						if (managed.SetFieldValue)
+						{
+							for (const auto& field : script->Fields)
+								managed.SetFieldValue(script->Handle, field.Name.c_str(), field.Value.c_str());
+						}
+
+						managed.InvokeCreate(script->Handle);
+
+						// OnCreate may have destroyed something, including this
+						// entity.
+						script = m_Registry.try_get<ManagedScriptComponent>(handle);
+						if (!script)
+							continue;
+					}
+				}
+			}
+
+			if (script->Handle != 0)
+				managed.InvokeUpdate(script->Handle, dt.GetSeconds());
+		}
+	}
+
+	// Releases every managed instance this scene owns.
+	//
+	// Called when play mode stops. A handle that is never released is a script
+	// that never stops running -- and because the managed side holds the
+	// instance, it is also an object the collector can never take.
+	void Scene::ReleaseManagedScripts()
+	{
+		if (!Managed::Interop::IsReady())
+			return;
+
+		const Managed::ManagedApi& managed = Managed::Interop::Managed();
+		if (!managed.Destroy)
+			return;
+
+		m_Registry.view<ManagedScriptComponent>().each(
+			[&](auto, ManagedScriptComponent& script)
+			{
+				if (script.Handle != 0)
+				{
+					managed.InvokeDestroy(script.Handle);
+					managed.Destroy(script.Handle);
+					script.Handle = 0;
+				}
+				script.ActiveScript.clear();
+			});
+
+		Managed::Interop::SetScene(nullptr);
 	}
 
 	void Scene::OnFixedUpdateRuntime(Timestep dt)
@@ -550,6 +663,8 @@ namespace RageV
 			// has to agree with the physics that will push it.
 			script->Instance->OnUpdate(dt);
 		}
+
+		StepManagedScripts(dt);
 
 		// Applied once the pass is over, so a script can destroy anything --
 		// including itself -- without deleting the object it is executing in.

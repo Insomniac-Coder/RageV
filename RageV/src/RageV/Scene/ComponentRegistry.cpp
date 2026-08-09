@@ -610,6 +610,59 @@ namespace
 			s_Components.push_back(std::move(desc));
 		}
 
+		// --- Managed (C#) script ---------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "ManagedScriptComponent";
+			desc.DisplayName = "C# Script";
+
+			// The type name is the durable reference, the way the registered
+			// name is for a native script. Presented as a dropdown of what the
+			// loaded assemblies actually contain, so a typo cannot produce an
+			// entity that silently does nothing.
+			desc.Fields = { Field<&ManagedScriptComponent::ScriptName>("Script") };
+
+			// The field overrides need the escape hatch: they are a list of
+			// name/value pairs whose shape depends on a C# type the engine
+			// cannot see at compile time, which is exactly what a static field
+			// list cannot express.
+			//
+			// Written as a map rather than a sequence of pairs, so a scene file
+			// reads `Speed: 2.5` and a person editing one by hand is not
+			// counting list entries.
+			desc.SerializeExtra = [](YAML::Emitter& out, void* component)
+			{
+				auto* script = static_cast<ManagedScriptComponent*>(component);
+				if (script->Fields.empty())
+					return;
+
+				out << YAML::Key << "Fields" << YAML::Value << YAML::BeginMap;
+				for (const auto& field : script->Fields)
+					out << YAML::Key << field.Name << YAML::Value << field.Value;
+				out << YAML::EndMap;
+			};
+
+			desc.DeserializeExtra = [](const YAML::Node& node, void* component)
+			{
+				auto* script = static_cast<ManagedScriptComponent*>(component);
+				script->Fields.clear();
+
+				const YAML::Node& constNode = node;
+				const YAML::Node fields = constNode["Fields"];
+				if (!fields || !fields.IsMap())
+					return;
+
+				for (const auto& entry : fields)
+				{
+					script->Fields.push_back({ entry.first.as<std::string>(),
+											   entry.second.as<std::string>() });
+				}
+			};
+
+			Bind<ManagedScriptComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
 		// --- Prefab ----------------------------------------------------------
 		{
 			ComponentDesc desc;

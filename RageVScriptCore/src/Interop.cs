@@ -34,7 +34,8 @@ public static unsafe class Interop
 	// 1: the first table.
 	// 2: appended physics, world transform and spawn/destroy; added the script
 	//    lifecycle and the collision struct.
-	public const int ProtocolVersion = 2;
+	// 3: appended script field reflection.
+	public const int ProtocolVersion = 3;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the

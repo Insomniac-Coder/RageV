@@ -87,6 +87,10 @@ namespace RageV
 		void OnRuntimeStop();
 
 		// Null outside play mode.
+		// The managed half of the script pass, and its teardown.
+		void StepManagedScripts(Timestep dt);
+		void ReleaseManagedScripts();
+
 		Physics::World* GetPhysics() { return m_Physics.get(); }
 
 		// Per rendered frame while playing. Presentational work only, plus

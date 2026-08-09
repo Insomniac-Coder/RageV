@@ -8,9 +8,9 @@ rather than merely sitting there.
 
 | | C++ | C# |
 |---|---|---|
-| State | **Available now** | In development — the runtime hosts and the boundary works; the class library does not exist yet |
+| State | **Available now** | **Available now.** Hot reload is not built yet |
 | Base class | `ScriptableEntity` | `Script` |
-| Iteration | Recompile and restart | Hot reload, planned |
+| Iteration | Rebuild the engine and restart | **File > Build Scripts**, then restart. Hot reload is planned |
 | Cost of a mistake | Crashes the editor | Throws, and the editor survives |
 
 The C# API is a mirror of the C++ one — the same names, the same lifecycle, the
