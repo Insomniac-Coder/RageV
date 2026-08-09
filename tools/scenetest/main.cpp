@@ -1518,6 +1518,35 @@ namespace
 		}
 
 		Check(correct, "field names read as sentences in the inspector");
+
+		// An authored label wins over the derived one, and the serialized key
+		// is untouched by it. Derivation cannot fix every case -- an acronym
+		// that is not all-caps in the key, or a key kept for compatibility that
+		// no longer describes the field -- and renaming the key to fix a label
+		// would rewrite every scene file on disk.
+		{
+			bool authored = false;
+			bool keyKept = false;
+			for (const ComponentDesc& component : ComponentRegistry::All())
+			{
+				if (std::string(component.Name) != "ColorComponent")
+					continue;
+
+				for (const FieldDesc& field : component.Fields)
+				{
+					if (std::string(field.Name) != "ColorValue")
+						continue;
+
+					authored = field.DisplayName == "Color";
+					keyKept = std::string(field.Name) == "ColorValue";
+				}
+			}
+
+			Check(authored, "an authored label replaces the derived one");
+			Check(keyKept, "and leaves the serialized key alone");
+			Check(HumanFieldName("ColorValue") == "Color value",
+				  "which the derivation on its own would not have produced");
+		}
 		Check(HumanFieldName(nullptr).empty() && HumanFieldName("").empty(),
 			  "and nothing at all reads as nothing");
 

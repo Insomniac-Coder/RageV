@@ -88,6 +88,26 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "ui-scale" || key == "uiscale")
+		{
+			if (ToLower(value) == "auto")
+			{
+				config.UIScale = 0.0f;   // resolved against the monitor later
+				return true;
+			}
+
+			try
+			{
+				config.UIScale = std::clamp(std::stof(value), 0.5f, 4.0f);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("ui-scale expects a number or 'auto', got '{0}'", value);
+				return false;
+			}
+		}
+
 		if (key == "scene")
 		{
 			config.ScenePath = value;

@@ -57,7 +57,25 @@ namespace RageV
 		// The serializer deliberately ignores this: hiding a field must not
 		// drop it from disk, or toggling a light's type would lose its cone.
 		FieldVisibility VisibleIf = nullptr;
+
+		// Overrides the label derived from the field's key.
+		//
+		// Derivation handles almost everything, but it can only work from the
+		// key -- and the key is the serialized name, so fixing a label by
+		// renaming it changes every scene file on disk. An acronym that is not
+		// all-caps in the key reads as a word ("Fov" rather than "FOV"), and a
+		// key kept for backward compatibility may not describe the field at
+		// all. Null means derive it.
+		const char* Label = nullptr;
 	};
+
+	// Reads better at a call site than a braced initialiser, and matches the
+	// other hint helpers: Field<&C::M>("Fov", Named("Field of view"))
+	inline FieldHint Named(const char* label, FieldHint hint = {})
+	{
+		hint.Label = label;
+		return hint;
+	}
 
 	// "CastShadows" to "Cast shadows".
 	//
@@ -148,7 +166,7 @@ namespace RageV
 
 		FieldDesc field;
 		field.Name = name;
-		field.DisplayName = HumanFieldName(name);
+		field.DisplayName = hint.Label ? std::string(hint.Label) : HumanFieldName(name);
 		field.Type = Detail::TypeOf<typename Traits::Type>();
 		field.Access = [](void* component) -> void*
 		{
@@ -169,7 +187,7 @@ namespace RageV
 
 		FieldDesc field;
 		field.Name = name;
-		field.DisplayName = HumanFieldName(name);
+		field.DisplayName = hint.Label ? std::string(hint.Label) : HumanFieldName(name);
 		field.Type = Detail::TypeOf<typename InnerTraits::Type>();
 		field.Access = [](void* component) -> void*
 		{

@@ -7,6 +7,7 @@
 #include "backends/imgui_impl_glfw.h"
 #include "Platform/Vulkan/VulkanImGui.h"
 #include "RageV/Core/Application.h"
+#include "RageV/Core/EngineConfig.h"
 #include "RageV/Renderer/Renderer.h"
 
 #include "GLFW/glfw3.h"
@@ -38,11 +39,49 @@ namespace RageV
 		if (m_Backend == RHI::Backend::OpenGL)
 			io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
-		io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/Fonts/RobotoFlex-Regular.ttf", 18.0f);
+		// Asked for, not detected.
+		//
+		// Following the monitor sounds obviously right and is not: a 150%
+		// Windows display gives a 27px font, which is what the OS says a
+		// comfortable size is and larger than anyone wanted here. Whether the
+		// UI should scale depends on the panel, how far away it is and who is
+		// looking, none of which GLFW reports. So the default is 1.0 and
+		// --ui-scale=auto is there for a display where it genuinely helps.
+		float dpiScale = EngineConfig::Get().UIScale;
+
+		if (dpiScale <= 0.0f)
+		{
+			dpiScale = 1.0f;
+			if (GLFWmonitor* monitor = glfwGetPrimaryMonitor())
+			{
+				float x = 1.0f, y = 1.0f;
+				glfwGetMonitorContentScale(monitor, &x, &y);
+				// The larger axis: a non-square scale is possible and the text
+				// has to stay legible on both.
+				dpiScale = std::max({ x, y, 1.0f });
+			}
+		}
+
+		// Beyond 3x the atlas grows faster than it is worth.
+		dpiScale = std::clamp(dpiScale, 0.5f, 3.0f);
+		m_DpiScale = dpiScale;
+
+		const float fontSize = std::round(18.0f * dpiScale);
+		io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/Fonts/RobotoFlex-Regular.ttf", fontSize);
+		if (!io.FontDefault)
+			RV_CORE_WARN("Editor font missing; ImGui will use its built-in one");
 
 		ImGui::StyleColorsDark();
 
 		ImGuiStyle& style = ImGui::GetStyle();
+
+		// Padding, rounding and spacing are all in pixels, so a scaled font in
+		// an unscaled layout gives cramped text in boxes the wrong size.
+		if (dpiScale != 1.0f)
+		{
+			style.ScaleAllSizes(dpiScale);
+			RV_CORE_INFO("Editor UI scaled {0:.2f}x (--ui-scale)", dpiScale);
+		}
 		style.Colors[ImGuiCol_WindowBg] = ImVec4{ 0.05f, 0.05f, 0.05f, 1.0f };
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{

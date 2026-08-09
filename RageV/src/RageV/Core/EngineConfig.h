@@ -29,6 +29,7 @@
 //                           scene settle and any first-frame allocation pass)
 //   --benchmark=N           run N frames, print a frame-time summary, exit
 //   --scene=<path>          open this scene instead of the project's start scene
+//   --ui-scale=N|auto       editor UI scale; auto follows the monitor
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include <string>
@@ -76,6 +77,17 @@ namespace RageV
 		// what everyone else opens. It is generally useful beyond that -- a
 		// bug report is much easier to act on with the scene attached.
 		std::string  ScenePath;
+
+		// How much to scale the editor's font and spacing.
+		//
+		// Zero means follow the monitor's content scale. It is *not* the
+		// default, and that is deliberate: on a 150% display "follow the
+		// monitor" gives a 27px font, which is correct by the OS's reckoning
+		// and too large by the only reckoning that matters. Whether a scaled UI
+		// is wanted depends on the panel, the viewing distance and the person,
+		// so it is a setting rather than a detection -- and ragev.ini is the
+		// natural place to put it once.
+		float UIScale = 1.0f;
 
 		// The project to open. Empty falls back to RV_DEFAULT_PROJECT, which
 		// CMake bakes in for builds run out of the build tree, and then to

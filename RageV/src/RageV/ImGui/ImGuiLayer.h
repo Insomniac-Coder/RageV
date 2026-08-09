@@ -32,11 +32,18 @@ namespace RageV
 		//virtual void OnImGuiRender() override;
 		void Begin();
 		void End();
+
+		// What the UI was scaled by for this display. Panels that size things
+		// in pixels need it; everything going through ImGui's style already
+		// has it applied.
+		float GetDpiScale() const { return m_DpiScale; }
 	private:
 		bool m_BlockEvents = false;
 		bool m_ClearsBackbuffer = true;
 		// Captured at OnAttach; the platform backend cannot change afterwards.
 		RHI::Backend m_Backend = RHI::Backend::OpenGL;
+		// The monitor's content scale at startup, clamped to 3x.
+		float m_DpiScale = 1.0f;
 	};
 
 }
