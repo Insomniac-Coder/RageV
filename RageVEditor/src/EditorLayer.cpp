@@ -11,6 +11,7 @@
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Project/ProjectPackager.h"
+#include "RageV/Core/FrameProfiler.h"
 #include "ImGuizmo.h"
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/gtx/matrix_decompose.hpp"
@@ -218,22 +219,36 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// Before either frame graph, and once for both: a probe capture opens
 	// render passes of its own, nothing may do that inside another one, and the
 	// two viewports share the scene and so share its probes.
-	m_Scene->PrepareEnvironment();
-	m_Scene->CaptureReflectionProbes();
+	{
+		RV_PROFILE_PHASE(FramePhase::EnvironmentPrefilter);
+		m_Scene->PrepareEnvironment();
+	}
+
+	{
+		RV_PROFILE_PHASE(FramePhase::Probes);
+		m_Scene->CaptureReflectionProbes();
+	}
 
 	// Cascades are fitted to a frustum, so they belong to whichever camera is
 	// about to be drawn. The game view below re-renders them for its own.
-	if (m_UseEditorCamera)
-		m_Scene->RenderShadows(m_EditorCamera, m_EditorCamera.GetTransform());
-	else if (Entity camera = m_Scene->GetPrimaryCameraEntity())
-		m_Scene->RenderShadows(camera.GetComponent<CameraComponent>().Camera,
-							   camera.GetComponent<TransformComponent>().World);
+	{
+		RV_PROFILE_PHASE(FramePhase::Shadows);
+
+		if (m_UseEditorCamera)
+			m_Scene->RenderShadows(m_EditorCamera, m_EditorCamera.GetTransform());
+		else if (Entity camera = m_Scene->GetPrimaryCameraEntity())
+			m_Scene->RenderShadows(camera.GetComponent<CameraComponent>().Camera,
+								   camera.GetComponent<TransformComponent>().World);
+	}
 
 	// The scene view and the game view are the same frame described twice,
 	// differing only in the camera and where the result lands. Both go through
 	// BuildFrame, so bloom and tone mapping cannot end up applied to one and
 	// not the other -- which is exactly the drift that put two transfer
 	// functions in one image before this.
+	{
+	RV_PROFILE_PHASE(FramePhase::Graph);
+
 	m_Graph->Begin((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 	FrameDesc scene;
@@ -263,6 +278,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		for (const std::string& error : m_Graph->Errors())
 			RV_ERROR("Render graph (scene view): {0}", error);
 	}
+	}
 
 	// The same scene again, through whichever camera holds the lowest ViewRank.
 	// Drawing a scene twice in one frame is what the renderers' per-batch
@@ -270,9 +286,17 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// overwrite the data the pass above is about to read.
 	if (m_ShowGameViewport && m_GameViewportVisible && m_GameViewportSize.y > 0.0f)
 	{
+		// The second fit, and the reason the editor's shadow cost is double the
+		// runtime's while this panel is open. Counted under the same phase, so
+		// the report shows the whole of it.
 		if (Entity camera = m_Scene->GetPrimaryCameraEntity())
+		{
+			RV_PROFILE_PHASE(FramePhase::Shadows);
 			m_Scene->RenderShadows(camera.GetComponent<CameraComponent>().Camera,
 								   camera.GetComponent<TransformComponent>().World);
+		}
+
+		RV_PROFILE_PHASE(FramePhase::Graph);
 
 		m_GameGraph->Begin((uint32_t)m_GameViewportSize.x, (uint32_t)m_GameViewportSize.y);
 

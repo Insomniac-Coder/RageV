@@ -9,6 +9,7 @@
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Core/InputMap.h"
+#include "RageV/Core/FrameProfiler.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "Timestep.h"
 #include "Platform/Windows/WindowsPlatform.h"
@@ -27,6 +28,7 @@ namespace RageV {
 	Application::Application(const std::string& appname) {
 		RV_CORE_ASSERT(!m_Instance, "Application instance already present present");
 		m_Instance = this;
+		m_Name = appname;
 
 		const EngineConfig& config = EngineConfig::Get();
 
@@ -235,6 +237,14 @@ namespace RageV {
 		const EngineConfig& config = EngineConfig::Get();
 		uint64_t frameNumber = 0;
 
+		// Warm-up, discarded: the first frames pay for shader compilation, the
+		// first environment prefilter and every first-touch allocation, and
+		// averaging those in makes a run look worse the shorter it is. A fifth
+		// of the run, and never fewer than ten frames.
+		const uint32_t benchmarkFrames = config.BenchmarkFrames;
+		const uint32_t benchmarkWarmup = benchmarkFrames > 0
+			? std::max(10u, benchmarkFrames / 5u) : 0u;
+
 		while (m_Running) {
 			const float time = (float)GetTime();
 			const float frameTime = time - m_LastTime;
@@ -250,6 +260,8 @@ namespace RageV {
 				m_FixedStep.Reset();
 				continue;
 			}
+
+			FrameProfiler::BeginFrame();
 
 			// Sampled once per frame, not per step: several steps in one frame
 			// must see one press, not one each.
@@ -278,12 +290,16 @@ namespace RageV {
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate(ts);
 
-			m_ImGuiLayer->Begin();
+			{
+				RV_PROFILE_PHASE(FramePhase::ImGui);
 
-			for (Layer* layer : m_LayerStack)
-				layer->OnImGuiRender();
+				m_ImGuiLayer->Begin();
 
-			m_ImGuiLayer->End();
+				for (Layer* layer : m_LayerStack)
+					layer->OnImGuiRender();
+
+				m_ImGuiLayer->End();
+			}
 
 			// Retires sounds that have played out. Once a frame, unconditional:
 			// a one-shot fired from a script belongs to nothing that would
@@ -300,12 +316,34 @@ namespace RageV {
 				});
 			}
 
-			Renderer::EndFrame();
-			m_Device->EndFrame();
+			{
+				RV_PROFILE_PHASE(FramePhase::Present);
+
+				Renderer::EndFrame();
+				m_Device->EndFrame();
+			}
 
 			// After the capture, not before: the point of the flag is the file.
 			if (!config.ScreenshotPath.empty() && frameNumber >= config.ScreenshotFrame)
 				m_Running = false;
+
+			if (benchmarkFrames > 0)
+			{
+				// Counted here rather than beside the screenshot's counter,
+				// because that one only advances when a screenshot is armed.
+				m_BenchmarkFrame++;
+
+				if (m_BenchmarkFrame == benchmarkWarmup)
+					FrameProfiler::StartCollecting();
+
+				FrameProfiler::EndFrame(frameTime * 1000.0f);
+
+				if (m_BenchmarkFrame >= benchmarkWarmup + benchmarkFrames)
+				{
+					FrameProfiler::LogReport(m_Name.c_str());
+					m_Running = false;
+				}
+			}
 		}
 	}
 

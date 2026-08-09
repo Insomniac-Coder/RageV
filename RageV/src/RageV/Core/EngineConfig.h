@@ -27,6 +27,8 @@
 //   --screenshot=<file>     write a PNG of one frame and exit
 //   --screenshot-frame=N    which frame to capture (default 30, to let the
 //                           scene settle and any first-frame allocation pass)
+//   --benchmark=N           run N frames, print a frame-time summary, exit
+//   --scene=<path>          open this scene instead of the project's start scene
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include <string>
@@ -56,6 +58,24 @@ namespace RageV
 		// was drawn, a scene rendered through the wrong camera.
 		std::string ScreenshotPath;
 		uint32_t    ScreenshotFrame = 30;
+
+		// Run this many frames, print what they cost, and exit. Zero is off.
+		//
+		// Exists because the only frame-time number this engine had came from a
+		// panel a person read while vsync was on, which measured the display.
+		// A flag makes the measurement repeatable, comparable between backends
+		// and quotable in a commit message -- and it prints the vsync state
+		// alongside the number, so the two cannot be separated again.
+		uint32_t     BenchmarkFrames = 0;
+
+		// Open this scene rather than the project's start scene. Relative to
+		// the asset root, like every other scene reference.
+		//
+		// Added for benchmarking: a measurement needs a scene chosen to stress
+		// something, and making that the project's start scene would change
+		// what everyone else opens. It is generally useful beyond that -- a
+		// bug report is much easier to act on with the scene attached.
+		std::string  ScenePath;
 
 		// The project to open. Empty falls back to RV_DEFAULT_PROJECT, which
 		// CMake bakes in for builds run out of the build tree, and then to

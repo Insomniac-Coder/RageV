@@ -88,6 +88,12 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "scene")
+		{
+			config.ScenePath = value;
+			return true;
+		}
+
 		if (key == "screenshot-frame" || key == "screenshotframe")
 		{
 			try
@@ -98,6 +104,20 @@ namespace RageV
 			catch (const std::exception&)
 			{
 				RV_CORE_WARN("screenshot-frame expects an integer, got '{0}'", value);
+				return false;
+			}
+		}
+
+		if (key == "benchmark")
+		{
+			try
+			{
+				config.BenchmarkFrames = (uint32_t)std::max(std::stoi(value), 1);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("benchmark expects a frame count, got '{0}'", value);
 				return false;
 			}
 		}

@@ -58,6 +58,11 @@ namespace RageV {
 		LayerStack m_LayerStack;
 		static Application* m_Instance;
 		float m_LastTime = 0.0f;
+		std::string m_Name;
+
+		// Frames run under --benchmark, warm-up included. Separate from the
+		// screenshot counter, which only advances when a screenshot is armed.
+		uint32_t m_BenchmarkFrame = 0;
 
 		// Real time not yet spent in fixed steps, plus where the renderer sits
 		// between the last completed step and the next one.

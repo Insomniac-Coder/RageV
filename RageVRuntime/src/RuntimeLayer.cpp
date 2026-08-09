@@ -1,5 +1,6 @@
 #include "RuntimeLayer.h"
 #include "RageV/Project/Project.h"
+#include "RageV/Core/FrameProfiler.h"
 #include "imgui.h"
 
 using namespace RageV;
@@ -18,7 +19,11 @@ void RuntimeLayer::OnAttach()
 		return;
 	}
 
-	const std::string& startScene = Project::Config().StartScene;
+	// --scene wins over the project's own, so a benchmark or a bug report can
+	// name a scene without changing what everyone else opens.
+	const std::string& override = EngineConfig::Get().ScenePath;
+	const std::string startScene = override.empty() ? Project::Config().StartScene : override;
+
 	if (startScene.empty())
 	{
 		RV_ERROR("Project '{0}' has no start scene. Set one in the editor: "
@@ -105,14 +110,24 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 
 	// Before the frame graph: both of these open render passes of their own,
 	// and nothing may do that inside another one.
-	m_Scene->PrepareEnvironment();
-	m_Scene->CaptureReflectionProbes();
+	{
+		RV_PROFILE_PHASE(FramePhase::EnvironmentPrefilter);
+		m_Scene->PrepareEnvironment();
+	}
+
+	{
+		RV_PROFILE_PHASE(FramePhase::Probes);
+		m_Scene->CaptureReflectionProbes();
+	}
 
 	if (Entity camera = m_Scene->GetPrimaryCameraEntity())
 	{
+		RV_PROFILE_PHASE(FramePhase::Shadows);
 		m_Scene->RenderShadows(camera.GetComponent<CameraComponent>().Camera,
 							   camera.GetComponent<TransformComponent>().World);
 	}
+
+	RV_PROFILE_PHASE(FramePhase::Graph);
 
 	m_Graph->Begin(m_Width, m_Height);
 
