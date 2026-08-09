@@ -127,7 +127,7 @@ RageV actually needs — deliberately far below Godot in most rows.
 | IBL / sky | PBR sky, sky shaders, reflection probes | ❌ flat ambient constant | skybox + irradiance + prefiltered + BRDF LUT |
 | Post chain | bloom, DOF, SSAO, SSR, TAA, FSR2 | ❌ none | HDR target, tonemap, bloom, FXAA |
 | GI | SDFGI, VoxelGI, lightmaps | ❌ none | **out of scope** |
-| Culling / instancing | clustered, occlusion | ❌ none | frustum cull, sort, instance |
+| Culling / instancing | clustered, occlusion | ✅ frustum cull + instancing | occlusion, depth sort |
 | **Scene graph** | Node tree | flat EnTT registry, **no parenting** | parent/child, world transforms |
 | Entity IDs | Node IDs (4.6) | **hardcoded `"12345678890"`** | real UUIDs |
 | Prefabs | scenes-as-prefabs, first-class | ❌ none | create, instantiate, override |
@@ -295,7 +295,7 @@ written here:
 | 3.3 | Skybox + cubemaps (`TextureType::TextureCube` already exists in the RHI) | M | ✅ three background modes, CPU panorama-to-cube conversion, plus reflection probes (baked and realtime), which were not on this list |
 | 3.4 | **IBL** — irradiance, prefiltered specular, BRDF LUT; replaces the flat ambient term | L | ✅ all three: CPU hemisphere convolution for irradiance, GPU importance-sampled GGX per roughness level, and a CPU-integrated BRDF table checked against its analytic corners |
 | 3.5 | **Shadows** — CSM directional, cube point, spot. Sphere-fit cascades, texel snapping, normal-offset bias (ENGINE-NOTES §5) | XL | ✅ all three types; cascade fitting checked in scenetest rather than by eye; four spot and four point lights cast at once |
-| 3.6 | Frustum culling, draw sorting, instancing. **CPU only** — GPU-driven rendering is out of scope | M | 🟡 frustum culling done, per pass against its own frustum: 144 draws down to 60 in the sample scene. Sorting and instancing remain |
+| 3.6 | Frustum culling, draw sorting, instancing. **CPU only** — GPU-driven rendering is out of scope | M | ✅ done. Per-pass frustum culling, then grouping by mesh and bound material state into instanced draws. A 1000-mesh scene: 18018 considered, 14780 culled, 3238 drawn, **60 after batching**. OpenGL 7.17 ms → 1.59 ms; Vulkan 1.96 → 1.88 ms, which was never submission-bound. Opaque draws are grouped, not depth-sorted — a front-to-back sort needs a measurement first |
 | 3.8 | **Clustered forward lighting** — removes the 8-light cap, keeps transparency working (unlike deferred) | L |
 | 3.7 | Skeletal animation — skinning, clips, blending | XL |
 

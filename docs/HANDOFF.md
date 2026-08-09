@@ -1,6 +1,6 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-08.
+**Read this first.** Updated 2026-08-09.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
 finished with, and `main` is pushed.
@@ -20,10 +20,10 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through **3.5** — the
-render graph, HDR post, sky and cube maps, full image-based lighting and
-shadows for every light type. What is left of Phase 3 is performance (3.6,
-3.8) and skeletal animation (3.7). The engine loop closes — a project can be imported into,
+**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through **3.6** — the
+render graph, HDR post, sky and cube maps, full image-based lighting, shadows
+for every light type, frustum culling and instanced draw batching. What is left
+of Phase 3 is clustered forward (3.8) and skeletal animation (3.7). The engine loop closes — a project can be imported into,
 placed in, scripted, played, and packaged into a folder someone else can run.
 
 **Prove it still works** (from the repo root, ~2 minutes):
@@ -34,7 +34,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-477 checks, `exit 0`. Then look at a frame:
+485 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -61,11 +61,11 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**What to do next:** §8, and it starts with **measuring the frame with vsync
-off**. Every timing number taken so far is the display's refresh rate, so
-nothing about this renderer's cost is actually known. After that, 3.8 —
-clustered forward — removes the eight-light cap, the last hard limit in the
-lighting.
+**What to do next:** §8. The frame is measured now (§6 has the numbers) and the
+next unknown is where Vulkan's remaining 1.88 ms goes, which needs GPU
+timestamps. The other candidate for going first is the OpenGL frame-to-frame
+flicker in §9, which is a correctness bug. After those, 3.8 — clustered forward
+— removes the eight-light cap, the last hard limit in the lighting.
 
 ---
 
@@ -99,7 +99,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 371 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
+| `scenetest` | 485 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -117,6 +117,8 @@ Command line or `ragev.ini` next to the executable; command line wins.
 --fixed-hz=N             simulation rate, 20..240, default 60
 --width=N --height=N     window size
 --audio=on|off           open an output device at all
+--scene=<path>           open this scene, not the project's start scene
+--benchmark=N            run N frames, print what they cost, exit
 ```
 
 `--audio=off` is not only a mute switch. It takes the same path a machine with
@@ -489,6 +491,32 @@ or silence rather than an obvious failure.
   turns and makes edges crawl; an unsnapped projection makes them shimmer on
   sub-texel movement. `scenetest` turns a camera through a circle and nudges it
   a millimetre at a time, because a screenshot cannot.
+- **Mip generation belongs in the command buffer that wrote mip 0.**
+  `RHITexture::GenerateMips` submits its own buffer and waits, so it runs
+  *before* anything recorded into the current frame. A reflection probe's faces
+  are recorded into the frame, so its chain was built from an empty mip 0 and
+  every rough surface reflecting it read black for six frames. Use
+  `RHICommandList::GenerateMips`. OpenGL cannot show this: one queue, no
+  recording, so its order was already right.
+- **A descriptor pool is a chain, not a ceiling.** A thousand meshes exhausted
+  a fixed pool of 2000 sets and the backend segfaulted. Allocation adds a block;
+  each set remembers which block owns it, because that is what it must be freed
+  to. ImGui gets a pool of its own — it takes a handle once and keeps it, so it
+  cannot follow the chain.
+- **Identical state must be the same object, or a batch key cannot see it.**
+  Every material built its own sampler from an identical description, which
+  made every material's batch key unique and stopped the lit pass batching
+  anything at all while the shadow passes batched fine. Draws fell 74% and the
+  frame got *slower*.
+- **A batch's base instance is a push constant, never the draw's
+  `firstInstance`.** Vulkan's `gl_InstanceIndex` includes the base and OpenGL's
+  `gl_InstanceID` does not, so reading it from the draw offsets twice on one
+  backend and once on the other.
+- **A CPU timer around a call that can block measures the wait, not the work.**
+  With vsync on, the profiler attributes the whole frame to whichever call
+  happens to stall — the probe capture on Vulkan, ImGui on OpenGL. Neither is
+  the cost. Phase attribution is only meaningful with vsync off, and properly
+  only with GPU timestamps.
 - **A solid primitive's triangles must face away from its centre.** The sphere
   was wound inside out for four roadmap phases: back-face culling kept the far
   hemisphere and drew its inside, which has the same silhouette and only looks
@@ -570,7 +598,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
-| Tests | `scenetest`, **477 checks**, green on both backends |
+| Tests | `scenetest`, **485 checks**, green on both backends |
 
 **Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete through 3.5.**
 What is left of Phase 3 is performance (3.6, 3.8) and skeletal animation (3.7).
@@ -612,25 +640,47 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 - **Asset cooking.** glTF is parsed at load, PNGs decoded at load.
 - **SMAA and TAA.**
 
-### Draw counts
+### What a frame costs
 
-The sample scene has **12 meshes** and issues **60 mesh draws** a frame, with
-**84 culled**. Before frustum culling it was 144.
+Measured, finally, with `--benchmark`. Release, 1600x900, 400+ frames after a
+warm-up fifth. **Every number here is meaningless without the vsync column**,
+which is why the benchmark prints them together and warns when vsync is on.
 
-The passes are still twelve — four shadow cascades, six faces of a point
-light's shadow cube, one probe face, the scene itself — but each now only draws
-what its own frustum contains. The editor's Statistics panel reports the culled
-count so the saving is visible rather than assumed.
+| Scene | Backend | vsync on | vsync off |
+|---|---|---|---|
+| sample, 12 meshes | Vulkan | 4.17 ms | **0.80 ms** (1255 FPS) |
+| sample, 12 meshes | OpenGL | 4.17 ms | **0.97 ms** (1027 FPS) |
+| stress, 1000 meshes | Vulkan | — | **1.88 ms** (531 FPS) |
+| stress, 1000 meshes | OpenGL | — | **1.59 ms** (630 FPS) |
 
-**That is a draw count, not a frame time.** The panel read 4.14 ms before
-culling and 4.01 ms after, and both applications ship with `vsync = on`, so
-those numbers are the display's refresh rather than a measurement of anything.
-Whether removing 84 draws a frame is worth anything here is **unverified** —
-the scene is twelve objects and the bottleneck may well be elsewhere entirely.
+4.17 ms is 240 Hz to three figures. **The panel was the entire frame-time
+history of this project.** Both applications still ship with `vsync = on`; that
+is right for a game and wrong for a measurement.
 
-To find out: run with `--vsync=off` and compare, and do it on a scene large
-enough that the answer is not noise. Until then the honest claim is that the
-work per pass went down, not that the frame got faster.
+**The renderer is CPU-bound on these scenes** — the phase total is 95-98% of the
+frame on both backends. What that does *not* say is which phase, because these
+are CPU wall-clock timers around calls that can block: with vsync on they
+attribute the whole wait to whichever call happens to stall, which is the probe
+capture on Vulkan and ImGui on OpenGL. Attributing GPU cost needs timestamp
+queries, which do not exist yet.
+
+Draw counts, stress scene: **18018 considered, 14780 culled, 3238 drawn before
+instancing, 60 after.** The four distinct meshes in that scene now cost about
+four draws a pass instead of one per object.
+
+The gain was not symmetric and the reason is worth keeping. A resolution sweep
+before instancing showed the cost was resolution-*independent* — OpenGL 5.03 ms
+at 640x360 against 7.17 ms at 1600x900 — so it was submission, not fill.
+Instancing then took OpenGL from 7.17 ms to 1.59 ms and Vulkan from 1.96 ms to
+1.88 ms. **Vulkan was never submission-bound at this scale.** Its remaining cost
+is unattributed and is the next thing to measure.
+
+An intermediate state is worth recording because it nearly shipped as a
+success: with materials still holding a sampler each, draws fell 3238 to 854 and
+the frame time did **not** improve — OpenGL got 14% worse. A 74% reduction in
+draw calls bought nothing, because the lit pass was still one draw per object
+and only the shadow passes had collapsed. The draw count moved and the frame did
+not, which is the same mistake as the culling number, caught this time.
 
 ## 7. Decisions already made (do not relitigate)
 
@@ -675,29 +725,31 @@ work per pass went down, not that the frame got faster.
 
 Start here, in this order.
 
-### START HERE — measure, with vsync off (`S`)
+### START HERE — GPU timestamps, then Vulkan's remaining cost (`M`)
 
-**This is where the next session begins.** Everything below it is guesswork
-until it is done.
+**This is where the next session begins.**
 
-Culling cut the sample scene from 144 draws to 60 and the frame time did not
-move: 4.14 ms to 4.01 ms, which is 242 to 249 FPS, which is a 240 Hz panel.
-Both applications ship with `vsync = on`. Nothing about this renderer's cost
-is currently known — not the shadow passes, not the probe captures, not the
-post chain, not whether culling bought anything at all.
+The frame is measured now (§6) and 3.6 is complete. What is *not* known is
+where Vulkan's 1.88 ms goes. Instancing took OpenGL from 7.17 ms to 1.59 ms and
+barely moved Vulkan, so Vulkan was never submission-bound and its cost is
+somewhere the current instrumentation cannot see.
 
-1. Run both applications with `--vsync=off` and read the frame time again.
-2. Build a scene large enough that the answer is not noise — the sample is
-   twelve objects, and twelve objects will not reveal a bottleneck.
-3. Then attribute it: shadows are up to eleven extra scene walks, a realtime
-   probe is one more plus a prefilter every sixth frame, and the post chain is
-   eleven passes. One of those is the cost; none of them is currently known to
-   be.
+`FrameProfiler` measures CPU wall time around calls that can block, which
+locates where the CPU *waits*, not where the work is. That was enough to prove
+the panel was the limit and enough to justify instancing. It is not enough for
+the next step.
 
-Do not do any more optimisation work before this. 3.6's remaining half —
-sorting and instancing — is exactly the kind of work that should be justified
-by a measurement rather than by a plausible story, and the plausible story
-about draw counts has already been wrong once today.
+1. Add timestamp queries to the RHI — `vkCmdWriteTimestamp2` and
+   `glQueryCounter`, both straightforward — and report GPU time per pass beside
+   the CPU time already there.
+2. Then attribute Vulkan's frame: eleven post passes, up to sixteen shadow
+   renders, one probe face, the scene.
+3. Only then decide what to optimise. Two things have already looked obviously
+   worth doing and been worth nothing: culling's 84 draws, and instancing's
+   first 74% draw reduction.
+
+**The OpenGL flicker in §9 is the other candidate for going first**, and it is a
+correctness bug rather than a performance one.
 
 ### 1. 3.8 — clustered forward (`L`)
 
@@ -739,36 +791,42 @@ because the alternative is someone finding each one by being confused.
 
 ### Correctness
 
+- **OpenGL renders a static scene differently from one frame to the next.**
+  Found by capturing frames 40, 41, 42, 43, 60 and 90 of a scene with no
+  scripts and no physics bodies and hashing them: Vulkan gives one image six
+  times, OpenGL gives three different ones. About 1% of pixels, worst delta
+  20/255, all below the horizon — lit geometry and shadows, never the sky.
+  **It predates all of this session's work** (checked by stashing and
+  rebuilding), and it is the reason the shiny surfaces shimmer slightly.
+  The leading suspect is that the OpenGL backend has per-frame-in-flight
+  buffers but no fence: its host-visible buffers are persistently mapped and
+  written with a plain memcpy, so frame N's write can land while the GPU is
+  still reading frame N-1. Vulkan waits on a fence and does not flicker.
+  Not yet confirmed. **This is the highest-value correctness bug open.**
 - **Asset handles minted in the build output are lost on a clean build.** The
   assets root is the folder beside the executable, which CMake copies from the
   source tree. Assets added to the *source* tree keep their handle because the
   `.meta` is copied with them; assets dropped into `build/` do not. Recorded in
   `AssetRegistry.h`.
-- **A cubemap sky whose irradiance fails to load silently uses the gradient's.**
-  `Skybox::ResolveIrradiance` falls through to the gradient path, which builds
-  a cube from `SkyHorizon` / `SkyZenith` / `SkyGround` — values the scene may
-  never have set meaningfully because it uses an environment map. The diffuse
-  ambient is then plausible and wrong.
 - **A script attached while playing is discarded on Stop.** Correct snapshot
   semantics, surprising the first time.
-- **`Renderer2D` quads and the debug overlay are not frustum culled.** Only
-  meshes are. Neither is usually the cost, but "culling is in" is not true of
-  the whole renderer.
 - **Nothing culls by distance.** A mesh behind the camera is skipped; a mesh a
   kilometre away that is two pixels across is drawn in full.
 
 ### Performance, all unmeasured
 
-- **Both applications ship with `vsync = on`**, so every frame-time number
-  taken so far is the panel's refresh rather than the renderer's cost. See §8,
-  step 0.
+- **Both applications still ship with `vsync = on`**, which is right for a game
+  and wrong for a measurement. Pass `--vsync=off --benchmark=N`; the report
+  refuses to be quoted without its vsync line.
 - **The editor renders shadows twice** when the game viewport is open, once
   fitted to each camera. Correct, and twice the cost.
 - **A realtime probe re-runs the GGX prefilter every sixth frame**: 36 small
   renders, amortised to six a frame. Fine for one probe, untested for several.
-- **No draw sorting and no instancing.** Opaque geometry is drawn in registry
-  order, so early-z does nothing for it, and identical meshes are separate
-  draws.
+- **Opaque geometry is grouped, not depth-sorted.** Draws are sorted by mesh
+  and material so they batch; within a batch the order is arbitrary, so early-z
+  does less than a front-to-back sort would. Worth a measurement before it is
+  worth code.
+- **Vulkan's remaining 1.88 ms is unattributed.** See section 8.
 
 ### Editor and tooling
 
@@ -789,9 +847,10 @@ because the alternative is someone finding each one by being confused.
 - `quadshader.glsl`, `simpleshader.glsl`, `textureshader.glsl` in
   `RageVEditor/assets/shaders/` are pre-RHI leftovers. Safe to delete.
 - `Chunk`/`Perlin` are parked in `experiments/terrain/` and not built.
-- **The sample project's `sky.hdr` is generated and the generator is not in the
-  repository.** Regenerating it means writing the script again. It produced a
-  1024x512 Radiance file with a sun at 40 degrees azimuth and 17 elevation.
+- **The sample project's `sky.hdr` is generated and the generator is still not
+  in the repository.** `tools/scripts/` now exists and is where it belongs.
+  It produced a 1024x512 Radiance file with a sun at 40 degrees azimuth and 17
+  elevation. **Not done this session.**
 - The sample scene's shadow distance, bias and probe placement are tuned for
   that scene and are not general defaults.
 
@@ -814,6 +873,10 @@ because the pattern in them is more useful than the list.
 | GL's copy framebuffers kept stale attachments | One feature | A mismatched attachment size is legal in GL 4.5; the blit region silently became the intersection |
 | Seven modules logged "ready" unconditionally | Unknown | A failed shader compile produced a feature present in every sense except that it did nothing |
 | A depth attachment was not `TransferSrc` | Until first use | Nothing had ever copied one |
+| A probe's mips were built before its faces were drawn | Since probes landed | `GenerateMips` submits its own buffer and waits; the faces were still unsubmitted in the frame's. Healed itself six frames later, so it read as a warm-up rather than a bug |
+| The Vulkan descriptor pool was a fixed 2000 sets | Since the port | Twelve objects never reached it. A thousand segfaulted |
+| Every material built its own sampler | Since materials existed | Cost nothing visible until draws were keyed by bound state, then silently prevented all batching |
+| OpenGL renders a static scene differently frame to frame | Unknown, still open | ~1% of pixels at delta 20/255 reads as shimmer, not as a bug |
 
 ### What actually catches these
 
@@ -861,6 +924,21 @@ because the pattern in them is more useful than the list.
 - **Listing defects instead of fixing them.** Several rounds of this session
   produced accurate inventories of what did not work, in place of work. An
   honest list of gaps is not a substitute for closing one.
+- **A draw count is not a frame time, second time.** Instancing cut draws 3238
+  to 854 and the frame got *worse*. The number that was easy to measure moved
+  and the number that mattered did not — the same shape as the culling claim,
+  caught this time only because the frame time was measured alongside it. The
+  real fix was elsewhere entirely (a sampler per material), and finding it
+  needed the reduction to be checked against a clock rather than celebrated.
+- **A bug that heals itself reads as a warm-up.** The probe's black metal for
+  six frames looked like the probe filling in, which is a thing that legitimately
+  happens. It was reported by a person watching, not by any test, and it took a
+  per-frame luminance measurement to show the transition was a hard step at
+  frame 7 rather than a fade.
+- **Ask whether a defect predates the change.** The OpenGL flicker was found
+  while verifying instancing and looked like its fault. Stashing the work and
+  rebuilding took ten minutes and showed it was already there — which is the
+  difference between a regression to revert and a bug to schedule.
 - **Reporting a fix by what was logged rather than by what changed.** The
   readiness work was presented as six modules' log lines when the actual fix
   was three new flags and a test. A log line cannot be tested and is not a fix.
