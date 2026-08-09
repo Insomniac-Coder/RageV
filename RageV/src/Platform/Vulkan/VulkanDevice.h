@@ -128,6 +128,9 @@ namespace RageV::Vk
 		void RecycleTimestampPool(VkCommandBuffer cmd);
 		void CreateSwapchain();
 		void DestroySwapchain();
+		// The views and depth buffer only, leaving the swapchain and its
+		// semaphores alive for the caller to retire in the right order.
+		void DestroySwapchainResources();
 		void RecreateSwapchain();
 		void CreateDepthResources();
 		VkFormat SelectDepthFormat() const;

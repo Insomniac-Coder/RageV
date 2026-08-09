@@ -550,6 +550,13 @@ or silence rather than an obvious failure.
 - **Whatever poses the lit pass must pose the depth pass.** Skinning the lit
   shader alone leaves a character walking while its shadow stands still in the
   bind pose, and that reads as a shadow bug for an afternoon.
+- **A swapchain is retired, not destroyed and replaced.** `vkDeviceWaitIdle`
+  waits on the *queues* and says nothing about the presentation engine, which
+  may still hold images of the old swapchain and still be waiting on their
+  semaphores. Destroying it first and creating a new one worked every time
+  until the one time the compositor was a frame behind. The old handle is
+  passed as `oldSwapchain` and destroyed after the new one exists; the
+  per-image semaphores go with it, not before it.
 - **A timestamp slot is claimed per scope, never fixed per phase.** A phase can
   run more than once in a frame — the editor fits shadows to each viewport and
   runs the graph for both — and the second pass then rewrites a query the first

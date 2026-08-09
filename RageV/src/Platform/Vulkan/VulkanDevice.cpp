@@ -787,7 +787,19 @@ namespace RageV::Vk
 		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 		createInfo.presentMode = m_PresentMode;
 		createInfo.clipped = VK_TRUE;
-		createInfo.oldSwapchain = VK_NULL_HANDLE;
+		// The swapchain being replaced, when there is one.
+		//
+		// Not VK_NULL_HANDLE, and the old one is not destroyed before this
+		// point. vkDeviceWaitIdle waits on the *queues*; it says nothing about
+		// the presentation engine, which may still be holding images of the old
+		// swapchain and still waiting on their semaphores. Tearing it down
+		// first and hoping is the classic intermittent crash on resize or on a
+		// present-mode change -- it works every time until the one time the
+		// compositor is a frame behind.
+		//
+		// Handing the old one over instead lets the driver retire it in order,
+		// and lets images be reused rather than reallocated.
+		createInfo.oldSwapchain = m_Swapchain;
 
 		const uint32_t families[] = { m_QueueFamilies.Graphics, m_QueueFamilies.Present };
 		if (m_QueueFamilies.Graphics != m_QueueFamilies.Present)
@@ -896,19 +908,31 @@ namespace RageV::Vk
 		});
 	}
 
-	void VulkanDevice::DestroySwapchain()
+	void VulkanDevice::DestroySwapchainResources()
 	{
+		// Everything this device owns *about* a swapchain, but not the
+		// swapchain: the views and the depth buffer are ours and are safe to
+		// destroy once the queues are idle.
+		//
+		// The per-image semaphores are not, and are handled separately -- a
+		// pending present waits on one, and presentation is not covered by
+		// vkDeviceWaitIdle.
 		if (m_DepthImageView) { vkDestroyImageView(m_Device, m_DepthImageView, nullptr); m_DepthImageView = VK_NULL_HANDLE; }
 		if (m_DepthImage)     { vmaDestroyImage(m_Allocator, m_DepthImage, m_DepthAllocation); m_DepthImage = VK_NULL_HANDLE; }
-
-		for (VkSemaphore semaphore : m_RenderFinished)
-			vkDestroySemaphore(m_Device, semaphore, nullptr);
-		m_RenderFinished.clear();
 
 		for (VkImageView view : m_SwapchainImageViews)
 			vkDestroyImageView(m_Device, view, nullptr);
 		m_SwapchainImageViews.clear();
 		m_SwapchainImages.clear();
+	}
+
+	void VulkanDevice::DestroySwapchain()
+	{
+		DestroySwapchainResources();
+
+		for (VkSemaphore semaphore : m_RenderFinished)
+			vkDestroySemaphore(m_Device, semaphore, nullptr);
+		m_RenderFinished.clear();
 
 		if (m_Swapchain)
 		{
@@ -925,10 +949,34 @@ namespace RageV::Vk
 			return;   // minimised; try again next frame
 
 		vkDeviceWaitIdle(m_Device);
-		DestroySwapchain();
+
+		// Order matters here, and getting it wrong is an intermittent crash
+		// rather than a reliable one.
+		//
+		// The views and depth buffer go first -- they are ours. The old
+		// swapchain and its semaphores stay alive *through* the creation of the
+		// new one, because the presentation engine may still be using them and
+		// vkDeviceWaitIdle does not wait for it. CreateSwapchain hands the old
+		// handle over as oldSwapchain, which is the point at which the driver
+		// takes responsibility for retiring it in order.
+		DestroySwapchainResources();
+
+		const VkSwapchainKHR retired = m_Swapchain;
+		std::vector<VkSemaphore> retiredSemaphores;
+		retiredSemaphores.swap(m_RenderFinished);
+
 		m_PendingWidth = (uint32_t)width;
 		m_PendingHeight = (uint32_t)height;
 		CreateSwapchain();
+
+		// Now, and not before: the new swapchain exists, the old one has been
+		// handed over, and nothing can still be waiting on these.
+		if (retired != VK_NULL_HANDLE && retired != m_Swapchain)
+			vkDestroySwapchainKHR(m_Device, retired, nullptr);
+
+		for (VkSemaphore semaphore : retiredSemaphores)
+			vkDestroySemaphore(m_Device, semaphore, nullptr);
+
 		m_SwapchainDirty = false;
 	}
 
