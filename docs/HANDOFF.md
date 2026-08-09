@@ -677,10 +677,16 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 
 ### Not built
 
-- **Draw sorting and instancing** (the rest of 3.6). Frustum culling is in;
-  opaque draws are not sorted front-to-back and nothing is instanced.
-- **Skeletal animation** (3.7). No skinning, no clips, no blending.
-- **C# scripting** (Phase 5). Native only.
+- **C# scripting** (Phase 5). Native only, and the last roadmap item.
+- **Front-to-back depth sorting.** Opaque draws are grouped by mesh and
+  material so they batch, which is the half of 3.6 that was worth measuring.
+  Sorting them by depth as well would let early-z reject more, and is worth a
+  measurement before it is worth code.
+- **Animation blending between clips.** `BlendPoses` exists and is tested; no
+  component drives it, so a character snaps between clips rather than easing.
+- **Skinned bounds are the bind pose's.** A limb swinging wide leaves the box,
+  so a skinned mesh can be culled while part of it is still on screen. Proper
+  bounds mean per-clip boxes, or one grown to cover every pose.
 - **An archive format.** Packaging emits a folder, not a `.pak`. Packing needs
   a virtual file system on the loading side to be worth anything.
 - **Asset cooking.** glTF is parsed at load, PNGs decoded at load.
