@@ -22,8 +22,9 @@ The five-minute version, for picking this up with no memory of it.
 
 **Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through **3.6** — the
 render graph, HDR post, sky and cube maps, full image-based lighting, shadows
-for every light type, frustum culling and instanced draw batching. What is left
-of Phase 3 is clustered forward (3.8) and skeletal animation (3.7). The engine loop closes — a project can be imported into,
+for every light type, frustum culling, instanced draw batching and clustered
+forward lighting. What is left
+of Phase 3 is skeletal animation (3.7). The engine loop closes — a project can be imported into,
 placed in, scripted, played, and packaged into a folder someone else can run.
 
 **Prove it still works** (from the repo root, ~2 minutes):
@@ -34,7 +35,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-490 checks, `exit 0`. Then look at a frame:
+506 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -99,7 +100,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 490 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
+| `scenetest` | 506 checks: serialization, undo, assets, scripts, physics, audio, project, picking, packaging, render graph, post chain. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -521,6 +522,21 @@ or silence rather than an obvious failure.
   Invisible until the frame got cheap enough for the CPU to lap the GPU, and it
   read as a shading shimmer rather than as corruption. `scenetest` asks the
   device now.
+- **A directional light is never binned into the cluster grid.** It has no
+  position and reaches every cell, so binning it puts a copy in all 3456 of
+  them. They sit at the front of the light buffer and every fragment reads them
+  unconditionally.
+- **The cluster tile comes from the interpolated clip position, not
+  `gl_FragCoord`.** The two backends put a normalised device coordinate on
+  opposite halves of the framebuffer, so a tile derived from the fragment's
+  pixel would need the target's size and a per-backend flip. The NDC needs
+  neither and is the space the grid was built in.
+- **`far` recovered from a projection matrix is only good to about a tenth of a
+  percent.** It comes from `P[2][2] + 1`, and at a far-to-near ratio of twenty
+  thousand that addition cancels almost every bit a float has. Harmless here
+  only because the shader is given the slice scale and bias derived from the
+  same value, so the two sides agree with each other whatever the arithmetic
+  did.
 - **A timestamp slot is claimed per scope, never fixed per phase.** A phase can
   run more than once in a frame — the editor fits shadows to each viewport and
   runs the graph for both — and the second pass then rewrites a query the first
@@ -579,7 +595,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 |---|---|
 | Build | CMake, 13 vendored submodules; Debug, Release and **Dist** all build |
 | RHI | Two complete backends, Vulkan + OpenGL, switchable at startup |
-| Renderer | Cook-Torrance PBR, materials with 5 maps, primitives, 8 lights |
+| Renderer | Cook-Torrance PBR, materials with 5 maps, primitives, **any number of lights** |
 | Identity | Real UUIDs, `GetEntityByUUID` |
 | Hierarchy | Parenting, world transforms, drag-to-reparent |
 | Reflection | `ComponentRegistry` drives inspector + serializer + add menu |
@@ -614,10 +630,11 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
-| Tests | `scenetest`, **490 checks**, green on both backends |
+| Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
+| Tests | `scenetest`, **506 checks**, green on both backends |
 
-**Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete through 3.5.**
-What is left of Phase 3 is performance (3.6, 3.8) and skeletal animation (3.7).
+**Phases 0, 1, 2 and 4 are complete, and Phase 3 is complete except for
+skeletal animation (3.7).**
 
 ### Works, with a caveat worth knowing
 
@@ -634,7 +651,8 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 | Shadows | Only the **first** directional light gets cascades, and four spot and four point maps exist. Beyond that a light lights but does not shadow — it now warns once per scene rather than doing it silently. |
 | Shadows | Spot and point resolutions are derived from `ShadowResolution` (half and quarter) rather than being independently settable. |
 | Shadows | A point light's near plane is a shared constant, not per light. |
-| Lighting | Eight lights, hard cap, shared with the shader's `MAX_LIGHTS`. 3.8 removes it. |
+| Lighting | Clustered forward. No cap on lights; shadow *casters* are still budgeted at one cascade set, four spot maps and four point cubes. |
+| Lighting | Clustering is a loss when every light reaches the whole scene — the busiest cell then holds all of them and the indirection buys nothing. The benchmark reports that number so the case is visible rather than mysterious. |
 | IBL | The prefilter assumes the surface is viewed head on, which is the standard split-sum approximation. It costs the stretched highlight a surface has at a grazing angle. |
 | IBL | Irradiance is convolved once, at load. A scene that changes its sky colours at runtime rebuilds the gradient cube but a loaded environment map's irradiance is fixed. |
 | Anti-aliasing | FXAA only. SMAA needs two lookup textures vendored; TAA needs motion vectors first. |
@@ -648,7 +666,6 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 
 - **Draw sorting and instancing** (the rest of 3.6). Frustum culling is in;
   opaque draws are not sorted front-to-back and nothing is instanced.
-- **Clustered forward** (3.8) — the 8-light cap stands.
 - **Skeletal animation** (3.7). No skinning, no clips, no blending.
 - **C# scripting** (Phase 5). Native only.
 - **An archive format.** Packaging emits a folder, not a `.pak`. Packing needs
@@ -737,17 +754,17 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-**Phases 0, 1, 2 and 4 are done. Phase 3 is done through 3.5.**
+**Phases 0, 1, 2 and 4 are done. Phase 3 is done except for 3.7.**
 
 Start here, in this order.
 
-### START HERE — 3.8, clustered forward (`L`)
+### START HERE — 3.7, skeletal animation (`XL`)
 
-The flicker is fixed and Phase 3 is complete through 3.6, so the next item is
-the last hard limit in the lighting: **eight lights**. Clustered rather than
-deferred, so transparency keeps working — the reasoning is in ENGINE-NOTES §5.
+The largest remaining item anywhere and the one that decides whether a game
+with characters can be made. Skinning, clips, blending. Nothing exists yet.
 
-Two smaller leads the profiler turned up, neither urgent, both now measurable:
+Phase 3 is otherwise complete. Two smaller leads the profiler turned up,
+neither urgent, both measurable:
 
 - **Shadow maps cost more CPU than GPU** — 0.598 ms against 0.244 on the stress
   scene. That phase is scene walking and instance building, not rasterising.
@@ -756,24 +773,7 @@ Two smaller leads the profiler turned up, neither urgent, both now measurable:
 - **OpenGL spends ten times Vulkan's CPU on the same near-empty ImGui frame**
   (0.619 ms against 0.069). Unexplained.
 
-The frame is 1.3 ms on Vulkan and 1.7 ms on OpenGL with a thousand meshes, so
-neither is costing anything anyone would notice yet.
-
-### 1. 3.8 — clustered forward (`L`)
-
-Removes the eight-light cap, which is the last hard limit in the lighting.
-Clustered rather than deferred, so transparency keeps working — the reasoning
-is in ENGINE-NOTES §5.
-
-Worth doing after culling because the cluster build wants the same visibility
-information.
-
-### 2. 3.7 — skeletal animation (`XL`)
-
-The largest remaining item anywhere, and the one that decides whether a game
-with characters can be made. Skinning, clips, blending. Nothing exists yet.
-
-### 3. Phase 5 — C# scripting (`XL`)
+### 1. Phase 5 — C# scripting (`XL`)
 
 Last, deliberately: it must mirror a native surface that has stopped moving.
 
@@ -782,15 +782,12 @@ Last, deliberately: it must mirror a native surface that has stopped moving.
 - **Materials as assets**, so two entities can share one from the inspector.
 - **Billboard icons for lights and cameras**, which would also make them
   clickable — picking tests geometry and they have none.
-- **A blend band between shadow cascades**, so the transition is not visible
-  on a slow pan.
 - **Per-object reflection probe selection**, replacing the per-scene choice.
 - **SMAA** (`M`) needs two lookup textures vendored. **TAA** (`L`) needs motion
   vectors first: every mesh carrying its previous transform, a velocity target,
   a jittered projection and a history buffer. The same motion vectors would
   then buy motion blur and temporal upscaling, which is the argument for doing
   it properly rather than cheaply.
-- **DPI scaling for the editor font.**
 
 ## 9. Known rough edges
 
