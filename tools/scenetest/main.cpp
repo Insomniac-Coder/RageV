@@ -4349,6 +4349,118 @@ int RunTests(int argc, char** argv)
 		Check(first == second, "loading a scene replaces the current one rather than merging");
 	}
 
+	// --- the generated C++ script template -----------------------------------
+	//
+	// Scripts/TemplateProbe.cpp *is* what "New Script..." writes, kept in the
+	// tree so that the template is compiled and registered by every build. It
+	// caught a real defect the first time: a file whose only contents are a
+	// static registrar has no referenced symbol, so the linker discards the
+	// object file, and the script compiles, links, and never appears in the
+	// dropdown. The template anchors itself with an exported symbol and a
+	// /include: directive; this is what proves that still works.
+	{
+		Check(ScriptRegistry::IsRegistered("TemplateProbe"),
+			  "the generated C++ script template registers itself");
+
+		const std::vector<ScriptField>& fields = ScriptRegistry::FieldsOf("TemplateProbe");
+		Check(fields.size() == 1 && fields[0].Name == "Speed",
+			  "and its example field reaches the inspector");
+	}
+
+	// --- C++ script fields ---------------------------------------------------
+	//
+	// C++ has no reflection, so a script's editable fields are whatever the
+	// registration named. Checked against the built-in scripts, which are also
+	// the worked examples: if these stop having fields, the documented way to
+	// declare one has stopped working.
+	{
+		const std::vector<ScriptField>& spinner = ScriptRegistry::FieldsOf("Spinner");
+		Check(spinner.size() == 1, "a registered C++ script reports its fields");
+
+		if (!spinner.empty())
+		{
+			Check(spinner[0].Name == "Speed", "by the name the registration gave");
+			Check(spinner[0].Kind == ScriptFieldKind::Float, "with the right kind");
+			Check(spinner[0].Default == "1.2",
+				  "and the default from a constructed instance, not zero");
+		}
+
+		Check(ScriptRegistry::FieldsOf("Mover").size() == 2, "and a script may declare several");
+		Check(ScriptRegistry::FieldsOf("NoSuchScript").empty(),
+			  "while an unknown script reports none rather than failing");
+
+		// A script with no declared fields is the common case and is not an
+		// error -- most scripts have nothing worth tuning.
+		Check(ScriptRegistry::FieldsOf("TriggerZone").empty(),
+			  "and a script that declares none is fine");
+
+		// Reading and writing through the registered accessors.
+		if (!spinner.empty())
+		{
+			ScriptableEntity* instance = ScriptRegistry::Create("Spinner");
+			Check(instance != nullptr, "a C++ script instantiates");
+
+			if (instance)
+			{
+				Check(spinner[0].Get(instance) == "1.2", "and its field reads back");
+
+				spinner[0].Set(instance, "3.5");
+				Check(spinner[0].Get(instance) == "3.5", "and writes through");
+
+				// A malformed value must not zero the field. Somebody typing
+				// into the inspector passes through half-written numbers on the
+				// way to a good one.
+				spinner[0].Set(instance, "not a number");
+				Check(spinner[0].Get(instance) == "3.5",
+					  "while a malformed value leaves it alone rather than zeroing it");
+
+				delete instance;
+			}
+		}
+	}
+
+	// --- overrides on a C++ script, through a scene --------------------------
+	{
+		auto authored = std::make_shared<Scene>();
+		Entity host = authored->CreateEntity("Spun");
+		auto& script = host.AddComponent<NativeScriptComponent>("Spinner");
+		script.Set("Speed", "2.5");
+
+		SceneSerializer writer(authored);
+		const std::string text = writer.SerializeToString();
+		Check(text.find("Speed") != std::string::npos,
+			  "a C++ script's field override is written to the scene");
+
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer reader(reloaded);
+		Check(reader.DeserializeFromString(text), "and the scene loads again");
+
+		Entity restored = reloaded->FindEntityByName("Spun");
+		Check(restored && restored.HasComponent<NativeScriptComponent>(),
+			  "with the component intact");
+
+		if (restored && restored.HasComponent<NativeScriptComponent>())
+		{
+			const auto& back = restored.GetComponent<NativeScriptComponent>();
+			Check(back.Find("Speed") && *back.Find("Speed") == "2.5", "and the value somebody typed");
+		}
+
+		// The claim that matters: the running script uses the overridden value.
+		// Spinner turns Speed radians a second about Y.
+		reloaded->OnRuntimeStart();
+		Entity spun = reloaded->FindEntityByName("Spun");
+		spun.GetComponent<TransformComponent>().Rotation = Vec3(0.0f);
+
+		for (int step = 0; step < 10; step++)
+			reloaded->OnFixedUpdateRuntime(1.0f / 60.0f);
+
+		const float turned = spun.GetComponent<TransformComponent>().Rotation.y;
+		Check(std::fabs(turned - (2.5f * 10.0f / 60.0f)) < 1e-4f,
+			  "and the scene steps it at the overridden speed, not the default");
+
+		reloaded->OnRuntimeStop();
+	}
+
 	// --- the settings writer -------------------------------------------------
 	//
 	// The backend picker and the vsync checkbox each rewrite one line of
@@ -4912,10 +5024,10 @@ int RunTests(int argc, char** argv)
 					  "a field override is stored on the component");
 
 				component.Set("m_Speed", "3.5");
-				Check(component.Fields.size() == 1, "setting the same field twice replaces rather than appends");
+				Check(component.Fields.Values.size() == 1, "setting the same field twice replaces rather than appends");
 
 				component.Clear("m_Speed");
-				Check(component.Fields.empty(), "and an override can be cleared back to the default");
+				Check(component.Fields.Empty(), "and an override can be cleared back to the default");
 				component.Set("m_Speed", "2.5");
 
 				SceneSerializer writer(authored);

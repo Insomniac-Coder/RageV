@@ -1,5 +1,8 @@
 #include "SceneHierarchyPanel.h"
 #include "imgui.h"
+#include "RageV/Project/Project.h"
+#include <cctype>
+#include <fstream>
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
@@ -645,20 +648,7 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 				DrawManagedScript(*static_cast<ManagedScriptComponent*>(component));
 
 			if (std::string(desc.Name) == "NativeScriptComponent")
-			{
-				auto* script = static_cast<NativeScriptComponent*>(component);
-				if (!script->ScriptName.empty() && !ScriptRegistry::IsRegistered(script->ScriptName))
-				{
-					// A scene can outlive the script it names. Saying so beats
-					// an entity that silently does nothing.
-					ImGui::TextColored(EditorTheme::Color::AccentHover,
-									   "'%s' is not registered", script->ScriptName.c_str());
-					if (ImGui::IsItemHovered())
-						ImGui::SetTooltip("The scene refers to a script this build does not "
-										  "contain. The entity will run nothing.");
-				}
-				ImGui::TextDisabled("Runs on the fixed step, only while playing.");
-			}
+				DrawNativeScript(*static_cast<NativeScriptComponent*>(component));
 
 			// One place where derived state is refreshed, so a field added
 			// later cannot forget to do it.
@@ -680,6 +670,31 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 															   pendingRemove->Name);
 		if (m_Commands) m_Commands->Push(std::move(command));
 		else            command->Execute();
+	}
+
+	// The language row queued a conversion. Applied here for the same reason
+	// removal is: adding or removing a component while the component list is
+	// being walked invalidates the iteration.
+	//
+	// The script name and its field overrides are deliberately *not* carried
+	// across. A C++ script and a C# script are different scripts even when they
+	// share a name, and moving one's tuning values onto the other would be
+	// applying numbers to fields that only coincidentally match.
+	if (m_PendingScriptSwap != PendingScriptSwap::None)
+	{
+		const bool toManaged = (m_PendingScriptSwap == PendingScriptSwap::ToCSharp);
+		m_PendingScriptSwap = PendingScriptSwap::None;
+
+		if (toManaged && entity.HasComponent<NativeScriptComponent>())
+		{
+			entity.RemoveComponent<NativeScriptComponent>();
+			entity.AddComponent<ManagedScriptComponent>();
+		}
+		else if (!toManaged && entity.HasComponent<ManagedScriptComponent>())
+		{
+			entity.RemoveComponent<ManagedScriptComponent>();
+			entity.AddComponent<NativeScriptComponent>();
+		}
 	}
 
 	CommitPendingEdit();
@@ -734,6 +749,8 @@ void RageV::SceneHierarchyPanel::CommitPendingEdit()
 // code reaches every entity that never overrode it.
 void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& script)
 {
+	DrawScriptLanguageRow(true);
+
 	if (!Managed::Interop::IsReady())
 	{
 		ImGui::TextColored(EditorTheme::Color::AccentHover, "C# scripting is not running");
@@ -771,7 +788,7 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 		if (ImGui::Selectable("(none)", script.ScriptName.empty()))
 		{
 			script.ScriptName.clear();
-			script.Fields.clear();
+			script.Fields.Values.clear();
 		}
 
 		for (const std::string& name : types)
@@ -783,12 +800,21 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 				// another script's identically named field, which is worse than
 				// losing them.
 				if (name != script.ScriptName)
-					script.Fields.clear();
+					script.Fields.Values.clear();
 				script.ScriptName = name;
 			}
 		}
 
 		ImGui::EndCombo();
+	}
+
+	// Creating one selects it, so the next step is Build Scripts rather than
+	// hunting for the new name in a dropdown.
+	std::string created;
+	if (DrawNewScriptButton(true, created))
+	{
+		script.ScriptName = created;
+		script.Fields.Values.clear();
 	}
 
 	if (script.ScriptName.empty())
@@ -818,76 +844,12 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 
 	ImGui::Separator();
 
+	// The same rows the C++ component draws. Two languages describe their
+	// fields differently -- C++ at registration, C# by reflection -- and
+	// converge here, so a field cannot behave differently depending on which
+	// language declared it.
 	for (const Managed::ScriptFieldDesc& field : fields)
-	{
-		const std::string* stored = script.Find(field.Name);
-		const std::string value = stored ? *stored : field.Default;
-
-		ImGui::PushID(field.Name.c_str());
-
-		switch (field.Type)
-		{
-			case Managed::ScriptFieldType::Bool:
-			{
-				bool flag = (value == "true" || value == "1");
-				if (ImGui::Checkbox(field.Name.c_str(), &flag))
-					script.Set(field.Name, flag ? "true" : "false");
-				break;
-			}
-			case Managed::ScriptFieldType::Int:
-			{
-				int number = std::atoi(value.c_str());
-				if (ImGui::DragInt(field.Name.c_str(), &number))
-					script.Set(field.Name, std::to_string(number));
-				break;
-			}
-			case Managed::ScriptFieldType::Float:
-			{
-				float number = (float)std::atof(value.c_str());
-				if (ImGui::DragFloat(field.Name.c_str(), &number, 0.01f))
-					script.Set(field.Name, FormatFloat(number));
-				break;
-			}
-			case Managed::ScriptFieldType::Vector3:
-			{
-				float parts[3] = { 0.0f, 0.0f, 0.0f };
-				std::istringstream stream(value);
-				stream >> parts[0] >> parts[1] >> parts[2];
-
-				if (ImGui::DragFloat3(field.Name.c_str(), parts, 0.01f))
-				{
-					script.Set(field.Name, FormatFloat(parts[0]) + " " +
-											FormatFloat(parts[1]) + " " +
-											FormatFloat(parts[2]));
-				}
-				break;
-			}
-			case Managed::ScriptFieldType::String:
-			{
-				char buffer[256]{};
-				std::strncpy(buffer, value.c_str(), sizeof(buffer) - 1);
-				if (ImGui::InputText(field.Name.c_str(), buffer, sizeof(buffer)))
-					script.Set(field.Name, buffer);
-				break;
-			}
-			default:
-				break;
-		}
-
-		// Only overridden fields get a reset, because only they have anything
-		// to reset to -- and showing the control on every field would suggest
-		// otherwise.
-		if (stored)
-		{
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Reset"))
-				script.Clear(field.Name);
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Back to the script's own default (%s)", field.Default.c_str());
-		}
-
-		ImGui::PopID();
-	}
+		DrawScriptField(field.Name, (int)field.Type, field.Default, script.Fields);
 }
 
 // Shortest round-trippable text for a float.
@@ -900,4 +862,476 @@ std::string RageV::SceneHierarchyPanel::FormatFloat(float value)
 	std::ostringstream out;
 	out << std::setprecision(9) << std::defaultfloat << value;
 	return out.str();
+}
+
+// The language row, shared by both script components.
+//
+// Changing it converts the entity from one script component to the other. That
+// cannot be done here -- the caller is iterating the component list and adding
+// or removing one invalidates it -- so the choice is queued and applied after
+// the loop, exactly as component removal already is.
+void RageV::SceneHierarchyPanel::DrawScriptLanguageRow(bool managed)
+{
+	const char* const kLanguages[] = { "C++", "C#" };
+	int current = managed ? 1 : 0;
+
+	if (ImGui::Combo("Language", &current, kLanguages, 2))
+	{
+		if ((current == 1) != managed)
+			m_PendingScriptSwap = (current == 1) ? PendingScriptSwap::ToCSharp
+												 : PendingScriptSwap::ToCpp;
+	}
+
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::SetTooltip("C++ scripts are compiled into the engine and need a rebuild.\n"
+						  "C# scripts live in the project and rebuild from File > Build Scripts.");
+	}
+}
+
+// "New Script..." -- writes a file the project can actually build.
+//
+// C# only, and the C++ case says why rather than pretending. Native game code is
+// compiled into the engine binary: a generated .cpp dropped into a project
+// folder is a file nothing in the project can build, and offering a button that
+// produces one would be worse than not offering it. A C# script goes into the
+// project's Scripts/ folder, where Build Scripts picks it up.
+//
+// Returns the new script's type name once the file is written, so the caller can
+// select it immediately -- creating a script and then having to find it in a
+// dropdown is a step nobody wants.
+bool RageV::SceneHierarchyPanel::DrawNewScriptButton(bool managed, std::string& chosenName)
+{
+	const char* const kPopup = "New Script";
+
+	if (ImGui::Button("New Script..."))
+	{
+		m_NewScriptName[0] = '\0';
+		ImGui::OpenPopup(kPopup);
+	}
+
+	bool created = false;
+
+	if (ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		if (!managed)
+		{
+			const std::filesystem::path scripts = EngineScriptsDir();
+
+			if (scripts.empty())
+			{
+				// A packaged editor has no engine source to add a file to. That
+				// is the honest reason C++ scripting is not a per-project
+				// feature, and saying it beats writing a file nothing builds.
+				ImGui::TextWrapped("C++ scripts are compiled into the engine, and this build has "
+								   "no engine source beside it.");
+				ImGui::Spacing();
+				ImGui::TextWrapped("Add a class deriving from ScriptableEntity to the engine or "
+								   "game target and register it:");
+				ImGui::Spacing();
+				ImGui::TextDisabled("    RV_REGISTER_SCRIPT(Spinner).Field<&Spinner::Speed>(\"Speed\");");
+				ImGui::Spacing();
+				ImGui::TextWrapped("Switch Language to C# for a script this project can build itself.");
+
+				ImGui::Separator();
+				if (ImGui::Button("Close"))
+					ImGui::CloseCurrentPopup();
+
+				ImGui::EndPopup();
+				return false;
+			}
+
+			ImGui::Text("Class name");
+			ImGui::SetNextItemWidth(260.0f);
+			ImGui::InputText("##cppname", m_NewScriptName, sizeof(m_NewScriptName));
+
+			const std::string name(m_NewScriptName);
+			const bool valid = IsIdentifier(name);
+
+			std::error_code ec;
+			const std::filesystem::path file = scripts / (name + ".cpp");
+			const bool exists = valid && std::filesystem::exists(file, ec);
+
+			if (!name.empty() && !valid)
+				ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C++ class name");
+			else if (exists)
+				ImGui::TextColored(EditorTheme::Color::AccentHover, "%s.cpp already exists", name.c_str());
+			else if (valid)
+				ImGui::TextDisabled("%s", file.string().c_str());
+			else
+				ImGui::TextDisabled(" ");
+
+			ImGui::Spacing();
+			ImGui::TextWrapped("A C++ script is compiled into the engine, so it appears in the "
+							   "dropdown after a rebuild -- not immediately.");
+
+			ImGui::Separator();
+
+			const bool ok = valid && !exists;
+			ImGui::BeginDisabled(!ok);
+			if (ImGui::Button("Create") && ok)
+			{
+				if (WriteNewNativeScript(file, name))
+					RV_INFO("Created {0} -- rebuild the engine to use it", file.string());
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndDisabled();
+
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+				ImGui::CloseCurrentPopup();
+
+			ImGui::EndPopup();
+			return false;
+		}
+
+		if (!Project::GetActive())
+		{
+			ImGui::TextWrapped("Open a project first. A script belongs to one.");
+			ImGui::Separator();
+			if (ImGui::Button("Close"))
+				ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return false;
+		}
+
+		ImGui::Text("Class name");
+		ImGui::SetNextItemWidth(260.0f);
+		const bool submitted = ImGui::InputText("##name", m_NewScriptName, sizeof(m_NewScriptName),
+												ImGuiInputTextFlags_EnterReturnsTrue);
+
+		const std::string name(m_NewScriptName);
+
+		// A C# identifier, checked before anything is written: a file named
+		// `2 things.cs` compiles to nothing and the error would arrive from the
+		// compiler minutes later rather than from the field that caused it.
+		const bool valid = IsIdentifier(name);
+
+		const std::filesystem::path file = Project::Root() / "Scripts" / (name + ".cs");
+		std::error_code ec;
+		const bool exists = valid && std::filesystem::exists(file, ec);
+
+		if (!name.empty() && !valid)
+			ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C# class name");
+		else if (exists)
+			ImGui::TextColored(EditorTheme::Color::AccentHover, "Scripts/%s.cs already exists", name.c_str());
+		else if (valid)
+			ImGui::TextDisabled("Scripts/%s.cs", name.c_str());
+		else
+			ImGui::TextDisabled(" ");
+
+		ImGui::Separator();
+
+		const bool ok = valid && !exists;
+		ImGui::BeginDisabled(!ok);
+		if ((ImGui::Button("Create") || (submitted && ok)) && ok)
+		{
+			if (WriteNewScript(file, name))
+			{
+				chosenName = name;
+				created = true;
+				RV_INFO("Created Scripts/{0}.cs -- File > Build Scripts to compile it", name);
+			}
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndDisabled();
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel"))
+			ImGui::CloseCurrentPopup();
+
+		ImGui::EndPopup();
+	}
+
+	return created;
+}
+
+// The file a new C# script starts as.
+//
+// Not empty. The same reasoning as the starter scene and the generated project:
+// the first five minutes should not be spent working out what a script has to
+// look like, and a template that already overrides OnUpdate shows the fixed-step
+// contract in the one place somebody is certain to read.
+bool RageV::SceneHierarchyPanel::WriteNewScript(const std::filesystem::path& file,
+											    const std::string& name)
+{
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+
+	std::ofstream out(file);
+	if (!out)
+	{
+		RV_ERROR("Could not write {0}", file.string());
+		return false;
+	}
+
+	out << "using RageV;\n\n";
+	out << "public class " << name << " : Script\n";
+	out << "{\n";
+	out << "\t// Public or private, either shows up in the inspector. Only what you\n";
+	out << "\t// change there is stored, so editing this default reaches every entity\n";
+	out << "\t// that never overrode it.\n";
+	out << "\tprivate float m_Speed = 1.0f;\n\n";
+	out << "\tpublic override void OnCreate()\n";
+	out << "\t{\n";
+	out << "\t\tLog.Info($\"{Entity.Name} is ready\");\n";
+	out << "\t}\n\n";
+	out << "\t// Once per fixed simulation step, not once per frame. A frame may run\n";
+	out << "\t// zero steps, one, or several -- so multiply rates by deltaTime and the\n";
+	out << "\t// behaviour stays the same at any simulation frequency.\n";
+	out << "\tpublic override void OnUpdate(float deltaTime)\n";
+	out << "\t{\n";
+	out << "\t\tTranslate(new Vector3(0.0f, m_Speed * deltaTime, 0.0f));\n";
+	out << "\t}\n";
+	out << "}\n";
+
+	return true;
+}
+
+// The C++ script component.
+void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
+{
+	DrawScriptLanguageRow(false);
+
+	const std::vector<std::string> names = ScriptRegistry::GetNames();
+	const std::string current = script.ScriptName.empty() ? "(none)" : script.ScriptName;
+
+	if (ImGui::BeginCombo("Script", current.c_str()))
+	{
+		if (ImGui::Selectable("(none)", script.ScriptName.empty()))
+		{
+			script.ScriptName.clear();
+			script.Fields.Values.clear();
+		}
+
+		for (const std::string& name : names)
+		{
+			if (ImGui::Selectable(name.c_str(), name == script.ScriptName))
+			{
+				// Overrides belong to the script that had them. Carrying them
+				// across a change of script would apply one script's values to
+				// another's identically named field, which is worse than losing
+				// them.
+				if (name != script.ScriptName)
+					script.Fields.Values.clear();
+				script.ScriptName = name;
+			}
+		}
+		ImGui::EndCombo();
+	}
+
+	std::string created;
+	DrawNewScriptButton(false, created);
+
+	if (script.ScriptName.empty())
+	{
+		ImGui::TextDisabled("Runs on the fixed step, only while playing.");
+		return;
+	}
+
+	if (!ScriptRegistry::IsRegistered(script.ScriptName))
+	{
+		// A scene can outlive the script it names. Saying so beats an entity
+		// that silently does nothing.
+		ImGui::TextColored(EditorTheme::Color::AccentHover,
+						   "'%s' is not registered", script.ScriptName.c_str());
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("The scene refers to a script this build does not contain.\n"
+							  "The entity will run nothing.");
+		}
+		return;
+	}
+
+	const std::vector<ScriptField>& fields = ScriptRegistry::FieldsOf(script.ScriptName);
+	if (fields.empty())
+	{
+		ImGui::TextDisabled("No editable fields.");
+		ImGui::TextDisabled("Declare them with .Field<&Type::Member>(\"Name\") at registration.");
+		return;
+	}
+
+	ImGui::Separator();
+
+	for (const ScriptField& field : fields)
+		DrawScriptField(field.Name, ScriptKindToWidget(field.Kind), field.Default, script.Fields);
+}
+
+// One field row, whichever language declared it.
+//
+// The two languages describe their fields differently -- C++ at registration,
+// C# by reflection -- and converge here, so the widgets, the reset button and
+// the stored text are the same in both. A field that behaves differently
+// depending on the language it came from would be a bug nobody would think to
+// look for.
+void RageV::SceneHierarchyPanel::DrawScriptField(const std::string& name, int kind,
+												 const std::string& defaultValue,
+												 ScriptFieldOverrides& overrides)
+{
+	const std::string* stored = overrides.Find(name);
+	const std::string value = stored ? *stored : defaultValue;
+
+	ImGui::PushID(name.c_str());
+
+	switch (kind)
+	{
+		case 0:   // bool
+		{
+			bool flag = (value == "true" || value == "1");
+			if (ImGui::Checkbox(name.c_str(), &flag))
+				overrides.Set(name, flag ? "true" : "false");
+			break;
+		}
+		case 1:   // int
+		{
+			int number = std::atoi(value.c_str());
+			if (ImGui::DragInt(name.c_str(), &number))
+				overrides.Set(name, std::to_string(number));
+			break;
+		}
+		case 2:   // float
+		{
+			float number = (float)std::atof(value.c_str());
+			if (ImGui::DragFloat(name.c_str(), &number, 0.01f))
+				overrides.Set(name, FormatFloat(number));
+			break;
+		}
+		case 4:   // Vec3
+		{
+			float parts[3] = { 0.0f, 0.0f, 0.0f };
+			std::istringstream stream(value);
+			stream >> parts[0] >> parts[1] >> parts[2];
+
+			if (ImGui::DragFloat3(name.c_str(), parts, 0.01f))
+			{
+				overrides.Set(name, FormatFloat(parts[0]) + " " +
+									 FormatFloat(parts[1]) + " " +
+									 FormatFloat(parts[2]));
+			}
+			break;
+		}
+		case 3:   // string
+		{
+			char buffer[256]{};
+			std::strncpy(buffer, value.c_str(), sizeof(buffer) - 1);
+			if (ImGui::InputText(name.c_str(), buffer, sizeof(buffer)))
+				overrides.Set(name, buffer);
+			break;
+		}
+		default:
+			break;
+	}
+
+	// Only an overridden field gets a reset, because only it has something to
+	// reset to -- showing the control on every field would suggest otherwise.
+	if (stored)
+	{
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Reset"))
+			overrides.Clear(name);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Back to the script's own default (%s)", defaultValue.c_str());
+	}
+
+	ImGui::PopID();
+}
+
+// The native kinds and the managed ones are separate enums that happen to line
+// up. Mapped explicitly rather than cast, so that adding a kind to one of them
+// is a compile error here instead of a widget silently drawing the wrong thing.
+int RageV::SceneHierarchyPanel::ScriptKindToWidget(ScriptFieldKind kind)
+{
+	switch (kind)
+	{
+		case ScriptFieldKind::Bool:   return 0;
+		case ScriptFieldKind::Int:    return 1;
+		case ScriptFieldKind::Float:  return 2;
+		case ScriptFieldKind::String: return 3;
+		case ScriptFieldKind::Vec3:   return 4;
+	}
+	return -1;
+}
+
+// Where a generated C++ script goes, or empty when there is no engine source.
+//
+// Baked in by CMake, so it points at the tree this editor was built from. An
+// installed editor has none, and the dialog says so rather than writing a file
+// into a folder nothing compiles.
+std::filesystem::path RageV::SceneHierarchyPanel::EngineScriptsDir()
+{
+#ifdef RV_ENGINE_SCRIPTS_DIR
+	std::error_code ec;
+	const std::filesystem::path path = RV_ENGINE_SCRIPTS_DIR;
+	if (std::filesystem::is_directory(path, ec))
+		return path;
+#endif
+	return {};
+}
+
+// A valid identifier in either language. The two agree closely enough that one
+// check covers both, and rejecting a bad name here beats a compiler error
+// minutes later that names a file rather than the field that caused it.
+bool RageV::SceneHierarchyPanel::IsIdentifier(const std::string& name)
+{
+	if (name.empty())
+		return false;
+	if (!std::isalpha((unsigned char)name[0]) && name[0] != '_')
+		return false;
+
+	return std::all_of(name.begin(), name.end(),
+					   [](unsigned char c) { return std::isalnum(c) || c == '_'; });
+}
+
+// The file a new C++ script starts as.
+//
+// A working script with one editable field, registered -- the same shape the
+// built-in scripts have, so the generated file and the worked examples teach the
+// same thing. A blank file would only move the "what does a script look like"
+// problem somewhere less convenient.
+bool RageV::SceneHierarchyPanel::WriteNewNativeScript(const std::filesystem::path& file,
+													  const std::string& name)
+{
+	std::ofstream out(file);
+	if (!out)
+	{
+		RV_ERROR("Could not write {0}", file.string());
+		return false;
+	}
+
+	out << "#include <rvpch.h>\n";
+	out << "#include \"RageV/Scene/ScriptRegistry.h\"\n";
+	out << "#include \"RageV/Scene/Components.h\"\n\n";
+	out << "namespace RageV\n";
+	out << "{\n";
+	out << "\tclass " << name << " : public ScriptableEntity\n";
+	out << "\t{\n";
+	out << "\tpublic:\n";
+	out << "\t\t// Public so the registration below can name it. C++ has no\n";
+	out << "\t\t// reflection, so an editable field has to be declared explicitly --\n";
+	out << "\t\t// unlike C#, where the inspector finds private fields on its own.\n";
+	out << "\t\tfloat Speed = 1.0f;\n\n";
+	out << "\t\tvoid OnCreate() override\n";
+	out << "\t\t{\n";
+	out << "\t\t}\n\n";
+	out << "\t\t// Every fixed simulation step, not every frame. A frame may run zero\n";
+	out << "\t\t// steps, one, or several -- so multiply rates by dt and the behaviour\n";
+	out << "\t\t// stays the same at any simulation frequency.\n";
+	out << "\t\tvoid OnUpdate(Timestep dt) override\n";
+	out << "\t\t{\n";
+	out << "\t\t\tTranslate({ 0.0f, Speed * dt.GetSeconds(), 0.0f });\n";
+	out << "\t\t}\n";
+	out << "\t};\n\n";
+	out << "\t// The name here is what scene files store, so renaming it breaks every\n";
+	out << "\t// scene that used it. Fields declared on the same line show up in the\n";
+	out << "\t// inspector.\n";
+	out << "\tRV_REGISTER_SCRIPT(" << name << ").Field<&" << name << "::Speed>(\"Speed\");\n";
+	out << "}\n";
+
+	// Nothing else is needed to make the registration survive, and an earlier
+	// version of this generator wrote a `#pragma comment(linker, "/include:...")`
+	// anchor that looked like it did. It cannot work: the directive lives in the
+	// object file the linker is discarding, so it never arrives. RageV.lib is
+	// linked whole instead -- see RageV/CMakeLists.txt, and the TemplateProbe
+	// script that proves it still is.
+	return true;
 }

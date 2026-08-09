@@ -1,5 +1,6 @@
 #pragma once
 #include "RageV.h"
+#include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Scene/SceneCommands.h"
 
 namespace RageV
@@ -32,6 +33,28 @@ namespace RageV
 		// captured the frame the value first changes, and the command is
 		// recorded once no widget is active any more.
 		// The C# script component: type dropdown, then its reflected fields.
+		// One script inspector for both languages. The language row converts the
+		// component, which cannot happen while the component list is being
+		// walked -- so it is queued and applied afterwards, the way removal is.
+		void DrawScriptLanguageRow(bool managed);
+		bool DrawNewScriptButton(bool managed, std::string& chosenName);
+		static bool WriteNewScript(const std::filesystem::path& file,
+								   const std::string& name);
+		static bool WriteNewNativeScript(const std::filesystem::path& file,
+										 const std::string& name);
+		static std::filesystem::path EngineScriptsDir();
+		static bool IsIdentifier(const std::string& name);
+		char m_NewScriptName[64] = {};
+
+		enum class PendingScriptSwap { None, ToCpp, ToCSharp };
+		PendingScriptSwap m_PendingScriptSwap = PendingScriptSwap::None;
+
+		void DrawNativeScript(NativeScriptComponent& script);
+		void DrawScriptField(const std::string& name, int kind,
+							 const std::string& defaultValue,
+							 ScriptFieldOverrides& overrides);
+		static int ScriptKindToWidget(ScriptFieldKind kind);
+
 		void DrawManagedScript(ManagedScriptComponent& script);
 		static std::string FormatFloat(float value);
 

@@ -72,6 +72,37 @@ set_target_properties(RageV PROPERTIES
 target_compile_definitions(RageV PUBLIC
     RV_DEFAULT_PROJECT="${CMAKE_SOURCE_DIR}/SampleProject")
 
+# Every object file in RageV.lib is linked, whether or not anything references
+# a symbol in it.
+#
+# Without this, a translation unit whose only contents are a static registrar --
+# which is exactly what a script file is -- gets discarded, and the script
+# compiles, links, and never appears in the inspector. There is no fix on the
+# library side: a `#pragma comment(linker, "/include:...")` lives in the object
+# file being discarded, so the directive never reaches the linker. The engine's
+# own built-in scripts work around it by being registered from an explicitly
+# called function, which a file somebody just created cannot do.
+#
+# The cost is link time and a larger binary, unmeasured -- the alternative is a
+# script that silently does not exist, so it was not a trade worth measuring
+# before making.
+#
+# Applied as an INTERFACE property so every consumer gets it -- an executable
+# that forgets it would have scripts silently missing, which is the whole
+# failure being fixed.
+if(MSVC)
+    target_link_options(RageV INTERFACE "/WHOLEARCHIVE:$<TARGET_FILE:RageV>")
+endif()
+
+# Where "New Script..." puts a generated C++ script.
+#
+# Only meaningful in a build tree -- an installed editor has no engine source to
+# add a file to, which is the honest reason C++ scripting is not a per-project
+# feature. The editor checks that the folder exists before offering to write
+# there, so a packaged build simply explains what to do by hand instead.
+target_compile_definitions(RageV PUBLIC
+    RV_ENGINE_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/RageV/src/RageV/Scripts")
+
 if(RAGEV_ENABLE_VALIDATION)
     target_compile_definitions(RageV PRIVATE $<$<CONFIG:Debug>:RV_VULKAN_VALIDATION>)
 endif()

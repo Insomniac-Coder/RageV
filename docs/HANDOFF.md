@@ -42,7 +42,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-682 checks, `exit 0`. Then look at a frame:
+700 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -106,7 +106,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 682 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
+| `scenetest` | 700 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -836,7 +836,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Skeletal animation | Skinned vertex format, skinned PBR and depth shaders, per-instance bone matrices, `AnimatorComponent` (3.7) |
 | Batching | Instanced draws keyed on mesh and material; 3238 draws down to 60 on the stress scene |
 | Profiler | CPU wall time and GPU timestamps per phase, live in the editor and printed by `--benchmark` |
-| Tests | `scenetest`, **682 checks**, green on both backends |
+| Tests | `scenetest`, **700 checks**, green on both backends |
 
 **Phases 0, 1, 2, 3 and 4 are complete.** Phase 5, C# scripting, is in
 progress -- 5.1 (hosting) is done, and **5.0 now precedes the rest**: no
@@ -1098,6 +1098,46 @@ Four decisions in there:
 - **The handle is not copied and not serialized.** EnTT copies components when a
   scene is duplicated, which is what play mode does on every press of Play, and
   two components owning one managed instance would both destroy it.
+
+**C++ scripts have editable fields too**, declared at registration because C++
+has no reflection:
+
+```cpp
+RV_REGISTER_SCRIPT(Spinner).Field<&Spinner::Speed>("Speed");
+```
+
+The member must be **public** -- a registration names it from outside the class,
+and reaching a private one needs a friend declaration in every script. C# has the
+opposite rule, and for a good reason: reflection can read private fields, and
+demanding `public` there would mean telling people to write worse C# for the
+inspector's benefit. Both languages converge on one set of inspector rows, one
+set of stored values, and one scene format.
+
+The script component draws a **Language** row (C++ / C#) that converts the
+entity between the two components. The name and field overrides are deliberately
+*not* carried across: two scripts that share a name are still different scripts,
+and moving one's tuning values onto the other applies numbers to fields that only
+coincidentally match.
+
+**New Script...** writes a working template, never a blank file. For C# it goes
+into the project's `Scripts/` and is selected immediately. For C++ it goes into
+the engine's own `Scripts/` folder -- and only when the editor was built from
+source, which it knows via `RV_ENGINE_SCRIPTS_DIR`; a packaged editor explains
+what to do by hand instead.
+
+> [!TRAP]
+> **RageV.lib is linked with `/WHOLEARCHIVE`, and script registration depends on
+> it.** A translation unit whose only contents are a static registrar -- which is
+> exactly what a script file is -- has no referenced symbol, so the linker
+> discards the object file and the script compiles, links, and never appears in
+> the dropdown. There is no fix on the library side: a
+> `#pragma comment(linker, "/include:...")` lives in the object file being
+> discarded, so the directive never reaches the linker. That was tried first and
+> did not work.
+>
+> `Scripts/TemplateProbe.cpp` is the generated template kept in the tree so every
+> build compiles and registers it. It is what caught this, and it is what will
+> catch it again if the link option is ever removed.
 
 **C++ scripts still have to be compiled into the engine or game binary**, so a
 project cannot add one without rebuilding the engine. That is the remaining

@@ -559,8 +559,8 @@ namespace RageV
 						// inspector set, not the constructor's default.
 						if (managed.SetFieldValue)
 						{
-							for (const auto& field : script->Fields)
-								managed.SetFieldValue(script->Handle, field.Name.c_str(), field.Value.c_str());
+							for (const auto& entry : script->Fields.Values)
+								managed.SetFieldValue(script->Handle, entry.Name.c_str(), entry.Value.c_str());
 						}
 
 						managed.InvokeCreate(script->Handle);
@@ -645,6 +645,16 @@ namespace RageV
 					if (script->Instance)
 					{
 						script->Instance->m_Entity = Entity{ handle, this };
+
+						// Before OnCreate: a script that reads its own
+						// configuration there has to see what the inspector set,
+						// not what the constructor left.
+						for (const ScriptField& field : ScriptRegistry::FieldsOf(script->ScriptName))
+						{
+							if (const std::string* value = script->Fields.Find(field.Name))
+								field.Set(script->Instance, *value);
+						}
+
 						script->Instance->OnCreate();
 
 						// OnCreate may have destroyed something, including this

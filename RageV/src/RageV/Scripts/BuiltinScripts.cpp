@@ -23,11 +23,16 @@ namespace RageV
 		{
 			// Radians per second, applied per fixed step. Multiplying by dt is
 			// what keeps the rate the same at any simulation frequency.
-			Rotate({ 0.0f, m_Speed * dt.GetSeconds(), 0.0f });
+			Rotate({ 0.0f, Speed * dt.GetSeconds(), 0.0f });
 		}
 
-	private:
-		float m_Speed = 1.2f;
+		// Public because the inspector's registration names it from outside the
+		// class, and C++ has no way to reach a private member without a friend
+		// declaration in every script. The C# rule is the opposite -- private
+		// fields are editable there -- because reflection can reach them, and
+		// demanding `public` would mean telling people to write worse C# for
+		// the inspector's benefit.
+		float Speed = 1.2f;
 	};
 
 	// Moves with the movement axes, relative to its own orientation.
@@ -48,13 +53,13 @@ namespace RageV
 			// through every transform derived from this one.
 			if (Math::Dot(direction, direction) > 0.0f)
 			{
-				const float speed = IsActionDown("Sprint") ? m_Speed * 3.0f : m_Speed;
+				const float speed = IsActionDown("Sprint") ? Speed * SprintMultiplier : Speed;
 				Translate(Math::Normalize(direction) * speed * dt.GetSeconds());
 			}
 		}
 
-	private:
-		float m_Speed = 4.0f;
+		float Speed = 4.0f;
+		float SprintMultiplier = 3.0f;
 	};
 
 	// Follows another entity by name, at an offset. Demonstrates reaching
@@ -287,8 +292,11 @@ namespace RageV
 	void RegisterBuiltinScripts()
 	{
 		// Unqualified names on purpose: these strings go into scene files.
-		ScriptRegistry::Register("Spinner",     []() -> ScriptableEntity* { return new Spinner(); });
-		ScriptRegistry::Register("Mover",       []() -> ScriptableEntity* { return new Mover(); });
+		ScriptRegistry::Register("Spinner", []() -> ScriptableEntity* { return new Spinner(); })
+			.Field<&Spinner::Speed>("Speed");
+		ScriptRegistry::Register("Mover", []() -> ScriptableEntity* { return new Mover(); })
+			.Field<&Mover::Speed>("Speed")
+			.Field<&Mover::SprintMultiplier>("SprintMultiplier");
 		ScriptRegistry::Register("Follow",      []() -> ScriptableEntity* { return new Follow(); });
 		ScriptRegistry::Register("ImpactFlash", []() -> ScriptableEntity* { return new ImpactFlash(); });
 		ScriptRegistry::Register("ImpactSound", []() -> ScriptableEntity* { return new ImpactSound(); });

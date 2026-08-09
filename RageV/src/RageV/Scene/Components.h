@@ -391,6 +391,56 @@ namespace RageV
 	//
 	// The instance is deleted through ScriptableEntity's virtual destructor, so
 	// the per-type destroy thunk this used to carry is gone with it.
+	// Field values authored in the inspector, for either kind of script.
+	//
+	// Shared between the native and managed components because the rule is the
+	// same in both: only fields somebody actually changed are stored, so editing
+	// a default in code reaches every entity that never overrode it. Text,
+	// because the scene file is text and because a tagged union would be two
+	// languages' worth of upkeep for an operation that happens when a person
+	// types rather than per step.
+	struct ScriptFieldOverrides
+	{
+		struct Entry
+		{
+			std::string Name;
+			std::string Value;
+		};
+		std::vector<Entry> Values;
+
+		const std::string* Find(const std::string& name) const
+		{
+			for (const Entry& entry : Values)
+			{
+				if (entry.Name == name)
+					return &entry.Value;
+			}
+			return nullptr;
+		}
+
+		void Set(const std::string& name, const std::string& value)
+		{
+			for (Entry& entry : Values)
+			{
+				if (entry.Name == name)
+				{
+					entry.Value = value;
+					return;
+				}
+			}
+			Values.push_back({ name, value });
+		}
+
+		void Clear(const std::string& name)
+		{
+			Values.erase(std::remove_if(Values.begin(), Values.end(),
+										[&name](const Entry& entry) { return entry.Name == name; }),
+						 Values.end());
+		}
+
+		bool Empty() const { return Values.empty(); }
+	};
+
 	// A C# script on an entity.
 	//
 	// Deliberately separate from NativeScriptComponent rather than one component
@@ -417,12 +467,15 @@ namespace RageV
 		// Only fields the user actually changed are stored. A field left alone
 		// keeps whatever the script's own initialiser gave it, so editing a
 		// default in code changes every entity that never overrode it.
-		struct FieldOverride
-		{
-			std::string Name;
-			std::string Value;
-		};
-		std::vector<FieldOverride> Fields;
+		ScriptFieldOverrides Fields;
+
+		// Forwarded so a caller says `script.Set("Speed", "2")` rather than
+		// reaching through to the storage. Both script components expose the
+		// same three, because from the inspector's point of view they are the
+		// same component in two languages.
+		const std::string* Find(const std::string& name) const { return Fields.Find(name); }
+		void Set(const std::string& name, const std::string& value) { Fields.Set(name, value); }
+		void Clear(const std::string& name) { Fields.Clear(name); }
 
 		// Runtime only, not serialized. Zero means nothing is instantiated.
 		int32_t Handle = 0;
@@ -448,35 +501,6 @@ namespace RageV
 			return *this;
 		}
 
-		const std::string* Find(const std::string& name) const
-		{
-			for (const FieldOverride& field : Fields)
-			{
-				if (field.Name == name)
-					return &field.Value;
-			}
-			return nullptr;
-		}
-
-		void Set(const std::string& name, const std::string& value)
-		{
-			for (FieldOverride& field : Fields)
-			{
-				if (field.Name == name)
-				{
-					field.Value = value;
-					return;
-				}
-			}
-			Fields.push_back({ name, value });
-		}
-
-		void Clear(const std::string& name)
-		{
-			Fields.erase(std::remove_if(Fields.begin(), Fields.end(),
-										[&name](const FieldOverride& field) { return field.Name == name; }),
-						 Fields.end());
-		}
 	};
 
 	struct NativeScriptComponent
@@ -502,13 +526,29 @@ namespace RageV
 		// Neither the instance nor what it was built from is copied: two
 		// components owning one instance would both delete it.
 		NativeScriptComponent(const NativeScriptComponent& other)
-			: ScriptName(other.ScriptName) {}
+			: ScriptName(other.ScriptName), Fields(other.Fields) {}
 
 		NativeScriptComponent& operator=(const NativeScriptComponent& other)
 		{
 			ScriptName = other.ScriptName;
+			Fields = other.Fields;
+			Instance = nullptr;
+			ActiveScript.clear();
 			return *this;
 		}
+
+		// Applied to the instance after it is constructed and before OnCreate,
+		// so a script that reads its own configuration in OnCreate sees what the
+		// inspector set rather than the constructor's default.
+		ScriptFieldOverrides Fields;
+
+		// Forwarded so a caller says `script.Set("Speed", "2")` rather than
+		// reaching through to the storage. Both script components expose the
+		// same three, because from the inspector's point of view they are the
+		// same component in two languages.
+		const std::string* Find(const std::string& name) const { return Fields.Find(name); }
+		void Set(const std::string& name, const std::string& value) { Fields.Set(name, value); }
+		void Clear(const std::string& name) { Fields.Clear(name); }
 	};
 
 }

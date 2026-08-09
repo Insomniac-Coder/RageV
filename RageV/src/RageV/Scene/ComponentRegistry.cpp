@@ -606,6 +606,39 @@ namespace
 			// registered rather than a free-text field, so a typo cannot
 			// produce an entity that silently does nothing.
 			desc.Fields = { Field<&NativeScriptComponent::ScriptName>("Script") };
+
+			// The same escape hatch the managed component uses, and for the same
+			// reason: a list of name/value pairs whose shape depends on the
+			// script is not something a static field list can express.
+			desc.SerializeExtra = [](YAML::Emitter& out, void* component)
+			{
+				auto* script = static_cast<NativeScriptComponent*>(component);
+				if (script->Fields.Empty())
+					return;
+
+				out << YAML::Key << "Fields" << YAML::Value << YAML::BeginMap;
+				for (const auto& entry : script->Fields.Values)
+					out << YAML::Key << entry.Name << YAML::Value << entry.Value;
+				out << YAML::EndMap;
+			};
+
+			desc.DeserializeExtra = [](const YAML::Node& node, void* component)
+			{
+				auto* script = static_cast<NativeScriptComponent*>(component);
+				script->Fields.Values.clear();
+
+				const YAML::Node& constNode = node;
+				const YAML::Node fields = constNode["Fields"];
+				if (!fields || !fields.IsMap())
+					return;
+
+				for (const auto& entry : fields)
+				{
+					script->Fields.Values.push_back({ entry.first.as<std::string>(),
+													  entry.second.as<std::string>() });
+				}
+			};
+
 			Bind<NativeScriptComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
@@ -633,19 +666,19 @@ namespace
 			desc.SerializeExtra = [](YAML::Emitter& out, void* component)
 			{
 				auto* script = static_cast<ManagedScriptComponent*>(component);
-				if (script->Fields.empty())
+				if (script->Fields.Empty())
 					return;
 
 				out << YAML::Key << "Fields" << YAML::Value << YAML::BeginMap;
-				for (const auto& field : script->Fields)
-					out << YAML::Key << field.Name << YAML::Value << field.Value;
+				for (const auto& entry : script->Fields.Values)
+					out << YAML::Key << entry.Name << YAML::Value << entry.Value;
 				out << YAML::EndMap;
 			};
 
 			desc.DeserializeExtra = [](const YAML::Node& node, void* component)
 			{
 				auto* script = static_cast<ManagedScriptComponent*>(component);
-				script->Fields.clear();
+				script->Fields.Values.clear();
 
 				const YAML::Node& constNode = node;
 				const YAML::Node fields = constNode["Fields"];
@@ -654,8 +687,8 @@ namespace
 
 				for (const auto& entry : fields)
 				{
-					script->Fields.push_back({ entry.first.as<std::string>(),
-											   entry.second.as<std::string>() });
+					script->Fields.Values.push_back({ entry.first.as<std::string>(),
+													  entry.second.as<std::string>() });
 				}
 			};
 
