@@ -20,31 +20,35 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0-4 complete, and **phase 5 is complete except hot
-reload**. The render graph, HDR post, sky and cube maps, image-based lighting,
-shadows for every light type, frustum culling, instanced batching, clustered
-forward lighting and skeletal animation are all done. So is C# scripting: the
-.NET runtime boots in-process, the interop boundary works both ways, there is a
-managed class library, a project builds its own script assembly, and a C# script
-can be attached to an entity with its fields editable in the inspector.
+**Where it is:** phases 0-4 complete, **phase 5 complete except hot reload**,
+and **the engine is now a DLL**. The render graph, HDR post, sky and cube maps,
+image-based lighting, shadows for every light type, frustum culling, instanced
+batching, clustered forward lighting and skeletal animation are all done. So is
+C# scripting: the .NET runtime boots in-process, the interop boundary works both
+ways, there is a managed class library, a project builds its own script
+assembly, and a C# script can be attached to an entity with its fields editable
+in the inspector.
 
 **A project can have both languages on the same entity.** C++ scripts declare
 their editable fields at registration; C# scripts have theirs found by
 reflection. Both converge on one inspector, one scene format.
 
+**The engine is `RageV.dll` as of the last commit, and that is half a feature.**
+It was made shared so a project can carry its own C++ scripts in a game module
+loaded into the same process -- one `ScriptRegistry`, one `Application`, one
+`Renderer`. Everything now builds and runs against the DLL, but **the game
+module itself does not exist yet**: a C++ script still lives in the engine's
+`Scripts/` folder and still needs the engine rebuilt. Section 8 is the rest of
+it.
+
 **What is left of phase 5:** 5.5, hot reload via a collectible
 `AssemblyLoadContext`. Today a C# change needs Build Scripts and a restart.
 
-**The one remaining asymmetry:** a C++ script is compiled into the engine
-binary, so a project cannot add one without rebuilding the engine. C# has no
-such limit.
-
-**Also done, off-roadmap:** the developer manual and its generator (§2b), the
-application icon (§2a), project creation with a per-project `bin/` (§2), and
-5.0 -- no third-party type in a public header, and the public API segregated
-into `RageV::Math::`, `RageV::Audio::`, `RageV::Physics::`, `RageV::Assets::`
-and `RageV::Anim::` (§1a). The renderer was deliberately left out of that last
-one; see §1a for why.
+**Also done, off-roadmap:** the developer manual and its generator, the
+application icon, project creation with a per-project `bin/`, and 5.0 -- no
+third-party type in a public header, and the public API segregated into
+`RageV::Math::`, `RageV::Audio::`, `RageV::Physics::`, `RageV::Assets::` and
+`RageV::Anim::`. The renderer was deliberately left out of that last one.
 
 **Prove it still works** (from the repo root, ~2 minutes):
 
@@ -54,13 +58,13 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-700 checks, `exit 0`. Then look at a frame:
+712 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
 ```
 
-**Four things that are easy to get wrong here, all learned the hard way:**
+**Five things that are easy to get wrong here, all learned the hard way:**
 
 1. **Run each tool from its own directory.** Assets are staged per target.
 2. **`--validation=on` for the runtime.** It ships with validation *off*, so a
@@ -73,6 +77,10 @@ build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --scr
    Vulkan-only bloom flip survived a whole roadmap phase of clean runs, because
    nothing in the scene was bright enough for a mirrored contribution to show.
    `--screenshot` on both and look at them side by side.
+5. **The harness prints `FAIL` in capitals.** A case-insensitive search for
+   "fail" also matches the word *fails* inside the names of passing checks, and
+   returns a count that looks like failures and is not. Match case, and read the
+   `OK` line at the end.
 
 **What to read before changing something:** §5 of this document. Every entry
 was a real bug, and most fail silently rather than obviously.
@@ -81,9 +89,8 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**What to do next:** §8. **Phase 3 is complete** — the renderer does everything
-the roadmap asked of it. What is left is Phase 5, C# scripting, deliberately
-last because it has to mirror a native surface that has stopped moving.
+**What to do next:** section 8 -- the per-project game module, which is what
+making the engine a DLL was for.
 
 ---
 
@@ -790,9 +797,27 @@ or silence rather than an obvious failure.
 ### Build
 
 - **A translation unit whose only contents are static registrars will be
-  dropped from a static library.** Built-in scripts are registered by an
-  explicit function referenced from `ScriptRegistry` for exactly this reason.
-- Each app needs its own output directory.
+  dropped from a static library.** This no longer bites the engine, which is a
+  DLL and therefore linked from its object files, but it is why built-in scripts
+  are still registered by an explicit function referenced from
+  `ScriptRegistry` -- and it would bite again the moment anything goes back into
+  a `.lib`.
+- **Static data members read by an inline accessor do not cross a module
+  boundary.** A consumer links its own copy of the data rather than the
+  engine's. `Application::Get`, `Log`'s two loggers and
+  `Platform::GetPlatformType` are out of line for this reason; anything added
+  with that shape has to be too.
+- **A library with globals must be linked into one module only.** ImGui, GLFW
+  and ImGuizmo each keep their state in globals. An executable that links its
+  own copy gets its own state, and the engine cannot see it: that is exactly how
+  `scenetest` came to fail with a null HWND on Vulkan and no current context on
+  OpenGL. Either the module is linked once, or the state is handed across
+  explicitly -- see `ImGuiBinding.h`.
+- **Auto-export and LTCG are mutually exclusive.** `/GL` writes intermediate
+  language into the object files, and the tool that scans them to build the
+  export list cannot read it. The DLL would export nothing at all.
+- Each app needs its own output directory, and `RageV.dll` is staged into each
+  of them.
 
 ---
 
@@ -982,9 +1007,62 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-**Phases 0-4 are done, and phase 5 is done except hot reload.**
+**Phases 0-4 are done, phase 5 is done except hot reload, and the engine is a
+DLL with nothing loading into it yet.**
 
-### START HERE — 5.5, hot reload (`L`)
+### START HERE - the project game module (`L`)
+
+**Why:** "I don't think devs would like to rebuild the engine for a script."
+That was the point of making the engine shared, and the shared engine on its own
+changes nothing a developer can see. Unreal's shape: the engine is a DLL, and
+game code is a separate DLL that links it and is loaded at startup.
+
+The groundwork is in: `RageV.dll`, auto-exported, staged beside every
+executable, with the ImGui and GLFW module-boundary traps already found and
+handled. What is left:
+
+1. **Scaffold `Source/` in a project.** `Project::Create` writes the folders
+   today; add `Source/` and a `CMakeLists.txt` that builds `*.cpp` there into
+   `<Project>/bin/<Config>/<Project>.dll`, linking `RageV::RageV`. The engine
+   has to be findable from outside the build tree -- an install/export set, or a
+   path written into the project when the editor creates it.
+
+2. **Build it from the editor.** `Managed/ScriptBuild.cpp` already shells out to
+   `dotnet build` through `_popen`, parses diagnostics with a regex and puts
+   them in a panel. The same machinery runs `cmake --build`; the regex needs a
+   second pattern for MSVC's `file(line): error C####` shape. Note the quoting
+   trap already recorded here: `cmd /c` strips the outer quotes, so the whole
+   command line needs an extra pair around it.
+
+3. **Load it when a project opens.** `LoadLibrary` on
+   `<Project>/bin/<Config>/<Project>.dll` after `Project::Open`, `FreeLibrary`
+   on close. The static registrars run on load and the scripts appear in the
+   dropdown -- no `/WHOLEARCHIVE` needed, because a DLL is linked from its
+   object files rather than from an archive.
+
+4. **Move "New Script" to the project.** `WriteNewNativeScript` writes into
+   `RV_ENGINE_SCRIPTS_DIR` today. Point it at `<Project>/Source/`, and the
+   packaged-editor case stops being an apology: a packaged editor can build a
+   project module perfectly well.
+
+5. **`ScriptRegistry` has to survive an unload.** It keys factories by name in a
+   `std::map` that lives in the engine. When a module unloads, every factory it
+   registered is a dangling function pointer into freed code. Add an unregister
+   path keyed by module and call it before `FreeLibrary`. **This is the one that
+   fails silently** -- the map still has the name in it, and the crash arrives
+   later, from somewhere unrelated.
+
+6. **Then C++ hot reload comes almost free**, and should be built alongside 5.5
+   so both languages reload the same way: unload, rebuild, reload, restore the
+   field overrides. `ScriptFieldOverrides` is already the stored state and
+   already survives a component being rebuilt.
+
+**Verify with the shape that would actually have caught the old failure:** a
+project with a script the engine has never seen, built and attached and stepped
+without the engine being rebuilt at all. Anything less passes with the script
+compiled into the engine, which is exactly the state being replaced.
+
+### Then - 5.5, hot reload for C# (`L`)
 
 The last phase-5 item. A C# change currently needs File > Build Scripts and a
 restart; hot reload removes the restart.
@@ -1014,6 +1092,24 @@ What it has to do, and the order matters:
 
 After that, phase 5 is finished. ROADMAP §9 recommends **building a game with it
 before starting phase 6**, and that recommendation has not been revisited.
+
+### Open, small, and not yet diagnosed
+
+- **"The text size is big again."** Reported at the end of the DLL session and
+  not reproduced: `EngineConfig::UIScale` defaults to 1.0, no `ragev.ini` in the
+  tree sets `ui-scale`, and a Debug editor here logs no scaling line and renders
+  an 18px font. Ask what it is being compared against before changing a default.
+  The lever is `ui-scale` in the `ragev.ini` beside the executable, or
+  `--ui-scale=1`.
+- **`RageV/src/RageV/Scripts/Behaviour2.cpp` is untracked**, and deliberately.
+  It was created through the editor's New Script while testing, and it does
+  prove the generated file compiles and registers. Commit it or delete it; do
+  not leave it in a third state.
+- **`DeviceDesc::Window` was still a `GLFWwindow*`** in a public RHI header,
+  which the namespace rules say it must not be. It survived the A.1 pass only
+  because the type is forward-declared, so nothing failed to compile. A separate
+  session was started on it and its changes may be sitting uncommitted in the
+  working tree -- check `git status` before assuming a build failure is yours.
 
 ### Done — Phase 5, C# scripting (`XL`)
 
@@ -1055,11 +1151,12 @@ knowing before touching it:
 uses a different mechanism in each direction on purpose:
 
 - **Managed calling native: a table of function pointers**, handed over once at
-  bootstrap. Not `[DllImport]` -- P/Invoke by name needs the symbols exported
-  from a shared library, and this engine is a static library linked into an
-  executable, so there is no `RageV.dll` to import from. Inventing one would be
-  a build-system change to work around a choice nobody made. It also skips the
-  per-call marshalling stub.
+  bootstrap. Not `[DllImport]`: at the time there was no `RageV.dll` to import
+  from, the engine being a static library. There is one now -- it became shared
+  so a project could load a C++ game module -- so the original reason has
+  expired, but the table stays. It skips the per-call marshalling stub, and
+  binding by name across a boundary that already versions itself with
+  `kProtocolVersion` would be a second answer to a question that has one.
 - **Native calling managed: `[UnmanagedCallersOnly]` entry points**, reached
   through hostfxr. Static, blittable arguments only, and **no exception may
   leave one** -- an exception crossing an unmanaged frame terminates the process
@@ -1180,19 +1277,23 @@ the engine's own `Scripts/` folder -- and only when the editor was built from
 source, which it knows via `RV_ENGINE_SCRIPTS_DIR`; a packaged editor explains
 what to do by hand instead.
 
-> [!TRAP]
-> **RageV.lib is linked with `/WHOLEARCHIVE`, and script registration depends on
-> it.** A translation unit whose only contents are a static registrar -- which is
-> exactly what a script file is -- has no referenced symbol, so the linker
-> discards the object file and the script compiles, links, and never appears in
-> the dropdown. There is no fix on the library side: a
+> [!NOTE]
+> **This used to need `/WHOLEARCHIVE`, and no longer does.** A static library
+> drops any object file nothing references, and a translation unit whose only
+> contents are a static registrar -- exactly what a script file is -- has no
+> referenced symbol. The script compiled, linked, and never appeared in the
+> dropdown. There was no fix on the library side either: a
 > `#pragma comment(linker, "/include:...")` lives in the object file being
-> discarded, so the directive never reaches the linker. That was tried first and
-> did not work.
+> discarded, so the directive never reaches the linker. That was tried first.
+>
+> The engine is a DLL now, linked from its object files rather than from an
+> archive, so every translation unit is in it whether or not anything calls into
+> it. The same will be true of a project's game module. Worth knowing anyway:
+> the failure returns the moment script code lands in a `.lib` again.
 >
 > `Scripts/TemplateProbe.cpp` is the generated template kept in the tree so every
-> build compiles and registers it. It is what caught this, and it is what will
-> catch it again if the link option is ever removed.
+> build compiles and registers it. It is what caught this, and it is what would
+> catch it again.
 
 **C++ scripts still have to be compiled into the engine or game binary**, so a
 project cannot add one without rebuilding the engine. That is the remaining
