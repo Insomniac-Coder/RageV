@@ -43,6 +43,7 @@
 #include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/LightGrid.h"
+#include "RageV/Animation/Skeleton.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/PostProcess.h"
@@ -1974,6 +1975,232 @@ namespace
 		}
 	}
 
+	// Skeletons and pose evaluation.
+	//
+	// The headline check is the bind-pose one: a skeleton standing where it was
+	// modelled must produce an identity skinning matrix for every bone. It
+	// fails if the inverse bind matrices are wrong, if the hierarchy composes
+	// in the wrong order, or if anything is in the wrong space -- three
+	// separate mistakes whose symptom is the same character, subtly deformed,
+	// and none of which a screenshot tells apart.
+	void CheckSkeleton()
+	{
+		// A three-bone chain: a root at the origin and two bones a metre apart
+		// up the Y axis.
+		Skeleton skeleton;
+		{
+			Bone root;
+			root.Name = "root";
+			root.Parent = -1;
+
+			Bone middle;
+			middle.Name = "middle";
+			middle.Parent = 0;
+			middle.RestPosition = { 0.0f, 1.0f, 0.0f };
+
+			Bone tip;
+			tip.Name = "tip";
+			tip.Parent = 1;
+			tip.RestPosition = { 0.0f, 1.0f, 0.0f };
+
+			skeleton.Bones = { root, middle, tip };
+
+			// Each inverse bind is the inverse of that bone's mesh-space rest
+			// transform, composed the long way round -- which is what an
+			// exporter does, and what stops the identity property below from
+			// being circular.
+			Pose rest;
+			RestPose(skeleton, rest);
+
+			std::vector<glm::mat4> global;
+			ComposeGlobal(skeleton, rest, global);
+
+			for (size_t i = 0; i < skeleton.Bones.size(); i++)
+				skeleton.Bones[i].InverseBind = glm::inverse(global[i]);
+		}
+
+		Check(skeleton.IsWellOrdered(), "a skeleton lists parents before children");
+		Check(skeleton.Find("middle") == 1 && skeleton.Find("absent") == -1,
+			  "bones are findable by name");
+
+		{
+			Skeleton broken;
+			Bone child; child.Parent = 1;
+			Bone parent; parent.Parent = -1;
+			broken.Bones = { child, parent };
+			Check(!broken.IsWellOrdered(), "and a child before its parent is rejected");
+		}
+
+		auto nearlyIdentity = [](const glm::mat4& m)
+		{
+			for (int c = 0; c < 4; c++)
+			{
+				for (int r = 0; r < 4; r++)
+				{
+					const float expected = c == r ? 1.0f : 0.0f;
+					if (std::fabs(m[c][r] - expected) > 1e-4f)
+						return false;
+				}
+			}
+			return true;
+		};
+
+		// The property everything else rests on.
+		{
+			Pose rest;
+			RestPose(skeleton, rest);
+
+			std::vector<glm::mat4> skinning;
+			ComposeSkinning(skeleton, rest, skinning);
+
+			bool identity = skinning.size() == 3;
+			for (const glm::mat4& m : skinning)
+				identity = identity && nearlyIdentity(m);
+
+			Check(identity, "at the bind pose every skinning matrix is the identity");
+		}
+
+		// A clip that animates nothing leaves the skeleton at rest, not at the
+		// origin.
+		{
+			AnimationClip empty;
+			empty.Duration = 1.0f;
+
+			Pose pose;
+			SamplePose(skeleton, empty, 0.5f, true, pose);
+
+			std::vector<glm::mat4> skinning;
+			ComposeSkinning(skeleton, pose, skinning);
+
+			bool identity = true;
+			for (const glm::mat4& m : skinning)
+				identity = identity && nearlyIdentity(m);
+
+			Check(identity, "a clip that animates no bone holds them all at rest");
+		}
+
+		// A clip that rotates the middle bone, checked by where it puts the
+		// tip -- the observable a person would actually notice.
+		AnimationClip clip;
+		clip.Name = "bend";
+		clip.Tracks.resize(3);
+		{
+			clip.Tracks[1].Rotation.Times = { 0.0f, 2.0f };
+			clip.Tracks[1].Rotation.Values = {
+				glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+				glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			};
+
+			// A second channel type, so the sampler is exercised on more than
+			// rotation alone.
+			clip.Tracks[0].Position.Times = { 0.0f, 2.0f };
+			clip.Tracks[0].Position.Values = { glm::vec3(0.0f), glm::vec3(0.0f) };
+		}
+		clip.RecomputeDuration();
+
+		Check(std::fabs(clip.Duration - 2.0f) < 1e-5f,
+			  "a clip's duration comes from its last key rather than from an author");
+
+		auto tipAt = [&](float time, bool loop)
+		{
+			Pose pose;
+			SamplePose(skeleton, clip, time, loop, pose);
+
+			std::vector<glm::mat4> global;
+			ComposeGlobal(skeleton, pose, global);
+
+			return glm::vec3(global[2][3]);
+		};
+
+		Check(glm::length(tipAt(0.0f, false) - glm::vec3(0.0f, 2.0f, 0.0f)) < 1e-4f,
+			  "the chain starts straight");
+		Check(glm::length(tipAt(2.0f, false) - glm::vec3(-1.0f, 1.0f, 0.0f)) < 1e-4f,
+			  "and a ninety degree bend swings the tip out to the side");
+
+		// Halfway the bone is at 45 degrees, so the tip is on the arc rather
+		// than on the chord between the two ends. That difference is the whole
+		// reason the sampler slerps.
+		{
+			const float leg = std::sqrt(0.5f);
+			Check(glm::length(tipAt(1.0f, false) - glm::vec3(-leg, 1.0f + leg, 0.0f)) < 1e-3f,
+				  "halfway through, the tip is on the arc and not on the chord");
+		}
+
+		// Time outside the clip.
+		{
+			Check(glm::length(tipAt(50.0f, false) - glm::vec3(-1.0f, 1.0f, 0.0f)) < 1e-4f,
+				  "a time past the end holds the last pose when not looping");
+			Check(glm::length(tipAt(2.5f, true) - tipAt(0.5f, true)) < 1e-4f,
+				  "and wraps when looping");
+
+			// fmod keeps the numerator's sign, so a negative time lands outside
+			// the clip unless it is pushed back in. A blend running backwards
+			// produces one.
+			Check(glm::length(tipAt(-0.5f, true) - tipAt(1.5f, true)) < 1e-4f,
+				  "including backwards, where fmod alone would leave the clip");
+		}
+
+		// Two keys either side of the antipode must take the short arc.
+		{
+			Skeleton one;
+			Bone solo; solo.Name = "solo"; solo.Parent = -1;
+			one.Bones = { solo };
+
+			AnimationClip spin;
+			spin.Tracks.resize(1);
+			spin.Tracks[0].Rotation.Times = { 0.0f, 1.0f };
+			spin.Tracks[0].Rotation.Values = {
+				glm::angleAxis(glm::radians(10.0f), glm::vec3(0.0f, 1.0f, 0.0f)),
+				// The same rotation as minus ten degrees, written with the
+				// opposite sign -- which is what an exporter emits about half
+				// the time.
+				-glm::angleAxis(glm::radians(-10.0f), glm::vec3(0.0f, 1.0f, 0.0f)),
+			};
+			spin.RecomputeDuration();
+
+			Pose pose;
+			SamplePose(one, spin, 0.5f, false, pose);
+
+			// Halfway between plus and minus ten is zero, so the bone faces
+			// forward. The long way round would put it at 180.
+			const glm::vec3 forward = pose[0].Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+			Check(forward.z < -0.99f, "a quaternion pair takes the short arc between them");
+		}
+
+		// Blending.
+		{
+			Pose a, b, mixed;
+			RestPose(skeleton, a);
+			SamplePose(skeleton, clip, 2.0f, false, b);
+
+			BlendPoses(a, b, 0.0f, mixed);
+			Check(glm::length(mixed[1].Rotation - a[1].Rotation) < 1e-4f,
+				  "a blend of zero is the first pose");
+
+			BlendPoses(a, b, 1.0f, mixed);
+			Check(std::fabs(glm::dot(mixed[1].Rotation, b[1].Rotation)) > 0.9999f,
+				  "and a blend of one is the second");
+
+			BlendPoses(a, b, 0.5f, mixed);
+			const float angle = glm::degrees(glm::angle(glm::normalize(mixed[1].Rotation)));
+			Check(std::fabs(angle - 45.0f) < 0.5f, "and halfway is halfway round the arc");
+		}
+
+		// Nothing at all, which is what a scene with no skeleton hands in.
+		{
+			Skeleton none;
+			AnimationClip clipless;
+			Pose pose;
+			SamplePose(none, clipless, 1.0f, true, pose);
+
+			std::vector<glm::mat4> skinning;
+			ComposeSkinning(none, pose, skinning);
+
+			Check(pose.empty() && skinning.empty(),
+				  "an empty skeleton samples to an empty pose rather than crashing");
+		}
+	}
+
 	// The light grid.
 	//
 	// The failure that matters is the CPU and the shader disagreeing about
@@ -3714,6 +3941,7 @@ int RunTests(int argc, char** argv)
 	CheckEnvironmentBRDF();
 	CheckFrustumCulling();
 	CheckLightGrid();
+	CheckSkeleton();
 	CheckReflectionProbe();
 	CheckFrameGraph();
 	CheckProject();
