@@ -20,12 +20,12 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0, 1, 2 and 4 complete; Phase 3 through **3.6** — the
-render graph, HDR post, sky and cube maps, full image-based lighting, shadows
-for every light type, frustum culling, instanced draw batching and clustered
-forward lighting. What is left
-of Phase 3 is skeletal animation (3.7). The engine loop closes — a project can be imported into,
-placed in, scripted, played, and packaged into a folder someone else can run.
+**Where it is:** phases 0, 1, 2, **3 and 4 complete** — the render graph, HDR
+post, sky and cube maps, full image-based lighting, shadows for every light
+type, frustum culling, instanced draw batching, clustered forward lighting and
+skeletal animation. Only Phase 5, C# scripting, remains. The engine loop closes
+— a project can be imported into, placed in, scripted, played, and packaged
+into a folder someone else can run.
 
 **Prove it still works** (from the repo root, ~2 minutes):
 
@@ -77,8 +77,9 @@ phases.
 **Stated goal:** ease of use of Unity, some of Unreal's graphical fidelity,
 scope closer to Godot.
 
-The engine loop — *import → place → script → play → export* — **closes**.
-What remains is fidelity (Phase 3) and C# scripting (Phase 5).
+The engine loop — *import → place → script → play → export* — **closes**, and
+the renderer now does everything the roadmap asked of it. What remains is C#
+scripting (Phase 5).
 
 ---
 
