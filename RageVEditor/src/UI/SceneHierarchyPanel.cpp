@@ -2,6 +2,7 @@
 #include "imgui.h"
 #include "RageV/Project/Project.h"
 #include <cctype>
+#include <cstring>
 #include <fstream>
 #include <algorithm>
 #include <iomanip>
@@ -557,6 +558,20 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			if (!desc.AddableFromMenu || desc.TryGet(entity))
 				continue;
 
+			// One Script entry, and only while the entity has no script in
+			// either language. The C# component is not in the menu at all --
+			// Language converts between them -- so without this an entity
+			// already running a C# script would still be offered "Script" and
+			// end up with both.
+			//
+			// strcmp, not ==: Name is a const char*, so == compares the two
+			// pointers. The literals live in different translation units, and
+			// whether they fold into one is up to the linker -- which is a test
+			// that passes in one configuration and not the next.
+			if (std::strcmp(desc.Name, "NativeScriptComponent") == 0 &&
+				entity.HasComponent<ManagedScriptComponent>())
+				continue;
+
 			any = true;
 			if (ImGui::MenuItem(desc.DisplayName))
 			{
@@ -685,15 +700,21 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 		const bool toManaged = (m_PendingScriptSwap == PendingScriptSwap::ToCSharp);
 		m_PendingScriptSwap = PendingScriptSwap::None;
 
+		// The label does carry across, unlike the name and the overrides: it
+		// belongs to the component rather than to either script, and losing what
+		// you called this thing because you changed language would be a nuisance
+		// with no reason behind it.
 		if (toManaged && entity.HasComponent<NativeScriptComponent>())
 		{
+			const std::string label = entity.GetComponent<NativeScriptComponent>().Label;
 			entity.RemoveComponent<NativeScriptComponent>();
-			entity.AddComponent<ManagedScriptComponent>();
+			entity.AddComponent<ManagedScriptComponent>().Label = label;
 		}
 		else if (!toManaged && entity.HasComponent<ManagedScriptComponent>())
 		{
+			const std::string label = entity.GetComponent<ManagedScriptComponent>().Label;
 			entity.RemoveComponent<ManagedScriptComponent>();
-			entity.AddComponent<NativeScriptComponent>();
+			entity.AddComponent<NativeScriptComponent>().Label = label;
 		}
 	}
 
@@ -749,9 +770,7 @@ void RageV::SceneHierarchyPanel::CommitPendingEdit()
 // code reaches every entity that never overrode it.
 void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& script)
 {
-	if (DrawScriptNameRow(script.ScriptName))
-		script.Fields.Values.clear();
-
+	DrawScriptNameRow(script.Label);
 	DrawScriptLanguageRow(true);
 
 	if (!Managed::Interop::IsReady())
@@ -807,11 +826,25 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 
 	if (types.empty() || std::find(types.begin(), types.end(), script.ScriptName) == types.end())
 	{
-		// A scene can outlive the script it names, or name one from an assembly
-		// that has not been built yet. Saying so beats an entity that silently
-		// does nothing.
-		ImGui::TextColored(EditorTheme::Color::AccentHover,
-						   "'%s' is not in any loaded assembly", script.ScriptName.c_str());
+		// A scene can outlive the script it names, or name one that has been
+		// written and not compiled. The second is one keystroke from fixed and
+		// worth saying separately.
+		std::error_code ec;
+		const bool written = Project::GetActive()
+			&& std::filesystem::exists(Project::Root() / "Scripts" /
+									   (script.ScriptName + ".cs"), ec);
+
+		if (written)
+		{
+			ImGui::TextColored(EditorTheme::Color::AccentHover,
+							   "'%s' is written but not built", script.ScriptName.c_str());
+			ImGui::TextWrapped("File > Build Scripts, and it will run.");
+		}
+		else
+		{
+			ImGui::TextColored(EditorTheme::Color::AccentHover,
+							   "'%s' is not in any loaded assembly", script.ScriptName.c_str());
+		}
 		return;
 	}
 
@@ -843,39 +876,89 @@ std::string RageV::SceneHierarchyPanel::FormatFloat(float value)
 	return out.str();
 }
 
-// The script's name, typed rather than picked.
+// The component's label. A tag, not the script's identity.
 //
-// Redundant with the dropdown for a script that already exists -- and not
-// redundant at all for one that does not. A C++ script only joins the dropdown
-// once the engine has been rebuilt, so without a text field there is no way to
-// point an entity at a script you have just written.
-//
-// The name is stored on every keystroke, so the box keeps what you type, but
-// overrides are dropped only once editing finishes and the name really did
-// change: clearing per keystroke would delete them on the way to retyping the
-// same name.
-bool RageV::SceneHierarchyPanel::DrawScriptNameRow(std::string& scriptName)
+// It names this component, the way the Tag row names the entity, and nothing
+// looks it up or validates it. It was briefly bound to the script name instead,
+// which meant typing in it renamed the script the entity was asking for and
+// turned the row red the moment the name stopped matching something built.
+// Which script runs is the row below's job, and that has to be a name the build
+// actually has.
+void RageV::SceneHierarchyPanel::DrawScriptNameRow(std::string& label)
 {
-	BeginField("Name", "The class name written into the scene file.\n"
-					   "Type it to name a script that is not built yet -- a C++\n"
-					   "script only joins the dropdown after an engine rebuild.");
+	BeginField("Name", "A label for this component. Free text -- it names the\n"
+					   "component, not the script, which is chosen below.");
 
 	// Zero-initialised, and copy() is given one byte less than the buffer, so
-	// the terminator survives a name longer than the box.
+	// the terminator survives a label longer than the box.
 	char buffer[128] = {};
-	scriptName.copy(buffer, sizeof(buffer) - 1);
+	label.copy(buffer, sizeof(buffer) - 1);
 
-	if (ImGui::InputText("##scriptname", buffer, sizeof(buffer)))
-		scriptName = buffer;
-
-	if (ImGui::IsItemActivated())
-		m_ScriptNameBeforeEdit = scriptName;
-
-	const bool committed = ImGui::IsItemDeactivatedAfterEdit()
-						&& scriptName != m_ScriptNameBeforeEdit;
+	if (ImGui::InputText("##scriptlabel", buffer, sizeof(buffer)))
+		label = buffer;
 
 	EndField();
-	return committed;
+}
+
+// Whether a source file registers a script under its own file name.
+//
+// Without this every .cpp beside the scripts -- the builtins, this build's
+// template probe -- would be offered as a script that does not exist. A file
+// that does not name itself to RV_REGISTER_SCRIPT will not produce a script
+// called after the file, whatever else it contains.
+bool RageV::SceneHierarchyPanel::FileRegistersScript(const std::filesystem::path& file,
+													 const std::string& name)
+{
+	std::ifstream in(file, std::ios::binary);
+	if (!in)
+		return false;
+
+	std::ostringstream text;
+	text << in.rdbuf();
+	return text.str().find("RV_REGISTER_SCRIPT(" + name + ")") != std::string::npos;
+}
+
+// Scripts that exist as a file but are not in this build yet.
+//
+// This is why the dropdown looked broken after New Script: a C++ script is
+// compiled into the engine and a C# one into the project assembly, so neither
+// is in the list the moment it is written. Leaving them out made the file you
+// had just created unreachable -- there is no other way to name a script now
+// that Name is a label. Listing them says what is true: it exists, it is not
+// built yet.
+std::vector<std::string> RageV::SceneHierarchyPanel::ScanUnbuiltScripts(
+	const std::vector<std::string>& built, bool managed)
+{
+	std::vector<std::string> pending;
+
+	const std::filesystem::path dir = managed
+		? (Project::GetActive() ? Project::Root() / "Scripts" : std::filesystem::path())
+		: EngineScriptsDir();
+
+	std::error_code ec;
+	if (dir.empty() || !std::filesystem::is_directory(dir, ec))
+		return pending;
+
+	const std::filesystem::path extension = managed ? ".cs" : ".cpp";
+
+	for (const std::filesystem::directory_entry& entry :
+		 std::filesystem::directory_iterator(dir, ec))
+	{
+		if (!entry.is_regular_file(ec) || entry.path().extension() != extension)
+			continue;
+
+		const std::string name = entry.path().stem().string();
+		if (std::find(built.begin(), built.end(), name) != built.end())
+			continue;
+
+		if (!managed && !FileRegistersScript(entry.path(), name))
+			continue;
+
+		pending.push_back(name);
+	}
+
+	std::sort(pending.begin(), pending.end());
+	return pending;
 }
 
 // The language row, shared by both script components.
@@ -924,6 +1007,11 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 
 	if (ImGui::BeginCombo("##script", current.c_str()))
 	{
+		// Scanned when the list opens rather than every frame it is open: it
+		// touches the disk, and the answer cannot change while it is on screen.
+		if (ImGui::IsWindowAppearing())
+			m_UnbuiltScripts = ScanUnbuiltScripts(available, managed);
+
 		if (ImGui::Selectable("(none)", scriptName.empty()))
 		{
 			scriptName.clear();
@@ -936,6 +1024,26 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 			{
 				scriptName = name;
 				changed = true;
+			}
+		}
+
+		// Selectable, not greyed out: writing a script and attaching it before
+		// the build catches up is the normal order of doing this. The scene
+		// stores the name either way, and the entity starts working the moment
+		// the build has it.
+		if (!m_UnbuiltScripts.empty())
+		{
+			ImGui::Separator();
+			for (const std::string& name : m_UnbuiltScripts)
+			{
+				const std::string entry =
+					name + (managed ? "   (not built)" : "   (needs engine rebuild)");
+
+				if (ImGui::Selectable(entry.c_str(), name == scriptName) && name != scriptName)
+				{
+					scriptName = name;
+					changed = true;
+				}
 			}
 		}
 
@@ -1153,15 +1261,12 @@ bool RageV::SceneHierarchyPanel::WriteNewScript(const std::filesystem::path& fil
 // The C++ script component.
 void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 {
-	// Overrides belong to the script that had them. Carrying them across a
-	// change of script would apply one script's values to another's identically
-	// named field, which is worse than losing them. Both ways of changing the
-	// script -- typing the name and picking it -- drop them.
-	if (DrawScriptNameRow(script.ScriptName))
-		script.Fields.Values.clear();
-
+	DrawScriptNameRow(script.Label);
 	DrawScriptLanguageRow(false);
 
+	// Overrides belong to the script that had them. Carrying them across a
+	// change of script would apply one script's values to another's identically
+	// named field, which is worse than losing them.
 	if (DrawScriptPicker(ScriptRegistry::GetNames(), script.ScriptName, false))
 		script.Fields.Values.clear();
 
@@ -1176,14 +1281,32 @@ void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 
 	if (!ScriptRegistry::IsRegistered(script.ScriptName))
 	{
-		// A scene can outlive the script it names. Saying so beats an entity
-		// that silently does nothing.
-		ImGui::TextColored(EditorTheme::Color::AccentHover,
-						   "'%s' is not registered", script.ScriptName.c_str());
-		if (ImGui::IsItemHovered())
+		// Two different situations, and telling them apart is the whole value of
+		// saying anything: a script whose source is sitting right there is one
+		// rebuild away, while one with no source behind it is a scene naming
+		// something that no longer exists.
+		std::error_code ec;
+		const std::filesystem::path source = EngineScriptsDir().empty()
+			? std::filesystem::path()
+			: EngineScriptsDir() / (script.ScriptName + ".cpp");
+
+		const bool written = !source.empty() && std::filesystem::exists(source, ec);
+
+		if (written)
 		{
-			ImGui::SetTooltip("The scene refers to a script this build does not contain.\n"
-							  "The entity will run nothing.");
+			ImGui::TextColored(EditorTheme::Color::AccentHover,
+							   "'%s' is written but not in this build", script.ScriptName.c_str());
+			ImGui::TextWrapped("Rebuild the engine and it will run.");
+		}
+		else
+		{
+			ImGui::TextColored(EditorTheme::Color::AccentHover,
+							   "'%s' is not registered", script.ScriptName.c_str());
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("The scene refers to a script this build does not contain.\n"
+								  "The entity will run nothing.");
+			}
 		}
 		return;
 	}

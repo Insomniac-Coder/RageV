@@ -32,20 +32,23 @@
     <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
     {
         m_Elapsed += dt.<span class="tok-call">GetSeconds</span>();
-        <span class="tok-type">glm</span>::<span class="tok-type">vec3</span> position = m_Origin;
+        Vec3 position = m_Origin;
         position.y += <span class="tok-type">std</span>::<span class="tok-call">sin</span>(m_Elapsed * <span class="tok-number">2.0f</span>) * <span class="tok-number">0.5f</span>;
         <span class="tok-call">GetPosition</span>() = position;
     }
 
 <span class="tok-keyword">private</span>:
-    <span class="tok-type">glm</span>::<span class="tok-type">vec3</span> m_Origin{ <span class="tok-number">0.0f</span> };
+    Vec3 m_Origin{ <span class="tok-number">0.0f</span> };
     <span class="tok-type">float</span>     m_Elapsed = <span class="tok-number">0.0f</span>;
 };
 
 <span class="tok-call">RV_REGISTER_SCRIPT</span>(Bobber);
 </code></pre></figure>
-<p>Build, open the editor, select an entity, <strong>Add Component → Native Script</strong>, and choose <code>Bobber</code> from the dropdown. Press Play.</p>
+<p>Build, open the editor, select an entity, <strong>Add Component → Script</strong>, leave <strong>Language</strong> on C++, and choose <code>Bobber</code> in the <strong>Script</strong> dropdown. Press Play.</p>
+<p>The <strong>Name</strong> row above it is a label for the component and nothing else — call it &quot;Bobbing crate&quot; if that helps you read the inspector. Which script runs is the dropdown&#39;s job.</p>
 <p>The name in the dropdown is the string <code>RV_REGISTER_SCRIPT</code> derived from the type name, and that string is what gets written into the scene file.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>A C++ script is compiled into the engine, so a script you have just written is not in the dropdown yet. It appears there marked <strong>(needs engine rebuild)</strong>, and you can attach it now — it starts working the moment the build catches up. A C# script is compiled into the project instead, and needs only <strong>File → Build Scripts</strong>.</p>
+</aside>
 <aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Renaming a registered script breaks every scene that used it.</strong> The name is the durable reference, exactly as an asset handle is for assets — the same way renaming a C# class does in Unity. Registered names are API. Rename with the same care you would rename a public function.</p>
 </aside>
 <h2 id="registering-and-one-linker-trap">Registering, and one linker trap<a class="anchor" href="#registering-and-one-linker-trap" aria-label="Link to this section">#</a></h2>
@@ -75,20 +78,20 @@
 <p><code>GetPosition</code>, <code>GetRotation</code> and <code>GetScale</code> return <strong>references into the component</strong>, so you can read them or assign through them. Rotation is in <strong>radians</strong>.</p>
 <figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">GetPosition</span>().y = <span class="tok-number">3.0f</span>;          <span class="tok-comment">// assign a component</span>
 <span class="tok-call">Translate</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">0.0f</span>, -<span class="tok-number">1.0f</span> }); <span class="tok-comment">// add a delta</span>
-<span class="tok-call">Rotate</span>({ <span class="tok-number">0.0f</span>, <span class="tok-type">glm</span>::<span class="tok-call">radians</span>(<span class="tok-number">90.0f</span>) * dt.<span class="tok-call">GetSeconds</span>(), <span class="tok-number">0.0f</span> });
+<span class="tok-call">Rotate</span>({ <span class="tok-number">0.0f</span>, Math::<span class="tok-call">Radians</span>(<span class="tok-number">90.0f</span>) * dt.<span class="tok-call">GetSeconds</span>(), <span class="tok-number">0.0f</span> });
 <span class="tok-call">LookAt</span>(target.GetComponent&lt;<span class="tok-type">TransformComponent</span>&gt;().Position);
 </code></pre></figure>
 <p>These are <strong>local</strong> — relative to the parent. When you need the answer in world space, ask for it:</p>
-<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-type">glm</span>::<span class="tok-type">vec3</span> here = <span class="tok-call">GetWorldPosition</span>();
-<span class="tok-type">glm</span>::<span class="tok-type">mat4</span> me   = <span class="tok-call">GetWorldTransform</span>();
+<figure class="code"><figcaption>cpp</figcaption><pre><code>Vec3 here = <span class="tok-call">GetWorldPosition</span>();
+Mat4 me   = <span class="tok-call">GetWorldTransform</span>();
 </code></pre></figure>
 <p><code>GetForward</code>, <code>GetRight</code> and <code>GetUp</code> give the entity&#39;s own axes, so &quot;forward&quot; means forward <em>for this object</em> rather than for the world. That is what makes a character controller work when the character is turned:</p>
-<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">const</span> <span class="tok-type">glm</span>::<span class="tok-type">vec3</span> direction =
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">const</span> Vec3 direction =
     <span class="tok-call">GetForward</span>() * <span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;MoveForward&quot;</span>) +
     <span class="tok-call">GetRight</span>()   * <span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;MoveRight&quot;</span>);
 
-<span class="tok-keyword">if</span> (<span class="tok-type">glm</span>::<span class="tok-call">dot</span>(direction, direction) &gt; <span class="tok-number">0.0f</span>)
-    <span class="tok-call">Translate</span>(<span class="tok-type">glm</span>::<span class="tok-call">normalize</span>(direction) * m_Speed * dt.<span class="tok-call">GetSeconds</span>());
+<span class="tok-keyword">if</span> (Math::<span class="tok-call">Dot</span>(direction, direction) &gt; <span class="tok-number">0.0f</span>)
+    <span class="tok-call">Translate</span>(Math::<span class="tok-call">Normalize</span>(direction) * m_Speed * dt.<span class="tok-call">GetSeconds</span>());
 </code></pre></figure>
 <aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Normalising a zero-length vector produces NaNs, and a NaN in a transform spreads to every transform derived from it — the object and all its children disappear, permanently, with no error. Guard the normalise, as above. This is the most common way to lose an object in this engine.</p>
 </aside>
@@ -142,7 +145,7 @@ spark.AddComponent&lt;<span class="tok-type">MeshComponent</span>&gt;();
 <figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">AddForce</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">20.0f</span>, <span class="tok-number">0.0f</span> });      <span class="tok-comment">// accumulates over a step, cleared by it</span>
 <span class="tok-call">AddImpulse</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">5.0f</span>, <span class="tok-number">0.0f</span> });     <span class="tok-comment">// changes velocity at once</span>
 <span class="tok-call">SetLinearVelocity</span>({ <span class="tok-number">0.0f</span>, <span class="tok-number">0.0f</span>, <span class="tok-number">0.0f</span> });
-<span class="tok-type">glm</span>::<span class="tok-type">vec3</span> v = <span class="tok-call">GetLinearVelocity</span>();
+Vec3 v = <span class="tok-call">GetLinearVelocity</span>();
 </code></pre></figure>
 <p><strong>A jump is an impulse; a thruster is a force.</strong> Applying a force for one step and expecting a jump gets you a twitch, because the force is cleared by the step that consumed it.</p>
 <h3 id="raycasts">Raycasts<a class="anchor" href="#raycasts" aria-label="Link to this section">#</a></h3>
@@ -157,7 +160,7 @@ spark.AddComponent&lt;<span class="tok-type">MeshComponent</span>&gt;();
 <figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnCollisionEnter</span>(<span class="tok-keyword">const</span> <span class="tok-type">Collision</span>&amp; collision) <span class="tok-keyword">override</span>
 {
     <span class="tok-keyword">if</span> (collision.ImpactSpeed &gt; <span class="tok-number">3.0f</span>)
-        <span class="tok-call">PlayOneShot</span>(m_ThudClip, <span class="tok-type">glm</span>::<span class="tok-call">min</span>(collision.ImpactSpeed / <span class="tok-number">10.0f</span>, <span class="tok-number">1.0f</span>));
+        <span class="tok-call">PlayOneShot</span>(m_ThudClip, Math::<span class="tok-call">Min</span>(collision.ImpactSpeed / <span class="tok-number">10.0f</span>, <span class="tok-number">1.0f</span>));
 }
 </code></pre></figure>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Callback</th><th style="text-align:left">Fires</th></tr></thead><tbody>

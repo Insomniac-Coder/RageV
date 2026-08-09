@@ -40,11 +40,16 @@ namespace RageV
 		bool DrawNewScriptPopup(bool managed, std::string& chosenName);
 		bool DrawScriptPicker(const std::vector<std::string>& available,
 							  std::string& scriptName, bool managed);
-		bool DrawScriptNameRow(std::string& scriptName);
+		void DrawScriptNameRow(std::string& label);
 		bool m_OpenNewScript = false;
-		// What the name was when editing began, so overrides survive retyping
-		// the same name and are dropped only for a real change.
-		std::string m_ScriptNameBeforeEdit;
+
+		// Scripts that exist as a file but are not in this build yet, refreshed
+		// each time the dropdown opens rather than each frame it is open.
+		static std::vector<std::string> ScanUnbuiltScripts(
+			const std::vector<std::string>& built, bool managed);
+		static bool FileRegistersScript(const std::filesystem::path& file,
+										const std::string& name);
+		std::vector<std::string> m_UnbuiltScripts;
 		static bool WriteNewScript(const std::filesystem::path& file,
 								   const std::string& name);
 		static bool WriteNewNativeScript(const std::filesystem::path& file,

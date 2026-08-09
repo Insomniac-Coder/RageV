@@ -4461,6 +4461,74 @@ int RunTests(int argc, char** argv)
 		reloaded->OnRuntimeStop();
 	}
 
+	// --- the script component's label ----------------------------------------
+	//
+	// A tag for the inspector, and nothing but: it names the component the way
+	// the Tag row names the entity. It used to be bound to the script name,
+	// which meant typing in it silently repointed the entity at a script that
+	// did not exist.
+	//
+	// The unlabelled case is the one worth a check. A component that writes an
+	// empty key would change every scene file that predates labels, and the
+	// round-trip test above would still pass -- it compares a file against
+	// itself after a reload, not against what was on disk before the feature.
+	{
+		auto authored = std::make_shared<Scene>();
+		Entity native = authored->CreateEntity("Labelled");
+		auto& script = native.AddComponent<NativeScriptComponent>("Spinner");
+		script.Label = "Door opener";
+
+		Entity plain = authored->CreateEntity("Unlabelled");
+		plain.AddComponent<NativeScriptComponent>("Spinner");
+
+		Entity managed = authored->CreateEntity("Managed");
+		auto& csharp = managed.AddComponent<ManagedScriptComponent>("RageV.Builtin.Spinner");
+		csharp.Label = "Lift";
+
+		SceneSerializer writer(authored);
+		const std::string text = writer.SerializeToString();
+
+		Check(text.find("Door opener") != std::string::npos,
+			  "a script component's label is written to the scene");
+		Check(text.find("Lift") != std::string::npos, "for either language");
+
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer reader(reloaded);
+		Check(reader.DeserializeFromString(text), "and the scene loads again");
+
+		Entity back = reloaded->FindEntityByName("Labelled");
+		Check(back && back.HasComponent<NativeScriptComponent>() &&
+			  back.GetComponent<NativeScriptComponent>().Label == "Door opener",
+			  "with the label somebody typed");
+
+		Check(back && back.GetComponent<NativeScriptComponent>().ScriptName == "Spinner",
+			  "and the script it names untouched by it");
+
+		Entity bare = reloaded->FindEntityByName("Unlabelled");
+		Check(bare && bare.HasComponent<NativeScriptComponent>() &&
+			  bare.GetComponent<NativeScriptComponent>().Label.empty(),
+			  "while a component with no label still has none");
+
+		Entity cs = reloaded->FindEntityByName("Managed");
+		Check(cs && cs.HasComponent<ManagedScriptComponent>() &&
+			  cs.GetComponent<ManagedScriptComponent>().Label == "Lift",
+			  "and a C# component's label survives the same trip");
+
+		// NativeScriptComponent's copy constructor and assignment are written by
+		// hand, because they have to drop the live instance pointer rather than
+		// let two components own one. That makes every field added to the
+		// component one they can silently forget to carry.
+		if (back && back.HasComponent<NativeScriptComponent>())
+		{
+			const NativeScriptComponent copied = back.GetComponent<NativeScriptComponent>();
+			Check(copied.Label == "Door opener", "a copied component keeps its label");
+
+			NativeScriptComponent assigned;
+			assigned = back.GetComponent<NativeScriptComponent>();
+			Check(assigned.Label == "Door opener", "and so does an assigned one");
+		}
+	}
+
 	// --- the settings writer -------------------------------------------------
 	//
 	// The backend picker and the vsync checkbox each rewrite one line of

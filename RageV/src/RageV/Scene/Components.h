@@ -456,6 +456,11 @@ namespace RageV
 		// The C# type, as written in the assembly: "Example" or "Game.Enemy".
 		std::string ScriptName;
 
+		// What to call this component in the inspector. A tag, nothing more:
+		// nothing looks it up and nothing validates it. Which script runs is
+		// ScriptName's job, and that has to be a name the build actually has.
+		std::string Label;
+
 		// Values the inspector authored, applied to the instance after it is
 		// created and before OnCreate runs.
 		//
@@ -507,6 +512,9 @@ namespace RageV
 	{
 		std::string ScriptName;
 
+		// A tag for the inspector, on the same terms as the managed component's.
+		std::string Label;
+
 		// Runtime only. Created on the first simulation step after Play and
 		// destroyed with the component, so neither is serialized.
 		ScriptableEntity* Instance = nullptr;
@@ -526,11 +534,12 @@ namespace RageV
 		// Neither the instance nor what it was built from is copied: two
 		// components owning one instance would both delete it.
 		NativeScriptComponent(const NativeScriptComponent& other)
-			: ScriptName(other.ScriptName), Fields(other.Fields) {}
+			: ScriptName(other.ScriptName), Label(other.Label), Fields(other.Fields) {}
 
 		NativeScriptComponent& operator=(const NativeScriptComponent& other)
 		{
 			ScriptName = other.ScriptName;
+			Label = other.Label;
 			Fields = other.Fields;
 			Instance = nullptr;
 			ActiveScript.clear();

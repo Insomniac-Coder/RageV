@@ -623,6 +623,11 @@ namespace
 
 				out << YAML::Key << "Script" << YAML::Value << script->ScriptName;
 
+				// Omitted when unset, so a scene written before labels existed
+				// still round-trips to the same bytes.
+				if (!script->Label.empty())
+					out << YAML::Key << "Name" << YAML::Value << script->Label;
+
 				if (script->Fields.Empty())
 					return;
 
@@ -640,6 +645,8 @@ namespace
 				const YAML::Node& constNode = node;
 				if (const YAML::Node name = constNode["Script"])
 					script->ScriptName = name.as<std::string>(std::string{});
+				if (const YAML::Node label = constNode["Name"])
+					script->Label = label.as<std::string>(std::string{});
 
 				const YAML::Node fields = constNode["Fields"];
 				if (!fields || !fields.IsMap())
@@ -660,7 +667,17 @@ namespace
 		{
 			ComponentDesc desc;
 			desc.Name = "ManagedScriptComponent";
-			desc.DisplayName = "C# Script";
+			desc.DisplayName = "Script";
+
+			// Not in Add Component. There is one Script component as far as
+			// anyone using the editor is concerned, and its Language row is what
+			// converts between the two -- offering both here meant an entity
+			// could end up with a C++ script and a C# script at once, which the
+			// inspector then drew as two identical-looking components.
+			//
+			// Still a distinct component underneath: see the comment on
+			// ManagedScriptComponent for why they are not one type.
+			desc.AddableFromMenu = false;
 
 			// The type name is the durable reference, the way the registered
 			// name is for a native script. Presented as a dropdown of what the
@@ -683,6 +700,9 @@ namespace
 
 				out << YAML::Key << "Script" << YAML::Value << script->ScriptName;
 
+				if (!script->Label.empty())
+					out << YAML::Key << "Name" << YAML::Value << script->Label;
+
 				if (script->Fields.Empty())
 					return;
 
@@ -700,6 +720,8 @@ namespace
 				const YAML::Node& constNode = node;
 				if (const YAML::Node name = constNode["Script"])
 					script->ScriptName = name.as<std::string>(std::string{});
+				if (const YAML::Node label = constNode["Name"])
+					script->Label = label.as<std::string>(std::string{});
 
 				const YAML::Node fields = constNode["Fields"];
 				if (!fields || !fields.IsMap())

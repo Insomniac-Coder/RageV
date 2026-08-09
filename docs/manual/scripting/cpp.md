@@ -21,24 +21,35 @@ public:
     void OnUpdate(Timestep dt) override
     {
         m_Elapsed += dt.GetSeconds();
-        glm::vec3 position = m_Origin;
+        Vec3 position = m_Origin;
         position.y += std::sin(m_Elapsed * 2.0f) * 0.5f;
         GetPosition() = position;
     }
 
 private:
-    glm::vec3 m_Origin{ 0.0f };
+    Vec3 m_Origin{ 0.0f };
     float     m_Elapsed = 0.0f;
 };
 
 RV_REGISTER_SCRIPT(Bobber);
 ```
 
-Build, open the editor, select an entity, **Add Component → Native Script**, and
-choose `Bobber` from the dropdown. Press Play.
+Build, open the editor, select an entity, **Add Component → Script**, leave
+**Language** on C++, and choose `Bobber` in the **Script** dropdown. Press Play.
+
+The **Name** row above it is a label for the component and nothing else — call it
+"Bobbing crate" if that helps you read the inspector. Which script runs is the
+dropdown's job.
 
 The name in the dropdown is the string `RV_REGISTER_SCRIPT` derived from the type
 name, and that string is what gets written into the scene file.
+
+> [!NOTE]
+> A C++ script is compiled into the engine, so a script you have just written is
+> not in the dropdown yet. It appears there marked **(needs engine rebuild)**,
+> and you can attach it now — it starts working the moment the build catches up.
+> A C# script is compiled into the project instead, and needs only
+> **File → Build Scripts**.
 
 > [!TRAP]
 > **Renaming a registered script breaks every scene that used it.** The name is
@@ -107,7 +118,7 @@ component**, so you can read them or assign through them. Rotation is in
 ```cpp
 GetPosition().y = 3.0f;          // assign a component
 Translate({ 0.0f, 0.0f, -1.0f }); // add a delta
-Rotate({ 0.0f, glm::radians(90.0f) * dt.GetSeconds(), 0.0f });
+Rotate({ 0.0f, Math::Radians(90.0f) * dt.GetSeconds(), 0.0f });
 LookAt(target.GetComponent<TransformComponent>().Position);
 ```
 
@@ -115,8 +126,8 @@ These are **local** — relative to the parent. When you need the answer in worl
 space, ask for it:
 
 ```cpp
-glm::vec3 here = GetWorldPosition();
-glm::mat4 me   = GetWorldTransform();
+Vec3 here = GetWorldPosition();
+Mat4 me   = GetWorldTransform();
 ```
 
 `GetForward`, `GetRight` and `GetUp` give the entity's own axes, so "forward"
@@ -124,12 +135,12 @@ means forward *for this object* rather than for the world. That is what makes a
 character controller work when the character is turned:
 
 ```cpp
-const glm::vec3 direction =
+const Vec3 direction =
     GetForward() * GetAxis("MoveForward") +
     GetRight()   * GetAxis("MoveRight");
 
-if (glm::dot(direction, direction) > 0.0f)
-    Translate(glm::normalize(direction) * m_Speed * dt.GetSeconds());
+if (Math::Dot(direction, direction) > 0.0f)
+    Translate(Math::Normalize(direction) * m_Speed * dt.GetSeconds());
 ```
 
 > [!TRAP]
@@ -217,7 +228,7 @@ Velocities and impulses are **world space**.
 AddForce({ 0.0f, 20.0f, 0.0f });      // accumulates over a step, cleared by it
 AddImpulse({ 0.0f, 5.0f, 0.0f });     // changes velocity at once
 SetLinearVelocity({ 0.0f, 0.0f, 0.0f });
-glm::vec3 v = GetLinearVelocity();
+Vec3 v = GetLinearVelocity();
 ```
 
 **A jump is an impulse; a thruster is a force.** Applying a force for one step
@@ -246,7 +257,7 @@ script reacting to a hit is reacting to a resolved one.
 void OnCollisionEnter(const Collision& collision) override
 {
     if (collision.ImpactSpeed > 3.0f)
-        PlayOneShot(m_ThudClip, glm::min(collision.ImpactSpeed / 10.0f, 1.0f));
+        PlayOneShot(m_ThudClip, Math::Min(collision.ImpactSpeed / 10.0f, 1.0f));
 }
 ```
 
