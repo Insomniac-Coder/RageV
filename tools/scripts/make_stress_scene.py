@@ -123,15 +123,23 @@ def build(count, extent, seed, lights, probe):
         "      CastShadows: true\n"
     )
 
-    # The shader's cap is eight including the sun, and a light past the cap
-    # lights nothing -- asking for more would measure a limit rather than a
-    # cost.
-    for i in range(min(lights, 7)):
+    # No cap. There used to be one -- eight including the sun, because the
+    # scene's uniform block declared arrays of eight -- so asking for more
+    # measured a limit rather than a cost. Lights live in a storage buffer now
+    # and a scene may have as many as it likes; only shadow *casters* are still
+    # budgeted, at four spot maps and four point cubes.
+    # Split a fixed budget between them, so a scene with fifty lights is lit
+    # rather than blown out. Comparing a clustered frame against an unclustered
+    # one needs an image with detail left in it.
+    light_intensity = 90.0 * min(1.0, 8.0 / max(lights, 1))
+
+    for i in range(lights):
         angle = 2.0 * math.pi * i / max(lights, 1)
+        radius = extent * (0.30 if (i % 2) else 0.55)
         out.append(f"  - EntityID: {next_id()}\n")
         out.append(f"    TagComponent:\n      Tag: Point Light {i}\n")
         out.append(transform(
-            [math.cos(angle) * extent * 0.4, 5, math.sin(angle) * extent * 0.4],
+            [math.cos(angle) * radius, 5, math.sin(angle) * radius],
             [0, 0, 0], [1, 1, 1], 4))
         out.append(
             "    LightComponent:\n"
@@ -200,7 +208,7 @@ def main():
     parser.add_argument("--count", type=int, default=1000, help="mesh entities")
     parser.add_argument("--extent", type=float, default=60.0,
                         help="half the width of the field they are spread over")
-    parser.add_argument("--lights", type=int, default=7, help="point lights, capped at 7")
+    parser.add_argument("--lights", type=int, default=7, help="point lights")
     parser.add_argument("--no-probe", action="store_true", help="omit the reflection probe")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--output", required=True)

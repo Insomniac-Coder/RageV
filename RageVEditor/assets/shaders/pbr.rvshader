@@ -13,24 +13,12 @@ layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord;
 
-const int MAX_LIGHTS = 8;
-
 layout(set = 0, binding = 0) uniform SceneData
 {
 	mat4 ViewProjection;
 	vec4 CameraPosition;
 	// rgb = ambient colour, a = ambient intensity
 	vec4 Ambient;
-	// xyz = position, w = 0 for directional (where position is unused)
-	vec4 LightPositions[MAX_LIGHTS];
-	// xyz = forward axis: the direction a directional light travels, and the
-	// cone axis of a spot. Independent of position, which is why it cannot be
-	// derived from it.
-	vec4 LightDirections[MAX_LIGHTS];
-	// rgb = colour, a = intensity
-	vec4 LightColors[MAX_LIGHTS];
-	// x = range, y = cos(inner cone), z = cos(outer cone)
-	vec4 LightParams[MAX_LIGHTS];
 	// x = environment intensity, y = its highest mip, zw = cos and sin of the
 	// sky's rotation. Intensity is zero when there is nothing to reflect,
 	// which is how the term is switched off without a branch.
@@ -52,10 +40,6 @@ layout(set = 0, binding = 0) uniform SceneData
 	// z = one cascade texel in lookup coordinates, w unused
 	vec4 ShadowParams;
 
-	// Per light: x = which kind of map it has, y = which slot, z = its far
-	// distance, w = the world size of one of its texels per unit of distance.
-	// A light with kind 0 casts nothing, which is most of them.
-	vec4 LightShadow[MAX_LIGHTS];
 	mat4 SpotLookup[4];
 
 	int  LightCount;
@@ -132,7 +116,6 @@ void main()
 #type fragment
 #version 450 core
 
-const int MAX_LIGHTS = 8;
 const float PI = 3.14159265359;
 
 const int MAP_BASE_COLOR         = 1 << 0;
@@ -146,10 +129,6 @@ layout(set = 0, binding = 0) uniform SceneData
 	mat4 ViewProjection;
 	vec4 CameraPosition;
 	vec4 Ambient;
-	vec4 LightPositions[MAX_LIGHTS];
-	vec4 LightDirections[MAX_LIGHTS];
-	vec4 LightColors[MAX_LIGHTS];
-	vec4 LightParams[MAX_LIGHTS];
 	vec4 Environment;
 	vec4 EnvironmentSize;
 	mat4 CascadeLookup[4];
@@ -157,10 +136,36 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 CascadeTexel;
 	vec4 CameraForward;
 	vec4 ShadowParams;
-	vec4 LightShadow[MAX_LIGHTS];
 	mat4 SpotLookup[4];
 	int  LightCount;
 } u_Scene;
+
+// Every light in the scene, however many that is.
+//
+// A storage buffer rather than an array in the scene block, and that is the
+// whole of what removes the eight-light cap: a uniform block has to declare a
+// fixed length, and the length it declared was eight. Nothing else about the
+// lighting changed with this -- the loop below still reads every light -- so
+// the picture is a strict check that the move itself was faithful.
+struct GpuLight
+{
+	// xyz position, w = 1 for positional and 0 for directional
+	vec4 Position;
+	// xyz forward axis: the direction a directional light travels and the cone
+	// axis of a spot. Not derivable from the position, which is why it is here.
+	vec4 Direction;
+	// rgb colour, a intensity
+	vec4 Color;
+	// x range, y cos(inner cone), z cos(outer cone)
+	vec4 Params;
+	// x kind of shadow map (0 none), y slot, z far distance, w texel scale
+	vec4 Shadow;
+};
+
+layout(std430, set = 0, binding = 8) readonly buffer LightBlock
+{
+	GpuLight Lights[];
+} u_Lights;
 
 layout(set = 0, binding = 1) uniform samplerCube u_Environment;
 layout(set = 0, binding = 5) uniform samplerCube u_Irradiance;
@@ -488,10 +493,12 @@ void main()
 
 	vec3 Lo = vec3(0.0);
 
-	for (int i = 0; i < u_Scene.LightCount && i < MAX_LIGHTS; ++i)
+	for (int i = 0; i < u_Scene.LightCount; ++i)
 	{
-		vec3  lightColor = u_Scene.LightColors[i].rgb * u_Scene.LightColors[i].a;
-		float isPositional = u_Scene.LightPositions[i].w;
+		GpuLight light = u_Lights.Lights[i];
+
+		vec3  lightColor = light.Color.rgb * light.Color.a;
+		float isPositional = light.Position.w;
 
 		vec3  L;
 		float attenuation = 1.0;
@@ -499,28 +506,28 @@ void main()
 		if (isPositional == 0.0)
 		{
 			// Directional: L points towards the light, the opposite of travel.
-			L = normalize(-u_Scene.LightDirections[i].xyz);
+			L = normalize(-light.Direction.xyz);
 		}
 		else
 		{
-			vec3 toLight = u_Scene.LightPositions[i].xyz - v_WorldPos;
+			vec3 toLight = light.Position.xyz - v_WorldPos;
 			float distance = length(toLight);
 			L = toLight / max(distance, 0.0001);
 
 			// Inverse-square falloff, windowed so the light reaches zero at its
 			// range instead of trailing off forever.
-			float range = max(u_Scene.LightParams[i].x, 0.0001);
+			float range = max(light.Params.x, 0.0001);
 			float ratio = clamp(1.0 - pow(distance / range, 4.0), 0.0, 1.0);
 			attenuation = (ratio * ratio) / max(distance * distance, 0.0001);
 
 			// Spot cone, when the inner and outer angles differ. Measured
 			// against the light's own axis, not against its position -- those
 			// only coincide when the light sits at the origin.
-			float cosInner = u_Scene.LightParams[i].y;
-			float cosOuter = u_Scene.LightParams[i].z;
+			float cosInner = light.Params.y;
+			float cosOuter = light.Params.z;
 			if (cosOuter < cosInner)
 			{
-				float theta = dot(L, normalize(-u_Scene.LightDirections[i].xyz));
+				float theta = dot(L, normalize(-light.Direction.xyz));
 				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
 			}
 		}
@@ -543,18 +550,18 @@ void main()
 		float NdotL = max(dot(N, L), 0.0);
 
 		// Each light carries which kind of map it has, if any.
-		int kind = int(u_Scene.LightShadow[i].x);
-		int slot = int(u_Scene.LightShadow[i].y);
+		int kind = int(light.Shadow.x);
+		int slot = int(light.Shadow.y);
 
 		float shadow = 1.0;
 		if (kind == 1)
 			shadow = ShadowFactor(v_WorldPos, N, L);
 		else if (kind == 2)
-			shadow = SpotShadow(slot, u_Scene.LightPositions[i].xyz,
-								u_Scene.LightShadow[i].w, v_WorldPos, N, L);
+			shadow = SpotShadow(slot, light.Position.xyz,
+								light.Shadow.w, v_WorldPos, N, L);
 		else if (kind == 3)
-			shadow = PointShadow(slot, u_Scene.LightPositions[i].xyz,
-								 u_Scene.LightShadow[i].z, u_Scene.LightShadow[i].w,
+			shadow = PointShadow(slot, light.Position.xyz,
+								 light.Shadow.z, light.Shadow.w,
 								 v_WorldPos, N);
 
 		Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;

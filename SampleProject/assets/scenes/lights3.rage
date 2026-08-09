@@ -1,0 +1,6118 @@
+Scene: Stress
+Version: 5
+Environment:
+  AmbientColor: [0.42, 0.47, 0.58]
+  AmbientIntensity: 0.12
+  Sky: 2
+  SkyHorizon: [0.52, 0.6, 0.72]
+  SkyZenith: [0.18, 0.31, 0.62]
+  SkyGround: [0.16, 0.15, 0.14]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 6, 22]
+      Rotation: [-0.22, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 2000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 1, 80]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material:
+        BaseColor: [0.14, 0.14, 0.16, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.85
+        Occlusion: 1
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.959931, -0.523599, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [0.55, 0.58, 0.65]
+      Intensity: 1.6
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Point Light 0
+    TransformComponent:
+      Position: [22, 5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.654, 0.939, 0.906]
+      Intensity: 90
+      Range: 40
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 1663341875487337577
+    TagComponent:
+      Tag: Point Light 1
+    TransformComponent:
+      Position: [-6, 5, 10.3923]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.702, 0.798, 0.78]
+      Intensity: 90
+      Range: 40
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 13064056694810536062
+    TagComponent:
+      Tag: Point Light 2
+    TransformComponent:
+      Position: [-11, 5, -19.0526]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.861, 0.915, 0.638]
+      Intensity: 90
+      Range: 40
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 6018027440424182931
+    TagComponent:
+      Tag: Reflection Probe
+    TransformComponent:
+      Position: [0, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ReflectionProbeComponent:
+      Update: Realtime
+      Resolution: 128
+      Influence: 160
+      NearClip: 0.05
+      FarClip: 200
+      FacesPerFrame: 1
+  - EntityID: 17418742259747381416
+    TagComponent:
+      Tag: Prop 0
+    TransformComponent:
+      Position: [-40.3773, 0.444745, -39.7314]
+      Rotation: [0, 0.013226, 0]
+      Scale: [0.88949, 0.88949, 0.88949]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.45631, 0.677232, 0.28301, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.72171
+        Occlusion: 1
+  - EntityID: 10372713005361028285
+    TagComponent:
+      Tag: Prop 1
+    TransformComponent:
+      Position: [-35.4333, 0.263765, -39.6789]
+      Rotation: [0, 3.40007, 0]
+      Scale: [0.527531, 0.527531, 0.527531]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.851319, 0.404963, 0.27328, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.169084
+        Occlusion: 1
+  - EntityID: 3326683750974675154
+    TagComponent:
+      Tag: Prop 2
+    TransformComponent:
+      Position: [-31.6413, 0.349761, -40.3768]
+      Rotation: [0, 3.1137, 0]
+      Scale: [0.699522, 0.699522, 0.699522]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.286468, 0.284693, 0.275025, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.478416
+        Occlusion: 1
+  - EntityID: 14727398570297873639
+    TagComponent:
+      Tag: Prop 3
+    TransformComponent:
+      Position: [-27.4007, 0.25967, -40.1682]
+      Rotation: [0, 3.49453, 0]
+      Scale: [0.519341, 0.519341, 0.519341]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.613835, 0.248725, 0.894035, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.778183
+        Occlusion: 1
+  - EntityID: 7681369315911520508
+    TagComponent:
+      Tag: Prop 4
+    TransformComponent:
+      Position: [-22.8699, 0.399713, -40.3033]
+      Rotation: [0, 4.46628, 0]
+      Scale: [0.799426, 0.799426, 0.799426]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.849152, 0.437686, 0.764029, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.691113
+        Occlusion: 1
+  - EntityID: 635340061525167377
+    TagComponent:
+      Tag: Prop 5
+    TransformComponent:
+      Position: [-18.8111, 0.514411, -40.1573]
+      Rotation: [0, 5.31412, 0]
+      Scale: [1.02882, 1.02882, 1.02882]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.504227, 0.571202, 0.127621, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.811859
+        Occlusion: 1
+  - EntityID: 12036054880848365862
+    TagComponent:
+      Tag: Prop 6
+    TransformComponent:
+      Position: [-14.9427, 0.436441, -39.7621]
+      Rotation: [0, 3.44646, 0]
+      Scale: [0.872883, 0.872883, 0.872883]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.662433, 0.639589, 0.399762, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.279756
+        Occlusion: 1
+  - EntityID: 4990025626462012731
+    TagComponent:
+      Tag: Prop 7
+    TransformComponent:
+      Position: [-10.5751, 0.600299, -39.9933]
+      Rotation: [0, 2.46964, 0]
+      Scale: [1.2006, 1.2006, 1.2006]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.491755, 0.12366, 0.13479, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.540704
+        Occlusion: 1
+  - EntityID: 16390740445785211216
+    TagComponent:
+      Tag: Prop 8
+    TransformComponent:
+      Position: [-6.15308, 0.516933, -39.6134]
+      Rotation: [0, 1.06979, 0]
+      Scale: [1.03387, 1.03387, 1.03387]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.501791, 0.885661, 0.716419, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.4452
+        Occlusion: 1
+  - EntityID: 9344711191398858085
+    TagComponent:
+      Tag: Prop 9
+    TransformComponent:
+      Position: [-2.07357, 0.354479, -39.7118]
+      Rotation: [0, 5.9815, 0]
+      Scale: [0.708959, 0.708959, 0.708959]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.562236, 0.467305, 0.315424, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.535329
+        Occlusion: 1
+  - EntityID: 2298681937012504954
+    TagComponent:
+      Tag: Prop 10
+    TransformComponent:
+      Position: [2.14366, 0.252569, -39.6343]
+      Rotation: [0, 5.15265, 0]
+      Scale: [0.505138, 0.505138, 0.505138]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.808944, 0.692403, 0.747312, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.737741
+        Occlusion: 1
+  - EntityID: 13699396756335703439
+    TagComponent:
+      Tag: Prop 11
+    TransformComponent:
+      Position: [6.33073, 0.441741, -39.9509]
+      Rotation: [0, 5.46366, 0]
+      Scale: [0.883482, 0.883482, 0.883482]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.555999, 0.259872, 0.503776, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.192092
+        Occlusion: 1
+  - EntityID: 6653367501949350308
+    TagComponent:
+      Tag: Prop 12
+    TransformComponent:
+      Position: [10.5143, 0.405735, -40.1146]
+      Rotation: [0, 3.91551, 0]
+      Scale: [0.81147, 0.81147, 0.81147]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.589962, 0.466517, 0.12238, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.553859
+        Occlusion: 1
+  - EntityID: 18054082321272548793
+    TagComponent:
+      Tag: Prop 13
+    TransformComponent:
+      Position: [14.5205, 0.513007, -40.2582]
+      Rotation: [0, 5.0142, 0]
+      Scale: [1.02601, 1.02601, 1.02601]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.737678, 0.75315, 0.304235, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.795757
+        Occlusion: 1
+  - EntityID: 11008053066886195662
+    TagComponent:
+      Tag: Prop 14
+    TransformComponent:
+      Position: [19.2208, 0.287455, -39.8615]
+      Rotation: [0, 0.0914366, 0]
+      Scale: [0.574911, 0.574911, 0.574911]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.704469, 0.299647, 0.187591, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.162518
+        Occlusion: 1
+  - EntityID: 3962023812499842531
+    TagComponent:
+      Tag: Prop 15
+    TransformComponent:
+      Position: [23.2577, 0.281282, -40.1245]
+      Rotation: [0, 3.31195, 0]
+      Scale: [0.562564, 0.562564, 0.562564]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.234516, 0.318332, 0.669272, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.269719
+        Occlusion: 1
+  - EntityID: 15362738631823041016
+    TagComponent:
+      Tag: Prop 16
+    TransformComponent:
+      Position: [27.3322, 0.463197, -40.1424]
+      Rotation: [0, 2.42758, 0]
+      Scale: [0.926394, 0.926394, 0.926394]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.436735, 0.250431, 0.187009, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.167726
+        Occlusion: 1
+  - EntityID: 8316709377436687885
+    TagComponent:
+      Tag: Prop 17
+    TransformComponent:
+      Position: [31.8988, 0.344091, -39.9919]
+      Rotation: [0, 5.13101, 0]
+      Scale: [0.688182, 0.688182, 0.688182]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.116654, 0.114292, 0.217169, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.604236
+        Occlusion: 1
+  - EntityID: 1270680123050334754
+    TagComponent:
+      Tag: Prop 18
+    TransformComponent:
+      Position: [35.9645, 0.567073, -40.2718]
+      Rotation: [0, 3.42073, 0]
+      Scale: [1.13415, 1.13415, 1.13415]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.27648, 0.880476, 0.738249, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.658632
+        Occlusion: 1
+  - EntityID: 12671394942373533239
+    TagComponent:
+      Tag: Prop 19
+    TransformComponent:
+      Position: [40.0133, 0.541828, -40.2214]
+      Rotation: [0, 3.61631, 0]
+      Scale: [1.08366, 1.08366, 1.08366]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.356997, 0.604758, 0.147028, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.446174
+        Occlusion: 1
+  - EntityID: 5625365687987180108
+    TagComponent:
+      Tag: Prop 20
+    TransformComponent:
+      Position: [-40.1611, 0.64399, -35.4152]
+      Rotation: [0, 5.39147, 0]
+      Scale: [1.28798, 1.28798, 1.28798]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.348291, 0.851431, 0.695074, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.37979
+        Occlusion: 1
+  - EntityID: 17026080507310378593
+    TagComponent:
+      Tag: Prop 21
+    TransformComponent:
+      Position: [-35.8565, 0.253816, -35.9876]
+      Rotation: [0, 0.238116, 0]
+      Scale: [0.507632, 0.507632, 0.507632]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.755531, 0.869761, 0.556224, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.809038
+        Occlusion: 1
+  - EntityID: 9980051252924025462
+    TagComponent:
+      Tag: Prop 22
+    TransformComponent:
+      Position: [-31.8417, 0.688199, -35.4952]
+      Rotation: [0, 3.19573, 0]
+      Scale: [1.3764, 1.3764, 1.3764]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.402375, 0.377545, 0.264609, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.678017
+        Occlusion: 1
+  - EntityID: 2934021998537672331
+    TagComponent:
+      Tag: Prop 23
+    TransformComponent:
+      Position: [-27.2291, 0.337353, -35.8431]
+      Rotation: [0, 4.18221, 0]
+      Scale: [0.674707, 0.674707, 0.674707]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.336858, 0.49984, 0.360277, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.228318
+        Occlusion: 1
+  - EntityID: 14334736817860870816
+    TagComponent:
+      Tag: Prop 24
+    TransformComponent:
+      Position: [-22.8606, 0.258142, -35.4697]
+      Rotation: [0, 2.05821, 0]
+      Scale: [0.516284, 0.516284, 0.516284]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.88964, 0.72616, 0.371277, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.30064
+        Occlusion: 1
+  - EntityID: 7288707563474517685
+    TagComponent:
+      Tag: Prop 25
+    TransformComponent:
+      Position: [-19.1769, 0.626965, -35.6499]
+      Rotation: [0, 2.15938, 0]
+      Scale: [1.25393, 1.25393, 1.25393]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.805915, 0.649688, 0.487599, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.849141
+        Occlusion: 1
+  - EntityID: 242678309088164554
+    TagComponent:
+      Tag: Prop 26
+    TransformComponent:
+      Position: [-14.3484, 0.576459, -36.0018]
+      Rotation: [0, 1.06568, 0]
+      Scale: [1.15292, 1.15292, 1.15292]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.82879, 0.270375, 0.707293, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.21351
+        Occlusion: 1
+  - EntityID: 11643393128411363039
+    TagComponent:
+      Tag: Prop 27
+    TransformComponent:
+      Position: [-10.4461, 0.415649, -35.5166]
+      Rotation: [0, 1.82883, 0]
+      Scale: [0.831297, 0.831297, 0.831297]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.793936, 0.583186, 0.863446, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.405214
+        Occlusion: 1
+  - EntityID: 4597363874025009908
+    TagComponent:
+      Tag: Prop 28
+    TransformComponent:
+      Position: [-6.00598, 0.498027, -36.0812]
+      Rotation: [0, 0.245785, 0]
+      Scale: [0.996053, 0.996053, 0.996053]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.158555, 0.792935, 0.730493, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.228206
+        Occlusion: 1
+  - EntityID: 15998078693348208393
+    TagComponent:
+      Tag: Prop 29
+    TransformComponent:
+      Position: [-1.84246, 0.526834, -35.9168]
+      Rotation: [0, 2.37409, 0]
+      Scale: [1.05367, 1.05367, 1.05367]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.556625, 0.278971, 0.165395, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.736428
+        Occlusion: 1
+  - EntityID: 8952049438961855262
+    TagComponent:
+      Tag: Prop 30
+    TransformComponent:
+      Position: [1.91864, 0.504001, -35.4769]
+      Rotation: [0, 2.87479, 0]
+      Scale: [1.008, 1.008, 1.008]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.321746, 0.729612, 0.762215, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.8438
+        Occlusion: 1
+  - EntityID: 1906020184575502131
+    TagComponent:
+      Tag: Prop 31
+    TransformComponent:
+      Position: [5.92569, 0.291257, -35.6531]
+      Rotation: [0, 5.55818, 0]
+      Scale: [0.582515, 0.582515, 0.582515]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.132019, 0.291707, 0.890527, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.236327
+        Occlusion: 1
+  - EntityID: 13306735003898700616
+    TagComponent:
+      Tag: Prop 32
+    TransformComponent:
+      Position: [10.4631, 0.325323, -36.097]
+      Rotation: [0, 4.67236, 0]
+      Scale: [0.650645, 0.650645, 0.650645]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.182267, 0.828612, 0.402622, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.331065
+        Occlusion: 1
+  - EntityID: 6260705749512347485
+    TagComponent:
+      Tag: Prop 33
+    TransformComponent:
+      Position: [15.1131, 0.382311, -35.4621]
+      Rotation: [0, 2.99562, 0]
+      Scale: [0.764621, 0.764621, 0.764621]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.180103, 0.62164, 0.131696, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.340058
+        Occlusion: 1
+  - EntityID: 17661420568835545970
+    TagComponent:
+      Tag: Prop 34
+    TransformComponent:
+      Position: [18.5558, 0.382997, -35.4034]
+      Rotation: [0, 2.82502, 0]
+      Scale: [0.765995, 0.765995, 0.765995]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.350625, 0.150372, 0.830714, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.597428
+        Occlusion: 1
+  - EntityID: 10615391314449192839
+    TagComponent:
+      Tag: Prop 35
+    TransformComponent:
+      Position: [23.5337, 0.300113, -35.4136]
+      Rotation: [0, 3.87983, 0]
+      Scale: [0.600226, 0.600226, 0.600226]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.883962, 0.534331, 0.650552, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.311395
+        Occlusion: 1
+  - EntityID: 3569362060062839708
+    TagComponent:
+      Tag: Prop 36
+    TransformComponent:
+      Position: [27.4979, 0.493721, -35.9822]
+      Rotation: [0, 1.54727, 0]
+      Scale: [0.987442, 0.987442, 0.987442]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.165095, 0.324629, 0.886701, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.380491
+        Occlusion: 1
+  - EntityID: 14970076879386038193
+    TagComponent:
+      Tag: Prop 37
+    TransformComponent:
+      Position: [31.5373, 0.53956, -35.6679]
+      Rotation: [0, 2.45221, 0]
+      Scale: [1.07912, 1.07912, 1.07912]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.345427, 0.361793, 0.353388, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.855551
+        Occlusion: 1
+  - EntityID: 7924047624999685062
+    TagComponent:
+      Tag: Prop 38
+    TransformComponent:
+      Position: [36.0672, 0.386264, -35.4747]
+      Rotation: [0, 3.41774, 0]
+      Scale: [0.772528, 0.772528, 0.772528]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.563188, 0.57677, 0.296078, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.40075
+        Occlusion: 1
+  - EntityID: 878018370613331931
+    TagComponent:
+      Tag: Prop 39
+    TransformComponent:
+      Position: [39.6163, 0.282547, -35.9945]
+      Rotation: [0, 0.445355, 0]
+      Scale: [0.565095, 0.565095, 0.565095]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.160104, 0.608306, 0.332657, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.563404
+        Occlusion: 1
+  - EntityID: 12278733189936530416
+    TagComponent:
+      Tag: Prop 40
+    TransformComponent:
+      Position: [-39.7663, 0.638192, -31.5843]
+      Rotation: [0, 3.14898, 0]
+      Scale: [1.27638, 1.27638, 1.27638]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.735987, 0.161686, 0.859382, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.265635
+        Occlusion: 1
+  - EntityID: 5232703935550177285
+    TagComponent:
+      Tag: Prop 41
+    TransformComponent:
+      Position: [-36.0509, 0.693203, -31.358]
+      Rotation: [0, 2.00824, 0]
+      Scale: [1.38641, 1.38641, 1.38641]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.185502, 0.511487, 0.835486, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.766163
+        Occlusion: 1
+  - EntityID: 16633418754873375770
+    TagComponent:
+      Tag: Prop 42
+    TransformComponent:
+      Position: [-31.7442, 0.313756, -31.2639]
+      Rotation: [0, 0.199452, 0]
+      Scale: [0.627513, 0.627513, 0.627513]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.352855, 0.822471, 0.743085, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.832861
+        Occlusion: 1
+  - EntityID: 9587389500487022639
+    TagComponent:
+      Tag: Prop 43
+    TransformComponent:
+      Position: [-27.0427, 0.585783, -31.3064]
+      Rotation: [0, 1.11881, 0]
+      Scale: [1.17157, 1.17157, 1.17157]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.44611, 0.226318, 0.67186, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.667196
+        Occlusion: 1
+  - EntityID: 2541360246100669508
+    TagComponent:
+      Tag: Prop 44
+    TransformComponent:
+      Position: [-23.0237, 0.278986, -31.7769]
+      Rotation: [0, 5.07583, 0]
+      Scale: [0.557973, 0.557973, 0.557973]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.539416, 0.533102, 0.781034, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.872539
+        Occlusion: 1
+  - EntityID: 13942075065423867993
+    TagComponent:
+      Tag: Prop 45
+    TransformComponent:
+      Position: [-18.9847, 0.402401, -31.6624]
+      Rotation: [0, 0.153285, 0]
+      Scale: [0.804802, 0.804802, 0.804802]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.617151, 0.433347, 0.556483, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.343477
+        Occlusion: 1
+  - EntityID: 6896045811037514862
+    TagComponent:
+      Tag: Prop 46
+    TransformComponent:
+      Position: [-15.087, 0.312228, -31.695]
+      Rotation: [0, 1.62723, 0]
+      Scale: [0.624456, 0.624456, 0.624456]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.763148, 0.418238, 0.420866, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.243847
+        Occlusion: 1
+  - EntityID: 18296760630360713347
+    TagComponent:
+      Tag: Prop 47
+    TransformComponent:
+      Position: [-10.4364, 0.253365, -31.7921]
+      Rotation: [0, 3.14565, 0]
+      Scale: [0.506729, 0.506729, 0.506729]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.619072, 0.450654, 0.649211, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.546526
+        Occlusion: 1
+  - EntityID: 11250731375974360216
+    TagComponent:
+      Tag: Prop 48
+    TransformComponent:
+      Position: [-6.13065, 0.472783, -31.7882]
+      Rotation: [0, 1.41339, 0]
+      Scale: [0.945565, 0.945565, 0.945565]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.429797, 0.548326, 0.825552, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.50912
+        Occlusion: 1
+  - EntityID: 4204702121588007085
+    TagComponent:
+      Tag: Prop 49
+    TransformComponent:
+      Position: [-1.7711, 0.540887, -31.7588]
+      Rotation: [0, 0.449343, 0]
+      Scale: [1.08177, 1.08177, 1.08177]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.509353, 0.801939, 0.227574, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.186148
+        Occlusion: 1
+  - EntityID: 15605416940911205570
+    TagComponent:
+      Tag: Prop 50
+    TransformComponent:
+      Position: [2.31809, 0.390311, -31.2725]
+      Rotation: [0, 5.33166, 0]
+      Scale: [0.780622, 0.780622, 0.780622]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.397291, 0.661026, 0.689134, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.669418
+        Occlusion: 1
+  - EntityID: 8559387686524852439
+    TagComponent:
+      Tag: Prop 51
+    TransformComponent:
+      Position: [6.39145, 0.653472, -31.2939]
+      Rotation: [0, 3.58734, 0]
+      Scale: [1.30694, 1.30694, 1.30694]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.241021, 0.300476, 0.274095, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.870059
+        Occlusion: 1
+  - EntityID: 1513358432138499308
+    TagComponent:
+      Tag: Prop 52
+    TransformComponent:
+      Position: [10.5819, 0.27346, -31.3727]
+      Rotation: [0, 4.50372, 0]
+      Scale: [0.54692, 0.54692, 0.54692]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.378385, 0.512045, 0.231839, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.661227
+        Occlusion: 1
+  - EntityID: 12914073251461697793
+    TagComponent:
+      Tag: Prop 53
+    TransformComponent:
+      Position: [14.9208, 0.691549, -31.9464]
+      Rotation: [0, 3.94666, 0]
+      Scale: [1.3831, 1.3831, 1.3831]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.314021, 0.83029, 0.867551, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.755958
+        Occlusion: 1
+  - EntityID: 5868043997075344662
+    TagComponent:
+      Tag: Prop 54
+    TransformComponent:
+      Position: [18.6587, 0.628869, -31.3583]
+      Rotation: [0, 4.39856, 0]
+      Scale: [1.25774, 1.25774, 1.25774]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.456047, 0.839446, 0.876966, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.644788
+        Occlusion: 1
+  - EntityID: 17268758816398543147
+    TagComponent:
+      Tag: Prop 55
+    TransformComponent:
+      Position: [23.0638, 0.444815, -31.3368]
+      Rotation: [0, 2.04393, 0]
+      Scale: [0.889629, 0.889629, 0.889629]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.201064, 0.827108, 0.867539, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.273566
+        Occlusion: 1
+  - EntityID: 10222729562012190016
+    TagComponent:
+      Tag: Prop 56
+    TransformComponent:
+      Position: [27.0638, 0.433701, -31.4984]
+      Rotation: [0, 1.85559, 0]
+      Scale: [0.867402, 0.867402, 0.867402]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.298573, 0.699661, 0.103207, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.238568
+        Occlusion: 1
+  - EntityID: 3176700307625836885
+    TagComponent:
+      Tag: Prop 57
+    TransformComponent:
+      Position: [31.3308, 0.259466, -31.6279]
+      Rotation: [0, 3.80334, 0]
+      Scale: [0.518931, 0.518931, 0.518931]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.768266, 0.265285, 0.327825, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.620645
+        Occlusion: 1
+  - EntityID: 14577415126949035370
+    TagComponent:
+      Tag: Prop 58
+    TransformComponent:
+      Position: [35.8233, 0.513582, -31.7604]
+      Rotation: [0, 4.29255, 0]
+      Scale: [1.02716, 1.02716, 1.02716]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.732873, 0.746924, 0.878893, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.338162
+        Occlusion: 1
+  - EntityID: 7531385872562682239
+    TagComponent:
+      Tag: Prop 59
+    TransformComponent:
+      Position: [40.0363, 0.635064, -31.5863]
+      Rotation: [0, 3.58302, 0]
+      Scale: [1.27013, 1.27013, 1.27013]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.406605, 0.327238, 0.186511, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.726801
+        Occlusion: 1
+  - EntityID: 485356618176329108
+    TagComponent:
+      Tag: Prop 60
+    TransformComponent:
+      Position: [-39.754, 0.586269, -27.674]
+      Rotation: [0, 6.05986, 0]
+      Scale: [1.17254, 1.17254, 1.17254]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.708853, 0.878816, 0.209275, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.558965
+        Occlusion: 1
+  - EntityID: 11886071437499527593
+    TagComponent:
+      Tag: Prop 61
+    TransformComponent:
+      Position: [-35.7892, 0.390063, -27.3104]
+      Rotation: [0, 2.24082, 0]
+      Scale: [0.780126, 0.780126, 0.780126]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.522715, 0.100676, 0.453851, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.527274
+        Occlusion: 1
+  - EntityID: 4840042183113174462
+    TagComponent:
+      Tag: Prop 62
+    TransformComponent:
+      Position: [-31.6193, 0.429731, -27.5246]
+      Rotation: [0, 4.29183, 0]
+      Scale: [0.859462, 0.859462, 0.859462]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.493839, 0.618135, 0.402047, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.737315
+        Occlusion: 1
+  - EntityID: 16240757002436372947
+    TagComponent:
+      Tag: Prop 63
+    TransformComponent:
+      Position: [-27.6053, 0.37493, -27.7653]
+      Rotation: [0, 5.53684, 0]
+      Scale: [0.749859, 0.749859, 0.749859]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.763537, 0.508768, 0.889615, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.598623
+        Occlusion: 1
+  - EntityID: 9194727748050019816
+    TagComponent:
+      Tag: Prop 64
+    TransformComponent:
+      Position: [-23.1886, 0.434034, -27.1007]
+      Rotation: [0, 6.20208, 0]
+      Scale: [0.868069, 0.868069, 0.868069]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.344269, 0.23625, 0.596027, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.708473
+        Occlusion: 1
+  - EntityID: 2148698493663666685
+    TagComponent:
+      Tag: Prop 65
+    TransformComponent:
+      Position: [-18.9226, 0.251584, -27.4809]
+      Rotation: [0, 2.67446, 0]
+      Scale: [0.503167, 0.503167, 0.503167]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.424202, 0.788996, 0.567542, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.441872
+        Occlusion: 1
+  - EntityID: 13549413312986865170
+    TagComponent:
+      Tag: Prop 66
+    TransformComponent:
+      Position: [-14.5498, 0.586948, -27.0501]
+      Rotation: [0, 4.68343, 0]
+      Scale: [1.1739, 1.1739, 1.1739]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.612284, 0.618996, 0.60374, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.519527
+        Occlusion: 1
+  - EntityID: 6503384058600512039
+    TagComponent:
+      Tag: Prop 67
+    TransformComponent:
+      Position: [-10.6007, 0.53518, -27.265]
+      Rotation: [0, 4.91393, 0]
+      Scale: [1.07036, 1.07036, 1.07036]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.777014, 0.714, 0.752261, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.852838
+        Occlusion: 1
+  - EntityID: 17904098877923710524
+    TagComponent:
+      Tag: Prop 68
+    TransformComponent:
+      Position: [-6.23142, 0.369062, -27.4889]
+      Rotation: [0, 5.48836, 0]
+      Scale: [0.738125, 0.738125, 0.738125]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.535397, 0.221656, 0.76638, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.681015
+        Occlusion: 1
+  - EntityID: 10858069623537357393
+    TagComponent:
+      Tag: Prop 69
+    TransformComponent:
+      Position: [-2.11763, 0.270425, -27.3947]
+      Rotation: [0, 4.67702, 0]
+      Scale: [0.540849, 0.540849, 0.540849]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.438078, 0.384142, 0.625475, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.532711
+        Occlusion: 1
+  - EntityID: 3812040369151004262
+    TagComponent:
+      Tag: Prop 70
+    TransformComponent:
+      Position: [1.72106, 0.675757, -27.3627]
+      Rotation: [0, 2.52408, 0]
+      Scale: [1.35151, 1.35151, 1.35151]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.651127, 0.583995, 0.267112, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.667836
+        Occlusion: 1
+  - EntityID: 15212755188474202747
+    TagComponent:
+      Tag: Prop 71
+    TransformComponent:
+      Position: [6.08196, 0.371081, -27.0596]
+      Rotation: [0, 5.21666, 0]
+      Scale: [0.742162, 0.742162, 0.742162]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.518558, 0.394567, 0.509215, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.206164
+        Occlusion: 1
+  - EntityID: 8166725934087849616
+    TagComponent:
+      Tag: Prop 72
+    TransformComponent:
+      Position: [10.7157, 0.54388, -27.6336]
+      Rotation: [0, 5.11822, 0]
+      Scale: [1.08776, 1.08776, 1.08776]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.315809, 0.587733, 0.285691, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.685078
+        Occlusion: 1
+  - EntityID: 1120696679701496485
+    TagComponent:
+      Tag: Prop 73
+    TransformComponent:
+      Position: [14.7857, 0.605395, -27.6305]
+      Rotation: [0, 2.07016, 0]
+      Scale: [1.21079, 1.21079, 1.21079]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.277855, 0.871031, 0.665352, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.800038
+        Occlusion: 1
+  - EntityID: 12521411499024694970
+    TagComponent:
+      Tag: Prop 74
+    TransformComponent:
+      Position: [19.2224, 0.654727, -27.744]
+      Rotation: [0, 1.9878, 0]
+      Scale: [1.30945, 1.30945, 1.30945]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.445412, 0.709274, 0.72833, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.616839
+        Occlusion: 1
+  - EntityID: 5475382244638341839
+    TagComponent:
+      Tag: Prop 75
+    TransformComponent:
+      Position: [22.9098, 0.324533, -27.2677]
+      Rotation: [0, 2.78566, 0]
+      Scale: [0.649067, 0.649067, 0.649067]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.830516, 0.682598, 0.585008, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.879787
+        Occlusion: 1
+  - EntityID: 16876097063961540324
+    TagComponent:
+      Tag: Prop 76
+    TransformComponent:
+      Position: [27.178, 0.312379, -27.3471]
+      Rotation: [0, 4.49491, 0]
+      Scale: [0.624758, 0.624758, 0.624758]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.388872, 0.701101, 0.292395, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.253573
+        Occlusion: 1
+  - EntityID: 9830067809575187193
+    TagComponent:
+      Tag: Prop 77
+    TransformComponent:
+      Position: [31.7535, 0.387473, -27.1936]
+      Rotation: [0, 2.49321, 0]
+      Scale: [0.774946, 0.774946, 0.774946]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.493889, 0.179979, 0.249409, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.229789
+        Occlusion: 1
+  - EntityID: 2784038555188834062
+    TagComponent:
+      Tag: Prop 78
+    TransformComponent:
+      Position: [35.4337, 0.649994, -27.2904]
+      Rotation: [0, 0.218, 0]
+      Scale: [1.29999, 1.29999, 1.29999]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.663139, 0.751928, 0.871297, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.312418
+        Occlusion: 1
+  - EntityID: 14184753374512032547
+    TagComponent:
+      Tag: Prop 79
+    TransformComponent:
+      Position: [40.0905, 0.627041, -27.4945]
+      Rotation: [0, 4.34976, 0]
+      Scale: [1.25408, 1.25408, 1.25408]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.176185, 0.419765, 0.496018, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.23855
+        Occlusion: 1
+  - EntityID: 7138724120125679416
+    TagComponent:
+      Tag: Prop 80
+    TransformComponent:
+      Position: [-40.0977, 0.354273, -23.423]
+      Rotation: [0, 2.90498, 0]
+      Scale: [0.708546, 0.708546, 0.708546]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.563946, 0.269526, 0.671948, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.765112
+        Occlusion: 1
+  - EntityID: 92694865739326285
+    TagComponent:
+      Tag: Prop 81
+    TransformComponent:
+      Position: [-35.9254, 0.659269, -23.083]
+      Rotation: [0, 0.290249, 0]
+      Scale: [1.31854, 1.31854, 1.31854]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.737954, 0.78607, 0.35566, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.895795
+        Occlusion: 1
+  - EntityID: 11493409685062524770
+    TagComponent:
+      Tag: Prop 82
+    TransformComponent:
+      Position: [-31.6724, 0.663478, -23.0937]
+      Rotation: [0, 5.52659, 0]
+      Scale: [1.32696, 1.32696, 1.32696]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.706848, 0.221818, 0.830944, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.449946
+        Occlusion: 1
+  - EntityID: 4447380430676171639
+    TagComponent:
+      Tag: Prop 83
+    TransformComponent:
+      Position: [-27.7563, 0.549165, -23.4418]
+      Rotation: [0, 2.3832, 0]
+      Scale: [1.09833, 1.09833, 1.09833]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.203983, 0.470311, 0.771984, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.19284
+        Occlusion: 1
+  - EntityID: 15848095249999370124
+    TagComponent:
+      Tag: Prop 84
+    TransformComponent:
+      Position: [-22.833, 0.277383, -23.5295]
+      Rotation: [0, 0.268877, 0]
+      Scale: [0.554767, 0.554767, 0.554767]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.318872, 0.193949, 0.17283, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.780468
+        Occlusion: 1
+  - EntityID: 8802065995613016993
+    TagComponent:
+      Tag: Prop 85
+    TransformComponent:
+      Position: [-19.3253, 0.585076, -23.0479]
+      Rotation: [0, 5.31051, 0]
+      Scale: [1.17015, 1.17015, 1.17015]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.630413, 0.411762, 0.60485, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.665079
+        Occlusion: 1
+  - EntityID: 1756036741226663862
+    TagComponent:
+      Tag: Prop 86
+    TransformComponent:
+      Position: [-14.3612, 0.359391, -23.0446]
+      Rotation: [0, 5.87284, 0]
+      Scale: [0.718783, 0.718783, 0.718783]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.572396, 0.379692, 0.584282, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.195138
+        Occlusion: 1
+  - EntityID: 13156751560549862347
+    TagComponent:
+      Tag: Prop 87
+    TransformComponent:
+      Position: [-10.4781, 0.277362, -23.1402]
+      Rotation: [0, 2.59144, 0]
+      Scale: [0.554724, 0.554724, 0.554724]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.259495, 0.804084, 0.439296, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.414921
+        Occlusion: 1
+  - EntityID: 6110722306163509216
+    TagComponent:
+      Tag: Prop 88
+    TransformComponent:
+      Position: [-6.18588, 0.584477, -22.9871]
+      Rotation: [0, 4.72387, 0]
+      Scale: [1.16895, 1.16895, 1.16895]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.301265, 0.881123, 0.220808, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.690836
+        Occlusion: 1
+  - EntityID: 17511437125486707701
+    TagComponent:
+      Tag: Prop 89
+    TransformComponent:
+      Position: [-1.77035, 0.633474, -22.8742]
+      Rotation: [0, 0.57285, 0]
+      Scale: [1.26695, 1.26695, 1.26695]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.750445, 0.475333, 0.396203, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.189608
+        Occlusion: 1
+  - EntityID: 10465407871100354570
+    TagComponent:
+      Tag: Prop 90
+    TransformComponent:
+      Position: [2.49301, 0.489159, -23.5258]
+      Rotation: [0, 0.805116, 0]
+      Scale: [0.978319, 0.978319, 0.978319]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.416151, 0.666118, 0.805852, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.482512
+        Occlusion: 1
+  - EntityID: 3419378616714001439
+    TagComponent:
+      Tag: Prop 91
+    TransformComponent:
+      Position: [5.93549, 0.290669, -23.1383]
+      Rotation: [0, 0.538732, 0]
+      Scale: [0.581339, 0.581339, 0.581339]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.127355, 0.407389, 0.686085, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.750295
+        Occlusion: 1
+  - EntityID: 14820093436037199924
+    TagComponent:
+      Tag: Prop 92
+    TransformComponent:
+      Position: [10.3769, 0.607557, -23.4539]
+      Rotation: [0, 5.3748, 0]
+      Scale: [1.21511, 1.21511, 1.21511]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.342996, 0.439864, 0.296312, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.75519
+        Occlusion: 1
+  - EntityID: 7774064181650846793
+    TagComponent:
+      Tag: Prop 93
+    TransformComponent:
+      Position: [14.7826, 0.402399, -23.2938]
+      Rotation: [0, 6.00554, 0]
+      Scale: [0.804797, 0.804797, 0.804797]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.567312, 0.18375, 0.62206, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.737716
+        Occlusion: 1
+  - EntityID: 728034927264493662
+    TagComponent:
+      Tag: Prop 94
+    TransformComponent:
+      Position: [18.9063, 0.573722, -22.7675]
+      Rotation: [0, 4.40408, 0]
+      Scale: [1.14744, 1.14744, 1.14744]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.528495, 0.817455, 0.765294, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.77609
+        Occlusion: 1
+  - EntityID: 12128749746587692147
+    TagComponent:
+      Tag: Prop 95
+    TransformComponent:
+      Position: [22.991, 0.416658, -23.4323]
+      Rotation: [0, 0.611547, 0]
+      Scale: [0.833317, 0.833317, 0.833317]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.376303, 0.559925, 0.13486, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.540808
+        Occlusion: 1
+  - EntityID: 5082720492201339016
+    TagComponent:
+      Tag: Prop 96
+    TransformComponent:
+      Position: [27.6204, 0.391143, -23.037]
+      Rotation: [0, 2.21443, 0]
+      Scale: [0.782285, 0.782285, 0.782285]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.360231, 0.698811, 0.500845, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.373741
+        Occlusion: 1
+  - EntityID: 16483435311524537501
+    TagComponent:
+      Tag: Prop 97
+    TransformComponent:
+      Position: [31.5999, 0.661488, -23.4389]
+      Rotation: [0, 2.0571, 0]
+      Scale: [1.32298, 1.32298, 1.32298]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.155077, 0.883529, 0.483758, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.39418
+        Occlusion: 1
+  - EntityID: 9437406057138184370
+    TagComponent:
+      Tag: Prop 98
+    TransformComponent:
+      Position: [36.1198, 0.686388, -22.8158]
+      Rotation: [0, 5.81178, 0]
+      Scale: [1.37278, 1.37278, 1.37278]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.837831, 0.741094, 0.207665, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.761722
+        Occlusion: 1
+  - EntityID: 2391376802751831239
+    TagComponent:
+      Tag: Prop 99
+    TransformComponent:
+      Position: [40.019, 0.696624, -23.0974]
+      Rotation: [0, 4.41431, 0]
+      Scale: [1.39325, 1.39325, 1.39325]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.697319, 0.389262, 0.853851, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.737961
+        Occlusion: 1
+  - EntityID: 13792091622075029724
+    TagComponent:
+      Tag: Prop 100
+    TransformComponent:
+      Position: [-39.8852, 0.459057, -19.0253]
+      Rotation: [0, 3.34177, 0]
+      Scale: [0.918114, 0.918114, 0.918114]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.234238, 0.218684, 0.649794, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.884816
+        Occlusion: 1
+  - EntityID: 6746062367688676593
+    TagComponent:
+      Tag: Prop 101
+    TransformComponent:
+      Position: [-35.7393, 0.33307, -18.6219]
+      Rotation: [0, 4.57159, 0]
+      Scale: [0.66614, 0.66614, 0.66614]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.140084, 0.179378, 0.536566, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.458332
+        Occlusion: 1
+  - EntityID: 18146777187011875078
+    TagComponent:
+      Tag: Prop 102
+    TransformComponent:
+      Position: [-31.7664, 0.367764, -19.2618]
+      Rotation: [0, 3.30565, 0]
+      Scale: [0.735528, 0.735528, 0.735528]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.162797, 0.158249, 0.780502, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.624106
+        Occlusion: 1
+  - EntityID: 11100747932625521947
+    TagComponent:
+      Tag: Prop 103
+    TransformComponent:
+      Position: [-27.2538, 0.637825, -19.2087]
+      Rotation: [0, 2.3117, 0]
+      Scale: [1.27565, 1.27565, 1.27565]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.778104, 0.668223, 0.327002, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.166387
+        Occlusion: 1
+  - EntityID: 4054718678239168816
+    TagComponent:
+      Tag: Prop 104
+    TransformComponent:
+      Position: [-22.8449, 0.639472, -18.8689]
+      Rotation: [0, 2.67179, 0]
+      Scale: [1.27894, 1.27894, 1.27894]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.64048, 0.535581, 0.855788, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.819595
+        Occlusion: 1
+  - EntityID: 15455433497562367301
+    TagComponent:
+      Tag: Prop 105
+    TransformComponent:
+      Position: [-18.7088, 0.616315, -18.7667]
+      Rotation: [0, 1.6112, 0]
+      Scale: [1.23263, 1.23263, 1.23263]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.261091, 0.697426, 0.716266, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.89862
+        Occlusion: 1
+  - EntityID: 8409404243176014170
+    TagComponent:
+      Tag: Prop 106
+    TransformComponent:
+      Position: [-14.7254, 0.431684, -18.9577]
+      Rotation: [0, 5.00034, 0]
+      Scale: [0.863369, 0.863369, 0.863369]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.567678, 0.132095, 0.780913, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.812023
+        Occlusion: 1
+  - EntityID: 1363374988789661039
+    TagComponent:
+      Tag: Prop 107
+    TransformComponent:
+      Position: [-10.5596, 0.384709, -19.1956]
+      Rotation: [0, 0.0345845, 0]
+      Scale: [0.769419, 0.769419, 0.769419]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.196036, 0.342123, 0.809753, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.668501
+        Occlusion: 1
+  - EntityID: 12764089808112859524
+    TagComponent:
+      Tag: Prop 108
+    TransformComponent:
+      Position: [-6.1183, 0.494363, -18.5707]
+      Rotation: [0, 3.46265, 0]
+      Scale: [0.988726, 0.988726, 0.988726]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.520502, 0.533632, 0.754854, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.578976
+        Occlusion: 1
+  - EntityID: 5718060553726506393
+    TagComponent:
+      Tag: Prop 109
+    TransformComponent:
+      Position: [-1.74257, 0.533484, -19.0207]
+      Rotation: [0, 1.896, 0]
+      Scale: [1.06697, 1.06697, 1.06697]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.505054, 0.569014, 0.539996, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.38082
+        Occlusion: 1
+  - EntityID: 17118775373049704878
+    TagComponent:
+      Tag: Prop 110
+    TransformComponent:
+      Position: [2.48653, 0.536499, -19.217]
+      Rotation: [0, 4.62293, 0]
+      Scale: [1.073, 1.073, 1.073]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.552727, 0.394691, 0.421711, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.895898
+        Occlusion: 1
+  - EntityID: 10072746118663351747
+    TagComponent:
+      Tag: Prop 111
+    TransformComponent:
+      Position: [6.66501, 0.551354, -18.6311]
+      Rotation: [0, 5.81003, 0]
+      Scale: [1.10271, 1.10271, 1.10271]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.777075, 0.406733, 0.471492, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.824061
+        Occlusion: 1
+  - EntityID: 3026716864276998616
+    TagComponent:
+      Tag: Prop 112
+    TransformComponent:
+      Position: [10.763, 0.587214, -19.0493]
+      Rotation: [0, 2.11348, 0]
+      Scale: [1.17443, 1.17443, 1.17443]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.464919, 0.193208, 0.383597, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.511065
+        Occlusion: 1
+  - EntityID: 14427431683600197101
+    TagComponent:
+      Tag: Prop 113
+    TransformComponent:
+      Position: [14.669, 0.327433, -19.3328]
+      Rotation: [0, 5.38751, 0]
+      Scale: [0.654867, 0.654867, 0.654867]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.571662, 0.329716, 0.898181, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.345175
+        Occlusion: 1
+  - EntityID: 7381402429213843970
+    TagComponent:
+      Tag: Prop 114
+    TransformComponent:
+      Position: [18.7537, 0.582784, -18.9363]
+      Rotation: [0, 2.7224, 0]
+      Scale: [1.16557, 1.16557, 1.16557]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.721598, 0.488635, 0.672372, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.66849
+        Occlusion: 1
+  - EntityID: 335373174827490839
+    TagComponent:
+      Tag: Prop 115
+    TransformComponent:
+      Position: [23.151, 0.572281, -18.5702]
+      Rotation: [0, 0.813072, 0]
+      Scale: [1.14456, 1.14456, 1.14456]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.873212, 0.283383, 0.120909, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.218533
+        Occlusion: 1
+  - EntityID: 11736087994150689324
+    TagComponent:
+      Tag: Prop 116
+    TransformComponent:
+      Position: [27.171, 0.678476, -18.9635]
+      Rotation: [0, 4.54362, 0]
+      Scale: [1.35695, 1.35695, 1.35695]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.76749, 0.17133, 0.589514, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.449347
+        Occlusion: 1
+  - EntityID: 4690058739764336193
+    TagComponent:
+      Tag: Prop 117
+    TransformComponent:
+      Position: [31.9756, 0.490519, -18.9077]
+      Rotation: [0, 5.94154, 0]
+      Scale: [0.981038, 0.981038, 0.981038]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.875679, 0.182536, 0.542267, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.410027
+        Occlusion: 1
+  - EntityID: 16090773559087534678
+    TagComponent:
+      Tag: Prop 118
+    TransformComponent:
+      Position: [35.7252, 0.303391, -18.8101]
+      Rotation: [0, 1.75057, 0]
+      Scale: [0.606782, 0.606782, 0.606782]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.48377, 0.734626, 0.786278, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.349001
+        Occlusion: 1
+  - EntityID: 9044744304701181547
+    TagComponent:
+      Tag: Prop 119
+    TransformComponent:
+      Position: [40.2291, 0.289237, -18.8059]
+      Rotation: [0, 4.19945, 0]
+      Scale: [0.578473, 0.578473, 0.578473]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.335398, 0.506255, 0.824063, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.442288
+        Occlusion: 1
+  - EntityID: 1998715050314828416
+    TagComponent:
+      Tag: Prop 120
+    TransformComponent:
+      Position: [-40.3071, 0.297623, -14.4537]
+      Rotation: [0, 5.68585, 0]
+      Scale: [0.595247, 0.595247, 0.595247]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.26096, 0.516594, 0.433283, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.439773
+        Occlusion: 1
+  - EntityID: 13399429869638026901
+    TagComponent:
+      Tag: Prop 121
+    TransformComponent:
+      Position: [-35.4791, 0.379867, -14.3432]
+      Rotation: [0, 5.62063, 0]
+      Scale: [0.759733, 0.759733, 0.759733]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.535837, 0.2717, 0.70773, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.519357
+        Occlusion: 1
+  - EntityID: 6353400615251673770
+    TagComponent:
+      Tag: Prop 122
+    TransformComponent:
+      Position: [-31.7093, 0.253853, -14.7481]
+      Rotation: [0, 4.12773, 0]
+      Scale: [0.507706, 0.507706, 0.507706]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.84065, 0.874948, 0.314027, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.891725
+        Occlusion: 1
+  - EntityID: 17754115434574872255
+    TagComponent:
+      Tag: Prop 123
+    TransformComponent:
+      Position: [-27.336, 0.591935, -14.7846]
+      Rotation: [0, 1.43536, 0]
+      Scale: [1.18387, 1.18387, 1.18387]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.319652, 0.665009, 0.429314, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.781789
+        Occlusion: 1
+  - EntityID: 10708086180188519124
+    TagComponent:
+      Tag: Prop 124
+    TransformComponent:
+      Position: [-23.4537, 0.502382, -14.9806]
+      Rotation: [0, 6.02925, 0]
+      Scale: [1.00476, 1.00476, 1.00476]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.526224, 0.587185, 0.219084, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.598871
+        Occlusion: 1
+  - EntityID: 3662056925802165993
+    TagComponent:
+      Tag: Prop 125
+    TransformComponent:
+      Position: [-19.0163, 0.56294, -14.913]
+      Rotation: [0, 1.34643, 0]
+      Scale: [1.12588, 1.12588, 1.12588]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.394148, 0.476439, 0.370716, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.350293
+        Occlusion: 1
+  - EntityID: 15062771745125364478
+    TagComponent:
+      Tag: Prop 126
+    TransformComponent:
+      Position: [-14.6523, 0.64596, -14.9919]
+      Rotation: [0, 3.35831, 0]
+      Scale: [1.29192, 1.29192, 1.29192]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.14653, 0.360805, 0.652086, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.670629
+        Occlusion: 1
+  - EntityID: 8016742490739011347
+    TagComponent:
+      Tag: Prop 127
+    TransformComponent:
+      Position: [-10.4103, 0.651179, -14.4873]
+      Rotation: [0, 3.10063, 0]
+      Scale: [1.30236, 1.30236, 1.30236]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.364033, 0.202338, 0.212094, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.386525
+        Occlusion: 1
+  - EntityID: 970713236352658216
+    TagComponent:
+      Tag: Prop 128
+    TransformComponent:
+      Position: [-6.51061, 0.492471, -15.0664]
+      Rotation: [0, 3.5361, 0]
+      Scale: [0.984943, 0.984943, 0.984943]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.647813, 0.280998, 0.259523, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.677192
+        Occlusion: 1
+  - EntityID: 12371428055675856701
+    TagComponent:
+      Tag: Prop 129
+    TransformComponent:
+      Position: [-2.0512, 0.440019, -14.4294]
+      Rotation: [0, 0.125924, 0]
+      Scale: [0.880038, 0.880038, 0.880038]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.344244, 0.592299, 0.167652, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.153177
+        Occlusion: 1
+  - EntityID: 5325398801289503570
+    TagComponent:
+      Tag: Prop 130
+    TransformComponent:
+      Position: [1.88487, 0.693246, -14.5923]
+      Rotation: [0, 3.77515, 0]
+      Scale: [1.38649, 1.38649, 1.38649]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.514744, 0.1185, 0.363868, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.405805
+        Occlusion: 1
+  - EntityID: 16726113620612702055
+    TagComponent:
+      Tag: Prop 131
+    TransformComponent:
+      Position: [6.02734, 0.596491, -14.9362]
+      Rotation: [0, 0.257624, 0]
+      Scale: [1.19298, 1.19298, 1.19298]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.1619, 0.679943, 0.182568, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.660902
+        Occlusion: 1
+  - EntityID: 9680084366226348924
+    TagComponent:
+      Tag: Prop 132
+    TransformComponent:
+      Position: [10.3799, 0.272395, -14.9214]
+      Rotation: [0, 0.873138, 0]
+      Scale: [0.54479, 0.54479, 0.54479]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.419462, 0.846965, 0.610703, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.173377
+        Occlusion: 1
+  - EntityID: 2634055111839995793
+    TagComponent:
+      Tag: Prop 133
+    TransformComponent:
+      Position: [14.5305, 0.373135, -14.5931]
+      Rotation: [0, 2.02108, 0]
+      Scale: [0.74627, 0.74627, 0.74627]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.858937, 0.38189, 0.74285, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.536429
+        Occlusion: 1
+  - EntityID: 14034769931163194278
+    TagComponent:
+      Tag: Prop 134
+    TransformComponent:
+      Position: [19.0603, 0.522772, -14.4622]
+      Rotation: [0, 2.54442, 0]
+      Scale: [1.04554, 1.04554, 1.04554]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.643202, 0.59651, 0.522187, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.802789
+        Occlusion: 1
+  - EntityID: 6988740676776841147
+    TagComponent:
+      Tag: Prop 135
+    TransformComponent:
+      Position: [23.2094, 0.427197, -14.7082]
+      Rotation: [0, 3.97354, 0]
+      Scale: [0.854394, 0.854394, 0.854394]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.539298, 0.143151, 0.506822, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.82374
+        Occlusion: 1
+  - EntityID: 18389455496100039632
+    TagComponent:
+      Tag: Prop 136
+    TransformComponent:
+      Position: [27.1085, 0.445576, -14.9648]
+      Rotation: [0, 1.57259, 0]
+      Scale: [0.891151, 0.891151, 0.891151]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.316748, 0.524117, 0.478587, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.559468
+        Occlusion: 1
+  - EntityID: 11343426241713686501
+    TagComponent:
+      Tag: Prop 137
+    TransformComponent:
+      Position: [31.5016, 0.418065, -15.0538]
+      Rotation: [0, 3.41757, 0]
+      Scale: [0.83613, 0.83613, 0.83613]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.535802, 0.775054, 0.67853, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.640816
+        Occlusion: 1
+  - EntityID: 4297396987327333370
+    TagComponent:
+      Tag: Prop 138
+    TransformComponent:
+      Position: [35.9371, 0.388658, -15.1125]
+      Rotation: [0, 0.978253, 0]
+      Scale: [0.777315, 0.777315, 0.777315]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.830778, 0.213541, 0.803297, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.661809
+        Occlusion: 1
+  - EntityID: 15698111806650531855
+    TagComponent:
+      Tag: Prop 139
+    TransformComponent:
+      Position: [39.773, 0.631703, -14.4636]
+      Rotation: [0, 5.58036, 0]
+      Scale: [1.26341, 1.26341, 1.26341]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.227814, 0.779288, 0.405388, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.401599
+        Occlusion: 1
+  - EntityID: 8652082552264178724
+    TagComponent:
+      Tag: Prop 140
+    TransformComponent:
+      Position: [-40.0482, 0.520452, -10.832]
+      Rotation: [0, 4.188, 0]
+      Scale: [1.0409, 1.0409, 1.0409]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.73951, 0.582947, 0.106548, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.352317
+        Occlusion: 1
+  - EntityID: 1606053297877825593
+    TagComponent:
+      Tag: Prop 141
+    TransformComponent:
+      Position: [-35.4276, 0.539321, -10.1906]
+      Rotation: [0, 3.52882, 0]
+      Scale: [1.07864, 1.07864, 1.07864]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.80625, 0.467623, 0.723375, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.43463
+        Occlusion: 1
+  - EntityID: 13006768117201024078
+    TagComponent:
+      Tag: Prop 142
+    TransformComponent:
+      Position: [-31.5001, 0.670087, -10.5885]
+      Rotation: [0, 3.80429, 0]
+      Scale: [1.34017, 1.34017, 1.34017]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.142619, 0.476611, 0.129931, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.456323
+        Occlusion: 1
+  - EntityID: 5960738862814670947
+    TagComponent:
+      Tag: Prop 143
+    TransformComponent:
+      Position: [-27.2051, 0.26893, -10.9258]
+      Rotation: [0, 0.87653, 0]
+      Scale: [0.537859, 0.537859, 0.537859]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.506463, 0.385031, 0.316723, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.233344
+        Occlusion: 1
+  - EntityID: 17361453682137869432
+    TagComponent:
+      Tag: Prop 144
+    TransformComponent:
+      Position: [-22.771, 0.544688, -10.1991]
+      Rotation: [0, 5.14777, 0]
+      Scale: [1.08938, 1.08938, 1.08938]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.296139, 0.746629, 0.291849, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.751565
+        Occlusion: 1
+  - EntityID: 10315424427751516301
+    TagComponent:
+      Tag: Prop 145
+    TransformComponent:
+      Position: [-18.8975, 0.321397, -10.6401]
+      Rotation: [0, 5.75463, 0]
+      Scale: [0.642793, 0.642793, 0.642793]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.350959, 0.80381, 0.377005, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.732641
+        Occlusion: 1
+  - EntityID: 3269395173365163170
+    TagComponent:
+      Tag: Prop 146
+    TransformComponent:
+      Position: [-14.6108, 0.597432, -10.1297]
+      Rotation: [0, 2.731, 0]
+      Scale: [1.19486, 1.19486, 1.19486]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.401043, 0.335145, 0.752908, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.19175
+        Occlusion: 1
+  - EntityID: 14670109992688361655
+    TagComponent:
+      Tag: Prop 147
+    TransformComponent:
+      Position: [-10.5735, 0.535719, -10.3669]
+      Rotation: [0, 0.351876, 0]
+      Scale: [1.07144, 1.07144, 1.07144]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.638428, 0.813106, 0.23776, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.539247
+        Occlusion: 1
+  - EntityID: 7624080738302008524
+    TagComponent:
+      Tag: Prop 148
+    TransformComponent:
+      Position: [-6.20159, 0.403443, -10.5364]
+      Rotation: [0, 6.12425, 0]
+      Scale: [0.806886, 0.806886, 0.806886]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.117332, 0.817845, 0.406591, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.68282
+        Occlusion: 1
+  - EntityID: 578051483915655393
+    TagComponent:
+      Tag: Prop 149
+    TransformComponent:
+      Position: [-1.83818, 0.572466, -10.7865]
+      Rotation: [0, 2.10763, 0]
+      Scale: [1.14493, 1.14493, 1.14493]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.875927, 0.625292, 0.727619, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.224772
+        Occlusion: 1
+  - EntityID: 11978766303238853878
+    TagComponent:
+      Tag: Prop 150
+    TransformComponent:
+      Position: [2.07431, 0.471681, -10.5494]
+      Rotation: [0, 4.54201, 0]
+      Scale: [0.943363, 0.943363, 0.943363]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.255014, 0.452484, 0.533619, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.729866
+        Occlusion: 1
+  - EntityID: 4932737048852500747
+    TagComponent:
+      Tag: Prop 151
+    TransformComponent:
+      Position: [6.37293, 0.627886, -10.1849]
+      Rotation: [0, 2.36204, 0]
+      Scale: [1.25577, 1.25577, 1.25577]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.187178, 0.120979, 0.159669, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.262411
+        Occlusion: 1
+  - EntityID: 16333451868175699232
+    TagComponent:
+      Tag: Prop 152
+    TransformComponent:
+      Position: [10.2727, 0.55025, -10.3135]
+      Rotation: [0, 1.8118, 0]
+      Scale: [1.1005, 1.1005, 1.1005]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.224409, 0.87768, 0.76082, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.748403
+        Occlusion: 1
+  - EntityID: 9287422613789346101
+    TagComponent:
+      Tag: Prop 153
+    TransformComponent:
+      Position: [15.0943, 0.428446, -10.9113]
+      Rotation: [0, 4.62255, 0]
+      Scale: [0.856893, 0.856893, 0.856893]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.83012, 0.530185, 0.412634, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.625349
+        Occlusion: 1
+  - EntityID: 2241393359402992970
+    TagComponent:
+      Tag: Prop 154
+    TransformComponent:
+      Position: [18.5516, 0.691971, -10.2832]
+      Rotation: [0, 4.15905, 0]
+      Scale: [1.38394, 1.38394, 1.38394]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.37398, 0.29132, 0.720016, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.830435
+        Occlusion: 1
+  - EntityID: 13642108178726191455
+    TagComponent:
+      Tag: Prop 155
+    TransformComponent:
+      Position: [23.5062, 0.329023, -10.1581]
+      Rotation: [0, 3.22238, 0]
+      Scale: [0.658047, 0.658047, 0.658047]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.44194, 0.735521, 0.848626, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.589015
+        Occlusion: 1
+  - EntityID: 6596078924339838324
+    TagComponent:
+      Tag: Prop 156
+    TransformComponent:
+      Position: [27.5481, 0.560777, -10.3661]
+      Rotation: [0, 3.37082, 0]
+      Scale: [1.12155, 1.12155, 1.12155]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.298333, 0.723582, 0.195275, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.640168
+        Occlusion: 1
+  - EntityID: 17996793743663036809
+    TagComponent:
+      Tag: Prop 157
+    TransformComponent:
+      Position: [31.6941, 0.501983, -10.6167]
+      Rotation: [0, 3.00764, 0]
+      Scale: [1.00397, 1.00397, 1.00397]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.882475, 0.291354, 0.109735, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.631077
+        Occlusion: 1
+  - EntityID: 10950764489276683678
+    TagComponent:
+      Tag: Prop 158
+    TransformComponent:
+      Position: [36.1537, 0.375133, -10.6767]
+      Rotation: [0, 3.73639, 0]
+      Scale: [0.750265, 0.750265, 0.750265]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.888892, 0.66602, 0.354656, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.461669
+        Occlusion: 1
+  - EntityID: 3904735234890330547
+    TagComponent:
+      Tag: Prop 159
+    TransformComponent:
+      Position: [40.0278, 0.475714, -10.5674]
+      Rotation: [0, 1.05264, 0]
+      Scale: [0.951428, 0.951428, 0.951428]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.416387, 0.411271, 0.260576, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.463206
+        Occlusion: 1
+  - EntityID: 15305450054213529032
+    TagComponent:
+      Tag: Prop 160
+    TransformComponent:
+      Position: [-39.7465, 0.318169, -6.4278]
+      Rotation: [0, 5.30562, 0]
+      Scale: [0.636338, 0.636338, 0.636338]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.724449, 0.597632, 0.68483, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.575156
+        Occlusion: 1
+  - EntityID: 8259420799827175901
+    TagComponent:
+      Tag: Prop 161
+    TransformComponent:
+      Position: [-35.9206, 0.364754, -6.60162]
+      Rotation: [0, 1.75296, 0]
+      Scale: [0.729509, 0.729509, 0.729509]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.474209, 0.219226, 0.204209, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.412015
+        Occlusion: 1
+  - EntityID: 1213391545440822770
+    TagComponent:
+      Tag: Prop 162
+    TransformComponent:
+      Position: [-31.7768, 0.610765, -6.55859]
+      Rotation: [0, 1.24602, 0]
+      Scale: [1.22153, 1.22153, 1.22153]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.443374, 0.797532, 0.56209, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.553168
+        Occlusion: 1
+  - EntityID: 12614106364764021255
+    TagComponent:
+      Tag: Prop 163
+    TransformComponent:
+      Position: [-27.3253, 0.338127, -6.40274]
+      Rotation: [0, 0.484498, 0]
+      Scale: [0.676254, 0.676254, 0.676254]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.728952, 0.14602, 0.697078, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.619054
+        Occlusion: 1
+  - EntityID: 5568077110377668124
+    TagComponent:
+      Tag: Prop 164
+    TransformComponent:
+      Position: [-23.2518, 0.515952, -6.16986]
+      Rotation: [0, 3.38179, 0]
+      Scale: [1.0319, 1.0319, 1.0319]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.159334, 0.292975, 0.405335, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.246882
+        Occlusion: 1
+  - EntityID: 16968791929700866609
+    TagComponent:
+      Tag: Prop 165
+    TransformComponent:
+      Position: [-19.1188, 0.694076, -6.18638]
+      Rotation: [0, 5.26639, 0]
+      Scale: [1.38815, 1.38815, 1.38815]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.280079, 0.667465, 0.378176, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.417646
+        Occlusion: 1
+  - EntityID: 9922762675314513478
+    TagComponent:
+      Tag: Prop 166
+    TransformComponent:
+      Position: [-14.7086, 0.622309, -6.64492]
+      Rotation: [0, 2.91048, 0]
+      Scale: [1.24462, 1.24462, 1.24462]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.332237, 0.748162, 0.574076, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.306626
+        Occlusion: 1
+  - EntityID: 2876733420928160347
+    TagComponent:
+      Tag: Prop 167
+    TransformComponent:
+      Position: [-10.4342, 0.364703, -6.11199]
+      Rotation: [0, 5.20333, 0]
+      Scale: [0.729407, 0.729407, 0.729407]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.352484, 0.749817, 0.865312, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.193686
+        Occlusion: 1
+  - EntityID: 14277448240251358832
+    TagComponent:
+      Tag: Prop 168
+    TransformComponent:
+      Position: [-6.21244, 0.634294, -6.63316]
+      Rotation: [0, 1.54425, 0]
+      Scale: [1.26859, 1.26859, 1.26859]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.266298, 0.506177, 0.197253, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.625071
+        Occlusion: 1
+  - EntityID: 7231418985865005701
+    TagComponent:
+      Tag: Prop 169
+    TransformComponent:
+      Position: [-1.78045, 0.618677, -6.1495]
+      Rotation: [0, 5.79764, 0]
+      Scale: [1.23735, 1.23735, 1.23735]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.207164, 0.673, 0.303683, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.437865
+        Occlusion: 1
+  - EntityID: 185389731478652570
+    TagComponent:
+      Tag: Prop 170
+    TransformComponent:
+      Position: [1.70817, 0.340695, -6.61908]
+      Rotation: [0, 2.37415, 0]
+      Scale: [0.68139, 0.68139, 0.68139]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.485625, 0.590865, 0.314128, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.722509
+        Occlusion: 1
+  - EntityID: 11586104550801851055
+    TagComponent:
+      Tag: Prop 171
+    TransformComponent:
+      Position: [6.42654, 0.664616, -6.17853]
+      Rotation: [0, 5.3712, 0]
+      Scale: [1.32923, 1.32923, 1.32923]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.874201, 0.715116, 0.436953, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.52715
+        Occlusion: 1
+  - EntityID: 4540075296415497924
+    TagComponent:
+      Tag: Prop 172
+    TransformComponent:
+      Position: [10.3439, 0.623962, -6.6376]
+      Rotation: [0, 3.51374, 0]
+      Scale: [1.24792, 1.24792, 1.24792]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.463145, 0.135877, 0.27147, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.2472
+        Occlusion: 1
+  - EntityID: 15940790115738696409
+    TagComponent:
+      Tag: Prop 173
+    TransformComponent:
+      Position: [14.9952, 0.665978, -6.28486]
+      Rotation: [0, 0.590493, 0]
+      Scale: [1.33196, 1.33196, 1.33196]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.642493, 0.134127, 0.438133, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.83098
+        Occlusion: 1
+  - EntityID: 8894760861352343278
+    TagComponent:
+      Tag: Prop 174
+    TransformComponent:
+      Position: [18.9008, 0.517893, -5.95029]
+      Rotation: [0, 3.20121, 0]
+      Scale: [1.03579, 1.03579, 1.03579]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.517463, 0.25766, 0.387785, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.2925
+        Occlusion: 1
+  - EntityID: 1848731606965990147
+    TagComponent:
+      Tag: Prop 175
+    TransformComponent:
+      Position: [23.4599, 0.59959, -5.93061]
+      Rotation: [0, 5.68891, 0]
+      Scale: [1.19918, 1.19918, 1.19918]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.466768, 0.767245, 0.241424, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.198376
+        Occlusion: 1
+  - EntityID: 13249446426289188632
+    TagComponent:
+      Tag: Prop 176
+    TransformComponent:
+      Position: [27.0866, 0.378486, -5.99046]
+      Rotation: [0, 3.14658, 0]
+      Scale: [0.756971, 0.756971, 0.756971]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.892455, 0.768398, 0.41704, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.182292
+        Occlusion: 1
+  - EntityID: 6203417171902835501
+    TagComponent:
+      Tag: Prop 177
+    TransformComponent:
+      Position: [31.9734, 0.62893, -6.07845]
+      Rotation: [0, 2.47671, 0]
+      Scale: [1.25786, 1.25786, 1.25786]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.824568, 0.476503, 0.847714, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.63458
+        Occlusion: 1
+  - EntityID: 17604131991226033986
+    TagComponent:
+      Tag: Prop 178
+    TransformComponent:
+      Position: [35.8312, 0.46472, -5.9879]
+      Rotation: [0, 3.69692, 0]
+      Scale: [0.929441, 0.929441, 0.929441]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.353848, 0.219518, 0.571466, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.470116
+        Occlusion: 1
+  - EntityID: 10558102736839680855
+    TagComponent:
+      Tag: Prop 179
+    TransformComponent:
+      Position: [40.2808, 0.63926, -6.49357]
+      Rotation: [0, 4.87124, 0]
+      Scale: [1.27852, 1.27852, 1.27852]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.432104, 0.899005, 0.732703, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.740347
+        Occlusion: 1
+  - EntityID: 3512073482453327724
+    TagComponent:
+      Tag: Prop 180
+    TransformComponent:
+      Position: [-39.9395, 0.508217, -2.41446]
+      Rotation: [0, 5.66587, 0]
+      Scale: [1.01643, 1.01643, 1.01643]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.369358, 0.394676, 0.540707, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.160786
+        Occlusion: 1
+  - EntityID: 14912788301776526209
+    TagComponent:
+      Tag: Prop 181
+    TransformComponent:
+      Position: [-35.6795, 0.468216, -2.03908]
+      Rotation: [0, 5.32005, 0]
+      Scale: [0.936433, 0.936433, 0.936433]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.456968, 0.500064, 0.748278, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.625766
+        Occlusion: 1
+  - EntityID: 7866759047390173078
+    TagComponent:
+      Tag: Prop 182
+    TransformComponent:
+      Position: [-31.9762, 0.396263, -2.37669]
+      Rotation: [0, 5.62694, 0]
+      Scale: [0.792527, 0.792527, 0.792527]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.218573, 0.186309, 0.353761, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.310453
+        Occlusion: 1
+  - EntityID: 820729793003819947
+    TagComponent:
+      Tag: Prop 183
+    TransformComponent:
+      Position: [-27.3615, 0.698043, -1.84808]
+      Rotation: [0, 3.8235, 0]
+      Scale: [1.39609, 1.39609, 1.39609]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.130082, 0.150772, 0.604589, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.788902
+        Occlusion: 1
+  - EntityID: 12221444612327018432
+    TagComponent:
+      Tag: Prop 184
+    TransformComponent:
+      Position: [-22.902, 0.686149, -2.29285]
+      Rotation: [0, 3.60328, 0]
+      Scale: [1.3723, 1.3723, 1.3723]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.594898, 0.159931, 0.236311, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.56279
+        Occlusion: 1
+  - EntityID: 5175415357940665301
+    TagComponent:
+      Tag: Prop 185
+    TransformComponent:
+      Position: [-18.5984, 0.287482, -2.29143]
+      Rotation: [0, 4.5602, 0]
+      Scale: [0.574964, 0.574964, 0.574964]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.310247, 0.268465, 0.321704, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.361822
+        Occlusion: 1
+  - EntityID: 16576130177263863786
+    TagComponent:
+      Tag: Prop 186
+    TransformComponent:
+      Position: [-14.7525, 0.385595, -1.91522]
+      Rotation: [0, 6.12854, 0]
+      Scale: [0.771191, 0.771191, 0.771191]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.757613, 0.1601, 0.352367, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.805132
+        Occlusion: 1
+  - EntityID: 9530100922877510655
+    TagComponent:
+      Tag: Prop 187
+    TransformComponent:
+      Position: [-10.1857, 0.309964, -1.81776]
+      Rotation: [0, 2.28556, 0]
+      Scale: [0.619928, 0.619928, 0.619928]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.697976, 0.122968, 0.352382, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.481668
+        Occlusion: 1
+  - EntityID: 2484071668491157524
+    TagComponent:
+      Tag: Prop 188
+    TransformComponent:
+      Position: [-6.11597, 0.268282, -1.79577]
+      Rotation: [0, 4.16746, 0]
+      Scale: [0.536564, 0.536564, 0.536564]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.798333, 0.439664, 0.87844, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.591265
+        Occlusion: 1
+  - EntityID: 13884786487814356009
+    TagComponent:
+      Tag: Prop 189
+    TransformComponent:
+      Position: [-2.34732, 0.30852, -2.41345]
+      Rotation: [0, 0.768926, 0]
+      Scale: [0.617041, 0.617041, 0.617041]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.313277, 0.257041, 0.144235, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.590043
+        Occlusion: 1
+  - EntityID: 6838757233428002878
+    TagComponent:
+      Tag: Prop 190
+    TransformComponent:
+      Position: [2.47517, 0.683807, -2.23732]
+      Rotation: [0, 1.38015, 0]
+      Scale: [1.36761, 1.36761, 1.36761]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.846037, 0.107482, 0.885324, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.692426
+        Occlusion: 1
+  - EntityID: 18239472052751201363
+    TagComponent:
+      Tag: Prop 191
+    TransformComponent:
+      Position: [5.9416, 0.498381, -2.30261]
+      Rotation: [0, 4.80239, 0]
+      Scale: [0.996761, 0.996761, 0.996761]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.167723, 0.753669, 0.128083, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.156883
+        Occlusion: 1
+  - EntityID: 11193442798364848232
+    TagComponent:
+      Tag: Prop 192
+    TransformComponent:
+      Position: [10.5488, 0.379944, -2.33771]
+      Rotation: [0, 2.33225, 0]
+      Scale: [0.759888, 0.759888, 0.759888]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.413584, 0.622744, 0.256193, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.517863
+        Occlusion: 1
+  - EntityID: 4147413543978495101
+    TagComponent:
+      Tag: Prop 193
+    TransformComponent:
+      Position: [14.482, 0.383633, -1.95775]
+      Rotation: [0, 2.67679, 0]
+      Scale: [0.767267, 0.767267, 0.767267]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.479217, 0.118536, 0.116524, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.849716
+        Occlusion: 1
+  - EntityID: 15548128363301693586
+    TagComponent:
+      Tag: Prop 194
+    TransformComponent:
+      Position: [18.6312, 0.549045, -2.00476]
+      Rotation: [0, 2.71591, 0]
+      Scale: [1.09809, 1.09809, 1.09809]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.666136, 0.374882, 0.15925, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.864148
+        Occlusion: 1
+  - EntityID: 8502099108915340455
+    TagComponent:
+      Tag: Prop 195
+    TransformComponent:
+      Position: [23.094, 0.611901, -1.94396]
+      Rotation: [0, 5.22605, 0]
+      Scale: [1.2238, 1.2238, 1.2238]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.550892, 0.540293, 0.500876, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.863988
+        Occlusion: 1
+  - EntityID: 1456069854528987324
+    TagComponent:
+      Tag: Prop 196
+    TransformComponent:
+      Position: [27.3505, 0.509068, -1.96087]
+      Rotation: [0, 2.82647, 0]
+      Scale: [1.01814, 1.01814, 1.01814]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.47694, 0.765663, 0.640509, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.792871
+        Occlusion: 1
+  - EntityID: 12856784673852185809
+    TagComponent:
+      Tag: Prop 197
+    TransformComponent:
+      Position: [31.5985, 0.612567, -2.05451]
+      Rotation: [0, 1.62746, 0]
+      Scale: [1.22513, 1.22513, 1.22513]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.348195, 0.583684, 0.136678, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.605537
+        Occlusion: 1
+  - EntityID: 5810755419465832678
+    TagComponent:
+      Tag: Prop 198
+    TransformComponent:
+      Position: [35.7555, 0.354465, -1.79174]
+      Rotation: [0, 4.39289, 0]
+      Scale: [0.708929, 0.708929, 0.708929]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.840403, 0.657019, 0.600664, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.483117
+        Occlusion: 1
+  - EntityID: 17211470238789031163
+    TagComponent:
+      Tag: Prop 199
+    TransformComponent:
+      Position: [39.9071, 0.538876, -2.15538]
+      Rotation: [0, 4.92899, 0]
+      Scale: [1.07775, 1.07775, 1.07775]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.106552, 0.701134, 0.693637, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.41724
+        Occlusion: 1
+  - EntityID: 10165440984402678032
+    TagComponent:
+      Tag: Prop 200
+    TransformComponent:
+      Position: [-40.1548, 0.402171, 1.71723]
+      Rotation: [0, 4.94203, 0]
+      Scale: [0.804343, 0.804343, 0.804343]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.796293, 0.266851, 0.165389, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.591889
+        Occlusion: 1
+  - EntityID: 3119411730016324901
+    TagComponent:
+      Tag: Prop 201
+    TransformComponent:
+      Position: [-36.0936, 0.540447, 2.4965]
+      Rotation: [0, 4.33801, 0]
+      Scale: [1.08089, 1.08089, 1.08089]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.867582, 0.58595, 0.286058, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.246274
+        Occlusion: 1
+  - EntityID: 14520126549339523386
+    TagComponent:
+      Tag: Prop 202
+    TransformComponent:
+      Position: [-31.209, 0.332343, 2.26571]
+      Rotation: [0, 3.16622, 0]
+      Scale: [0.664686, 0.664686, 0.664686]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.559234, 0.39263, 0.335001, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.724663
+        Occlusion: 1
+  - EntityID: 7474097294953170255
+    TagComponent:
+      Tag: Prop 203
+    TransformComponent:
+      Position: [-27.4321, 0.457649, 2.12638]
+      Rotation: [0, 0.466011, 0]
+      Scale: [0.915299, 0.915299, 0.915299]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.259191, 0.850004, 0.586286, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.799699
+        Occlusion: 1
+  - EntityID: 428068040566817124
+    TagComponent:
+      Tag: Prop 204
+    TransformComponent:
+      Position: [-23.0639, 0.359573, 2.20906]
+      Rotation: [0, 1.31973, 0]
+      Scale: [0.719146, 0.719146, 0.719146]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.221587, 0.89161, 0.695051, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.446009
+        Occlusion: 1
+  - EntityID: 11828782859890015609
+    TagComponent:
+      Tag: Prop 205
+    TransformComponent:
+      Position: [-18.6441, 0.567012, 1.70643]
+      Rotation: [0, 3.12688, 0]
+      Scale: [1.13402, 1.13402, 1.13402]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.640201, 0.12495, 0.396607, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.380447
+        Occlusion: 1
+  - EntityID: 4782753605503662478
+    TagComponent:
+      Tag: Prop 206
+    TransformComponent:
+      Position: [-14.6937, 0.480943, 2.40477]
+      Rotation: [0, 3.79162, 0]
+      Scale: [0.961886, 0.961886, 0.961886]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.56689, 0.333831, 0.538441, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.388187
+        Occlusion: 1
+  - EntityID: 16183468424826860963
+    TagComponent:
+      Tag: Prop 207
+    TransformComponent:
+      Position: [-10.7054, 0.389826, 1.7143]
+      Rotation: [0, 3.08908, 0]
+      Scale: [0.779653, 0.779653, 0.779653]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.500919, 0.796178, 0.698325, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.214823
+        Occlusion: 1
+  - EntityID: 9137439170440507832
+    TagComponent:
+      Tag: Prop 208
+    TransformComponent:
+      Position: [-6.11629, 0.369105, 2.49698]
+      Rotation: [0, 1.4479, 0]
+      Scale: [0.73821, 0.73821, 0.73821]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.181989, 0.512183, 0.509063, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.429552
+        Occlusion: 1
+  - EntityID: 2091409916054154701
+    TagComponent:
+      Tag: Prop 209
+    TransformComponent:
+      Position: [-2.40148, 0.690327, 2.4433]
+      Rotation: [0, 0.0199139, 0]
+      Scale: [1.38065, 1.38065, 1.38065]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.149438, 0.685384, 0.782017, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.201229
+        Occlusion: 1
+  - EntityID: 13492124735377353186
+    TagComponent:
+      Tag: Prop 210
+    TransformComponent:
+      Position: [1.7582, 0.492076, 1.71243]
+      Rotation: [0, 0.117674, 0]
+      Scale: [0.984152, 0.984152, 0.984152]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.107039, 0.269087, 0.260088, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.399534
+        Occlusion: 1
+  - EntityID: 6446095480991000055
+    TagComponent:
+      Tag: Prop 211
+    TransformComponent:
+      Position: [6.15208, 0.363121, 2.1458]
+      Rotation: [0, 1.3235, 0]
+      Scale: [0.726242, 0.726242, 0.726242]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.809601, 0.290873, 0.544264, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.325137
+        Occlusion: 1
+  - EntityID: 17846810300314198540
+    TagComponent:
+      Tag: Prop 212
+    TransformComponent:
+      Position: [10.4884, 0.433042, 1.97039]
+      Rotation: [0, 1.1621, 0]
+      Scale: [0.866084, 0.866084, 0.866084]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.612111, 0.70919, 0.274696, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.161993
+        Occlusion: 1
+  - EntityID: 10800781045927845409
+    TagComponent:
+      Tag: Prop 213
+    TransformComponent:
+      Position: [14.4781, 0.294001, 2.42982]
+      Rotation: [0, 5.51417, 0]
+      Scale: [0.588002, 0.588002, 0.588002]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.217039, 0.76638, 0.220045, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.746145
+        Occlusion: 1
+  - EntityID: 3754751791541492278
+    TagComponent:
+      Tag: Prop 214
+    TransformComponent:
+      Position: [18.5819, 0.404945, 1.93425]
+      Rotation: [0, 2.77904, 0]
+      Scale: [0.809891, 0.809891, 0.809891]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.734766, 0.631814, 0.195355, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.592155
+        Occlusion: 1
+  - EntityID: 15155466610864690763
+    TagComponent:
+      Tag: Prop 215
+    TransformComponent:
+      Position: [22.9198, 0.302171, 2.30219]
+      Rotation: [0, 5.0966, 0]
+      Scale: [0.604342, 0.604342, 0.604342]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.275869, 0.328889, 0.3017, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.864477
+        Occlusion: 1
+  - EntityID: 8109437356478337632
+    TagComponent:
+      Tag: Prop 216
+    TransformComponent:
+      Position: [27.3067, 0.264518, 1.90417]
+      Rotation: [0, 1.22334, 0]
+      Scale: [0.529037, 0.529037, 0.529037]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.379939, 0.463412, 0.79945, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.338825
+        Occlusion: 1
+  - EntityID: 1063408102091984501
+    TagComponent:
+      Tag: Prop 217
+    TransformComponent:
+      Position: [31.7066, 0.639038, 2.19765]
+      Rotation: [0, 2.67587, 0]
+      Scale: [1.27808, 1.27808, 1.27808]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.295596, 0.764162, 0.801889, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.4399
+        Occlusion: 1
+  - EntityID: 12464122921415182986
+    TagComponent:
+      Tag: Prop 218
+    TransformComponent:
+      Position: [36.1181, 0.301227, 2.1892]
+      Rotation: [0, 5.00852, 0]
+      Scale: [0.602454, 0.602454, 0.602454]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.808373, 0.525815, 0.836614, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.204202
+        Occlusion: 1
+  - EntityID: 5418093667028829855
+    TagComponent:
+      Tag: Prop 219
+    TransformComponent:
+      Position: [40.3446, 0.416745, 2.30906]
+      Rotation: [0, 2.20983, 0]
+      Scale: [0.83349, 0.83349, 0.83349]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.41684, 0.477052, 0.113688, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.492256
+        Occlusion: 1
+  - EntityID: 16818808486352028340
+    TagComponent:
+      Tag: Prop 220
+    TransformComponent:
+      Position: [-40.2981, 0.505067, 6.0502]
+      Rotation: [0, 4.46757, 0]
+      Scale: [1.01013, 1.01013, 1.01013]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.219596, 0.466147, 0.601843, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.803707
+        Occlusion: 1
+  - EntityID: 9772779231965675209
+    TagComponent:
+      Tag: Prop 221
+    TransformComponent:
+      Position: [-36.0813, 0.525417, 5.97954]
+      Rotation: [0, 4.05096, 0]
+      Scale: [1.05083, 1.05083, 1.05083]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.237234, 0.784724, 0.347792, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.326571
+        Occlusion: 1
+  - EntityID: 2726749977579322078
+    TagComponent:
+      Tag: Prop 222
+    TransformComponent:
+      Position: [-31.6363, 0.648857, 6.35576]
+      Rotation: [0, 5.3053, 0]
+      Scale: [1.29771, 1.29771, 1.29771]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.647613, 0.15535, 0.249432, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.837283
+        Occlusion: 1
+  - EntityID: 14127464796902520563
+    TagComponent:
+      Tag: Prop 223
+    TransformComponent:
+      Position: [-27.3407, 0.576766, 6.70389]
+      Rotation: [0, 2.23566, 0]
+      Scale: [1.15353, 1.15353, 1.15353]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.869972, 0.506197, 0.796255, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.293748
+        Occlusion: 1
+  - EntityID: 7081435542516167432
+    TagComponent:
+      Tag: Prop 224
+    TransformComponent:
+      Position: [-22.8715, 0.532169, 6.5412]
+      Rotation: [0, 2.14824, 0]
+      Scale: [1.06434, 1.06434, 1.06434]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.196332, 0.858849, 0.126104, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.649383
+        Occlusion: 1
+  - EntityID: 35406288129814301
+    TagComponent:
+      Tag: Prop 225
+    TransformComponent:
+      Position: [-19.1307, 0.684219, 6.40691]
+      Rotation: [0, 1.55097, 0]
+      Scale: [1.36844, 1.36844, 1.36844]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.778326, 0.361653, 0.422364, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.307626
+        Occlusion: 1
+  - EntityID: 11436121107453012786
+    TagComponent:
+      Tag: Prop 226
+    TransformComponent:
+      Position: [-14.849, 0.67382, 5.95535]
+      Rotation: [0, 0.0428667, 0]
+      Scale: [1.34764, 1.34764, 1.34764]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.177716, 0.208363, 0.395109, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.673298
+        Occlusion: 1
+  - EntityID: 4390091853066659655
+    TagComponent:
+      Tag: Prop 227
+    TransformComponent:
+      Position: [-10.2141, 0.352634, 6.02848]
+      Rotation: [0, 3.20716, 0]
+      Scale: [0.705269, 0.705269, 0.705269]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.820872, 0.531566, 0.822844, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.383583
+        Occlusion: 1
+  - EntityID: 15790806672389858140
+    TagComponent:
+      Tag: Prop 228
+    TransformComponent:
+      Position: [-6.28225, 0.642159, 6.26149]
+      Rotation: [0, 2.98286, 0]
+      Scale: [1.28432, 1.28432, 1.28432]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.509961, 0.384504, 0.446481, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.585626
+        Occlusion: 1
+  - EntityID: 8744777418003505009
+    TagComponent:
+      Tag: Prop 229
+    TransformComponent:
+      Position: [-2.44594, 0.593348, 6.07996]
+      Rotation: [0, 1.3078, 0]
+      Scale: [1.1867, 1.1867, 1.1867]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.230875, 0.390305, 0.139431, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.250188
+        Occlusion: 1
+  - EntityID: 1698748163617151878
+    TagComponent:
+      Tag: Prop 230
+    TransformComponent:
+      Position: [1.99353, 0.555089, 6.40355]
+      Rotation: [0, 0.546848, 0]
+      Scale: [1.11018, 1.11018, 1.11018]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.615058, 0.257051, 0.37394, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.80051
+        Occlusion: 1
+  - EntityID: 13099462982940350363
+    TagComponent:
+      Tag: Prop 231
+    TransformComponent:
+      Position: [6.37589, 0.551774, 6.58615]
+      Rotation: [0, 0.112713, 0]
+      Scale: [1.10355, 1.10355, 1.10355]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.352872, 0.48429, 0.128964, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.888974
+        Occlusion: 1
+  - EntityID: 6053433728553997232
+    TagComponent:
+      Tag: Prop 232
+    TransformComponent:
+      Position: [10.1682, 0.501621, 6.20921]
+      Rotation: [0, 0.428961, 0]
+      Scale: [1.00324, 1.00324, 1.00324]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.355069, 0.693218, 0.553738, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.251636
+        Occlusion: 1
+  - EntityID: 17454148547877195717
+    TagComponent:
+      Tag: Prop 233
+    TransformComponent:
+      Position: [15.1343, 0.650678, 6.39987]
+      Rotation: [0, 3.02018, 0]
+      Scale: [1.30136, 1.30136, 1.30136]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.432436, 0.157193, 0.150345, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.579667
+        Occlusion: 1
+  - EntityID: 10408119293490842586
+    TagComponent:
+      Tag: Prop 234
+    TransformComponent:
+      Position: [19.0741, 0.258572, 6.60313]
+      Rotation: [0, 2.05649, 0]
+      Scale: [0.517143, 0.517143, 0.517143]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.350455, 0.767357, 0.30192, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.28517
+        Occlusion: 1
+  - EntityID: 3362090039104489455
+    TagComponent:
+      Tag: Prop 235
+    TransformComponent:
+      Position: [23.0029, 0.677863, 6.30586]
+      Rotation: [0, 3.97966, 0]
+      Scale: [1.35573, 1.35573, 1.35573]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.13888, 0.445152, 0.84177, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.370886
+        Occlusion: 1
+  - EntityID: 14762804858427687940
+    TagComponent:
+      Tag: Prop 236
+    TransformComponent:
+      Position: [27.1423, 0.544365, 6.20096]
+      Rotation: [0, 3.61748, 0]
+      Scale: [1.08873, 1.08873, 1.08873]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.586842, 0.640309, 0.358131, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.574156
+        Occlusion: 1
+  - EntityID: 7716775604041334809
+    TagComponent:
+      Tag: Prop 237
+    TransformComponent:
+      Position: [31.4603, 0.485052, 6.23339]
+      Rotation: [0, 5.4885, 0]
+      Scale: [0.970103, 0.970103, 0.970103]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.416669, 0.459398, 0.766124, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.575251
+        Occlusion: 1
+  - EntityID: 670746349654981678
+    TagComponent:
+      Tag: Prop 238
+    TransformComponent:
+      Position: [36.1663, 0.578694, 6.11011]
+      Rotation: [0, 4.65424, 0]
+      Scale: [1.15739, 1.15739, 1.15739]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.130822, 0.505703, 0.555983, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.335709
+        Occlusion: 1
+  - EntityID: 12071461168978180163
+    TagComponent:
+      Tag: Prop 239
+    TransformComponent:
+      Position: [40.1597, 0.607793, 6.64941]
+      Rotation: [0, 3.12226, 0]
+      Scale: [1.21559, 1.21559, 1.21559]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.110581, 0.542133, 0.54978, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.57231
+        Occlusion: 1
+  - EntityID: 5025431914591827032
+    TagComponent:
+      Tag: Prop 240
+    TransformComponent:
+      Position: [-39.8063, 0.514898, 10.2586]
+      Rotation: [0, 4.55865, 0]
+      Scale: [1.0298, 1.0298, 1.0298]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.757287, 0.450221, 0.650149, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.188687
+        Occlusion: 1
+  - EntityID: 16426146733915025517
+    TagComponent:
+      Tag: Prop 241
+    TransformComponent:
+      Position: [-35.6596, 0.28971, 10.3692]
+      Rotation: [0, 2.24244, 0]
+      Scale: [0.579421, 0.579421, 0.579421]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.229101, 0.453765, 0.766353, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.718498
+        Occlusion: 1
+  - EntityID: 9380117479528672386
+    TagComponent:
+      Tag: Prop 242
+    TransformComponent:
+      Position: [-31.2156, 0.686435, 10.5802]
+      Rotation: [0, 3.07982, 0]
+      Scale: [1.37287, 1.37287, 1.37287]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.106702, 0.287173, 0.801248, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.280069
+        Occlusion: 1
+  - EntityID: 2334088225142319255
+    TagComponent:
+      Tag: Prop 243
+    TransformComponent:
+      Position: [-27.7209, 0.479294, 10.6499]
+      Rotation: [0, 6.23978, 0]
+      Scale: [0.958587, 0.958587, 0.958587]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.198673, 0.309659, 0.893135, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.890683
+        Occlusion: 1
+  - EntityID: 13734803044465517740
+    TagComponent:
+      Tag: Prop 244
+    TransformComponent:
+      Position: [-23.2939, 0.660298, 10.2707]
+      Rotation: [0, 1.93523, 0]
+      Scale: [1.3206, 1.3206, 1.3206]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.543509, 0.441926, 0.466388, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.612916
+        Occlusion: 1
+  - EntityID: 6688773790079164609
+    TagComponent:
+      Tag: Prop 245
+    TransformComponent:
+      Position: [-18.9057, 0.527022, 10.2621]
+      Rotation: [0, 3.71801, 0]
+      Scale: [1.05404, 1.05404, 1.05404]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.73, 0.326029, 0.223677, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.866377
+        Occlusion: 1
+  - EntityID: 18089488609402363094
+    TagComponent:
+      Tag: Prop 246
+    TransformComponent:
+      Position: [-15.1317, 0.303578, 10.9114]
+      Rotation: [0, 4.11166, 0]
+      Scale: [0.607156, 0.607156, 0.607156]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.68768, 0.594506, 0.45165, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.435011
+        Occlusion: 1
+  - EntityID: 11043459355016009963
+    TagComponent:
+      Tag: Prop 247
+    TransformComponent:
+      Position: [-10.2744, 0.625887, 10.4802]
+      Rotation: [0, 4.53423, 0]
+      Scale: [1.25177, 1.25177, 1.25177]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.177839, 0.410048, 0.45471, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.190519
+        Occlusion: 1
+  - EntityID: 3997430100629656832
+    TagComponent:
+      Tag: Prop 248
+    TransformComponent:
+      Position: [-6.5702, 0.633802, 10.4855]
+      Rotation: [0, 1.21781, 0]
+      Scale: [1.2676, 1.2676, 1.2676]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.880492, 0.459973, 0.411789, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.177306
+        Occlusion: 1
+  - EntityID: 15398144919952855317
+    TagComponent:
+      Tag: Prop 249
+    TransformComponent:
+      Position: [-1.77515, 0.328085, 10.747]
+      Rotation: [0, 1.13294, 0]
+      Scale: [0.656171, 0.656171, 0.656171]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.720576, 0.545146, 0.738872, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.598415
+        Occlusion: 1
+  - EntityID: 8352115665566502186
+    TagComponent:
+      Tag: Prop 250
+    TransformComponent:
+      Position: [1.75721, 0.353415, 10.8687]
+      Rotation: [0, 2.77323, 0]
+      Scale: [0.70683, 0.70683, 0.70683]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.81108, 0.181313, 0.143035, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.787336
+        Occlusion: 1
+  - EntityID: 1306086411180149055
+    TagComponent:
+      Tag: Prop 251
+    TransformComponent:
+      Position: [6.29042, 0.459391, 10.8707]
+      Rotation: [0, 1.03113, 0]
+      Scale: [0.918783, 0.918783, 0.918783]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.532826, 0.441766, 0.810331, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.530604
+        Occlusion: 1
+  - EntityID: 12706801230503347540
+    TagComponent:
+      Tag: Prop 252
+    TransformComponent:
+      Position: [10.7191, 0.31703, 10.5085]
+      Rotation: [0, 6.09944, 0]
+      Scale: [0.634059, 0.634059, 0.634059]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.588813, 0.279978, 0.748782, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.259466
+        Occlusion: 1
+  - EntityID: 5660771976116994409
+    TagComponent:
+      Tag: Prop 253
+    TransformComponent:
+      Position: [14.5097, 0.644729, 10.4895]
+      Rotation: [0, 0.646536, 0]
+      Scale: [1.28946, 1.28946, 1.28946]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.142066, 0.221363, 0.399625, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.227552
+        Occlusion: 1
+  - EntityID: 17061486795440192894
+    TagComponent:
+      Tag: Prop 254
+    TransformComponent:
+      Position: [18.8047, 0.256373, 10.3504]
+      Rotation: [0, 2.79692, 0]
+      Scale: [0.512746, 0.512746, 0.512746]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.692639, 0.342477, 0.564949, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.515339
+        Occlusion: 1
+  - EntityID: 10015457541053839763
+    TagComponent:
+      Tag: Prop 255
+    TransformComponent:
+      Position: [23.0084, 0.328366, 10.7287]
+      Rotation: [0, 2.79949, 0]
+      Scale: [0.656731, 0.656731, 0.656731]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.466991, 0.530491, 0.52891, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.517013
+        Occlusion: 1
+  - EntityID: 2969428286667486632
+    TagComponent:
+      Tag: Prop 256
+    TransformComponent:
+      Position: [27.2215, 0.678169, 10.7856]
+      Rotation: [0, 3.99091, 0]
+      Scale: [1.35634, 1.35634, 1.35634]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.678916, 0.355846, 0.573832, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.569256
+        Occlusion: 1
+  - EntityID: 14370143105990685117
+    TagComponent:
+      Tag: Prop 257
+    TransformComponent:
+      Position: [31.549, 0.427362, 10.5139]
+      Rotation: [0, 1.36989, 0]
+      Scale: [0.854724, 0.854724, 0.854724]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.292818, 0.260129, 0.57559, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.552194
+        Occlusion: 1
+  - EntityID: 7324113851604331986
+    TagComponent:
+      Tag: Prop 258
+    TransformComponent:
+      Position: [35.5857, 0.657385, 10.7508]
+      Rotation: [0, 2.06161, 0]
+      Scale: [1.31477, 1.31477, 1.31477]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.854108, 0.375427, 0.389252, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.719795
+        Occlusion: 1
+  - EntityID: 278084597217978855
+    TagComponent:
+      Tag: Prop 259
+    TransformComponent:
+      Position: [40.0762, 0.433977, 10.6549]
+      Rotation: [0, 5.36014, 0]
+      Scale: [0.867955, 0.867955, 0.867955]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.330886, 0.279682, 0.417952, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.739999
+        Occlusion: 1
+  - EntityID: 11678799416541177340
+    TagComponent:
+      Tag: Prop 260
+    TransformComponent:
+      Position: [-39.8411, 0.329032, 14.8727]
+      Rotation: [0, 5.66367, 0]
+      Scale: [0.658065, 0.658065, 0.658065]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.867924, 0.58338, 0.724094, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.441523
+        Occlusion: 1
+  - EntityID: 4632770162154824209
+    TagComponent:
+      Tag: Prop 261
+    TransformComponent:
+      Position: [-35.5176, 0.279647, 14.5146]
+      Rotation: [0, 2.41586, 0]
+      Scale: [0.559293, 0.559293, 0.559293]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.668602, 0.334943, 0.44717, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.608519
+        Occlusion: 1
+  - EntityID: 16033484981478022694
+    TagComponent:
+      Tag: Prop 262
+    TransformComponent:
+      Position: [-31.3323, 0.433529, 14.4114]
+      Rotation: [0, 3.3511, 0]
+      Scale: [0.867058, 0.867058, 0.867058]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.686217, 0.88975, 0.702774, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.264931
+        Occlusion: 1
+  - EntityID: 8987455727091669563
+    TagComponent:
+      Tag: Prop 263
+    TransformComponent:
+      Position: [-27.653, 0.493985, 14.6864]
+      Rotation: [0, 4.40129, 0]
+      Scale: [0.98797, 0.98797, 0.98797]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.878646, 0.853766, 0.266849, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.628321
+        Occlusion: 1
+  - EntityID: 1941426472705316432
+    TagComponent:
+      Tag: Prop 264
+    TransformComponent:
+      Position: [-23.4312, 0.322234, 15.1129]
+      Rotation: [0, 0.752577, 0]
+      Scale: [0.644469, 0.644469, 0.644469]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.56796, 0.203906, 0.207039, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.876169
+        Occlusion: 1
+  - EntityID: 13342141292028514917
+    TagComponent:
+      Tag: Prop 265
+    TransformComponent:
+      Position: [-19.0803, 0.566019, 14.9718]
+      Rotation: [0, 0.860914, 0]
+      Scale: [1.13204, 1.13204, 1.13204]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.386901, 0.239321, 0.288015, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.387955
+        Occlusion: 1
+  - EntityID: 6296112037642161786
+    TagComponent:
+      Tag: Prop 266
+    TransformComponent:
+      Position: [-14.7393, 0.665175, 14.7278]
+      Rotation: [0, 3.34656, 0]
+      Scale: [1.33035, 1.33035, 1.33035]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.551849, 0.214216, 0.388412, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.21732
+        Occlusion: 1
+  - EntityID: 17696826856965360271
+    TagComponent:
+      Tag: Prop 267
+    TransformComponent:
+      Position: [-10.816, 0.406844, 15.0518]
+      Rotation: [0, 2.9841, 0]
+      Scale: [0.813688, 0.813688, 0.813688]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.52323, 0.809779, 0.675269, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.198639
+        Occlusion: 1
+  - EntityID: 10650797602579007140
+    TagComponent:
+      Tag: Prop 268
+    TransformComponent:
+      Position: [-6.55088, 0.252276, 15.0635]
+      Rotation: [0, 0.264751, 0]
+      Scale: [0.504552, 0.504552, 0.504552]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.755748, 0.251518, 0.737828, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.672895
+        Occlusion: 1
+  - EntityID: 3604768348192654009
+    TagComponent:
+      Tag: Prop 269
+    TransformComponent:
+      Position: [-1.85453, 0.299567, 14.954]
+      Rotation: [0, 0.658128, 0]
+      Scale: [0.599135, 0.599135, 0.599135]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.674904, 0.895249, 0.518183, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.450211
+        Occlusion: 1
+  - EntityID: 15005483167515852494
+    TagComponent:
+      Tag: Prop 270
+    TransformComponent:
+      Position: [2.22683, 0.314223, 14.8705]
+      Rotation: [0, 2.19107, 0]
+      Scale: [0.628445, 0.628445, 0.628445]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.700498, 0.429109, 0.394437, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.428596
+        Occlusion: 1
+  - EntityID: 7959453913129499363
+    TagComponent:
+      Tag: Prop 271
+    TransformComponent:
+      Position: [6.35499, 0.279381, 14.5016]
+      Rotation: [0, 0.130923, 0]
+      Scale: [0.558763, 0.558763, 0.558763]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.635569, 0.465409, 0.59332, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.328501
+        Occlusion: 1
+  - EntityID: 913424658743146232
+    TagComponent:
+      Tag: Prop 272
+    TransformComponent:
+      Position: [10.5805, 0.616784, 14.3802]
+      Rotation: [0, 0.047642, 0]
+      Scale: [1.23357, 1.23357, 1.23357]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.444148, 0.728579, 0.432357, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.764154
+        Occlusion: 1
+  - EntityID: 12314139478066344717
+    TagComponent:
+      Tag: Prop 273
+    TransformComponent:
+      Position: [15.0247, 0.547283, 14.893]
+      Rotation: [0, 4.89185, 0]
+      Scale: [1.09457, 1.09457, 1.09457]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.567973, 0.137841, 0.463578, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.829325
+        Occlusion: 1
+  - EntityID: 5268110223679991586
+    TagComponent:
+      Tag: Prop 274
+    TransformComponent:
+      Position: [19.0984, 0.513131, 14.7554]
+      Rotation: [0, 5.28268, 0]
+      Scale: [1.02626, 1.02626, 1.02626]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.296351, 0.611631, 0.449403, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.412014
+        Occlusion: 1
+  - EntityID: 16668825043003190071
+    TagComponent:
+      Tag: Prop 275
+    TransformComponent:
+      Position: [22.8769, 0.308464, 14.3521]
+      Rotation: [0, 2.96645, 0]
+      Scale: [0.616928, 0.616928, 0.616928]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.121412, 0.153709, 0.737128, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.366161
+        Occlusion: 1
+  - EntityID: 9622795788616836940
+    TagComponent:
+      Tag: Prop 276
+    TransformComponent:
+      Position: [27.7526, 0.461405, 14.6816]
+      Rotation: [0, 0.608336, 0]
+      Scale: [0.922809, 0.922809, 0.922809]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.530947, 0.639214, 0.855418, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.602021
+        Occlusion: 1
+  - EntityID: 2576766534230483809
+    TagComponent:
+      Tag: Prop 277
+    TransformComponent:
+      Position: [31.6935, 0.434555, 14.7728]
+      Rotation: [0, 3.28664, 0]
+      Scale: [0.86911, 0.86911, 0.86911]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.482073, 0.68702, 0.450292, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.833867
+        Occlusion: 1
+  - EntityID: 13977481353553682294
+    TagComponent:
+      Tag: Prop 278
+    TransformComponent:
+      Position: [35.4433, 0.639706, 14.8103]
+      Rotation: [0, 0.603982, 0]
+      Scale: [1.27941, 1.27941, 1.27941]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.18457, 0.825066, 0.188872, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.426985
+        Occlusion: 1
+  - EntityID: 6931452099167329163
+    TagComponent:
+      Tag: Prop 279
+    TransformComponent:
+      Position: [40.1234, 0.480566, 14.4068]
+      Rotation: [0, 1.47248, 0]
+      Scale: [0.961133, 0.961133, 0.961133]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.345898, 0.589088, 0.55878, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.833395
+        Occlusion: 1
+  - EntityID: 18332166918490527648
+    TagComponent:
+      Tag: Prop 280
+    TransformComponent:
+      Position: [-39.9516, 0.268402, 18.861]
+      Rotation: [0, 1.73809, 0]
+      Scale: [0.536805, 0.536805, 0.536805]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.596339, 0.450309, 0.314894, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.596426
+        Occlusion: 1
+  - EntityID: 11286137664104174517
+    TagComponent:
+      Tag: Prop 281
+    TransformComponent:
+      Position: [-35.3928, 0.686972, 18.8047]
+      Rotation: [0, 3.35362, 0]
+      Scale: [1.37394, 1.37394, 1.37394]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.315106, 0.23905, 0.664917, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.508282
+        Occlusion: 1
+  - EntityID: 4240108409717821386
+    TagComponent:
+      Tag: Prop 282
+    TransformComponent:
+      Position: [-31.6145, 0.332167, 19.0155]
+      Rotation: [0, 4.13655, 0]
+      Scale: [0.664334, 0.664334, 0.664334]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.707806, 0.633238, 0.431031, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.532475
+        Occlusion: 1
+  - EntityID: 15640823229041019871
+    TagComponent:
+      Tag: Prop 283
+    TransformComponent:
+      Position: [-27.2202, 0.464832, 19.0249]
+      Rotation: [0, 1.92395, 0]
+      Scale: [0.929664, 0.929664, 0.929664]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.150534, 0.218268, 0.878176, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.622726
+        Occlusion: 1
+  - EntityID: 8594793974654666740
+    TagComponent:
+      Tag: Prop 284
+    TransformComponent:
+      Position: [-22.8437, 0.366628, 19.209]
+      Rotation: [0, 4.95843, 0]
+      Scale: [0.733256, 0.733256, 0.733256]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.532968, 0.342389, 0.185465, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.779139
+        Occlusion: 1
+  - EntityID: 1548764720268313609
+    TagComponent:
+      Tag: Prop 285
+    TransformComponent:
+      Position: [-18.5491, 0.63291, 19.3464]
+      Rotation: [0, 4.58214, 0]
+      Scale: [1.26582, 1.26582, 1.26582]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.828396, 0.533591, 0.200102, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.484315
+        Occlusion: 1
+  - EntityID: 12949479539591512094
+    TagComponent:
+      Tag: Prop 286
+    TransformComponent:
+      Position: [-14.3558, 0.596332, 18.9776]
+      Rotation: [0, 0.406782, 0]
+      Scale: [1.19266, 1.19266, 1.19266]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.469574, 0.10958, 0.31272, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.616884
+        Occlusion: 1
+  - EntityID: 5903450285205158963
+    TagComponent:
+      Tag: Prop 287
+    TransformComponent:
+      Position: [-10.1571, 0.504561, 19.1005]
+      Rotation: [0, 4.30331, 0]
+      Scale: [1.00912, 1.00912, 1.00912]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.584356, 0.60997, 0.650668, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.234033
+        Occlusion: 1
+  - EntityID: 17304165104528357448
+    TagComponent:
+      Tag: Prop 288
+    TransformComponent:
+      Position: [-5.97347, 0.524951, 18.9053]
+      Rotation: [0, 3.69907, 0]
+      Scale: [1.0499, 1.0499, 1.0499]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.643474, 0.250371, 0.144437, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.547321
+        Occlusion: 1
+  - EntityID: 10258135850142004317
+    TagComponent:
+      Tag: Prop 289
+    TransformComponent:
+      Position: [-2.4122, 0.499792, 18.5815]
+      Rotation: [0, 4.92758, 0]
+      Scale: [0.999585, 0.999585, 0.999585]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.22952, 0.220146, 0.792485, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.378832
+        Occlusion: 1
+  - EntityID: 3212106595755651186
+    TagComponent:
+      Tag: Prop 290
+    TransformComponent:
+      Position: [1.777, 0.560523, 18.8297]
+      Rotation: [0, 1.67563, 0]
+      Scale: [1.12105, 1.12105, 1.12105]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.207757, 0.562195, 0.298496, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.572035
+        Occlusion: 1
+  - EntityID: 14612821415078849671
+    TagComponent:
+      Tag: Prop 291
+    TransformComponent:
+      Position: [6.60066, 0.669894, 18.7593]
+      Rotation: [0, 3.83657, 0]
+      Scale: [1.33979, 1.33979, 1.33979]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.325872, 0.47969, 0.449214, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.16632
+        Occlusion: 1
+  - EntityID: 7566792160692496540
+    TagComponent:
+      Tag: Prop 292
+    TransformComponent:
+      Position: [10.7736, 0.59551, 18.6956]
+      Rotation: [0, 3.99872, 0]
+      Scale: [1.19102, 1.19102, 1.19102]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.758939, 0.443528, 0.779261, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.175535
+        Occlusion: 1
+  - EntityID: 520762906306143409
+    TagComponent:
+      Tag: Prop 293
+    TransformComponent:
+      Position: [14.6207, 0.659877, 18.8313]
+      Rotation: [0, 4.95609, 0]
+      Scale: [1.31975, 1.31975, 1.31975]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.283567, 0.85389, 0.392429, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.892798
+        Occlusion: 1
+  - EntityID: 11921477725629341894
+    TagComponent:
+      Tag: Prop 294
+    TransformComponent:
+      Position: [19.2415, 0.347938, 18.8049]
+      Rotation: [0, 4.33906, 0]
+      Scale: [0.695876, 0.695876, 0.695876]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.883648, 0.516762, 0.185758, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.343281
+        Occlusion: 1
+  - EntityID: 4875448471242988763
+    TagComponent:
+      Tag: Prop 295
+    TransformComponent:
+      Position: [23.3057, 0.601684, 19.2662]
+      Rotation: [0, 1.96053, 0]
+      Scale: [1.20337, 1.20337, 1.20337]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.721221, 0.661076, 0.896865, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.151378
+        Occlusion: 1
+  - EntityID: 16276163290566187248
+    TagComponent:
+      Tag: Prop 296
+    TransformComponent:
+      Position: [27.687, 0.560297, 19.1859]
+      Rotation: [0, 0.219826, 0]
+      Scale: [1.12059, 1.12059, 1.12059]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.714532, 0.465649, 0.792, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.435412
+        Occlusion: 1
+  - EntityID: 9230134036179834117
+    TagComponent:
+      Tag: Prop 297
+    TransformComponent:
+      Position: [31.2844, 0.540445, 19.2331]
+      Rotation: [0, 4.40403, 0]
+      Scale: [1.08089, 1.08089, 1.08089]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.448924, 0.512817, 0.178686, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.814595
+        Occlusion: 1
+  - EntityID: 2184104781793480986
+    TagComponent:
+      Tag: Prop 298
+    TransformComponent:
+      Position: [35.5835, 0.330002, 19.0073]
+      Rotation: [0, 4.03916, 0]
+      Scale: [0.660003, 0.660003, 0.660003]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.575798, 0.81506, 0.446563, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.418866
+        Occlusion: 1
+  - EntityID: 13584819601116679471
+    TagComponent:
+      Tag: Prop 299
+    TransformComponent:
+      Position: [40.0429, 0.589693, 18.8848]
+      Rotation: [0, 5.9368, 0]
+      Scale: [1.17939, 1.17939, 1.17939]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.213184, 0.201763, 0.333983, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.619261
+        Occlusion: 1
+  - EntityID: 6538790346730326340
+    TagComponent:
+      Tag: Prop 300
+    TransformComponent:
+      Position: [-39.907, 0.340705, 23.2687]
+      Rotation: [0, 3.73927, 0]
+      Scale: [0.68141, 0.68141, 0.68141]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.311504, 0.763911, 0.185276, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.353562
+        Occlusion: 1
+  - EntityID: 17939505166053524825
+    TagComponent:
+      Tag: Prop 301
+    TransformComponent:
+      Position: [-35.5634, 0.571391, 22.8803]
+      Rotation: [0, 5.92468, 0]
+      Scale: [1.14278, 1.14278, 1.14278]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.821661, 0.119589, 0.628831, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.736577
+        Occlusion: 1
+  - EntityID: 10893475911667171694
+    TagComponent:
+      Tag: Prop 302
+    TransformComponent:
+      Position: [-31.2506, 0.454381, 23.3741]
+      Rotation: [0, 1.78409, 0]
+      Scale: [0.908762, 0.908762, 0.908762]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.742467, 0.425073, 0.876724, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.712705
+        Occlusion: 1
+  - EntityID: 3847446657280818563
+    TagComponent:
+      Tag: Prop 303
+    TransformComponent:
+      Position: [-27.7461, 0.308476, 23.2241]
+      Rotation: [0, 6.09475, 0]
+      Scale: [0.616952, 0.616952, 0.616952]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.493571, 0.773063, 0.286411, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.724604
+        Occlusion: 1
+  - EntityID: 15248161476604017048
+    TagComponent:
+      Tag: Prop 304
+    TransformComponent:
+      Position: [-23.5354, 0.434745, 23.4005]
+      Rotation: [0, 4.2249, 0]
+      Scale: [0.86949, 0.86949, 0.86949]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.820889, 0.16703, 0.588633, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.213032
+        Occlusion: 1
+  - EntityID: 8202132222217663917
+    TagComponent:
+      Tag: Prop 305
+    TransformComponent:
+      Position: [-19.0693, 0.282949, 22.7918]
+      Rotation: [0, 1.9261, 0]
+      Scale: [0.565899, 0.565899, 0.565899]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.346306, 0.529962, 0.596592, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.184009
+        Occlusion: 1
+  - EntityID: 1156102967831310786
+    TagComponent:
+      Tag: Prop 306
+    TransformComponent:
+      Position: [-14.4565, 0.327009, 23.4429]
+      Rotation: [0, 5.50542, 0]
+      Scale: [0.654019, 0.654019, 0.654019]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.299927, 0.582407, 0.89062, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.620737
+        Occlusion: 1
+  - EntityID: 12556817787154509271
+    TagComponent:
+      Tag: Prop 307
+    TransformComponent:
+      Position: [-10.4188, 0.389855, 23.3191]
+      Rotation: [0, 5.22152, 0]
+      Scale: [0.779709, 0.779709, 0.779709]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.358208, 0.341437, 0.103839, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.894388
+        Occlusion: 1
+  - EntityID: 5510788532768156140
+    TagComponent:
+      Tag: Prop 308
+    TransformComponent:
+      Position: [-6.33087, 0.603211, 23.4566]
+      Rotation: [0, 1.51774, 0]
+      Scale: [1.20642, 1.20642, 1.20642]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.228988, 0.307709, 0.262061, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.260665
+        Occlusion: 1
+  - EntityID: 16911503352091354625
+    TagComponent:
+      Tag: Prop 309
+    TransformComponent:
+      Position: [-2.37327, 0.661411, 23.2004]
+      Rotation: [0, 3.90195, 0]
+      Scale: [1.32282, 1.32282, 1.32282]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.352956, 0.826677, 0.26882, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.790956
+        Occlusion: 1
+  - EntityID: 9865474097705001494
+    TagComponent:
+      Tag: Prop 310
+    TransformComponent:
+      Position: [1.73621, 0.605529, 22.9307]
+      Rotation: [0, 1.95183, 0]
+      Scale: [1.21106, 1.21106, 1.21106]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.275853, 0.609805, 0.509215, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.675512
+        Occlusion: 1
+  - EntityID: 2819444843318648363
+    TagComponent:
+      Tag: Prop 311
+    TransformComponent:
+      Position: [6.55107, 0.28754, 23.1146]
+      Rotation: [0, 1.45007, 0]
+      Scale: [0.575081, 0.575081, 0.575081]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.518863, 0.671796, 0.544902, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.202841
+        Occlusion: 1
+  - EntityID: 14220159662641846848
+    TagComponent:
+      Tag: Prop 312
+    TransformComponent:
+      Position: [10.1341, 0.456172, 23.5203]
+      Rotation: [0, 1.20707, 0]
+      Scale: [0.912345, 0.912345, 0.912345]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.294711, 0.271343, 0.585163, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.555258
+        Occlusion: 1
+  - EntityID: 7174130408255493717
+    TagComponent:
+      Tag: Prop 313
+    TransformComponent:
+      Position: [15.0638, 0.407254, 22.9692]
+      Rotation: [0, 0.182649, 0]
+      Scale: [0.814508, 0.814508, 0.814508]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.108402, 0.724779, 0.882016, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.365618
+        Occlusion: 1
+  - EntityID: 128101153869140586
+    TagComponent:
+      Tag: Prop 314
+    TransformComponent:
+      Position: [18.5813, 0.45347, 22.8194]
+      Rotation: [0, 1.54886, 0]
+      Scale: [0.906939, 0.906939, 0.906939]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.795816, 0.254454, 0.255741, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.378171
+        Occlusion: 1
+  - EntityID: 11528815973192339071
+    TagComponent:
+      Tag: Prop 315
+    TransformComponent:
+      Position: [23.4827, 0.558719, 23.2564]
+      Rotation: [0, 0.161954, 0]
+      Scale: [1.11744, 1.11744, 1.11744]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.882353, 0.123011, 0.281925, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.651271
+        Occlusion: 1
+  - EntityID: 4482786718805985940
+    TagComponent:
+      Tag: Prop 316
+    TransformComponent:
+      Position: [27.3486, 0.677253, 23.428]
+      Rotation: [0, 0.869074, 0]
+      Scale: [1.35451, 1.35451, 1.35451]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.112782, 0.209699, 0.831003, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.156631
+        Occlusion: 1
+  - EntityID: 15883501538129184425
+    TagComponent:
+      Tag: Prop 317
+    TransformComponent:
+      Position: [31.2467, 0.337679, 23.1892]
+      Rotation: [0, 1.75659, 0]
+      Scale: [0.675358, 0.675358, 0.675358]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.307152, 0.534232, 0.799014, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.155934
+        Occlusion: 1
+  - EntityID: 8837472283742831294
+    TagComponent:
+      Tag: Prop 318
+    TransformComponent:
+      Position: [35.8135, 0.375525, 23.1845]
+      Rotation: [0, 3.00994, 0]
+      Scale: [0.751051, 0.751051, 0.751051]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.415179, 0.821374, 0.266617, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.284958
+        Occlusion: 1
+  - EntityID: 1791443029356478163
+    TagComponent:
+      Tag: Prop 319
+    TransformComponent:
+      Position: [39.6205, 0.39272, 22.7992]
+      Rotation: [0, 2.49252, 0]
+      Scale: [0.78544, 0.78544, 0.78544]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.804211, 0.682535, 0.574714, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.314148
+        Occlusion: 1
+  - EntityID: 13192157848679676648
+    TagComponent:
+      Tag: Prop 320
+    TransformComponent:
+      Position: [-39.7344, 0.279221, 27.6717]
+      Rotation: [0, 0.823363, 0]
+      Scale: [0.558443, 0.558443, 0.558443]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.428609, 0.411689, 0.317279, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.666855
+        Occlusion: 1
+  - EntityID: 6146128594293323517
+    TagComponent:
+      Tag: Prop 321
+    TransformComponent:
+      Position: [-36.154, 0.567865, 27.1239]
+      Rotation: [0, 5.7121, 0]
+      Scale: [1.13573, 1.13573, 1.13573]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.118303, 0.555655, 0.252572, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.867993
+        Occlusion: 1
+  - EntityID: 17546843413616522002
+    TagComponent:
+      Tag: Prop 322
+    TransformComponent:
+      Position: [-31.5622, 0.323073, 27.3953]
+      Rotation: [0, 3.01705, 0]
+      Scale: [0.646147, 0.646147, 0.646147]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.142092, 0.772846, 0.81094, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.215948
+        Occlusion: 1
+  - EntityID: 10500814159230168871
+    TagComponent:
+      Tag: Prop 323
+    TransformComponent:
+      Position: [-27.7565, 0.627412, 27.6091]
+      Rotation: [0, 3.68735, 0]
+      Scale: [1.25482, 1.25482, 1.25482]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.479905, 0.240175, 0.755038, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.179808
+        Occlusion: 1
+  - EntityID: 3454784904843815740
+    TagComponent:
+      Tag: Prop 324
+    TransformComponent:
+      Position: [-23.1049, 0.670803, 27.6183]
+      Rotation: [0, 4.16125, 0]
+      Scale: [1.34161, 1.34161, 1.34161]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.798294, 0.150758, 0.370319, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.87741
+        Occlusion: 1
+  - EntityID: 14855499724167014225
+    TagComponent:
+      Tag: Prop 325
+    TransformComponent:
+      Position: [-18.9675, 0.415407, 27.3782]
+      Rotation: [0, 3.657, 0]
+      Scale: [0.830814, 0.830814, 0.830814]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.7773, 0.454458, 0.853417, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.76274
+        Occlusion: 1
+  - EntityID: 7809470469780661094
+    TagComponent:
+      Tag: Prop 326
+    TransformComponent:
+      Position: [-14.8522, 0.504845, 27.763]
+      Rotation: [0, 3.89755, 0]
+      Scale: [1.00969, 1.00969, 1.00969]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.185005, 0.649503, 0.579872, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.43292
+        Occlusion: 1
+  - EntityID: 763441215394307963
+    TagComponent:
+      Tag: Prop 327
+    TransformComponent:
+      Position: [-10.2822, 0.438768, 27.029]
+      Rotation: [0, 0.382012, 0]
+      Scale: [0.877537, 0.877537, 0.877537]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.710095, 0.82033, 0.600555, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.589679
+        Occlusion: 1
+  - EntityID: 12164156034717506448
+    TagComponent:
+      Tag: Prop 328
+    TransformComponent:
+      Position: [-6.10446, 0.454596, 27.724]
+      Rotation: [0, 5.57784, 0]
+      Scale: [0.909193, 0.909193, 0.909193]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.641412, 0.321355, 0.57153, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.533927
+        Occlusion: 1
+  - EntityID: 5118126780331153317
+    TagComponent:
+      Tag: Prop 329
+    TransformComponent:
+      Position: [-1.89135, 0.308407, 27.6438]
+      Rotation: [0, 4.31726, 0]
+      Scale: [0.616815, 0.616815, 0.616815]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.672784, 0.683634, 0.491413, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.275334
+        Occlusion: 1
+  - EntityID: 16518841599654351802
+    TagComponent:
+      Tag: Prop 330
+    TransformComponent:
+      Position: [2.01225, 0.364633, 27.7368]
+      Rotation: [0, 0.155763, 0]
+      Scale: [0.729266, 0.729266, 0.729266]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.167569, 0.600213, 0.630166, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.365074
+        Occlusion: 1
+  - EntityID: 9472812345267998671
+    TagComponent:
+      Tag: Prop 331
+    TransformComponent:
+      Position: [6.09092, 0.326697, 27.5605]
+      Rotation: [0, 3.99875, 0]
+      Scale: [0.653393, 0.653393, 0.653393]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.721866, 0.462263, 0.746687, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.428978
+        Occlusion: 1
+  - EntityID: 2426783090881645540
+    TagComponent:
+      Tag: Prop 332
+    TransformComponent:
+      Position: [10.504, 0.625079, 27.4995]
+      Rotation: [0, 3.53266, 0]
+      Scale: [1.25016, 1.25016, 1.25016]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.846337, 0.127221, 0.114994, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.57202
+        Occlusion: 1
+  - EntityID: 13827497910204844025
+    TagComponent:
+      Tag: Prop 333
+    TransformComponent:
+      Position: [14.366, 0.491926, 27.2172]
+      Rotation: [0, 4.27911, 0]
+      Scale: [0.983852, 0.983852, 0.983852]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.113631, 0.799107, 0.290026, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.613412
+        Occlusion: 1
+  - EntityID: 6781468655818490894
+    TagComponent:
+      Tag: Prop 334
+    TransformComponent:
+      Position: [19.3213, 0.630152, 27.2451]
+      Rotation: [0, 0.143896, 0]
+      Scale: [1.2603, 1.2603, 1.2603]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.50965, 0.414965, 0.894708, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.684499
+        Occlusion: 1
+  - EntityID: 18182183475141689379
+    TagComponent:
+      Tag: Prop 335
+    TransformComponent:
+      Position: [22.9435, 0.328404, 27.2844]
+      Rotation: [0, 3.38113, 0]
+      Scale: [0.656809, 0.656809, 0.656809]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.596064, 0.230046, 0.770021, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.153516
+        Occlusion: 1
+  - EntityID: 11136154220755336248
+    TagComponent:
+      Tag: Prop 336
+    TransformComponent:
+      Position: [27.1461, 0.553031, 27.7183]
+      Rotation: [0, 2.74991, 0]
+      Scale: [1.10606, 1.10606, 1.10606]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.770712, 0.584181, 0.671976, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.878445
+        Occlusion: 1
+  - EntityID: 4090124966368983117
+    TagComponent:
+      Tag: Prop 337
+    TransformComponent:
+      Position: [31.5074, 0.372341, 27.3775]
+      Rotation: [0, 5.81244, 0]
+      Scale: [0.744682, 0.744682, 0.744682]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.162639, 0.765732, 0.69998, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.402749
+        Occlusion: 1
+  - EntityID: 15490839785692181602
+    TagComponent:
+      Tag: Prop 338
+    TransformComponent:
+      Position: [35.5191, 0.625884, 27.3129]
+      Rotation: [0, 3.18902, 0]
+      Scale: [1.25177, 1.25177, 1.25177]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.503024, 0.237536, 0.892573, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.531614
+        Occlusion: 1
+  - EntityID: 8444810531305828471
+    TagComponent:
+      Tag: Prop 339
+    TransformComponent:
+      Position: [40.1987, 0.406293, 27.1969]
+      Rotation: [0, 5.46434, 0]
+      Scale: [0.812585, 0.812585, 0.812585]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.541199, 0.329084, 0.387067, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.680725
+        Occlusion: 1
+  - EntityID: 1398781276919475340
+    TagComponent:
+      Tag: Prop 340
+    TransformComponent:
+      Position: [-39.9642, 0.566766, 31.888]
+      Rotation: [0, 0.125979, 0]
+      Scale: [1.13353, 1.13353, 1.13353]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.625954, 0.310642, 0.801307, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.319158
+        Occlusion: 1
+  - EntityID: 12799496096242673825
+    TagComponent:
+      Tag: Prop 341
+    TransformComponent:
+      Position: [-36.0611, 0.610343, 31.976]
+      Rotation: [0, 0.0986582, 0]
+      Scale: [1.22069, 1.22069, 1.22069]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.756587, 0.188412, 0.221651, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.339272
+        Occlusion: 1
+  - EntityID: 5753466841856320694
+    TagComponent:
+      Tag: Prop 342
+    TransformComponent:
+      Position: [-31.6715, 0.292666, 31.317]
+      Rotation: [0, 4.11202, 0]
+      Scale: [0.585331, 0.585331, 0.585331]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.728255, 0.146319, 0.141035, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.561905
+        Occlusion: 1
+  - EntityID: 17154181661179519179
+    TagComponent:
+      Tag: Prop 343
+    TransformComponent:
+      Position: [-27.3905, 0.34354, 31.7723]
+      Rotation: [0, 0.694141, 0]
+      Scale: [0.687079, 0.687079, 0.687079]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.818922, 0.798833, 0.849084, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.59662
+        Occlusion: 1
+  - EntityID: 10108152406793166048
+    TagComponent:
+      Tag: Prop 344
+    TransformComponent:
+      Position: [-23.2466, 0.61789, 31.245]
+      Rotation: [0, 2.19482, 0]
+      Scale: [1.23578, 1.23578, 1.23578]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.441909, 0.667346, 0.682454, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.48104
+        Occlusion: 1
+  - EntityID: 3062123152406812917
+    TagComponent:
+      Tag: Prop 345
+    TransformComponent:
+      Position: [-18.9987, 0.317884, 31.3922]
+      Rotation: [0, 6.04272, 0]
+      Scale: [0.635769, 0.635769, 0.635769]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.873823, 0.153821, 0.574408, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.189633
+        Occlusion: 1
+  - EntityID: 14462837971730011402
+    TagComponent:
+      Tag: Prop 346
+    TransformComponent:
+      Position: [-14.3583, 0.6868, 31.6397]
+      Rotation: [0, 4.51745, 0]
+      Scale: [1.3736, 1.3736, 1.3736]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.773026, 0.191671, 0.263469, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.258982
+        Occlusion: 1
+  - EntityID: 7416808717343658271
+    TagComponent:
+      Tag: Prop 347
+    TransformComponent:
+      Position: [-10.169, 0.527436, 31.3655]
+      Rotation: [0, 4.46706, 0]
+      Scale: [1.05487, 1.05487, 1.05487]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.718443, 0.339238, 0.779637, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.833821
+        Occlusion: 1
+  - EntityID: 370779462957305140
+    TagComponent:
+      Tag: Prop 348
+    TransformComponent:
+      Position: [-6.60515, 0.470121, 31.4989]
+      Rotation: [0, 0.214068, 0]
+      Scale: [0.940243, 0.940243, 0.940243]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.16016, 0.394498, 0.224521, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.677939
+        Occlusion: 1
+  - EntityID: 11771494282280503625
+    TagComponent:
+      Tag: Prop 349
+    TransformComponent:
+      Position: [-1.77753, 0.51516, 31.5339]
+      Rotation: [0, 5.39618, 0]
+      Scale: [1.03032, 1.03032, 1.03032]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.840469, 0.82027, 0.164903, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.469606
+        Occlusion: 1
+  - EntityID: 4725465027894150494
+    TagComponent:
+      Tag: Prop 350
+    TransformComponent:
+      Position: [2.19398, 0.662892, 31.8005]
+      Rotation: [0, 2.95109, 0]
+      Scale: [1.32578, 1.32578, 1.32578]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.240935, 0.10653, 0.119263, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.567118
+        Occlusion: 1
+  - EntityID: 16126179847217348979
+    TagComponent:
+      Tag: Prop 351
+    TransformComponent:
+      Position: [6.13865, 0.431016, 31.7552]
+      Rotation: [0, 1.704, 0]
+      Scale: [0.862032, 0.862032, 0.862032]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.878639, 0.83628, 0.311215, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.556402
+        Occlusion: 1
+  - EntityID: 9080150592830995848
+    TagComponent:
+      Tag: Prop 352
+    TransformComponent:
+      Position: [10.4338, 0.427881, 31.2633]
+      Rotation: [0, 4.56321, 0]
+      Scale: [0.855762, 0.855762, 0.855762]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.350166, 0.64871, 0.12124, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.331059
+        Occlusion: 1
+  - EntityID: 2034121338444642717
+    TagComponent:
+      Tag: Prop 353
+    TransformComponent:
+      Position: [14.9023, 0.380685, 31.6888]
+      Rotation: [0, 5.42709, 0]
+      Scale: [0.76137, 0.76137, 0.76137]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.824624, 0.655587, 0.451294, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.728282
+        Occlusion: 1
+  - EntityID: 13434836157767841202
+    TagComponent:
+      Tag: Prop 354
+    TransformComponent:
+      Position: [19.0152, 0.392091, 31.7886]
+      Rotation: [0, 4.94031, 0]
+      Scale: [0.784183, 0.784183, 0.784183]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.65547, 0.707202, 0.140953, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.812526
+        Occlusion: 1
+  - EntityID: 6388806903381488071
+    TagComponent:
+      Tag: Prop 355
+    TransformComponent:
+      Position: [23.4083, 0.558912, 31.5363]
+      Rotation: [0, 2.6598, 0]
+      Scale: [1.11782, 1.11782, 1.11782]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.688604, 0.786172, 0.895552, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.638033
+        Occlusion: 1
+  - EntityID: 17789521722704686556
+    TagComponent:
+      Tag: Prop 356
+    TransformComponent:
+      Position: [26.9824, 0.59878, 31.9109]
+      Rotation: [0, 4.78693, 0]
+      Scale: [1.19756, 1.19756, 1.19756]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.378591, 0.423602, 0.132485, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.596737
+        Occlusion: 1
+  - EntityID: 10743492468318333425
+    TagComponent:
+      Tag: Prop 357
+    TransformComponent:
+      Position: [31.9217, 0.482392, 31.8248]
+      Rotation: [0, 5.17406, 0]
+      Scale: [0.964784, 0.964784, 0.964784]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.232952, 0.556216, 0.678457, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.609455
+        Occlusion: 1
+  - EntityID: 3697463213931980294
+    TagComponent:
+      Tag: Prop 358
+    TransformComponent:
+      Position: [35.8557, 0.365342, 31.9603]
+      Rotation: [0, 4.8927, 0]
+      Scale: [0.730683, 0.730683, 0.730683]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.412636, 0.852204, 0.429619, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.659511
+        Occlusion: 1
+  - EntityID: 15098178033255178779
+    TagComponent:
+      Tag: Prop 359
+    TransformComponent:
+      Position: [39.7172, 0.426905, 31.3153]
+      Rotation: [0, 5.74567, 0]
+      Scale: [0.85381, 0.85381, 0.85381]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.819683, 0.630539, 0.502664, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.890215
+        Occlusion: 1
+  - EntityID: 8052148778868825648
+    TagComponent:
+      Tag: Prop 360
+    TransformComponent:
+      Position: [-39.8861, 0.679628, 35.8736]
+      Rotation: [0, 2.46067, 0]
+      Scale: [1.35926, 1.35926, 1.35926]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.68338, 0.743023, 0.69146, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.444695
+        Occlusion: 1
+  - EntityID: 1006119524482472517
+    TagComponent:
+      Tag: Prop 361
+    TransformComponent:
+      Position: [-36.0618, 0.370976, 35.8963]
+      Rotation: [0, 1.60422, 0]
+      Scale: [0.741951, 0.741951, 0.741951]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.107056, 0.195674, 0.637444, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.355627
+        Occlusion: 1
+  - EntityID: 12406834343805671002
+    TagComponent:
+      Tag: Prop 362
+    TransformComponent:
+      Position: [-31.3422, 0.676014, 35.475]
+      Rotation: [0, 4.91384, 0]
+      Scale: [1.35203, 1.35203, 1.35203]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.13322, 0.163946, 0.751636, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.499371
+        Occlusion: 1
+  - EntityID: 5360805089419317871
+    TagComponent:
+      Tag: Prop 363
+    TransformComponent:
+      Position: [-27.6912, 0.545903, 35.4194]
+      Rotation: [0, 2.60584, 0]
+      Scale: [1.09181, 1.09181, 1.09181]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.752113, 0.191236, 0.7741, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.182866
+        Occlusion: 1
+  - EntityID: 16761519908742516356
+    TagComponent:
+      Tag: Prop 364
+    TransformComponent:
+      Position: [-22.8298, 0.526365, 36.1695]
+      Rotation: [0, 0.999976, 0]
+      Scale: [1.05273, 1.05273, 1.05273]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.559298, 0.800313, 0.792423, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.766005
+        Occlusion: 1
+  - EntityID: 9715490654356163225
+    TagComponent:
+      Tag: Prop 365
+    TransformComponent:
+      Position: [-19.2101, 0.429123, 36.0524]
+      Rotation: [0, 5.00674, 0]
+      Scale: [0.858246, 0.858246, 0.858246]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.634603, 0.360781, 0.784772, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.534358
+        Occlusion: 1
+  - EntityID: 2669461399969810094
+    TagComponent:
+      Tag: Prop 366
+    TransformComponent:
+      Position: [-14.3922, 0.272409, 36.0363]
+      Rotation: [0, 3.61405, 0]
+      Scale: [0.544817, 0.544817, 0.544817]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.179541, 0.169697, 0.796968, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.161381
+        Occlusion: 1
+  - EntityID: 14070176219293008579
+    TagComponent:
+      Tag: Prop 367
+    TransformComponent:
+      Position: [-10.8883, 0.387247, 35.6144]
+      Rotation: [0, 5.94546, 0]
+      Scale: [0.774494, 0.774494, 0.774494]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.727664, 0.466907, 0.193787, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.849407
+        Occlusion: 1
+  - EntityID: 7024146964906655448
+    TagComponent:
+      Tag: Prop 368
+    TransformComponent:
+      Position: [-5.94474, 0.538523, 35.5682]
+      Rotation: [0, 3.20096, 0]
+      Scale: [1.07705, 1.07705, 1.07705]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.808403, 0.851132, 0.392829, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.733861
+        Occlusion: 1
+  - EntityID: 18424861784229853933
+    TagComponent:
+      Tag: Prop 369
+    TransformComponent:
+      Position: [-1.93774, 0.443913, 35.465]
+      Rotation: [0, 1.72565, 0]
+      Scale: [0.887826, 0.887826, 0.887826]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.398584, 0.707574, 0.268828, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.65413
+        Occlusion: 1
+  - EntityID: 11378832529843500802
+    TagComponent:
+      Tag: Prop 370
+    TransformComponent:
+      Position: [2.44313, 0.350337, 35.5022]
+      Rotation: [0, 1.44485, 0]
+      Scale: [0.700674, 0.700674, 0.700674]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.771967, 0.387063, 0.201795, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.610796
+        Occlusion: 1
+  - EntityID: 4332803275457147671
+    TagComponent:
+      Tag: Prop 371
+    TransformComponent:
+      Position: [6.45102, 0.530758, 35.7314]
+      Rotation: [0, 0.332948, 0]
+      Scale: [1.06152, 1.06152, 1.06152]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.336267, 0.512124, 0.259256, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.233953
+        Occlusion: 1
+  - EntityID: 15733518094780346156
+    TagComponent:
+      Tag: Prop 372
+    TransformComponent:
+      Position: [10.2929, 0.358919, 36.0584]
+      Rotation: [0, 5.47174, 0]
+      Scale: [0.717839, 0.717839, 0.717839]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.89832, 0.717792, 0.212424, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.410264
+        Occlusion: 1
+  - EntityID: 8687488840393993025
+    TagComponent:
+      Tag: Prop 373
+    TransformComponent:
+      Position: [14.9486, 0.609783, 35.4618]
+      Rotation: [0, 1.37687, 0]
+      Scale: [1.21957, 1.21957, 1.21957]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.440909, 0.213765, 0.633495, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.357008
+        Occlusion: 1
+  - EntityID: 1641459586007639894
+    TagComponent:
+      Tag: Prop 374
+    TransformComponent:
+      Position: [19.2059, 0.608842, 35.9226]
+      Rotation: [0, 1.71157, 0]
+      Scale: [1.21768, 1.21768, 1.21768]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.769918, 0.361221, 0.697552, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.270951
+        Occlusion: 1
+  - EntityID: 13042174405330838379
+    TagComponent:
+      Tag: Prop 375
+    TransformComponent:
+      Position: [23.2114, 0.349599, 35.5089]
+      Rotation: [0, 5.66412, 0]
+      Scale: [0.699198, 0.699198, 0.699198]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.576769, 0.112756, 0.113423, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.842458
+        Occlusion: 1
+  - EntityID: 5996145150944485248
+    TagComponent:
+      Tag: Prop 376
+    TransformComponent:
+      Position: [27.7186, 0.564041, 36.0284]
+      Rotation: [0, 5.70654, 0]
+      Scale: [1.12808, 1.12808, 1.12808]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.158452, 0.650425, 0.650554, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.344674
+        Occlusion: 1
+  - EntityID: 17396859970267683733
+    TagComponent:
+      Tag: Prop 377
+    TransformComponent:
+      Position: [31.4752, 0.335301, 36.0396]
+      Rotation: [0, 5.85859, 0]
+      Scale: [0.670603, 0.670603, 0.670603]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.371244, 0.363824, 0.735913, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.871667
+        Occlusion: 1
+  - EntityID: 10350830715881330602
+    TagComponent:
+      Tag: Prop 378
+    TransformComponent:
+      Position: [35.6639, 0.561002, 35.8603]
+      Rotation: [0, 4.73503, 0]
+      Scale: [1.122, 1.122, 1.122]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.320687, 0.382608, 0.16003, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.858931
+        Occlusion: 1
+  - EntityID: 3304801461494977471
+    TagComponent:
+      Tag: Prop 379
+    TransformComponent:
+      Position: [40.2435, 0.350366, 36.0652]
+      Rotation: [0, 2.17372, 0]
+      Scale: [0.700733, 0.700733, 0.700733]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.326253, 0.12341, 0.575772, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.50401
+        Occlusion: 1
+  - EntityID: 14705516280818175956
+    TagComponent:
+      Tag: Prop 380
+    TransformComponent:
+      Position: [-39.6396, 0.589387, 39.7368]
+      Rotation: [0, 3.36273, 0]
+      Scale: [1.17877, 1.17877, 1.17877]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.778443, 0.438644, 0.596947, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.729765
+        Occlusion: 1
+  - EntityID: 7659487026431822825
+    TagComponent:
+      Tag: Prop 381
+    TransformComponent:
+      Position: [-36.1351, 0.514164, 39.7222]
+      Rotation: [0, 2.97764, 0]
+      Scale: [1.02833, 1.02833, 1.02833]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.846874, 0.495002, 0.428112, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.781666
+        Occlusion: 1
+  - EntityID: 613457772045469694
+    TagComponent:
+      Tag: Prop 382
+    TransformComponent:
+      Position: [-31.3521, 0.655445, 40.3365]
+      Rotation: [0, 1.34988, 0]
+      Scale: [1.31089, 1.31089, 1.31089]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.34704, 0.546009, 0.128947, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.644634
+        Occlusion: 1
+  - EntityID: 12014172591368668179
+    TagComponent:
+      Tag: Prop 383
+    TransformComponent:
+      Position: [-27.5294, 0.362994, 40.2304]
+      Rotation: [0, 1.90834, 0]
+      Scale: [0.725989, 0.725989, 0.725989]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.206694, 0.366766, 0.356938, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.636145
+        Occlusion: 1
+  - EntityID: 4968143336982315048
+    TagComponent:
+      Tag: Prop 384
+    TransformComponent:
+      Position: [-23.3356, 0.663371, 39.8485]
+      Rotation: [0, 3.12252, 0]
+      Scale: [1.32674, 1.32674, 1.32674]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.311343, 0.331825, 0.739454, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.581065
+        Occlusion: 1
+  - EntityID: 16368858156305513533
+    TagComponent:
+      Tag: Prop 385
+    TransformComponent:
+      Position: [-19.0802, 0.424269, 39.7192]
+      Rotation: [0, 5.90782, 0]
+      Scale: [0.848538, 0.848538, 0.848538]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.766378, 0.495907, 0.234795, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.655014
+        Occlusion: 1
+  - EntityID: 9322828901919160402
+    TagComponent:
+      Tag: Prop 386
+    TransformComponent:
+      Position: [-14.428, 0.512277, 39.6317]
+      Rotation: [0, 1.99059, 0]
+      Scale: [1.02455, 1.02455, 1.02455]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.518323, 0.344381, 0.432418, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.878646
+        Occlusion: 1
+  - EntityID: 2276799647532807271
+    TagComponent:
+      Tag: Prop 387
+    TransformComponent:
+      Position: [-10.8393, 0.565637, 40.0941]
+      Rotation: [0, 0.0653654, 0]
+      Scale: [1.13127, 1.13127, 1.13127]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.293147, 0.383458, 0.447641, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.246919
+        Occlusion: 1
+  - EntityID: 13677514466856005756
+    TagComponent:
+      Tag: Prop 388
+    TransformComponent:
+      Position: [-6.1459, 0.264704, 40.0163]
+      Rotation: [0, 2.78566, 0]
+      Scale: [0.529407, 0.529407, 0.529407]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.234777, 0.746563, 0.696779, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.16427
+        Occlusion: 1
+  - EntityID: 6631485212469652625
+    TagComponent:
+      Tag: Prop 389
+    TransformComponent:
+      Position: [-1.86194, 0.344254, 40.0935]
+      Rotation: [0, 1.81677, 0]
+      Scale: [0.688508, 0.688508, 0.688508]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.231965, 0.131115, 0.412304, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.744081
+        Occlusion: 1
+  - EntityID: 18032200031792851110
+    TagComponent:
+      Tag: Prop 390
+    TransformComponent:
+      Position: [2.46925, 0.546993, 40.1473]
+      Rotation: [0, 2.73904, 0]
+      Scale: [1.09399, 1.09399, 1.09399]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.827692, 0.899142, 0.366895, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.434998
+        Occlusion: 1
+  - EntityID: 10986170777406497979
+    TagComponent:
+      Tag: Prop 391
+    TransformComponent:
+      Position: [6.38609, 0.341425, 39.9895]
+      Rotation: [0, 0.558483, 0]
+      Scale: [0.682851, 0.682851, 0.682851]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.736929, 0.423705, 0.623447, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.53352
+        Occlusion: 1
+  - EntityID: 3940141523020144848
+    TagComponent:
+      Tag: Prop 392
+    TransformComponent:
+      Position: [10.7505, 0.676457, 39.7884]
+      Rotation: [0, 3.04783, 0]
+      Scale: [1.35291, 1.35291, 1.35291]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.15778, 0.611607, 0.64281, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.890209
+        Occlusion: 1
+  - EntityID: 15340856342343343333
+    TagComponent:
+      Tag: Prop 393
+    TransformComponent:
+      Position: [14.5114, 0.376862, 40.2224]
+      Rotation: [0, 0.535685, 0]
+      Scale: [0.753723, 0.753723, 0.753723]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.595182, 0.7048, 0.655443, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.345053
+        Occlusion: 1
+  - EntityID: 8294827087956990202
+    TagComponent:
+      Tag: Prop 394
+    TransformComponent:
+      Position: [18.7917, 0.274264, 39.8378]
+      Rotation: [0, 1.59776, 0]
+      Scale: [0.548528, 0.548528, 0.548528]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.267039, 0.133716, 0.4194, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.281658
+        Occlusion: 1
+  - EntityID: 1248797833570637071
+    TagComponent:
+      Tag: Prop 395
+    TransformComponent:
+      Position: [22.7658, 0.25123, 40.0026]
+      Rotation: [0, 0.607958, 0]
+      Scale: [0.50246, 0.50246, 0.50246]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.229558, 0.657453, 0.158098, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.436249
+        Occlusion: 1
+  - EntityID: 12649512652893835556
+    TagComponent:
+      Tag: Prop 396
+    TransformComponent:
+      Position: [27.5928, 0.538368, 40.1443]
+      Rotation: [0, 4.53526, 0]
+      Scale: [1.07674, 1.07674, 1.07674]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.276251, 0.424914, 0.114293, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.548082
+        Occlusion: 1
+  - EntityID: 5603483398507482425
+    TagComponent:
+      Tag: Prop 397
+    TransformComponent:
+      Position: [31.1823, 0.527596, 39.9326]
+      Rotation: [0, 5.26833, 0]
+      Scale: [1.05519, 1.05519, 1.05519]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.142705, 0.833905, 0.41664, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.874112
+        Occlusion: 1
+  - EntityID: 17004198217830680910
+    TagComponent:
+      Tag: Prop 398
+    TransformComponent:
+      Position: [35.721, 0.291209, 39.7273]
+      Rotation: [0, 3.41889, 0]
+      Scale: [0.582418, 0.582418, 0.582418]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.781741, 0.631682, 0.253447, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.488951
+        Occlusion: 1
+  - EntityID: 9958168963444327779
+    TagComponent:
+      Tag: Prop 399
+    TransformComponent:
+      Position: [40.0767, 0.361333, 40.2566]
+      Rotation: [0, 1.61885, 0]
+      Scale: [0.722666, 0.722666, 0.722666]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.877716, 0.217701, 0.605961, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.369346
+        Occlusion: 1

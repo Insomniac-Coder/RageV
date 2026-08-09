@@ -13,7 +13,20 @@ namespace RageV
 
 	namespace
 	{
-		constexpr unsigned int kMaxLights = 8;   // must match mesh.rvshader
+		// Mirrors GpuLight in pbr.rvshader, std430.
+		//
+		// There is no cap on how many of these a frame may carry. There was --
+		// eight, because the scene's uniform block declared arrays of eight and
+		// a uniform block must declare a length. A storage buffer does not.
+		struct GpuLight
+		{
+			glm::vec4 Position;    // xyz, w = 1 positional / 0 directional
+			glm::vec4 Direction;   // xyz forward axis
+			glm::vec4 Color;       // rgb, a = intensity
+			glm::vec4 Params;      // range, cos(inner), cos(outer)
+			glm::vec4 Shadow;      // kind, slot, far, texel scale
+		};
+		static_assert(sizeof(GpuLight) == 80, "Must match GpuLight in pbr.rvshader");
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -22,14 +35,6 @@ namespace RageV
 			glm::vec4 CameraPosition;
 			// rgb = ambient colour, a = ambient intensity
 			glm::vec4 Ambient;
-			// xyz = position, w = 0 for directional
-			glm::vec4 LightPositions[kMaxLights];
-			// xyz = forward axis, for directional travel and spot cones
-			glm::vec4 LightDirections[kMaxLights];
-			// rgb = colour, a = intensity
-			glm::vec4 LightColors[kMaxLights];
-			// x = range, y = cos(inner cone), z = cos(outer cone)
-			glm::vec4 LightParams[kMaxLights];
 			// x = environment intensity, y = its highest mip, zw = cos and sin
 			// of the sky's rotation
 			glm::vec4 Environment;
@@ -49,9 +54,6 @@ namespace RageV
 			// z = one cascade texel in lookup coordinates, w unused
 			glm::vec4 ShadowParams;
 
-			// Per light: x = kind of map, y = slot, z = far, w = the world size
-			// of one of its texels per unit of distance.
-			glm::vec4 LightShadow[kMaxLights];
 			glm::mat4 SpotLookup[4];
 
 			int32_t   LightCount;
@@ -138,6 +140,9 @@ namespace RageV
 				// allocating after its first frame.
 				Ref<RHIBuffer>      Instances;
 				uint32_t            InstanceCapacity = 0;
+				// Every light in this scene, however many that is.
+				Ref<RHIBuffer>      Lights;
+				uint32_t            LightCapacity = 0;
 			};
 
 			// [frame in flight][scene within the frame]
@@ -162,6 +167,9 @@ namespace RageV
 			// without recomputing an index from the cursor -- which is off by
 			// one the moment BeginScene returns early.
 			SceneSlot* ActiveScene = nullptr;
+
+			// Built in BeginScene, uploaded there too.
+			std::vector<GpuLight> LightScratch;
 
 			// Accumulated between BeginScene and EndScene, then sorted.
 			std::vector<PendingDraw> Pending;
@@ -412,16 +420,21 @@ namespace RageV
 		s_Data->Scene.CameraPosition = glm::vec4(glm::vec3(cameraTransform[3]), 1.0f);
 		s_Data->Scene.Ambient = glm::vec4(environment.AmbientColor, environment.AmbientIntensity);
 
-		const int lightCount = (int)std::min<size_t>(lights.size(), kMaxLights);
-		for (int i = 0; i < lightCount; i++)
+		// Every light, with no cap. The shader reads them from a storage buffer
+		// whose length is decided here rather than declared in a block.
+		const int lightCount = (int)lights.size();
+		s_Data->LightScratch.clear();
+		s_Data->LightScratch.reserve(lights.size());
+
+		for (const LightRenderData& light : lights)
 		{
-			const LightRenderData& light = lights[i];
 			const bool directional = light.Type == Light::LightType::Directional;
 
+			GpuLight entry{};
 			// w == 0 tells the shader distance attenuation does not apply.
-			s_Data->Scene.LightPositions[i] = glm::vec4(light.Position, directional ? 0.0f : 1.0f);
-			s_Data->Scene.LightDirections[i] = glm::vec4(light.Direction, 0.0f);
-			s_Data->Scene.LightColors[i] = glm::vec4(light.Color, light.Intensity);
+			entry.Position = glm::vec4(light.Position, directional ? 0.0f : 1.0f);
+			entry.Direction = glm::vec4(light.Direction, 0.0f);
+			entry.Color = glm::vec4(light.Color, light.Intensity);
 
 			// Cones are compared as cosines in the shader, so convert once here
 			// rather than per fragment. Equal angles disable the cone test.
@@ -430,7 +443,10 @@ namespace RageV
 			const float outer = light.Type == Light::LightType::Spot
 							  ? std::cos(glm::radians(light.OuterCone)) : 1.0f;
 
-			s_Data->Scene.LightParams[i] = { std::max(light.Range, 0.0001f), inner, outer, 0.0f };
+			entry.Params = { std::max(light.Range, 0.0001f), inner, outer, 0.0f };
+			entry.Shadow = glm::vec4(0.0f);
+
+			s_Data->LightScratch.push_back(entry);
 		}
 		s_Data->Scene.LightCount = lightCount;
 
@@ -494,11 +510,17 @@ namespace RageV
 		}
 
 		// Which map each light got, decided when the shadows were rendered.
-		for (int i = 0; i < lightCount; i++)
+		//
+		// Only the first few can have one: there are four spot maps and four
+		// point cubes however many lights a scene has. Past that a light lights
+		// and does not cast, which is the budget rather than the cap that used
+		// to sit here.
+		const int shadowed = glm::min(lightCount, (int)ShadowMap::kMaxLights);
+		for (int i = 0; i < shadowed; i++)
 		{
 			const LocalShadow& assigned = ShadowMap::GetAssignment((uint32_t)i);
 
-			s_Data->Scene.LightShadow[i] = {
+			s_Data->LightScratch[i].Shadow = {
 				(float)(uint32_t)assigned.Type,
 				(float)glm::max(assigned.Slot, 0),
 				assigned.FarClip,
@@ -521,8 +543,25 @@ namespace RageV
 		s_Data->ActiveScene = &slot;
 		slot.Buffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
 
+		// The light buffer. Always at least one element: a zero-length storage
+		// buffer is not a binding, and a scene with no lights at all still has
+		// to bind something the layout is happy with.
+		const uint32_t lightSlots = glm::max<uint32_t>((uint32_t)s_Data->LightScratch.size(), 1u);
+		if (!EnsureInstanceBuffer(slot.Lights, slot.LightCapacity, lightSlots,
+								  sizeof(GpuLight), "Renderer3D.lights"))
+		{
+			return;
+		}
+
+		if (!s_Data->LightScratch.empty())
+		{
+			slot.Lights->Upload(s_Data->LightScratch.data(),
+								s_Data->LightScratch.size() * sizeof(GpuLight));
+		}
+
 		auto& sceneSet = slot.Set;
 		sceneSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
+		sceneSet->SetStorageBuffer(8, slot.Lights, 0, (uint64_t)lightSlots * sizeof(GpuLight));
 		// Never left unwritten. A binding the layout declares and the set does
 		// not fill is a validation error rather than a harmless omission, which
 		// is the same lesson the tonemap pass learned about its bloom input.
