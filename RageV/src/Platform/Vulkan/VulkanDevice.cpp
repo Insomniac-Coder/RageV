@@ -170,7 +170,13 @@ namespace RageV::Vk
 
 		DestroySwapchain();
 
-		if (m_DescriptorPool) vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
+		for (VkDescriptorPool pool : m_DescriptorPools)
+			vkDestroyDescriptorPool(m_Device, pool, nullptr);
+		m_DescriptorPools.clear();
+		m_DescriptorPool = VK_NULL_HANDLE;
+
+		if (m_ImGuiPool) vkDestroyDescriptorPool(m_Device, m_ImGuiPool, nullptr);
+		m_ImGuiPool = VK_NULL_HANDLE;
 		if (m_ImmediateFence) vkDestroyFence(m_Device, m_ImmediateFence, nullptr);
 		if (m_ImmediatePool)  vkDestroyCommandPool(m_Device, m_ImmediatePool, nullptr);
 		if (m_Allocator)      vmaDestroyAllocator(m_Allocator);
@@ -520,10 +526,10 @@ namespace RageV::Vk
 		}
 	}
 
-	void VulkanDevice::CreateDescriptorPool()
+	VkDescriptorPool VulkanDevice::CreateDescriptorPoolBlock()
 	{
-		// Sized for a mid-size scene; VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
-		// lets resource sets be released individually when they are destroyed.
+		// One block. VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT lets
+		// resource sets be released individually when they are destroyed.
 		const VkDescriptorPoolSize sizes[] = {
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1000 },
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
@@ -538,11 +544,70 @@ namespace RageV::Vk
 
 		VkDescriptorPoolCreateInfo createInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
 		createInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-		createInfo.maxSets = 2000;
+		createInfo.maxSets = kDescriptorSetsPerPool;
 		createInfo.poolSizeCount = (uint32_t)std::size(sizes);
 		createInfo.pPoolSizes = sizes;
 
-		VK_CHECK(vkCreateDescriptorPool(m_Device, &createInfo, nullptr, &m_DescriptorPool));
+		VkDescriptorPool pool = VK_NULL_HANDLE;
+		VK_CHECK(vkCreateDescriptorPool(m_Device, &createInfo, nullptr, &pool));
+		return pool;
+	}
+
+	void VulkanDevice::CreateDescriptorPool()
+	{
+		m_DescriptorPool = CreateDescriptorPoolBlock();
+		m_DescriptorPools.push_back(m_DescriptorPool);
+
+		// Separate, and deliberately not part of the chain. ImGui takes a pool
+		// handle once and keeps it, so it cannot follow the chain to a new
+		// block -- and if it is sharing the block the renderer fills, its
+		// allocations start failing the moment a scene has enough materials.
+		m_ImGuiPool = CreateDescriptorPoolBlock();
+	}
+
+	VkDescriptorPool VulkanDevice::AllocateDescriptorSets(const VkDescriptorSetLayout* layouts,
+														  uint32_t count, VkDescriptorSet* out)
+	{
+		// A pool has a fixed capacity, so the only question a renderer can ask
+		// is what happens when a scene needs more than one holds. Until a scene
+		// of a thousand meshes was built, the answer here was that every
+		// material past the ceiling failed to allocate and drew with no
+		// descriptors -- reported once per material and then rendered wrong.
+		//
+		// A chain, allocated from the newest block and extended when that block
+		// says it is full. Each set remembers which block it came from, because
+		// vkFreeDescriptorSets must be given the pool that owns it.
+		for (int attempt = 0; attempt < 2; attempt++)
+		{
+			VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+			allocInfo.descriptorPool = m_DescriptorPool;
+			allocInfo.descriptorSetCount = count;
+			allocInfo.pSetLayouts = layouts;
+
+			const VkResult result = vkAllocateDescriptorSets(m_Device, &allocInfo, out);
+			if (result == VK_SUCCESS)
+				return m_DescriptorPool;
+
+			// Both mean "this block cannot serve you", not "the device is out".
+			// Anything else is a real failure and belongs in the log.
+			if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL)
+			{
+				RV_CORE_ERROR("vkAllocateDescriptorSets failed: {0}", (int)result);
+				return VK_NULL_HANDLE;
+			}
+
+			m_DescriptorPool = CreateDescriptorPoolBlock();
+			m_DescriptorPools.push_back(m_DescriptorPool);
+
+			RV_CORE_TRACE("Descriptor pool block {0} added ({1} sets each)",
+						  m_DescriptorPools.size(), kDescriptorSetsPerPool);
+		}
+
+		// A freshly created block refused an allocation it has the capacity
+		// for, which means the request is larger than a whole block.
+		RV_CORE_ERROR("A descriptor set request of {0} does not fit an empty pool of {1}",
+					  count, kDescriptorSetsPerPool);
+		return VK_NULL_HANDLE;
 	}
 
 	VkFormat VulkanDevice::SelectDepthFormat() const

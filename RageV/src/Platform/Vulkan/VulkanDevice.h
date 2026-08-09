@@ -74,7 +74,19 @@ namespace RageV::Vk
 		VmaAllocator     GetAllocator()      const { return m_Allocator; }
 		VkQueue          GetGraphicsQueue()  const { return m_GraphicsQueue; }
 		uint32_t         GetGraphicsFamily() const { return m_QueueFamilies.Graphics; }
-		VkDescriptorPool GetDescriptorPool() const { return m_DescriptorPool; }
+		// ImGui's backend takes a pool at init and keeps the handle for the
+		// life of the process, allocating a set per texture as it goes. It gets
+		// one of its own: sharing the renderer's meant a scene with enough
+		// materials to fill that pool made every later ImGui texture fail to
+		// allocate -- the editor's viewport image among them.
+		VkDescriptorPool GetImGuiDescriptorPool() const { return m_ImGuiPool; }
+
+		// Allocates from the pool chain, adding a block if the current one is
+		// full, and returns the block that served the request -- which the
+		// caller must keep, because a set is freed to the pool that owns it.
+		// Returns VK_NULL_HANDLE and logs if the allocation genuinely failed.
+		VkDescriptorPool AllocateDescriptorSets(const VkDescriptorSetLayout* layouts,
+												uint32_t count, VkDescriptorSet* out);
 
 		// Resources copy this so their destructors never touch the device
 		// itself; see DeletionQueue for why that matters.
@@ -102,6 +114,7 @@ namespace RageV::Vk
 		void CreateAllocator();
 		void CreateFrameContexts();
 		void CreateDescriptorPool();
+		VkDescriptorPool CreateDescriptorPoolBlock();
 		void CreateSwapchain();
 		void DestroySwapchain();
 		void RecreateSwapchain();
@@ -143,7 +156,19 @@ namespace RageV::Vk
 		VkImageView   m_DepthImageView  = VK_NULL_HANDLE;
 		VkFormat      m_DepthFormat     = VK_FORMAT_UNDEFINED;
 
+		// Sets per block. Two frames in flight means a material costs two, so
+		// this is a thousand materials before a second block is needed -- big
+		// enough that most scenes never allocate one, small enough that a
+		// project with ten thousand does not pay for them all at startup.
+		static constexpr uint32_t kDescriptorSetsPerPool = 2000;
+
+		// The newest block, which allocations are served from.
 		VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
+		// Every block, oldest first, so all of them are destroyed.
+		std::vector<VkDescriptorPool> m_DescriptorPools;
+		// Not in the chain: ImGui holds this handle forever and cannot be moved
+		// to a new block when one fills.
+		VkDescriptorPool m_ImGuiPool = VK_NULL_HANDLE;
 
 		std::shared_ptr<DeletionQueue> m_Deletion;
 		std::vector<FrameContext> m_Frames;

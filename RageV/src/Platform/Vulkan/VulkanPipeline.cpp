@@ -279,21 +279,26 @@ namespace RageV::Vk
 		// set is what makes Commit() safe without any extra synchronisation.
 		std::vector<VkDescriptorSetLayout> layouts(frames, layout);
 
-		VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-		allocInfo.descriptorPool = device.GetDescriptorPool();
-		allocInfo.descriptorSetCount = frames;
-		allocInfo.pSetLayouts = layouts.data();
-
 		m_Sets.resize(frames);
-		VK_CHECK(vkAllocateDescriptorSets(device.GetDevice(), &allocInfo, m_Sets.data()));
 
-		m_Dirty.assign(frames, true);
+		// Through the device, which adds a pool block when the current one is
+		// full rather than failing. The block it used is kept because a set is
+		// freed to the pool that owns it, and with a chain that is not always
+		// the newest one.
+		m_Pool = device.AllocateDescriptorSets(layouts.data(), frames, m_Sets.data());
+		if (m_Pool == VK_NULL_HANDLE)
+			m_Sets.clear();
+
+		m_Dirty.assign(m_Sets.size(), true);
 	}
 
 	VulkanResourceSet::~VulkanResourceSet()
 	{
+		if (m_Sets.empty() || m_Pool == VK_NULL_HANDLE)
+			return;
+
 		VkDevice device = m_Device.GetDevice();
-		VkDescriptorPool pool = m_Device.GetDescriptorPool();
+		VkDescriptorPool pool = m_Pool;
 		auto sets = m_Sets;
 		m_Deletion->Push([device, pool, sets]()
 		{
@@ -303,6 +308,11 @@ namespace RageV::Vk
 
 	VkDescriptorSet VulkanResourceSet::GetHandle() const
 	{
+		// Null when the allocation failed. Binding null is what the caller has
+		// to handle; indexing an empty vector is not.
+		if (m_Sets.empty())
+			return VK_NULL_HANDLE;
+
 		return m_Sets[m_Device.GetFrameIndex()];
 	}
 
@@ -313,6 +323,22 @@ namespace RageV::Vk
 
 		BufferWrite write{};
 		write.Binding = binding;
+		write.Type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		write.Info.buffer = vulkanBuffer->GetHandle();
+		write.Info.offset = offset;
+		write.Info.range = range == 0 ? VK_WHOLE_SIZE : range;
+
+		m_PendingBuffers.push_back(write);
+	}
+
+	void VulkanResourceSet::SetStorageBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer,
+											 uint64_t offset, uint64_t range)
+	{
+		auto vulkanBuffer = std::static_pointer_cast<VulkanBuffer>(buffer);
+
+		BufferWrite write{};
+		write.Binding = binding;
+		write.Type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		write.Info.buffer = vulkanBuffer->GetHandle();
 		write.Info.offset = offset;
 		write.Info.range = range == 0 ? VK_WHOLE_SIZE : range;
@@ -365,7 +391,7 @@ namespace RageV::Vk
 			write.dstSet = m_Sets[frame];
 			write.dstBinding = buffer.Binding;
 			write.descriptorCount = 1;
-			write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			write.descriptorType = buffer.Type;
 			write.pBufferInfo = &buffer.Info;
 			writes.push_back(write);
 		}

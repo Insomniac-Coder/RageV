@@ -64,6 +64,8 @@ namespace RageV::Vk
 
 		void SetUniformBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer,
 							  uint64_t offset = 0, uint64_t range = 0) override;
+		void SetStorageBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer,
+							  uint64_t offset = 0, uint64_t range = 0) override;
 		void SetTexture(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
 						const RHI::Ref<RHI::RHISampler>& sampler, uint32_t arrayIndex = 0) override;
 		void Commit() override;
@@ -74,6 +76,10 @@ namespace RageV::Vk
 		struct BufferWrite
 		{
 			uint32_t Binding;
+			// Carried per write rather than assumed: uniform and storage
+			// buffers share this path and the descriptor type has to match the
+			// layout the shader declared, or the write is rejected.
+			VkDescriptorType Type;
 			VkDescriptorBufferInfo Info;
 		};
 		struct ImageWrite
@@ -87,6 +93,10 @@ namespace RageV::Vk
 		std::shared_ptr<DeletionQueue> m_Deletion;
 		RHI::Ref<VulkanPipeline> m_Pipeline;
 		std::vector<VkDescriptorSet> m_Sets;   // one per frame in flight
+		// The block these came from. The device allocates from a chain, so the
+		// owning pool is not necessarily the one it would hand out today, and
+		// vkFreeDescriptorSets must be given the one that owns them.
+		VkDescriptorPool m_Pool = VK_NULL_HANDLE;
 
 		std::vector<BufferWrite> m_PendingBuffers;
 		std::vector<ImageWrite>  m_PendingImages;

@@ -34,7 +34,7 @@ namespace RageV::Vk
 		info.Device = vulkan->GetDevice();
 		info.QueueFamily = vulkan->GetGraphicsFamily();
 		info.Queue = vulkan->GetGraphicsQueue();
-		info.DescriptorPool = vulkan->GetDescriptorPool();
+		info.DescriptorPool = vulkan->GetImGuiDescriptorPool();
 		info.MinImageCount = 2;
 		info.ImageCount = std::max(2u, device.GetFramesInFlight() + 1);
 		info.CheckVkResultFn = CheckResult;
