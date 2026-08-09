@@ -153,6 +153,16 @@ namespace RageV::Managed
 		// How many script instances are alive. For leak checks -- a handle that
 		// is never released is a script that never stops running.
 		int32_t (__cdecl* LiveCount)();
+
+		// Loads a project's compiled script assembly. Returns how many Script
+		// subclasses it holds, or -1 on failure -- "it loaded" and "it has any
+		// scripts in it" being different answers, and the second the one the
+		// person who just pressed Build wants.
+		int32_t (__cdecl* LoadAssembly)(const char* path);
+
+		// Every loadable script type, newline-separated, with the same
+		// length-that-would-have-fit contract GetEntityName uses.
+		int32_t (__cdecl* ListScriptTypes)(char* buffer, int32_t capacity);
 	};
 
 	class Interop

@@ -10,6 +10,7 @@
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Project/Project.h"
+#include "RageV/Managed/Interop.h"
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Core/EngineConfig.h"
@@ -605,6 +606,7 @@ void EditorLayer::OnImGuiRender()
 
 	if (m_ShowStatistics)      DrawStatisticsPanel();
 	if (m_ShowRenderSettings)  DrawRenderSettingsPanel();
+	DrawScriptBuildPanel();
 	if (m_ShowViewport)        DrawViewportPanel();
 	if (m_ShowGameViewport)    DrawGameViewportPanel();
 	if (m_ShowContentBrowser)  m_ContentBrowser.OnImGuiRender(&m_ShowContentBrowser);
@@ -697,6 +699,16 @@ void EditorLayer::DrawMenuBar()
 				BuildGameAs();
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("The same build, somewhere other than bin/.");
+
+			ImGui::Separator();
+
+			if (ImGui::MenuItem("Build Scripts", "Ctrl+B"))
+				BuildScripts();
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("Compiles this project's C# in Scripts/ and loads it.\n"
+								  "Needs the .NET 8 SDK; the engine itself does not.");
+			}
 
 			if (ImGui::MenuItem("Set Start Scene"))
 				SetStartSceneToCurrent();
@@ -2362,6 +2374,135 @@ void EditorLayer::BuildInto(const std::filesystem::path& output)
 	RV_INFO("Built '{0}': {1} files, {2} MB -> {3}", Project::Config().Name,
 			result.FilesCopied, result.BytesCopied / (1024 * 1024),
 			result.Executable.string());
+}
+
+
+// Compile the project's C# and load what comes out.
+//
+// Blocking, and deliberately so: a script assembly is a few files and about a
+// second, and a build finishing in the background after somebody has already
+// pressed Play is a worse problem than a brief pause.
+void EditorLayer::BuildScripts()
+{
+	if (!Project::GetActive())
+		return;
+
+	const std::filesystem::path csproj =
+		Managed::ScriptBuild::ProjectFileFor(Project::Root(), Project::Config().Name);
+
+	// The engine's own class library, which the project references. Staged
+	// beside the executable, so this is where it is at runtime regardless of
+	// where the engine was built.
+	const std::filesystem::path scriptCore = "managed/RageV.ScriptCore.dll";
+
+	m_ScriptBuild = Managed::ScriptBuild::Build(csproj, Project::Root() / "Scripts" / "bin", scriptCore);
+	m_ScriptBuildRan = true;
+	m_ShowScriptBuild = true;
+
+	if (m_ScriptBuild.SdkMissing)
+	{
+		RV_ERROR("No .NET SDK found. Install the .NET 8 SDK to build C# scripts.");
+		return;
+	}
+
+	if (!m_ScriptBuild.Success)
+	{
+		RV_ERROR("Script build failed: {0} error(s)", m_ScriptBuild.ErrorCount());
+		return;
+	}
+
+	RV_INFO("Scripts built in {0:.1f}s, {1} warning(s)",
+			m_ScriptBuild.Seconds, m_ScriptBuild.WarningCount());
+
+	// Loading is separate from building on purpose: a build can succeed and
+	// still produce an assembly the runtime refuses, and reporting both as one
+	// outcome would hide which happened.
+	if (!Managed::Interop::IsReady())
+	{
+		RV_WARN("Built, but C# scripting is not running -- the assembly was not loaded");
+		return;
+	}
+
+	const int32_t scripts =
+		Managed::Interop::Managed().LoadAssembly(m_ScriptBuild.Assembly.string().c_str());
+
+	if (scripts < 0)
+		RV_ERROR("The script assembly built but could not be loaded");
+	else
+		RV_INFO("Loaded {0} script type(s) from {1}", scripts, m_ScriptBuild.Assembly.filename().string());
+}
+
+// The compiler's output, where somebody will actually read it.
+void EditorLayer::DrawScriptBuildPanel()
+{
+	if (!m_ShowScriptBuild)
+		return;
+
+	if (!ImGui::Begin("Script Build", &m_ShowScriptBuild))
+	{
+		ImGui::End();
+		return;
+	}
+
+	if (!m_ScriptBuildRan)
+	{
+		ImGui::TextDisabled("Nothing built yet.");
+		ImGui::End();
+		return;
+	}
+
+	if (m_ScriptBuild.SdkMissing)
+	{
+		ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "No .NET SDK");
+		ImGui::TextWrapped("C# scripts need the .NET 8 SDK. The engine itself does not -- "
+						   "it finds the runtime at startup and reports C# as unavailable "
+						   "when there is none.");
+		ImGui::End();
+		return;
+	}
+
+	const size_t errors = m_ScriptBuild.ErrorCount();
+	const size_t warnings = m_ScriptBuild.WarningCount();
+
+	if (errors > 0)
+		ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "%zu error(s), %zu warning(s)", errors, warnings);
+	else
+		ImGui::TextColored(ImVec4(0.40f, 0.75f, 0.45f, 1.0f), "Built in %.1fs, %zu warning(s)",
+						   m_ScriptBuild.Seconds, warnings);
+
+	ImGui::Separator();
+
+	// Errors first. A build with forty warnings and one error should not make
+	// somebody scroll to find the thing that stopped it.
+	for (int pass = 0; pass < 2; pass++)
+	{
+		const bool wantErrors = (pass == 0);
+		for (const Managed::BuildDiagnostic& diagnostic : m_ScriptBuild.Diagnostics)
+		{
+			if (diagnostic.IsError != wantErrors)
+				continue;
+
+			const ImVec4 colour = diagnostic.IsError ? ImVec4(0.88f, 0.30f, 0.30f, 1.0f)
+													 : ImVec4(0.85f, 0.68f, 0.30f, 1.0f);
+
+			ImGui::TextColored(colour, "%s(%d,%d)", diagnostic.File.filename().string().c_str(),
+							   diagnostic.Line, diagnostic.Column);
+			ImGui::SameLine();
+			ImGui::TextDisabled("%s", diagnostic.Code.c_str());
+			ImGui::TextWrapped("    %s", diagnostic.Message.c_str());
+			ImGui::Spacing();
+		}
+	}
+
+	// The whole log, folded away. Parsing is best-effort -- an MSBuild failure
+	// that is not a CS diagnostic still has to be readable by someone.
+	if (m_ScriptBuild.Diagnostics.empty() || errors > 0)
+	{
+		if (ImGui::CollapsingHeader("Full output"))
+			ImGui::TextUnformatted(m_ScriptBuild.Output.c_str());
+	}
+
+	ImGui::End();
 }
 
 void EditorLayer::SetStartSceneToCurrent()

@@ -1,5 +1,6 @@
 #pragma once
 #include <RageV.h>
+#include "RageV/Managed/ScriptBuild.h"
 #include <chrono>
 #include "UI/SceneHierarchyPanel.h"
 #include "UI/ContentBrowserPanel.h"
@@ -38,6 +39,17 @@ public:
 	// The scene a freshly created project opens on. Deliberately not empty --
 	// see the definition.
 	void PopulateStarterScene();
+
+	// Compiles the project's C# and loads the result. Output goes to the panel
+	// below, not to a console nobody is looking at.
+	void BuildScripts();
+	void DrawScriptBuildPanel();
+
+	RageV::Managed::BuildResult m_ScriptBuild;
+	bool m_ScriptBuildRan = false;
+	bool m_ShowScriptBuild = false;
+
+
 	void ImportModel();
 	void OnScenePlay();
 	void OnSceneStop();

@@ -42,7 +42,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-646 checks, `exit 0`. Then look at a frame:
+660 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -106,7 +106,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 |---|---|
 | `RageVEditor` | The editor. Opens the sample project's start scene. |
 | `RageVRuntime` | The game, with no editor. Opens a project and runs it. |
-| `scenetest` | 646 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
+| `scenetest` | 660 checks: serialization, undo, assets, scripts, physics, audio, project scaffolding, picking, packaging, render graph, post chain, settings writer, .NET hosting, the interop boundary, the math layer against glm. |
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
@@ -836,7 +836,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Skeletal animation | Skinned vertex format, skinned PBR and depth shaders, per-instance bone matrices, `AnimatorComponent` (3.7) |
 | Batching | Instanced draws keyed on mesh and material; 3238 draws down to 60 on the stress scene |
 | Profiler | CPU wall time and GPU timestamps per phase, live in the editor and printed by `--benchmark` |
-| Tests | `scenetest`, **646 checks**, green on both backends |
+| Tests | `scenetest`, **660 checks**, green on both backends |
 
 **Phases 0, 1, 2, 3 and 4 are complete.** Phase 5, C# scripting, is in
 progress -- 5.1 (hosting) is done, and **5.0 now precedes the rest**: no
@@ -1049,11 +1049,36 @@ and delivers contacts. `BuiltinScripts.cs` has C# `Spinner` and `Mover` that are
 line-for-line comparable with the native ones in `Scripts/BuiltinScripts.cpp`,
 which is the clearest available statement that the two APIs are one API.
 
-**A project still cannot have C# scripts.** The machinery works end to end and
+**5.4 is done.** A generated project scaffolds `Scripts/<Name>.csproj` and an
+`Example.cs` that already compiles. **File > Build Scripts** shells out to
+`dotnet build`, parses the diagnostics into file/line/code/message, shows them in
+a Script Build panel with errors above warnings, and loads the result. Verified
+end to end in `scenetest`: a project is created, compiled, and a script type
+*from that project* is instantiated by name and stepped.
+
+Three things in there that were not obvious:
+
+- **`cmd` eats the outer quotes.** `_popen` runs through `cmd /c`, which strips
+  the first and last quote of a command line beginning with one -- so a quoted
+  `C:\Program Files\dotnet\dotnet.exe` arrives unquoted and cmd reports that
+  `'C:\Program'` is not a command. The whole line is wrapped in one more pair of
+  quotes to give cmd a pair to eat.
+- **The project assembly must resolve `RageV.ScriptCore` to the copy already
+  loaded**, via an `AssemblyLoadContext.Default.Resolving` handler. The obvious
+  alternative -- copying the DLL next to the project's output -- is a trap: two
+  files with the same assembly name load as two different assemblies, so the
+  project's `Script` is not the engine's `Script`, `IsAssignableFrom` fails, and
+  the error says the type is not a Script when it plainly is.
+- **The assembly is the evidence, not the exit code.** A build can print nothing
+  alarming and still not have produced anything, so success requires the file to
+  exist *and* zero errors.
+
+**A project still cannot attach C# scripts to entities.** The machinery works end to end and
 there is no way to attach it: no managed script component, no inspector entry,
-no scene serialization, and no per-project assembly. Only the two built-in C#
-scripts exist, and only `scenetest` drives them. That needs 5.4 plus a
-`ManagedScriptComponent`, and until then a scene can hold C++ scripts only.
+no scene serialization. A project's scripts compile and load, and nothing in the
+editor can put one on an entity. That is a `ManagedScriptComponent` with
+inspector and serializer support -- 5.6's territory -- and until it exists a
+scene can hold C++ scripts only.
 
 C++ scripts have their own limit worth stating in the same breath: they must be
 compiled into the engine or game binary, so a *project* cannot add one without

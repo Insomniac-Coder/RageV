@@ -336,6 +336,8 @@ namespace RageV::Managed
 		s_Managed.InvokeDestroy = (decltype(s_Managed.InvokeDestroy))bind("InvokeDestroy");
 		s_Managed.InvokeContact = (decltype(s_Managed.InvokeContact))bind("InvokeContact");
 		s_Managed.LiveCount     = (decltype(s_Managed.LiveCount))bind("LiveCount");
+		s_Managed.LoadAssembly  = (decltype(s_Managed.LoadAssembly))bind("LoadAssembly");
+		s_Managed.ListScriptTypes = (decltype(s_Managed.ListScriptTypes))bind("ListScriptTypes");
 
 		if (!s_Managed.Create || !s_Managed.InvokeUpdate || !s_Managed.Destroy)
 		{

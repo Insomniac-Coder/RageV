@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 
 namespace RageV;
 
@@ -26,6 +27,49 @@ public static unsafe class ScriptHost
 	private static readonly Dictionary<int, Script> s_Live = new();
 	private static int s_NextHandle = 1;
 
+	// Assemblies loaded from the open project, searched in addition to this one.
+	//
+	// Loaded into the default context for now. Hot reload needs a collectible
+	// AssemblyLoadContext instead, and that is 5.5 -- doing it here would mean
+	// building the unload path without the thing that exercises it.
+	private static readonly List<Assembly> s_Loaded = new();
+
+	private static bool s_ResolverInstalled;
+
+	/// <summary>Points a project's assembly at the RageV.ScriptCore already in the process.</summary>
+	/// <remarks>
+	/// A project's script assembly references RageV.ScriptCore, and .NET looks
+	/// for it beside the assembly being loaded and in the app base. It is in
+	/// neither: it lives in `managed/` beside the executable, and the project's
+	/// output is in the project's own Scripts/bin.
+	///
+	/// The obvious fix is to copy it next to the project assembly, and it is a
+	/// trap. Two files with the same assembly name load as two *different*
+	/// assemblies, so the project's `Script` would not be this `Script` --
+	/// `IsAssignableFrom` fails, and the error says the type is not a Script
+	/// when it plainly is. Resolving to the instance already loaded is the only
+	/// version where there is one `Script` in the process.
+	///
+	/// This is also what hot reload will depend on: a reloaded project assembly
+	/// must bind to the same ScriptCore, or every live script becomes a
+	/// different type than the one the engine is holding.
+	/// </remarks>
+	private static void InstallResolver()
+	{
+		if (s_ResolverInstalled)
+			return;
+
+		AssemblyLoadContext.Default.Resolving += (context, name) =>
+		{
+			Assembly self = typeof(ScriptHost).Assembly;
+			return string.Equals(name.Name, self.GetName().Name, StringComparison.OrdinalIgnoreCase)
+				? self
+				: null;
+		};
+
+		s_ResolverInstalled = true;
+	}
+
 	/// <summary>Instantiates a script by type name and binds it to an entity.</summary>
 	/// <param name="typeName">
 	/// Assembly-qualified or plain. A plain name is looked up in this assembly,
@@ -41,7 +85,19 @@ public static unsafe class ScriptHost
 			if (string.IsNullOrEmpty(name))
 				return 0;
 
+			// This assembly first, then whatever the project loaded. A project
+			// script shadowing a built-in one is the project's business.
 			Type? type = Type.GetType(name) ?? typeof(ScriptHost).Assembly.GetType(name);
+			if (type is null)
+			{
+				foreach (Assembly assembly in s_Loaded)
+				{
+					type = assembly.GetType(name);
+					if (type is not null)
+						break;
+				}
+			}
+
 			if (type is null)
 			{
 				Log.Error($"No script type named '{name}'");
@@ -104,6 +160,84 @@ public static unsafe class ScriptHost
 			case ContactKind.TriggerEnter:   Invoke(handle, "OnTriggerEnter",   s => s.OnTriggerEnter(collision));   break;
 			case ContactKind.TriggerStay:    Invoke(handle, "OnTriggerStay",    s => s.OnTriggerStay(collision));    break;
 			case ContactKind.TriggerExit:    Invoke(handle, "OnTriggerExit",    s => s.OnTriggerExit(collision));    break;
+		}
+	}
+
+	/// <summary>Loads a project's compiled script assembly.</summary>
+	/// <returns>The number of Script subclasses it contains, or -1 on failure.</returns>
+	/// <remarks>
+	/// The count is returned rather than a bare success because "the assembly
+	/// loaded" and "the assembly has any scripts in it" are different answers,
+	/// and the second one is what the person who just pressed Build wants.
+	/// </remarks>
+	[UnmanagedCallersOnly]
+	public static int LoadAssembly(byte* path)
+	{
+		try
+		{
+			string? file = Marshal.PtrToStringUTF8((IntPtr)path);
+			if (string.IsNullOrEmpty(file))
+				return -1;
+
+			InstallResolver();
+
+			Assembly assembly = Assembly.LoadFrom(file);
+
+			// Replaced rather than appended when the same assembly is loaded
+			// again, or a rebuild would leave both versions searchable and the
+			// older one would win for any type it still declares.
+			s_Loaded.RemoveAll(loaded => string.Equals(loaded.GetName().Name,
+													   assembly.GetName().Name,
+													   StringComparison.OrdinalIgnoreCase));
+			s_Loaded.Add(assembly);
+
+			int scripts = 0;
+			foreach (Type type in assembly.GetTypes())
+			{
+				if (typeof(Script).IsAssignableFrom(type) && !type.IsAbstract)
+					scripts++;
+			}
+			return scripts;
+		}
+		catch (Exception e)
+		{
+			Log.Error($"Loading a script assembly failed: {e.Message}");
+			return -1;
+		}
+	}
+
+	/// <summary>Every Script subclass currently loadable, newline-separated, into the buffer.</summary>
+	/// <returns>The length that would have been written, as GetEntityName does.</returns>
+	[UnmanagedCallersOnly]
+	public static int ListScriptTypes(byte* buffer, int capacity)
+	{
+		try
+		{
+			List<string> names = new();
+			foreach (Assembly assembly in s_Loaded)
+			{
+				foreach (Type type in assembly.GetTypes())
+				{
+					if (typeof(Script).IsAssignableFrom(type) && !type.IsAbstract)
+						names.Add(type.FullName ?? type.Name);
+				}
+			}
+			names.Sort(StringComparer.Ordinal);
+
+			string joined = string.Join("\n", names);
+			byte[] bytes = System.Text.Encoding.UTF8.GetBytes(joined);
+
+			if (buffer is not null && capacity > 0)
+			{
+				int copied = Math.Min(bytes.Length, capacity - 1);
+				Marshal.Copy(bytes, 0, (IntPtr)buffer, copied);
+				buffer[copied] = 0;
+			}
+			return bytes.Length;
+		}
+		catch
+		{
+			return -1;
 		}
 	}
 

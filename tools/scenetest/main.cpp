@@ -59,6 +59,7 @@
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Managed/DotNetHost.h"
 #include "RageV/Managed/Interop.h"
+#include "RageV/Managed/ScriptBuild.h"
 #include "RageV/Math/Math.h"
 #include "GlmBridge.h"
 #include <glm/glm.hpp>
@@ -4760,6 +4761,94 @@ int RunTests(int argc, char** argv)
 				// An unknown handle must be ignored, not indexed.
 				managed.InvokeUpdate(9999, 1.0f / 60.0f);
 				Check(true, "stepping a handle that was never created is ignored");
+			}
+
+			// --- building a project's own scripts -----------------------------
+			//
+			// The whole point of 5.4: a project scaffolds a .csproj, the editor
+			// compiles it, and the result loads. Checked end to end rather than
+			// by inspecting the command line, because "we ran dotnet" and "a
+			// script type from the project is now instantiable" are very
+			// different claims.
+			{
+				const std::filesystem::path root = ScratchDir("scriptbuild");
+				std::error_code ec;
+				std::filesystem::remove_all(root, ec);
+
+				Check(Project::Create(root, "Scripted"), "a project to build scripts in");
+				const std::filesystem::path csproj =
+					Managed::ScriptBuild::ProjectFileFor(root, "Scripted");
+
+				Check(std::filesystem::exists(csproj),
+					  "which scaffolds a .csproj named after the project");
+				Check(std::filesystem::exists(root / "Scripts" / "Example.cs"),
+					  "and a first script that already compiles");
+
+				// The diagnostic parser is the part that quietly stops matching
+				// when a toolchain changes its output, so it is checked directly
+				// rather than only through a build that happens to fail.
+				Managed::BuildDiagnostic parsed;
+				Check(Managed::ScriptBuild::ParseDiagnostic(
+						  R"(C:\p\Player.cs(12,7): error CS0103: The name 'x' does not exist [C:\p.csproj])",
+						  parsed),
+					  "an MSBuild error line parses");
+				Check(parsed.Line == 12 && parsed.Column == 7 && parsed.Code == "CS0103" && parsed.IsError,
+					  "into file, line, column and code");
+				Check(parsed.Message == "The name 'x' does not exist",
+					  "with the trailing project path stripped from the message");
+
+				Managed::BuildDiagnostic warning;
+				Check(Managed::ScriptBuild::ParseDiagnostic(
+						  R"(D:\a\B.cs(3,1): warning CS0168: declared but never used)", warning)
+					  && !warning.IsError,
+					  "and a warning line parses as a warning");
+
+				Check(!Managed::ScriptBuild::ParseDiagnostic("Build succeeded.", parsed),
+					  "while an ordinary line is not mistaken for a diagnostic");
+
+				if (!Managed::ScriptBuild::IsAvailable())
+				{
+					RV_CORE_WARN("No .NET SDK; the script build itself is not exercised here");
+				}
+				else
+				{
+					const std::filesystem::path scriptCore =
+						std::filesystem::absolute("managed/RageV.ScriptCore.dll");
+
+					const Managed::BuildResult built = Managed::ScriptBuild::Build(
+						csproj, root / "Scripts" / "bin", scriptCore);
+
+					Check(built.Success, "the scaffolded project compiles as generated");
+					Check(built.ErrorCount() == 0, "with no errors");
+					Check(std::filesystem::exists(built.Assembly),
+						  "and produces an assembly named after the project");
+
+					if (!built.Success)
+						RV_CORE_ERROR("build output: {0}", built.Output);
+
+					// Loading is a separate claim from building.
+					if (built.Success && Managed::Interop::IsReady())
+					{
+						const int32_t types = Managed::Interop::Managed().LoadAssembly(
+							built.Assembly.string().c_str());
+
+						Check(types == 1, "the assembly loads and reports its one script type");
+
+						const int32_t handle = Managed::Interop::Managed().Create(
+							"Example", (uint64_t)probe.GetUUID());
+						Check(handle != 0, "and a script from the *project* instantiates by name");
+
+						if (handle != 0)
+						{
+							Managed::Interop::Managed().InvokeUpdate(handle, 1.0f / 60.0f);
+							Check(true, "and steps without faulting");
+							Managed::Interop::Managed().Destroy(handle);
+						}
+					}
+				}
+
+				std::filesystem::remove_all(root, ec);
+				Project::Close();
 			}
 
 			// Managed code must not be able to keep a scene alive past Stop,

@@ -96,6 +96,87 @@ namespace RageV
 		return true;
 	}
 
+	namespace
+	{
+		// The .csproj and first script a generated project gets.
+		//
+		// The reference to RageV.ScriptCore is an MSBuild *property* rather than
+		// a literal path, because where the engine is installed is not knowable
+		// when the project is created -- the editor supplies it at build time
+		// with -p:RageVScriptCore=<path>. A project file that only builds on the
+		// machine that generated it is not a project file.
+		//
+		// Raw string literals throughout: this is a file full of quotes and
+		// angle brackets, and escaping every one of them would make it
+		// unreadable and unreviewable.
+		void WriteScriptProject(const std::filesystem::path& directory, const std::string& name)
+		{
+			const std::filesystem::path scripts = directory / "Scripts";
+
+			if (std::ofstream project(scripts / (name + ".csproj")); project)
+			{
+				project << R"(<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>)" << name << R"(</AssemblyName>
+    <RootNamespace>)" << name << R"(</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- The editor passes -p:RageVScriptCore=<path> when it builds this. The
+       fallback exists only so that a hand-run `dotnet build` fails with
+       something a person can act on rather than a missing-type cascade. -->
+  <PropertyGroup Condition="'$(RageVScriptCore)' == ''">
+    <RageVScriptCore>RageV.ScriptCore.dll</RageVScriptCore>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RageV.ScriptCore">
+      <HintPath>$(RageVScriptCore)</HintPath>
+      <!-- The engine already has it loaded; copying it next to the game's
+           assembly would give the process two of them. -->
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
+)";
+			}
+
+			// One script that already compiles and does something, for the same
+			// reason the starter scene is not empty: the first five minutes
+			// should not be spent working out what a script has to look like.
+			if (std::ofstream sample(scripts / "Example.cs"); sample)
+			{
+				sample << R"(using RageV;
+
+// Attach this to an entity and press Play.
+//
+// OnUpdate runs once per fixed simulation step, not once per frame. A frame may
+// run zero steps, one, or several -- so multiply rates by deltaTime and the
+// behaviour stays the same at any simulation frequency.
+public class Example : Script
+{
+	private float m_Speed = 1.2f;
+
+	public override void OnCreate()
+	{
+		Log.Info($"{Entity.Name} is ready");
+	}
+
+	public override void OnUpdate(float deltaTime)
+	{
+		Rotate(new Vector3(0.0f, m_Speed * deltaTime, 0.0f));
+	}
+}
+)";
+			}
+		}
+	}
+
 	bool Project::Create(const std::filesystem::path& directory, const std::string& name)
 	{
 		std::error_code error;
@@ -133,6 +214,11 @@ namespace RageV
 			}
 		}
 
+		// Where a project's C# lives. A .csproj and one script, so that adding
+		// a script is editing a file that already exists.
+		std::filesystem::create_directories(directory / "Scripts", error);
+		WriteScriptProject(directory, name);
+
 		// Builds land here. Created up front so it is visible in the content
 		// browser and in Explorer before the first build rather than appearing
 		// mysteriously after it.
@@ -145,6 +231,9 @@ namespace RageV
 		{
 			ignore << "# Build output: the runtime and a copy of every asset.\n";
 			ignore << "bin/\n";
+			ignore << "\n# C# build intermediates.\n";
+			ignore << "Scripts/obj/\n";
+			ignore << "Scripts/bin/\n";
 		}
 
 		auto created = std::make_unique<ActiveProject>();
