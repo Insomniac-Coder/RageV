@@ -428,6 +428,14 @@ namespace RageV::Vk
 
 	void VulkanTexture::GenerateMips()
 	{
+		// Its own submission, which waits. Correct only when mip 0 was written
+		// by something that has already run -- an upload from the CPU, say.
+		// When this frame wrote mip 0, use RecordGenerateMips instead.
+		m_Device.ImmediateSubmit([&](VkCommandBuffer cmd) { RecordGenerateMips(cmd); });
+	}
+
+	void VulkanTexture::RecordGenerateMips(VkCommandBuffer cmd)
+	{
 		if (m_Desc.MipLevels <= 1)
 			return;
 
@@ -441,7 +449,6 @@ namespace RageV::Vk
 
 		const uint32_t layers = EffectiveLayers();
 
-		m_Device.ImmediateSubmit([&](VkCommandBuffer cmd)
 		{
 			int32_t width = (int32_t)m_Desc.Width;
 			int32_t height = (int32_t)m_Desc.Height;
@@ -509,7 +516,7 @@ namespace RageV::Vk
 				barrierFor(level - 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 				barrierFor(level, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			}
-		});
+		}
 
 		m_Layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	}

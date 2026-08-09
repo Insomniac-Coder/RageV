@@ -576,10 +576,44 @@ namespace RageV::GL
 		entry.Buffer = glBuffer->GetHandle();
 		entry.Offset = offset;
 		entry.Range = range == 0 ? glBuffer->GetSize() : range;
+		entry.Target = GL_UNIFORM_BUFFER;
 
 		for (auto& existing : m_Buffers)
 		{
-			if (existing.Point == entry.Point)
+			if (existing.Point == entry.Point && existing.Target == entry.Target)
+			{
+				existing = entry;
+				return;
+			}
+		}
+		m_Buffers.push_back(entry);
+	}
+
+	void OpenGLResourceSetRHI::SetStorageBuffer(uint32_t binding, const Ref<RHIBuffer>& buffer,
+												uint64_t offset, uint64_t range)
+	{
+		// Its own point space, assigned by the same flat map that assigns the
+		// uniform ones. Looking a storage buffer up in the uniform table would
+		// silently return a point that belongs to something else.
+		const uint32_t point = m_Pipeline->GetBindings().LookupStorageBuffer(m_Set, binding);
+		if (point == UINT32_MAX)
+		{
+			RV_CORE_WARN("No storage buffer binding for set {0} binding {1}", m_Set, binding);
+			return;
+		}
+
+		auto glBuffer = std::static_pointer_cast<OpenGLBufferRHI>(buffer);
+
+		BufferBinding entry;
+		entry.Point = point;
+		entry.Buffer = glBuffer->GetHandle();
+		entry.Offset = offset;
+		entry.Range = range == 0 ? glBuffer->GetSize() : range;
+		entry.Target = GL_SHADER_STORAGE_BUFFER;
+
+		for (auto& existing : m_Buffers)
+		{
+			if (existing.Point == entry.Point && existing.Target == entry.Target)
 			{
 				existing = entry;
 				return;
@@ -624,7 +658,7 @@ namespace RageV::GL
 	{
 		for (const auto& buffer : m_Buffers)
 		{
-			glBindBufferRange(GL_UNIFORM_BUFFER, buffer.Point, buffer.Buffer,
+			glBindBufferRange(buffer.Target, buffer.Point, buffer.Buffer,
 							  (GLintptr)buffer.Offset, (GLsizeiptr)buffer.Range);
 		}
 
@@ -891,6 +925,15 @@ namespace RageV::GL
 		glDrawElementsInstancedBaseVertexBaseInstance(
 			m_BoundPipeline->GetTopology(), (GLsizei)indexCount, m_IndexType, offset,
 			(GLsizei)instanceCount, vertexOffset, firstInstance);
+	}
+
+	void OpenGLCommandListRHI::GenerateMips(const Ref<RHITexture>& texture)
+	{
+		// GL has one queue and no recording, so issuing it here is already in
+		// order with everything before it -- which is why this bug was only
+		// ever visible on Vulkan.
+		if (texture)
+			texture->GenerateMips();
 	}
 
 	void OpenGLCommandListRHI::CopyToTextureLayer(const Ref<RHITexture>& source,

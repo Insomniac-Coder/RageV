@@ -54,6 +54,9 @@ namespace RageV::Vk
 		void Upload(const void* data, uint64_t size) override;
 		void UploadLayer(const void* data, uint64_t size, uint32_t layer) override;
 		void GenerateMips() override;
+		// The same blit chain, recorded into a caller's command buffer rather
+		// than submitted on its own. What GenerateMips() is built from.
+		void RecordGenerateMips(VkCommandBuffer cmd);
 		uint64_t GetImGuiHandle() override;
 
 		VkImage       GetImage()  const { return m_Image; }

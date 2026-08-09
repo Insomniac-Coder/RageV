@@ -133,7 +133,16 @@ namespace RageV
 		// full ones, and the seam survives the next five updates.
 		if (m_FacesCaptured >= CubeFaces::kFaceCount)
 		{
-			m_Cube->GenerateMips();
+			// Through the command list, not the texture.
+			//
+			// RHITexture::GenerateMips submits its own buffer and waits, so it
+			// ran *before* the face copies above -- which are recorded into
+			// this frame's buffer and had not been submitted yet. The chain was
+			// therefore built from an empty mip 0, and every rough surface
+			// reflecting this probe read black until the next full round of
+			// faces rebuilt it from a mip 0 an earlier frame had flushed. On a
+			// probe updating one face a frame that is the first six frames.
+			cmd.GenerateMips(m_Cube);
 			m_Complete = true;
 		}
 

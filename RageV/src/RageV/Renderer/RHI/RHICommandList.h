@@ -62,6 +62,17 @@ namespace RageV::RHI
 		// luck: their orientation comes from a face table both specifications
 		// share, and the data has to match it. So one backend copies and the
 		// other blits upside down, and callers see neither.
+		// Builds a texture's mip chain *in this command buffer*, in order with
+		// everything already recorded into it.
+		//
+		// RHITexture::GenerateMips submits its own command buffer and waits, so
+		// it runs before anything recorded into the frame -- which meant a
+		// reflection probe's cube had its mips built from an empty mip 0, and
+		// every rough surface reflecting that probe read black until the next
+		// full round of faces six frames later. Anything whose mip 0 was
+		// written by this frame has to use this instead.
+		virtual void GenerateMips(const Ref<RHITexture>& texture) = 0;
+
 		virtual void CopyToTextureLayer(const Ref<RHITexture>& source,
 										const Ref<RHITexture>& destination,
 										uint32_t layer, uint32_t mip = 0) = 0;

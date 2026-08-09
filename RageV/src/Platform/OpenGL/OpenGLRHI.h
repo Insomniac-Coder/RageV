@@ -122,6 +122,8 @@ namespace RageV::GL
 
 		void SetUniformBuffer(uint32_t binding, const Ref<RHIBuffer>& buffer,
 							  uint64_t offset = 0, uint64_t range = 0) override;
+		void SetStorageBuffer(uint32_t binding, const Ref<RHIBuffer>& buffer,
+							  uint64_t offset = 0, uint64_t range = 0) override;
 		void SetTexture(uint32_t binding, const Ref<RHITexture>& texture,
 						const Ref<RHISampler>& sampler, uint32_t arrayIndex = 0) override;
 		void Commit() override;
@@ -136,6 +138,11 @@ namespace RageV::GL
 			uint32_t Buffer = 0;
 			uint64_t Offset = 0;
 			uint64_t Range = 0;
+			// GL_UNIFORM_BUFFER or GL_SHADER_STORAGE_BUFFER. The two index
+			// separate binding-point spaces, so the target has to travel with
+			// the point or a storage buffer at point 0 would displace the
+			// uniform buffer at point 0.
+			uint32_t Target = 0;
 		};
 		struct TextureBinding
 		{
@@ -190,6 +197,7 @@ namespace RageV::GL
 		void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1,
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
+		void GenerateMips(const Ref<RHITexture>& texture) override;
 		void CopyToTextureLayer(const Ref<RHITexture>& source,
 								const Ref<RHITexture>& destination,
 								uint32_t layer, uint32_t mip = 0) override;

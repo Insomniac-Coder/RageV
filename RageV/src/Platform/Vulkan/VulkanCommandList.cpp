@@ -306,6 +306,16 @@ namespace RageV::Vk
 		vkCmdDrawIndexed(m_CommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 	}
 
+	void VulkanCommandList::GenerateMips(const RHI::Ref<RHI::RHITexture>& texture)
+	{
+		if (!texture)
+			return;
+
+		// Into this command buffer, so the blits run after whatever wrote mip 0
+		// earlier in the same frame.
+		std::static_pointer_cast<VulkanTexture>(texture)->RecordGenerateMips(m_CommandBuffer);
+	}
+
 	void VulkanCommandList::CopyToTextureLayer(const RHI::Ref<RHI::RHITexture>& source,
 											   const RHI::Ref<RHI::RHITexture>& destination,
 											   uint32_t layer, uint32_t mip)
