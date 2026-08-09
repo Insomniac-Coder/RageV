@@ -25,6 +25,10 @@ namespace RageV
 	private:
 		virtual void Init(const WindowProps& props);
 		virtual void Shutdown();
+
+		// The title bar and alt-tab icon, which is a different mechanism from
+		// the .rc resource Explorer reads. See the definition.
+		void SetWindowIcon();
 		
 
 		GLFWwindow* m_Window = nullptr;

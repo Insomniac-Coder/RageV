@@ -2,7 +2,8 @@ file(GLOB_RECURSE EDITOR_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h")
 
-add_executable(RageVEditor ${EDITOR_SOURCES})
+add_executable(RageVEditor ${EDITOR_SOURCES}
+    "${CMAKE_CURRENT_SOURCE_DIR}/RageVEditor.rc")
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${EDITOR_SOURCES})
 

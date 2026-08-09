@@ -1,0 +1,13 @@
+// Windows resources for RageVEditor.
+//
+// The first ICON resource in numeric order is the one Explorer shows on the
+// executable and the one a pinned taskbar entry inherits, so the id matters --
+// this has to stay the lowest.
+//
+// It is a *separate* mechanism from the icon the window itself wears at
+// runtime; that one is set through GLFW in WindowsWindow::SetWindowIcon.
+// Setting only one of the two looks unfinished in a way that is hard to place.
+//
+// icon.ico is generated -- tools/scripts/make_icon.py -- rather than drawn once
+// and forgotten.
+1 ICON "icon.ico"

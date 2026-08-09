@@ -2,7 +2,8 @@ file(GLOB_RECURSE RUNTIME_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h")
 
-add_executable(RageVRuntime ${RUNTIME_SOURCES})
+add_executable(RageVRuntime ${RUNTIME_SOURCES}
+    "${CMAKE_CURRENT_SOURCE_DIR}/RageVRuntime.rc")
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${RUNTIME_SOURCES})
 
@@ -21,6 +22,13 @@ add_custom_command(TARGET RageVRuntime POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/RageVEditor/assets/Fonts"
         "$<TARGET_FILE_DIR:RageVRuntime>/assets/Fonts"
+    # The window icon, which is separate from the one compiled into the
+    # executable -- see WindowsWindow::SetWindowIcon. Without these a shipped
+    # game has the right icon in Explorer and a blank one in alt-tab.
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/RageVEditor/assets/icon-32.png"
+        "${CMAKE_SOURCE_DIR}/RageVEditor/assets/icon-48.png"
+        "$<TARGET_FILE_DIR:RageVRuntime>/assets"
     COMMENT "Staging engine assets for the runtime")
 
 # copy_if_different so a backend switch made in the deployed file survives the

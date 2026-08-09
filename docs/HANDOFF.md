@@ -175,7 +175,36 @@ passes by parsing nothing is worse than no check at all.
 
 ---
 
-## 2a. The developer manual
+## 2a. The application icon
+
+`tools/scripts/make_icon.py` draws it — a two-tone V taken from the manual's
+wordmark, red half and light half, on the site's near-black. Regenerate with:
+
+```bash
+python tools/scripts/make_icon.py
+```
+
+Pure stdlib: `zlib` writes the PNGs, `struct` writes the ICO container. No
+imaging library, for the same reason there is no Node toolchain for the docs —
+a clone builds with nothing but a compiler and one icon is not worth breaking
+that. Small sizes are emitted as DIBs and 128/256 as PNG, which is what a
+well-behaved `.ico` does.
+
+> [!NOTE]
+> **There are two icon mechanisms and both are needed.** `RageVEditor.rc` /
+> `RageVRuntime.rc` compile `icon.ico` into the executable, which is what
+> Explorer shows and what a pinned taskbar entry inherits.
+> `WindowsWindow::SetWindowIcon` loads `assets/icon-32.png` and `icon-48.png`
+> through GLFW, which is what the title bar and alt-tab use. Setting only the
+> first gives a correct icon in Explorer and a blank default in alt-tab.
+
+The PNGs live in `RageVEditor/assets/` only — that is the engine's asset root.
+The runtime stages them explicitly alongside shaders and fonts, because its
+asset list is deliberately a list rather than a copy of the whole directory.
+
+---
+
+## 2b. The developer manual
 
 `docs/manual/` is Markdown; `docs/site/` is the generated HTML. Regenerate with
 the `manual` target, or by hand:
