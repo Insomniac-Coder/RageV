@@ -6,12 +6,40 @@ namespace RageV
 {
 	using namespace RageV::RHI;
 
+	namespace
+	{
+		// One sampler for every material that does not ask for something else.
+		//
+		// A sampler is immutable filtering state, and every material was
+		// building an identical one -- which cost an object each and, once
+		// draws were batched by bound state, made every material's key unique.
+		// A thousand props that share five default textures then shared
+		// nothing, and the lit pass batched exactly nothing while the shadow
+		// passes batched fine. Identical state has to be the same object for a
+		// batch key to see it as identical.
+		Ref<RHISampler> s_SharedSampler;
+
+		Ref<RHISampler> SharedSampler(RHIDevice& device)
+		{
+			if (!s_SharedSampler)
+			{
+				SamplerDesc desc;
+				desc.MaxAnisotropy = device.GetCaps().SupportsAnisotropy ? 8.0f : 1.0f;
+				s_SharedSampler = device.CreateSampler(desc);
+			}
+			return s_SharedSampler;
+		}
+	}
+
+	void Material::ReleaseShared()
+	{
+		s_SharedSampler.reset();
+	}
+
 	Material::Material(RHIDevice& device, std::string name)
 		: m_Device(device), m_Name(std::move(name))
 	{
-		SamplerDesc samplerDesc;
-		samplerDesc.MaxAnisotropy = device.GetCaps().SupportsAnisotropy ? 8.0f : 1.0f;
-		m_Sampler = device.CreateSampler(samplerDesc);
+		m_Sampler = SharedSampler(device);
 
 		const uint32_t frames = device.GetFramesInFlight();
 		m_ParamBuffers.resize(frames);
@@ -120,6 +148,37 @@ namespace RageV
 		}
 
 		commandList.BindResourceSet(set, resourceSet);
+	}
+
+	uint64_t Material::GetBatchKey() const
+	{
+		// A hash of the bound state, not of the material. Pointer identity is
+		// the right comparison here: two Refs to the same texture produce the
+		// same descriptor write, and two textures with identical contents are
+		// still two descriptors.
+		uint64_t hash = 1469598103934665603ull;   // FNV-1a offset basis
+
+		auto mix = [&hash](const void* pointer)
+		{
+			hash ^= (uint64_t)(uintptr_t)pointer;
+			hash *= 1099511628211ull;
+		};
+
+		mix(m_BaseColor.get());
+		mix(m_Normal.get());
+		mix(m_MetallicRoughness.get());
+		mix(m_Occlusion.get());
+		mix(m_Emissive.get());
+		mix(m_Sampler.get());
+
+		// MapFlags is the one scalar the shader still reads from the material
+		// block, so it has to agree across a batch. It is derived from the maps
+		// above and so is almost always implied by them -- almost, because
+		// nothing stops it being set by hand.
+		hash ^= (uint64_t)(uint32_t)m_Params.MapFlags;
+		hash *= 1099511628211ull;
+
+		return hash;
 	}
 
 	Ref<Material> Material::CreateDefault(RHIDevice& device)

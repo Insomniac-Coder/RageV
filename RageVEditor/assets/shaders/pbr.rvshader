@@ -61,23 +61,70 @@ layout(set = 0, binding = 0) uniform SceneData
 	int  LightCount;
 } u_Scene;
 
-layout(push_constant) uniform ObjectData
+// Per instance, indexed by the draw's instance number.
+//
+// A storage buffer rather than a uniform one because a batch is as long as the
+// scene makes it, and a uniform block would cap it at whatever fits in 64 KB --
+// a limit that differs per driver and would turn one draw into several on some
+// machines and not others.
+//
+// The scalar surface parameters live here rather than in the material's uniform
+// block, and that is the whole point: a thousand cubes that differ only in
+// colour share one set of textures, so they can be one draw. If the colour
+// stayed in the material block they would be a thousand.
+struct InstanceData
 {
 	mat4 Model;
+	// Precomputed on the CPU. It is transpose(inverse(mat3(Model))), which was
+	// being computed per *vertex* -- two 3x3 inversions on every vertex of
+	// every mesh, to produce a value constant across the whole instance.
+	mat4 NormalMatrix;
+	vec4 BaseColor;
+	vec4 EmissiveColor;
+	// metallic, roughness, occlusion, normal scale
+	vec4 Surface;
+};
+
+layout(std430, set = 0, binding = 7) readonly buffer InstanceBlock
+{
+	InstanceData Instances[];
+} u_Instances;
+
+// Where this batch starts in the buffer above.
+//
+// Deliberately not the draw's firstInstance parameter. Vulkan's
+// gl_InstanceIndex includes the base and OpenGL's gl_InstanceID does not, so
+// reading the base from the draw call would offset the instances twice on one
+// backend and once on the other -- a difference that shows up as every batch
+// after the first drawing the wrong objects, and only on one backend.
+layout(push_constant) uniform ObjectData
+{
+	int BaseInstance;
 } u_Object;
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
+// flat: these are per instance, so interpolating them across a triangle would
+// be interpolating a constant at the cost of a varying slot's worth of work.
+layout(location = 3) flat out vec4 v_BaseColor;
+layout(location = 4) flat out vec4 v_EmissiveColor;
+layout(location = 5) flat out vec4 v_Surface;
 
 void main()
 {
-	vec4 world = u_Object.Model * vec4(a_Position, 1.0);
+	InstanceData instance = u_Instances.Instances[u_Object.BaseInstance + gl_InstanceIndex];
+
+	vec4 world = instance.Model * vec4(a_Position, 1.0);
 
 	v_WorldPos = world.xyz;
 	// Non-uniform scale does not preserve normals under the model matrix.
-	v_Normal   = transpose(inverse(mat3(u_Object.Model))) * a_Normal;
+	v_Normal   = mat3(instance.NormalMatrix) * a_Normal;
 	v_TexCoord = a_TexCoord;
+
+	v_BaseColor     = instance.BaseColor;
+	v_EmissiveColor = instance.EmissiveColor;
+	v_Surface       = instance.Surface;
 
 	gl_Position = u_Scene.ViewProjection * world;
 }
@@ -153,6 +200,13 @@ layout(set = 1, binding = 5) uniform sampler2D u_EmissiveMap;
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
+// Per instance, so the scalar surface parameters come from the instance stream
+// rather than the material block. Only MapFlags is still read from the
+// material, because which maps exist is a property of the texture set -- and
+// the texture set is what decides whether two objects can share a draw.
+layout(location = 3) flat in vec4 v_BaseColor;
+layout(location = 4) flat in vec4 v_EmissiveColor;
+layout(location = 5) flat in vec4 v_Surface;
 
 layout(location = 0) out vec4 o_Color;
 
@@ -381,7 +435,7 @@ vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 vec3 ApplyNormalMap(vec3 N, vec3 worldPos, vec2 uv)
 {
 	vec3 tangentNormal = texture(u_NormalMap, uv).xyz * 2.0 - 1.0;
-	tangentNormal.xy *= u_Material.NormalScale;
+	tangentNormal.xy *= v_Surface.w;
 
 	vec3 dp1 = dFdx(worldPos);
 	vec3 dp2 = dFdy(worldPos);
@@ -400,14 +454,14 @@ vec3 ApplyNormalMap(vec3 N, vec3 worldPos, vec2 uv)
 
 void main()
 {
-	vec4 baseColor = u_Material.BaseColor;
+	vec4 baseColor = v_BaseColor;
 	if (HasMap(MAP_BASE_COLOR))
 		baseColor *= texture(u_BaseColorMap, v_TexCoord);
 
 	vec3 albedo = baseColor.rgb;
 
-	float metallic  = u_Material.Metallic;
-	float roughness = u_Material.Roughness;
+	float metallic  = v_Surface.x;
+	float roughness = v_Surface.y;
 	if (HasMap(MAP_METALLIC_ROUGHNESS))
 	{
 		// glTF packing: roughness in green, metallic in blue.
@@ -418,7 +472,7 @@ void main()
 	roughness = clamp(roughness, 0.045, 1.0);   // fully smooth aliases badly
 	metallic  = clamp(metallic, 0.0, 1.0);
 
-	float occlusion = u_Material.Occlusion;
+	float occlusion = v_Surface.z;
 	if (HasMap(MAP_OCCLUSION))
 		occlusion *= texture(u_OcclusionMap, v_TexCoord).r;
 
@@ -573,7 +627,7 @@ void main()
 	vec2 envBRDF = EnvBRDF(NdotV, roughness);
 	ambient += prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;
 
-	vec3 emissive = u_Material.EmissiveColor.rgb;
+	vec3 emissive = v_EmissiveColor.rgb;
 	if (HasMap(MAP_EMISSIVE))
 		emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
 

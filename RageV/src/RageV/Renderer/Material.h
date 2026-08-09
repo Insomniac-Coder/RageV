@@ -63,7 +63,24 @@ namespace RageV
 		// done in the constructor.
 		void Bind(RHI::RHICommandList& commandList, const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set);
 
+		// What makes two materials interchangeable to a batched draw.
+		//
+		// The five maps, the sampler and the map flags -- everything the
+		// descriptor set holds -- and deliberately not the scalar parameters,
+		// which the renderer sends per instance. Two materials with the same
+		// key produce the same bound state, so their objects can be one draw
+		// even when they are different colours. That is the difference between
+		// instancing collapsing a scene of props and doing nothing at all,
+		// because a scene where every object carries its own Material has no
+		// two objects sharing one.
+		uint64_t GetBatchKey() const;
+
 		static RHI::Ref<Material> CreateDefault(RHI::RHIDevice& device);
+
+		// Drops the sampler every material shares. Called at renderer shutdown,
+		// for the same reason the texture caches are: it holds a GPU object and
+		// the device is about to go.
+		static void ReleaseShared();
 
 	private:
 		void EnsureResources(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set);

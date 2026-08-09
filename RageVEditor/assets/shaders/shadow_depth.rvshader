@@ -1,9 +1,15 @@
 // Depth only, from a light's point of view.
 //
-// No descriptor set and no uniform buffer: the light's view-projection is
-// folded into the model matrix on the CPU, so the whole shader's input is one
-// matrix in a push constant. A shadow pass draws every caster in the scene and
-// is the one place where the per-draw cost is the entire cost.
+// A shadow pass draws every caster in the scene, once per cascade and once per
+// face of every point light's cube, and is the one place where the per-draw
+// cost is the entire cost. On a thousand-object scene it was the bulk of the
+// frame's draw calls -- four cascades plus twelve cube faces before the camera
+// draws anything.
+//
+// So the light's view-projection times model comes from an instance buffer
+// rather than a push constant, and every caster sharing a mesh is one draw.
+// There is still no descriptor set for material data: a depth pass has no
+// surface properties.
 //
 // The fragment stage writes nothing. It exists because the pipeline wants one,
 // and depth is written by the fixed-function stage regardless.
@@ -13,15 +19,25 @@
 
 layout(location = 0) in vec3 a_Position;
 
+// Light view-projection times model, multiplied out before it got here. One
+// matrix per caster, which is all a depth pass needs.
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBlock
+{
+	mat4 LightMVP[];
+} u_Instances;
+
+// Where this batch starts. Not the draw's firstInstance: Vulkan's
+// gl_InstanceIndex includes the base and OpenGL's gl_InstanceID does not, so
+// taking it from the draw would double the offset on one backend only.
 layout(push_constant) uniform ObjectData
 {
-	// Light view-projection times model, multiplied out before it got here.
-	mat4 LightMVP;
+	int BaseInstance;
 } u_Object;
 
 void main()
 {
-	gl_Position = u_Object.LightMVP * vec4(a_Position, 1.0);
+	gl_Position = u_Instances.LightMVP[u_Object.BaseInstance + gl_InstanceIndex] *
+				  vec4(a_Position, 1.0);
 }
 
 #type fragment

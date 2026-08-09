@@ -58,13 +58,58 @@ namespace RageV
 			int32_t   _padding[3];
 		};
 
-		// Just the model matrix now: base colour moved into the material, which
-		// is where every other surface parameter lives.
+		// Where a batch starts in the instance buffer. The model matrix used to
+		// be here, one push per object; it is per instance now, and this is all
+		// that is left.
 		struct ObjectPushConstants
 		{
-			glm::mat4 Model;
+			int32_t BaseInstance;
 		};
-		static_assert(sizeof(ObjectPushConstants) == 64, "Push constant block must stay within 128 bytes");
+		static_assert(sizeof(ObjectPushConstants) == 4, "Push constant block must stay within 128 bytes");
+
+		// Mirrors InstanceData in pbr.rvshader, std430.
+		struct InstanceData
+		{
+			glm::mat4 Model;
+			// transpose(inverse(mat3(Model))), as a mat4 because std430 pads a
+			// mat3 to the same size anyway and a mat4 has no surprises in it.
+			// Computed once per instance rather than once per vertex, which is
+			// where it used to happen.
+			glm::mat4 NormalMatrix;
+			glm::vec4 BaseColor;
+			glm::vec4 EmissiveColor;
+			// metallic, roughness, occlusion, normal scale
+			glm::vec4 Surface;
+		};
+		static_assert(sizeof(InstanceData) == 176, "Must match InstanceData in pbr.rvshader");
+
+		// One submitted mesh, held until EndScene can sort them.
+		//
+		// Drawing immediately is what made every mesh its own draw call. The
+		// order objects arrive in is the registry's, which is neither grouped
+		// by mesh nor sorted by depth, so nothing can be batched without first
+		// having all of them.
+		struct PendingDraw
+		{
+			// Sort key: the bound state a draw needs. Meshes first because
+			// changing vertex buffers is the more expensive of the two, and
+			// materials within a mesh so a run is contiguous in both.
+			const Mesh* MeshKey = nullptr;
+			uint64_t MaterialKey = 0;
+
+			Ref<Mesh> MeshRef;
+			Ref<Material> MaterialRef;
+			InstanceData Instance;
+		};
+
+		// The depth pass has no material, so its only key is the mesh.
+		struct PendingShadowDraw
+		{
+			const Mesh* MeshKey = nullptr;
+			Ref<Mesh> MeshRef;
+			// Light view-projection times model, already multiplied out.
+			glm::mat4 LightMVP{ 1.0f };
+		};
 
 		struct Renderer3DData
 		{
@@ -88,11 +133,43 @@ namespace RageV
 			{
 				Ref<RHIBuffer>      Buffer;
 				Ref<RHIResourceSet> Set;
+				// The batch's per-instance array. Grows to the largest scene
+				// this slot has drawn and stays there, so a steady scene stops
+				// allocating after its first frame.
+				Ref<RHIBuffer>      Instances;
+				uint32_t            InstanceCapacity = 0;
 			};
 
 			// [frame in flight][scene within the frame]
 			std::vector<std::vector<SceneSlot>> SceneSlots;
 			uint32_t SceneCursor = 0;
+
+			// The same idea for the depth pass, which needs one per shadow
+			// render rather than one per scene: a frame opens a shadow pass per
+			// cascade, per spot light and per face of every point light's cube,
+			// and each reads its own instances when the GPU gets to it.
+			struct ShadowSlot
+			{
+				Ref<RHIBuffer>      Instances;
+				Ref<RHIResourceSet> Set;
+				uint32_t            InstanceCapacity = 0;
+			};
+
+			std::vector<std::vector<ShadowSlot>> ShadowSlots;
+			uint32_t ShadowCursor = 0;
+
+			// The slot BeginScene took, so EndScene reaches the same one
+			// without recomputing an index from the cursor -- which is off by
+			// one the moment BeginScene returns early.
+			SceneSlot* ActiveScene = nullptr;
+
+			// Accumulated between BeginScene and EndScene, then sorted.
+			std::vector<PendingDraw> Pending;
+			std::vector<InstanceData> InstanceScratch;
+
+			// The depth pass carries only a matrix per caster.
+			std::vector<PendingShadowDraw> ShadowPending;
+			std::vector<glm::mat4> ShadowScratch;
 
 			Ref<Material> DefaultMaterial;
 
@@ -150,6 +227,53 @@ namespace RageV
 
 			return slot;
 		}
+
+		Renderer3DData::ShadowSlot& AcquireShadowSlot()
+		{
+			const uint32_t frame = s_Data->Device->GetFrameIndex();
+			auto& slots = s_Data->ShadowSlots[frame];
+
+			if (s_Data->ShadowCursor >= slots.size())
+				slots.push_back(Renderer3DData::ShadowSlot{});
+
+			Renderer3DData::ShadowSlot& slot = slots[s_Data->ShadowCursor++];
+
+			if (!slot.Set)
+				slot.Set = s_Data->Device->CreateResourceSet(s_Data->ShadowPipeline, 0);
+
+			return slot;
+		}
+
+		// Grows `buffer` to hold at least `count` elements of `stride`, in
+		// powers of two so a scene that creeps upwards does not reallocate
+		// every frame. Returns false if the device would not give one.
+		bool EnsureInstanceBuffer(Ref<RHIBuffer>& buffer, uint32_t& capacity,
+								  uint32_t count, uint32_t stride, const char* name)
+		{
+			if (buffer && capacity >= count)
+				return true;
+
+			uint32_t target = capacity > 0 ? capacity : 64;
+			while (target < count)
+				target *= 2;
+
+			BufferDesc desc;
+			desc.Size = (uint64_t)target * stride;
+			desc.Usage = BufferUsage::Storage;
+			desc.Memory = MemoryDomain::HostVisible;
+			desc.DebugName = name;
+
+			// A new buffer rather than a resize: the old one may still be
+			// bound to a command buffer this frame, and the deletion queue is
+			// what makes releasing it safe.
+			Ref<RHIBuffer> grown = s_Data->Device->CreateBuffer(desc);
+			if (!grown)
+				return false;
+
+			buffer = grown;
+			capacity = target;
+			return true;
+		}
 	}
 
 	void Renderer3D::Init(RHIDevice& device)
@@ -168,6 +292,7 @@ namespace RageV
 
 		// Slots are created on demand; most frames need one.
 		s_Data->SceneSlots.resize(device.GetFramesInFlight());
+		s_Data->ShadowSlots.resize(device.GetFramesInFlight());
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
 
@@ -198,7 +323,9 @@ namespace RageV
 	{
 		Mesh::ClearCache();
 		TextureLoader::ClearCache();
+		// After s_Data's default material, which holds a reference to it.
 		s_Data.reset();
+		Material::ReleaseShared();
 	}
 
 	Ref<Material> Renderer3D::GetDefaultMaterial()
@@ -264,6 +391,7 @@ namespace RageV
 
 		// The GPU has finished with this frame's slots, so they are reusable.
 		s_Data->SceneCursor = 0;
+		s_Data->ShadowCursor = 0;
 		// Accumulated across every scene drawn this frame rather than reset per
 		// scene, or the statistics panel would only ever show the last viewport.
 		s_Data->DrawCalls = 0;
@@ -390,6 +518,7 @@ namespace RageV
 			return;
 
 		Renderer3DData::SceneSlot& slot = AcquireSceneSlot();
+		s_Data->ActiveScene = &slot;
 		slot.Buffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
 
 		auto& sceneSet = slot.Set;
@@ -439,18 +568,100 @@ namespace RageV
 			}
 		}
 
-		sceneSet->Commit();
-
-		// Bound once for the whole scene; only push constants change per draw.
-		cmd->BindPipeline(s_Data->Pipeline);
-		cmd->BindResourceSet(0, sceneSet);
+		// Not committed and not bound yet.
+		//
+		// The instance buffer is part of this same set, and its contents are
+		// not known until every mesh has been submitted -- so the commit waits
+		// for EndScene. Committing here and again there would be rewriting a
+		// descriptor set that is already bound to a command buffer, which is
+		// the hazard recorded in HANDOFF §5.
+		s_Data->Pending.clear();
 		s_Data->SceneActive = true;
 	}
 
 	void Renderer3D::EndScene()
 	{
-		if (s_Data)
-			s_Data->SceneActive = false;
+		if (!s_Data || !s_Data->SceneActive)
+			return;
+
+		s_Data->SceneActive = false;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd || s_Data->Pending.empty() || !s_Data->Pipeline)
+			return;
+
+		if (!s_Data->ActiveScene)
+			return;
+
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+
+		// Grouped, not merely sorted. Objects arrive in registry order, which
+		// is neither, so runs of identical state only exist after this.
+		std::sort(s_Data->Pending.begin(), s_Data->Pending.end(),
+				  [](const PendingDraw& a, const PendingDraw& b)
+				  {
+					  if (a.MeshKey != b.MeshKey)
+						  return a.MeshKey < b.MeshKey;
+					  return a.MaterialKey < b.MaterialKey;
+				  });
+
+		const uint32_t count = (uint32_t)s_Data->Pending.size();
+
+		if (!EnsureInstanceBuffer(slot.Instances, slot.InstanceCapacity, count,
+								  sizeof(InstanceData), "Renderer3D.instances"))
+		{
+			return;
+		}
+
+		s_Data->InstanceScratch.clear();
+		s_Data->InstanceScratch.reserve(count);
+		for (const PendingDraw& draw : s_Data->Pending)
+			s_Data->InstanceScratch.push_back(draw.Instance);
+
+		slot.Instances->Upload(s_Data->InstanceScratch.data(),
+							   (uint64_t)count * sizeof(InstanceData));
+
+		slot.Set->SetStorageBuffer(7, slot.Instances, 0,
+								   (uint64_t)count * sizeof(InstanceData));
+		slot.Set->Commit();
+
+		cmd->BindPipeline(s_Data->Pipeline);
+		cmd->BindResourceSet(0, slot.Set);
+
+		// One draw per run of identical mesh and bound material state.
+		uint32_t start = 0;
+		while (start < count)
+		{
+			uint32_t end = start + 1;
+			while (end < count &&
+				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
+				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey)
+			{
+				end++;
+			}
+
+			const PendingDraw& first = s_Data->Pending[start];
+
+			// Any material in the run would do: the key is exactly the state
+			// this binds, so they are interchangeable by construction.
+			if (first.MaterialRef)
+				first.MaterialRef->Bind(*cmd, s_Data->Pipeline, 1);
+
+			ObjectPushConstants object;
+			object.BaseInstance = (int32_t)start;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
+			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+			cmd->DrawIndexed(first.MeshRef->GetIndexCount(), end - start);
+
+			s_Data->DrawCalls++;
+			s_Data->Triangles += (first.MeshRef->GetIndexCount() / 3) * (end - start);
+
+			start = end;
+		}
+
+		s_Data->Pending.clear();
 	}
 
 	void Renderer3D::BeginShadow(const glm::mat4& viewProjection)
@@ -521,6 +732,7 @@ namespace RageV
 			return;
 
 		s_Data->ShadowViewProjection = viewProjection;
+		s_Data->ShadowPending.clear();
 		cmd->BindPipeline(s_Data->ShadowPipeline);
 		s_Data->ShadowActive = true;
 	}
@@ -530,25 +742,87 @@ namespace RageV
 		if (!s_Data || !s_Data->ShadowActive || !mesh)
 			return;
 
-		RHICommandList* cmd = Renderer::GetCommandList();
-		if (!cmd)
-			return;
+		PendingShadowDraw draw;
+		draw.MeshKey = mesh.get();
+		draw.MeshRef = mesh;
+		draw.LightMVP = s_Data->ShadowViewProjection * transform;
 
-		ObjectPushConstants object;
-		object.Model = s_Data->ShadowViewProjection * transform;
-
-		cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
-		cmd->BindVertexBuffer(0, mesh->GetVertexBuffer());
-		cmd->BindIndexBuffer(mesh->GetIndexBuffer(), IndexType::UInt32);
-		cmd->DrawIndexed(mesh->GetIndexCount());
-
-		s_Data->DrawCalls++;
+		s_Data->ShadowPending.push_back(std::move(draw));
 	}
 
 	void Renderer3D::EndShadow()
 	{
-		if (s_Data)
-			s_Data->ShadowActive = false;
+		if (!s_Data || !s_Data->ShadowActive)
+			return;
+
+		s_Data->ShadowActive = false;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd || s_Data->ShadowPending.empty() || !s_Data->ShadowPipeline)
+		{
+			s_Data->ShadowPending.clear();
+			return;
+		}
+
+		// The depth pass is where batching pays most: a frame opens one of
+		// these per cascade, per casting spot light and per face of every point
+		// light's cube, and every one of them walked the whole scene issuing a
+		// draw per caster.
+		std::sort(s_Data->ShadowPending.begin(), s_Data->ShadowPending.end(),
+				  [](const PendingShadowDraw& a, const PendingShadowDraw& b)
+				  {
+					  return a.MeshKey < b.MeshKey;
+				  });
+
+		Renderer3DData::ShadowSlot& slot = AcquireShadowSlot();
+		const uint32_t count = (uint32_t)s_Data->ShadowPending.size();
+
+		if (!EnsureInstanceBuffer(slot.Instances, slot.InstanceCapacity, count,
+								  sizeof(glm::mat4), "Renderer3D.shadowInstances"))
+		{
+			s_Data->ShadowPending.clear();
+			return;
+		}
+
+		s_Data->ShadowScratch.clear();
+		s_Data->ShadowScratch.reserve(count);
+		for (const PendingShadowDraw& draw : s_Data->ShadowPending)
+			s_Data->ShadowScratch.push_back(draw.LightMVP);
+
+		slot.Instances->Upload(s_Data->ShadowScratch.data(),
+							   (uint64_t)count * sizeof(glm::mat4));
+
+		slot.Set->SetStorageBuffer(0, slot.Instances, 0, (uint64_t)count * sizeof(glm::mat4));
+		slot.Set->Commit();
+
+		cmd->BindResourceSet(0, slot.Set);
+
+		uint32_t start = 0;
+		while (start < count)
+		{
+			uint32_t end = start + 1;
+			while (end < count &&
+				   s_Data->ShadowPending[end].MeshKey == s_Data->ShadowPending[start].MeshKey)
+			{
+				end++;
+			}
+
+			const Ref<Mesh>& mesh = s_Data->ShadowPending[start].MeshRef;
+
+			ObjectPushConstants object;
+			object.BaseInstance = (int32_t)start;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+			cmd->BindVertexBuffer(0, mesh->GetVertexBuffer());
+			cmd->BindIndexBuffer(mesh->GetIndexBuffer(), IndexType::UInt32);
+			cmd->DrawIndexed(mesh->GetIndexCount(), end - start);
+
+			s_Data->DrawCalls++;
+
+			start = end;
+		}
+
+		s_Data->ShadowPending.clear();
 	}
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& transform,
@@ -557,24 +831,32 @@ namespace RageV
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
 
-		RHICommandList* cmd = Renderer::GetCommandList();
-		if (!cmd)
+		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
+		if (!effective)
 			return;
 
-		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
-		if (effective)
-			effective->Bind(*cmd, s_Data->Pipeline, 1);
+		const MaterialParams& params = effective->GetParams();
 
-		ObjectPushConstants object;
-		object.Model = transform;
+		PendingDraw draw;
+		draw.MeshKey = mesh.get();
+		draw.MaterialKey = effective->GetBatchKey();
+		draw.MeshRef = mesh;
+		draw.MaterialRef = effective;
 
-		cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
-		cmd->BindVertexBuffer(0, mesh->GetVertexBuffer());
-		cmd->BindIndexBuffer(mesh->GetIndexBuffer(), IndexType::UInt32);
-		cmd->DrawIndexed(mesh->GetIndexCount());
+		draw.Instance.Model = transform;
+		// Once per object rather than once per vertex, which is where the
+		// shader was doing it -- an inverse and a transpose of a 3x3 for every
+		// vertex of every mesh, all producing the same matrix.
+		draw.Instance.NormalMatrix = glm::mat4(glm::transpose(glm::inverse(glm::mat3(transform))));
+		draw.Instance.BaseColor = params.BaseColor;
+		draw.Instance.EmissiveColor = params.EmissiveColor;
+		draw.Instance.Surface = { params.Metallic, params.Roughness,
+								  params.Occlusion, params.NormalScale };
 
-		s_Data->DrawCalls++;
-		s_Data->Triangles += mesh->GetIndexCount() / 3;
+		// Recorded, not drawn. EndScene sorts these and issues one draw per run
+		// of identical state; drawing here is what made the count equal the
+		// object count.
+		s_Data->Pending.push_back(std::move(draw));
 	}
 
 	unsigned int Renderer3D::GetCulledCount() { return s_Data ? s_Data->Culled : 0; }
