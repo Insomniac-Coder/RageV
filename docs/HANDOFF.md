@@ -207,7 +207,7 @@ supported surfaces, the second is a record of decisions and traps.
   Nothing to fix.
 - GPU: NVIDIA RTX 5070 Ti Laptop, driver 591.91. RenderDoc installed; debug
   names and command-buffer labels are wired throughout.
-- 14 vendored submodules: spdlog, imgui, glm, yaml-cpp, ImGuizmo, PerlinNoise,
+- 14 vendored submodules: spdlog, imgui, **glm (test-only)**, yaml-cpp, ImGuizmo, PerlinNoise,
   GLFW, Vulkan-Headers, volk, VulkanMemoryAllocator, glslang, **cgltf**,
   **JoltPhysics** (v5.6.0), **miniaudio** (0.11.22).
 
@@ -895,44 +895,33 @@ means writing the interop, the marshalling and the class library twice — which
 is the exact failure the "C# last" argument was meant to avoid, arriving through
 a different door.
 
-**Where 5.0 has got to.** `RageV/src/RageV/Math/` exists: `Vec2/3/4`, `UVec4`,
-`Mat3/4` and `Quat`, with `Math.h` as the umbrella. Nothing in it reimplements
-arithmetic — every body is in `Math.cpp` and delegates to glm, and `GlmBridge.h`
-is the internal converter that no public header may include. 38 checks in
-`scenetest` compare it against glm operation by operation, on deliberately
-awkward numbers, because axis-aligned test values pass through a transposed
-matrix unharmed.
+**5.0 landed, and went further than planned.** `RageV/src/RageV/Math/` is the
+engine's own maths: `Vec2/3/4`, `UVec4`, `Mat3/4`, `Quat`, the operators inline
+in `Functions.h`, and inversion, decomposition, projections and the whole
+quaternion set in `Math.cpp`. **glm is not linked into the engine at all.** All
+31 public headers and 35 `.cpp` files were migrated off it.
 
-Two decisions in it are worth not re-litigating:
+**The thing that makes that defensible is `tools/scenetest/GlmBridge.h`.** glm
+is still vendored and still linked — into `scenetest` only — purely as an
+oracle. 34 checks compare every operation against it on deliberately awkward
+values, because axis-aligned test numbers pass through a transposed matrix
+unharmed. Delete that block and the engine is running unverified arithmetic in
+the hottest path of a renderer. It is the single most important test in the
+suite and the least obvious one.
 
-- **Conversions are member-wise, never a `reinterpret_cast`.** The layouts match
-  today and casting would work today, but glm has shipped quaternions both
-  `w`-first and `w`-last depending on version and build flags. A cast that is
-  right in one configuration rotates everything wrongly in another, silently.
+Four decisions in there worth not re-litigating:
+
+- **Conversions in the bridge are member-wise, never a `reinterpret_cast`.** The
+  layouts match and casting would work, but glm has shipped quaternions both
+  `w`-first and `w`-last depending on version and build flags, so a cast that is
+  right in one configuration rotates everything wrongly in another.
 - **`Normalize` guards against zero length**, which glm does not. glm returns
   NaNs, a NaN in a transform takes the object and every child with it, and
   nothing reports anything. There is a check for it.
-
-**The call sites are migrated.** 31 public headers and 35 `.cpp` files. The
-mechanical part was a substitution table; three things were deliberately left
-for the compiler to catch rather than guessed at, and all three were real:
-
-- `glm::decompose(m, scale, rotation, translation, skew, perspective)` against
-  `Math::Decompose(m, translation, rotation, scale)` — **the argument order
-  differs**. A blind rename would have compiled and silently swapped position
-  with scale.
-- `glm::quat(euler)` is `Math::FromEuler`, not a constructor. A `Quat(Vec3)`
-  constructor was considered and rejected: a constructor that silently means
-  "these are Euler angles" is how that mistake gets made.
-- `glm::max<uint32_t>` is `std::max`. `Math::Max` is float-only on purpose —
-  integer maxima are not a graphics library's job.
-
-> **The migration script rewrote the glm comparison test too**, leaving it
-> comparing `RageV::Math` against `RageV::Math` — a test that would have passed
-> forever while proving nothing. It was caught, the file was restored, and the
-> block now carries a comment saying it must not be migrated. This is the exact
-> failure mode the reference-drift check was built to prevent, arriving in a
-> place nobody was watching.
+- **Right-handed, clip-space depth in `[0, 1]`.** Written at the top of
+  `Math.cpp` because nothing else defines it any more. The textbook `[-1, 1]`
+  projections differ in one column and still produce a picture.
+- **`Math::Max` is float-only.** Integer maxima are `std::max`'s job.
 
 **What is left of 5.0:** the domain namespaces — `RageV::Audio::`,
 `RageV::Physics::`, `RageV::Assets::`. `RageV::Math::` and `RageV::RHI::` are
@@ -993,34 +982,39 @@ because the alternative is someone finding each one by being confused.
   semantics, surprising the first time.
 - **Nothing culls by distance.** A mesh behind the camera is skipped; a mesh a
   kilometre away that is two pixels across is drawn in full.
-- **The math abstraction costs about 3% of a CPU-bound frame. Measured.**
+- **RageV implements its own math, and it costs nothing. Measured properly, on
+  the third attempt.** The method matters more than the number here.
 
-  Release, Vulkan, vsync off, 600 frames, three runs each, LTCG on for both:
+  The first comparison said **+3.0%** and was wrong. The two sets were taken
+  forty minutes and several rebuilds apart; re-running the *unchanged* baseline
+  later gave 2.275 ms against its own earlier 2.246 ms, so the machine had
+  drifted +1.3% with no code involved. The owner called that as thermal drift
+  before the data did.
 
-      glm at the call sites   2.213  2.245  2.279   mean 2.246 ms
-      RageV::Math             2.299  2.300  2.341   mean 2.313 ms   +3.0%
+  Settled by building each version, copying it aside, and alternating runs so
+  drift hits both equally. Eight pairs, 600 frames each, Release, Vulkan, vsync
+  off, no compilation between runs.
 
-  The ranges do not overlap, so it is real rather than noise. It is also 0.07 ms
-  on a frame running at 430 FPS, in a scene that is CPU bound with 0.48 ms of
-  GPU work.
+  Delegating every operation to glm, against glm at the call sites:
 
-  **It is not the call boundary.** That was checked rather than assumed: `/GL` is
-  on the compile line and `/LTCG` on the link line, confirmed from the tlogs, so
-  the optimiser already has glm's bodies at every call site.
+      paired difference  +0.021 ms (+0.9%),  sd 0.035,  t = 1.69 on 7 df
+      the delegating build was faster in 3 of 8 pairs
 
-  One hypothesis was tested and did not explain it. RageV's vectors
-  zero-initialise on default construction; glm's leave the members
-  uninitialised, and glm is not built with `GLM_FORCE_CTOR_INIT`. Building with
-  glm's semantics gave 2.274 / 2.280 / 2.319 — it recovers 0.022 ms of a 0.068 ms
-  gap, which is inside the run-to-run spread. Zero-initialisation was kept: it is
-  worth more than a third of 3% in a codebase that has lost objects to NaNs.
+  RageV's own implementation, against glm at the call sites:
 
-  **Left as it is, deliberately.** The remaining cost is the abstraction, and
-  buying it back means writing the trivial operators out in the header, which is
-  the thing the owner asked not to do. Revisit only if a real game turns out to
-  be CPU bound — and re-run exactly the benchmark above, not a different one.
+      paired difference  +0.013 ms (+0.6%),  sd 0.087,  t = 0.44 on 7 df
+      the native build was faster in 4 of 8 pairs
 
-### Performance, all unmeasured
+  Neither is significant at p < 0.05. **Anything under about 1.5% on this scene
+  is below what this method can resolve**, and a difference measured across
+  separate sessions is not a measurement at all — it is the machine's mood.
+
+  Three arrangements were tried and all three measure the same: glm at the call
+  sites, glm behind an out-of-line wrapper, and no glm at all. The choice
+  between them was therefore never a performance question, which is worth
+  knowing before anyone re-opens it.
+
+### Performance, all unmeasured### Performance, all unmeasured
 
 - **Both applications still ship with `vsync = on`**, which is right for a game
   and wrong for a measurement. Pass `--vsync=off --benchmark=N`; the report
@@ -1069,6 +1063,51 @@ because the alternative is someone finding each one by being confused.
 
 Kept because each of these was expensive to find and cheap to prevent, and
 because the pattern in them is more useful than the list.
+
+### The test that disarmed itself
+
+Worth its own heading, because it is the most dangerous shape a defect can take
+in this repository and it very nearly shipped.
+
+The glm migration was done with a substitution script. It rewrote `glm::vec3` to
+`Vec3` everywhere — including inside the `scenetest` block whose entire job is
+comparing `RageV::Math` against glm. Twenty-eight checks were left comparing the
+answer to itself. **They passed.** The suite reported OK, and would have reported
+OK forever, while covering nothing.
+
+The same suite is what caught the argument-order difference between
+`glm::decompose` and `Math::Decompose`, which would otherwise have silently
+swapped position with scale in the glTF importer and the physics body sync. So
+the disarmed test was guarding a real bug at the time it was disarmed.
+
+Found by reading the diff, not by anything automated. Nothing in the build could
+have caught it: the code compiled, the checks ran, the count did not change.
+
+**The rule that came out of it:** a test whose value comes from comparing against
+something external must say so in a comment, and anything that rewrites the tree
+must exclude it. `Functions.h`, `Math.cpp`, `GlmBridge.h` and the block itself
+all now carry that warning.
+
+**The general form** — and this is the part worth remembering — *a check that
+passes because it checked nothing is worse than no check at all*, because it also
+consumes the attention that would have gone to writing a real one. `rvdoc` fails
+when it parses suspiciously few members for the same reason.
+
+### A 3% regression that was not there
+
+The math migration appeared to cost 3% of a CPU-bound frame. It did not; the two
+measurements were taken forty minutes and several full rebuilds apart, and the
+machine had drifted. The owner said so before the data did.
+
+Re-running the *unchanged* baseline later gave a different number from itself.
+The fix was to build both versions, copy them aside, and alternate runs so drift
+hits both equally — at which point the difference fell to +0.6% with the new
+version faster in half the pairs, which is noise.
+
+**The rule:** a benchmark comparison is only valid if both sides are measured in
+the same session, alternating, with no compilation in between. §9 has the method
+and the numbers. Sequential A-then-B on this machine cannot resolve better than
+about 1.5%.
 
 ### Bugs that shipped and were found later
 

@@ -2,27 +2,28 @@
 
 // The engine's vector and matrix types.
 //
-// RageV exposes no third-party type in a public header. glm is still what does
-// the difficult arithmetic -- decomposition, inversion, quaternion
-// interpolation -- but it does it inside `.cpp` files, and nothing in a header
-// a game includes knows it exists.
+// RageV exposes no third-party type in a public header, and as of the native
+// math implementation it does not link one either -- these are the engine's own
+// vectors, matrices and quaternions, arithmetic included. Functions.h has the
+// operators; Math.cpp has the long ones and the conventions they assume.
 //
-// Why a real type rather than `using Vec3 = glm::vec3;`. An alias hides
-// nothing: every compiler error, every IDE tooltip and every generated
-// reference page still says `glm::vec3`, and swapping the library later would
-// still break every game built on the engine. The whole point is that RageV
-// reads as one engine rather than as an assembly of libraries.
+// Why real types rather than `using Vec3 = glm::vec3;`. An alias hides nothing:
+// every compiler error, every IDE tooltip and every generated reference page
+// still says `glm::vec3`, and swapping the library later would still break
+// every game built on the engine. The point is that RageV reads as one engine
+// rather than as an assembly of libraries.
 //
-// **Conversions are member-wise, never reinterpreted.** It would be tempting to
-// cast a Vec3 to a glm::vec3 in place, since both are three floats -- but the
-// same trick applied to a quaternion is a live trap, because glm has changed
-// which end `w` lives at. Member-wise conversion costs nothing after inlining
-// and cannot be wrong.
+// **The quaternion stores x, y, z, w and constructs (w, x, y, z).** That
+// mismatch is deliberate -- the constructor order is the one every quaternion
+// paper uses -- and it is why the test bridge converts member-wise rather than
+// reinterpreting: glm has shipped both storage orders depending on version and
+// build flags, so a cast that is right in one configuration rotates everything
+// wrongly in another.
 //
 // Members are lower case (`x`, `y`, `z`) rather than PascalCase like the rest
-// of the engine. That is deliberate and it is the one exception: `position.y`
-// is what every reader of graphics code expects, and the colour aliases have to
-// spell `.r`, `.g`, `.b` to be worth having.
+// of the engine. That is the one deliberate exception: `position.y` is what
+// every reader of graphics code expects, and the colour aliases have to spell
+// `.r`, `.g`, `.b` to be worth having.
 
 #include <cstdint>
 #include <cmath>

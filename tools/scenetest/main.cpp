@@ -59,14 +59,13 @@
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Managed/DotNetHost.h"
 #include "RageV/Math/Math.h"
-#include "RageV/Math/GlmBridge.h"
+#include "GlmBridge.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/component_wise.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/quaternion.hpp>
-#include "RageV/Math/GlmBridge.h"
 #include "RageV/Core/EngineConfig.h"
 
 #include <GLFW/glfw3.h>

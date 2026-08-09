@@ -1,5 +1,8 @@
 add_executable(scenetest main.cpp)
-target_link_libraries(scenetest PRIVATE RageV::RageV glfw)
+# glm, only here. The engine does not link it; this suite checks RageV::Math
+# against it operation by operation, which is what makes owning that maths
+# defensible. See GlmBridge.h.
+target_link_libraries(scenetest PRIVATE RageV::RageV glfw glm)
 # Renderer::Init compiles the 2D and 3D shaders, so the assets have to be here.
 # The skinned test model comes with them: the import checks read it from beside
 # the executable like everything else, and a test that skips because its input

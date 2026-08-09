@@ -1,19 +1,22 @@
 #pragma once
 
-// Conversion between the engine's math types and glm's.
+// Conversion between RageV's math types and glm's.
 //
-// **Internal.** This header may be included from a `.cpp`, never from a header
-// that a game or the editor includes -- including it from a public header would
-// put glm back in the public API and undo the entire point of RageV/Math.
+// **Test infrastructure.** The engine does not link glm and nothing in it
+// includes this file; it lives here, next to scenetest, because its only
+// purpose is letting the suite check RageV::Math against a reference
+// implementation operation by operation.
 //
-// Every conversion is member-wise rather than a reinterpret_cast. The types are
-// laid out identically today and casting would work today, but quaternions are
-// a standing trap: glm has shipped both `w`-first and `w`-last storage
-// depending on build flags and version, so a cast that is correct in one
-// configuration silently rotates everything wrongly in another. Member-wise
-// conversion compiles to the same thing after inlining and cannot be wrong.
+// That comparison is the entire justification for RageV owning its own maths.
+// If this file or the block that uses it ever goes away, the engine is running
+// on unverified arithmetic in the hottest path of a renderer.
+//
+// Conversions are member-wise rather than reinterpreted. The layouts match and
+// casting would work, but glm has shipped quaternions both w-first and w-last
+// depending on version and build flags, and a cast that is right in one
+// configuration rotates everything wrongly in another.
 
-#include "Types.h"
+#include "RageV/Math/Types.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>

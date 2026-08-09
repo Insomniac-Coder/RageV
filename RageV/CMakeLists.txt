@@ -9,9 +9,11 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${RAGEV_S
 
 target_include_directories(RageV PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
+# glm is deliberately absent. RageV/Math implements its own vectors, matrices
+# and quaternions; the vendored glm is now linked only into scenetest, where it
+# serves as the oracle those implementations are checked against.
 target_link_libraries(RageV
     PUBLIC
-        glm
         entt
         spdlog
         imgui
@@ -51,16 +53,15 @@ target_compile_definitions(RageV
 
 # Link-time code generation, for Release and Dist only.
 #
-# RageV/Math declares its operators and defines them in one translation unit, so
-# that no public header has to include glm. Without this, `a + b` on two vectors
-# would be a call across a translation-unit boundary in the hot path of a
-# renderer. With it, the optimiser sees glm's bodies at every call site and folds
-# them in -- the arithmetic is glm's, and the abstraction costs nothing.
+# Kept from when RageV/Math delegated across a translation-unit boundary and
+# needed the optimiser's help to inline it. The trivial operators are in the
+# header now so it matters less, but it still lets the out-of-line half --
+# inversion, projections, quaternions -- fold into its callers, and it costs
+# nothing but link time in configurations nobody iterates in.
 #
-# Not enabled for Debug: it would slow the link for a configuration nobody
-# measures, and the call boundary is affordable there. Not enabled for the
-# vendored libraries either -- they gain nothing here and would cost minutes of
-# link time each.
+# Not enabled for Debug, where the link time is the thing being spent. Not
+# enabled for the vendored libraries either: they gain nothing and would cost
+# minutes each.
 set_target_properties(RageV PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
     INTERPROCEDURAL_OPTIMIZATION_DIST TRUE)
