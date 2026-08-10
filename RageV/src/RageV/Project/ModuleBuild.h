@@ -50,11 +50,13 @@ namespace RageV
 											   const std::string& projectName);
 
 		// Configures (first time only) and builds Source/ into bin/<Config>/.
-		// Blocking, like the C# build -- but honest about the difference: the
-		// first configure of a project is tens of seconds, not one. Incremental
-		// builds after that are a few.
+		// Blocking -- the editor runs it on a worker thread and hands it the
+		// cancel flag, which terminates the whole compiler tree, and the tee,
+		// which is what the live console drinks from.
 		static Managed::BuildResult Build(const std::filesystem::path& projectRoot,
-										  const std::string& projectName);
+										  const std::string& projectName,
+										  const std::atomic<bool>* cancel = nullptr,
+										  const ChildProcess::OutputSink& tee = {});
 
 		// Parses one MSVC compile, link or CMake diagnostic line. Exposed for
 		// the test, like ScriptBuild's: the format is the only thing here that

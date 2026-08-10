@@ -67,6 +67,17 @@ EditorLayer::EditorLayer()
 {
 }
 
+EditorLayer::~EditorLayer()
+{
+	// A worker still building would write into freed members. Cancel takes
+	// the compiler tree down, and the join waits for the worker to notice.
+	if (m_BuildThread.joinable())
+	{
+		m_BuildCancel = true;
+		m_BuildThread.join();
+	}
+}
+
 void EditorLayer::OnAttach()
 {
 	// Before the first ImGui call in this module, theme included. The engine is
@@ -190,6 +201,10 @@ Entity EditorLayer::CreateCamera()
 // -----------------------------------------------------------------------------
 void EditorLayer::OnUpdate(Timestep ts)
 {
+	// The frame a background build finishes, its results are published here --
+	// on this thread, before anything else reads them.
+	FinishBuild();
+
 	// Averaged over a fixed slice of *time*, not a fixed number of frames.
 	//
 	// Ten frames is a quarter of a second at 40 FPS and a twenty-fourth of one
@@ -2388,41 +2403,129 @@ void EditorLayer::BuildInto(const std::filesystem::path& output)
 }
 
 
-// Compile the project's C# and load what comes out.
+// Start building the project's scripts -- the C++ module, then C# -- on a
+// worker thread.
 //
-// Blocking, and deliberately so: a script assembly is a few files and about a
-// second, and a build finishing in the background after somebody has already
-// pressed Play is a worse problem than a brief pause.
+// Asynchronous because a module build is tens of seconds the first time, and
+// a person should be able to keep arranging a scene while it runs. What is
+// *not* asynchronous is the hand-back: results are published by FinishBuild
+// on the main thread, so nothing downstream of a build ever runs concurrently
+// with the editor's own state.
 void EditorLayer::BuildScripts()
 {
 	if (!Project::GetActive())
 		return;
 
-	// C++ first: it is the slower half, and a person watching a frozen editor
-	// should be waiting on the long thing, not on the short thing before it.
-	BuildModule();
-
-	const std::filesystem::path csproj =
-		Managed::ScriptBuild::ProjectFileFor(Project::Root(), Project::Config().Name);
-
-	// No C# in this project -- the shape a project made before the scaffold
-	// existed has. Skipped the way a missing Source/ skips the module build,
-	// rather than reported as a build that failed with zero errors.
-	std::error_code scriptsExist;
-	if (!std::filesystem::exists(csproj, scriptsExist))
+	// One build at a time. Pressing Ctrl+B during a build brings the console
+	// to front rather than queueing a second compiler behind the first.
+	if (m_BuildInFlight)
 	{
-		RV_INFO("No C# scripts in this project ({0} does not exist)", csproj.filename().string());
+		m_ShowScriptBuild = true;
 		return;
 	}
 
-	// The engine's own class library, which the project references. Staged
-	// beside the executable, so this is where it is at runtime regardless of
-	// where the engine was built.
+	m_ShowScriptBuild = true;
+	m_BuildInFlight = true;
+	m_BuildCancel = false;
+	m_BuildDone = false;
+	m_WorkerRanModule = false;
+	m_WorkerRanScripts = false;
+	{
+		std::lock_guard<std::mutex> lock(m_BuildLogMutex);
+		m_BuildLiveLog.clear();
+	}
+
+	// Everything the worker needs, captured by value. It must not touch
+	// Project::* -- the main thread can close or switch projects while it
+	// runs, and half of one project with half of another is worse than a
+	// build against a stale snapshot.
+	const std::filesystem::path root = Project::Root();
+	const std::string name = Project::Config().Name;
+	const std::filesystem::path csproj = Managed::ScriptBuild::ProjectFileFor(root, name);
+	const std::filesystem::path scriptsOut = root / "Scripts" / "bin";
+	// The engine's own class library, staged beside the executable.
 	const std::filesystem::path scriptCore = "managed/RageV.ScriptCore.dll";
 
-	m_ScriptBuild = Managed::ScriptBuild::Build(csproj, Project::Root() / "Scripts" / "bin", scriptCore);
+	// The console's supply line. Called from the worker for every chunk the
+	// compiler prints; the panel reads under the same lock each frame.
+	auto tee = [this](const char* text, size_t length)
+	{
+		std::lock_guard<std::mutex> lock(m_BuildLogMutex);
+		m_BuildLiveLog.append(text, length);
+	};
+
+	m_BuildThread = std::thread([this, root, name, csproj, scriptsOut, scriptCore, tee]()
+	{
+		// C++ first: it is the slower half, so cancelling early saves the
+		// most, and its output is what the console mostly exists to show.
+		if (ModuleBuild::ProjectHasModule(root))
+		{
+			m_WorkerRanModule = true;
+			m_WorkerModule = ModuleBuild::Build(root, name, &m_BuildCancel, tee);
+		}
+
+		std::error_code ec;
+		if (!m_BuildCancel && std::filesystem::exists(csproj, ec))
+		{
+			m_WorkerRanScripts = true;
+			m_WorkerScripts = Managed::ScriptBuild::Build(csproj, scriptsOut, scriptCore,
+														  &m_BuildCancel, tee);
+		}
+
+		// Last, after every result is in place: this is what tells the main
+		// thread it may read them.
+		m_BuildDone = true;
+	});
+}
+
+// The frame a build finishes: join the worker, publish its results, and do
+// the one thing that must not happen off-thread -- loading the C# assembly
+// into the runtime the editor is actively using.
+void EditorLayer::FinishBuild()
+{
+	if (!m_BuildInFlight || !m_BuildDone)
+		return;
+
+	m_BuildThread.join();
+	m_BuildInFlight = false;
+
+	const bool cancelled = m_BuildCancel;
+
+	if (m_WorkerRanModule)
+	{
+		m_ModuleBuild = std::move(m_WorkerModule);
+		m_ModuleBuildRan = true;
+
+		if (m_ModuleBuild.Cancelled)
+			RV_INFO("Module build cancelled");
+		else if (m_ModuleBuild.SdkMissing)
+			RV_ERROR("No CMake found; the C++ module was not built");
+		else if (!m_ModuleBuild.Success)
+			RV_ERROR("Module build failed: {0} error(s)", m_ModuleBuild.ErrorCount());
+		else
+			// Built, not loaded: loading the module is the next roadmap step,
+			// and saying so beats implying its scripts are available now.
+			RV_INFO("Module built in {0:.1f}s, {1} warning(s) -> {2}. The editor does "
+					"not load modules yet; that lands next.",
+					m_ModuleBuild.Seconds, m_ModuleBuild.WarningCount(),
+					m_ModuleBuild.Assembly.filename().string());
+	}
+
+	if (!m_WorkerRanScripts)
+	{
+		if (!cancelled && !ModuleBuild::ProjectHasModule(Project::Root()) && !m_WorkerRanModule)
+			RV_INFO("Nothing to build: this project has no Source/ and no .csproj");
+		return;
+	}
+
+	m_ScriptBuild = std::move(m_WorkerScripts);
 	m_ScriptBuildRan = true;
-	m_ShowScriptBuild = true;
+
+	if (m_ScriptBuild.Cancelled)
+	{
+		RV_INFO("Script build cancelled");
+		return;
+	}
 
 	if (m_ScriptBuild.SdkMissing)
 	{
@@ -2457,38 +2560,6 @@ void EditorLayer::BuildScripts()
 		RV_INFO("Loaded {0} script type(s) from {1}", scripts, m_ScriptBuild.Assembly.filename().string());
 }
 
-// The C++ half of Build Scripts. Separate from the C# half so one failing
-// does not stop the other from being reported, and skipped entirely for a
-// project that has no Source/ -- one made before game modules existed.
-void EditorLayer::BuildModule()
-{
-	if (!Project::GetActive() || !ModuleBuild::ProjectHasModule(Project::Root()))
-		return;
-
-	m_ModuleBuild = ModuleBuild::Build(Project::Root(), Project::Config().Name);
-	m_ModuleBuildRan = true;
-	m_ShowScriptBuild = true;
-
-	if (m_ModuleBuild.SdkMissing)
-	{
-		RV_ERROR("No CMake found; the C++ module was not built");
-		return;
-	}
-
-	if (!m_ModuleBuild.Success)
-	{
-		RV_ERROR("Module build failed: {0} error(s)", m_ModuleBuild.ErrorCount());
-		return;
-	}
-
-	// Built, not loaded: loading the module is the next roadmap step, and
-	// saying so beats implying its scripts are available now.
-	RV_INFO("Module built in {0:.1f}s, {1} warning(s) -> {2}. The editor does not "
-			"load modules yet; that lands next.",
-			m_ModuleBuild.Seconds, m_ModuleBuild.WarningCount(),
-			m_ModuleBuild.Assembly.filename().string());
-}
-
 // The compiler's output, where somebody will actually read it.
 void EditorLayer::DrawScriptBuildPanel()
 {
@@ -2501,7 +2572,42 @@ void EditorLayer::DrawScriptBuildPanel()
 		return;
 	}
 
-	if (!m_ScriptBuildRan)
+	// A build in progress: the panel is a console. Live output with the
+	// cancel above it, because the moment somebody wants to cancel is the
+	// moment they are reading the output.
+	if (m_BuildInFlight)
+	{
+		ImGui::TextColored(ImVec4(0.85f, 0.68f, 0.30f, 1.0f), "Building%.*s",
+						   1 + (int)(ImGui::GetTime() * 2.0) % 3, "...");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Cancel"))
+			m_BuildCancel = true;
+		if (m_BuildCancel)
+		{
+			ImGui::SameLine();
+			ImGui::TextDisabled("stopping...");
+		}
+
+		ImGui::Separator();
+
+		ImGui::BeginChild("##buildconsole", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+						  ImGuiWindowFlags_HorizontalScrollbar);
+		{
+			std::lock_guard<std::mutex> lock(m_BuildLogMutex);
+			ImGui::TextUnformatted(m_BuildLiveLog.c_str());
+		}
+		// Follow the output, but only while already at the bottom -- somebody
+		// scrolled up is reading, and yanking the view away is how a console
+		// stops being trusted.
+		if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
+			ImGui::SetScrollHereY(1.0f);
+		ImGui::EndChild();
+
+		ImGui::End();
+		return;
+	}
+
+	if (!m_ScriptBuildRan && !m_ModuleBuildRan)
 	{
 		ImGui::TextDisabled("Nothing built yet.");
 		ImGui::End();
@@ -2523,20 +2629,27 @@ void EditorLayer::DrawScriptBuildPanel()
 		{
 			DrawBuildResult(m_ModuleBuild);
 		}
-		ImGui::SeparatorText("C# scripts");
 	}
 
-	if (m_ScriptBuild.SdkMissing)
+	// Only when it actually ran: a project with no .csproj has no C# section,
+	// not an empty green one.
+	if (m_ScriptBuildRan)
 	{
-		ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "No .NET SDK");
-		ImGui::TextWrapped("C# scripts need the .NET 8 SDK. The engine itself does not -- "
-						   "it finds the runtime at startup and reports C# as unavailable "
-						   "when there is none.");
-		ImGui::End();
-		return;
-	}
+		if (m_ModuleBuildRan)
+			ImGui::SeparatorText("C# scripts");
 
-	DrawBuildResult(m_ScriptBuild);
+		if (m_ScriptBuild.SdkMissing)
+		{
+			ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "No .NET SDK");
+			ImGui::TextWrapped("C# scripts need the .NET 8 SDK. The engine itself does not -- "
+							   "it finds the runtime at startup and reports C# as unavailable "
+							   "when there is none.");
+		}
+		else
+		{
+			DrawBuildResult(m_ScriptBuild);
+		}
+	}
 
 	ImGui::End();
 }
@@ -2552,6 +2665,17 @@ void EditorLayer::DrawBuildResult(const Managed::BuildResult& result)
 
 	const size_t errors = result.ErrorCount();
 	const size_t warnings = result.WarningCount();
+
+	// Cancelled is its own state, not a failure dressed as one: "0 errors and
+	// yet broken" is the reading being avoided.
+	if (result.Cancelled)
+	{
+		ImGui::TextColored(ImVec4(0.85f, 0.68f, 0.30f, 1.0f), "Cancelled");
+		if (ImGui::CollapsingHeader("Output up to the cancel"))
+			ImGui::TextUnformatted(result.Output.c_str());
+		ImGui::PopID();
+		return;
+	}
 
 	if (errors > 0)
 		ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "%zu error(s), %zu warning(s)", errors, warnings);

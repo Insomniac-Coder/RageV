@@ -30,33 +30,15 @@ namespace RageV::Managed
 	std::string ScriptBuild::RunAndCapture(const std::string& command, bool& launched,
 										   int* exitCode)
 	{
-		// _popen rather than CreateProcess with pipes: this needs the child's
-		// output and its exit code and nothing else, and the twenty lines of
-		// handle plumbing the alternative costs buy nothing here.
-		//
-		// stderr is folded into stdout because MSBuild puts diagnostics on
-		// both depending on the failure, and a build log split across two
-		// streams reorders itself unhelpfully.
-		FILE* pipe = _popen((command + " 2>&1").c_str(), "r");
-		if (!pipe)
-		{
-			launched = false;
-			return {};
-		}
-
-		launched = true;
-		std::string output;
-		std::array<char, 512> chunk{};
-		while (std::fgets(chunk.data(), (int)chunk.size(), pipe))
-			output += chunk.data();
-
-		// _pclose hands back the child's exit status -- cmd's, which is the
-		// build tool's own.
-		const int status = _pclose(pipe);
+		// Over ChildProcess rather than _popen, which this used to be. _popen
+		// went everything through cmd.exe -- whose quote-stripping once cost a
+		// session -- and handed back nothing that could stop a running build.
+		// ChildProcess does neither.
+		const ChildProcess::Result run = ChildProcess::Run(command);
+		launched = run.Launched;
 		if (exitCode)
-			*exitCode = status;
-
-		return output;
+			*exitCode = run.ExitCode;
+		return run.Output;
 	}
 
 	std::string ScriptBuild::Quote(const std::filesystem::path& path)
@@ -130,7 +112,9 @@ namespace RageV::Managed
 
 	BuildResult ScriptBuild::Build(const std::filesystem::path& csproj,
 								   const std::filesystem::path& output,
-								   const std::filesystem::path& scriptCore)
+								   const std::filesystem::path& scriptCore,
+								   const std::atomic<bool>* cancel,
+								   const ChildProcess::OutputSink& tee)
 	{
 		BuildResult result;
 
@@ -155,31 +139,32 @@ namespace RageV::Managed
 		// because where RageV.ScriptCore.dll lives depends on where the engine
 		// is installed -- and a project file that only builds on the machine
 		// that generated it is not a project file.
-		std::string command = Quote(dotnet) + " build " + Quote(csproj)
-							+ " --configuration Release"
-							+ " --output " + Quote(output)
-							+ " --nologo"
-							+ " -consoleLoggerParameters:NoSummary"
-							+ " -p:RageVScriptCore=" + Quote(scriptCore);
-
-		// Wrapped in one more pair of quotes, which looks wrong and is required.
 		//
-		// _popen runs the command through `cmd /c`, and cmd strips the first and
-		// last quote of a command line that begins with one. So a quoted program
-		// path arrives as `C:\Program Files\...` unquoted and cmd reports that
-		// 'C:\Program' is not a command. Wrapping the whole line gives cmd a
-		// pair to eat and leaves the inner quoting intact.
-		command = "\"" + command + "\"";
+		// No extra quoting: this goes to CreateProcess, which parses arguments
+		// itself. The doubled-quote dance _popen's cmd.exe required is gone --
+		// see ChildProcess.h, and HANDOFF section 10 for what it once cost.
+		const std::string command = Quote(dotnet) + " build " + Quote(csproj)
+								  + " --configuration Release"
+								  + " --output " + Quote(output)
+								  + " --nologo"
+								  + " -consoleLoggerParameters:NoSummary"
+								  + " -p:RageVScriptCore=" + Quote(scriptCore);
 
 		const auto started = std::chrono::steady_clock::now();
-		bool launched = false;
-		result.Output = RunAndCapture(command, launched);
+		const ChildProcess::Result run = ChildProcess::Run(command, cancel, tee);
+		result.Output = run.Output;
 		result.Seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - started).count();
 
-		if (!launched)
+		if (!run.Launched)
 		{
 			result.SdkMissing = true;
 			result.Output = "Could not run " + dotnet.string();
+			return result;
+		}
+
+		if (run.Cancelled)
+		{
+			result.Cancelled = true;
 			return result;
 		}
 

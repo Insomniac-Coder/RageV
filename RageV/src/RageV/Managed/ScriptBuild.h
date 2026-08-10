@@ -14,6 +14,9 @@
 // the main way a script author learns anything, so the output is captured,
 // parsed into file/line/message, and handed back for the editor to render.
 
+#include "RageV/Core/ChildProcess.h"
+
+#include <atomic>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -43,6 +46,10 @@ namespace RageV::Managed
 		// from a compile error and gets a different sentence in the editor.
 		bool SdkMissing = false;
 
+		// True when the person who started the build stopped it. Not a
+		// failure: the panel says "cancelled", not "0 errors and yet broken".
+		bool Cancelled = false;
+
 		// Errors and warnings, in the order the compiler reported them.
 		std::vector<BuildDiagnostic> Diagnostics;
 
@@ -67,9 +74,9 @@ namespace RageV::Managed
 		static std::filesystem::path FindDotnet();
 		static bool IsAvailable();
 
-		// Compiles `csproj` into `output`. Blocking: a script assembly is a few
-		// files and takes about a second, and a build running in the background
-		// while somebody presses Play is a worse problem than a brief pause.
+		// Compiles `csproj` into `output`. Blocking -- the *editor* stays
+		// interactive by running this on a worker thread and handing it the
+		// cancel flag, which stops the compiler's whole process tree.
 		//
 		// `scriptCore` is the RageV.ScriptCore.dll the project references. It
 		// is passed on the command line rather than written into the csproj,
@@ -77,7 +84,9 @@ namespace RageV::Managed
 		// project file that only builds on one machine is not a project file.
 		static BuildResult Build(const std::filesystem::path& csproj,
 								 const std::filesystem::path& output,
-								 const std::filesystem::path& scriptCore);
+								 const std::filesystem::path& scriptCore,
+								 const std::atomic<bool>* cancel = nullptr,
+								 const ChildProcess::OutputSink& tee = {});
 
 		// The .csproj a generated project gets. Static so the project scaffold
 		// and the build agree on the name without either owning the other.
@@ -88,11 +97,10 @@ namespace RageV::Managed
 		// is the only thing here that can quietly stop matching.
 		static bool ParseDiagnostic(const std::string& line, BuildDiagnostic& out);
 
-		// Shared with ModuleBuild, which shells out the same way to a different
-		// compiler. Public so the cmd.exe quoting trap lives in one place: the
-		// caller must wrap the *whole* command line in one extra pair of quotes,
-		// because cmd strips the first and last quote of a line that begins with
-		// one -- see the comment in Build().
+		// A convenience over ChildProcess::Run for version probes and other
+		// runs nothing will ever cancel. The command line goes to
+		// CreateProcess as-is -- no cmd.exe in the path any more, so the
+		// quote-doubling that _popen used to require is gone with it.
 		//
 		// `exitCode`, when asked for, is the child's. The C# build ignores it
 		// and trusts the artifact instead; the module build cannot, because its

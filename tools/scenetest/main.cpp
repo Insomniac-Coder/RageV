@@ -61,6 +61,7 @@
 #include "RageV/Managed/Interop.h"
 #include "RageV/Managed/ScriptBuild.h"
 #include "RageV/Project/ModuleBuild.h"
+#include "RageV/Core/ChildProcess.h"
 #include "RageV/Math/Math.h"
 #include "GlmBridge.h"
 #include <glm/glm.hpp>
@@ -5067,6 +5068,45 @@ int RunTests(int argc, char** argv)
 
 				Check(!ModuleBuild::ParseDiagnostic("  Rotator.cpp", cpp),
 					  "while the compiler naming a file as it goes is not a diagnostic");
+
+				// The process runner under everything above. cmd.exe is on
+				// every Windows machine, which makes it the one dependable
+				// child for a test.
+				{
+					const ChildProcess::Result echo = ChildProcess::Run("cmd /c echo hello");
+					Check(echo.Launched && echo.ExitCode == 0
+						  && echo.Output.find("hello") != std::string::npos,
+						  "a child process runs and its output is captured");
+
+					const ChildProcess::Result code = ChildProcess::Run("cmd /c exit 3");
+					Check(code.Launched && code.ExitCode == 3,
+						  "and its exit code comes back as itself");
+
+					const ChildProcess::Result stderrToo =
+						ChildProcess::Run("cmd /c echo lost 1>&2");
+					Check(stderrToo.Launched
+						  && stderrToo.Output.find("lost") != std::string::npos,
+						  "stderr arrives merged with stdout");
+
+					const ChildProcess::Result missing =
+						ChildProcess::Run("rv-no-such-tool --version");
+					Check(!missing.Launched, "a missing executable reads as not launched");
+
+					// Cancellation, measured: a ping that would sit for ten
+					// seconds, cancelled from the start, must come back in
+					// far less -- and marked as cancelled, not as failed.
+					std::atomic<bool> cancel{ true };
+					const auto begun = std::chrono::steady_clock::now();
+					const ChildProcess::Result stopped =
+						ChildProcess::Run("ping -n 10 127.0.0.1", &cancel);
+					const float waited = std::chrono::duration<float>(
+						std::chrono::steady_clock::now() - begun).count();
+
+					Check(stopped.Launched && stopped.Cancelled,
+						  "a cancelled child reports the cancel");
+					Check(waited < 5.0f,
+						  "and dies with its whole tree instead of running out the clock");
+				}
 
 				Check(std::string(ModuleBuild::Configuration()) == "Debug",
 					  "the module config matches this build of the engine");

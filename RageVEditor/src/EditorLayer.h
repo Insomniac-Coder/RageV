@@ -1,7 +1,10 @@
 #pragma once
 #include <RageV.h>
 #include "RageV/Managed/ScriptBuild.h"
+#include <atomic>
 #include <chrono>
+#include <mutex>
+#include <thread>
 #include "UI/SceneHierarchyPanel.h"
 #include "UI/ContentBrowserPanel.h"
 #include "RageV/Scene/SceneCommands.h"
@@ -15,6 +18,9 @@ class EditorLayer : public RageV::Layer
 {
 public:
 	EditorLayer();
+	// Cancels and joins a build still running; a worker thread outliving the
+	// layer would write into freed members.
+	~EditorLayer() override;
 
 	void OnAttach() override;
 	void OnUpdate(RageV::Timestep ts) override;
@@ -40,11 +46,15 @@ public:
 	// see the definition.
 	void PopulateStarterScene();
 
-	// Compiles the project's scripts -- C# always, the C++ game module when the
-	// project has one -- and loads what can be loaded. Output goes to the panel
-	// below, not to a console nobody is looking at.
+	// Compiles the project's scripts -- the C++ game module when the project
+	// has one, then C# -- on a worker thread, so the editor stays usable while
+	// a module compiles. The panel is a live console during the build, with a
+	// cancel that terminates the compiler's whole process tree, and becomes
+	// the parsed diagnostics when it finishes.
 	void BuildScripts();
-	void BuildModule();
+	// Called each frame from OnUpdate; joins the worker and publishes its
+	// results the frame the build finishes.
+	void FinishBuild();
 	void DrawScriptBuildPanel();
 	void DrawBuildResult(const RageV::Managed::BuildResult& result);
 
@@ -56,6 +66,21 @@ public:
 	// independently and the panel says which half is broken.
 	RageV::Managed::BuildResult m_ModuleBuild;
 	bool m_ModuleBuildRan = false;
+
+	// The build worker. The worker writes its results and then sets
+	// m_BuildDone; the main thread reads them only after seeing it, so the
+	// atomics are the whole synchronisation story. The live log is the one
+	// thing touched from both sides at once, and it has the mutex.
+	std::thread m_BuildThread;
+	std::atomic<bool> m_BuildCancel{ false };
+	std::atomic<bool> m_BuildDone{ false };
+	bool m_BuildInFlight = false;   // the main thread's view
+	RageV::Managed::BuildResult m_WorkerModule;
+	RageV::Managed::BuildResult m_WorkerScripts;
+	bool m_WorkerRanModule = false;
+	bool m_WorkerRanScripts = false;
+	std::mutex m_BuildLogMutex;
+	std::string m_BuildLiveLog;
 
 
 	void ImportModel();

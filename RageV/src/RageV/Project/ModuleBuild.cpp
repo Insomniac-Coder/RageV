@@ -177,7 +177,9 @@ namespace RageV
 	}
 
 	Managed::BuildResult ModuleBuild::Build(const std::filesystem::path& projectRoot,
-											const std::string& projectName)
+											const std::string& projectName,
+											const std::atomic<bool>* cancel,
+											const ChildProcess::OutputSink& tee)
 	{
 		using Managed::ScriptBuild;
 
@@ -217,57 +219,63 @@ namespace RageV
 							"so it cannot configure a module.";
 			return result;
 #else
-			std::string configure = ScriptBuild::Quote(cmake)
-								  + " -S " + ScriptBuild::Quote(source)
-								  + " -B " + ScriptBuild::Quote(buildDir)
-								  + " -DRAGEV_ENGINE=" + ScriptBuild::Quote(RV_ENGINE_EXPORT_DIR);
-
-			// The whole line wrapped in one extra pair of quotes -- the
-			// cmd.exe trap documented in ScriptBuild::Build. cmd strips the
-			// first and last quote of a line that begins with one.
-			configure = "\"" + configure + "\"";
+			// No extra quoting: CreateProcess parses this itself, so the
+			// doubled-quote dance cmd.exe used to require is gone.
+			const std::string configure = ScriptBuild::Quote(cmake)
+										+ " -S " + ScriptBuild::Quote(source)
+										+ " -B " + ScriptBuild::Quote(buildDir)
+										+ " -DRAGEV_ENGINE=" + ScriptBuild::Quote(RV_ENGINE_EXPORT_DIR);
 
 			RV_CORE_INFO("Configuring {0}'s game module (first build; this is the slow one)",
 						 projectName);
 
-			bool launched = false;
-			int configureExit = 0;
-			result.Output = ScriptBuild::RunAndCapture(configure, launched, &configureExit);
-			if (!launched)
+			const ChildProcess::Result ran = ChildProcess::Run(configure, cancel, tee);
+			result.Output = ran.Output;
+
+			if (!ran.Launched)
 			{
 				result.SdkMissing = true;
 				result.Output = "Could not run " + cmake.string();
 				return result;
 			}
 
-			// A failed configure leaves a cache that "configure once" would
-			// then trust forever. Parse what it said and stop here.
-			if (configureExit != 0)
+			// A cancelled or failed configure leaves a cache that "configure
+			// once" would then trust forever. Either way it goes; a failure
+			// additionally gets parsed for something to point at.
+			if (ran.Cancelled || ran.ExitCode != 0)
 			{
-				ParseAllDiagnostics(result);
 				std::filesystem::remove(buildDir / "CMakeCache.txt", ec);
+				result.Cancelled = ran.Cancelled;
+				if (!ran.Cancelled)
+					ParseAllDiagnostics(result);
 				return result;
 			}
 #endif
 		}
 
-		std::string build = ScriptBuild::Quote(cmake)
-						  + " --build " + ScriptBuild::Quote(buildDir)
-						  + " --config " + Configuration();
-		build = "\"" + build + "\"";
+		const std::string build = ScriptBuild::Quote(cmake)
+								+ " --build " + ScriptBuild::Quote(buildDir)
+								+ " --config " + Configuration();
 
-		bool launched = false;
-		int buildExit = 0;
-		result.Output += ScriptBuild::RunAndCapture(build, launched, &buildExit);
+		const ChildProcess::Result ran = ChildProcess::Run(build, cancel, tee);
+		result.Output += ran.Output;
 		result.Seconds = std::chrono::duration<float>(
 			std::chrono::steady_clock::now() - started).count();
 
-		if (!launched)
+		if (!ran.Launched)
 		{
 			result.SdkMissing = true;
 			result.Output = "Could not run " + cmake.string();
 			return result;
 		}
+
+		if (ran.Cancelled)
+		{
+			result.Cancelled = true;
+			return result;
+		}
+
+		const int buildExit = ran.ExitCode;
 
 		ParseAllDiagnostics(result);
 
