@@ -49,6 +49,8 @@ namespace RageV::Managed
 	//
 	// Layout is ABI. Adding to the end is the only safe edit; inserting in the
 	// middle silently rebinds every field after it on one side only.
+	struct RayHitData;
+
 	struct NativeApi
 	{
 		// --- diagnostics -----------------------------------------------------
@@ -106,6 +108,74 @@ namespace RageV::Managed
 		void (__cdecl* AddImpulse)(uint64_t entity, const Vec3* impulse);
 		void (__cdecl* SetLinearVelocity)(uint64_t entity, const Vec3* velocity);
 		int32_t (__cdecl* GetLinearVelocity)(uint64_t entity, Vec3* out);
+
+		// --- appended for protocol 4: the rest of the native surface ---------
+		//
+		// Everything a C++ script can call, minus the component templates,
+		// which have no cross-boundary shape -- script fields are the
+		// cross-language mechanism for tuning, and the guides say so.
+		//
+		// Assets cross as *paths* relative to the asset root, resolved through
+		// the registry, because AssetHandle is an opaque number a C# script
+		// has no way to obtain.
+
+		int32_t  (__cdecl* SetEntityName)(uint64_t entity, const char* name);
+		void     (__cdecl* LookAt)(uint64_t entity, const Vec3* target, const Vec3* up);
+
+		// UUIDs into the buffer, count-that-would-fit returned -- the
+		// GetEntityName contract, for entities.
+		int32_t  (__cdecl* FindEntitiesByName)(const char* name, uint64_t* buffer, int32_t capacity);
+		uint64_t (__cdecl* GetParent)(uint64_t entity);
+		// parent == 0 clears, moving the entity to the root.
+		void     (__cdecl* SetParent)(uint64_t entity, uint64_t parent);
+		int32_t  (__cdecl* GetChildren)(uint64_t entity, uint64_t* buffer, int32_t capacity);
+
+		uint64_t (__cdecl* SpawnPrefab)(const char* assetPath);
+
+		// Returns whether it hit; the details land in `out`. Direction need
+		// not be normalised -- the ray extends to its length, as the native
+		// API's does.
+		int32_t  (__cdecl* Raycast)(const Vec3* origin, const Vec3* direction, RayHitData* out);
+
+		uint64_t (__cdecl* PlaySource)(uint64_t entity);
+		void     (__cdecl* StopSource)(uint64_t entity);
+		int32_t  (__cdecl* IsSourcePlaying)(uint64_t entity);
+
+		// An empty clip path plays the entity's own AudioSourceComponent clip
+		// as a one-shot, which is the ImpactSound pattern without needing
+		// component access.
+		uint64_t (__cdecl* PlayOneShot)(uint64_t entity, const char* clipPath, float volume);
+		uint64_t (__cdecl* PlayOneShot2D)(const char* clipPath, float volume);
+		void     (__cdecl* StopVoice)(uint64_t voice);
+
+		// Components, by their registry names, with field values as text --
+		// the same registry and the same text forms the inspector and the
+		// scene file use. This is the boundary's answer to GetComponent<T>:
+		// a template cannot cross, a name-and-text contract can, and because
+		// the ComponentRegistry drives it, a component gaining a field is
+		// visible from C# without anyone updating a binding.
+		int32_t (__cdecl* HasComponent)(uint64_t entity, const char* component);
+		int32_t (__cdecl* AddComponent)(uint64_t entity, const char* component);
+		int32_t (__cdecl* RemoveComponent)(uint64_t entity, const char* component);
+		// Length-that-would-fit, like GetEntityName; -1 when the entity,
+		// component or field does not exist -- distinguishable from an empty
+		// string field, which returns 0.
+		int32_t (__cdecl* GetComponentField)(uint64_t entity, const char* component,
+											 const char* field, char* buffer, int32_t capacity);
+		int32_t (__cdecl* SetComponentField)(uint64_t entity, const char* component,
+											 const char* field, const char* value);
+	};
+
+	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
+	// flattened the same way CollisionData is; whether anything was hit
+	// travels as the call's return value rather than a bool with an
+	// unguaranteed layout.
+	struct RayHitData
+	{
+		uint64_t Entity;
+		Vec3     Position;
+		Vec3     Normal;
+		float    Distance;
 	};
 
 	// One contact, as it crosses the boundary.
@@ -237,7 +307,7 @@ namespace RageV::Managed
 		// 2: appended physics, world transform and spawn/destroy; added the
 		//    script lifecycle and CollisionData.
 		// 3: appended script field reflection.
-		static constexpr int32_t kProtocolVersion = 3;
+		static constexpr int32_t kProtocolVersion = 4;
 
 		// The editable fields of a script type, for the inspector. Empty when
 		// C# is not running or the type is unknown -- both of which the

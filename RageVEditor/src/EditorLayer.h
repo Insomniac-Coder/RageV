@@ -87,6 +87,10 @@ public:
 	void LoadScriptAssembly(const std::filesystem::path& assembly);
 	std::filesystem::path m_PendingAssemblyLoad;
 
+	// Set when a build interrupted Play (or Play was pressed mid-build):
+	// FinishBuild restarts the scene if everything that ran succeeded.
+	bool m_ResumePlayAfterBuild = false;
+
 
 	void ImportModel();
 	void OnScenePlay();

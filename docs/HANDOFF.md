@@ -907,9 +907,12 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 
 ### Not built
 
-- ~~C# scripting~~ -- **built, all of phase 5**, including hot reload. See
-  section 0. What remains scripting-adjacent: C# has no audio or raycast
-  surface yet, which the C# guide states.
+- ~~C# scripting~~ -- **built, all of phase 5**, including hot reload, and as
+  of interop protocol 4 the C# surface mirrors the C++ one entirely: audio,
+  raycasts, hierarchy, LookAt, SpawnPrefab by path, and component access by
+  registry name with text values -- the boundary's answer to GetComponent<T>,
+  driven by the same ComponentRegistry as the inspector so it cannot go
+  stale. Mid-play builds stop, swap and resume Play, in both languages.
 - **Front-to-back depth sorting.** Opaque draws are grouped by mesh and
   material so they batch, which is the half of 3.6 that was worth measuring.
   Sorting them by depth as well would let early-z reject more, and is worth a

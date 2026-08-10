@@ -66,6 +66,41 @@ internal unsafe struct NativeApi
 	public delegate* unmanaged[Cdecl]<ulong, Vector3*, void> AddImpulse;
 	public delegate* unmanaged[Cdecl]<ulong, Vector3*, void> SetLinearVelocity;
 	public delegate* unmanaged[Cdecl]<ulong, Vector3*, int> GetLinearVelocity;
+
+	// --- appended for protocol 4: the rest of the native surface ---
+	public delegate* unmanaged[Cdecl]<ulong, byte*, int> SetEntityName;
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, Vector3*, void> LookAt;
+	public delegate* unmanaged[Cdecl]<byte*, ulong*, int, int> FindEntitiesByName;
+	public delegate* unmanaged[Cdecl]<ulong, ulong> GetParent;
+	public delegate* unmanaged[Cdecl]<ulong, ulong, void> SetParent;
+	public delegate* unmanaged[Cdecl]<ulong, ulong*, int, int> GetChildren;
+	public delegate* unmanaged[Cdecl]<byte*, ulong> SpawnPrefab;
+	public delegate* unmanaged[Cdecl]<Vector3*, Vector3*, NativeRayHit*, int> Raycast;
+	public delegate* unmanaged[Cdecl]<ulong, ulong> PlaySource;
+	public delegate* unmanaged[Cdecl]<ulong, void> StopSource;
+	public delegate* unmanaged[Cdecl]<ulong, int> IsSourcePlaying;
+	public delegate* unmanaged[Cdecl]<ulong, byte*, float, ulong> PlayOneShot;
+	public delegate* unmanaged[Cdecl]<byte*, float, ulong> PlayOneShot2D;
+	public delegate* unmanaged[Cdecl]<ulong, void> StopVoice;
+
+	// Components by registry name, field values as text -- the registry that
+	// drives the inspector drives this, so nothing here goes stale when a
+	// component gains a field.
+	public delegate* unmanaged[Cdecl]<ulong, byte*, int> HasComponent;
+	public delegate* unmanaged[Cdecl]<ulong, byte*, int> AddComponent;
+	public delegate* unmanaged[Cdecl]<ulong, byte*, int> RemoveComponent;
+	public delegate* unmanaged[Cdecl]<ulong, byte*, byte*, byte*, int, int> GetComponentField;
+	public delegate* unmanaged[Cdecl]<ulong, byte*, byte*, byte*, int> SetComponentField;
+}
+
+/// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeRayHit
+{
+	public ulong Entity;
+	public Vector3 Position;
+	public Vector3 Normal;
+	public float Distance;
 }
 
 /// <summary>
@@ -111,6 +146,16 @@ public struct Vector3
 	}
 
 	public static float Dot(Vector3 a, Vector3 b) => a.X * b.X + a.Y * b.Y + a.Z * b.Z;
+
+	public static Vector3 Cross(Vector3 a, Vector3 b) => new Vector3(
+		a.Y * b.Z - a.Z * b.Y,
+		a.Z * b.X - a.X * b.Z,
+		a.X * b.Y - a.Y * b.X);
+
+	public static float Distance(Vector3 a, Vector3 b) => (b - a).Length();
+
+	/// <summary>Linear blend; <paramref name="t"/> is not clamped.</summary>
+	public static Vector3 Lerp(Vector3 a, Vector3 b, float t) => a + (b - a) * t;
 
 	public override string ToString() => $"({X}, {Y}, {Z})";
 }

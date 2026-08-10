@@ -56,10 +56,10 @@ name, and that string is what gets written into the scene file.
 > the build catches up.
 
 > [!NOTE]
-> The one time the module does *not* reload is while the scene is playing:
-> live script instances run code from the loaded DLL, and swapping it under
-> them is not a thing that can end well. Build Scripts says so and skips the
-> C++ half; stop the scene and build again.
+> Building while the scene is playing restarts it: live instances run code
+> from the loaded DLL, so the editor stops the scene, swaps the module, and
+> resumes Play on the new code. After a failed build it stays stopped with
+> the errors in the Build Log rather than auto-playing the old code.
 
 > [!TRAP]
 > **Renaming a registered script breaks every scene that used it.** The name is

@@ -536,6 +536,17 @@ void EditorLayer::OnScenePlay()
 	if (!m_Scene || m_SceneState != SceneState::Edit)
 		return;
 
+	// Mid-build, the game module is unloaded so the linker can write it. A
+	// play session started now would run without the project's C++ scripts
+	// and look like they were broken -- so the press is queued, and the scene
+	// starts the moment the build lands.
+	if (m_BuildInFlight)
+	{
+		RV_INFO("A build is running; Play starts when it finishes");
+		m_ResumePlayAfterBuild = true;
+		return;
+	}
+
 	SceneSerializer serializer(m_Scene);
 	m_SceneSnapshot = serializer.SerializeToString();
 
@@ -2535,21 +2546,21 @@ void EditorLayer::BuildScripts()
 	const std::filesystem::path scriptCore = "managed/RageV.ScriptCore.dll";
 
 	// The loaded module holds its own DLL open, so the linker cannot write the
-	// new one: it has to be unloaded before the build starts and reloaded when
-	// the build ends. That is only safe while nothing instantiated from it is
-	// alive -- instances exist only during Play -- so mid-play the C++ half is
-	// skipped rather than the play session broken.
-	bool buildModule = ModuleBuild::ProjectHasModule(root);
-	if (buildModule && m_SceneState != SceneState::Edit)
+	// new one: it has to be unloaded before the build starts, and that is only
+	// safe while nothing instantiated from it is alive. Instances exist only
+	// during Play -- so a build started mid-play stops the scene first and
+	// resumes it when the build lands. The Unity loop: change, Ctrl+B, and the
+	// scene restarts on the new code.
+	if (m_SceneState != SceneState::Edit)
 	{
-		RV_WARN("Playing, so the C++ module keeps running as built; stop the scene "
-				"and build again to swap it. C# still builds.");
-		buildModule = false;
+		RV_INFO("Stopping the scene to swap scripts; Play resumes when the build lands");
+		m_ResumePlayAfterBuild = true;
+		OnSceneStop();
 	}
-	else if (buildModule)
-	{
+
+	const bool buildModule = ModuleBuild::ProjectHasModule(root);
+	if (buildModule)
 		GameModule::Unload();
-	}
 
 	// The console's supply line. Called from the worker for every chunk the
 	// compiler prints; the panel reads under the same lock each frame.
@@ -2596,6 +2607,13 @@ void EditorLayer::FinishBuild()
 
 	const bool cancelled = m_BuildCancel;
 
+	// Whether the scene resumes below: only when everything that ran
+	// succeeded. After a failed build the person is mid-fix, and auto-playing
+	// the *old* code under them would misreport their change as having no
+	// effect -- the panel with the errors is the right next thing to see.
+	const bool resume = m_ResumePlayAfterBuild;
+	m_ResumePlayAfterBuild = false;
+
 	if (m_WorkerRanModule)
 	{
 		m_ModuleBuild = std::move(m_WorkerModule);
@@ -2619,58 +2637,64 @@ void EditorLayer::FinishBuild()
 			GameModule::Load(Project::Root(), Project::Config().Name);
 	}
 
-	if (!m_WorkerRanScripts)
+	if (m_WorkerRanScripts)
 	{
-		if (!cancelled && !ModuleBuild::ProjectHasModule(Project::Root()) && !m_WorkerRanModule)
-			RV_INFO("Nothing to build: this project has no Source/ and no .csproj");
-		return;
+		m_ScriptBuild = std::move(m_WorkerScripts);
+		m_ScriptBuildRan = true;
+
+		if (m_ScriptBuild.Cancelled)
+			RV_INFO("Script build cancelled");
+		else if (m_ScriptBuild.SdkMissing)
+			RV_ERROR("No .NET SDK found. Install the .NET 8 SDK to build C# scripts.");
+		else if (!m_ScriptBuild.Success)
+			RV_ERROR("Script build failed: {0} error(s)", m_ScriptBuild.ErrorCount());
+		else
+		{
+			RV_INFO("Scripts built in {0:.1f}s, {1} warning(s)",
+					m_ScriptBuild.Seconds, m_ScriptBuild.WarningCount());
+
+			// Loading is separate from building on purpose: a build can succeed
+			// and still produce an assembly the runtime refuses. The swap must
+			// not happen under live instances -- the same rule the C++ module
+			// has -- so mid-play it parks and OnSceneStop does it.
+			if (!Managed::Interop::IsReady())
+				RV_WARN("Built, but C# scripting is not running -- the assembly was not loaded");
+			else if (m_SceneState != SceneState::Edit)
+			{
+				m_PendingAssemblyLoad = m_ScriptBuild.Assembly;
+				RV_INFO("Built; the scene is playing, so the new scripts load when it stops.");
+			}
+			else
+			{
+				LoadScriptAssembly(m_ScriptBuild.Assembly);
+			}
+		}
+	}
+	else if (!cancelled && !m_WorkerRanModule
+			 && !ModuleBuild::ProjectHasModule(Project::Root()))
+	{
+		RV_INFO("Nothing to build: this project has no Source/ and no .csproj");
 	}
 
-	m_ScriptBuild = std::move(m_WorkerScripts);
-	m_ScriptBuildRan = true;
-
-	if (m_ScriptBuild.Cancelled)
+	// The scene this build interrupted, resumed -- but only when everything
+	// that ran succeeded. After a failure the person is mid-fix, and
+	// auto-playing the old code under them would misreport their change as
+	// having no effect; the panel with the errors is the right next thing.
+	if (resume)
 	{
-		RV_INFO("Script build cancelled");
-		return;
+		const bool moduleOk = !m_WorkerRanModule || m_ModuleBuild.Success;
+		const bool scriptsOk = !m_WorkerRanScripts || m_ScriptBuild.Success;
+
+		if (!cancelled && moduleOk && scriptsOk)
+		{
+			RV_INFO("Resuming Play on the new scripts");
+			OnScenePlay();
+		}
+		else
+		{
+			RV_INFO("Staying stopped: the build did not land cleanly");
+		}
 	}
-
-	if (m_ScriptBuild.SdkMissing)
-	{
-		RV_ERROR("No .NET SDK found. Install the .NET 8 SDK to build C# scripts.");
-		return;
-	}
-
-	if (!m_ScriptBuild.Success)
-	{
-		RV_ERROR("Script build failed: {0} error(s)", m_ScriptBuild.ErrorCount());
-		return;
-	}
-
-	RV_INFO("Scripts built in {0:.1f}s, {1} warning(s)",
-			m_ScriptBuild.Seconds, m_ScriptBuild.WarningCount());
-
-	// Loading is separate from building on purpose: a build can succeed and
-	// still produce an assembly the runtime refuses, and reporting both as one
-	// outcome would hide which happened.
-	if (!Managed::Interop::IsReady())
-	{
-		RV_WARN("Built, but C# scripting is not running -- the assembly was not loaded");
-		return;
-	}
-
-	// Reloading swaps the collectible context, and that must not happen under
-	// live instances -- the same rule the C++ module has, applied at the same
-	// place. Building mid-play is fine (the assembly is loaded from bytes, so
-	// the file is never held open); the *swap* waits for Stop.
-	if (m_SceneState != SceneState::Edit)
-	{
-		m_PendingAssemblyLoad = m_ScriptBuild.Assembly;
-		RV_INFO("Built; the scene is playing, so the new scripts load when it stops.");
-		return;
-	}
-
-	LoadScriptAssembly(m_ScriptBuild.Assembly);
 }
 
 // The actual swap: retire the old collectible context, load the new bytes.

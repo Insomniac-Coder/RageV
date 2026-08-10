@@ -50,7 +50,7 @@
 <p>The name in the dropdown is the string <code>RV_REGISTER_SCRIPT</code> derived from the type name, and that string is what gets written into the scene file.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>A script you have written but not yet built appears in the dropdown marked <strong>(not built)</strong>, and you can attach it now — it starts working the moment the build catches up.</p>
 </aside>
-<aside class="callout callout-note"><p class="callout-label">Note</p><p>The one time the module does <em>not</em> reload is while the scene is playing: live script instances run code from the loaded DLL, and swapping it under them is not a thing that can end well. Build Scripts says so and skips the C++ half; stop the scene and build again.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Building while the scene is playing restarts it: live instances run code from the loaded DLL, so the editor stops the scene, swaps the module, and resumes Play on the new code. After a failed build it stays stopped with the errors in the Build Log rather than auto-playing the old code.</p>
 </aside>
 <aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Renaming a registered script breaks every scene that used it.</strong> The name is the durable reference, exactly as an asset handle is for assets — the same way renaming a C# class does in Unity. Registered names are API. Rename with the same care you would rename a public function.</p>
 </aside>

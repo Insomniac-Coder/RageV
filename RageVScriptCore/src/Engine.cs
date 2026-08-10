@@ -175,6 +175,15 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 				return System.Runtime.InteropServices.Marshal.PtrToStringUTF8((IntPtr)pointer) ?? string.Empty;
 			}
 		}
+		set
+		{
+			if (!Native.IsReady)
+				return;
+			// Copied out first: a lambda in a struct cannot capture `this`.
+			ulong id = Id;
+			Native.WithUtf8<int>(value ?? string.Empty,
+								 utf8 => Native.Api.SetEntityName(id, utf8));
+		}
 	}
 
 	// --- transform, local and relative to the parent ---
@@ -200,6 +209,16 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 
 	public void Translate(Vector3 delta) => Position += delta;
 	public void Rotate(Vector3 eulerDelta) => Rotation += eulerDelta;
+
+	/// <summary>Turns the entity so its forward (-Z) faces the target.</summary>
+	/// <remarks>A target at the entity's own position is a no-op, not a NaN.</remarks>
+	public void LookAt(Vector3 target) => LookAt(target, Vector3.Up);
+
+	public void LookAt(Vector3 target, Vector3 up)
+	{
+		if (Native.IsReady)
+			Native.Api.LookAt(Id, &target, &up);
+	}
 
 	/// <summary>Where it actually is, with every parent applied.</summary>
 	public Vector3 WorldPosition
@@ -234,8 +253,72 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 	public static Entity FindByName(string name) =>
 		Native.IsReady ? new Entity(Native.WithUtf8(name, utf8 => Native.Api.FindEntityByName(utf8))) : Invalid;
 
+	/// <summary>Every entity with this name. Same cost note as <see cref="FindByName"/>.</summary>
+	public static Entity[] FindAllByName(string name)
+	{
+		if (!Native.IsReady)
+			return Array.Empty<Entity>();
+
+		// Count first, then fill -- the same two-call contract Name uses.
+		int count = Native.WithUtf8(name, utf8 => Native.Api.FindEntitiesByName(utf8, null, 0));
+		if (count <= 0)
+			return Array.Empty<Entity>();
+
+		ulong[] ids = new ulong[count];
+		fixed (ulong* pointer = ids)
+		{
+			ulong* captured = pointer;
+			Native.WithUtf8(name, utf8 => Native.Api.FindEntitiesByName(utf8, captured, count));
+		}
+
+		Entity[] found = new Entity[count];
+		for (int i = 0; i < count; i++)
+			found[i] = new Entity(ids[i]);
+		return found;
+	}
+
 	public static Entity Spawn(string name = "Entity") =>
 		Native.IsReady ? new Entity(Native.WithUtf8(name, utf8 => Native.Api.Spawn(utf8))) : Invalid;
+
+	/// <summary>Instantiates a prefab by its asset path — "prefabs/rock.prefab".</summary>
+	/// <remarks>
+	/// A path, not a handle: handles are the engine's internal names for
+	/// assets, and a script has no honest way to hold one. An unknown path
+	/// warns in the log and returns an invalid entity.
+	/// </remarks>
+	public static Entity SpawnPrefab(string assetPath) =>
+		Native.IsReady ? new Entity(Native.WithUtf8(assetPath, utf8 => Native.Api.SpawnPrefab(utf8))) : Invalid;
+
+	// --- hierarchy ---
+
+	/// <summary>The parent, or an invalid entity at the root. Assigning <see cref="Invalid"/> moves it to the root.</summary>
+	public Entity Parent
+	{
+		get => Native.IsReady ? new Entity(Native.Api.GetParent(Id)) : Invalid;
+		set { if (Native.IsReady) Native.Api.SetParent(Id, value.Id); }
+	}
+
+	public Entity[] Children
+	{
+		get
+		{
+			if (!Native.IsReady)
+				return Array.Empty<Entity>();
+
+			int count = Native.Api.GetChildren(Id, null, 0);
+			if (count <= 0)
+				return Array.Empty<Entity>();
+
+			ulong[] ids = new ulong[count];
+			fixed (ulong* pointer = ids)
+				Native.Api.GetChildren(Id, pointer, count);
+
+			Entity[] children = new Entity[count];
+			for (int i = 0; i < count; i++)
+				children[i] = new Entity(ids[i]);
+			return children;
+		}
+	}
 
 	/// <summary>
 	/// Destroys this entity, at the end of the simulation step.
@@ -264,6 +347,161 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 	{
 		get { Vector3 value; return (Native.IsReady && Native.Api.GetLinearVelocity(Id, &value) != 0) ? value : Vector3.Zero; }
 		set { if (Native.IsReady) Native.Api.SetLinearVelocity(Id, &value); }
+	}
+
+	/// <summary>Nearest body along the ray. Direction need not be normalised — the ray extends to its length.</summary>
+	public static RayHit Raycast(Vector3 origin, Vector3 direction)
+	{
+		if (!Native.IsReady)
+			return default;
+
+		NativeRayHit data;
+		int hit = Native.Api.Raycast(&origin, &direction, &data);
+		return new RayHit(hit != 0, data.Entity, data.Position, data.Normal, data.Distance);
+	}
+
+	// --- audio ---
+	// Mirrors the native script API: a no-op without an AudioSourceComponent,
+	// and clips are named by their asset path.
+
+	/// <summary>Plays this entity's AudioSourceComponent, restarting it if already playing.</summary>
+	public ulong PlaySource() => Native.IsReady ? Native.Api.PlaySource(Id) : 0;
+
+	public void StopSource()
+	{
+		if (Native.IsReady)
+			Native.Api.StopSource(Id);
+	}
+
+	public bool IsSourcePlaying => Native.IsReady && Native.Api.IsSourcePlaying(Id) != 0;
+
+	/// <summary>
+	/// Fire and forget, at this entity's position. An empty path plays the
+	/// entity's own source clip; otherwise the clip is an asset path like
+	/// "audio/thud.wav".
+	/// </summary>
+	public ulong PlayOneShot(string clipPath = "", float volume = 1.0f)
+	{
+		if (!Native.IsReady)
+			return 0;
+		ulong id = Id;   // a lambda in a struct cannot capture `this`
+		return Native.WithUtf8(clipPath, utf8 => Native.Api.PlayOneShot(id, utf8, volume));
+	}
+
+	// --- components ---
+	// By registry name -- "LightComponent", "RigidBodyComponent" -- with field
+	// values as text, exactly as the inspector and the scene file hold them.
+	// This is the C# shape of what C++ does with GetComponent<T>: the registry
+	// that drives the inspector drives this too, so a component gaining a field
+	// is visible here without anyone updating a binding.
+
+	public bool HasComponent(string component)
+	{
+		if (!Native.IsReady)
+			return false;
+		ulong id = Id;
+		return Native.WithUtf8(component, utf8 => Native.Api.HasComponent(id, utf8)) != 0;
+	}
+
+	/// <summary>Adds by registry name. False when unknown or already present.</summary>
+	public bool AddComponent(string component)
+	{
+		if (!Native.IsReady)
+			return false;
+		ulong id = Id;
+		return Native.WithUtf8(component, utf8 => Native.Api.AddComponent(id, utf8)) != 0;
+	}
+
+	/// <summary>Removes by registry name. Components the editor calls essential refuse.</summary>
+	public bool RemoveComponent(string component)
+	{
+		if (!Native.IsReady)
+			return false;
+		ulong id = Id;
+		return Native.WithUtf8(component, utf8 => Native.Api.RemoveComponent(id, utf8)) != 0;
+	}
+
+	/// <summary>
+	/// One field, as text: floats invariant, vectors space-separated, booleans
+	/// "true"/"false", assets as their path. Empty when the entity, component
+	/// or field does not exist.
+	/// </summary>
+	public string GetComponentField(string component, string field)
+	{
+		if (!Native.IsReady)
+			return string.Empty;
+
+		ulong id = Id;
+		int needed = Native.WithUtf8(component, componentUtf8 =>
+			Native.WithUtf8(field, fieldUtf8 =>
+				Native.Api.GetComponentField(id, componentUtf8, fieldUtf8, null, 0)));
+
+		if (needed <= 0)
+			return string.Empty;
+
+		byte[] buffer = new byte[needed + 1];
+		fixed (byte* pointer = buffer)
+		{
+			byte* captured = pointer;
+			Native.WithUtf8(component, componentUtf8 =>
+				Native.WithUtf8(field, fieldUtf8 =>
+					Native.Api.GetComponentField(id, componentUtf8, fieldUtf8, captured, needed + 1)));
+			return System.Runtime.InteropServices.Marshal.PtrToStringUTF8((IntPtr)pointer) ?? string.Empty;
+		}
+	}
+
+	/// <summary>Writes one field from its text form. False when anything in the path is unknown.</summary>
+	public bool SetComponentField(string component, string field, string value)
+	{
+		if (!Native.IsReady)
+			return false;
+
+		ulong id = Id;
+		return Native.WithUtf8(component, componentUtf8 =>
+			Native.WithUtf8(field, fieldUtf8 =>
+				Native.WithUtf8(value, valueUtf8 =>
+					Native.Api.SetComponentField(id, componentUtf8, fieldUtf8, valueUtf8)))) != 0;
+	}
+}
+
+/// <summary>One raycast answer. Test with <c>if (hit)</c>.</summary>
+public readonly struct RayHit
+{
+	public readonly bool Hit;
+
+	/// <summary>The body the ray struck. May have been destroyed since; test <see cref="RageV.Entity.Exists"/>.</summary>
+	public readonly Entity Entity;
+
+	public readonly Vector3 Position;
+	public readonly Vector3 Normal;
+	public readonly float Distance;
+
+	internal RayHit(bool hit, ulong entity, Vector3 position, Vector3 normal, float distance)
+	{
+		Hit = hit;
+		Entity = new Entity(entity);
+		Position = position;
+		Normal = normal;
+		Distance = distance;
+	}
+
+	public static implicit operator bool(RayHit hit) => hit.Hit;
+}
+
+/// <summary>Sounds that belong to nobody: 2D one-shots, and stopping a voice by its ticket.</summary>
+public static unsafe class Audio
+{
+	/// <summary>Unpositioned — the listener hears it at full volume wherever they are. UI, narration, a stinger.</summary>
+	public static ulong PlayOneShot2D(string clipPath, float volume = 1.0f) =>
+		Native.IsReady
+			? Native.WithUtf8(clipPath, utf8 => Native.Api.PlayOneShot2D(utf8, volume))
+			: 0;
+
+	/// <summary>Stops a voice returned by any of the play calls. A finished or unknown voice is a no-op.</summary>
+	public static void StopVoice(ulong voice)
+	{
+		if (Native.IsReady)
+			Native.Api.StopVoice(voice);
 	}
 }
 
@@ -349,7 +587,18 @@ public abstract class Script
 
 	protected void Translate(Vector3 delta) => Entity.Translate(delta);
 	protected void Rotate(Vector3 eulerDelta) => Entity.Rotate(eulerDelta);
+	protected void LookAt(Vector3 target) => Entity.LookAt(target);
+	protected void LookAt(Vector3 target, Vector3 up) => Entity.LookAt(target, up);
 
 	protected void AddForce(Vector3 force) => Entity.AddForce(force);
 	protected void AddImpulse(Vector3 impulse) => Entity.AddImpulse(impulse);
+
+	protected RayHit Raycast(Vector3 origin, Vector3 direction) =>
+		RageV.Entity.Raycast(origin, direction);
+
+	protected ulong PlaySource() => Entity.PlaySource();
+	protected void StopSource() => Entity.StopSource();
+	protected bool IsSourcePlaying => Entity.IsSourcePlaying;
+	protected ulong PlayOneShot(string clipPath = "", float volume = 1.0f) =>
+		Entity.PlayOneShot(clipPath, volume);
 }

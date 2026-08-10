@@ -40,7 +40,7 @@
 <p>The class name is what scene files store, so renaming a class breaks every scene that used it — the same rule as C++, the same rule as Unity.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>The <code>.csproj</code> is not a prop. Open it in Visual Studio, Rider or VS Code and you get completion against the engine&#39;s API. The reference to <code>RageV.ScriptCore</code> is supplied by the editor at build time, so the project file works on any machine the project is copied to.</p>
 </aside>
-<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Edits reload live.</strong> Build Scripts retires the old assembly and loads the new one in its place — change a script, Ctrl+B, press Play, and the new code runs. No restart. The one exception is the same one C++ has: while the scene is <em>playing</em>, live instances run the loaded code, so a build that finishes mid-play waits and the swap happens the moment you press Stop.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Edits reload live.</strong> Build Scripts retires the old assembly and loads the new one in its place — change a script, Ctrl+B, and the new code runs. No restart. If the scene is <em>playing</em> when you build, the editor stops it, swaps both languages&#39; scripts, and resumes Play on the new code — the same loop for C++ and C#. After a failed build it stays stopped with the errors in the Build Log, rather than auto-playing old code under you.</p>
 </aside>
 <h2 id="fields-and-the-inspector">Fields and the inspector<a class="anchor" href="#fields-and-the-inspector" aria-label="Link to this section">#</a></h2>
 <p>Any field of a supported type shows up in the inspector — <code>bool</code>, <code>int</code>, <code>float</code>, <code>string</code>, <code>Vector3</code>. Private is fine: reflection can reach it, and requiring <code>public</code> would be telling people to write worse C# for the inspector&#39;s benefit. This is the opposite of the C++ rule, where a field must be public because the registration has to name it from outside the class.</p>
@@ -109,12 +109,41 @@ spawned.<span class="tok-call">Destroy</span>();
 Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fuel&quot;</span>);
 </code></pre></figure>
 <p>Not <code>Console.WriteLine</code>: a packaged game has no console, and the engine&#39;s log is the only place anybody looks.</p>
-<h2 id="what-c-does-not-reach-yet">What C# does not reach yet<a class="anchor" href="#what-c-does-not-reach-yet" aria-label="Link to this section">#</a></h2>
-<ul>
-<li><strong>Audio.</strong> A C++ script can play clips; the C# surface does not expose audio yet. An <code>AudioSourceComponent</code> on the entity still works — the limit is on scripts driving it.</li>
-<li><strong>Raycasts and component access</strong> are likewise C++-only for now.</li>
-</ul>
-<p>When the surface grows, this page grows with it. This manual describes the engine as it exists.</p>
+<h2 id="raycasts">Raycasts<a class="anchor" href="#raycasts" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-type">RayHit</span> hit = <span class="tok-call">Raycast</span>(Position, Forward * <span class="tok-number">50.0f</span>);
+<span class="tok-keyword">if</span> (hit)
+    Log.<span class="tok-call">Info</span>($<span class="tok-string">&quot;looking at {hit.Entity.Name}, {hit.Distance:F1} away&quot;</span>);
+</code></pre></figure>
+<p>Nearest body along the ray, which may be your own. The direction need not be normalised — the ray extends to its length. <code>hit.Entity</code> may have been destroyed since; test <code>Exists</code> before reaching into it.</p>
+<h2 id="audio">Audio<a class="anchor" href="#audio" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-call">PlaySource</span>();                                <span class="tok-comment">// this entity&#39;s AudioSourceComponent</span>
+<span class="tok-call">StopSource</span>();
+<span class="tok-keyword">if</span> (IsSourcePlaying) { ... }
+
+<span class="tok-call">PlayOneShot</span>();                               <span class="tok-comment">// the source&#39;s clip, fire-and-forget, at this entity</span>
+<span class="tok-call">PlayOneShot</span>(<span class="tok-string">&quot;audio/thud.wav&quot;</span>, <span class="tok-number">0.7f</span>);         <span class="tok-comment">// any clip, by asset path</span>
+<span class="tok-type">ulong</span> voice = <span class="tok-type">Audio</span>.<span class="tok-call">PlayOneShot2D</span>(<span class="tok-string">&quot;audio/stinger.wav&quot;</span>);   <span class="tok-comment">// unpositioned: UI, narration</span>
+<span class="tok-type">Audio</span>.<span class="tok-call">StopVoice</span>(voice);
+</code></pre></figure>
+<p>The same rules as C++: <code>PlaySource</code> restarts rather than overlaps (overlap is what one-shots are for), an entity without an <code>AudioSourceComponent</code> is a quiet no-op, and clips are named by their asset path — handles are the engine&#39;s internal names, and a script has no honest way to hold one.</p>
+<h2 id="hierarchy">Hierarchy<a class="anchor" href="#hierarchy" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-type">Entity</span>.Parent = <span class="tok-type">Entity</span>.<span class="tok-call">FindByName</span>(<span class="tok-string">&quot;Rig&quot;</span>);    <span class="tok-comment">// Entity.Invalid moves it to the root</span>
+<span class="tok-keyword">foreach</span> (<span class="tok-type">Entity</span> child <span class="tok-keyword">in</span> <span class="tok-type">Entity</span>.Children)
+    child.<span class="tok-call">Destroy</span>();
+</code></pre></figure>
+<p><code>Entity.SpawnPrefab(&quot;prefabs/rock.prefab&quot;)</code> instantiates a prefab by its asset path. And <code>LookAt(target)</code> turns the entity so its forward (−Z) faces the target — aiming at your own position is a no-op, not a NaN.</p>
+<h2 id="components">Components<a class="anchor" href="#components" aria-label="Link to this section">#</a></h2>
+<p>C++ scripts reach components as types — <code>GetComponent&lt;LightComponent&gt;()</code>. A template cannot cross a language boundary, so C# reaches them <strong>by registry name, with values as text</strong> — the same names and the same text forms the inspector and the scene file use:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">if</span> (<span class="tok-type">Entity</span>.<span class="tok-call">HasComponent</span>(<span class="tok-string">&quot;LightComponent&quot;</span>))
+    <span class="tok-type">Entity</span>.<span class="tok-call">SetComponentField</span>(<span class="tok-string">&quot;LightComponent&quot;</span>, <span class="tok-string">&quot;Intensity&quot;</span>, <span class="tok-string">&quot;3.5&quot;</span>);
+
+<span class="tok-type">Entity</span>.<span class="tok-call">AddComponent</span>(<span class="tok-string">&quot;AudioSourceComponent&quot;</span>);
+<span class="tok-type">Entity</span>.<span class="tok-call">SetComponentField</span>(<span class="tok-string">&quot;AudioSourceComponent&quot;</span>, <span class="tok-string">&quot;Clip&quot;</span>, <span class="tok-string">&quot;audio/hum.wav&quot;</span>);
+
+<span class="tok-type">string</span> color = <span class="tok-type">Entity</span>.<span class="tok-call">GetComponentField</span>(<span class="tok-string">&quot;LightComponent&quot;</span>, <span class="tok-string">&quot;Color&quot;</span>);  <span class="tok-comment">// &quot;1 0.8 0.6 1&quot;</span>
+</code></pre></figure>
+<p>Floats are invariant, vectors space-separated, booleans <code>true</code>/<code>false</code>, assets by path. Because the component registry drives this, a component gaining a field is visible from C# the moment it exists — nothing here goes stale. Components the editor calls essential (the transform, the tag) refuse removal from a script exactly as they refuse the inspector&#39;s X.</p>
+<p>This manual describes the engine as it exists: everything a C++ script can call now has a C# spelling, with the one structural exception above — typed component access — traded for the registry&#39;s named access.</p>
 <h2 id="when-something-throws">When something throws<a class="anchor" href="#when-something-throws" aria-label="Link to this section">#</a></h2>
 <p>Every boundary the runtime crosses catches everything: an exception in a script logs and stops that script&#39;s callback, and the editor survives. This is the deliberate trade against C++, where a mistake is a crash. The cost is that a silent <code>catch</code> can hide a broken script — read the log.</p>
 <h2 id="common-mistakes">Common mistakes<a class="anchor" href="#common-mistakes" aria-label="Link to this section">#</a></h2>
@@ -122,12 +151,12 @@ Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fue
 <li><strong>Doing per-frame work in <code>OnUpdate</code>.</strong> It is per fixed step. Anything tied to rendering — smoothing a camera, fading UI — has no home in a script yet.</li>
 <li><strong><code>FindByName</code> every step.</strong> Cache it in <code>OnCreate</code>.</li>
 <li><strong>Forgetting that Stop rewinds the scene.</strong> Play mode works on a copy; everything a script changed is discarded when play stops, <code>OnDestroy</code> runs, and the edit-mode scene returns untouched.</li>
-<li><strong>Building mid-play and expecting the new code immediately.</strong> The build runs, but the swap waits for Stop — live instances are running the loaded assembly, and the log says so.</li>
+<li><strong>Expecting Play to survive a build.</strong> Building mid-play restarts the scene: Stop, swap, Play again from the edit-mode state. Whatever the run had accumulated is gone, which is what Stop always means.</li>
 </ul>
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/cpp-reference.html"><span class="pager-label">Previous</span><span class="pager-title">C++ API reference</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#fields-and-the-inspector">Fields and the inspector</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#onupdate-is-not-per-frame">OnUpdate is not per frame</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#finding-spawning-destroying">Finding, spawning, destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#logging">Logging</a><a class="toc-link toc-l2" href="#what-c-does-not-reach-yet">What C does not reach yet</a><a class="toc-link toc-l2" href="#when-something-throws">When something throws</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#fields-and-the-inspector">Fields and the inspector</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#onupdate-is-not-per-frame">OnUpdate is not per frame</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#finding-spawning-destroying">Finding, spawning, destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#logging">Logging</a><a class="toc-link toc-l2" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#when-something-throws">When something throws</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>

@@ -19,6 +19,31 @@ file(GLOB_RECURSE RAGEV_SOURCES CONFIGURE_DEPENDS
 add_library(RageV SHARED ${RAGEV_SOURCES})
 add_library(RageV::RageV ALIAS RageV)
 
+# Deleting a source file must not strand its symbols in the export list.
+#
+# The .obj of a deleted source survives in the objects directory, and the
+# exports.def is only regenerated when *it* is out of date -- a removed input
+# does not age it -- so the link fails on symbols from a file that no longer
+# exists. A pre-build pass prunes objects whose source is gone and takes the
+# stale .def with them; the def rule then rebuilds it because its output is
+# missing. See cmake/PruneStaleObjects.cmake for the full story.
+set(RAGEV_EXPECTED_OBJECTS "")
+foreach(RAGEV_SOURCE ${RAGEV_SOURCES})
+    if(RAGEV_SOURCE MATCHES "\\.cpp$")
+        get_filename_component(RAGEV_OBJECT_NAME "${RAGEV_SOURCE}" NAME_WE)
+        list(APPEND RAGEV_EXPECTED_OBJECTS "${RAGEV_OBJECT_NAME}.obj")
+    endif()
+endforeach()
+string(REPLACE ";" "\n" RAGEV_EXPECTED_OBJECTS "${RAGEV_EXPECTED_OBJECTS}")
+file(WRITE "${CMAKE_BINARY_DIR}/RageV_expected_objects.txt" "${RAGEV_EXPECTED_OBJECTS}\n")
+
+add_custom_command(TARGET RageV PRE_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DOBJECT_DIR=${CMAKE_BINARY_DIR}/RageV/RageV.dir/$<CONFIG>
+        -DEXPECTED=${CMAKE_BINARY_DIR}/RageV_expected_objects.txt
+        -P ${CMAKE_SOURCE_DIR}/cmake/PruneStaleObjects.cmake
+    COMMENT "Pruning objects whose sources are gone")
+
 # Export every symbol rather than annotating the public API by hand.
 #
 # The tempting alternative -- __declspec(dllexport) on the classes a game module

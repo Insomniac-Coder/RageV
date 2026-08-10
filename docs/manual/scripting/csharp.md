@@ -44,10 +44,11 @@ scene that used it — the same rule as C++, the same rule as Unity.
 
 > [!NOTE]
 > **Edits reload live.** Build Scripts retires the old assembly and loads the
-> new one in its place — change a script, Ctrl+B, press Play, and the new code
-> runs. No restart. The one exception is the same one C++ has: while the scene
-> is *playing*, live instances run the loaded code, so a build that finishes
-> mid-play waits and the swap happens the moment you press Stop.
+> new one in its place — change a script, Ctrl+B, and the new code runs. No
+> restart. If the scene is *playing* when you build, the editor stops it,
+> swaps both languages' scripts, and resumes Play on the new code — the same
+> loop for C++ and C#. After a failed build it stays stopped with the errors
+> in the Build Log, rather than auto-playing old code under you.
 
 ## Fields and the inspector
 
@@ -198,15 +199,74 @@ Log.Warn("low on fuel");
 Not `Console.WriteLine`: a packaged game has no console, and the engine's log
 is the only place anybody looks.
 
-## What C# does not reach yet
+## Raycasts
 
-- **Audio.** A C++ script can play clips; the C# surface does not expose audio
-  yet. An `AudioSourceComponent` on the entity still works — the limit is on
-  scripts driving it.
-- **Raycasts and component access** are likewise C++-only for now.
+```csharp
+RayHit hit = Raycast(Position, Forward * 50.0f);
+if (hit)
+    Log.Info($"looking at {hit.Entity.Name}, {hit.Distance:F1} away");
+```
 
-When the surface grows, this page grows with it. This manual describes the
-engine as it exists.
+Nearest body along the ray, which may be your own. The direction need not be
+normalised — the ray extends to its length. `hit.Entity` may have been
+destroyed since; test `Exists` before reaching into it.
+
+## Audio
+
+```csharp
+PlaySource();                                // this entity's AudioSourceComponent
+StopSource();
+if (IsSourcePlaying) { ... }
+
+PlayOneShot();                               // the source's clip, fire-and-forget, at this entity
+PlayOneShot("audio/thud.wav", 0.7f);         // any clip, by asset path
+ulong voice = Audio.PlayOneShot2D("audio/stinger.wav");   // unpositioned: UI, narration
+Audio.StopVoice(voice);
+```
+
+The same rules as C++: `PlaySource` restarts rather than overlaps (overlap is
+what one-shots are for), an entity without an `AudioSourceComponent` is a
+quiet no-op, and clips are named by their asset path — handles are the
+engine's internal names, and a script has no honest way to hold one.
+
+## Hierarchy
+
+```csharp
+Entity.Parent = Entity.FindByName("Rig");    // Entity.Invalid moves it to the root
+foreach (Entity child in Entity.Children)
+    child.Destroy();
+```
+
+`Entity.SpawnPrefab("prefabs/rock.prefab")` instantiates a prefab by its
+asset path. And `LookAt(target)` turns the entity so its forward (−Z) faces
+the target — aiming at your own position is a no-op, not a NaN.
+
+## Components
+
+C++ scripts reach components as types — `GetComponent<LightComponent>()`. A
+template cannot cross a language boundary, so C# reaches them **by registry
+name, with values as text** — the same names and the same text forms the
+inspector and the scene file use:
+
+```csharp
+if (Entity.HasComponent("LightComponent"))
+    Entity.SetComponentField("LightComponent", "Intensity", "3.5");
+
+Entity.AddComponent("AudioSourceComponent");
+Entity.SetComponentField("AudioSourceComponent", "Clip", "audio/hum.wav");
+
+string color = Entity.GetComponentField("LightComponent", "Color");  // "1 0.8 0.6 1"
+```
+
+Floats are invariant, vectors space-separated, booleans `true`/`false`,
+assets by path. Because the component registry drives this, a component
+gaining a field is visible from C# the moment it exists — nothing here goes
+stale. Components the editor calls essential (the transform, the tag) refuse
+removal from a script exactly as they refuse the inspector's X.
+
+This manual describes the engine as it exists: everything a C++ script can
+call now has a C# spelling, with the one structural exception above — typed
+component access — traded for the registry's named access.
 
 ## When something throws
 
@@ -223,6 +283,6 @@ a silent `catch` can hide a broken script — read the log.
 - **Forgetting that Stop rewinds the scene.** Play mode works on a copy;
   everything a script changed is discarded when play stops, `OnDestroy` runs,
   and the edit-mode scene returns untouched.
-- **Building mid-play and expecting the new code immediately.** The build
-  runs, but the swap waits for Stop — live instances are running the loaded
-  assembly, and the log says so.
+- **Expecting Play to survive a build.** Building mid-play restarts the
+  scene: Stop, swap, Play again from the edit-mode state. Whatever the run
+  had accumulated is gone, which is what Stop always means.

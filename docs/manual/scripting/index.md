@@ -11,7 +11,7 @@ rather than merely sitting there.
 | State | **Available now** | **Available now** |
 | Lives in | the project's `Source/`, built into a game module DLL | the project's `Scripts/`, built into an assembly |
 | Base class | `ScriptableEntity` | `Script` |
-| Iteration | **File > Build Scripts** — reloads live (not during Play) | **File > Build Scripts** — reloads live (not during Play) |
+| Iteration | **File > Build Scripts** — reloads live; mid-play, the scene restarts on the new code | **File > Build Scripts** — the same |
 | Cost of a mistake | Crashes the editor | Throws, and the editor survives |
 
 The C# API is a mirror of the C++ one — the same names, the same lifecycle, the

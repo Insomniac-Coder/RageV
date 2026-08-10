@@ -5432,6 +5432,138 @@ int RunTests(int argc, char** argv)
 				}
 			}
 
+			// --- protocol 4: the rest of the surface across the boundary -----
+			//
+			// Through the table itself rather than through C#, so a failure
+			// names the function that broke instead of the script that
+			// happened to call it. The C# wrappers are one-line forwards.
+			if (Managed::Interop::IsReady())
+			{
+				auto scene = std::make_shared<Scene>();
+				Managed::Interop::SetScene(scene.get());
+				const Managed::NativeApi& api = Managed::Interop::Api();
+
+				Entity named = scene->CreateEntity("Original");
+				const uint64_t id = (uint64_t)named.GetUUID();
+
+				Check(api.SetEntityName(id, "Renamed") == 1
+					  && named.GetComponent<TagComponent>().Name == "Renamed",
+					  "a rename through the table reaches the tag component");
+
+				// Two of them, so the plural find means something.
+				Entity twin = scene->CreateEntity("Twin");
+				scene->CreateEntity("Twin");
+				Check(api.FindEntitiesByName("Twin", nullptr, 0) == 2,
+					  "the plural find counts without a buffer");
+				uint64_t ids[4]{};
+				api.FindEntitiesByName("Twin", ids, 4);
+				Check(ids[0] != 0 && ids[1] != 0 && ids[0] != ids[1],
+					  "and hands both ids across with one");
+
+				// Hierarchy, set and read back across the boundary.
+				const uint64_t twinId = (uint64_t)twin.GetUUID();
+				api.SetParent(twinId, id);
+				Check(api.GetParent(twinId) == id, "a parent set across the boundary reads back");
+				Check(api.GetChildren(id, nullptr, 0) == 1, "and the child count agrees");
+				api.SetParent(twinId, 0);
+				Check(api.GetParent(twinId) == 0, "while parent zero moves it back to the root");
+
+				// LookAt at +X: forward lands on the target direction.
+				{
+					named.GetComponent<TransformComponent>().Position = Vec3(0.0f);
+					Vec3 target(10.0f, 0.0f, 0.0f);
+					Vec3 up(0.0f, 1.0f, 0.0f);
+					api.LookAt(id, &target, &up);
+
+					Vec3 forward{};
+					api.GetForward(id, &forward);
+					Check(std::fabs(forward.x - 1.0f) < 1e-3f,
+						  "LookAt turns the entity's forward onto the target");
+
+					// Aiming at yourself is a no-op, not a NaN in the transform.
+					Vec3 self(0.0f, 0.0f, 0.0f);
+					api.LookAt(id, &self, &up);
+					Check(std::isfinite(named.GetComponent<TransformComponent>().Rotation.x),
+						  "and aiming at your own position changes nothing rather than NaN-ing");
+				}
+
+				// Raycasts: honest with no physics, correct with some.
+				{
+					Managed::RayHitData hit{};
+					Vec3 origin(0.0f, 5.0f, 0.0f);
+					Vec3 down(0.0f, -10.0f, 0.0f);
+					Check(api.Raycast(&origin, &down, &hit) == 0,
+						  "a raycast with no physics answers no-hit rather than faulting");
+
+					Entity floor = scene->CreateEntity("RayFloor");
+					floor.GetComponent<TransformComponent>().Position = { 0.0f, -1.0f, 0.0f };
+					floor.AddComponent<RigidBodyComponent>(BodyType::Static);
+					floor.AddComponent<ColliderComponent>().HalfExtents = { 25.0f, 1.0f, 25.0f };
+
+					scene->OnRuntimeStart();
+					const int32_t rayHit = api.Raycast(&origin, &down, &hit);
+					Check(rayHit == 1 && hit.Entity == (uint64_t)floor.GetUUID(),
+						  "and one with a floor under it names the floor");
+					Check(std::fabs(hit.Position.y - 0.0f) < 0.05f && hit.Normal.y > 0.9f,
+						  "at the surface, with the normal pointing back up the ray");
+					scene->OnRuntimeStop();
+
+					// Stop cleared the interop binding -- play mode owns it --
+					// so the checks below need the scene bound again.
+					Managed::Interop::SetScene(scene.get());
+				}
+
+				// Audio's no-op contract: no component and no such clip are
+				// answers, not faults. Real playback is the audio suite's job.
+				Check(api.PlaySource(id) == 0,
+					  "playing a source on an entity without one is a quiet no");
+				Check(api.IsSourcePlaying(id) == 0, "which is also not playing");
+				Check(api.PlayOneShot(id, "audio/no-such-clip.wav", 1.0f) == 0,
+					  "a one-shot with an unknown clip path declines");
+				Check(api.PlayOneShot2D("audio/no-such-clip.wav", 1.0f) == 0,
+					  "as does an unpositioned one");
+				api.StopVoice(0);   // must tolerate a voice that never existed
+				Check(true, "and stopping a voice that never existed is harmless");
+
+				Check(api.SpawnPrefab("prefabs/no-such.prefab") == 0,
+					  "spawning an unknown prefab declines rather than faulting");
+
+				// --- components, through the registry ------------------------
+				//
+				// The same registry that drives the inspector, exercised by
+				// name and text -- which is exactly what a C# script sends.
+				Check(api.HasComponent(id, "TransformComponent") == 1,
+					  "a component the entity has answers yes by name");
+				Check(api.HasComponent(id, "LightComponent") == 0,
+					  "and one it lacks answers no");
+
+				Check(api.AddComponent(id, "LightComponent") == 1,
+					  "a component adds by its registry name");
+				Check(api.AddComponent(id, "LightComponent") == 0,
+					  "adding it twice is refused rather than asserted");
+				Check(api.AddComponent(id, "NoSuchComponent") == 0,
+					  "as is a name the registry has never heard of");
+
+				Check(api.SetComponentField(id, "TransformComponent", "Position", "1 2 3") == 1,
+					  "a field writes from its text form");
+				Check(named.GetComponent<TransformComponent>().Position == Vec3(1.0f, 2.0f, 3.0f),
+					  "and the write reaches the actual component");
+
+				char text[64]{};
+				Check(api.GetComponentField(id, "TransformComponent", "Position", text, 64) > 0
+					  && std::string(text) == "1 2 3",
+					  "and reads back in the same form");
+
+				Check(api.GetComponentField(id, "TransformComponent", "NoSuchField", nullptr, 0) == -1,
+					  "an unknown field is -1, distinguishable from an empty value");
+
+				Check(api.RemoveComponent(id, "TransformComponent") == 0,
+					  "an essential component refuses removal, as it does in the inspector");
+				Check(api.RemoveComponent(id, "LightComponent") == 1
+					  && api.HasComponent(id, "LightComponent") == 0,
+					  "while an ordinary one removes and is gone");
+			}
+
 			// Managed code must not be able to keep a scene alive past Stop,
 			// which is why the binding is a raw pointer and is cleared here.
 			Managed::Interop::SetScene(nullptr);
