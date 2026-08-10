@@ -220,6 +220,8 @@ if (IsSourcePlaying) { ... }
 
 PlayOneShot();                               // the source's clip, fire-and-forget, at this entity
 PlayOneShot("audio/thud.wav", 0.7f);         // any clip, by asset path
+PlayOneShot("audio/thud.wav", 0.7f, 1.1f);   // ... a little higher
+Audio.PlayOneShotAt("audio/ping.wav", hit.Position);      // where no entity stands
 ulong voice = Audio.PlayOneShot2D("audio/stinger.wav");   // unpositioned: UI, narration
 Audio.StopVoice(voice);
 ```
@@ -228,6 +230,24 @@ The same rules as C++: `PlaySource` restarts rather than overlaps (overlap is
 what one-shots are for), an entity without an `AudioSourceComponent` is a
 quiet no-op, and clips are named by their asset path — handles are the
 engine's internal names, and a script has no honest way to hold one.
+
+`Audio.PlayOneShotAt` is for a sound that belongs to an event rather than to a
+thing: a ricochet where a ray struck, an impact between two objects that is at
+neither of them.
+
+Every one-shot takes a pitch, where 1 is the clip as recorded — a resampling
+ratio, so 2 is an octave up and half as long. A small random spread is what
+stops a repeated impact sounding like a sampler:
+
+```csharp
+private readonly System.Random m_Random = new System.Random();
+
+public override void OnCollisionEnter(Collision collision)
+{
+    float pitch = 0.94f + (float)m_Random.NextDouble() * 0.12f;
+    PlayOneShot("audio/impact.wav", 1.0f, pitch);
+}
+```
 
 ## Hierarchy
 

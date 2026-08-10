@@ -306,14 +306,33 @@ PlaySource();                        // this entity's AudioSourceComponent
 StopSource();
 if (IsSourcePlaying()) { }
 
-PlayOneShot(m_ClipHandle, 0.8f);     // at this entity's position
-PlayOneShot2D(m_UiClip);             // unpositioned: UI, narration, a stinger
+PlayOneShot(m_ClipHandle, 0.8f);            // at this entity's position
+PlayOneShot(m_ClipHandle, 0.8f, 1.1f);      // ... a little higher
+PlayOneShotAt(m_ClipHandle, hit.Position);  // somewhere no entity stands
+PlayOneShot2D(m_UiClip);                    // unpositioned: UI, narration
 ```
 
 `PlaySource` restarts the source if it is already playing, and does nothing if
 the entity has no `AudioSourceComponent`. One-shots are fire-and-forget; the
 returned `AudioVoice` is only useful for a sound long enough to want to
 interrupt.
+
+`PlayOneShotAt` exists for sounds that belong to an event rather than to a
+thing: a ricochet at the point a ray struck, a particle burst, an impact
+between two objects that is at neither of them.
+
+### Pitch
+
+Every one-shot takes a pitch, where 1 is the clip as recorded. It is a
+resampling ratio rather than a shift, so 2 is an octave up and half as long.
+
+A small random spread is the difference between an impact that sounds like an
+impact and one that sounds like a sampler:
+
+```cpp
+const float pitch = 0.94f + (float)std::rand() / RAND_MAX * 0.12f;
+PlayOneShot(m_ThudClip, loudness, pitch);
+```
 
 ## Input
 

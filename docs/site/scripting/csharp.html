@@ -10,7 +10,7 @@
 <a class="skip" href="#content">Skip to content</a>
 <header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="../index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
 <div class="layout">
-<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link" href="../scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link is-current" href="../scripting/csharp.html" aria-current="page">Writing a script in C#</a></li></ul></li></ul></nav>
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link" href="../particles.html">Particles</a></li><li><a class="nav-link" href="../scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link is-current" href="../scripting/csharp.html" aria-current="page">Writing a script in C#</a></li></ul></li></ul></nav>
 <main id="content">
 <article>
 <h1 id="writing-a-script-in-c">Writing a script in C#<a class="anchor" href="#writing-a-script-in-c" aria-label="Link to this section">#</a></h1>
@@ -122,10 +122,22 @@ Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fue
 
 <span class="tok-call">PlayOneShot</span>();                               <span class="tok-comment">// the source&#39;s clip, fire-and-forget, at this entity</span>
 <span class="tok-call">PlayOneShot</span>(<span class="tok-string">&quot;audio/thud.wav&quot;</span>, <span class="tok-number">0.7f</span>);         <span class="tok-comment">// any clip, by asset path</span>
+<span class="tok-call">PlayOneShot</span>(<span class="tok-string">&quot;audio/thud.wav&quot;</span>, <span class="tok-number">0.7f</span>, <span class="tok-number">1.1f</span>);   <span class="tok-comment">// ... a little higher</span>
+<span class="tok-type">Audio</span>.<span class="tok-call">PlayOneShotAt</span>(<span class="tok-string">&quot;audio/ping.wav&quot;</span>, hit.Position);      <span class="tok-comment">// where no entity stands</span>
 <span class="tok-type">ulong</span> voice = <span class="tok-type">Audio</span>.<span class="tok-call">PlayOneShot2D</span>(<span class="tok-string">&quot;audio/stinger.wav&quot;</span>);   <span class="tok-comment">// unpositioned: UI, narration</span>
 <span class="tok-type">Audio</span>.<span class="tok-call">StopVoice</span>(voice);
 </code></pre></figure>
 <p>The same rules as C++: <code>PlaySource</code> restarts rather than overlaps (overlap is what one-shots are for), an entity without an <code>AudioSourceComponent</code> is a quiet no-op, and clips are named by their asset path — handles are the engine&#39;s internal names, and a script has no honest way to hold one.</p>
+<p><code>Audio.PlayOneShotAt</code> is for a sound that belongs to an event rather than to a thing: a ricochet where a ray struck, an impact between two objects that is at neither of them.</p>
+<p>Every one-shot takes a pitch, where 1 is the clip as recorded — a resampling ratio, so 2 is an octave up and half as long. A small random spread is what stops a repeated impact sounding like a sampler:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">private</span> <span class="tok-keyword">readonly</span> System.Random m_Random = <span class="tok-keyword">new</span> System.<span class="tok-call">Random</span>();
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnCollisionEnter</span>(<span class="tok-type">Collision</span> collision)
+{
+    <span class="tok-type">float</span> pitch = <span class="tok-number">0.94f</span> + (<span class="tok-type">float</span>)m_Random.<span class="tok-call">NextDouble</span>() * <span class="tok-number">0.12f</span>;
+    <span class="tok-call">PlayOneShot</span>(<span class="tok-string">&quot;audio/impact.wav&quot;</span>, <span class="tok-number">1.0f</span>, pitch);
+}
+</code></pre></figure>
 <h2 id="hierarchy">Hierarchy<a class="anchor" href="#hierarchy" aria-label="Link to this section">#</a></h2>
 <figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-type">Entity</span>.Parent = <span class="tok-type">Entity</span>.<span class="tok-call">FindByName</span>(<span class="tok-string">&quot;Rig&quot;</span>);    <span class="tok-comment">// Entity.Invalid moves it to the root</span>
 <span class="tok-keyword">foreach</span> (<span class="tok-type">Entity</span> child <span class="tok-keyword">in</span> <span class="tok-type">Entity</span>.Children)

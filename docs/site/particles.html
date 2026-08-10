@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particles — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link is-current" href="particles.html" aria-current="page">Particles</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="particles">Particles<a class="anchor" href="#particles" aria-label="Link to this section">#</a></h1>
+<p>A <strong>particle emitter</strong> is a component. Add one to an entity, press Play, and it throws quads.</p>
+<p>Everything about an emitter is on that one component — there is no separate particle asset, no editor window, no node graph. That is a deliberate ceiling: an emitter describes one effect, and an effect made of several behaviours is several emitters parented together.</p>
+<h2 id="the-shape-of-an-emitter">The shape of an emitter<a class="anchor" href="#the-shape-of-an-emitter" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Emit</code>, <code>Rate</code></td><td style="text-align:left">Continuous emission, in particles per second.</td></tr>
+<tr><td style="text-align:left"><code>Burst</code></td><td style="text-align:left">Fired once and consumed. An explosion is <code>Emit</code> off and a burst.</td></tr>
+<tr><td style="text-align:left"><code>Lifetime</code>, <code>LifetimeJitter</code></td><td style="text-align:left">How long each lives, and how much that varies.</td></tr>
+<tr><td style="text-align:left"><code>Direction</code>, <code>Spread</code>, <code>Speed</code>, <code>SpeedJitter</code></td><td style="text-align:left">The cone they leave through. <code>Spread</code> is a half-angle in degrees; 180 is a sphere.</td></tr>
+<tr><td style="text-align:left"><code>Gravity</code>, <code>Drag</code></td><td style="text-align:left">The emitter&#39;s <strong>own</strong> gravity, not the physics world&#39;s.</td></tr>
+<tr><td style="text-align:left"><code>SizeStart</code>, <code>SizeEnd</code>, <code>ColorStart</code>, <code>ColorEnd</code></td><td style="text-align:left">Interpolated over each particle&#39;s life.</td></tr>
+<tr><td style="text-align:left"><code>Spin</code></td><td style="text-align:left">Maximum degrees per second, signed at random per particle.</td></tr>
+<tr><td style="text-align:left"><code>Texture</code></td><td style="text-align:left">Optional sprite. A plain quad without one.</td></tr>
+<tr><td style="text-align:left"><code>MaxParticles</code></td><td style="text-align:left">The pool. A full pool refuses to spawn rather than recycling.</td></tr>
+</tbody></table></div>
+<p>Nothing collides. A particle is appearance: it has no rigid body, nothing can be hit by one, and no script is told about one.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Particles advance per frame, not per simulation step.</strong> This is the opposite call from scripts and physics, and it is deliberate — appearance should move as smoothly as the display can show it. A hitch is forgiven rather than paid back, so a two-second stall does not produce two seconds of particles in one frame.</p>
+</aside>
+<h2 id="facing-3d-and-2d-from-one-component">Facing: 3D and 2D from one component<a class="anchor" href="#facing-3d-and-2d-from-one-component" aria-label="Link to this section">#</a></h2>
+<p><code>Billboard</code> turns each quad to face the camera. That is smoke, fire, sparks — anything in a 3D scene.</p>
+<p><code>Flat</code> lies in the XY plane instead. That is what a 2D game wants, and it is the same emitter with the same fields; there is no separate 2D particle system to learn.</p>
+<h2 id="space-who-the-particles-belong-to">Space: who the particles belong to<a class="anchor" href="#space-who-the-particles-belong-to" aria-label="Link to this section">#</a></h2>
+<p><code>World</code> leaves a particle where it was born. Smoke keeps hanging where the chimney was when the chimney moves.</p>
+<p><code>Local</code> carries particles with the emitter. A torch flame moves with the torch.</p>
+<p>The transform is applied when a particle is <em>drawn</em>, not while it is integrated — which is why a local emitter&#39;s particles ride it rather than being dragged behind it.</p>
+<h2 id="blending-three-answers-to-one-hard-problem">Blending: three answers to one hard problem<a class="anchor" href="#blending-three-answers-to-one-hard-problem" aria-label="Link to this section">#</a></h2>
+<p>Transparency has an ordering problem. These are the three ways out, and the choice matters more than any other field on the component.</p>
+<p><strong><code>Additive</code></strong> sums light. Fire, sparks, magic, muzzle flashes. Order cannot affect a sum, so this is correct from every angle and is the cheapest of the three. Reach for it first.</p>
+<p><strong><code>Alpha</code></strong> is ordinary transparency, drawn back to front. Smoke, dust, debris — anything that reads as <em>matter</em> rather than light. Particles are sorted within a CPU emitter, and emitters are sorted against each other.</p>
+<p><strong><code>WeightedBlended</code></strong> is alpha that needs no sort. Fragments accumulate into two buffers — a sum and a product, both order-independent — and a second pass works out the result. A thousand overlapping particles land in any order and look the same.</p>
+<p>Use it when alpha ordering is visibly wrong: two emitters that interpenetrate, or a GPU emitter, which cannot sort itself at all.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Weighted blending costs two full-resolution buffers and a resolve pass, paid once per frame however many emitters use it — and <strong>nothing at all</strong> in a frame where none do. The engine allocates them only when a scene contains a weighted emitter.</p>
+</aside>
+<h2 id="simulating-on-the-gpu">Simulating on the GPU<a class="anchor" href="#simulating-on-the-gpu" aria-label="Link to this section">#</a></h2>
+<p><code>SimulateOnGpu</code> moves an emitter&#39;s pool into a storage buffer and integrates it with a compute shader. The CPU never touches a particle again.</p>
+<p>The look is the same by construction: both paths write the same instance layout and reach the same vertex shader. What changes is who pays. Measured at roughly sixteen thousand particles across three emitters, vsync off:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left">CPU</th><th style="text-align:left">GPU</th></tr></thead><tbody>
+<tr><td style="text-align:left">Vulkan</td><td style="text-align:left">3.30 ms</td><td style="text-align:left">1.37 ms</td></tr>
+<tr><td style="text-align:left">OpenGL</td><td style="text-align:left">3.80 ms</td><td style="text-align:left">1.58 ms</td></tr>
+</tbody></table></div>
+<p><strong>Switching is free and can be done at any time</strong>, including while playing. The compute pipeline is built once, and an emitter&#39;s buffers are kept while the emitter exists rather than while it is using them — so ticking the box is a branch, not an allocation.</p>
+<p>Switching <em>to</em> the GPU carries the particles already in the air across. Switching back does not: reading the pool off the GPU would mean a stall, which is the one thing the GPU path exists to avoid, so it drops what is in flight and refills.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>A GPU emitter cannot sort its own particles</strong>, because sorting them would mean reading them back. An <code>Alpha</code> GPU emitter blends in pool order, which is visibly wrong wherever its particles differ strongly in colour or opacity. Use <code>Additive</code> or <code>WeightedBlended</code> for anything simulating on the GPU.</p>
+</aside>
+<h2 id="firing-a-burst-from-a-script">Firing a burst from a script<a class="anchor" href="#firing-a-burst-from-a-script" aria-label="Link to this section">#</a></h2>
+<p><code>Burst</code> is an order, not a rate: it is consumed by the next simulation step and reset to zero. Writing it again fires again.</p>
+<p>From C++, with the component in hand:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">if</span> (HasComponent&lt;ParticleEmitterComponent&gt;())
+    GetComponent&lt;ParticleEmitterComponent&gt;().Burst = <span class="tok-number">40</span>;
+</code></pre></figure>
+<p>From C#, through the component bridge:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-type">Entity</span>.<span class="tok-call">SetComponentField</span>(<span class="tok-string">&quot;ParticleEmitterComponent&quot;</span>, <span class="tok-string">&quot;Burst&quot;</span>, <span class="tok-string">&quot;40&quot;</span>);
+</code></pre></figure>
+<p>An emitter authored with <code>Emit</code> off and a non-zero <code>Burst</code> fires once when the scene starts and never again — which is the whole of an explosion prefab, with no script at all.</p>
+<h2 id="common-mistakes">Common mistakes<a class="anchor" href="#common-mistakes" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Symptom</th><th style="text-align:left">Cause</th></tr></thead><tbody>
+<tr><td style="text-align:left">Particles stop appearing under load</td><td style="text-align:left">The pool is full. A full pool refuses to spawn; raise <code>MaxParticles</code> or shorten <code>Lifetime</code>.</td></tr>
+<tr><td style="text-align:left">A moving emitter drags its particles</td><td style="text-align:left"><code>Space</code> is <code>Local</code> where <code>World</code> was meant.</td></tr>
+<tr><td style="text-align:left">Smoke looks wrong from one side only</td><td style="text-align:left"><code>Alpha</code> on a GPU emitter, which cannot sort. Use <code>WeightedBlended</code>.</td></tr>
+<tr><td style="text-align:left">An additive emitter never fades out</td><td style="text-align:left">Additive ignores the alpha channel; fade <code>ColorEnd</code>&#39;s <strong>colour</strong> toward black, not just its alpha.</td></tr>
+<tr><td style="text-align:left">Nothing draws at all</td><td style="text-align:left">The emitter is on an entity with no transform, or <code>MaxParticles</code> is zero.</td></tr>
+</tbody></table></div>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="concepts.html"><span class="pager-label">Previous</span><span class="pager-title">Core concepts</span></a><a class="pager-link pager-next" href="scripting/index.html"><span class="pager-label">Next</span><span class="pager-title">Scripting</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-shape-of-an-emitter">The shape of an emitter</a><a class="toc-link toc-l2" href="#facing-3d-and-2d-from-one-component">Facing: 3D and 2D from one component</a><a class="toc-link toc-l2" href="#space-who-the-particles-belong-to">Space: who the particles belong to</a><a class="toc-link toc-l2" href="#blending-three-answers-to-one-hard-problem">Blending: three answers to one hard problem</a><a class="toc-link toc-l2" href="#simulating-on-the-gpu">Simulating on the GPU</a><a class="toc-link toc-l2" href="#firing-a-burst-from-a-script">Firing a burst from a script</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

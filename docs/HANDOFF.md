@@ -1265,12 +1265,8 @@ scene wrote; and the emitter plumbing.
   framebuffer.** Selecting attachments 1 and 2 means clearing indices 0
   and 1.
 
-**Still worth an eye: the depth weight.** The technique lives or dies on
-it -- McGuire equation 9 is in `particle_weighted.rvshader` -- and the
-wrong curve makes distant particles vanish or near ones dominate while
-looking plausible either way. It has been compared against the alpha and
-additive versions of the same scene once. Compare again on a scene with
-real depth range before trusting it.
+The depth weight is the one thing left unproven; it is the START HERE
+below.
 
 ### Superseded - the plan for 6.8
 
@@ -1362,15 +1358,67 @@ alpha versions of the same scene before believing it.
    The dispatch must be recorded **outside** the render pass, so the
    sim needs a hook before the scene's BeginRenderPass rather than
    inside Scene::OnRender. Both command lists assert on this.
-2. Docs: audio additions are in cpp-reference.md already; cpp.md and
-   csharp.md audio sections need the pitch/At variants, and particles
-   need a manual page. Regenerate the site (rvdoc --check).
-5. Knockdown juice: impact bursts + a win confetti via the component
-   bridge from C#, which also proves script-driven `Burst`.
-6. Consider a soft-dot sprite generator (tools/scripts convention) --
+2. ~~Docs~~ -- done. `particles.md` is a new manual page, the C++ and C#
+   audio sections carry the pitch and `PlayOneShotAt` variants, and the
+   site regenerates with 8 pages and a passing `--check`.
+3. **Feedback for Knockdown** ("juice" -- the small sensory responses
+   that make an action feel like it landed rather than merely
+   registering: a puff on impact, a pitch-varied thud, a burst on the
+   win). Concretely: an impact burst when a ball hits a crate and a
+   confetti burst on the win, both fired from the C# scripts. It is not
+   decoration -- it is the first end-to-end proof that a script can
+   write `Burst` and see particles, which nothing currently tests
+   outside the suite.
+4. Consider a soft-dot sprite generator (tools/scripts convention) --
    untextured squares read fine but round sprites read better.
 
-### START HERE - picking phase 6
+### START HERE - validate the weighted-blending depth weight
+
+**The one thing in the particle work that is written but not proven.**
+
+Weighted-blended transparency lives or dies on its depth weight function.
+`particle_weighted.rvshader` uses McGuire and Bavoil's equation 9:
+
+```glsl
+float weight = clamp(pow(min(1.0, color.a * 10.0) + 0.01, 3.0)
+                   * 1e8
+                   * pow(1.0 - gl_FragCoord.z * 0.9, 3.0),
+                   1e-2, 3e3);
+```
+
+**Why this needs eyes rather than a test.** The failure mode is not a
+crash or a wrong number -- it is a picture that looks fine. Too steep a
+curve and distant particles quietly disappear; too shallow and the
+nearest fragment dominates everything behind it. Both look like
+plausible smoke until compared against the sorted version, and the paper
+itself says the constants want tuning per scene depth range.
+
+It has been compared once, on `scenes/particles_oit.rage`, whose whole
+depth range is about ten units. That proves the plumbing, not the curve.
+
+**What to actually do:**
+1. Build a scene with real depth range -- particles at 2, 20 and 200
+   units, ideally the same emitter repeated so only distance differs.
+2. Render it three ways: `Alpha` (sorted, the reference), `Additive`,
+   and `WeightedBlended`. The alpha version is the truth to compare
+   against, since a single CPU emitter *is* correctly sorted.
+3. Look for the two named failures specifically. Distant emitters
+   thinner than the sorted version means the depth term is too strong;
+   near ones washing out what is behind them means it is too weak.
+4. If it needs tuning, the constants to move are the `0.9` and the two
+   exponents. The paper offers several alternative weights (equations
+   7 through 10) trading depth sensitivity against alpha sensitivity --
+   try 10 if 9 is too aggressive at range.
+5. Record what was compared and what was chosen, here. A weight tuned
+   once and undocumented is one somebody re-derives.
+
+Everything under it is verified: per-attachment blend, multi-attachment
+graph targets, the transparent pass and its shared depth, and the
+resolve. 832 checks, both backends, no validation messages.
+
+### After that - the rest of phase 6
+
+### Picking what comes next
 
 The papercut list is the phase 6 ballot, and what actually hurt while
 building a real game, in order:
@@ -1379,11 +1427,12 @@ building a real game, in order:
    score, or put up a title. Everything had to be communicated with a
    light and four sounds -- workable for one mechanic, not for two.
 2. **No per-frame script hook.** OnUpdate is per fixed step by design, so
-   camera smoothing and juice (recoil, shake) have nowhere to live; the
-   camera rides the launcher rigidly.
-3. **No particles.** Impacts are physically right and visually dry.
-4. Small API wants: a positional one-shot at an arbitrary point from C#
-   (today: own entity or 2D), pitch variation on one-shots.
+   camera smoothing and feedback that has to move with the display
+   (recoil, shake) have nowhere to live; the camera rides the launcher
+   rigidly. **Still open**, and now the largest of the three.
+3. ~~No particles.~~ Done -- CPU and GPU, three blend modes.
+4. ~~Small API wants~~ -- done: `PlayOneShotAt` and pitch on every
+   one-shot, both languages, protocol 5.
 
 The user picks; the list argues for UI/text first.
 
