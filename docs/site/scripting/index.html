@@ -10,16 +10,17 @@
 <a class="skip" href="#content">Skip to content</a>
 <header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="../index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
 <div class="layout">
-<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link is-current" href="../scripting/index.html" aria-current="page">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li></ul></li></ul></nav>
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link is-current" href="../scripting/index.html" aria-current="page">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="../scripting/csharp.html">Writing a script in C#</a></li></ul></li></ul></nav>
 <main id="content">
 <article>
 <h1 id="scripting">Scripting<a class="anchor" href="#scripting" aria-label="Link to this section">#</a></h1>
 <p>A script is a class attached to an entity that receives lifecycle and physics callbacks while the scene is playing. It is how anything in RageV does something rather than merely sitting there.</p>
 <h2 id="two-languages-one-surface">Two languages, one surface<a class="anchor" href="#two-languages-one-surface" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left">C++</th><th style="text-align:left">C#</th></tr></thead><tbody>
-<tr><td style="text-align:left">State</td><td style="text-align:left"><strong>Available now</strong></td><td style="text-align:left"><strong>Available now.</strong> Hot reload is not built yet</td></tr>
+<tr><td style="text-align:left">State</td><td style="text-align:left"><strong>Available now</strong></td><td style="text-align:left"><strong>Available now</strong></td></tr>
+<tr><td style="text-align:left">Lives in</td><td style="text-align:left">the project&#39;s <code>Source/</code>, built into a game module DLL</td><td style="text-align:left">the project&#39;s <code>Scripts/</code>, built into an assembly</td></tr>
 <tr><td style="text-align:left">Base class</td><td style="text-align:left"><code>ScriptableEntity</code></td><td style="text-align:left"><code>Script</code></td></tr>
-<tr><td style="text-align:left">Iteration</td><td style="text-align:left">Rebuild the engine and restart</td><td style="text-align:left"><strong>File &gt; Build Scripts</strong>, then restart. Hot reload is planned</td></tr>
+<tr><td style="text-align:left">Iteration</td><td style="text-align:left"><strong>File &gt; Build Scripts</strong> — the module reloads live (not during Play)</td><td style="text-align:left"><strong>File &gt; Build Scripts</strong> — new scripts load live; <em>changing</em> a loaded one needs a restart until hot reload lands</td></tr>
 <tr><td style="text-align:left">Cost of a mistake</td><td style="text-align:left">Crashes the editor</td><td style="text-align:left">Throws, and the editor survives</td></tr>
 </tbody></table></div>
 <p>The C# API is a mirror of the C++ one — the same names, the same lifecycle, the same rules — deliberately, so that this manual describes one engine rather than two. Where the two genuinely differ, the difference is called out.</p>
@@ -56,6 +57,7 @@
 <ul>
 <li><a href="cpp.html">Writing a script in C++</a> — the guide, with worked examples.</li>
 <li><a href="cpp-reference.html">C++ API reference</a> — every member, what it does, and what it costs.</li>
+<li><a href="csharp.html">Writing a script in C#</a> — the same engine from the other language, and where the two differ.</li>
 </ul>
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../concepts.html"><span class="pager-label">Previous</span><span class="pager-title">Core concepts</span></a><a class="pager-link pager-next" href="../scripting/cpp.html"><span class="pager-label">Next</span><span class="pager-title">Writing a script in C++</span></a></nav>

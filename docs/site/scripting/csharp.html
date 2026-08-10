@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Writing a script in C — RageV manual</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="../index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link" href="../scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link is-current" href="../scripting/csharp.html" aria-current="page">Writing a script in C#</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="writing-a-script-in-c">Writing a script in C#<a class="anchor" href="#writing-a-script-in-c" aria-label="Link to this section">#</a></h1>
+<h2 id="your-first-script">Your first script<a class="anchor" href="#your-first-script" aria-label="Link to this section">#</a></h2>
+<p>Every project has a <code>Scripts/</code> folder with a real <code>.csproj</code> in it. Add a file there — or select an entity, add a <strong>Script</strong> component, switch <strong>Language</strong> to C#, and choose <strong>New Script...</strong> in the dropdown, which writes one for you:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">using</span> RageV;
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">class</span> Bobber : <span class="tok-type">Script</span>
+{
+    <span class="tok-keyword">private</span> <span class="tok-type">float</span> m_Height = <span class="tok-number">0.5f</span>;
+    <span class="tok-keyword">private</span> <span class="tok-type">Vector3</span> m_Origin;
+    <span class="tok-keyword">private</span> <span class="tok-type">float</span> m_Elapsed;
+
+    <span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnCreate</span>()
+    {
+        m_Origin = Position;
+    }
+
+    <span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">float</span> deltaTime)
+    {
+        m_Elapsed += deltaTime;
+        Position = m_Origin + <span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, MathF.<span class="tok-call">Sin</span>(m_Elapsed * <span class="tok-number">2.0f</span>) * m_Height, <span class="tok-number">0.0f</span>);
+    }
+}
+</code></pre></figure>
+<p><strong>File → Build Scripts</strong> (Ctrl+B) compiles it. The build runs in the background — the Build Log panel shows the compiler&#39;s output as it happens — and when it finishes, the assembly loads and <code>Bobber</code> appears in the Script dropdown. Pick it, press Play.</p>
+<p>The class name is what scene files store, so renaming a class breaks every scene that used it — the same rule as C++, the same rule as Unity.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>The <code>.csproj</code> is not a prop. Open it in Visual Studio, Rider or VS Code and you get completion against the engine&#39;s API. The reference to <code>RageV.ScriptCore</code> is supplied by the editor at build time, so the project file works on any machine the project is copied to.</p>
+</aside>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Changing a script that is already loaded needs an editor restart, for now.</strong> Build Scripts loads the assembly the first time — new scripts appear without a restart — but the .NET runtime will not replace a loaded assembly in place. Hot reload (a collectible load context) is the next scripting item on the roadmap; until it lands, the loop for <em>editing</em> an existing script is build, restart, play. C++ scripts do not have this limit: their module unloads and reloads on every build.</p>
+</aside>
+<h2 id="fields-and-the-inspector">Fields and the inspector<a class="anchor" href="#fields-and-the-inspector" aria-label="Link to this section">#</a></h2>
+<p>Any field of a supported type shows up in the inspector — <code>bool</code>, <code>int</code>, <code>float</code>, <code>string</code>, <code>Vector3</code>. Private is fine: reflection can reach it, and requiring <code>public</code> would be telling people to write worse C# for the inspector&#39;s benefit. This is the opposite of the C++ rule, where a field must be public because the registration has to name it from outside the class.</p>
+<p>The value shown before anyone edits it is whatever the field initialiser says — <code>private float m_Speed = 1.2f;</code> shows 1.2. Only values somebody actually changed are stored in the scene, so editing a default in code reaches every entity that never overrode it.</p>
+<p>A field of any other type is not an error. It simply does not appear, and keeps whatever the constructor gave it.</p>
+<h2 id="the-lifecycle">The lifecycle<a class="anchor" href="#the-lifecycle" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnCreate</span>() { }              <span class="tok-comment">// once, on the first step after Play</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">float</span> deltaTime) { } <span class="tok-comment">// every fixed step -- see below</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnDestroy</span>() { }             <span class="tok-comment">// on destruction, and when Play stops</span>
+</code></pre></figure>
+<p>Every entity in the scene exists by the time <code>OnCreate</code> runs, so looking others up is safe there — which is not true of a constructor.</p>
+<h3 id="onupdate-is-not-per-frame">OnUpdate is not per frame<a class="anchor" href="#onupdate-is-not-per-frame" aria-label="Link to this section">#</a></h3>
+<p><code>OnUpdate</code> runs once per <strong>fixed simulation step</strong>, and <code>deltaTime</code> is the fixed timestep — the same value every call, also available as <code>Time.FixedDeltaTime</code>. A frame may run zero steps, one, or several. Multiply rates by <code>deltaTime</code> anyway, so behaviour is identical when someone runs the game at a different simulation rate.</p>
+<h2 id="reading-and-writing-the-transform">Reading and writing the transform<a class="anchor" href="#reading-and-writing-the-transform" aria-label="Link to this section">#</a></h2>
+<p>The transform properties are on the script, local, and relative to the parent. Rotation is Euler angles in <strong>radians</strong>, XYZ order.</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code>Position += <span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, <span class="tok-number">0.1f</span>, <span class="tok-number">0.0f</span>);   <span class="tok-comment">// or Translate(...)</span>
+<span class="tok-call">Rotate</span>(<span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, <span class="tok-number">2.0f</span> * deltaTime, <span class="tok-number">0.0f</span>));
+Scale = <span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">2.0f</span>, <span class="tok-number">2.0f</span>, <span class="tok-number">2.0f</span>);
+</code></pre></figure>
+<p><code>Entity.WorldPosition</code> answers in world space, with every parent applied. <code>Forward</code>, <code>Right</code> and <code>Up</code> are the entity&#39;s own axes, so &quot;forward&quot; means forward <em>for this object</em> — which is what makes a character controller work when the character is turned:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-type">Vector3</span> direction = Forward * <span class="tok-type">Input</span>.<span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;MoveForward&quot;</span>)
+                  + Right   * <span class="tok-type">Input</span>.<span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;MoveRight&quot;</span>);
+
+<span class="tok-keyword">if</span> (direction.<span class="tok-call">LengthSquared</span>() &gt; <span class="tok-number">0.0f</span>)
+    <span class="tok-call">Translate</span>(direction.<span class="tok-call">Normalized</span>() * m_Speed * deltaTime);
+</code></pre></figure>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><code>Entity</code> is a struct returned by a property, so <code>Entity.Position = v</code> on its own assigns to a temporary — the compiler rejects it, which is the good outcome. Use the script&#39;s own <code>Position</code> property, or copy the entity to a local first. The shorthand properties exist precisely so scripts read like their C++ counterparts.</p>
+</aside>
+<h2 id="finding-spawning-destroying">Finding, spawning, destroying<a class="anchor" href="#finding-spawning-destroying" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-type">Entity</span> player = <span class="tok-type">Entity</span>.<span class="tok-call">FindByName</span>(<span class="tok-string">&quot;Player&quot;</span>);
+<span class="tok-keyword">if</span> (player.Exists) { ... }
+
+<span class="tok-type">Entity</span> spawned = <span class="tok-type">Entity</span>.<span class="tok-call">Spawn</span>(<span class="tok-string">&quot;Projectile&quot;</span>);
+spawned.<span class="tok-call">Destroy</span>();
+</code></pre></figure>
+<p>An <code>Entity</code> is a UUID, not a pointer — it survives saving, loading and play mode, and looking up one that no longer exists answers <code>false</code> rather than faulting.</p>
+<p><code>FindByName</code> is linear over the scene. Do it once in <code>OnCreate</code> and keep the result, rather than every step. <code>Destroy</code> is deferred to the end of the simulation step, and has to be: a script destroying its own entity mid-update would delete the object currently executing, so a destroyed entity is still findable for the rest of that step.</p>
+<h2 id="physics">Physics<a class="anchor" href="#physics" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-call">AddForce</span>(<span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, <span class="tok-number">0.0f</span>, -<span class="tok-number">20.0f</span>));    <span class="tok-comment">// accumulates over the step: a thruster</span>
+<span class="tok-call">AddImpulse</span>(<span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, <span class="tok-number">5.0f</span>, <span class="tok-number">0.0f</span>));    <span class="tok-comment">// changes velocity at once: a jump</span>
+
+<span class="tok-type">Vector3</span> v = <span class="tok-type">Entity</span>.LinearVelocity;
+</code></pre></figure>
+<p>All of it is world space, a no-op outside play mode, and a no-op on an entity with no rigid body.</p>
+<h2 id="collisions-and-triggers">Collisions and triggers<a class="anchor" href="#collisions-and-triggers" aria-label="Link to this section">#</a></h2>
+<p>Override what you need; the defaults do nothing.</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnCollisionEnter</span>(<span class="tok-type">Collision</span> collision)
+{
+    <span class="tok-keyword">if</span> (collision.ImpactSpeed &gt; <span class="tok-number">5.0f</span>)
+        Log.<span class="tok-call">Info</span>($<span class="tok-string">&quot;hit by {collision.Other.Name} at {collision.ImpactSpeed:F1} m/s&quot;</span>);
+}
+</code></pre></figure>
+<p>The same event reaches both entities involved, each seeing the other as <code>Other</code> and <code>Normal</code> pointing back at itself — so a script never needs to know which side of the pair it is. <code>ImpactSpeed</code> is the closing speed when they met, never negative; scale a sound or a damage number by it.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><code>collision.Other</code> may already have been destroyed in the same step. Test <code>collision.Other.Exists</code> before reaching into it.</p>
+</aside>
+<p>Two sleep-related honesty notes, the same as C++: a pair that comes to rest does <strong>not</strong> report <code>OnCollisionExit</code> when the simulation puts it to sleep — the objects are still touching — and a trigger only sees bodies that are awake.</p>
+<h2 id="input">Input<a class="anchor" href="#input" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">if</span> (<span class="tok-type">Input</span>.<span class="tok-call">WasActionPressed</span>(<span class="tok-string">&quot;Jump&quot;</span>))
+    <span class="tok-call">AddImpulse</span>(<span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, m_JumpImpulse, <span class="tok-number">0.0f</span>));
+
+<span class="tok-type">float</span> forward = <span class="tok-type">Input</span>.<span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;MoveForward&quot;</span>);
+</code></pre></figure>
+<p>By action name, never by key code — there is deliberately no way to ask about a key. A script written against <code>&quot;Jump&quot;</code> keeps working when the player rebinds it. <code>WasActionPressed</code> is consumed by the first step that runs and carried forward by a frame that runs none, so a press is never missed and never seen twice.</p>
+<h2 id="logging">Logging<a class="anchor" href="#logging" aria-label="Link to this section">#</a></h2>
+<figure class="code"><figcaption>csharp</figcaption><pre><code>Log.<span class="tok-call">Info</span>($<span class="tok-string">&quot;{Entity.Name} is ready&quot;</span>);
+Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fuel&quot;</span>);
+</code></pre></figure>
+<p>Not <code>Console.WriteLine</code>: a packaged game has no console, and the engine&#39;s log is the only place anybody looks.</p>
+<h2 id="what-c-does-not-reach-yet">What C# does not reach yet<a class="anchor" href="#what-c-does-not-reach-yet" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Audio.</strong> A C++ script can play clips; the C# surface does not expose audio yet. An <code>AudioSourceComponent</code> on the entity still works — the limit is on scripts driving it.</li>
+<li><strong>Raycasts and component access</strong> are likewise C++-only for now.</li>
+</ul>
+<p>When the surface grows, this page grows with it. This manual describes the engine as it exists.</p>
+<h2 id="when-something-throws">When something throws<a class="anchor" href="#when-something-throws" aria-label="Link to this section">#</a></h2>
+<p>Every boundary the runtime crosses catches everything: an exception in a script logs and stops that script&#39;s callback, and the editor survives. This is the deliberate trade against C++, where a mistake is a crash. The cost is that a silent <code>catch</code> can hide a broken script — read the log.</p>
+<h2 id="common-mistakes">Common mistakes<a class="anchor" href="#common-mistakes" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Doing per-frame work in <code>OnUpdate</code>.</strong> It is per fixed step. Anything tied to rendering — smoothing a camera, fading UI — has no home in a script yet.</li>
+<li><strong><code>FindByName</code> every step.</strong> Cache it in <code>OnCreate</code>.</li>
+<li><strong>Forgetting that Stop rewinds the scene.</strong> Play mode works on a copy; everything a script changed is discarded when play stops, <code>OnDestroy</code> runs, and the edit-mode scene returns untouched.</li>
+<li><strong>Editing a loaded script and wondering why nothing changed.</strong> Until hot reload lands, that needs a restart — see the trap at the top.</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="../scripting/cpp-reference.html"><span class="pager-label">Previous</span><span class="pager-title">C++ API reference</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#fields-and-the-inspector">Fields and the inspector</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#onupdate-is-not-per-frame">OnUpdate is not per frame</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#finding-spawning-destroying">Finding, spawning, destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#logging">Logging</a><a class="toc-link toc-l2" href="#what-c-does-not-reach-yet">What C does not reach yet</a><a class="toc-link toc-l2" href="#when-something-throws">When something throws</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+</div>
+<script src="../search-index.js"></script>
+<script src="../manual.js"></script>
+</body>
+</html>

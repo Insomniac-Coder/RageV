@@ -95,6 +95,23 @@ public struct Vector3
 	public static Vector3 operator *(Vector3 v, float s) => new Vector3(v.X * s, v.Y * s, v.Z * s);
 	public static Vector3 operator *(float s, Vector3 v) => v * s;
 
+	public float Length() => MathF.Sqrt(X * X + Y * Y + Z * Z);
+	public float LengthSquared() => X * X + Y * Y + Z * Z;
+
+	/// <summary>Unit length, and zero stays zero.</summary>
+	/// <remarks>
+	/// The same guard the engine's own <c>Math::Normalize</c> has, for the same
+	/// reason: a NaN in a transform spreads to every transform derived from it,
+	/// and the object disappears with no error.
+	/// </remarks>
+	public Vector3 Normalized()
+	{
+		float length = Length();
+		return length > 0.0f ? new Vector3(X / length, Y / length, Z / length) : Zero;
+	}
+
+	public static float Dot(Vector3 a, Vector3 b) => a.X * b.X + a.Y * b.Y + a.Z * b.Z;
+
 	public override string ToString() => $"({X}, {Y}, {Z})";
 }
 

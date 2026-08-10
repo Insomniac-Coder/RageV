@@ -8,9 +8,10 @@ rather than merely sitting there.
 
 | | C++ | C# |
 |---|---|---|
-| State | **Available now** | **Available now.** Hot reload is not built yet |
+| State | **Available now** | **Available now** |
+| Lives in | the project's `Source/`, built into a game module DLL | the project's `Scripts/`, built into an assembly |
 | Base class | `ScriptableEntity` | `Script` |
-| Iteration | Rebuild the engine and restart | **File > Build Scripts**, then restart. Hot reload is planned |
+| Iteration | **File > Build Scripts** — the module reloads live (not during Play) | **File > Build Scripts** — new scripts load live; *changing* a loaded one needs a restart until hot reload lands |
 | Cost of a mistake | Crashes the editor | Throws, and the editor survives |
 
 The C# API is a mirror of the C++ one — the same names, the same lifecycle, the
@@ -64,3 +65,5 @@ See the [trap about play mode](../concepts.md#play-mode) for why.
 - [Writing a script in C++](cpp.md) — the guide, with worked examples.
 - [C++ API reference](cpp-reference.md) — every member, what it does, and what
   it costs.
+- [Writing a script in C#](csharp.md) — the same engine from the other
+  language, and where the two differ.

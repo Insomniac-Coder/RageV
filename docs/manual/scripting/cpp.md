@@ -2,9 +2,13 @@
 
 ## Your first script
 
-Create a `.cpp` file anywhere that gets compiled into your game, and write:
+Every project has a `Source/` folder that builds into the project's **game
+module** — a DLL the engine loads when the project opens. A C++ script is a
+file in it. Add one there — or select an entity, add a **Script** component,
+and choose **New Script...** in the dropdown, which writes one for you:
 
 ```cpp
+#include <rvpch.h>
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Scene/Components.h"
 
@@ -34,22 +38,28 @@ private:
 RV_REGISTER_SCRIPT(Bobber);
 ```
 
-Build, open the editor, select an entity, **Add Component → Script**, leave
-**Language** on C++, and choose `Bobber` in the **Script** dropdown. Press Play.
+**File → Build Scripts** (Ctrl+B) compiles the module — in the background,
+with the compiler's output live in the Build Log panel — and reloads it when
+the build finishes. `Bobber` appears in the Script dropdown. Pick it, press
+Play. No engine rebuild, no restart.
 
-The **Name** row above it is a label for the component and nothing else — call it
-"Bobbing crate" if that helps you read the inspector. Which script runs is the
-dropdown's job.
+The **Name** row above the dropdown is a label for the component and nothing
+else — call it "Bobbing crate" if that helps you read the inspector. Which
+script runs is the dropdown's job.
 
 The name in the dropdown is the string `RV_REGISTER_SCRIPT` derived from the type
 name, and that string is what gets written into the scene file.
 
 > [!NOTE]
-> A C++ script is compiled into the engine, so a script you have just written is
-> not in the dropdown yet. It appears there marked **(needs engine rebuild)**,
-> and you can attach it now — it starts working the moment the build catches up.
-> A C# script is compiled into the project instead, and needs only
-> **File → Build Scripts**.
+> A script you have written but not yet built appears in the dropdown marked
+> **(not built)**, and you can attach it now — it starts working the moment
+> the build catches up.
+
+> [!NOTE]
+> The one time the module does *not* reload is while the scene is playing:
+> live script instances run code from the loaded DLL, and swapping it under
+> them is not a thing that can end well. Build Scripts says so and skips the
+> C++ half; stop the scene and build again.
 
 > [!TRAP]
 > **Renaming a registered script breaks every scene that used it.** The name is
@@ -57,20 +67,20 @@ name, and that string is what gets written into the scene file.
 > renaming a C# class does in Unity. Registered names are API. Rename with the
 > same care you would rename a public function.
 
-## Registering, and one linker trap
+## Registering
 
-`RV_REGISTER_SCRIPT` places a static registrar object at file scope, which runs
-before `main` and adds your factory to the registry.
+`RV_REGISTER_SCRIPT` places a static registrar object at file scope. It runs
+when the game module loads — the engine loads the DLL when the project opens,
+the registrars fire, and the scripts exist. There is no manifest to maintain
+and no list to forget a script from.
 
 > [!TRAP]
-> This works for scripts compiled **directly into an executable**, and fails
-> silently for scripts inside a **static library** whose object file contains
-> nothing else that is referenced. The linker is allowed to drop such an object
-> file entirely, the registration never runs, your script does not appear in the
-> dropdown, and there is no error anywhere. The engine's own built-in scripts hit
-> this: they are registered from an explicit function that something else calls,
-> for exactly this reason. If your script vanishes from the dropdown, this is
-> why.
+> That mechanism has one historical failure mode worth knowing even though the
+> module is immune to it: a static registrar inside a **static library** whose
+> object file contains nothing else referenced gets dropped by the linker, the
+> registration never runs, and there is no error anywhere. A DLL is linked
+> from its object files, so a game module never hits this — but a script
+> compiled into a static library of your own will, silently.
 
 ## The lifecycle
 
