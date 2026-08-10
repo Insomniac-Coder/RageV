@@ -30,6 +30,10 @@ namespace RageV::Assets
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Cubemaps;
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Irradiance;
 
+		// Plain 2D textures -- particle sprites today, material maps whenever
+		// materials become assets. Failures cache as null like the cube's do.
+		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Textures;
+
 		constexpr PrimitiveType kPrimitives[] = {
 			PrimitiveType::Cube, PrimitiveType::Sphere, PrimitiveType::Plane,
 			PrimitiveType::Cylinder, PrimitiveType::Quad,
@@ -76,6 +80,7 @@ namespace RageV::Assets
 		s_Clips.clear();
 		s_Cubemaps.clear();
 		s_Irradiance.clear();
+		s_Textures.clear();
 
 		// The loader and the filter hold the same textures by path and by
 		// pointer, and both used to be cleared only at shutdown -- so changing
@@ -188,6 +193,30 @@ namespace RageV::Assets
 
 		const auto found = s_Clips.find(handle);
 		return found != s_Clips.end() ? &found->second : nullptr;
+	}
+
+	RHI::Ref<RHI::RHITexture> Manager::GetTexture(AssetHandle handle)
+	{
+		if (!s_Device || !handle.IsValid())
+			return nullptr;
+
+		const auto cached = s_Textures.find(handle);
+		if (cached != s_Textures.end())
+			return cached->second;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+		if (path.empty())
+		{
+			s_Textures[handle] = nullptr;
+			return nullptr;
+		}
+
+		// sRGB: these are pictures -- sprites, particle sheets -- not data
+		// maps, and a linear read of one looks washed out everywhere it is
+		// shown.
+		auto texture = TextureLoader::Load2D(*s_Device, path.string());
+		s_Textures[handle] = texture;
+		return texture;
 	}
 
 	RHI::Ref<RHI::RHITexture> Manager::GetCubemap(AssetHandle handle)

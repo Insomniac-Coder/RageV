@@ -465,6 +465,69 @@ namespace RageV::Managed
 			return Audio::Engine::Play(playback);
 		}
 
+		uint64_t __cdecl PlayOneShotAt(const char* clipPath, const Vec3* position,
+									   float volume, float pitch)
+		{
+			if (!clipPath || clipPath[0] == '\0' || !position)
+				return 0;
+
+			const AssetHandle clip = Assets::Registry::GetHandle(clipPath);
+			if (!clip.IsValid())
+				return 0;
+
+			AudioPlayback playback;
+			playback.Clip = clip;
+			playback.Volume = volume;
+			playback.Pitch = pitch;
+			playback.Spatial = true;
+			playback.Position = *position;
+			return Audio::Engine::Play(playback);
+		}
+
+		uint64_t __cdecl PlayOneShotPitched(uint64_t entity, const char* clipPath,
+											float volume, float pitch)
+		{
+			Entity found = Resolve(entity);
+			if (!found || !s_Scene)
+				return 0;
+
+			// The empty-path contract, unchanged from protocol 4: the entity's
+			// own source clip, the ImpactSound pattern.
+			AssetHandle clip;
+			if (clipPath && clipPath[0] != '\0')
+				clip = Assets::Registry::GetHandle(clipPath);
+			else if (found.HasComponent<AudioSourceComponent>())
+				clip = found.GetComponent<AudioSourceComponent>().Clip;
+
+			if (!clip.IsValid())
+				return 0;
+
+			AudioPlayback playback;
+			playback.Clip = clip;
+			playback.Volume = volume;
+			playback.Pitch = pitch;
+			playback.Spatial = true;
+			playback.Position = Vec3(s_Scene->GetWorldTransform(found)[3]);
+			return Audio::Engine::Play(playback);
+		}
+
+		uint64_t __cdecl PlayOneShot2DPitched(const char* clipPath, float volume, float pitch)
+		{
+			if (!clipPath || clipPath[0] == '\0')
+				return 0;
+
+			const AssetHandle clip = Assets::Registry::GetHandle(clipPath);
+			if (!clip.IsValid())
+				return 0;
+
+			AudioPlayback playback;
+			playback.Clip = clip;
+			playback.Volume = volume;
+			playback.Pitch = pitch;
+			playback.Spatial = false;
+			return Audio::Engine::Play(playback);
+		}
+
 		void __cdecl StopVoice(uint64_t voice)
 		{
 			Audio::Engine::Stop(voice);
@@ -695,6 +758,9 @@ namespace RageV::Managed
 			api.RemoveComponent = &RemoveComponent;
 			api.GetComponentField = &GetComponentField;
 			api.SetComponentField = &SetComponentField;
+			api.PlayOneShotAt = &PlayOneShotAt;
+			api.PlayOneShotPitched = &PlayOneShotPitched;
+			api.PlayOneShot2DPitched = &PlayOneShot2DPitched;
 			return api;
 		}
 	}

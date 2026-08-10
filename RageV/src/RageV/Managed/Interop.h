@@ -164,6 +164,23 @@ namespace RageV::Managed
 											 const char* field, char* buffer, int32_t capacity);
 		int32_t (__cdecl* SetComponentField)(uint64_t entity, const char* component,
 											 const char* field, const char* value);
+
+		// --- appended for protocol 5: one-shots with pitch, and from a point --
+		//
+		// New entries rather than new parameters on the old ones: the table is
+		// append-only, and the protocol-4 entries keep their exact shape. The
+		// C# wrappers route through these three; the old two stay as the ABI
+		// they already are.
+
+		// From an arbitrary point -- a particle burst, a ricochet, somewhere
+		// no entity stands. Pitch 1 plays the clip as recorded.
+		uint64_t (__cdecl* PlayOneShotAt)(const char* clipPath, const Vec3* position,
+										  float volume, float pitch);
+		// The protocol-4 pair, carrying pitch. The empty-path contract on the
+		// entity variant is unchanged: it plays the entity's own source clip.
+		uint64_t (__cdecl* PlayOneShotPitched)(uint64_t entity, const char* clipPath,
+											   float volume, float pitch);
+		uint64_t (__cdecl* PlayOneShot2DPitched)(const char* clipPath, float volume, float pitch);
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -307,7 +324,9 @@ namespace RageV::Managed
 		// 2: appended physics, world transform and spawn/destroy; added the
 		//    script lifecycle and CollisionData.
 		// 3: appended script field reflection.
-		static constexpr int32_t kProtocolVersion = 4;
+		// 4: appended the rest of the native surface -- hierarchy, prefabs,
+		//    raycasts, audio, components by name.
+		static constexpr int32_t kProtocolVersion = 5;
 
 		// The editable fields of a script type, for the inspector. Empty when
 		// C# is not running or the type is unknown -- both of which the

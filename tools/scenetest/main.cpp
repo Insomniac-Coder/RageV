@@ -34,6 +34,8 @@
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Physics/ColliderShapes.h"
 #include "RageV/Renderer/DebugRenderer.h"
+#include "RageV/Renderer/ParticleRenderer.h"
+#include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EditorCamera.h"
@@ -864,6 +866,111 @@ namespace
 
 		scene->OnRuntimeStop();
 		Check(scene->GetPhysics() == nullptr, "stop tears the physics world down");
+	}
+
+	// Particles, checked by counting rather than by looking. The simulation
+	// is deterministic -- xorshift, fixed dt -- so exact numbers are
+	// assertable; what they look like is the screenshot's job.
+	void CheckParticles()
+	{
+		auto scene = std::make_shared<Scene>();
+		Entity host = scene->CreateEntity("Emitter");
+		auto& emitter = host.AddComponent<ParticleEmitterComponent>();
+		emitter.Rate = 60.0f;
+		emitter.Lifetime = 10.0f;
+		emitter.LifetimeJitter = 0.0f;
+
+		constexpr float dt = 1.0f / 60.0f;
+
+		// Sixty a second at sixty frames a second is one per frame, and the
+		// carry accumulator means exactly that -- not zero from truncation
+		// and not two from rounding.
+		for (int i = 0; i < 30; i++)
+			scene->OnUpdateRuntime(dt);
+		Check(emitter.Pool.size() == 30, "an emitter at 60/s has born one per frame");
+
+		Check(Particles::System::Count(*scene) == 30,
+			  "and the scene-wide count agrees");
+
+		// Motion: everything was fired up a 25-degree cone, so everything
+		// that has lived a frame has climbed. The one born this frame has
+		// not been integrated yet and sits exactly at the origin -- which is
+		// correct, not lazy.
+		bool coneHolds = !emitter.Pool.empty();
+		int climbed = 0;
+		for (const Particle& particle : emitter.Pool)
+		{
+			coneHolds = coneHolds && particle.Position.y >= 0.0f;
+			climbed += particle.Position.y > 0.0f ? 1 : 0;
+		}
+		Check(coneHolds && climbed >= (int)emitter.Pool.size() - 1,
+			  "particles move the way the cone points");
+
+		// Death: stop emitting, outlive the longest particle, and the pool
+		// must be empty -- a particle that never dies is a leak with a size.
+		emitter.Emit = false;
+		emitter.Lifetime = 0.2f;   // affects new spawns only; the old keep theirs
+		for (int i = 0; i < 11 * 60; i++)
+			scene->OnUpdateRuntime(dt);
+		Check(emitter.Pool.empty(), "every particle dies on schedule");
+
+		// A burst is an order, not a rate: consumed in one step, capped by
+		// the pool like everything else.
+		emitter.MaxParticles = 10;
+		emitter.Burst = 100;
+		scene->OnUpdateRuntime(dt);
+		Check(emitter.Pool.size() == 10, "a burst fires at once and respects the cap");
+		Check(emitter.Burst == 0, "and is consumed rather than repeated");
+
+		// The pool belongs to the run: a copied component -- which is what
+		// pressing Play does to every component -- starts empty.
+		ParticleEmitterComponent copied = emitter;
+		Check(copied.Pool.empty() && copied.MaxParticles == 10,
+			  "copying an emitter copies the settings and not the particles");
+
+		// The GPU flag parks the CPU simulation entirely.
+		emitter.Pool.clear();
+		emitter.SimulateOnGpu = true;
+		emitter.Emit = true;
+		emitter.Burst = 5;
+		scene->OnUpdateRuntime(dt);
+		Check(emitter.Pool.empty() && emitter.Burst == 5,
+			  "a GPU emitter is not simulated on the CPU, burst included");
+		emitter.SimulateOnGpu = false;
+
+		// The component round-trips through the scene file with its enums by
+		// name, exactly as the inspector wrote them.
+		emitter.Blend = ParticleBlend::Additive;
+		emitter.Facing = ParticleFacing::Flat;
+		emitter.Rate = 42.5f;
+
+		SceneSerializer writer(scene);
+		const std::string text = writer.SerializeToString();
+		Check(text.find("ParticleEmitterComponent") != std::string::npos
+			  && text.find("Additive") != std::string::npos
+			  && text.find("Flat") != std::string::npos,
+			  "the emitter serializes with its enums by name");
+
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer reader(reloaded);
+		Check(reader.DeserializeFromString(text), "and the scene loads again");
+
+		Entity restored = reloaded->FindEntityByName("Emitter");
+		Check(restored && restored.HasComponent<ParticleEmitterComponent>(),
+			  "with the emitter still on the entity");
+		if (restored && restored.HasComponent<ParticleEmitterComponent>())
+		{
+			const auto& back = restored.GetComponent<ParticleEmitterComponent>();
+			Check(back.Blend == ParticleBlend::Additive
+				  && back.Facing == ParticleFacing::Flat
+				  && std::fabs(back.Rate - 42.5f) < 1e-6f,
+				  "and every authored value it carried");
+			Check(back.Pool.empty(), "and no particles, which belong to a run");
+		}
+
+		if (Renderer::HasDevice())
+			Check(ParticleRenderer::IsReady(),
+				  "the particle renderer compiled its shader");
 	}
 
 	// Records every contact it is told about, so the routing can be checked
@@ -4371,6 +4478,7 @@ int RunTests(int argc, char** argv)
 	CheckPackaging();
 	CheckRuntimePath();
 	CheckPhysics();
+	CheckParticles();
 	CheckColliderOverlay();
 	CheckPicking();
 	CheckContactCallbacks();
@@ -5605,6 +5713,24 @@ int RunTests(int argc, char** argv)
 					  "as does an unpositioned one");
 				api.StopVoice(0);   // must tolerate a voice that never existed
 				Check(true, "and stopping a voice that never existed is harmless");
+
+				// --- protocol 5: pitch, and one-shots from a point -----------
+				//
+				// The same quiet-no contract for each new entry; audible
+				// playback stays the audio suite's job.
+				{
+					const Vec3 somewhere{ 1.0f, 2.0f, 3.0f };
+					Check(api.PlayOneShotAt("audio/no-such-clip.wav", &somewhere, 1.0f, 1.0f) == 0,
+						  "a positional one-shot with an unknown clip declines");
+					Check(api.PlayOneShotAt("", &somewhere, 1.0f, 1.0f) == 0,
+						  "and an empty path from a point has no source clip to fall back on");
+					Check(api.PlayOneShotPitched(id, "audio/no-such-clip.wav", 1.0f, 1.5f) == 0,
+						  "the pitched entity one-shot keeps the unknown-clip contract");
+					Check(api.PlayOneShotPitched(id, "", 1.0f, 1.0f) == 0,
+						  "and the empty-path fallback still needs a source component to fall to");
+					Check(api.PlayOneShot2DPitched("audio/no-such-clip.wav", 1.0f, 0.5f) == 0,
+						  "as does the pitched 2D one");
+				}
 
 				Check(api.SpawnPrefab("prefabs/no-such.prefab") == 0,
 					  "spawning an unknown prefab declines rather than faulting");

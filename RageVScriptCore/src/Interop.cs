@@ -35,7 +35,9 @@ public static unsafe class Interop
 	// 2: appended physics, world transform and spawn/destroy; added the script
 	//    lifecycle and the collision struct.
 	// 3: appended script field reflection.
-	public const int ProtocolVersion = 4;
+	// 4: appended the rest of the native surface -- hierarchy, prefabs,
+	//    raycasts, audio, components by name.
+	public const int ProtocolVersion = 5;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the

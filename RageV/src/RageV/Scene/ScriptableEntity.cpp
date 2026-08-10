@@ -222,22 +222,30 @@ namespace RageV
 		return Audio::Engine::IsPlaying(GetComponent<AudioSourceComponent>().Voice);
 	}
 
-	AudioVoice ScriptableEntity::PlayOneShot(AssetHandle clip, float volume)
+	AudioVoice ScriptableEntity::PlayOneShot(AssetHandle clip, float volume, float pitch)
+	{
+		return PlayOneShotAt(clip, GetWorldPosition(), volume, pitch);
+	}
+
+	AudioVoice ScriptableEntity::PlayOneShotAt(AssetHandle clip, const Vec3& position,
+											   float volume, float pitch)
 	{
 		AudioPlayback playback;
 		playback.Clip = clip;
 		playback.Volume = volume;
+		playback.Pitch = pitch;
 		playback.Spatial = true;
-		playback.Position = GetWorldPosition();
+		playback.Position = position;
 		return Audio::Engine::Play(playback);
 	}
 
-	AudioVoice ScriptableEntity::PlayOneShot2D(AssetHandle clip, float volume)
+	AudioVoice ScriptableEntity::PlayOneShot2D(AssetHandle clip, float volume, float pitch)
 	{
 		AudioPlayback playback;
 		playback.Clip = clip;
 		playback.Bus = AudioBus::UI;
 		playback.Volume = volume;
+		playback.Pitch = pitch;
 		playback.Spatial = false;
 		return Audio::Engine::Play(playback);
 	}

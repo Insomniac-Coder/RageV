@@ -118,7 +118,8 @@ No-ops outside play mode and on an entity with no rigid body. World space.
 | `PlaySource` | Plays this entity's `AudioSourceComponent`, restarting it if already playing. Does nothing without the component. |
 | `StopSource` | Stops it. |
 | `IsSourcePlaying` | Whether it is playing. |
-| `PlayOneShot` | Fire and forget, at this entity's position. |
+| `PlayOneShot` | Fire and forget, at this entity's position. Optional volume and pitch; a small random pitch spread around 1 stops a repeated impact sounding like a sampler. |
+| `PlayOneShotAt` | The same, from an arbitrary point — a particle burst, a ricochet, somewhere no entity stands. Static. |
 | `PlayOneShot2D` | Unpositioned — full volume wherever the listener is. UI, narration, a stinger. Static. |
 
 ## Input

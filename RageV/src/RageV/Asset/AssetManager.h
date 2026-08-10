@@ -41,6 +41,11 @@ namespace RageV::Assets
 		static const Skeleton* GetSkeleton(AssetHandle handle);
 		static const std::vector<Anim::Clip>* GetClips(AssetHandle handle);
 
+		// A plain 2D texture -- a particle sprite, an image. sRGB, mipped, and
+		// cached like everything else here; a failure caches as null so a
+		// missing file is not retried per frame.
+		static RHI::Ref<RHI::RHITexture> GetTexture(AssetHandle handle);
+
 		// An environment map, built from whatever image the handle names. The
 		// conversion from a panorama is not cheap, so a failure is cached as
 		// null too -- a scene pointing at a missing sky must not try again

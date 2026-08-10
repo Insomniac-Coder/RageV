@@ -3,6 +3,7 @@
 #include "Renderer2D.h"
 #include "Renderer3D.h"
 #include "DebugRenderer.h"
+#include "ParticleRenderer.h"
 #include "Skybox.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
@@ -22,6 +23,7 @@ namespace RageV
 		Renderer2D::Init(device);
 		Renderer3D::Init(device);
 		DebugRenderer::Init(device);
+		ParticleRenderer::Init(device);
 		Skybox::Init(device);
 		ShadowMap::Init(device);
 		EnvironmentIBL::Init(device);
@@ -34,6 +36,7 @@ namespace RageV
 		EnvironmentIBL::Shutdown();
 		ShadowMap::Shutdown();
 		Skybox::Shutdown();
+		ParticleRenderer::Shutdown();
 		DebugRenderer::Shutdown();
 		Renderer3D::Shutdown();
 		Renderer2D::Shutdown();
@@ -50,6 +53,7 @@ namespace RageV
 		Renderer2D::BeginFrame();
 		Renderer3D::BeginFrame();
 		DebugRenderer::BeginFrame();
+		ParticleRenderer::BeginFrame();
 		Skybox::BeginFrame();
 		// Cascades are rendered per frame, if at all. Anything left from the
 		// last one describes a camera that has since moved.
@@ -101,6 +105,7 @@ namespace RageV
 		Renderer2D::SetTargetFormats(color, depth);
 		Renderer3D::SetTargetFormats(color, depth);
 		DebugRenderer::SetTargetFormats(color, depth);
+		ParticleRenderer::SetTargetFormats(color, depth);
 		Skybox::SetTargetFormats(color, depth);
 	}
 }

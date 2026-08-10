@@ -171,11 +171,17 @@ namespace RageV
 
 		// Fire and forget, at this entity's position. Nothing to stop and
 		// nothing to keep: the returned voice is only useful if the sound is
-		// long enough to want to interrupt.
-		AudioVoice PlayOneShot(AssetHandle clip, float volume = 1.0f);
+		// long enough to want to interrupt. Pitch 1 plays as recorded; a
+		// small random spread around 1 is what stops a repeated impact from
+		// sounding like a sampler.
+		AudioVoice PlayOneShot(AssetHandle clip, float volume = 1.0f, float pitch = 1.0f);
+		// The same, from an arbitrary point -- a particle burst, a ricochet,
+		// somewhere no entity stands.
+		static AudioVoice PlayOneShotAt(AssetHandle clip, const Vec3& position,
+										float volume = 1.0f, float pitch = 1.0f);
 		// The same, but unpositioned -- the listener hears it at full volume
 		// wherever they are. UI, narration, a stinger.
-		static AudioVoice PlayOneShot2D(AssetHandle clip, float volume = 1.0f);
+		static AudioVoice PlayOneShot2D(AssetHandle clip, float volume = 1.0f, float pitch = 1.0f);
 
 		// --- input -----------------------------------------------------------
 		// By action name, never by keycode. See RageV/Core/InputMap.h.

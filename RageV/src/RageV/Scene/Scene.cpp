@@ -15,6 +15,8 @@
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/EditorCamera.h"
+#include "RageV/Renderer/ParticleRenderer.h"
+#include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Math/Math.h"
 
@@ -500,6 +502,10 @@ namespace RageV
 		// like rendering, and belongs on the frame for the same reason.
 		UpdateWorldTransforms();
 		UpdateAudio();
+
+		// Presentation too: nothing collides with a particle and nothing
+		// scores one, so they move at whatever rate the display shows them.
+		Particles::System::Update(*this, ts.GetSeconds());
 	}
 
 	// The managed half of the script pass.
@@ -1410,5 +1416,22 @@ namespace RageV
 		}
 
 		Renderer2D::EndScene();
+
+		// Last, so a blended particle has the whole scene to blend against --
+		// including the sky and the quads.
+		auto emitters = m_Registry.view<ParticleEmitterComponent, TransformComponent>();
+		if (emitters.begin() != emitters.end() && ParticleRenderer::IsReady())
+		{
+			ParticleRenderer::BeginScene(camera, cameraTransform);
+
+			for (auto handle : emitters)
+			{
+				auto [emitter, transform] =
+					emitters.get<ParticleEmitterComponent, TransformComponent>(handle);
+				ParticleRenderer::DrawEmitter(emitter, transform.World);
+			}
+
+			ParticleRenderer::EndScene();
+		}
 	}
 }

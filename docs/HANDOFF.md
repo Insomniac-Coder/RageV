@@ -1098,6 +1098,63 @@ VulkanCommon.h). Proven with a churn scene -- ~180 material destroys a
 second under GPU load: 10 validation errors in 4000 frames before, zero
 in 12000 after.
 
+### In flight - phase 6 particles (user picked; UI/text deferred)
+
+The user chose particles (2D + 3D, with a per-emitter GPU option like
+Unreal's) plus the small audio wants. **Landed and verified this session,
+Debug config, 802 checks, both backends, screenshots compared:**
+
+- **Audio, protocol 5**: pitch on every one-shot and `PlayOneShotAt` (an
+  arbitrary point), C++ and C# equal. Three appended table entries --
+  `PlayOneShotAt`, `PlayOneShotPitched`, `PlayOneShot2DPitched`; the old
+  two entries keep their exact shape, unused.
+- **CPU particles (6.5/6.6)**: `ParticleEmitterComponent` (rate, burst,
+  cone, gravity, drag, size/colour over life, spin, Facing
+  Billboard|Flat, Blend Alpha|Additive, Space World|Local, optional
+  sprite, `SimulateOnGpu` authored now so scenes never migrate),
+  deterministic xorshift sim in `Particles/ParticleSystem.cpp` (per
+  FRAME, not fixed step -- particles are presentation), instanced
+  renderer in `Renderer/ParticleRenderer.cpp` + `particle.rvshader`
+  (storage-buffer instances, base-instance push constant, alpha sorted
+  twice / additive unsorted, depth test on write off), registry-driven
+  inspector + serialization, `Assets::Manager::GetTexture` (new -- there
+  was no plain 2D texture-by-handle loader at all).
+  `SampleProject/assets/scenes/particles.rage` is the visual check: fire
+  (additive), smoke (alpha, sorted), 2D fountain (flat), run via
+  `RageVRuntime --project=SampleProject --scene=scenes/particles.rage`.
+
+**Trap found, worth its place in §5 someday: the component registry's
+enum contract is int-sized.** Serialization reads and writes enum fields
+through `int*`; an `enum class : uint8_t` field compiles fine and then
+serialization stomps the three bytes after it. The particle enums are
+int-sized now, with the comment on them.
+
+**Resume here, in order:**
+1. `cmake --build build --config Release` and `Dist` -- only Debug was
+   rebuilt after the particle work; the source is consistent, the other
+   two configs are stale on disk.
+2. **6.7a RHI compute**: compute shader stage in ShaderCompiler
+   (`#type compute`), `ComputePipelineDesc` + `CreateComputePipeline`,
+   `RHICommandList::BindComputePipeline/Dispatch`, and a barrier pair
+   (compute→vertex-read, vertex→compute) on both backends. GL 4.6 has
+   glDispatchCompute + glMemoryBarrier; Vulkan wants buffer barriers.
+3. **6.7b GPU sim**: per-emitter fixed pool of `MaxParticles` in a
+   device-local SSBO, one compute pass integrates + emits (spawn count
+   pushed per frame, hash(index,frame) RNG), dead particles collapse to
+   size zero -- no compaction, no readback, no indirect draw in v1; the
+   draw is the same `particle.rvshader` reading the GPU buffer (the
+   instance layout matches on purpose). `SimulateOnGpu` currently parks
+   the emitter entirely (CPU skips it, nothing draws) -- honest but
+   dead; 6.7b is what makes the flag true. Then measure CPU vs GPU with
+   `--benchmark` on a heavy emitter and record both numbers.
+4. Docs: audio additions are in cpp-reference.md already; cpp.md and
+   csharp.md audio sections need the pitch/At variants, and particles
+   need a manual page. Regenerate the site (rvdoc --check).
+5. Knockdown juice: impact bursts + a win confetti via the component
+   bridge from C#, which also proves script-driven `Burst`.
+6. Consider a soft-dot sprite generator (tools/scripts convention) --
+   untextured squares read fine but round sprites read better.
+
 ### START HERE - picking phase 6
 
 The papercut list is the phase 6 ballot, and what actually hurt while

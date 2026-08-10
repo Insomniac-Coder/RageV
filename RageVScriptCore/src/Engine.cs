@@ -378,14 +378,16 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 	/// <summary>
 	/// Fire and forget, at this entity's position. An empty path plays the
 	/// entity's own source clip; otherwise the clip is an asset path like
-	/// "audio/thud.wav".
+	/// "audio/thud.wav". Pitch 1 plays as recorded; a small random spread
+	/// around 1 is what stops a repeated impact from sounding like a sampler.
 	/// </summary>
-	public ulong PlayOneShot(string clipPath = "", float volume = 1.0f)
+	public ulong PlayOneShot(string clipPath = "", float volume = 1.0f, float pitch = 1.0f)
 	{
 		if (!Native.IsReady)
 			return 0;
 		ulong id = Id;   // a lambda in a struct cannot capture `this`
-		return Native.WithUtf8(clipPath, utf8 => Native.Api.PlayOneShot(id, utf8, volume));
+		return Native.WithUtf8(clipPath,
+			utf8 => Native.Api.PlayOneShotPitched(id, utf8, volume, pitch));
 	}
 
 	// --- components ---
@@ -488,14 +490,32 @@ public readonly struct RayHit
 	public static implicit operator bool(RayHit hit) => hit.Hit;
 }
 
-/// <summary>Sounds that belong to nobody: 2D one-shots, and stopping a voice by its ticket.</summary>
+/// <summary>Sounds that belong to nobody: one-shots from anywhere, and stopping a voice by its ticket.</summary>
 public static unsafe class Audio
 {
 	/// <summary>Unpositioned — the listener hears it at full volume wherever they are. UI, narration, a stinger.</summary>
-	public static ulong PlayOneShot2D(string clipPath, float volume = 1.0f) =>
+	public static ulong PlayOneShot2D(string clipPath, float volume = 1.0f, float pitch = 1.0f) =>
 		Native.IsReady
-			? Native.WithUtf8(clipPath, utf8 => Native.Api.PlayOneShot2D(utf8, volume))
+			? Native.WithUtf8(clipPath, utf8 => Native.Api.PlayOneShot2DPitched(utf8, volume, pitch))
 			: 0;
+
+	/// <summary>
+	/// Positioned at an arbitrary point — a particle burst, a ricochet,
+	/// somewhere no entity stands.
+	/// </summary>
+	public static ulong PlayOneShotAt(string clipPath, Vector3 position,
+									  float volume = 1.0f, float pitch = 1.0f)
+	{
+		if (!Native.IsReady)
+			return 0;
+		return Native.WithUtf8(clipPath, utf8 =>
+		{
+			// A captured parameter lives on the closure and cannot have its
+			// address taken; a local of the lambda body can.
+			Vector3 at = position;
+			return Native.Api.PlayOneShotAt(utf8, &at, volume, pitch);
+		});
+	}
 
 	/// <summary>Stops a voice returned by any of the play calls. A finished or unknown voice is a no-op.</summary>
 	public static void StopVoice(ulong voice)
@@ -599,6 +619,6 @@ public abstract class Script
 	protected ulong PlaySource() => Entity.PlaySource();
 	protected void StopSource() => Entity.StopSource();
 	protected bool IsSourcePlaying => Entity.IsSourcePlaying;
-	protected ulong PlayOneShot(string clipPath = "", float volume = 1.0f) =>
-		Entity.PlayOneShot(clipPath, volume);
+	protected ulong PlayOneShot(string clipPath = "", float volume = 1.0f, float pitch = 1.0f) =>
+		Entity.PlayOneShot(clipPath, volume, pitch);
 }

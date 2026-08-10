@@ -345,6 +345,126 @@ namespace RageV
 		}
 	};
 
+	// How a particle quad faces the world. Billboard turns to the camera --
+	// smoke, fire, sparks in a 3D scene. Flat lies in the XY plane facing +Z,
+	// which is what a 2D game's particles are.
+	//
+	// Int-sized on purpose, all three: the component registry's enum contract
+	// reads and writes registered enum fields through an int*, and a narrower
+	// underlying type turns serialization into a stomp over the neighbouring
+	// bytes.
+	enum class ParticleFacing { Billboard, Flat };
+
+	// Alpha reads as matter -- smoke, dust, debris -- and needs drawing back
+	// to front. Additive reads as light -- fire, sparks, magic -- and sums the
+	// same from any order, which also makes it the cheaper one to draw.
+	enum class ParticleBlend { Alpha, Additive };
+
+	// World leaves a particle where it was born -- smoke keeps hanging where
+	// the chimney was. Local carries it with the emitter -- a torch flame
+	// moves with the torch.
+	enum class ParticleSpace { World, Local };
+
+	// One live particle. CPU-simulated; the GPU path keeps the same layout on
+	// its own buffers and never reads it back.
+	struct Particle
+	{
+		Vec3 Position{ 0.0f };   // emitter space per ParticleSpace
+		Vec3 Velocity{ 0.0f };
+		float Age = 0.0f;
+		float Lifetime = 1.0f;
+		float Rotation = 0.0f;   // radians, around the view axis
+		float Spin = 0.0f;       // radians per second
+	};
+
+	struct ParticleEmitterComponent
+	{
+		// Continuous emission. Zero with a Burst is the explosion shape: one
+		// bang when the scene starts or when a script asks, nothing after.
+		bool  Emit = true;
+		float Rate = 20.0f;              // particles per second
+
+		// Consumed on the next simulation step, then zero. Authored non-zero
+		// it fires once on the first step after Play -- which is what makes an
+		// explosion prefab work with no script at all. Scripts write it too,
+		// in either language.
+		int   Burst = 0;
+
+		float Lifetime = 1.5f;           // seconds each particle lives
+		float LifetimeJitter = 0.25f;    // fraction of Lifetime, randomised away
+
+		// The cone particles leave through, in the emitter's own frame.
+		Vec3  Direction{ 0.0f, 1.0f, 0.0f };
+		float Spread = 25.0f;            // half-angle, degrees
+		float Speed = 3.0f;
+		float SpeedJitter = 0.3f;        // fraction of Speed
+
+		// The emitter's own gravity, not the physics world's: snow wants a
+		// drift, sparks want a plunge, and neither is a rigid body.
+		Vec3  Gravity{ 0.0f, -3.0f, 0.0f };
+		float Drag = 0.0f;               // fraction of velocity lost per second
+
+		float SizeStart = 0.25f;
+		float SizeEnd = 0.05f;
+		Vec4  ColorStart{ 1.0f, 1.0f, 1.0f, 1.0f };
+		Vec4  ColorEnd{ 1.0f, 1.0f, 1.0f, 0.0f };
+		float Spin = 0.0f;               // max degrees per second, signed at random
+
+		ParticleFacing Facing = ParticleFacing::Billboard;
+		ParticleBlend  Blend = ParticleBlend::Alpha;
+		ParticleSpace  Space = ParticleSpace::World;
+
+		// Optional sprite; a plain white quad without one.
+		AssetHandle Texture = AssetHandle::Invalid();
+
+		int  MaxParticles = 1000;
+
+		// Simulate on the GPU: the pool lives in a storage buffer, a compute
+		// pass integrates it, and the CPU never touches a particle again.
+		// The visual contract is the CPU path's; what changes is who pays.
+		bool SimulateOnGpu = false;
+
+		// --- runtime, neither serialized nor copied --------------------------
+		std::vector<Particle> Pool;
+		float EmitCarry = 0.0f;
+		uint32_t Rng = 0;                // 0 means "seed me on first use"
+
+		ParticleEmitterComponent() = default;
+		ParticleEmitterComponent(const ParticleEmitterComponent& other) { *this = other; }
+
+		// The pool is the run's, not the file's: play mode copies the scene,
+		// and a copied emitter starts empty exactly as a loaded one does.
+		ParticleEmitterComponent& operator=(const ParticleEmitterComponent& other)
+		{
+			Emit = other.Emit;
+			Rate = other.Rate;
+			Burst = other.Burst;
+			Lifetime = other.Lifetime;
+			LifetimeJitter = other.LifetimeJitter;
+			Direction = other.Direction;
+			Spread = other.Spread;
+			Speed = other.Speed;
+			SpeedJitter = other.SpeedJitter;
+			Gravity = other.Gravity;
+			Drag = other.Drag;
+			SizeStart = other.SizeStart;
+			SizeEnd = other.SizeEnd;
+			ColorStart = other.ColorStart;
+			ColorEnd = other.ColorEnd;
+			Spin = other.Spin;
+			Facing = other.Facing;
+			Blend = other.Blend;
+			Space = other.Space;
+			Texture = other.Texture;
+			MaxParticles = other.MaxParticles;
+			SimulateOnGpu = other.SimulateOnGpu;
+			Pool.clear();
+			EmitCarry = 0.0f;
+			Rng = 0;
+			return *this;
+		}
+	};
+
 	// Where the scene is heard from.
 	//
 	// Optional: with no listener in the scene the primary camera is used, which

@@ -81,6 +81,9 @@ namespace
 		const char* kProjectionNames[] = { "Perspective", "Orthographic" };
 		const char* kBodyTypeNames[] = { "Static", "Kinematic", "Dynamic" };
 		const char* kColliderShapeNames[] = { "Box", "Sphere", "Capsule" };
+		const char* kParticleFacingNames[] = { "Billboard", "Flat" };
+		const char* kParticleBlendNames[] = { "Alpha", "Additive" };
+		const char* kParticleSpaceNames[] = { "World", "Local" };
 		const char* kAudioBusNames[] = { "Master", "Music", "SFX", "UI" };
 
 		FieldHint AssetRef(AssetType accepts, const char* tooltip = nullptr)
@@ -113,10 +116,11 @@ namespace
 			};
 		}
 
-		FieldHint Color()
+		FieldHint Color(const char* tooltip = nullptr)
 		{
 			FieldHint hint;
 			hint.Kind = FieldHint::Widget::Color;
+			hint.Tooltip = tooltip;
 			return hint;
 		}
 
@@ -593,6 +597,88 @@ namespace
 				listener->ListenerRank = Math::Clamp(listener->ListenerRank, 0, 99);
 			};
 			Bind<AudioListenerComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- Particle emitter ------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "ParticleEmitterComponent";
+			desc.DisplayName = "Particle Emitter";
+			desc.Fields = {
+				Field<&ParticleEmitterComponent::Emit>("Emit",
+					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+							   "Continuous emission. Off with a Burst is an explosion: "
+							   "one bang, nothing after." }),
+				Field<&ParticleEmitterComponent::Rate>("Rate",
+					Drag(1.0f, 0.0f, 10000.0f, "Particles per second.")),
+				Field<&ParticleEmitterComponent::Burst>("Burst",
+					Drag(1.0f, 0.0f, 16384.0f,
+						 "Fired once on the first step after Play, then consumed. "
+						 "Scripts write it to fire again.")),
+				Field<&ParticleEmitterComponent::Lifetime>("Lifetime",
+					Drag(0.05f, 0.05f, 60.0f, "Seconds each particle lives.")),
+				Field<&ParticleEmitterComponent::LifetimeJitter>("LifetimeJitter",
+					Slider(0.0f, 1.0f, "Random spread as a fraction of Lifetime.")),
+				Field<&ParticleEmitterComponent::Direction>("Direction",
+					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+							   "The cone's axis, in the emitter's own frame." }),
+				Field<&ParticleEmitterComponent::Spread>("Spread",
+					Slider(0.0f, 180.0f, "Half-angle of the cone, degrees. 180 is a sphere.")),
+				Field<&ParticleEmitterComponent::Speed>("Speed",
+					Drag(0.1f, 0.0f, 1000.0f)),
+				Field<&ParticleEmitterComponent::SpeedJitter>("SpeedJitter",
+					Slider(0.0f, 1.0f)),
+				Field<&ParticleEmitterComponent::Gravity>("Gravity",
+					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+							   "This emitter's own, not the physics world's: snow "
+							   "drifts, sparks plunge, neither is a rigid body." }),
+				Field<&ParticleEmitterComponent::Drag>("Drag",
+					Slider(0.0f, 10.0f, "Fraction of velocity lost per second.")),
+				Field<&ParticleEmitterComponent::SizeStart>("SizeStart",
+					Drag(0.01f, 0.0f, 100.0f)),
+				Field<&ParticleEmitterComponent::SizeEnd>("SizeEnd",
+					Drag(0.01f, 0.0f, 100.0f)),
+				Field<&ParticleEmitterComponent::ColorStart>("ColorStart", Color()),
+				Field<&ParticleEmitterComponent::ColorEnd>("ColorEnd",
+					Color("Faded to over each particle's life. An alpha of zero here "
+						  "is what makes smoke thin out instead of popping off.")),
+				Field<&ParticleEmitterComponent::Spin>("Spin",
+					Drag(1.0f, 0.0f, 3600.0f, "Max degrees per second, signed at random "
+											  "per particle.")),
+				Field<&ParticleEmitterComponent::Facing>("Facing",
+					Enum(kParticleFacingNames, "Billboard turns to the camera -- a 3D "
+											   "scene's smoke and sparks. Flat lies in the "
+											   "XY plane, which is what a 2D game wants.")),
+				Field<&ParticleEmitterComponent::Blend>("Blend",
+					Enum(kParticleBlendNames, "Alpha reads as matter and is depth-sorted. "
+											  "Additive reads as light, sums in any order, "
+											  "and is the cheaper of the two.")),
+				Field<&ParticleEmitterComponent::Space>("Space",
+					Enum(kParticleSpaceNames, "World leaves particles where they were "
+											  "born; Local carries them with the emitter.")),
+				Field<&ParticleEmitterComponent::Texture>("Texture",
+					AssetRef(AssetType::Texture, "Optional sprite. A plain white quad "
+												 "without one.")),
+				Field<&ParticleEmitterComponent::MaxParticles>("MaxParticles",
+					Drag(16.0f, 1.0f, 16384.0f)),
+				Field<&ParticleEmitterComponent::SimulateOnGpu>("SimulateOnGpu",
+					Named("Simulate on GPU",
+						FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+								   "The pool lives in a storage buffer and a compute pass "
+								   "integrates it; the CPU never touches a particle. Same "
+								   "look, different payer." })),
+			};
+
+			desc.OnChanged = [](void* component)
+			{
+				auto* emitter = static_cast<ParticleEmitterComponent*>(component);
+				emitter->MaxParticles = Math::Clamp(emitter->MaxParticles, 1, 16384);
+				emitter->Burst = Math::Clamp(emitter->Burst, 0, 16384);
+				emitter->Lifetime = Math::Max(emitter->Lifetime, 0.05f);
+			};
+
+			Bind<ParticleEmitterComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
 

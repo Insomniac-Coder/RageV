@@ -91,6 +91,12 @@ internal unsafe struct NativeApi
 	public delegate* unmanaged[Cdecl]<ulong, byte*, int> RemoveComponent;
 	public delegate* unmanaged[Cdecl]<ulong, byte*, byte*, byte*, int, int> GetComponentField;
 	public delegate* unmanaged[Cdecl]<ulong, byte*, byte*, byte*, int> SetComponentField;
+
+	// --- appended for protocol 5: one-shots with pitch, and from a point ----
+	// The exact native order; the protocol-4 entries above keep their shape.
+	public delegate* unmanaged[Cdecl]<byte*, Vector3*, float, float, ulong> PlayOneShotAt;
+	public delegate* unmanaged[Cdecl]<ulong, byte*, float, float, ulong> PlayOneShotPitched;
+	public delegate* unmanaged[Cdecl]<byte*, float, float, ulong> PlayOneShot2DPitched;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>
