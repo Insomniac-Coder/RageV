@@ -908,22 +908,64 @@ namespace RageV::GL
 		SetViewport(Viewport{ 0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f });
 		SetScissor(Rect2D{ 0, 0, width, height });
 
-		GLbitfield mask = 0;
+		// glDrawBuffers decides which attachments the fragment shader's outputs
+		// land in, and the clears below address them by index into *this* list
+		// rather than into the framebuffer -- selecting attachments 1 and 2
+		// means the shader's location 0 writes attachment 1.
+		//
+		// Set unconditionally, because it is framebuffer state that persists:
+		// a pass that bound a subset would otherwise leave the next pass over
+		// the same target writing into the subset it chose.
+		if (info.Target)
+		{
+			auto* target = static_cast<OpenGLRenderTargetRHI*>(info.Target);
+
+			std::vector<GLenum> buffers;
+			if (info.ColorAttachments.empty())
+			{
+				for (uint32_t i = 0; i < target->GetColorCount(); i++)
+					buffers.push_back(GL_COLOR_ATTACHMENT0 + i);
+			}
+			else
+			{
+				for (const ColorBinding& binding : info.ColorAttachments)
+					buffers.push_back(GL_COLOR_ATTACHMENT0 + binding.Index);
+			}
+
+			if (!buffers.empty())
+				glDrawBuffers((GLsizei)buffers.size(), buffers.data());
+		}
+
 		if (info.ClearColor)
 		{
-			glClearColor(info.Clear.Color[0], info.Clear.Color[1], info.Clear.Color[2], info.Clear.Color[3]);
-			mask |= GL_COLOR_BUFFER_BIT;
+			if (info.Target && !info.ColorAttachments.empty())
+			{
+				// Per attachment, because the two halves of weighted blending
+				// start from different values -- accumulation at zero and
+				// revealage at one -- and one glClearColor cannot say both.
+				//
+				// The index here is into the *draw buffer list* just set, not
+				// into the framebuffer's attachments, which is the one thing
+				// about glClearBufferfv that is easy to get backwards.
+				for (GLint i = 0; i < (GLint)info.ColorAttachments.size(); i++)
+					glClearBufferfv(GL_COLOR, i, info.ColorAttachments[i].Clear);
+			}
+			else
+			{
+				glClearColor(info.Clear.Color[0], info.Clear.Color[1],
+							 info.Clear.Color[2], info.Clear.Color[3]);
+				glClear(GL_COLOR_BUFFER_BIT);
+			}
 		}
+
 		if (info.ClearDepth && info.UseDepth)
 		{
 			glClearDepth(info.Clear.Depth);
 			// glClear respects the depth mask, so a pipeline left with depth
 			// writes disabled would silently skip the clear.
 			glDepthMask(GL_TRUE);
-			mask |= GL_DEPTH_BUFFER_BIT;
+			glClear(GL_DEPTH_BUFFER_BIT);
 		}
-		if (mask)
-			glClear(mask);
 	}
 
 	void OpenGLCommandListRHI::EndRenderPass()

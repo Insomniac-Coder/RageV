@@ -10,8 +10,13 @@ namespace RageV
 	{
 		bool SameShape(const RGTargetDesc& a, const RGTargetDesc& b)
 		{
+			// ExtraColors included, or the pool would hand back a target with
+			// the right first attachment and the wrong number of them -- which
+			// fails at the point the second attachment is bound, nowhere near
+			// the mismatch.
 			return a.Color == b.Color && a.Depth == b.Depth &&
-				   a.SampleDepth == b.SampleDepth && a.Layers == b.Layers;
+				   a.SampleDepth == b.SampleDepth && a.Layers == b.Layers &&
+				   a.ExtraColors == b.ExtraColors;
 		}
 	}
 
@@ -42,6 +47,43 @@ namespace RageV
 		// passes that all preserve would never be caught reading nothing.
 		if (load == RGLoad::Clear)
 			m_Graph.m_Resources[target].Written = true;
+	}
+
+	void RGPassBuilder::WriteAttachments(RGResource target,
+										 const std::vector<RGAttachment>& attachments,
+										 RGLoad load)
+	{
+		Write(target, load);
+
+		RenderGraph::Pass& pass = m_Graph.m_Passes[m_Pass];
+		if (pass.Output != target)
+			return;   // Write already reported why
+
+		if (attachments.empty())
+		{
+			m_Graph.m_Errors.push_back("pass '" + pass.Name +
+									   "' selected no colour attachments");
+			return;
+		}
+
+		const RGTargetDesc& desc = m_Graph.m_Resources[target].Desc;
+		const uint32_t available = desc.Color == RHI::Format::Undefined
+								 ? 0u
+								 : 1u + (uint32_t)desc.ExtraColors.size();
+
+		for (const RGAttachment& attachment : attachments)
+		{
+			if (attachment.Index >= available)
+			{
+				m_Graph.m_Errors.push_back(
+					"pass '" + pass.Name + "' binds colour attachment " +
+					std::to_string(attachment.Index) + " of a target that has " +
+					std::to_string(available));
+				return;
+			}
+		}
+
+		pass.Attachments = attachments;
 	}
 
 	void RGPassBuilder::Sample(RGResource target)
@@ -85,7 +127,7 @@ namespace RageV
 	// -------------------------------------------------------------------------
 	// Context
 	// -------------------------------------------------------------------------
-	Ref<RHITexture> RGPassContext::Color(RGResource target) const
+	Ref<RHITexture> RGPassContext::Color(RGResource target, uint32_t attachment) const
 	{
 		if (!Graph)
 			return nullptr;
@@ -104,7 +146,7 @@ namespace RageV
 		}
 
 		const RenderGraph::Resource& resource = Graph->m_Resources[target];
-		return resource.Target ? resource.Target->GetColorTexture(0) : nullptr;
+		return resource.Target ? resource.Target->GetColorTexture(attachment) : nullptr;
 	}
 
 	Ref<RHITexture> RGPassContext::Depth(RGResource target) const
@@ -229,7 +271,11 @@ namespace RageV
 		target.DebugName = "rg." + desc.Name;
 
 		if (desc.Color != Format::Undefined)
+		{
 			target.ColorAttachments = { { desc.Color } };
+			for (Format extra : desc.ExtraColors)
+				target.ColorAttachments.push_back({ extra });
+		}
 
 		target.HasDepth = desc.Depth != Format::Undefined;
 		target.DepthAttachment.Format = desc.Depth;
@@ -316,6 +362,17 @@ namespace RageV
 			begin.Clear.Color[2] = pass.ClearColor.b;
 			begin.Clear.Color[3] = pass.ClearColor.a;
 			begin.Clear.Depth = pass.ClearDepth;
+
+			for (const RGAttachment& attachment : pass.Attachments)
+			{
+				RHI::ColorBinding binding;
+				binding.Index = attachment.Index;
+				binding.Clear[0] = attachment.Clear.r;
+				binding.Clear[1] = attachment.Clear.g;
+				binding.Clear[2] = attachment.Clear.b;
+				binding.Clear[3] = attachment.Clear.a;
+				begin.ColorAttachments.push_back(binding);
+			}
 
 			RGPassContext context{ cmd };
 			context.Graph = this;

@@ -1615,6 +1615,102 @@ void main()
 			  graph.Errors()[0].find("Unwritten") != std::string::npos,
 			  "and the error names the target");
 
+		// --- multi-attachment targets, and passes binding a subset ------------
+		//
+		// One target with several colours over one depth buffer is what lets
+		// two passes write different attachments and still depth-test against
+		// the same image -- which is the whole reason weighted-blended
+		// transparency can share the scene's depth instead of inventing its
+		// own. The subset matters because a pipeline's declared colour formats
+		// must match what its pass binds: a three-attachment target that could
+		// only be bound whole could not be drawn into by any pipeline that
+		// declares one colour, which is every pipeline that draws the scene.
+		graph.Begin(1280, 720);
+		{
+			RGTargetDesc desc;
+			desc.Name = "MultiAttachment";
+			desc.Color = Format::R16G16B16A16_SFLOAT;
+			desc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R8_UNORM };
+			const RGResource fat = graph.CreateTarget(desc);
+
+			graph.AddPass("WritesColour",
+				[&](RGPassBuilder& builder)
+				{
+					builder.WriteAttachments(fat, { { 0, Vec4(0.0f) } });
+				},
+				[](RGPassContext&) {});
+
+			graph.AddPass("WritesTheOtherTwo",
+				[&](RGPassBuilder& builder)
+				{
+					// Accumulation starts at zero and revealage at one: the
+					// two clears one shared clear colour could not express.
+					builder.WriteAttachments(fat, { { 1, Vec4(0.0f) },
+													{ 2, Vec4(1.0f) } },
+											 RGLoad::Preserve);
+				},
+				[](RGPassContext&) {});
+
+			// Into a target of its own rather than the backbuffer: this runs
+			// outside the frame loop, so there is no acquired swapchain image
+			// to draw to.
+			RGTargetDesc resolved;
+			resolved.Name = "Resolved";
+			const RGResource output = graph.CreateTarget(resolved);
+
+			graph.AddPass("Resolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(output);
+					builder.Sample(fat);
+				},
+				[&](RGPassContext& context)
+				{
+					// Each attachment is reachable on its own, or the resolve
+					// could not read accumulation and revealage separately.
+					Check(context.Color(fat, 0) != nullptr,
+						  "a multi-attachment target's first colour is sampleable");
+					Check(context.Color(fat, 1) != nullptr &&
+						  context.Color(fat, 2) != nullptr,
+						  "and so are the ones after it");
+					Check(context.Color(fat, 1) != context.Color(fat, 0),
+						  "and they are genuinely different images");
+				});
+		}
+
+		const bool compiled = graph.Compile();
+		Check(compiled, "a frame with a multi-attachment target compiles");
+		if (!compiled && !graph.Errors().empty())
+			RV_CORE_ERROR("graph: {0}", graph.Errors()[0]);
+
+		// Executed for real: the passes bind their attachment subsets, which
+		// is where a mismatch between what the graph asked for and what the
+		// backend bound would actually surface.
+		if (compiled)
+		{
+			Renderer::GetDevice().ExecuteImmediate([&](RHI::RHICommandList& cmd)
+			{
+				graph.Execute(cmd);
+			});
+		}
+
+		// Binding an attachment a target does not have is caught, rather than
+		// producing a pass that writes somewhere undefined.
+		graph.Begin(1280, 720);
+		{
+			RGTargetDesc desc;
+			desc.Name = "Single";
+			const RGResource single = graph.CreateTarget(desc);
+
+			graph.AddPass("OutOfRange",
+				[&](RGPassBuilder& builder)
+				{
+					builder.WriteAttachments(single, { { 2, Vec4(0.0f) } });
+				},
+				[](RGPassContext&) {});
+		}
+		Check(!graph.Compile(), "binding an attachment the target does not have is refused");
+
 		// --- a target nothing draws into --------------------------------------
 		graph.Begin(1280, 720);
 		{

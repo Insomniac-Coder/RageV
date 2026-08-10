@@ -204,6 +204,7 @@ namespace RageV::GL
 		Ref<RHITexture> GetDepthTexture() const override { return m_Depth; }
 
 		uint32_t GetFramebuffer() const { return m_Framebuffer; }
+		uint32_t GetColorCount() const { return (uint32_t)m_Color.size(); }
 
 	private:
 		void Build();

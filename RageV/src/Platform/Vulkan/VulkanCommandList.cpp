@@ -87,8 +87,32 @@ namespace RageV::Vk
 		{
 			extent = { target->GetWidth(), target->GetHeight() };
 
-			for (const auto& texture : target->GetColorTextures())
+			const auto& textures = target->GetColorTextures();
+
+			// The pass's own selection, or every attachment when it made none.
+			std::vector<RHI::ColorBinding> bindings = info.ColorAttachments;
+			if (bindings.empty())
 			{
+				bindings.reserve(textures.size());
+				for (uint32_t i = 0; i < (uint32_t)textures.size(); i++)
+				{
+					RHI::ColorBinding binding;
+					binding.Index = i;
+					memcpy(binding.Clear, info.Clear.Color, sizeof(float) * 4);
+					bindings.push_back(binding);
+				}
+			}
+
+			for (const RHI::ColorBinding& binding : bindings)
+			{
+				if (binding.Index >= textures.size())
+				{
+					RV_CORE_ERROR("Render pass binds colour attachment {0} of a target "
+								  "that has {1}", binding.Index, textures.size());
+					continue;
+				}
+
+				const auto& texture = textures[binding.Index];
 				texture->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
 				VkRenderingAttachmentInfo attachment{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
@@ -96,7 +120,7 @@ namespace RageV::Vk
 				attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 				attachment.loadOp = info.ClearColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 				attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-				memcpy(attachment.clearValue.color.float32, info.Clear.Color, sizeof(float) * 4);
+				memcpy(attachment.clearValue.color.float32, binding.Clear, sizeof(float) * 4);
 				colorAttachments.push_back(attachment);
 			}
 

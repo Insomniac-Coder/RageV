@@ -12,11 +12,33 @@
 
 namespace RageV::RHI
 {
+	// One of a target's colour attachments, bound by a pass that does not want
+	// all of them.
+	struct ColorBinding
+	{
+		uint32_t Index = 0;
+		float    Clear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	};
+
 	struct RenderPassBeginInfo
 	{
 		// nullptr targets the swapchain.
 		RHIRenderTarget* Target = nullptr;
 		ClearValue       Clear;
+
+		// Which colour attachments to bind, and what each clears to. Empty --
+		// every pass that predates weighted-blended transparency -- binds all
+		// of them and clears them to Clear.Color.
+		//
+		// Two things need this at once. A pass may want a *subset*: the scene
+		// writes colour while a later pass over the same target writes
+		// accumulation and revealage, and a pipeline's declared colour formats
+		// must match what the pass binds, so the scene's pipelines cannot be
+		// asked to declare attachments they never write. And those two
+		// attachments clear to different values -- zero and one -- which one
+		// shared clear colour cannot say.
+		std::vector<ColorBinding> ColorAttachments;
+
 		bool             ClearColor = true;
 		bool             ClearDepth = true;
 		// Attach depth at all. A pass that declares a depth attachment requires

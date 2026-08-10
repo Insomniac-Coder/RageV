@@ -50,15 +50,28 @@ namespace RageV
 	using RGResource = uint32_t;
 	constexpr RGResource kRGInvalid = ~0u;
 
-	// A target the graph owns. One colour attachment and one depth, matching
-	// what RenderPassBeginInfo can express -- a graph resource is a target
-	// rather than a single attachment, because that is the unit the RHI binds.
+	// A target the graph owns: colour attachments and one depth. A graph
+	// resource is a target rather than a single attachment, because that is
+	// the unit the RHI binds.
 	struct RGTargetDesc
 	{
 		std::string Name;
 
 		// Undefined means depth-only, which is what a shadow map is.
 		RHI::Format Color = RHI::Format::R16G16B16A16_SFLOAT;
+
+		// Attachments after the first. Almost always empty -- one colour and
+		// one depth is what a pass wants.
+		//
+		// The exception is a technique whose passes write different
+		// attachments of one image set over a shared depth buffer:
+		// weighted-blended transparency accumulates into two of them while the
+		// scene's colour sits in the first, and all three must depth-test
+		// against the same buffer. Declaring them together here is what makes
+		// that depth shared rather than three targets each with a depth of
+		// their own.
+		std::vector<RHI::Format> ExtraColors;
+
 		// Undefined means no depth.
 		RHI::Format Depth = RHI::Format::D32_SFLOAT;
 
@@ -84,11 +97,30 @@ namespace RageV
 	class RenderGraph;
 
 	// What a pass declares about itself, during setup.
+	// One colour attachment a pass binds, and what it starts from.
+	struct RGAttachment
+	{
+		uint32_t Index = 0;
+		Vec4 Clear{ 0.0f, 0.0f, 0.0f, 1.0f };
+	};
+
 	class RGPassBuilder
 	{
 	public:
-		// Draw into this target. A pass writes exactly one.
+		// Draw into this target. A pass writes exactly one, binding every
+		// colour attachment it has.
 		void Write(RGResource target, RGLoad load = RGLoad::Clear);
+
+		// Draw into some of a target's colour attachments, each starting from
+		// its own value.
+		//
+		// The subset is not an optimisation. A pipeline's declared colour
+		// formats must match what the pass binds, so a target carrying three
+		// attachments cannot be written by pipelines that declare one --
+		// which is every pipeline that draws the scene. Binding a subset is
+		// what lets one target with one depth buffer serve both.
+		void WriteAttachments(RGResource target, const std::vector<RGAttachment>& attachments,
+							  RGLoad load = RGLoad::Clear);
 
 		// Read this target's colour, or depth, in a shader. Declaring it is
 		// what lets Compile catch a pass reading something nothing produced --
@@ -125,7 +157,10 @@ namespace RageV
 		// Textures of a target declared with Sample. Null if it was not
 		// declared, rather than silently returning something -- an undeclared
 		// read is the bug this is trying to make visible.
-		RHI::Ref<RHI::RHITexture> Color(RGResource target) const;
+		//
+		// `attachment` picks among a multi-attachment target's colours; zero
+		// is the only one most targets have.
+		RHI::Ref<RHI::RHITexture> Color(RGResource target, uint32_t attachment = 0) const;
 		RHI::Ref<RHI::RHITexture> Depth(RGResource target) const;
 
 		const RenderGraph* Graph = nullptr;
@@ -212,6 +247,8 @@ namespace RageV
 			RGResource Output = kRGInvalid;
 			RGLoad Load = RGLoad::Clear;
 			std::vector<RGResource> Samples;
+			// Empty binds every colour attachment the target has.
+			std::vector<RGAttachment> Attachments;
 
 			Vec4 ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 			float ClearDepth = 1.0f;
