@@ -198,7 +198,10 @@ namespace RageV::Vk
 		rasterizer.polygonMode = ToVkPolygonMode(m_Desc.Rasterizer.Polygon);
 		rasterizer.cullMode = ToVkCullMode(m_Desc.Rasterizer.Cull);
 		rasterizer.frontFace = ToVkFrontFace(m_Desc.Rasterizer.Front);
-		rasterizer.lineWidth = m_Desc.Rasterizer.LineWidth;
+		// Clamped to 1.0 when the device lacks wideLines: a wider ask would be
+		// a validation error, and a thin line beats no overlay at all.
+		rasterizer.lineWidth = m_Device.WideLinesSupported()
+			? m_Desc.Rasterizer.LineWidth : 1.0f;
 		rasterizer.depthBiasEnable = m_Desc.Rasterizer.DepthBiasEnable ? VK_TRUE : VK_FALSE;
 		rasterizer.depthBiasConstantFactor = m_Desc.Rasterizer.DepthBiasConstant;
 		rasterizer.depthBiasSlopeFactor = m_Desc.Rasterizer.DepthBiasSlope;

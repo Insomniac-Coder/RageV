@@ -215,6 +215,12 @@ namespace RageV
 		desc.Shader = s_Data->Shader;
 		desc.Topology = PrimitiveTopology::LineList;
 		desc.Rasterizer.Cull = CullMode::None;
+		// A single-pixel line lying on a surface loses half its pixels into
+		// it and disappears at any distance. Both backends clamp to what the
+		// hardware can draw (Vulkan needs the wideLines feature; GL only
+		// promises 1.0), so on hardware without support this degrades to the
+		// old look rather than failing.
+		desc.Rasterizer.LineWidth = 2.5f;
 		desc.Blend = BlendPreset::AlphaBlend;
 
 		// Tested but not written.

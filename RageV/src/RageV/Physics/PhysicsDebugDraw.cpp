@@ -81,19 +81,27 @@ namespace RageV::Physics
 				Math::ToMat4(rotation) *
 				Math::Translate(Mat4(1.0f), sized.Offset);
 
+			// Drawn a hair larger than the collider itself, so the line sits
+			// just outside the surface it describes rather than half-buried in
+			// the mesh that usually shares that surface exactly -- where depth
+			// testing eats one side of it and the rest z-fights.
+			constexpr float kSkin = 0.01f;
+
 			switch (collider.Shape)
 			{
 				case ColliderShape::Sphere:
-					DebugRenderer::DrawSphere(shapeTransform, sized.Radius, color);
+					DebugRenderer::DrawSphere(shapeTransform, sized.Radius + kSkin, color);
 					break;
 
 				case ColliderShape::Capsule:
-					DebugRenderer::DrawCapsule(shapeTransform, sized.Radius, sized.HalfHeight, color);
+					DebugRenderer::DrawCapsule(shapeTransform, sized.Radius + kSkin,
+											   sized.HalfHeight + kSkin, color);
 					break;
 
 				case ColliderShape::Box:
 				default:
-					DebugRenderer::DrawBox(shapeTransform, sized.HalfExtents, color);
+					DebugRenderer::DrawBox(shapeTransform,
+										   sized.HalfExtents + Vec3(kSkin), color);
 					break;
 			}
 		}

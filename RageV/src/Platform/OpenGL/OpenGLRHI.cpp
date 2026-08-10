@@ -529,6 +529,12 @@ namespace RageV::GL
 		glPolygonMode(GL_FRONT_AND_BACK, raster.Polygon == PolygonMode::Line ? GL_LINE
 									   : raster.Polygon == PolygonMode::Point ? GL_POINT : GL_FILL);
 
+		// The core profile only guarantees width 1.0, but drivers in practice
+		// honour more, and a request beyond the supported range is clamped by
+		// the driver rather than being an error -- so this is safe to ask for
+		// unconditionally, unlike Vulkan's wideLines feature.
+		glLineWidth(raster.LineWidth);
+
 		if (raster.DepthBiasEnable)
 		{
 			glEnable(GL_POLYGON_OFFSET_FILL);

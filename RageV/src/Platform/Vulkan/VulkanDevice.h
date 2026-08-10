@@ -40,6 +40,7 @@ namespace RageV::Vk
 
 		RHI::Backend GetBackend() const override { return RHI::Backend::Vulkan; }
 		const RHI::DeviceCaps& GetCaps() const override { return m_Caps; }
+		bool WideLinesSupported() const { return m_WideLinesSupported; }
 
 		RHI::RHICommandList* BeginFrame() override;
 		void EndFrame() override;
@@ -198,6 +199,9 @@ namespace RageV::Vk
 		std::vector<uint64_t> m_TimestampScratch;
 		double m_TimestampPeriodNs = 1.0;
 		bool m_TimestampsSupported = false;
+		// Whether the wideLines feature was there to enable; pipelines clamp
+		// their line width to 1.0 without it rather than tripping validation.
+		bool m_WideLinesSupported = false;
 
 		std::shared_ptr<DeletionQueue> m_Deletion;
 		std::vector<FrameContext> m_Frames;

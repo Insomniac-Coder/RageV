@@ -412,6 +412,11 @@ namespace RageV::Vk
 		features.fillModeNonSolid  = supported.fillModeNonSolid;   // wireframe debug views
 		features.depthClamp        = supported.depthClamp;         // shadow map depth clamping
 		features.depthBiasClamp    = supported.depthBiasClamp;
+		// Collider overlay lines thicker than one pixel. Optional in Vulkan;
+		// a pipeline asking for a width the device cannot draw is a validation
+		// error, so VulkanPipeline clamps to 1.0 when this is absent.
+		features.wideLines         = supported.wideLines;
+		m_WideLinesSupported       = supported.wideLines == VK_TRUE;
 		// Indexing a sampler array with a non-constant expression, which the
 		// batched quad shader does.
 		features.shaderSampledImageArrayDynamicIndexing = supported.shaderSampledImageArrayDynamicIndexing;
