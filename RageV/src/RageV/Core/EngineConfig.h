@@ -105,11 +105,12 @@ namespace RageV
 		// panel layout only misbehaves at sizes you have to reproduce to see.
 		uint32_t     WindowWidth = 1600;
 		uint32_t     WindowHeight = 900;
-#ifdef RV_DEBUG
-		bool         EnableValidation = true;
-#else
+		// Off unless asked, in every configuration. The layers cost ~1.5 ms of
+		// CPU per frame -- measured; it more than doubled an editor frame and
+		// made Vulkan read as slower than OpenGL when it is faster -- and a
+		// cost like that should be a choice, not a default. `validation = on`
+		// in ragev.ini or --validation=on turns them on for GPU debugging.
 		bool         EnableValidation = false;
-#endif
 
 		// Parses ragev.ini (if present) then the command line. Call once, before
 		// anything creates a window.

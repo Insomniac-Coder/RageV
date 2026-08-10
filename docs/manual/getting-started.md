@@ -120,7 +120,7 @@ Every flag below can also go in a `ragev.ini` file next to the executable, as
 |---|---|
 | `--rhi=vulkan\|opengl` | Graphics backend. Restart-time by design. |
 | `--vsync=on\|off` | Present synchronised to the display. |
-| `--validation=on\|off` | Vulkan validation layers. On in `Debug`, off in the runtime. |
+| `--validation=on\|off` | Vulkan validation layers. **Off by default, everywhere** — see below. |
 | `--fixed-hz=N` | Simulation rate, 20–240. Default 60. |
 | `--width=N` `--height=N` | Window size. |
 | `--audio=on\|off` | Whether to open an output device at all. |
@@ -136,6 +136,22 @@ Every flag below can also go in a `ragev.ini` file next to the executable, as
 > can, but on Windows the frame rate does not fully unlock until the next start —
 > the compositor decides how a window presents when that window first presents.
 > The checkbox says so in place.
+
+### Debugging GPU work: validation layers
+
+When something on the GPU misbehaves — flicker that looks like a
+synchronisation bug, a crash inside the driver, a resource that renders
+garbage — set `validation = on` in `ragev.ini` (or pass `--validation=on`) and
+run on Vulkan. The validation layers check every API call and report the
+mistake in the log, by name, usually with a link to the specification.
+They need the [LunarG Vulkan SDK](https://vulkan.lunarg.com/) installed;
+without it the engine logs a warning and carries on unvalidated.
+
+Turn them back off when you are done. The layers cost about **1.5 ms of CPU
+per frame** — enough to more than double an editor frame — and only Vulkan
+pays it, so leaving them on makes Vulkan look slower than OpenGL when it is
+measurably faster. `--benchmark` prints the validation state in its banner so
+a skewed measurement identifies itself.
 
 ## Where things live
 

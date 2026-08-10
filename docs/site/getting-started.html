@@ -71,7 +71,7 @@
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Flag</th><th style="text-align:left">Meaning</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>--rhi=vulkan\|opengl</code></td><td style="text-align:left">Graphics backend. Restart-time by design.</td></tr>
 <tr><td style="text-align:left"><code>--vsync=on\|off</code></td><td style="text-align:left">Present synchronised to the display.</td></tr>
-<tr><td style="text-align:left"><code>--validation=on\|off</code></td><td style="text-align:left">Vulkan validation layers. On in <code>Debug</code>, off in the runtime.</td></tr>
+<tr><td style="text-align:left"><code>--validation=on\|off</code></td><td style="text-align:left">Vulkan validation layers. <strong>Off by default, everywhere</strong> — see below.</td></tr>
 <tr><td style="text-align:left"><code>--fixed-hz=N</code></td><td style="text-align:left">Simulation rate, 20–240. Default 60.</td></tr>
 <tr><td style="text-align:left"><code>--width=N</code> <code>--height=N</code></td><td style="text-align:left">Window size.</td></tr>
 <tr><td style="text-align:left"><code>--audio=on\|off</code></td><td style="text-align:left">Whether to open an output device at all.</td></tr>
@@ -83,6 +83,9 @@
 </tbody></table></div>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p><code>--vsync=off</code> set at startup and unchecked at runtime are not the same thing. Turning it off from the editor&#39;s checkbox saves the choice and applies what it can, but on Windows the frame rate does not fully unlock until the next start — the compositor decides how a window presents when that window first presents. The checkbox says so in place.</p>
 </aside>
+<h3 id="debugging-gpu-work-validation-layers">Debugging GPU work: validation layers<a class="anchor" href="#debugging-gpu-work-validation-layers" aria-label="Link to this section">#</a></h3>
+<p>When something on the GPU misbehaves — flicker that looks like a synchronisation bug, a crash inside the driver, a resource that renders garbage — set <code>validation = on</code> in <code>ragev.ini</code> (or pass <code>--validation=on</code>) and run on Vulkan. The validation layers check every API call and report the mistake in the log, by name, usually with a link to the specification. They need the <a href="https://vulkan.lunarg.com/" target="_blank" rel="noopener">LunarG Vulkan SDK</a> installed; without it the engine logs a warning and carries on unvalidated.</p>
+<p>Turn them back off when you are done. The layers cost about <strong>1.5 ms of CPU per frame</strong> — enough to more than double an editor frame — and only Vulkan pays it, so leaving them on makes Vulkan look slower than OpenGL when it is measurably faster. <code>--benchmark</code> prints the validation state in its banner so a skewed measurement identifies itself.</p>
 <h2 id="where-things-live">Where things live<a class="anchor" href="#where-things-live" aria-label="Link to this section">#</a></h2>
 <figure class="code"><figcaption>text</figcaption><pre><code>RageV/            the engine library
 RageVEditor/      the editor
@@ -94,7 +97,7 @@ docs/             this manual, plus the engine<span class="tok-string">&#39;s ow
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="index.html"><span class="pager-label">Previous</span><span class="pager-title">Introduction</span></a><a class="pager-link pager-next" href="concepts.html"><span class="pager-label">Next</span><span class="pager-title">Core concepts</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#what-you-need">What you need</a><a class="toc-link toc-l2" href="#build-it">Build it</a><a class="toc-link toc-l2" href="#run-the-editor">Run the editor</a><a class="toc-link toc-l2" href="#create-a-project">Create a project</a><a class="toc-link toc-l2" href="#run-a-project-without-the-editor">Run a project without the editor</a><a class="toc-link toc-l2" href="#package-a-project">Package a project</a><a class="toc-link toc-l2" href="#command-line-flags">Command-line flags</a><a class="toc-link toc-l2" href="#where-things-live">Where things live</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#what-you-need">What you need</a><a class="toc-link toc-l2" href="#build-it">Build it</a><a class="toc-link toc-l2" href="#run-the-editor">Run the editor</a><a class="toc-link toc-l2" href="#create-a-project">Create a project</a><a class="toc-link toc-l2" href="#run-a-project-without-the-editor">Run a project without the editor</a><a class="toc-link toc-l2" href="#package-a-project">Package a project</a><a class="toc-link toc-l2" href="#command-line-flags">Command-line flags</a><a class="toc-link toc-l3" href="#debugging-gpu-work-validation-layers">Debugging GPU work: validation layers</a><a class="toc-link toc-l2" href="#where-things-live">Where things live</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>

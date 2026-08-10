@@ -65,9 +65,12 @@ build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --scr
 **Five things that are easy to get wrong here, all learned the hard way:**
 
 1. **Run each tool from its own directory.** Assets are staged per target.
-2. **`--validation=on` for the runtime.** It ships with validation *off*, so a
-   run without the flag reports zero validation lines whether or not there were
-   any. That already hid a black screen and a segfault once.
+2. **`--validation=on` for *every* verification run, editor included.**
+   Validation is off by default everywhere now -- it costs ~1.5 ms/frame and
+   was making Vulkan read as slower than OpenGL -- so a run without the flag
+   reports zero validation lines whether or not there were any. That already
+   hid a black screen and a segfault once, back when only the runtime shipped
+   with it off.
 3. **Verify by exiting, not by killing.** `exit 0` is part of the bar. A killed
    process runs no destructors, which hid a leak of every scene and every
    render target for months.
