@@ -1,0 +1,468 @@
+Scene: Knockdown
+Version: 5
+Environment:
+  AmbientColor: [0.45, 0.47, 0.55]
+  AmbientIntensity: 0.14
+  Sky: 1
+  SkyHorizon: [0.62, 0.47, 0.4]
+  SkyZenith: [0.15, 0.2, 0.38]
+  SkyGround: [0.14, 0.13, 0.13]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+  Exposure: 1
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomKnee: 0.5
+  BloomIntensity: 0.06
+  BloomClamp: 16
+  ShadowsEnabled: true
+  ShadowCascades: 4
+  ShadowResolution: 2048
+  ShadowDistance: 40
+  ShadowSplitLambda: 0.85
+  ShadowNormalOffset: 0.9
+  AntiAliasing: 1
+Entities:
+  - EntityID: 7770000000000000001
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, 0, -2]
+      Rotation: [0, 0, 0]
+      Scale: [40, 1, 40]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material:
+        BaseColor: [0.2, 0.21, 0.24, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.25, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, -0.25, 0]
+      IsTrigger: false
+  - EntityID: 7770000000000000002
+    TagComponent:
+      Tag: Launcher
+    TransformComponent:
+      Position: [0, 0, 9]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    NativeScriptComponent:
+      Script: Launcher
+  - EntityID: 7770000000000000003
+    RelationshipComponent:
+      Parent: 7770000000000000002
+    TagComponent:
+      Tag: Launcher Base
+    TransformComponent:
+      Position: [0, 0.4, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 0.8, 1]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.24, 0.25, 0.28, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.55
+        Occlusion: 1
+  - EntityID: 7770000000000000004
+    RelationshipComponent:
+      Parent: 7770000000000000002
+    TagComponent:
+      Tag: Muzzle
+    TransformComponent:
+      Position: [0, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7770000000000000005
+    RelationshipComponent:
+      Parent: 7770000000000000004
+    TagComponent:
+      Tag: Barrel
+    TransformComponent:
+      Position: [0, 0, -0.7]
+      Rotation: [0, 0, 0]
+      Scale: [0.28, 0.28, 1.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.32, 0.33, 0.38, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.35
+        Occlusion: 1
+  - EntityID: 7770000000000000006
+    RelationshipComponent:
+      Parent: 7770000000000000002
+    TagComponent:
+      Tag: Game Camera
+    TransformComponent:
+      Position: [0, 2.6, 3.8]
+      Rotation: [-0.24, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7770000000000000007
+    TagComponent:
+      Tag: Platform
+    TransformComponent:
+      Position: [0, 1, -7]
+      Rotation: [0, 0, 0]
+      Scale: [3.6, 0.5, 3.6]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.38, 0.36, 0.34, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.8
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.55
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 7770000000000000010
+    TagComponent:
+      Tag: CrateStack
+    TransformComponent:
+      Position: [0, 1.25, -7]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7770000000000000011
+    RelationshipComponent:
+      Parent: 7770000000000000010
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [-0.66, 0.32, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7770000000000000012
+    RelationshipComponent:
+      Parent: 7770000000000000010
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [0, 0.32, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7770000000000000013
+    RelationshipComponent:
+      Parent: 7770000000000000010
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [0.66, 0.32, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7770000000000000014
+    RelationshipComponent:
+      Parent: 7770000000000000010
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [-0.33, 0.95, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7770000000000000015
+    RelationshipComponent:
+      Parent: 7770000000000000010
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [0.33, 0.95, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7770000000000000016
+    RelationshipComponent:
+      Parent: 7770000000000000010
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [0, 1.58, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7770000000000000020
+    TagComponent:
+      Tag: OutZone
+    TransformComponent:
+      Position: [0, 0.4, -5]
+      Rotation: [0, 0, 0]
+      Scale: [36, 0.8, 26]
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.4
+      Restitution: 0.1
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: true
+    ManagedScriptComponent:
+      Script: GameManager
+  - EntityID: 7770000000000000021
+    TagComponent:
+      Tag: Beacon Pole
+    TransformComponent:
+      Position: [3.4, 1.1, -7]
+      Rotation: [0, 0, 0]
+      Scale: [0.24, 2.2, 0.24]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material:
+        BaseColor: [0.26, 0.27, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.5
+        Occlusion: 1
+  - EntityID: 7770000000000000022
+    TagComponent:
+      Tag: Beacon Light
+    TransformComponent:
+      Position: [3.4, 2.6, -7]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.12, 0.1]
+      Intensity: 60
+      Range: 16
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 7770000000000000023
+    TagComponent:
+      Tag: AimDot
+    TransformComponent:
+      Position: [0, -10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.16, 0.16, 0.16]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.1, 0.05, 0.02, 1]
+        Emissive: [2.5, 0.9, 0.2, 1]
+        Metallic: 0
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7770000000000000024
+    TagComponent:
+      Tag: Ambience
+    TransformComponent:
+      Position: [0, 1.5, -7]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ManagedScriptComponent:
+      Script: Ambience
+  - EntityID: 7770000000000000025
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.9599311, -0.5235988, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.95, 0.88]
+      Intensity: 2.6
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30

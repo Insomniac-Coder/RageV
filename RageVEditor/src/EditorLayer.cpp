@@ -841,6 +841,13 @@ void EditorLayer::DrawMenuBar()
 	if (ImGui::BeginMenu("File"))
 	{
 		if (ImGui::MenuItem("New Scene", "Ctrl+N"))   NewScene();
+		if (ImGui::MenuItem("New Project...")) NewProject();
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Pick a name and a place; a folder of that name is\n"
+							  "made there, with assets/, Scripts/, Source/ and a\n"
+							  "starter scene already in it.");
+		}
 		if (ImGui::MenuItem("Open Project...")) OpenProject();
 		if (ImGui::IsItemHovered())
 		{
@@ -2368,7 +2375,13 @@ void EditorLayer::NewProject()
 	if (chosen.empty())
 		return;
 
-	const std::filesystem::path picked(chosen);
+	CreateProjectAt(chosen);
+}
+
+// The dialog's result names both the project and the folder to put it in --
+// split from the dialog so the creation itself can be driven without one.
+void EditorLayer::CreateProjectAt(const std::filesystem::path& picked)
+{
 	const std::string name = picked.stem().string();
 	if (name.empty())
 	{
@@ -2590,8 +2603,12 @@ void EditorLayer::BuildScripts()
 	const std::string name = Project::Config().Name;
 	const std::filesystem::path csproj = Managed::ScriptBuild::ProjectFileFor(root, name);
 	const std::filesystem::path scriptsOut = root / "Scripts" / "bin";
-	// The engine's own class library, staged beside the executable.
-	const std::filesystem::path scriptCore = "managed/RageV.ScriptCore.dll";
+	// The engine's own class library, staged beside the executable. Absolute,
+	// because MSBuild resolves a relative HintPath against the .csproj's
+	// directory, not against this process's working directory -- passed
+	// relative, every editor C# build failed with a missing-type cascade.
+	const std::filesystem::path scriptCore =
+		std::filesystem::absolute("managed/RageV.ScriptCore.dll");
 
 	// The loaded module holds its own DLL open, so the linker cannot write the
 	// new one: it has to be unloaded before the build starts, and that is only

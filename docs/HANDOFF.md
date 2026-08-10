@@ -62,7 +62,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-776 checks, `exit 0`. Then look at a frame:
+783 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -1027,27 +1027,79 @@ scripts, and resumes Play on the new code; validation layers are opt-in
 everywhere (~1.5 ms/frame of CPU when on, Vulkan only -- the manual's
 getting-started page has the section).
 
-### START HERE - the mini game
+### Done - the mini game (Knockdown/)
 
-ROADMAP section 9 recommends building a small game before phase 6, the user
-has agreed, and it is the next session's whole job. Constraints that should
-shape the pick:
+The game exists, plays, and ships. **Knockdown**: you stand at a launcher
+(A/D swing it, W/S tilt the muzzle, Space or left-click fires), lob heavy
+balls at a pyramid of six crates on a platform, and knock them all onto the
+ground. The beacon beside the platform walks from red to green as crates
+land in the out-zone trigger; the last one plays a chime and doubles the
+light. F resets the round by respawning the crate stack prefab. No text, no
+UI -- the light, the sounds and the crates are the whole scoreboard.
 
-- **No text rendering and no game UI.** A score, a menu, a health bar cannot
-  be drawn. The game must be one whose feedback is the scene itself --
-  physics doing something visible, sound, light. Knock-things-down,
-  roll-to-goal, survive-the-falling-things shapes fit; anything needing a
-  HUD does not.
-- **What it exercises, deliberately:** a fresh project via File > New
-  Project, scripts in both languages (C++ in Source/, C# in Scripts/), the
-  live-reload loop including mid-play builds, collision callbacks and
-  raycasts, real audio playback through the C# surface -- which has only
-  ever been exercised at its no-op contracts -- and at the end, File >
-  Build Game and the packaged folder run on its own.
-- **What to write down while building:** every papercut, in a list. Which
-  missing thing hurt first -- UI, particles, animation blending, something
-  unforeseen -- is the answer that picks phase 6's contents, and it is the
-  entire reason to build the game rather than guess.
+It deliberately spans both languages: C++ (`Source/Launcher.cpp`,
+`Ball.cpp`) does input, raycast aiming (the emissive AimDot is the sight),
+prefab spawning and launch velocity; C# (`Scripts/GameManager.cs`,
+`Crate.cs`, `Ambience.cs`) does trigger counting, the component-bridge
+light changes, impact/win/ambience audio by asset path, and the reset. The
+sounds are synthesised by `tools/scripts/make_game_audio.py` -- same
+convention as the sky generator.
+
+Verified end to end on both backends with validation on: the full autoplay
+round (crates scattered, beacon green, win logged), a mid-play Ctrl+B that
+stopped the scene, rebuilt both languages and resumed Play, and File >
+Build Game producing a folder that runs standalone -- including booting
+.NET from its own managed/ and running the C# manager.
+
+**The exercise worked: it found five real engine holes in one session,**
+each now fixed and covered by a scenetest check:
+
+1. `File > New Project` was implemented but never put in the menu.
+2. A rigid body gained during play never joined the simulation -- AddBody
+   existed and had no callers. The first fired ball hung in the air.
+   (Reconciled at the top of the fixed step, skipping condemned entities.)
+3. C# collision/trigger callbacks were never delivered from a real
+   simulation: DeliverContact resolved only the native component. The
+   whole managed contact surface was written, bound, documented, tested at
+   the table -- and unreachable. (`RageV.Builtin.ContactCounter` is the
+   worked example and the regression probe.)
+4. Nothing outside scenetest ever booted the .NET host or loaded a
+   project's built assembly: in a fresh editor, C# was dead until a manual
+   build, and a packaged game had no C# at all. (Project::Load now loads
+   scripts for editor, runtime and packaged game by the same line, and the
+   packager ships managed/.)
+5. Editor C# builds always failed: the ScriptCore reference was passed as
+   a CWD-relative path, which MSBuild resolves against the .csproj's
+   directory. (Absolute now.)
+
+Smaller finds: creating a project left the previous module loaded (fixed),
+the C# manual's prefab example used `.prefab` for `.rprefab` (fixed), and
+the content browser draws folder icons as `[/]` tofu (open, cosmetic).
+
+**Known issue (open):** in the *runtime* only -- the editor is clean -- a
+`vkFreeDescriptorSets` validation error fires occasionally when an entity
+with a per-instance material is destroyed mid-play (repro: package
+Knockdown, run with `--validation=on`, wait for a ball to expire). The
+free already goes through the DeletionQueue, so this smells like the
+runtime frame loop flushing a slot one frame early. Worth a session of its
+own eyes.
+
+### START HERE - picking phase 6
+
+The papercut list is the phase 6 ballot, and what actually hurt while
+building a real game, in order:
+
+1. **No game UI or text.** The game cannot say "press F to reset", show a
+   score, or put up a title. Everything had to be communicated with a
+   light and four sounds -- workable for one mechanic, not for two.
+2. **No per-frame script hook.** OnUpdate is per fixed step by design, so
+   camera smoothing and juice (recoil, shake) have nowhere to live; the
+   camera rides the launcher rigidly.
+3. **No particles.** Impacts are physically right and visually dry.
+4. Small API wants: a positional one-shot at an arbitrary point from C#
+   (today: own entity or 2D), pitch variation on one-shots.
+
+The user picks; the list argues for UI/text first.
 
 ### Worth knowing before extending scripting further
 

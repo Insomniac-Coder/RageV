@@ -275,6 +275,32 @@ namespace RageV
 			}
 		}
 
+		// The project's C# assembly, on the same terms as the module. It goes
+		// into managed/ rather than the root: the root already holds the C++
+		// module, and both are named after the game. The class library and its
+		// runtime config travel along, because the loader looks for
+		// managed/RageV.ScriptCore.dll beside the executable -- the same place
+		// the editor keeps its copy.
+		{
+			const fs::path assembly =
+				Project::Root() / "Scripts" / "bin" / (name + ".dll");
+			if (fs::exists(assembly, error))
+			{
+				const fs::path managed = runtime.parent_path() / "managed";
+				if (!CopyTree(managed, desc.OutputDirectory / "managed", result))
+					return result;
+				if (!CopyOne(assembly, desc.OutputDirectory / "managed" / (name + ".dll"),
+							 result))
+					return result;
+			}
+			else if (fs::exists(Project::Root() / "Scripts" / (name + ".csproj"), error))
+			{
+				result.Warnings.push_back("this project has C# scripts but no built "
+										  "assembly; entities using them will do nothing "
+										  "in the packaged game. Build Scripts first.");
+			}
+		}
+
 		if (!CopyTree(engineAssets, desc.OutputDirectory / "assets", result))
 			return result;
 

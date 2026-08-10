@@ -38,6 +38,9 @@ public:
 	void OpenSceneFile(const std::filesystem::path& filepath);
 	void SaveScene();
 	void NewProject();
+	// The part of NewProject after its dialog: `picked` names the .rvproject,
+	// and a folder of that name is created beside it.
+	void CreateProjectAt(const std::filesystem::path& picked);
 	void OpenProject();
 	void SetStartSceneToCurrent();
 

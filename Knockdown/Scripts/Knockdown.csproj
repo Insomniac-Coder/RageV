@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Knockdown</AssemblyName>
+    <RootNamespace>Knockdown</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- The editor passes -p:RageVScriptCore=<path> when it builds this. The
+       fallback exists only so that a hand-run `dotnet build` fails with
+       something a person can act on rather than a missing-type cascade. -->
+  <PropertyGroup Condition="'$(RageVScriptCore)' == ''">
+    <RageVScriptCore>RageV.ScriptCore.dll</RageVScriptCore>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RageV.ScriptCore">
+      <HintPath>$(RageVScriptCore)</HintPath>
+      <!-- The engine already has it loaded; copying it next to the game's
+           assembly would give the process two of them. -->
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

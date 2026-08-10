@@ -845,6 +845,23 @@ namespace
 		scene->OnFixedUpdateRuntime(dt);
 		Check(physics->GetBodyCount() == 2, "destroying an entity removes its body");
 
+		// An entity that gains its body *during* play -- a spawned prefab, a
+		// script-assembled projectile -- must join the simulation. Nothing
+		// ever called AddBody until the first real game fired a ball and
+		// watched it hang in the air exactly where it appeared.
+		Entity spawned = scene->CreateEntity("Spawned");
+		spawned.GetComponent<TransformComponent>().Position = { 3.0f, 6.0f, 0.0f };
+		spawned.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+		spawned.AddComponent<ColliderComponent>();
+
+		for (int i = 0; i < 30; i++)
+			scene->OnFixedUpdateRuntime(dt);
+		scene->OnUpdateRuntime(dt);
+
+		Check(physics->GetBodyCount() == 3, "an entity spawned during play gains a body");
+		Check(spawned.GetComponent<TransformComponent>().Position.y < 5.5f,
+			  "and it simulates -- a spawned crate falls");
+
 		scene->OnRuntimeStop();
 		Check(scene->GetPhysics() == nullptr, "stop tears the physics world down");
 	}
@@ -5309,6 +5326,20 @@ int RunTests(int argc, char** argv)
 								  "and a type that did not exist before the reload instantiates");
 							if (reloadedHandle != 0)
 								Managed::Interop::Managed().Destroy(reloadedHandle);
+
+							// Opening a project must load its built assembly by
+							// itself: pressing Build once per session was never
+							// the contract, and a packaged game has no Build to
+							// press. Scripts loaded only after a build until the
+							// first project opened in a fresh editor proved it.
+							Check(Project::Load(root / "Scripted.rvproject"),
+								  "the project opens again");
+
+							std::string types(512, '\0');
+							Managed::Interop::Managed().ListScriptTypes(
+								types.data(), (int32_t)types.size());
+							Check(types.find("Reloaded") != std::string::npos,
+								  "and opening it loaded the built C# on its own");
 						}
 					}
 				}
@@ -5430,6 +5461,56 @@ int RunTests(int argc, char** argv)
 							  .GetComponent<ManagedScriptComponent>().Handle == 0,
 						  "and Stop releases the instance rather than leaking the handle");
 				}
+			}
+
+			// --- contacts reach managed scripts through the scene ------------
+			//
+			// DeliverContact used to resolve only the native component and
+			// return: every C# OnCollision*/OnTrigger* was written, bound,
+			// documented and never called from a real simulation. The first
+			// C# game found that in an afternoon; this is that afternoon,
+			// run backwards.
+			if (Managed::Interop::IsReady())
+			{
+				const Managed::ManagedApi& host = Managed::Interop::Managed();
+
+				auto scene = std::make_shared<Scene>();
+
+				Entity floor = scene->CreateEntity("Floor");
+				floor.GetComponent<TransformComponent>().Position = { 0.0f, -1.0f, 0.0f };
+				floor.AddComponent<RigidBodyComponent>(BodyType::Static);
+				floor.AddComponent<ColliderComponent>().HalfExtents = { 10.0f, 1.0f, 10.0f };
+
+				Entity box = scene->CreateEntity("Box");
+				box.GetComponent<TransformComponent>().Position = { 0.0f, 2.0f, 0.0f };
+				box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+				box.AddComponent<ColliderComponent>();
+				box.AddComponent<ManagedScriptComponent>("RageV.Builtin.ContactCounter");
+
+				scene->OnRuntimeStart();
+
+				// Two seconds: fall from two units, land, settle.
+				for (int step = 0; step < 120; step++)
+					scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+
+				const int32_t counter = box.GetComponent<ManagedScriptComponent>().Handle;
+				Check(counter != 0, "the counter script is alive on the falling box");
+
+				std::string entered(32, '\0');
+				const bool read = counter != 0 &&
+					host.GetFieldValue(counter, "m_Entered",
+									   entered.data(), (int32_t)entered.size()) > 0;
+				Check(read && std::atoi(entered.c_str()) >= 1,
+					  "a collision in the simulation reaches a managed OnCollisionEnter");
+
+				std::string hardest(32, '\0');
+				const bool readHit = counter != 0 &&
+					host.GetFieldValue(counter, "m_HardestHit",
+									   hardest.data(), (int32_t)hardest.size()) > 0;
+				Check(readHit && std::atof(hardest.c_str()) > 0.5,
+					  "carrying the impact speed the landing actually had");
+
+				scene->OnRuntimeStop();
 			}
 
 			// --- protocol 4: the rest of the surface across the boundary -----

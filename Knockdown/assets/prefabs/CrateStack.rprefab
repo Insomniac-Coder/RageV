@@ -1,0 +1,220 @@
+Scene: Subtree
+Version: 5
+Entities:
+  - EntityID: 7772000000000000001
+    TagComponent:
+      Tag: CrateStack
+    TransformComponent:
+      Position: [0, 1.25, -7]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7772000000000000002
+    RelationshipComponent:
+      Parent: 7772000000000000001
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [-0.66, 0.32, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7772000000000000003
+    RelationshipComponent:
+      Parent: 7772000000000000001
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [0, 0.32, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7772000000000000004
+    RelationshipComponent:
+      Parent: 7772000000000000001
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [0.66, 0.32, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7772000000000000005
+    RelationshipComponent:
+      Parent: 7772000000000000001
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [-0.33, 0.95, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7772000000000000006
+    RelationshipComponent:
+      Parent: 7772000000000000001
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [0.33, 0.95, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate
+  - EntityID: 7772000000000000007
+    RelationshipComponent:
+      Parent: 7772000000000000001
+    TagComponent:
+      Tag: Crate
+    TransformComponent:
+      Position: [0, 1.58, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.62]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.72, 0.49, 0.26, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.7
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+      Friction: 0.5
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    ManagedScriptComponent:
+      Script: Crate

@@ -1,0 +1,5 @@
+Project:
+  Name: Knockdown
+  AssetDirectory: assets
+  StartScene: scenes/Main.rage
+  FixedHz: 60

@@ -1,0 +1,6 @@
+# Build output: the runtime and a copy of every asset.
+bin/
+
+# C# build intermediates.
+Scripts/obj/
+Scripts/bin/

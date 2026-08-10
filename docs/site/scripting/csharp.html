@@ -131,7 +131,7 @@ Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fue
 <span class="tok-keyword">foreach</span> (<span class="tok-type">Entity</span> child <span class="tok-keyword">in</span> <span class="tok-type">Entity</span>.Children)
     child.<span class="tok-call">Destroy</span>();
 </code></pre></figure>
-<p><code>Entity.SpawnPrefab(&quot;prefabs/rock.prefab&quot;)</code> instantiates a prefab by its asset path. And <code>LookAt(target)</code> turns the entity so its forward (−Z) faces the target — aiming at your own position is a no-op, not a NaN.</p>
+<p><code>Entity.SpawnPrefab(&quot;prefabs/rock.rprefab&quot;)</code> instantiates a prefab by its asset path. And <code>LookAt(target)</code> turns the entity so its forward (−Z) faces the target — aiming at your own position is a no-op, not a NaN.</p>
 <h2 id="components">Components<a class="anchor" href="#components" aria-label="Link to this section">#</a></h2>
 <p>C++ scripts reach components as types — <code>GetComponent&lt;LightComponent&gt;()</code>. A template cannot cross a language boundary, so C# reaches them <strong>by registry name, with values as text</strong> — the same names and the same text forms the inspector and the scene file use:</p>
 <figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">if</span> (<span class="tok-type">Entity</span>.<span class="tok-call">HasComponent</span>(<span class="tok-string">&quot;LightComponent&quot;</span>))

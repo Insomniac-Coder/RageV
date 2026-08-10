@@ -237,7 +237,7 @@ foreach (Entity child in Entity.Children)
     child.Destroy();
 ```
 
-`Entity.SpawnPrefab("prefabs/rock.prefab")` instantiates a prefab by its
+`Entity.SpawnPrefab("prefabs/rock.rprefab")` instantiates a prefab by its
 asset path. And `LookAt(target)` turns the entity so its forward (−Z) faces
 the target — aiming at your own position is a no-op, not a NaN.
 

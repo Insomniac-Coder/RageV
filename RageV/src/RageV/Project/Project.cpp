@@ -3,6 +3,7 @@
 #include "GameModule.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RageV/Managed/Interop.h"
 #include "yaml-cpp/yaml.h"
 #include <algorithm>
 #include <fstream>
@@ -39,6 +40,53 @@ namespace RageV
 			if (const YAML::Node value = constNode[key])
 				return value.as<uint32_t>(fallback);
 			return fallback;
+		}
+
+		// Where a project's compiled C# lives: the dev tree's Scripts/bin
+		// first, then a package's managed/ -- the same two-step search
+		// GameModule runs for the C++ module.
+		std::filesystem::path FindScriptAssembly(const std::filesystem::path& root,
+												 const std::string& name)
+		{
+			std::error_code error;
+
+			const std::filesystem::path built = root / "Scripts" / "bin" / (name + ".dll");
+			if (std::filesystem::exists(built, error))
+				return built;
+
+			const std::filesystem::path packaged = root / "managed" / (name + ".dll");
+			if (std::filesystem::exists(packaged, error))
+				return packaged;
+
+			return {};
+		}
+
+		// The C# counterpart of GameModule::Load, and here for the same
+		// reason: a packaged game and the runtime must get their scripts by
+		// the same line of code the editor does. Building and hot reload stay
+		// editor features; *having* the scripts does not.
+		void LoadProjectScriptAssembly(const std::filesystem::path& root, const std::string& name)
+		{
+			const std::filesystem::path assembly = FindScriptAssembly(root, name);
+			if (assembly.empty())
+				return;   // a project with no built C# is normal
+
+			// Boots the .NET host on first use; if it is already running this
+			// is a cheap early-out. The class library sits in managed/ beside
+			// the executable, which is also where a package places it.
+			if (!Managed::Interop::Init("managed/RageV.ScriptCore.dll"))
+			{
+				RV_CORE_WARN("'{0}' has C# scripts, but the .NET runtime could not be "
+							 "started; entities using them will do nothing", name);
+				return;
+			}
+
+			const int32_t types =
+				Managed::Interop::Managed().LoadAssembly(assembly.string().c_str());
+			if (types < 0)
+				RV_CORE_ERROR("Could not load {0}", assembly.string());
+			else
+				RV_CORE_INFO("{0}: {1} C# script(s)", assembly.filename().string(), types);
 		}
 	}
 
@@ -100,6 +148,10 @@ namespace RageV
 		// runtime get their module by the same line of code the editor does.
 		// GameModule unloads any previous project's module itself.
 		GameModule::Load(s_Active->Root, s_Active->Config.Name);
+
+		// And its C#, on the same terms. Loading replaces whatever assembly
+		// was loaded before, so switching projects swaps rather than piles.
+		LoadProjectScriptAssembly(s_Active->Root, s_Active->Config.Name);
 
 		return true;
 	}
@@ -380,6 +432,13 @@ namespace RageV
 		created->Config.Name = name;
 
 		s_Active = std::move(created);
+
+		// A brand-new project has no module to load, but the *previous* project
+		// may have had one -- and its scripts must not linger in the registry of
+		// a project they do not belong to. GameModule::Load unloads it either
+		// way, exactly as Project::Load relies on.
+		GameModule::Load(s_Active->Root, s_Active->Config.Name);
+
 		return Save();
 	}
 

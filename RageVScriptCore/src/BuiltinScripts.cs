@@ -24,6 +24,30 @@ public class Spinner : Script
 	}
 }
 
+/// <summary>Counts contacts into fields the inspector can watch.</summary>
+/// <remarks>
+/// The worked example for the physics callbacks, and the proof they arrive:
+/// attach it to anything with a collider and play. Collisions and triggers
+/// are counted together, so the one script serves solid and sensor shapes
+/// alike.
+/// </remarks>
+public class ContactCounter : Script
+{
+	private int m_Entered;
+	private int m_Exited;
+	private float m_HardestHit;
+
+	public override void OnCollisionEnter(Collision collision)
+	{
+		m_Entered++;
+		m_HardestHit = System.MathF.Max(m_HardestHit, collision.ImpactSpeed);
+	}
+
+	public override void OnCollisionExit(Collision collision) => m_Exited++;
+	public override void OnTriggerEnter(Collision collision) => m_Entered++;
+	public override void OnTriggerExit(Collision collision) => m_Exited++;
+}
+
 /// <summary>Moves with the movement axes, relative to its own orientation.</summary>
 /// <remarks>
 /// Reads through actions rather than key codes, so it works with whatever the

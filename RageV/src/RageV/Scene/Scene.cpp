@@ -610,6 +610,33 @@ namespace RageV
 
 	void Scene::OnFixedUpdateRuntime(Timestep dt)
 	{
+		// Bodies for anything that gained a rigid body after Build -- a spawned
+		// prefab, an entity a script assembled. Before the script pass, so a
+		// spawned thing's OnCreate can already push its body around; its
+		// transform was written last step, which is what the body is created
+		// from.
+		//
+		// An entity waiting in the destroy queue is skipped: DestroyDeferred
+		// removes the body eagerly so it stops simulating at once, and the
+		// entity lingers until the flush -- exactly the shape this pass would
+		// otherwise mistake for a fresh spawn and resurrect.
+		if (m_Physics)
+		{
+			auto simulated = m_Registry.view<RigidBodyComponent, ColliderComponent>();
+			for (auto handle : simulated)
+			{
+				Entity entity{ handle, this };
+				const UUID id = entity.GetUUID();
+
+				const bool condemned =
+					std::find(m_PendingDestroy.begin(), m_PendingDestroy.end(), id)
+					!= m_PendingDestroy.end();
+
+				if (!condemned && !m_Physics->HasBody(id))
+					m_Physics->AddBody(*this, entity);
+			}
+		}
+
 		// The handles are collected before stepping any of them. A script may
 		// spawn an entity, attach a script to it, or remove one -- any of which
 		// restructures the pool a view is iterating.
@@ -721,10 +748,6 @@ namespace RageV
 		if (!entity)
 			return;   // destroyed since the step, which is not an error
 
-		auto* script = m_Registry.try_get<NativeScriptComponent>(entity);
-		if (!script || !script->Instance)
-			return;
-
 		Collision collision;
 		collision.Other = GetEntityByUUID(other);
 		collision.Trigger = event.Trigger;
@@ -732,25 +755,52 @@ namespace RageV
 		collision.Normal = flip ? -event.Normal : event.Normal;
 		collision.ImpactSpeed = event.ImpactSpeed;
 
-		ScriptableEntity* instance = script->Instance;
-
-		if (event.Trigger)
+		// Native first, then managed -- the same defined order the step runs
+		// them in. An entity may carry both, and each is delivered regardless
+		// of the other: a destroy queued by the native handler is deferred, so
+		// the managed one still runs against a consistent scene.
+		if (auto* script = m_Registry.try_get<NativeScriptComponent>(entity);
+			script && script->Instance)
 		{
-			switch (event.Phase)
+			ScriptableEntity* instance = script->Instance;
+
+			if (event.Trigger)
 			{
-				case ContactPhase::Enter: instance->OnTriggerEnter(collision); break;
-				case ContactPhase::Stay:  instance->OnTriggerStay(collision);  break;
-				case ContactPhase::Exit:  instance->OnTriggerExit(collision);  break;
+				switch (event.Phase)
+				{
+					case ContactPhase::Enter: instance->OnTriggerEnter(collision); break;
+					case ContactPhase::Stay:  instance->OnTriggerStay(collision);  break;
+					case ContactPhase::Exit:  instance->OnTriggerExit(collision);  break;
+				}
 			}
-			return;
+			else
+			{
+				switch (event.Phase)
+				{
+					case ContactPhase::Enter: instance->OnCollisionEnter(collision); break;
+					case ContactPhase::Stay:  instance->OnCollisionStay(collision);  break;
+					case ContactPhase::Exit:  instance->OnCollisionExit(collision);  break;
+				}
+			}
 		}
 
-		switch (event.Phase)
-		{
-			case ContactPhase::Enter: instance->OnCollisionEnter(collision); break;
-			case ContactPhase::Stay:  instance->OnCollisionStay(collision);  break;
-			case ContactPhase::Exit:  instance->OnCollisionExit(collision);  break;
-		}
+		auto* managed = m_Registry.try_get<ManagedScriptComponent>(entity);
+		if (!managed || managed->Handle == 0 || !Managed::Interop::IsReady())
+			return;
+
+		Managed::CollisionData data;
+		data.Other = collision.Other ? (uint64_t)collision.Other.GetUUID() : 0;
+		data.Trigger = collision.Trigger ? 1 : 0;
+		data.Point = collision.Point;
+		data.Normal = collision.Normal;
+		data.ImpactSpeed = collision.ImpactSpeed;
+
+		const int32_t base = event.Trigger
+			? (int32_t)Managed::ContactKind::TriggerEnter
+			: (int32_t)Managed::ContactKind::CollisionEnter;
+		const int32_t kind = base + (int32_t)event.Phase;
+
+		Managed::Interop::Managed().InvokeContact(managed->Handle, kind, &data);
 	}
 
 	void Scene::OnRenderRuntime(float aspectRatio)

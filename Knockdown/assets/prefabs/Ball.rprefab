@@ -1,0 +1,36 @@
+Scene: Subtree
+Version: 5
+Entities:
+  - EntityID: 7771000000000000001
+    TagComponent:
+      Tag: Ball
+    TransformComponent:
+      Position: [0, -30, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.44, 0.44, 0.44]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.4, 0.42, 0.48, 1]
+        Emissive: [0.6, 0.15, 0.04, 1]
+        Metallic: 1
+        Roughness: 0.3
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 4
+      Friction: 0.5
+      Restitution: 0.2
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Sphere
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    NativeScriptComponent:
+      Script: Ball
