@@ -17,6 +17,21 @@ namespace RageV::RHI
 		std::vector<PushConstantRange>     PushConstants;
 		VertexLayout                       VertexInput;   // derived from stage inputs
 
+		// A compute shader's `layout(local_size_x = ...)`, recovered rather
+		// than declared twice. A dispatch is in groups, so the caller divides
+		// by this -- and taking it from the shader is what keeps a resized
+		// work group from silently under-dispatching everywhere it is used.
+		// All ones for a shader with no compute stage -- which is also what a
+		// compute shader declaring local_size_x = 1 has, so this cannot be
+		// used to tell the two apart. `Stages` is what answers that.
+		uint32_t LocalSize[3] = { 1, 1, 1 };
+
+		// Every stage this shader carries, or-ed together. Asked before
+		// building a pipeline of a given kind, so "this file has no compute
+		// stage" is an error at creation rather than a dispatch that does
+		// nothing.
+		ShaderStage Stages = ShaderStage::None;
+
 		const ResourceSetLayoutDesc* FindSet(uint32_t set) const
 		{
 			for (const auto& s : Sets)

@@ -22,6 +22,15 @@ namespace RageV::Vk
 		VK_CHECK(vkBeginCommandBuffer(m_CommandBuffer, &beginInfo));
 	}
 
+	void VulkanCommandList::Adopt(VkCommandBuffer commandBuffer)
+	{
+		m_CommandBuffer = commandBuffer;
+		m_BoundPipeline = nullptr;
+		m_ActiveTarget = nullptr;
+		m_InRenderPass = false;
+		m_SwapchainWritten = false;
+	}
+
 	void VulkanCommandList::End()
 	{
 		if (m_InRenderPass)
@@ -239,11 +248,23 @@ namespace RageV::Vk
 	void VulkanCommandList::BindPipeline(const RHI::Ref<RHI::RHIPipeline>& pipeline)
 	{
 		auto vulkanPipeline = std::static_pointer_cast<VulkanPipeline>(pipeline);
-		if (m_BoundPipeline == vulkanPipeline.get())
+		VulkanPipelineCommon* common = vulkanPipeline.get();
+		if (m_BoundPipeline == common)
 			return;
 
-		vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkanPipeline->GetHandle());
-		m_BoundPipeline = vulkanPipeline.get();
+		vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, common->GetHandle());
+		m_BoundPipeline = common;
+	}
+
+	void VulkanCommandList::BindComputePipeline(const RHI::Ref<RHI::RHIComputePipeline>& pipeline)
+	{
+		auto vulkanPipeline = std::static_pointer_cast<VulkanComputePipeline>(pipeline);
+		VulkanPipelineCommon* common = vulkanPipeline.get();
+		if (m_BoundPipeline == common)
+			return;
+
+		vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, common->GetHandle());
+		m_BoundPipeline = common;
 	}
 
 	void VulkanCommandList::BindResourceSet(uint32_t set, const RHI::Ref<RHI::RHIResourceSet>& resources)
@@ -253,7 +274,10 @@ namespace RageV::Vk
 		auto vulkanSet = std::static_pointer_cast<VulkanResourceSet>(resources);
 		VkDescriptorSet handle = vulkanSet->GetHandle();
 
-		vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		// The bound pipeline's own bind point, not a fixed one: a set bound
+		// to the graphics point is invisible to a dispatch, and the dispatch
+		// reads whatever the last graphics draw left there.
+		vkCmdBindDescriptorSets(m_CommandBuffer, m_BoundPipeline->GetBindPoint(),
 								m_BoundPipeline->GetLayout(), set, 1, &handle, 0, nullptr);
 	}
 
@@ -280,7 +304,7 @@ namespace RageV::Vk
 		// declares is a validation error that is easy to write and easy to
 		// miss, since it does not necessarily misbehave.
 		RHI::ShaderStage effective = RHI::ShaderStage::None;
-		for (const auto& range : m_BoundPipeline->GetReflection().PushConstants)
+		for (const auto& range : m_BoundPipeline->GetCommonReflection().PushConstants)
 		{
 			const uint32_t rangeEnd = range.Offset + range.Size;
 			if (offset < rangeEnd && range.Offset < offset + size)
@@ -304,6 +328,89 @@ namespace RageV::Vk
 										uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance)
 	{
 		vkCmdDrawIndexed(m_CommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+	}
+
+	namespace
+	{
+		// What a use means to Vulkan: which stage touches the buffer, and how.
+		void DescribeSync(RHI::BufferSync sync, VkPipelineStageFlags& stage, VkAccessFlags& access)
+		{
+			switch (sync)
+			{
+				case RHI::BufferSync::ComputeWrite:
+					stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+					access = VK_ACCESS_SHADER_WRITE_BIT;
+					break;
+				case RHI::BufferSync::ComputeRead:
+					stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+					access = VK_ACCESS_SHADER_READ_BIT;
+					break;
+				case RHI::BufferSync::ShaderRead:
+					// Both graphics shader stages, because the caller said
+					// "a shader reads it" and narrowing that to the one it
+					// happens to be today is how a barrier stops covering a
+					// use somebody added later.
+					stage = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
+						  | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+					access = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT;
+					break;
+				case RHI::BufferSync::VertexInput:
+					stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+					access = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
+					break;
+				case RHI::BufferSync::IndirectRead:
+					stage = VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+					access = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+					break;
+				case RHI::BufferSync::TransferWrite:
+					stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+					access = VK_ACCESS_TRANSFER_WRITE_BIT;
+					break;
+				default:
+					stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+					access = 0;
+					break;
+			}
+		}
+	}
+
+	void VulkanCommandList::Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+	{
+		RV_CORE_ASSERT(m_BoundPipeline, "Dispatch requires a bound compute pipeline");
+		RV_CORE_ASSERT(!m_InRenderPass, "Dispatch must be recorded outside a render pass");
+
+		// Zero groups is legal and does nothing, but it is almost always a
+		// count that divided to zero rather than an intent.
+		if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+			return;
+
+		vkCmdDispatch(m_CommandBuffer, groupsX, groupsY, groupsZ);
+	}
+
+	void VulkanCommandList::BufferBarrier(const RHI::Ref<RHI::RHIBuffer>& buffer,
+										  RHI::BufferSync from, RHI::BufferSync to)
+	{
+		if (!buffer)
+			return;
+
+		auto vulkanBuffer = std::static_pointer_cast<VulkanBuffer>(buffer);
+
+		VkPipelineStageFlags sourceStage = 0, destinationStage = 0;
+		VkAccessFlags sourceAccess = 0, destinationAccess = 0;
+		DescribeSync(from, sourceStage, sourceAccess);
+		DescribeSync(to, destinationStage, destinationAccess);
+
+		VkBufferMemoryBarrier barrier{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+		barrier.srcAccessMask = sourceAccess;
+		barrier.dstAccessMask = destinationAccess;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.buffer = vulkanBuffer->GetHandle();
+		barrier.offset = 0;
+		barrier.size = VK_WHOLE_SIZE;
+
+		vkCmdPipelineBarrier(m_CommandBuffer, sourceStage, destinationStage, 0,
+							 0, nullptr, 1, &barrier, 0, nullptr);
 	}
 
 	void VulkanCommandList::WriteTimestamp(uint32_t slot)

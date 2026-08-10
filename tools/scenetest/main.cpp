@@ -974,6 +974,166 @@ namespace
 				  "the particle renderer compiled its shader");
 	}
 
+	// Compute, checked by running one and reading the answer back.
+	//
+	// A pipeline that was created says nothing about whether a dispatch
+	// reaches the GPU, and the failure mode that matters -- a dispatch that
+	// silently does nothing -- looks exactly like success from every angle
+	// except the buffer's contents.
+	void CheckCompute()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		RHI::RHIDevice& device = Renderer::GetDevice();
+
+		Check(device.GetCaps().SupportsCompute,
+			  "the device reports compute support");
+		Check(device.GetCaps().MaxComputeWorkGroupSize >= 64,
+			  "and a work group size worth dispatching");
+
+		// Doubles every element and adds its index, so a buffer that came
+		// back unchanged, half-processed, or shifted is all distinguishable.
+		RHI::ShaderDesc desc;
+		desc.Name = "scenetest.double";
+		desc.Stages.push_back({ RHI::ShaderStage::Compute, R"(
+#version 450 core
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) buffer Values { uint Data[]; } u_Values;
+
+layout(push_constant) uniform Params { uint Count; } u_Params;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	// The last group runs full: the tail addresses elements past the end.
+	if (index >= u_Params.Count)
+		return;
+
+	u_Values.Data[index] = u_Values.Data[index] * 2u + index;
+}
+)" });
+
+		auto compiled = RHI::ShaderCompiler::Compile(desc);
+		Check(compiled.has_value(), "a compute shader compiles from source");
+		if (!compiled)
+			return;
+
+		Check(compiled->Reflection.LocalSize[0] == 64,
+			  "and reflection recovers the local size it declared");
+		Check(HasFlag(compiled->Reflection.Stages, RHI::ShaderStage::Compute),
+			  "and reports that it carries a compute stage");
+
+		RHI::Ref<RHI::RHIShader> shader = device.CreateShader(*compiled);
+		Check(shader != nullptr, "the shader object builds");
+		if (!shader)
+			return;
+
+		RHI::ComputePipelineDesc pipelineDesc;
+		pipelineDesc.Name = "scenetest.double";
+		pipelineDesc.Shader = shader;
+
+		RHI::Ref<RHI::RHIComputePipeline> pipeline = device.CreateComputePipeline(pipelineDesc);
+		Check(pipeline != nullptr, "a compute pipeline is created from it");
+		if (!pipeline)
+			return;
+
+		Check(pipeline->GetWorkGroupSizeX() == 64,
+			  "the pipeline reports the shader's work group size");
+		Check(pipeline->GroupsFor(64) == 1 && pipeline->GroupsFor(65) == 2
+			  && pipeline->GroupsFor(0) == 0,
+			  "and rounds a dispatch up to cover every element");
+
+		// 100 elements over a group of 64: two groups, and the second runs
+		// 28 invocations past the end -- which is exactly the case the
+		// shader's bounds check exists for.
+		constexpr uint32_t kCount = 100;
+
+		RHI::BufferDesc bufferDesc;
+		bufferDesc.Size = kCount * sizeof(uint32_t);
+		bufferDesc.Usage = RHI::BufferUsage::Storage;
+		bufferDesc.Memory = RHI::MemoryDomain::HostVisible;
+		bufferDesc.DebugName = "scenetest.values";
+		RHI::Ref<RHI::RHIBuffer> values = device.CreateBuffer(bufferDesc);
+		Check(values != nullptr, "a storage buffer to work on");
+		if (!values)
+			return;
+
+		std::vector<uint32_t> input(kCount);
+		for (uint32_t i = 0; i < kCount; i++)
+			input[i] = i + 1;
+		values->Upload(input.data(), bufferDesc.Size);
+
+		RHI::Ref<RHI::RHIResourceSet> set = device.CreateResourceSet(pipeline, 0);
+		Check(set != nullptr, "and a resource set built from the compute pipeline");
+		if (!set)
+			return;
+
+		set->SetStorageBuffer(0, values, 0, bufferDesc.Size);
+		set->Commit();
+
+		device.ExecuteImmediate([&](RHI::RHICommandList& cmd)
+		{
+			cmd.BindComputePipeline(pipeline);
+			cmd.BindResourceSet(0, set);
+
+			const uint32_t count = kCount;
+			cmd.PushConstants(RHI::ShaderStage::Compute, 0, sizeof(count), &count);
+
+			cmd.Dispatch(pipeline->GroupsFor(kCount));
+
+			// The readback below is a host read of a mapped buffer, which the
+			// fence covers -- but the barrier is what a real frame would need
+			// between this and a draw, and recording it here keeps the call
+			// exercised rather than only written.
+			cmd.BufferBarrier(values, RHI::BufferSync::ComputeWrite,
+							  RHI::BufferSync::ShaderRead);
+		});
+
+		const auto* result = static_cast<const uint32_t*>(values->GetMappedPointer());
+		Check(result != nullptr, "the buffer can be read back");
+		if (!result)
+			return;
+
+		bool everyElement = true;
+		uint32_t firstWrong = UINT32_MAX;
+		for (uint32_t i = 0; i < kCount; i++)
+		{
+			const uint32_t expected = input[i] * 2u + i;
+			if (result[i] != expected)
+			{
+				everyElement = false;
+				if (firstWrong == UINT32_MAX)
+					firstWrong = i;
+			}
+		}
+
+		if (!everyElement)
+		{
+			RV_CORE_ERROR("Element {0}: expected {1}, got {2}", firstWrong,
+						  input[firstWrong] * 2u + firstWrong, result[firstWrong]);
+		}
+
+		Check(everyElement, "the dispatch ran and every element carries its answer");
+
+		// A graphics-only shader must be refused rather than produce a
+		// pipeline that dispatches nothing.
+		RHI::ShaderDesc graphicsOnly;
+		graphicsOnly.Name = "scenetest.notcompute";
+		graphicsOnly.Stages.push_back({ RHI::ShaderStage::Vertex,
+			"#version 450 core\nvoid main() { gl_Position = vec4(0.0); }\n" });
+
+		if (auto plain = RHI::ShaderCompiler::Compile(graphicsOnly))
+		{
+			RHI::ComputePipelineDesc bad;
+			bad.Name = "scenetest.notcompute";
+			bad.Shader = device.CreateShader(*plain);
+			Check(device.CreateComputePipeline(bad) == nullptr,
+				  "a shader with no compute stage is refused a compute pipeline");
+		}
+	}
+
 	// Records every contact it is told about, so the routing can be checked
 	// without anything being on screen.
 	class ContactProbe : public ScriptableEntity
@@ -4568,6 +4728,7 @@ int RunTests(int argc, char** argv)
 	CheckProject();
 	CheckPackaging();
 	CheckRuntimePath();
+	CheckCompute();
 	CheckPhysics();
 	CheckParticles();
 	CheckColliderOverlay();

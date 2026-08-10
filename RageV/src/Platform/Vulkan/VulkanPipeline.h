@@ -30,27 +30,60 @@ namespace RageV::Vk
 		std::vector<StageModule> m_Stages;
 	};
 
-	class VulkanPipeline final : public RHI::RHIPipeline
+	// The half of a pipeline that has nothing to do with which kind it is.
+	//
+	// Descriptor set layouts and the pipeline layout come from reflection and
+	// only from reflection, so graphics and compute build them by the same
+	// code. What differs is one call -- vkCreateGraphicsPipelines against
+	// vkCreateComputePipelines -- and the bind point that follows from it.
+	//
+	// This exists so the command list and the resource set can hold one type.
+	// Neither of them cares what kind of pipeline it has: one needs a layout
+	// to bind against, the other a set layout to allocate from.
+	class VulkanPipelineCommon
 	{
 	public:
-		VulkanPipeline(VulkanDevice& device, const RHI::GraphicsPipelineDesc& desc);
-		~VulkanPipeline() override;
+		virtual ~VulkanPipelineCommon();
 
-		VkPipeline       GetHandle() const { return m_Pipeline; }
-		VkPipelineLayout GetLayout() const { return m_Layout; }
+		VkPipeline          GetHandle() const { return m_Pipeline; }
+		VkPipelineLayout    GetLayout() const { return m_Layout; }
+		VkPipelineBindPoint GetBindPoint() const { return m_BindPoint; }
 
 		VkDescriptorSetLayout GetSetLayout(uint32_t set) const;
 
-	private:
+		// Push-constant ranges live here so the command list can widen a
+		// stage mask to what the shader declared without knowing the kind.
+		const RHI::ShaderReflection& GetCommonReflection() const { return *m_Reflection; }
+
+	protected:
+		VulkanPipelineCommon(VulkanDevice& device, VkPipelineBindPoint bindPoint,
+							 const RHI::ShaderReflection& reflection);
+
 		void CreateLayouts();
-		void CreatePipeline();
 
 		VulkanDevice&    m_Device;
 		std::shared_ptr<DeletionQueue> m_Deletion;
+		const RHI::ShaderReflection*   m_Reflection = nullptr;
+		VkPipelineBindPoint m_BindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		VkPipeline       m_Pipeline = VK_NULL_HANDLE;
 		VkPipelineLayout m_Layout   = VK_NULL_HANDLE;
 		// Indexed by set number; gaps are VK_NULL_HANDLE.
 		std::vector<VkDescriptorSetLayout> m_SetLayouts;
+	};
+
+	class VulkanPipeline final : public RHI::RHIPipeline, public VulkanPipelineCommon
+	{
+	public:
+		VulkanPipeline(VulkanDevice& device, const RHI::GraphicsPipelineDesc& desc);
+
+	private:
+		void CreatePipeline();
+	};
+
+	class VulkanComputePipeline final : public RHI::RHIComputePipeline, public VulkanPipelineCommon
+	{
+	public:
+		VulkanComputePipeline(VulkanDevice& device, const RHI::ComputePipelineDesc& desc);
 	};
 
 	// One descriptor set per frame in flight. Commit() writes only into the
@@ -59,7 +92,12 @@ namespace RageV::Vk
 	class VulkanResourceSet final : public RHI::RHIResourceSet
 	{
 	public:
-		VulkanResourceSet(VulkanDevice& device, const RHI::Ref<VulkanPipeline>& pipeline, uint32_t set);
+		// Takes the pipeline as the *common* half plus an owning reference:
+		// a set is allocated from a descriptor set layout and must not outlive
+		// it, but nothing here cares whether that layout came from a graphics
+		// pipeline or a compute one.
+		VulkanResourceSet(VulkanDevice& device, VulkanPipelineCommon* pipeline,
+						  std::shared_ptr<void> owner, uint32_t set);
 		~VulkanResourceSet() override;
 
 		void SetUniformBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer,
@@ -91,7 +129,10 @@ namespace RageV::Vk
 
 		VulkanDevice&           m_Device;
 		std::shared_ptr<DeletionQueue> m_Deletion;
-		RHI::Ref<VulkanPipeline> m_Pipeline;
+		VulkanPipelineCommon*   m_Pipeline = nullptr;
+		// Keeps whichever pipeline object m_Pipeline points into alive, which
+		// is what keeps the set layout these sets were allocated from alive.
+		std::shared_ptr<void>   m_Owner;
 		std::vector<VkDescriptorSet> m_Sets;   // one per frame in flight
 		// The block these came from. The device allocates from a chain, so the
 		// owning pool is not necessarily the one it would hand out today, and

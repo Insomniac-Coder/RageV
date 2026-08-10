@@ -91,7 +91,22 @@ namespace RageV::GL
 		FlatBindingMap m_Bindings;
 	};
 
-	class OpenGLPipelineRHI final : public RHIPipeline
+	// What a resource set needs from a pipeline, whichever kind it is: the
+	// program to bind against and the flat binding map that turns a
+	// (set, binding) pair into the single GL binding point space.
+	//
+	// The Vulkan backend has the same seam for the same reason -- a set is
+	// allocated against a layout, and nothing about it is graphics-specific.
+	class OpenGLPipelineBindings
+	{
+	public:
+		virtual ~OpenGLPipelineBindings() = default;
+		virtual uint32_t GetProgram() const = 0;
+		virtual const FlatBindingMap& GetBindings() const = 0;
+		virtual uint32_t GetPushConstantBuffer() const = 0;
+	};
+
+	class OpenGLPipelineRHI final : public RHIPipeline, public OpenGLPipelineBindings
 	{
 	public:
 		OpenGLPipelineRHI(OpenGLDevice& device, const GraphicsPipelineDesc& desc);
@@ -101,10 +116,10 @@ namespace RageV::GL
 		void Bind();
 
 		uint32_t GetVertexArray() const { return m_VertexArray; }
-		uint32_t GetProgram() const;
-		const FlatBindingMap& GetBindings() const;
+		uint32_t GetProgram() const override;
+		const FlatBindingMap& GetBindings() const override;
 		uint32_t GetTopology() const { return m_GLTopology; }
-		uint32_t GetPushConstantBuffer() const;
+		uint32_t GetPushConstantBuffer() const override;
 
 	private:
 		void BuildVertexArray();
@@ -114,10 +129,28 @@ namespace RageV::GL
 		VertexLayout m_ResolvedLayout;
 	};
 
+	// A compute pipeline on OpenGL is the program and nothing else: there is
+	// no vertex array to build and no fixed-function state to apply, which is
+	// why this carries no state of its own.
+	class OpenGLComputePipelineRHI final : public RHIComputePipeline,
+										   public OpenGLPipelineBindings
+	{
+	public:
+		OpenGLComputePipelineRHI(OpenGLDevice& device, const ComputePipelineDesc& desc);
+
+		uint32_t GetProgram() const override;
+		const FlatBindingMap& GetBindings() const override;
+		uint32_t GetPushConstantBuffer() const override;
+	};
+
 	class OpenGLResourceSetRHI final : public RHIResourceSet
 	{
 	public:
-		OpenGLResourceSetRHI(OpenGLDevice& device, const Ref<OpenGLPipelineRHI>& pipeline, uint32_t set);
+		// The bindings half plus an owning reference, mirroring Vulkan: the
+		// binding map outlives nothing here, but the pipeline that owns it
+		// must outlive this set.
+		OpenGLResourceSetRHI(OpenGLDevice& device, OpenGLPipelineBindings* pipeline,
+							 std::shared_ptr<void> owner, uint32_t set);
 		~OpenGLResourceSetRHI() override = default;
 
 		void SetUniformBuffer(uint32_t binding, const Ref<RHIBuffer>& buffer,
@@ -151,7 +184,8 @@ namespace RageV::GL
 			uint32_t Sampler = 0;
 		};
 
-		Ref<OpenGLPipelineRHI> m_Pipeline;
+		OpenGLPipelineBindings* m_Pipeline = nullptr;
+		std::shared_ptr<void>   m_Owner;
 		std::vector<BufferBinding>  m_Buffers;
 		std::vector<TextureBinding> m_Textures;
 	};
@@ -188,6 +222,7 @@ namespace RageV::GL
 		void SetViewport(const Viewport& viewport) override;
 		void SetScissor(const Rect2D& scissor) override;
 		void BindPipeline(const Ref<RHIPipeline>& pipeline) override;
+		void BindComputePipeline(const Ref<RHIComputePipeline>& pipeline) override;
 		void BindResourceSet(uint32_t set, const Ref<RHIResourceSet>& resources) override;
 		void BindVertexBuffer(uint32_t binding, const Ref<RHIBuffer>& buffer, uint64_t offset = 0) override;
 		void BindIndexBuffer(const Ref<RHIBuffer>& buffer, IndexType type, uint64_t offset = 0) override;
@@ -197,6 +232,9 @@ namespace RageV::GL
 		void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1,
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
+		void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
+		void BufferBarrier(const Ref<RHIBuffer>& buffer, BufferSync from, BufferSync to) override;
+
 		void WriteTimestamp(uint32_t slot) override;
 		void GenerateMips(const Ref<RHITexture>& texture) override;
 		void CopyToTextureLayer(const Ref<RHITexture>& source,
@@ -208,7 +246,16 @@ namespace RageV::GL
 
 	private:
 		OpenGLDevice&      m_Device;
+		// The graphics pipeline, for the things only a draw has: the vertex
+		// layout and the topology. Null while a compute pipeline is bound.
 		OpenGLPipelineRHI* m_BoundPipeline = nullptr;
+		// Whichever kind was bound last, for the things both have: push
+		// constants and the binding map.
+		OpenGLPipelineBindings* m_BoundBindings = nullptr;
+		// Only to assert that a dispatch is not recorded inside a pass. GL
+		// does not care; Vulkan rejects it, and the assert is here so the two
+		// backends fail in the same place.
+		bool m_InRenderPass = false;
 		uint32_t m_IndexType = 0;
 		uint64_t m_IndexOffset = 0;
 
@@ -262,6 +309,9 @@ namespace RageV::GL
 		Ref<RHIPipeline>     CreatePipeline(const GraphicsPipelineDesc& desc) override;
 		Ref<RHIRenderTarget> CreateRenderTarget(const RenderTargetDesc& desc) override;
 		Ref<RHIResourceSet>  CreateResourceSet(const Ref<RHIPipeline>& pipeline, uint32_t set) override;
+		Ref<RHIResourceSet>  CreateResourceSet(const Ref<RHIComputePipeline>& pipeline, uint32_t set) override;
+		Ref<RHIComputePipeline> CreateComputePipeline(const ComputePipelineDesc& desc) override;
+		void ExecuteImmediate(const std::function<void(RHICommandList&)>& record) override;
 
 		GLFWwindow* GetWindow() const { return m_Window; }
 

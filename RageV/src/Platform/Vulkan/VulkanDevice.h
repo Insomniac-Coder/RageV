@@ -66,6 +66,8 @@ namespace RageV::Vk
 		RHI::Ref<RHI::RHIPipeline>     CreatePipeline(const RHI::GraphicsPipelineDesc& desc) override;
 		RHI::Ref<RHI::RHIRenderTarget> CreateRenderTarget(const RHI::RenderTargetDesc& desc) override;
 		RHI::Ref<RHI::RHIResourceSet>  CreateResourceSet(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set) override;
+		RHI::Ref<RHI::RHIResourceSet>  CreateResourceSet(const RHI::Ref<RHI::RHIComputePipeline>& pipeline, uint32_t set) override;
+		RHI::Ref<RHI::RHIComputePipeline> CreateComputePipeline(const RHI::ComputePipelineDesc& desc) override;
 
 		// ------------------------------------------------------------------
 		// Backend-internal accessors
@@ -107,6 +109,7 @@ namespace RageV::Vk
 		// Records a one-shot command buffer and blocks until it completes.
 		// Used for staging uploads and layout transitions at creation time.
 		void ImmediateSubmit(const std::function<void(VkCommandBuffer)>& record);
+		void ExecuteImmediate(const std::function<void(RHI::RHICommandList&)>& record) override;
 
 		// Defers `deleter` until the current frame's fence has been waited on.
 		void DeferDestruction(std::function<void()> deleter);

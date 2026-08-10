@@ -480,6 +480,21 @@ namespace RageV::RHI
 				outReflection.PushConstants.push_back(range);
 		}
 
+		outReflection.Stages = outReflection.Stages | stage.Stage;
+
+		// The work group size the compute stage declared. Recovered rather
+		// than asked of the caller, so a shader whose local_size changes
+		// cannot leave a dispatch elsewhere covering a fraction of its data.
+		if (stage.Stage == ShaderStage::Compute)
+		{
+			for (uint32_t axis = 0; axis < 3; axis++)
+			{
+				const uint32_t declared =
+					compiler.get_execution_mode_argument(spv::ExecutionModeLocalSize, axis);
+				outReflection.LocalSize[axis] = declared ? declared : 1u;
+			}
+		}
+
 		// Vertex inputs only come from the vertex stage. SPIR-V carries
 		// locations and types but not offsets or stride -- those are the
 		// application's choice -- so assume one interleaved binding packed in

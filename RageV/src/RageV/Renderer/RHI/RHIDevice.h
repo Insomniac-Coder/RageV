@@ -51,6 +51,16 @@ namespace RageV::RHI
 		virtual RHICommandList* BeginFrame() = 0;
 		virtual void EndFrame() = 0;
 
+		// Records a one-shot command list and blocks until the GPU has
+		// finished it. Outside the frame loop entirely: no swapchain image is
+		// acquired and nothing is presented.
+		//
+		// It stalls, by construction -- that is what makes it usable for work
+		// whose result is needed immediately, and what makes it wrong on the
+		// frame path. Asset upload, a one-off dispatch, and a headless test
+		// that has no frame loop to borrow.
+		virtual void ExecuteImmediate(const std::function<void(RHICommandList&)>& record) = 0;
+
 		virtual void WaitIdle() = 0;
 
 		// Hands back the pixels of the frame about to be presented, once.
@@ -126,7 +136,16 @@ namespace RageV::RHI
 		virtual Ref<RHISampler>      CreateSampler(const SamplerDesc& desc) = 0;
 		virtual Ref<RHIShader>       CreateShader(const CompiledShader& compiled) = 0;
 		virtual Ref<RHIPipeline>     CreatePipeline(const GraphicsPipelineDesc& desc) = 0;
+		// Null when the shader carries no compute stage, or when the backend
+		// cannot run compute -- see DeviceCaps::SupportsCompute. A caller that
+		// wants a CPU fallback checks the result rather than the caps, because
+		// a missing shader file fails the same way.
+		virtual Ref<RHIComputePipeline> CreateComputePipeline(const ComputePipelineDesc& desc) = 0;
 		virtual Ref<RHIRenderTarget> CreateRenderTarget(const RenderTargetDesc& desc) = 0;
 		virtual Ref<RHIResourceSet>  CreateResourceSet(const Ref<RHIPipeline>& pipeline, uint32_t set) = 0;
+		// The same, for a dispatch's bindings. A resource set belongs to a set
+		// layout rather than to a pipeline kind, so these differ only in where
+		// the layout is read from.
+		virtual Ref<RHIResourceSet>  CreateResourceSet(const Ref<RHIComputePipeline>& pipeline, uint32_t set) = 0;
 	};
 }

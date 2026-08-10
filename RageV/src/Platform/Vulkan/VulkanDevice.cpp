@@ -501,6 +501,11 @@ namespace RageV::Vk
 		m_Caps.MaxAnisotropy = properties.limits.maxSamplerAnisotropy;
 		m_Caps.SupportsDynamicRendering = true;
 		m_Caps.SupportsTimestampQueries = properties.limits.timestampComputeAndGraphics == VK_TRUE;
+		// Core since Vulkan 1.0, and the graphics queue this engine uses is
+		// required to support it -- so this is reporting rather than probing.
+		m_Caps.SupportsCompute = true;
+		m_Caps.MaxComputeWorkGroupSize = properties.limits.maxComputeWorkGroupSize[0];
+		m_Caps.MaxComputeWorkGroupCount = properties.limits.maxComputeWorkGroupCount[0];
 		m_TimestampsSupported = m_Caps.SupportsTimestampQueries;
 		// Zero means the device does not support them at all, whatever the
 		// limit above said; a period of zero would turn every duration into
@@ -1273,6 +1278,21 @@ namespace RageV::Vk
 		vkFreeCommandBuffers(m_Device, m_ImmediatePool, 1, &cmd);
 	}
 
+	void VulkanDevice::ExecuteImmediate(const std::function<void(RHI::RHICommandList&)>& record)
+	{
+		if (!record)
+			return;
+
+		ImmediateSubmit([&](VkCommandBuffer buffer)
+		{
+			// Adopted rather than begun: ImmediateSubmit owns the begin and
+			// the end, and this list only records between them.
+			VulkanCommandList list(*this);
+			list.Adopt(buffer);
+			record(list);
+		});
+	}
+
 	void VulkanDevice::DeferDestruction(std::function<void()> deleter)
 	{
 		m_Deletion->Push(std::move(deleter));
@@ -1325,6 +1345,35 @@ namespace RageV::Vk
 
 	RHI::Ref<RHI::RHIResourceSet> VulkanDevice::CreateResourceSet(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set)
 	{
-		return std::make_shared<VulkanResourceSet>(*this, std::static_pointer_cast<VulkanPipeline>(pipeline), set);
+		auto concrete = std::static_pointer_cast<VulkanPipeline>(pipeline);
+		return std::make_shared<VulkanResourceSet>(*this, concrete.get(), concrete, set);
+	}
+
+	RHI::Ref<RHI::RHIResourceSet> VulkanDevice::CreateResourceSet(
+		const RHI::Ref<RHI::RHIComputePipeline>& pipeline, uint32_t set)
+	{
+		auto concrete = std::static_pointer_cast<VulkanComputePipeline>(pipeline);
+		return std::make_shared<VulkanResourceSet>(*this, concrete.get(), concrete, set);
+	}
+
+	RHI::Ref<RHI::RHIComputePipeline> VulkanDevice::CreateComputePipeline(
+		const RHI::ComputePipelineDesc& desc)
+	{
+		if (!desc.Shader)
+			return nullptr;
+
+		if (!HasFlag(desc.Shader->GetReflection().Stages, RHI::ShaderStage::Compute))
+		{
+			RV_CORE_ERROR("'{0}' has no compute stage; no compute pipeline was created",
+						  desc.Name);
+			return nullptr;
+		}
+
+		auto pipeline = std::make_shared<VulkanComputePipeline>(*this, desc);
+
+		// The constructor logs why. Returning null rather than a pipeline that
+		// dispatches nothing is what lets a caller fall back to its CPU path
+		// instead of quietly rendering nothing.
+		return pipeline->GetHandle() ? pipeline : nullptr;
 	}
 }

@@ -473,6 +473,26 @@ namespace RageV::GL
 		return std::static_pointer_cast<OpenGLShaderRHI>(m_Desc.Shader)->GetPushConstantBuffer();
 	}
 
+	OpenGLComputePipelineRHI::OpenGLComputePipelineRHI(OpenGLDevice&, const ComputePipelineDesc& desc)
+		: RHIComputePipeline(desc)
+	{
+	}
+
+	uint32_t OpenGLComputePipelineRHI::GetProgram() const
+	{
+		return std::static_pointer_cast<OpenGLShaderRHI>(m_Desc.Shader)->GetProgram();
+	}
+
+	const FlatBindingMap& OpenGLComputePipelineRHI::GetBindings() const
+	{
+		return std::static_pointer_cast<OpenGLShaderRHI>(m_Desc.Shader)->GetBindings();
+	}
+
+	uint32_t OpenGLComputePipelineRHI::GetPushConstantBuffer() const
+	{
+		return std::static_pointer_cast<OpenGLShaderRHI>(m_Desc.Shader)->GetPushConstantBuffer();
+	}
+
 	void OpenGLPipelineRHI::BuildVertexArray()
 	{
 		// The VAO stores only the vertex *format*; buffers are attached at bind
@@ -581,8 +601,9 @@ namespace RageV::GL
 	// -------------------------------------------------------------------------
 	// Resource set
 	// -------------------------------------------------------------------------
-	OpenGLResourceSetRHI::OpenGLResourceSetRHI(OpenGLDevice&, const Ref<OpenGLPipelineRHI>& pipeline, uint32_t set)
-		: RHIResourceSet(set), m_Pipeline(pipeline)
+	OpenGLResourceSetRHI::OpenGLResourceSetRHI(OpenGLDevice&, OpenGLPipelineBindings* pipeline,
+											   std::shared_ptr<void> owner, uint32_t set)
+		: RHIResourceSet(set), m_Pipeline(pipeline), m_Owner(std::move(owner))
 	{
 	}
 
@@ -812,6 +833,8 @@ namespace RageV::GL
 
 	void OpenGLCommandListRHI::BeginRenderPass(const RenderPassBeginInfo& info)
 	{
+		m_InRenderPass = true;
+
 		uint32_t width = 0;
 		uint32_t height = 0;
 
@@ -852,6 +875,7 @@ namespace RageV::GL
 
 	void OpenGLCommandListRHI::EndRenderPass()
 	{
+		m_InRenderPass = false;
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
@@ -875,6 +899,24 @@ namespace RageV::GL
 		auto glPipeline = std::static_pointer_cast<OpenGLPipelineRHI>(pipeline);
 		glPipeline->Bind();
 		m_BoundPipeline = glPipeline.get();
+		m_BoundBindings = glPipeline.get();
+	}
+
+	void OpenGLCommandListRHI::BindComputePipeline(const Ref<RHIComputePipeline>& pipeline)
+	{
+		auto glPipeline = std::static_pointer_cast<OpenGLComputePipelineRHI>(pipeline);
+
+		// Just the program: there is no vertex array, no raster state and no
+		// blend to apply, which is the whole of what OpenGLPipelineRHI::Bind
+		// does beyond this line.
+		glUseProgram(glPipeline->GetProgram());
+
+		// The graphics pipeline stays unbound rather than stale: a dispatch
+		// followed by a draw must rebind, and leaving the old pointer here
+		// would let BindVertexBuffer read a vertex layout that is no longer
+		// the bound program's.
+		m_BoundPipeline = nullptr;
+		m_BoundBindings = glPipeline.get();
 	}
 
 	void OpenGLCommandListRHI::BindResourceSet(uint32_t, const Ref<RHIResourceSet>& resources)
@@ -919,12 +961,14 @@ namespace RageV::GL
 
 	void OpenGLCommandListRHI::PushConstants(ShaderStage, uint32_t offset, uint32_t size, const void* data)
 	{
-		RV_CORE_ASSERT(m_BoundPipeline, "PushConstants requires a bound pipeline");
+		// Whichever kind was bound last: a dispatch pushes constants the same
+		// way a draw does.
+		RV_CORE_ASSERT(m_BoundBindings, "PushConstants requires a bound pipeline");
 
-		const uint32_t buffer = m_BoundPipeline->GetPushConstantBuffer();
+		const uint32_t buffer = m_BoundBindings->GetPushConstantBuffer();
 		if (!buffer)
 		{
-			RV_CORE_WARN("Pipeline '{0}' declares no push constants", m_BoundPipeline->GetDesc().Name);
+			RV_CORE_WARN("The bound pipeline declares no push constants");
 			return;
 		}
 
@@ -933,7 +977,7 @@ namespace RageV::GL
 		// previous draw still references it, so it is correct -- but it is a
 		// buffer update per draw, not the free path Vulkan gives.
 		glNamedBufferSubData(buffer, (GLintptr)offset, (GLsizeiptr)size, data);
-		glBindBufferBase(GL_UNIFORM_BUFFER, m_BoundPipeline->GetBindings().PushConstantBinding, buffer);
+		glBindBufferBase(GL_UNIFORM_BUFFER, m_BoundBindings->GetBindings().PushConstantBinding, buffer);
 	}
 
 	void OpenGLCommandListRHI::Draw(uint32_t vertexCount, uint32_t instanceCount,
@@ -952,6 +996,38 @@ namespace RageV::GL
 		glDrawElementsInstancedBaseVertexBaseInstance(
 			m_BoundPipeline->GetTopology(), (GLsizei)indexCount, m_IndexType, offset,
 			(GLsizei)instanceCount, vertexOffset, firstInstance);
+	}
+
+	void OpenGLCommandListRHI::Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+	{
+		RV_CORE_ASSERT(m_BoundBindings, "Dispatch requires a bound compute pipeline");
+		// GL would allow it. Vulkan would not, and a rule enforced on one
+		// backend only is a Vulkan-only failure discovered late.
+		RV_CORE_ASSERT(!m_InRenderPass, "Dispatch must be recorded outside a render pass");
+
+		if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+			return;
+
+		glDispatchCompute(groupsX, groupsY, groupsZ);
+	}
+
+	void OpenGLCommandListRHI::BufferBarrier(const Ref<RHIBuffer>&, BufferSync, BufferSync)
+	{
+		// GL synchronises by what happens *after* the barrier rather than by a
+		// pair of accesses on a named resource, so the buffer and the source
+		// side have no expression here -- and the honest translation of the
+		// RHI's pair is the union of what any of its `to` values can mean.
+		//
+		// Naming every relevant bit rather than the one this call implies:
+		// glMemoryBarrier is a full pipeline flush of the named categories
+		// whatever is passed, so a narrower mask would cost the same and
+		// protect less.
+		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT
+					  | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT
+					  | GL_ELEMENT_ARRAY_BARRIER_BIT
+					  | GL_UNIFORM_BARRIER_BIT
+					  | GL_COMMAND_BARRIER_BIT
+					  | GL_BUFFER_UPDATE_BARRIER_BIT);
 	}
 
 	void OpenGLCommandListRHI::WriteTimestamp(uint32_t slot)
@@ -1154,6 +1230,21 @@ namespace RageV::GL
 		m_Caps.SupportsDynamicRendering = false;
 		m_Caps.SupportsTimestampQueries = true;
 		m_Caps.MaxPushConstantSize = 0;
+
+		// Compute is core in 4.3 and this context is 4.6, so this is a
+		// statement rather than a question -- but it is asked, because the
+		// alternative is a dispatch that silently does nothing.
+		m_Caps.SupportsCompute = GLAD_GL_VERSION_4_3 != 0;
+		if (m_Caps.SupportsCompute)
+		{
+			GLint workGroupSize = 0;
+			glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &workGroupSize);
+			m_Caps.MaxComputeWorkGroupSize = (uint32_t)workGroupSize;
+
+			GLint workGroupCount = 0;
+			glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &workGroupCount);
+			m_Caps.MaxComputeWorkGroupCount = (uint32_t)workGroupCount;
+		}
 	}
 
 	void OpenGLDevice::CreateTimestampQueries()
@@ -1358,7 +1449,45 @@ namespace RageV::GL
 
 	Ref<RHIResourceSet> OpenGLDevice::CreateResourceSet(const Ref<RHIPipeline>& pipeline, uint32_t set)
 	{
-		return std::make_shared<OpenGLResourceSetRHI>(
-			*this, std::static_pointer_cast<OpenGLPipelineRHI>(pipeline), set);
+		auto concrete = std::static_pointer_cast<OpenGLPipelineRHI>(pipeline);
+		return std::make_shared<OpenGLResourceSetRHI>(*this, concrete.get(), concrete, set);
+	}
+
+	Ref<RHIResourceSet> OpenGLDevice::CreateResourceSet(const Ref<RHIComputePipeline>& pipeline,
+													   uint32_t set)
+	{
+		auto concrete = std::static_pointer_cast<OpenGLComputePipelineRHI>(pipeline);
+		return std::make_shared<OpenGLResourceSetRHI>(*this, concrete.get(), concrete, set);
+	}
+
+	void OpenGLDevice::ExecuteImmediate(const std::function<void(RHICommandList&)>& record)
+	{
+		if (!record)
+			return;
+
+		// GL has one queue and no recording, so "record" is "issue" and the
+		// only part with any content is the wait. glFinish rather than
+		// glFlush: the contract is that the work has *finished* when this
+		// returns, which is the whole reason a caller reaches for it.
+		OpenGLCommandListRHI list(*this);
+		record(list);
+		glFinish();
+	}
+
+	Ref<RHIComputePipeline> OpenGLDevice::CreateComputePipeline(const ComputePipelineDesc& desc)
+	{
+		if (!desc.Shader)
+			return nullptr;
+
+		// The program was linked when the shader was created; a shader with no
+		// compute stage links a program that cannot be dispatched.
+		if (!HasFlag(desc.Shader->GetReflection().Stages, ShaderStage::Compute))
+		{
+			RV_CORE_ERROR("'{0}' has no compute stage; no compute pipeline was created",
+						  desc.Name);
+			return nullptr;
+		}
+
+		return std::make_shared<OpenGLComputePipelineRHI>(*this, desc);
 	}
 }

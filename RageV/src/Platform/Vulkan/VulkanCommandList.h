@@ -18,6 +18,12 @@ namespace RageV::Vk
 		explicit VulkanCommandList(VulkanDevice& device);
 
 		void Begin(VkCommandBuffer commandBuffer);
+
+		// Records into a buffer somebody else began and will end -- the
+		// one-shot buffer ExecuteImmediate submits. Deliberately not Begin:
+		// beginning a buffer twice is invalid, and End's swapchain-layout
+		// work describes a frame this is not part of.
+		void Adopt(VkCommandBuffer commandBuffer);
 		void End();
 
 		void BeginRenderPass(const RHI::RenderPassBeginInfo& info) override;
@@ -27,6 +33,7 @@ namespace RageV::Vk
 		void SetScissor(const RHI::Rect2D& scissor) override;
 
 		void BindPipeline(const RHI::Ref<RHI::RHIPipeline>& pipeline) override;
+		void BindComputePipeline(const RHI::Ref<RHI::RHIComputePipeline>& pipeline) override;
 		void BindResourceSet(uint32_t set, const RHI::Ref<RHI::RHIResourceSet>& resources) override;
 		void BindVertexBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer, uint64_t offset = 0) override;
 		void BindIndexBuffer(const RHI::Ref<RHI::RHIBuffer>& buffer, RHI::IndexType type, uint64_t offset = 0) override;
@@ -38,6 +45,10 @@ namespace RageV::Vk
 		void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1,
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
+
+		void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
+		void BufferBarrier(const RHI::Ref<RHI::RHIBuffer>& buffer,
+						   RHI::BufferSync from, RHI::BufferSync to) override;
 
 		void WriteTimestamp(uint32_t slot) override;
 		void GenerateMips(const RHI::Ref<RHI::RHITexture>& texture) override;
@@ -54,7 +65,9 @@ namespace RageV::Vk
 	private:
 		VulkanDevice&   m_Device;
 		VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
-		VulkanPipeline* m_BoundPipeline = nullptr;
+		// Whichever kind was bound last. Descriptor sets and push constants
+		// follow it, so a caller never states the bind point twice.
+		VulkanPipelineCommon* m_BoundPipeline = nullptr;
 		// Which target the open render pass writes to; nullptr means the
 		// swapchain. Needed at EndRenderPass to restore image layouts.
 		VulkanRenderTarget* m_ActiveTarget = nullptr;

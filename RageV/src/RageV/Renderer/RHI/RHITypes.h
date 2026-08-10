@@ -340,6 +340,31 @@ namespace RageV::RHI
 		bool operator==(const PushConstantRange&) const = default;
 	};
 
+	// How a buffer is about to be used, either side of a barrier.
+	//
+	// Deliberately a short list of *uses* rather than a general access/stage
+	// pair. The two backends express synchronisation in incompatible terms --
+	// Vulkan wants an access mask and a stage on each side, OpenGL wants a
+	// bitfield naming what happens after -- and the only honest thing both can
+	// implement is a statement of what the buffer was used for and what it is
+	// used for next. Anything finer would be Vulkan's model with an OpenGL
+	// approximation hiding inside it.
+	enum class BufferSync : uint8_t
+	{
+		// Written by a compute shader.
+		ComputeWrite,
+		// Read by a compute shader.
+		ComputeRead,
+		// Read by a graphics shader -- vertex or fragment, storage or uniform.
+		ShaderRead,
+		// Fetched as vertex or index data by the fixed-function input stage.
+		VertexInput,
+		// Read as the arguments of an indirect draw or dispatch.
+		IndirectRead,
+		// Written by a transfer: a buffer upload or a copy.
+		TransferWrite,
+	};
+
 	// ---------------------------------------------------------------------
 	// Render passes
 	// ---------------------------------------------------------------------
@@ -386,5 +411,15 @@ namespace RageV::RHI
 		bool SupportsDynamicRendering = false;
 		bool SupportsDescriptorIndexing = false;
 		bool SupportsTimestampQueries = false;
+
+		// Compute shaders and dispatch. Core in Vulkan and in OpenGL 4.3, so
+		// this is true on anything that got far enough to create a device --
+		// but it is asked rather than assumed, because a feature whose absence
+		// silently does nothing is the kind that gets discovered by a user.
+		bool SupportsCompute          = false;
+		// Largest local_size_x a shader may declare, and the largest group
+		// count a single dispatch may ask for.
+		uint32_t MaxComputeWorkGroupSize  = 0;
+		uint32_t MaxComputeWorkGroupCount = 0;
 	};
 }

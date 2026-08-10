@@ -37,6 +37,13 @@ namespace RageV::RHI
 		virtual void SetScissor(const Rect2D& scissor) = 0;
 
 		virtual void BindPipeline(const Ref<RHIPipeline>& pipeline) = 0;
+
+		// Binds for dispatch rather than for drawing. Resource sets and push
+		// constants recorded afterwards go to the compute pipeline: the two
+		// bind points are separate in Vulkan, and the command list follows
+		// whichever kind was bound last so callers do not have to say twice.
+		virtual void BindComputePipeline(const Ref<RHIComputePipeline>& pipeline) = 0;
+
 		virtual void BindResourceSet(uint32_t set, const Ref<RHIResourceSet>& resources) = 0;
 		virtual void BindVertexBuffer(uint32_t binding, const Ref<RHIBuffer>& buffer, uint64_t offset = 0) = 0;
 		virtual void BindIndexBuffer(const Ref<RHIBuffer>& buffer, IndexType type, uint64_t offset = 0) = 0;
@@ -49,6 +56,28 @@ namespace RageV::RHI
 		virtual void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1,
 								 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 								 uint32_t firstInstance = 0) = 0;
+
+		// Runs the bound compute pipeline over a grid of work groups -- groups,
+		// not invocations. RHIComputePipeline::GroupsFor converts.
+		//
+		// **Must be recorded outside a render pass.** Vulkan forbids dispatch
+		// inside one, and the rule is not enforceable on OpenGL, so a pass that
+		// obeyed it only on the backend that complains would be a Vulkan-only
+		// failure found late. Asserted on both.
+		virtual void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
+
+		// Orders one buffer's uses against each other: everything recorded
+		// before this that used it as `from` completes before anything
+		// recorded after uses it as `to`.
+		//
+		// Both directions matter for a buffer a compute pass owns and a draw
+		// reads. Without ComputeWrite -> ShaderRead the draw may read the
+		// previous contents; without ShaderRead -> ComputeWrite the next
+		// dispatch may overwrite what the draw is still reading. The second is
+		// the one that looks like it works, because it only corrupts under
+		// load.
+		virtual void BufferBarrier(const Ref<RHIBuffer>& buffer,
+								   BufferSync from, BufferSync to) = 0;
 
 		// Copies a rendered 2D image onto one array layer of another texture,
 		// in the orientation that sampling that layer expects. Same size, same

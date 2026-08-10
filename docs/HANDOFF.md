@@ -1139,13 +1139,40 @@ a build error naming the offending enum rather than a silent stomp. An
 audit found no existing offender -- every registered enum was already
 `uint32_t` or plain `int` -- so this was a live trap, not a live bug.
 
-**Resume here, in order:**
-1. **6.7a RHI compute**: compute shader stage in ShaderCompiler
-   (`#type compute`), `ComputePipelineDesc` + `CreateComputePipeline`,
-   `RHICommandList::BindComputePipeline/Dispatch`, and a barrier pair
-   (compute→vertex-read, vertex→compute) on both backends. GL 4.6 has
-   glDispatchCompute + glMemoryBarrier; Vulkan wants buffer barriers.
-2. **6.7b GPU sim**: per-emitter fixed pool of `MaxParticles` in a
+**6.7a RHI compute is done** (819 checks, both backends, 0 validation
+messages). What landed:
+
+- `ComputePipelineDesc` / `RHIComputePipeline` as a sibling of
+  `RHIPipeline`, not a graphics desc with the graphics half defaulted.
+  `GetWorkGroupSizeX()` and `GroupsFor(n)` come off reflection, so a
+  resized `local_size_x` cannot leave a dispatch covering a fraction of
+  its data.
+- `ShaderReflection` gained `LocalSize[3]` and `Stages`. `Stages` is
+  what answers "does this file have a compute stage" -- `LocalSize`
+  cannot, because a legal `local_size_x = 1` is indistinguishable from
+  the default.
+- `BindComputePipeline`, `Dispatch`, `BufferBarrier(buffer, from, to)`
+  with a `BufferSync` vocabulary of *uses* rather than Vulkan's
+  access/stage pair (the only honest shape both backends implement).
+  Both command lists follow whichever pipeline kind was bound last, so
+  resource sets and push constants need no second statement of it.
+- `RHIDevice::ExecuteImmediate(record)` -- a one-shot command list,
+  submitted and waited on, outside the frame loop. Vulkan wraps its
+  existing ImmediateSubmit (via a new `VulkanCommandList::Adopt`, since
+  Begin/End belong to a frame); GL issues and `glFinish`es. It is what
+  makes a dispatch testable headlessly, and it is generally useful.
+- Resource sets no longer couple to a pipeline *kind*: both backends
+  take the layout-bearing half plus an owning handle
+  (`VulkanPipelineCommon`, `OpenGLPipelineBindings`).
+- Caps: `SupportsCompute`, `MaxComputeWorkGroupSize/Count`.
+
+The suite runs a real dispatch -- 100 elements over a 64-wide group, so
+the tail group runs past the end and the shader's bounds check is
+exercised -- and checks every element. A graphics-only shader is refused
+a compute pipeline rather than given one that dispatches nothing.
+
+**Resume here:**
+1. **6.7b GPU sim**: per-emitter fixed pool of `MaxParticles` in a
    device-local SSBO, one compute pass integrates + emits (spawn count
    pushed per frame, hash(index,frame) RNG), dead particles collapse to
    size zero -- no compaction, no readback, no indirect draw in v1; the
@@ -1154,7 +1181,20 @@ audit found no existing offender -- every registered enum was already
    the emitter entirely (CPU skips it, nothing draws) -- honest but
    dead; 6.7b is what makes the flag true. Then measure CPU vs GPU with
    `--benchmark` on a heavy emitter and record both numbers.
-4. Docs: audio additions are in cpp-reference.md already; cpp.md and
+
+   **The switch must be ~instant** -- the user asked for this
+   explicitly. The compute pipeline is created once at Init, and each
+   emitter's GPU buffers are cached by entity UUID and *retained* when
+   the flag goes off, so toggling is a branch rather than an
+   allocation. CPU->GPU can seed the SSBO from the live pool for free
+   and stay visually continuous; GPU->CPU drops the pool rather than
+   stalling on a readback -- document that asymmetry rather than hiding
+   it.
+
+   The dispatch must be recorded **outside** the render pass, so the
+   sim needs a hook before the scene's BeginRenderPass rather than
+   inside Scene::OnRender. Both command lists assert on this.
+2. Docs: audio additions are in cpp-reference.md already; cpp.md and
    csharp.md audio sections need the pitch/At variants, and particles
    need a manual page. Regenerate the site (rvdoc --check).
 5. Knockdown juice: impact bursts + a win confetti via the component

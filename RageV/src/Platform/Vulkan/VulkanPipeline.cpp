@@ -41,14 +41,14 @@ namespace RageV::Vk
 	// -------------------------------------------------------------------------
 	// Pipeline
 	// -------------------------------------------------------------------------
-	VulkanPipeline::VulkanPipeline(VulkanDevice& device, const RHI::GraphicsPipelineDesc& desc)
-		: RHI::RHIPipeline(desc), m_Device(device), m_Deletion(device.GetDeletionQueue())
+	VulkanPipelineCommon::VulkanPipelineCommon(VulkanDevice& device, VkPipelineBindPoint bindPoint,
+											   const RHI::ShaderReflection& reflection)
+		: m_Device(device), m_Deletion(device.GetDeletionQueue()),
+		  m_Reflection(&reflection), m_BindPoint(bindPoint)
 	{
-		CreateLayouts();
-		CreatePipeline();
 	}
 
-	VulkanPipeline::~VulkanPipeline()
+	VulkanPipelineCommon::~VulkanPipelineCommon()
 	{
 		VkDevice device = m_Device.GetDevice();
 		VkPipeline pipeline = m_Pipeline;
@@ -64,16 +64,65 @@ namespace RageV::Vk
 		});
 	}
 
-	VkDescriptorSetLayout VulkanPipeline::GetSetLayout(uint32_t set) const
+	VkDescriptorSetLayout VulkanPipelineCommon::GetSetLayout(uint32_t set) const
 	{
 		if (set >= m_SetLayouts.size())
 			return VK_NULL_HANDLE;
 		return m_SetLayouts[set];
 	}
 
-	void VulkanPipeline::CreateLayouts()
+	VulkanPipeline::VulkanPipeline(VulkanDevice& device, const RHI::GraphicsPipelineDesc& desc)
+		: RHI::RHIPipeline(desc),
+		  VulkanPipelineCommon(device, VK_PIPELINE_BIND_POINT_GRAPHICS,
+							   desc.Shader->GetReflection())
 	{
-		const RHI::ShaderReflection& reflection = m_Desc.Shader->GetReflection();
+		CreateLayouts();
+		CreatePipeline();
+	}
+
+	// A compute pipeline is the shared layout work plus one call. Everything
+	// that makes a graphics pipeline long -- vertex input, raster, blend,
+	// attachments -- has no compute equivalent to get wrong.
+	VulkanComputePipeline::VulkanComputePipeline(VulkanDevice& device,
+												 const RHI::ComputePipelineDesc& desc)
+		: RHI::RHIComputePipeline(desc),
+		  VulkanPipelineCommon(device, VK_PIPELINE_BIND_POINT_COMPUTE,
+							   desc.Shader->GetReflection())
+	{
+		CreateLayouts();
+
+		auto shader = std::static_pointer_cast<VulkanShader>(m_Desc.Shader);
+
+		const VulkanShader::StageModule* compute = nullptr;
+		for (const auto& stage : shader->GetStages())
+		{
+			if (stage.Bits == VK_SHADER_STAGE_COMPUTE_BIT)
+				compute = &stage;
+		}
+
+		if (!compute)
+		{
+			RV_CORE_ERROR("'{0}' has no compute stage; no compute pipeline was created",
+						  m_Desc.Name);
+			return;
+		}
+
+		VkPipelineShaderStageCreateInfo stageInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+		stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		stageInfo.module = compute->Module;
+		stageInfo.pName = compute->EntryPoint.c_str();
+
+		VkComputePipelineCreateInfo info{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+		info.stage = stageInfo;
+		info.layout = m_Layout;
+
+		VK_CHECK(vkCreateComputePipelines(m_Device.GetDevice(), VK_NULL_HANDLE, 1,
+										  &info, nullptr, &m_Pipeline));
+	}
+
+	void VulkanPipelineCommon::CreateLayouts()
+	{
+		const RHI::ShaderReflection& reflection = *m_Reflection;
 
 		// Set layouts are built straight from reflection, so a shader edit
 		// cannot silently disagree with hand-written binding declarations.
@@ -271,8 +320,10 @@ namespace RageV::Vk
 	// -------------------------------------------------------------------------
 	// Resource set
 	// -------------------------------------------------------------------------
-	VulkanResourceSet::VulkanResourceSet(VulkanDevice& device, const RHI::Ref<VulkanPipeline>& pipeline, uint32_t set)
-		: RHI::RHIResourceSet(set), m_Device(device), m_Deletion(device.GetDeletionQueue()), m_Pipeline(pipeline)
+	VulkanResourceSet::VulkanResourceSet(VulkanDevice& device, VulkanPipelineCommon* pipeline,
+										 std::shared_ptr<void> owner, uint32_t set)
+		: RHI::RHIResourceSet(set), m_Device(device), m_Deletion(device.GetDeletionQueue()),
+		  m_Pipeline(pipeline), m_Owner(std::move(owner))
 	{
 		const uint32_t frames = device.GetFramesInFlight();
 		VkDescriptorSetLayout layout = pipeline->GetSetLayout(set);
