@@ -40,14 +40,22 @@ public:
 	// see the definition.
 	void PopulateStarterScene();
 
-	// Compiles the project's C# and loads the result. Output goes to the panel
+	// Compiles the project's scripts -- C# always, the C++ game module when the
+	// project has one -- and loads what can be loaded. Output goes to the panel
 	// below, not to a console nobody is looking at.
 	void BuildScripts();
+	void BuildModule();
 	void DrawScriptBuildPanel();
+	void DrawBuildResult(const RageV::Managed::BuildResult& result);
 
 	RageV::Managed::BuildResult m_ScriptBuild;
 	bool m_ScriptBuildRan = false;
 	bool m_ShowScriptBuild = false;
+
+	// The C++ module's build, kept apart from the C# one because they fail
+	// independently and the panel says which half is broken.
+	RageV::Managed::BuildResult m_ModuleBuild;
+	bool m_ModuleBuildRan = false;
 
 
 	void ImportModel();

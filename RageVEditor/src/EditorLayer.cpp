@@ -11,6 +11,7 @@
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Managed/Interop.h"
+#include "RageV/Project/ModuleBuild.h"
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Core/EngineConfig.h"
@@ -2397,8 +2398,22 @@ void EditorLayer::BuildScripts()
 	if (!Project::GetActive())
 		return;
 
+	// C++ first: it is the slower half, and a person watching a frozen editor
+	// should be waiting on the long thing, not on the short thing before it.
+	BuildModule();
+
 	const std::filesystem::path csproj =
 		Managed::ScriptBuild::ProjectFileFor(Project::Root(), Project::Config().Name);
+
+	// No C# in this project -- the shape a project made before the scaffold
+	// existed has. Skipped the way a missing Source/ skips the module build,
+	// rather than reported as a build that failed with zero errors.
+	std::error_code scriptsExist;
+	if (!std::filesystem::exists(csproj, scriptsExist))
+	{
+		RV_INFO("No C# scripts in this project ({0} does not exist)", csproj.filename().string());
+		return;
+	}
 
 	// The engine's own class library, which the project references. Staged
 	// beside the executable, so this is where it is at runtime regardless of
@@ -2442,6 +2457,38 @@ void EditorLayer::BuildScripts()
 		RV_INFO("Loaded {0} script type(s) from {1}", scripts, m_ScriptBuild.Assembly.filename().string());
 }
 
+// The C++ half of Build Scripts. Separate from the C# half so one failing
+// does not stop the other from being reported, and skipped entirely for a
+// project that has no Source/ -- one made before game modules existed.
+void EditorLayer::BuildModule()
+{
+	if (!Project::GetActive() || !ModuleBuild::ProjectHasModule(Project::Root()))
+		return;
+
+	m_ModuleBuild = ModuleBuild::Build(Project::Root(), Project::Config().Name);
+	m_ModuleBuildRan = true;
+	m_ShowScriptBuild = true;
+
+	if (m_ModuleBuild.SdkMissing)
+	{
+		RV_ERROR("No CMake found; the C++ module was not built");
+		return;
+	}
+
+	if (!m_ModuleBuild.Success)
+	{
+		RV_ERROR("Module build failed: {0} error(s)", m_ModuleBuild.ErrorCount());
+		return;
+	}
+
+	// Built, not loaded: loading the module is the next roadmap step, and
+	// saying so beats implying its scripts are available now.
+	RV_INFO("Module built in {0:.1f}s, {1} warning(s) -> {2}. The editor does not "
+			"load modules yet; that lands next.",
+			m_ModuleBuild.Seconds, m_ModuleBuild.WarningCount(),
+			m_ModuleBuild.Assembly.filename().string());
+}
+
 // The compiler's output, where somebody will actually read it.
 void EditorLayer::DrawScriptBuildPanel()
 {
@@ -2461,6 +2508,24 @@ void EditorLayer::DrawScriptBuildPanel()
 		return;
 	}
 
+	// The C++ module, when one was built. First for the same reason it builds
+	// first: it is where the long wait went.
+	if (m_ModuleBuildRan)
+	{
+		ImGui::SeparatorText("C++ module");
+		if (m_ModuleBuild.SdkMissing)
+		{
+			ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "No CMake");
+			ImGui::TextWrapped("The C++ module needs CMake. The engine's own build has one; "
+							   "install CMake or put it on PATH.");
+		}
+		else
+		{
+			DrawBuildResult(m_ModuleBuild);
+		}
+		ImGui::SeparatorText("C# scripts");
+	}
+
 	if (m_ScriptBuild.SdkMissing)
 	{
 		ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "No .NET SDK");
@@ -2471,14 +2536,28 @@ void EditorLayer::DrawScriptBuildPanel()
 		return;
 	}
 
-	const size_t errors = m_ScriptBuild.ErrorCount();
-	const size_t warnings = m_ScriptBuild.WarningCount();
+	DrawBuildResult(m_ScriptBuild);
+
+	ImGui::End();
+}
+
+// One build's outcome, whichever language produced it: the summary line, the
+// diagnostics with errors first, and the raw log folded away. Shared between
+// the two halves of the panel so a C++ error and a C# error read identically.
+void EditorLayer::DrawBuildResult(const Managed::BuildResult& result)
+{
+	// Scoped IDs: the two halves render the same widgets, and ImGui would
+	// otherwise conflate their collapsing headers.
+	ImGui::PushID(&result);
+
+	const size_t errors = result.ErrorCount();
+	const size_t warnings = result.WarningCount();
 
 	if (errors > 0)
 		ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "%zu error(s), %zu warning(s)", errors, warnings);
 	else
 		ImGui::TextColored(ImVec4(0.40f, 0.75f, 0.45f, 1.0f), "Built in %.1fs, %zu warning(s)",
-						   m_ScriptBuild.Seconds, warnings);
+						   result.Seconds, warnings);
 
 	ImGui::Separator();
 
@@ -2487,7 +2566,7 @@ void EditorLayer::DrawScriptBuildPanel()
 	for (int pass = 0; pass < 2; pass++)
 	{
 		const bool wantErrors = (pass == 0);
-		for (const Managed::BuildDiagnostic& diagnostic : m_ScriptBuild.Diagnostics)
+		for (const Managed::BuildDiagnostic& diagnostic : result.Diagnostics)
 		{
 			if (diagnostic.IsError != wantErrors)
 				continue;
@@ -2495,8 +2574,13 @@ void EditorLayer::DrawScriptBuildPanel()
 			const ImVec4 colour = diagnostic.IsError ? ImVec4(0.88f, 0.30f, 0.30f, 1.0f)
 													 : ImVec4(0.85f, 0.68f, 0.30f, 1.0f);
 
-			ImGui::TextColored(colour, "%s(%d,%d)", diagnostic.File.filename().string().c_str(),
-							   diagnostic.Line, diagnostic.Column);
+			// A linker diagnostic has no line at all; printing "(0,0)" after
+			// every unresolved symbol would just be noise.
+			if (diagnostic.Line > 0)
+				ImGui::TextColored(colour, "%s(%d,%d)", diagnostic.File.filename().string().c_str(),
+								   diagnostic.Line, diagnostic.Column);
+			else
+				ImGui::TextColored(colour, "%s", diagnostic.File.filename().string().c_str());
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s", diagnostic.Code.c_str());
 			ImGui::TextWrapped("    %s", diagnostic.Message.c_str());
@@ -2504,15 +2588,15 @@ void EditorLayer::DrawScriptBuildPanel()
 		}
 	}
 
-	// The whole log, folded away. Parsing is best-effort -- an MSBuild failure
-	// that is not a CS diagnostic still has to be readable by someone.
-	if (m_ScriptBuild.Diagnostics.empty() || errors > 0)
+	// The whole log, folded away. Parsing is best-effort -- a failure that is
+	// not a compiler diagnostic still has to be readable by someone.
+	if (result.Diagnostics.empty() || errors > 0)
 	{
 		if (ImGui::CollapsingHeader("Full output"))
-			ImGui::TextUnformatted(m_ScriptBuild.Output.c_str());
+			ImGui::TextUnformatted(result.Output.c_str());
 	}
 
-	ImGui::End();
+	ImGui::PopID();
 }
 
 void EditorLayer::SetStartSceneToCurrent()

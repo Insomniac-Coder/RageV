@@ -25,36 +25,43 @@ namespace RageV::Managed
 			return pattern;
 		}
 
-		std::string RunAndCapture(const std::string& command, bool& launched)
+	}
+
+	std::string ScriptBuild::RunAndCapture(const std::string& command, bool& launched,
+										   int* exitCode)
+	{
+		// _popen rather than CreateProcess with pipes: this needs the child's
+		// output and its exit code and nothing else, and the twenty lines of
+		// handle plumbing the alternative costs buy nothing here.
+		//
+		// stderr is folded into stdout because MSBuild puts diagnostics on
+		// both depending on the failure, and a build log split across two
+		// streams reorders itself unhelpfully.
+		FILE* pipe = _popen((command + " 2>&1").c_str(), "r");
+		if (!pipe)
 		{
-			// _popen rather than CreateProcess with pipes: this needs the child's
-			// output and its exit code and nothing else, and the twenty lines of
-			// handle plumbing the alternative costs buy nothing here.
-			//
-			// stderr is folded into stdout because MSBuild puts diagnostics on
-			// both depending on the failure, and a build log split across two
-			// streams reorders itself unhelpfully.
-			FILE* pipe = _popen((command + " 2>&1").c_str(), "r");
-			if (!pipe)
-			{
-				launched = false;
-				return {};
-			}
-
-			launched = true;
-			std::string output;
-			std::array<char, 512> chunk{};
-			while (std::fgets(chunk.data(), (int)chunk.size(), pipe))
-				output += chunk.data();
-
-			_pclose(pipe);
-			return output;
+			launched = false;
+			return {};
 		}
 
-		std::string Quote(const std::filesystem::path& path)
-		{
-			return "\"" + path.string() + "\"";
-		}
+		launched = true;
+		std::string output;
+		std::array<char, 512> chunk{};
+		while (std::fgets(chunk.data(), (int)chunk.size(), pipe))
+			output += chunk.data();
+
+		// _pclose hands back the child's exit status -- cmd's, which is the
+		// build tool's own.
+		const int status = _pclose(pipe);
+		if (exitCode)
+			*exitCode = status;
+
+		return output;
+	}
+
+	std::string ScriptBuild::Quote(const std::filesystem::path& path)
+	{
+		return "\"" + path.string() + "\"";
 	}
 
 	size_t BuildResult::ErrorCount() const

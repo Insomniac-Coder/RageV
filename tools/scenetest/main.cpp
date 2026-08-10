@@ -60,6 +60,7 @@
 #include "RageV/Managed/DotNetHost.h"
 #include "RageV/Managed/Interop.h"
 #include "RageV/Managed/ScriptBuild.h"
+#include "RageV/Project/ModuleBuild.h"
 #include "RageV/Math/Math.h"
 #include "GlmBridge.h"
 #include <glm/glm.hpp>
@@ -5034,6 +5035,44 @@ int RunTests(int argc, char** argv)
 
 				Check(!Managed::ScriptBuild::ParseDiagnostic("Build succeeded.", parsed),
 					  "while an ordinary line is not mistaken for a diagnostic");
+
+				// The C++ module's parser, same reasoning: each of MSVC's three
+				// diagnostic shapes, checked directly rather than through a
+				// build that happens to fail.
+				Managed::BuildDiagnostic cpp;
+				Check(ModuleBuild::ParseDiagnostic(
+						  R"(C:\p\Rotator.cpp(12,5): error C2065: 'x': undeclared identifier [C:\p\Sample.vcxproj])",
+						  cpp)
+					  && cpp.Line == 12 && cpp.Column == 5 && cpp.Code == "C2065" && cpp.IsError,
+					  "an MSVC compile error parses, project suffix stripped");
+
+				Check(ModuleBuild::ParseDiagnostic(
+						  R"(C:\p\Rotator.cpp(31): warning C4189: local variable is initialized but not referenced)",
+						  cpp)
+					  && cpp.Line == 31 && cpp.Column == 0 && !cpp.IsError,
+					  "and one without a column, which older toolsets emit");
+
+				// A delimited raw string: the symbol itself ends in `)"`, which
+				// terminates a plain R"(...)" early and eats the next line.
+				Check(ModuleBuild::ParseDiagnostic(
+						  R"lnk(Rotator.obj : error LNK2019: unresolved external symbol "public: void f(void)")lnk",
+						  cpp)
+					  && cpp.Line == 0 && cpp.Code == "LNK2019" && cpp.IsError,
+					  "a linker error parses, with no line to point at");
+
+				Check(ModuleBuild::ParseDiagnostic(
+						  "CMake Error at CMakeLists.txt:33 (message):", cpp)
+					  && cpp.Line == 33 && cpp.Code == "CMake" && cpp.IsError,
+					  "and a failed configure points at the CMakeLists line");
+
+				Check(!ModuleBuild::ParseDiagnostic("  Rotator.cpp", cpp),
+					  "while the compiler naming a file as it goes is not a diagnostic");
+
+				Check(std::string(ModuleBuild::Configuration()) == "Debug",
+					  "the module config matches this build of the engine");
+				Check(ModuleBuild::ModuleFor("C:/proj", "Game")
+						  == std::filesystem::path("C:/proj") / "bin" / "Debug" / "Game.dll",
+					  "and the module lands in bin/<Config>/<name>.dll");
 
 				if (!Managed::ScriptBuild::IsAvailable())
 				{

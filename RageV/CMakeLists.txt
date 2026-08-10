@@ -142,8 +142,14 @@ export(EXPORT RageVTargets
 # game module at runtime -- the same trick RV_ENGINE_SCRIPTS_DIR uses. Only
 # meaningful in a build tree; a packaged editor has RAGEV_ENGINE passed to it
 # or does without.
+#
+# RV_CMAKE_EXE is the cmake that configured this build. If it built the
+# engine, it can build a module against it, and unlike "cmake on PATH" it is
+# guaranteed to exist on this machine -- the VS-bundled cmake usually is not
+# on PATH at all. ModuleBuild falls back to PATH when the baked one is gone.
 target_compile_definitions(RageV PUBLIC
-    RV_ENGINE_EXPORT_DIR="${CMAKE_BINARY_DIR}")
+    RV_ENGINE_EXPORT_DIR="${CMAKE_BINARY_DIR}"
+    RV_CMAKE_EXE="${CMAKE_COMMAND}")
 
 # Where "New Script..." puts a generated C++ script.
 #

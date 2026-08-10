@@ -87,5 +87,19 @@ namespace RageV::Managed
 		// Parses one MSBuild diagnostic line. Exposed for the test: the format
 		// is the only thing here that can quietly stop matching.
 		static bool ParseDiagnostic(const std::string& line, BuildDiagnostic& out);
+
+		// Shared with ModuleBuild, which shells out the same way to a different
+		// compiler. Public so the cmd.exe quoting trap lives in one place: the
+		// caller must wrap the *whole* command line in one extra pair of quotes,
+		// because cmd strips the first and last quote of a line that begins with
+		// one -- see the comment in Build().
+		//
+		// `exitCode`, when asked for, is the child's. The C# build ignores it
+		// and trusts the artifact instead; the module build cannot, because its
+		// artifact survives from the previous build and an up-to-date "nothing
+		// to do" is a success that writes no file.
+		static std::string RunAndCapture(const std::string& command, bool& launched,
+										 int* exitCode = nullptr);
+		static std::string Quote(const std::filesystem::path& path);
 	};
 }
