@@ -62,7 +62,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-783 checks, `exit 0`. Then look at a frame:
+832 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -611,6 +611,19 @@ or silence rather than an obvious failure.
 - **A pass writes exactly one target and declares what it samples.** An
   undeclared read returns null rather than working by accident -- a dependency
   the graph cannot see is the first thing to break when passes move.
+- **A target may carry several colours; a pass may bind a subset of them.**
+  `RGTargetDesc::ExtraColors` and `WriteAttachments`. The subset is not an
+  optimisation: a pipeline's declared `ColorFormats` must match what its pass
+  binds, so a three-attachment target that could only be bound whole would be
+  undrawable by every pipeline that declares one colour -- which is every
+  pipeline that draws the scene. Binding a subset is what lets one target with
+  **one depth buffer** serve both the scene and a transparency pass; separate
+  targets would each own a depth image and the transparent geometry would
+  ignore the world. `SameShape` compares the extra formats, or the pool hands
+  back a target with the right first attachment and the wrong number of them.
+- **`PreserveDepth` clears colour and keeps depth.** `RGLoad` says one thing
+  about both, which is right until a pass wants fresh accumulation buffers over
+  the depth the scene already wrote.
 - **Targets are allocated and resized in `Compile`**, never while passes
   record. Same reason as the editor's viewport targets: resizing something a
   command buffer has bound destroys images it is holding.
@@ -793,6 +806,37 @@ or silence rather than an obvious failure.
   hemisphere and drew its inside, which has the same silhouette and only looks
   wrong once something reads the normal. `scenetest` checks all of them now.
 
+### Compute, and blending across two attachments
+
+- **A dispatch must be recorded outside a render pass.** Vulkan forbids it;
+  OpenGL would allow it. Both command lists assert, so a pass that obeyed the
+  rule only on the backend that complains cannot ship. This is why the GPU
+  particle simulation runs from `Scene::OnUpdateRuntime` and not from
+  `OnRender` -- and `OnUpdateRuntime` is also **once per frame**, where
+  `OnRender` runs once per *view* and the editor has two.
+- **A resource set holds one descriptor set per frame in flight, and `Commit`
+  writes only the current frame's.** Committing once at creation populates one
+  and leaves the rest never written. Validation catches it on frame two; a
+  release build renders garbage. Rebind and commit every frame -- cheap, and
+  what every renderer here already did.
+- **A persistently mapped host-visible buffer written by a compute shader is a
+  synchronisation point on OpenGL.** The particle state buffer was mapped so a
+  rare seed could be a memcpy; it made the GPU path *slower than the CPU one*
+  (6.9 ms against 3.3 ms) and stopped GPU timestamps resolving at all. Device
+  local, seed through staging.
+- **Barriers bracket a batch of dispatches, not each one.** A barrier orders
+  everything around it, not only the buffer it names, so interleaving makes
+  every dispatch wait for the previous one.
+- **`independentBlend` is a Vulkan device feature.** Different blend state on
+  different attachments of one pipeline is not free; without it every
+  attachment must match the first. Enabled where supported, with a warning and
+  a fallback where not.
+- **`glDrawBuffers` is persistent framebuffer state.** Set it on every pass, or
+  a pass that bound a subset leaves the next pass over that target writing into
+  its selection.
+- **`glClearBufferfv` indexes the draw-buffer list, not the framebuffer.**
+  Binding attachments 1 and 2 means clearing indices 0 and 1.
+
 ### Lifetime and shutdown
 
 - **`Layer`'s destructor is virtual, and must stay so.** `LayerStack` owns
@@ -931,6 +975,9 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 | Materials | Not assets. Two entities cannot share one from the inspector; each carries its own. |
 | Lights and cameras | No billboard icons, and not clickable — picking tests geometry and they have none. |
 | Audio | `.ogg` is deliberately not claimed: it needs stb_vorbis, and a file that imports and then will not play is worse than one that does not import. |
+| Particles | A GPU emitter cannot sort its own alpha — sorting would need a readback. Use `Additive` or `WeightedBlended` there. Emitters are still sorted against each other. |
+| Particles | Weighted blending's depth weight has been eyeballed on one shallow scene. It is the START HERE in §8 for exactly that reason. |
+| Particles | No sub-emitters, no arbitrary curves (size and colour interpolate start to end), and nothing collides. |
 
 ### Not built
 
@@ -940,6 +987,17 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
   registry name with text values -- the boundary's answer to GetComponent<T>,
   driven by the same ComponentRegistry as the inspector so it cannot go
   stale. Mid-play builds stop, swap and resume Play, in both languages.
+- ~~Particles~~ -- **built**: an emitter component, CPU and GPU simulation with
+  a switch that allocates nothing, billboard and flat facings (3D and 2D from
+  one component), and three blend modes including order-independent. See the
+  manual's particles page. Still missing within it: no sub-emitters, no
+  curves beyond a start/end pair, no collision, and a GPU emitter cannot sort
+  its own alpha -- which is what `WeightedBlended` is for.
+- **Text and game UI.** The largest gap by some distance, and the one the mini
+  game hit hardest -- see §8. Nothing can draw a score, a label or a menu.
+- **A per-frame script hook.** `OnUpdate` is per fixed step by design, so
+  anything that must move with the display -- camera smoothing, recoil, shake
+  -- has nowhere to live. Named by the mini game as the second-largest gap.
 - **Front-to-back depth sorting.** Opaque draws are grouped by mesh and
   material so they batch, which is the half of 3.6 that was worth measuring.
   Sorting them by depth as well would let early-z reject more, and is worth a
