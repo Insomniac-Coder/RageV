@@ -61,6 +61,13 @@ layout(std140, set = 0, binding = 2) uniform EmitterParams
 	vec4 SizeSpin;
 	// x pool size, y spawn cursor, z spawn count, w epoch
 	uvec4 Emission;
+	// A local-space emitter simulates in its own frame and is transformed on
+	// the way out, so its particles ride the emitter. World-space ones are
+	// already where they belong and this is the identity.
+	mat4 Model;
+	// x local space (0 or 1), y uniform scale taken from Model's longest
+	// basis axis -- precomputed rather than three square roots per particle.
+	vec4 SpaceScale;
 } u_Emitter;
 
 // Integer hash, so a slot's numbers depend on nothing but the slot and the
@@ -197,7 +204,16 @@ void main()
 	// the two paths reach the vertex shader with the same numbers.
 	float t = clamp(particle.PositionAge.w / particle.VelocityLifetime.w, 0.0, 1.0);
 
-	float size = max(0.0, mix(u_Emitter.SizeSpin.x, u_Emitter.SizeSpin.y, t));
+	// Local-space particles are stored in the emitter's frame and moved into
+	// the world here, exactly as the CPU renderer does when it fills
+	// instances -- the transform belongs to presentation, not to the
+	// integration above, or a moving emitter would drag its own physics.
+	bool local = u_Emitter.SpaceScale.x != 0.0;
+	vec3 world = local ? (u_Emitter.Model * vec4(particle.PositionAge.xyz, 1.0)).xyz
+					   : particle.PositionAge.xyz;
+	float scale = local ? u_Emitter.SpaceScale.y : 1.0;
+
+	float size = max(0.0, mix(u_Emitter.SizeSpin.x, u_Emitter.SizeSpin.y, t) * scale);
 	vec4 color = mix(u_Emitter.ColorStart, u_Emitter.ColorEnd, t);
 
 	// Additive sums and ignores the alpha channel, so a fade has to happen in
@@ -207,7 +223,7 @@ void main()
 		color = vec4(color.rgb * color.a, 1.0);
 
 	u_Instances.Items[index] = ParticleInstance(
-		vec4(particle.PositionAge.xyz, size),
+		vec4(world, size),
 		color,
 		vec4(particle.Spin.x, 0.0, 0.0, 0.0));
 }

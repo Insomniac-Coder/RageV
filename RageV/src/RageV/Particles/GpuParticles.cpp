@@ -50,8 +50,10 @@ namespace RageV::Particles
 			uint32_t SpawnCursor = 0;
 			uint32_t SpawnCount = 0;
 			uint32_t Epoch = 0;
+			Mat4 Model;
+			Vec4 SpaceScale;
 		};
-		static_assert(sizeof(EmitterParams) == 128, "Must match particle_sim.rvshader");
+		static_assert(sizeof(EmitterParams) == 208, "Must match particle_sim.rvshader");
 
 		// One emitter's residency. Kept while the emitter exists, whether or
 		// not it is currently simulating on the GPU.
@@ -326,14 +328,21 @@ namespace RageV::Particles
 					? Math::Normalize(emitter.Direction)
 					: Vec3(0.0f, 1.0f, 0.0f);
 
-			// World space only for now: a local-space GPU emitter would need
-			// its model matrix in the shader and in the draw, and the CPU path
-			// is the one that has it. Documented in the manual rather than
-			// silently ignored.
+			// A local emitter simulates around its own origin along its own
+			// axis; the transform is applied when the instance is written, so
+			// the particles ride the emitter rather than being dragged by it.
 			const Vec3 axis = local
 				? authoredAxis
 				: Math::Normalize(Vec3(transform.World * Vec4(authoredAxis, 0.0f)));
 			const Vec3 origin = local ? Vec3(0.0f) : Vec3(transform.World[3]);
+
+			// The longest basis axis, which is what a non-uniform scale does
+			// to a round thing -- the same answer the CPU renderer takes.
+			const float scale = local
+				? Math::Max(Math::Max(Math::Length(Vec3(transform.World[0])),
+									  Math::Length(Vec3(transform.World[1]))),
+							Math::Length(Vec3(transform.World[2])))
+				: 1.0f;
 
 			EmitterParams params;
 			params.GravityDrag = Vec4(emitter.Gravity, emitter.Drag);
@@ -350,6 +359,8 @@ namespace RageV::Particles
 			params.SpawnCursor = resident.SpawnCursor;
 			params.SpawnCount = spawn;
 			params.Epoch = resident.Epoch;
+			params.Model = transform.World;
+			params.SpaceScale = Vec4(local ? 1.0f : 0.0f, scale, 0.0f, 0.0f);
 
 			resident.Params->Upload(&params, sizeof(params));
 

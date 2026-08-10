@@ -1214,11 +1214,18 @@ in flight and refills. Documented, not hidden.
   Barriers also bracket the whole batch rather than each dispatch --
   interleaved, every emitter waits for the one before it.
 
-Still open in the GPU path, all documented in the code: local-space
-emitters fall back to world-space behaviour, and alpha particles are not
-depth-sorted within an emitter (sorting needs a readback). Emitters are
-still sorted against each other. `scenes/particles_gpu.rage` is the
-visual check.
+Local-space GPU emitters work: the pool simulates in the emitter's own
+frame and the model matrix is applied when the instance is written, so
+particles ride a moving emitter instead of being dragged by it -- the
+same split the CPU renderer uses, where the transform belongs to
+presentation rather than to integration.
+
+Still open in the GPU path: alpha particles are not depth-sorted *within*
+an emitter, because sorting would need a readback. Emitters are still
+sorted against each other, so two overlapping effects are ordered
+correctly. The artifact only shows when particles inside one emitter
+differ strongly in colour or opacity; uniform smoke looks identical
+sorted or not. `scenes/particles_gpu.rage` is the visual check.
 
 **Resume here:**
 1. ~~6.7b GPU sim~~ -- done; the notes below are kept for context
