@@ -14,6 +14,10 @@
 #include "imgui.h"
 #include "ImGuizmo.h"
 
+// An internal ImGui type, forward-declared: only the .cpp -- which includes
+// imgui_internal.h -- ever looks inside it.
+struct ImGuiDockNode;
+
 class EditorLayer : public RageV::Layer
 {
 public:
@@ -209,6 +213,12 @@ private:
 	// launch. Closing Build Log by restarting was the report that exposed it.
 	void LoadPanelState();
 	void SavePanelState();
+
+	// Dock sizes are stored in pixels, so a resize would hand the whole
+	// difference to the central viewport. Scaling the tree keeps proportions;
+	// the reference size persists so it also works across runs.
+	void RescaleDockTree(ImGuiDockNode* node, const ImVec2& scale);
+	ImVec2 m_LastDockSize{ 0.0f, 0.0f };
 	bool m_ResetLayoutRequested = false;
 
 	// Collider wireframes in the scene view. Off by default: it is a diagnostic

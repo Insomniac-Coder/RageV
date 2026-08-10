@@ -644,6 +644,31 @@ void EditorLayer::OnImGuiRender()
 	{
 		m_ResetLayoutRequested = false;
 		BuildDefaultLayout(dockspaceID);
+		m_LastDockSize = viewport->WorkSize;
+	}
+	else
+	{
+		// Keep the arrangement proportional when the window changes size.
+		//
+		// ImGui stores a dock split's size in *pixels*, so shrinking the window
+		// leaves every side panel at its old width and takes the entire
+		// shortfall out of the viewport in the middle -- maximise, un-maximise,
+		// and the layout is a different layout. Scaling every node's stored
+		// size by the resize ratio keeps the panels at the same fraction of the
+		// window instead.
+		//
+		// The reference size persists in panels.ini, so the correction also
+		// applies across runs: a layout saved maximised opens sensibly in a
+		// small window, which the pixel sizes in imgui.ini alone cannot do.
+		if (m_LastDockSize.x > 0.0f && m_LastDockSize.y > 0.0f &&
+			(std::fabs(m_LastDockSize.x - viewport->WorkSize.x) > 0.5f ||
+			 std::fabs(m_LastDockSize.y - viewport->WorkSize.y) > 0.5f))
+		{
+			const ImVec2 scale(viewport->WorkSize.x / m_LastDockSize.x,
+							   viewport->WorkSize.y / m_LastDockSize.y);
+			RescaleDockTree(ImGui::DockBuilderGetNode(dockspaceID), scale);
+		}
+		m_LastDockSize = viewport->WorkSize;
 	}
 
 	ImGui::DockSpace(dockspaceID, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
@@ -687,6 +712,23 @@ void EditorLayer::OnImGuiRender()
 // The About and restart popups are deliberately absent. They are modal
 // responses to something the user just did, and reopening one at startup
 // because it was up at shutdown would be noise.
+// Every node's stored size, scaled by a window-resize ratio. SizeRef is what
+// the docking layout is actually computed from; Size is what is on screen this
+// frame. Both are scaled so the layout does not lurch for a frame.
+void EditorLayer::RescaleDockTree(ImGuiDockNode* node, const ImVec2& scale)
+{
+	if (!node)
+		return;
+
+	node->SizeRef.x *= scale.x;
+	node->SizeRef.y *= scale.y;
+	node->Size.x *= scale.x;
+	node->Size.y *= scale.y;
+
+	RescaleDockTree(node->ChildNodes[0], scale);
+	RescaleDockTree(node->ChildNodes[1], scale);
+}
+
 void EditorLayer::LoadPanelState()
 {
 	std::ifstream file("panels.ini");
@@ -720,6 +762,10 @@ void EditorLayer::LoadPanelState()
 		else if (key == "render-settings") m_ShowRenderSettings = value;
 		else if (key == "build-log")       m_ShowScriptBuild = value;
 		else if (key == "colliders")       m_ShowColliders = value;
+		// The window size the dock layout was saved against, so the first
+		// frame can rescale imgui.ini's pixel sizes to today's window.
+		else if (key == "layout-width")    m_LastDockSize.x = (float)std::atof(trim(line.substr(equals + 1)).c_str());
+		else if (key == "layout-height")   m_LastDockSize.y = (float)std::atof(trim(line.substr(equals + 1)).c_str());
 	}
 }
 
@@ -739,6 +785,8 @@ void EditorLayer::SavePanelState()
 	file << "render-settings = " << (m_ShowRenderSettings ? 1 : 0) << "\n";
 	file << "build-log = "       << (m_ShowScriptBuild ? 1 : 0) << "\n";
 	file << "colliders = "       << (m_ShowColliders ? 1 : 0) << "\n";
+	file << "layout-width = "    << (int)m_LastDockSize.x << "\n";
+	file << "layout-height = "   << (int)m_LastDockSize.y << "\n";
 }
 
 bool EditorLayer::LayoutVersionMatches()
