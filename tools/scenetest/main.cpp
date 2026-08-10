@@ -61,6 +61,7 @@
 #include "RageV/Managed/Interop.h"
 #include "RageV/Managed/ScriptBuild.h"
 #include "RageV/Project/ModuleBuild.h"
+#include "RageV/Project/GameModule.h"
 #include "RageV/Core/ChildProcess.h"
 #include "RageV/Math/Math.h"
 #include "GlmBridge.h"
@@ -1039,6 +1040,70 @@ namespace
 	// Everything here is about paths surviving a trip through a file, because
 	// the failure this exists to prevent is a project that only opens on the
 	// machine that made it.
+	// The game module, end to end: a script the engine has never contained,
+	// loaded from the sample project's DLL, attached, and stepped. This is the
+	// bar the whole feature was built against -- anything less passes with the
+	// script compiled into the engine, which is exactly the state replaced.
+	//
+	// Conditional on the module having been built, because the suite must not
+	// require a prior Build Scripts to run at all. Skipping is loud.
+	void CheckGameModule()
+	{
+		if (!Project::GetActive())
+			return;
+
+		std::error_code ec;
+		if (!std::filesystem::exists(
+				ModuleBuild::ModuleFor(Project::Root(), Project::Config().Name), ec))
+		{
+			RV_CORE_WARN("No built game module beside the sample project; the module "
+						 "load path is not exercised here. Build Scripts in the editor "
+						 "and rerun for full coverage.");
+			return;
+		}
+
+		// Loaded by Project::Load at startup, not by anything this test did:
+		// the module is part of opening a project.
+		Check(GameModule::IsLoaded(), "opening a project loads its game module");
+		Check(ScriptRegistry::IsRegistered("Rotator"),
+			  "and a script the engine has never contained is registered");
+
+		// The proof is behaviour, not presence: Rotator turns Speed rad/s
+		// about Y, and this instance runs from code in the module's DLL.
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity host = scene->CreateEntity("FromModule");
+			auto& script = host.AddComponent<NativeScriptComponent>("Rotator");
+			script.Set("Speed", "2.0");
+
+			scene->OnRuntimeStart();
+			host.GetComponent<TransformComponent>().Rotation = Vec3(0.0f);
+
+			for (int step = 0; step < 30; step++)
+				scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+
+			const float turned = host.GetComponent<TransformComponent>().Rotation.y;
+			Check(std::fabs(turned - (2.0f * 30.0f / 60.0f)) < 1e-4f,
+				  "and an entity runs it, at the overridden speed");
+
+			// Before the unload below: an instance outliving its module is the
+			// use-after-free this whole design exists to prevent.
+			scene->OnRuntimeStop();
+		}
+
+		// Unload takes the module's scripts with it and nothing else.
+		GameModule::Unload();
+		Check(!ScriptRegistry::IsRegistered("Rotator"),
+			  "unloading the module unregisters its scripts");
+		Check(ScriptRegistry::IsRegistered("Spinner"),
+			  "and the engine's own survive");
+
+		// And back, because the tests after this expect the world unchanged.
+		Check(GameModule::Load(Project::Root(), Project::Config().Name),
+			  "and the module loads again");
+		Check(ScriptRegistry::IsRegistered("Rotator"), "with its scripts back");
+	}
+
 	void CheckProject()
 	{
 		// Kept, because the checks below open other projects and everything
@@ -3122,12 +3187,21 @@ namespace
 
 		{ std::ofstream stream(fakeRuntime.parent_path() / "RageV.dll"); stream << "not really a DLL"; }
 
+		// A built game module, which the package must carry: its scripts are
+		// as much the game as the assets are.
+		std::filesystem::create_directories(
+			ModuleBuild::ModuleFor(root / "src", "Packaged").parent_path(), error);
+		{ std::ofstream stream(ModuleBuild::ModuleFor(root / "src", "Packaged")); stream << "module"; }
+
 		// --- the real thing ----------------------------------------------------
 		result = PackageProject(desc);
 		Check(result.Success, "a complete project packages");
 
 		Check(std::filesystem::exists(output / "RageV.dll"),
 			  "the engine ships with it, under the name its import table asks for");
+		Check(std::filesystem::exists(output / "Packaged.dll"),
+			  "and so does the game module, beside the .rvproject where "
+			  "GameModule looks in a package");
 
 		Check(std::filesystem::exists(output / "Packaged.exe"),
 			  "the executable is named after the game, not after the engine");
@@ -4275,6 +4349,7 @@ int RunTests(int argc, char** argv)
 	CheckSkinnedVertexLayout();
 	CheckReflectionProbe();
 	CheckFrameGraph();
+	CheckGameModule();
 	CheckProject();
 	CheckPackaging();
 	CheckRuntimePath();
@@ -5114,6 +5189,41 @@ int RunTests(int argc, char** argv)
 						  == std::filesystem::path("C:/proj") / "bin" / "Debug" / "Game.dll",
 					  "and the module lands in bin/<Config>/<name>.dll");
 
+				// --- registry scopes: what makes a module *unloadable* ----------
+				//
+				// A factory registered under a scope must leave with it, and one
+				// registered under none must survive every unload. This is the
+				// invariant that keeps FreeLibrary from leaving dangling function
+				// pointers behind a map that still looks correct.
+				{
+					const int scope = ScriptRegistry::BeginModuleScope();
+					ScriptRegistry::Register("ScopedProbe",
+											 []() -> ScriptableEntity* { return nullptr; });
+					// A name the engine already owns: first registration wins,
+					// so the builtin keeps the slot and must survive the
+					// scope's unregister untouched.
+					ScriptRegistry::Register("Spinner",
+											 []() -> ScriptableEntity* { return nullptr; });
+					ScriptRegistry::EndModuleScope();
+
+					Check(ScriptRegistry::IsRegistered("ScopedProbe"),
+						  "a script registered under a module scope registers");
+
+					const std::vector<std::string> mine = ScriptRegistry::NamesInScope(scope);
+					Check(mine.size() == 1 && mine[0] == "ScopedProbe",
+						  "and the scope knows exactly what it owns -- not the "
+						  "builtin a duplicate name collided with");
+
+					const size_t removed = ScriptRegistry::UnregisterScope(scope);
+					Check(removed == 1 && !ScriptRegistry::IsRegistered("ScopedProbe"),
+						  "unregistering the scope removes its script");
+					Check(ScriptRegistry::IsRegistered("Spinner"),
+						  "and leaves the engine's own untouched");
+
+					Check(ScriptRegistry::UnregisterScope(0) == 0,
+						  "while scope zero -- the engine itself -- refuses to unregister");
+				}
+
 				if (!Managed::ScriptBuild::IsAvailable())
 				{
 					RV_CORE_WARN("No .NET SDK; the script build itself is not exercised here");
@@ -5287,6 +5397,11 @@ int RunTests(int argc, char** argv)
 		DotNetHost::Shutdown();
 		Check(!DotNetHost::IsAvailable(), "Shutdown leaves the host unavailable");
 	}
+
+	// Before teardown, so the game module -- if one loaded -- is freed while
+	// the registry that holds its lambdas is still alive. See ~Application
+	// for the exit-order crash this avoids.
+	Project::Close();
 
 	Audio::Engine::Shutdown();
 	Assets::Manager::Shutdown();

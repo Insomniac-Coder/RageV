@@ -12,6 +12,7 @@
 #include "RageV/Project/Project.h"
 #include "RageV/Managed/Interop.h"
 #include "RageV/Project/ModuleBuild.h"
+#include "RageV/Project/GameModule.h"
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Core/EngineConfig.h"
@@ -2395,6 +2396,12 @@ void EditorLayer::OpenProject()
 	if (filepath.empty())
 		return;
 
+	// Before Project::Load, which unloads the old project's game module: a
+	// playing scene may hold instances whose code lives in that module, and
+	// they must be gone before the DLL is.
+	if (m_SceneState != SceneState::Edit)
+		OnSceneStop();
+
 	if (!Project::Load(filepath))
 		return;
 
@@ -2518,6 +2525,23 @@ void EditorLayer::BuildScripts()
 	// The engine's own class library, staged beside the executable.
 	const std::filesystem::path scriptCore = "managed/RageV.ScriptCore.dll";
 
+	// The loaded module holds its own DLL open, so the linker cannot write the
+	// new one: it has to be unloaded before the build starts and reloaded when
+	// the build ends. That is only safe while nothing instantiated from it is
+	// alive -- instances exist only during Play -- so mid-play the C++ half is
+	// skipped rather than the play session broken.
+	bool buildModule = ModuleBuild::ProjectHasModule(root);
+	if (buildModule && m_SceneState != SceneState::Edit)
+	{
+		RV_WARN("Playing, so the C++ module keeps running as built; stop the scene "
+				"and build again to swap it. C# still builds.");
+		buildModule = false;
+	}
+	else if (buildModule)
+	{
+		GameModule::Unload();
+	}
+
 	// The console's supply line. Called from the worker for every chunk the
 	// compiler prints; the panel reads under the same lock each frame.
 	auto tee = [this](const char* text, size_t length)
@@ -2526,11 +2550,11 @@ void EditorLayer::BuildScripts()
 		m_BuildLiveLog.append(text, length);
 	};
 
-	m_BuildThread = std::thread([this, root, name, csproj, scriptsOut, scriptCore, tee]()
+	m_BuildThread = std::thread([this, root, name, csproj, scriptsOut, scriptCore, tee, buildModule]()
 	{
 		// C++ first: it is the slower half, so cancelling early saves the
 		// most, and its output is what the console mostly exists to show.
-		if (ModuleBuild::ProjectHasModule(root))
+		if (buildModule)
 		{
 			m_WorkerRanModule = true;
 			m_WorkerModule = ModuleBuild::Build(root, name, &m_BuildCancel, tee);
@@ -2575,12 +2599,15 @@ void EditorLayer::FinishBuild()
 		else if (!m_ModuleBuild.Success)
 			RV_ERROR("Module build failed: {0} error(s)", m_ModuleBuild.ErrorCount());
 		else
-			// Built, not loaded: loading the module is the next roadmap step,
-			// and saying so beats implying its scripts are available now.
-			RV_INFO("Module built in {0:.1f}s, {1} warning(s) -> {2}. The editor does "
-					"not load modules yet; that lands next.",
-					m_ModuleBuild.Seconds, m_ModuleBuild.WarningCount(),
-					m_ModuleBuild.Assembly.filename().string());
+			RV_INFO("Module built in {0:.1f}s, {1} warning(s)",
+					m_ModuleBuild.Seconds, m_ModuleBuild.WarningCount());
+
+		// Reload whatever DLL exists now -- the new one after a success, the
+		// previous one after a failure or cancel, since the build only
+		// replaces the file when it links. Either way the scripts come back;
+		// a failed build must not leave the project with none.
+		if (Project::GetActive())
+			GameModule::Load(Project::Root(), Project::Config().Name);
 	}
 
 	if (!m_WorkerRanScripts)

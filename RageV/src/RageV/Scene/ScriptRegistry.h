@@ -88,6 +88,27 @@ namespace RageV
 		// Sorted, for the inspector's dropdown.
 		static std::vector<std::string> GetNames();
 
+		// Module scoping: every registration that runs while a scope is open is
+		// tagged with it, which is what lets a game module be *unloaded*.
+		//
+		// A module's scripts register themselves from static initialisers
+		// during LoadLibrary -- there is no list of them anywhere, so the only
+		// way to know what a module added is to bracket the load and watch.
+		// GameModule opens a scope, loads the DLL, closes the scope; on unload
+		// it calls UnregisterScope, and every factory the module registered
+		// leaves the map *before* FreeLibrary frees the code they point into.
+		//
+		// The order is the entire point. A factory outliving its module is a
+		// function pointer into unmapped memory behind a map that still looks
+		// correct, and the crash arrives later, from somewhere unrelated.
+		static int  BeginModuleScope();
+		static void EndModuleScope();
+		static size_t UnregisterScope(int scope);
+
+		// What a scope registered, for the load-time log -- "Sample.dll: 3
+		// script(s)" is the line that says the module actually arrived.
+		static std::vector<std::string> NamesInScope(int scope);
+
 		// Empty for a script with no registered fields, which is most of them
 		// and is not an error.
 		static const std::vector<ScriptField>& FieldsOf(const std::string& name);

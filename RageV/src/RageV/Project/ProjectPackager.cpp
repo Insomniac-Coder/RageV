@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "ProjectPackager.h"
 #include "Project.h"
+#include "ModuleBuild.h"
 #include "RageV/Core/Log.h"
 #include "yaml-cpp/yaml.h"
 #include <fstream>
@@ -252,6 +253,27 @@ namespace RageV
 		// the executable says "RageV.dll", and Windows resolves that by name.
 		if (!CopyOne(engineDll, desc.OutputDirectory / "RageV.dll", result))
 			return result;
+
+		// The game module -- the project's C++ scripts -- goes beside the
+		// .rvproject, which is where GameModule looks in a package. Optional,
+		// because a project without C++ is normal; but a project that *has*
+		// Source/ and no built module gets a warning, because its scenes may
+		// name scripts the shipped game will not have.
+		{
+			const fs::path module = ModuleBuild::ModuleFor(Project::Root(), name);
+			if (fs::exists(module, error))
+			{
+				if (!CopyOne(module, desc.OutputDirectory / (name + ".dll"), result))
+					return result;
+			}
+			else if (fs::exists(Project::Root() / "Source" / "CMakeLists.txt", error))
+			{
+				result.Warnings.push_back("this project has C++ scripts but no built "
+										  + std::string(ModuleBuild::Configuration())
+										  + " module; entities using them will do nothing "
+										  "in the packaged game. Build Scripts first.");
+			}
+		}
 
 		if (!CopyTree(engineAssets, desc.OutputDirectory / "assets", result))
 			return result;

@@ -151,14 +151,9 @@ target_compile_definitions(RageV PUBLIC
     RV_ENGINE_EXPORT_DIR="${CMAKE_BINARY_DIR}"
     RV_CMAKE_EXE="${CMAKE_COMMAND}")
 
-# Where "New Script..." puts a generated C++ script.
-#
-# Only meaningful in a build tree -- an installed editor has no engine source to
-# add a file to, which is the honest reason C++ scripting is not a per-project
-# feature. The editor checks that the folder exists before offering to write
-# there, so a packaged build simply explains what to do by hand instead.
-target_compile_definitions(RageV PUBLIC
-    RV_ENGINE_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/RageV/src/RageV/Scripts")
+# RV_ENGINE_SCRIPTS_DIR is gone: "New Script..." writes into the project's
+# own Source/ now, which the game module builds from. The engine's Scripts/
+# folder still exists, but only engine development touches it.
 
 if(RAGEV_ENABLE_VALIDATION)
     target_compile_definitions(RageV PRIVATE $<$<CONFIG:Debug>:RV_VULKAN_VALIDATION>)

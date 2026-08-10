@@ -931,9 +931,14 @@ std::vector<std::string> RageV::SceneHierarchyPanel::ScanUnbuiltScripts(
 {
 	std::vector<std::string> pending;
 
-	const std::filesystem::path dir = managed
-		? (Project::GetActive() ? Project::Root() / "Scripts" : std::filesystem::path())
-		: EngineScriptsDir();
+	// Both languages live in the project now: C# in Scripts/, C++ in Source/,
+	// where the game module builds from. The engine's own scripts folder is
+	// not scanned -- its scripts are compiled in and always in `built`.
+	if (!Project::GetActive())
+		return pending;
+
+	const std::filesystem::path dir =
+		Project::Root() / (managed ? "Scripts" : "Source");
 
 	std::error_code ec;
 	if (dir.empty() || !std::filesystem::is_directory(dir, ec))
@@ -1036,8 +1041,9 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 			ImGui::Separator();
 			for (const std::string& name : m_UnbuiltScripts)
 			{
-				const std::string entry =
-					name + (managed ? "   (not built)" : "   (needs engine rebuild)");
+				// The same suffix for both languages now: either way the fix is
+				// Build Scripts, not an engine rebuild.
+				const std::string entry = name + "   (not built)";
 
 				if (ImGui::Selectable(entry.c_str(), name == scriptName) && name != scriptName)
 				{
@@ -1087,32 +1093,26 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 	if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		return false;
 
+	// Both languages need a project: the script goes into its Scripts/ or
+	// Source/, and there is nowhere else it could belong.
+	if (!Project::GetActive())
+	{
+		ImGui::TextWrapped("Open a project first. A script belongs to one.");
+		ImGui::Separator();
+		if (ImGui::Button("Close"))
+			ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+		return false;
+	}
+
 	if (!managed)
 	{
-		const std::filesystem::path scripts = EngineScriptsDir();
-
-		if (scripts.empty())
-		{
-			// A packaged editor has no engine source to add a file to. That is
-			// the honest reason C++ scripting is not a per-project feature, and
-			// saying it beats writing a file nothing builds.
-			ImGui::TextWrapped("C++ scripts are compiled into the engine, and this build has no "
-							   "engine source beside it.");
-			ImGui::Spacing();
-			ImGui::TextWrapped("Add a class deriving from ScriptableEntity to the engine or game "
-							   "target and register it:");
-			ImGui::Spacing();
-			ImGui::TextDisabled("RV_REGISTER_SCRIPT(Spinner).Field<&Spinner::Speed>(\"Speed\");");
-			ImGui::Spacing();
-			ImGui::TextWrapped("Switch Language to C# for a script this project can build itself.");
-
-			ImGui::Separator();
-			if (ImGui::Button("Close"))
-				ImGui::CloseCurrentPopup();
-
-			ImGui::EndPopup();
-			return false;
-		}
+		// Into the project's Source/, which the game module builds from. It
+		// used to go into the engine's own scripts folder -- which meant a
+		// packaged editor had nowhere to put one, and every new script cost an
+		// engine rebuild. Both problems were the same problem, and the game
+		// module is the fix for both.
+		const std::filesystem::path scripts = Project::Root() / "Source";
 
 		ImGui::Text("Class name");
 		ImGui::SetNextItemWidth(280.0f);
@@ -1128,15 +1128,14 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 		if (!name.empty() && !valid)
 			ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C++ class name");
 		else if (exists)
-			ImGui::TextColored(EditorTheme::Color::AccentHover, "%s.cpp already exists", name.c_str());
+			ImGui::TextColored(EditorTheme::Color::AccentHover, "Source/%s.cpp already exists", name.c_str());
 		else if (valid)
-			ImGui::TextDisabled("%s", file.string().c_str());
+			ImGui::TextDisabled("Source/%s.cpp", name.c_str());
 		else
 			ImGui::TextDisabled(" ");
 
 		ImGui::Spacing();
-		ImGui::TextWrapped("A C++ script is compiled into the engine, so it appears in the dropdown "
-						   "after a rebuild -- not immediately.");
+		ImGui::TextWrapped("File > Build Scripts compiles it.");
 
 		ImGui::Separator();
 
@@ -1144,8 +1143,13 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 		ImGui::BeginDisabled(!ok);
 		if (ImGui::Button("Create") && ok)
 		{
+			std::filesystem::create_directories(scripts, ec);
 			if (WriteNewNativeScript(file, name))
-				RV_INFO("Created {0} -- rebuild the engine to use it", file.string());
+			{
+				chosenName = name;
+				created = true;
+				RV_INFO("Created Source/{0}.cpp -- File > Build Scripts to compile it", name);
+			}
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndDisabled();
@@ -1155,17 +1159,7 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 			ImGui::CloseCurrentPopup();
 
 		ImGui::EndPopup();
-		return false;
-	}
-
-	if (!Project::GetActive())
-	{
-		ImGui::TextWrapped("Open a project first. A script belongs to one.");
-		ImGui::Separator();
-		if (ImGui::Button("Close"))
-			ImGui::CloseCurrentPopup();
-		ImGui::EndPopup();
-		return false;
+		return created;
 	}
 
 	ImGui::Text("Class name");
@@ -1270,8 +1264,14 @@ void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 	if (DrawScriptPicker(ScriptRegistry::GetNames(), script.ScriptName, false))
 		script.Fields.Values.clear();
 
+	// Creating one selects it, same as the C# side: the next step is Build
+	// Scripts, not hunting for the new name in a dropdown.
 	std::string created;
-	DrawNewScriptPopup(false, created);
+	if (DrawNewScriptPopup(false, created))
+	{
+		script.ScriptName = created;
+		script.Fields.Values.clear();
+	}
 
 	if (script.ScriptName.empty())
 	{
@@ -1283,20 +1283,18 @@ void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 	{
 		// Two different situations, and telling them apart is the whole value of
 		// saying anything: a script whose source is sitting right there is one
-		// rebuild away, while one with no source behind it is a scene naming
+		// build away, while one with no source behind it is a scene naming
 		// something that no longer exists.
 		std::error_code ec;
-		const std::filesystem::path source = EngineScriptsDir().empty()
-			? std::filesystem::path()
-			: EngineScriptsDir() / (script.ScriptName + ".cpp");
-
-		const bool written = !source.empty() && std::filesystem::exists(source, ec);
+		const bool written = Project::GetActive()
+			&& std::filesystem::exists(Project::Root() / "Source" /
+									   (script.ScriptName + ".cpp"), ec);
 
 		if (written)
 		{
 			ImGui::TextColored(EditorTheme::Color::AccentHover,
-							   "'%s' is written but not in this build", script.ScriptName.c_str());
-			ImGui::TextWrapped("Rebuild the engine and it will run.");
+							   "'%s' is written but not built", script.ScriptName.c_str());
+			ImGui::TextWrapped("File > Build Scripts, and it will run.");
 		}
 		else
 		{
@@ -1433,22 +1431,6 @@ int RageV::SceneHierarchyPanel::ScriptKindToWidget(ScriptFieldKind kind)
 	return -1;
 }
 
-// Where a generated C++ script goes, or empty when there is no engine source.
-//
-// Baked in by CMake, so it points at the tree this editor was built from. An
-// installed editor has none, and the dialog says so rather than writing a file
-// into a folder nothing compiles.
-std::filesystem::path RageV::SceneHierarchyPanel::EngineScriptsDir()
-{
-#ifdef RV_ENGINE_SCRIPTS_DIR
-	std::error_code ec;
-	const std::filesystem::path path = RV_ENGINE_SCRIPTS_DIR;
-	if (std::filesystem::is_directory(path, ec))
-		return path;
-#endif
-	return {};
-}
-
 // A valid identifier in either language. The two agree closely enough that one
 // check covers both, and rejecting a bad name here beats a compiler error
 // minutes later that names a file rather than the field that caused it.
@@ -1508,11 +1490,11 @@ bool RageV::SceneHierarchyPanel::WriteNewNativeScript(const std::filesystem::pat
 	out << "\tRV_REGISTER_SCRIPT(" << name << ").Field<&" << name << "::Speed>(\"Speed\");\n";
 	out << "}\n";
 
-	// Nothing else is needed to make the registration survive, and an earlier
-	// version of this generator wrote a `#pragma comment(linker, "/include:...")`
-	// anchor that looked like it did. It cannot work: the directive lives in the
-	// object file the linker is discarding, so it never arrives. RageV.lib is
-	// linked whole instead -- see RageV/CMakeLists.txt, and the TemplateProbe
-	// script that proves it still is.
+	// Nothing else is needed to make the registration survive. The file lands
+	// in the project's Source/, which builds into the game module -- a DLL,
+	// linked from its object files, so a translation unit whose only content
+	// is a static registrar is never discarded the way it would be from a
+	// static library. TemplateProbe.cpp in the engine proves the same shape
+	// still compiles and registers there.
 	return true;
 }

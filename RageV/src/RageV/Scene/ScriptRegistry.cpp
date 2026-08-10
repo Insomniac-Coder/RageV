@@ -14,13 +14,31 @@ namespace RageV
 
 	namespace
 	{
+		// A factory and where it came from. Scope 0 is the engine itself --
+		// everything compiled in -- and each loaded game module gets its own,
+		// so unloading one can remove exactly its scripts.
+		struct FactoryEntry
+		{
+			ScriptRegistry::Factory Make;
+			int Scope = 0;
+		};
+
 		// Ordered, and a function-local static: registration happens from other
 		// translation units before main, and a namespace-scope container may
 		// not be constructed yet when the first one runs.
-		std::map<std::string, ScriptRegistry::Factory>& Factories()
+		std::map<std::string, FactoryEntry>& Factories()
 		{
-			static std::map<std::string, ScriptRegistry::Factory> factories;
+			static std::map<std::string, FactoryEntry> factories;
 			return factories;
+		}
+
+		// The open scope, if any. Not a stack: one module loads at a time, on
+		// one thread, and pretending otherwise would be complexity for a
+		// situation the design rules out.
+		int& CurrentScope()
+		{
+			static int scope = 0;
+			return scope;
 		}
 
 		std::map<std::string, std::vector<ScriptField>>& Fields()
@@ -57,8 +75,57 @@ namespace RageV
 			return Registration(name);
 		}
 
-		Factories()[name] = std::move(factory);
+		Factories()[name] = { std::move(factory), CurrentScope() };
 		return Registration(name);
+	}
+
+	int ScriptRegistry::BeginModuleScope()
+	{
+		// Monotonic, never reused: a stale scope id held by anyone can then
+		// only ever unregister nothing, rather than somebody else's scripts.
+		static int nextScope = 0;
+		CurrentScope() = ++nextScope;
+		return CurrentScope();
+	}
+
+	void ScriptRegistry::EndModuleScope()
+	{
+		CurrentScope() = 0;
+	}
+
+	size_t ScriptRegistry::UnregisterScope(int scope)
+	{
+		if (scope == 0)
+			return 0;   // the engine's own scripts are not a thing to unregister
+
+		size_t removed = 0;
+		for (auto it = Factories().begin(); it != Factories().end();)
+		{
+			if (it->second.Scope == scope)
+			{
+				// The fields go with the factory: they hold getter and setter
+				// lambdas into the same module the factory points at.
+				Fields().erase(it->first);
+				it = Factories().erase(it);
+				removed++;
+			}
+			else
+			{
+				++it;
+			}
+		}
+		return removed;
+	}
+
+	std::vector<std::string> ScriptRegistry::NamesInScope(int scope)
+	{
+		std::vector<std::string> names;
+		for (const auto& [name, entry] : Factories())
+		{
+			if (entry.Scope == scope)
+				names.push_back(name);
+		}
+		return names;
 	}
 
 	void ScriptRegistry::AddField(const std::string& script, ScriptField field)
@@ -101,7 +168,7 @@ namespace RageV
 			return nullptr;
 		}
 
-		return it->second();
+		return it->second.Make();
 	}
 
 	bool ScriptRegistry::IsRegistered(const std::string& name)
@@ -115,7 +182,7 @@ namespace RageV
 		EnsureBuiltins();
 		std::vector<std::string> names;
 		names.reserve(Factories().size());
-		for (const auto& [name, factory] : Factories())
+		for (const auto& [name, entry] : Factories())
 			names.push_back(name);
 		return names;
 	}

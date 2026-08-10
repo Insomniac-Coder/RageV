@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "Project.h"
+#include "GameModule.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Core/EngineConfig.h"
 #include "yaml-cpp/yaml.h"
@@ -93,6 +94,13 @@ namespace RageV
 
 		RV_CORE_INFO("Project '{0}' opened at {1}", s_Active->Config.Name,
 					 s_Active->Root.string());
+
+		// The project's C++ scripts, if it has built any. Part of opening a
+		// project rather than an editor feature, so a packaged game and the
+		// runtime get their module by the same line of code the editor does.
+		// GameModule unloads any previous project's module itself.
+		GameModule::Load(s_Active->Root, s_Active->Config.Name);
+
 		return true;
 	}
 
@@ -408,6 +416,7 @@ namespace RageV
 
 	void Project::Close()
 	{
+		GameModule::Unload();
 		s_Active.reset();
 	}
 

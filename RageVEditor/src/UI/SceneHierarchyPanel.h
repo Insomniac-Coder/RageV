@@ -54,7 +54,6 @@ namespace RageV
 								   const std::string& name);
 		static bool WriteNewNativeScript(const std::filesystem::path& file,
 										 const std::string& name);
-		static std::filesystem::path EngineScriptsDir();
 		static bool IsIdentifier(const std::string& name);
 		char m_NewScriptName[64] = {};
 

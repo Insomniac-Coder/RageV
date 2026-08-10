@@ -118,6 +118,15 @@ namespace RageV {
 		// is still alive.
 		m_LayerStack.Clear();
 
+		// After the layers -- no script instance survives them -- and
+		// deliberately before process teardown gets a chance. At exit the game
+		// module DLL unmaps before the engine (reverse dependency order), and
+		// the registry's static maps would then destroy std::functions whose
+		// code lived in it: a crash on the way out, in destructors, with no
+		// useful stack. Closing the project unloads the module while
+		// everything it needs is still mapped.
+		Project::Close();
+
 		// After the layers, so any scene still playing has already stopped what
 		// it started, and before anything else, because a sound outliving the
 		// mixer is a use-after-free on the audio thread.
