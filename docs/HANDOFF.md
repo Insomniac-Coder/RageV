@@ -1243,13 +1243,41 @@ by screenshot on both backends.
 
 **What is left, in order:**
 
-1. **Two transient targets and a transparent pass.** `FrameGraphBuilder::
-   BuildFrame` is the extension point -- the scene render is already a
-   `DrawScene` callback inside a graph pass, and `DrawOverlay` shows the
-   pattern. Add a `DrawTransparent` callback and a pass with two colour
-   attachments, accumulation `R16G16B16A16_SFLOAT` and revealage `R8`,
-   **sharing the scene pass's depth** so particles still test against
-   opaque geometry. Depth test on, depth write off.
+0. **The render graph has to grow two things first.** This was missed in
+   the first estimate and is the bulk of the remaining work -- the
+   particle side is small once it exists.
+
+   `RGTargetDesc` carries exactly one colour format, and
+   `RGPassBuilder::Write` binds a whole target; weighted blending needs
+   two colour attachments written by one draw. And a graph target owns
+   its own depth, so a separate transparent target would get a freshly
+   cleared one and its particles would draw through walls.
+
+   The answer follows from dynamic rendering: there is no VkFramebuffer,
+   so every pass names its own attachments. One target can carry HDR
+   colour, accumulation and revealage over a single depth image, and a
+   *pass* binds a subset of it -- the scene pass attachment 0, the OIT
+   pass attachments 1 and 2, both depth-testing against the same image.
+   That needs:
+   - `RGTargetDesc`: extra colour formats beyond `Color`, appended to
+     the `RHI::RenderTargetDesc::ColorAttachments` vector that already
+     exists and is already a vector. `SameShape` has to compare them or
+     the pool will hand back a target of the wrong shape.
+   - `RGPassBuilder::Write`: which attachment indices this pass binds,
+     defaulting to all of them so no existing pass changes.
+   - `Sample`: which attachment to read, for the resolve.
+
+   The pipeline's declared `ColorFormats` must match the attachments the
+   pass binds -- that is why the subset matters rather than just adding
+   attachments to the scene target: every existing scene pipeline
+   declares one colour format and would otherwise have to declare three.
+
+1. **Then the transparent pass.** `FrameGraphBuilder::BuildFrame` is the
+   extension point -- the scene render is already a `DrawScene` callback
+   inside a graph pass, and `DrawOverlay` shows the pattern. Add a
+   `DrawTransparent` callback writing attachments 1 and 2, accumulation
+   `R16G16B16A16_SFLOAT` and revealage `R8`, clearing accumulation to
+   zero and revealage to one. Depth test on, depth write off.
 2. **A resolve pass**: fullscreen triangle compositing
    `accum.rgb / max(accum.a, epsilon)` over the scene colour, weighted by
    `1 - revealage`. Premultiplied-alpha blend against the HDR target.
