@@ -69,6 +69,8 @@ EditorLayer::EditorLayer()
 
 EditorLayer::~EditorLayer()
 {
+	SavePanelState();
+
 	// A worker still building would write into freed members. Cancel takes
 	// the compiler tree down, and the join waits for the worker to notice.
 	if (m_BuildThread.joinable())
@@ -84,6 +86,10 @@ void EditorLayer::OnAttach()
 	// a DLL and ImGui's state hides behind a global, so this executable has its
 	// own until it is handed the engine's. See ImGuiBinding.h.
 	ImGuiBinding::Bind();
+
+	// Before the first frame, so a panel closed last session never flashes
+	// open for one frame this one.
+	LoadPanelState();
 
 	EditorTheme::Apply();
 
@@ -649,6 +655,71 @@ void EditorLayer::OnImGuiRender()
 // those do not re-derive sensibly at another window size.
 // The saved arrangement lives in imgui.ini, which has no room for a version.
 // A file beside it is the least surprising place to keep one.
+// Which panels are open, saved beside imgui.ini and layout.version -- the
+// other two pieces of "how my editor looked", which already live in the
+// working directory.
+//
+// Written as key = value in the ragev.ini style. A key that is missing keeps
+// its compiled default, which is what makes adding a panel later safe: old
+// files simply do not mention it.
+//
+// The About and restart popups are deliberately absent. They are modal
+// responses to something the user just did, and reopening one at startup
+// because it was up at shutdown would be noise.
+void EditorLayer::LoadPanelState()
+{
+	std::ifstream file("panels.ini");
+	if (!file)
+		return;
+
+	std::string line;
+	while (std::getline(file, line))
+	{
+		const size_t equals = line.find('=');
+		if (equals == std::string::npos)
+			continue;
+
+		auto trim = [](std::string text)
+		{
+			const size_t first = text.find_first_not_of(" \t\r");
+			const size_t last = text.find_last_not_of(" \t\r");
+			return first == std::string::npos ? std::string{}
+											  : text.substr(first, last - first + 1);
+		};
+
+		const std::string key = trim(line.substr(0, equals));
+		const bool value = trim(line.substr(equals + 1)) == "1";
+
+		if      (key == "hierarchy")       m_ShowHierarchy = value;
+		else if (key == "properties")      m_ShowProperties = value;
+		else if (key == "viewport")        m_ShowViewport = value;
+		else if (key == "game")            m_ShowGameViewport = value;
+		else if (key == "content")         m_ShowContentBrowser = value;
+		else if (key == "statistics")      m_ShowStatistics = value;
+		else if (key == "render-settings") m_ShowRenderSettings = value;
+		else if (key == "build-log")       m_ShowScriptBuild = value;
+		else if (key == "colliders")       m_ShowColliders = value;
+	}
+}
+
+void EditorLayer::SavePanelState()
+{
+	std::ofstream file("panels.ini");
+	if (!file)
+		return;
+
+	file << "# Which editor panels are open. Rewritten on every clean exit.\n";
+	file << "hierarchy = "       << (m_ShowHierarchy ? 1 : 0) << "\n";
+	file << "properties = "      << (m_ShowProperties ? 1 : 0) << "\n";
+	file << "viewport = "        << (m_ShowViewport ? 1 : 0) << "\n";
+	file << "game = "            << (m_ShowGameViewport ? 1 : 0) << "\n";
+	file << "content = "         << (m_ShowContentBrowser ? 1 : 0) << "\n";
+	file << "statistics = "      << (m_ShowStatistics ? 1 : 0) << "\n";
+	file << "render-settings = " << (m_ShowRenderSettings ? 1 : 0) << "\n";
+	file << "build-log = "       << (m_ShowScriptBuild ? 1 : 0) << "\n";
+	file << "colliders = "       << (m_ShowColliders ? 1 : 0) << "\n";
+}
+
 bool EditorLayer::LayoutVersionMatches()
 {
 	std::ifstream file("layout.version");

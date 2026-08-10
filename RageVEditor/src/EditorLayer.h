@@ -193,6 +193,13 @@ private:
 	bool m_ShowViewport = true;
 	bool m_ShowGameViewport = true;
 	bool m_ShowContentBrowser = true;
+
+	// Which panels are open, across restarts. ImGui's own imgui.ini remembers
+	// where a window was docked but not whether the editor submits it -- that
+	// is these bools, which would otherwise reset to their defaults on every
+	// launch. Closing Build Log by restarting was the report that exposed it.
+	void LoadPanelState();
+	void SavePanelState();
 	bool m_ResetLayoutRequested = false;
 
 	// Collider wireframes in the scene view. Off by default: it is a diagnostic
