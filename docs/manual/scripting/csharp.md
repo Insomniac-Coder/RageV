@@ -42,14 +42,12 @@ scene that used it — the same rule as C++, the same rule as Unity.
 > `RageV.ScriptCore` is supplied by the editor at build time, so the project
 > file works on any machine the project is copied to.
 
-> [!TRAP]
-> **Changing a script that is already loaded needs an editor restart, for
-> now.** Build Scripts loads the assembly the first time — new scripts appear
-> without a restart — but the .NET runtime will not replace a loaded assembly
-> in place. Hot reload (a collectible load context) is the next scripting item
-> on the roadmap; until it lands, the loop for *editing* an existing script is
-> build, restart, play. C++ scripts do not have this limit: their module
-> unloads and reloads on every build.
+> [!NOTE]
+> **Edits reload live.** Build Scripts retires the old assembly and loads the
+> new one in its place — change a script, Ctrl+B, press Play, and the new code
+> runs. No restart. The one exception is the same one C++ has: while the scene
+> is *playing*, live instances run the loaded code, so a build that finishes
+> mid-play waits and the swap happens the moment you press Stop.
 
 ## Fields and the inspector
 
@@ -225,5 +223,6 @@ a silent `catch` can hide a broken script — read the log.
 - **Forgetting that Stop rewinds the scene.** Play mode works on a copy;
   everything a script changed is discarded when play stops, `OnDestroy` runs,
   and the edit-mode scene returns untouched.
-- **Editing a loaded script and wondering why nothing changed.** Until hot
-  reload lands, that needs a restart — see the trap at the top.
+- **Building mid-play and expecting the new code immediately.** The build
+  runs, but the swap waits for Stop — live instances are running the loaded
+  assembly, and the log says so.

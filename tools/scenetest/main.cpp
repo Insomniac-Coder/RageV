@@ -5260,7 +5260,55 @@ int RunTests(int argc, char** argv)
 						{
 							Managed::Interop::Managed().InvokeUpdate(handle, 1.0f / 60.0f);
 							Check(true, "and steps without faulting");
+
+							// --- 5.5: hot reload ---------------------------------
+							//
+							// With the instance still alive, a reload must refuse:
+							// swapping the context under it would keep the old
+							// code running behind a new facade.
+							Check(Managed::Interop::Managed().LoadAssembly(
+									  built.Assembly.string().c_str()) < 0,
+								  "a reload with live instances is refused");
+
 							Managed::Interop::Managed().Destroy(handle);
+						}
+
+						// A second script, a second build to the *same* file, a
+						// second load. Each step is its own claim:
+						// - the build succeeding proves the file is not held
+						//   open (LoadFrom used to hold it, and the second
+						//   build of every session failed);
+						// - the load reporting two types proves the reload is
+						//   genuine (a same-path reload used to hand back the
+						//   stale assembly with one).
+						{
+							std::ofstream second(root / "Scripts" / "Reloaded.cs");
+							second << "using RageV;\n"
+								   << "public class Reloaded : Script\n"
+								   << "{\n"
+								   << "\tpublic override void OnCreate() { }\n"
+								   << "}\n";
+						}
+
+						const Managed::BuildResult rebuilt = Managed::ScriptBuild::Build(
+							csproj, root / "Scripts" / "bin", scriptCore);
+						Check(rebuilt.Success,
+							  "the assembly rebuilds while loaded -- nothing holds the file");
+
+						if (rebuilt.Success)
+						{
+							const int32_t reloadedTypes =
+								Managed::Interop::Managed().LoadAssembly(
+									rebuilt.Assembly.string().c_str());
+							Check(reloadedTypes == 2,
+								  "and reloading swaps in the new assembly, not the stale one");
+
+							const int32_t reloadedHandle = Managed::Interop::Managed().Create(
+								"Reloaded", (uint64_t)probe.GetUUID());
+							Check(reloadedHandle != 0,
+								  "and a type that did not exist before the reload instantiates");
+							if (reloadedHandle != 0)
+								Managed::Interop::Managed().Destroy(reloadedHandle);
 						}
 					}
 				}

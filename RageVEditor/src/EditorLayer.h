@@ -82,6 +82,11 @@ public:
 	std::mutex m_BuildLogMutex;
 	std::string m_BuildLiveLog;
 
+	// A C# assembly built mid-play, waiting for Stop: the collectible-context
+	// swap must not happen under live instances.
+	void LoadScriptAssembly(const std::filesystem::path& assembly);
+	std::filesystem::path m_PendingAssemblyLoad;
+
 
 	void ImportModel();
 	void OnScenePlay();

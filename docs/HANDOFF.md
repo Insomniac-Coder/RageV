@@ -20,35 +20,33 @@ Companion docs:
 
 The five-minute version, for picking this up with no memory of it.
 
-**Where it is:** phases 0-4 complete, **phase 5 complete except hot reload**,
-and **the engine is now a DLL**. The render graph, HDR post, sky and cube maps,
-image-based lighting, shadows for every light type, frustum culling, instanced
-batching, clustered forward lighting and skeletal animation are all done. So is
-C# scripting: the .NET runtime boots in-process, the interop boundary works both
-ways, there is a managed class library, a project builds its own script
-assembly, and a C# script can be attached to an entity with its fields editable
-in the inspector.
+**Where it is: phases 0-5 are complete.** The render graph, HDR post, sky and
+cube maps, image-based lighting, shadows for every light type, frustum
+culling, instanced batching, clustered forward lighting and skeletal animation
+are all done. So is scripting, in both languages, with live reload in both:
 
-**A project can have both languages on the same entity.** C++ scripts declare
-their editable fields at registration; C# scripts have theirs found by
-reflection. Both converge on one inspector, one scene format.
+- **C++ scripts live in the project's `Source/`**, which builds into a game
+  module DLL. Opening a project loads it -- in `Project::Load`, so the editor,
+  the runtime and a packaged game all get it the same way. Build Scripts
+  unloads the module, rebuilds it in the background (live console, cancel),
+  and reloads whatever links. New Script writes into `Source/`. No engine
+  rebuild anywhere in a game developer's loop.
+- **C# scripts live in `Scripts/`**, built the same way, loaded from *bytes*
+  into a **collectible AssemblyLoadContext** that is retired and replaced on
+  every build -- that is 5.5, and it is done. The unload is verified with a
+  WeakReference; a context that will not die is reported, not ignored.
+- **Neither language swaps code during Play.** Live instances run the loaded
+  code; the C++ half skips with a message, the C# swap parks and happens on
+  Stop. One rule, both languages.
 
-**The engine is `RageV.dll` as of the last commit, and that is half a feature.**
-It was made shared so a project can carry its own C++ scripts in a game module
-loaded into the same process -- one `ScriptRegistry`, one `Application`, one
-`Renderer`. Everything now builds and runs against the DLL, but **the game
-module itself does not exist yet**: a C++ script still lives in the engine's
-`Scripts/` folder and still needs the engine rebuilt. Section 8 is the rest of
-it.
-
-**What is left of phase 5:** 5.5, hot reload via a collectible
-`AssemblyLoadContext`. Today a C# change needs Build Scripts and a restart.
+**A project can have both languages on the same entity**, one inspector, one
+scene format. The manual documents both guides and is generated with a drift
+check (`rvdoc --check`).
 
 **Also done, off-roadmap:** the developer manual and its generator, the
 application icon, project creation with a per-project `bin/`, and 5.0 -- no
 third-party type in a public header, and the public API segregated into
-`RageV::Math::`, `RageV::Audio::`, `RageV::Physics::`, `RageV::Assets::` and
-`RageV::Anim::`. The renderer was deliberately left out of that last one.
+domain namespaces. The renderer was deliberately left out of that last one.
 
 **Prove it still works** (from the repo root, ~2 minutes):
 
@@ -58,7 +56,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-712 checks, `exit 0`. Then look at a frame:
+748 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -909,9 +907,9 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 
 ### Not built
 
-- **C# scripting** (Phase 5). The runtime hosts and calls managed code (5.1);
-  the interop layer, class library, build integration, hot reload and inspector
-  fields (5.2-5.6) are not built. Scripts are native-only today.
+- ~~C# scripting~~ -- **built, all of phase 5**, including hot reload. See
+  section 0. What remains scripting-adjacent: C# has no audio or raycast
+  surface yet, which the C# guide states.
 - **Front-to-back depth sorting.** Opaque draws are grouped by mesh and
   material so they batch, which is the half of 3.6 that was worth measuring.
   Sorting them by depth as well would let early-z reject more, and is worth a
@@ -1007,91 +1005,33 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-**Phases 0-4 are done, phase 5 is done except hot reload, and the engine is a
-DLL with nothing loading into it yet.**
+**Phases 0-5 are done, and so is the game-module arc.** Every item from the
+"game module in six parts" plan landed: the scaffold, the editor build with
+live console and cancel, load/unload with registry scopes, New Script in the
+project, packaging, and hot reload for both languages.
 
-### START HERE - the project game module (`L`)
+### START HERE - use it before extending it
 
-**Why:** "I don't think devs would like to rebuild the engine for a script."
-That was the point of making the engine shared, and the shared engine on its own
-changes nothing a developer can see. Unreal's shape: the engine is a DLL, and
-game code is a separate DLL that links it and is loaded at startup.
+ROADMAP section 9 recommends **building a small game before starting phase 6**,
+and everything now exists for that to be an honest exercise: projects, both
+script languages with live reload, physics, audio, packaging. The gaps a game
+hits first are already catalogued in the manual's "What it does not do yet" --
+no game UI, no particles, no animation blending. Which of those hurts most in
+practice is exactly what building a game answers, and that answer should pick
+phase 6's contents.
 
-The groundwork is in: `RageV.dll`, auto-exported, staged beside every
-executable, with the ImGui and GLFW module-boundary traps already found and
-handled. What is left:
+### Worth knowing before extending scripting further
 
-1. **Scaffold `Source/` in a project.** `Project::Create` writes the folders
-   today; add `Source/` and a `CMakeLists.txt` that builds `*.cpp` there into
-   `<Project>/bin/<Config>/<Project>.dll`, linking `RageV::RageV`. The engine
-   has to be findable from outside the build tree -- an install/export set, or a
-   path written into the project when the editor creates it.
-
-2. **Build it from the editor.** `Managed/ScriptBuild.cpp` already shells out to
-   `dotnet build` through `_popen`, parses diagnostics with a regex and puts
-   them in a panel. The same machinery runs `cmake --build`; the regex needs a
-   second pattern for MSVC's `file(line): error C####` shape. Note the quoting
-   trap already recorded here: `cmd /c` strips the outer quotes, so the whole
-   command line needs an extra pair around it.
-
-3. **Load it when a project opens.** `LoadLibrary` on
-   `<Project>/bin/<Config>/<Project>.dll` after `Project::Open`, `FreeLibrary`
-   on close. The static registrars run on load and the scripts appear in the
-   dropdown -- no `/WHOLEARCHIVE` needed, because a DLL is linked from its
-   object files rather than from an archive.
-
-4. **Move "New Script" to the project.** `WriteNewNativeScript` writes into
-   `RV_ENGINE_SCRIPTS_DIR` today. Point it at `<Project>/Source/`, and the
-   packaged-editor case stops being an apology: a packaged editor can build a
-   project module perfectly well.
-
-5. **`ScriptRegistry` has to survive an unload.** It keys factories by name in a
-   `std::map` that lives in the engine. When a module unloads, every factory it
-   registered is a dangling function pointer into freed code. Add an unregister
-   path keyed by module and call it before `FreeLibrary`. **This is the one that
-   fails silently** -- the map still has the name in it, and the crash arrives
-   later, from somewhere unrelated.
-
-6. **Then C++ hot reload comes almost free**, and should be built alongside 5.5
-   so both languages reload the same way: unload, rebuild, reload, restore the
-   field overrides. `ScriptFieldOverrides` is already the stored state and
-   already survives a component being rebuilt.
-
-**Verify with the shape that would actually have caught the old failure:** a
-project with a script the engine has never seen, built and attached and stepped
-without the engine being rebuilt at all. Anything less passes with the script
-compiled into the engine, which is exactly the state being replaced.
-
-### Then - 5.5, hot reload for C# (`L`)
-
-The last phase-5 item. A C# change currently needs File > Build Scripts and a
-restart; hot reload removes the restart.
-
-What it has to do, and the order matters:
-
-1. Load the project assembly into a **collectible** `AssemblyLoadContext`
-   instead of the default one. It is in the default context today -- see
-   `ScriptHost.LoadAssembly`, which says so.
-2. **Load from a byte array, not a path.** `Assembly.LoadFrom` keeps the file
-   open, and the next `dotnet build` then fails with the file in use. Read the
-   `.dll` and its `.pdb` into memory and use `LoadFromStream`.
-3. Capture live script state before unloading and restore it after. 5.6 defines
-   exactly what that state is: the values in `ScriptFieldOverrides`, plus
-   whatever the instance currently holds. **Store primitives and strings only** --
-   holding any object whose type came from the collectible context keeps the
-   whole context alive.
-4. **Verify the unload actually happened**, with a `WeakReference` to the
-   context and a few `GC.Collect()` passes. This is the failure that matters: a
-   collectible context that never collects leaks the old code, keeps running it,
-   and looks exactly like success. A test that only checks "the new assembly
-   loaded" would pass forever.
-5. The `AssemblyLoadContext.Default.Resolving` handler in `ScriptHost` already
-   points a project assembly at the one `RageV.ScriptCore` in the process. The
-   collectible context needs the same thing, or every reloaded script becomes a
-   different type from the one the engine holds -- see the note there.
-
-After that, phase 5 is finished. ROADMAP §9 recommends **building a game with it
-before starting phase 6**, and that recommendation has not been revisited.
+- The C# reload refuses while instances are alive, on both sides of the
+  boundary: the editor parks the swap until Stop, and ScriptHost refuses with
+  a log line if anything reaches it anyway.
+- The unload-verification warning ("the previous script context did not
+  unload") firing means a type from the project assembly is being held
+  somewhere -- a static, an event, a cache. That is a leak of every version
+  ever built, and it is loud on purpose.
+- RetireProjectContext is [MethodImpl(NoInlining)] and must stay that way:
+  inlined, the JIT may pin its locals to the caller's frame and the collect
+  loop spins against the very reference it is waiting on.
 
 ### Open, small, and not yet diagnosed
 

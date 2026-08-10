@@ -570,6 +570,15 @@ void EditorLayer::OnSceneStop()
 	m_SceneSnapshot.clear();
 	m_Commands.Clear();
 	RV_INFO("Stop");
+
+	// A C# build that finished mid-play parked its assembly here: the swap
+	// needs every instance gone, and OnRuntimeStop above is what destroys
+	// them. This is the earliest moment the reload is safe.
+	if (!m_PendingAssemblyLoad.empty() && Managed::Interop::IsReady())
+	{
+		LoadScriptAssembly(m_PendingAssemblyLoad);
+		m_PendingAssemblyLoad.clear();
+	}
 }
 
 void EditorLayer::OnScenePause(bool paused)
@@ -2650,13 +2659,32 @@ void EditorLayer::FinishBuild()
 		return;
 	}
 
+	// Reloading swaps the collectible context, and that must not happen under
+	// live instances -- the same rule the C++ module has, applied at the same
+	// place. Building mid-play is fine (the assembly is loaded from bytes, so
+	// the file is never held open); the *swap* waits for Stop.
+	if (m_SceneState != SceneState::Edit)
+	{
+		m_PendingAssemblyLoad = m_ScriptBuild.Assembly;
+		RV_INFO("Built; the scene is playing, so the new scripts load when it stops.");
+		return;
+	}
+
+	LoadScriptAssembly(m_ScriptBuild.Assembly);
+}
+
+// The actual swap: retire the old collectible context, load the new bytes.
+// Shared by FinishBuild (edit mode) and OnSceneStop (a build that finished
+// mid-play and waited).
+void EditorLayer::LoadScriptAssembly(const std::filesystem::path& assembly)
+{
 	const int32_t scripts =
-		Managed::Interop::Managed().LoadAssembly(m_ScriptBuild.Assembly.string().c_str());
+		Managed::Interop::Managed().LoadAssembly(assembly.string().c_str());
 
 	if (scripts < 0)
 		RV_ERROR("The script assembly built but could not be loaded");
 	else
-		RV_INFO("Loaded {0} script type(s) from {1}", scripts, m_ScriptBuild.Assembly.filename().string());
+		RV_INFO("Loaded {0} script type(s) from {1}", scripts, assembly.filename().string());
 }
 
 // The compiler's output, where somebody will actually read it.

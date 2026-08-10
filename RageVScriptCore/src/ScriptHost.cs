@@ -28,11 +28,15 @@ public static unsafe class ScriptHost
 	private static int s_NextHandle = 1;
 
 	// Assemblies loaded from the open project, searched in addition to this one.
-	//
-	// Loaded into the default context for now. Hot reload needs a collectible
-	// AssemblyLoadContext instead, and that is 5.5 -- doing it here would mean
-	// building the unload path without the thing that exercises it.
+	// They live in s_ProjectContext, which is collectible: every LoadAssembly
+	// replaces the whole context, and that is what hot reload is.
 	private static readonly List<Assembly> s_Loaded = new();
+
+	// The collectible context the project's assembly lives in. Replaced, not
+	// reused: .NET will not swap an assembly inside a live context, so "reload"
+	// means unload the old context, verify it actually died, and load the new
+	// bytes into a fresh one.
+	private static AssemblyLoadContext? s_ProjectContext;
 
 	private static bool s_ResolverInstalled;
 
@@ -147,12 +151,22 @@ public static unsafe class ScriptHost
 		}
 	}
 
-	/// <summary>Loads a project's compiled script assembly.</summary>
+	/// <summary>
+	/// Loads a project's compiled script assembly, replacing whatever was
+	/// loaded before. This *is* hot reload: each call retires the previous
+	/// collectible context and starts a fresh one from the new bytes.
+	/// </summary>
 	/// <returns>The number of Script subclasses it contains, or -1 on failure.</returns>
 	/// <remarks>
 	/// The count is returned rather than a bare success because "the assembly
 	/// loaded" and "the assembly has any scripts in it" are different answers,
 	/// and the second one is what the person who just pressed Build wants.
+	///
+	/// Loaded from a byte array, never from the path. <c>Assembly.LoadFrom</c>
+	/// keeps the file open, and the next <c>dotnet build</c> then fails with
+	/// the file in use -- which made the second build of every session fail
+	/// before this. The bytes are read, the file is closed, and the build can
+	/// overwrite it freely.
 	/// </remarks>
 	[UnmanagedCallersOnly]
 	public static int LoadAssembly(byte* path)
@@ -163,16 +177,68 @@ public static unsafe class ScriptHost
 			if (string.IsNullOrEmpty(file))
 				return -1;
 
+			// Swapping the context under live instances would leave s_Live
+			// holding objects whose types belong to the dying context -- which
+			// both keeps it alive forever and keeps the *old* code running.
+			// The editor already refuses to reload mid-play; this is the same
+			// rule enforced where it cannot be forgotten.
+			if (s_Live.Count > 0)
+			{
+				Log.Error($"Refusing to reload scripts with {s_Live.Count} live instance(s); "
+						  + "stop the scene first");
+				return -1;
+			}
+
 			InstallResolver();
 
-			Assembly assembly = Assembly.LoadFrom(file);
+			// Retire the old context and *verify* it collected. A collectible
+			// context that never collects keeps running the old code and looks
+			// exactly like success -- this check is the difference between hot
+			// reload and a slow leak of every version ever built.
+			WeakReference retired = RetireProjectContext();
+			for (int pass = 0; retired.IsAlive && pass < 10; pass++)
+			{
+				GC.Collect();
+				GC.WaitForPendingFinalizers();
+			}
+			if (retired.IsAlive)
+			{
+				Log.Warn("The previous script context did not unload; something is "
+						 + "still holding one of its types. The new assembly loads, "
+						 + "but the old one stays resident until restart.");
+			}
 
-			// Replaced rather than appended when the same assembly is loaded
-			// again, or a rebuild would leave both versions searchable and the
-			// older one would win for any type it still declares.
-			s_Loaded.RemoveAll(loaded => string.Equals(loaded.GetName().Name,
-													   assembly.GetName().Name,
-													   StringComparison.OrdinalIgnoreCase));
+			AssemblyLoadContext context = new("RageV.Project", isCollectible: true);
+
+			// The same identity rule the default context gets in
+			// InstallResolver, and it matters more here: a reloaded assembly
+			// that bound to a second ScriptCore would derive from a different
+			// `Script` than the one the engine holds, and IsAssignableFrom
+			// would call every script "not a script".
+			context.Resolving += (_, name) =>
+			{
+				Assembly self = typeof(ScriptHost).Assembly;
+				return string.Equals(name.Name, self.GetName().Name, StringComparison.OrdinalIgnoreCase)
+					? self
+					: null;
+			};
+
+			Assembly assembly;
+			using (var dll = new System.IO.MemoryStream(System.IO.File.ReadAllBytes(file)))
+			{
+				string pdbPath = System.IO.Path.ChangeExtension(file, ".pdb");
+				if (System.IO.File.Exists(pdbPath))
+				{
+					using var pdb = new System.IO.MemoryStream(System.IO.File.ReadAllBytes(pdbPath));
+					assembly = context.LoadFromStream(dll, pdb);
+				}
+				else
+				{
+					assembly = context.LoadFromStream(dll);
+				}
+			}
+
+			s_ProjectContext = context;
 			s_Loaded.Add(assembly);
 
 			int scripts = 0;
@@ -188,6 +254,32 @@ public static unsafe class ScriptHost
 			Log.Error($"Loading a script assembly failed: {e.Message}");
 			return -1;
 		}
+	}
+
+	/// <summary>
+	/// Drops every reference to the current project context and starts its
+	/// unload, returning a WeakReference that reports whether it truly died.
+	/// </summary>
+	/// <remarks>
+	/// A separate, never-inlined method on purpose: the JIT may extend the
+	/// lifetime of locals to the end of the calling method, and a lingering
+	/// strong reference in the caller would make the collect loop above spin
+	/// against this very frame. Isolating the strong references here is what
+	/// lets them actually be dead when the caller starts collecting.
+	/// </remarks>
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	private static WeakReference RetireProjectContext()
+	{
+		AssemblyLoadContext? old = s_ProjectContext;
+		s_ProjectContext = null;
+		s_Loaded.Clear();
+
+		if (old is null)
+			return new WeakReference(null);
+
+		WeakReference weak = new(old);
+		old.Unload();
+		return weak;
 	}
 
 	/// <summary>Every Script subclass currently loadable, newline-separated, into the buffer.</summary>

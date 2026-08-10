@@ -40,7 +40,7 @@
 <p>The class name is what scene files store, so renaming a class breaks every scene that used it — the same rule as C++, the same rule as Unity.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>The <code>.csproj</code> is not a prop. Open it in Visual Studio, Rider or VS Code and you get completion against the engine&#39;s API. The reference to <code>RageV.ScriptCore</code> is supplied by the editor at build time, so the project file works on any machine the project is copied to.</p>
 </aside>
-<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Changing a script that is already loaded needs an editor restart, for now.</strong> Build Scripts loads the assembly the first time — new scripts appear without a restart — but the .NET runtime will not replace a loaded assembly in place. Hot reload (a collectible load context) is the next scripting item on the roadmap; until it lands, the loop for <em>editing</em> an existing script is build, restart, play. C++ scripts do not have this limit: their module unloads and reloads on every build.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Edits reload live.</strong> Build Scripts retires the old assembly and loads the new one in its place — change a script, Ctrl+B, press Play, and the new code runs. No restart. The one exception is the same one C++ has: while the scene is <em>playing</em>, live instances run the loaded code, so a build that finishes mid-play waits and the swap happens the moment you press Stop.</p>
 </aside>
 <h2 id="fields-and-the-inspector">Fields and the inspector<a class="anchor" href="#fields-and-the-inspector" aria-label="Link to this section">#</a></h2>
 <p>Any field of a supported type shows up in the inspector — <code>bool</code>, <code>int</code>, <code>float</code>, <code>string</code>, <code>Vector3</code>. Private is fine: reflection can reach it, and requiring <code>public</code> would be telling people to write worse C# for the inspector&#39;s benefit. This is the opposite of the C++ rule, where a field must be public because the registration has to name it from outside the class.</p>
@@ -122,7 +122,7 @@ Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fue
 <li><strong>Doing per-frame work in <code>OnUpdate</code>.</strong> It is per fixed step. Anything tied to rendering — smoothing a camera, fading UI — has no home in a script yet.</li>
 <li><strong><code>FindByName</code> every step.</strong> Cache it in <code>OnCreate</code>.</li>
 <li><strong>Forgetting that Stop rewinds the scene.</strong> Play mode works on a copy; everything a script changed is discarded when play stops, <code>OnDestroy</code> runs, and the edit-mode scene returns untouched.</li>
-<li><strong>Editing a loaded script and wondering why nothing changed.</strong> Until hot reload lands, that needs a restart — see the trap at the top.</li>
+<li><strong>Building mid-play and expecting the new code immediately.</strong> The build runs, but the swap waits for Stop — live instances are running the loaded assembly, and the log says so.</li>
 </ul>
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/cpp-reference.html"><span class="pager-label">Previous</span><span class="pager-title">C++ API reference</span></a></nav>
