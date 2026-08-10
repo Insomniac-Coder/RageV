@@ -35,9 +35,15 @@ are all done. So is scripting, in both languages, with live reload in both:
   into a **collectible AssemblyLoadContext** that is retired and replaced on
   every build -- that is 5.5, and it is done. The unload is verified with a
   WeakReference; a context that will not die is reported, not ignored.
-- **Neither language swaps code during Play.** Live instances run the loaded
-  code; the C++ half skips with a message, the C# swap parks and happens on
-  Stop. One rule, both languages.
+- **Building mid-play restarts the scene.** Live instances run the loaded
+  code, so the editor stops the scene, swaps both languages' scripts, and
+  resumes Play on the new code; after a failed build it stays stopped with
+  the errors showing. One rule, both languages. Play pressed during a build
+  queues until the build lands.
+- **As of interop protocol 4 the languages are equals**: audio, raycasts,
+  hierarchy, and components by registry name with text values all reach C#.
+  The one structural exception is typed GetComponent<T>, which cannot cross
+  a boundary and is traded for the registry's named access.
 
 **A project can have both languages on the same entity**, one inspector, one
 scene format. The manual documents both guides and is generated with a drift
@@ -56,7 +62,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-748 checks, `exit 0`. Then look at a frame:
+776 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -1011,23 +1017,45 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-**Phases 0-5 are done, and so is the game-module arc.** Every item from the
-"game module in six parts" plan landed: the scaffold, the editor build with
-live console and cancel, load/unload with registry scopes, New Script in the
-project, packaging, and hot reload for both languages.
+**Phases 0-5 are done, the game-module arc is done, and as of interop
+protocol 4 the two script languages are equals.** C# reaches everything C++
+reaches: audio, raycasts, hierarchy, LookAt, SpawnPrefab by asset path, and
+components by registry name with text values -- the boundary's answer to
+GetComponent<T>, driven by the same ComponentRegistry as the inspector so it
+cannot go stale. Building mid-play stops the scene, swaps both languages'
+scripts, and resumes Play on the new code; validation layers are opt-in
+everywhere (~1.5 ms/frame of CPU when on, Vulkan only -- the manual's
+getting-started page has the section).
 
-### START HERE - use it before extending it
+### START HERE - the mini game
 
-ROADMAP section 9 recommends **building a small game before starting phase 6**,
-and everything now exists for that to be an honest exercise: projects, both
-script languages with live reload, physics, audio, packaging. The gaps a game
-hits first are already catalogued in the manual's "What it does not do yet" --
-no game UI, no particles, no animation blending. Which of those hurts most in
-practice is exactly what building a game answers, and that answer should pick
-phase 6's contents.
+ROADMAP section 9 recommends building a small game before phase 6, the user
+has agreed, and it is the next session's whole job. Constraints that should
+shape the pick:
+
+- **No text rendering and no game UI.** A score, a menu, a health bar cannot
+  be drawn. The game must be one whose feedback is the scene itself --
+  physics doing something visible, sound, light. Knock-things-down,
+  roll-to-goal, survive-the-falling-things shapes fit; anything needing a
+  HUD does not.
+- **What it exercises, deliberately:** a fresh project via File > New
+  Project, scripts in both languages (C++ in Source/, C# in Scripts/), the
+  live-reload loop including mid-play builds, collision callbacks and
+  raycasts, real audio playback through the C# surface -- which has only
+  ever been exercised at its no-op contracts -- and at the end, File >
+  Build Game and the packaged folder run on its own.
+- **What to write down while building:** every papercut, in a list. Which
+  missing thing hurt first -- UI, particles, animation blending, something
+  unforeseen -- is the answer that picks phase 6's contents, and it is the
+  entire reason to build the game rather than guess.
 
 ### Worth knowing before extending scripting further
 
+- **The NativeApi table is append-only and at protocol 4.** Inserting a
+  field in the middle rebinds every field after it on one side only; the
+  crash lands somewhere unrelated. Append, bump kProtocolVersion on both
+  sides (Interop.h and Interop.cs), and the handshake tests follow the
+  constant automatically.
 - The C# reload refuses while instances are alive, on both sides of the
   boundary: the editor parks the swap until Stop, and ScriptHost refuses with
   a log line if anything reaches it anyway.
@@ -1039,22 +1067,18 @@ phase 6's contents.
   inlined, the JIT may pin its locals to the caller's frame and the collect
   loop spins against the very reference it is waiting on.
 
-### Open, small, and not yet diagnosed
+### Housekeeping that used to be folklore, now automatic
 
-- **"The text size is big again."** Reported at the end of the DLL session and
-  not reproduced: `EngineConfig::UIScale` defaults to 1.0, no `ragev.ini` in the
-  tree sets `ui-scale`, and a Debug editor here logs no scaling line and renders
-  an 18px font. Ask what it is being compared against before changing a default.
-  The lever is `ui-scale` in the `ragev.ini` beside the executable, or
-  `--ui-scale=1`.
-- ~~Behaviour2.cpp~~ and ~~DeviceDesc::Window as GLFWwindow*~~ -- both resolved.
-  The test script is deleted, and the RHI header carries an opaque
-  `NativeWindowHandle` now. Deleting the script surfaced a build trap worth
-  keeping: **removing a source file does not regenerate the DLL's
-  `exports.def`**, so the link fails on symbols from a file that no longer
-  exists, and the fix is deleting `build/RageV/RageV.dir/<Config>/exports.def`
-  so it rebuilds. Removing a script from the engine is about to be an ordinary
-  thing to do, so this will come up again.
+- **Stale exports.def**: deleting an engine source used to strand its symbols
+  in the DLL's export list and fail the link. A pre-build pass
+  (cmake/PruneStaleObjects.cmake) prunes objects whose sources are gone and
+  the .def with them. The one quirk left is the VS generator's: the first
+  build after deleting a globbed source may fail compiling the ghost file;
+  the second succeeds. That is CONFIGURE_DEPENDS reloading, not a bug here.
+- **Dock layout proportions**: ImGui stores split sizes in pixels; the editor
+  rescales the dock tree on window resize and persists the reference size in
+  panels.ini, which also remembers which panels are open. Layout, size and
+  visibility all survive restarts now.
 
 ### Done — Phase 5, C# scripting (`XL`)
 
