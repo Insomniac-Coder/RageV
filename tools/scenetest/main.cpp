@@ -82,6 +82,7 @@
 #include <fstream>
 #include <functional>
 #include <set>
+#include <unordered_set>
 
 using namespace RageV;
 using namespace RageV::RHI;
@@ -1843,6 +1844,96 @@ namespace
 		}
 
 		Check(labelled, "every field has one");
+
+		// Every field is exactly as wide as the type it is read and written
+		// as. Reflection is type-erased: an Enum field is reached through an
+		// `int*` by the serializer, the undo stack, the inspector and the C#
+		// bridge alike, so an enum declared `: uint8_t` would compile, pass
+		// review, and write three bytes past its end into whatever member
+		// follows it.
+		//
+		// Field<> static_asserts the enum case, which is where it will
+		// actually be caught. This is the same claim made about the registry
+		// as it stands rather than about the template -- it covers a
+		// descriptor assembled by hand, and it names the field when it fails
+		// instead of pointing at a template instantiation.
+		{
+			const char* offender = nullptr;
+			const char* offendingComponent = nullptr;
+
+			for (const ComponentDesc& component : ComponentRegistry::All())
+			{
+				for (const FieldDesc& field : component.Fields)
+				{
+					// Zero means hand-built rather than through Field<>;
+					// there is nothing to compare against.
+					if (field.Size == 0)
+						continue;
+
+					size_t expected = 0;
+					switch (field.Type)
+					{
+						case FieldType::Bool:   expected = sizeof(bool); break;
+						case FieldType::Int:    expected = sizeof(int); break;
+						case FieldType::Enum:   expected = sizeof(int); break;
+						case FieldType::Float:  expected = sizeof(float); break;
+						case FieldType::Vec3:   expected = sizeof(Vec3); break;
+						case FieldType::Vec4:   expected = sizeof(Vec4); break;
+						case FieldType::String: expected = sizeof(std::string); break;
+						case FieldType::Asset:  expected = sizeof(AssetHandle); break;
+					}
+
+					if (field.Size != expected && !offender)
+					{
+						offender = field.Name;
+						offendingComponent = component.Name;
+					}
+				}
+			}
+
+			if (offender)
+			{
+				RV_CORE_ERROR("{0}::{1} is not the width its FieldType is written as",
+							  offendingComponent, offender);
+			}
+
+			Check(offender == nullptr,
+				  "every registered field is as wide as the type reflection reads it as");
+		}
+
+		// Names are keys, and a duplicate key is a silent corruption of the
+		// same family as the enum above: the serializer writes both fields
+		// under one YAML key and the loader reads whichever it meets last
+		// into only one of them, so the other silently stops persisting.
+		// Nothing about that is visible in the inspector, which draws both.
+		{
+			bool duplicateField = false;
+			bool duplicateComponent = false;
+			std::unordered_set<std::string> componentNames;
+
+			for (const ComponentDesc& component : ComponentRegistry::All())
+			{
+				if (component.Name && !componentNames.insert(component.Name).second)
+				{
+					duplicateComponent = true;
+					RV_CORE_ERROR("Two components registered as '{0}'", component.Name);
+				}
+
+				std::unordered_set<std::string> fieldNames;
+				for (const FieldDesc& field : component.Fields)
+				{
+					if (field.Name && !fieldNames.insert(field.Name).second)
+					{
+						duplicateField = true;
+						RV_CORE_ERROR("{0} registers '{1}' twice",
+									  component.Name, field.Name);
+					}
+				}
+			}
+
+			Check(!duplicateComponent, "no two components share a registry name");
+			Check(!duplicateField, "and no component registers one field name twice");
+		}
 
 		// The property that actually protects saved scenes: the serializer
 		// writes the key, not the label. A scene written before this change

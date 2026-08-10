@@ -99,6 +99,13 @@ namespace RageV
 		FieldType Type = FieldType::Float;
 		void* (*Access)(void*) = nullptr;
 		FieldHint Hint;
+
+		// sizeof the member this describes. Filled by Field<>, and checked by
+		// the test suite against what each FieldType is read and written as --
+		// which is what turns "an enum must be int-sized" from a rule people
+		// have to know into one the build enforces. A descriptor assembled by
+		// hand rather than through Field<> leaves this zero and is skipped.
+		uint32_t Size = 0;
 	};
 
 	struct ComponentDesc
@@ -145,7 +152,30 @@ namespace RageV
 		{
 			if constexpr (std::is_same_v<T, AssetHandle>)      return FieldType::Asset;
 			else if constexpr (std::is_same_v<T, bool>)        return FieldType::Bool;
-			else if constexpr (std::is_enum_v<T>)              return FieldType::Enum;
+			else if constexpr (std::is_enum_v<T>)
+			{
+				// Every consumer of an Enum field -- the serializer, the undo
+				// stack, the inspector's combo, the C# component bridge --
+				// reads and writes it through an `int*`, because a field list
+				// is type-erased and an enum's identity does not survive it.
+				//
+				// So a registered enum must be int-sized. Declare one
+				// `: uint8_t` and it compiles, serializes, and writes three
+				// bytes past its end into whatever member follows -- a
+				// corruption with no error, in a component that looked fine
+				// in the inspector. Caught here instead, at the registration
+				// that would have caused it.
+				//
+				// The fix is always the same: drop the narrow underlying type.
+				// A component's enum is one field on one instance, never a
+				// packed array, so the three bytes buy nothing.
+				static_assert(sizeof(T) == sizeof(int),
+					"A registered enum field must be int-sized: reflection reads and "
+					"writes it through an int*, so a narrower underlying type is a "
+					"silent memory stomp. Remove the ': uint8_t' (or similar) from "
+					"this enum's declaration.");
+				return FieldType::Enum;
+			}
 			else if constexpr (std::is_same_v<T, int>)         return FieldType::Int;
 			else if constexpr (std::is_same_v<T, float>)       return FieldType::Float;
 			else if constexpr (std::is_same_v<T, Vec3>)   return FieldType::Vec3;
@@ -168,6 +198,7 @@ namespace RageV
 		field.Name = name;
 		field.DisplayName = hint.Label ? std::string(hint.Label) : HumanFieldName(name);
 		field.Type = Detail::TypeOf<typename Traits::Type>();
+		field.Size = (uint32_t)sizeof(typename Traits::Type);
 		field.Access = [](void* component) -> void*
 		{
 			return &(static_cast<typename Traits::Class*>(component)->*Member);
@@ -189,6 +220,7 @@ namespace RageV
 		field.Name = name;
 		field.DisplayName = hint.Label ? std::string(hint.Label) : HumanFieldName(name);
 		field.Type = Detail::TypeOf<typename InnerTraits::Type>();
+		field.Size = (uint32_t)sizeof(typename InnerTraits::Type);
 		field.Access = [](void* component) -> void*
 		{
 			auto* owner = static_cast<typename OuterTraits::Class*>(component);

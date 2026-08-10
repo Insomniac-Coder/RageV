@@ -348,11 +348,6 @@ namespace RageV
 	// How a particle quad faces the world. Billboard turns to the camera --
 	// smoke, fire, sparks in a 3D scene. Flat lies in the XY plane facing +Z,
 	// which is what a 2D game's particles are.
-	//
-	// Int-sized on purpose, all three: the component registry's enum contract
-	// reads and writes registered enum fields through an int*, and a narrower
-	// underlying type turns serialization into a stomp over the neighbouring
-	// bytes.
 	enum class ParticleFacing { Billboard, Flat };
 
 	// Alpha reads as matter -- smoke, dust, debris -- and needs drawing back

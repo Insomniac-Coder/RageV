@@ -705,6 +705,15 @@ or silence rather than an obvious failure.
   each set remembers which block owns it, because that is what it must be freed
   to. ImGui gets a pool of its own — it takes a handle once and keeps it, so it
   cannot follow the chain.
+- **A registered enum field must be int-sized.** Reflection is type-erased, so
+  every consumer of an `Enum` field — the serializer, the undo stack, the
+  inspector's combo, the C# component bridge — reaches it through an `int*`.
+  Declare one `: uint8_t` and it compiles, looks right in the inspector, and
+  writes three bytes past its end into whatever member follows. `Field<>`
+  static_asserts it now, and a suite check makes the same claim about the
+  registry as it stands (which also covers a descriptor built by hand rather
+  than through `Field<>`). The fix is always to drop the narrow underlying
+  type: a component's enum is one field on one instance, never a packed array.
 - **A deferred deletion is only deferred if its slot is not the next one
   flushed.** Entity destruction happens in the simulation phase, before
   BeginFrame — and a deleter pushed there used to land in the very slot
@@ -1123,22 +1132,20 @@ Debug config, 802 checks, both backends, screenshots compared:**
   (additive), smoke (alpha, sorted), 2D fountain (flat), run via
   `RageVRuntime --project=SampleProject --scene=scenes/particles.rage`.
 
-**Trap found, worth its place in §5 someday: the component registry's
-enum contract is int-sized.** Serialization reads and writes enum fields
-through `int*`; an `enum class : uint8_t` field compiles fine and then
-serialization stomps the three bytes after it. The particle enums are
-int-sized now, with the comment on them.
+**Trap found while building the emitter, and since closed:** the
+component registry's enum contract is int-sized, and nothing said so.
+`Field<>` now static_asserts it (§5 has the invariant), so the mistake is
+a build error naming the offending enum rather than a silent stomp. An
+audit found no existing offender -- every registered enum was already
+`uint32_t` or plain `int` -- so this was a live trap, not a live bug.
 
 **Resume here, in order:**
-1. `cmake --build build --config Release` and `Dist` -- only Debug was
-   rebuilt after the particle work; the source is consistent, the other
-   two configs are stale on disk.
-2. **6.7a RHI compute**: compute shader stage in ShaderCompiler
+1. **6.7a RHI compute**: compute shader stage in ShaderCompiler
    (`#type compute`), `ComputePipelineDesc` + `CreateComputePipeline`,
    `RHICommandList::BindComputePipeline/Dispatch`, and a barrier pair
    (compute→vertex-read, vertex→compute) on both backends. GL 4.6 has
    glDispatchCompute + glMemoryBarrier; Vulkan wants buffer barriers.
-3. **6.7b GPU sim**: per-emitter fixed pool of `MaxParticles` in a
+2. **6.7b GPU sim**: per-emitter fixed pool of `MaxParticles` in a
    device-local SSBO, one compute pass integrates + emits (spawn count
    pushed per frame, hash(index,frame) RNG), dead particles collapse to
    size zero -- no compaction, no readback, no indirect draw in v1; the
