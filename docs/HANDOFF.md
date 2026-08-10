@@ -705,6 +705,15 @@ or silence rather than an obvious failure.
   each set remembers which block owns it, because that is what it must be freed
   to. ImGui gets a pool of its own — it takes a handle once and keeps it, so it
   cannot follow the chain.
+- **A deferred deletion is only deferred if its slot is not the next one
+  flushed.** Entity destruction happens in the simulation phase, before
+  BeginFrame — and a deleter pushed there used to land in the very slot
+  BeginFrame flushes that same iteration, behind a fence covering a frame from
+  two submissions ago, while the *previous* frame still executed. Out-of-frame
+  pushes now slot by the most recently submitted frame; in-frame pushes stay in
+  the recording frame's slot, since the resource may already be in its buffer.
+  Found by the first game that destroyed material-bearing entities mid-play,
+  and only under `--validation=on` — the GPU usually wins the race.
 - **Identical state must be the same object, or a batch key cannot see it.**
   Every material built its own sampler from an identical description, which
   made every material's batch key unique and stopped the lit pass batching
@@ -1076,13 +1085,18 @@ Smaller finds: creating a project left the previous module loaded (fixed),
 the C# manual's prefab example used `.prefab` for `.rprefab` (fixed), and
 the content browser draws folder icons as `[/]` tofu (open, cosmetic).
 
-**Known issue (open):** in the *runtime* only -- the editor is clean -- a
-`vkFreeDescriptorSets` validation error fires occasionally when an entity
-with a per-instance material is destroyed mid-play (repro: package
-Knockdown, run with `--validation=on`, wait for a ball to expire). The
-free already goes through the DeletionQueue, so this smells like the
-runtime frame loop flushing a slot one frame early. Worth a session of its
-own eyes.
+**Sixth find, fixed the following session:** destroying a
+material-bearing entity mid-play could free its descriptor sets while the
+previous frame still executed. Entity destruction happens in the
+simulation phase, *before* BeginFrame -- and a deleter pushed there landed
+in the slot BeginFrame was about to flush that same iteration, behind a
+fence that only covers a frame from two submissions ago. Deferred by zero
+frames, in every process; the GPU usually won the race, which is why it
+read as a rare runtime flake. DeletionQueue::Push now slots out-of-frame
+pushes by the most recently *submitted* frame (see the comment in
+VulkanCommon.h). Proven with a churn scene -- ~180 material destroys a
+second under GPU load: 10 validation errors in 4000 frames before, zero
+in 12000 after.
 
 ### START HERE - picking phase 6
 

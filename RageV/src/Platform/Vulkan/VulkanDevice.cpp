@@ -1072,6 +1072,9 @@ namespace RageV::Vk
 		RecycleTimestampPool(frame.CommandBuffer);
 
 		m_FrameActive = true;
+		// From here until EndFrame, a destroyed resource may already be in
+		// this frame's command buffer, and the queue slots it accordingly.
+		m_Deletion->InFrame = true;
 
 		return m_CommandList.get();
 	}
@@ -1084,6 +1087,7 @@ namespace RageV::Vk
 		FrameContext& frame = m_Frames[m_FrameIndex];
 		m_CommandList->End();
 		m_FrameActive = false;
+		m_Deletion->InFrame = false;
 
 		const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 

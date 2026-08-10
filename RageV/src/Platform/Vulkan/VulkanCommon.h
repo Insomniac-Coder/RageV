@@ -38,6 +38,9 @@ namespace RageV::Vk
 	struct DeletionQueue
 	{
 		bool DeviceAlive = true;
+		// True between BeginFrame and EndFrame -- while a command buffer is
+		// recording. Which slot a push belongs in depends on it; see Push.
+		bool InFrame = false;
 		uint32_t FrameIndex = 0;
 		std::vector<std::vector<std::function<void()>>> PerFrame;
 
@@ -45,7 +48,25 @@ namespace RageV::Vk
 		{
 			if (!DeviceAlive || PerFrame.empty())
 				return;
-			PerFrame[FrameIndex].push_back(std::move(deleter));
+
+			// In frame: the resource may already be recorded into the frame
+			// being built, so it waits in this frame's slot -- flushed only
+			// after this frame's own fence.
+			//
+			// Out of frame -- which is where entity destruction happens, in
+			// the simulation phase before BeginFrame -- this frame's slot is
+			// about to be flushed *this very iteration*, right after a fence
+			// wait that only covers a frame from two submissions ago. Pushed
+			// there, the deleter runs microseconds later while the previous
+			// frame may still be executing; that was a live race, hit by the
+			// first game that destroyed material-bearing entities mid-play.
+			// The last possible user is the most recently *submitted* frame,
+			// so its slot -- whose flush waits that frame's fence -- is the
+			// earliest safe home.
+			const uint32_t count = (uint32_t)PerFrame.size();
+			const uint32_t slot = InFrame ? FrameIndex
+										  : (FrameIndex + count - 1) % count;
+			PerFrame[slot].push_back(std::move(deleter));
 		}
 
 		void Flush(uint32_t frame)
