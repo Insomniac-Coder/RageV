@@ -41,6 +41,7 @@ namespace RageV::Vk
 		RHI::Backend GetBackend() const override { return RHI::Backend::Vulkan; }
 		const RHI::DeviceCaps& GetCaps() const override { return m_Caps; }
 		bool WideLinesSupported() const { return m_WideLinesSupported; }
+		bool IndependentBlendSupported() const { return m_IndependentBlendSupported; }
 
 		RHI::RHICommandList* BeginFrame() override;
 		void EndFrame() override;
@@ -205,6 +206,11 @@ namespace RageV::Vk
 		// Whether the wideLines feature was there to enable; pipelines clamp
 		// their line width to 1.0 without it rather than tripping validation.
 		bool m_WideLinesSupported = false;
+		// Whether per-attachment blend state is allowed to differ. Pipelines
+		// fall back to attachment zero's preset for all of them without it,
+		// which is wrong for weighted blending but is not a crash -- and the
+		// warning says which.
+		bool m_IndependentBlendSupported = false;
 
 		std::shared_ptr<DeletionQueue> m_Deletion;
 		std::vector<FrameContext> m_Frames;

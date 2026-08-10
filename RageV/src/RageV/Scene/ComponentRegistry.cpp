@@ -82,7 +82,7 @@ namespace
 		const char* kBodyTypeNames[] = { "Static", "Kinematic", "Dynamic" };
 		const char* kColliderShapeNames[] = { "Box", "Sphere", "Capsule" };
 		const char* kParticleFacingNames[] = { "Billboard", "Flat" };
-		const char* kParticleBlendNames[] = { "Alpha", "Additive" };
+		const char* kParticleBlendNames[] = { "Alpha", "Additive", "WeightedBlended" };
 		const char* kParticleSpaceNames[] = { "World", "Local" };
 		const char* kAudioBusNames[] = { "Master", "Music", "SFX", "UI" };
 
@@ -651,9 +651,13 @@ namespace
 											   "scene's smoke and sparks. Flat lies in the "
 											   "XY plane, which is what a 2D game wants.")),
 				Field<&ParticleEmitterComponent::Blend>("Blend",
-					Enum(kParticleBlendNames, "Alpha reads as matter and is depth-sorted. "
-											  "Additive reads as light, sums in any order, "
-											  "and is the cheaper of the two.")),
+					Enum(kParticleBlendNames,
+						 "Alpha reads as matter and is depth-sorted -- but only "
+						 "within a CPU emitter; a GPU one cannot sort itself. "
+						 "Additive reads as light and sums in any order. "
+						 "WeightedBlended is alpha without the sort, resolved in "
+						 "a second pass: correct from any angle, and what a GPU "
+						 "emitter of smoke wants.")),
 				Field<&ParticleEmitterComponent::Space>("Space",
 					Enum(kParticleSpaceNames, "World leaves particles where they were "
 											  "born; Local carries them with the emitter.")),

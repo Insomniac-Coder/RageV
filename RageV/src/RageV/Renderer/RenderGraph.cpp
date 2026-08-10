@@ -124,6 +124,11 @@ namespace RageV
 		m_Graph.m_Passes[m_Pass].UseDepth = false;
 	}
 
+	void RGPassBuilder::PreserveDepth()
+	{
+		m_Graph.m_Passes[m_Pass].KeepDepth = true;
+	}
+
 	// -------------------------------------------------------------------------
 	// Context
 	// -------------------------------------------------------------------------
@@ -355,7 +360,7 @@ namespace RageV
 			RenderPassBeginInfo begin;
 			begin.Target = output.IsBackbuffer ? nullptr : output.Target.get();
 			begin.ClearColor = pass.Load == RGLoad::Clear;
-			begin.ClearDepth = pass.Load == RGLoad::Clear;
+			begin.ClearDepth = pass.Load == RGLoad::Clear && !pass.KeepDepth;
 			begin.UseDepth = pass.UseDepth;
 			begin.Clear.Color[0] = pass.ClearColor.r;
 			begin.Clear.Color[1] = pass.ClearColor.g;

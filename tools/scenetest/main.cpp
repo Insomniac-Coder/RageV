@@ -940,6 +940,18 @@ namespace
 			  "a GPU emitter is not simulated on the CPU, burst included");
 		emitter.SimulateOnGpu = false;
 
+		// Weighted blending is what the frame graph asks about before it
+		// allocates two extra full-resolution attachments, and it has to be
+		// asked of the scene rather than of the renderer -- the graph is
+		// described before anything has drawn, so the renderer would answer
+		// for the previous frame.
+		Check(!Particles::System::HasWeightedEmitters(*scene),
+			  "a scene of ordinary emitters wants no transparency attachments");
+
+		emitter.Blend = ParticleBlend::WeightedBlended;
+		Check(Particles::System::HasWeightedEmitters(*scene),
+			  "and one weighted emitter is enough to want them");
+
 		// The component round-trips through the scene file with its enums by
 		// name, exactly as the inspector wrote them.
 		emitter.Blend = ParticleBlend::Additive;

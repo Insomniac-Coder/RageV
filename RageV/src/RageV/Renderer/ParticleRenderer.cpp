@@ -5,6 +5,7 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Asset/AssetManager.h"
 #include <algorithm>
+#include <iterator>
 
 namespace RageV
 {
@@ -63,6 +64,16 @@ namespace RageV
 			Ref<RHIShader> Shader;
 			Ref<RHIPipeline> AlphaPipeline;
 			Ref<RHIPipeline> AdditivePipeline;
+
+			// Weighted blending: a second shader writing two attachments, and
+			// the fullscreen composite that turns them back into a picture.
+			Ref<RHIShader> WeightedShader;
+			Ref<RHIPipeline> WeightedPipeline;
+			Ref<RHIShader> ResolveShader;
+			Ref<RHIPipeline> ResolvePipeline;
+			// Held back by EndScene for the transparent pass.
+			std::vector<PendingDraw> Weighted;
+
 			Ref<RHITexture> WhiteTexture;
 			Ref<RHISampler> Sampler;
 			Format TargetColor = Format::B8G8R8A8_UNORM;
@@ -76,6 +87,9 @@ namespace RageV
 				Ref<RHIBuffer> Instances;
 				Ref<RHIBuffer> Scene;
 				Ref<RHIResourceSet> Set;
+				// The resolve binds two textures and nothing else, so it needs
+				// a set built against its own pipeline's layout.
+				Ref<RHIResourceSet> ResolveSet;
 			};
 
 			std::vector<std::vector<Batch>> Batches;
@@ -148,6 +162,17 @@ namespace RageV
 		}
 		s_Data->Shader = device.CreateShader(*compiled);
 		s_Data->Ready = s_Data->Shader != nullptr;
+
+		// Optional: an engine whose weighted shader failed to compile still
+		// draws alpha and additive, and says so once rather than per frame.
+		if (auto weighted = ShaderCompiler::CompileFromFile("assets/shaders/particle_weighted.rvshader"))
+			s_Data->WeightedShader = device.CreateShader(*weighted);
+		if (auto resolve = ShaderCompiler::CompileFromFile("assets/shaders/oit_resolve.rvshader"))
+			s_Data->ResolveShader = device.CreateShader(*resolve);
+
+		if (!s_Data->WeightedShader || !s_Data->ResolveShader)
+			RV_CORE_WARN("Weighted-blended transparency is unavailable; emitters "
+						 "asking for it will draw as ordinary alpha");
 
 		// The textureless fallback, same as Renderer2D's: a particle without
 		// a sprite is a coloured quad, not an error.
@@ -225,6 +250,41 @@ namespace RageV
 		desc.Name = "ParticleRenderer.additive";
 		desc.Blend = BlendPreset::Additive;
 		s_Data->AdditivePipeline = s_Data->Device->CreatePipeline(desc);
+
+		// --- weighted blending -------------------------------------------
+		// Two attachments with opposite equations, which is the reason
+		// per-attachment blend state exists at all.
+		if (s_Data->WeightedShader)
+		{
+			GraphicsPipelineDesc weighted;
+			weighted.Name = "ParticleRenderer.weighted";
+			weighted.Shader = s_Data->WeightedShader;
+			weighted.Topology = PrimitiveTopology::TriangleList;
+			weighted.Rasterizer.Cull = CullMode::None;
+			weighted.DepthStencil.DepthTestEnable = true;
+			weighted.DepthStencil.DepthWriteEnable = false;
+			weighted.ColorFormats = { Format::R16G16B16A16_SFLOAT, Format::R8_UNORM };
+			weighted.BlendPerAttachment = { BlendPreset::WeightedAccumulate,
+											BlendPreset::WeightedRevealage };
+			weighted.DepthFormat = s_Data->TargetDepth;
+			s_Data->WeightedPipeline = s_Data->Device->CreatePipeline(weighted);
+		}
+
+		if (s_Data->ResolveShader)
+		{
+			GraphicsPipelineDesc resolve;
+			resolve.Name = "ParticleRenderer.oitResolve";
+			resolve.Shader = s_Data->ResolveShader;
+			resolve.Topology = PrimitiveTopology::TriangleList;
+			resolve.Rasterizer.Cull = CullMode::None;
+			// The composite covers the screen and has nothing to test.
+			resolve.DepthStencil.DepthTestEnable = false;
+			resolve.DepthStencil.DepthWriteEnable = false;
+			resolve.Blend = BlendPreset::AlphaBlend;
+			resolve.ColorFormats = { s_Data->TargetColor };
+			resolve.DepthFormat = Format::Undefined;
+			s_Data->ResolvePipeline = s_Data->Device->CreatePipeline(resolve);
+		}
 
 		s_Data->PipelineDirty = false;
 
@@ -362,9 +422,112 @@ namespace RageV
 		if (!s_Data)
 			return;
 
+		// Weighted draws belong to a later pass writing different attachments,
+		// so they are moved aside rather than drawn. Everything else goes now.
+		s_Data->Weighted.clear();
+
+		const bool canWeight = s_Data->WeightedPipeline != nullptr;
+
+		auto split = std::stable_partition(s_Data->Pending.begin(), s_Data->Pending.end(),
+			[&](const PendingDraw& draw)
+			{
+				return !(canWeight && draw.Blend == ParticleBlend::WeightedBlended);
+			});
+
+		s_Data->Weighted.assign(std::make_move_iterator(split),
+								std::make_move_iterator(s_Data->Pending.end()));
+		s_Data->Pending.erase(split, s_Data->Pending.end());
+
 		Flush();
 		s_Data->Pending.clear();
 		s_Data->InScene = false;
+	}
+
+	bool ParticleRenderer::HasWeighted()
+	{
+		return s_Data && !s_Data->Weighted.empty();
+	}
+
+	void ParticleRenderer::FlushWeighted()
+	{
+		if (!s_Data || s_Data->Weighted.empty())
+			return;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		EnsurePipelines();
+		if (!s_Data->WeightedPipeline)
+			return;
+
+		// No sort of any kind here, between emitters or within them. That is
+		// the entire point: accumulation is a sum and revealage a product, and
+		// neither cares what order it was fed.
+		for (const PendingDraw& draw : s_Data->Weighted)
+		{
+			ParticleRendererData::Batch& batch = AcquireBatch(s_Data->WeightedPipeline);
+
+			const bool onGpu = draw.GpuInstances != nullptr;
+			const uint32_t instanceCount = onGpu ? draw.GpuCount
+												 : (uint32_t)draw.Instances.size();
+			const uint64_t bytes = (uint64_t)instanceCount * sizeof(InstanceData);
+
+			if (!onGpu)
+				batch.Instances->Upload(draw.Instances.data(), bytes);
+
+			batch.Scene->Upload(&s_Data->Scene, sizeof(SceneUniforms));
+
+			batch.Set->SetUniformBuffer(0, batch.Scene, 0, sizeof(SceneUniforms));
+			batch.Set->SetStorageBuffer(1, onGpu ? draw.GpuInstances : batch.Instances,
+										0, bytes);
+			batch.Set->SetTexture(2, draw.Texture, s_Data->Sampler);
+			batch.Set->Commit();
+
+			cmd->BindPipeline(s_Data->WeightedPipeline);
+			cmd->BindResourceSet(0, batch.Set);
+
+			DrawPush push;
+			push.BaseInstance = 0;
+			push.Flat = draw.Flat ? 1 : 0;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(push), &push);
+
+			cmd->Draw(6, instanceCount);
+		}
+	}
+
+	void ParticleRenderer::ResolveWeighted(const Ref<RHITexture>& accumulate,
+										   const Ref<RHITexture>& revealage)
+	{
+		if (!s_Data || !accumulate || !revealage)
+			return;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		EnsurePipelines();
+		if (!s_Data->ResolvePipeline)
+			return;
+
+		// A batch for its descriptor set; the fullscreen triangle needs no
+		// buffers of its own, and the vertex shader builds it from the index.
+		ParticleRendererData::Batch& batch = AcquireBatch(s_Data->ResolvePipeline);
+
+		if (!batch.ResolveSet)
+			batch.ResolveSet = s_Data->Device->CreateResourceSet(s_Data->ResolvePipeline, 0);
+
+		batch.ResolveSet->SetTexture(0, accumulate, s_Data->Sampler);
+		batch.ResolveSet->SetTexture(1, revealage, s_Data->Sampler);
+		batch.ResolveSet->Commit();
+
+		cmd->BindPipeline(s_Data->ResolvePipeline);
+		cmd->BindResourceSet(0, batch.ResolveSet);
+		cmd->Draw(3);
+
+		// Consumed. A frame that draws nothing weighted must not composite
+		// what the last one left.
+		s_Data->Weighted.clear();
 	}
 
 	void ParticleRenderer::Flush()

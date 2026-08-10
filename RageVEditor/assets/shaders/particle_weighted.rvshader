@@ -1,0 +1,54 @@
+// The same particles, accumulated for weighted-blended order-independent
+// transparency instead of blended in draw order.
+//
+// The vertex stage is literally the one particle.rvshader uses. What differs
+// is that this writes two outputs and lets the resolve sort out what the
+// result should look like -- so a thousand overlapping particles land in any
+// order and produce the same image.
+//
+// McGuire and Bavoil, "Weighted Blended Order-Independent Transparency",
+// JCGT 2013. The weight below is that paper's equation 9.
+
+#type vertex
+#version 450 core
+
+#include "include/particle_vertex.glsl"
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec4 v_Color;
+layout(location = 1) in vec2 v_UV;
+
+layout(set = 0, binding = 2) uniform sampler2D u_Texture;
+
+// Attachment 1 of the scene target: the running sum of premultiplied colour,
+// weighted by depth. Float, because it is a sum meant to exceed one.
+layout(location = 0) out vec4 o_Accumulate;
+// Attachment 2: how much of the background is still showing. Starts at one
+// and is multiplied down by every fragment that covers this pixel.
+layout(location = 1) out float o_Revealage;
+
+void main()
+{
+	vec4 color = texture(u_Texture, v_UV) * v_Color;
+
+	// Nearer fragments count for more, so a particle in front is not washed
+	// out by a hundred behind it. The clamp is the paper's: without an upper
+	// bound the nearest fragment at high alpha overflows the accumulation
+	// buffer, and without a lower one distant particles vanish entirely.
+	//
+	// gl_FragCoord.z is post-projection depth in 0..1 on both backends --
+	// the engine sets glClipControl(ZERO_TO_ONE) precisely so this kind of
+	// arithmetic means the same thing either side.
+	float weight = clamp(pow(min(1.0, color.a * 10.0) + 0.01, 3.0)
+					   * 1e8
+					   * pow(1.0 - gl_FragCoord.z * 0.9, 3.0),
+					   1e-2, 3e3);
+
+	o_Accumulate = vec4(color.rgb * color.a, color.a) * weight;
+
+	// The blend equation is dst = dst * (1 - src), so writing coverage here
+	// leaves the product of everything that missed.
+	o_Revealage = color.a;
+}

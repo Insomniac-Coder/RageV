@@ -267,14 +267,37 @@ namespace RageV::Vk
 
 		std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(
 			std::max<size_t>(1, m_Desc.ColorFormats.size()));
+		// Attachments may only differ from one another where the device allows
+		// it. Without independentBlend, Vulkan requires every attachment to
+		// match the first, so honouring the request would be a validation
+		// error rather than a wrong picture.
+		const bool perAttachment = !m_Desc.BlendPerAttachment.empty()
+								&& m_Device.IndependentBlendSupported();
+
+		if (!m_Desc.BlendPerAttachment.empty() && !perAttachment)
+		{
+			RV_CORE_WARN("'{0}' asked for per-attachment blending on a device without "
+						 "independentBlend; every attachment gets the first one's",
+						 m_Desc.Name);
+		}
+
 		for (size_t i = 0; i < blendAttachments.size(); i++)
 		{
-			// Per-attachment where the caller asked for it, the single preset
-			// everywhere else -- which is every pipeline that predates
-			// weighted-blended transparency.
-			const RHI::BlendPreset preset = i < m_Desc.BlendPerAttachment.size()
-										  ? m_Desc.BlendPerAttachment[i]
-										  : m_Desc.Blend;
+			// Per-attachment where the caller asked for it and the device
+			// permits it, the single preset everywhere else -- which is every
+			// pipeline that predates weighted-blended transparency.
+			RHI::BlendPreset preset = m_Desc.Blend;
+			if (perAttachment)
+			{
+				preset = i < m_Desc.BlendPerAttachment.size()
+					   ? m_Desc.BlendPerAttachment[i]
+					   : m_Desc.Blend;
+			}
+			else if (!m_Desc.BlendPerAttachment.empty())
+			{
+				preset = m_Desc.BlendPerAttachment[0];
+			}
+
 			ApplyBlendPreset(preset, blendAttachments[i]);
 		}
 

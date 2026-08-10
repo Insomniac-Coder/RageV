@@ -160,6 +160,17 @@ namespace RageV::Particles
 		}
 	}
 
+	bool System::HasWeightedEmitters(Scene& scene)
+	{
+		auto view = scene.GetRegistry().view<ParticleEmitterComponent>();
+		for (auto handle : view)
+		{
+			if (view.get<ParticleEmitterComponent>(handle).Blend == ParticleBlend::WeightedBlended)
+				return true;
+		}
+		return false;
+	}
+
 	uint32_t System::Count(Scene& scene)
 	{
 		uint32_t count = 0;

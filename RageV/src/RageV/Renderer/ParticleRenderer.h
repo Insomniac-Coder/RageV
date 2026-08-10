@@ -58,6 +58,24 @@ namespace RageV
 		// For the tests and the stats panel.
 		static uint32_t GetParticleCount();
 
+		// --- weighted-blended transparency ------------------------------------
+		// EndScene draws the alpha and additive emitters and *keeps* the
+		// weighted ones, because they belong to a later pass writing different
+		// attachments. These two are that pass and its resolve.
+
+		// Whether anything submitted this frame asked for weighted blending.
+		// The frame graph asks before paying for two extra targets.
+		static bool HasWeighted();
+
+		// Draws what EndScene held back, into the accumulation and revealage
+		// attachments the transparent pass bound.
+		static void FlushWeighted();
+
+		// Composites those two back over the scene. A fullscreen triangle;
+		// the textures come from the graph.
+		static void ResolveWeighted(const RHI::Ref<RHI::RHITexture>& accumulate,
+									const RHI::Ref<RHI::RHITexture>& revealage);
+
 	private:
 		static void EnsurePipelines();
 		static void Flush();

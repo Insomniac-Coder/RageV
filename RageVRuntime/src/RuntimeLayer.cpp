@@ -1,6 +1,8 @@
 #include "RuntimeLayer.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Core/FrameProfiler.h"
+#include "RageV/Particles/ParticleSystem.h"
+#include "RageV/Renderer/ParticleRenderer.h"
 #include "imgui.h"
 #include "RageV/ImGui/ImGuiBinding.h"
 
@@ -149,6 +151,18 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	{
 		m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);
 	};
+
+	// Asked of the scene rather than of the renderer: the graph is described
+	// before anything draws, so the renderer would answer for last frame.
+	if (Particles::System::HasWeightedEmitters(*m_Scene))
+	{
+		frame.DrawTransparent = [](RGPassContext&) { ParticleRenderer::FlushWeighted(); };
+		frame.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
+									  const RHI::Ref<RHI::RHITexture>& revealage)
+		{
+			ParticleRenderer::ResolveWeighted(accumulate, revealage);
+		};
+	}
 
 	BuildFrame(*m_Graph, frame);
 

@@ -1227,7 +1227,52 @@ correctly. The artifact only shows when particles inside one emitter
 differ strongly in colour or opacity; uniform smoke looks identical
 sorted or not. `scenes/particles_gpu.rage` is the visual check.
 
-### In flight - 6.8, weighted-blended transparency
+### Done - 6.8, weighted-blended transparency
+
+`ParticleBlend::WeightedBlended` is a third option beside Alpha and
+Additive: alpha that needs no sort. Fragments accumulate into two
+attachments -- a sum and a product, both order-independent -- and a
+resolve pass works out the answer, so a thousand overlapping particles
+land in any order and look the same. It is what a GPU emitter of smoke
+wants, since sorting its pool would mean a readback.
+
+`scenes/particles_oit.rage` is the check; both backends composite it with
+no validation messages, 832 checks.
+
+**It costs nothing when nothing uses it.** The two attachments and the
+resolve pass only exist in frames whose scene contains a weighted
+emitter, asked of the *scene* before the graph is described -- asking the
+renderer would answer for the previous frame, which is a one-frame lag
+and a dropped first frame.
+
+**Four things this needed, in order, each committed separately:**
+per-attachment blend state and the two weighted equations; multi-colour
+graph targets with per-pass attachment subsets; `PreserveDepth`, so the
+transparent pass clears its own attachments while keeping the depth the
+scene wrote; and the emitter plumbing.
+
+**Traps paid for along the way:**
+- **`independentBlend` is a device feature.** Different blend state on
+  different attachments is not free in Vulkan; without it every
+  attachment must match the first. Validation said so plainly on the
+  first run. Enabled where supported, and pipelines fall back to
+  attachment zero's preset with a warning naming the pipeline when it is
+  not -- wrong picture, not a crash.
+- **OpenGL's `glDrawBuffers` is persistent framebuffer state.** It is set
+  unconditionally now, because a pass that bound a subset would otherwise
+  leave the next pass over that target writing into its selection.
+- **`glClearBufferfv` indexes the draw-buffer list, not the
+  framebuffer.** Selecting attachments 1 and 2 means clearing indices 0
+  and 1.
+
+**Still worth an eye: the depth weight.** The technique lives or dies on
+it -- McGuire equation 9 is in `particle_weighted.rvshader` -- and the
+wrong curve makes distant particles vanish or near ones dominate while
+looking plausible either way. It has been compared against the alpha and
+additive versions of the same scene once. Compare again on a scene with
+real depth range before trusting it.
+
+### Superseded - the plan for 6.8
 
 A third `ParticleBlend` beside Alpha and Additive, so an emitter can opt
 into order-independent transparency instead of living with unsorted

@@ -353,7 +353,15 @@ namespace RageV
 	// Alpha reads as matter -- smoke, dust, debris -- and needs drawing back
 	// to front. Additive reads as light -- fire, sparks, magic -- and sums the
 	// same from any order, which also makes it the cheaper one to draw.
-	enum class ParticleBlend { Alpha, Additive };
+	//
+	// WeightedBlended is alpha that does not need the sort: fragments
+	// accumulate and a resolve pass works out the answer, so a thousand
+	// overlapping particles land in any order and look the same. It is what
+	// a GPU emitter wants, since sorting its pool would mean reading it back.
+	// The cost is two extra full-resolution targets and a resolve, paid once
+	// per frame no matter how many emitters use it -- and nothing at all when
+	// none do.
+	enum class ParticleBlend { Alpha, Additive, WeightedBlended };
 
 	// World leaves a particle where it was born -- smoke keeps hanging where
 	// the chimney was. Local carries it with the emitter -- a torch flame

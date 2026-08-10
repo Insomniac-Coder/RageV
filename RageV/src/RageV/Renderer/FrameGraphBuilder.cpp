@@ -37,12 +37,29 @@ namespace RageV
 		sceneDesc.Name = "SceneHDR";
 		sceneDesc.Color = Format::R16G16B16A16_SFLOAT;
 		sceneDesc.Depth = Format::D32_SFLOAT;
+
+		// Accumulation and revealage live on the *scene's* target rather than
+		// one of their own, so the transparent pass depth-tests against the
+		// opaque geometry it is drawn over. Three separate targets would each
+		// own a depth buffer and the particles would ignore the world.
+		//
+		// Float accumulation because it is a sum that is meant to exceed one;
+		// a single channel of revealage because it is one number.
+		const bool wantTransparent = desc.DrawTransparent && desc.ResolveTransparent;
+		if (wantTransparent)
+		{
+			sceneDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R8_UNORM };
+		}
+
 		const RGResource sceneHDR = graph.CreateTarget(sceneDesc);
 
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
-				builder.Write(sceneHDR);
+				// Attachment 0 only: every pipeline that draws the scene
+				// declares one colour format, and a pass binding three would
+				// require all of them to declare three.
+				builder.WriteAttachments(sceneHDR, { { 0, desc.ClearColor } });
 				builder.SetClearColor(desc.ClearColor);
 			},
 			[draw = desc.DrawScene](RGPassContext& context)
@@ -56,13 +73,51 @@ namespace RageV
 		// cost is that its colours go through the tone curve like everything
 		// else, which shifts them slightly -- acceptable for a diagnostic, and
 		// the alternative needs the depth buffer in a second pass.
+		// Transparency goes in before the overlay, so a collider wireframe is
+		// still drawn over the smoke it describes rather than under it.
+		if (wantTransparent)
+		{
+			graph.AddPass("Transparent",
+				[&](RGPassBuilder& builder)
+				{
+					// Accumulation starts at zero and revealage at one: what
+					// survives is the product of everything that missed, so
+					// "nothing has covered this pixel yet" is one, not zero.
+					builder.WriteAttachments(sceneHDR,
+						{ { 1, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+						  { 2, Vec4(1.0f, 1.0f, 1.0f, 1.0f) } });
+
+					// Clear these two, keep the depth the scene wrote --
+					// which is the whole reason they share a target.
+					builder.PreserveDepth();
+				},
+				[draw = desc.DrawTransparent](RGPassContext& context) { draw(context); });
+
+			graph.AddPass("ResolveTransparent",
+				[&](RGPassBuilder& builder)
+				{
+					builder.WriteAttachments(sceneHDR, { { 0, desc.ClearColor } },
+											 RGLoad::Preserve);
+					builder.Sample(sceneHDR);
+					// A fullscreen composite has nothing to test against, and
+					// testing would reject it everywhere the scene is nearer
+					// than the far plane -- which is everywhere.
+					builder.DisableDepth();
+				},
+				[resolve = desc.ResolveTransparent, sceneHDR](RGPassContext& context)
+				{
+					resolve(context, context.Color(sceneHDR, 1), context.Color(sceneHDR, 2));
+				});
+		}
+
 		if (desc.DrawOverlay)
 		{
 			graph.AddPass("Overlay",
 				[&](RGPassBuilder& builder)
 				{
 					// Preserve: the scene is already in there.
-					builder.Write(sceneHDR, RGLoad::Preserve);
+					builder.WriteAttachments(sceneHDR, { { 0, desc.ClearColor } },
+											 RGLoad::Preserve);
 				},
 				[draw = desc.DrawOverlay](RGPassContext& context) { draw(context); });
 		}

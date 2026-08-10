@@ -29,5 +29,13 @@ namespace RageV::Particles
 		// Live particles across every emitter in the scene. For the tests and
 		// the stats panel; a walk, not a cache.
 		static uint32_t Count(Scene& scene);
+
+		// Whether any emitter asks for weighted blending.
+		//
+		// Asked of the *scene*, before the frame is described, because the
+		// frame graph has to decide whether to allocate the transparency
+		// attachments before anything has drawn. Asking the renderer what it
+		// collected would answer for the previous frame.
+		static bool HasWeightedEmitters(Scene& scene);
 	};
 }

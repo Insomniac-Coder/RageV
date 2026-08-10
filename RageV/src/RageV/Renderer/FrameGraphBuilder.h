@@ -29,6 +29,20 @@ namespace RageV
 		// geometry they sit inside. Optional.
 		std::function<void(RGPassContext&)> DrawOverlay;
 
+		// Order-independent transparency, into accumulation and revealage
+		// attachments that share the scene's depth. Optional, and costs two
+		// full-resolution targets plus a resolve when it is set -- so it is
+		// only wired up when something actually wants it.
+		//
+		// Whatever draws here must write two outputs and use the weighted
+		// blend presets; see ParticleRenderer for the shape of it.
+		std::function<void(RGPassContext&)> DrawTransparent;
+
+		// Composites the two attachments above back over the scene. Given the
+		// accumulation and revealage textures, in that order.
+		std::function<void(RGPassContext&, const RHI::Ref<RHI::RHITexture>&,
+						   const RHI::Ref<RHI::RHITexture>&)> ResolveTransparent;
+
 		SceneEnvironment Environment;
 
 		Vec4 ClearColor{ 0.05f, 0.05f, 0.06f, 1.0f };

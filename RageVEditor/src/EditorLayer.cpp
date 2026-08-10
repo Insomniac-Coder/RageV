@@ -16,6 +16,8 @@
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RageV/Particles/ParticleSystem.h"
+#include "RageV/Renderer/ParticleRenderer.h"
 #include "ImGuizmo.h"
 #include "RageV/ImGui/ImGuiBinding.h"
 #include "RageV/Math/Math.h"
@@ -329,6 +331,19 @@ void EditorLayer::OnUpdate(Timestep ts)
 	if (m_ShowColliders)
 		scene.DrawOverlay = [this](RGPassContext&) { DrawColliderOverlay(); };
 
+	// Only when something asked for it: the two extra attachments and the
+	// resolve cost nothing at all in a frame with no weighted emitters, and
+	// this is what keeps that true.
+	if (Particles::System::HasWeightedEmitters(*m_Scene))
+	{
+		scene.DrawTransparent = [](RGPassContext&) { ParticleRenderer::FlushWeighted(); };
+		scene.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
+									  const RHI::Ref<RHI::RHITexture>& revealage)
+		{
+			ParticleRenderer::ResolveWeighted(accumulate, revealage);
+		};
+	}
+
 	BuildFrame(*m_Graph, scene);
 
 	if (m_Graph->Compile())
@@ -371,6 +386,16 @@ void EditorLayer::OnUpdate(Timestep ts)
 		{
 			m_Scene->OnRenderRuntime(m_GameViewportSize.x / m_GameViewportSize.y);
 		};
+
+		if (Particles::System::HasWeightedEmitters(*m_Scene))
+		{
+			game.DrawTransparent = [](RGPassContext&) { ParticleRenderer::FlushWeighted(); };
+			game.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
+										 const RHI::Ref<RHI::RHITexture>& revealage)
+			{
+				ParticleRenderer::ResolveWeighted(accumulate, revealage);
+			};
+		}
 
 		BuildFrame(*m_GameGraph, game);
 

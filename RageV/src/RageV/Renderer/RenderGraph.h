@@ -135,6 +135,16 @@ namespace RageV
 		// drawn in it to declare a matching depth format.
 		void DisableDepth();
 
+		// Keep the depth a previous pass wrote while still clearing this
+		// pass's colour attachments.
+		//
+		// RGLoad says one thing about both, which is right until a pass wants
+		// fresh colour over existing depth -- a transparent pass needs its
+		// accumulation targets cleared and the opaque depth intact, or it
+		// either accumulates last frame's particles or stops being occluded
+		// by the scene.
+		void PreserveDepth();
+
 	private:
 		friend class RenderGraph;
 		explicit RGPassBuilder(RenderGraph& graph, size_t pass)
@@ -253,6 +263,8 @@ namespace RageV
 			Vec4 ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 			float ClearDepth = 1.0f;
 			bool UseDepth = true;
+			// Set by PreserveDepth: clear colour, keep depth.
+			bool KeepDepth = false;
 		};
 
 		RHI::Ref<RHI::RHIRenderTarget> AcquireTarget(const RGTargetDesc& desc,

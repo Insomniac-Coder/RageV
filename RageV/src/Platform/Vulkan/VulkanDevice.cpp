@@ -417,6 +417,13 @@ namespace RageV::Vk
 		// error, so VulkanPipeline clamps to 1.0 when this is absent.
 		features.wideLines         = supported.wideLines;
 		m_WideLinesSupported       = supported.wideLines == VK_TRUE;
+		// Different blend state on different attachments of one pipeline.
+		// Weighted-blended transparency is built on it: accumulation sums
+		// while revealage multiplies down, in a single draw. Without it every
+		// attachment must match attachment zero, which validation says
+		// plainly -- and which is how this was found rather than shipped.
+		features.independentBlend  = supported.independentBlend;
+		m_IndependentBlendSupported = supported.independentBlend == VK_TRUE;
 		// Indexing a sampler array with a non-constant expression, which the
 		// batched quad shader does.
 		features.shaderSampledImageArrayDynamicIndexing = supported.shaderSampledImageArrayDynamicIndexing;
