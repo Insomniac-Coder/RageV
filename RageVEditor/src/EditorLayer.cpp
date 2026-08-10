@@ -854,6 +854,7 @@ void EditorLayer::DrawMenuBar()
 		ImGui::MenuItem("Content",         nullptr, &m_ShowContentBrowser);
 		ImGui::MenuItem("Statistics",      nullptr, &m_ShowStatistics);
 		ImGui::MenuItem("Render Settings", nullptr, &m_ShowRenderSettings);
+		ImGui::MenuItem("Build Log",       nullptr, &m_ShowScriptBuild);
 		ImGui::Separator();
 
 		ImGui::MenuItem("Show Colliders", "F3", &m_ShowColliders);
@@ -2566,7 +2567,7 @@ void EditorLayer::DrawScriptBuildPanel()
 	if (!m_ShowScriptBuild)
 		return;
 
-	if (!ImGui::Begin("Script Build", &m_ShowScriptBuild))
+	if (!ImGui::Begin("Build Log", &m_ShowScriptBuild))
 	{
 		ImGui::End();
 		return;
