@@ -17,6 +17,7 @@
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/ParticleRenderer.h"
 #include "RageV/Particles/ParticleSystem.h"
+#include "RageV/Particles/GpuParticles.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Math/Math.h"
 
@@ -506,6 +507,17 @@ namespace RageV
 		// Presentation too: nothing collides with a particle and nothing
 		// scores one, so they move at whatever rate the display shows them.
 		Particles::System::Update(*this, ts.GetSeconds());
+
+		// The GPU half, for emitters that asked for it.
+		//
+		// Here rather than in OnRender for two reasons, both of which are
+		// bugs in the version that looks more natural. This function runs
+		// once per frame; OnRender runs once per *view*, and the editor has
+		// two -- a simulation stepped there would advance at double speed
+		// with the game view open. And a dispatch is illegal inside a render
+		// pass, which OnRender is called from the middle of.
+		if (RHI::RHICommandList* cmd = Renderer::GetCommandList())
+			Particles::Gpu::Simulate(*this, *cmd, ts.GetSeconds());
 	}
 
 	// The managed half of the script pass.
@@ -1428,7 +1440,20 @@ namespace RageV
 			{
 				auto [emitter, transform] =
 					emitters.get<ParticleEmitterComponent, TransformComponent>(handle);
-				ParticleRenderer::DrawEmitter(emitter, transform.World);
+
+				// Same draw either way; only who filled the instances differs.
+				if (emitter.SimulateOnGpu)
+				{
+					uint32_t count = 0;
+					Entity entity{ handle, this };
+					if (auto instances = Particles::Gpu::GetInstances(entity.GetUUID(), count))
+						ParticleRenderer::DrawEmitterGpu(emitter, transform.World,
+														 instances, count);
+				}
+				else
+				{
+					ParticleRenderer::DrawEmitter(emitter, transform.World);
+				}
 			}
 
 			ParticleRenderer::EndScene();

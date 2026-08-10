@@ -1,0 +1,213 @@
+// One emitter's particles, aged and integrated on the GPU.
+//
+// The visual contract is the CPU simulation's, in Particles/ParticleSystem.cpp,
+// and the two are meant to be interchangeable at a glance. Where they differ
+// they differ deliberately:
+//
+//   - The RNG is per particle rather than per emitter. A CPU emitter carries an
+//     xorshift state it advances in spawn order; ten thousand invocations have
+//     no order to advance in, so each hashes its own slot and the epoch it was
+//     born in. Different numbers, same distribution.
+//   - Spawning is a ring over the pool rather than a push_back. A slot outside
+//     this frame's window is not considered, and a slot inside it that is still
+//     alive is left alone -- which is the same "a full pool refuses to spawn"
+//     the CPU path has, reached from the other direction.
+//
+// This writes the instance buffer as well as the state, so the draw shader is
+// the same one the CPU path feeds and neither can drift from the other.
+
+#type compute
+#version 450 core
+
+layout(local_size_x = 64) in;
+
+// State: what the simulation needs and the draw does not.
+struct Particle
+{
+	vec4 PositionAge;      // xyz position, w age in seconds
+	vec4 VelocityLifetime; // xyz velocity, w total lifetime (0 = dead slot)
+	vec4 Spin;             // x rotation, y spin rate, zw unused
+};
+
+layout(std430, set = 0, binding = 0) buffer ParticleState
+{
+	Particle Items[];
+} u_State;
+
+// Output: exactly what particle.rvshader reads, so a GPU emitter and a CPU one
+// reach the same vertex shader.
+struct ParticleInstance
+{
+	vec4 PositionSize;
+	vec4 Color;
+	vec4 Params;
+};
+
+layout(std430, set = 0, binding = 1) buffer InstanceData
+{
+	ParticleInstance Items[];
+} u_Instances;
+
+layout(std140, set = 0, binding = 2) uniform EmitterParams
+{
+	vec4 GravityDrag;      // xyz gravity, w drag
+	vec4 OriginDelta;      // xyz emitter origin, w delta seconds
+	vec4 AxisCosSpread;    // xyz cone axis, w cos(spread)
+	vec4 ColorStart;
+	vec4 ColorEnd;
+	// x speed, y speed jitter, z lifetime, w lifetime jitter
+	vec4 SpeedLife;
+	// x size start, y size end, z spin degrees, w additive (0 or 1)
+	vec4 SizeSpin;
+	// x pool size, y spawn cursor, z spawn count, w epoch
+	uvec4 Emission;
+} u_Emitter;
+
+// Integer hash, so a slot's numbers depend on nothing but the slot and the
+// epoch. Two invocations never share a sequence, and a frame is reproducible.
+uint Hash(uint value)
+{
+	value ^= value >> 16;
+	value *= 0x7feb352du;
+	value ^= value >> 15;
+	value *= 0x846ca68bu;
+	value ^= value >> 16;
+	return value;
+}
+
+float RandomFloat(inout uint state)
+{
+	state = Hash(state);
+	return float(state >> 8) / 16777216.0;
+}
+
+float RandomSigned(inout uint state)
+{
+	return RandomFloat(state) * 2.0 - 1.0;
+}
+
+// Uniform over the spherical cap, matching RandomInCone on the CPU side:
+// sampling the angle directly bunches particles toward the axis and reads as
+// a jet inside a jet.
+vec3 RandomInCone(inout uint state, vec3 axis, float cosSpread)
+{
+	float cosTheta = 1.0 - RandomFloat(state) * (1.0 - cosSpread);
+	float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+	float phi = RandomFloat(state) * 6.2831853;
+
+	vec3 reference = abs(axis.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+	vec3 tangent = normalize(cross(reference, axis));
+	vec3 bitangent = cross(axis, tangent);
+
+	return axis * cosTheta + (tangent * cos(phi) + bitangent * sin(phi)) * sinTheta;
+}
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	uint poolSize = u_Emitter.Emission.x;
+
+	// The last group runs full; its tail addresses slots that do not exist.
+	if (index >= poolSize)
+		return;
+
+	Particle particle = u_State.Items[index];
+
+	vec3 gravity = u_Emitter.GravityDrag.xyz;
+	float drag = u_Emitter.GravityDrag.w;
+	vec3 origin = u_Emitter.OriginDelta.xyz;
+	float dt = u_Emitter.OriginDelta.w;
+
+	float age = particle.PositionAge.w;
+	float lifetime = particle.VelocityLifetime.w;
+
+	// --- age and integrate -------------------------------------------------
+	bool alive = lifetime > 0.0;
+	if (alive)
+	{
+		age += dt;
+		if (age >= lifetime)
+		{
+			alive = false;
+			lifetime = 0.0;   // the slot is free from here on
+		}
+		else
+		{
+			vec3 velocity = particle.VelocityLifetime.xyz;
+			velocity += gravity * dt;
+			velocity *= max(0.0, 1.0 - drag * dt);
+
+			particle.PositionAge.xyz += velocity * dt;
+			particle.PositionAge.w = age;
+			particle.VelocityLifetime.xyz = velocity;
+			particle.Spin.x += particle.Spin.y * dt;
+		}
+	}
+
+	// --- spawn -------------------------------------------------------------
+	// A ring window over the pool. A slot outside it is not this frame's to
+	// fill, and one inside it that is still alive is left alone -- which is
+	// how a full pool refuses to spawn rather than recycling what is running.
+	if (!alive)
+	{
+		uint cursor = u_Emitter.Emission.y;
+		uint spawnCount = u_Emitter.Emission.z;
+
+		uint offset = (index + poolSize - (cursor % poolSize)) % poolSize;
+		if (offset < spawnCount)
+		{
+			uint state = Hash(index * 747796405u + u_Emitter.Emission.w);
+
+			vec3 axis = u_Emitter.AxisCosSpread.xyz;
+			float cosSpread = u_Emitter.AxisCosSpread.w;
+
+			float speed = u_Emitter.SpeedLife.x
+						* (1.0 + RandomSigned(state) * u_Emitter.SpeedLife.y);
+
+			lifetime = max(0.05, u_Emitter.SpeedLife.z
+								* (1.0 + RandomSigned(state) * u_Emitter.SpeedLife.w));
+
+			particle.PositionAge = vec4(origin, 0.0);
+			particle.VelocityLifetime = vec4(RandomInCone(state, axis, cosSpread) * speed,
+											 lifetime);
+			particle.Spin = vec4(RandomFloat(state) * 6.2831853,
+								 radians(u_Emitter.SizeSpin.z) * RandomSigned(state),
+								 0.0, 0.0);
+
+			age = 0.0;
+			alive = true;
+		}
+	}
+
+	if (!alive)
+	{
+		// Nothing to draw. Zero size rather than a separate visibility list:
+		// a degenerate quad costs a discarded triangle and no compaction pass,
+		// which is the trade v1 makes.
+		particle.VelocityLifetime.w = 0.0;
+		u_State.Items[index] = particle;
+		u_Instances.Items[index] = ParticleInstance(vec4(0.0), vec4(0.0), vec4(0.0));
+		return;
+	}
+
+	u_State.Items[index] = particle;
+
+	// --- present -----------------------------------------------------------
+	// The same curves the CPU renderer applies when it fills instances, so
+	// the two paths reach the vertex shader with the same numbers.
+	float t = clamp(particle.PositionAge.w / particle.VelocityLifetime.w, 0.0, 1.0);
+
+	float size = max(0.0, mix(u_Emitter.SizeSpin.x, u_Emitter.SizeSpin.y, t));
+	vec4 color = mix(u_Emitter.ColorStart, u_Emitter.ColorEnd, t);
+
+	// Additive sums and ignores the alpha channel, so a fade has to happen in
+	// the payload. The CPU renderer folds it the same way; without this an
+	// additive GPU emitter never fades out.
+	if (u_Emitter.SizeSpin.w != 0.0)
+		color = vec4(color.rgb * color.a, 1.0);
+
+	u_Instances.Items[index] = ParticleInstance(
+		vec4(particle.PositionAge.xyz, size),
+		color,
+		vec4(particle.Spin.x, 0.0, 0.0, 0.0));
+}

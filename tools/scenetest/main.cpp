@@ -36,6 +36,7 @@
 #include "RageV/Renderer/DebugRenderer.h"
 #include "RageV/Renderer/ParticleRenderer.h"
 #include "RageV/Particles/ParticleSystem.h"
+#include "RageV/Particles/GpuParticles.h"
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EditorCamera.h"
@@ -972,6 +973,74 @@ namespace
 		if (Renderer::HasDevice())
 			Check(ParticleRenderer::IsReady(),
 				  "the particle renderer compiled its shader");
+
+		// --- the GPU path, and what makes switching to it cheap ------------
+		//
+		// The claim under test is not "it simulates" -- the screenshots cover
+		// that -- but that flipping SimulateOnGpu costs nothing. An emitter's
+		// buffers are kept while the emitter exists, so a toggle is a branch;
+		// if they were freed on the way out and rebuilt on the way back in,
+		// the count below would move and nobody would notice until a scene
+		// with a hundred emitters stuttered every time somebody clicked.
+		if (Renderer::HasDevice() && Particles::Gpu::IsReady())
+		{
+			Particles::Gpu::Clear();
+			Check(Particles::Gpu::GetResidentCount() == 0, "no emitter is resident yet");
+
+			auto gpuScene = std::make_shared<Scene>();
+			Entity host = gpuScene->CreateEntity("GpuEmitter");
+			auto& gpu = host.AddComponent<ParticleEmitterComponent>();
+			gpu.SimulateOnGpu = true;
+			gpu.MaxParticles = 256;
+			gpu.Rate = 120.0f;
+
+			RHI::RHIDevice& device = Renderer::GetDevice();
+
+			const auto simulate = [&](float dt)
+			{
+				device.ExecuteImmediate([&](RHI::RHICommandList& cmd)
+				{
+					Particles::Gpu::Simulate(*gpuScene, cmd, dt);
+				});
+			};
+
+			simulate(1.0f / 60.0f);
+			Check(Particles::Gpu::GetResidentCount() == 1,
+				  "a GPU emitter becomes resident on its first frame");
+
+			uint32_t count = 0;
+			RHI::Ref<RHI::RHIBuffer> instances =
+				Particles::Gpu::GetInstances(host.GetUUID(), count);
+			Check(instances != nullptr && count == 256,
+				  "with an instance buffer the size of its pool");
+
+			// The pool is the pool: a dead particle is a zero-size instance
+			// rather than a hole, so the draw is always the full count.
+			const void* address = instances.get();
+
+			// Off. The buffers must survive it.
+			gpu.SimulateOnGpu = false;
+			simulate(1.0f / 60.0f);
+			Check(Particles::Gpu::GetResidentCount() == 1,
+				  "switching to the CPU keeps the GPU buffers rather than freeing them");
+
+			// And back on, which must reuse exactly what was there.
+			gpu.SimulateOnGpu = true;
+			simulate(1.0f / 60.0f);
+
+			uint32_t backCount = 0;
+			RHI::Ref<RHI::RHIBuffer> back =
+				Particles::Gpu::GetInstances(host.GetUUID(), backCount);
+			Check(Particles::Gpu::GetResidentCount() == 1 && back.get() == address
+				  && backCount == count,
+				  "and switching back reuses the same buffer -- the toggle allocates nothing");
+
+			// Residency is tied to the emitter existing, not to it being busy.
+			gpuScene->DeleteEntity(host);
+			Particles::Gpu::Collect(*gpuScene);
+			Check(Particles::Gpu::GetResidentCount() == 0,
+				  "while a destroyed emitter's buffers are released");
+		}
 	}
 
 	// Compute, checked by running one and reading the answer back.

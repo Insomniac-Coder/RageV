@@ -46,6 +46,10 @@ namespace RageV
 		struct PendingDraw
 		{
 			std::vector<InstanceData> Instances;
+			// Set when a compute pass wrote the instances instead. The vector
+			// above is empty in that case and `GpuCount` is the pool size.
+			Ref<RHIBuffer> GpuInstances;
+			uint32_t GpuCount = 0;
 			Ref<RHITexture> Texture;
 			ParticleBlend Blend = ParticleBlend::Alpha;
 			bool Flat = false;
@@ -324,6 +328,35 @@ namespace RageV
 		s_Data->Pending.push_back(std::move(draw));
 	}
 
+	void ParticleRenderer::DrawEmitterGpu(const ParticleEmitterComponent& emitter,
+										  const Mat4& world,
+										  const Ref<RHIBuffer>& instances, uint32_t count)
+	{
+		if (!s_Data || !s_Data->InScene || !instances || count == 0)
+			return;
+
+		PendingDraw draw;
+		draw.GpuInstances = instances;
+		draw.GpuCount = count;
+		draw.Blend = emitter.Blend;
+		draw.Flat = emitter.Facing == ParticleFacing::Flat;
+		draw.Depth = Math::Dot(Vec3(world[3]) - s_Data->CameraPosition, s_Data->CameraForward);
+
+		draw.Texture = emitter.Texture.IsValid()
+					 ? Assets::Manager::GetTexture(emitter.Texture)
+					 : nullptr;
+		if (!draw.Texture)
+			draw.Texture = s_Data->WhiteTexture;
+
+		// No per-particle sort. Sorting would mean reading the pool back, and
+		// a readback is the one thing the GPU path exists to avoid -- so an
+		// alpha-blended GPU emitter blends in pool order. Emitters are still
+		// sorted against each other in Flush, which is what covers the common
+		// case of two effects overlapping.
+		s_Data->ParticleCount += count;
+		s_Data->Pending.push_back(std::move(draw));
+	}
+
 	void ParticleRenderer::EndScene()
 	{
 		if (!s_Data)
@@ -360,12 +393,23 @@ namespace RageV
 
 			ParticleRendererData::Batch& batch = AcquireBatch(pipeline);
 
-			const uint64_t bytes = draw.Instances.size() * sizeof(InstanceData);
-			batch.Instances->Upload(draw.Instances.data(), bytes);
+			// A GPU emitter's instances are already on the device; the batch
+			// contributes only its scene uniforms and its descriptor set, and
+			// its own instance buffer goes unused for this draw.
+			const bool onGpu = draw.GpuInstances != nullptr;
+
+			const uint32_t instanceCount = onGpu ? draw.GpuCount
+												 : (uint32_t)draw.Instances.size();
+			const uint64_t bytes = (uint64_t)instanceCount * sizeof(InstanceData);
+
+			if (!onGpu)
+				batch.Instances->Upload(draw.Instances.data(), bytes);
+
 			batch.Scene->Upload(&s_Data->Scene, sizeof(SceneUniforms));
 
 			batch.Set->SetUniformBuffer(0, batch.Scene, 0, sizeof(SceneUniforms));
-			batch.Set->SetStorageBuffer(1, batch.Instances, 0, bytes);
+			batch.Set->SetStorageBuffer(1, onGpu ? draw.GpuInstances : batch.Instances,
+										0, bytes);
 			batch.Set->SetTexture(2, draw.Texture, s_Data->Sampler);
 			batch.Set->Commit();
 
@@ -382,7 +426,7 @@ namespace RageV
 			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(push), &push);
 
 			// Six corner vertices from gl_VertexIndex, no vertex buffer.
-			cmd->Draw(6, (uint32_t)draw.Instances.size());
+			cmd->Draw(6, instanceCount);
 		}
 	}
 

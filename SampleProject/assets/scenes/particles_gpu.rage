@@ -1,0 +1,149 @@
+Scene: ParticlesGpu
+Version: 5
+Environment:
+  AmbientColor: [0.42, 0.47, 0.58]
+  AmbientIntensity: 0.12
+  Sky: 1
+  SkyHorizon: [0.2, 0.22, 0.3]
+  SkyZenith: [0.05, 0.07, 0.14]
+  SkyGround: [0.1, 0.1, 0.11]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 7775000000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Position: [0, 2, 6.5]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7775000000000000002
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [24, 1, 24]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material:
+        BaseColor: [0.12, 0.12, 0.14, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7775000000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.9599311, -0.5235988, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [0.7, 0.75, 0.85]
+      Intensity: 1.2
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 7775000000000000010
+    TagComponent:
+      Tag: Fire
+    TransformComponent:
+      Position: [0, 0.3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 120
+      Burst: 0
+      Lifetime: 0.9
+      LifetimeJitter: 0.3
+      Direction: [0, 1, 0]
+      Spread: 12
+      Speed: 2.2
+      SpeedJitter: 0.3
+      Gravity: [0, 1.5, 0]
+      Drag: 1
+      SizeStart: 0.35
+      SizeEnd: 0.05
+      ColorStart: [1, 0.55, 0.15, 1]
+      ColorEnd: [0.9, 0.1, 0.05, 0]
+      Spin: 90
+      Facing: Billboard
+      Blend: Additive
+      Space: World
+      Texture: 0
+      MaxParticles: 1024
+      SimulateOnGpu: true
+  - EntityID: 7775000000000000011
+    TagComponent:
+      Tag: Smoke
+    TransformComponent:
+      Position: [2.2, 0.3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 40
+      Burst: 0
+      Lifetime: 2.5
+      LifetimeJitter: 0.3
+      Direction: [0, 1, 0]
+      Spread: 18
+      Speed: 1.2
+      SpeedJitter: 0.3
+      Gravity: [0, 0.6, 0]
+      Drag: 0.6
+      SizeStart: 0.3
+      SizeEnd: 0.9
+      ColorStart: [0.5, 0.5, 0.55, 0.65]
+      ColorEnd: [0.35, 0.35, 0.4, 0]
+      Spin: 40
+      Facing: Billboard
+      Blend: Alpha
+      Space: World
+      Texture: 0
+      MaxParticles: 1024
+      SimulateOnGpu: true
+  - EntityID: 7775000000000000012
+    TagComponent:
+      Tag: Fountain2D
+    TransformComponent:
+      Position: [-2.2, 0.3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 80
+      Burst: 0
+      Lifetime: 1.4
+      LifetimeJitter: 0.2
+      Direction: [0, 1, 0]
+      Spread: 35
+      Speed: 3.5
+      SpeedJitter: 0.3
+      Gravity: [0, -6, 0]
+      Drag: 0
+      SizeStart: 0.12
+      SizeEnd: 0.04
+      ColorStart: [0.3, 0.8, 1, 1]
+      ColorEnd: [0.2, 0.4, 1, 0]
+      Spin: 0
+      Facing: Flat
+      Blend: Alpha
+      Space: World
+      Texture: 0
+      MaxParticles: 1024
+      SimulateOnGpu: true

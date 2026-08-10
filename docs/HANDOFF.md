@@ -1171,7 +1171,57 @@ the tail group runs past the end and the shader's bounds check is
 exercised -- and checks every element. A graphics-only shader is refused
 a compute pipeline rather than given one that dispatches nothing.
 
+**6.7b GPU particle simulation is done** (825 checks, both backends, 0
+validation messages). `SimulateOnGpu` on an emitter now means it:
+a fixed pool in a device-local SSBO, one compute dispatch per emitter
+integrating and spawning, writing the *same instance layout* the CPU
+renderer fills -- so both paths reach one vertex shader and "they look
+the same" is structural rather than a promise.
+
+Measured, Release, vsync off, ~16k particles across three emitters:
+
+| | CPU sim | GPU sim |
+|---|---|---|
+| Vulkan | 3.30 ms | **1.37 ms** |
+| OpenGL | 3.80 ms | **1.58 ms** |
+
+Both 2.4x, and both GPU-bound afterwards (frame time ≈ GPU work), where
+the CPU path had ~2 ms of CPU on top.
+
+**The switch costs nothing**, as asked: the compute pipeline is built
+once at Init, and an emitter's buffers are cached by UUID and kept while
+the emitter exists -- not while it is *using* them. Toggling is a
+branch. A suite check asserts the buffer pointer is identical across
+off-and-back-on, so a future refactor that starts freeing on toggle
+fails rather than just getting slower.
+
+CPU→GPU seeds the pool from the live CPU particles, so the switch is
+visually continuous. GPU→CPU is not: reading the pool back would stall,
+which is the one thing the GPU path exists to avoid, so it drops what is
+in flight and refills. Documented, not hidden.
+
+**Two traps this cost, both worth knowing:**
+- **A resource set holds one descriptor set per frame in flight, and
+  Commit writes only the current frame's.** Committing once at creation
+  populates one and leaves the rest never written -- validation catches
+  it on frame two, a release build renders garbage. Rebind and commit
+  every frame, which is what ParticleRenderer already did.
+- **A persistently-mapped host-visible buffer written by a compute
+  shader is a synchronisation point on OpenGL.** The state buffer was
+  host-visible so the rare seed could be a memcpy; it made the GPU path
+  *slower than the CPU one* (6.9 ms vs 3.3 ms) and stopped GPU
+  timestamps resolving at all. Device-local, seed via staging.
+  Barriers also bracket the whole batch rather than each dispatch --
+  interleaved, every emitter waits for the one before it.
+
+Still open in the GPU path, all documented in the code: local-space
+emitters fall back to world-space behaviour, and alpha particles are not
+depth-sorted within an emitter (sorting needs a readback). Emitters are
+still sorted against each other. `scenes/particles_gpu.rage` is the
+visual check.
+
 **Resume here:**
+1. ~~6.7b GPU sim~~ -- done; the notes below are kept for context
 1. **6.7b GPU sim**: per-emitter fixed pool of `MaxParticles` in a
    device-local SSBO, one compute pass integrates + emits (spawn count
    pushed per frame, hash(index,frame) RNG), dead particles collapse to

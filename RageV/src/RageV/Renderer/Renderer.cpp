@@ -4,6 +4,7 @@
 #include "Renderer3D.h"
 #include "DebugRenderer.h"
 #include "ParticleRenderer.h"
+#include "RageV/Particles/GpuParticles.h"
 #include "Skybox.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
@@ -24,6 +25,9 @@ namespace RageV
 		Renderer3D::Init(device);
 		DebugRenderer::Init(device);
 		ParticleRenderer::Init(device);
+		// After the renderer: an emitter that cannot simulate on the GPU still
+		// draws, and Init logs which of the two it got.
+		Particles::Gpu::Init(device);
 		Skybox::Init(device);
 		ShadowMap::Init(device);
 		EnvironmentIBL::Init(device);
@@ -36,6 +40,7 @@ namespace RageV
 		EnvironmentIBL::Shutdown();
 		ShadowMap::Shutdown();
 		Skybox::Shutdown();
+		Particles::Gpu::Shutdown();
 		ParticleRenderer::Shutdown();
 		DebugRenderer::Shutdown();
 		Renderer3D::Shutdown();

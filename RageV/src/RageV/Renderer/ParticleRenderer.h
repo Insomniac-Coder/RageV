@@ -41,6 +41,19 @@ namespace RageV
 		// transform for local-space pools.
 		static void DrawEmitter(const ParticleEmitterComponent& emitter, const Mat4& world);
 
+		// The same draw, reading instances a compute pass already wrote.
+		//
+		// Nothing about the pipeline, the shader or the blending differs --
+		// only who filled the buffer. That is the whole point: a GPU emitter
+		// and a CPU one reach the same vertex shader, so "the same look" is
+		// structural rather than a claim somebody has to keep true.
+		//
+		// Dead particles arrive with a size of zero rather than being
+		// compacted out, so `count` is the emitter's pool size and not its
+		// live count.
+		static void DrawEmitterGpu(const ParticleEmitterComponent& emitter, const Mat4& world,
+								   const RHI::Ref<RHI::RHIBuffer>& instances, uint32_t count);
+
 		// Instances actually submitted since BeginScene, after the pool cap.
 		// For the tests and the stats panel.
 		static uint32_t GetParticleCount();
