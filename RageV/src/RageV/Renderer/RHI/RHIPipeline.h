@@ -20,6 +20,18 @@ namespace RageV::RHI
 		DepthStencilState    DepthStencil = {};
 		BlendPreset          Blend       = BlendPreset::AlphaBlend;
 
+		// Per-attachment blending, when one preset for all of them will not
+		// do. Empty -- the overwhelmingly common case -- means `Blend` applies
+		// to every attachment, so nothing that existed before this has to say
+		// anything.
+		//
+		// Weighted-blended transparency is what forced it: accumulation and
+		// revealage are two attachments of one draw needing opposite
+		// equations, and no single preset expresses that. Entries past the
+		// attachment count are ignored; attachments past the entries fall back
+		// to `Blend`.
+		std::vector<BlendPreset> BlendPerAttachment;
+
 		// Formats of the attachments this pipeline renders into. Vulkan needs
 		// them at creation time; OpenGL ignores them.
 		std::vector<Format>  ColorFormats;

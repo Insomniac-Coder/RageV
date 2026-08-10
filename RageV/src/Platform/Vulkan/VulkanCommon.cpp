@@ -314,6 +314,27 @@ namespace RageV::Vk
 				out.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 				out.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 				break;
+
+			// Plain summation, on every channel. The accumulation target is
+			// float precisely so this can overflow 1 without clipping.
+			case BlendPreset::WeightedAccumulate:
+				out.blendEnable = VK_TRUE;
+				out.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+				out.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+				out.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+				out.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+				break;
+
+			// dst = dst * (1 - src). The shader writes coverage, and what
+			// survives is the product of everything that missed -- which is
+			// what "how much of the background is still visible" means.
+			case BlendPreset::WeightedRevealage:
+				out.blendEnable = VK_TRUE;
+				out.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+				out.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+				out.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+				out.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+				break;
 		}
 	}
 }

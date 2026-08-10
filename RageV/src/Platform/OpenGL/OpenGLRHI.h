@@ -123,6 +123,9 @@ namespace RageV::GL
 
 	private:
 		void BuildVertexArray();
+		// drawBuffer < 0 applies to every attachment at once, which is what
+		// every pipeline without per-attachment blending wants.
+		void ApplyBlendState(BlendPreset preset, int drawBuffer);
 
 		uint32_t m_VertexArray = 0;
 		uint32_t m_GLTopology = 0;

@@ -221,6 +221,18 @@ namespace RageV::RHI
 		AlphaBlend,    // src.a, 1-src.a
 		Additive,      // one, one
 		PremultipliedAlpha,
+
+		// The two halves of weighted-blended order-independent transparency.
+		// They are always used together, on two attachments of one draw, which
+		// is the reason a pipeline can carry a blend state per attachment at
+		// all -- see GraphicsPipelineDesc::BlendPerAttachment.
+		//
+		// Accumulation sums premultiplied colour and weight: order cannot
+		// matter to a sum, which is the whole trick.
+		WeightedAccumulate,   // one, one
+		// Revealage multiplies what is left uncovered: also order-independent,
+		// because multiplication commutes too.
+		WeightedRevealage,    // zero, one-minus-src-colour
 	};
 
 	struct DepthStencilState

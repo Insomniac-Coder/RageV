@@ -575,25 +575,78 @@ namespace RageV::GL
 		glDepthMask(depth.DepthWriteEnable ? GL_TRUE : GL_FALSE);
 		glDepthFunc(ToGLCompare(depth.DepthCompare));
 
-		switch (m_Desc.Blend)
+		// One preset for every draw buffer, unless the pipeline named them
+		// individually. The indexed entry points are GL 4.0; this context is
+		// 4.6, and using them unconditionally would be correct but would also
+		// rewrite state for attachments that do not exist -- so the single
+		// case stays on the plain calls it always used.
+		const size_t attachments = std::max<size_t>(1, m_Desc.ColorFormats.size());
+
+		if (m_Desc.BlendPerAttachment.empty())
+		{
+			ApplyBlendState(m_Desc.Blend, -1);
+			return;
+		}
+
+		for (size_t i = 0; i < attachments; i++)
+		{
+			const BlendPreset preset = i < m_Desc.BlendPerAttachment.size()
+									 ? m_Desc.BlendPerAttachment[i]
+									 : m_Desc.Blend;
+			ApplyBlendState(preset, (int)i);
+		}
+	}
+
+	// `drawBuffer` of -1 sets the state for all of them at once.
+	void OpenGLPipelineRHI::ApplyBlendState(BlendPreset preset, int drawBuffer)
+	{
+		const bool indexed = drawBuffer >= 0;
+		const GLuint index = indexed ? (GLuint)drawBuffer : 0u;
+
+		const auto enable = [&]()
+		{
+			if (indexed) glEnablei(GL_BLEND, index);
+			else         glEnable(GL_BLEND);
+		};
+		const auto funcs = [&](GLenum srcColor, GLenum dstColor, GLenum srcAlpha, GLenum dstAlpha)
+		{
+			if (indexed)
+			{
+				glBlendFuncSeparatei(index, srcColor, dstColor, srcAlpha, dstAlpha);
+				glBlendEquationi(index, GL_FUNC_ADD);
+			}
+			else
+			{
+				glBlendFuncSeparate(srcColor, dstColor, srcAlpha, dstAlpha);
+				glBlendEquation(GL_FUNC_ADD);
+			}
+		};
+
+		switch (preset)
 		{
 			case BlendPreset::Opaque:
-				glDisable(GL_BLEND);
+				if (indexed) glDisablei(GL_BLEND, index);
+				else         glDisable(GL_BLEND);
 				break;
 			case BlendPreset::AlphaBlend:
-				glEnable(GL_BLEND);
-				glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-				glBlendEquation(GL_FUNC_ADD);
+				enable();
+				funcs(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 				break;
 			case BlendPreset::Additive:
-				glEnable(GL_BLEND);
-				glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ONE, GL_ONE);
-				glBlendEquation(GL_FUNC_ADD);
+				enable();
+				funcs(GL_SRC_ALPHA, GL_ONE, GL_ONE, GL_ONE);
 				break;
 			case BlendPreset::PremultipliedAlpha:
-				glEnable(GL_BLEND);
-				glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-				glBlendEquation(GL_FUNC_ADD);
+				enable();
+				funcs(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+				break;
+			case BlendPreset::WeightedAccumulate:
+				enable();
+				funcs(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+				break;
+			case BlendPreset::WeightedRevealage:
+				enable();
+				funcs(GL_ZERO, GL_ONE_MINUS_SRC_COLOR, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
 				break;
 		}
 	}

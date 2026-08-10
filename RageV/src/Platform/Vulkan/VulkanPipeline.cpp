@@ -267,8 +267,16 @@ namespace RageV::Vk
 
 		std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(
 			std::max<size_t>(1, m_Desc.ColorFormats.size()));
-		for (auto& attachment : blendAttachments)
-			ApplyBlendPreset(m_Desc.Blend, attachment);
+		for (size_t i = 0; i < blendAttachments.size(); i++)
+		{
+			// Per-attachment where the caller asked for it, the single preset
+			// everywhere else -- which is every pipeline that predates
+			// weighted-blended transparency.
+			const RHI::BlendPreset preset = i < m_Desc.BlendPerAttachment.size()
+										  ? m_Desc.BlendPerAttachment[i]
+										  : m_Desc.Blend;
+			ApplyBlendPreset(preset, blendAttachments[i]);
+		}
 
 		VkPipelineColorBlendStateCreateInfo colorBlend{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
 		colorBlend.attachmentCount = (uint32_t)m_Desc.ColorFormats.size();
