@@ -1227,6 +1227,44 @@ correctly. The artifact only shows when particles inside one emitter
 differ strongly in colour or opacity; uniform smoke looks identical
 sorted or not. `scenes/particles_gpu.rage` is the visual check.
 
+### In flight - 6.8, weighted-blended transparency
+
+A third `ParticleBlend` beside Alpha and Additive, so an emitter can opt
+into order-independent transparency instead of living with unsorted
+alpha. It also fixes something the CPU path only approximates: emitters
+are currently ordered by sorting their origins, which is wrong whenever
+two of them interpenetrate.
+
+**Piece 1 of 3 is done and committed** (`bcd34e7`): pipelines carry
+per-attachment blend state, and `WeightedAccumulate` /
+`WeightedRevealage` exist on both backends. `BlendPerAttachment` is
+empty everywhere else, so nothing that predates it changed -- verified
+by screenshot on both backends.
+
+**What is left, in order:**
+
+1. **Two transient targets and a transparent pass.** `FrameGraphBuilder::
+   BuildFrame` is the extension point -- the scene render is already a
+   `DrawScene` callback inside a graph pass, and `DrawOverlay` shows the
+   pattern. Add a `DrawTransparent` callback and a pass with two colour
+   attachments, accumulation `R16G16B16A16_SFLOAT` and revealage `R8`,
+   **sharing the scene pass's depth** so particles still test against
+   opaque geometry. Depth test on, depth write off.
+2. **A resolve pass**: fullscreen triangle compositing
+   `accum.rgb / max(accum.a, epsilon)` over the scene colour, weighted by
+   `1 - revealage`. Premultiplied-alpha blend against the HDR target.
+3. **The plumbing**: the enum value, the registry dropdown, and
+   `ParticleRenderer` splitting its pending draws so weighted emitters
+   record into the transparent pass and the other two stay where they
+   are. The compute path needs nothing -- the sim already writes a
+   colour, and which pass consumes it is the renderer's business.
+
+**Weights matter more than the plumbing.** The technique lives or dies
+on the depth weight function; McGuire's paper gives several, and the
+wrong one makes distant particles vanish or near ones dominate. Start
+with the paper's equation 9 and *look at it* against the additive and
+alpha versions of the same scene before believing it.
+
 **Resume here:**
 1. ~~6.7b GPU sim~~ -- done; the notes below are kept for context
 1. **6.7b GPU sim**: per-emitter fixed pool of `MaxParticles` in a
