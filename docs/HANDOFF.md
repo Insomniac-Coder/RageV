@@ -1718,19 +1718,30 @@ asset or in `GpuParticles`, and make the dirty flag explicit.
 
 ### The sample project's flame
 
-`scenes/flame.rage`, written by `make_curve_presets.py`, is the first thing in
-the repository that uses all of 6.10 at once and the first particle effect
-with a real sprite. Worth keeping as the reference for what a finished emitter
-looks like: additive because fire is light rather than matter, local space so
-it would ride whatever carried it, upward emitter gravity for buoyancy, and
-all three ramps curved -- because a flame is precisely the case where none of
-them is a straight line. A tongue is widest a third of the way up, which two
-endpoints cannot say.
+The demo scene's pedestal is lit: `Brazier Flame`, a child of the pedestal in
+`scenes/demo.rage`, sitting on the ornament. It is the first particle effect
+in the repository with a real sprite and the first thing that uses all of
+6.10 at once -- worth keeping as the reference for what a finished emitter
+looks like.
 
-The sprite came in at 3840x2160 and was cropped to its own alpha bounding box,
-squared about that box's centre and resized to 512 (2.5 MB to 236 KB). Squared
-about the *content* rather than the image, because a billboard rotates about
-its middle and an off-centre sprite wobbles as it spins.
+Additive because fire is light rather than matter; local space, so it rides
+the pedestal and its uniform scale sizes the particles (0.75 is what makes a
+bonfire read as a brazier); upward *emitter* gravity for buoyancy, which is
+one field because an emitter's gravity is not the world's; and all three
+ramps curved, because a flame is exactly the case where none of them is a
+straight line -- a tongue is widest a third of the way up, which two
+endpoints cannot say in either direction.
+
+It lives in the demo scene rather than a scene of its own on purpose: an
+effect belongs in the scene it decorates, and a showcase nobody opens is not
+a showcase. `make_curve_presets.py` writes the curves it uses (`flame_size`,
+`flame_alpha`, `ember`) and the scene references them by handle.
+
+The sprite came in at 3840x2160 and 16:9. A particle quad is square and
+stretches its sprite to fill, so it was cropped to its own alpha bounding
+box, squared about that box's centre and resized to 512 -- 2.5 MB to 236 KB.
+Squared about the *content* rather than the image, because a billboard
+rotates about its middle and an off-centre sprite wobbles as it spins.
 
 ### After that - 6.11, GPU alpha self-sorting
 

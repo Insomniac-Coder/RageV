@@ -194,64 +194,10 @@ def main():
         handle.write(scene.replace("SimulateOnGpu: false", "SimulateOnGpu: true"))
     print(f"wrote {gpu_path}")
 
-    # --- the flame ----------------------------------------------------------
-    # A single emitter doing one effect properly, rather than another
-    # side-by-side comparison: additive because fire is light and not matter,
-    # local space so it would ride a torch that carried it, and all three
-    # ramps curved because a flame is the case where none of them is a
-    # straight line.
-    texture = read_handle(os.path.join(args.project, "assets", FLAME_TEXTURE + ".meta"))
-    if not texture:
-        print(f"\nNo .meta yet for {FLAME_TEXTURE}; run the editor or runtime once, "
-              "then run this again to write the flame scene.")
-
-    flame = SCENE.replace("Scene: ParticlesCurves", "Scene: Flame")
-    flame = flame.replace("Position: [0, 1.6, 6]", "Position: [0, 0.9, 3.4]")
-    flame += "\n".join([
-        "  - EntityID: 7777000000000000020",
-        "    TagComponent:",
-        "      Tag: Flame",
-        "    TransformComponent:",
-        "      Position: [0, 0, 0]",
-        "      Rotation: [0, 0, 0]",
-        "      Scale: [1, 1, 1]",
-        "    ParticleEmitterComponent:",
-        "      Emit: true",
-        "      Rate: 70",
-        "      Burst: 0",
-        "      Lifetime: 1.1",
-        "      LifetimeJitter: 0.25",
-        "      Direction: [0, 1, 0]",
-        "      Spread: 11",
-        "      Speed: 1.5",
-        "      SpeedJitter: 0.35",
-        # Upward, because hot air rises. The emitter's own gravity is not the
-        # world's, which is exactly what makes buoyancy a one-field change.
-        "      Gravity: [0, 1.3, 0]",
-        "      Drag: 1.2",
-        "      SizeStart: 0.5",
-        "      SizeEnd: 0.15",
-        "      ColorStart: [1, 0.92, 0.5, 1]",
-        "      ColorEnd: [0.5, 0.1, 0.03, 0]",
-        "      Spin: 35",
-        "      Facing: Billboard",
-        "      Blend: Additive",
-        "      Space: Local",
-        f"      Texture: {texture or 0}",
-        "      MaxParticles: 512",
-        "      SimulateOnGpu: false",
-    ]) + "\n"
-
-    for field, name in (("SizeCurve", "flame_size"),
-                        ("ColorGradient", "ember"),
-                        ("AlphaCurve", "flame_alpha")):
-        if handles.get(name):
-            flame += f"      {field}: {handles[name]}\n"
-
-    flame_path = os.path.join(args.project, "assets", "scenes", "flame.rage")
-    with open(flame_path, "w", encoding="utf-8") as handle:
-        handle.write(flame)
-    print(f"wrote {flame_path}")
+    # The flame itself lives in the project's demo scene, as a child of the
+    # pedestal -- an effect belongs in the scene it decorates, not in a scene
+    # of its own that nobody opens. This script only writes the curves it
+    # uses; scenes/demo.rage references them by handle.
 
 
 if __name__ == "__main__":
