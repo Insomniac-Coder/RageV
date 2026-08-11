@@ -76,7 +76,7 @@ namespace RageV
 	// Asset handles are held as uint64_t rather than as AssetHandle: UUID
 	// converts to uint64_t implicitly, so having both in the variant would make
 	// every construction from a handle ambiguous.
-	using FieldValue = std::variant<bool, int, float, Vec3, Vec4,
+	using FieldValue = std::variant<bool, int, float, Vec2, Vec3, Vec4,
 									std::string, uint64_t>;
 
 	FieldValue ReadFieldValue(const FieldDesc& field, void* component);

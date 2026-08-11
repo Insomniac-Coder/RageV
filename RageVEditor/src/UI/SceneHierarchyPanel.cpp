@@ -542,6 +542,18 @@ namespace
 				EndField();
 				break;
 			}
+			case FieldType::Vec2:
+			{
+				// Two plain boxes rather than the coloured X/Y/Z badges the
+				// transform uses. Those badges say "this is a direction in the
+				// world", and a UI anchor is a fraction of a rectangle -- the
+				// same decoration would be claiming something untrue.
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
+				changed = ImGui::DragFloat2("##value", Math::ValuePtr(*(Vec2*)value),
+											hint.Speed, hint.Min, hint.Max);
+				EndField();
+				break;
+			}
 			case FieldType::Vec3:
 			{
 				if (hint.Kind == FieldHint::Widget::Color)

@@ -615,6 +615,28 @@ of time, so Latin, Cyrillic and Greek are free, and **CJK works only if the
 glyphs actually used are subset** — all of it at once is an enormous texture.
 `rvfont` takes a character set for exactly this reason.
 
+**And one that had to be discovered.** A distance field measures distance to a
+glyph's *outline*, which only means anything if the outline is the boundary of
+the shape. In a great many fonts it is not: **variable fonts build letters from
+overlapping, often self-intersecting contours**, because overlap removal cannot
+be done once for shapes that change with an axis. RobotoFlex draws its `e` as a
+*single* contour where Arial, Segoe UI and Open Sans all use two — the counter
+is formed by the path crossing itself.
+
+A rasteriser does not care; non-zero winding fills a self-crossing path
+correctly, which is why nothing else in a font pipeline notices. A distance
+field faithfully reports the edge it finds inside the glyph, and the letter
+bakes with a bite taken out of the junction. It is invisible at small sizes and
+unmissable on a title.
+
+msdfgen's own answer is an optional **Skia** dependency for geometry
+preprocessing, which is not vendored here. Instead
+`tools/scripts/prepare_font.py` resolves the geometry with fontTools and
+skia-pathops — instantiate the variable font, union the contours, write a
+static copy — and reports which letters were affected. It preserves kerning,
+because it rewrites outlines and not layout tables: Roboto keeps all 3284 of
+its pairs. **Run it before rvfont on any font you did not bake before.**
+
 ### The order to build it, and why the last step is the point
 
 1. `rvfont` and the atlas format, checked by rendering the atlas itself.

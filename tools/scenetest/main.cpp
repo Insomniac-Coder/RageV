@@ -48,6 +48,7 @@
 #include "RageV/Asset/FontSerializer.h"
 #include "RageV/Renderer/UIRenderer.h"
 #include "RageV/UI/TextLayout.h"
+#include "RageV/UI/Canvas.h"
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/ShadowMap.h"
@@ -2714,6 +2715,7 @@ void main()
 						case FieldType::Int:    expected = sizeof(int); break;
 						case FieldType::Enum:   expected = sizeof(int); break;
 						case FieldType::Float:  expected = sizeof(float); break;
+						case FieldType::Vec2:   expected = sizeof(Vec2); break;
 						case FieldType::Vec3:   expected = sizeof(Vec3); break;
 						case FieldType::Vec4:   expected = sizeof(Vec4); break;
 						case FieldType::String: expected = sizeof(std::string); break;
@@ -4079,6 +4081,211 @@ void main()
 		environment.Sky = SkyType::Color;
 		Skybox::Draw(Camera(projection), Mat4(1.0f), environment, nullptr);
 		Check(true, "and a colour background draws nothing at all");
+	}
+
+	// Canvas layout: anchors, scaling and sort order.
+	//
+	// **The whole point of the anchor model is resolution independence**, and
+	// that is exactly what one screenshot cannot check -- a layout is either
+	// right at every window size or it is a bug somebody hits on a display
+	// nobody here owns. All of this is arithmetic, so the suite asks about a
+	// phone, a 4K panel and an ultrawide in the same millisecond.
+	void CheckCanvasLayout()
+	{
+		// --- scaling ---------------------------------------------------------
+		{
+			UICanvasComponent canvas;   // 1920x1080, match 0.5
+
+			Check(std::fabs(UI::CanvasScale(canvas, 1920.0f, 1080.0f) - 1.0f) < 1e-4f,
+				  "a canvas at its reference resolution scales by one");
+
+			// Half the reference in both directions is half the scale, whatever
+			// the match is set to -- there is no disagreement between the axes
+			// to resolve.
+			Check(std::fabs(UI::CanvasScale(canvas, 960.0f, 540.0f) - 0.5f) < 1e-4f,
+				  "and by half at half the size");
+
+			canvas.MatchWidthOrHeight = 0.0f;
+			Check(std::fabs(UI::CanvasScale(canvas, 3840.0f, 1080.0f) - 2.0f) < 1e-4f,
+				  "matching the width follows the width alone");
+
+			canvas.MatchWidthOrHeight = 1.0f;
+			Check(std::fabs(UI::CanvasScale(canvas, 3840.0f, 1080.0f) - 1.0f) < 1e-4f,
+				  "and matching the height ignores it");
+
+			// The geometric mean, not the arithmetic one. It is what makes the
+			// halfway setting symmetric: a window twice as wide and one half as
+			// wide should scale by reciprocal amounts, and averaging the ratios
+			// does not do that.
+			canvas.MatchWidthOrHeight = 0.5f;
+			const float wide = UI::CanvasScale(canvas, 3840.0f, 1080.0f);
+			Check(std::fabs(wide - std::sqrt(2.0f)) < 1e-3f,
+				  "halfway is the geometric mean of the two, not the average");
+
+			const float narrow = UI::CanvasScale(canvas, 960.0f, 1080.0f);
+			Check(std::fabs(wide * narrow - 1.0f) < 1e-3f,
+				  "so twice as wide and half as wide are reciprocal");
+
+			canvas.ScaleMode = CanvasScaleMode::ConstantPixels;
+			Check(UI::CanvasScale(canvas, 3840.0f, 2160.0f) == 1.0f,
+				  "constant pixels never scales, which is the point of it");
+		}
+
+		// --- one rectangle against its parent ---------------------------------
+		const UIRect parent{ 0.0f, 0.0f, 1000.0f, 600.0f };
+
+		{
+			// A point anchor: the offsets read as a position and a size, and the
+			// parent's size does not enter into it.
+			UI::RectAnchors point;
+			point.AnchorMin = Vec2(0.0f, 0.0f);
+			point.AnchorMax = Vec2(0.0f, 0.0f);
+			point.OffsetMin = Vec2(20.0f, 30.0f);
+			point.OffsetMax = Vec2(120.0f, 70.0f);
+
+			const UIRect a = UI::ResolveRect(point, parent);
+			Check(std::fabs(a.X - 20.0f) < 1e-4f && std::fabs(a.Y - 30.0f) < 1e-4f &&
+				  std::fabs(a.Width - 100.0f) < 1e-4f && std::fabs(a.Height - 40.0f) < 1e-4f,
+				  "a point anchor turns the offsets into a position and a size");
+
+			const UIRect b = UI::ResolveRect(point, UIRect{ 0.0f, 0.0f, 4000.0f, 4000.0f });
+			Check(std::fabs(a.Width - b.Width) < 1e-4f && std::fabs(a.X - b.X) < 1e-4f,
+				  "and a bigger parent does not change either");
+
+			// A stretch anchor: the same two numbers are margins now, and the
+			// size follows the parent. One formula, both behaviours.
+			UI::RectAnchors stretch;
+			stretch.AnchorMin = Vec2(0.0f, 0.0f);
+			stretch.AnchorMax = Vec2(1.0f, 1.0f);
+			stretch.OffsetMin = Vec2(10.0f, 10.0f);
+			stretch.OffsetMax = Vec2(-10.0f, -10.0f);
+
+			const UIRect s = UI::ResolveRect(stretch, parent);
+			Check(std::fabs(s.Width - 980.0f) < 1e-4f && std::fabs(s.Height - 580.0f) < 1e-4f,
+				  "a stretch anchor turns the same offsets into margins");
+
+			const UIRect s2 = UI::ResolveRect(stretch, UIRect{ 0.0f, 0.0f, 2000.0f, 600.0f });
+			Check(std::fabs(s2.Width - 1980.0f) < 1e-4f,
+				  "and the size follows the parent");
+		}
+
+		// --- the claim the whole model exists for ------------------------------
+		//
+		// Twenty units in from the top-right corner, at every resolution. This
+		// is the thing position-and-size cannot express and the reason UI does
+		// not reuse TransformComponent.
+		{
+			UI::RectAnchors corner;
+			corner.AnchorMin = Vec2(1.0f, 0.0f);
+			corner.AnchorMax = Vec2(1.0f, 0.0f);
+			corner.OffsetMin = Vec2(-220.0f, 20.0f);
+			corner.OffsetMax = Vec2(-20.0f, 80.0f);
+
+			const float sizes[][2] = {
+				{ 1280.0f, 720.0f }, { 1920.0f, 1080.0f },
+				{ 3840.0f, 2160.0f }, { 2560.0f, 1080.0f }, { 800.0f, 1280.0f },
+			};
+
+			bool pinned = true;
+			for (const auto& size : sizes)
+			{
+				const UIRect canvasRect{ 0.0f, 0.0f, size[0], size[1] };
+				const UIRect r = UI::ResolveRect(corner, canvasRect);
+
+				// The gap to the right edge, and the size, are the same every
+				// time -- including on the portrait and ultrawide shapes.
+				pinned = pinned && std::fabs((canvasRect.Width - r.Right()) - 20.0f) < 1e-3f;
+				pinned = pinned && std::fabs(r.Width - 200.0f) < 1e-3f;
+				pinned = pinned && std::fabs(r.Y - 20.0f) < 1e-3f;
+			}
+			Check(pinned, "a corner-pinned element keeps its distance from that corner "
+						  "at every resolution, including portrait and ultrawide");
+		}
+
+		// --- a tree -------------------------------------------------------------
+		{
+			auto scene = std::make_shared<Scene>();
+
+			Entity canvas = scene->CreateEntity("Canvas");
+			UICanvasComponent& canvasComponent = canvas.AddComponent<UICanvasComponent>();
+			canvasComponent.ScaleMode = CanvasScaleMode::ConstantPixels;
+
+			auto addRect = [&](const char* name, Entity parentEntity, Vec2 anchorMin,
+							   Vec2 anchorMax, Vec2 offsetMin, Vec2 offsetMax, int32_t order)
+			{
+				Entity e = scene->CreateEntity(name);
+				scene->SetParent(e, parentEntity);
+				UIRectComponent& rect = e.AddComponent<UIRectComponent>();
+				rect.AnchorMin = anchorMin;
+				rect.AnchorMax = anchorMax;
+				rect.OffsetMin = offsetMin;
+				rect.OffsetMax = offsetMax;
+				rect.SortOrder = order;
+				return e;
+			};
+
+			// A panel inset 100 all round, with a child inset 10 inside that.
+			Entity panel = addRect("Panel", canvas, Vec2(0.0f), Vec2(1.0f),
+								   Vec2(100.0f), Vec2(-100.0f), 0);
+			addRect("Label", panel, Vec2(0.0f), Vec2(1.0f), Vec2(10.0f), Vec2(-10.0f), 0);
+
+			std::vector<UI::ResolvedElement> resolved =
+				UI::ResolveScene(*scene, 1000.0f, 800.0f);
+
+			Check(resolved.size() == 2, "a canvas with two elements resolves two");
+
+			if (resolved.size() == 2)
+			{
+				// The canvas entity is the space, not an element: the panel is
+				// laid out against the screen directly.
+				Check(std::fabs(resolved[0].Rect.X - 100.0f) < 1e-3f &&
+					  std::fabs(resolved[0].Rect.Width - 800.0f) < 1e-3f,
+					  "the first is inset from the screen, not from a canvas element");
+
+				// Nesting composes: 100 + 10.
+				Check(std::fabs(resolved[1].Rect.X - 110.0f) < 1e-3f &&
+					  std::fabs(resolved[1].Rect.Width - 780.0f) < 1e-3f,
+					  "and a child is laid out against its parent's rectangle");
+			}
+
+			// --- sort order -----------------------------------------------------
+			Entity front = addRect("Front", canvas, Vec2(0.0f), Vec2(0.0f),
+								   Vec2(0.0f), Vec2(10.0f), 5);
+			Entity behind = addRect("Behind", canvas, Vec2(0.0f), Vec2(0.0f),
+									Vec2(0.0f), Vec2(10.0f), -5);
+
+			resolved = UI::ResolveScene(*scene, 1000.0f, 800.0f);
+			Check(resolved.size() == 4, "and adding two more resolves four");
+			Check(!resolved.empty() &&
+				  resolved.front().Entity == (uint64_t)behind.GetUUID() &&
+				  resolved.back().Entity == (uint64_t)front.GetUUID(),
+				  "sorted so the lowest sort order is drawn first and the highest last");
+
+			// --- hiding ----------------------------------------------------------
+			// A hidden panel still positions its children. Anything else would
+			// mean toggling a background moved the label on it.
+			panel.GetComponent<UIRectComponent>().Visible = false;
+			resolved = UI::ResolveScene(*scene, 1000.0f, 800.0f);
+
+			Check(resolved.size() == 3, "hiding an element drops it from the draw list");
+
+			bool childStillPlaced = false;
+			for (const UI::ResolvedElement& element : resolved)
+				childStillPlaced = childStillPlaced || std::fabs(element.Rect.X - 110.0f) < 1e-3f;
+			Check(childStillPlaced, "and its children stay exactly where they were");
+		}
+
+		// --- an empty scene ------------------------------------------------------
+		{
+			auto scene = std::make_shared<Scene>();
+			Check(UI::ResolveScene(*scene, 1920.0f, 1080.0f).empty(),
+				  "a scene with no canvas resolves nothing");
+
+			Entity lonely = scene->CreateEntity("Canvas");
+			lonely.AddComponent<UICanvasComponent>();
+			Check(UI::ResolveScene(*scene, 1920.0f, 1080.0f).empty(),
+				  "and a canvas with no children resolves nothing either");
+		}
 	}
 
 	// Text layout.
@@ -6051,6 +6258,7 @@ int RunTests(int argc, char** argv)
 	CheckSky();
 	CheckFont();
 	CheckTextLayout();
+	CheckCanvasLayout();
 	CheckUIRenderer();
 	CheckViewportGrid();
 	CheckRenderersReady();

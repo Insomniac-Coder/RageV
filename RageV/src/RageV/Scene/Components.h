@@ -494,6 +494,145 @@ namespace RageV
 		AudioListenerComponent(const AudioListenerComponent&) = default;
 	};
 
+	// ---------------------------------------------------------------------
+	// The game's UI
+	// ---------------------------------------------------------------------
+	//
+	// Entities and the ordinary hierarchy, deliberately -- not a second
+	// parent/child system, and not ImGui. ImGui is the *editor's* UI and is
+	// immediate mode, which is right for tools and wrong for a game: a game's
+	// UI is authored in a scene, serialized, driven by scripts and has to run
+	// with no editor present. See ENGINE-NOTES 7d.
+
+	enum class CanvasScaleMode : int32_t
+	{
+		// One UI unit is one screen pixel. What a debug overlay wants, and what
+		// nobody shipping a game wants: a HUD laid out this way is half the size
+		// on a display with twice the pixels.
+		ConstantPixels = 0,
+		// One UI unit is a fraction of the reference resolution. Everything
+		// scales with the window, so a layout authored once holds everywhere.
+		ScaleWithScreen = 1,
+	};
+
+	// The root of a UI tree. Everything under it is laid out in its space.
+	struct UICanvasComponent
+	{
+		CanvasScaleMode ScaleMode = CanvasScaleMode::ScaleWithScreen;
+
+		// The size the layout was authored against. 1920x1080 because that is
+		// what a mock-up arrives in.
+		Vec2 ReferenceResolution{ 1920.0f, 1080.0f };
+
+		// Which axis the scale follows: 0 matches the width, 1 the height, and
+		// between is a blend of the two.
+		//
+		// It matters because a window is rarely the reference's shape. Matching
+		// width alone makes a HUD grow when the window gets wider *and shorter*,
+		// which is how a health bar ends up off the bottom of an ultrawide.
+		// Halfway is the safe default and is what Unity ships.
+		float MatchWidthOrHeight = 0.5f;
+
+		// Between canvases. Within one, UIRectComponent::SortOrder decides.
+		int32_t SortOrder = 0;
+
+		UICanvasComponent() = default;
+		UICanvasComponent(const UICanvasComponent&) = default;
+	};
+
+	// A rectangle, positioned against its parent's.
+	//
+	// **Anchors, not a position.** Position and size cannot express "twenty
+	// pixels in from the top-right corner, at every resolution", which is the
+	// entire problem UI layout exists to solve -- and it is why this does not
+	// reuse TransformComponent.
+	//
+	// The model is Unity's, on purpose: it is the one that actually solves
+	// resolution independence, and it is the one anybody arriving here has
+	// already learned. A simpler scheme saves a week and costs every author who
+	// discovers it cannot pin a corner.
+	//
+	//   left   = parent.left + AnchorMin.x * parent.width  + OffsetMin.x
+	//   top    = parent.top  + AnchorMin.y * parent.height + OffsetMin.y
+	//   right  = parent.left + AnchorMax.x * parent.width  + OffsetMax.x
+	//   bottom = parent.top  + AnchorMax.y * parent.height + OffsetMax.y
+	//
+	// With the anchors equal, the offsets read as a position and a size. With
+	// them apart, they read as margins and the rectangle stretches. That one
+	// formula is both behaviours, which is why there is no mode switch.
+	struct UIRectComponent
+	{
+		// Fractions of the parent, y down like everything else on screen: (0,0)
+		// is its top left corner and (1,1) its bottom right.
+		Vec2 AnchorMin{ 0.5f, 0.5f };
+		Vec2 AnchorMax{ 0.5f, 0.5f };
+
+		// Pixels from the anchors. Min is the left and top edge, Max the right
+		// and bottom.
+		Vec2 OffsetMin{ -100.0f, -20.0f };
+		Vec2 OffsetMax{ 100.0f, 20.0f };
+
+		// Within a canvas. Lower draws first, so higher sits on top; ties fall
+		// back to hierarchy order. Explicit rather than implied by creation
+		// order, because a UI whose layering changes when a prefab is re-saved
+		// is a UI nobody can rely on.
+		int32_t SortOrder = 0;
+
+		bool Visible = true;
+
+		UIRectComponent() = default;
+		UIRectComponent(const UIRectComponent&) = default;
+	};
+
+	// A rectangle filled with a colour, or with an image.
+	struct UIImageComponent
+	{
+		AssetHandle Texture = AssetHandle::Invalid();
+
+		// Multiplied into the image, and the whole colour when there is none.
+		// Alpha is the usual way to fade a panel in.
+		Vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+		UIImageComponent() = default;
+		UIImageComponent(const UIImageComponent&) = default;
+	};
+
+	enum class UITextAlign : int32_t
+	{
+		Left = 0,
+		Center = 1,
+		Right = 2,
+	};
+
+	struct UITextComponent
+	{
+		std::string Text = "Text";
+
+		// A `.rvfont` baked by tools/rvfont. Nothing at runtime can read a
+		// `.ttf`, so this never points at one.
+		AssetHandle Font = AssetHandle::Invalid();
+
+		// Em size in canvas units. Below the atlas's own smallest sharp size
+		// the antialiasing degrades -- a property of how the font was baked,
+		// which rvfont prints when it bakes one.
+		float Size = 32.0f;
+
+		Vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+		UITextAlign Align = UITextAlign::Left;
+
+		// Wrap to the rectangle's width. Off means only an explicit newline
+		// starts a line, and long text simply runs past the edge -- which is
+		// occasionally what a single-line label wants.
+		bool Wrap = true;
+
+		// Multiplier on the font's own line height.
+		float LineSpacing = 1.0f;
+
+		UITextComponent() = default;
+		UITextComponent(const UITextComponent&) = default;
+	};
+
 	// Marks the root of an entity tree stamped out from a prefab asset.
 	//
 	// The instance is fully materialised into the scene -- every entity is a

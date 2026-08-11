@@ -124,7 +124,14 @@ namespace
 			"            latin1  the above plus U+00A0..U+00FF\n"
 			"            @<file> every distinct character in a UTF-8 file, which\n"
 			"                    is how a CJK subset is specified -- the whole of\n"
-			"                    CJK at once is an unusably large texture.\n",
+			"                    CJK at once is an unusably large texture.\n"
+			"\n"
+			"The font's outlines must not overlap or cross themselves. Many do --\n"
+			"variable fonts especially, because overlap removal cannot be done once\n"
+			"for shapes that change with an axis. A rasteriser fills a self-crossing\n"
+			"path correctly and a distance field cannot, so the glyph bakes with a\n"
+			"notch in it. Run tools/scripts/prepare_font.py over the font first; it\n"
+			"reports which letters are affected and writes a resolved copy.\n",
 			kDefaultEm, kDefaultRange);
 	}
 
@@ -289,21 +296,6 @@ namespace
 
 		stbtt_FreeShape(&font, vertices);
 
-		// TrueType winds an outer contour clockwise in a y-up space, and holes
-		// the other way. msdfgen reads the opposite sense as "inside", so
-		// handing it these directly produces a field that is inside-out: the
-		// distances are correct and every sign is wrong, which renders as the
-		// page with the letter cut out of it.
-		//
-		// Reversing every contour flips the sense while preserving the
-		// *relative* winding, which is what keeps the counters in 'B' and '8'
-		// as holes rather than turning them solid.
-		//
-		// This is the one place stb_truetype's convention and msdfgen's meet,
-		// and there is no flag on either side that says so.
-		for (msdfgen::Contour& contour : shape.contours)
-			contour.reverse();
-
 		return !shape.contours.empty();
 	}
 }
@@ -402,6 +394,7 @@ int main(int argc, char** argv)
 	glyphs.reserve(charset.size());
 
 	int missing = 0;
+	int invalid = 0;
 
 	for (uint32_t codepoint : charset)
 	{
@@ -429,10 +422,22 @@ int main(int argc, char** argv)
 
 		shape.normalize();
 
-		// Assigns each edge one of three channels so that edges meeting at a
-		// sharp corner differ. This is the whole of what makes MSDF sharper
-		// than SDF, and getting it wrong is invisible until a corner rounds off.
-		msdfgen::edgeColoringSimple(shape, 3.0);
+		// TrueType winds an outer contour the opposite way from what msdfgen
+		// reads as inside, so the field arrives inside-out -- every distance
+		// correct and every sign wrong, which renders as the page with the
+		// letter cut out of it.
+		//
+		// **Reversing every contour is not the fix**, even though it produces
+		// legible glyphs. It flips the sense of the whole shape, which leaves
+		// every winding negative -- and msdfgen resolves *overlapping* contours
+		// by their winding. Where a crossbar meets a bowl the resolution then
+		// goes the wrong way, and the glyph grows a notch at exactly that
+		// junction. It is invisible at small sizes and obvious on a large 'e'.
+		//
+		// orientContours is msdfgen's own answer to "I do not know my source's
+		// winding": it derives the orientation from the geometry and produces
+		// contours that are correctly wound rather than uniformly flipped.
+		shape.orientContours();
 
 		const msdfgen::Shape::Bounds bounds = shape.getBounds();
 
@@ -669,6 +674,8 @@ int main(int argc, char** argv)
 
 	RV_CORE_INFO("rvfont: {0} glyphs, {1} kerning pairs, atlas {2}x{3}",
 				 glyphs.size(), kerningPairs, atlasWidth, atlasHeight);
+	if (invalid > 0)
+		RV_CORE_WARN("rvfont: {0} glyphs did not validate", invalid);
 	if (missing > 0)
 		RV_CORE_WARN("rvfont: {0} requested characters are not in the face", missing);
 	RV_CORE_INFO("rvfont: wrote {0} and {1}", metricsPath.string(), pngPath.string());

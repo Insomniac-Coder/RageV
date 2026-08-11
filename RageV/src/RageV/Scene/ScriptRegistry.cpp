@@ -209,6 +209,11 @@ namespace RageV
 			return error == std::errc{} ? std::string(buffer, end) : "0";
 		}
 
+		std::string ScriptFieldToText(const Vec2& value)
+		{
+			return ScriptFieldToText(value.x) + " " + ScriptFieldToText(value.y);
+		}
+
 		std::string ScriptFieldToText(const Vec3& value)
 		{
 			return ScriptFieldToText(value.x) + " " +
@@ -231,6 +236,15 @@ namespace RageV
 		void ScriptFieldFromText(const std::string& text, float& out)
 		{
 			std::from_chars(text.data(), text.data() + text.size(), out);
+		}
+
+		void ScriptFieldFromText(const std::string& text, Vec2& out)
+		{
+			// Same rule as the Vec3 below: a half-typed value leaves the other
+			// component alone rather than zeroing it.
+			Vec3 wide(out.x, out.y, 0.0f);
+			ScriptFieldFromText(text + " 0", wide);
+			out = Vec2(wide.x, wide.y);
 		}
 
 		void ScriptFieldFromText(const std::string& text, Vec3& out)

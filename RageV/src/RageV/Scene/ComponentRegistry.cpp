@@ -81,6 +81,8 @@ namespace
 		const char* kProjectionNames[] = { "Perspective", "Orthographic" };
 		const char* kBodyTypeNames[] = { "Static", "Kinematic", "Dynamic" };
 		const char* kColliderShapeNames[] = { "Box", "Sphere", "Capsule" };
+		const char* kCanvasScaleNames[] = { "ConstantPixels", "ScaleWithScreen" };
+		const char* kTextAlignNames[] = { "Left", "Center", "Right" };
 		const char* kParticleFacingNames[] = { "Billboard", "Flat" };
 		const char* kParticleBlendNames[] = { "Alpha", "Additive", "WeightedBlended" };
 		const char* kParticleSpaceNames[] = { "World", "Local" };
@@ -564,6 +566,105 @@ namespace
 			};
 
 			Bind<AudioSourceComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- UI canvas ---------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "UICanvasComponent";
+			desc.DisplayName = "UI Canvas";
+			desc.Fields = {
+				Field<&UICanvasComponent::ScaleMode>("ScaleMode",
+					Enum(kCanvasScaleNames, "How canvas units become pixels. Scale With "
+										    "Screen keeps a layout the same relative size "
+										    "on every display; Constant Pixels does not, "
+										    "and is for debug overlays.")),
+				Field<&UICanvasComponent::ReferenceResolution>("ReferenceResolution",
+					Drag(1.0f, 1.0f, 16384.0f, "The size this UI was laid out against.")),
+				Field<&UICanvasComponent::MatchWidthOrHeight>("MatchWidthOrHeight",
+					Slider(0.0f, 1.0f, "Which axis the scale follows: 0 the width, 1 the "
+									   "height. Halfway is safest -- following the width "
+									   "alone makes a HUD grow on a window that is wider "
+									   "and shorter, and walk off the bottom.")),
+				Field<&UICanvasComponent::SortOrder>("SortOrder",
+					Drag(0.25f, -999.0f, 999.0f, "Between canvases. Within one, each element's "
+										   "own sort order decides.")),
+			};
+			Bind<UICanvasComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- UI rect -----------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "UIRectComponent";
+			desc.DisplayName = "UI Rect";
+			desc.Fields = {
+				Field<&UIRectComponent::AnchorMin>("AnchorMin",
+					Drag(0.01f, 0.0f, 1.0f, "Top-left corner, as a fraction of the parent. "
+											"Equal to AnchorMax pins a point; apart from it "
+											"stretches.")),
+				Field<&UIRectComponent::AnchorMax>("AnchorMax",
+					Drag(0.01f, 0.0f, 1.0f, "Bottom-right corner, as a fraction of the "
+											"parent.")),
+				Field<&UIRectComponent::OffsetMin>("OffsetMin",
+					Drag(1.0f, -16384.0f, 16384.0f,
+						 "Left and top, in canvas units from the anchor.")),
+				Field<&UIRectComponent::OffsetMax>("OffsetMax",
+					Drag(1.0f, -16384.0f, 16384.0f,
+						 "Right and bottom, in canvas units from the anchor.")),
+				Field<&UIRectComponent::SortOrder>("SortOrder",
+					Drag(0.25f, -999.0f, 999.0f, "Higher draws on top. Ties keep hierarchy "
+										   "order.")),
+				Field<&UIRectComponent::Visible>("Visible",
+					FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
+							   "Hides this element. Its children still lay out against it, "
+							   "so hiding a panel does not move the label on it." }),
+			};
+			Bind<UIRectComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- UI image ----------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "UIImageComponent";
+			desc.DisplayName = "UI Image";
+			desc.Fields = {
+				Field<&UIImageComponent::Texture>("Texture",
+					AssetRef(AssetType::Texture, "Leave empty for a plain filled rectangle.")),
+				Field<&UIImageComponent::Color>("Color", Color()),
+			};
+			Bind<UIImageComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- UI text -----------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "UITextComponent";
+			desc.DisplayName = "UI Text";
+			desc.Fields = {
+				Field<&UITextComponent::Text>("Text"),
+				Field<&UITextComponent::Font>("Font",
+					AssetRef(AssetType::Font, "A .rvfont baked by tools/rvfont. A .ttf is "
+											 "that tool's input and cannot be used here.")),
+				Field<&UITextComponent::Size>("Size",
+					Drag(0.5f, 1.0f, 512.0f, "Em size in canvas units. Below the atlas's "
+											 "own smallest sharp size the antialiasing "
+											 "softens -- rvfont prints that number when it "
+											 "bakes a font.")),
+				Field<&UITextComponent::Color>("Color", Color()),
+				Field<&UITextComponent::Align>("Align", Enum(kTextAlignNames)),
+				Field<&UITextComponent::Wrap>("Wrap",
+					FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
+							   "Break lines to fit the rectangle's width. Off means only "
+							   "an explicit newline starts a line." }),
+				Field<&UITextComponent::LineSpacing>("LineSpacing",
+					Drag(0.01f, 0.1f, 4.0f, "Multiplier on the font's own line height.")),
+			};
+			Bind<UITextComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
 

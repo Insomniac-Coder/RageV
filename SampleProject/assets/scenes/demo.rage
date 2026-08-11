@@ -519,3 +519,86 @@ Entities:
       MaxDistance: 50
     NativeScriptComponent:
       Script: TriggerZone
+  - EntityID: 7301884420193355001
+    TagComponent:
+      Tag: HUD
+    UICanvasComponent:
+      ScaleMode: ScaleWithScreen
+      ReferenceResolution: [1920, 1080]
+      MatchWidthOrHeight: 0.5
+      SortOrder: 0
+  - EntityID: 7301884420193355004
+    RelationshipComponent:
+      Parent: 7301884420193355001
+    TagComponent:
+      Tag: Title Backdrop
+    UIRectComponent:
+      AnchorMin: [0.5, 0]
+      AnchorMax: [0.5, 0]
+      OffsetMin: [-420, 48]
+      OffsetMax: [420, 190]
+      SortOrder: 0
+      Visible: true
+    UIImageComponent:
+      Texture: 0
+      Color: [0.04, 0.04, 0.06, 0.55]
+  - EntityID: 7301884420193355002
+    RelationshipComponent:
+      Parent: 7301884420193355001
+    TagComponent:
+      Tag: Title
+    UIRectComponent:
+      AnchorMin: [0.5, 0]
+      AnchorMax: [0.5, 0]
+      OffsetMin: [-400, 60]
+      OffsetMax: [400, 140]
+      SortOrder: 1
+      Visible: true
+    UITextComponent:
+      Text: RageV
+      Font: 12355000851502047045
+      Size: 72
+      Color: [0.9, 0.29, 0.32, 1]
+      Align: Center
+      Wrap: true
+      LineSpacing: 1
+  - EntityID: 7301884420193355003
+    RelationshipComponent:
+      Parent: 7301884420193355001
+    TagComponent:
+      Tag: Subtitle
+    UIRectComponent:
+      AnchorMin: [0.5, 0]
+      AnchorMax: [0.5, 0]
+      OffsetMin: [-400, 138]
+      OffsetMax: [400, 182]
+      SortOrder: 1
+      Visible: true
+    UITextComponent:
+      Text: text, laid out by the engine and anchored to the canvas
+      Font: 12355000851502047045
+      Size: 26
+      Color: [0.82, 0.83, 0.88, 1]
+      Align: Center
+      Wrap: true
+      LineSpacing: 1
+  - EntityID: 7301884420193355005
+    RelationshipComponent:
+      Parent: 7301884420193355001
+    TagComponent:
+      Tag: Corner Readout
+    UIRectComponent:
+      AnchorMin: [1, 1]
+      AnchorMax: [1, 1]
+      OffsetMin: [-330, -70]
+      OffsetMax: [-24, -24]
+      SortOrder: 1
+      Visible: true
+    UITextComponent:
+      Text: pinned to the bottom right
+      Font: 12355000851502047045
+      Size: 24
+      Color: [0.65, 0.66, 0.72, 1]
+      Align: Right
+      Wrap: false
+      LineSpacing: 1

@@ -25,7 +25,7 @@ namespace RageV
 
 	enum class FieldType
 	{
-		Bool, Int, Float, Vec3, Vec4, String, Enum, Asset
+		Bool, Int, Float, Vec2, Vec3, Vec4, String, Enum, Asset
 	};
 
 	// Decides whether a field applies in the component's current state.
@@ -178,6 +178,7 @@ namespace RageV
 			}
 			else if constexpr (std::is_same_v<T, int>)         return FieldType::Int;
 			else if constexpr (std::is_same_v<T, float>)       return FieldType::Float;
+			else if constexpr (std::is_same_v<T, Vec2>)   return FieldType::Vec2;
 			else if constexpr (std::is_same_v<T, Vec3>)   return FieldType::Vec3;
 			else if constexpr (std::is_same_v<T, Vec4>)   return FieldType::Vec4;
 			else if constexpr (std::is_same_v<T, std::string>) return FieldType::String;

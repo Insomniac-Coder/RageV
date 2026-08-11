@@ -115,6 +115,7 @@ namespace RageV
 			case FieldType::Int:    return *(int*)value;
 			case FieldType::Enum:   return *(int*)value;
 			case FieldType::Float:  return *(float*)value;
+			case FieldType::Vec2:   return *(Vec2*)value;
 			case FieldType::Vec3:   return *(Vec3*)value;
 			case FieldType::Vec4:   return *(Vec4*)value;
 			case FieldType::String: return *(std::string*)value;
@@ -134,6 +135,7 @@ namespace RageV
 			case FieldType::Int:
 			case FieldType::Enum:   *(int*)value = std::get<int>(source); break;
 			case FieldType::Float:  *(float*)value = std::get<float>(source); break;
+			case FieldType::Vec2:   *(Vec2*)value = std::get<Vec2>(source); break;
 			case FieldType::Vec3:   *(Vec3*)value = std::get<Vec3>(source); break;
 			case FieldType::Vec4:   *(Vec4*)value = std::get<Vec4>(source); break;
 			case FieldType::String: *(std::string*)value = std::get<std::string>(source); break;

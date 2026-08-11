@@ -3,6 +3,7 @@
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Renderer/ParticleRenderer.h"
+#include "RageV/UI/Canvas.h"
 #include "imgui.h"
 #include "RageV/ImGui/ImGuiBinding.h"
 
@@ -150,6 +151,15 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.DrawScene = [this](RGPassContext& context)
 	{
 		m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);
+	};
+
+	// The game's own UI, over the finished image. The whole reason the UI layer
+	// exists is that a shipped game can say something, so this is not
+	// conditional on anything -- a scene with no canvas resolves to nothing and
+	// the pass costs a compare.
+	frame.DrawUI = [this](RGPassContext& context)
+	{
+		UI::DrawScene(*m_Scene, context.Width, context.Height);
 	};
 
 	// Asked of the scene rather than of the renderer: the graph is described

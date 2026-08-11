@@ -127,12 +127,14 @@ namespace RageV
 		std::string ScriptFieldToText(bool value);
 		std::string ScriptFieldToText(int value);
 		std::string ScriptFieldToText(float value);
+		std::string ScriptFieldToText(const Vec2& value);
 		std::string ScriptFieldToText(const Vec3& value);
 		std::string ScriptFieldToText(const std::string& value);
 
 		void ScriptFieldFromText(const std::string& text, bool& out);
 		void ScriptFieldFromText(const std::string& text, int& out);
 		void ScriptFieldFromText(const std::string& text, float& out);
+		void ScriptFieldFromText(const std::string& text, Vec2& out);
 		void ScriptFieldFromText(const std::string& text, Vec3& out);
 		void ScriptFieldFromText(const std::string& text, std::string& out);
 

@@ -612,6 +612,7 @@ namespace RageV::Managed
 				case FieldType::Int:    return Detail::ScriptFieldToText(*(int*)value);
 				case FieldType::Enum:   return Detail::ScriptFieldToText(*(int*)value);
 				case FieldType::Float:  return Detail::ScriptFieldToText(*(float*)value);
+				case FieldType::Vec2:   return Detail::ScriptFieldToText(*(Vec2*)value);
 				case FieldType::Vec3:   return Detail::ScriptFieldToText(*(Vec3*)value);
 				case FieldType::Vec4:
 				{
@@ -638,6 +639,7 @@ namespace RageV::Managed
 				case FieldType::Int:    Detail::ScriptFieldFromText(text, *(int*)value); return true;
 				case FieldType::Enum:   Detail::ScriptFieldFromText(text, *(int*)value); return true;
 				case FieldType::Float:  Detail::ScriptFieldFromText(text, *(float*)value); return true;
+				case FieldType::Vec2:   Detail::ScriptFieldFromText(text, *(Vec2*)value); return true;
 				case FieldType::Vec3:   Detail::ScriptFieldFromText(text, *(Vec3*)value); return true;
 				case FieldType::Vec4:
 				{

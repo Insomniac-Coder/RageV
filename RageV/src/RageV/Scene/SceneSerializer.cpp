@@ -10,6 +10,12 @@ namespace RageV
 {
 	namespace
 	{
+		YAML::Emitter& EmitVec2(YAML::Emitter& emitter, const Vec2& v)
+		{
+			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << YAML::EndSeq;
+			return emitter;
+		}
+
 		YAML::Emitter& EmitVec3(YAML::Emitter& emitter, const Vec3& v)
 		{
 			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
@@ -20,6 +26,13 @@ namespace RageV
 		{
 			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << v.w << YAML::EndSeq;
 			return emitter;
+		}
+
+		Vec2 ReadVec2(const YAML::Node& node, const Vec2& fallback)
+		{
+			if (!node || !node.IsSequence() || node.size() != 2)
+				return fallback;
+			return { node[0].as<float>(), node[1].as<float>() };
 		}
 
 		Vec3 ReadVec3(const YAML::Node& node, const Vec3& fallback)
@@ -80,6 +93,7 @@ namespace RageV
 				case FieldType::Int:    emitter << *(int*)value; break;
 				case FieldType::Enum:   WriteEnum(emitter, field, *(int*)value); break;
 				case FieldType::Float:  emitter << *(float*)value; break;
+				case FieldType::Vec2:   EmitVec2(emitter, *(Vec2*)value); break;
 				case FieldType::Vec3:   EmitVec3(emitter, *(Vec3*)value); break;
 				case FieldType::Vec4:   EmitVec4(emitter, *(Vec4*)value); break;
 				case FieldType::String: emitter << *(std::string*)value; break;
@@ -105,6 +119,7 @@ namespace RageV
 				case FieldType::Int:    *(int*)value = node.as<int>(); break;
 				case FieldType::Enum:   *(int*)value = ReadEnum(node, field, *(int*)value); break;
 				case FieldType::Float:  *(float*)value = node.as<float>(); break;
+				case FieldType::Vec2:   *(Vec2*)value = ReadVec2(node, *(Vec2*)value); break;
 				case FieldType::Vec3:   *(Vec3*)value = ReadVec3(node, *(Vec3*)value); break;
 				case FieldType::Vec4:   *(Vec4*)value = ReadVec4(node, *(Vec4*)value); break;
 				case FieldType::String: *(std::string*)value = node.as<std::string>(); break;
