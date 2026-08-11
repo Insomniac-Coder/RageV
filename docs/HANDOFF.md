@@ -1756,7 +1756,7 @@ learnopengl.com — a path from A to B, teaching the reader forward, rather than
 a description of a finished artefact. The user's words: it may end up "a whole
 book with pages in 3 digits" and that is acceptable; verbosity is wanted.
 
-**Where it is: 90 pages, 12 chapters, ~31,000 words, 64 code listings.** The skeleton is
+**Where it is: 90 pages, 12 chapters, ~31,000 words, 64 code listings, 6 vector diagrams, 11 figures. Feature-complete against the brief.** The skeleton is
 complete and every chapter has real content, real code quoted verbatim, and
 real figures captured through `--screenshot`. Chapters 2 and 3 -- the maths,
 and how the two graphics APIs work with one feature traced down through both
@@ -1797,11 +1797,18 @@ value order:
    project file, the runtime layer and the packager's copy list; and a game
    script with the papercut list it produces.
 
-4. **Four ASCII diagrams remain**: the layer stack (5.1), the render path
-   (6.2), the project/application tree (5.1) and the accumulator (2.13). The
-   last should stay as text -- it is pseudocode, not a diagram. Diagrams 1-3
-   are inline SVG and are the pattern to follow; no external files, prints at
-   full resolution, and no CDN (the PDF is printed with no network).
+4. ~~The ASCII diagrams~~ -- **done**. Six inline-SVG diagrams: the spaces a
+   vertex passes through, the graphics pipeline, the layer stack, one frame,
+   frames in flight, and the cluster grid (which had no ASCII original and
+   was the one concept most needing a picture). Two text blocks remain on
+   purpose -- the accumulator in 2.13 and the frame loop in 6.1 are
+   pseudocode, not diagrams. **Diagram numbering is by document position**;
+   re-run the renumber if any is inserted.
+
+**What is left is judgement, not a list.** A continuity read-through: the
+chapters were written across several sessions and the seams may show --
+repeated explanations, cross-references that assume a different order, and a
+tone that shifts between the reference chapters and the walkthroughs.
 4. **Diagrams are ASCII.** Real vector figures for the transform pipeline, the
    frame graph and the cluster grid would carry a lot.
 5. **Chapter 2 could go further** -- tangent space, cubemap addressing, the
