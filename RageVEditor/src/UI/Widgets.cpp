@@ -310,6 +310,21 @@ namespace RageV::UI
 		CloseRow();
 	}
 
+	bool AccentButton(const char* label, const ImVec2& size)
+	{
+		const auto& colors = EditorTheme::Colors();
+
+		ImGui::PushStyleColor(ImGuiCol_Button, colors.Accent);
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentHover);
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.AccentPressed);
+		ImGui::PushStyleColor(ImGuiCol_Text, colors.OnAccent);
+
+		const bool pressed = ImGui::Button(label, size);
+
+		ImGui::PopStyleColor(4);
+		return pressed;
+	}
+
 	int SegmentedControl(const char* id, const char* const* labels, int count, int current)
 	{
 		if (count <= 0)

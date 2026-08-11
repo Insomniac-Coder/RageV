@@ -14,6 +14,7 @@
 #include "RageV/Math/Math.h"
 #include "EditorTheme.h"
 #include "Widgets.h"
+#include "AssetIcons.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
@@ -154,6 +155,24 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 	}
 }
 
+// What an entity *is*, for the row icon.
+//
+// Judged by components, most specific first: an entity carrying both a light
+// and a mesh is a light with a bulb model on it, and calling it a mesh would
+// bury the thing that makes it interesting. Order is the whole design here.
+static RageV::UI::IconKind EntityIconKind(RageV::Entity entity)
+{
+	using namespace RageV;
+
+	if (entity.HasComponent<CameraComponent>())          return UI::IconKind::Camera;
+	if (entity.HasComponent<LightComponent>())           return UI::IconKind::Light;
+	if (entity.HasComponent<ParticleEmitterComponent>()) return UI::IconKind::ParticleEmitter;
+	if (entity.HasComponent<AudioSourceComponent>())     return UI::IconKind::AudioSource;
+	if (entity.HasComponent<MeshComponent>())            return UI::IconKind::Mesh;
+
+	return UI::IconKind::Entity;
+}
+
 void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 {
 	const auto& children = m_SceneRef->GetChildren(entity);
@@ -177,10 +196,56 @@ void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	// Keyed by UUID rather than by handle: EnTT recycles handles, so a deleted
 	// entity could hand its expansion state to an unrelated one.
 	const uint64_t id = entity.GetUUID();
-	const bool opened = ImGui::TreeNodeEx((void*)id, flags, "%s", entity.GetName().c_str());
+
+	// The node is drawn with an empty label and the row painted onto it, so an
+	// icon can sit between the arrow and the name. A hierarchy of names in one
+	// weight is a hierarchy you read line by line; the icon answers "what is
+	// this" before the name is read at all.
+	//
+	// **Painted, not placed.** The icon and the name go straight into the draw
+	// list rather than being ImGui items, because an item here would become
+	// "the last item" -- and the drag source, the drop target and the context
+	// menu below all attach to whatever that is. Adding them as items made
+	// ImGui assert on `id != 0`, which is it refusing to make a text label
+	// draggable.
+	const ImVec2 rowStart = ImGui::GetCursorScreenPos();
+	const bool opened = ImGui::TreeNodeEx((void*)id, flags, "%s", "");
 
 	if (selected)
 		ImGui::PopStyleColor(3);
+
+	{
+		const auto& colors = EditorTheme::Colors();
+		const float iconSize = ImGui::GetTextLineHeight();
+		const float labelX = rowStart.x + ImGui::GetTreeNodeToLabelSpacing();
+		const ImU32 tint = ImGui::GetColorU32(selected ? colors.TextPrimary
+													   : colors.TextSecondary);
+
+		ImDrawList* draw = ImGui::GetWindowDrawList();
+		UI::DrawIcon(draw, { labelX, rowStart.y }, iconSize, EntityIconKind(entity), tint);
+
+		// Ellipsised by hand, because a draw-list AddText does not clip the way
+		// an ImGui item does -- it would simply run off the edge of the panel
+		// mid-letter. A name that had to be shortened says so, and gives the
+		// whole thing back on hover.
+		const float nameX = labelX + iconSize + EditorTheme::Space::Snug;
+		const float room = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - nameX;
+
+		const std::string& fullName = entity.GetName();
+		std::string shown = fullName;
+		if (room > 0.0f && ImGui::CalcTextSize(shown.c_str()).x > room)
+		{
+			while (shown.size() > 1
+				   && ImGui::CalcTextSize((shown + "...").c_str()).x > room)
+				shown.pop_back();
+			shown += "...";
+		}
+
+		draw->AddText({ nameX, rowStart.y }, ImGui::GetColorU32(ImGuiCol_Text), shown.c_str());
+
+		if (shown != fullName && ImGui::IsItemHovered())
+			ImGui::SetTooltip("%s", fullName.c_str());
+	}
 
 	if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
 		m_Selected = entity;

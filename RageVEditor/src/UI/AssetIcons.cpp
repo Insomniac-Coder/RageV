@@ -216,6 +216,61 @@ namespace RageV::UI
 			c.Path({ { 0.60f, 0.12f }, { 0.60f, 0.31f }, { 0.78f, 0.31f } }, false);
 		}
 
+
+		// --- what is in a scene --------------------------------------------
+
+		// A plain entity: a node. Hollow, because an entity with nothing on it
+		// is a position and a name, and the icon should look as empty as that.
+		void EntityNode(const Canvas& c)
+		{
+			c.Path({ { 0.50f, 0.22f }, { 0.78f, 0.50f }, { 0.50f, 0.78f }, { 0.22f, 0.50f } }, true);
+		}
+
+		// A light: the sun mark. Rays rather than a bulb -- a bulb is a lamp
+		// you can hold, and these light a world.
+		void Light(const Canvas& c)
+		{
+			c.Circle(0.50f, 0.50f, 0.18f);
+			constexpr float rays[][4] = {
+				{ 0.50f, 0.10f, 0.50f, 0.22f }, { 0.50f, 0.78f, 0.50f, 0.90f },
+				{ 0.10f, 0.50f, 0.22f, 0.50f }, { 0.78f, 0.50f, 0.90f, 0.50f },
+				{ 0.22f, 0.22f, 0.31f, 0.31f }, { 0.69f, 0.69f, 0.78f, 0.78f },
+				{ 0.78f, 0.22f, 0.69f, 0.31f }, { 0.31f, 0.69f, 0.22f, 0.78f },
+			};
+			for (const auto& ray : rays)
+				c.Line(ray[0], ray[1], ray[2], ray[3]);
+		}
+
+		// A camera: the body and the lens barrel sticking out of it, which is
+		// the shape a camera gizmo draws in the viewport.
+		void Camera(const Canvas& c)
+		{
+			c.Rect(0.12f, 0.34f, 0.62f, 0.68f, 0.05f);
+			c.Path({ { 0.62f, 0.44f }, { 0.86f, 0.32f }, { 0.86f, 0.70f }, { 0.62f, 0.58f } }, true);
+		}
+
+		// An emitter: a source and what has left it. The dots get smaller with
+		// distance, which is the one thing every particle system does.
+		void ParticleEmitter(const Canvas& c)
+		{
+			c.Disc(0.24f, 0.74f, 0.085f);
+			c.Disc(0.46f, 0.54f, 0.060f);
+			c.Disc(0.64f, 0.38f, 0.045f);
+			c.Disc(0.79f, 0.26f, 0.032f);
+			c.Disc(0.40f, 0.78f, 0.038f);
+			c.Disc(0.62f, 0.62f, 0.030f);
+		}
+
+		// A source: a speaker, deliberately not the waveform. The waveform is
+		// the audio *file*; this is the thing in the world playing it.
+		void AudioSource(const Canvas& c)
+		{
+			c.Path({ { 0.16f, 0.40f }, { 0.28f, 0.40f }, { 0.44f, 0.24f },
+					 { 0.44f, 0.76f }, { 0.28f, 0.60f }, { 0.16f, 0.60f } }, true);
+			c.Path({ { 0.58f, 0.36f }, { 0.66f, 0.50f }, { 0.58f, 0.64f } }, false);
+			c.Path({ { 0.72f, 0.26f }, { 0.84f, 0.50f }, { 0.72f, 0.74f } }, false);
+		}
+
 		std::string LowerExtension(const std::filesystem::path& path)
 		{
 			std::string extension = path.extension().string();
@@ -298,6 +353,11 @@ namespace RageV::UI
 			case IconKind::Document: Document(canvas); break;
 			case IconKind::Data:     Data(canvas);     break;
 			case IconKind::Archive:  Archive(canvas);  break;
+			case IconKind::Entity:   EntityNode(canvas); break;
+			case IconKind::Light:    Light(canvas);    break;
+			case IconKind::Camera:   Camera(canvas);   break;
+			case IconKind::ParticleEmitter: ParticleEmitter(canvas); break;
+			case IconKind::AudioSource:    AudioSource(canvas);     break;
 			default:                 UnknownFile(canvas); break;
 		}
 	}

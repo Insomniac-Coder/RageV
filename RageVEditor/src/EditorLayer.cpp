@@ -1191,15 +1191,13 @@ void EditorLayer::DrawToolbar()
 	auto ModeButton = [&](const char* label, ImGuizmo::OPERATION op, const char* tip)
 	{
 		const bool active = m_GizmoOperation == op;
-		if (active)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Colors().Accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().AccentHover);
-		}
-		if (ImGui::Button(label, ImVec2(34.0f, 0.0f)))
+		// Accent-filled while it is the active one, and through the helper so
+		// the label's colour comes with the fill. See UI::AccentButton.
+		const bool pressed = active
+			? UI::AccentButton(label, ImVec2(34.0f, 0.0f))
+			: ImGui::Button(label, ImVec2(34.0f, 0.0f));
+		if (pressed)
 			m_GizmoOperation = op;
-		if (active)
-			ImGui::PopStyleColor(2);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("%s", tip);
 	};
@@ -1234,18 +1232,16 @@ void EditorLayer::DrawToolbar()
 		// the left win and the transport simply sits after them.
 		ImGui::SameLine(ImMax(centre, ImGui::GetCursorPosX() + 10.0f));
 
-		if (running)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Colors().Accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().AccentHover);
-		}
-		if (ImGui::Button(running ? "Stop" : "Play", ImVec2(kPlayWidth, 0.0f)))
+		// Accent-filled while it is the active one, and through the helper so
+		// the label's colour comes with the fill. See UI::AccentButton.
+		const bool pressed = running
+			? UI::AccentButton(running ? "Stop" : "Play", ImVec2(kPlayWidth, 0.0f))
+			: ImGui::Button(running ? "Stop" : "Play", ImVec2(kPlayWidth, 0.0f));
+		if (pressed)
 		{
 			if (running) OnSceneStop();
 			else         OnScenePlay();
 		}
-		if (running)
-			ImGui::PopStyleColor(2);
 
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip(running
@@ -1270,15 +1266,13 @@ void EditorLayer::DrawToolbar()
 		const float rightEdge = ImGui::GetWindowWidth() - width - 12.0f;
 		ImGui::SameLine(ImMax(rightEdge, ImGui::GetCursorPosX() + 10.0f));
 
-		if (!m_UseEditorCamera)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Colors().Accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().AccentHover);
-		}
-		if (ImGui::Button(label, ImVec2(width, 0.0f)))
+		// Filled while the viewport is showing the scene's camera rather than
+		// the editor's, because that is the state somebody can be surprised by.
+		const bool pressed = !m_UseEditorCamera
+			? UI::AccentButton(label, ImVec2(width, 0.0f))
+			: ImGui::Button(label, ImVec2(width, 0.0f));
+		if (pressed)
 			m_UseEditorCamera = !m_UseEditorCamera;
-		if (!m_UseEditorCamera)
-			ImGui::PopStyleColor(2);
 
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip(m_UseEditorCamera

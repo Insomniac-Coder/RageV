@@ -72,6 +72,16 @@ namespace RageV::UI
 		Data,       // .json .ini .yaml .yml .csproj .rvproject .sln
 		Archive,    // .pak .zip
 
+		// Scene contents. The hierarchy has the same problem the browser had:
+		// a list of names in one weight, where the only way to tell a light
+		// from a camera from a mesh is to read every line. These are what an
+		// entity *is*, judged by the components on it.
+		Entity,          // nothing that identifies it further
+		Light,
+		Camera,
+		ParticleEmitter,
+		AudioSource,
+
 		Unknown,
 	};
 

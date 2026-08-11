@@ -130,6 +130,24 @@ namespace RageV::UI
 	// A read-only value, for a panel that reports rather than edits.
 	void RowText(const char* label, const char* value, const char* tooltip = nullptr);
 
+	// A button filled with the accent, for the one control in a group that is
+	// currently on: the active gizmo mode, Play while a scene is running.
+	//
+	// It exists because filling a button with the accent and forgetting the
+	// text colour is a contrast failure that looks fine to whoever wrote it.
+	// Measured on the palette this replaces: default text on an accent fill is
+	// **3.1:1 in light and 3.2:1 in dark**, against the 4.5:1 a label needs.
+	// Both themes, so it was not a light-theme oversight -- it was there before
+	// there was a light theme, and nobody could see it because nobody had put
+	// the two numbers next to each other.
+	//
+	// The palette has always had a token for this: OnAccent, whose whole job is
+	// to be legible on Accent. Note what the contrast script can and cannot do
+	// here -- it proved OnAccent/Accent passes, and could not tell that no call
+	// site was using it. A palette being correct and a palette being *used*
+	// correctly are separate claims.
+	bool AccentButton(const char* label, const ImVec2& size = ImVec2(0, 0));
+
 	// A row of buttons that share the full width evenly. For a segmented
 	// control -- two or three mutually exclusive choices where a combo box
 	// would hide the options behind a click.
