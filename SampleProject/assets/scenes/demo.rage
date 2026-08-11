@@ -91,6 +91,22 @@ Entities:
         Metallic: 1
         Roughness: 0.2
         Occlusion: 1
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.4
+      Restitution: 0.25
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Sphere
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1
+      Offset: [0, 0, 0]
+      IsTrigger: false
   - EntityID: 17663757809894776477
     TagComponent:
       Tag: Cylinder (brushed metal)
