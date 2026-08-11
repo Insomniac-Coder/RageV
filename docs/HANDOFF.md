@@ -206,6 +206,20 @@ Then run the editor on both backends. **Zero `[Vulkan]` lines in the log** is
 the bar — validation and synchronization validation are both on in Debug, and
 every `[Vulkan]` line so far has been a real defect.
 
+If the change touched the **editor UI**, also run:
+
+```bash
+python tools/scripts/check_theme_contrast.py
+build/bin/Debug/RageVEditor/RageVEditor.exe --project=SampleProject --theme=light \
+    --width=1280 --height=720 --screenshot=light.png
+```
+
+The contrast script measures both palettes against WCAG 2.2 AA and exits
+non-zero on a failure. `--theme=dark|light` and `--ui-scale=N` are what make
+checking the other theme and the other scale a script rather than an
+afternoon -- and **both find real defects**: every bug in the §8 UI entry
+below was found by rendering a case nobody renders by hand.
+
 If the change touched a public script API, also run:
 
 ```bash
@@ -497,6 +511,43 @@ particle systems and rendering within the same frame.
 ---
 
 ## 5. Invariants that are load-bearing
+
+### Editor UI
+
+- **Never pass a computed width to ImGui without a floor.** A negative width is
+  an inverted clip rectangle, which is an *assertion failure*, not a cosmetic
+  problem -- the editor stops. The version this replaced used a fixed 140px
+  label column, which starved `CalcItemWidth()` on a narrow panel and made
+  `PushMultiItemsWidths` produce negatives. Proportional columns, and
+  `-FLT_MIN` for "fill", never a negative literal.
+- **A fill of the accent must push `OnAccent` as the text colour.** Default
+  text on an accent fill measures **3.1:1 in light and 3.2:1 in dark**, against
+  the 4.5:1 a label needs. Both themes, so it is not a light-theme oversight.
+  `UI::AccentButton` and `UI::IconButton` do both together; there should be no
+  raw `PushStyleColor(ImGuiCol_Button, ...Accent)` anywhere.
+- **A widget that draws its own label must not also be stretched to the full
+  cell.** That combination is what truncated "Base Colo" and "Roughnes": the
+  control took every pixel and the label had none. Every labelled row goes
+  through `UI::Row*`, which hides the widget's label with `##` because the row
+  already drew one.
+- **Anything drawn after `DockSpace()` is clipped away.** DockSpace takes the
+  whole remaining content region. The toolbar lived there and had *never
+  rendered* -- not in any screenshot of this editor, ever. Draw a toolbar
+  before the dock space so it can claim its row.
+- **A size in pixels is a size that is wrong at every UI scale but one.** The
+  toolbar's buttons were 52 and 96 pixels, so at `--ui-scale=2` the font
+  doubled and the button did not: "Local" became "Loc". Measure from
+  `CalcTextSize` and the spacing tokens.
+- **Inside a tree node, draw the row into the draw list, not as items.** An
+  ImGui item becomes "the last item", and the drag source, the drop target and
+  the context menu all attach to whatever that is. Adding an icon and a name as
+  items made ImGui assert `id != 0` -- it refusing to make a text label
+  draggable. Draw-list text does not clip like an item either, so it needs
+  ellipsising by hand.
+- **No colour literals.** Every one that existed was eyeballed against the old
+  near-black surface and had no idea a light theme would arrive. Colours come
+  from `EditorTheme::Colors()`, which is a role, not a value.
+
 
 - **There are two script rates and the names say which.** `OnTick` is the fixed
   simulation step, `OnFrame` is the rendered frame. Gameplay in `OnFrame` is
@@ -1783,6 +1834,90 @@ an authored burst renders and that `SetComponentField` returned true with the
 emitter positioned; I had not closed the gap between those two facts. **When a
 visual check keeps coming back negative, question the instrument before the
 feature.**
+
+### Done - the editor UI overhaul (2026-08-11)
+
+**Researched first, then measured.** Six commits, `68c611e` to `4c38561`.
+Three findings changed the design rather than decorating it: reading speed
+drops measurably on pure-black dark themes and a saturated red fringes against
+`#000`; inverting a palette is the classic light/dark mistake in both
+directions; and left-aligned labels scan badly because of a *ragged gutter*,
+not because they are on the left -- which is why an inspector keeps a fixed
+label column instead of adopting the top-aligned labels that test faster on web
+forms.
+
+**What exists now**, all in `RageVEditor/src/UI/`:
+
+- **`EditorTheme`** -- semantic tokens, one name and two values, so a call site
+  never mentions a colour. Spacing on a 4px grid, one radius family, and a
+  four-step type scale (caption, body, title, display) as *multipliers* on the
+  base size, because the editor folds a UI scale and a DPI factor into that
+  already. ImGui 1.92 rebakes a font at a new size on demand, so the scale is a
+  push and a pop rather than preloaded fonts.
+- **`Widgets`** -- the layout primitives. `BeginProperties`/`PropertyRow` and
+  the `Row*` wrappers (`RowCheckbox`, `RowColor3`, `RowDragFloat`, ...),
+  `AccentButton`, `IconButton`, `DragVec3`, `SegmentedControl`, `TextCaption`.
+  Panels written with these cannot produce the truncation the fixed column did.
+- **`AssetIcons`** -- **~24 icons drawn as vector paths**, not shipped as
+  images. The browser has a 34-128px size slider with a UI scale on top, so a
+  bitmap set is sharp at one size and soft everywhere else *and* would need a
+  second set for the light theme. One definition in the theme's colours is
+  correct at every size in both themes. Keyed on a `Kind` rather than an
+  `AssetType`, because the browser lists what is in the folder -- scripts,
+  shaders, a readme, the .csproj -- which is wider than the seven things the
+  engine imports. Entities get icons too, chosen by component, most specific
+  first.
+- **Monochrome on purpose.** The palette's rule is that red means "you can act
+  on this"; colouring a mesh red for being a mesh spends that signal on
+  decoration. Type is carried by shape, which survives being small, being
+  greyscale, and a reader who cannot separate red from green.
+- **Two themes**, switchable from Window > Theme, remembered in `panels.ini`,
+  overridable with `--theme`. `tools/scripts/check_theme_contrast.py` measures
+  every pair the editor actually puts together against WCAG 2.2 AA and exits
+  non-zero on a failure.
+
+**Seven real bugs it found**, none of them cosmetic, most of them pre-existing:
+
+1. **The inspector asserted and stopped** on a narrow panel -- fixed 140px
+   label column starving `CalcItemWidth()`. Reproducible on demand by restoring
+   the old `DrawVec3` on today's padding.
+2. **The toolbar had never rendered**, in any screenshot ever taken of this
+   editor, because it was drawn after `DockSpace()`.
+3. **Accent-filled buttons failed contrast in both themes** (3.1:1 and 3.2:1).
+4. **Toolbar widths were fixed pixels**, so they clipped at any UI scale but 1.
+5. **Every docked panel drew two close buttons** -- its tab's and the dock
+   node's.
+6. **Ten `(?)` markers were clipped to a bracket**, drawn with `SameLine()`
+   after a full-width table.
+7. **The Build Log had no dock slot**, so it opened floating over the
+   hierarchy.
+
+Plus a `*` on component headers that meant "options" while meaning "modified"
+everywhere else in software, and nine hardcoded colour literals.
+
+**A verification lesson, and it is the same one as last time.** The contrast
+script proved `OnAccent` on `Accent` passes, and had no way to know that *no
+call site was using it*. **A palette being correct and a palette being used
+correctly are separate claims, and only one of them was being checked.** The
+guard now is that `AccentButton` is the only path to an accent fill.
+
+**And a correction worth keeping.** Asked whether the assertion was really
+fixed, the first attempt to reintroduce it did not reproduce: removing the
+`std::max` clamp from `DragVec3` left the editor running at every size. The
+clamp was not the fix -- the proportional column is. **A fix that works is not
+evidence for the mechanism you assumed**, and there was a reproducer available
+the whole time.
+
+**What is still not designed.** The engine now looks correct and consistent; it
+does not yet look *authored*. Left on the list: real font weights (the variable
+font's weight axis needs FreeType -- ImGui's stb rasteriser cannot reach it, so
+there is size hierarchy but no weight hierarchy), depth between the viewport
+and the chrome around it, and a keyboard focus ring. Judgement, not defects.
+
+**Note for the START HERE below.** None of this serves the *game* UI. These are
+editor-side ImGui primitives; a game's UI ships, is skinned, is authored in
+scenes and must work with no editor present. The design tokens are worth
+reading for the reasoning; the code is not reusable there.
 
 ### START HERE - text and game UI
 
