@@ -35,16 +35,22 @@
   p { margin: 0 0 8pt; text-align: justify; hyphens: auto; }
 
   code, pre { font-family: "Cascadia Mono", "Consolas", monospace; }
-  code { font-size: 8.8pt; background: #f1f2f4; padding: 0.5pt 2.5pt; border-radius: 2px; }
+  code { font-size: 8.8pt; background: #eef0f3; padding: 0.5pt 2.5pt; border-radius: 2px; }
+
+  /* Light, like the rest of the page. A dark code block on a light page looks
+     fine on screen and fails twice in practice: it inverts to light-on-light in
+     a reader's dark mode, and it prints as a solid black rectangle. A document
+     whose deliverable is a PDF should be one tone throughout. */
   pre {
-    font-size: 8pt; line-height: 1.4; background: #1c1f26; color: #e6e6e6;
-    padding: 8pt 10pt; border-radius: 4px; overflow-x: auto;
+    font-size: 8pt; line-height: 1.4; background: #f6f7f9; color: #24292e;
+    border: 1px solid #dcdfe4; border-left: 3px solid #c0392b;
+    padding: 7pt 10pt; border-radius: 3px; overflow-x: auto;
     break-inside: avoid; margin: 8pt 0 10pt;
   }
   pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
-  pre .c { color: #7f95a8; font-style: italic; }
-  pre .k { color: #d98a76; }
-  pre .s { color: #9ecf8a; }
+  pre .c { color: #6a737d; font-style: italic; }
+  pre .k { color: #a71d5d; }
+  pre .s { color: #1c7c3c; }
 
   .ascii {
     background: #f6f7f9; color: #23262d; border: 1px solid #dcdfe4;
@@ -1406,31 +1412,67 @@ existing pass.</p>
 
 <h3>7.1 &nbsp; Designing an RHI over two very different APIs</h3>
 
-<p>Vulkan and OpenGL disagree about almost everything that matters: who owns
-synchronisation, whether resources are bound or described, how memory is allocated, and
-which way up an image is stored. An abstraction over both is an exercise in choosing
-which disagreements to hide and which to expose.</p>
+<h4>What an RHI is, and why you cannot skip it</h4>
+<p>A <b>Rendering Hardware Interface</b> is the layer that lets the rest of the engine
+say "draw this with that pipeline" without naming Vulkan or OpenGL. Even a
+single-backend engine benefits — but the reason to build it <em>first</em> (§4.5) is
+sharper than that: <b>you cannot design it correctly from one API.</b> Whatever API you
+have will look like the natural shape of the problem, and you will abstract its
+incidental details as though they were universal. Only a second, disagreeing API reveals
+which parts were essential.</p>
+
+<p>The central question is what <em>level</em> to abstract at, and there are three
+answers, two of which fail:</p>
+
+<table>
+  <tr><th>Level</th><th>Looks like</th><th>Why it fails</th></tr>
+  <tr><td><b>Too low</b></td><td>A thin wrapper over one API's calls</td><td>Leaks. The other backend ends up emulating concepts it does not have — you write a descriptor-set emulator for OpenGL, and it is slower and buggier than the state calls it replaced.</td></tr>
+  <tr><td><b>Too high</b></td><td><code>DrawMesh(mesh, material, transform)</code></td><td>Cannot express anything new. The first time you need a compute dispatch or a second colour attachment, the abstraction has no vocabulary and you punch a hole through it.</td></tr>
+  <tr><td><b>The nouns</b></td><td>Device, buffer, texture, pipeline, shader, resource set, command list</td><td>These exist in both worlds even where only one names them. This is the level that works.</td></tr>
+</table>
 
 <h4>What to abstract</h4>
-<p>The nouns, not the verbs of one API. <code>RHIDevice</code>, <code>RHIBuffer</code>,
-<code>RHITexture</code>, <code>RHIPipeline</code>, <code>RHIShader</code>,
-<code>RHIResourceSet</code>, <code>RHISampler</code>, <code>RHICommandList</code>. These
-exist in both worlds even when only one names them.</p>
+<p>Objects with a lifetime and an identity: <code>RHIDevice</code>,
+<code>RHIBuffer</code>, <code>RHITexture</code>, <code>RHIPipeline</code>,
+<code>RHIShader</code>, <code>RHIResourceSet</code>, <code>RHISampler</code>,
+<code>RHICommandList</code>. OpenGL has no pipeline <em>object</em> — but it has
+pipeline <em>state</em>, and an object that records the state and applies it on bind is
+a faithful implementation rather than an emulation. That is the test for whether an
+abstraction is at the right level: <b>can each backend implement it honestly, or must one
+of them pretend?</b></p>
+
+<p><code>RHIResourceSet</code> is the interesting case. Vulkan wants descriptor sets —
+pre-baked bundles of bindings. OpenGL wants individual bind calls before the draw. The
+abstraction is "a group of bindings you prepare and then bind as a unit", which Vulkan
+implements as an actual descriptor set and OpenGL implements as a remembered list it
+replays. Neither pretends.</p>
 
 <h4>What to expose rather than hide</h4>
-<p>Anything whose cost differs by an order of magnitude between the two. Frames in
-flight is the clearest example: it is a Vulkan concept, OpenGL has no equivalent, and
-hiding it would have meant either paying Vulkan's synchronisation cost on OpenGL or
-silently writing buffers the GPU was still reading. It is exposed, and OpenGL implements
-it honestly — which found a real bug, see @@§9.2.</p>
+<p>Anything whose cost differs by an order of magnitude, and anything that changes what
+correct code looks like. <b>Frames in flight</b> is the example, and it is worth being
+concrete about why hiding it fails.</p>
+
+<p>It is a Vulkan concept; OpenGL's driver handles the same problem invisibly. Hiding it
+would mean one of two things: either the engine pays Vulkan-style synchronisation costs
+everywhere, or it writes per-frame buffers without knowing whether the GPU is still
+reading them. Exposing it means the engine is written once, correctly, against the
+stricter model — and OpenGL implements it honestly. That decision found a real bug, §7.2
+below.</p>
 
 <h4>What to design at the level of intent</h4>
-<p>Buffer barriers are the good example. Vulkan wants an access mask and a stage; OpenGL
-wants a memory-barrier bit. Neither vocabulary translates. The RHI takes a
-<code>BufferSync</code> describing the <em>use</em> — "was written by compute, will be
-read as an index buffer" — which both backends can implement without lying.</p>
+<p>Sometimes neither API's vocabulary translates, and the abstraction must describe the
+<em>purpose</em> rather than the mechanism. Buffer barriers are the clearest case. Vulkan
+wants an access mask and a pipeline stage; OpenGL wants a bit in
+<code>glMemoryBarrier</code>. There is no mapping between those vocabularies. So the RHI
+takes a <code>BufferSync</code> describing the <b>use</b>:</p>
 
-<h4>One operation that is worth its cost</h4>
+<pre><code>cmd-&gt;BufferBarrier(buffer, BufferSync::ComputeWrite, BufferSync::VertexRead);</code></pre>
+
+<p>"It was written by compute; it will be read as vertex data." Both backends can turn
+that into their own vocabulary without either of them lying, and — importantly — a reader
+of the engine code can tell what is happening without knowing either API.</p>
+
+<h4>One operation that earns its cost</h4>
 <pre><code><span class="c">// Records a one-shot command list and blocks until the GPU has finished it.</span>
 <span class="c">// Outside the frame loop entirely: no swapchain image is acquired and</span>
 <span class="c">// nothing is presented.</span>
@@ -1439,31 +1481,64 @@ read as an index buffer" — which both backends can implement without lying.</p
 <span class="c">// result is needed immediately, and what makes it wrong on the frame path.</span>
 <span class="k">virtual void</span> ExecuteImmediate(<span class="k">const</span> std::function&lt;<span class="k">void</span>(RHICommandList&amp;)&gt;&amp; record) = 0;</code></pre>
 
-<p>Asset upload uses it, one-off compute dispatches use it, and — the reason it earns its
-place — it is what lets the headless test suite exercise real GPU work without a frame
-loop to borrow.</p>
+<p>Asset upload uses it. One-off compute dispatches use it. And the reason it earns its
+place in an otherwise minimal interface: <b>it is what lets a headless test suite
+exercise real GPU work</b> with no frame loop to borrow. An abstraction that makes the
+engine testable is worth more than one that makes it slightly faster.</p>
+
+<h4>How you know the abstraction was right</h4>
+<p>Not by inspection — by a fact. <b>Adding the second backend touched no renderer
+file.</b> Everything above the RHI was written against the interface, so the second
+implementation was additive. If adding a backend requires editing the renderer, the
+boundary is in the wrong place, and you will find out at the worst possible time.</p>
 
 <h3>7.2 &nbsp; Frames in flight, and everything that follows</h3>
 
-<p>The CPU records frame N+1 while the GPU executes frame N. Everything the GPU might
-still be reading therefore needs one copy per frame in flight, and everything destroyed
-needs to outlive the frame that used it. Three rules follow, all learned the hard
-way.</p>
+<h4>The timeline</h4>
+<p>The GPU runs behind the CPU. If the CPU submitted a frame and waited for it, both
+would idle half the time. Instead the CPU records frame <var>N</var>+1 while the GPU
+executes frame <var>N</var>:</p>
 
-<blockquote><p><b>Every backend needs more than one frame in flight and a fence between
-them.</b> OpenGL originally reported one and had no fence, so subsystems rewrote
-per-frame buffers the GPU was still reading — a static scene rendered three different
-images in six frames. Fixing it cost 6% and bought correctness.</p></blockquote>
+<pre class="ascii"><code>CPU:  [record 0][record 1][record 2][record 3] ...
+GPU:            [ execute 0 ][ execute 1 ][ execute 2 ] ...
+                 ^
+                 while this runs, the CPU is already writing frame 1's data
+</code></pre>
 
+<p>That single picture generates every rule below. <b>Anything the CPU writes per frame
+may still be in use by the GPU</b>, so it needs one copy per frame in flight. Anything
+destroyed may still be referenced by submitted work, so destruction must be deferred. And
+the CPU must eventually wait, or it will run arbitrarily far ahead and queue unbounded
+work — which is what a <b>fence</b> is for: before recording into slot <var>i</var>, wait
+for the fence that says the frame that last used slot <var>i</var> has finished.</p>
+
+<h4>Rule one: every backend needs this, including the one that hides it</h4>
+<blockquote><p><b>OpenGL originally reported one frame in flight and had no fence.</b>
+Subsystems therefore rewrote per-frame buffers the GPU was still reading, and a
+completely static scene rendered <em>three different images in six frames</em>. The fix
+— genuinely implementing multiple frames and a fence sync object — cost 6% of frame time
+and bought correctness. The lesson generalises past graphics: when one implementation of
+an interface has a constraint the other lacks, implement the constraint in both. The
+alternative is code that is correct in one configuration by accident.</p></blockquote>
+
+<h4>Rule two: per-frame resources means per-frame <em>descriptors</em> too</h4>
 <blockquote><p><b>A resource set holds one descriptor set per frame in flight, and
-commit writes only the current frame's.</b> Committing once at creation populates one
-and leaves the rest never written: validation catches it on frame two, a release build
-renders garbage.</p></blockquote>
+<code>Commit</code> writes only the current frame's.</b> Committing once at creation
+populates one and leaves the others never written. Validation catches it on frame two; a
+release build renders garbage. Rebind and commit every frame — it is cheap, and the
+alternative is a bug that appears only in the configuration where nobody is
+looking.</p></blockquote>
 
-<p>The third is subtler and took a purpose-built repro to find. Deletion is deferred to a
-per-frame-slot queue — but entity destruction happens in the simulation phase,
-<em>before</em> <code>BeginFrame</code>, so a deleter pushed there landed in the slot
-<code>BeginFrame</code> was about to flush in the same iteration:</p>
+<h4>Rule three: deferred deletion, and the slot it goes in</h4>
+<p>Destroying a GPU resource the moment its last C++ reference dies is wrong: a submitted
+command list may still name it. So deletions go on a per-frame-slot queue and run when
+that slot's fence has passed. Straightforward — and the engine still got it wrong, in a
+way that took a purpose-built repro to find.</p>
+
+<p>Entity destruction happens during the <em>simulation</em> phase, which runs
+<b>before</b> <code>BeginFrame</code>. A deleter pushed there was slotted by the current
+frame index — which is the slot <code>BeginFrame</code> was about to flush, in the same
+iteration. Deferred by zero frames, in every process:</p>
 
 <pre><code><span class="k">void</span> Push(std::function&lt;<span class="k">void</span>()&gt; deleter)
 {
@@ -1472,40 +1547,81 @@ per-frame-slot queue — but entity destruction happens in the simulation phase,
     <span class="c">// Out-of-frame pushes are slotted by the most recently *submitted*</span>
     <span class="c">// frame, not the current index -- otherwise they land in the slot</span>
     <span class="c">// about to be flushed, behind a fence covering a frame from two</span>
-    <span class="c">// submissions ago. Deferred by zero frames, in every process.</span>
+    <span class="c">// submissions ago.</span>
     <span class="k">const</span> uint32_t count = (uint32_t)PerFrame.size();
     <span class="k">const</span> uint32_t slot = InFrame ? FrameIndex : (FrameIndex + count - 1) % count;
     PerFrame[slot].push_back(std::move(deleter));
 }</code></pre>
 
-<p>The GPU usually won the race, which is why it read as a rare runtime flake. It was
-proven fixed with a churn scene destroying ~180 materials a second under GPU load: <b>10
-validation errors in 4000 frames before, zero in 12000 after</b>.</p>
+<p>The GPU usually won the race, so it read as a rare flake — the worst kind of bug,
+because it resists the debugger and rewards guessing. What made it tractable was
+<b>building a repro before attempting a fix</b>: a scene destroying ~180 materials a
+second under GPU load turned it into 10 validation errors per 4000 frames, reliably. Only
+then could "fixed" mean something: zero in 12,000.</p>
+
+<blockquote><p><b>The general rule.</b> Ask of every GPU resource: <em>who might still be
+reading this, and how would I know they had finished?</em> If the answer involves the
+word "probably", it is a lifetime bug waiting for a slower machine.</p></blockquote>
 
 <h3>7.3 &nbsp; Batching and instancing</h3>
 
-<p>Meshes sharing a mesh handle, material and pipeline state are drawn as one instanced
-call, with per-instance transforms in a storage buffer. Two things about this are worth
-transferring.</p>
+<h4>The cost model</h4>
+<p>A draw call is cheap on the GPU and expensive on the <em>CPU</em>: validating state,
+translating it into hardware commands, and the driver's own bookkeeping. So the cost of a
+frame is driven less by triangles than by <b>how many times you change what you are
+drawing with</b>. Two thousand identical crates should not cost two thousand of anything.
+</p>
 
-<p><b>Identical state must be the same object, or a batch key cannot see it.</b>
-Materials each created their own sampler with identical settings. The batcher compared
-sampler pointers, saw a difference that did not exist, and silently prevented all lit
-batching. Sharing one sampler dropped the frame to 60 draws and won 4.5× on OpenGL.</p>
+<p><b>Instancing</b> is the answer: one draw call, one mesh, <var>N</var> sets of
+per-instance data. The engine puts per-instance transforms in a storage buffer and the
+vertex shader indexes it by the instance index. Meshes sharing a mesh handle, material and
+pipeline state are collected into one such call.</p>
 
-<p><b>A batch's base instance is a push constant, never <code>firstInstance</code>.</b>
-Vulkan's <code>gl_InstanceIndex</code> includes the base offset; OpenGL's
-<code>gl_InstanceID</code> does not. Using the API's own base instance produces a correct
-picture on one backend and scrambled transforms on the other.</p>
+<h4>The batch key, and a bug that made batching silently not happen</h4>
+<p>Grouping requires deciding when two draws are "the same", which means a key of
+everything that must match. The subtle failure is that <em>logically</em> identical state
+can be <em>physically</em> different:</p>
 
+<blockquote><p><b>Identical state must be the same object, or a batch key cannot see
+it.</b> Every material created its own sampler with identical settings. The batcher
+compared sampler pointers, saw differences that did not exist, and silently prevented all
+lit-pass batching. Nothing was broken; it was merely slow, which is why it survived.
+Sharing one sampler took the frame to 60 draws and won 4.5× on OpenGL.</p></blockquote>
+
+<p>Generalise it: <b>a cache or a key over pointers is a key over identity, not over
+value.</b> If you intend value semantics, either intern the objects so identical values
+share an object, or compare the values.</p>
+
+<h4>The instance-index trap</h4>
+<blockquote><p><b>A batch's base instance is a push constant, never
+<code>firstInstance</code>.</b> Vulkan's <code>gl_InstanceIndex</code> includes the base
+offset the draw was issued with; OpenGL's <code>gl_InstanceID</code> does not. Use the
+API's own base-instance parameter and one backend indexes the buffer correctly while the
+other reads from offset zero — a correct picture on one and scrambled transforms on the
+other. Passing the base explicitly costs nothing and removes the disagreement.</p></blockquote>
+
+<h4>The measurement lesson, which is the real content of this section</h4>
 <figure>
   <img src="figures/stress.jpg" alt="1000 meshes">
   <figcaption><b>Figure 4.</b> The stress scene — 1000 meshes at 1.88 ms (Vulkan) and
   1.59 ms (OpenGL), Release, vsync off. OpenGL winning here is real and not a bug: at
-  this draw count the frame is dominated by per-draw CPU cost, where GL's simpler
-  binding model has less to do.</figcaption>
+  this draw count the frame is dominated by per-draw CPU cost, where GL's simpler binding
+  model has less to do.</figcaption>
 </figure>
 
+<p>Both of this phase's optimisations produced dramatic draw-count reductions and
+<b>no frame-time improvement at all</b>. Frustum culling took 144 draws to 60. Instancing
+took 3238 to 854. The clock did not move either time.</p>
+
+<p>The second one was only caught because the clock was read alongside the draw count —
+and reading it is what exposed the shared-sampler bug above, which was the <em>actual</em>
+problem. The optimisation was real; it had been silently disabled by an unrelated
+detail.</p>
+
+<blockquote><p><b>A draw count is not a frame time.</b> It is a proxy, and a proxy is
+only useful while it correlates. Whenever you optimise, measure the thing you actually
+care about, in the same session, on the same machine — see §10 for why "the same session"
+is part of that sentence.</p></blockquote>
 <h3>7.4 &nbsp; Lighting: clustered forward</h3>
 
 <h4>The problem, stated plainly</h4>
@@ -1983,25 +2099,129 @@ actually lives.</p>
 
 <h3>7.9 &nbsp; Compute, and moving a simulation to the GPU</h3>
 
-<p>Particles simulate on the CPU by default and on the GPU per emitter, with a switch
-that allocates nothing: the compute pipeline is built once, and an emitter's buffers are
-cached by UUID and retained while the emitter <em>exists</em>, not while it is using
-them. Measured at ~16k particles: <b>Vulkan 3.30 → 1.37 ms, OpenGL 3.80 → 1.58 ms</b>.</p>
+<h4>What a compute shader is</h4>
+<p>Everything so far has gone through the graphics pipeline of §3.1: vertices in,
+triangles rasterised, fragments out. A <b>compute shader</b> removes all of that. There
+is no vertex stream, no rasteriser, no render target — just a program and a number of
+times you would like it run. You decide the shape of the work:</p>
 
-<p>Two findings generalise well beyond particles.</p>
+<pre><code>layout(local_size_x = 64) in;   <span class="c">// 64 invocations per workgroup</span>
+<span class="c">// ...</span>
+uint index = gl_GlobalInvocationID.x;   <span class="c">// which item am I?</span></code></pre>
+
+<p>Invocations are grouped into <b>workgroups</b>, and a <code>Dispatch(n)</code> launches
+<var>n</var> workgroups. The grouping is not cosmetic: invocations within a workgroup can
+share fast on-chip memory and synchronise with each other, while invocations in different
+workgroups cannot do either. That distinction is what makes some algorithms (a sort, a
+reduction) cheap if the data fits in one workgroup and expensive if it does not — and it
+is why §11's proposed bitonic sort is a single dispatch for pools up to 2048.</p>
+
+<p>Two arithmetic details bite immediately. The dispatch count is in <em>workgroups</em>,
+not items, so covering <var>n</var> items needs ⌈<var>n</var>/64⌉ groups — and the last
+group runs past the end, so <b>every compute shader needs a bounds check</b>. The engine
+derives the group count from shader reflection rather than a hard-coded 64, so that
+changing <code>local_size_x</code> cannot leave a dispatch covering a fraction of its
+data:</p>
+
+<pre><code>cmd-&gt;Dispatch(pipeline-&gt;GroupsFor(particleCount));   <span class="c">// reads local_size_x from reflection</span></code></pre>
+
+<h4>Why move particles to the GPU at all</h4>
+<p>A particle simulation is the ideal candidate: thousands of items, identical work per
+item, no interaction between them. On the CPU it costs a loop over sixteen thousand
+particles <em>and</em> the bandwidth to upload the results every frame. On the GPU the
+data never leaves the device.</p>
+
+<table>
+  <tr><th></th><th>CPU simulation</th><th>GPU simulation</th></tr>
+  <tr><td>Vulkan</td><td>3.30 ms</td><td><b>1.37 ms</b></td></tr>
+  <tr><td>OpenGL</td><td>3.80 ms</td><td><b>1.58 ms</b></td></tr>
+</table>
+
+<p>2.4× on both, at ~16k particles across three emitters. More telling than the ratio:
+after the change both backends are GPU-bound — frame time ≈ GPU work — where the CPU path
+had roughly 2 ms of CPU sitting on top.</p>
+
+<h4>The design, and the constraints that shaped it</h4>
+<p>Each emitter gets a fixed-size pool in a device-local storage buffer. One dispatch per
+emitter ages, integrates and spawns. Three decisions follow from what the GPU can and
+cannot do:</p>
+
+<ul>
+  <li><b>Spawning is a ring over the pool, not an append.</b> Ten thousand invocations
+  have no shared cursor to push onto. Instead each slot works out whether it falls inside
+  this frame's spawn window, and a slot inside the window that is still alive is left
+  alone — which reproduces "a full pool refuses to spawn" from the other direction.</li>
+  <li><b>Dead particles collapse to zero size rather than being compacted.</b> Compaction
+  needs a prefix sum and a second pass; a degenerate quad costs a discarded triangle.
+  That is the right trade until profiling says otherwise.</li>
+  <li><b>The RNG is per particle, not per emitter.</b> The CPU path advances an xorshift
+  state in spawn order — but there is no order here. Each invocation instead hashes its
+  own slot index and the frame epoch, giving different numbers with the same
+  distribution, reproducibly.</li>
+</ul>
+
+<pre><code><span class="c">// Integer hash, so a slot's numbers depend on nothing but the slot and the</span>
+<span class="c">// epoch. Two invocations never share a sequence, and a frame is reproducible.</span>
+uint Hash(uint value)
+{
+    value ^= value &gt;&gt; 16;  value *= 0x7feb352du;
+    value ^= value &gt;&gt; 15;  value *= 0x846ca68bu;
+    value ^= value &gt;&gt; 16;  <span class="k">return</span> value;
+}</code></pre>
+
+<p>A note on where the dispatch is issued, because it is a constraint newcomers hit:
+<b>a dispatch cannot be recorded inside a render pass.</b> The simulation therefore runs
+in the per-frame scene update, before the graph opens — and that placement has a second
+reason worth knowing, since the editor renders more than one view:</p>
+
+<pre><code><span class="c">// Here rather than in OnRender for two reasons, both of which are bugs in</span>
+<span class="c">// the version that looks more natural. This function runs once per frame;</span>
+<span class="c">// OnRender runs once per *view*, and the editor has two -- a simulation</span>
+<span class="c">// stepped there would advance at double speed with the game view open. And</span>
+<span class="c">// a dispatch is illegal inside a render pass.</span>
+<span class="k">if</span> (RHI::RHICommandList* cmd = Renderer::GetCommandList())
+    Particles::Gpu::Simulate(*<span class="k">this</span>, *cmd, ts.GetSeconds());</code></pre>
+
+<h4>Barriers: telling the GPU that one thing precedes another</h4>
+<p>The compute shader writes the instance buffer; the draw reads it as vertex data.
+Nothing makes that ordering automatic — you must say so. The engine brackets the whole
+batch of emitters with one pair of barriers rather than wrapping each dispatch, and the
+difference is not stylistic:</p>
+
+<blockquote><p><b>Interleaved barriers serialise the work.</b> A barrier after every
+dispatch means every emitter waits for the one before it, so a dozen emitters run
+sequentially on hardware capable of running them together. Bracketing the batch lets them
+overlap. Measured as a real improvement — though notably <em>not</em> the fix for the
+problem below, which is the point of the next paragraph.</p></blockquote>
+
+<h4>The performance bug, and why the first hypothesis was wrong</h4>
+<p>The first working version of the GPU path was <b>slower than the CPU one</b> — 6.9 ms
+against 3.3 — and GPU timestamps refused to resolve at all. The initial hypothesis was
+barrier interleaving. Batching the barriers helped a little and did not fix it.</p>
+
+<p>The actual cause was a memory-domain choice. The particle state buffer had been made
+<b>host-visible</b> so that the rare "seed the pool from the CPU" path could be a
+<code>memcpy</code>:</p>
 
 <blockquote><p><b>A persistently-mapped host-visible buffer written by a compute shader
-is a synchronisation point on OpenGL.</b> The state buffer was host-visible so a rare
-seed could be a memcpy. That made the GPU path <em>slower than the CPU one</em> — 6.9 ms
-against 3.3 — and stopped GPU timestamps resolving at all. Device-local, seeded through
-staging, fixed both. The first hypothesis (barrier interleaving) was wrong; only
-measurement found it.</p></blockquote>
+is a synchronisation point on OpenGL.</b> The driver must reconcile CPU-visible memory
+with GPU writes, and it does so by stalling. Device-local storage with a staging upload
+for the rare seed fixed both the speed and the missing timestamps.</p></blockquote>
 
-<p>The second is about keeping two implementations of one thing honest. When curve-driven
-ramps arrived, the naive design would have given the compute shader its own copy of the
-rule deciding whether a curve or a start/end pair wins per channel. Instead the CPU
-resolves the ramps once per emitter per frame and uploads the <em>answer</em> — 64
-samples — so the shader has no opinion to disagree with:</p>
+<p>Two transferable lessons. <b>Memory domain is a performance decision, not a
+convenience one</b> — "the CPU might want to touch this occasionally" is not a reason to
+make a buffer host-visible, because the cost is paid continuously and the benefit
+occasionally. And <b>a plausible hypothesis that yields a small improvement is the most
+dangerous kind</b>: it produced a real gain, which made it feel confirmed, and the actual
+2× problem sat untouched behind it. Only measuring again, rather than declaring victory,
+found it.</p>
+
+<h4>Keeping two implementations of one behaviour honest</h4>
+<p>Once there are a CPU and a GPU simulation of the same thing, every future feature has
+to be implemented twice — and the two will drift. Curve-driven ramps (§11) were the test
+case. The obvious design gives the compute shader its own copy of the rule deciding
+whether a curve or a start/end pair governs each channel. The engine does the opposite:
+the CPU resolves the ramps once per emitter per frame and uploads the <em>answer</em>.</p>
 
 <pre><code><span class="c">// The ramps, already resolved on the CPU by Particles::Evaluate.</span>
 <span class="c">//</span>
@@ -2012,20 +2232,18 @@ samples — so the shader has no opinion to disagree with:</p>
 vec4 ColorRamp[64];
 vec4 SizeRamp[64];   <span class="c">// x only</span></code></pre>
 
-<p>Verified by measurement, and the measurement found something else: under
-<code>Additive</code> the CPU and GPU paths agree to 0.10 of 255 on both backends; under
-<code>Alpha</code> a curved emitter differs by 2.7, seven times the run-to-run noise. That
-gap is not the ramp — switching to an order-independent blend collapses it — it is the
-GPU's inability to sort within an emitter, which <em>curves make worse</em> because they
-widen how much particles differ in colour and opacity.</p>
+<p>Two kilobytes per emitter, to delete an entire class of bug. The general form:
+<b>when two implementations must agree, move the decision out of both and hand each the
+result.</b> A component that cannot express a rule cannot disagree about it.</p>
 
 <figure>
   <img src="figures/curves-compare.jpg" alt="Curves versus endpoints">
-  <figcaption><b>Figure 8.</b> The same emitter twice. Left: size, colour and alpha as
-  start/end pairs. Right: the same three driven by curves — the gradient passes
-  <em>through</em> orange rather than crossfading past it, the size curve rounds it out
-  early, and an alpha curve fades it in <em>and</em> out, which two endpoints cannot
-  express at all.</figcaption>
+  <figcaption><b>Figure 8.</b> What the ramps buy, and why they were worth this trouble.
+  The same emitter twice: left, size, colour and alpha as start/end pairs; right, the
+  same three driven by curves. The gradient passes <em>through</em> orange rather than
+  crossfading past it, the size curve rounds the plume out early, and an alpha curve
+  fades it in <em>and</em> out — which two endpoints cannot express at all, since that
+  needs three values and a pair has two.</figcaption>
 </figure>
 
 <figure>
@@ -2033,9 +2251,26 @@ widen how much particles differ in colour and opacity.</p>
   <figcaption><b>Figure 9.</b> Curves are assets, edited inline under the field that
   references them — a graph with draggable points for a scalar ramp, a stop strip for a
   gradient. Because a curve reference is an ordinary <code>AssetHandle</code>, the
-  inspector, the scene format and the C# bridge all supported it without
-  changes.</figcaption>
+  inspector, the scene file format and the C# bridge supported it with no changes at all
+  (§5.3).</figcaption>
 </figure>
+
+<h4>What measuring the agreement then found</h4>
+<p>Verifying that took rendering the same scene both ways. Under <code>Additive</code>
+they agree to <b>0.10 of 255</b> on both backends. Under <code>Alpha</code> a
+curve-driven emitter differed by <b>2.7 — seven times the run-to-run noise</b>.</p>
+
+<p>That gap is not the ramp. Switching the blend to an order-independent one collapses it
+to 0.10, which pins it on the GPU path's inability to sort within an emitter (§7.8) — and
+reveals something that was not obvious: <b>curves make the sorting gap worse</b>, because
+they widen how much particles differ from each other in colour and opacity, which is
+precisely the condition under which unsorted alpha goes wrong.</p>
+
+<p>Note the shape of that investigation, because it is the reusable part. A discrepancy
+was found; two explanations were available; and rather than reasoning about which was more
+likely, <b>one variable was changed to make the explanations predict different
+outcomes</b>. Order-independent blending should erase a sorting problem and leave a data
+problem untouched. It erased it.</p>
 </section>
 
 <!-- ===================================================================== -->
