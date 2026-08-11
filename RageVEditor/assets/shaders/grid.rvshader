@@ -6,25 +6,49 @@
 // instead, so there is no extent to run out of.
 //
 // ---------------------------------------------------------------------------
-// The solve, and why it is not a ray
+// A solve for the depth, a ray for the position -- and each is needed
 // ---------------------------------------------------------------------------
 //
-// The obvious version reconstructs a world-space ray per pixel, intersects it
-// with the plane, and then projects the hit point back to get a depth. That is
-// two matrix multiplies and needs the camera position passed in.
-//
-// A projective transform maps planes to planes, so the whole thing collapses.
-// A world point P is on y = 0 exactly when the y component of
-// `InvViewProjection * clip` is zero -- that is, when clip is perpendicular to
-// the *second row* of the inverse. For a given pixel the first two components
-// of clip are known, so that is one linear equation in one unknown:
+// A projective transform maps planes to planes. A world point is on y = 0
+// exactly when the y component of `InvViewProjection * clip` is zero -- that
+// is, when clip is perpendicular to the *second row* of the inverse. For a
+// given pixel the first two components of clip are known, so that is one
+// linear equation in one unknown:
 //
 //     row.x * ndc.x + row.y * ndc.y + row.z * depth + row.w = 0
 //
-// Solving it gives the depth of the plane at this pixel directly, in the same
-// [0, 1] both backends use. The world position then comes from one multiply,
-// and the near plane, the far plane and the horizon all fall out of the range
-// check on the result rather than needing epsilons of their own.
+// That gives the plane's depth at this pixel in one division, in the same
+// [0, 1] both backends use, with the near plane and the horizon falling out of
+// the range check rather than needing epsilons of their own.
+//
+// It was tempting to use that depth to reconstruct the *position* too, and the
+// first version did. It is wrong in a way that is invisible until you get a
+// long way out: NDC depth is compressed, so everything from the far clip to
+// infinity lives in the last ten-thousandth of the range, where a float32 has
+// only a few hundred distinct values. Positions built through it quantise, and
+// the grid turns to speckle.
+//
+// So the position comes from a ray after all -- two points at well-conditioned
+// depths, which keeps full relative precision however far `t` runs. The solve
+// keeps the job it is genuinely better at and the ray keeps its own. Neither
+// replaces the other, and the earlier claim that one did was wrong.
+//
+// ---------------------------------------------------------------------------
+// The spacing is chosen per pixel
+// ---------------------------------------------------------------------------
+//
+// A fixed pair of spacings cannot cover the range an editor camera moves
+// through. One unit is a sensible grid at three metres and an invisible one at
+// three thousand, so a fixed grid either aliases when you zoom out or
+// disappears -- and this one disappeared, which is how the bug was reported.
+//
+// So each pixel picks the finest decade whose cell still covers a few pixels,
+// and three of them are cross-faded so the handover has no frame where the
+// whole grid jumps. Per pixel rather than per frame, which is why one image can
+// show fine lines underfoot and coarse ones near the horizon. It also removes a
+// precision floor that would otherwise arrive around a hundred thousand units
+// out: what `fract` is handed stays the size of a screen, not the size of the
+// world.
 //
 // ---------------------------------------------------------------------------
 // The backend difference this does *not* have
@@ -98,39 +122,47 @@ const float kAxisMaximum = 0.82;
 // grid around them has faded.
 const float kAxisWidth = 1.7;
 
-// Where a set of lines starts and finishes fading, measured in cells per
-// pixel. Past about half a cell per pixel the lines are closer together than
-// the pixels drawing them, and what is left is aliasing rather than a grid.
-const float kFadeStart = 0.18;
-const float kFadeEnd   = 0.55;
+// The smallest a cell is allowed to get on screen before the grid promotes to
+// the next decade. Below about this the lines are closer together than the
+// pixels drawing them, and what is left is a moire fence.
+const float kMinCellPixels = 9.0;
 
-// Beyond this the world position has lost the precision `fract` needs, and the
-// fade above has long since taken the lines to nothing anyway.
-const float kMaxDistance = 1.0e6;
+// How far the decade is allowed to climb above the finest spacing. Ten to the
+// twelve is past any scene, and the ceiling exists so that the horizon -- where
+// the derivative goes to infinity -- lands somewhere finite.
+const float kMaxLevel = 12.0;
 
-// Coverage of the nearest line of a set, antialiased, plus how much of the set
-// survives at this density.
+// Where the reconstruction stops. NDC depth for a point in front of the camera
+// asymptotes just above 1 as it recedes, so anything meaningfully past that is
+// the plane going edge-on rather than a place in the world.
+const float kDepthCeiling = 2.0;
+const float kMaxDistance = 1.0e7;
+
+// Coverage of the nearest line of a set, antialiased.
 //
 // The derivative is what makes it antialiased at every distance without a
 // texture or a supersample: `fwidth` is how far the coordinate moves across
 // one pixel, so dividing the distance-to-a-line by it measures that distance
 // *in pixels*, and clamping at one pixel is the line's own width.
-float LineCoverage(vec2 coord, float spacing, out float fade)
+// `footprint` is the derivative of `coord` itself, taken once by the caller and
+// passed in. **Do not take it here.** The spacing is chosen per pixel and
+// `floor` makes it jump between neighbours, so `fwidth(coord / spacing)` would
+// be differencing two values computed at different scales -- a derivative of a
+// discontinuity, which is noise. It arrived as a field of white speckle over
+// the whole far half of the viewport. The derivative of `coord` is continuous;
+// dividing it afterwards is only arithmetic.
+float LineCoverage(vec2 coord, vec2 footprint, float spacing)
 {
 	vec2 cell = coord / spacing;
-	vec2 width = fwidth(cell);
-
-	float density = max(width.x, width.y);
-	fade = 1.0 - smoothstep(kFadeStart, kFadeEnd, density);
-
+	vec2 width = footprint / spacing;
 	vec2 distance = abs(fract(cell - 0.5) - 0.5) / max(width, vec2(1.0e-8));
-	return (1.0 - min(min(distance.x, distance.y), 1.0)) * fade;
+	return 1.0 - min(min(distance.x, distance.y), 1.0);
 }
 
 // The same, for a single line at coord = 0.
-float AxisCoverage(float coord)
+float AxisCoverage(float coord, float footprint)
 {
-	float width = max(fwidth(coord), 1.0e-8) * kAxisWidth;
+	float width = max(footprint, 1.0e-8) * kAxisWidth;
 	return 1.0 - min(abs(coord) / width, 1.0);
 }
 
@@ -149,7 +181,15 @@ void main()
 	// along the plane makes plane.z zero and this a NaN, and every comparison
 	// against a NaN is false -- so the inside test rejects it and the outside
 	// test would have let it through.
-	bool inRange = depth >= 0.0 && depth <= 1.0;
+	//
+	// Note what is *not* rejected: a depth past 1. NDC depth for a point in
+	// front of the camera asymptotes just above 1 as it recedes, so "beyond the
+	// far plane" is a sliver of range covering everything from the far clip to
+	// infinity. Rejecting it drew a hard horizontal edge across the viewport
+	// wherever the far clip crossed the plane -- at a thousand units out the
+	// grid simply stopped, well short of the horizon, which is the one thing an
+	// infinite grid must not do. A far clip is where the *scene* ends.
+	bool ahead = depth >= 0.0 && depth < kDepthCeiling;
 
 	// Clamped for the arithmetic below whether or not it was in range, because
 	// everything after this takes derivatives. A derivative is a difference
@@ -157,30 +197,87 @@ void main()
 	// ruins the three beside it -- and at the horizon the pixel beside an
 	// in-range one is precisely the one that was not. Keeping it finite turns
 	// that boundary into the fade it should be.
-	float safeDepth = inRange ? depth : 1.0;
+	float solved = ahead ? depth : kDepthCeiling;
 
-	vec4 hit = u_Params.InvViewProjection * vec4(v_NDC, safeDepth, 1.0);
+	// --- the position, which does *not* come from that depth ---------------
+	//
+	// It did at first, and that was wrong in a way only visible from a long way
+	// out. NDC depth is compressed: for a standard perspective the entire world
+	// from the far clip to infinity maps into the last ten-thousandth of the
+	// range, so a float32 has a few hundred distinct values to describe all of
+	// it. Reconstructing a position through that number quantises the outer
+	// world into steps, and the grid became speckle.
+	//
+	// A ray does not have the problem. Two points at well-conditioned depths --
+	// the near plane and the far plane -- give an origin and a direction that
+	// keep full relative precision however large `t` gets. So the solve above
+	// keeps the job it is genuinely better at (a depth, in one division, with
+	// the horizon falling out of its range check) and the ray does the job it
+	// is better at. Neither replaces the other.
+	vec4 nearPoint = u_Params.InvViewProjection * vec4(v_NDC, 0.0, 1.0);
+	vec4 farPoint  = u_Params.InvViewProjection * vec4(v_NDC, 1.0, 1.0);
 
-	// hit.w is the reciprocal of the clip w, so it is positive in front of the
-	// camera and shrinks with distance. The floor caps how far the plane can be
-	// reconstructed rather than dividing by something near zero.
-	bool inFront = hit.w > 1.0 / kMaxDistance;
-	vec3 world = hit.xyz / max(hit.w, 1.0 / kMaxDistance);
+	vec3 origin = nearPoint.xyz / nearPoint.w;
+	vec3 direction = normalize(farPoint.xyz / farPoint.w - origin);
 
-	float spacing = max(u_Params.AxisX.a, 1.0e-3);
-	float majorEvery = max(u_Params.AxisZ.a, 2.0);
+	float distanceAlong = -origin.y / direction.y;
 
-	float minorFade;
-	float majorFade;
-	float minor = LineCoverage(world.xz, spacing, minorFade);
-	float major = LineCoverage(world.xz, spacing * majorEvery, majorFade);
+	// "Is it" again: a ray parallel to the plane divides by zero here, and the
+	// NaN has to fail rather than pass.
+	bool inFront = distanceAlong > 0.0 && distanceAlong < kMaxDistance;
+	vec3 world = origin + direction * (inFront ? distanceAlong : kMaxDistance);
 
-	// The X axis is the line running *along* x, so it is where z is zero.
-	float axisX = AxisCoverage(world.z) * majorFade;
-	float axisZ = AxisCoverage(world.x) * majorFade;
+	float finest = max(u_Params.AxisX.a, 1.0e-4);
+	float decade = max(u_Params.AxisZ.a, 2.0);
+
+	// --- which decade to draw, per pixel ---------------------------------
+	//
+	// Fixed spacings cannot work over the range an editor camera covers. One
+	// unit is a sensible grid at three metres and an invisible one at three
+	// thousand, so a fixed pair either aliases when you zoom out or vanishes --
+	// and this one vanished, leaving nothing to navigate by.
+	//
+	// So the spacing is chosen from the pixel footprint instead: the finest
+	// decade whose cell still covers `kMinCellPixels`. Per *pixel*, not per
+	// frame, which is what makes one image show fine lines underfoot and coarse
+	// ones at the horizon -- and it is also what fixes the precision floor,
+	// because the coordinate handed to `fract` stays the size of a screen rather
+	// than the size of the world.
+	vec2 footprint = fwidth(world.xz);
+	float perPixel = max(footprint.x, footprint.y);
+
+	// "Is it finite" again, for the same reason: at the horizon this is an
+	// infinity or a NaN, and both must land on the coarsest decade rather than
+	// the finest. A NaN fails the test and takes the else.
+	float safePerPixel = (perPixel >= 0.0 && perPixel < 1.0e18) ? perPixel : 1.0e18;
+
+	float wanted = safePerPixel * kMinCellPixels / finest;
+	float level = clamp(log2(max(wanted, 1.0)) / log2(decade), 0.0, kMaxLevel);
+	// Not named `step` -- that is a GLSL built-in, and shadowing one is legal
+	// and unreadable.
+	float rung = floor(level);
+	float blend = level - rung;
+
+	float spacing = finest * pow(decade, rung);
+
+	// Three sets, one decade apart, with opacities that hand over as `blend`
+	// runs 0 to 1. Two would be enough to draw but not to *cross-fade*: at the
+	// rollover the middle set has to already be carrying the weight the coarse
+	// one is about to take, or the whole grid jumps a decade in one frame.
+	float fine   = LineCoverage(world.xz, footprint, spacing);
+	float mid    = LineCoverage(world.xz, footprint, spacing * decade);
+	float coarse = LineCoverage(world.xz, footprint, spacing * decade * decade);
 
 	float opacity = u_Params.Line.a;
-	float alpha = max(minor * kMinorOpacity, major) * opacity;
+	float alpha = max(max(fine * kMinorOpacity * (1.0 - blend),
+						  mid * mix(1.0, kMinorOpacity, blend)),
+					  coarse * blend) * opacity;
+
+	// The X axis is the line running *along* x, so it is where z is zero. No
+	// fade: an axis is measured in pixels rather than in world units, so it
+	// stays one line wide however far away it is.
+	float axisX = AxisCoverage(world.z, footprint.y);
+	float axisZ = AxisCoverage(world.x, footprint.x);
 
 	// One colour, not a sum: at the origin both axes cover the pixel, and
 	// adding them there gives a spot of a third colour that belongs to neither.
@@ -194,6 +291,10 @@ void main()
 	// contributes nothing -- and a discard here would be a discard *after* the
 	// derivatives above, which leaves the neighbouring pixels' derivatives
 	// undefined. Multiplying it out is free and has no such rule.
-	gl_FragDepth = safeDepth;
-	o_Color = vec4(color, alpha * ((inRange && inFront) ? 1.0 : 0.0));
+	// Pinned to the far plane on the way out. Everything past it is further than
+	// anything that could occlude it, so one value serves them all -- and it is
+	// still the value the *test* wants, because the buffer holds the far plane
+	// wherever nothing was drawn.
+	gl_FragDepth = min(solved, 1.0);
+	o_Color = vec4(color, alpha * ((ahead && inFront) ? 1.0 : 0.0));
 }

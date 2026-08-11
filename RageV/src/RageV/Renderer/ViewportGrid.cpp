@@ -107,15 +107,18 @@ namespace RageV
 
 		// Written the same way round as the shader, and for the same reason: a
 		// NaN fails every comparison, so this rejects it and the negated form
-		// would not.
-		if (!(solved >= 0.0f && solved <= 1.0f))
+		// would not. The ceiling is well past 1: NDC depth for a point in front
+		// of the camera asymptotes just above it, so anything meaningfully
+		// beyond is the plane going edge-on rather than a place in the world.
+		constexpr float kDepthCeiling = 2.0f;
+		if (!(solved >= 0.0f && solved < kDepthCeiling))
 			return false;
 
 		const Vec4 hit = inverseViewProjection * Vec4(ndcX, ndcY, solved, 1.0f);
 		if (hit.w <= 0.0f)
-			return false;   // behind the camera
+			return false;   // behind the viewer, or past the horizon
 
-		depth = solved;
+		depth = Math::Min(solved, 1.0f);
 		return true;
 	}
 

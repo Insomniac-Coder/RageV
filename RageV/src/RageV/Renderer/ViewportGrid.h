@@ -25,11 +25,14 @@ namespace RageV
 		Vec3 AxisXColor{ 0.79f, 0.25f, 0.28f };
 		Vec3 AxisZColor{ 0.26f, 0.44f, 0.84f };
 
-		// One world unit, subdivided ten to a decade. Two spacings rather than
-		// one because a single one either vanishes when zoomed out or becomes a
-		// solid sheet when zoomed in -- there is no spacing that survives four
-		// orders of magnitude of camera distance, which is the range an editor
-		// camera actually covers.
+		// The *finest* spacing the grid will ever draw, and how many of those
+		// make the next one up. Coarser decades are chosen per pixel from the
+		// screen-space footprint, so the grid stays usable from arm's length to
+		// tens of thousands of units without either aliasing or vanishing.
+		//
+		// A floor rather than a fixed size, because below about a metre the
+		// lines stop being a reference and start being texture -- and one unit
+		// is the scale scenes in this engine are authored at.
 		float Spacing = 1.0f;
 		float MajorEvery = 10.0f;
 	};
@@ -69,12 +72,18 @@ namespace RageV
 		static Mat4 BuildInverseViewProjection(const Mat4& projection,
 											   const Mat4& cameraTransform);
 
-		// The depth of the plane y = 0 at a pixel, in the [0, 1] both backends
-		// use -- the same solve grid.rvshader does, so the test suite can check
-		// it against points whose depth is already known.
+		// The depth the grid writes at a pixel, in the [0, 1] both backends use
+		// -- the same solve grid.rvshader does, so the test suite can check it
+		// against points whose depth is already known.
 		//
-		// False when the plane is not visible at that pixel: behind the camera,
-		// past the far plane, or exactly edge-on. `depth` is untouched then.
+		// **Past the far plane it answers 1, not false.** A far clip is where
+		// the scene stops, not where the floor stops; clipping the grid there
+		// drew a hard edge across the viewport well short of the horizon. Every
+		// such point is further than anything that could occlude it, so one
+		// value serves them all.
+		//
+		// False when the plane genuinely is not there: behind the viewer, on the
+		// far side of the horizon, or exactly edge-on. `depth` is untouched then.
 		static bool PlaneDepthAt(const Mat4& inverseViewProjection,
 								 float ndcX, float ndcY, float& depth);
 	};

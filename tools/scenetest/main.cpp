@@ -4166,6 +4166,26 @@ void main()
 				  "a nearer piece of the plane has the smaller depth");
 		}
 
+		// --- past the far plane the grid keeps going --------------------------
+		// The reported bug: the grid stopped dead at the camera's far clip and
+		// left a hard horizontal edge across the viewport, a long way short of
+		// the horizon. A far clip is where the *scene* ends.
+		{
+			// The projection above has a far clip of 500. This is well past it,
+			// and still on the plane in front of the camera.
+			const Vec3 distant(0.0f, 0.0f, -4000.0f);
+			const Vec4 clip = viewProjection * Vec4(distant, 1.0f);
+			const Vec3 ndc = Vec3(clip) / clip.w;
+
+			Check(ndc.z > 1.0f, "the instrument is looking past the far plane");
+
+			float depth = -1.0f;
+			const bool hit = ViewportGrid::PlaneDepthAt(inverse, ndc.x, ndc.y, depth);
+			Check(hit, "a piece of the plane beyond the far clip is still drawn");
+			Check(hit && std::fabs(depth - 1.0f) < 1e-5f,
+				  "and is pinned to the far plane, behind everything that could occlude it");
+		}
+
 		// --- above the horizon there is no plane ------------------------------
 		{
 			int found = 0;

@@ -514,6 +514,18 @@ particle systems and rendering within the same frame.
 
 ### Fullscreen passes that take derivatives
 
+- **Never take a derivative of a value computed at a per-pixel scale.** The
+  grid picks its spacing per pixel and `floor` makes that jump between
+  neighbours, so `fwidth(coord / spacing)` differences two numbers computed at
+  different scales -- the derivative of a discontinuity, which is noise. Take
+  the derivative of the continuous quantity once and divide *afterwards*. It
+  arrived as a field of white speckle across the whole far half of the frame.
+- **Do not reconstruct a world position from an NDC depth.** Depth is
+  compressed: everything from the far clip to infinity lives in the last
+  ten-thousandth of the range, where a float32 has a few hundred distinct
+  values. Use it for `gl_FragDepth`, where that compression is exactly what is
+  wanted, and use a *ray* for the position -- two points at well-conditioned
+  depths keep full relative precision however far out the hit is.
 - **No `discard` after an `fwidth`.** A derivative is a difference between
   neighbouring pixels in a quad, so a lane that has already terminated leaves
   its neighbours' derivatives undefined -- and the pixel next to the one you
@@ -1977,26 +1989,31 @@ reading for the reasoning; the code is not reusable there.
 geometry: a grid made of lines has an extent, and the edge of it is visible
 from anywhere the camera can get to.
 
-**The solve is a plane in clip space, not a ray in world space.** The design
-written before this was built said "reconstruct a world ray, intersect it with
-y=0, project the hit point back for a depth". That works and it is what most
-implementations do, but it is two matrix multiplies and it needs the camera
-position passed in. A projective transform maps planes to planes, so it
-collapses: a point is on y=0 exactly when its clip position is perpendicular to
-the **second row of the inverse view-projection**, which for a known pixel is
-one linear equation in one unknown.
+**A plane solve for the depth, a ray for the position.** A projective transform
+maps planes to planes, so a point is on y=0 exactly when its clip position is
+perpendicular to the **second row of the inverse view-projection** -- which for
+a known pixel is one linear equation in one unknown:
 
 ```
 depth = -(row.x * ndc.x + row.y * ndc.y + row.w) / row.z
 ```
 
-That is the plane's depth at that pixel, already in the [0,1] both backends
-use. The world position is then one multiply. Better than being shorter: the
-near plane, the far plane and the horizon all fall out of `0 <= depth <= 1`
-rather than each needing an epsilon of its own, and `row.z == 0` -- the camera
-looking exactly along the plane -- produces a NaN that the range test rejects
-for free. `ViewportGrid::PlaneDepthAt` is the same solve on the CPU so the
-test suite can check it against points whose depth is already known.
+That is the plane's depth at that pixel in one division, already in the [0,1]
+both backends use, and the near plane and the horizon fall out of the range
+check rather than each needing an epsilon. `row.z == 0` -- the camera looking
+exactly along the plane -- produces a NaN the range test rejects for free.
+`ViewportGrid::PlaneDepthAt` is the same solve on the CPU so the test suite can
+check it against points whose depth is already known.
+
+**The first version used that depth to reconstruct the position too, and that
+was wrong.** It is invisible until you get a long way out, and then it is
+obvious: NDC depth is compressed, so everything from the far clip to infinity
+lives in the last ten-thousandth of the range, where a float32 has a few
+hundred distinct values for the whole outer world. Positions built through it
+quantise and the grid becomes speckle. The position comes from a ray -- two
+points at well-conditioned depths, which keeps full relative precision however
+far `t` runs. **Neither replaces the other**, and the claim in the first
+version of this entry that the solve made the ray unnecessary was wrong.
 
 **The backend trap the design warned about cannot happen here, and the reason
 is worth keeping.** Vulkan's NDC has y down and OpenGL's has it up. It does not
@@ -2023,12 +2040,33 @@ in-range one is precisely the one that was not. Out-of-range pixels clamp to a
 finite depth so the derivative stays finite, and multiply their alpha to zero.
 That turns the horizon into a fade instead of a fringe.
 
-**Two spacings, faded by density rather than by distance.** Each set fades out
-as `fwidth(coord/spacing)` -- cells per pixel -- crosses 0.18 to 0.55. No
-distance cutoff and no fog radius, so there is no circle where the grid stops:
-the minor set dissolves where it would alias, the major set survives ten times
-further, and the horizon takes care of itself. An infinity that overflows
-`fract` never arrives because the fade got there first.
+**The spacing is chosen per pixel, and three decades are cross-faded.** The
+first version had a fixed pair -- one unit and ten -- with a density fade. The
+user found what is wrong with that by zooming out: **a fixed spacing either
+aliases when you zoom out or vanishes, and this one vanished**, leaving nothing
+to navigate by. So each pixel picks the finest decade whose cell still covers
+about nine pixels, and three of them are cross-faded so the handover has no
+frame where the whole grid jumps a decade. Two sets can draw this but cannot
+cross-fade it: at the rollover the middle set has to already be carrying the
+weight the coarse one is about to take.
+
+Per *pixel* rather than per frame, which is why one image shows fine lines
+underfoot and coarse ones near the horizon. It also removes a precision floor
+that would otherwise arrive around a hundred thousand units out, because what
+`fract` is handed stays the size of a screen rather than the size of the world.
+
+**And the far clip is not where the floor ends.** The same report: at eight
+hundred units out the grid stopped dead at a hard horizontal edge, well short
+of the horizon, because the solve rejected `depth > 1`. NDC depth for a point
+in front of the camera asymptotes just above 1, so "beyond the far plane" is a
+sliver of range covering everything from the far clip to infinity. It is
+accepted now and pinned to 1 on the way out -- every such point is further than
+anything that could occlude it, so one depth serves them all.
+
+**The limit that remains, honestly.** Past roughly ten thousand units the lines
+start to break into dashes. That is float32 through a projective inverse, not a
+logic error, and it is ten times the editor camera's own far clip -- nothing in
+the scene renders out there at all. Clean to about five thousand, checked.
 
 **Where it is drawn.** Inside the scene pass, after the sky and before the
 particles -- *not* the separate graph pass the design called for. After the
@@ -2081,10 +2119,15 @@ in perspective, deliberately unlike `SnapGrid`'s flat lattice three buttons
 away; the first attempt had two rails and four rungs and read as a traffic cone
 at 18px, which converging *interior* lines fixed.
 
-**Verified**: 920 checks on both backends, 11 of them the grid's; the two
-backends diffed against each other; grazing (camera in the plane), 400 units
-out from above and from below, close in, both themes, the toggle off, and a
-malformed `--camera`.
+**Verified**: 923 checks on both backends, 14 of them the grid's; the two
+backends diffed against each other near and far (no shift, no flip -- the
+difference is speckle *along* the lines, which is what sub-pixel precision on
+thin high-contrast features looks like); grazing (camera in the plane), 400
+units out from above and from below, 800/3000/5000/10000/20000 out, close in,
+both themes, the toggle off, and a malformed `--camera`.
+
+**Both of the zoom bugs came from the user looking at a screenshot**, which is
+now three sessions running. Send them.
 
 ### START HERE - text and game UI
 
