@@ -160,13 +160,6 @@ Entity EditorLayer::CreateEmpty(const std::string& name)
 	return entity;
 }
 
-Entity EditorLayer::CreateQuad()
-{
-	Entity entity = CreateEmpty("Quad");
-	entity.AddComponent<ColorComponent>(Vec4(0.8f, 0.8f, 0.82f, 1.0f));
-	return entity;
-}
-
 Entity EditorLayer::CreateMesh(PrimitiveType primitive)
 {
 	Entity entity = CreateEmpty(PrimitiveTypeName(primitive));
@@ -994,7 +987,6 @@ void EditorLayer::DrawMenuBar()
 
 		if (ImGui::BeginMenu("2D Object"))
 		{
-			if (ImGui::MenuItem("Sprite Quad")) CreateQuad();
 			ImGui::EndMenu();
 		}
 

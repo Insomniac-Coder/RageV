@@ -162,7 +162,6 @@ namespace
 		scene->SetParent(child, root);
 
 		Entity grandchild = scene->CreateEntity("Grandchild");
-		grandchild.AddComponent<ColorComponent>(Vec4(0.2f, 0.4f, 0.9f, 0.75f));
 		scene->SetParent(grandchild, child);
 
 		Entity spot = scene->CreateEntity("Spot Light");
@@ -2529,22 +2528,22 @@ void main()
 			bool keyKept = false;
 			for (const ComponentDesc& component : ComponentRegistry::All())
 			{
-				if (std::string(component.Name) != "ColorComponent")
+				if (std::string(component.Name) != "ParticleEmitterComponent")
 					continue;
 
 				for (const FieldDesc& field : component.Fields)
 				{
-					if (std::string(field.Name) != "ColorValue")
+					if (std::string(field.Name) != "SimulateOnGpu")
 						continue;
 
-					authored = field.DisplayName == "Color";
-					keyKept = std::string(field.Name) == "ColorValue";
+					authored = field.DisplayName == "Simulate on GPU";
+					keyKept = std::string(field.Name) == "SimulateOnGpu";
 				}
 			}
 
 			Check(authored, "an authored label replaces the derived one");
 			Check(keyKept, "and leaves the serialized key alone");
-			Check(HumanFieldName("ColorValue") == "Color value",
+			Check(HumanFieldName("SimulateOnGpu") == "Simulate on gpu",
 				  "which the derivation on its own would not have produced");
 		}
 		Check(HumanFieldName(nullptr).empty() && HumanFieldName("").empty(),
@@ -5121,7 +5120,7 @@ void main()
 			"remove component");
 
 		CheckUndoRestoresExactly(scene, stack,
-			std::make_unique<AddComponentCommand>(scene, rootID, "ColorComponent"),
+			std::make_unique<AddComponentCommand>(scene, rootID, "AudioSourceComponent"),
 			"add component");
 
 		// Reparenting rewrites the child's local transform to preserve its world
@@ -5142,10 +5141,10 @@ void main()
 		Check(!cycle.IsValid(), "parenting an entity to its own descendant is rejected");
 
 		// Redo is dropped once a new edit diverges from the undone branch.
-		stack.Push(std::make_unique<AddComponentCommand>(scene, rootID, "ColorComponent"));
+		stack.Push(std::make_unique<AddComponentCommand>(scene, rootID, "AudioSourceComponent"));
 		stack.Undo();
 		Check(stack.CanRedo(), "redo is available after an undo");
-		stack.Push(std::make_unique<AddComponentCommand>(scene, childID, "ColorComponent"));
+		stack.Push(std::make_unique<AddComponentCommand>(scene, childID, "AudioSourceComponent"));
 		Check(!stack.CanRedo(), "a new edit clears the redo branch");
 	}
 }

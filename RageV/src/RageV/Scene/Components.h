@@ -83,15 +83,6 @@ namespace RageV
 		}
 	};
 
-	struct ColorComponent
-	{
-		Vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-
-		ColorComponent() = default;
-		ColorComponent(const ColorComponent&) = default;
-		ColorComponent(const Vec4& color) { Color = color; }
-	};
-
 	struct CameraComponent
 	{
 		RageV::SceneCamera Camera;

@@ -1390,10 +1390,9 @@ namespace RageV
 			Renderer3D::EndScene();
 		}
 
-		// After the meshes and before the quads. After, because the depth test
-		// is what keeps the sky out of the pixels the scene already covers, and
-		// it has nothing to test against until they are written. Before,
-		// because a blended quad needs something behind it.
+		// After the meshes. The depth test is what keeps the sky out of the
+		// pixels the scene already covers, and it has nothing to test against
+		// until they are written.
 		//
 		// Unconditional, unlike the mesh block above: a scene with no meshes in
 		// it still has a sky, and an empty scene showing the clear colour is
@@ -1401,36 +1400,8 @@ namespace RageV
 		if (Renderer::HasDevice() && m_Environment.Sky != SkyType::Color)
 			Skybox::Draw(camera, cameraTransform, m_Environment, sky);
 
-		Renderer2D::BeginScene(camera, cameraTransform, lights);
-
-		auto group = m_Registry.group<TransformComponent>(entt::get<ColorComponent>);
-
-		// The unit quad every one of these is, in its own space. Zero depth:
-		// TransformBounds takes the absolute value of the basis rows, so a
-		// rotated quad still gets a box that contains it.
-		static const AABB kQuadBounds{ Vec3(-0.5f, -0.5f, 0.0f),
-									   Vec3( 0.5f,  0.5f, 0.0f) };
-
-		for (auto& item : group)
-		{
-			auto [transform, color] = group.get<TransformComponent, ColorComponent>(item);
-
-			Vec3 centre, extents;
-			Frustum::TransformBounds(kQuadBounds, transform.World, centre, extents);
-
-			if (!frustum.Intersects(centre, extents))
-			{
-				Renderer3D::CountCulled();
-				continue;
-			}
-
-			Renderer2D::DrawQuad(transform.World, color.Color);
-		}
-
-		Renderer2D::EndScene();
-
 		// Last, so a blended particle has the whole scene to blend against --
-		// including the sky and the quads.
+		// including the sky.
 		auto emitters = m_Registry.view<ParticleEmitterComponent, TransformComponent>();
 		if (emitters.begin() != emitters.end() && ParticleRenderer::IsReady())
 		{

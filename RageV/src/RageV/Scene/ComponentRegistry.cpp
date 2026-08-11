@@ -313,19 +313,6 @@ namespace
 			s_Components.push_back(std::move(desc));
 		}
 
-		// --- Color -----------------------------------------------------------
-		{
-			ComponentDesc desc;
-			desc.Name = "ColorComponent";
-			desc.DisplayName = "Color";
-			// The key is "ColorValue" because that is what is on disk; the label
-			// is not, because "Color value" inside a component already called
-			// Color says the word twice.
-			desc.Fields = { Field<&ColorComponent::Color>("ColorValue", Named("Color", Color())) };
-			Bind<ColorComponent>(desc);
-			s_Components.push_back(std::move(desc));
-		}
-
 		// --- Mesh ------------------------------------------------------------
 		{
 			ComponentDesc desc;

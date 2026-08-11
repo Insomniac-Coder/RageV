@@ -136,8 +136,6 @@ namespace RageV
 		{
 			if (entity[desc.Name])
 				return desc.Name;
-			if (std::string(desc.Name) == "ColorComponent" && entity["Color"])
-				return "Color";
 			return nullptr;
 		}
 	}
