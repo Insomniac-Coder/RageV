@@ -68,6 +68,17 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
 ```
 
+And the one check that compares a render against a render instead of against a
+stored image — it found both of 6.9's bugs and is where a transparency
+regression will show up first:
+
+```bash
+python tools/scripts/check_oit.py --config Debug
+```
+
+4/4, `exit 0`. `rhismoke` is listed below as part of the bar and currently
+cannot create a window — see §9 before treating its failure as yours.
+
 **Five things that are easy to get wrong here, all learned the hard way:**
 
 1. **Run each tool from its own directory.** Assets are staged per target.
@@ -635,7 +646,7 @@ or silence rather than an obvious failure.
   decides where a fragment *writes*, not what a texture coordinate *reads*. A
   fragment at the top of the destination samples `v = 1`, which is the last row
   of the source: the bottom on Vulkan, the top on OpenGL. `PostProcess::Dispatch`
-  fills `FlipY` for every post shader; nothing else samples a render target.
+  fills `FlipY` for every post shader.
 
   An **even** number of passes hides it, which is why it shipped in 3.2 and
   survived until 3.3: with anti-aliasing on, the scene goes tonemap -> FXAA and
@@ -643,6 +654,21 @@ or silence rather than an obvious failure.
   contribution was added mirrored about the middle of the frame -- invisible
   until something was bright enough to bleed, then unmistakable as blobs
   floating on the opposite side of the image from every highlight.
+
+  **It bit a second time in 6.8, and the reason is worth more than the fix.**
+  This entry used to end "nothing else samples a render target", which stopped
+  being true the moment the weighted-blended resolve was written -- a fullscreen
+  pass that reads two render targets and lives in `ParticleRenderer`, not in
+  `PostProcess`, so it inherited none of this. It is a *single* pass, and one is
+  an odd number: Vulkan composited every weighted particle upside down. The rule
+  is therefore about what a pass *does*, never about where it lives: **anything
+  that samples a render target and writes another owes `FlipY`.**
+
+  It survived a full session of clean runs because the only test scenes were
+  plumes near the middle of frame, and smoke that is flipped still looks like
+  smoke. What found it was rendering the same particles as sorted `Alpha` and
+  comparing the *silhouettes* -- an image is only checkable against something
+  that is right by construction. `tools/scripts/check_oit.py` is now that check.
 - **The cube-map face table is the contract between capture and sampling.**
   `CubeFaceDirection` is what both specifications give and they agree, so one
   CPU conversion feeds both backends. A probe's capture basis is checked against
@@ -836,6 +862,22 @@ or silence rather than an obvious failure.
   its selection.
 - **`glClearBufferfv` indexes the draw-buffer list, not the framebuffer.**
   Binding attachments 1 and 2 means clearing indices 0 and 1.
+- **A weight that saturates its clamp is not a weight, it is a constant --
+  and in weighted-blended transparency a constant weight cancels exactly.**
+  The resolve divides accumulated colour by accumulated alpha, so only the
+  *ratio* between overlapping fragments survives. Scale them all alike and the
+  ratio is one: the output is an unweighted average that still looks like
+  plausible transparency. The shipped weight did this at every distance, and
+  it was proven by replacing the whole expression with the literal `1.0` and
+  getting a **pixel-identical** image. When a formula's output feeds a
+  normalisation, the test is not "is the number sensible" but "does it still
+  *vary*" -- a constant is the one value that hides inside any normalisation.
+- **`gl_FragCoord.z` is not a distance and must not be used as one.** With the
+  sample scenes' near plane of 0.01 it spans 0.995 to 1.0 across the entire
+  world -- 4% of range doing the work of a depth term. Anything wanting linear
+  view distance should take `1.0 / gl_FragCoord.w`, which is exact for this
+  projection because clip.w *is* the view distance. Constants copied from a
+  paper or a blog carry that source's near plane with them, silently.
 
 ### Lifetime and shutdown
 
@@ -976,7 +1018,7 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 | Lights and cameras | No billboard icons, and not clickable — picking tests geometry and they have none. |
 | Audio | `.ogg` is deliberately not claimed: it needs stb_vorbis, and a file that imports and then will not play is worse than one that does not import. |
 | Particles | A GPU emitter cannot sort its own alpha — sorting would need a readback. Use `Additive` or `WeightedBlended` there. Emitters are still sorted against each other. |
-| Particles | Weighted blending's depth weight has been eyeballed on one shallow scene. It is the START HERE in §8 for exactly that reason. |
+| Particles | Weighted blending is an approximation and is loose in one known way: a stack of equally transparent layers spread over a very large depth range renders with the near one too strong. No depth-only weight avoids that; `Alpha` is what exactness costs a sort. Measured in §8 (6.9). |
 | Particles | No sub-emitters, no arbitrary curves (size and colour interpolate start to end), and nothing collides. |
 
 ### Not built
@@ -990,9 +1032,12 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 - ~~Particles~~ -- **built**: an emitter component, CPU and GPU simulation with
   a switch that allocates nothing, billboard and flat facings (3D and 2D from
   one component), and three blend modes including order-independent. See the
-  manual's particles page. Still missing within it: no sub-emitters, no
-  curves beyond a start/end pair, no collision, and a GPU emitter cannot sort
-  its own alpha -- which is what `WeightedBlended` is for.
+  manual's particles page. The order-independent path is validated as of 6.9,
+  which is also what found its depth weight doing nothing and its resolve
+  landing upside down on Vulkan. Still missing within it: **curves beyond a
+  start/end pair** (the START HERE), collision and sub-emitters (both deferred
+  on purpose, scoped in §8), and a GPU emitter cannot sort its own alpha --
+  which is what `WeightedBlended` is for, and 6.11 would make exact.
 - **Text and game UI.** The largest gap by some distance, and the one the mini
   game hit hardest -- see §8. Nothing can draw a score, a label or a menu.
 - **A per-frame script hook.** `OnUpdate` is per fixed step by design, so
@@ -1430,7 +1475,144 @@ alpha versions of the same scene before believing it.
 4. Consider a soft-dot sprite generator (tools/scripts convention) --
    untextured squares read fine but round sprites read better.
 
-### START HERE - validate the weighted-blending depth weight
+### Done - 6.9, the depth weight validated (and two bugs it found)
+
+**The weight was wrong, and so was something bigger next to it.** Both were
+found the same way: by building a scene whose correct answer is known, rather
+than by looking at smoke and deciding it looked like smoke.
+
+`tools/scripts/make_depth_scene.py` builds it, in two modes. `layers` is the
+instrument: three emitters at 2, 20 and 200 units, one motionless particle
+each, red near / green mid / blue far at alpha 0.5, every spatial quantity
+scaled by distance so all three subtend the *same* screen angle. Each emitter
+seeds the same RNG and draws from it identically, so all three take the same
+random rotation and land perfectly concentric. It renders bit-identically run
+to run, which makes pixel comparison meaningful. The right answer is
+arithmetic -- 0.5 red over 0.5 green over 0.5 blue is 4:2:1, a red-dominant
+pixel -- and sorted `Alpha` produces it, so the reference is not a stored
+image but a render that is correct by construction. `smoke` is the same
+experiment with real plumes, for the eyes.
+
+**Bug one: the depth weight was a constant.** `gl_FragCoord.z` with the sample
+scenes' near plane of 0.01 spans 0.995 to 1.0 across the whole world, so the
+paper's `1 - z * 0.9` term varied by 4% from arm's reach to the horizon -- and
+the `1e8` multiplier put the product 39x over the clamp ceiling anyway, at
+every distance. Proven, not argued: replacing the entire expression with the
+literal `1.0` gave a **pixel-identical** image. Weighted blending was silently
+computing a flat average. The layers scene rendered mid-grey where the truth
+is red-dominant.
+
+**Bug two, found while fixing the first: the resolve was upside down on
+Vulkan.** It is a fullscreen pass that samples two render targets, so it owed
+the `FlipY` every post pass pays -- and being a single pass, nothing
+downstream cancelled it. It shipped because the test scenes were plumes near
+the middle of frame and flipped smoke still looks like smoke. §5 has the
+rule, now stated as "anything that samples a render target and writes another
+owes FlipY" rather than the old, and already-false, "nothing else samples a
+render target".
+
+**What was chosen, and why it is not the paper's.** Weight now falls as
+`1/d` on linear view distance (`1.0 / gl_FragCoord.w`, exact for this
+projection). The exponent is a straight monotone trade, measured both ways:
+
+| weight | 3 layers, 2/20/200 | dense plumes |
+|---|---|---|
+| flat (what shipped) | 1.90 | 1.17 |
+| d^-0.3 | **0.00** | 0.76 |
+| **1/d (chosen)** | 3.05 | 0.29 |
+| 1/d^2 | 4.11 | 0.22 |
+| equation 9 | 4.23 | **0.20** |
+
+Steeper is better on plumes and worse across depth, without exception. Read
+the first column carefully: `flat` scores well there while being the one
+option that is definitely broken, because grey sits near the mean of that
+stack while ordering nothing. And `d^-0.3` is *exact* there -- equal-alpha
+layers want their weight halving per layer however far apart they are -- and
+useless in a plume. No depth-only weight is right for both; that is the
+technique, not a defect.
+
+So the exponent was settled on a property the table does not show. Under the
+paper's 1e-2..3e3 clamp, equation 9 only **discriminates** between 1.5 and 100
+units and clamps flat outside it -- which is why it draws the 20-unit and
+200-unit layers identically. 1/d^2 spans 0.94 to 520. 1/d spans 0.03 to 9000,
+wider than any scene this engine will hold, and the range it buys is at the
+*near* end, where a camera standing inside a smoke cloud lives. It gives up
+0.09 against equation 9 on plumes to never fail that way.
+
+**`tools/scripts/check_oit.py` is the regression check** -- silhouette against
+the sorted render, and near-beats-far at the centre. Both failures were
+reintroduced deliberately to confirm it fails, and it names the flip as a flip.
+It is not in scenetest because scenetest cannot read pixels back; it runs the
+runtime and compares screenshots.
+
+Verified: 832 checks both backends, 0 validation messages, Debug/Release/Dist,
+`rvdoc --check`, and `particles_oit.rage` re-rendered on both backends with the
+weighted content now landing in the same place on each.
+
+### Deferred - the rest of the particle wants
+
+Named here so they are not rediscovered as ideas. In the order they were
+judged worth doing, which is not the order they were asked about:
+
+- **Particle collision.** Two different features wearing one word. Analytic
+  shapes (per-emitter planes and spheres) are cheap, identical on CPU and GPU,
+  need no frame reordering, and cover sparks off a floor -- do this one first.
+  Screen-space depth-buffer collision is what Unreal's GPU sprites do and is
+  general, but it needs the sim to sample depth, which means moving the
+  dispatch after the depth pass (it runs in `OnUpdateRuntime`, before the
+  render pass, because both command lists assert dispatch-outside-render-pass)
+  and accepting one-frame-old depth. Per-particle Jolt queries are CPU-only
+  and O(particles), which defeats the GPU path entirely.
+- **Sub-emitters.** The heaviest, and the one that wants a design note before
+  code. Needs particle *death events*. The CPU side is tractable; the GPU side
+  needs an append buffer the sim writes and indirect dispatch to consume it
+  without a readback, plus an ownership model -- pooled child emitters, never
+  an entity per particle.
+
+### START HERE - 6.10, curves beyond start and end
+
+**The user picked this, and it is the cheapest large visual win left.**
+
+Today every ramp is a two-point lerp on normalised age: `SizeStart/SizeEnd`,
+`ColorStart/ColorEnd` in `ParticleEmitterComponent`. Real effects want shapes
+-- smoke that swells fast then drifts, sparks that flash and decay, a puff
+that fades in *and* out.
+
+The runtime half is small and should stay small: bake a curve to a short LUT
+(64 texels is plenty), sample it by age. The CPU sim and
+`particle_sim.rvshader` both read the same one, which keeps the two paths
+structurally in sync exactly as the shared instance layout already does.
+
+**The cost is the editor and the serializer, and that is where the design
+decision is.** A curve has to be authorable, saveable, and reachable from C#
+-- which reaches components by registry name *with values as text*. So:
+
+1. Is a curve a new `FieldType` in `ComponentRegistry`, or an asset with a
+   handle? The registry answer keeps it inline in the scene file and makes it
+   work like every other field; the asset answer makes curves shareable
+   between emitters and is a bigger change.
+2. Whichever it is, it needs a text form, or C# loses access to half the
+   emitter. Look at how `Vec4` spells itself for the precedent.
+3. Then the inspector widget. This is the first field type in the engine that
+   is not a number, a string or a handle, so it is also the first that needs
+   real drawing rather than a stock ImGui control.
+
+Do 1 and 2 before touching the widget: a curve that cannot round-trip through
+a scene file is not a feature.
+
+### After that - 6.11, GPU alpha self-sorting
+
+Now cheaper than it looks, and no longer urgent -- weighted blending is the
+answer for GPU smoke and it works properly as of 6.9. This is for emitters
+that want *exact* alpha.
+
+Bitonic sort in compute, key = view depth, no readback; the pipelines,
+dispatch and buffer barriers all exist. The pleasant part: `MaxParticles`
+defaults to 1000, and anything up to 2048 sorts inside a **single workgroup**
+in shared memory -- one dispatch, not the 55-stage global ladder. The draw
+then reads an index buffer rather than the pool directly.
+
+### Superseded - the original 6.9 brief
 
 **The one thing in the particle work that is written but not proven.**
 
@@ -1811,6 +1993,24 @@ because the alternative is someone finding each one by being confused.
   `AssetRegistry.h`.
 - **A script attached while playing is discarded on Stop.** Correct snapshot
   semantics, surprising the first time.
+- **`rhismoke` cannot create a usable window, on either backend.** Found
+  2026-08-11 while verifying 6.9. `glfwCreateWindow` *succeeds* -- the tool's
+  own null check does not fire -- and then Vulkan reports
+  `vkCreateWin32SurfaceKHR(): pCreateInfo->hwnd is NULL` and surface
+  capabilities of 0x0, while OpenGL reports `gladLoadGLLoader failed`, which is
+  what a window with no context looks like. Exit 3 and 1 respectively.
+
+  **It is not a regression**: the pre-built `Release` binary, untouched since
+  2026-08-10, fails identically, and the frame-count argument (`rhismoke 120
+  --rhi=...`) makes no difference. It is also not the environment refusing
+  windows in general -- `RageVRuntime` and `RageVEditor` both create theirs and
+  render in the same shell, minutes apart. The suspect is therefore how the
+  tool initialises GLFW itself rather than through the engine's `Window`, since
+  that is the only thing it does differently. Untriaged beyond that.
+
+  The bar in §0 lists `rhismoke` alongside `scenetest`; until this is fixed,
+  only `scenetest` can actually be run, and any claim of a full verification
+  pass should say so.
 - **Nothing culls by distance.** A mesh behind the camera is skipped; a mesh a
   kilometre away that is two pixels across is drawn in full.
 - **RageV implements its own math, and it costs nothing. Measured properly, on

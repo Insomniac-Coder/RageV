@@ -1,0 +1,120 @@
+Scene: ParticlesDepth
+Version: 5
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 0
+  SkyHorizon: [0, 0, 0]
+  SkyZenith: [0, 0, 0]
+  SkyGround: [0, 0, 0]
+  SkyIntensity: 0
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 7776000000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7776000000000000010
+    TagComponent:
+      Tag: Near
+    TransformComponent:
+      Position: [0, -0.6, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 60
+      Burst: 0
+      Lifetime: 2.2
+      LifetimeJitter: 0
+      Direction: [0, 1, 0]
+      Spread: 20
+      Speed: 0.5
+      SpeedJitter: 0.3
+      Gravity: [0, 0.25, 0]
+      Drag: 0.5
+      SizeStart: 0.35
+      SizeEnd: 0.9
+      ColorStart: [1, 0.15, 0.15, 0.5]
+      ColorEnd: [1, 0.15, 0.15, 0]
+      Spin: 25
+      MaxParticles: 512
+      Facing: Billboard
+      Blend: WeightedBlended
+      Space: World
+      Texture: 0
+      SimulateOnGpu: false
+  - EntityID: 7776000000000000011
+    TagComponent:
+      Tag: Mid
+    TransformComponent:
+      Position: [0, -6, -20]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 60
+      Burst: 0
+      Lifetime: 2.2
+      LifetimeJitter: 0
+      Direction: [0, 1, 0]
+      Spread: 20
+      Speed: 5
+      SpeedJitter: 0.3
+      Gravity: [0, 2.5, 0]
+      Drag: 0.5
+      SizeStart: 3.5
+      SizeEnd: 9
+      ColorStart: [0.15, 1, 0.15, 0.5]
+      ColorEnd: [0.15, 1, 0.15, 0]
+      Spin: 25
+      MaxParticles: 512
+      Facing: Billboard
+      Blend: WeightedBlended
+      Space: World
+      Texture: 0
+      SimulateOnGpu: false
+  - EntityID: 7776000000000000012
+    TagComponent:
+      Tag: Far
+    TransformComponent:
+      Position: [0, -60, -200]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 60
+      Burst: 0
+      Lifetime: 2.2
+      LifetimeJitter: 0
+      Direction: [0, 1, 0]
+      Spread: 20
+      Speed: 50
+      SpeedJitter: 0.3
+      Gravity: [0, 25, 0]
+      Drag: 0.5
+      SizeStart: 35
+      SizeEnd: 90
+      ColorStart: [0.15, 0.15, 1, 0.5]
+      ColorEnd: [0.15, 0.15, 1, 0]
+      Spin: 25
+      MaxParticles: 512
+      Facing: Billboard
+      Blend: WeightedBlended
+      Space: World
+      Texture: 0
+      SimulateOnGpu: false

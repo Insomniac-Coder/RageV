@@ -79,6 +79,22 @@ or a GPU emitter, which cannot sort itself at all.
 > frame where none do. The engine allocates them only when a scene contains a
 > weighted emitter.
 
+It is an approximation, and worth knowing where it is loose. Each fragment gets
+a weight that falls with distance, and only the *ratio* between overlapping
+fragments reaches the picture. That ratio is a guess about how much a fragment
+is hidden by whatever is in front of it — and no function of depth alone can
+always be right, because what matters is how many layers are in front, not how
+far away they are. In practice: dense plumes come out very close to sorted, and
+a stack of equally transparent layers spread over a huge depth range comes out
+with the near one too strong. `Alpha` is what exactness costs a sort.
+
+> [!TRAP]
+> If weighted blending ever looks flat — near particles failing to sit *in
+> front* of far ones, the whole effect reading as an even wash — the depth
+> weight has stopped discriminating rather than the blending being broken.
+> `tools/scripts/check_oit.py` is the check for exactly that, and for the
+> resolve landing the right way up.
+
 ## Simulating on the GPU
 
 `SimulateOnGpu` moves an emitter's pool into a storage buffer and integrates it

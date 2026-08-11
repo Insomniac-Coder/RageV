@@ -7,7 +7,7 @@
 // order and produce the same image.
 //
 // McGuire and Bavoil, "Weighted Blended Order-Independent Transparency",
-// JCGT 2013. The weight below is that paper's equation 9.
+// JCGT 2013.
 
 #type vertex
 #version 450 core
@@ -29,22 +29,68 @@ layout(location = 0) out vec4 o_Accumulate;
 // and is multiplied down by every fragment that covers this pixel.
 layout(location = 1) out float o_Revealage;
 
+// The distance, in world units, at which a fragment has unit weight. Only the
+// *ratio* between two fragments' weights reaches the image -- the resolve
+// divides them out -- so this constant sets nothing on its own. What it sets
+// is where the clamp below starts biting.
+const float kUnitWeightDistance = 90.0;
+
 void main()
 {
 	vec4 color = texture(u_Texture, v_UV) * v_Color;
 
-	// Nearer fragments count for more, so a particle in front is not washed
-	// out by a hundred behind it. The clamp is the paper's: without an upper
-	// bound the nearest fragment at high alpha overflows the accumulation
-	// buffer, and without a lower one distant particles vanish entirely.
+	// View-space distance, in world units, linear.
 	//
-	// gl_FragCoord.z is post-projection depth in 0..1 on both backends --
-	// the engine sets glClipControl(ZERO_TO_ONE) precisely so this kind of
-	// arithmetic means the same thing either side.
-	float weight = clamp(pow(min(1.0, color.a * 10.0) + 0.01, 3.0)
-					   * 1e8
-					   * pow(1.0 - gl_FragCoord.z * 0.9, 3.0),
-					   1e-2, 3e3);
+	// NOT gl_FragCoord.z, which is what this shader used until it was measured.
+	// Post-projection depth is wildly non-linear: with the sample scenes' near
+	// plane of 0.01 it spans 0.995 to 1.0 across the entire world, so the
+	// paper's `1 - z * 0.9` term varied by 4% from arm's reach to the horizon
+	// and the 1e8 multiplier pinned the result to the clamp ceiling anyway.
+	// Every fragment got weight 3e3. A constant weight cancels in the resolve,
+	// so weighted blending was silently computing a flat average -- proven by
+	// rendering with the weight replaced by the literal 1.0 and getting a
+	// pixel-identical image.
+	//
+	// gl_FragCoord.w is 1/clip.w interpolated perspective-correctly, and for
+	// this projection clip.w is exactly the view-space distance.
+	float d = 1.0 / max(gl_FragCoord.w, 1e-6);
+
+	// Nearer fragments count for more, falling as 1/distance: doubling the
+	// distance halves a fragment's say. The clamp is the paper's.
+	//
+	// Why 1/d rather than the paper's equation 9, which falls as 1/d^3 near
+	// and 1/d^6 far: the exponent is a straight trade, measured on two scenes
+	// (tools/scripts/make_depth_scene.py builds both; the number is mean pixel
+	// error against the same particles drawn as sorted alpha, which is ground
+	// truth because one CPU emitter sorts its own pool):
+	//
+	//     weight        3 layers, 2/20/200 units      dense plumes
+	//     flat (was)              1.90                    1.17
+	//     d^-0.3                  0.00                    0.76
+	//     1/d  (this)             3.05                    0.29
+	//     1/d^2                   4.11                    0.22
+	//     eq. 9                   4.23                    0.20
+	//
+	// Steeper is better on dense plumes and worse across depth, monotonically.
+	// Read the first column carefully: `flat` scores well there and is the one
+	// option that is unambiguously broken, because a mid-grey sits near the
+	// mean of a red-over-green-over-blue stack while ordering nothing at all.
+	// The exact answer on that scene is d^-0.3 -- three equal-alpha layers
+	// want their weights halving per *layer* however far apart they are -- and
+	// that exponent is useless in a plume, where it barely orders anything.
+	// No depth-only weight is right for both. Sorted `Alpha` is what
+	// exactness costs a sort.
+	//
+	// So the exponent was settled on a property the table does not show. With
+	// the clamp at 1e-2..3e3, equation 9 only *discriminates* between 1.5 and
+	// 100 units; outside that band every fragment clamps to the same weight
+	// and ordering collapses -- which is why it draws the 20-unit and 200-unit
+	// layers identically. 1/d^2 discriminates from 0.94 to 520. 1/d spans 0.03
+	// to 9000 units, wider than any scene this engine will hold, so ordering
+	// never collapses; and the band it buys is at the *near* end, which is
+	// where a camera standing inside a smoke cloud actually lives. It gives up
+	// 0.09 against equation 9 on plumes to never fail that way.
+	float weight = color.a * clamp(kUnitWeightDistance / max(d, 1e-3), 1e-2, 3e3);
 
 	o_Accumulate = vec4(color.rgb * color.a, color.a) * weight;
 

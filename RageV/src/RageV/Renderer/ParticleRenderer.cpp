@@ -523,6 +523,12 @@ namespace RageV
 
 		cmd->BindPipeline(s_Data->ResolvePipeline);
 		cmd->BindResourceSet(0, batch.ResolveSet);
+
+		// Which way up the accumulation targets were stored. Every fullscreen
+		// pass in the engine owes this; PostProcess::Dispatch has the reason.
+		const float flipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(float), &flipY);
+
 		cmd->Draw(3);
 
 		// Consumed. A frame that draws nothing weighted must not composite
