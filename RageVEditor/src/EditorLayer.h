@@ -249,6 +249,12 @@ private:
 	// a bright room is its own kind of unreadable.
 	RageV::EditorTheme::Theme m_Theme = RageV::EditorTheme::Theme::Dark;
 
+	// The content browser's folder, read from panels.ini before the asset
+	// registry exists. It cannot be handed to the panel until the registry is
+	// up -- the panel resolves it against the asset root -- so it waits here
+	// for the first frame rather than being applied where it is read.
+	std::string m_PendingContentFolder;
+
 	// The backend picker. The switch cannot happen in place -- the window is
 	// created differently per backend -- so a change records a preference and
 	// asks whether to restart now.

@@ -25,6 +25,13 @@ namespace RageV
 
 		void OnImGuiRender(bool* open);
 
+		// Which folder is open, so it can be remembered between sessions.
+		// Stored relative to the asset root: an absolute path breaks the moment
+		// the project moves, and the folder that was open is a property of the
+		// project rather than of the machine.
+		std::string GetCurrentFolder() const;
+		void SetCurrentFolder(const std::string& relative);
+
 	private:
 		void DrawBreadcrumbs();
 		void DrawEntry(const std::filesystem::directory_entry& entry, float cellSize);

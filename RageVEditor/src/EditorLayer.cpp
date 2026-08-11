@@ -723,7 +723,20 @@ void EditorLayer::OnImGuiRender()
 	DrawScriptBuildPanel();
 	if (m_ShowViewport)        DrawViewportPanel();
 	if (m_ShowGameViewport)    DrawGameViewportPanel();
-	if (m_ShowContentBrowser)  m_ContentBrowser.OnImGuiRender(&m_ShowContentBrowser);
+	if (m_ShowContentBrowser)
+	{
+		// Applied here rather than where it was read: the panel resolves the
+		// folder against the asset root, and the registry is not up when
+		// panels.ini is parsed. Cleared either way, so a folder that has since
+		// been deleted is tried once and then forgotten.
+		if (!m_PendingContentFolder.empty())
+		{
+			m_ContentBrowser.SetCurrentFolder(m_PendingContentFolder);
+			m_PendingContentFolder.clear();
+		}
+
+		m_ContentBrowser.OnImGuiRender(&m_ShowContentBrowser);
+	}
 	if (m_ShowDemoWindow)      ImGui::ShowDemoWindow(&m_ShowDemoWindow);
 
 	DrawAboutPopup();
@@ -800,6 +813,7 @@ void EditorLayer::LoadPanelState()
 		else if (key == "colliders")       m_ShowColliders = value;
 		// Not a bool like the rest, so it reads the raw text rather than `value`.
 		else if (key == "theme")           m_Theme = EditorTheme::Parse(trim(line.substr(equals + 1)).c_str());
+		else if (key == "content-folder")   m_PendingContentFolder = trim(line.substr(equals + 1));
 		// The window size the dock layout was saved against, so the first
 		// frame can rescale imgui.ini's pixel sizes to today's window.
 		else if (key == "layout-width")    m_LastDockSize.x = (float)std::atof(trim(line.substr(equals + 1)).c_str());
@@ -837,6 +851,7 @@ void EditorLayer::SavePanelState()
 	file << "build-log = "       << (m_ShowScriptBuild ? 1 : 0) << "\n";
 	file << "colliders = "       << (m_ShowColliders ? 1 : 0) << "\n";
 	file << "theme = "           << EditorTheme::Name(m_Theme) << "\n";
+	file << "content-folder = "  << m_ContentBrowser.GetCurrentFolder() << "\n";
 	file << "layout-width = "    << (int)m_LastDockSize.x << "\n";
 	file << "layout-height = "   << (int)m_LastDockSize.y << "\n";
 }
@@ -1445,7 +1460,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		// Saved as well as applied, so a plain restart keeps the choice --
 		// the same contract as the backend picker above.
 		EngineConfig::SaveVSyncPreference(m_VSync);
-	}
+	}
 
 	UI::SectionHeader("Debug");
 
@@ -1453,7 +1468,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		&m_Wireframe,
 		"Rebuilds the pipeline with a line polygon mode. Polygon mode is baked into "
 			   "the pipeline on Vulkan, so this is not a free state toggle."))
-		Renderer::SetWireframe(m_Wireframe);
+		Renderer::SetWireframe(m_Wireframe);
 
 	UI::RowColor3("Clear colour", Math::ValuePtr(m_ClearColor));
 
@@ -1498,7 +1513,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "angle or roughness the way a real environment does -- image-based lighting "
 				   "replaces it, and falls back to it for scenes with no environment map.\n\n"
 				   "Set the intensity to 0 for pure direct lighting.");
-		trackAmbient("Ambient intensity");
+		trackAmbient("Ambient intensity");
 
 		UI::SectionHeader("Sky");
 
@@ -1525,7 +1540,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 				"Background",
 				[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
 				[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
-		}
+		}
 
 		if (environment.Sky == SkyType::Gradient)
 		{
@@ -1581,7 +1596,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		"A panorama points wherever it was shot, and the scene was not built "
 					   "to match it."))
 				environment.SkyRotation = Math::Radians(degrees);
-			trackAmbient("Sky rotation");
+			trackAmbient("Sky rotation");
 		}
 
 		if (environment.Sky != SkyType::Color)
@@ -1601,7 +1616,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		"Applied before the tone curve, which is what makes this an exposure "
 				   "control rather than a brightness one: it slides the scene along the "
 				   "response curve instead of scaling the result of it.");
-		trackAmbient("Exposure");
+		trackAmbient("Exposure");
 
 		UI::RowCheckbox("Bloom", &environment.BloomEnabled);
 		trackAmbient("Bloom");
@@ -1616,7 +1631,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		"%.3f",
 		"Brightness at which a pixel starts to bleed. Above 1, only things "
 					   "genuinely brighter than white glow.");
-			trackAmbient("Bloom threshold");
+			trackAmbient("Bloom threshold");
 
 			UI::RowDragFloat("Knee",
 		&environment.BloomKnee,
@@ -1626,7 +1641,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		"%.3f",
 		"Width of the ramp around the threshold. Zero is a hard cut, which "
 					   "pops as something crosses it and reads as flickering.");
-			trackAmbient("Bloom knee");
+			trackAmbient("Bloom knee");
 
 			UI::RowDragFloat("Intensity", &environment.BloomIntensity, 0.002f, 0.0f, 2.0f);
 			trackAmbient("Bloom intensity");
@@ -1649,7 +1664,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "carrying its previous transform and the renderer writing a velocity "
 				   "target. That is a renderer feature with its own prerequisites, not a "
 				   "post pass."))
-			environment.AA = (AntiAliasing)aa;
+			environment.AA = (AntiAliasing)aa;
 	}
 
 	UI::SectionHeader("Lighting");
@@ -1671,7 +1686,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 						  "render targets, comparison samplers, slope-scaled depth bias,\n"
 						  "cubemap and array textures -- but no shadow pass exists.");
 
-	ImGui::TextDisabled("Shading: Cook-Torrance PBR");
+	ImGui::TextDisabled("Shading: Cook-Torrance PBR");
 
 	ImGui::End();
 }

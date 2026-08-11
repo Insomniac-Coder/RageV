@@ -1,5 +1,6 @@
 #include "ContentBrowserPanel.h"
 #include "EditorTheme.h"
+#include "AssetIcons.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 
@@ -7,41 +8,29 @@ namespace RageV
 {
 	namespace
 	{
-		// A glyph per type. Real thumbnails need a render-to-texture pass per
-		// asset and a cache to hold them, which is worth doing once there is
-		// something more visually distinguishable than four file types.
-		const char* TypeGlyph(AssetType type)
-		{
-			switch (type)
-			{
-				case AssetType::Mesh:     return "[M]";
-				case AssetType::Texture:  return "[T]";
-				case AssetType::Material: return "[m]";
-				case AssetType::Prefab:   return "[P]";
-				case AssetType::Scene:    return "[S]";
-				case AssetType::Audio:    return "[A]";
-				default:                  return " ? ";
-			}
-		}
+		// Icons are vectors now, in UI/AssetIcons. Real *thumbnails* -- a
+		// render of the actual mesh or the actual texture -- still need a
+		// render-to-texture pass per asset and a cache to hold them; the icons
+		// say what kind of thing it is, which is the question a browser is
+		// asked far more often.
 
 		// Below this many columns the grid stops reading as a grid, so cells
 		// shrink instead. Below kMinCell they stop being clickable.
 		constexpr int kMinColumns = 3;
 		constexpr float kMinCell = 34.0f;
 
-		ImVec4 TypeColor(AssetType type)
+		// Icons are one colour, and it says state rather than type.
+		//
+		// The version this replaces tinted meshes and prefabs with the accent
+		// because those are the two that can be dragged somewhere useful. That
+		// was already stretching the rule -- red means "you can act on this" --
+		// and it does not survive having real icons, where shape carries the
+		// type and colouring by type would leave the panel with no way left to
+		// show which cell the cursor is on.
+		ImU32 IconColor(bool hovered)
 		{
-			// Only the two types that can be dragged somewhere useful are
-			// coloured. Everything else stays grey, so the accent still means
-			// "you can act on this" rather than decorating the panel.
-			switch (type)
-			{
-				case AssetType::Mesh:
-				case AssetType::Prefab:
-					return EditorTheme::Colors().Accent;
-				default:
-					return ImVec4(0.55f, 0.55f, 0.58f, 1.0f);
-			}
+			const auto& colors = EditorTheme::Colors();
+			return ImGui::GetColorU32(hovered ? colors.Accent : colors.TextSecondary);
 		}
 	}
 
@@ -123,6 +112,34 @@ namespace RageV
 		ImGui::End();
 	}
 
+	std::string ContentBrowserPanel::GetCurrentFolder() const
+	{
+		if (m_Current.empty() || !Assets::Registry::IsInitialised())
+			return {};
+
+		std::error_code error;
+		const std::filesystem::path relative =
+			std::filesystem::relative(m_Current, Assets::Registry::Root(), error);
+		if (error || relative.empty() || relative == ".")
+			return {};
+
+		return relative.generic_string();
+	}
+
+	void ContentBrowserPanel::SetCurrentFolder(const std::string& relative)
+	{
+		if (relative.empty() || !Assets::Registry::IsInitialised())
+			return;
+
+		// Verified rather than trusted: the folder may have been deleted since
+		// it was written, and a browser that opens on a path that no longer
+		// exists shows an empty grid with no way to tell why.
+		const std::filesystem::path candidate = Assets::Registry::Root() / relative;
+		std::error_code error;
+		if (std::filesystem::is_directory(candidate, error) && !error)
+			m_Current = candidate;
+	}
+
 	void ContentBrowserPanel::DrawBreadcrumbs()
 	{
 		const std::filesystem::path& root = Assets::Registry::Root();
@@ -185,13 +202,34 @@ namespace RageV
 			}
 		}
 
+		// The button is the hit target and nothing else: transparent at rest so
+		// the grid reads as a grid rather than as a wall of tiles, with the
+		// hover fill as the only thing that moves.
+		const auto& colors = EditorTheme::Colors();
 		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-		ImGui::PushStyleColor(ImGuiCol_Text,
-							  isDirectory ? ImVec4(0.85f, 0.85f, 0.88f, 1.0f) : TypeColor(type));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentFaint);
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.AccentMuted);
 
-		ImGui::Button(isDirectory ? "[/]" : TypeGlyph(type), ImVec2(cellSize, cellSize));
+		const ImVec2 cellTopLeft = ImGui::GetCursorScreenPos();
+		ImGui::Button("##cell", ImVec2(cellSize, cellSize));
+		const bool hovered = ImGui::IsItemHovered();
 
-		ImGui::PopStyleColor(2);
+		ImGui::PopStyleColor(3);
+
+		// Drawn after the button so it lands on top of the hover fill, and
+		// inset so the glyph is not flush against the cell's edge.
+		const float inset = cellSize * 0.16f;
+		const ImVec2 iconAt = { cellTopLeft.x + inset, cellTopLeft.y + inset };
+		const float iconSize = cellSize - inset * 2.0f;
+		ImDrawList* draw = ImGui::GetWindowDrawList();
+
+		// The registry's type when it has one, the extension when it does not:
+		// a project folder holds scripts, shaders and a readme as well as the
+		// seven things the engine imports, and one glyph between all of them
+		// is a browser navigated by reading filenames.
+		const UI::IconKind kind = isDirectory ? UI::IconKind::Folder
+											  : UI::KindForFile(path, type);
+		UI::DrawIcon(draw, iconAt, iconSize, kind, IconColor(hovered));
 
 		// --- drag source ----------------------------------------------------
 		// Only assets the registry knows: dragging a file with no handle would
@@ -199,7 +237,12 @@ namespace RageV
 		if (handle.IsValid() && ImGui::BeginDragDropSource())
 		{
 			ImGui::SetDragDropPayload("RAGEV_ASSET", &handle, sizeof(handle));
-			ImGui::Text("%s %s", TypeGlyph(type), filename.c_str());
+			// The same icon at text size, so what is under the cursor while
+			// dragging is recognisably the thing that was picked up.
+			UI::DrawInlineIcon(UI::KindForFile(path, type),
+							   ImGui::GetColorU32(EditorTheme::Colors().TextPrimary));
+			ImGui::SameLine();
+			ImGui::TextUnformatted(filename.c_str());
 			ImGui::EndDragDropSource();
 		}
 
