@@ -49,7 +49,7 @@ namespace RageV::UI
 				return ImGui::GetColorU32(ImVec4(key.Value[0], key.Value[1], key.Value[2], 1.0f));
 			}
 			return ImGui::GetColorU32(hovered ? ImVec4(1.0f, 0.85f, 0.4f, 1.0f)
-											  : ImVec4(0.95f, 0.35f, 0.25f, 1.0f));
+											  : EditorTheme::Colors().Accent);
 		}
 	}
 
@@ -77,7 +77,7 @@ namespace RageV::UI
 		const bool areaHovered = ImGui::IsItemHovered();
 
 		draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y),
-							ImGui::GetColorU32(ImVec4(0.09f, 0.09f, 0.11f, 1.0f)), 3.0f);
+							ImGui::GetColorU32(EditorTheme::Colors().BgBase), 3.0f);
 
 		float low = 0.0f;
 		float high = 1.0f;

@@ -1,4 +1,5 @@
 #include "EditorLayer.h"
+#include <algorithm>
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "UI/EditorTheme.h"
@@ -1361,10 +1362,54 @@ void EditorLayer::DrawStatisticsPanel()
 		return;
 	}
 
-	const float fps = m_FrameTimeMs > 0.0f ? 1000.0f / m_FrameTimeMs : 0.0f;
-	ImGui::Text("%.2f ms", m_FrameTimeMs);
-	ImGui::SameLine();
-	ImGui::TextDisabled("(%.0f FPS)", fps);
+	// The headline is the **median** of the history, not the last frame.
+	//
+	// The instantaneous value was the headline, and one number with no context
+	// cannot tell a one-off spike from a sustained problem. A startup frame
+	// carrying a 133 ms environment prefilter -- or any frame a screenshot
+	// readback stalled -- rendered identically to an engine that had genuinely
+	// fallen over, and read as ~600 ms with nothing on screen to say otherwise.
+	//
+	// A median ignores the spike; the p95 beside it is where the spike shows up
+	// without being able to shout; the sparkline still draws it. Between them
+	// the panel can say "mostly fine, occasionally not" instead of picking one
+	// frame and presenting it as the truth.
+	float sorted[IM_ARRAYSIZE(m_FrameHistory)];
+	int samples = 0;
+	for (float value : m_FrameHistory)
+		if (value > 0.0f)
+			sorted[samples++] = value;
+
+	float median = m_FrameTimeMs;
+	float p95 = m_FrameTimeMs;
+	if (samples > 0)
+	{
+		std::sort(sorted, sorted + samples);
+		median = sorted[samples / 2];
+		p95 = sorted[(int)((samples - 1) * 0.95f)];
+	}
+
+	const float fps = median > 0.0f ? 1000.0f / median : 0.0f;
+
+	UI::PushTextScale(EditorTheme::Type::Display);
+	ImGui::Text("%.2f ms", median);
+	UI::PopTextScale();
+
+	ImGui::SameLine(0.0f, EditorTheme::Space::Base);
+	ImGui::AlignTextToFramePadding();
+	UI::TextCaption("median  %.0f FPS", fps);
+
+	UI::TextCaption("p95 %.2f ms    last %.2f ms    %d frames",
+					p95, m_FrameTimeMs, samples);
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::SetTooltip("Median over the last %d frames, so a single slow frame -- "
+						  "shader compilation, an asset load, the first frame after "
+						  "Play -- does not become the number you read.\n\n"
+						  "p95 is where those spikes show. If p95 is far above the "
+						  "median, something stutters even though the average looks "
+						  "fine.", samples);
+	}
 
 	ImGui::PlotLines("##FrameTimes", m_FrameHistory, IM_ARRAYSIZE(m_FrameHistory),
 					 m_FrameHistoryIndex, nullptr, 0.0f, FLT_MAX,
@@ -1958,8 +2003,15 @@ void EditorLayer::DrawAboutPopup()
 	if (!ImGui::BeginPopupModal("About RageV", nullptr, ImGuiWindowFlags_NoResize))
 		return;
 
-	ImGui::TextColored(EditorTheme::Colors().Accent, "RageV Engine");
-	ImGui::TextDisabled("A Vulkan/OpenGL renderer with an EnTT scene system.");
+	// The name at title weight rather than in the accent. Red means "you can
+	// act on this", and a product name is not a control -- it was the one
+	// remaining place the accent was being used as decoration.
+	UI::PushTextScale(EditorTheme::Type::Title);
+	ImGui::TextUnformatted("RageV Engine");
+	UI::PopTextScale();
+
+	UI::TextCaption("A Vulkan/OpenGL renderer with an EnTT scene system.");
+
 	ImGui::Spacing();
 	ImGui::Separator();
 	ImGui::Spacing();
@@ -1967,16 +2019,22 @@ void EditorLayer::DrawAboutPopup()
 	if (Renderer::HasDevice())
 	{
 		const auto& caps = Renderer::GetDevice().GetCaps();
-		ImGui::TextWrapped("Running on %s", caps.APIName.c_str());
-		ImGui::TextWrapped("%s", caps.DeviceName.c_str());
+		if (UI::BeginProperties("##about"))
+		{
+			UI::RowText("Backend", caps.APIName.c_str());
+			UI::RowText("Device", caps.DeviceName.c_str());
+			UI::EndProperties();
+		}
 	}
 
 	ImGui::Spacing();
-	ImGui::TextDisabled("Switch backend with --rhi=vulkan|opengl,");
-	ImGui::TextDisabled("or by editing ragev.ini next to the executable.");
+	UI::TextCaption("Switch backend with --rhi=vulkan|opengl, or by editing "
+					"ragev.ini next to the executable.");
 	ImGui::Spacing();
 
-	if (ImGui::Button("Close", ImVec2(-1.0f, 0.0f)))
+	// Accent-filled: a modal with one button should say which one it is, and
+	// this is the only action in the dialog.
+	if (UI::AccentButton("Close", ImVec2(-1.0f, 0.0f)))
 		ImGui::CloseCurrentPopup();
 
 	ImGui::EndPopup();
@@ -2032,7 +2090,11 @@ void EditorLayer::DrawBackendRestartPopup()
 
 	const float width = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
 
-	if (ImGui::Button("Restart Now", ImVec2(width, 0.0f)))
+	// The destructive one is the accented one, because in a two-button dialog
+	// the reader needs to know which is the commitment before reading either
+	// label. "Restart Later" stays plain: doing nothing should never be the
+	// loudest thing on screen.
+	if (UI::AccentButton("Restart Now", ImVec2(width, 0.0f)))
 	{
 		const std::string arguments =
 			std::string("--rhi=") + (m_PendingBackend == RHI::Backend::Vulkan ? "vulkan" : "opengl");
@@ -2968,7 +3030,10 @@ void EditorLayer::DrawScriptBuildPanel()
 	// moment they are reading the output.
 	if (m_BuildInFlight)
 	{
-		ImGui::TextColored(ImVec4(0.85f, 0.68f, 0.30f, 1.0f), "Building%.*s",
+		// Through the token. A literal amber here was the last hardcoded colour
+		// in the editor -- it was tuned against the old near-black surface and
+		// has no idea a light theme exists.
+		ImGui::TextColored(EditorTheme::Colors().Warning, "Building%.*s",
 						   1 + (int)(ImGui::GetTime() * 2.0) % 3, "...");
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Cancel"))
@@ -3012,7 +3077,7 @@ void EditorLayer::DrawScriptBuildPanel()
 		ImGui::SeparatorText("C++ module");
 		if (m_ModuleBuild.SdkMissing)
 		{
-			ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "No CMake");
+			ImGui::TextColored(EditorTheme::Colors().Danger, "No CMake");
 			ImGui::TextWrapped("The C++ module needs CMake. The engine's own build has one; "
 							   "install CMake or put it on PATH.");
 		}
@@ -3031,7 +3096,7 @@ void EditorLayer::DrawScriptBuildPanel()
 
 		if (m_ScriptBuild.SdkMissing)
 		{
-			ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "No .NET SDK");
+			ImGui::TextColored(EditorTheme::Colors().Danger, "No .NET SDK");
 			ImGui::TextWrapped("C# scripts need the .NET 8 SDK. The engine itself does not -- "
 							   "it finds the runtime at startup and reports C# as unavailable "
 							   "when there is none.");
@@ -3061,7 +3126,7 @@ void EditorLayer::DrawBuildResult(const Managed::BuildResult& result)
 	// yet broken" is the reading being avoided.
 	if (result.Cancelled)
 	{
-		ImGui::TextColored(ImVec4(0.85f, 0.68f, 0.30f, 1.0f), "Cancelled");
+		ImGui::TextColored(EditorTheme::Colors().Warning, "Cancelled");
 		if (ImGui::CollapsingHeader("Output up to the cancel"))
 			ImGui::TextUnformatted(result.Output.c_str());
 		ImGui::PopID();
@@ -3069,9 +3134,9 @@ void EditorLayer::DrawBuildResult(const Managed::BuildResult& result)
 	}
 
 	if (errors > 0)
-		ImGui::TextColored(ImVec4(0.88f, 0.30f, 0.30f, 1.0f), "%zu error(s), %zu warning(s)", errors, warnings);
+		ImGui::TextColored(EditorTheme::Colors().Danger, "%zu error(s), %zu warning(s)", errors, warnings);
 	else
-		ImGui::TextColored(ImVec4(0.40f, 0.75f, 0.45f, 1.0f), "Built in %.1fs, %zu warning(s)",
+		ImGui::TextColored(EditorTheme::Colors().Success, "Built in %.1fs, %zu warning(s)",
 						   result.Seconds, warnings);
 
 	ImGui::Separator();
@@ -3086,8 +3151,8 @@ void EditorLayer::DrawBuildResult(const Managed::BuildResult& result)
 			if (diagnostic.IsError != wantErrors)
 				continue;
 
-			const ImVec4 colour = diagnostic.IsError ? ImVec4(0.88f, 0.30f, 0.30f, 1.0f)
-													 : ImVec4(0.85f, 0.68f, 0.30f, 1.0f);
+			const ImVec4 colour = diagnostic.IsError ? EditorTheme::Colors().Danger
+													 : EditorTheme::Colors().Warning;
 
 			// A linker diagnostic has no line at all; printing "(0,0)" after
 			// every unresolved symbol would just be noise.
