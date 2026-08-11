@@ -1756,7 +1756,7 @@ learnopengl.com — a path from A to B, teaching the reader forward, rather than
 a description of a finished artefact. The user's words: it may end up "a whole
 book with pages in 3 digits" and that is acceptable; verbosity is wanted.
 
-**Where it is: 81 pages, 12 chapters, ~29,000 words.** The skeleton is
+**Where it is: 90 pages, 12 chapters, ~31,000 words, 64 code listings.** The skeleton is
 complete and every chapter has real content, real code quoted verbatim, and
 real figures captured through `--screenshot`. Chapters 2 and 3 -- the maths,
 and how the two graphics APIs work with one feature traced down through both
@@ -1786,11 +1786,16 @@ value order:
    you run to know it worked. Written to be engine-agnostic: the libraries
    named are the ones this project picked, not requirements.
 
-   **Milestones 0-3 now carry real code listings** -- the build file and the
-   frame loop, UUIDs and the reflection-driven serializer with the round-trip
-   test, the accumulator loop with input-edge latching and slerp
-   interpolation, and the full RHI header with both backends' BindPipeline
-   side by side. **Milestones 4-8 are still descriptions** and want the same.
+   **All nine milestones now carry real code listings**, each in the same
+   place (You will have / Steps / The code / Traps / Proof): the build file
+   and frame loop; UUIDs and the reflection-driven serializer with the
+   round-trip test; the accumulator with input-edge latching and slerp; the
+   whole RHI header with both backends' BindPipeline side by side; the render
+   graph's declare/execute pair and its Compile checks; Cook-Torrance's three
+   terms and the IBL lookups and the shadow bias; the script registry and the
+   four-step reload including the managed collectible-context unload; the
+   project file, the runtime layer and the packager's copy list; and a game
+   script with the papercut list it produces.
 
 4. **Four ASCII diagrams remain**: the layer stack (5.1), the render path
    (6.2), the project/application tree (5.1) and the accumulator (2.13). The

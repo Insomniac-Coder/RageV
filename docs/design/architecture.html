@@ -3646,6 +3646,94 @@ a tonemap pass to the backbuffer. Two passes, which is the point — build the g
   <li><b>Port your existing frame onto it.</b> Scene → HDR, tonemap → backbuffer.</li>
 </ol>
 
+<h4>The code</h4>
+
+<p>A target is described, never allocated by hand. The description <em>is</em> the pool
+key, which is what makes reuse automatic:</p>
+
+<pre><code><span class="k">struct</span> RGTargetDesc
+{
+    std::string Name;                            <span class="c">// for debugging only</span>
+    uint32_t    Width = 0, Height = 0;           <span class="c">// 0 = follow the frame</span>
+    Format      Color = Format::R16G16B16A16_SFLOAT;
+    Format      Depth = Format::Undefined;       <span class="c">// Undefined = no depth</span>
+
+    <span class="c">// Two targets can share one allocation only if they agree here. Miss a</span>
+    <span class="c">// field and the pool hands back a target of the wrong shape, which</span>
+    <span class="c">// presents as one pass mysteriously reading another's contents.</span>
+    <span class="k">bool</span> SameShape(<span class="k">const</span> RGTargetDesc&amp; other) <span class="k">const</span>
+    {
+        <span class="k">return</span> Width == other.Width &amp;&amp; Height == other.Height
+            &amp;&amp; Color == other.Color &amp;&amp; Depth == other.Depth;
+    }
+};</code></pre>
+
+<p>A pass is a name and two lambdas. The first says what it touches; the second draws. The
+split is the entire mechanism — the graph can plan because it can ask about the frame
+before executing it:</p>
+
+<pre><code><span class="k">using</span> RGResource = uint32_t;                  <span class="c">// an index, not a pointer</span>
+
+RGResource sceneHDR = graph.CreateTarget({ .Name = <span class="s">"SceneHDR"</span>,
+                                           .Depth = Format::D32_SFLOAT });
+RGResource output   = graph.Backbuffer();
+
+graph.AddPass(<span class="s">"Scene"</span>,
+    [&amp;](RGPassBuilder&amp; builder)                <span class="c">// declare</span>
+    {
+        builder.Write(sceneHDR);
+        builder.SetClearColor({ 0.1f, 0.1f, 0.12f, 1.0f });
+    },
+    [&amp;](RGPassContext&amp; context)                <span class="c">// execute</span>
+    {
+        Renderer3D::BeginScene(camera);
+        DrawEverything();
+        Renderer3D::EndScene();
+    });
+
+graph.AddPass(<span class="s">"Tonemap"</span>,
+    [&amp;](RGPassBuilder&amp; builder)
+    {
+        builder.Write(output);
+        builder.Sample(sceneHDR);              <span class="c">// declares the dependency</span>
+    },
+    [&amp;](RGPassContext&amp; context)
+    {
+        <span class="c">// Color(resource) resolves to whatever the pool gave that target.</span>
+        PostProcess::Tonemap(context.Color(sceneHDR));
+    });
+
+<span class="k">if</span> (!graph.Compile())                          <span class="c">// refuse a malformed frame</span>
+    RV_CORE_ERROR(<span class="s">"frame: {0}"</span>, graph.Errors()[0]);
+<span class="k">else</span>
+    graph.Execute(*commandList);</code></pre>
+
+<p>Compile is where the graph earns its place. It is short, and every check in it
+corresponds to a bug that would otherwise be a black screen with no message:</p>
+
+<pre><code><span class="k">bool</span> RenderGraph::Compile()
+{
+    m_Errors.clear();
+
+    <span class="k">for</span> (Pass&amp; pass : m_Passes)
+        <span class="k">for</span> (RGAttachment&amp; attachment : pass.Attachments)
+            <span class="k">if</span> (attachment.Index &gt;= ColorCountOf(pass.Target))
+                m_Errors.push_back(pass.Name + <span class="s">" binds attachment "</span>
+                                   + std::to_string(attachment.Index)
+                                   + <span class="s">" of a target that does not have one"</span>);
+
+    <span class="k">for</span> (<span class="k">const</span> Target&amp; target : m_Targets)
+        <span class="k">if</span> (!IsWritten(target))
+            m_Errors.push_back(target.Desc.Name + <span class="s">" is created and never written"</span>);
+
+    <span class="c">// Then hand out real render targets, reusing any pooled one whose</span>
+    <span class="c">// shape matches and whose last reader has already run.</span>
+    <span class="k">for</span> (Target&amp; target : m_Targets)
+        target.Actual = m_Pool.Acquire(target.Desc);
+
+    <span class="k">return</span> m_Errors.empty();
+}</code></pre>
+
 <h4>Traps</h4>
 <ul>
   <li><b>Build pipelines against what the <em>pass</em> writes</b>, not against the final
@@ -3688,6 +3776,125 @@ the milestone where the engine stops looking like a demo.</p>
   cascades. In that order, and expect the bias to take longer than the rest combined.</li>
 </ol>
 
+<h4>The code</h4>
+
+<p>Linear colour first, and it is mostly a matter of asking for the right texture format
+— the hardware does the conversion for free:</p>
+
+<pre><code><span class="c">// A colour texture is a picture and is stored gamma-encoded. Ask for an</span>
+<span class="c">// _SRGB format and the sampler linearises on read, at no cost.</span>
+TextureDesc albedo;
+albedo.Format = Format::R8G8B8A8_SRGB;      <span class="c">// pictures</span>
+
+<span class="c">// A roughness or normal map is DATA, not a picture. Decoding it would</span>
+<span class="c">// corrupt the values.</span>
+TextureDesc roughness;
+roughness.Format = Format::R8G8B8A8_UNORM;  <span class="c">// data</span></code></pre>
+
+<p>Then the BRDF. The three terms of §2.9, written out — this is the whole of physically
+based specular, and it is shorter than most people expect:</p>
+
+<pre><code><span class="c">// D -- how many microfacets are angled to reflect l into v.</span>
+<span class="c">// This is what "roughness" controls, and it is the shape of the highlight.</span>
+<span class="k">float</span> DistributionGGX(vec3 N, vec3 H, <span class="k">float</span> roughness)
+{
+    <span class="k">float</span> a2    = roughness * roughness * roughness * roughness;
+    <span class="k">float</span> NdotH = max(dot(N, H), 0.0);
+    <span class="k">float</span> d     = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    <span class="k">return</span> a2 / (PI * d * d);
+}
+
+<span class="c">// F -- everything is more reflective at grazing angles. Schlick's</span>
+<span class="c">// approximation; F0 is the reflectance looking straight on.</span>
+vec3 FresnelSchlick(<span class="k">float</span> cosTheta, vec3 F0)
+{
+    <span class="k">return</span> F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+<span class="c">// G -- microfacets shadow and mask each other at glancing angles.</span>
+<span class="k">float</span> GeometrySmith(vec3 N, vec3 V, vec3 L, <span class="k">float</span> roughness)
+{
+    <span class="k">float</span> k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    <span class="k">float</span> gv = max(dot(N, V), 0.0) / (max(dot(N, V), 0.0) * (1.0 - k) + k);
+    <span class="k">float</span> gl = max(dot(N, L), 0.0) / (max(dot(N, L), 0.0) * (1.0 - k) + k);
+    <span class="k">return</span> gv * gl;
+}
+
+vec3 CookTorrance(vec3 N, vec3 V, vec3 L, vec3 albedo,
+                  <span class="k">float</span> metallic, <span class="k">float</span> roughness, vec3 radiance)
+{
+    vec3  H = normalize(V + L);
+
+    <span class="c">// Dielectrics reflect ~4% colourlessly; metals reflect their own</span>
+    <span class="c">// colour and have no diffuse term at all. One value blends the two.</span>
+    vec3  F0 = mix(vec3(0.04), albedo, metallic);
+
+    vec3  F  = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    <span class="k">float</span> D  = DistributionGGX(N, H, roughness);
+    <span class="k">float</span> G  = GeometrySmith(N, V, L, roughness);
+
+    vec3 specular = (D * G * F) /
+                    (4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001);
+
+    <span class="c">// Energy conservation: what is reflected is not also diffused.</span>
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+
+    <span class="k">return</span> (kD * albedo / PI + specular) * radiance * max(dot(N, L), 0.0);
+}</code></pre>
+
+<p>Image-based lighting is then three lookups standing in for the integral (§7.6). Note
+how <b>roughness becomes a mip level</b> — the whole trick, in one line:</p>
+
+<pre><code>vec3 ImageBasedLight(vec3 N, vec3 V, vec3 albedo, <span class="k">float</span> metallic, <span class="k">float</span> roughness)
+{
+    vec3 R  = reflect(-V, N);
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F  = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+
+    <span class="c">// Diffuse: the hemisphere integral, precomputed per direction.</span>
+    vec3 irradiance = texture(u_IrradianceCube, N).rgb;
+    vec3 diffuse    = irradiance * albedo;
+
+    <span class="c">// Specular: a rough surface reflects a blurred environment, and blur</span>
+    <span class="c">// is what mips already are -- so roughness IS the mip level, and the</span>
+    <span class="c">// hardware interpolates between roughnesses for free.</span>
+    vec3 prefiltered = textureLod(u_PrefilteredCube, R,
+                                  roughness * u_MaxReflectionLod).rgb;
+
+    <span class="c">// The remaining scale and bias depend only on roughness and N.V,</span>
+    <span class="c">// so they are the same for every scene: one 2D lookup.</span>
+    vec2 brdf = texture(u_BRDFLut, vec2(max(dot(N, V), 0.0), roughness)).rg;
+
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    <span class="k">return</span> kD * diffuse + prefiltered * (F * brdf.x + brdf.y);
+}</code></pre>
+
+<p>And the shadow bias, which is where the time goes. Both mechanisms of §7.5 in the code
+that applies them:</p>
+
+<pre><code><span class="k">float</span> NdotL  = clamp(dot(N, L), 0.0, 1.0);
+<span class="c">// tan of the angle to the light. Clamped, because at grazing incidence</span>
+<span class="c">// this runs away and an offset larger than the geometry detaches the shadow.</span>
+<span class="k">float</span> slope  = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
+<span class="k">float</span> offset = texelWorldSize * u_NormalBias * (1.0 + min(slope, 4.0));
+
+<span class="c">// Move the SAMPLE along the normal -- not the depth. The other half of</span>
+<span class="c">// the bias is free: the shadow pass renders back faces, so each caster's</span>
+<span class="c">// recorded depth already sits behind it by its own thickness.</span>
+vec4 lightSpace = u_LightViewProj * vec4(worldPos + N * offset, 1.0);
+vec3 coord      = lightSpace.xyz / lightSpace.w;
+
+<span class="k">if</span> (coord.z &gt; 1.0)
+    <span class="k">return</span> 1.0;                 <span class="c">// past the far plane: nothing recorded, so lit</span>
+
+<span class="c">// 3x3 of hardware 2x2 comparisons = 4x4 texels of coverage for 9 fetches.</span>
+<span class="k">float</span> sum = 0.0;
+<span class="k">for</span> (<span class="k">int</span> y = -1; y &lt;= 1; ++y)
+<span class="k">for</span> (<span class="k">int</span> x = -1; x &lt;= 1; ++x)
+    sum += texture(u_ShadowMap, vec3(coord.xy + vec2(x, y) * texel, coord.z));
+
+<span class="k">return</span> sum / 9.0;</code></pre>
+
 <h4>Traps</h4>
 <ul>
   <li><b>Do not cull in the shadow pass.</b></li>
@@ -3725,6 +3932,106 @@ restarting.</p>
   looks.</li>
 </ol>
 
+<h4>The code</h4>
+
+<p>The script surface a game programmer sees. Keep it small: every method here is one you
+must support forever, in both languages if you have two.</p>
+
+<pre><code><span class="k">class</span> ScriptableEntity
+{
+<span class="k">public</span>:
+    <span class="k">virtual</span> ~ScriptableEntity() = <span class="k">default</span>;
+
+    <span class="k">virtual void</span> OnCreate()  {}
+    <span class="k">virtual void</span> OnUpdate(Timestep dt) {}   <span class="c">// per FIXED STEP -- name it so</span>
+    <span class="k">virtual void</span> OnDestroy() {}
+
+    <span class="k">virtual void</span> OnCollisionEnter(<span class="k">const</span> Collision&amp;) {}
+
+<span class="k">protected</span>:
+    <span class="c">// Shorthands, so a script reads like the thing it is doing.</span>
+    Vec3 GetPosition() <span class="k">const</span>;
+    <span class="k">void</span> Translate(<span class="k">const</span> Vec3&amp; delta);
+    <span class="k">template</span>&lt;<span class="k">typename</span> T&gt; T&amp; GetComponent();
+
+    Entity m_Entity;
+};</code></pre>
+
+<p>Scenes store a <em>name</em>, not a pointer, because a pointer cannot survive a save or
+a reload. A registry maps the name to a factory:</p>
+
+<pre><code><span class="c">// The scene file says: Script: "Bobber". This is what turns that back</span>
+<span class="c">// into an object -- and what makes renaming a class break every scene</span>
+<span class="c">// that used it, which is worth documenting before somebody finds out.</span>
+<span class="k">class</span> ScriptRegistry
+{
+<span class="k">public</span>:
+    <span class="k">using</span> Factory = std::function&lt;ScriptableEntity*()&gt;;
+
+    <span class="k">static void</span> Register(<span class="k">const</span> std::string&amp; name, Factory factory)
+    {
+        Entries()[name] = { std::move(factory), s_CurrentModule };
+    }
+
+    <span class="c">// Unregistering by module is what makes unloading possible: the</span>
+    <span class="c">// registry must not outlive the DLL whose functions it points at.</span>
+    <span class="k">static void</span> UnregisterModule(ModuleHandle module)
+    {
+        std::erase_if(Entries(), [module](<span class="k">const auto</span>&amp; e)
+                                 { <span class="k">return</span> e.second.Module == module; });
+    }
+};</code></pre>
+
+<p>Then the reload, which is four steps and one rule:</p>
+
+<pre><code><span class="k">void</span> EditorLayer::ReloadScripts()
+{
+    <span class="c">// The rule: never swap code under live instances. Stop, swap, resume.</span>
+    <span class="c">// Keeping instances alive across a reload is a much larger problem than</span>
+    <span class="c">// it looks -- their vtable pointers refer to a DLL you are unloading.</span>
+    <span class="k">const bool</span> wasPlaying = m_Playing;
+    <span class="k">if</span> (wasPlaying)
+        StopPlay();                       <span class="c">// destroys every script instance</span>
+
+    ScriptRegistry::UnregisterModule(m_GameModule);
+    UnloadLibrary(m_GameModule);          <span class="c">// now nothing points into it</span>
+
+    <span class="k">if</span> (!BuildGameModule())               <span class="c">// compiler errors go to the log</span>
+    {
+        RV_ERROR(<span class="s">"build failed; scripts not reloaded"</span>);
+        <span class="k">return</span>;                           <span class="c">// stay stopped, do not resume old code</span>
+    }
+
+    m_GameModule = LoadLibrary(ModulePath());
+    <span class="k">if</span> (wasPlaying)
+        StartPlay();
+}</code></pre>
+
+<p>If you host a managed runtime as well, the equivalent of "unload the DLL" is a
+collectible load context — and the important part is that unloading is a <em>request</em>:</p>
+
+<pre><code><span class="c">// Loaded from BYTES, not a path: a path locks the file and the next</span>
+<span class="c">// build fails with "the process cannot access the file".</span>
+<span class="k">byte</span>[] image = File.ReadAllBytes(assemblyPath);
+<span class="k">var</span> context = <span class="k">new</span> AssemblyLoadContext(<span class="s">"Scripts"</span>, isCollectible: <span class="k">true</span>);
+<span class="k">var</span> assembly = context.LoadFromStream(<span class="k">new</span> MemoryStream(image));
+
+<span class="c">// ... later, on reload:</span>
+<span class="k">var</span> weak = <span class="k">new</span> WeakReference(context);
+context.Unload();
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; 10 &amp;&amp; weak.IsAlive; i++)
+{
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+}
+
+<span class="c">// Unloading is a request, granted only when nothing references anything</span>
+<span class="c">// inside. A context that will not die means the OLD code is still running,</span>
+<span class="c">// and the symptom is "my change did nothing" -- which the developer will</span>
+<span class="c">// blame on the build, the editor and themselves, in that order, for an hour.</span>
+<span class="k">if</span> (weak.IsAlive)
+    Log.Warn(<span class="s">"script context did not unload; something still holds a reference"</span>);</code></pre>
+
 <h4>Traps</h4>
 <ul>
   <li><b>The class name is what scene files store</b>, so renaming a class breaks every
@@ -3761,6 +4068,80 @@ system that nothing else performs.</p>
   <li><b>Run it from somewhere else.</b> Not from the build directory. Copy the folder to
   another location, or another machine, and run it.</li>
 </ol>
+
+<h4>The code</h4>
+
+<p>A project is a file, so the engine is not hard-coded to one folder:</p>
+
+<pre><code><span class="c"># MyGame.rvproject</span>
+Name: MyGame
+AssetRoot: assets
+StartScene: scenes/level1.rage
+FixedHz: 60</code></pre>
+
+<p>Every path in the engine then resolves through it, and there is exactly one function
+that knows how:</p>
+
+<pre><code><span class="c">// The only place a relative asset path becomes an absolute one. When</span>
+<span class="c">// packaging breaks, it breaks here or in something that bypassed it.</span>
+std::filesystem::path Project::AssetPath(<span class="k">const</span> std::string&amp; relative)
+{
+    <span class="k">return</span> s_Active-&gt;RootDirectory / s_Active-&gt;Config.AssetRoot / relative;
+}</code></pre>
+
+<p>The runtime is then almost nothing, which is the sign the layering worked — it shares
+every line of frame-building code with the editor:</p>
+
+<pre><code><span class="k">void</span> RuntimeLayer::OnAttach()
+{
+    <span class="k">if</span> (!Project::Load(m_ProjectPath))
+    {
+        RV_ERROR(<span class="s">"could not open project"</span>);
+        Application::Get().Close();
+        <span class="k">return</span>;
+    }
+
+    <span class="c">// Loading a project also loads its script modules -- one line, so that</span>
+    <span class="c">// the editor, the runtime and a packaged game all get them the same way.</span>
+    m_Scene = SceneSerializer::Load(Project::AssetPath(Project::Config().StartScene));
+    m_Scene-&gt;OnPlayStart();
+}
+
+<span class="k">void</span> RuntimeLayer::OnUpdate(Timestep ts)
+{
+    m_Scene-&gt;OnUpdateRuntime(ts);
+
+    <span class="c">// The one difference from the editor: the frame lands on the</span>
+    <span class="c">// backbuffer rather than an imported viewport texture.</span>
+    FrameDesc desc;
+    desc.Output    = Renderer::GetBackbuffer();
+    desc.DrawScene = [&amp;](RGPassContext&amp; c) { m_Scene-&gt;OnRender(c, m_Camera); };
+    FrameGraphBuilder::BuildFrame(m_Graph, desc);
+}</code></pre>
+
+<p>And the packager, which is a copy with a list — the value is in the list being complete
+rather than in the code being clever:</p>
+
+<pre><code><span class="k">bool</span> Package(<span class="k">const</span> Project&amp; project, <span class="k">const</span> std::filesystem::path&amp; out)
+{
+    std::filesystem::create_directories(out);
+
+    Copy(RuntimeExecutablePath(), out);
+    Copy(EngineLibraryPath(),     out);          <span class="c">// the .dll itself</span>
+    CopyDirectory(project.AssetDirectory(),  out / <span class="s">"assets"</span>);
+    CopyDirectory(EngineShaderDirectory(),   out / <span class="s">"assets/shaders"</span>);
+    CopyDirectory(project.BinaryDirectory(), out);   <span class="c">// the game module</span>
+    CopyDirectory(project.ManagedDirectory(), out / <span class="s">"managed"</span>);
+
+    <span class="c">// Written beside the executable, so the runtime finds its project</span>
+    <span class="c">// without a command line argument.</span>
+    WriteProjectFile(out / (project.Name() + <span class="s">".rvproject"</span>), project);
+    <span class="k">return true</span>;
+}</code></pre>
+
+<p>Run the result <b>from another directory</b>. Every path bug you have is waiting there,
+and none of them will reproduce while the build folder happens to be the working
+directory.</p>
 
 <h4>Traps</h4>
 <p>This step exists to find these, so expect them rather than being discouraged:</p>
@@ -3805,6 +4186,61 @@ the seams reaches them.</p>
   is the deliverable.</li>
   <li><b>Package it and play it</b> from the packaged folder.</li>
 </ol>
+
+<h4>The code</h4>
+
+<p>There is very little engine code in this milestone, which is the point — you are
+<em>using</em> the engine now. What there is looks like this, and if it does not read
+naturally, that is your first papercut:</p>
+
+<pre><code><span class="c">// A scoring trigger. Nothing here should be about the engine.</span>
+<span class="k">public class</span> GameManager : Script
+{
+    <span class="k">private int</span> m_Score;
+    <span class="k">private</span> Entity m_Beacon;
+
+    <span class="k">public override void</span> OnCreate()
+    {
+        <span class="c">// Every entity exists by now, so looking one up is safe here --</span>
+        <span class="c">// which is not true in a constructor. Cache it: FindByName is</span>
+        <span class="c">// linear, and this runs once.</span>
+        m_Beacon = Entity.FindByName(<span class="s">"Beacon"</span>);
+    }
+
+    <span class="k">public override void</span> OnTriggerEnter(Collision collision)
+    {
+        <span class="k">if</span> (!collision.Other.Name.StartsWith(<span class="s">"Crate"</span>))
+            <span class="k">return</span>;
+
+        m_Score++;
+
+        <span class="c">// Walk the beacon from red to green as the score rises.</span>
+        <span class="k">float</span> t = m_Score / 6.0f;
+        m_Beacon.SetComponentField(<span class="s">"LightComponent"</span>, <span class="s">"Color"</span>,
+                                   $<span class="s">"{1 - t} {t} 0.15 1"</span>);
+
+        PlayOneShot(<span class="s">"audio/score.wav"</span>, 1.0f, 0.94f + Random() * 0.12f);
+    }
+}</code></pre>
+
+<p>Then keep a file open beside you and write down every friction as it happens, without
+stopping to fix it. The list from this engine's own attempt is in §4.8; what matters is
+not its contents but its <em>shape</em>. Every entry was a seam between two features that
+each worked:</p>
+
+<pre><code><span class="c">// papercuts.md, written while building, fixed afterwards</span>
+
+- File &gt; New Project exists but is not in the menu.            <span class="c">// never called</span>
+- A body added during play never simulates.                     <span class="c">// AddBody has no callers</span>
+- C# collision callbacks never fire from a real simulation.     <span class="c">// bound, unreachable</span>
+- A fresh editor has no C# until a manual build.                <span class="c">// nothing boots the host</span>
+- No way to draw text. Score is communicated by a light.        <span class="c">// biggest gap</span>
+- Camera is rigid; no per-frame hook to smooth it.              <span class="c">// second biggest</span></code></pre>
+
+<p>Notice that the two largest items are <em>absences</em>, not defects. A test suite
+cannot find an absence — only trying to build something with the engine can, and that is
+why this milestone is worth more than the four features you would otherwise have added
+instead.</p>
 
 <div class="keyed">
 <h4>Proof</h4>
