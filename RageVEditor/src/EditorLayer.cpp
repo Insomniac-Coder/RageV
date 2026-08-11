@@ -2,6 +2,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "UI/EditorTheme.h"
+#include "UI/Widgets.h"
 #include "RageV/Utils/PlatformUtils.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
@@ -38,20 +39,6 @@ namespace
 		ImGui::EndDisabled();
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
 			ImGui::SetTooltip("%s", reason);
-	}
-
-	void HelpMarker(const char* text)
-	{
-		ImGui::SameLine();
-		ImGui::TextDisabled("(?)");
-		if (ImGui::IsItemHovered())
-		{
-			ImGui::BeginTooltip();
-			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
-			ImGui::TextUnformatted(text);
-			ImGui::PopTextWrapPos();
-			ImGui::EndTooltip();
-		}
 	}
 
 	// A label/value row used throughout the panels.
@@ -94,7 +81,12 @@ void EditorLayer::OnAttach()
 	// open for one frame this one.
 	LoadPanelState();
 
-	EditorTheme::Apply();
+	// The command line wins over the remembered choice, so a screenshot of
+	// either theme is one flag rather than an edit to a settings file.
+	if (!EngineConfig::Get().Theme.empty())
+		m_Theme = EditorTheme::Parse(EngineConfig::Get().Theme.c_str());
+
+	EditorTheme::Apply(m_Theme);
 
 	auto& device = Renderer::GetDevice();
 
@@ -806,11 +798,26 @@ void EditorLayer::LoadPanelState()
 		else if (key == "render-settings") m_ShowRenderSettings = value;
 		else if (key == "build-log")       m_ShowScriptBuild = value;
 		else if (key == "colliders")       m_ShowColliders = value;
+		// Not a bool like the rest, so it reads the raw text rather than `value`.
+		else if (key == "theme")           m_Theme = EditorTheme::Parse(trim(line.substr(equals + 1)).c_str());
 		// The window size the dock layout was saved against, so the first
 		// frame can rescale imgui.ini's pixel sizes to today's window.
 		else if (key == "layout-width")    m_LastDockSize.x = (float)std::atof(trim(line.substr(equals + 1)).c_str());
 		else if (key == "layout-height")   m_LastDockSize.y = (float)std::atof(trim(line.substr(equals + 1)).c_str());
 	}
+}
+
+// Switching theme is a style change and nothing more: no resources are
+// rebuilt, no layout is touched, and it is written straight to disk so the
+// choice survives a crash as well as a clean exit.
+void EditorLayer::SetTheme(EditorTheme::Theme theme)
+{
+	if (theme == m_Theme)
+		return;
+
+	m_Theme = theme;
+	EditorTheme::Apply(m_Theme);
+	SavePanelState();
 }
 
 void EditorLayer::SavePanelState()
@@ -829,6 +836,7 @@ void EditorLayer::SavePanelState()
 	file << "render-settings = " << (m_ShowRenderSettings ? 1 : 0) << "\n";
 	file << "build-log = "       << (m_ShowScriptBuild ? 1 : 0) << "\n";
 	file << "colliders = "       << (m_ShowColliders ? 1 : 0) << "\n";
+	file << "theme = "           << EditorTheme::Name(m_Theme) << "\n";
 	file << "layout-width = "    << (int)m_LastDockSize.x << "\n";
 	file << "layout-height = "   << (int)m_LastDockSize.y << "\n";
 }
@@ -866,6 +874,10 @@ void EditorLayer::BuildDefaultLayout(unsigned int dockspaceID)
 	ImGui::DockBuilderDockWindow("Render Settings", rightLower);
 	ImGui::DockBuilderDockWindow("Statistics", rightLower);
 	ImGui::DockBuilderDockWindow("Content", bottom);
+	// Tabbed with Content rather than left to float. Without this the Build
+	// Log opens as a free window over whatever is behind it, which on a fresh
+	// layout is the hierarchy.
+	ImGui::DockBuilderDockWindow("Build Log", bottom);
 
 	// Tabbed rather than side by side. Two 3D views sharing the centre column
 	// leaves both too small to work in at anything below a large monitor, and
@@ -1057,6 +1069,19 @@ void EditorLayer::DrawMenuBar()
 		}
 
 		ImGui::Separator();
+
+		if (ImGui::BeginMenu("Theme"))
+		{
+			// Radio rather than two checkboxes: these are two states of one
+			// setting, and a checkbox each would suggest both could be off.
+			if (ImGui::MenuItem("Dark", nullptr, m_Theme == EditorTheme::Theme::Dark))
+				SetTheme(EditorTheme::Theme::Dark);
+			if (ImGui::MenuItem("Light", nullptr, m_Theme == EditorTheme::Theme::Light))
+				SetTheme(EditorTheme::Theme::Light);
+			ImGui::EndMenu();
+		}
+
+		ImGui::Separator();
 		if (ImGui::MenuItem("Reset Layout"))
 			m_ResetLayoutRequested = true;
 		if (ImGui::IsItemHovered())
@@ -1098,9 +1123,9 @@ void EditorLayer::DrawMenuBar()
 		// Transparent until hovered, so it sits in the menu bar as a label and
 		// announces itself as a control only when reached for.
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-		ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, EditorTheme::Color::AccentMuted);
-		ImGui::PushStyleColor(ImGuiCol_FrameBgActive, EditorTheme::Color::Accent);
-		ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Color::Text);
+		ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, EditorTheme::Colors().AccentMuted);
+		ImGui::PushStyleColor(ImGuiCol_FrameBgActive, EditorTheme::Colors().Accent);
+		ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextPrimary);
 
 		if (ImGui::BeginCombo("##Backend", names[currentIndex], ImGuiComboFlags_HeightSmall))
 		{
@@ -1153,8 +1178,8 @@ void EditorLayer::DrawToolbar()
 		const bool active = m_GizmoOperation == op;
 		if (active)
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Color::Accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Color::AccentHover);
+			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Colors().Accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().AccentHover);
 		}
 		if (ImGui::Button(label, ImVec2(34.0f, 0.0f)))
 			m_GizmoOperation = op;
@@ -1196,8 +1221,8 @@ void EditorLayer::DrawToolbar()
 
 		if (running)
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Color::Accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Color::AccentHover);
+			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Colors().Accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().AccentHover);
 		}
 		if (ImGui::Button(running ? "Stop" : "Play", ImVec2(kPlayWidth, 0.0f)))
 		{
@@ -1232,8 +1257,8 @@ void EditorLayer::DrawToolbar()
 
 		if (!m_UseEditorCamera)
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Color::Accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Color::AccentHover);
+			ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Colors().Accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().AccentHover);
 		}
 		if (ImGui::Button(label, ImVec2(width, 0.0f)))
 			m_UseEditorCamera = !m_UseEditorCamera;
@@ -1402,7 +1427,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		return;
 	}
 
-	ImGui::SeparatorText("Presentation");
+	UI::SectionHeader("Presentation");
 
 	// Seeded from the device every frame rather than remembered, so a window
 	// that started with --vsync=off does not show a ticked box, and so the
@@ -1410,27 +1435,29 @@ void EditorLayer::DrawRenderSettingsPanel()
 	if (Renderer::HasDevice())
 		m_VSync = Renderer::GetDevice().IsVSync();
 
-	if (ImGui::Checkbox("VSync", &m_VSync) && Renderer::HasDevice())
+	if (UI::RowCheckbox("VSync",
+		&m_VSync,
+		"Vulkan swaps present mode between FIFO and immediate; OpenGL sets the swap interval.\n"
+			   "Off tears, and is saved for the next start.") && Renderer::HasDevice())
 	{
 		Renderer::GetDevice().SetVSync(m_VSync);
 
 		// Saved as well as applied, so a plain restart keeps the choice --
 		// the same contract as the backend picker above.
 		EngineConfig::SaveVSyncPreference(m_VSync);
-	}
-	HelpMarker("Vulkan swaps present mode between FIFO and immediate; OpenGL sets the swap interval.\n"
-			   "Off tears, and is saved for the next start.");
+	}
 
-	ImGui::SeparatorText("Debug");
+	UI::SectionHeader("Debug");
 
-	if (ImGui::Checkbox("Wireframe", &m_Wireframe))
-		Renderer::SetWireframe(m_Wireframe);
-	HelpMarker("Rebuilds the pipeline with a line polygon mode. Polygon mode is baked into "
-			   "the pipeline on Vulkan, so this is not a free state toggle.");
+	if (UI::RowCheckbox("Wireframe",
+		&m_Wireframe,
+		"Rebuilds the pipeline with a line polygon mode. Polygon mode is baked into "
+			   "the pipeline on Vulkan, so this is not a free state toggle."))
+		Renderer::SetWireframe(m_Wireframe);
 
-	ImGui::ColorEdit3("Clear colour", Math::ValuePtr(m_ClearColor));
+	UI::RowColor3("Clear colour", Math::ValuePtr(m_ClearColor));
 
-	ImGui::SeparatorText("Environment");
+	UI::SectionHeader("Environment");
 
 	// The ambient term used to be two constants inside pbr.rvshader with no way
 	// to reach them. It is still a flat approximation of IBL, but it is a value
@@ -1459,20 +1486,32 @@ void EditorLayer::DrawRenderSettingsPanel()
 			}
 		};
 
-		ImGui::ColorEdit3("Ambient colour", Math::ValuePtr(environment.AmbientColor));
+		UI::RowColor3("Ambient colour", Math::ValuePtr(environment.AmbientColor));
 		trackAmbient("Ambient colour");
-		ImGui::DragFloat("Ambient intensity", &environment.AmbientIntensity, 0.005f, 0.0f, 4.0f);
-		trackAmbient("Ambient intensity");
-		HelpMarker("A single colour arriving from every direction. It cannot vary with view "
+		UI::RowDragFloat("Ambient intensity",
+		&environment.AmbientIntensity,
+		0.005f,
+		0.0f,
+		4.0f,
+		"%.3f",
+		"A single colour arriving from every direction. It cannot vary with view "
 				   "angle or roughness the way a real environment does -- image-based lighting "
 				   "replaces it, and falls back to it for scenes with no environment map.\n\n"
 				   "Set the intensity to 0 for pure direct lighting.");
+		trackAmbient("Ambient intensity");
 
-		ImGui::SeparatorText("Sky");
+		UI::SectionHeader("Sky");
 
 		const char* skyModes[] = { "Colour", "Gradient", "Environment map" };
 		int sky = (int)environment.Sky;
-		if (ImGui::Combo("Background", &sky, skyModes, IM_ARRAYSIZE(skyModes)))
+		if (UI::RowCombo("Background",
+		&sky,
+		skyModes,
+		IM_ARRAYSIZE(skyModes),
+		"Colour draws nothing and leaves the clear colour, which is what a 2D or "
+				   "UI-only scene wants.\n\nGradient costs no asset.\n\nAn environment map is "
+				   "a panorama -- .hdr for values brighter than white -- or one face of a "
+				   "six-file set, in which case the other five come with it."))
 		{
 			const SceneEnvironment before = environment;
 			environment.Sky = (SkyType)sky;
@@ -1486,19 +1525,15 @@ void EditorLayer::DrawRenderSettingsPanel()
 				"Background",
 				[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
 				[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
-		}
-		HelpMarker("Colour draws nothing and leaves the clear colour, which is what a 2D or "
-				   "UI-only scene wants.\n\nGradient costs no asset.\n\nAn environment map is "
-				   "a panorama -- .hdr for values brighter than white -- or one face of a "
-				   "six-file set, in which case the other five come with it.");
+		}
 
 		if (environment.Sky == SkyType::Gradient)
 		{
-			ImGui::ColorEdit3("Horizon", Math::ValuePtr(environment.SkyHorizon));
+			UI::RowColor3("Horizon", Math::ValuePtr(environment.SkyHorizon));
 			trackAmbient("Sky horizon");
-			ImGui::ColorEdit3("Zenith", Math::ValuePtr(environment.SkyZenith));
+			UI::RowColor3("Zenith", Math::ValuePtr(environment.SkyZenith));
 			trackAmbient("Sky zenith");
-			ImGui::ColorEdit3("Ground", Math::ValuePtr(environment.SkyGround));
+			UI::RowColor3("Ground", Math::ValuePtr(environment.SkyGround));
 			trackAmbient("Sky ground");
 		}
 
@@ -1537,43 +1572,63 @@ void EditorLayer::DrawRenderSettingsPanel()
 				ImGui::SetTooltip("Drop a texture from the Content browser.");
 
 			float degrees = Math::Degrees(environment.SkyRotation);
-			if (ImGui::DragFloat("Sky rotation", &degrees, 0.5f, -360.0f, 360.0f, "%.1f deg"))
+			if (UI::RowDragFloat("Sky rotation",
+		&degrees,
+		0.5f,
+		-360.0f,
+		360.0f,
+		"%.1f deg",
+		"A panorama points wherever it was shot, and the scene was not built "
+					   "to match it."))
 				environment.SkyRotation = Math::Radians(degrees);
-			trackAmbient("Sky rotation");
-			HelpMarker("A panorama points wherever it was shot, and the scene was not built "
-					   "to match it.");
+			trackAmbient("Sky rotation");
 		}
 
 		if (environment.Sky != SkyType::Color)
 		{
-			ImGui::DragFloat("Sky intensity", &environment.SkyIntensity, 0.01f, 0.0f, 16.0f);
+			UI::RowDragFloat("Sky intensity", &environment.SkyIntensity, 0.01f, 0.0f, 16.0f);
 			trackAmbient("Sky intensity");
 		}
 
-		ImGui::SeparatorText("Post processing");
+		UI::SectionHeader("Post processing");
 
-		ImGui::DragFloat("Exposure", &environment.Exposure, 0.01f, 0.01f, 16.0f);
-		trackAmbient("Exposure");
-		HelpMarker("Applied before the tone curve, which is what makes this an exposure "
+		UI::RowDragFloat("Exposure",
+		&environment.Exposure,
+		0.01f,
+		0.01f,
+		16.0f,
+		"%.3f",
+		"Applied before the tone curve, which is what makes this an exposure "
 				   "control rather than a brightness one: it slides the scene along the "
 				   "response curve instead of scaling the result of it.");
+		trackAmbient("Exposure");
 
-		ImGui::Checkbox("Bloom", &environment.BloomEnabled);
+		UI::RowCheckbox("Bloom", &environment.BloomEnabled);
 		trackAmbient("Bloom");
 
 		if (environment.BloomEnabled)
 		{
-			ImGui::DragFloat("Threshold", &environment.BloomThreshold, 0.01f, 0.0f, 16.0f);
-			trackAmbient("Bloom threshold");
-			HelpMarker("Brightness at which a pixel starts to bleed. Above 1, only things "
+			UI::RowDragFloat("Threshold",
+		&environment.BloomThreshold,
+		0.01f,
+		0.0f,
+		16.0f,
+		"%.3f",
+		"Brightness at which a pixel starts to bleed. Above 1, only things "
 					   "genuinely brighter than white glow.");
+			trackAmbient("Bloom threshold");
 
-			ImGui::DragFloat("Knee", &environment.BloomKnee, 0.01f, 0.0f, 4.0f);
-			trackAmbient("Bloom knee");
-			HelpMarker("Width of the ramp around the threshold. Zero is a hard cut, which "
+			UI::RowDragFloat("Knee",
+		&environment.BloomKnee,
+		0.01f,
+		0.0f,
+		4.0f,
+		"%.3f",
+		"Width of the ramp around the threshold. Zero is a hard cut, which "
 					   "pops as something crosses it and reads as flickering.");
+			trackAmbient("Bloom knee");
 
-			ImGui::DragFloat("Intensity", &environment.BloomIntensity, 0.002f, 0.0f, 2.0f);
+			UI::RowDragFloat("Intensity", &environment.BloomIntensity, 0.002f, 0.0f, 2.0f);
 			trackAmbient("Bloom intensity");
 		}
 
@@ -1582,37 +1637,41 @@ void EditorLayer::DrawRenderSettingsPanel()
 		// "not yet" belongs.
 		const char* aaModes[] = { "None", "FXAA" };
 		int aa = (int)environment.AA;
-		if (ImGui::Combo("Anti-aliasing", &aa, aaModes, IM_ARRAYSIZE(aaModes)))
-			environment.AA = (AntiAliasing)aa;
-		HelpMarker("FXAA is one pass over the tone-mapped image: cheap, no prerequisites, "
+		if (UI::RowCombo("Anti-aliasing",
+		&aa,
+		aaModes,
+		IM_ARRAYSIZE(aaModes),
+		"FXAA is one pass over the tone-mapped image: cheap, no prerequisites, "
 				   "and it softens the picture slightly.\n\n"
 				   "SMAA is sharper for the same idea and needs two precomputed lookup "
 				   "textures vendored in.\n\n"
 				   "TAA is better than either and needs motion vectors -- every mesh "
 				   "carrying its previous transform and the renderer writing a velocity "
 				   "target. That is a renderer feature with its own prerequisites, not a "
-				   "post pass.");
+				   "post pass."))
+			environment.AA = (AntiAliasing)aa;
 	}
 
-	ImGui::SeparatorText("Lighting");
+	UI::SectionHeader("Lighting");
 
 	// Shadows are not implemented. A toggle wired to nothing would be worse
 	// than no toggle, so it is present, disabled, and says why.
 	bool shadows = false;
 	ImGui::BeginDisabled();
-	ImGui::Checkbox("Shadows", &shadows);
+	UI::RowCheckbox("Shadows",
+		&shadows,
+		"Meshes use pbr.rvshader with the metallic-roughness parameterisation. "
+			   "Surfaces reflect the scene's environment, with roughness picking a mip "
+			   "rather than a real prefiltered convolution; the diffuse ambient is still "
+			   "the flat term above. The shader writes linear HDR and the tone curve is "
+			   "its own pass.");
 	ImGui::EndDisabled();
 	if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
 		ImGui::SetTooltip("Not implemented yet.\n\nThe RHI already carries what shadows need -- depth-only\n"
 						  "render targets, comparison samplers, slope-scaled depth bias,\n"
 						  "cubemap and array textures -- but no shadow pass exists.");
 
-	ImGui::TextDisabled("Shading: Cook-Torrance PBR");
-	HelpMarker("Meshes use pbr.rvshader with the metallic-roughness parameterisation. "
-			   "Surfaces reflect the scene's environment, with roughness picking a mip "
-			   "rather than a real prefiltered convolution; the diffuse ambient is still "
-			   "the flat term above. The shader writes linear HDR and the tone curve is "
-			   "its own pass.");
+	ImGui::TextDisabled("Shading: Cook-Torrance PBR");
 
 	ImGui::End();
 }
@@ -1714,7 +1773,7 @@ void EditorLayer::DrawGameViewportPanel()
 		// Which camera won, and why -- otherwise a scene with several cameras
 		// gives no clue about what is being looked through.
 		ImGui::SetCursorPos(ImVec2(8.0f, 8.0f));
-		ImGui::TextColored(EditorTheme::Color::Accent, "%s", camera.GetName().c_str());
+		ImGui::TextColored(EditorTheme::Colors().Accent, "%s", camera.GetName().c_str());
 		if (ImGui::IsItemHovered())
 		{
 			ImGui::SetTooltip("Rank %d. The lowest ViewRank in the scene wins;\nties break on entity id.",
@@ -1826,7 +1885,7 @@ void EditorLayer::DrawAboutPopup()
 	if (!ImGui::BeginPopupModal("About RageV", nullptr, ImGuiWindowFlags_NoResize))
 		return;
 
-	ImGui::TextColored(EditorTheme::Color::Accent, "RageV Engine");
+	ImGui::TextColored(EditorTheme::Colors().Accent, "RageV Engine");
 	ImGui::TextDisabled("A Vulkan/OpenGL renderer with an EnTT scene system.");
 	ImGui::Spacing();
 	ImGui::Separator();
@@ -1893,7 +1952,7 @@ void EditorLayer::DrawBackendRestartPopup()
 
 	if (!m_BackendSaved)
 	{
-		ImGui::TextColored(EditorTheme::Color::Accent,
+		ImGui::TextColored(EditorTheme::Colors().Warning,
 						   "Could not write ragev.ini; the choice will not survive.");
 		ImGui::Spacing();
 	}

@@ -13,6 +13,7 @@
 #include "imgui_internal.h"
 #include "RageV/Math/Math.h"
 #include "EditorTheme.h"
+#include "Widgets.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
@@ -168,9 +169,9 @@ void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	const bool selected = (flags & ImGuiTreeNodeFlags_Selected) != 0;
 	if (selected)
 	{
-		ImGui::PushStyleColor(ImGuiCol_Header, EditorTheme::Color::AccentMuted);
-		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, EditorTheme::Color::AccentMuted);
-		ImGui::PushStyleColor(ImGuiCol_HeaderActive, EditorTheme::Color::Accent);
+		ImGui::PushStyleColor(ImGuiCol_Header, EditorTheme::Colors().AccentMuted);
+		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, EditorTheme::Colors().AccentMuted);
+		ImGui::PushStyleColor(ImGuiCol_HeaderActive, EditorTheme::Colors().Accent);
 	}
 
 	// Keyed by UUID rather than by handle: EnTT recycles handles, so a deleted
@@ -253,74 +254,65 @@ namespace
 {
 	using namespace RageV;
 
-	// Label in a fixed-width left column, widget filling the rest, so every row
-	// lines up regardless of which component drew it.
-	void BeginField(const char* label, const char* tooltip)
+	// One property row: label left, control right, both sized against the panel
+	// rather than against a number somebody typed once.
+	//
+	// A one-row table per field rather than one table around the whole
+	// inspector, because the fields are drawn from a dozen call sites that do
+	// not know about each other. Several one-row tables with the same
+	// proportions line up with each other, which is the property that matters;
+	// what is given up is dragging the divider, so they are not resizable
+	// (a drag that moved one row and not the rest would read as a bug).
+	// BeginTable answers false when the whole table is culled -- scrolled out
+	// of view, or in a panel collapsed to nothing -- and EndTable must not be
+	// called then. Rather than make thirteen call sites branch, the miss falls
+	// back to a plain label-then-control row: it does not align, but nothing
+	// nothing is visible to align with, and the pairing stays unconditional.
+	std::vector<bool> g_FieldUsedTable;
+
+	// `labelFraction` exists for one row type: three axis fields and their
+	// badges need more of the width than a single control does, and giving
+	// every row the vector's proportions would waste half the panel on the
+	// rest.
+	void BeginField(const char* label, const char* tooltip, float labelFraction = 0.42f)
 	{
 		ImGui::PushID(label);
-		ImGui::Columns(2, nullptr, false);
-		ImGui::SetColumnWidth(0, 140.0f);
-		ImGui::TextUnformatted(label);
 
+		const bool table = UI::BeginProperties("##field", labelFraction, false);
+		g_FieldUsedTable.push_back(table);
+
+		if (table)
+		{
+			UI::PropertyRow(label, tooltip);
+			return;
+		}
+
+		ImGui::TextUnformatted(label);
 		if (tooltip && ImGui::IsItemHovered())
 			ImGui::SetTooltip("%s", tooltip);
-
-		ImGui::NextColumn();
-		ImGui::PushItemWidth(-1.0f);
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(-FLT_MIN);
 	}
 
 	void EndField()
 	{
-		ImGui::PopItemWidth();
-		ImGui::Columns(1);
+		if (!g_FieldUsedTable.empty())
+		{
+			if (g_FieldUsedTable.back())
+				UI::EndProperties();
+			g_FieldUsedTable.pop_back();
+		}
 		ImGui::PopID();
 	}
 
 	bool DrawVec3(const char* label, Vec3& values, float resetValue)
 	{
-		bool changed = false;
-		ImGui::PushID(label);
-
-		ImGui::Columns(2, nullptr, false);
-		ImGui::SetColumnWidth(0, 140.0f);
-		ImGui::TextUnformatted(label);
-		ImGui::NextColumn();
-
-		ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-
-		const float lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
-		const ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
-
-		const ImVec4 axisColors[3] = { EditorTheme::Color::AxisX,
-									   EditorTheme::Color::AxisY,
-									   EditorTheme::Color::AxisZ };
-		const char* axisLabels[3] = { "X", "Y", "Z" };
-		const char* dragIds[3] = { "##X", "##Y", "##Z" };
-		float* components[3] = { &values.x, &values.y, &values.z };
-
-		for (int axis = 0; axis < 3; axis++)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Button, axisColors[axis]);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Color::AccentHover);
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, axisColors[axis]);
-			if (ImGui::Button(axisLabels[axis], buttonSize))
-			{
-				*components[axis] = resetValue;
-				changed = true;
-			}
-			ImGui::PopStyleColor(3);
-
-			ImGui::SameLine();
-			changed |= ImGui::DragFloat(dragIds[axis], components[axis], 0.1f, 0.0f, 0.0f, "%.2f");
-			ImGui::PopItemWidth();
-			if (axis < 2)
-				ImGui::SameLine();
-		}
-
-		ImGui::PopStyleVar();
-		ImGui::Columns(1);
-		ImGui::PopID();
+		// A third rather than the usual 42%: three fields and three badges do
+		// not fit in what one control needs, and the labels here are short
+		// ("Position", "Rotation", "Scale").
+		BeginField(label, nullptr, 0.30f);
+		const bool changed = UI::DragVec3("##vec", values, resetValue);
+		EndField();
 		return changed;
 	}
 
@@ -553,17 +545,23 @@ namespace
 		bool changed = false;
 
 		ImGui::SeparatorText("Material");
-		changed |= ImGui::ColorEdit4("Base Colour", Math::ValuePtr(params.BaseColor));
-		changed |= ImGui::SliderFloat("Metallic", &params.Metallic, 0.0f, 1.0f);
-		changed |= ImGui::SliderFloat("Roughness", &params.Roughness, 0.0f, 1.0f);
-		changed |= ImGui::SliderFloat("Occlusion", &params.Occlusion, 0.0f, 1.0f);
-		changed |= ImGui::ColorEdit3("Emissive", Math::ValuePtr(params.EmissiveColor));
+		changed |= UI::RowColor4("Base Colour", Math::ValuePtr(params.BaseColor));
+		changed |= UI::RowSliderFloat("Metallic", &params.Metallic, 0.0f, 1.0f, "%.2f",
+			"Metal or not. Real materials are one or the other; the values in "
+			"between are for a surface that is partly covered, like dusty chrome.");
+		changed |= UI::RowSliderFloat("Roughness", &params.Roughness, 0.0f, 1.0f, "%.2f",
+			"How scattered the reflection is. 0 is a mirror, 1 is chalk.");
+		changed |= UI::RowSliderFloat("Occlusion", &params.Occlusion, 0.0f, 1.0f, "%.2f",
+			"How much ambient light reaches the surface. Lower is more shadowed.");
+		changed |= UI::RowColor3("Emissive", Math::ValuePtr(params.EmissiveColor),
+			"Light the surface gives off. It does not light anything else -- there "
+			"is no emissive global illumination -- but it does feed the bloom pass.");
 
 		// Metals have no diffuse response, so a half-metallic surface is not
 		// physical -- it is almost always an authoring mistake.
 		if (params.Metallic > 0.05f && params.Metallic < 0.95f)
 		{
-			ImGui::TextColored(EditorTheme::Color::AccentHover, "Partially metallic");
+			ImGui::TextColored(EditorTheme::Colors().Warning, "Partially metallic");
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Real materials are either metal or not. Intermediate "
 								  "values only make sense where a texture blends between "
@@ -806,7 +804,7 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 
 	if (!Managed::Interop::IsReady())
 	{
-		ImGui::TextColored(EditorTheme::Color::AccentHover, "C# scripting is not running");
+		ImGui::TextColored(EditorTheme::Colors().Warning, "C# scripting is not running");
 		if (ImGui::IsItemHovered())
 		{
 			ImGui::SetTooltip("The .NET runtime did not start, or no script assembly\n"
@@ -867,13 +865,13 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 
 		if (written)
 		{
-			ImGui::TextColored(EditorTheme::Color::AccentHover,
+			ImGui::TextColored(EditorTheme::Colors().Warning,
 							   "'%s' is written but not built", script.ScriptName.c_str());
 			ImGui::TextWrapped("File > Build Scripts, and it will run.");
 		}
 		else
 		{
-			ImGui::TextColored(EditorTheme::Color::AccentHover,
+			ImGui::TextColored(EditorTheme::Colors().Danger,
 							   "'%s' is not in any loaded assembly", script.ScriptName.c_str());
 		}
 		return;
@@ -1157,9 +1155,9 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 		const bool exists = valid && std::filesystem::exists(file, ec);
 
 		if (!name.empty() && !valid)
-			ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C++ class name");
+			ImGui::TextColored(EditorTheme::Colors().Danger, "Not a valid C++ class name");
 		else if (exists)
-			ImGui::TextColored(EditorTheme::Color::AccentHover, "Source/%s.cpp already exists", name.c_str());
+			ImGui::TextColored(EditorTheme::Colors().Danger, "Source/%s.cpp already exists", name.c_str());
 		else if (valid)
 			ImGui::TextDisabled("Source/%s.cpp", name.c_str());
 		else
@@ -1206,9 +1204,9 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 	const bool exists = valid && std::filesystem::exists(file, ec);
 
 	if (!name.empty() && !valid)
-		ImGui::TextColored(EditorTheme::Color::AccentHover, "Not a valid C# class name");
+		ImGui::TextColored(EditorTheme::Colors().Danger, "Not a valid C# class name");
 	else if (exists)
-		ImGui::TextColored(EditorTheme::Color::AccentHover, "Scripts/%s.cs already exists", name.c_str());
+		ImGui::TextColored(EditorTheme::Colors().Danger, "Scripts/%s.cs already exists", name.c_str());
 	else if (valid)
 		ImGui::TextDisabled("Scripts/%s.cs", name.c_str());
 	else
@@ -1332,13 +1330,13 @@ void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 
 		if (written)
 		{
-			ImGui::TextColored(EditorTheme::Color::AccentHover,
+			ImGui::TextColored(EditorTheme::Colors().Warning,
 							   "'%s' is written but not built", script.ScriptName.c_str());
 			ImGui::TextWrapped("File > Build Scripts, and it will run.");
 		}
 		else
 		{
-			ImGui::TextColored(EditorTheme::Color::AccentHover,
+			ImGui::TextColored(EditorTheme::Colors().Danger,
 							   "'%s' is not registered", script.ScriptName.c_str());
 			if (ImGui::IsItemHovered())
 			{

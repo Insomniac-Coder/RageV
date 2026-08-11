@@ -7,6 +7,7 @@
 #include <thread>
 #include "UI/SceneHierarchyPanel.h"
 #include "UI/ContentBrowserPanel.h"
+#include "UI/EditorTheme.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Renderer/RenderGraph.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
@@ -122,7 +123,10 @@ private:
 
 	// Bump when the default arrangement changes, so an existing imgui.ini does
 	// not pin people to the old one.
-	static constexpr int kLayoutVersion = 1;
+	// 2: the Build Log gained a dock slot. Without a bump the saved layout
+	//    from version 1 is reused and it keeps opening as a floating window
+	//    over the hierarchy.
+	static constexpr int kLayoutVersion = 2;
 	void DrawAboutPopup();
 	void DrawBackendRestartPopup();
 	void DrawGizmo();
@@ -215,6 +219,7 @@ private:
 	// launch. Closing Build Log by restarting was the report that exposed it.
 	void LoadPanelState();
 	void SavePanelState();
+	void SetTheme(RageV::EditorTheme::Theme theme);
 
 	// Dock sizes are stored in pixels, so a resize would hand the whole
 	// difference to the central viewport. Scaling the tree keeps proportions;
@@ -236,6 +241,13 @@ private:
 	bool m_GameViewportVisible = false;
 	bool m_ShowDemoWindow = false;
 	bool m_ShowAbout = false;
+
+	// Which theme is on. Remembered in panels.ini and overridable with
+	// --theme, so a screenshot of either can be taken without clicking.
+	// Dark is the default because that is what the engine is designed around
+	// and what an editor is usually run in; light exists because a dark UI in
+	// a bright room is its own kind of unreadable.
+	RageV::EditorTheme::Theme m_Theme = RageV::EditorTheme::Theme::Dark;
 
 	// The backend picker. The switch cannot happen in place -- the window is
 	// created differently per backend -- so a change records a preference and

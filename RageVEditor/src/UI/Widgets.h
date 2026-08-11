@@ -1,0 +1,126 @@
+#pragma once
+#include "imgui.h"
+#include "RageV/Math/Math.h"
+
+// The editor's layout primitives.
+//
+// Everything that draws a labelled control goes through here, for one reason:
+// a panel that lays itself out is a panel that lays itself out *differently*,
+// and an inspector where three components each invented their own label column
+// is the thing that reads as unfinished no matter how good the palette is.
+//
+// ---------------------------------------------------------------------------
+// Why a table and not two columns
+// ---------------------------------------------------------------------------
+//
+// The version this replaces used `ImGui::Columns` with `SetColumnWidth(0, 140)`
+// -- a *fixed* label column. Two things follow from a fixed column, and both
+// were visible in the editor:
+//
+//  - Narrow the panel and the control column keeps shrinking until controls
+//    are unusable, because the label column never gives anything back.
+//  - Any widget that draws its own label after itself (`ColorEdit4`,
+//    `SliderFloat` with a visible name) had no room for it, so labels were
+//    cut off mid-word: "Base Colo", "Roughnes", "Clear colour".
+//
+// A table shares the width proportionally, lets the user drag the split, and
+// clips a long label with a tooltip instead of truncating it silently.
+//
+// ---------------------------------------------------------------------------
+// Why label-left rather than label-above
+// ---------------------------------------------------------------------------
+//
+// Form research is clear that top-aligned labels are scanned fastest, and it
+// is measuring a *form*: a dozen fields, filled once, top to bottom. An
+// inspector is the opposite -- a hundred fields, read repeatedly, where
+// vertical space is the scarce resource and doubling the row count means half
+// as many properties visible at once.
+//
+// The finding underneath the research still applies, though. Left-aligned
+// labels scan badly because a *ragged* gutter forces the eye to hunt for where
+// the control starts. A fixed column removes the raggedness, which is why
+// every professional inspector uses one and why this is a table rather than
+// text-then-widget.
+
+namespace RageV::UI
+{
+	// Opens a two-column property table. Returns false if it could not open,
+	// in which case draw nothing and do not call EndProperties -- same
+	// contract as ImGui's own Begin/End pairs.
+	//
+	// `labelFraction` is the share of the width the label column starts with.
+	// The user can drag it; it is a starting point, not a rule.
+	// `resizable` off is for a table holding a single row: several one-row
+	// tables with the same proportions line up with each other, but a drag on
+	// one of them would move only that row's divider, which reads as a bug.
+	bool BeginProperties(const char* id, float labelFraction = 0.42f,
+						 bool resizable = true);
+	void EndProperties();
+
+	// Starts a row and leaves the cursor in the control cell, with the next
+	// item stretched to fill it. Everything after this call and before the
+	// next PropertyRow is the control.
+	//
+	//     if (UI::BeginProperties("mat"))
+	//     {
+	//         UI::PropertyRow("Base Colour", "The albedo, in sRGB.");
+	//         changed |= ImGui::ColorEdit4("##base", ...);
+	//         UI::EndProperties();
+	//     }
+	//
+	// Note the `##` on the control: the row already drew the label, and a
+	// widget that draws a second one is the bug this whole file exists to stop.
+	void PropertyRow(const char* label, const char* tooltip = nullptr);
+
+	// A heading inside a panel. Quieter than a collapsing header -- this is for
+	// grouping rows that are already inside one.
+	void SectionHeader(const char* label);
+
+	// A dimmed "(?)" that explains something on hover. Uses the disabled text
+	// colour, so it reads as available-but-secondary rather than as a warning.
+	void HelpMarker(const char* text);
+
+	// Three drag floats with X/Y/Z reset buttons, sized so they always fit the
+	// space they are given.
+	//
+	// The version this replaces split the available width three ways *without*
+	// subtracting the three axis buttons, so at a narrow panel the drag fields
+	// were asked to be negative pixels wide. ImGui asserts on the inverted clip
+	// rectangle that produces -- which is to say the editor did not merely look
+	// wrong when the panel was narrow, it stopped.
+	bool DragVec3(const char* id, Vec3& values, float resetValue = 0.0f,
+				  float speed = 0.1f);
+
+	// ---------------------------------------------------------------------
+	// One-line rows
+	// ---------------------------------------------------------------------
+	//
+	// Each opens its own single-row table, draws the label in the left column
+	// and the control -- with a hidden label -- stretched across the right.
+	// A panel written with these cannot produce the truncation the fixed
+	// column produced, because no control is ever competing with a label for
+	// the same pixels.
+	//
+	// They exist as wrappers rather than as a convention because a convention
+	// is a thing to remember: `ImGui::Checkbox("VSync", &v)` compiles, looks
+	// fine at the width it was written at, and clips at every other one.
+
+	bool RowCheckbox(const char* label, bool* value, const char* tooltip = nullptr);
+	bool RowDragFloat(const char* label, float* value, float speed, float min, float max,
+					  const char* format = "%.3f", const char* tooltip = nullptr);
+	bool RowSliderFloat(const char* label, float* value, float min, float max,
+						const char* format = "%.3f", const char* tooltip = nullptr);
+	bool RowDragInt(const char* label, int* value, float speed, int min, int max,
+					const char* tooltip = nullptr);
+	bool RowColor3(const char* label, float* rgb, const char* tooltip = nullptr);
+	bool RowColor4(const char* label, float* rgba, const char* tooltip = nullptr);
+	bool RowCombo(const char* label, int* current, const char* const items[], int count,
+				  const char* tooltip = nullptr);
+	// A read-only value, for a panel that reports rather than edits.
+	void RowText(const char* label, const char* value, const char* tooltip = nullptr);
+
+	// A row of buttons that share the full width evenly. For a segmented
+	// control -- two or three mutually exclusive choices where a combo box
+	// would hide the options behind a click.
+	int SegmentedControl(const char* id, const char* const* labels, int count, int current);
+}

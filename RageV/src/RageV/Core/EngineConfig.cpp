@@ -120,6 +120,18 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "theme")
+		{
+			const std::string wanted = ToLower(value);
+			if (wanted != "dark" && wanted != "light")
+			{
+				RV_CORE_WARN("theme expects 'dark' or 'light', got '{0}'", value);
+				return false;
+			}
+			config.Theme = wanted;
+			return true;
+		}
+
 		if (key == "screenshot-frame" || key == "screenshotframe")
 		{
 			try

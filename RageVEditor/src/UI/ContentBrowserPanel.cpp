@@ -38,7 +38,7 @@ namespace RageV
 			{
 				case AssetType::Mesh:
 				case AssetType::Prefab:
-					return EditorTheme::Color::Accent;
+					return EditorTheme::Colors().Accent;
 				default:
 					return ImVec4(0.55f, 0.55f, 0.58f, 1.0f);
 			}

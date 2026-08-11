@@ -30,6 +30,7 @@
 //   --benchmark=N           run N frames, print a frame-time summary, exit
 //   --scene=<path>          open this scene instead of the project's start scene
 //   --ui-scale=N|auto       editor UI scale; auto follows the monitor
+//   --theme=dark|light      editor theme; default is whatever was last used
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include <string>
@@ -94,6 +95,13 @@ namespace RageV
 		// so it is a setting rather than a detection -- and ragev.ini is the
 		// natural place to put it once.
 		float UIScale = 1.0f;
+
+		// Which editor theme to open with: "dark", "light", or empty for
+		// whatever was last chosen. A flag rather than only a menu item so a
+		// screenshot of either is one argument, which is what makes checking
+		// both themes at several window sizes a script instead of an afternoon.
+		// Ignored outside the editor.
+		std::string Theme;
 
 		// The project to open. Empty falls back to RV_DEFAULT_PROJECT, which
 		// CMake bakes in for builds run out of the build tree, and then to
