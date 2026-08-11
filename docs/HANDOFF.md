@@ -76,8 +76,7 @@ regression will show up first:
 python tools/scripts/check_oit.py --config Debug
 ```
 
-4/4, `exit 0`. `rhismoke` is listed below as part of the bar and currently
-cannot create a window — see §9 before treating its failure as yours.
+4/4, `exit 0`.
 
 **Five things that are easy to get wrong here, all learned the hard way:**
 
@@ -913,6 +912,24 @@ or silence rather than an obvious failure.
   are still registered by an explicit function referenced from
   `ScriptRegistry` -- and it would bite again the moment anything goes back into
   a `.lib`.
+- **A tool must not link a vendored library the engine already links
+  privately, and must not call one whose state lives in globals.** `RageV.dll`
+  links `glfw` `PRIVATE`. `rhismoke` linked it *again* and called `glfwInit`
+  and `glfwCreateWindow` itself, so the executable and the DLL each held their
+  own GLFW with their own globals. The window was real -- the tool's null check
+  never fired -- and the engine's copy had never heard of it, so
+  `glfwGetWin32Window` inside `VulkanDevice::CreateSurface` answered null and
+  Vulkan refused the surface with `hwnd is NULL`. OpenGL failed one step
+  earlier and looked like a different bug entirely: glad was handed a
+  proc-address loader belonging to a library nobody had initialised, and
+  reported `gladLoadGLLoader failed`. **One cause, two symptoms that do not
+  resemble each other.**
+
+  Fixed 2026-08-11 by creating the window through `Window::Create` and dropping
+  `glfw` from the tool's link line. `WindowProps::Visible` exists for exactly
+  this case and already carried the diagnosis in its comment -- the prop had
+  been added and `rhismoke` was never migrated onto it, which is its own
+  lesson: a fix that leaves the old path compiling leaves it in use.
 - **Static data members read by an inline accessor do not cross a module
   boundary.** A consumer links its own copy of the data rather than the
   engine's. `Application::Get`, `Log`'s two loggers and
@@ -2027,24 +2044,6 @@ because the alternative is someone finding each one by being confused.
   `AssetRegistry.h`.
 - **A script attached while playing is discarded on Stop.** Correct snapshot
   semantics, surprising the first time.
-- **`rhismoke` cannot create a usable window, on either backend.** Found
-  2026-08-11 while verifying 6.9. `glfwCreateWindow` *succeeds* -- the tool's
-  own null check does not fire -- and then Vulkan reports
-  `vkCreateWin32SurfaceKHR(): pCreateInfo->hwnd is NULL` and surface
-  capabilities of 0x0, while OpenGL reports `gladLoadGLLoader failed`, which is
-  what a window with no context looks like. Exit 3 and 1 respectively.
-
-  **It is not a regression**: the pre-built `Release` binary, untouched since
-  2026-08-10, fails identically, and the frame-count argument (`rhismoke 120
-  --rhi=...`) makes no difference. It is also not the environment refusing
-  windows in general -- `RageVRuntime` and `RageVEditor` both create theirs and
-  render in the same shell, minutes apart. The suspect is therefore how the
-  tool initialises GLFW itself rather than through the engine's `Window`, since
-  that is the only thing it does differently. Untriaged beyond that.
-
-  The bar in §0 lists `rhismoke` alongside `scenetest`; until this is fixed,
-  only `scenetest` can actually be run, and any claim of a full verification
-  pass should say so.
 - **Nothing culls by distance.** A mesh behind the camera is skipped; a mesh a
   kilometre away that is two pixels across is drawn in full.
 - **RageV implements its own math, and it costs nothing. Measured properly, on

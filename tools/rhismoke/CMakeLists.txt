@@ -1,5 +1,9 @@
 add_executable(rhismoke main.cpp)
-target_link_libraries(rhismoke PRIVATE RageV::RageV glfw)
+# No glfw here on purpose. It is linked privately into RageV.dll and keeps its
+# state in globals, so linking it again gives this executable a second copy the
+# engine cannot see -- a real window the DLL reports as a null HWND. The window
+# comes from Window::Create instead.
+target_link_libraries(rhismoke PRIVATE RageV::RageV)
 add_custom_command(TARGET rhismoke POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/RageVEditor/assets" "$<TARGET_FILE_DIR:rhismoke>/assets")

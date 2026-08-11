@@ -10,7 +10,8 @@
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 
-#include <GLFW/glfw3.h>
+#include "RageV/Core/Window.h"
+#include "RageV/Core/EngineConfig.h"
 #include "RageV/Math/Math.h"
 
 using namespace RageV;
@@ -47,45 +48,47 @@ int main(int argc, char** argv)
 	Log::Init();
 
 	int frameCount = 120;
-	Backend backend = Backend::Vulkan;
 
 	for (int i = 1; i < argc; i++)
 	{
 		const std::string argument = argv[i];
-		if (argument == "--rhi=opengl" || argument == "--rhi=gl")
-			backend = Backend::OpenGL;
-		else if (argument == "--rhi=vulkan" || argument == "--rhi=vk")
-			backend = Backend::Vulkan;
-		else if (isdigit((unsigned char)argument[0]))
+		if (!argument.empty() && isdigit((unsigned char)argument[0]))
 			frameCount = atoi(argument.c_str());
 	}
 
-	if (!glfwInit())
-	{
-		RV_CORE_ERROR("glfwInit failed");
-		return 1;
-	}
+	// The engine parses --rhi= (and ragev.ini) itself, and the window has to be
+	// created against the same answer: the client API is a creation-time hint,
+	// which is why the backend is a restart-time choice at all.
+	EngineConfig::Init(argc, argv);
+	const Backend backend = EngineConfig::Get().Backend;
 
-	// Vulkan owns presentation itself, so GLFW must not create a GL context.
-	if (backend == Backend::Vulkan)
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	else
-	{
-		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	}
+	// Through the engine, never GLFW directly. GLFW keeps its state in globals
+	// and is linked privately into RageV.dll, so a tool that calls glfwInit and
+	// glfwCreateWindow itself gets a *second* copy: the window is real, and the
+	// engine's copy has never heard of it. `glfwGetWin32Window` inside the DLL
+	// then answers null, and Vulkan refuses the surface -- while OpenGL fails
+	// one step earlier, because glad is handed a proc-address loader belonging
+	// to a library nobody initialised. Both were happening here; see
+	// WindowProps::Visible, which exists for exactly this.
+	//
+	// Invisible on purpose: this needs a device, not a display.
+	WindowProps props("RageV RHI smoke test", 1280, 720);
+	props.Visible = false;
 
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "RageV RHI smoke test", nullptr, nullptr);
+	Scope<Window> window(Window::Create(props));
 	if (!window)
 	{
 		RV_CORE_ERROR("window creation failed");
 		return 1;
 	}
 
+	// The window pushes events at whatever is listening, and asserts if that is
+	// nothing. Nothing here needs them -- the frame count ends the run.
+	window->SetEventCallback([](Event&) {});
+
 	DeviceDesc deviceDesc;
 	deviceDesc.Backend = backend;
-	deviceDesc.Window = window;
+	deviceDesc.Window = window->GetNativeWindow();
 	deviceDesc.Width = 1280;
 	deviceDesc.Height = 720;
 	deviceDesc.VSync = true;
@@ -205,9 +208,9 @@ int main(int argc, char** argv)
 	int rendered = 0;
 	int skipped = 0;
 
-	for (int frame = 0; frame < frameCount && !glfwWindowShouldClose(window); frame++)
+	for (int frame = 0; frame < frameCount; frame++)
 	{
-		glfwPollEvents();
+		window->OnUpdate();
 
 		RHICommandList* cmd = device->BeginFrame();
 		if (!cmd)
@@ -275,8 +278,7 @@ int main(int argc, char** argv)
 	device.reset();
 
 	ShaderCompiler::Shutdown();
-	glfwDestroyWindow(window);
-	glfwTerminate();
+	window.reset();
 
 	RV_CORE_INFO("OK");
 	return rendered > 0 ? 0 : 1;
