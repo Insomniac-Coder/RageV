@@ -1,6 +1,6 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-09.
+**Read this first.** Updated 2026-08-11.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
 finished with, and `main` is pushed.
@@ -40,7 +40,8 @@ are all done. So is scripting, in both languages, with live reload in both:
   resumes Play on the new code; after a failed build it stays stopped with
   the errors showing. One rule, both languages. Play pressed during a build
   queues until the build lands.
-- **As of interop protocol 4 the languages are equals**: audio, raycasts,
+- **As of interop protocol 4 the languages are equals**, and protocol 6 gave
+  them both a second rate -- see below: audio, raycasts,
   hierarchy, and components by registry name with text values all reach C#.
   The one structural exception is typed GetComponent<T>, which cannot cross
   a boundary and is traded for the registry's named access.
@@ -62,7 +63,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-888 checks, `exit 0`. Then look at a frame:
+909 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -454,7 +455,7 @@ simulation directly. See ENGINE-NOTES §1.
 
 | | edit | play |
 |---|---|---|
-| Scripts | no | yes, on the fixed step |
+| Scripts | no | yes, on **both** the fixed step (`OnTick`) and the frame (`OnFrame`) |
 | Physics | no | yes, after scripts |
 | Contact callbacks | no | yes, after the step that produced them |
 | Audio | no | starts on play, silenced on stop |
@@ -467,7 +468,7 @@ simulation directly. See ENGINE-NOTES §1.
 One fixed step, in order:
 
 ```
-scripts (OnUpdate)
+scripts (OnTick), C++ then C#
 flush destroy queue
 update world transforms
 physics step
@@ -475,14 +476,42 @@ dispatch contacts  ->  OnCollisionEnter/Stay/Exit, OnTrigger*
 flush destroy queue          again: a handler may have destroyed something
 ```
 
-Audio deliberately is not in that list. Listener and source positions are
-pushed on the **frame**, from `OnUpdateRuntime`, after physics transforms have
-been interpolated — audio is presentation, and belongs where rendering is for
-the same reason.
+And one **frame**, in `OnUpdateRuntime`:
+
+```
+animators
+interpolate physics transforms by the frame's alpha
+update world transforms
+scripts (OnFrame), C++ then C#
+flush destroy queue  +  update world transforms again, if any script ran
+audio: listener and source positions
+particles, CPU then GPU
+```
+
+Audio is deliberately not in the fixed list. Listener and source positions are
+pushed on the **frame**, after physics transforms have been interpolated — audio
+is presentation, and belongs where rendering is for the same reason. `OnFrame`
+sits ahead of it so a script that moves something has that reach audio, the
+particle systems and rendering within the same frame.
 
 ---
 
 ## 5. Invariants that are load-bearing
+
+- **There are two script rates and the names say which.** `OnTick` is the fixed
+  simulation step, `OnFrame` is the rendered frame. Gameplay in `OnFrame` is
+  frame-rate dependent by construction; presentation in `OnTick` judders at any
+  display rate that is not the simulation rate, and judders *differentially*,
+  which is worse than not smoothing at all because the world around it is
+  interpolated. `OnUpdate` no longer exists, in either language, and is kept as
+  a `final` / `[Obsolete]` member purely so that a script written against it
+  fails loudly.
+- **The frame pass never creates a script instance.** Instances are made in the
+  fixed pass and nowhere else, which is what makes it *impossible* for `OnFrame`
+  to arrive before `OnCreate` -- a structural guarantee rather than a check that
+  could be forgotten. A newly spawned entity gets its first `OnTick` before its
+  first `OnFrame`.
+
 
 Every one was a real bug. Breaking them tends to produce intermittent corruption
 or silence rather than an obvious failure.
@@ -1057,9 +1086,9 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
   is what `WeightedBlended` is for, and 6.11 would make exact.
 - **Text and game UI.** The largest gap by some distance, and the one the mini
   game hit hardest -- see §8. Nothing can draw a score, a label or a menu.
-- **A per-frame script hook.** `OnUpdate` is per fixed step by design, so
-  anything that must move with the display -- camera smoothing, recoil, shake
-  -- has nowhere to live. Named by the mini game as the second-largest gap.
+- ~~A per-frame script hook.~~ **Done 2026-08-11**: `OnFrame` in both
+  languages, `OnUpdate` renamed to `OnTick`, and the interpolation alpha
+  readable from a script. See §8.
 - **Front-to-back depth sorting.** Opaque draws are grouped by mesh and
   material so they batch, which is the half of 3.6 that was worth measuring.
   Sorting them by depth as well would let early-z reject more, and is worth a
@@ -1785,42 +1814,94 @@ shape phase 6 originally sketched:
   sRGB and must not be tonemapped. That is a new graph pass writing the LDR
   target -- straightforward given §6.3, but decide it deliberately.
 
-**It pairs naturally with the per-frame script hook below**, because UI
-animation wants per-frame timing, and doing the hook first means UI can use it
-rather than being retrofitted onto it.
+**The per-frame script hook it wanted is already there** -- that was done first,
+on purpose, so UI can use `OnFrame` rather than be retrofitted onto it. Every
+animation a widget wants (a fade, a slide, a counter ticking up) belongs on the
+frame, and the callback and its varying `dt` now exist in both languages. See
+the section below.
 
-### Pending - the per-frame script hook
+### Done - two script rates, and the per-frame hook
 
-**Agreed as the next engine gap after the current work** (2026-08-11), and
-recorded here rather than done because a design document took priority.
+**Complete, both languages, protocol 6.** The analysis this section used to hold
+is now the code: `OnUpdate` is gone and there are two callbacks whose names say
+*when* rather than what.
 
-`OnUpdate` is per *fixed step*, by design. Every other presentation system --
-animators, physics interpolation, world transforms, audio, both particle
-paths -- already runs per frame in `Scene::OnUpdateRuntime`, each with a
-comment saying why. Scripts are the one thing still pinned to the simulation
-rate, and that is now the second-largest gap in phase 6 after text/UI.
+| | fixed simulation step | rendered frame |
+|---|---|---|
+| C++ | `OnTick(Timestep)` | `OnFrame(Timestep)` |
+| C# | `OnTick(float)` | `OnFrame(float)` |
 
-The sharpest argument is not convenience: `SyncTransforms` blends the last
-two simulation states by `Application::GetInterpolationAlpha()`, so the world
-already moves smoothly at any display rate. A camera moved from `OnUpdate`
-updates on one frame in four at 240 Hz against a world that updates on all
-four -- which reads *worse* than if neither were smoothed, because the
-stutter is differential. No script can even see the alpha today.
+**The naming call was the user's** (2026-08-11), and it is the better one.
+`OnUpdate` names an *action*, and "update" says nothing about when -- which is
+the only thing that decides whether the code inside is correct. It is also
+already spoken for: in Unity `Update` means *per frame*, so keeping it for the
+fixed step would have meant a name that quietly reads backwards to most people
+who arrive with habits. `OnFrame` is unambiguous -- there is exactly one thing a
+frame is. `OnTick` leans on the networking sense of tick (a 64-tick server),
+which is the dominant one outside Unreal; and next to `OnFrame` the pair
+disambiguates itself in a way neither name does alone.
 
-Two decisions it forces:
+**Where it runs**: `Scene::StepFrameScripts`, called from `OnUpdateRuntime`
+after the physics interpolation and the world-transform derive, and before
+audio. That ordering *is* the feature -- `OnFrame` reads the transforms that are
+about to be drawn. A second derive follows the pass, because everything
+downstream (audio placement, both particle systems, rendering) reads the world
+matrix.
 
-1. **The name.** `OnUpdate` already means fixed step in both manuals and
-   every existing script, so it cannot be reused. Something that says frame
-   -- `OnFrame(dt)` -- makes the varying `dt` obvious at the call site.
-2. **Where in the frame.** A camera script must read *interpolated*
-   transforms, so it belongs after `UpdateWorldTransforms` and before
-   `UpdateAudio` -- around Scene.cpp's audio call. Earlier and it reads last
-   step's positions, which defeats the purpose.
+**The frame pass deliberately does no reconciliation.** It creates nothing,
+swaps nothing, and calls no `OnCreate`; instances are made in the fixed pass and
+nowhere else. That is what makes `OnFrame` before `OnCreate` impossible by
+construction rather than by a check -- and it means choosing a different script
+in the inspector takes effect at a step boundary rather than halfway through a
+frame.
 
-Both languages ship it together (they are equals at protocol 5), and the
-real risk is misuse: gameplay in a per-frame hook reintroduces frame-rate
-dependence, which is what the fixed step exists to prevent. That is a naming
-and documentation problem, not a code one.
+**Also added**: `GetInterpolationAlpha()` / `Time.InterpolationAlpha`, for
+smoothing a value the engine cannot see. Simulated bodies are already blended
+before `OnFrame` runs; this is for something a script computed in `OnTick` and
+wants to draw between steps.
+
+**Two built-ins moved and are now the worked examples**: `Follow` (a camera --
+the whole argument in one script) and `ImpactFlash` (the fade after the hit;
+the hit itself stays on the contact callback). `Spinner` and `Mover` stay on
+`OnTick`.
+
+**The trap this exposed, and it generalises.** A rename on a boundary you do not
+control can fail *silently*: C++ does not require `override`, so a script that
+declared `void OnUpdate(Timestep)` without it would still compile -- as a brand
+new method nobody calls. The script quietly stops working and nothing says so.
+So `OnUpdate` stays in the base class as a **`final`** member, which turns both
+spellings into the same clear compiler error, and C# gets the same treatment
+with a non-virtual `[Obsolete(..., true)]` one plus a reflection warning at
+create time for the hiding case. Both are deletable once nothing predates the
+rename.
+
+That guard paid for itself within the hour: it caught `Project.cpp`'s scaffolded
+`Example.cs`, a *second* script template nobody had thought of, as a compile
+error in the suite rather than as a script that silently did nothing in every
+new project. **When renaming something on a boundary, ask what happens to code
+that did not get the message, and make that outcome loud.**
+
+**A redundancy this uncovered.** `Particles::System::Update` began with an
+unconditional `scene.UpdateWorldTransforms()` -- a full hierarchy walk, every
+frame, in every scene, including scenes with no emitters at all. It also
+silently covered for anyone upstream who forgot to derive, which is why the
+first version of the frame-pass test passed with the frame pass's own derive
+deleted. It is now guarded by an emptiness check, which both removes the walk
+and lets the test discriminate. **A defensive call that hides a missing one is
+worse than either.**
+
+**A latent test bug this turned up**, unrelated to the change and fixed in
+passing: the game-module config check asserted the literal `"Debug"`, so it
+failed in every configuration but that one. It now compares against the same
+`RV_DEBUG`/`RV_RELEASE`/`RV_DIST` switch the engine uses. The suite had
+evidently only ever been *run* in Debug -- "builds in three configs" and
+"passes in three configs" are different claims. It now passes in all three.
+
+**Verified**: 909 checks, both backends, exit 0, no validation messages; the
+manual drift check (`rvdoc --check`) green; Knockdown runs end to end reporting
+2 native and 3 C# scripts at protocol 6. The frame-pass test was falsified
+before being trusted -- with the second derive removed the world matrix reads
+0 against a local of 3.5, and the check fails.
 
 ### After that - 6.11, GPU alpha self-sorting
 
@@ -1889,17 +1970,17 @@ building a real game, in order:
    score, or put up a title. Everything had to be communicated with a
    light and four sounds -- workable for one mechanic, not for two.
    **Now the START HERE**, agreed 2026-08-11.
-2. **No per-frame script hook.** OnUpdate is per fixed step by design, so
-   camera smoothing and feedback that has to move with the display
-   (recoil, shake) have nowhere to live; the camera rides the launcher
-   rigidly. **Still open**, second, and analysed in full below -- it pairs
-   with UI, which wants per-frame timing for its own animation.
+2. ~~No per-frame script hook.~~ **Done 2026-08-11** -- `OnFrame` in both
+   languages, `OnUpdate` renamed to `OnTick`, and the interpolation alpha
+   readable from a script. Deliberately done *before* UI so that UI can use
+   it rather than be retrofitted onto it. Knockdown's camera still rides the
+   launcher rigidly; it now has somewhere to be smoothed from.
 3. ~~No particles.~~ Done -- CPU and GPU, three blend modes, curves, and a
    burst fired from a C# script in Knockdown.
 4. ~~Small API wants~~ -- done: `PlayOneShotAt` and pitch on every
    one-shot, both languages, protocol 5.
 
-Both remaining items are phase 6. After them the ranked list is: **6.11 GPU
+The one remaining item is phase 6. After it the ranked list is: **6.11 GPU
 alpha self-sorting** (bitonic, single workgroup for pools <= 2048, now with a
 measured argument from 6.10), then **particle collision** (analytic shapes
 first, screen-space second) and **sub-emitters**, then phase 7's deferred
@@ -1907,11 +1988,23 @@ debts.
 
 ### Worth knowing before extending scripting further
 
-- **The NativeApi table is append-only and at protocol 5.** Inserting a
+- **The NativeApi table is append-only and at protocol 6.** Inserting a
   field in the middle rebinds every field after it on one side only; the
   crash lands somewhere unrelated. Append, bump kProtocolVersion on both
   sides (Interop.h and Interop.cs), and the handshake tests follow the
-  constant automatically.
+  constant automatically. **Both** constants -- forgetting `Interop.cs` fails
+  the handshake check with a clear message, which is the check working.
+- **`ManagedApi` is not the same kind of table.** It is bound by *name*, one
+  `GetFunctionPointer` per entry, and nothing outside the engine binds it, so
+  its members may be renamed and reordered freely; `InvokeUpdate` became
+  `InvokeTick` at protocol 6 with no ABI consequence at all.
+- **A project's compiled C# must be rebuilt when the class library changes.**
+  A stale assembly whose types override a member that no longer exists fails
+  to load its types -- loudly, which is the good outcome. Rebuild with
+  `dotnet build -c Debug -p:RageVScriptCore=<build>/bin/Debug/RageVEditor/managed/RageV.ScriptCore.dll`
+  and copy the output *up* from `bin/Debug/net8.0/` to `Scripts/bin/`, which
+  is where the engine looks. The same applies to a project's native module: a
+  vtable that gained a virtual is an ABI change, so rebuild it too.
 - The C# reload refuses while instances are alive, on both sides of the
   boundary: the editor parks the swap until Stop, and ScriptHost refuses with
   a log line if anything reaches it anyway.

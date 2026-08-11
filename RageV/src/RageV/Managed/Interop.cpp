@@ -533,6 +533,13 @@ namespace RageV::Managed
 			Audio::Engine::Stop(voice);
 		}
 
+		// --- appended for protocol 6 -----------------------------------------
+
+		float __cdecl GetInterpolationAlpha()
+		{
+			return Application::GetInterpolationAlpha();
+		}
+
 		// --- components, through the registry --------------------------------
 
 		// The component instance a name refers to on an entity, or null.
@@ -761,6 +768,7 @@ namespace RageV::Managed
 			api.PlayOneShotAt = &PlayOneShotAt;
 			api.PlayOneShotPitched = &PlayOneShotPitched;
 			api.PlayOneShot2DPitched = &PlayOneShot2DPitched;
+			api.GetInterpolationAlpha = &GetInterpolationAlpha;
 			return api;
 		}
 	}
@@ -815,7 +823,8 @@ namespace RageV::Managed
 		s_Managed.Create        = (decltype(s_Managed.Create))bind("Create");
 		s_Managed.Destroy       = (decltype(s_Managed.Destroy))bind("Destroy");
 		s_Managed.InvokeCreate  = (decltype(s_Managed.InvokeCreate))bind("InvokeCreate");
-		s_Managed.InvokeUpdate  = (decltype(s_Managed.InvokeUpdate))bind("InvokeUpdate");
+		s_Managed.InvokeTick    = (decltype(s_Managed.InvokeTick))bind("InvokeTick");
+		s_Managed.InvokeFrame   = (decltype(s_Managed.InvokeFrame))bind("InvokeFrame");
 		s_Managed.InvokeDestroy = (decltype(s_Managed.InvokeDestroy))bind("InvokeDestroy");
 		s_Managed.InvokeContact = (decltype(s_Managed.InvokeContact))bind("InvokeContact");
 		s_Managed.LiveCount     = (decltype(s_Managed.LiveCount))bind("LiveCount");
@@ -834,7 +843,7 @@ namespace RageV::Managed
 		s_Managed.GetFieldValue  = (decltype(s_Managed.GetFieldValue))bindFields("GetFieldValue");
 		s_Managed.SetFieldValue  = (decltype(s_Managed.SetFieldValue))bindFields("SetFieldValue");
 
-		if (!s_Managed.Create || !s_Managed.InvokeUpdate || !s_Managed.Destroy)
+		if (!s_Managed.Create || !s_Managed.InvokeTick || !s_Managed.Destroy)
 		{
 			RV_CORE_ERROR("C# scripting: the script assembly has no ScriptHost entry points");
 			s_Managed = ManagedApi{};

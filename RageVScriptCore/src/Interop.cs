@@ -37,7 +37,10 @@ public static unsafe class Interop
 	// 3: appended script field reflection.
 	// 4: appended the rest of the native surface -- hierarchy, prefabs,
 	//    raycasts, audio, components by name.
-	public const int ProtocolVersion = 5;
+	// 5: appended one-shots with pitch, and one from a point.
+	// 6: scripts gained a second rate. OnUpdate became OnTick, OnFrame joined
+	//    it, and the interpolation alpha became readable.
+	public const int ProtocolVersion = 6;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the

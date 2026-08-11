@@ -19,7 +19,7 @@ namespace RageV;
 /// unmanaged frame terminates the process rather than unwinding, so a script
 /// that throws must not take the editor with it. The exception is logged with
 /// the script's type name and the instance keeps running — a broken
-/// <c>OnUpdate</c> should be a message in the log panel, not a crash and a lost
+/// <c>OnTick</c> should be a message in the log panel, not a crash and a lost
 /// scene.
 /// </remarks>
 public static unsafe class ScriptHost
@@ -103,6 +103,24 @@ public static unsafe class ScriptHost
 
 			instance.Entity = new Entity(entity);
 
+			// Decided once, here, rather than every frame: is OnFrame worth
+			// calling on this type at all?
+			instance.WantsFrame =
+				type.GetMethod(nameof(Script.OnFrame), new[] { typeof(float) })
+					?.DeclaringType != typeof(Script);
+
+			// The rename guard. A script that declares OnUpdate without
+			// `override` compiles -- it merely hides the obsolete member on
+			// Script -- and would then silently never run. The compiler says
+			// "hides inherited member"; this says what to do about it.
+			if (type.GetMethod("OnUpdate", BindingFlags.Public | BindingFlags.NonPublic
+											| BindingFlags.Instance | BindingFlags.DeclaredOnly) is not null)
+			{
+				Log.Warn($"'{type.Name}' declares OnUpdate, which the engine no longer calls. "
+						 + "Gameplay belongs in OnTick (per fixed simulation step); "
+						 + "presentation belongs in OnFrame (per frame).");
+			}
+
 			int handle = s_NextHandle++;
 			s_Live[handle] = instance;
 			return handle;
@@ -125,8 +143,21 @@ public static unsafe class ScriptHost
 	public static void InvokeCreate(int handle) => Invoke(handle, "OnCreate", s => s.OnCreate());
 
 	[UnmanagedCallersOnly]
-	public static void InvokeUpdate(int handle, float deltaTime) =>
-		Invoke(handle, "OnUpdate", s => s.OnUpdate(deltaTime));
+	public static void InvokeTick(int handle, float deltaTime) =>
+		Invoke(handle, "OnTick", s => s.OnTick(deltaTime));
+
+	/// <summary>The per-frame half. Skips types that do not override it.</summary>
+	/// <remarks>
+	/// The gate is not premature: this runs for every live script on every
+	/// frame, and <see cref="Invoke"/> allocates a closure per call. A scene
+	/// full of tick-only scripts should not pay for a hook it never uses.
+	/// </remarks>
+	[UnmanagedCallersOnly]
+	public static void InvokeFrame(int handle, float deltaTime)
+	{
+		if (Find(handle) is { WantsFrame: true })
+			Invoke(handle, "OnFrame", s => s.OnFrame(deltaTime));
+	}
 
 	[UnmanagedCallersOnly]
 	public static void InvokeDestroy(int handle) => Invoke(handle, "OnDestroy", s => s.OnDestroy());

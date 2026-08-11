@@ -133,9 +133,20 @@ namespace RageV::Particles
 		if (dt <= 0.0f)
 			return;
 
+		auto view = scene.GetRegistry().view<ParticleEmitterComponent, TransformComponent>();
+
+		// Nothing here touches anything but an emitter component, so a scene
+		// with no emitters has no work -- and should not pay a full hierarchy
+		// walk to find that out. Before the guard this ran on every frame of
+		// every scene, and it also quietly covered for anyone upstream who
+		// forgot to derive.
+		if (view.begin() == view.end())
+			return;
+
+		// Particles are born in world space, so the hierarchy has to be current
+		// by the time Emit reads transform.World.
 		scene.UpdateWorldTransforms();
 
-		auto view = scene.GetRegistry().view<ParticleEmitterComponent, TransformComponent>();
 		for (auto handle : view)
 		{
 			auto [emitter, transform] = view.get<ParticleEmitterComponent, TransformComponent>(handle);

@@ -19,7 +19,7 @@ namespace RageV
 			SetLinearVelocity(Velocity);
 		}
 
-		void OnUpdate(Timestep dt) override
+		void OnTick(Timestep dt) override
 		{
 			m_Age += dt.GetSeconds();
 			if (m_Age >= Life)

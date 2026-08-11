@@ -22,7 +22,7 @@ public:
         m_Origin = GetPosition();
     }
 
-    void OnUpdate(Timestep dt) override
+    void OnTick(Timestep dt) override
     {
         m_Elapsed += dt.GetSeconds();
         Vec3 position = m_Origin;
@@ -87,37 +87,114 @@ and no list to forget a script from.
 | Callback | When |
 |---|---|
 | `OnCreate()` | Once, on the first simulation step after Play. |
-| `OnUpdate(Timestep dt)` | Every fixed simulation step. |
+| `OnTick(Timestep dt)` | Every fixed simulation step. |
+| `OnFrame(Timestep dt)` | Every rendered frame. |
 | `OnDestroy()` | On destruction, and when play mode stops. |
 
 `OnCreate` runs on the first *step*, not when the component is added. By then
 every entity in the scene exists, so it is safe to look others up — which is not
 true of a constructor.
 
-### OnUpdate is not per frame
+### Two rates, and choosing between them
 
 This is the single most important thing on this page.
 
-`OnUpdate` runs once per **fixed simulation step**, at 60 Hz by default. A frame
+The names say **when**, not what, because when is the only thing that decides
+whether the code inside is correct.
+
+`OnTick` runs once per **fixed simulation step**, at 60 Hz by default. A frame
 may run zero steps, one, or several. The `dt` you are handed is the fixed
 timestep, and it is the same value every call.
 
+`OnFrame` runs once per **rendered frame**, and its `dt` is the real elapsed
+time, which varies with the machine, the scene, and whatever else is happening.
+
+The rule:
+
+> **Gameplay goes in `OnTick`. Presentation goes in `OnFrame`.**
+>
+> If the physics, another player or a replay has to agree with it, it belongs on
+> the fixed step. If it is only ever looked at, it belongs on the frame.
+
+| Belongs in `OnTick` | Belongs in `OnFrame` |
+|---|---|
+| Moving a body, applying a force | Moving a camera |
+| Firing, scoring, taking damage | Fading, flashing, pulsing |
+| A timer that decides an outcome | A number counting up on screen |
+| Anything a replay must reproduce | Anything only the eye consumes |
+
 > [!TRAP]
-> Do not use `OnUpdate` for anything that should happen once per *frame*, and do
+> Do not use `OnTick` for anything that should happen once per *frame*, and do
 > not assume it is called at the frame rate. On a fast machine with vsync off it
 > is called far less often than frames are drawn; on a slow one, several times
 > per frame. Both are correct.
 
-Multiply rates by `dt` anyway. It is what keeps behaviour identical when someone
-runs the game at `--fixed-hz=120`:
+> [!TRAP]
+> And do not move gameplay into `OnFrame` because it feels smoother. It is
+> frame-rate dependent by construction: the same input gives a different result
+> on a different machine, which is exactly what the fixed step exists to prevent.
+
+Multiply rates by `dt` in both. In `OnTick` it is what keeps behaviour identical
+when someone runs the game at `--fixed-hz=120`:
 
 ```cpp
-void OnUpdate(Timestep dt) override
+void OnTick(Timestep dt) override
 {
     Translate(GetForward() * m_Speed * dt.GetSeconds());   // correct
     // Translate(GetForward() * 0.05f);                    // tied to the rate
 }
 ```
+
+### Why a camera belongs in OnFrame
+
+The engine blends the last two simulation states every frame, so a simulated
+body moves smoothly at any display rate. `OnFrame` runs *after* that blend, so
+what it reads is what is about to be drawn.
+
+Chase a target from `OnTick` at 240 Hz and the camera moves on one frame in four
+while the world moves on all four. That reads *worse* than no smoothing at all,
+because the stutter is differential — the world glides and the camera judders
+against it. The built-in `Follow` is the worked example:
+
+```cpp
+void OnFrame(Timestep dt) override
+{
+    const Vec3 goal = m_Target.GetComponent<TransformComponent>().Position + m_Offset;
+
+    // Framerate-independent smoothing. A plain lerp by a constant factor
+    // converges at a rate that depends on the step size, which on a frame --
+    // where dt varies -- means lagging further behind whenever the rate dips.
+    const float t = 1.0f - std::exp(-m_Sharpness * dt.GetSeconds());
+    GetPosition() += (goal - GetPosition()) * t;
+}
+```
+
+To smooth something the engine cannot see — a value your own script computed in
+`OnTick` — `GetInterpolationAlpha()` is how far this frame falls between the last
+step and the next, from 0 to 1:
+
+```cpp
+void OnTick(Timestep) override  { m_Previous = m_Current; m_Current = Compute(); }
+void OnFrame(Timestep) override { Show(Math::Lerp(m_Previous, m_Current, GetInterpolationAlpha())); }
+```
+
+It is meaningless inside `OnTick`, where it is whatever the last frame left.
+
+### Ordering, exactly
+
+Within one frame: physics transforms are interpolated, world transforms are
+derived, `OnFrame` runs, anything it destroyed is deleted, world transforms are
+derived again, and then audio, particles and rendering all read the result.
+
+`OnFrame` **never runs before `OnCreate`**. Script instances are created by the
+fixed pass and by nothing else, so a newly spawned entity gets its first `OnTick`
+before its first `OnFrame`.
+
+> [!NOTE]
+> `OnUpdate` was the fixed-step callback before the two rates were split. It no
+> longer exists, and a script that still declares it fails to compile — by
+> design: the alternative is a method the engine silently never calls.
+
 
 ## Reading and writing the transform
 
@@ -194,7 +271,7 @@ void OnCreate() override
         m_Player = player.GetUUID();
 }
 
-void OnUpdate(Timestep) override
+void OnTick(Timestep) override
 {
     Entity player = FindEntityByUUID(m_Player);
     if (!player)

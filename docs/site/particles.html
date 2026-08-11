@@ -24,12 +24,30 @@
 <tr><td style="text-align:left"><code>Direction</code>, <code>Spread</code>, <code>Speed</code>, <code>SpeedJitter</code></td><td style="text-align:left">The cone they leave through. <code>Spread</code> is a half-angle in degrees; 180 is a sphere.</td></tr>
 <tr><td style="text-align:left"><code>Gravity</code>, <code>Drag</code></td><td style="text-align:left">The emitter&#39;s <strong>own</strong> gravity, not the physics world&#39;s.</td></tr>
 <tr><td style="text-align:left"><code>SizeStart</code>, <code>SizeEnd</code>, <code>ColorStart</code>, <code>ColorEnd</code></td><td style="text-align:left">Interpolated over each particle&#39;s life.</td></tr>
+<tr><td style="text-align:left"><code>Size curve</code>, <code>Colour gradient</code>, <code>Alpha curve</code></td><td style="text-align:left">Shapes for the same three ramps, when a straight line will not do. See below.</td></tr>
 <tr><td style="text-align:left"><code>Spin</code></td><td style="text-align:left">Maximum degrees per second, signed at random per particle.</td></tr>
 <tr><td style="text-align:left"><code>Texture</code></td><td style="text-align:left">Optional sprite. A plain quad without one.</td></tr>
 <tr><td style="text-align:left"><code>MaxParticles</code></td><td style="text-align:left">The pool. A full pool refuses to spawn rather than recycling.</td></tr>
 </tbody></table></div>
 <p>Nothing collides. A particle is appearance: it has no rigid body, nothing can be hit by one, and no script is told about one.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Particles advance per frame, not per simulation step.</strong> This is the opposite call from scripts and physics, and it is deliberate — appearance should move as smoothly as the display can show it. A hitch is forgiven rather than paid back, so a two-second stall does not produce two seconds of particles in one frame.</p>
+</aside>
+<h2 id="curves-when-two-endpoints-are-not-enough">Curves, when two endpoints are not enough<a class="anchor" href="#curves-when-two-endpoints-are-not-enough" aria-label="Link to this section">#</a></h2>
+<p>A start and an end can only say &quot;from this, to that, evenly&quot;. Plenty of effects need a shape: smoke that swells fast and then drifts, a spark that flashes and decays over a long tail, a puff that fades in <strong>and</strong> out. That last one is worth dwelling on — it needs three values, and a pair has two, so no amount of tuning <code>ColorStart</code> and <code>ColorEnd</code> will ever produce it.</p>
+<p>Curves are assets. Drop a <code>.rcurve</code> on <strong>Size curve</strong>, <strong>Colour gradient</strong> or <strong>Alpha curve</strong> and it takes over that ramp; leave one empty and the pair still decides it. They are independent, so authoring a size curve does not oblige you to author a colour one, and every emitter made before curves existed keeps working exactly as it did.</p>
+<p>The editor draws the curve under its own field, because a ramp only means anything beside the emitter it shapes:</p>
+<ul>
+<li><strong>Drag</strong> a point to move it. Drag one past its neighbour and the curve re-sorts rather than turning inside out.</li>
+<li><strong>Double click</strong> empty space to add a point, or a point to remove it.</li>
+<li>A <strong>scalar curve</strong> (size, alpha) is a graph, and its vertical range grows to fit — a size curve in world units is not confined to 0..1.</li>
+<li>A <strong>gradient</strong> is a stop strip. Stops move in time by dragging; hover one to get a colour picker for it.</li>
+</ul>
+<p><code>tools/scripts/make_curve_presets.py</code> writes four to start from — <code>swell</code>, <code>fade_in_out</code>, <code>flash_decay</code> and <code>ember</code> — and a scene putting a curved emitter beside an uncurved one.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Alpha is its own curve, not the gradient&#39;s fourth channel.</strong> Opacity and hue almost never want the same shape, and keeping them apart is what lets one gradient be shared between emitters that fade differently.</p>
+</aside>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Curves work identically on the GPU. Both paths read the same 64-sample table — resolved once on the CPU, so the simulation never has to decide which of a curve and a pair wins — which is why switching <code>SimulateOnGpu</code> cannot change how an emitter looks.</p>
+</aside>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>A curve makes an emitter&#39;s particles differ more from each other in colour and opacity, and that is exactly the condition under which unsorted alpha goes wrong. On a <strong>GPU</strong> emitter using <code>Alpha</code>, expect a curved ramp to make the lack of sorting more visible than a plain one did. <code>Additive</code> and <code>WeightedBlended</code> are unaffected, because neither depends on order.</p>
 </aside>
 <h2 id="facing-3d-and-2d-from-one-component">Facing: 3D and 2D from one component<a class="anchor" href="#facing-3d-and-2d-from-one-component" aria-label="Link to this section">#</a></h2>
 <p><code>Billboard</code> turns each quad to face the camera. That is smoke, fire, sparks — anything in a 3D scene.</p>
@@ -45,6 +63,9 @@
 <p><strong><code>WeightedBlended</code></strong> is alpha that needs no sort. Fragments accumulate into two buffers — a sum and a product, both order-independent — and a second pass works out the result. A thousand overlapping particles land in any order and look the same.</p>
 <p>Use it when alpha ordering is visibly wrong: two emitters that interpenetrate, or a GPU emitter, which cannot sort itself at all.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>Weighted blending costs two full-resolution buffers and a resolve pass, paid once per frame however many emitters use it — and <strong>nothing at all</strong> in a frame where none do. The engine allocates them only when a scene contains a weighted emitter.</p>
+</aside>
+<p>It is an approximation, and worth knowing where it is loose. Each fragment gets a weight that falls with distance, and only the <em>ratio</em> between overlapping fragments reaches the picture. That ratio is a guess about how much a fragment is hidden by whatever is in front of it — and no function of depth alone can always be right, because what matters is how many layers are in front, not how far away they are. In practice: dense plumes come out very close to sorted, and a stack of equally transparent layers spread over a huge depth range comes out with the near one too strong. <code>Alpha</code> is what exactness costs a sort.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>If weighted blending ever looks flat — near particles failing to sit <em>in front</em> of far ones, the whole effect reading as an even wash — the depth weight has stopped discriminating rather than the blending being broken. <code>tools/scripts/check_oit.py</code> is the check for exactly that, and for the resolve landing the right way up.</p>
 </aside>
 <h2 id="simulating-on-the-gpu">Simulating on the GPU<a class="anchor" href="#simulating-on-the-gpu" aria-label="Link to this section">#</a></h2>
 <p><code>SimulateOnGpu</code> moves an emitter&#39;s pool into a storage buffer and integrates it with a compute shader. The CPU never touches a particle again.</p>
@@ -78,7 +99,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="concepts.html"><span class="pager-label">Previous</span><span class="pager-title">Core concepts</span></a><a class="pager-link pager-next" href="scripting/index.html"><span class="pager-label">Next</span><span class="pager-title">Scripting</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-shape-of-an-emitter">The shape of an emitter</a><a class="toc-link toc-l2" href="#facing-3d-and-2d-from-one-component">Facing: 3D and 2D from one component</a><a class="toc-link toc-l2" href="#space-who-the-particles-belong-to">Space: who the particles belong to</a><a class="toc-link toc-l2" href="#blending-three-answers-to-one-hard-problem">Blending: three answers to one hard problem</a><a class="toc-link toc-l2" href="#simulating-on-the-gpu">Simulating on the GPU</a><a class="toc-link toc-l2" href="#firing-a-burst-from-a-script">Firing a burst from a script</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-shape-of-an-emitter">The shape of an emitter</a><a class="toc-link toc-l2" href="#curves-when-two-endpoints-are-not-enough">Curves, when two endpoints are not enough</a><a class="toc-link toc-l2" href="#facing-3d-and-2d-from-one-component">Facing: 3D and 2D from one component</a><a class="toc-link toc-l2" href="#space-who-the-particles-belong-to">Space: who the particles belong to</a><a class="toc-link toc-l2" href="#blending-three-answers-to-one-hard-problem">Blending: three answers to one hard problem</a><a class="toc-link toc-l2" href="#simulating-on-the-gpu">Simulating on the GPU</a><a class="toc-link toc-l2" href="#firing-a-burst-from-a-script">Firing a burst from a script</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>

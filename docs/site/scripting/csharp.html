@@ -29,7 +29,7 @@
         m_Origin = Position;
     }
 
-    <span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">float</span> deltaTime)
+    <span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">float</span> deltaTime)
     {
         m_Elapsed += deltaTime;
         Position = m_Origin + <span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, MathF.<span class="tok-call">Sin</span>(m_Elapsed * <span class="tok-number">2.0f</span>) * m_Height, <span class="tok-number">0.0f</span>);
@@ -47,13 +47,61 @@
 <p>The value shown before anyone edits it is whatever the field initialiser says — <code>private float m_Speed = 1.2f;</code> shows 1.2. Only values somebody actually changed are stored in the scene, so editing a default in code reaches every entity that never overrode it.</p>
 <p>A field of any other type is not an error. It simply does not appear, and keeps whatever the constructor gave it.</p>
 <h2 id="the-lifecycle">The lifecycle<a class="anchor" href="#the-lifecycle" aria-label="Link to this section">#</a></h2>
-<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnCreate</span>() { }              <span class="tok-comment">// once, on the first step after Play</span>
-<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">float</span> deltaTime) { } <span class="tok-comment">// every fixed step -- see below</span>
-<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnDestroy</span>() { }             <span class="tok-comment">// on destruction, and when Play stops</span>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnCreate</span>() { }                <span class="tok-comment">// once, on the first step after Play</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">float</span> deltaTime) { }   <span class="tok-comment">// every fixed step   -- see below</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnFrame</span>(<span class="tok-type">float</span> deltaTime) { }  <span class="tok-comment">// every rendered frame</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnDestroy</span>() { }               <span class="tok-comment">// on destruction, and when Play stops</span>
 </code></pre></figure>
 <p>Every entity in the scene exists by the time <code>OnCreate</code> runs, so looking others up is safe there — which is not true of a constructor.</p>
-<h3 id="onupdate-is-not-per-frame">OnUpdate is not per frame<a class="anchor" href="#onupdate-is-not-per-frame" aria-label="Link to this section">#</a></h3>
-<p><code>OnUpdate</code> runs once per <strong>fixed simulation step</strong>, and <code>deltaTime</code> is the fixed timestep — the same value every call, also available as <code>Time.FixedDeltaTime</code>. A frame may run zero steps, one, or several. Multiply rates by <code>deltaTime</code> anyway, so behaviour is identical when someone runs the game at a different simulation rate.</p>
+<h3 id="two-rates-and-choosing-between-them">Two rates, and choosing between them<a class="anchor" href="#two-rates-and-choosing-between-them" aria-label="Link to this section">#</a></h3>
+<p>The names say <strong>when</strong>, not what, because when is the only thing that decides whether the code inside is correct.</p>
+<p><code>OnTick</code> runs once per <strong>fixed simulation step</strong>, and its <code>deltaTime</code> is the fixed timestep — the same value every call, also available as <code>Time.FixedDeltaTime</code>. A frame may run zero steps, one, or several. Multiply rates by <code>deltaTime</code> anyway, so behaviour is identical when someone runs the game at a different simulation rate.</p>
+<p><code>OnFrame</code> runs once per <strong>rendered frame</strong>, and its <code>deltaTime</code> is the real elapsed time, which varies.</p>
+<p>The rule:</p>
+<blockquote><p><strong>Gameplay goes in <code>OnTick</code>. Presentation goes in <code>OnFrame</code>.</strong></p>
+<p>If the physics, another player or a replay has to agree with it, it belongs on the fixed step. If it is only ever looked at, it belongs on the frame.</p>
+</blockquote>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Belongs in <code>OnTick</code></th><th style="text-align:left">Belongs in <code>OnFrame</code></th></tr></thead><tbody>
+<tr><td style="text-align:left">Moving a body, applying a force</td><td style="text-align:left">Moving a camera</td></tr>
+<tr><td style="text-align:left">Firing, scoring, taking damage</td><td style="text-align:left">Fading, flashing, pulsing</td></tr>
+<tr><td style="text-align:left">A timer that decides an outcome</td><td style="text-align:left">A number counting up on screen</td></tr>
+<tr><td style="text-align:left">Anything a replay must reproduce</td><td style="text-align:left">Anything only the eye consumes</td></tr>
+</tbody></table></div>
+<h3 id="why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame<a class="anchor" href="#why-a-camera-belongs-in-onframe" aria-label="Link to this section">#</a></h3>
+<p>The engine blends the last two simulation states every frame, so a simulated body moves smoothly at any display rate. <code>OnFrame</code> runs <em>after</em> that blend, so what it reads is what is about to be drawn.</p>
+<p>Chase a target from <code>OnTick</code> at 240 Hz and the camera moves on one frame in four while the world moves on all four — which reads worse than no smoothing at all, because the stutter is differential. The built-in <code>Follow</code> is the worked example:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnFrame</span>(<span class="tok-type">float</span> deltaTime)
+{
+    <span class="tok-keyword">if</span> (!m_Target.Exists)
+        <span class="tok-keyword">return</span>;
+
+    <span class="tok-type">Vector3</span> goal = m_Target.Position + <span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, m_OffsetY, m_OffsetZ);
+    <span class="tok-type">Vector3</span> here = Position;
+
+    <span class="tok-comment">// Framerate-independent smoothing: a plain lerp by a constant factor</span>
+    <span class="tok-comment">// converges at a rate that depends on the step size.</span>
+    <span class="tok-type">float</span> t = <span class="tok-number">1.0f</span> - System.MathF.<span class="tok-call">Exp</span>(-m_Sharpness * deltaTime);
+    Position = here + (goal - here) * t;
+}
+</code></pre></figure>
+<p>To smooth something the engine cannot see — a value your own script computed in <code>OnTick</code> — <code>Time.InterpolationAlpha</code> is how far this frame falls between the last step and the next, from 0 to 1:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">float</span> deltaTime)
+{
+    m_Previous = m_Current;
+    m_Current = <span class="tok-call">Compute</span>();
+}
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnFrame</span>(<span class="tok-type">float</span> deltaTime)
+{
+    <span class="tok-type">float</span> shown = m_Previous + (m_Current - m_Previous) * <span class="tok-type">Time</span>.InterpolationAlpha;
+}
+</code></pre></figure>
+<p>It is meaningless inside <code>OnTick</code>, where it is whatever the last frame left.</p>
+<h3 id="ordering-exactly">Ordering, exactly<a class="anchor" href="#ordering-exactly" aria-label="Link to this section">#</a></h3>
+<p>Within one frame: physics transforms are interpolated, world transforms are derived, <code>OnFrame</code> runs, anything it destroyed is deleted, world transforms are derived again, and then audio, particles and rendering all read the result.</p>
+<p><code>OnFrame</code> <strong>never runs before <code>OnCreate</code></strong>. Script instances are created by the fixed pass and by nothing else, so a newly spawned entity gets its first <code>OnTick</code> before its first <code>OnFrame</code>. C++ and C# scripts get both rates identically, and the C++ half runs first at each — an order that is stated rather than left to whatever the component pools happen to do this build.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><code>OnUpdate</code> was the fixed-step callback before the two rates were split. It is gone: an <code>override</code> of it is now a compile error, and a plain declaration is a hides-inherited-member warning plus a line in the log the first time the script is created. Neither is silence, which is the point.</p>
+</aside>
 <h2 id="reading-and-writing-the-transform">Reading and writing the transform<a class="anchor" href="#reading-and-writing-the-transform" aria-label="Link to this section">#</a></h2>
 <p>The transform properties are on the script, local, and relative to the parent. Rotation is Euler angles in <strong>radians</strong>, XYZ order.</p>
 <figure class="code"><figcaption>csharp</figcaption><pre><code>Position += <span class="tok-keyword">new</span> <span class="tok-type">Vector3</span>(<span class="tok-number">0.0f</span>, <span class="tok-number">0.1f</span>, <span class="tok-number">0.0f</span>);   <span class="tok-comment">// or Translate(...)</span>
@@ -160,7 +208,7 @@ Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fue
 <p>Every boundary the runtime crosses catches everything: an exception in a script logs and stops that script&#39;s callback, and the editor survives. This is the deliberate trade against C++, where a mistake is a crash. The cost is that a silent <code>catch</code> can hide a broken script — read the log.</p>
 <h2 id="common-mistakes">Common mistakes<a class="anchor" href="#common-mistakes" aria-label="Link to this section">#</a></h2>
 <ul>
-<li><strong>Doing per-frame work in <code>OnUpdate</code>.</strong> It is per fixed step. Anything tied to rendering — smoothing a camera, fading UI — has no home in a script yet.</li>
+<li><strong>Putting presentation in <code>OnTick</code> or gameplay in <code>OnFrame</code>.</strong> <code>OnTick</code> is per fixed step and <code>OnFrame</code> is per frame; a camera smoothed on the wrong one judders, and a score counted on the wrong one depends on the frame rate.</li>
 <li><strong><code>FindByName</code> every step.</strong> Cache it in <code>OnCreate</code>.</li>
 <li><strong>Forgetting that Stop rewinds the scene.</strong> Play mode works on a copy; everything a script changed is discarded when play stops, <code>OnDestroy</code> runs, and the edit-mode scene returns untouched.</li>
 <li><strong>Expecting Play to survive a build.</strong> Building mid-play restarts the scene: Stop, swap, Play again from the edit-mode state. Whatever the run had accumulated is gone, which is what Stop always means.</li>
@@ -168,7 +216,7 @@ Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fue
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/cpp-reference.html"><span class="pager-label">Previous</span><span class="pager-title">C++ API reference</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#fields-and-the-inspector">Fields and the inspector</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#onupdate-is-not-per-frame">OnUpdate is not per frame</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#finding-spawning-destroying">Finding, spawning, destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#logging">Logging</a><a class="toc-link toc-l2" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#when-something-throws">When something throws</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#fields-and-the-inspector">Fields and the inspector</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#two-rates-and-choosing-between-them">Two rates, and choosing between them</a><a class="toc-link toc-l3" href="#why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame</a><a class="toc-link toc-l3" href="#ordering-exactly">Ordering, exactly</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#finding-spawning-destroying">Finding, spawning, destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#logging">Logging</a><a class="toc-link toc-l2" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#when-something-throws">When something throws</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>

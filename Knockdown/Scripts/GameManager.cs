@@ -37,7 +37,7 @@ public class GameManager : Script
 		SetBeacon(0.0f);
 	}
 
-	public override void OnUpdate(float deltaTime)
+	public override void OnTick(float deltaTime)
 	{
 		if (Input.WasActionPressed("Interact"))
 			ResetRound();

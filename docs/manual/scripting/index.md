@@ -30,7 +30,7 @@ two. Where the two genuinely differ, the difference is called out.
 class Spinner : public ScriptableEntity
 {
 public:
-    void OnUpdate(Timestep dt) override
+    void OnTick(Timestep dt) override
     {
         Rotate({ 0.0f, m_Speed * dt.GetSeconds(), 0.0f });
     }

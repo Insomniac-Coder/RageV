@@ -32,7 +32,7 @@ namespace RageV
 				RV_WARN("Launcher: prefabs/Ball.rprefab is not in the asset registry");
 		}
 
-		void OnUpdate(Timestep dt) override
+		void OnTick(Timestep dt) override
 		{
 			// Positive yaw turns left, so full right deflection must turn the
 			// other way.

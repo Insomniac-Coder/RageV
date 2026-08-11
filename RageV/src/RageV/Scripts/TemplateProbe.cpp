@@ -19,7 +19,7 @@ namespace RageV
 		// Every fixed simulation step, not every frame. A frame may run zero
 		// steps, one, or several -- so multiply rates by dt and the behaviour
 		// stays the same at any simulation frequency.
-		void OnUpdate(Timestep dt) override
+		void OnTick(Timestep dt) override
 		{
 			Translate({ 0.0f, Speed * dt.GetSeconds(), 0.0f });
 		}

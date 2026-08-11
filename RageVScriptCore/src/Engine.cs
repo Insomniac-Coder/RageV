@@ -68,13 +68,32 @@ public static unsafe class Input
 public static unsafe class Time
 {
 	/// <summary>
-	/// The fixed timestep. The same value <see cref="Script.OnUpdate"/> is
+	/// The fixed timestep. The same value <see cref="Script.OnTick"/> is
 	/// handed, every call.
 	/// </summary>
 	public static float FixedDeltaTime => Native.IsReady ? Native.Api.GetFixedDeltaTime() : 0.0f;
 
 	/// <summary>Seconds since the process started.</summary>
 	public static float Elapsed => Native.IsReady ? Native.Api.GetTime() : 0.0f;
+
+	/// <summary>
+	/// How far this frame falls between the last simulation step and the next,
+	/// from 0 to 1.
+	/// </summary>
+	/// <remarks>
+	/// The engine already applies it to simulated bodies before
+	/// <see cref="Script.OnFrame"/> runs; this is for smoothing something the
+	/// engine does not know about — a value a script computed in
+	/// <see cref="Script.OnTick"/> and wants to draw between steps:
+	///
+	/// <code>
+	/// float x = m_Previous + (m_Current - m_Previous) * Time.InterpolationAlpha;
+	/// </code>
+	///
+	/// Meaningless in OnTick, where it is whatever the last frame left.
+	/// </remarks>
+	public static float InterpolationAlpha =>
+		Native.IsReady ? Native.Api.GetInterpolationAlpha() : 0.0f;
 }
 
 /// <summary>One collision or overlap, from the point of view of the script being told about it.</summary>
@@ -530,10 +549,16 @@ public static unsafe class Audio
 /// Attach one to an entity and it receives the lifecycle and physics callbacks
 /// while the scene is playing. Everything is optional; the defaults do nothing.
 ///
-/// **<see cref="OnUpdate"/> runs per fixed simulation step, not per frame.**
-/// A frame may run zero steps, one, or several, and <c>deltaTime</c> is the
-/// fixed timestep — the same value every call. Multiply rates by it anyway, so
-/// behaviour is identical when someone runs the game at a different rate.
+/// **There are two rates, and picking the right one is the whole game.**
+/// <see cref="OnTick"/> runs per fixed simulation step and <see cref="OnFrame"/>
+/// runs per frame. The names say *when* rather than what, because when is the
+/// only thing that decides whether the code inside is correct: gameplay goes in
+/// OnTick, presentation goes in OnFrame.
+///
+/// A frame may run zero ticks, one, or several, and OnTick's <c>deltaTime</c>
+/// is the fixed timestep — the same value every call. Multiply rates by it
+/// anyway, so behaviour is identical when someone runs the game at a different
+/// rate.
 ///
 /// This mirrors <c>ScriptableEntity</c> in C++ deliberately, so the two
 /// scripting guides describe one engine rather than two.
@@ -543,6 +568,12 @@ public abstract class Script
 	/// <summary>The entity this script is attached to.</summary>
 	public Entity Entity { get; internal set; }
 
+	// Whether this type actually overrides OnFrame, decided once when the
+	// instance is made. Without it every script pays a closure allocation and a
+	// try/catch every frame to call a method that does nothing -- and most
+	// scripts only want OnTick.
+	internal bool WantsFrame { get; set; }
+
 	/// <summary>Once, on the first simulation step after Play.</summary>
 	/// <remarks>
 	/// Every entity in the scene exists by then, so looking others up is safe
@@ -551,7 +582,35 @@ public abstract class Script
 	public virtual void OnCreate() { }
 
 	/// <summary>Every fixed simulation step. Not every frame.</summary>
-	public virtual void OnUpdate(float deltaTime) { }
+	/// <remarks>
+	/// <c>deltaTime</c> is the same number every call — see
+	/// <see cref="Time.FixedDeltaTime"/> — so behaviour is identical on every
+	/// machine, which is the whole point of a fixed step. Anything another
+	/// player, a replay or the physics has to agree with belongs here.
+	/// </remarks>
+	public virtual void OnTick(float deltaTime) { }
+
+	/// <summary>Every frame, with the real elapsed time, which varies.</summary>
+	/// <remarks>
+	/// For things nothing else has to agree about: a camera, a look-at, a fade,
+	/// a number counting up on the screen.
+	///
+	/// It runs *after* the physics transforms have been interpolated for this
+	/// frame, so what it reads is what is about to be drawn — which is the
+	/// reason it exists. A camera driven from <see cref="OnTick"/> at 240 Hz
+	/// updates on one frame in four against a world that updates on all four,
+	/// and that reads worse than no smoothing at all because the stutter is
+	/// differential.
+	///
+	/// Never runs before <see cref="OnCreate"/>, and never on a script the
+	/// fixed pass has not created yet: a newly spawned entity gets its first
+	/// OnTick before its first OnFrame.
+	///
+	/// **Not for gameplay.** Anything that moves a body, scores a point or
+	/// decides an outcome from here is frame-rate dependent, which is exactly
+	/// what the fixed step exists to prevent.
+	/// </remarks>
+	public virtual void OnFrame(float deltaTime) { }
 
 	/// <summary>On destruction, and when play mode stops.</summary>
 	public virtual void OnDestroy() { }
@@ -576,6 +635,19 @@ public abstract class Script
 	/// </remarks>
 	public virtual void OnTriggerStay(Collision collision) { }
 	public virtual void OnTriggerExit(Collision collision) { }
+
+	// --- not a hook ---
+	//
+	// OnUpdate was the fixed-step callback until it became OnTick, and this is
+	// here so that a script still written against the old name fails loudly
+	// rather than quietly never running. Non-virtual on purpose: an `override`
+	// of it is a compile error, and a plain declaration is at least a
+	// hides-inherited-member warning naming the thing that changed.
+	//
+	// Delete once no script anywhere predates the rename.
+	[Obsolete("OnUpdate has been split by rate. Gameplay goes in OnTick (per fixed "
+			  + "simulation step); presentation goes in OnFrame (per frame).", true)]
+	public void OnUpdate(float deltaTime) { }
 
 	// --- shorthand, so a script reads like the C++ one ---
 

@@ -30,7 +30,7 @@
 <figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">class</span> Spinner : <span class="tok-keyword">public</span> <span class="tok-type">ScriptableEntity</span>
 {
 <span class="tok-keyword">public</span>:
-    <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
+    <span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
     {
         <span class="tok-call">Rotate</span>({ <span class="tok-number">0.0f</span>, m_Speed * dt.<span class="tok-call">GetSeconds</span>(), <span class="tok-number">0.0f</span> });
     }

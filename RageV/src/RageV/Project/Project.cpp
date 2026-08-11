@@ -215,9 +215,12 @@ namespace RageV
 
 // Attach this to an entity and press Play.
 //
-// OnUpdate runs once per fixed simulation step, not once per frame. A frame may
-// run zero steps, one, or several -- so multiply rates by deltaTime and the
-// behaviour stays the same at any simulation frequency.
+// There are two rates, and picking the right one is most of getting a game to
+// behave. OnTick runs once per fixed simulation step: a frame may run zero of
+// them, one, or several, and deltaTime is always the same number -- so gameplay
+// goes here, where it behaves identically on every machine. OnFrame runs once
+// per frame with the real elapsed time, for things nothing else has to agree
+// about: a camera, a fade, a number counting up on the screen.
 public class Example : Script
 {
 	private float m_Speed = 1.2f;
@@ -227,9 +230,14 @@ public class Example : Script
 		Log.Info($"{Entity.Name} is ready");
 	}
 
-	public override void OnUpdate(float deltaTime)
+	public override void OnTick(float deltaTime)
 	{
 		Rotate(new Vector3(0.0f, m_Speed * deltaTime, 0.0f));
+	}
+
+	// Delete it if this script has nothing that belongs on the frame.
+	public override void OnFrame(float deltaTime)
+	{
 	}
 }
 )";
@@ -344,10 +352,17 @@ namespace RageV
 
 		// Every fixed simulation step, not every frame. A frame may run zero
 		// steps, one, or several -- so multiply rates by dt and the behaviour
-		// stays the same at any simulation frequency.
-		void OnUpdate(Timestep dt) override
+		// stays the same at any simulation frequency. Gameplay goes here.
+		void OnTick(Timestep dt) override
 		{
 			Rotate({ 0.0f, Speed * dt.GetSeconds(), 0.0f });
+		}
+
+		// Every frame, with the real elapsed time, which varies. For things
+		// nothing else has to agree about: a camera, a fade, a number counting
+		// up on the screen. Delete it if this script has none.
+		void OnFrame(Timestep dt) override
+		{
 		}
 	};
 

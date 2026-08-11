@@ -181,6 +181,13 @@ namespace RageV::Managed
 		uint64_t (__cdecl* PlayOneShotPitched)(uint64_t entity, const char* clipPath,
 											   float volume, float pitch);
 		uint64_t (__cdecl* PlayOneShot2DPitched)(const char* clipPath, float volume, float pitch);
+
+		// --- appended for protocol 6: the per-frame hook ---------------------
+
+		// How far this frame falls between the last simulation step and the
+		// next, 0 to 1. Already applied to simulated bodies before OnFrame
+		// runs; this is for smoothing something the engine cannot see.
+		float (__cdecl* GetInterpolationAlpha)();
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -233,7 +240,15 @@ namespace RageV::Managed
 		void    (__cdecl* Destroy)(int32_t handle);
 
 		void (__cdecl* InvokeCreate)(int32_t handle);
-		void (__cdecl* InvokeUpdate)(int32_t handle, float deltaTime);
+
+		// The two rates. Tick is the fixed simulation step, Frame is the frame
+		// -- and unlike NativeApi, this table is not append-only: nothing
+		// outside the engine binds it, and the engine and RageV.ScriptCore
+		// always ship together. Renaming InvokeUpdate to InvokeTick here costs
+		// nothing that renaming it in the class library did not already cost.
+		void (__cdecl* InvokeTick)(int32_t handle, float deltaTime);
+		void (__cdecl* InvokeFrame)(int32_t handle, float deltaTime);
+
 		void (__cdecl* InvokeDestroy)(int32_t handle);
 		void (__cdecl* InvokeContact)(int32_t handle, int32_t kind, const CollisionData* contact);
 
@@ -326,7 +341,10 @@ namespace RageV::Managed
 		// 3: appended script field reflection.
 		// 4: appended the rest of the native surface -- hierarchy, prefabs,
 		//    raycasts, audio, components by name.
-		static constexpr int32_t kProtocolVersion = 5;
+		// 5: appended one-shots with pitch, and one from a point.
+		// 6: scripts gained a second rate. OnUpdate became OnTick, OnFrame
+		//    joined it, and the interpolation alpha became readable.
+		static constexpr int32_t kProtocolVersion = 6;
 
 		// The editable fields of a script type, for the inspector. Empty when
 		// C# is not running or the type is unknown -- both of which the

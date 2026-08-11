@@ -1245,8 +1245,8 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 //
 // Not empty. The same reasoning as the starter scene and the generated project:
 // the first five minutes should not be spent working out what a script has to
-// look like, and a template that already overrides OnUpdate puts the fixed-step
-// contract in the one place somebody is certain to read.
+// look like, and a template that already overrides both rates puts the choice
+// between them in the one place somebody is certain to read.
 bool RageV::SceneHierarchyPanel::WriteNewScript(const std::filesystem::path& file,
 											    const std::string& name)
 {
@@ -1274,9 +1274,18 @@ bool RageV::SceneHierarchyPanel::WriteNewScript(const std::filesystem::path& fil
 	out << "\t// Once per fixed simulation step, not once per frame. A frame may run\n";
 	out << "\t// zero steps, one, or several -- so multiply rates by deltaTime and the\n";
 	out << "\t// behaviour stays the same at any simulation frequency.\n";
-	out << "\tpublic override void OnUpdate(float deltaTime)\n";
+	out << "\t//\n";
+	out << "\t// Gameplay goes here: anything the physics, another player or a\n";
+	out << "\t// replay has to agree with.\n";
+	out << "\tpublic override void OnTick(float deltaTime)\n";
 	out << "\t{\n";
 	out << "\t\tTranslate(new Vector3(0.0f, m_Speed * deltaTime, 0.0f));\n";
+	out << "\t}\n\n";
+	out << "\t// Once per frame, with the real elapsed time, which varies. For things\n";
+	out << "\t// nothing else has to agree about: a camera, a fade, a number counting\n";
+	out << "\t// up on the screen. Delete it if this script has none.\n";
+	out << "\tpublic override void OnFrame(float deltaTime)\n";
+	out << "\t{\n";
 	out << "\t}\n";
 	out << "}\n";
 
@@ -1510,9 +1519,18 @@ bool RageV::SceneHierarchyPanel::WriteNewNativeScript(const std::filesystem::pat
 	out << "\t\t// Every fixed simulation step, not every frame. A frame may run zero\n";
 	out << "\t\t// steps, one, or several -- so multiply rates by dt and the behaviour\n";
 	out << "\t\t// stays the same at any simulation frequency.\n";
-	out << "\t\tvoid OnUpdate(Timestep dt) override\n";
+	out << "\t\t//\n";
+	out << "\t\t// Gameplay goes here: anything the physics, another player or a\n";
+	out << "\t\t// replay has to agree with.\n";
+	out << "\t\tvoid OnTick(Timestep dt) override\n";
 	out << "\t\t{\n";
 	out << "\t\t\tTranslate({ 0.0f, Speed * dt.GetSeconds(), 0.0f });\n";
+	out << "\t\t}\n\n";
+	out << "\t\t// Every frame, with the real elapsed time, which varies. For things\n";
+	out << "\t\t// nothing else has to agree about: a camera, a fade, a number\n";
+	out << "\t\t// counting up on the screen. Delete it if this script has none.\n";
+	out << "\t\tvoid OnFrame(Timestep dt) override\n";
+	out << "\t\t{\n";
 	out << "\t\t}\n";
 	out << "\t};\n\n";
 	out << "\t// The name here is what scene files store, so renaming it breaks every\n";

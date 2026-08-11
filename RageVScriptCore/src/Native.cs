@@ -97,6 +97,9 @@ internal unsafe struct NativeApi
 	public delegate* unmanaged[Cdecl]<byte*, Vector3*, float, float, ulong> PlayOneShotAt;
 	public delegate* unmanaged[Cdecl]<ulong, byte*, float, float, ulong> PlayOneShotPitched;
 	public delegate* unmanaged[Cdecl]<byte*, float, float, ulong> PlayOneShot2DPitched;
+
+	// --- appended for protocol 6: the per-frame hook ------------------------
+	public delegate* unmanaged[Cdecl]<float> GetInterpolationAlpha;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>

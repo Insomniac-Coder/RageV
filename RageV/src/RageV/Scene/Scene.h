@@ -87,9 +87,18 @@ namespace RageV
 		void OnRuntimeStop();
 
 		// Null outside play mode.
-		// The managed half of the script pass, and its teardown.
+		// The managed half of the fixed-step script pass, and its teardown.
 		void StepManagedScripts(Timestep dt);
 		void ReleaseManagedScripts();
+
+		// The per-frame script pass, both languages. Returns whether it stepped
+		// anything, so a scene with no scripts in it does not pay for the
+		// second hierarchy walk a script that moved something needs.
+		//
+		// It never creates or reconciles an instance -- that happens in exactly
+		// one place, the fixed pass -- so a script whose OnCreate has not run
+		// yet simply is not here.
+		bool StepFrameScripts(Timestep ts);
 
 		Physics::World* GetPhysics() { return m_Physics.get(); }
 

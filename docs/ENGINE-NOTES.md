@@ -72,7 +72,19 @@ change between play states** — exactly what Phase 0.2 built.
 So RageV needs nothing new here beyond splitting the update:
 
 - `OnUpdateEditor` — no scripts, no physics. What runs today.
-- `OnUpdateRuntime` — scripts, then physics, on the fixed step.
+- `OnFixedUpdateRuntime` — scripts, then physics, on the fixed step.
+- `OnUpdateRuntime` — the frame: interpolation, presentation, rendering.
+
+> **Added 2026-08-11.** Scripts ended up on *both*, which the original note did
+> not anticipate. `OnTick` is the fixed-step half and lives in
+> `OnFixedUpdateRuntime`; `OnFrame` is the frame half and lives in
+> `OnUpdateRuntime`, after the interpolation in §1 has been applied and the
+> world transforms derived from it. The argument is §1's own: the engine
+> already blends the last two simulation states so the world moves smoothly at
+> any display rate, and a camera driven from the fixed step moves on one frame
+> in four at 240 Hz *against* a world that moves on all four. Differential
+> stutter reads worse than none. A script can also read the alpha itself, as
+> `GetInterpolationAlpha`, for smoothing a value the engine cannot see.
 
 Press Play → serialize the scene to a string, switch mode. Press Stop →
 deserialize it back. The round-trip test is what makes this safe, and it is

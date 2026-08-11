@@ -16,11 +16,56 @@ public class Spinner : Script
 {
 	private float m_Speed = 1.2f;
 
-	public override void OnUpdate(float deltaTime)
+	public override void OnTick(float deltaTime)
 	{
 		// Radians per second, applied per fixed step. Multiplying by deltaTime
 		// is what keeps the rate the same at any simulation frequency.
 		Rotate(new Vector3(0.0f, m_Speed * deltaTime, 0.0f));
+	}
+}
+
+/// <summary>Follows another entity by name, at an offset.</summary>
+/// <remarks>
+/// The worked example of *why* there are two rates, and the mirror of the
+/// native <c>Follow</c>. A follow camera is presentation: nothing collides with
+/// it and nothing scores off it, and the thing it chases has already been
+/// interpolated for this frame by the time <see cref="Script.OnFrame"/> runs.
+/// Chasing from <see cref="Script.OnTick"/> at 240 Hz would move the camera on
+/// one frame in four while the world moved on all four — which reads worse than
+/// no smoothing at all, because the stutter is differential.
+/// </remarks>
+public class Follow : Script
+{
+	private string m_TargetName = "Player";
+	private float m_OffsetY = 3.0f;
+	private float m_OffsetZ = 8.0f;
+	private float m_Sharpness = 4.0f;
+
+	private Entity m_Target;
+
+	public override void OnCreate()
+	{
+		// Once, here: FindByName is linear over the scene, and this runs every
+		// single frame.
+		m_Target = Entity.FindByName(m_TargetName);
+		if (!m_Target.Exists)
+			Log.Warn($"Follow: no entity named '{m_TargetName}'");
+	}
+
+	public override void OnFrame(float deltaTime)
+	{
+		if (!m_Target.Exists)
+			return;
+
+		Vector3 goal = m_Target.Position + new Vector3(0.0f, m_OffsetY, m_OffsetZ);
+		Vector3 here = Position;
+
+		// Framerate-independent smoothing. A plain lerp by a constant factor
+		// converges at a rate that depends on the step size — which on a frame,
+		// where deltaTime varies, would mean the camera lagged further behind
+		// whenever the frame rate dipped.
+		float t = 1.0f - System.MathF.Exp(-m_Sharpness * deltaTime);
+		Position = here + (goal - here) * t;
 	}
 }
 
@@ -57,7 +102,7 @@ public class Mover : Script
 {
 	private float m_Speed = 4.0f;
 
-	public override void OnUpdate(float deltaTime)
+	public override void OnTick(float deltaTime)
 	{
 		Vector3 direction =
 			Forward * Input.GetAxis("MoveForward") +

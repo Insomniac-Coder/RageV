@@ -19,7 +19,7 @@ namespace RageV
 	class Spinner : public ScriptableEntity
 	{
 	public:
-		void OnUpdate(Timestep dt) override
+		void OnTick(Timestep dt) override
 		{
 			// Radians per second, applied per fixed step. Multiplying by dt is
 			// what keeps the rate the same at any simulation frequency.
@@ -42,7 +42,7 @@ namespace RageV
 	class Mover : public ScriptableEntity
 	{
 	public:
-		void OnUpdate(Timestep dt) override
+		void OnTick(Timestep dt) override
 		{
 			const Vec3 direction =
 				GetForward() * GetAxis("MoveForward") +
@@ -64,6 +64,13 @@ namespace RageV
 
 	// Follows another entity by name, at an offset. Demonstrates reaching
 	// outside the entity a script is attached to.
+	//
+	// Also the worked example of *why* there are two rates. A follow camera is
+	// presentation: nothing collides with it and nothing scores off it, and the
+	// thing it chases has already been interpolated for this frame by the time
+	// OnFrame runs. Chasing from OnTick at 240 Hz would move the camera on one
+	// frame in four while the world moved on all four -- which reads worse than
+	// no smoothing at all, because the stutter is differential.
 	class Follow : public ScriptableEntity
 	{
 	public:
@@ -74,7 +81,7 @@ namespace RageV
 				RV_CORE_WARN("Follow: no entity named '{0}'", m_TargetName);
 		}
 
-		void OnUpdate(Timestep dt) override
+		void OnFrame(Timestep dt) override
 		{
 			if (!m_Target)
 				return;
@@ -83,7 +90,9 @@ namespace RageV
 				m_Target.GetComponent<TransformComponent>().Position + m_Offset;
 
 			// Framerate-independent smoothing: a plain lerp by a constant
-			// factor converges at a rate that depends on the step size.
+			// factor converges at a rate that depends on the step size -- which
+			// on a frame, where dt varies, would mean the camera lagged further
+			// behind whenever the frame rate dipped.
 			const float t = 1.0f - std::exp(-m_Sharpness * dt.GetSeconds());
 			GetPosition() += (goal - GetPosition()) * t;
 		}
@@ -126,7 +135,11 @@ namespace RageV
 			m_Flash = Math::Max(m_Flash, Math::Min(collision.ImpactSpeed / 8.0f, 1.0f));
 		}
 
-		void OnUpdate(Timestep dt) override
+		// On the frame, not the step: the impact that starts it is gameplay and
+		// arrives in OnCollisionEnter, but the fade that follows is only ever
+		// looked at. Fading per frame is also what stops it stepping visibly at
+		// a high refresh rate.
+		void OnFrame(Timestep dt) override
 		{
 			if (!m_Material || m_Flash <= 0.0f)
 				return;

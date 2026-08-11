@@ -1579,9 +1579,18 @@ UpdateAnimators(ts);
 <span class="k">if</span> (m_Physics)
     m_Physics-&gt;SyncTransforms(*<span class="k">this</span>, Application::GetInterpolationAlpha());
 
+UpdateWorldTransforms();
+
+<span class="c">// After the sync and the derive, which is the entire point: OnFrame reads</span>
+<span class="c">// the transforms that are about to be drawn, blended for this frame.</span>
+<span class="k">if</span> (StepFrameScripts(ts))
+{
+    FlushDestroyQueue();
+    UpdateWorldTransforms();   <span class="c">// a frame script may have moved something</span>
+}
+
 <span class="c">// After the sync, so a sound on a simulated body is placed where it is</span>
 <span class="c">// being drawn rather than one step behind it.</span>
-UpdateWorldTransforms();
 UpdateAudio();
 
 <span class="c">// Presentation too: nothing collides with a particle and nothing scores</span>
@@ -1593,25 +1602,69 @@ because a positional sound attached to a simulated body should be placed where t
 is being <em>drawn</em>, not where it was one step ago. That is a one-line consequence of
 taking the distinction seriously.</p>
 
-<h4>The gap this analysis exposes</h4>
-<p>Scripts are the one system still pinned to the fixed step, and applying the rule above
-shows why that is now a defect rather than a design. A camera moved from a fixed-step
-callback updates on one frame in four at 240 Hz — against a world that interpolates on all
-four. That is not merely unsmoothed; it is <b>differentially</b> unsmoothed, which reads
-worse than if nothing were interpolated at all. And no script can currently even see the
-alpha.</p>
+<h4>The gap this analysis exposed, and how it was closed</h4>
+<p>Scripts were the one system still pinned to the fixed step, and applying the rule above
+is what showed that to be a defect rather than a design. A camera moved from a fixed-step
+callback updates on one frame in four at 240&nbsp;Hz &mdash; against a world that
+interpolates on all four. That is not merely unsmoothed; it is <b>differentially</b>
+unsmoothed, which reads worse than if nothing were interpolated at all. And no script
+could even see the alpha.</p>
 
-<p>The fix is a per-frame script hook, and it is scheduled. Two decisions come with
-it. <b>The name</b>: <code>OnUpdate</code> already means fixed step in both scripting
-manuals and every existing script, so it cannot be reused — something that says frame
-makes the varying <code>dt</code> obvious at the call site. <b>The position</b>: after
-<code>UpdateWorldTransforms</code> and before <code>UpdateAudio</code>, so a camera script
-reads interpolated transforms rather than last step's.</p>
+<p>The fix was a second script callback, and it forced two decisions worth watching
+somebody make.</p>
+
+<p><b>The names.</b> The obvious move &mdash; keep <code>OnUpdate</code> for the fixed step
+and add a frame one beside it &mdash; is the wrong one, and for a reason that has nothing
+to do with this engine. <code>OnUpdate</code> names an <em>action</em>. &ldquo;Update&rdquo;
+says nothing about when, and when is the only thing that decides whether the code inside is
+correct. Worse, the name is already spoken for: in Unity, <code>Update</code> means
+<em>per frame</em>, so a name that survives the split would quietly mean the opposite of
+what half the people reading it expect. The pair chosen instead names the <em>rate</em>:</p>
+
+<pre><code><span class="k">virtual void</span> OnTick(Timestep dt)  {}   <span class="c">// the fixed simulation step</span>
+<span class="k">virtual void</span> OnFrame(Timestep dt) {}   <span class="c">// the rendered frame</span></code></pre>
+
+<p><code>OnFrame</code> is unambiguous &mdash; there is exactly one thing a frame is.
+<code>OnTick</code> leans on the sense of &ldquo;tick&rdquo; that networking and simulation
+already use, as in a 64-tick server: a discrete step of fixed size. Unreal uses
+<code>Tick</code> for the frame, so the word is not universal, but placed next to
+<code>OnFrame</code> it cannot be misread &mdash; the pair disambiguates itself in a way
+neither name does alone.</p>
+
+<p><b>The position in the frame.</b> After <code>UpdateWorldTransforms</code> and before
+<code>UpdateAudio</code>, so a camera script reads interpolated transforms rather than last
+step&rsquo;s. A second derive follows the pass, because a script that moved something must
+have that reach audio placement, the particle systems and rendering within the same
+frame.</p>
+
+<p>One further guarantee falls out of <em>where instances are made</em> rather than from a
+check. Script instances are created by the fixed pass and by nothing else, so
+<code>OnFrame</code> cannot arrive before <code>OnCreate</code>: a newly spawned entity
+simply is not in the frame pass yet. Structure, not a flag.</p>
 
 <blockquote><p><b>The risk is misuse, not implementation.</b> Gameplay in a per-frame hook
-reintroduces frame-rate-dependent behaviour — precisely what the fixed step exists to
-prevent. That is Unity's perennial <code>Update</code>/<code>FixedUpdate</code>
+reintroduces frame-rate-dependent behaviour &mdash; precisely what the fixed step exists to
+prevent. That is Unity&rsquo;s perennial <code>Update</code>/<code>FixedUpdate</code>
 confusion, and the mitigation is naming and documentation rather than code.</p></blockquote>
+
+<p>Which leaves one last problem, and it is the interesting one: <b>a rename can fail
+silently.</b> C++ does not require <code>override</code>, so a script whose author wrote
+<code>void OnUpdate(Timestep)</code> without it would still compile after the rename
+&mdash; as a brand new method nobody calls. The script stops doing anything, and nothing
+says so. The answer is to leave the old name in the base class as a trap:</p>
+
+<pre><code><span class="c">// Not a hook. This exists so that a script written against the old name</span>
+<span class="c">// fails to BUILD rather than failing to RUN. `final` turns both spellings</span>
+<span class="c">// into the same clear compiler error.</span>
+<span class="k">virtual void</span> OnUpdate(Timestep dt) <span class="k">final</span> { (<span class="k">void</span>)dt; }</code></pre>
+
+<p>C# has the same hole through method hiding, and gets the same treatment: a non-virtual
+<code>[Obsolete]</code> <code>OnUpdate</code> on the base class, so an <code>override</code>
+is a compile error and a plain declaration is at least a warning &mdash; plus a line in the
+log, from reflection, the first time such a script is created. <b>The general lesson is
+worth more than the specific fix: when you rename something on a boundary you do not
+control, ask what happens to the code that did not get the message, and make that outcome
+loud.</b></p>
 
 <h3>6.2 &nbsp; The render path, pass by pass</h3>
 
@@ -3534,9 +3587,10 @@ rendering is smooth when the simulation rate and the display rate disagree.</p>
 <p>Two things in that loop are easy to get wrong and hard to notice.</p>
 
 <p><b>The two callbacks take different values.</b> <code>OnFixedUpdate</code> gets the
-<em>fixed</em> delta — the same number every call — and <code>OnUpdate</code> gets the
+<em>fixed</em> delta — the same number every call — and the per-frame callback gets the
 real frame time. Passing the frame time to both is a bug that produces plausible motion
-and non-reproducible physics.</p>
+and non-reproducible physics. The same split reaches scripts, as
+<code>OnTick</code> and <code>OnFrame</code>; see §6.1.</p>
 
 <p><b>Input edges must survive a frame with no steps.</b> A key pressed and released
 between two simulation steps must still be seen:</p>
@@ -4071,7 +4125,12 @@ must support forever, in both languages if you have two.</p>
     <span class="k">virtual</span> ~ScriptableEntity() = <span class="k">default</span>;
 
     <span class="k">virtual void</span> OnCreate()  {}
-    <span class="k">virtual void</span> OnUpdate(Timestep dt) {}   <span class="c">// per FIXED STEP -- name it so</span>
+
+    <span class="c">// Two rates. The names say WHEN, not what, because when is the only</span>
+    <span class="c">// thing that decides whether the code inside is correct.</span>
+    <span class="k">virtual void</span> OnTick(Timestep dt)  {}   <span class="c">// fixed step: gameplay</span>
+    <span class="k">virtual void</span> OnFrame(Timestep dt) {}   <span class="c">// frame: presentation</span>
+
     <span class="k">virtual void</span> OnDestroy() {}
 
     <span class="k">virtual void</span> OnCollisionEnter(<span class="k">const</span> Collision&amp;) {}

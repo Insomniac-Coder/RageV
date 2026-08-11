@@ -21,8 +21,10 @@
 <p>Override these. All are optional; the default does nothing.</p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>OnCreate</code></td><td style="text-align:left">Once, on the first simulation step after Play. Every entity in the scene exists by then, so lookups are safe here — unlike in a constructor.</td></tr>
-<tr><td style="text-align:left"><code>OnUpdate</code></td><td style="text-align:left">Every fixed simulation step, <strong>not</strong> every frame. <code>dt</code> is the fixed timestep and is the same value on every call.</td></tr>
+<tr><td style="text-align:left"><code>OnTick</code></td><td style="text-align:left">Every fixed simulation step, <strong>not</strong> every frame. <code>dt</code> is the fixed timestep and is the same value on every call. Gameplay belongs here.</td></tr>
+<tr><td style="text-align:left"><code>OnFrame</code></td><td style="text-align:left">Every rendered frame, with the real elapsed time, which varies. Runs after the frame&#39;s physics interpolation, so it reads what is about to be drawn. Presentation belongs here. Never runs before <code>OnCreate</code>.</td></tr>
 <tr><td style="text-align:left"><code>OnDestroy</code></td><td style="text-align:left">On destruction, and when play mode stops.</td></tr>
+<tr><td style="text-align:left"><code>OnUpdate</code></td><td style="text-align:left"><strong>Not a hook.</strong> The fixed-step callback before the two rates were split, kept <code>final</code> so a script still written against it fails to build rather than failing to run. Change it to <code>OnTick</code> or <code>OnFrame</code>.</td></tr>
 </tbody></table></div>
 <h2 id="collision-callbacks">Collision callbacks<a class="anchor" href="#collision-callbacks" aria-label="Link to this section">#</a></h2>
 <p>Delivered after the simulation step that produced them. The same event reaches both entities, each with <code>Other</code> set to the one it is not.</p>
@@ -115,7 +117,8 @@
 </tbody></table></div>
 <h2 id="time">Time<a class="anchor" href="#time" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
-<tr><td style="text-align:left"><code>GetFixedDeltaTime</code></td><td style="text-align:left">The fixed timestep — the same value <code>OnUpdate</code> is handed. Static.</td></tr>
+<tr><td style="text-align:left"><code>GetFixedDeltaTime</code></td><td style="text-align:left">The fixed timestep — the same value <code>OnTick</code> is handed. Static.</td></tr>
+<tr><td style="text-align:left"><code>GetInterpolationAlpha</code></td><td style="text-align:left">How far this frame falls between the last simulation step and the next, 0 to 1. For smoothing a value the engine cannot see; simulated bodies are already blended before <code>OnFrame</code> runs. Meaningless in <code>OnTick</code>. Static.</td></tr>
 <tr><td style="text-align:left"><code>GetTime</code></td><td style="text-align:left">Seconds since the process started. Static.</td></tr>
 </tbody></table></div>
 </article>

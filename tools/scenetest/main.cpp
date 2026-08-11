@@ -597,6 +597,17 @@ namespace
 		inline static bool SelfDestruct = false;
 		inline static bool SpawnOnCreate = false;
 
+		// The frame half. Separate counters on purpose: the whole claim being
+		// tested is that these two numbers move independently.
+		inline static int Framed = 0;
+		inline static float LastFrameDelta = 0.0f;
+		inline static float FrameAlpha = -1.0f;
+		inline static bool FrameBeforeCreate = false;
+		inline static bool SelfDestructOnFrame = false;
+		// Non-zero makes OnFrame write it into y, so the caller can ask whether
+		// what a frame script wrote reached the world matrix.
+		inline static float FrameNudge = 0.0f;
+
 		static void Reset()
 		{
 			Created = Updated = Destroyed = 0;
@@ -605,6 +616,13 @@ namespace
 			FoundOther = false;
 			SelfDestruct = false;
 			SpawnOnCreate = false;
+
+			Framed = 0;
+			LastFrameDelta = 0.0f;
+			FrameAlpha = -1.0f;
+			FrameBeforeCreate = false;
+			SelfDestructOnFrame = false;
+			FrameNudge = 0.0f;
 		}
 
 		void OnCreate() override
@@ -617,7 +635,7 @@ namespace
 				Spawn("Spawned");
 		}
 
-		void OnUpdate(Timestep dt) override
+		void OnTick(Timestep dt) override
 		{
 			Updated++;
 			LastDelta = dt.GetSeconds();
@@ -627,6 +645,24 @@ namespace
 			Translate({ 1.0f, 0.0f, 0.0f });
 
 			if (SelfDestruct)
+				Destroy();
+		}
+
+		void OnFrame(Timestep dt) override
+		{
+			// Recorded rather than asserted here, because a failure inside a
+			// script would be reported from the wrong place.
+			if (Created == 0)
+				FrameBeforeCreate = true;
+
+			Framed++;
+			LastFrameDelta = dt.GetSeconds();
+			FrameAlpha = GetInterpolationAlpha();
+
+			if (FrameNudge != 0.0f)
+				GetPosition().y = FrameNudge;
+
+			if (SelfDestructOnFrame)
 				Destroy();
 		}
 
@@ -662,7 +698,7 @@ namespace
 
 		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
 		Check(ProbeScript::Created == 1, "OnCreate runs once on the first step");
-		Check(ProbeScript::Updated == 1, "OnUpdate runs on the same step as OnCreate");
+		Check(ProbeScript::Updated == 1, "OnTick runs on the same step as OnCreate");
 		Check(std::fabs(ProbeScript::LastDelta - 1.0f / 60.0f) < 1e-6f,
 			  "the script is handed the fixed timestep");
 		Check(ProbeScript::SeenName == "Actor", "a script can read its own entity");
@@ -670,7 +706,7 @@ namespace
 
 		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
 		Check(ProbeScript::Created == 1, "OnCreate does not run again");
-		Check(ProbeScript::Updated == 2, "OnUpdate runs every step");
+		Check(ProbeScript::Updated == 2, "OnTick runs every step");
 
 		Check(std::fabs(actor.GetComponent<TransformComponent>().Position.x - 2.0f) < 1e-4f,
 			  "transform helpers write through to the component");
@@ -729,6 +765,84 @@ namespace
 			}
 			Check(found, "a script assignment survives save and load");
 		}
+	}
+
+	// The per-frame hook, and the claim that it is a genuinely different rate
+	// from the fixed one.
+	//
+	// Every check here is about *when* rather than what: the two counters moving
+	// independently is the entire feature, and a version where OnFrame simply
+	// ran alongside OnTick would pass a naive "does it get called" test.
+	void CheckFrameHook()
+	{
+		ProbeScript::Reset();
+
+		auto scene = std::make_shared<Scene>();
+		Entity actor = scene->CreateEntity("Actor");
+		actor.AddComponent<NativeScriptComponent>("ProbeScript");
+
+		// Editing a scene must not run it, at either rate.
+		scene->OnUpdateEditor(1.0f / 60.0f);
+		Check(ProbeScript::Framed == 0, "OnFrame does not run in the editor");
+
+		// A frame before any step has nothing to call. Instances are created by
+		// the fixed pass and by nothing else, and that -- rather than an
+		// ordering check inside the frame pass -- is what makes it impossible
+		// for OnFrame to arrive before OnCreate.
+		scene->OnUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Created == 0, "a frame alone does not create a script instance");
+		Check(ProbeScript::Framed == 0, "OnFrame does not run before the script exists");
+
+		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		Check(ProbeScript::Created == 1, "the fixed pass is what creates the instance");
+		Check(ProbeScript::Framed == 0, "a step is not a frame");
+
+		scene->OnUpdateRuntime(1.0f / 90.0f);
+		Check(ProbeScript::Framed == 1, "OnFrame runs once per frame");
+		Check(ProbeScript::Updated == 1, "a frame is not a step");
+		Check(!ProbeScript::FrameBeforeCreate, "OnFrame never precedes OnCreate");
+		Check(std::fabs(ProbeScript::LastFrameDelta - 1.0f / 90.0f) < 1e-6f,
+			  "OnFrame is handed the frame's own delta, not the fixed one");
+
+		// Four steps to one frame: what a 15 Hz display against a 60 Hz
+		// simulation actually produces, and the case a single shared callback
+		// cannot express.
+		for (int step = 0; step < 4; step++)
+			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		scene->OnUpdateRuntime(1.0f / 15.0f);
+		Check(ProbeScript::Updated == 5 && ProbeScript::Framed == 2,
+			  "the two rates advance independently");
+
+		Check(ProbeScript::FrameAlpha >= 0.0f && ProbeScript::FrameAlpha <= 1.0f,
+			  "a script can read the interpolation alpha, and it is a fraction");
+
+		// What a frame script writes has to reach the world matrix within the
+		// same frame, or nothing downstream of it -- audio placement, rendering
+		// -- would see the move until a step happened to run.
+		ProbeScript::FrameNudge = 3.5f;
+		scene->OnUpdateRuntime(1.0f / 60.0f);
+		Check(std::fabs(actor.GetComponent<TransformComponent>().World[3][1] - 3.5f) < 1e-4f,
+			  "a transform written in OnFrame reaches the world matrix the same frame");
+		ProbeScript::FrameNudge = 0.0f;
+
+		// Destroying from a frame script is deferred exactly as it is from a
+		// fixed one. Without the flush the entity would linger until the next
+		// step, which at a low simulation rate is a visible delay.
+		ProbeScript::Reset();
+		ProbeScript::SelfDestructOnFrame = true;
+		{
+			auto doomed = std::make_shared<Scene>();
+			Entity entity = doomed->CreateEntity("Doomed");
+			entity.AddComponent<NativeScriptComponent>("ProbeScript");
+
+			doomed->OnFixedUpdateRuntime(1.0f / 60.0f);
+			doomed->OnUpdateRuntime(1.0f / 60.0f);
+			Check(doomed->GetRegistry().view<IDComponent>().size() == 0,
+				  "a script can destroy itself from OnFrame; the delete lands after the pass");
+			Check(ProbeScript::Destroyed == 1,
+				  "destroying from OnFrame still runs OnDestroy once");
+		}
+		ProbeScript::Reset();
 	}
 
 	// Attaching or swapping a script while the scene is already running.
@@ -5263,6 +5377,7 @@ int RunTests(int argc, char** argv)
 	CheckFixedStep();
 	CheckInputMap();
 	CheckScriptApi();
+	CheckFrameHook();
 	CheckLiveScriptChanges();
 
 	// --- physics -------------------------------------------------------------
@@ -5954,8 +6069,10 @@ int RunTests(int argc, char** argv)
 			if (Managed::Interop::IsReady())
 			{
 				const Managed::ManagedApi& managed = Managed::Interop::Managed();
-				Check(managed.Create && managed.InvokeUpdate && managed.Destroy,
+				Check(managed.Create && managed.InvokeTick && managed.Destroy,
 					  "the managed script lifecycle is bound");
+				Check(managed.InvokeFrame != nullptr,
+					  "and so is the per-frame half of it");
 
 				Entity spun = scene->CreateEntity("Spun");
 				spun.GetComponent<TransformComponent>().Rotation = Vec3(0.0f);
@@ -5976,11 +6093,19 @@ int RunTests(int argc, char** argv)
 					// Spinner turns 1.2 radians a second about Y. Ten steps of
 					// a sixtieth is a fifth of a second.
 					for (int step = 0; step < 10; step++)
-						managed.InvokeUpdate(handle, 1.0f / 60.0f);
+						managed.InvokeTick(handle, 1.0f / 60.0f);
+
+					// Spinner has no OnFrame. The call still has to be safe --
+					// the engine makes it for every live script every frame,
+					// and most scripts will never override it.
+					managed.InvokeFrame(handle, 1.0f / 60.0f);
+					Check(std::fabs(spun.GetComponent<TransformComponent>().Rotation.y
+									- (1.2f * 10.0f / 60.0f)) < 1e-4f,
+						  "a frame on a script with no OnFrame changes nothing");
 
 					const Vec3 rotation = spun.GetComponent<TransformComponent>().Rotation;
 					Check(std::fabs(rotation.y - (1.2f * 10.0f / 60.0f)) < 1e-4f,
-						  "a C# OnUpdate moves the entity it is attached to, by the amount it should");
+						  "a C# OnTick moves the entity it is attached to, by the amount it should");
 					Check(rotation.x == 0.0f && rotation.z == 0.0f,
 						  "and leaves the other axes alone");
 
@@ -6003,9 +6128,50 @@ int RunTests(int argc, char** argv)
 					Check(managed.LiveCount() == 0, "and releasing the handle drops the instance");
 				}
 
+				// The other side of it: a script that *does* override OnFrame
+				// has to be driven by the frame call and left alone by the tick
+				// one. Follow is the built-in example, and this is the whole
+				// claim of the two-rate split in one pair of checks.
+				{
+					Entity player = scene->CreateEntity("Player");
+					player.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 0.0f };
+
+					Entity camera = scene->CreateEntity("Camera");
+					camera.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 0.0f };
+
+					const int32_t eye =
+						managed.Create("RageV.Builtin.Follow", (uint64_t)camera.GetUUID());
+					Check(eye != 0, "the built-in C# Follow instantiates");
+
+					if (eye != 0)
+					{
+						managed.InvokeCreate(eye);
+
+						// Follow's goal is the target plus (0, 3, 8), and it
+						// converges by 1 - exp(-4 dt) per frame. Sixty frames
+						// is far more than enough to be most of the way there.
+						for (int tick = 0; tick < 60; tick++)
+							managed.InvokeTick(eye, 1.0f / 60.0f);
+
+						Check(std::fabs(camera.GetComponent<TransformComponent>().Position.y) < 1e-6f,
+							  "a tick does not drive a script whose work is in OnFrame");
+
+						for (int frame = 0; frame < 60; frame++)
+							managed.InvokeFrame(eye, 1.0f / 60.0f);
+
+						Check(camera.GetComponent<TransformComponent>().Position.y > 2.9f,
+							  "and the frame call does, converging on the offset it was given");
+
+						managed.InvokeDestroy(eye);
+						managed.Destroy(eye);
+					}
+				}
+
 				// An unknown handle must be ignored, not indexed.
-				managed.InvokeUpdate(9999, 1.0f / 60.0f);
+				managed.InvokeTick(9999, 1.0f / 60.0f);
 				Check(true, "stepping a handle that was never created is ignored");
+				managed.InvokeFrame(9999, 1.0f / 60.0f);
+				Check(true, "and so is framing one");
 			}
 
 			// --- building a project's own scripts -----------------------------
@@ -6122,10 +6288,21 @@ int RunTests(int argc, char** argv)
 						  "and dies with its whole tree instead of running out the clock");
 				}
 
-				Check(std::string(ModuleBuild::Configuration()) == "Debug",
+				// Against the same compile-time switch the engine uses, not the
+				// literal "Debug": the tool and the engine are built from one
+				// configuration, and hardcoding one of them made this pair fail
+				// in every configuration but that one.
+#if defined(RV_DIST)
+				const char* thisConfig = "Dist";
+#elif defined(RV_RELEASE)
+				const char* thisConfig = "Release";
+#else
+				const char* thisConfig = "Debug";
+#endif
+				Check(std::string(ModuleBuild::Configuration()) == thisConfig,
 					  "the module config matches this build of the engine");
 				Check(ModuleBuild::ModuleFor("C:/proj", "Game")
-						  == std::filesystem::path("C:/proj") / "bin" / "Debug" / "Game.dll",
+						  == std::filesystem::path("C:/proj") / "bin" / thisConfig / "Game.dll",
 					  "and the module lands in bin/<Config>/<name>.dll");
 
 				// --- registry scopes: what makes a module *unloadable* ----------
@@ -6197,8 +6374,15 @@ int RunTests(int argc, char** argv)
 
 						if (handle != 0)
 						{
-							Managed::Interop::Managed().InvokeUpdate(handle, 1.0f / 60.0f);
+							Managed::Interop::Managed().InvokeTick(handle, 1.0f / 60.0f);
 							Check(true, "and steps without faulting");
+
+							// The scaffolded script overrides both rates, so
+							// this is also the check that the template the
+							// editor writes still compiles against the class
+							// library it ships.
+							Managed::Interop::Managed().InvokeFrame(handle, 1.0f / 60.0f);
+							Check(true, "and frames without faulting");
 
 							// --- 5.5: hot reload ---------------------------------
 							//

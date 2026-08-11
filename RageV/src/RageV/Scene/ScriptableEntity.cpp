@@ -258,6 +258,7 @@ namespace RageV
 	bool ScriptableEntity::WasActionReleased(const std::string& action) { return InputMap::WasActionReleased(action); }
 	float ScriptableEntity::GetAxis(const std::string& axis)            { return InputMap::GetAxis(axis); }
 
-	float ScriptableEntity::GetFixedDeltaTime() { return Application::GetFixedTimestep(); }
-	float ScriptableEntity::GetTime()           { return Application::GetElapsedTime(); }
+	float ScriptableEntity::GetFixedDeltaTime()      { return Application::GetFixedTimestep(); }
+	float ScriptableEntity::GetTime()                { return Application::GetElapsedTime(); }
+	float ScriptableEntity::GetInterpolationAlpha()  { return Application::GetInterpolationAlpha(); }
 }

@@ -491,17 +491,40 @@ namespace RageV
 		// the simulation rate would make it stutter at any other frame rate.
 		UpdateAnimators(ts);
 
-		(void)ts;
-
 		// Per frame, not per step: this is where the blend between the last two
 		// simulation states is applied, and it is the frame that needs it.
 		if (m_Physics)
 			m_Physics->SyncTransforms(*this, Application::GetInterpolationAlpha());
 
+		UpdateWorldTransforms();
+
+		// After the sync and the derive, which is the entire point: OnFrame
+		// reads the transforms that are about to be drawn, blended for this
+		// frame, rather than the ones the last simulation step left behind.
+		// Moved any earlier it would see stale positions and there would be no
+		// reason to have it.
+		if (StepFrameScripts(ts))
+		{
+			// A frame script may destroy, like a fixed one may -- deferred to
+			// here so it can destroy anything, including itself, without
+			// deleting the object it is executing in.
+			FlushDestroyQueue();
+
+			// Again, because a frame script may have moved something and
+			// everything after this reads the world matrix: audio placement
+			// first, then the particle systems, then rendering.
+			//
+			// The flag only ever means "the scene has live scripts in it" --
+			// C++ cannot tell whether one overrides OnFrame -- so a scene of
+			// tick-only scripts pays one extra hierarchy walk. That is the
+			// cheap way to be wrong; the other way is a sound placed a frame
+			// behind the thing making it.
+			UpdateWorldTransforms();
+		}
+
 		// After the sync, so a sound on a simulated body is placed where it is
 		// being drawn rather than one step behind it. Audio is presentation,
 		// like rendering, and belongs on the frame for the same reason.
-		UpdateWorldTransforms();
 		UpdateAudio();
 
 		// Presentation too: nothing collides with a particle and nothing
@@ -531,7 +554,7 @@ namespace RageV
 			return;
 
 		const Managed::ManagedApi& managed = Managed::Interop::Managed();
-		if (!managed.Create || !managed.InvokeUpdate)
+		if (!managed.Create || !managed.InvokeTick)
 			return;
 
 		// The scene the interop functions act on. Set every step rather than
@@ -593,8 +616,66 @@ namespace RageV
 			}
 
 			if (script->Handle != 0)
-				managed.InvokeUpdate(script->Handle, dt.GetSeconds());
+				managed.InvokeTick(script->Handle, dt.GetSeconds());
 		}
+	}
+
+	// The per-frame script pass.
+	//
+	// Deliberately much smaller than the fixed one: no body creation, no
+	// reconciliation, no OnCreate. Instances are made in exactly one place, and
+	// this is not it -- which is what guarantees OnFrame can never arrive before
+	// OnCreate, and means choosing a different script in the inspector takes
+	// effect at a step boundary rather than halfway through a frame.
+	bool Scene::StepFrameScripts(Timestep ts)
+	{
+		bool stepped = false;
+
+		// Collected before stepping, for the same reason the fixed pass does it:
+		// a script may spawn or destroy, and either restructures the pool a view
+		// is walking.
+		std::vector<entt::entity> scripted;
+		m_Registry.view<NativeScriptComponent>().each(
+			[&](auto handle, NativeScriptComponent&) { scripted.push_back(handle); });
+
+		for (entt::entity handle : scripted)
+		{
+			// May have been destroyed by an earlier script this frame.
+			auto* script = m_Registry.try_get<NativeScriptComponent>(handle);
+			if (!script || !script->Instance)
+				continue;
+
+			script->Instance->OnFrame(ts);
+			stepped = true;
+		}
+
+		if (Managed::Interop::IsReady())
+		{
+			const Managed::ManagedApi& managed = Managed::Interop::Managed();
+			if (managed.InvokeFrame)
+			{
+				// Set every pass rather than once: play mode swaps the scene
+				// underneath, and a stale binding would have scripts editing the
+				// one that is no longer running.
+				Managed::Interop::SetScene(this);
+
+				std::vector<entt::entity> handles;
+				m_Registry.view<ManagedScriptComponent>().each(
+					[&](auto handle, ManagedScriptComponent&) { handles.push_back(handle); });
+
+				for (entt::entity handle : handles)
+				{
+					auto* script = m_Registry.try_get<ManagedScriptComponent>(handle);
+					if (!script || script->Handle == 0)
+						continue;
+
+					managed.InvokeFrame(script->Handle, ts.GetSeconds());
+					stepped = true;
+				}
+			}
+		}
+
+		return stepped;
 	}
 
 	// Releases every managed instance this scene owns.
@@ -715,8 +796,9 @@ namespace RageV
 				continue;
 
 			// On the fixed step, not the frame: a script that moves something
-			// has to agree with the physics that will push it.
-			script->Instance->OnUpdate(dt);
+			// has to agree with the physics that will push it. The frame half
+			// is OnFrame, in StepFrameScripts.
+			script->Instance->OnTick(dt);
 		}
 
 		StepManagedScripts(dt);

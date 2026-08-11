@@ -20,7 +20,7 @@ public class Bobber : Script
         m_Origin = Position;
     }
 
-    public override void OnUpdate(float deltaTime)
+    public override void OnTick(float deltaTime)
     {
         m_Elapsed += deltaTime;
         Position = m_Origin + new Vector3(0.0f, MathF.Sin(m_Elapsed * 2.0f) * m_Height, 0.0f);
@@ -69,21 +69,107 @@ keeps whatever the constructor gave it.
 ## The lifecycle
 
 ```csharp
-public override void OnCreate() { }              // once, on the first step after Play
-public override void OnUpdate(float deltaTime) { } // every fixed step -- see below
-public override void OnDestroy() { }             // on destruction, and when Play stops
+public override void OnCreate() { }                // once, on the first step after Play
+public override void OnTick(float deltaTime) { }   // every fixed step   -- see below
+public override void OnFrame(float deltaTime) { }  // every rendered frame
+public override void OnDestroy() { }               // on destruction, and when Play stops
 ```
 
-Every entity in the scene exists by the time `OnCreate` runs, so looking
-others up is safe there — which is not true of a constructor.
+Every entity in the scene exists by the time `OnCreate` runs, so looking others
+up is safe there — which is not true of a constructor.
 
-### OnUpdate is not per frame
+### Two rates, and choosing between them
 
-`OnUpdate` runs once per **fixed simulation step**, and `deltaTime` is the
+The names say **when**, not what, because when is the only thing that decides
+whether the code inside is correct.
+
+`OnTick` runs once per **fixed simulation step**, and its `deltaTime` is the
 fixed timestep — the same value every call, also available as
 `Time.FixedDeltaTime`. A frame may run zero steps, one, or several. Multiply
 rates by `deltaTime` anyway, so behaviour is identical when someone runs the
 game at a different simulation rate.
+
+`OnFrame` runs once per **rendered frame**, and its `deltaTime` is the real
+elapsed time, which varies.
+
+The rule:
+
+> **Gameplay goes in `OnTick`. Presentation goes in `OnFrame`.**
+>
+> If the physics, another player or a replay has to agree with it, it belongs on
+> the fixed step. If it is only ever looked at, it belongs on the frame.
+
+| Belongs in `OnTick` | Belongs in `OnFrame` |
+|---|---|
+| Moving a body, applying a force | Moving a camera |
+| Firing, scoring, taking damage | Fading, flashing, pulsing |
+| A timer that decides an outcome | A number counting up on screen |
+| Anything a replay must reproduce | Anything only the eye consumes |
+
+### Why a camera belongs in OnFrame
+
+The engine blends the last two simulation states every frame, so a simulated
+body moves smoothly at any display rate. `OnFrame` runs *after* that blend, so
+what it reads is what is about to be drawn.
+
+Chase a target from `OnTick` at 240 Hz and the camera moves on one frame in four
+while the world moves on all four — which reads worse than no smoothing at all,
+because the stutter is differential. The built-in `Follow` is the worked
+example:
+
+```csharp
+public override void OnFrame(float deltaTime)
+{
+    if (!m_Target.Exists)
+        return;
+
+    Vector3 goal = m_Target.Position + new Vector3(0.0f, m_OffsetY, m_OffsetZ);
+    Vector3 here = Position;
+
+    // Framerate-independent smoothing: a plain lerp by a constant factor
+    // converges at a rate that depends on the step size.
+    float t = 1.0f - System.MathF.Exp(-m_Sharpness * deltaTime);
+    Position = here + (goal - here) * t;
+}
+```
+
+To smooth something the engine cannot see — a value your own script computed in
+`OnTick` — `Time.InterpolationAlpha` is how far this frame falls between the last
+step and the next, from 0 to 1:
+
+```csharp
+public override void OnTick(float deltaTime)
+{
+    m_Previous = m_Current;
+    m_Current = Compute();
+}
+
+public override void OnFrame(float deltaTime)
+{
+    float shown = m_Previous + (m_Current - m_Previous) * Time.InterpolationAlpha;
+}
+```
+
+It is meaningless inside `OnTick`, where it is whatever the last frame left.
+
+### Ordering, exactly
+
+Within one frame: physics transforms are interpolated, world transforms are
+derived, `OnFrame` runs, anything it destroyed is deleted, world transforms are
+derived again, and then audio, particles and rendering all read the result.
+
+`OnFrame` **never runs before `OnCreate`**. Script instances are created by the
+fixed pass and by nothing else, so a newly spawned entity gets its first `OnTick`
+before its first `OnFrame`. C++ and C# scripts get both rates identically, and
+the C++ half runs first at each — an order that is stated rather than left to
+whatever the component pools happen to do this build.
+
+> [!NOTE]
+> `OnUpdate` was the fixed-step callback before the two rates were split. It is
+> gone: an `override` of it is now a compile error, and a plain declaration is a
+> hides-inherited-member warning plus a line in the log the first time the
+> script is created. Neither is silence, which is the point.
+
 
 ## Reading and writing the transform
 
@@ -297,8 +383,10 @@ a silent `catch` can hide a broken script — read the log.
 
 ## Common mistakes
 
-- **Doing per-frame work in `OnUpdate`.** It is per fixed step. Anything tied
-  to rendering — smoothing a camera, fading UI — has no home in a script yet.
+- **Putting presentation in `OnTick` or gameplay in `OnFrame`.** `OnTick` is
+  per fixed step and `OnFrame` is per frame; a camera smoothed on the wrong
+  one judders, and a score counted on the wrong one depends on the frame
+  rate.
 - **`FindByName` every step.** Cache it in `OnCreate`.
 - **Forgetting that Stop rewinds the scene.** Play mode works on a copy;
   everything a script changed is discarded when play stops, `OnDestroy` runs,

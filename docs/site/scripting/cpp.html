@@ -30,7 +30,7 @@
         m_Origin = <span class="tok-call">GetPosition</span>();
     }
 
-    <span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
+    <span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
     {
         m_Elapsed += dt.<span class="tok-call">GetSeconds</span>();
         Vec3 position = m_Origin;
@@ -61,22 +61,61 @@
 <h2 id="the-lifecycle">The lifecycle<a class="anchor" href="#the-lifecycle" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Callback</th><th style="text-align:left">When</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>OnCreate()</code></td><td style="text-align:left">Once, on the first simulation step after Play.</td></tr>
-<tr><td style="text-align:left"><code>OnUpdate(Timestep dt)</code></td><td style="text-align:left">Every fixed simulation step.</td></tr>
+<tr><td style="text-align:left"><code>OnTick(Timestep dt)</code></td><td style="text-align:left">Every fixed simulation step.</td></tr>
+<tr><td style="text-align:left"><code>OnFrame(Timestep dt)</code></td><td style="text-align:left">Every rendered frame.</td></tr>
 <tr><td style="text-align:left"><code>OnDestroy()</code></td><td style="text-align:left">On destruction, and when play mode stops.</td></tr>
 </tbody></table></div>
 <p><code>OnCreate</code> runs on the first <em>step</em>, not when the component is added. By then every entity in the scene exists, so it is safe to look others up — which is not true of a constructor.</p>
-<h3 id="onupdate-is-not-per-frame">OnUpdate is not per frame<a class="anchor" href="#onupdate-is-not-per-frame" aria-label="Link to this section">#</a></h3>
+<h3 id="two-rates-and-choosing-between-them">Two rates, and choosing between them<a class="anchor" href="#two-rates-and-choosing-between-them" aria-label="Link to this section">#</a></h3>
 <p>This is the single most important thing on this page.</p>
-<p><code>OnUpdate</code> runs once per <strong>fixed simulation step</strong>, at 60 Hz by default. A frame may run zero steps, one, or several. The <code>dt</code> you are handed is the fixed timestep, and it is the same value every call.</p>
-<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Do not use <code>OnUpdate</code> for anything that should happen once per <em>frame</em>, and do not assume it is called at the frame rate. On a fast machine with vsync off it is called far less often than frames are drawn; on a slow one, several times per frame. Both are correct.</p>
+<p>The names say <strong>when</strong>, not what, because when is the only thing that decides whether the code inside is correct.</p>
+<p><code>OnTick</code> runs once per <strong>fixed simulation step</strong>, at 60 Hz by default. A frame may run zero steps, one, or several. The <code>dt</code> you are handed is the fixed timestep, and it is the same value every call.</p>
+<p><code>OnFrame</code> runs once per <strong>rendered frame</strong>, and its <code>dt</code> is the real elapsed time, which varies with the machine, the scene, and whatever else is happening.</p>
+<p>The rule:</p>
+<blockquote><p><strong>Gameplay goes in <code>OnTick</code>. Presentation goes in <code>OnFrame</code>.</strong></p>
+<p>If the physics, another player or a replay has to agree with it, it belongs on the fixed step. If it is only ever looked at, it belongs on the frame.</p>
+</blockquote>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Belongs in <code>OnTick</code></th><th style="text-align:left">Belongs in <code>OnFrame</code></th></tr></thead><tbody>
+<tr><td style="text-align:left">Moving a body, applying a force</td><td style="text-align:left">Moving a camera</td></tr>
+<tr><td style="text-align:left">Firing, scoring, taking damage</td><td style="text-align:left">Fading, flashing, pulsing</td></tr>
+<tr><td style="text-align:left">A timer that decides an outcome</td><td style="text-align:left">A number counting up on screen</td></tr>
+<tr><td style="text-align:left">Anything a replay must reproduce</td><td style="text-align:left">Anything only the eye consumes</td></tr>
+</tbody></table></div>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Do not use <code>OnTick</code> for anything that should happen once per <em>frame</em>, and do not assume it is called at the frame rate. On a fast machine with vsync off it is called far less often than frames are drawn; on a slow one, several times per frame. Both are correct.</p>
 </aside>
-<p>Multiply rates by <code>dt</code> anyway. It is what keeps behaviour identical when someone runs the game at <code>--fixed-hz=120</code>:</p>
-<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>And do not move gameplay into <code>OnFrame</code> because it feels smoother. It is frame-rate dependent by construction: the same input gives a different result on a different machine, which is exactly what the fixed step exists to prevent.</p>
+</aside>
+<p>Multiply rates by <code>dt</code> in both. In <code>OnTick</code> it is what keeps behaviour identical when someone runs the game at <code>--fixed-hz=120</code>:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
 {
     <span class="tok-call">Translate</span>(<span class="tok-call">GetForward</span>() * m_Speed * dt.<span class="tok-call">GetSeconds</span>());   <span class="tok-comment">// correct</span>
     <span class="tok-comment">// Translate(GetForward() * 0.05f);                    // tied to the rate</span>
 }
 </code></pre></figure>
+<h3 id="why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame<a class="anchor" href="#why-a-camera-belongs-in-onframe" aria-label="Link to this section">#</a></h3>
+<p>The engine blends the last two simulation states every frame, so a simulated body moves smoothly at any display rate. <code>OnFrame</code> runs <em>after</em> that blend, so what it reads is what is about to be drawn.</p>
+<p>Chase a target from <code>OnTick</code> at 240 Hz and the camera moves on one frame in four while the world moves on all four. That reads <em>worse</em> than no smoothing at all, because the stutter is differential — the world glides and the camera judders against it. The built-in <code>Follow</code> is the worked example:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnFrame</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
+{
+    <span class="tok-keyword">const</span> Vec3 goal = m_Target.GetComponent&lt;<span class="tok-type">TransformComponent</span>&gt;().Position + m_Offset;
+
+    <span class="tok-comment">// Framerate-independent smoothing. A plain lerp by a constant factor</span>
+    <span class="tok-comment">// converges at a rate that depends on the step size, which on a frame --</span>
+    <span class="tok-comment">// where dt varies -- means lagging further behind whenever the rate dips.</span>
+    <span class="tok-keyword">const</span> <span class="tok-type">float</span> t = <span class="tok-number">1.0f</span> - <span class="tok-type">std</span>::<span class="tok-call">exp</span>(-m_Sharpness * dt.<span class="tok-call">GetSeconds</span>());
+    <span class="tok-call">GetPosition</span>() += (goal - <span class="tok-call">GetPosition</span>()) * t;
+}
+</code></pre></figure>
+<p>To smooth something the engine cannot see — a value your own script computed in <code>OnTick</code> — <code>GetInterpolationAlpha()</code> is how far this frame falls between the last step and the next, from 0 to 1:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">Timestep</span>) <span class="tok-keyword">override</span>  { m_Previous = m_Current; m_Current = <span class="tok-call">Compute</span>(); }
+<span class="tok-keyword">void</span> <span class="tok-call">OnFrame</span>(<span class="tok-type">Timestep</span>) <span class="tok-keyword">override</span> { <span class="tok-call">Show</span>(Math::<span class="tok-call">Lerp</span>(m_Previous, m_Current, <span class="tok-call">GetInterpolationAlpha</span>())); }
+</code></pre></figure>
+<p>It is meaningless inside <code>OnTick</code>, where it is whatever the last frame left.</p>
+<h3 id="ordering-exactly">Ordering, exactly<a class="anchor" href="#ordering-exactly" aria-label="Link to this section">#</a></h3>
+<p>Within one frame: physics transforms are interpolated, world transforms are derived, <code>OnFrame</code> runs, anything it destroyed is deleted, world transforms are derived again, and then audio, particles and rendering all read the result.</p>
+<p><code>OnFrame</code> <strong>never runs before <code>OnCreate</code></strong>. Script instances are created by the fixed pass and by nothing else, so a newly spawned entity gets its first <code>OnTick</code> before its first <code>OnFrame</code>.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><code>OnUpdate</code> was the fixed-step callback before the two rates were split. It no longer exists, and a script that still declares it fails to compile — by design: the alternative is a method the engine silently never calls.</p>
+</aside>
 <h2 id="reading-and-writing-the-transform">Reading and writing the transform<a class="anchor" href="#reading-and-writing-the-transform" aria-label="Link to this section">#</a></h2>
 <p><code>GetPosition</code>, <code>GetRotation</code> and <code>GetScale</code> return <strong>references into the component</strong>, so you can read them or assign through them. Rotation is in <strong>radians</strong>.</p>
 <figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">GetPosition</span>().y = <span class="tok-number">3.0f</span>;          <span class="tok-comment">// assign a component</span>
@@ -122,7 +161,7 @@ RemoveComponent&lt;AudioSourceComponent&gt;();
         m_Player = player.<span class="tok-call">GetUUID</span>();
 }
 
-<span class="tok-keyword">void</span> <span class="tok-call">OnUpdate</span>(<span class="tok-type">Timestep</span>) <span class="tok-keyword">override</span>
+<span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">Timestep</span>) <span class="tok-keyword">override</span>
 {
     <span class="tok-type">Entity</span> player = <span class="tok-call">FindEntityByUUID</span>(m_Player);
     <span class="tok-keyword">if</span> (!player)
@@ -238,7 +277,7 @@ Vec3 v = <span class="tok-call">GetLinearVelocity</span>();
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/index.html"><span class="pager-label">Previous</span><span class="pager-title">Scripting</span></a><a class="pager-link pager-next" href="../scripting/cpp-reference.html"><span class="pager-label">Next</span><span class="pager-title">C++ API reference</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#registering">Registering</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#onupdate-is-not-per-frame">OnUpdate is not per frame</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#finding-other-entities">Finding other entities</a><a class="toc-link toc-l2" href="#spawning-and-destroying">Spawning and destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l3" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l3" href="#pitch">Pitch</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#time">Time</a><a class="toc-link toc-l2" href="#the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#registering">Registering</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#two-rates-and-choosing-between-them">Two rates, and choosing between them</a><a class="toc-link toc-l3" href="#why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame</a><a class="toc-link toc-l3" href="#ordering-exactly">Ordering, exactly</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#finding-other-entities">Finding other entities</a><a class="toc-link toc-l2" href="#spawning-and-destroying">Spawning and destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l3" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l3" href="#pitch">Pitch</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#time">Time</a><a class="toc-link toc-l2" href="#the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>

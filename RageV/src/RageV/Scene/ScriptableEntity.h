@@ -58,9 +58,40 @@ namespace RageV
 
 		// Once, the first time the script is stepped after Play.
 		virtual void OnCreate() {}
-		// Every fixed simulation step. Not every frame -- a script that moves
-		// something has to agree with the physics that will push it.
-		virtual void OnUpdate(Timestep dt) {}
+
+		// --- the two rates ---------------------------------------------------
+		//
+		// The names say *when*, not what, because when is the only thing that
+		// decides whether the code inside is correct. Gameplay goes in OnTick;
+		// presentation goes in OnFrame.
+
+		// Every fixed simulation step. `dt` is the same number every call -- see
+		// GetFixedDeltaTime -- so behaviour is identical on every machine, which
+		// is the whole point of a fixed step. Anything another player, a replay
+		// or the physics has to agree with belongs here.
+		//
+		// A frame may run zero of these, one, or several.
+		virtual void OnTick(Timestep dt) {}
+
+		// Every frame, with the real elapsed time, which varies. For things
+		// nothing else has to agree about: a camera, a look-at, a fade, a
+		// number counting up on the screen.
+		//
+		// Runs *after* the physics transforms have been interpolated for this
+		// frame, so what it reads is what is about to be drawn -- which is the
+		// reason it exists. A camera driven from OnTick at 240 Hz updates on one
+		// frame in four against a world that updates on all four, and that reads
+		// worse than no smoothing at all because the stutter is differential.
+		//
+		// Never runs before OnCreate, and never on a script the fixed pass has
+		// not created yet: a newly spawned entity gets its first OnTick before
+		// its first OnFrame.
+		//
+		// **Not for gameplay.** Anything that moves a body, scores a point or
+		// decides an outcome from here is frame-rate dependent, which is exactly
+		// what the fixed step exists to prevent.
+		virtual void OnFrame(Timestep dt) {}
+
 		// On destruction, and when play mode stops.
 		virtual void OnDestroy() {}
 
@@ -85,6 +116,19 @@ namespace RageV
 		virtual void OnTriggerEnter(const Collision& collision) {}
 		virtual void OnTriggerStay(const Collision& collision) {}
 		virtual void OnTriggerExit(const Collision& collision) {}
+
+		// --- not a hook ------------------------------------------------------
+		//
+		// OnUpdate was the fixed-step callback until it became OnTick, and this
+		// is here so that a script still written against the old name fails to
+		// build rather than failing to run. Without it, a derived OnUpdate that
+		// forgot `override` -- which the language does not require -- would
+		// quietly become a brand new method nobody ever calls, and the script
+		// would simply stop doing anything.
+		//
+		// `final` turns both spellings into the same clear compiler error.
+		// Delete it once no script anywhere predates the rename.
+		virtual void OnUpdate(Timestep dt) final { (void)dt; }
 
 	protected:
 		// --- identity --------------------------------------------------------
@@ -191,9 +235,21 @@ namespace RageV
 		static float GetAxis(const std::string& axis);
 
 		// --- time ------------------------------------------------------------
+		// The fixed step. The same number OnTick is handed, every call.
 		static float GetFixedDeltaTime();
 		// Seconds since the process started.
 		static float GetTime();
+
+		// How far this frame falls between the last simulation step and the
+		// next, from 0 to 1. The engine already applies it to simulated bodies
+		// before OnFrame runs; this is for smoothing something the engine does
+		// not know about -- a value a script computed in OnTick and wants to
+		// draw between steps.
+		//
+		//     float x = Math::Lerp(m_Previous, m_Current, GetInterpolationAlpha());
+		//
+		// Meaningless in OnTick, where it is whatever the last frame left.
+		static float GetInterpolationAlpha();
 
 	private:
 		Entity m_Entity;

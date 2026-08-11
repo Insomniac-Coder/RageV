@@ -15,8 +15,10 @@ Override these. All are optional; the default does nothing.
 | Member | Description |
 |---|---|
 | `OnCreate` | Once, on the first simulation step after Play. Every entity in the scene exists by then, so lookups are safe here — unlike in a constructor. |
-| `OnUpdate` | Every fixed simulation step, **not** every frame. `dt` is the fixed timestep and is the same value on every call. |
+| `OnTick` | Every fixed simulation step, **not** every frame. `dt` is the fixed timestep and is the same value on every call. Gameplay belongs here. |
+| `OnFrame` | Every rendered frame, with the real elapsed time, which varies. Runs after the frame's physics interpolation, so it reads what is about to be drawn. Presentation belongs here. Never runs before `OnCreate`. |
 | `OnDestroy` | On destruction, and when play mode stops. |
+| `OnUpdate` | **Not a hook.** The fixed-step callback before the two rates were split, kept `final` so a script still written against it fails to build rather than failing to run. Change it to `OnTick` or `OnFrame`. |
 
 ## Collision callbacks
 
@@ -137,5 +139,6 @@ By action name, never by key code. See `RageV/Core/InputMap.h` for the bindings.
 
 | Member | Description |
 |---|---|
-| `GetFixedDeltaTime` | The fixed timestep — the same value `OnUpdate` is handed. Static. |
+| `GetFixedDeltaTime` | The fixed timestep — the same value `OnTick` is handed. Static. |
+| `GetInterpolationAlpha` | How far this frame falls between the last simulation step and the next, 0 to 1. For smoothing a value the engine cannot see; simulated bodies are already blended before `OnFrame` runs. Meaningless in `OnTick`. Static. |
 | `GetTime` | Seconds since the process started. Static. |
