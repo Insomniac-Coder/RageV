@@ -1050,11 +1050,11 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
   a switch that allocates nothing, billboard and flat facings (3D and 2D from
   one component), and three blend modes including order-independent. See the
   manual's particles page. The order-independent path is validated as of 6.9,
-  which is also what found its depth weight doing nothing and its resolve
-  landing upside down on Vulkan. Still missing within it: **curves beyond a
-  start/end pair** (the START HERE), collision and sub-emitters (both deferred
-  on purpose, scoped in §8), and a GPU emitter cannot sort its own alpha --
-  which is what `WeightedBlended` is for, and 6.11 would make exact.
+  and **curves are done as of 6.10** -- size, colour and alpha as `.rcurve`
+  assets with a draggable editor, read identically by the CPU and GPU paths.
+  Still missing within it: collision and sub-emitters (both deferred on
+  purpose, scoped in §8), and a GPU emitter cannot sort its own alpha -- which
+  is what `WeightedBlended` is for, and 6.11 would make exact.
 - **Text and game UI.** The largest gap by some distance, and the one the mini
   game hit hardest -- see §8. Nothing can draw a score, a label or a menu.
 - **A per-frame script hook.** `OnUpdate` is per fixed step by design, so
@@ -1586,135 +1586,63 @@ judged worth doing, which is not the order they were asked about:
   without a readback, plus an ownership model -- pooled child emitters, never
   an entity per particle.
 
-### START HERE - 6.10, curves beyond start and end
+### Done - 6.10, curves beyond start and end
 
-**The user picked this, and made three calls on it (2026-08-11): curves are
-assets, the editor is a real draggable one, and size, colour and alpha all
-get curves -- alpha as its own scalar curve, separate from the colour
-gradient.**
+**Complete, all seven steps.** Every ramp that was a two-point lerp on
+normalised age can now be a shape. The user's three calls (2026-08-11): curves
+are **assets**, the editor is a **real draggable one**, and size, colour and
+alpha each get their own -- alpha separate from the colour gradient, so one
+gradient can be shared between emitters that fade differently.
 
-Today every ramp is a two-point lerp on normalised age: `SizeStart/SizeEnd`,
-`ColorStart/ColorEnd` in `ParticleEmitterComponent`. Real effects want shapes
--- smoke that swells fast then drifts, sparks that flash and decay, a puff
-that fades in *and* out.
+**The design decision that made it small.** `AssetHandle` was already
+`FieldType::Asset`, so a handle field cost nothing new: the inspector drew it,
+the serializer wrote it, and the C# bridge reached it as a path string, all
+without changes. An inline curve would have needed a new `FieldType`, a new
+text form and a new inspector control before the first curve rendered. **One
+asset type, not two** -- a scalar curve and a colour gradient want the same
+file, handle and sampling and differ only in channel count.
 
-**Curves as assets turns out to be the cheaper half, not the dearer one.**
-`AssetHandle` is already `FieldType::Asset` in `ComponentRegistry`, so a
-handle field costs *nothing* new: the inspector already draws asset fields,
-the serializer already writes them, and C# already reaches them as a path
-string. An inline curve would have needed a new `FieldType`, a new text form
-and a new inspector control before the first curve rendered. Check this
-claim before relying on it, but it is why the estimate below is as small as
-it is.
+What exists now:
 
-**One asset type, not two.** A scalar curve (size, alpha) and a colour
-gradient want the same file, handle, importer, `.meta` and content-browser
-entry, and differ only in how many channels a key carries and how the widget
-draws them. Give the asset a channel count -- 1 for a curve, 3 for a gradient
--- and write the plumbing once. The widget switches representation: a graph
-with draggable points for one channel, a stop strip for three.
+- `Asset/Curve.h` -- keys sorted on insert, so sampling (per particle, per
+  frame) never pays for authoring (when somebody drags a point). `Curve::Baked`
+  is the 64-sample table **both** paths read.
+- `Asset/CurveSerializer` -- `.rcurve`, YAML so a curve stays diffable. Loading
+  goes through `AddKey`, so a hand-edited file with keys out of order loads as
+  the curve it describes.
+- `Manager::GetCurve / CreateCurve / ReloadCurve / GetBakedCurve`. **A valid
+  handle never answers null** -- a missing file gives an *empty* curve that
+  evaluates to its fallback, so the emitter samples a value instead of every
+  call site remembering a branch. Only an invalid handle answers null.
+  `ReloadCurve` exists because the cache is otherwise the stale-mip-chain bug.
+- `SizeCurve`, `ColorGradient`, `AlphaCurve` on the emitter. **The pairs still
+  work and are not legacy**: an unset handle leaves that channel to
+  `SizeStart/SizeEnd` or the colour pair, so every existing scene is
+  unaffected and nobody must author a curve to get a particle.
+- `Particles::Evaluate` -- the override rule, as a free function, because
+  three things must agree on it: the CPU path, the compute shader and the
+  suite.
+- The GPU path is **handed the answer, not the ingredients**: the CPU resolves
+  the ramps once per emitter per frame into `ColorRamp[64]`/`SizeRamp[64]` in
+  the emitter UBO, so the shader has no copy of the rule to drift from. 2 KB
+  per emitter to delete a class of bug.
+- `UI/CurveEditor` -- draggable points, wired into the inspector from
+  `SceneHierarchyPanel.cpp`.
+- `tools/scripts/make_curve_presets.py` writes the stock curves and the
+  side-by-side scene; `scenes/particles_curves.rage` and its `_gpu` twin.
 
-**Build it bottom-up, in this order.** Each step is verifiable on its own,
-and the build stays runnable between them:
+**Measured, and it found something.** Under `Additive` the CPU and GPU paths
+agree to **0.10 of 255** on both backends. Under `Alpha` a curve-driven
+emitter differs by **2.7, seven times the run-to-run noise** -- and switching
+to an order-independent blend collapses it, which pins the gap on the GPU's
+inability to sort within an emitter rather than on the ramp. **Curves make
+that gap worse**, because they widen how much particles differ in colour and
+opacity, which is exactly when unsorted alpha goes wrong. That is now the
+measured argument for 6.11.
 
-1. ~~**The curve type and its evaluation**~~ -- **done**. `Asset/Curve.h`
-   is one type for both the scalar curves and the colour gradient,
-   carrying a channel count; keys are kept sorted on insert so sampling
-   never pays for authoring. 22 scenetest checks cover the edges that
-   authoring reaches and code does not: no keys, one key, two keys at
-   one time (a step, not a NaN), a point dragged past its neighbour,
-   an out-of-range channel count, and the bake endpoints. `Bake` samples
-   inclusive of both ends -- `i/(count-1)`, not `i/count`, which would
-   clip the end off every ramp.
-2. ~~**The asset**~~ -- **done**. `AssetType::Curve`, a `.rcurve` extension,
-   `Assets::CurveSerializer` (YAML, so a curve stays diffable), and
-   `Manager::GetCurve` / `CreateCurve` / `ReloadCurve`. **The contract to
-   build on: a valid handle never answers null.** A missing or unreadable
-   file caches and returns an *empty* curve, which evaluates to its
-   fallback everywhere, so the emitter samples a value instead of every
-   call site remembering a branch; only an invalid handle answers null,
-   which is how "no curve authored" stays distinguishable from "curve
-   that failed to load". `ReloadCurve` exists because the cache is
-   otherwise exactly the stale-mip-chain bug. Loading goes through
-   `AddKey`, so a hand-edited file with keys out of order loads as the
-   curve it describes rather than one that runs backwards in the middle.
-   18 checks: round-trip with coincident and out-of-order keys, a missing
-   file leaving the caller's curve untouched, malformed YAML refused, and
-   the whole path through the manager inside a scratch project.
-3. ~~**The component fields**~~ and 4. ~~**the CPU sim**~~ -- **done**.
-   `SizeCurve`, `ColorGradient` and `AlphaCurve` are asset handles on
-   `ParticleEmitterComponent`. **The pairs still work and are not
-   legacy**: an unset handle means that channel is still decided by
-   `SizeStart/SizeEnd` or the colour pair, so every scene already in the
-   repository renders identically and nobody has to author a curve to
-   get a particle. Each curve overrides *one* channel: the gradient
-   replaces RGB and deliberately ignores its own fourth channel, because
-   alpha has its own curve -- which is what lets one gradient be shared
-   between emitters that fade differently.
-
-   The resolution lives in `Particles::Evaluate`, a free function, not in
-   the renderer's instance loop: three things have to agree on this rule
-   -- the CPU path, the compute shader in step 5, and the suite -- and
-   two of them cannot call a lambda inside a draw call.
-
-   **Both paths read a baked table, never the keys.** `Curve::Baked` is
-   64 samples, cached beside the curve and invalidated with it. The CPU
-   could evaluate keys exactly and that is precisely why it does not:
-   the shader will sample a texture, and an emitter toggled to the GPU
-   must not change appearance. `Baked::Sample` is matched to a
-   linear-filtered texture -- **step 5's shader must read at
-   `(t * (kSize - 1) + 0.5) / kSize`** to hit the same texel centres.
-   Baking rounds off a peak that falls between two samples, by under one
-   table step; there is a check pinning that so a change to `kSize`
-   shows as a number moving rather than silently.
-
-   `tools/scripts/make_curve_presets.py` writes four stock curves and a
-   side-by-side scene (`scenes/particles_curves.rage`): the same emitter
-   twice, pairs on the left and curves on the right. Note it must be run
-   twice on a fresh checkout -- the scene can only name curves whose
-   `.meta` the registry has already minted.
-
-5. ~~**The GPU path**~~, 6. ~~**the editor**~~ and 7. ~~**docs**~~ -- **done**.
-
-   The compute shader is handed the **answer, not the ingredients**: the CPU
-   resolves the ramps once per emitter per frame with `Particles::Evaluate`
-   and uploads 64 samples in the emitter UBO. The shader has no idea whether
-   a channel came from a curve or a pair, which is the point -- a rule it
-   cannot express is a rule it cannot disagree with. It costs 2 KB per
-   emitter and removes a whole class of drift.
-
-   Sampled from a uniform array rather than a texture, doing the same integer
-   index and lerp `Curve::Baked::Sample` does, so the two paths match bit for
-   bit with no filtering precision in the way.
-
-   **Proven, and the proof found something.** CPU against GPU on the same
-   scene: under `Additive` they agree to 0.10 of 255 on both emitters and
-   both backends. Under `Alpha` the curved emitter differed by 2.7 -- seven
-   times the run-to-run noise -- and that is *not* the ramp. It is the GPU
-   being unable to sort within an emitter, which curves make more visible
-   because they widen how much particles differ in colour and opacity. Which
-   is the strongest argument yet for 6.11.
-
-   The editor draws the curve inline under its own field, in two shapes from
-   one type: a graph with draggable points for a scalar, a stop strip with a
-   colour picker for a gradient. Drag re-sorts through `MoveKey` and follows
-   the point past its neighbours; double click adds on empty space and
-   removes on a point, never below one key. Edits write the `.rcurve` and
-   call `ReloadCurve` in the same breath, which is what stops an edit
-   surviving on screen and not on disk.
-
-   **Two flags were added to check it, and both generalise.** `--select=<name>`
-   opens the editor with an entity selected, because an inspector widget
-   cannot be verified with nothing selected and clicking the hierarchy is not
-   a check anybody repeats. And the editor now honours `--scene` the way the
-   runtime always has. Neither is demo scaffolding; both are the same family
-   as `--screenshot`.
-
-**Where it will go wrong.** A curve asset edited in the editor has to
-invalidate whatever the renderer baked from it, or the picture keeps the old
-shape until something else forces a reload -- the same class of bug as the
-probe reading a stale mip chain. Decide early whether the LUT lives on the
-asset or in `GpuParticles`, and make the dirty flag explicit.
+**One property worth keeping in mind**: baking rounds off a curve peak that
+falls between two of the 64 samples, by under one table step. A check pins it,
+so changing `kSize` shows as a number moving rather than silently.
 
 ### The sample project's flame
 
@@ -1743,78 +1671,123 @@ box, squared about that box's centre and resized to 512 -- 2.5 MB to 236 KB.
 Squared about the *content* rather than the image, because a billboard
 rotates about its middle and an off-centre sprite wobbles as it spins.
 
-### In progress - the architecture book (docs/design/)
+### Done - the architecture book (docs/design/)
 
-**Started 2026-08-11 and deliberately unfinished.** `docs/design/architecture.html`
-is the source, `RageV-Architecture.pdf` the deliverable, and
-`docs/design/README.md` has the regeneration command and its two traps.
+**90 pages, 12 chapters, ~31,000 words, 64 code listings, 6 vector diagrams,
+11 figures.** `architecture.html` is the source, `RageV-Architecture.pdf` the
+deliverable, `README.md` the regeneration command and its traps.
 
-**The brief, which grew during the session and is the thing to honour:** a
-knowledge-transfer document written so that a software engineer *learning game
-development* could follow it and arrive at this engine. Explicitly modelled on
-learnopengl.com — a path from A to B, teaching the reader forward, rather than
-a description of a finished artefact. The user's words: it may end up "a whole
-book with pages in 3 digits" and that is acceptable; verbosity is wanted.
+The brief, which grew over the session: a knowledge-transfer document written
+so a software engineer **learning game development** could follow it and arrive
+at this engine -- explicitly modelled on learnopengl.com, a path from A to B
+rather than a description of a finished artefact.
 
-**Where it is: 90 pages, 12 chapters, ~31,000 words, 64 code listings, 6 vector diagrams, 11 figures. Feature-complete against the brief.** The skeleton is
-complete and every chapter has real content, real code quoted verbatim, and
-real figures captured through `--screenshot`. Chapters 2 and 3 -- the maths,
-and how the two graphics APIs work with one feature traced down through both
--- were added after the first draft and are the closest to the intended style.
+Chapter 2 is the mathematics (spaces, the projection matrix derived, why depth
+is not distance, colour, the rendering equation, alpha compositing ending in
+the algebra showing a constant OIT weight cancels). Chapter 3 is the hardware
+and both APIs, ending with weighted-blended transparency traced all the way
+down through each. Chapter 4 is the build order. Chapters 5-8 are the engine
+as teaching rather than reference. Chapter 9 is every invariant grouped by
+*kind of mistake*. Chapter 10 is the verification methodology. **Chapter 12 is
+nine milestones with real code**, each ending with a proof you can run.
 
-**What it still needs to become the book that was asked for.** Roughly in
-value order:
+**Three traps in producing it**, all in `docs/design/README.md`:
 
-1. ~~Chapter 7's four big features~~ -- **done**. Clustered lighting, shadows,
-   IBL and post-processing were rewritten from reference into teaching: the
-   problem first, the alternatives and why this one, the maths derived inline
-   (the geometric slice mapping and its logarithm, the shadow slope-scaled
-   normal offset and where the tangent comes from, the split-sum's three
-   precomputed artefacts, the Karis average and why fireflies need it), then
-   the code, then what goes wrong. 4.5k characters became 25k.
-2. ~~Chapters 5, 6, 7 and 8~~ -- **done**. Every prose chapter is now written
-   as teaching rather than reference: problem, alternatives, maths, code,
-   failure mode. What remains is structural rather than a rewrite.
+- **Chrome does not paint the root background when printing.** Pages end up
+  transparent, which most readers draw white and a dark-mode reader draws
+  **black, with black text on it**. A fixed `body::before` in `@media print`
+  paints a real white rectangle. Verify by decompressing the PDF's content
+  streams and counting pages with a white fill -- the regeneration reports it.
+- **Chrome refuses to write the PDF into the repository** ("Access is denied")
+  and needs `--user-data-dir`. Print to a temp path and copy.
+- **The Claude Code preview pane forces dark mode** regardless of
+  `color-scheme`. Render with headless Chrome to see true colours.
 
-   Also fixed: code blocks were dark on a light page, which inverted badly in
-   readers with a dark mode and printed as solid black rectangles. The
-   document is one tone throughout now -- worth remembering for any future
-   print deliverable.
-3. ~~The build-this-yourself thread~~ -- **done**. Chapter 12 is nine
-   milestones that execute chapter 4's argument, each with what you will have,
-   the steps, the traps specific to that step, and **the proof** -- the thing
-   you run to know it worked. Written to be engine-agnostic: the libraries
-   named are the ones this project picked, not requirements.
+Also: code blocks are light, not dark -- a dark block on a light page inverts
+to light-on-light in a reader's dark mode and prints as a solid black
+rectangle. And `table { width: 100% }` will flatten an inline matrix unless
+`.mat` sets `width: auto`.
 
-   **All nine milestones now carry real code listings**, each in the same
-   place (You will have / Steps / The code / Traps / Proof): the build file
-   and frame loop; UUIDs and the reflection-driven serializer with the
-   round-trip test; the accumulator with input-edge latching and slerp; the
-   whole RHI header with both backends' BindPipeline side by side; the render
-   graph's declare/execute pair and its Compile checks; Cook-Torrance's three
-   terms and the IBL lookups and the shadow bias; the script registry and the
-   four-step reload including the managed collectible-context unload; the
-   project file, the runtime layer and the packager's copy list; and a game
-   script with the papercut list it produces.
+**What would still improve it** (judgement, not a list): a continuity
+read-through. The chapters were written across several sessions and the seams
+may show -- repeated explanations, cross-references assuming a different
+reading order, and a tone that shifts between the reference chapters and the
+walkthroughs.
 
-4. ~~The ASCII diagrams~~ -- **done**. Six inline-SVG diagrams: the spaces a
-   vertex passes through, the graphics pipeline, the layer stack, one frame,
-   frames in flight, and the cluster grid (which had no ASCII original and
-   was the one concept most needing a picture). Two text blocks remain on
-   purpose -- the accumulator in 2.13 and the frame loop in 6.1 are
-   pseudocode, not diagrams. **Diagram numbering is by document position**;
-   re-run the renumber if any is inserted.
+### Done - Knockdown's juice, and two staleness bugs it exposed
 
-**What is left is judgement, not a list.** A continuity read-through: the
-chapters were written across several sessions and the seams may show --
-repeated explanations, cross-references that assume a different order, and a
-tone that shifts between the reference chapters and the walkthroughs.
-4. **Diagrams are ASCII.** Real vector figures for the transform pipeline, the
-   frame graph and the cluster grid would carry a lot.
-5. **Chapter 2 could go further** -- tangent space, cubemap addressing, the
-   sampling maths behind the IBL prefilter, and the bitonic sort for 6.11.
+**The last open item from the particle work, and the first end-to-end proof a
+C# script can drive the particle system.** Nothing outside the suite exercised
+that path.
 
-Regenerate the PDF after any edit; the HTML alone is not the deliverable.
+Two emitters in `Main.rage`, neither emitting on its own. **Impact** is dust,
+moved to `Collision.Point` and burst by whichever crate was hit -- one shared
+emitter for all six crates, in world space so the dust hangs where it was born
+rather than following the emitter to the next hit. **Confetti** sits above the
+platform and fires once on the win from `GameManager`. The existing
+impact-speed ramp drives both the sound and the dust, so a light tap looks as
+light as it sounds.
+
+**Two pre-existing breakages this uncovered, both of which made the game
+unrunnable and neither caused by the change:**
+
+- The managed assembly in `Knockdown/Scripts/bin/` predated protocol 5, so
+  every collision threw `MissingMethodException` on `PlayOneShot` -- the
+  signature gained a pitch parameter. **The engine looks for
+  `Scripts/bin/<Name>.dll`**, not the SDK's nested `bin/Debug/net8.0/`; a hand
+  run of `dotnet build` must copy it up.
+- The native game module failed to load with **error 127**, so `Launcher` and
+  `Ball` were unknown scripts and the game could not be aimed or fired.
+  Rebuild it with:
+  `cmake -S Knockdown/Source -B Knockdown/bin/module -DRAGEV_ENGINE=<repo>/build`
+  then `cmake --build Knockdown/bin/module --config Debug`.
+
+Both fixed; the runtime now reports 2 native and 3 C# scripts with no
+unknown-script warnings.
+
+**A verification lesson worth keeping.** The dust works -- the *user* confirmed
+it by playing. My own screenshots kept missing it and I was drifting toward
+the wrong conclusion: a 0.45 s effect sampled at four arbitrary frames is a
+coin flip, and the brightness threshold I measured with would not have caught
+grey dust against a pale sky anyway. What I had actually established was that
+an authored burst renders and that `SetComponentField` returned true with the
+emitter positioned; I had not closed the gap between those two facts. **When a
+visual check keeps coming back negative, question the instrument before the
+feature.**
+
+### START HERE - text and game UI
+
+**The largest gap in the engine, agreed as next (2026-08-11).** It is the item
+the mini game hit hardest: Knockdown cannot say "press F to reset", show a
+score, or put up a title, and communicates entirely through a light and four
+sounds. Workable for one mechanic, not for two.
+
+Nothing here is designed yet -- that is the first task, not the code. The
+shape phase 6 originally sketched:
+
+1. **MSDF text.** A multi-channel signed-distance font atlas, so glyphs stay
+   sharp at any size from one texture. Generating the atlas is an offline
+   step; `tools/scripts` is where the generator belongs, by convention.
+2. **A screen-space canvas that is deliberately *not* ImGui.** ImGui is the
+   editor's, and a game's UI has different requirements: it ships, it is
+   skinned, it is authored in scenes rather than in code, and it must work in
+   a packaged build with no editor present.
+3. **Widgets**: text, image, button, and a layout rule simple enough to
+   author.
+
+**Two decisions to make before writing code**, and they interact:
+
+- **Where does UI live in the scene?** Components on entities (fits the ECS,
+  the inspector and serialization for free -- the §5.3 argument) or a separate
+  UI tree? Components almost certainly, given how much the registry already
+  gives away.
+- **Where does it render?** A pass after tonemapping, since UI is authored in
+  sRGB and must not be tonemapped. That is a new graph pass writing the LDR
+  target -- straightforward given §6.3, but decide it deliberately.
+
+**It pairs naturally with the per-frame script hook below**, because UI
+animation wants per-frame timing, and doing the hook first means UI can use it
+rather than being retrofitted onto it.
 
 ### Pending - the per-frame script hook
 
@@ -1915,19 +1888,26 @@ building a real game, in order:
 1. **No game UI or text.** The game cannot say "press F to reset", show a
    score, or put up a title. Everything had to be communicated with a
    light and four sounds -- workable for one mechanic, not for two.
+   **Now the START HERE**, agreed 2026-08-11.
 2. **No per-frame script hook.** OnUpdate is per fixed step by design, so
    camera smoothing and feedback that has to move with the display
    (recoil, shake) have nowhere to live; the camera rides the launcher
-   rigidly. **Still open**, and now the largest of the three.
-3. ~~No particles.~~ Done -- CPU and GPU, three blend modes.
+   rigidly. **Still open**, second, and analysed in full below -- it pairs
+   with UI, which wants per-frame timing for its own animation.
+3. ~~No particles.~~ Done -- CPU and GPU, three blend modes, curves, and a
+   burst fired from a C# script in Knockdown.
 4. ~~Small API wants~~ -- done: `PlayOneShotAt` and pitch on every
    one-shot, both languages, protocol 5.
 
-The user picks; the list argues for UI/text first.
+Both remaining items are phase 6. After them the ranked list is: **6.11 GPU
+alpha self-sorting** (bitonic, single workgroup for pools <= 2048, now with a
+measured argument from 6.10), then **particle collision** (analytic shapes
+first, screen-space second) and **sub-emitters**, then phase 7's deferred
+debts.
 
 ### Worth knowing before extending scripting further
 
-- **The NativeApi table is append-only and at protocol 4.** Inserting a
+- **The NativeApi table is append-only and at protocol 5.** Inserting a
   field in the middle rebinds every field after it on one side only; the
   crash lands somewhere unrelated. Append, bump kProtocolVersion on both
   sides (Interop.h and Interop.cs), and the handshake tests follow the
