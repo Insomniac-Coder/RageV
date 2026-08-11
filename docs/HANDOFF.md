@@ -1756,7 +1756,7 @@ learnopengl.com — a path from A to B, teaching the reader forward, rather than
 a description of a finished artefact. The user's words: it may end up "a whole
 book with pages in 3 digits" and that is acceptable; verbosity is wanted.
 
-**Where it is: 59 pages, 11 chapters, ~20,500 words.** The skeleton is
+**Where it is: 66 pages, 11 chapters, ~24,000 words.** The skeleton is
 complete and every chapter has real content, real code quoted verbatim, and
 real figures captured through `--screenshot`. Chapters 2 and 3 -- the maths,
 and how the two graphics APIs work with one feature traced down through both
@@ -1772,18 +1772,19 @@ value order:
    normal offset and where the tangent comes from, the split-sum's three
    precomputed artefacts, the Karis average and why fireflies need it), then
    the code, then what goes wrong. 4.5k characters became 25k.
-2. ~~7.1, 7.2, 7.3 and 7.9~~ -- **done**. **Chapter 7 is now complete and is
-   the model for the rest**: every section states the problem, weighs the
-   alternatives, derives the maths, shows the code and names the failure.
-   **Chapters 5, 6 and 8 are still reference** and need the same treatment.
+2. ~~Chapters 5, 6, 7 and 8~~ -- **done**. Every prose chapter is now written
+   as teaching rather than reference: problem, alternatives, maths, code,
+   failure mode. What remains is structural rather than a rewrite.
 
    Also fixed: code blocks were dark on a light page, which inverted badly in
    readers with a dark mode and printed as solid black rectangles. The
    document is one tone throughout now -- worth remembering for any future
    print deliverable.
-3. **No step-by-step "build this yourself" thread.** learnopengl.com works
-   because each chapter ends with something running. The build order in
-   chapter 4 names the steps but does not walk them.
+3. **No step-by-step "build this yourself" thread -- now the single biggest
+   gap.** learnopengl.com works because each chapter ends with something
+   running on the reader's machine. Chapter 4 names the steps and argues their
+   order; it does not walk anyone through one. This is what would take the
+   document from "explains an engine" to "gets you to one".
 4. **Diagrams are ASCII.** Real vector figures for the transform pipeline, the
    frame graph and the cluster grid would carry a lot.
 5. **Chapter 2 could go further** -- tangent space, cubemap addressing, the

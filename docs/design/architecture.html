@@ -24,6 +24,22 @@
     .cover { height: auto; padding-bottom: 30mm; }
   }
 
+  /* Paint the page white, explicitly, rather than relying on "no paint".
+     A root background is normally *not* emitted when printing, so the PDF's
+     pages end up with no background at all. Most readers draw that as white
+     and it looks fine -- but a reader in dark mode has nothing to invert
+     from and renders the page black, with black text on it. A fixed element
+     repeats on every printed page in Chrome, so this is one rectangle that
+     covers the whole document. */
+  @media print {
+    html, body { background: #ffffff !important; }
+    body::before {
+      content: ""; position: fixed; top: -2cm; left: -2cm;
+      right: -2cm; bottom: -2cm; background: #ffffff; z-index: -1;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+  }
+
   h1, h2, h3, h4 { font-family: "Segoe UI", "Helvetica Neue", sans-serif; line-height: 1.25; }
   h1 { font-size: 22pt; margin: 0 0 4pt; letter-spacing: -0.3pt; }
   h2 {
@@ -1203,50 +1219,124 @@ Application  (fixed-step loop, InputMap, AssetRegistry/Manager, AudioEngine)
      |
     RHI  ->  Platform/Vulkan | Platform/OpenGL</code></pre>
 
-<p>Dependency runs strictly downward. The <code>Scene</code> knows nothing about the
-renderer; the renderer reads the scene and never writes it. The RHI knows nothing about
-scenes, meshes or materials — it knows buffers, textures and pipelines. Two consequences
-worth stating because they are what the layering buys:</p>
+<h4>The rule that makes the diagram mean something</h4>
+<p>Boxes and arrows are cheap. The content of this one is a constraint:
+<b>dependency runs strictly downward, and nothing points back up.</b> The
+<code>Scene</code> knows nothing about the renderer. The renderer reads the scene and
+never writes it. The RHI knows nothing about scenes, meshes or materials — it knows
+buffers, textures and pipelines.</p>
 
-<ul>
-  <li>The test suite can build scenes, simulate them and assert on them <b>without a
-  GPU</b>, because nothing in the scene layer needs a device.</li>
-  <li>A second backend was added without touching a single renderer file, because
-  everything above the RHI is written against the interface rather than against
-  Vulkan.</li>
-</ul>
+<p>That is easy to state and constantly tempting to violate. The temptations are
+specific, and each has an alternative:</p>
+
+<table>
+  <tr><th>The temptation</th><th>Why it appeals</th><th>What to do instead</th></tr>
+  <tr><td>A component holding a GPU buffer</td><td>The renderer needs per-object GPU data anyway</td><td>Key the buffer by the entity's UUID in a renderer-side cache. The scene stays loadable without a device.</td></tr>
+  <tr><td>The renderer writing a "visible" flag back onto entities</td><td>Culling has to record its answer somewhere</td><td>Keep the answer in the renderer's own per-frame list. A scene that changes when you look at it cannot be reasoned about.</td></tr>
+  <tr><td>The RHI knowing what a material is</td><td>It would make the draw call shorter</td><td>Let the renderer translate material → pipeline + resource set. The RHI's vocabulary is the thing keeping two backends honest.</td></tr>
+</table>
+
+<h4>What the discipline actually buys</h4>
+<p>Two things, both of which paid for themselves many times over.</p>
+
+<p><b>The test suite runs without a GPU.</b> Because nothing in the scene layer needs a
+device, the suite can build scenes, parent entities, run the simulation, serialize,
+reload and assert — hundreds of checks — with no window and no driver. If a
+<code>TransformComponent</code> held a GPU buffer, every one of those tests would need a
+device, and the ones that run in CI would not exist.</p>
+
+<p><b>The second backend was additive.</b> Adding OpenGL touched no renderer file. That
+is the observable consequence of the RHI boundary being in the right place, and it is
+the test you should apply to your own: <em>if I added a second implementation of this
+layer, how many files above it would change?</em> The answer should be zero, and if it
+is not, the abstraction is leaking in a direction you have not noticed yet.</p>
+
+<h4>Layers, in the other sense</h4>
+<p>The word is overloaded and worth disambiguating, because the engine uses it for a
+second thing. A <code>Layer</code> is also a runtime object with
+<code>OnUpdate</code>, <code>OnFixedUpdate</code>, <code>OnImGuiRender</code> and event
+handlers, held in a stack by the <code>Application</code>. <code>EditorLayer</code> and
+<code>RuntimeLayer</code> are the two that matter. It is the mechanism by which the same
+engine core drives two different applications, and it is why the frame loop in §6.1 can
+be written once.</p>
+
+<blockquote><p><b><code>Layer</code>'s destructor must stay virtual.</b> The stack owns
+layers as <code>Layer*</code> and deletes through that pointer. Without a virtual
+destructor only <code>~Layer</code> runs, and every derived member leaks — in this case
+the editor's scene, its render targets, and every material in them. Undefined behaviour
+that survived months, because nothing looked wrong: the leak only appeared at shutdown,
+and shutdown is where nobody is looking.</p></blockquote>
 
 <h3>5.2 &nbsp; The module boundary — engine as a DLL</h3>
 
-<p>The engine builds as <code>RageV.dll</code>. The editor, the runtime, the test tools
-and each project's game module link against it. This is what makes per-project C++
-scripting possible without an engine rebuild, and it imposes two constraints that are
-easy to violate silently:</p>
+<h4>Why a DLL at all</h4>
+<p>The engine builds as <code>RageV.dll</code>, and the editor, runtime, test tools and
+each project's game module link against it. That is not an aesthetic choice. It is what
+makes <b>per-project C++ scripting</b> possible: a project's <code>Source/</code> folder
+compiles into its own module DLL that links the engine, and the editor loads and unloads
+it. Without the boundary, changing a script would mean rebuilding the engine, and hot
+reload would be impossible.</p>
 
+<p>The price is that a module boundary is a real thing with real rules, and two of them
+are invisible until violated.</p>
+
+<h4>Rule one: statics do not cross</h4>
 <blockquote><p><b>Static data read through an inline accessor does not cross a module
-boundary.</b> The consumer links its own copy. Anything that must be a singleton across
-the boundary needs an exported out-of-line accessor.</p>
-<p><b>A translation unit containing only static registrars is dropped from a static
-library.</b> It no longer bites the engine, which is linked from object files, but it is
-why built-in scripts are still registered by an explicit function call — and it would
-bite again the moment anything moved back into a <code>.lib</code>.</p></blockquote>
+boundary.</b> The accessor is inlined into the consumer, which then links its own copy of
+the data. You get two "singletons" — the engine's and the module's — and every write
+through one is invisible to the other. Anything genuinely global needs an
+<em>out-of-line</em>, exported accessor. In this engine
+<code>Application::Get</code>, the two loggers and the input state all had to be
+converted.</p></blockquote>
 
-<p>A related trap, found late and worth generalising: <b>a tool must not link a vendored
-library the engine already links privately.</b> The RHI smoke-test tool linked GLFW a
-second time and called <code>glfwInit</code> itself, so the executable and the DLL each
-held their own GLFW globals. The window was real and the engine's copy had never heard
-of it, so Vulkan reported a null <code>HWND</code> and OpenGL reported that it could not
-load GL functions — <em>one cause, two symptoms that look completely unrelated</em>.</p>
+<p>The symptom is memorable: the module's log messages vanish, or its
+<code>Application::Get()</code> returns something uninitialised, while the identical code
+compiled into the engine works perfectly.</p>
+
+<h4>Rule two: registrars can be dropped entirely</h4>
+<blockquote><p><b>A translation unit whose only contents are static registrars will be
+dropped from a static library.</b> The linker sees no referenced symbol in that object
+file and omits it, taking your registration with it. It no longer bites the engine, which
+is a DLL and therefore linked from its object files — but it is why built-in scripts are
+still registered by an explicit function call, and it would bite again the moment
+anything moved back into a <code>.lib</code>.</p></blockquote>
+
+<h4>Rule three, learned late: do not link the same vendored library twice</h4>
+<p>This one generalises past graphics and past C++, and it produced two symptoms that
+looked completely unrelated.</p>
+
+<p><code>RageV.dll</code> links GLFW <em>privately</em>. The RHI smoke-test tool linked
+GLFW again, into its own executable, and called <code>glfwInit</code> and
+<code>glfwCreateWindow</code> itself. GLFW keeps its state in globals, so the executable
+and the DLL each had their own — <b>the window was real, and the engine's copy had never
+heard of it</b>.</p>
+
+<ul>
+  <li>On <b>Vulkan</b>: <code>glfwGetWin32Window</code> inside the DLL returned null, so
+  surface creation failed with "hwnd is NULL".</li>
+  <li>On <b>OpenGL</b>: it failed one step earlier and looked like a different bug
+  entirely — glad was handed a proc-address loader belonging to a library nobody had
+  initialised, and reported that it could not load GL functions.</li>
+</ul>
+
+<p><b>One cause, two symptoms with no visible relationship.</b> When two failures in
+different subsystems appear at the same time, the shared cause is usually one layer below
+both. And the fix already existed and had not been applied: a <code>Visible</code> flag on
+the engine's own window class, added for exactly this situation, whose comment described
+this exact failure. The tool had never been migrated onto it.</p>
+
+<blockquote><p><b>A fix that leaves the old path compiling leaves it in use.</b> If you
+solve a problem by adding the right way, you have not finished until the wrong way is
+gone or impossible.</p></blockquote>
 
 <h3>5.3 &nbsp; The three "one description" systems</h3>
 
-<p>Three places in the engine define something once and generate everything else from
-it. Each replaced two or three hand-maintained copies that had already drifted at least
-once. This is the single most reusable idea in the codebase.</p>
+<p>Three places in the engine define something once and generate everything else from it.
+Each replaced two or three hand-maintained copies that had already drifted. If you take
+one architectural idea from this document, take this one.</p>
 
 <h4>Component reflection</h4>
-<p>Each component is described once — its name, its fields, their types and editor
-hints:</p>
+<p>Each component is described once — name, fields, types, editor hints:</p>
 
 <pre><code><span class="c">// Order is the serialization order and the inspector order, so it is</span>
 <span class="c">// fixed here rather than emerging from a hash map.</span>
@@ -1262,14 +1352,33 @@ desc.Fields = {
 };
 Bind&lt;ParticleEmitterComponent&gt;(desc);</code></pre>
 
-<p>From that one description the engine derives <b>the scene file format</b>, <b>the
-inspector UI</b>, <b>the undo system's field-edit commands</b>, and <b>the C# component
-bridge</b> — C# reaches components by registry name with values as text, so a component
-gaining a field is visible from C# the moment it exists. Nothing here can go stale,
-because there is nowhere for it to go stale <em>to</em>.</p>
+<p>From that one description the engine derives <b>four</b> things:</p>
+<ol>
+  <li><b>The scene file format</b> — the serializer walks the description rather than
+  naming fields.</li>
+  <li><b>The inspector UI</b> — each field type maps to a widget, each hint refines
+  it.</li>
+  <li><b>Undo</b> — a field edit is a command carrying component name, field name, old and
+  new value, all of which the description supplies.</li>
+  <li><b>The C# component bridge</b> — C# reaches components by registry name with text
+  values, so a component gaining a field is visible from C# the moment it exists.</li>
+</ol>
 
-<p>The cost of a type-erased system is that type errors become runtime errors. One of
-them was worth converting back into a compile error:</p>
+<p>Consider what the alternative costs. Adding one field to one component would mean
+editing a serializer, an inspector, an undo case and a scripting binding — four edits, in
+four files, that a compiler cannot check are consistent. The failure mode is not a crash
+but <em>silence</em>: the field saves and does not appear, or appears and does not save.
+Here, adding a field is one line and everything follows.</p>
+
+<p>The general principle: <b>if two pieces of code must agree about a set of things,
+generate both from one declaration of that set.</b> This is the same idea as §7.9's
+resolved ramp — a component that cannot express a disagreement cannot have one.</p>
+
+<h4>The cost, and how to keep it</h4>
+<p>Type-erasure is what makes this work — fields are read and written through
+<code>void*</code> with a type tag — and the cost is that type errors become runtime
+errors. Where such an error is silent and severe, it is worth converting back into a
+compile error:</p>
 
 <pre><code><span class="k">else if constexpr</span> (std::is_enum_v&lt;T&gt;)
 {
@@ -1280,23 +1389,36 @@ them was worth converting back into a compile error:</p>
     <span class="k">return</span> FieldType::Enum;
 }</code></pre>
 
-<p>An <code>enum class : uint8_t</code> compiled, drew correctly, and wrote three bytes
-past the end of the field. It is now a build error naming the offending enum.</p>
+<p>An <code>enum class : uint8_t</code> compiled, serialized, drew correctly, and wrote
+three bytes past the end of its field. It is now a build error naming the offending enum.
+Note the shape of the fix: the assert lives in the one place every registration path
+routes through, so there is no way to register an enum and miss it.</p>
 
 <h4>The RHI</h4>
-<p>One interface, two implementations; discussed in @@§9.1.</p>
+<p>One interface, two implementations, discussed at length in §7.1. The same principle:
+the renderer describes what it wants once, and two backends derive from it.</p>
 
 <h4>Asset handles</h4>
-<p>One 64-bit identity per asset, one registry, one <code>.meta</code> sidecar. Every
-reference anywhere — scene files, prefabs, components, the C# bridge — is that handle.
-When particle curves were added as a new asset type, the inspector, the serializer and
-the C# bridge all worked immediately, because a curve reference is an
-<code>AssetHandle</code> and the system already knew what those were.</p>
+<p>One 64-bit identity per asset, one registry mapping identity to path, one
+<code>.meta</code> sidecar keeping the identity stable across renames. Every reference
+anywhere — scene files, prefabs, components, the C# bridge, the content browser — is that
+handle.</p>
+
+<p>The payoff is best shown by something that happened late. When particle curves were
+added as a new asset type, <b>the inspector, the serializer and the C# bridge all worked
+immediately</b>, with no changes: a curve reference is an <code>AssetHandle</code>, and
+every one of those systems already knew what those were. A design that makes a new
+feature <em>free</em> in three subsystems has earned its keep.</p>
+
 </section>
 
 <!-- ===================================================================== -->
 <section class="part">
 <h2>6 &nbsp; The frame</h2>
+
+<p class="lede">What happens, in order, between one image appearing and the next. This is
+the chapter to read when something is drawn at the wrong time, in the wrong space, or one
+step behind where it should be.</p>
 
 <h3>6.1 &nbsp; Fixed simulation, free rendering</h3>
 
@@ -1308,15 +1430,19 @@ for each fixed step:                  zero or more
 alpha = accumulator / dt
 BeginFrame -> Layer::OnUpdate(ts) -> ImGui -> EndFrame</code></pre>
 
-<p>Simulation advances in fixed steps; rendering does not. Above 60 Hz a frame commonly
-runs <em>zero</em> steps, which is exactly why rendering must interpolate rather than
-read the simulation directly. The renderer blends the last two simulation states by
-<code>alpha</code>.</p>
+<p>The maths is §2.13. What matters architecturally is the consequence: <b>every system
+must decide whether it is simulation or presentation, and the decision is not
+negotiable after the fact.</b></p>
 
-<p>This split has a consequence that shapes the whole scripting API: <b>presentation
-belongs on the frame, simulation belongs on the step</b>, and every system has to pick
-one deliberately. In <code>Scene::OnUpdateRuntime</code> — the per-frame pass — each
-choice carries its reason:</p>
+<h4>The rule</h4>
+<p>Ask one question of any system: <em>does anything depend on this being reproducible?
+</em> If a script scores it, physics collides with it, or a replay must reproduce it, it
+is simulation and belongs on the fixed step. If it exists only to be looked at, it is
+presentation and belongs on the frame — because pinning it to the simulation rate makes
+it stutter at every other display rate.</p>
+
+<p><code>Scene::OnUpdateRuntime</code> is the per-frame pass, and every entry carries its
+reason:</p>
 
 <pre><code><span class="c">// On the frame rather than the fixed step, for the same reason the audio</span>
 <span class="c">// positions are: an animation is presentation, and pinning it to the</span>
@@ -1337,10 +1463,30 @@ UpdateAudio();
 <span class="c">// one, so they move at whatever rate the display shows them.</span>
 Particles::System::Update(*<span class="k">this</span>, ts.GetSeconds());</code></pre>
 
-<p>Scripts are currently the one system still pinned to the fixed step, which is a known
-gap: a camera moved from a fixed-step callback updates on one frame in four at 240 Hz,
-against a world that interpolates on all four — differential stutter, which reads worse
-than no smoothing at all.</p>
+<p>Read the ordering as well as the choices. Audio comes <em>after</em> transform sync,
+because a positional sound attached to a simulated body should be placed where the body
+is being <em>drawn</em>, not where it was one step ago. That is a one-line consequence of
+taking the distinction seriously.</p>
+
+<h4>The gap this analysis exposes</h4>
+<p>Scripts are the one system still pinned to the fixed step, and applying the rule above
+shows why that is now a defect rather than a design. A camera moved from a fixed-step
+callback updates on one frame in four at 240 Hz — against a world that interpolates on all
+four. That is not merely unsmoothed; it is <b>differentially</b> unsmoothed, which reads
+worse than if nothing were interpolated at all. And no script can currently even see the
+alpha.</p>
+
+<p>The fix is a per-frame script hook, and it is scheduled. Two decisions come with
+it. <b>The name</b>: <code>OnUpdate</code> already means fixed step in both scripting
+manuals and every existing script, so it cannot be reused — something that says frame
+makes the varying <code>dt</code> obvious at the call site. <b>The position</b>: after
+<code>UpdateWorldTransforms</code> and before <code>UpdateAudio</code>, so a camera script
+reads interpolated transforms rather than last step's.</p>
+
+<blockquote><p><b>The risk is misuse, not implementation.</b> Gameplay in a per-frame hook
+reintroduces frame-rate-dependent behaviour — precisely what the fixed step exists to
+prevent. That is Unity's perennial <code>Update</code>/<code>FixedUpdate</code>
+confusion, and the mitigation is naming and documentation rather than code.</p></blockquote>
 
 <h3>6.2 &nbsp; The render path, pass by pass</h3>
 
@@ -1360,24 +1506,40 @@ Bloom up 4..1    -> Bloom3..0   3x3 tent, ADDITIVE, accumulates in place
 Tonemap          -> LDR         exposure, + bloom, ACES, 1/2.2
 FXAA             -> Output      on the tone-mapped image, not the linear one</code></pre>
 
-<p>Several ordering decisions here are not arbitrary and are easy to get wrong:</p>
+<p>Eleven passes over seven pooled targets at 1600×900. Several orderings here are
+forced, and each is a bug if reversed:</p>
+
 <ul>
-  <li><b>The sky is drawn after the opaque meshes</b>, depth-tested with no depth write.
-  Drawing it first wastes fill on every pixel the scene covers; the depth test has
-  nothing to test against until the meshes have written depth.</li>
-  <li><b>FXAA runs on the tone-mapped image</b>, not the linear one. Edge detection on
-  unbounded HDR values finds edges that are not perceptually there.</li>
-  <li><b>Shadow maps and probe captures happen before the graph opens</b>, because each
-  opens render passes of its own and a pass cannot be nested inside another.</li>
-  <li><b>Shadows are fitted to the camera they will be drawn with</b>, since cascades are
-  fitted to a frustum — so the editor's two viewports fit their own.</li>
+  <li><b>The sky after the opaque meshes</b>, depth-tested with no depth write. Drawing it
+  first wastes fill on every pixel the scene will cover, and the depth test has nothing to
+  test against until the meshes have written depth.</li>
+  <li><b>Transparency after the sky</b>, because a blended fragment needs something behind
+  it to blend with.</li>
+  <li><b>The overlay into the HDR target</b> rather than over the finished image, because
+  collider wireframes depth-test against the scene they annotate.</li>
+  <li><b>FXAA after tonemapping</b> (§7.7): edge detection on unbounded HDR finds edges
+  that are not perceptually there.</li>
+  <li><b>Shadow maps and probe captures before the graph opens</b>, because each opens
+  render passes of its own and a pass cannot nest inside another.</li>
 </ul>
+
+<p>One non-obvious parameter is worth stating, because getting it backwards breaks every
+mesh pipeline at once: <b><code>Renderer::SetTargetFormats</code> is told what the
+<em>scene pass</em> writes</b> (RGBA16F + depth), not what the viewport texture is. Pipelines
+are built against the attachment formats they will actually render into, and the editor's
+viewport texture is a different thing further down the chain.</p>
 
 <h3>6.3 &nbsp; The render graph</h3>
 
-<p>A pass declares what it writes and what it samples; the graph pools the targets and
-executes in declaration order. A pass is two lambdas — one that declares, one that
-draws:</p>
+<h4>The problem it solves</h4>
+<p>Without a graph, a frame is a hand-written sequence: create these targets, bind this
+one, draw, bind that one, draw, remember to transition the first one, remember to reuse
+the second because they are the same size. It works at three passes. At eleven it is a
+web of assumptions no one dares reorder, and every new effect is surgery.</p>
+
+<p>A <b>render graph</b> inverts the control. Passes <em>declare</em> what they write and
+what they sample; the graph allocates targets, pools them by shape, orders the passes and
+executes. A pass is two lambdas — one that declares, one that draws:</p>
 
 <pre><code>graph.AddPass(<span class="s">"Scene"</span>,
     [&amp;](RGPassBuilder&amp; builder)
@@ -1394,16 +1556,38 @@ draws:</p>
             draw(context);
     });</code></pre>
 
-<p>Targets are pooled by shape, so eleven passes use seven targets. The graph also
-refuses malformed frames at compile time rather than producing an undefined picture: a
-pass binding an attachment its target does not have, or a target created and never
-written, are both errors.</p>
+<h4>What the declaration buys</h4>
+<ul>
+  <li><b>Pooling.</b> Targets are reused when their shape matches, so eleven passes need
+  seven targets. Nobody has to notice that the bloom chain can share with something
+  else.</li>
+  <li><b>Refusal of malformed frames.</b> A pass binding an attachment its target does
+  not have, or a target created and never written, are <em>compile errors</em> for the
+  frame rather than an undefined picture. That is the graph paying for itself: these are
+  exactly the mistakes that otherwise produce a black screen and no message.</li>
+  <li><b>Conditional structure.</b> The transparency passes exist only in frames whose
+  scene contains a weighted emitter — and cost nothing in frames that do not.</li>
+</ul>
 
-<p>The payoff is concrete. Weighted-blended transparency needed a target with three
-colour attachments over one shared depth image, with the scene pass binding attachment 0
-and the transparent pass binding 1 and 2 — a structural change to the frame that
-amounted to <em>two new graph capabilities and two pass declarations</em>, and touched no
-existing pass.</p>
+<blockquote><p><b>Ask the scene, not the renderer.</b> Whether to allocate the
+transparency attachments is decided by asking the <em>scene</em> whether it contains a
+weighted emitter, before the frame is described. Asking the renderer what it collected
+would answer for the <em>previous</em> frame — a one-frame lag and a dropped first frame.
+Any conditional structure in a graph has this hazard: the condition must be evaluable
+before the work that would answer it.</p></blockquote>
+
+<h4>The payoff, concretely</h4>
+<p>Weighted-blended transparency needed a target with three colour attachments over one
+shared depth image, with the scene pass binding attachment 0 and the transparent pass
+binding 1 and 2. That is a structural change to the frame — and it amounted to
+<b>two new graph capabilities and two pass declarations</b>, touching no existing pass.
+Compare that to what the same change would cost in a hand-written frame, where every
+target and transition is stated explicitly at each site.</p>
+
+<p>The graph was written when the frame had three passes, which felt premature at the
+time. It was not: the entire argument of §4.1 is that this is one of the two places where
+abstraction must precede the features that would otherwise hard-code themselves.</p>
+
 </section>
 
 <!-- ===================================================================== -->
@@ -2279,11 +2463,58 @@ problem untouched. It erased it.</p>
 
 <h3>8.1 &nbsp; Scene, entities, reflection</h3>
 
-<p>EnTT provides the storage. On top of it: a UUID on every entity, a relationship
-component holding only the parent link, world transforms recomputed in one top-down pass
-per frame, and the component registry of @@@@§9.3.</p>
+<h4>Why an ECS, in one paragraph</h4>
+<p>The obvious way to model game objects is inheritance: a <code>GameObject</code> base,
+then <code>Enemy</code>, then <code>FlyingEnemy</code>. It works until you want a flying
+enemy that also talks, and a talking crate, and now the hierarchy has to be a lattice. An
+<b>entity-component system</b> replaces "what an object <em>is</em>" with "what an object
+<em>has</em>": an entity is an identity, components are plain data attached to it, and
+systems operate on everything that has a given combination. A talking crate is a crate
+with a dialogue component. No hierarchy is required and none can be got wrong.</p>
 
-<p>World transforms are deliberately <b>not</b> a dirty-flag cache:</p>
+<p>This engine uses <b>EnTT</b> for the storage — a mature sparse-set implementation —
+and builds four things on top of it, each of which is the interesting part.</p>
+
+<h4>1. Identity that outlives the registry</h4>
+<p>EnTT's <code>entt::entity</code> is an index with a generation counter, and it is
+<b>recycled</b>. Delete an entity and the next one created may get the same handle. It is
+therefore meaningless the moment anything needs to remember an entity across a save, a
+reload, a play-mode copy or a network message.</p>
+
+<p>So every entity also carries a 64-bit UUID assigned at creation and preserved through
+all of those. Every durable reference in the engine — a parent link, a prefab's contents,
+a script's cached target, the physics body map — is a UUID, never a handle.</p>
+
+<blockquote><p><b>This is the single highest-leverage decision in the project, and it
+costs an afternoon.</b> Retrofitting identity later means touching every one of those
+systems simultaneously, and each of them is individually easy to get subtly wrong.
+Recycled handles fail in the worst possible way: correctly, until a deletion happens to
+recycle the exact handle something remembered, at which point one object starts behaving
+as another.</p></blockquote>
+
+<h4>2. Hierarchy stored as one link, not two</h4>
+<p>A transform hierarchy needs parents and children. Storing both invites them to
+disagree. The engine stores only the parent, by UUID, and <em>rebuilds</em> the child
+lists on load:</p>
+
+<pre><code><span class="c">// Children is derived state: only Parent is written to disk, and the child</span>
+<span class="c">// lists are rebuilt on load. Storing both would let them disagree, and a</span>
+<span class="c">// hierarchy that disagrees with itself is the kind of bug that only shows</span>
+<span class="c">// up three features later.</span>
+<span class="k">struct</span> RelationshipComponent
+{
+    UUID Parent = UUID::Invalid();
+    std::vector&lt;UUID&gt; Children;
+};</code></pre>
+
+<p>The general form — <b>serialize the minimum from which everything else is derivable</b>
+— applies well beyond scene graphs. Derived state that is also persisted is state that can
+be persisted wrong.</p>
+
+<h4>3. World transforms, recomputed rather than cached</h4>
+<p>A child's world transform is its parent's world transform times its own local one.
+The obvious optimisation is a dirty flag: mark it when the local transform changes,
+recompute only what is dirty. The engine deliberately does not:</p>
 
 <pre><code><span class="c">// Recomputed unconditionally by Scene::UpdateWorldTransforms in one</span>
 <span class="c">// top-down pass per frame.</span>
@@ -2295,57 +2526,214 @@ per frame, and the component registry of @@@@§9.3.</p>
 <span class="c">// cannot be got wrong.</span>
 Mat4 World{ 1.0f };</code></pre>
 
-<p>This is a good example of choosing the boring implementation on purpose. The cache is
-faster and the cost of one missed invalidation — an object in the wrong place, sometimes
-— is far higher than the saving.</p>
+<p>Read the argument carefully, because it is a template for a class of decision. The
+cache is faster. But its correctness depends on <em>every future write site</em>
+remembering to invalidate, including ones written by people who have never heard of the
+flag. The cost of one missed invalidation — an object drawn in the wrong place,
+intermittently — vastly exceeds the saving, and the traversal is O(n) over a scene
+graph, not over anything large.</p>
+
+<blockquote><p><b>Choose the boring implementation when correctness depends on future
+discipline.</b> Optimise when a measurement says to, and then encapsulate the invalidation
+so it cannot be forgotten.</p></blockquote>
+
+<h4>4. Reflection</h4>
+<p>Covered in §5.3, and it belongs to this layer: the component registry is what turns
+"plain data attached to an entity" into something the serializer, inspector, undo stack
+and C# bridge can all handle generically.</p>
+
+<h4>Play mode: the scene is copied, not mutated</h4>
+<p>Pressing Play operates on a <em>copy</em>; pressing Stop discards it and restores the
+authored scene exactly. This is worth building before scripts exist, because it
+establishes a rule scripts then cannot violate: nothing a script does at runtime can
+damage the thing on disk. The consequence users notice is that changes made during play
+are discarded — correct, and surprising exactly once.</p>
 
 <h3>8.2 &nbsp; Assets</h3>
 
-<p>Handles, a registry mapping handle to path, <code>.meta</code> sidecars, and a manager
-that loads and caches by handle. Two conventions worth copying:</p>
-<ul>
-  <li><b>Failures are cached.</b> A missing texture caches as null so a broken path is
-  not reopened sixty times a second.</li>
-  <li><b>Never return null for a valid handle where a value will do.</b> A missing curve
-  answers an <em>empty</em> curve that evaluates to its fallback, so the caller samples a
-  value rather than every call site remembering a branch. Only an <em>invalid</em> handle
-  answers null — which keeps "no curve authored" distinguishable from "curve failed to
-  load".</li>
-</ul>
+<h4>The three problems an asset system solves</h4>
+<p>They are separable, and it helps to name them:</p>
+<ol>
+  <li><b>Identity</b> — how a scene refers to a mesh without embedding it, in a way that
+  survives the file being renamed or moved.</li>
+  <li><b>Loading and caching</b> — turning a reference into a usable object once rather
+  than per frame.</li>
+  <li><b>Import</b> — turning somebody else's format into yours.</li>
+</ol>
+
+<p>The engine answers them with a 64-bit <code>AssetHandle</code>, a registry mapping
+handle → path, and a <code>.meta</code> sidecar next to each source file recording its
+handle. The sidecar is what makes renaming safe: the identity travels with the file
+rather than being its path.</p>
+
+<h4>Two caching conventions worth copying</h4>
+
+<p><b>Cache failures, not just successes.</b> A missing texture caches as null. Without
+that, a scene pointing at a deleted file retries the load sixty times a second forever —
+a performance bug that presents as "the editor is slow with this scene" and takes a
+profiler to find.</p>
+
+<p><b>Never return null for a valid handle where a value will do.</b> This one is subtler
+and shaped an entire feature:</p>
+
+<pre><code><span class="c">// A keyed ramp -- size or alpha over a particle's life, or the colour</span>
+<span class="c">// gradient. Never null for a valid handle: a missing or unreadable file</span>
+<span class="c">// answers an *empty* curve, which evaluates to its fallback everywhere,</span>
+<span class="c">// so a caller reads a value rather than remembering a branch. Cached,</span>
+<span class="c">// including the failure, so a broken path is not reopened per frame.</span>
+<span class="k">static const</span> Curve* GetCurve(AssetHandle handle);</code></pre>
+
+<p>Only an <em>invalid</em> handle answers null. That distinction — "no curve was
+authored" versus "a curve was authored and failed to load" — is exactly what the caller
+needs, and it means the per-particle sampling path has no branch in it at all.</p>
+
+<h4>The stale-derivative problem</h4>
+<p>Any cache of something <em>derived</em> from an asset needs an invalidation path, and
+it is easy to build the cache and forget the path. The curve system caches both the curve
+and a baked 64-sample table of it; both are dropped together by one function, which the
+editor calls when someone finishes dragging a point. Without it, an edited curve keeps
+rendering with its old shape and the editor appears to ignore you.</p>
+
+<p>The same class of bug, in a different subsystem, is the probe reading a mip chain
+built from an un-rendered mip 0 (§7.6). <b>Whatever is derived must be invalidated by
+whatever it was derived from</b>, and the invalidation should live next to the cache
+rather than at the call sites.</p>
+
+<h4>A trap in the build</h4>
+<blockquote><p><b>Asset handles minted in the build output are lost on a clean
+build.</b> The assets root is the folder beside the executable, which CMake copies from
+the source tree. Assets added to the <em>source</em> tree keep their handle because the
+<code>.meta</code> is copied with them; assets dropped into <code>build/</code> get a
+fresh handle each time the directory is recreated, and every scene referencing them
+breaks.</p></blockquote>
 
 <h3>8.3 &nbsp; Scripting in two languages</h3>
 
-<p>C++ scripts live in a project's <code>Source/</code> and build into a game module DLL
-the engine loads. C# scripts live in <code>Scripts/</code> and build into an assembly
-loaded from bytes into a collectible load context. Both hot reload; building while
-playing stops the scene, swaps both languages, and resumes play on the new code.</p>
+<h4>Why two, and what that costs</h4>
+<p>C++ gives direct access and no marshalling; C# gives iteration speed, memory safety
+and a much shorter path from idea to running code. Supporting both is a deliberate bet
+that the audience wants both, and the cost is real: <b>every feature must be exposed
+twice</b>, and the two surfaces will drift unless something structural stops them.</p>
 
-<p>The interop is an append-only function-pointer table with an explicit protocol
-version in both the native and managed headers. The one structural asymmetry is worth
-calling out because it is inherent rather than incidental: a template cannot cross a
-language boundary, so where C++ says <code>GetComponent&lt;LightComponent&gt;()</code>,
-C# reaches components <b>by registry name with values as text</b> — the same names and
-text forms the inspector and the scene file use. That trade is what keeps the C# surface
-from going stale when a component gains a field.</p>
+<p>C++ scripts live in a project's <code>Source/</code> and compile into a game module
+DLL the engine loads (§5.2). C# scripts live in <code>Scripts/</code> and compile into an
+assembly. Both hot reload.</p>
+
+<h4>Hot reload, and the part people get wrong</h4>
+<p>For C#, the assembly is loaded <b>from bytes</b> into a collectible
+<code>AssemblyLoadContext</code> that is retired and replaced on every build. Loading from
+a file path would lock the file and the next build would fail; loading from bytes leaves
+the file free.</p>
+
+<p>The retirement is the subtle part. Unloading a context is a <em>request</em>, not a
+command: it succeeds only when nothing references anything in it. So the engine holds a
+weak reference and checks:</p>
+
+<blockquote><p><b>Verify the unload, and report a context that will not die.</b> A leaked
+context means the old code is still running, and the symptom is "my change did nothing" —
+which the developer will attribute to the build, the editor, or themselves, in that order,
+for about an hour. An explicit warning turns a mystery into a message.</p></blockquote>
+
+<p>Building while playing is handled by one rule applied to both languages: stop the
+scene, swap both languages' scripts, resume play on the new code. After a <em>failed</em>
+build it stays stopped with the errors visible, rather than auto-resuming old code under
+you.</p>
+
+<h4>The interop boundary</h4>
+<p>The native side exposes an append-only table of function pointers with an explicit
+protocol version in both the native and managed headers. Append-only matters: adding a
+function must never move an existing one, or a mismatched pair of binaries fails in a way
+no error message will explain.</p>
+
+<p>There is one structural asymmetry, and it is inherent rather than incidental. A
+template cannot cross a language boundary, so where C++ says
+<code>GetComponent&lt;LightComponent&gt;()</code>, C# reaches components <b>by registry
+name with values as text</b>:</p>
+
+<pre><code>entity.SetComponentField(<span class="s">"LightComponent"</span>, <span class="s">"Intensity"</span>, <span class="s">"3.5"</span>);
+string color = entity.GetComponentField(<span class="s">"LightComponent"</span>, <span class="s">"Color"</span>);  <span class="c">// "1 0.8 0.6 1"</span></code></pre>
+
+<p>That looks like a downgrade and is the reason the two surfaces do not drift. Because
+the bridge is driven by the same component registry as the inspector and the scene file
+(§5.3), <b>a component gaining a field is reachable from C# the moment it exists</b> —
+with no binding to write and nothing to forget. A typed binding would have needed
+regenerating, and the regeneration would have been skipped once.</p>
+
+<h4>Errors at the boundary</h4>
+<p>Every boundary the runtime crosses catches everything: an exception in a script logs
+and stops that script's callback, and the editor survives. That is the deliberate trade
+against C++, where a mistake is a crash. It has a cost worth stating in the manual: a
+silent <code>catch</code> can hide a broken script, so the log is the only place the
+truth appears.</p>
 
 <h3>8.4 &nbsp; Physics and audio</h3>
 
-<p>Jolt, stepped after scripts within the fixed step, with contact events delivered
-after the step that produced them. Colliders are authored in local units and multiplied
-by the transform's absolute scale — worth knowing, because authoring the world radius
-directly produces a collider that is silently scale× too large.</p>
+<h4>Physics: ordering within the step</h4>
+<p>Jolt provides the simulation. What the engine decides is <em>when</em> things happen
+relative to it, and the order is fixed and documented: <b>scripts, then physics, then
+contact events</b>, all within the fixed step.</p>
 
-<p>Audio is miniaudio, with positional sources updated per frame <em>after</em> transform
-sync, so a sound on a simulated body is placed where it is being drawn rather than one
-step behind it.</p>
+<p>Scripts first so that a force applied this step is integrated this step rather than
+next. Contact events after the step that produced them, so a script reacting to a
+collision sees the post-collision state. Any other order produces a one-step lag that is
+invisible in testing and infuriating in a game.</p>
 
+<h4>Two lessons from wiring a physics engine in</h4>
+
+<blockquote><p><b>A body added during play must actually join the simulation.</b> The
+engine had an <code>AddBody</code> function with no callers — bodies were created when a
+scene started playing and never afterwards. Everything looked complete, and the first
+object spawned at runtime hung motionless in the air. The fix reconciles bodies at the
+top of the fixed step, and it must skip entities already condemned by a deferred
+destroy, or destroying an entity re-adds its body moments before removing it.</p></blockquote>
+
+<blockquote><p><b>Collider dimensions are multiplied by the transform's absolute
+scale.</b> A sphere primitive is built at radius 0.5, so a collider for a mesh scaled 1.8
+is authored as <code>Radius: 0.5</code>, not 0.9. Authoring the world radius produces a
+collider 1.8× too large, and objects hover above apparently nothing — a bug with no error
+and a very confusing picture.</p></blockquote>
+
+<h4>Audio: presentation, and therefore per frame</h4>
+<p>Audio is miniaudio. Positional sources are updated per <em>frame</em>, after transform
+sync (§6.1), so a sound attached to a simulated body is placed where it is being drawn
+rather than one step behind. Voices are retired once a frame, unconditionally: a one-shot
+fired from a script belongs to nothing that would otherwise clean it up.</p>
+
+<p>Two API decisions worth copying. Clips are named by <b>asset path</b> rather than by
+handle, because a handle is an engine-internal name a script has no honest way to hold.
+And every one-shot takes a <b>pitch</b>, which is a resampling ratio — 2 is an octave up
+and half the length. A small random spread on pitch is what stops a repeated impact
+sounding like a sampler, and it costs one line in a script.</p>
+
+<h4>Skeletal animation</h4>
 <figure>
   <img src="figures/skinning.jpg" alt="Skeletal animation">
-  <figcaption><b>Figure 10.</b> GPU skinning. The invariant that catches the most bugs
-  at once: a skeleton at its bind pose must produce an identity skinning matrix for every
-  bone — one check that catches wrong inverse binds, wrong compose order and wrong space
-  simultaneously.</figcaption>
+  <figcaption><b>Figure 10.</b> GPU skinning. The maths is §2.12; the engineering is
+  keeping the bone matrices consistent between the lit pass, the shadow pass and the
+  bounds.</figcaption>
 </figure>
+
+<p>Vertices carry joint indices and weights; a bone matrix palette is uploaded per frame;
+the vertex shader blends. Three invariants, each of which produced a memorable
+failure:</p>
+<ul>
+  <li><b>A skeleton at its bind pose must give an identity skinning matrix for every
+  bone</b> (§2.12) — the single check that catches wrong inverse binds, wrong compose
+  order and wrong space at once.</li>
+  <li><b>One bone matrix per bone, never a short run.</b> A truncated palette reads into
+  the next character's matrices, which animates one character with another's motion.</li>
+  <li><b>Whatever poses the lit pass must pose the depth pass</b> (§7.5), or a character
+  walks and its shadow stands still.</li>
+</ul>
+
+<p>And one that belongs to the vertex format rather than to animation, included because
+it is the best example in the codebase of a silent size mismatch:</p>
+
+<blockquote><p><b>A vertex attribute's reflected format must carry its vector width.</b>
+The shader reflection returned a one-component format for every integer type, so a
+<code>uvec4</code> of joint indices was described as 4 bytes where the buffer held 16.
+The mesh drew as a spray of triangles across the screen — which looks like a corrupt
+index buffer, and sends you to entirely the wrong place.</p></blockquote>
 </section>
 
 <!-- ===================================================================== -->
