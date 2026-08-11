@@ -35,7 +35,17 @@ CURVES = {
                   (0.3, [1.0, 0.55, 0.12]),
                   (0.7, [0.65, 0.14, 0.04]),
                   (1.0, [0.18, 0.03, 0.02])]),
+    # Fire, which is not a plume: a tongue is widest a third of the way up and
+    # narrows again as it burns out. Two endpoints can only widen or only
+    # narrow, so this is the shape a pair cannot hold.
+    "flame_size": (1, [(0.0, [0.22]), (0.3, [0.8]), (0.65, [0.6]), (1.0, [0.18])]),
+    # Fire has no hard edge at either end. It appears out of nothing and
+    # thins out rather than being switched off.
+    "flame_alpha": (1, [(0.0, [0.0]), (0.12, [1.0]), (0.55, [0.7]), (1.0, [0.0])]),
 }
+
+# The sprite the flame emitter uses, relative to the project's assets root.
+FLAME_TEXTURE = "textures/flame.png"
 
 SCENE = """Scene: ParticlesCurves
 Version: 5
@@ -183,6 +193,65 @@ def main():
     with open(gpu_path, "w", encoding="utf-8") as handle:
         handle.write(scene.replace("SimulateOnGpu: false", "SimulateOnGpu: true"))
     print(f"wrote {gpu_path}")
+
+    # --- the flame ----------------------------------------------------------
+    # A single emitter doing one effect properly, rather than another
+    # side-by-side comparison: additive because fire is light and not matter,
+    # local space so it would ride a torch that carried it, and all three
+    # ramps curved because a flame is the case where none of them is a
+    # straight line.
+    texture = read_handle(os.path.join(args.project, "assets", FLAME_TEXTURE + ".meta"))
+    if not texture:
+        print(f"\nNo .meta yet for {FLAME_TEXTURE}; run the editor or runtime once, "
+              "then run this again to write the flame scene.")
+
+    flame = SCENE.replace("Scene: ParticlesCurves", "Scene: Flame")
+    flame = flame.replace("Position: [0, 1.6, 6]", "Position: [0, 0.9, 3.4]")
+    flame += "\n".join([
+        "  - EntityID: 7777000000000000020",
+        "    TagComponent:",
+        "      Tag: Flame",
+        "    TransformComponent:",
+        "      Position: [0, 0, 0]",
+        "      Rotation: [0, 0, 0]",
+        "      Scale: [1, 1, 1]",
+        "    ParticleEmitterComponent:",
+        "      Emit: true",
+        "      Rate: 70",
+        "      Burst: 0",
+        "      Lifetime: 1.1",
+        "      LifetimeJitter: 0.25",
+        "      Direction: [0, 1, 0]",
+        "      Spread: 11",
+        "      Speed: 1.5",
+        "      SpeedJitter: 0.35",
+        # Upward, because hot air rises. The emitter's own gravity is not the
+        # world's, which is exactly what makes buoyancy a one-field change.
+        "      Gravity: [0, 1.3, 0]",
+        "      Drag: 1.2",
+        "      SizeStart: 0.5",
+        "      SizeEnd: 0.15",
+        "      ColorStart: [1, 0.92, 0.5, 1]",
+        "      ColorEnd: [0.5, 0.1, 0.03, 0]",
+        "      Spin: 35",
+        "      Facing: Billboard",
+        "      Blend: Additive",
+        "      Space: Local",
+        f"      Texture: {texture or 0}",
+        "      MaxParticles: 512",
+        "      SimulateOnGpu: false",
+    ]) + "\n"
+
+    for field, name in (("SizeCurve", "flame_size"),
+                        ("ColorGradient", "ember"),
+                        ("AlphaCurve", "flame_alpha")):
+        if handles.get(name):
+            flame += f"      {field}: {handles[name]}\n"
+
+    flame_path = os.path.join(args.project, "assets", "scenes", "flame.rage")
+    with open(flame_path, "w", encoding="utf-8") as handle:
+        handle.write(flame)
+    print(f"wrote {flame_path}")
 
 
 if __name__ == "__main__":

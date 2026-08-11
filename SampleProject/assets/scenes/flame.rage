@@ -1,0 +1,63 @@
+Scene: Flame
+Version: 5
+Environment:
+  AmbientColor: [0.42, 0.47, 0.58]
+  AmbientIntensity: 0.12
+  Sky: 1
+  SkyHorizon: [0.2, 0.22, 0.3]
+  SkyZenith: [0.05, 0.07, 0.14]
+  SkyGround: [0.1, 0.1, 0.11]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 7777000000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Position: [0, 0.9, 3.4]
+      Rotation: [-0.08, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7777000000000000020
+    TagComponent:
+      Tag: Flame
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 70
+      Burst: 0
+      Lifetime: 1.1
+      LifetimeJitter: 0.25
+      Direction: [0, 1, 0]
+      Spread: 11
+      Speed: 1.5
+      SpeedJitter: 0.35
+      Gravity: [0, 1.3, 0]
+      Drag: 1.2
+      SizeStart: 0.5
+      SizeEnd: 0.15
+      ColorStart: [1, 0.92, 0.5, 1]
+      ColorEnd: [0.5, 0.1, 0.03, 0]
+      Spin: 35
+      Facing: Billboard
+      Blend: Additive
+      Space: Local
+      Texture: 14156592944927634151
+      MaxParticles: 512
+      SimulateOnGpu: false
+      SizeCurve: 4167849381279018650
+      ColorGradient: 14237806248374965933
+      AlphaCurve: 11461028735333202510

@@ -1716,6 +1716,22 @@ shape until something else forces a reload -- the same class of bug as the
 probe reading a stale mip chain. Decide early whether the LUT lives on the
 asset or in `GpuParticles`, and make the dirty flag explicit.
 
+### The sample project's flame
+
+`scenes/flame.rage`, written by `make_curve_presets.py`, is the first thing in
+the repository that uses all of 6.10 at once and the first particle effect
+with a real sprite. Worth keeping as the reference for what a finished emitter
+looks like: additive because fire is light rather than matter, local space so
+it would ride whatever carried it, upward emitter gravity for buoyancy, and
+all three ramps curved -- because a flame is precisely the case where none of
+them is a straight line. A tongue is widest a third of the way up, which two
+endpoints cannot say.
+
+The sprite came in at 3840x2160 and was cropped to its own alpha bounding box,
+squared about that box's centre and resized to 512 (2.5 MB to 236 KB). Squared
+about the *content* rather than the image, because a billboard rotates about
+its middle and an off-centre sprite wobbles as it spins.
+
 ### After that - 6.11, GPU alpha self-sorting
 
 Now cheaper than it looks, and no longer urgent -- weighted blending is the
