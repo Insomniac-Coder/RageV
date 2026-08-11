@@ -447,6 +447,149 @@ written above it.
 
 ---
 
+## 7d. Text and game UI: the design, before the code
+
+*Written 2026-08-11, before any of it was built, because the roadmap's Phase 6
+says the design is the first task rather than the code — and because this is
+the first system since the asset registry that four other systems have to agree
+with.*
+
+**Why it is the next thing.** Everything up to here draws a *scene*. Knockdown
+is a complete, packaged, playable game that communicates through one light and
+four sounds, because it cannot say "press F to reset", show a score, or put up
+a title. That is the only remaining gap a *player* would notice; everything
+else left on the roadmap is something a developer would notice.
+
+### The font is baked by a tool, and the tool ships nothing
+
+`tools/rvfont`, beside `rvdoc` and `scenetest`. It reads a `.ttf` and writes an
+atlas image plus a metrics table. **Nothing it links enters the engine or a
+shipped game** — the runtime loads a PNG and a table of numbers — which is what
+makes the dependency question below almost free.
+
+**Outlines from stb_truetype, the distance field from msdfgen's core.** Not
+written from scratch: the two parts of MSDF that go subtly wrong are *edge
+colouring* at corners and the *error-correction* pass, and "glyph corners are
+slightly wrong at some sizes" is not a thing a test suite catches — it is a
+thing somebody notices in a screenshot six months later. msdfgen is the
+reference implementation and its **core has no dependencies**; FreeType is only
+in its font-loading front end, which is the part stb_truetype already replaces.
+
+**The numbers that decide whether this looks good**, and they are not
+adjustable taste:
+
+- **`screenPxRange` must never fall below 1, and below 2 the antialiasing
+  fails** — colour bleeds across the whole glyph quad rather than resolving to
+  an edge. It is `(quadPixelsOnScreen / atlasGlyphPixels) * pxRange`, so it
+  depends on the atlas *and* on how large the text is drawn. This is the single
+  most common way an MSDF integration looks broken.
+- **Distance range 6 px in the atlas.** Higher is not safer; too large produces
+  its own artifacts.
+- **At least 32 px per em in the atlas, more for a thin face.** MSDF breaks
+  where two edges of the same channel come within 2 field pixels, which is
+  exactly what a thin stroke is.
+- **Below roughly 12 px on screen the antialiasing reads as blur.** That is a
+  property of the technique, not a bug to chase; a bitmap atlas beats it there.
+
+**So the invariant is that the shader computes `screenPxRange` from the atlas
+metadata and the real quad size**, and `rvfont` prints the smallest on-screen
+size its atlas actually supports. A number the tool refuses to let you not
+know, rather than a soft-looking build nobody can explain.
+
+### One pipeline, two kinds of quad
+
+A UI batch interleaves sprites and glyphs in z order — a label on a panel on a
+bar. Two shaders means a batch break at every one of those transitions. So one
+pipeline with a per-vertex flag: plain texture, or MSDF median. **A branch per
+fragment costs nothing; a batch break per widget costs everything.**
+
+This is why UI does not go through `Renderer2D`. That renderer is lit,
+world-space, and built around a 32-slot texture array for scene quads. Sharing
+it would mean bending a lit scene renderer around an unlit screen-space one.
+
+### The canvas is entities, and it is deliberately not ImGui
+
+ImGui is the *editor's* UI and is immediate-mode, which is right for tools and
+wrong for a game: a game's UI is authored in a scene, serialized, driven by
+scripts, skinned, and must run with **no editor present**. The editor's design
+tokens are worth reading for the reasoning; none of that code is reusable here.
+
+**It reuses the entity hierarchy** — `RelationshipComponent` is already
+serialized, already drawn in the hierarchy panel, already works with prefabs
+and with the reveal-on-select. A second parent/child system would be a second
+thing to keep in step.
+
+**It does not reuse `TransformComponent`.** Position, rotation and scale cannot
+express "twenty pixels in from the top-right corner, at every resolution",
+which is the entire problem UI layout exists to solve. So `UIRectComponent`
+carries anchors, offsets and a pivot, with its own propagation pass driven by
+the same parent links the transforms use.
+
+The components:
+
+| Component | Holds |
+|---|---|
+| `UICanvasComponent` | the root: reference resolution and scale mode |
+| `UIRectComponent` | anchor min/max, offsets, pivot, sort order |
+| `UIImageComponent` | texture handle, tint |
+| `UITextComponent` | string, font handle, size, colour, alignment, wrapping |
+| `UIButtonComponent` | normal/hover/pressed tints, and the event |
+
+**Anchors are the Unity model on purpose.** It is the one that actually solves
+resolution independence, and it is the one anybody arriving at this engine has
+already learned. Inventing a simpler scheme here would save a week and cost
+every author who has to discover that the simple scheme cannot pin a corner.
+
+### Z order is explicit, because draw order is not a design
+
+An explicit sort key on the rect, with hierarchy order as the tiebreak.
+Painter's algorithm, no depth buffer. A UI whose layering depends on the order
+somebody happened to create entities is a UI that rearranges itself when a
+prefab is re-saved.
+
+### Where the pass goes, and what that costs
+
+**After tonemap and after FXAA**, writing the output target in LDR.
+
+The consequences, stated rather than discovered later: UI is **not** tonemapped
+and **not** bloomed, and FXAA never softens text. That is why an overlay canvas
+stays crisp, it is what every engine does, and the price is that a game cannot
+bloom its HUD. Named here so that when somebody wants a glowing health bar,
+they find the reason rather than a bug.
+
+### Input has exactly one rule that matters
+
+Hit-test the topmost rect under the pointer, front to back, and then **say so**.
+`UI::WantsPointer()` — because a UI that silently swallows a click is a game
+that fires a weapon when you press the pause button. The action map stays what
+it is for gameplay; this sits in front of it.
+
+### Deliberately not in this phase
+
+Each of these is a real feature with a real cost, left out so the phase can
+finish: **world-space canvases** (a second projection and depth interaction),
+**rich text markup**, **input fields** (carets, selection, IME — a project in
+itself), **layout groups and scroll views**, **localisation**, and **complex
+script shaping / RTL** (which is HarfBuzz, and is not a weekend).
+
+### The order to build it, and why the last step is the point
+
+1. `rvfont` and the atlas format, checked by rendering the atlas itself.
+2. The UI renderer and its shader — no components yet, one hardcoded string.
+3. Rect layout and propagation. **Anchors are pure arithmetic, so this is
+   testable on the CPU with no GPU at all**, which is where most of the real
+   bugs will be.
+4. Components, serialization, inspector.
+5. Hit-testing and the button.
+6. **Knockdown gets a title, a score and "press F to reset".**
+
+Step 6 is the acceptance test rather than a victory lap. The roadmap's own
+recommendation is that an engine improved from a game grows the features that
+were in the way, and this whole phase exists because a game ran into their
+absence.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
