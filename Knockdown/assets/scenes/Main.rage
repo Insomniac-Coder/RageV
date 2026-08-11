@@ -466,3 +466,63 @@ Entities:
       Range: 10
       InnerCone: 20
       OuterCone: 30
+  - EntityID: 7770000000000000030
+    TagComponent:
+      Tag: Impact
+    TransformComponent:
+      Position: [0, -20, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: false
+      Rate: 0
+      Burst: 0
+      Lifetime: 0.6
+      LifetimeJitter: 0.3
+      Direction: [0, 1, 0]
+      Spread: 75
+      Speed: 2.2
+      SpeedJitter: 0.5
+      Gravity: [0, -5, 0]
+      Drag: 2
+      SizeStart: 0.19
+      SizeEnd: 0.03
+      ColorStart: [0.86, 0.76, 0.6, 0.9]
+      ColorEnd: [0.45, 0.4, 0.35, 0]
+      Spin: 140
+      Facing: Billboard
+      Blend: Alpha
+      Space: World
+      Texture: 0
+      MaxParticles: 256
+      SimulateOnGpu: false
+  - EntityID: 7770000000000000031
+    TagComponent:
+      Tag: Confetti
+    TransformComponent:
+      Position: [0, 4.2, -7]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: false
+      Rate: 0
+      Burst: 0
+      Lifetime: 2.4
+      LifetimeJitter: 0.35
+      Direction: [0, 1, 0]
+      Spread: 60
+      Speed: 4.5
+      SpeedJitter: 0.6
+      Gravity: [0, -6.5, 0]
+      Drag: 0.35
+      SizeStart: 0.17
+      SizeEnd: 0.12
+      ColorStart: [1, 0.93, 0.62, 1]
+      ColorEnd: [1, 0.35, 0.12, 0]
+      Spin: 220
+      Facing: Billboard
+      Blend: Additive
+      Space: World
+      Texture: 0
+      MaxParticles: 512
+      SimulateOnGpu: false

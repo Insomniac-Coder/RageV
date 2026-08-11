@@ -17,14 +17,22 @@ public class GameManager : Script
 	private int m_TotalCrates = 6;
 
 	private Entity m_BeaconLight;
+	private Entity m_Confetti;
 	private readonly HashSet<Entity> m_Out = new HashSet<Entity>();
 	private bool m_Won;
+
+	// A burst big enough to read as a celebration rather than a hiccup.
+	private int m_ConfettiOnWin = 180;
 
 	public override void OnCreate()
 	{
 		m_BeaconLight = Entity.FindByName("Beacon Light");
 		if (!m_BeaconLight.Exists)
 			Log.Warn("GameManager: no 'Beacon Light' to signal with");
+
+		m_Confetti = Entity.FindByName("Confetti");
+		if (!m_Confetti.Exists)
+			Log.Warn("GameManager: no 'Confetti' emitter to fire on the win");
 
 		SetBeacon(0.0f);
 	}
@@ -50,12 +58,26 @@ public class GameManager : Script
 		{
 			m_Won = true;
 			Audio.PlayOneShot2D("audio/win.wav", 0.9f);
+			Celebrate();
 			Log.Info("GameManager: all crates down");
 		}
 		else
 		{
 			PlayOneShot("audio/plink.wav", 0.8f);
 		}
+	}
+
+	/// <summary>The win, in particles. Additive, so it is correct from any angle.</summary>
+	private void Celebrate()
+	{
+		if (!m_Confetti.Exists)
+			return;
+
+		// The emitter sits above the platform and emits nothing until asked.
+		// One field, written as text through the component bridge -- the same
+		// spelling the scene file uses.
+		m_Confetti.SetComponentField("ParticleEmitterComponent", "Burst",
+			m_ConfettiOnWin.ToString(CultureInfo.InvariantCulture));
 	}
 
 	private void SetBeacon(float progress)
