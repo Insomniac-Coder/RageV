@@ -63,7 +63,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-920 checks, `exit 0`. Then look at a frame:
+1018 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -541,6 +541,33 @@ particle systems and rendering within the same frame.
   separate switches: `gl_FragDepth` decides what the depth *test* compares, and
   `DepthStencil.DepthWriteEnable` decides whether the result is stored. A
   translucent pass usually wants the first and not the second.
+
+### Text and UI
+
+- **A distance field cannot represent a self-intersecting outline.** See the
+  section in 8. Run `tools/scripts/prepare_font.py` before `rvfont`, always.
+- **Load a distance-field atlas linear and unmipped.** sRGB un-gammas every
+  texel, which moves every distance and puts the edge somewhere else; a mip
+  chain averages distances from opposite sides of a stroke into a number that
+  describes nothing. Both render as text that is soft for no visible reason.
+  `Assets::Manager::GetFontAtlas` does it, and the suite asserts the format and
+  the mip count.
+- **`screenPxRange` is measured from screen-space derivatives, never passed
+  in.** A CPU-computed value is correct only for a quad the CPU laid out in
+  screen space; the same glyphs on a sign in the world are under a perspective
+  divide, where every pixel has a different answer. This is what lets
+  world-space text reuse `ui.rvshader` unchanged.
+- **Below 2, `screenPxRange` fails outright** -- colour fringes spread across
+  the glyph instead of resolving to an edge. It is a property of the *atlas*
+  and how large the text is drawn; `rvfont` prints the smallest size its output
+  supports (16 px for the defaults).
+- **Font metrics are in em units everywhere.** A layout multiplies by the size
+  and is finished, and one table serves 12 px and 200 px. A check asserts it,
+  because font units leaking through looks almost right.
+- **The UI pass has no backend difference.** It draws into the *finished*
+  image, and the post chain has already normalised the orientation -- branching
+  on the framebuffer origin is wrong in both directions. `BuildProjection` is
+  public and asserted per backend for exactly this reason.
 
 ### Editor UI
 
@@ -2129,41 +2156,78 @@ both themes, the toggle off, and a malformed `--camera`.
 **Both of the zoom bugs came from the user looking at a screenshot**, which is
 now three sessions running. Send them.
 
-### START HERE - text and game UI
+### Phase 6 text and UI: what is built, and START HERE for the rest
 
-**The largest gap in the engine, agreed as next (2026-08-11).** It is the item
-the mini game hit hardest: Knockdown cannot say "press F to reset", show a
-score, or put up a title, and communicates entirely through a light and four
-sounds. Workable for one mechanic, not for two.
+**Designed first**, in ENGINE-NOTES 7d -- read that before touching any of
+this. It carries the reasoning; what follows is the state.
 
-Nothing here is designed yet -- that is the first task, not the code. The
-shape phase 6 originally sketched:
+**Done (2026-08-11):**
 
-1. **MSDF text.** A multi-channel signed-distance font atlas, so glyphs stay
-   sharp at any size from one texture. Generating the atlas is an offline
-   step; `tools/scripts` is where the generator belongs, by convention.
-2. **A screen-space canvas that is deliberately *not* ImGui.** ImGui is the
-   editor's, and a game's UI has different requirements: it ships, it is
-   skinned, it is authored in scenes rather than in code, and it must work in
-   a packaged build with no editor present.
-3. **Widgets**: text, image, button, and a layout rule simple enough to
-   author.
+| | |
+|---|---|
+| `tools/rvfont` | bakes a `.ttf` into an MTSDF atlas plus a metrics table |
+| `tools/scripts/prepare_font.py` | resolves a font's geometry so it *can* be baked -- **run this first** |
+| `tools/scripts/check_font_atlas.py` | reconstructs glyphs the way the shader will |
+| `AssetType::Font` | `Font`, `FontSerializer`, and the atlas through `Assets::Manager` |
+| `Renderer/UIRenderer` | one batched pipeline for sprites and glyphs |
+| `UI/TextLayout` | UTF-8, kerning, wrapping, alignment -- all on the CPU |
+| `UI/Canvas` | anchors, canvas scaling, sort order, resolved over the entity hierarchy |
+| components | `UICanvas`, `UIRect`, `UIImage`, `UIText`, registered and serialized |
 
-**Two decisions to make before writing code**, and they interact:
+The demo scene has a HUD and so does the shipped runtime. 1018 checks.
 
-- **Where does UI live in the scene?** Components on entities (fits the ECS,
-  the inspector and serialization for free -- the §5.3 argument) or a separate
-  UI tree? Components almost certainly, given how much the registry already
-  gives away.
-- **Where does it render?** A pass after tonemapping, since UI is authored in
-  sRGB and must not be tonemapped. That is a new graph pass writing the LDR
-  target -- straightforward given §6.3, but decide it deliberately.
+**START HERE: 6.4 -- widgets, hit-testing and scripting.** What is left before
+the phase is done:
 
-**The per-frame script hook it wanted is already there** -- that was done first,
-on purpose, so UI can use `OnFrame` rather than be retrofitted onto it. Every
-animation a widget wants (a fade, a slide, a counter ticking up) belongs on the
-frame, and the callback and its varying `dt` now exist in both languages. See
-the section below.
+1. **`UIButtonComponent`** -- normal/hover/pressed tints and an event.
+2. **Hit-testing**, front to back through the resolved list, which
+   `UI::ResolveScene` already returns in draw order (so hit-testing walks it
+   backwards).
+3. **`UI::WantsPointer()`**, and this is the rule that matters: *a UI which
+   swallowed a click has to say so*, or the game fires a weapon when somebody
+   presses the pause button.
+4. **Scripting, both languages, protocol 7** -- set text, set tint, read a
+   button press. `OnFrame` already exists for the animation side.
+5. **6.4b world-space text** -- the same `TextLayout` through a depth-tested
+   pipeline into the HDR target, billboarded, ordered with the transparent
+   content. The shader needs no change: `screenPxRange` is measured from
+   screen-space derivatives precisely so this works under perspective.
+6. **6.x Knockdown gets a title, a score and "press F to reset"** -- the
+   acceptance test for the whole phase, because that absence is why it exists.
+
+**Deferred to the end of the phase**, with their costs, in ENGINE-NOTES 7d: a
+world-space *canvas* (the input path, not the rendering), rich text, input
+fields, layout groups, localisation, RTL shaping.
+
+### The font trap, and it will bite again
+
+**A distance field cannot represent a self-intersecting outline**, and a great
+many fonts have them -- variable fonts especially, because overlap removal
+cannot be done once for shapes that change with an axis. RobotoFlex draws its
+`e` as *one* contour where Arial, Segoe UI and Open Sans use two.
+
+Nothing else in a font pipeline notices, because non-zero winding fills a
+self-crossing path correctly. The field reports the edge it finds inside the
+glyph, and the letter bakes with a bite out of it -- invisible small, unmissable
+on a title.
+
+**So run `tools/scripts/prepare_font.py` before `rvfont` on any font.** It says
+which letters are affected, unions the contours, and writes a static copy. It
+rewrites outlines and not layout tables, so kerning survives -- Roboto keeps all
+3284 pairs. `RageVEditor/assets/Fonts/Roboto-Clean.ttf` is the processed one and
+is what the shipped atlas is baked from; the RobotoFlex files beside it are the
+source.
+
+It needs `pip install fonttools skia-pathops`, which are installed here.
+
+**How that was found, because the same method applies to the next one.** The
+artifact reproduced *offline in the atlas*, which ruled out the shader. It was
+identical at em 48, 64 and 96, which ruled out resolution. It was present in
+MTSDF's alpha channel -- a plain single-channel SDF -- which ruled out edge
+colouring. It survived `reverse()` and msdfgen's own `orientContours()`, which
+ruled out winding. msdfgen's `validate()` passed on every glyph. Only then did
+counting stb's contours against three other fonts settle it. **Five hypotheses
+eliminated by measurement before the sixth was even proposed.**
 
 ### Done - two script rates, and the per-frame hook
 
