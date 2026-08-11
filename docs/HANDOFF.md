@@ -1756,7 +1756,7 @@ learnopengl.com — a path from A to B, teaching the reader forward, rather than
 a description of a finished artefact. The user's words: it may end up "a whole
 book with pages in 3 digits" and that is acceptable; verbosity is wanted.
 
-**Where it is: 73 pages, 12 chapters, ~27,000 words.** The skeleton is
+**Where it is: 81 pages, 12 chapters, ~29,000 words.** The skeleton is
 complete and every chapter has real content, real code quoted verbatim, and
 real figures captured through `--screenshot`. Chapters 2 and 3 -- the maths,
 and how the two graphics APIs work with one feature traced down through both
@@ -1786,10 +1786,17 @@ value order:
    you run to know it worked. Written to be engine-agnostic: the libraries
    named are the ones this project picked, not requirements.
 
-   What would improve it: real figures instead of ASCII diagrams, and
-   worked code listings inside the milestones rather than descriptions of what
-   to write. The milestones currently tell you what to build and what will go
-   wrong; they do not hand you the file.
+   **Milestones 0-3 now carry real code listings** -- the build file and the
+   frame loop, UUIDs and the reflection-driven serializer with the round-trip
+   test, the accumulator loop with input-edge latching and slerp
+   interpolation, and the full RHI header with both backends' BindPipeline
+   side by side. **Milestones 4-8 are still descriptions** and want the same.
+
+4. **Four ASCII diagrams remain**: the layer stack (5.1), the render path
+   (6.2), the project/application tree (5.1) and the accumulator (2.13). The
+   last should stay as text -- it is pseudocode, not a diagram. Diagrams 1-3
+   are inline SVG and are the pattern to follow; no external files, prints at
+   full resolution, and no CDN (the PDF is printed with no network).
 4. **Diagrams are ASCII.** Real vector figures for the transform pipeline, the
    frame graph and the cluster grid would carry a lot.
 5. **Chapter 2 could go further** -- tangent space, cubemap addressing, the

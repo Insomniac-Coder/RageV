@@ -3086,6 +3086,89 @@ retrofitting it once there are forty kinds of object.</p>
   be idle first.</li>
 </ol>
 
+<h4>The code</h4>
+
+<p>Start with the build. Vendor everything, so a clone builds with no
+prerequisites:</p>
+
+<pre><code><span class="c"># CMakeLists.txt</span>
+cmake_minimum_required(VERSION 3.20)
+project(MyEngine LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+
+add_subdirectory(vendor/glfw)          <span class="c"># checked in, not found on the system</span>
+
+add_executable(MyEngine src/main.cpp)
+target_link_libraries(MyEngine PRIVATE glfw)</code></pre>
+
+<p>Then the loop. The shape below is the one worth copying: <b>a frame counter and an
+exit condition from the start</b>, because everything you automate later depends on the
+program being able to stop by itself.</p>
+
+<pre><code><span class="c">// src/main.cpp</span>
+<span class="k">int</span> main(<span class="k">int</span> argc, <span class="k">char</span>** argv)
+{
+    <span class="c">// --frames=N runs N frames and exits. Not a debug hack: it is what</span>
+    <span class="c">// makes a screenshot check, a benchmark and a CI run possible later.</span>
+    <span class="k">int</span> frameLimit = -1;
+    <span class="k">for</span> (<span class="k">int</span> i = 1; i &lt; argc; i++)
+        <span class="k">if</span> (std::string_view(argv[i]).starts_with(<span class="s">"--frames="</span>))
+            frameLimit = std::atoi(argv[i] + 9);
+
+    <span class="k">if</span> (!glfwInit())
+        <span class="k">return</span> 1;
+
+    <span class="c">// No GL context: the device owns presentation. Change this line and</span>
+    <span class="c">// the hints below when you add the second backend in milestone 3.</span>
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, <span class="s">"MyEngine"</span>, <span class="k">nullptr</span>, <span class="k">nullptr</span>);
+    <span class="k">if</span> (!window)
+        <span class="k">return</span> 1;
+
+    Device device(window);            <span class="c">// instance, device, queue, swapchain</span>
+    Pipeline triangle(device, <span class="s">"assets/triangle.glsl"</span>);
+
+    <span class="k">int</span> frame = 0;
+    <span class="k">while</span> (!glfwWindowShouldClose(window))
+    {
+        glfwPollEvents();
+
+        <span class="k">if</span> (CommandList* cmd = device.BeginFrame())   <span class="c">// null = skip this frame</span>
+        {
+            cmd-&gt;BeginRenderPass(device.Backbuffer(), <span class="s">/*clear*/</span> { 0.1f, 0.1f, 0.12f, 1 });
+            cmd-&gt;BindPipeline(triangle);
+            cmd-&gt;Draw(3);                            <span class="c">// no vertex buffer -- see below</span>
+            cmd-&gt;EndRenderPass();
+            device.EndFrame();
+        }
+
+        <span class="k">if</span> (frameLimit &gt;= 0 &amp;&amp; ++frame &gt;= frameLimit)
+            <span class="k">break</span>;
+    }
+
+    device.WaitIdle();                <span class="c">// before anything is destroyed</span>
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    <span class="k">return</span> 0;                          <span class="c">// the exit code is part of "it works"</span>
+}</code></pre>
+
+<p>The triangle carries no vertex buffer. Three vertices from the index alone means the
+only things under test are the device, the pipeline and the swapchain:</p>
+
+<pre><code><span class="c">// assets/triangle.glsl -- vertex stage</span>
+<span class="k">void</span> main()
+{
+    <span class="c">// A triangle that covers the middle of the screen, from gl_VertexIndex.</span>
+    vec2 p[3] = vec2[3](vec2(0.0, -0.5), vec2(0.5, 0.5), vec2(-0.5, 0.5));
+    gl_Position = vec4(p[gl_VertexIndex], 0.0, 1.0);
+}</code></pre>
+
+<p>Note what <code>BeginFrame</code> returning null means, because it is not an error: a
+minimised or resizing window has no image to render into, and the correct response is to
+skip the frame entirely — <b>including not calling <code>EndFrame</code></b>. Handling it
+now costs one <code>if</code>; discovering it later costs an afternoon of "why does
+resizing crash".</p>
+
 <h4>Traps</h4>
 <ul>
   <li><b>Do not run without validation.</b> Vulkan will happily produce a black screen for
@@ -3136,6 +3219,110 @@ a <em>byte-identical</em> file. With undo. And still nothing on screen.</p>
   of them.</li>
 </ol>
 
+<h4>The code</h4>
+
+<p>Identity first, and it is smaller than you expect:</p>
+
+<pre><code><span class="c">// A 64-bit random identity. Not a counter: counters collide the moment two</span>
+<span class="c">// people author scenes separately, and there is no way to notice.</span>
+<span class="k">class</span> UUID
+{
+<span class="k">public</span>:
+    UUID() : m_Value(RandomU64()) {}
+    UUID(uint64_t value) : m_Value(value) {}
+    <span class="k">operator</span> uint64_t() <span class="k">const</span> { <span class="k">return</span> m_Value; }
+    <span class="k">bool</span> IsValid() <span class="k">const</span> { <span class="k">return</span> m_Value != 0; }
+<span class="k">private</span>:
+    uint64_t m_Value;
+};
+
+<span class="k">struct</span> IDComponent          { UUID ID; };
+<span class="k">struct</span> RelationshipComponent
+{
+    UUID Parent = UUID(0);
+    std::vector&lt;UUID&gt; Children;   <span class="c">// rebuilt on load, never serialized</span>
+};</code></pre>
+
+<p>Then the description that everything else is generated from. This is the piece that
+makes the serializer and the inspector small:</p>
+
+<pre><code><span class="k">enum class</span> FieldType { Bool, Int, Float, Vec3, Vec4, String, Asset, Enum };
+
+<span class="k">struct</span> FieldDesc
+{
+    <span class="k">const char</span>* Name;        <span class="c">// the key on disk -- never change it casually</span>
+    FieldType    Type;
+    uint32_t     Offset;      <span class="c">// bytes into the component</span>
+};
+
+<span class="k">struct</span> ComponentDesc
+{
+    <span class="k">const char</span>* Name;
+    std::vector&lt;FieldDesc&gt; Fields;
+
+    <span class="c">// Type-erased access, written once here rather than per component.</span>
+    std::function&lt;<span class="k">void</span>*(Entity)&gt; TryGet;
+    std::function&lt;<span class="k">void</span>*(Entity)&gt; Add;
+};
+
+<span class="c">// Registration. The macro is only computing an offset; resist making it</span>
+<span class="c">// clever, because a reader has to trust it.</span>
+<span class="k">#define</span> FIELD(T, member, type) \
+    FieldDesc{ #member, type, (uint32_t)offsetof(T, member) }
+
+ComponentDesc desc;
+desc.Name   = <span class="s">"TransformComponent"</span>;
+desc.Fields = {
+    FIELD(TransformComponent, Position, FieldType::Vec3),
+    FIELD(TransformComponent, Rotation, FieldType::Vec3),
+    FIELD(TransformComponent, Scale,    FieldType::Vec3),
+};</code></pre>
+
+<p>Now the serializer never names a field. It walks the description — which is why adding
+a field to a component is one line rather than four edits in four files:</p>
+
+<pre><code><span class="k">void</span> WriteEntity(Emitter&amp; out, Entity entity)
+{
+    out &lt;&lt; Key(<span class="s">"EntityID"</span>) &lt;&lt; Value((uint64_t)entity.GetUUID());
+
+    <span class="k">for</span> (<span class="k">const</span> ComponentDesc&amp; component : Registry::All())
+    {
+        <span class="k">void</span>* data = component.TryGet(entity);
+        <span class="k">if</span> (!data)
+            <span class="k">continue</span>;
+
+        out &lt;&lt; Key(component.Name) &lt;&lt; BeginMap;
+        <span class="k">for</span> (<span class="k">const</span> FieldDesc&amp; field : component.Fields)
+        {
+            <span class="k">void</span>* value = (<span class="k">char</span>*)data + field.Offset;
+            <span class="k">switch</span> (field.Type)
+            {
+                <span class="k">case</span> FieldType::Float: out &lt;&lt; Key(field.Name) &lt;&lt; *(<span class="k">float</span>*)value; <span class="k">break</span>;
+                <span class="k">case</span> FieldType::Vec3:  out &lt;&lt; Key(field.Name) &lt;&lt; *(Vec3*)value;  <span class="k">break</span>;
+                <span class="c">// ... one case per FieldType, and only ever here</span>
+            }
+        }
+        out &lt;&lt; EndMap;
+    }
+}</code></pre>
+
+<p>And the test that will earn its keep for the rest of the project:</p>
+
+<pre><code><span class="k">void</span> CheckRoundTrip()
+{
+    <span class="k">auto</span> scene = BuildFixture();          <span class="c">// hierarchy, several component types</span>
+
+    <span class="k">const</span> std::string first = Serializer(scene).ToString();
+
+    <span class="k">auto</span> reloaded = std::make_shared&lt;Scene&gt;();
+    Serializer(reloaded).FromString(first);
+    <span class="k">const</span> std::string second = Serializer(reloaded).ToString();
+
+    <span class="c">// Not "it loaded" -- byte equality. Anything the writer emits that the</span>
+    <span class="c">// reader drops, or reorders, shows up here and nowhere else.</span>
+    Check(first == second, <span class="s">"a scene survives a save/load/save unchanged"</span>);
+}</code></pre>
+
 <h4>Traps</h4>
 <ul>
   <li><b>Field order must be fixed and explicit</b>, not whatever a hash map iterates. It
@@ -3172,6 +3359,91 @@ rendering is smooth when the simulation rate and the display rate disagree.</p>
   later, because by then everything writes its state in place.</li>
   <li><b>Expose the alpha</b> from the application, and use it when rendering.</li>
 </ol>
+
+<h4>The code</h4>
+
+<pre><code><span class="k">void</span> Application::Run()
+{
+    <span class="k">const float</span> fixedDelta = 1.0f / (<span class="k">float</span>)m_FixedHz;   <span class="c">// configuration, not a constant</span>
+    <span class="k">float</span> accumulator = 0.0f;
+    <span class="k">double</span> previousTime = GetTime();
+
+    <span class="k">while</span> (m_Running)
+    {
+        <span class="k">const double</span> now = GetTime();
+        <span class="k">float</span> frameTime = (<span class="k">float</span>)(now - previousTime);
+        previousTime = now;
+
+        <span class="c">// Clamped, or a two-second stall tries to simulate two seconds of</span>
+        <span class="c">// physics in one frame, takes even longer, and never recovers.</span>
+        <span class="c">// Forgiving the debt is the standard, correct choice.</span>
+        frameTime = std::min(frameTime, 0.25f);
+        accumulator += frameTime;
+
+        Input::Update();                       <span class="c">// once per frame, not per step</span>
+
+        <span class="k">while</span> (accumulator &gt;= fixedDelta)     <span class="c">// zero or more times</span>
+        {
+            <span class="k">for</span> (Layer* layer : m_Layers)
+                layer-&gt;OnFixedUpdate(fixedDelta);
+
+            Input::EndFixedStep();             <span class="c">// consume edges here, see below</span>
+            accumulator -= fixedDelta;
+        }
+
+        <span class="c">// How far we are into the step that has not happened yet.</span>
+        m_InterpolationAlpha = accumulator / fixedDelta;
+
+        <span class="k">if</span> (CommandList* cmd = m_Device-&gt;BeginFrame())
+        {
+            <span class="k">for</span> (Layer* layer : m_Layers)
+                layer-&gt;OnUpdate(frameTime);    <span class="c">// presentation: real elapsed time</span>
+            m_Device-&gt;EndFrame();
+        }
+    }
+}</code></pre>
+
+<p>Two things in that loop are easy to get wrong and hard to notice.</p>
+
+<p><b>The two callbacks take different values.</b> <code>OnFixedUpdate</code> gets the
+<em>fixed</em> delta — the same number every call — and <code>OnUpdate</code> gets the
+real frame time. Passing the frame time to both is a bug that produces plausible motion
+and non-reproducible physics.</p>
+
+<p><b>Input edges must survive a frame with no steps.</b> A key pressed and released
+between two simulation steps must still be seen:</p>
+
+<pre><code><span class="c">// A press is latched when it happens and cleared by the step that consumed</span>
+<span class="c">// it -- not at the end of the frame. A frame that runs no steps carries the</span>
+<span class="c">// press forward, so it is never missed; a frame that runs three does not</span>
+<span class="c">// deliver it three times.</span>
+<span class="k">bool</span> Input::WasActionPressed(<span class="k">const</span> std::string&amp; action)
+{
+    <span class="k">return</span> s_Pressed.contains(action);
+}
+
+<span class="k">void</span> Input::EndFixedStep()
+{
+    s_Pressed.clear();
+}</code></pre>
+
+<p>Then the interpolation itself. Whatever the simulation moves needs its previous state
+kept, so rendering can blend between the last two:</p>
+
+<pre><code><span class="c">// Called once per FRAME, not per step.</span>
+<span class="k">void</span> PhysicsWorld::SyncTransforms(Scene&amp; scene, <span class="k">float</span> alpha)
+{
+    <span class="k">for</span> (<span class="k">auto</span>&amp; [entity, body] : m_Bodies)
+    {
+        <span class="k">const</span> Vec3 position = Lerp(body.PreviousPosition, body.CurrentPosition, alpha);
+        <span class="k">const</span> Quat rotation = Slerp(body.PreviousRotation, body.CurrentRotation, alpha);
+        scene.GetTransform(entity).Set(position, rotation);
+    }
+}</code></pre>
+
+<p><b>Slerp, not lerp, for the rotation</b> (§2.6). Linearly interpolating two quaternions
+and normalising is close enough at small angles and visibly wrong at large ones — it moves
+at a non-constant angular speed.</p>
 
 <h4>Traps</h4>
 <ul>
@@ -3218,6 +3490,122 @@ problem.</p>
   <li><b>Frames in flight, honestly, in both</b> (§7.2). Including the fence in the
   backend that does not need one.</li>
 </ol>
+
+<h4>The code</h4>
+
+<p>This is the header the rest of the engine will be written against, so it is worth
+seeing in full. Notice what is <em>absent</em>: no mesh, no material, no camera, no
+scene.</p>
+
+<pre><code><span class="c">// RHIDevice.h -- the only file the renderer includes to talk to a GPU.</span>
+<span class="k">enum class</span> Backend { Vulkan, OpenGL };
+
+<span class="k">struct</span> DeviceDesc
+{
+    Backend            Backend          = Backend::Vulkan;
+    NativeWindowHandle Window           = <span class="k">nullptr</span>;
+    uint32_t           Width            = 1600;
+    uint32_t           Height           = 900;
+    <span class="k">bool</span>               VSync            = <span class="k">true</span>;
+    <span class="k">bool</span>               EnableValidation = <span class="k">false</span>;
+    <span class="c">// Exposed, not hidden. It is a Vulkan concept that OpenGL has no</span>
+    <span class="c">// equivalent for -- and hiding it means either paying Vulkan's cost</span>
+    <span class="c">// everywhere or writing buffers the GPU is still reading.</span>
+    uint32_t           FramesInFlight   = 2;
+};
+
+<span class="k">class</span> RHIDevice
+{
+<span class="k">public</span>:
+    <span class="k">virtual</span> ~RHIDevice() = <span class="k">default</span>;
+    <span class="k">static</span> Scope&lt;RHIDevice&gt; Create(<span class="k">const</span> DeviceDesc&amp; desc);
+
+    <span class="k">virtual</span> Backend           GetBackend() <span class="k">const</span> = 0;
+    <span class="k">virtual const</span> DeviceCaps&amp; GetCaps()    <span class="k">const</span> = 0;
+
+    <span class="c">// Returns null when the frame must be skipped -- swapchain out of</span>
+    <span class="c">// date, or a minimised window. EndFrame must not be called then.</span>
+    <span class="k">virtual</span> RHICommandList* BeginFrame() = 0;
+    <span class="k">virtual void</span>            EndFrame()   = 0;
+    <span class="k">virtual void</span>            WaitIdle()   = 0;
+
+    <span class="c">// Resources. Nouns that exist in both APIs, even where only one</span>
+    <span class="c">// names them: OpenGL has no pipeline object, but it has pipeline</span>
+    <span class="c">// state, and an object that records it is honest rather than faked.</span>
+    <span class="k">virtual</span> Ref&lt;RHIBuffer&gt;      CreateBuffer(<span class="k">const</span> BufferDesc&amp;)   = 0;
+    <span class="k">virtual</span> Ref&lt;RHITexture&gt;     CreateTexture(<span class="k">const</span> TextureDesc&amp;) = 0;
+    <span class="k">virtual</span> Ref&lt;RHIShader&gt;      CreateShader(<span class="k">const</span> CompiledShader&amp;) = 0;
+    <span class="k">virtual</span> Ref&lt;RHIPipeline&gt;    CreatePipeline(<span class="k">const</span> GraphicsPipelineDesc&amp;) = 0;
+    <span class="k">virtual</span> Ref&lt;RHISampler&gt;     CreateSampler(<span class="k">const</span> SamplerDesc&amp;) = 0;
+    <span class="k">virtual</span> Ref&lt;RHIResourceSet&gt; CreateResourceSet(<span class="k">const</span> Ref&lt;RHIPipeline&gt;&amp;, uint32_t set) = 0;
+
+    <span class="c">// A one-shot list, submitted and waited on, outside the frame loop.</span>
+    <span class="c">// It stalls by construction -- which is what makes it right for asset</span>
+    <span class="c">// upload and wrong on the frame path, and what lets a headless test</span>
+    <span class="c">// run real GPU work with no frame loop to borrow.</span>
+    <span class="k">virtual void</span> ExecuteImmediate(<span class="k">const</span> std::function&lt;<span class="k">void</span>(RHICommandList&amp;)&gt;&amp;) = 0;
+};</code></pre>
+
+<p>A pipeline is described rather than commanded. Everything the two APIs disagree about
+is a <em>field</em> here, which is what lets each implement it in its own way:</p>
+
+<pre><code><span class="k">struct</span> GraphicsPipelineDesc
+{
+    std::string        Name;          <span class="c">// shows up in validation messages -- set it</span>
+    Ref&lt;RHIShader&gt;     Shader;
+    PrimitiveTopology  Topology = PrimitiveTopology::TriangleList;
+    RasterizerState    Rasterizer;
+    DepthStencilState  DepthStencil;
+    BlendPreset        Blend = BlendPreset::None;
+
+    <span class="c">// What this pass writes. Vulkan bakes these into the pipeline; OpenGL</span>
+    <span class="c">// keeps them to validate against the bound framebuffer. Either way the</span>
+    <span class="c">// renderer states them once.</span>
+    std::vector&lt;Format&gt; ColorFormats;
+    Format             DepthFormat = Format::Undefined;
+};</code></pre>
+
+<p>And the barrier, which is the clearest example of designing at the level of
+<b>intent</b> because neither API's vocabulary survives translation:</p>
+
+<pre><code><span class="c">// Not an access mask (Vulkan) and not a barrier bit (OpenGL). A *use*,</span>
+<span class="c">// which both can implement without lying -- and which a reader can</span>
+<span class="c">// understand without knowing either API.</span>
+<span class="k">enum class</span> BufferSync { ComputeWrite, ComputeRead, VertexRead, IndexRead, TransferWrite };
+
+<span class="k">virtual void</span> BufferBarrier(<span class="k">const</span> Ref&lt;RHIBuffer&gt;&amp; buffer,
+                            BufferSync from, BufferSync to) = 0;</code></pre>
+
+<p>Finally, the shape of the two implementations. They differ more than you might expect
+for the same three lines of caller code:</p>
+
+<pre><code><span class="c">// --- Vulkan: state is baked into an object at creation ----------------</span>
+VulkanPipeline::VulkanPipeline(<span class="k">const</span> GraphicsPipelineDesc&amp; desc)
+{
+    VkPipelineColorBlendAttachmentState blend = ToVulkan(desc.Blend);
+    VkPipelineDepthStencilStateCreateInfo depth = ToVulkan(desc.DepthStencil);
+    <span class="c">// ... twenty more structs, then one vkCreateGraphicsPipelines call.</span>
+    <span class="c">// Expensive once, free at draw time.</span>
+}
+
+<span class="k">void</span> VulkanCommandList::BindPipeline(<span class="k">const</span> Ref&lt;RHIPipeline&gt;&amp; pipeline)
+{
+    vkCmdBindPipeline(m_Buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Handle(pipeline));
+}
+
+<span class="c">// --- OpenGL: the same state, applied when it is bound -----------------</span>
+<span class="k">void</span> OpenGLCommandList::BindPipeline(<span class="k">const</span> Ref&lt;RHIPipeline&gt;&amp; pipeline)
+{
+    <span class="k">const</span> GraphicsPipelineDesc&amp; desc = pipeline-&gt;GetDesc();
+    glUseProgram(ProgramOf(pipeline));
+    desc.DepthStencil.DepthTestEnable ? glEnable(GL_DEPTH_TEST) : glDisable(GL_DEPTH_TEST);
+    glDepthMask(desc.DepthStencil.DepthWriteEnable ? GL_TRUE : GL_FALSE);
+    ApplyBlend(desc.Blend);
+    <span class="c">// Cheap each time, and nothing is validated ahead of the draw.</span>
+}</code></pre>
+
+<p>Both are honest implementations of "bind this pipeline". Neither emulates the other,
+and that is the test from §7.1 being passed.</p>
 
 <h4>Traps</h4>
 <ul>
