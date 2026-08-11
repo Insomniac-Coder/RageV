@@ -1908,6 +1908,39 @@ clamp was not the fix -- the proportional column is. **A fix that works is not
 evidence for the mechanism you assumed**, and there was a reproducer available
 the whole time.
 
+**Six more fixes landed after this entry was first written**, all from the
+user looking at screenshots and pointing at things -- which is worth recording
+as its own lesson: **every one of them was invisible to me and obvious to
+somebody seeing the panel for the first time.**
+
+- The **inspector had two left edges**: vector rows used a 30% label column
+  while every other row used 42%. Two failed attempts before the right one --
+  a flat 30% (what caused it), then an *adaptive* fraction, which misses the
+  point entirely because alignment requires the **same** fraction, so anything
+  adaptive is misaligned by construction. The answer was one fraction for every
+  row, and 38% rather than 42%: a property name is one or two short words and a
+  value can be a sign, four digits and a point.
+- **The toolbar's left edge had no inset** while the right edge had 12px, so
+  the gizmo buttons clung to the window while the camera toggle sat comfortably
+  off it.
+- **The rotate icon's arrowhead was attached to nothing** -- three points typed
+  in by hand, in the opposite corner from where the arc actually ended. It is
+  computed from the arc's own end angle now.
+- **The Snap checkbox read as an empty button.** ImGui draws a checkbox as a
+  framed square with the label to its right, which in a row of icon buttons is
+  indistinguishable from a button with nothing in it.
+- **Colour fields in registry-driven components** still showed four numeric
+  boxes, unlike the material editor beside them.
+- **Slider grabs** were a thin saturated bar in an empty field with no track
+  behind them, which reads as a stray mark rather than a handle.
+
+**Selecting an entity now reveals it in the hierarchy.** A viewport pick always
+set the selection, but a child of a collapsed parent is never *drawn*, so the
+highlight had nothing to appear on and the panel looked like it had ignored the
+click. Ancestors are expanded on the way down and the row is scrolled to; the
+setter raises a flag and the draw consumes it, because opening a tree node is
+something only ImGui can do and only while drawing.
+
 **What is still not designed.** The engine now looks correct and consistent; it
 does not yet look *authored*. Left on the list: real font weights (the variable
 font's weight axis needs FreeType -- ImGui's stb rasteriser cannot reach it, so
@@ -1918,6 +1951,57 @@ and the chrome around it, and a keyboard focus ring. Judgement, not defects.
 editor-side ImGui primitives; a game's UI ships, is skinned, is authored in
 scenes and must work with no editor present. The design tokens are worth
 reading for the reasoning; the code is not reusable there.
+
+### Next - an infinite viewport grid (asked for 2026-08-11, not started)
+
+**The user asked for this and it is deliberately not half-done.** It is a
+*shader* feature rather than a UI one, and the cheap version -- a big quad of
+debug lines -- is not what was asked for: it visibly ends, and it aliases badly
+at grazing angles. Below is the design so it can be picked up cold.
+
+**The approach.** A full-screen pass that reconstructs, per pixel, where the
+view ray meets the y=0 plane, and shades a grid analytically there. This is
+what gives "infinite": there is no geometry, so there is no edge.
+
+1. Draw a full-screen triangle. Turn each pixel's NDC into a world ray with the
+   inverse view-projection. **Watch the backend difference** -- Vulkan's NDC has
+   y pointing down; OpenGL is already on `glClipControl(..., GL_ZERO_TO_ONE)`
+   (see §5), so the depth range agrees and only y does not. This is the same
+   family of bug as the OIT resolve landing upside down; compare the two
+   backends' frames against each other before believing it.
+2. `t = -rayOrigin.y / rayDir.y`. Discard when `t <= 0` or the ray is near
+   parallel -- that is the horizon, and it is where a naive grid turns into a
+   moire fence.
+3. Lines analytically, with derivatives, not with a texture:
+   `vec2 g = abs(fract(p.xz / spacing - 0.5) - 0.5) / fwidth(p.xz / spacing);`
+   `float line = 1.0 - min(min(g.x, g.y), 1.0);`
+   That is anti-aliased at any distance for free, which a textured grid is not.
+4. **Two spacings, blended by distance** -- 1 unit and 10 units. One spacing
+   either disappears when zoomed out or is a solid sheet when zoomed in. Fade
+   the minor set out as its screen-space period approaches a pixel.
+5. Colour the two axes: X from `AxisX`, Z from `AxisZ`, so the grid agrees with
+   the transform widget. Everything else is a neutral line at low alpha.
+6. **Write real depth**, `gl_FragDepth` from the world hit point, or the grid
+   floats over everything it should be behind. This is the part most
+   implementations get wrong and it is why the pass needs the scene's depth.
+
+**Where it goes.** A graph pass after the opaque pass and before the
+transparent one, reading the scene depth with `PreserveDepth` (§6.3). Not in
+`DebugRenderer` -- that batches lines, and this draws none.
+
+**The toggle.** `m_ShowGrid` on EditorLayer, a `UI::IconButton` in the toolbar
+next to Snap, a Window menu item, and a line in `panels.ini` beside `theme` and
+`content-folder`. **Scene view only**, like `m_ShowColliders` -- the game view
+is meant to be what a player would see. An icon kind exists already:
+`IconKind::SnapGrid` is the snap toggle, so the grid wants its own, and the two
+must not look alike sitting next to each other.
+
+**How to verify it.** Screenshot both backends and compare them against each
+other -- a grid is exactly the kind of thing that looks plausible and is
+subtly wrong per backend. Check it at a grazing camera angle (the horizon),
+zoomed far out (the minor lines should have faded, not aliased), and with an
+object intersecting y=0 (the depth write). `--screenshot` with the demo scene
+covers the last one; the sample scene's ground plane sits at y=0.
 
 ### START HERE - text and game UI
 
