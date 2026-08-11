@@ -228,6 +228,19 @@
     <li>9 &nbsp; What experience taught — the load-bearing invariants</li>
     <li>10 &nbsp; Verification: how any of this is known to work</li>
     <li>11 &nbsp; Where it stands, and what comes next</li>
+    <li>12 &nbsp; Walkthroughs — building it yourself
+      <ol>
+        <li>12.1 Milestone 0 — a window, a device, and a triangle</li>
+        <li>12.2 Milestone 1 — the scene model, with nothing drawn</li>
+        <li>12.3 Milestone 2 — the loop everything else is written against</li>
+        <li>12.4 Milestone 3 — the RHI, proven by a second backend</li>
+        <li>12.5 Milestone 4 — the render graph and a multi-pass frame</li>
+        <li>12.6 Milestone 5 — it starts to look real</li>
+        <li>12.7 Milestone 6 — scripting, and hot reload</li>
+        <li>12.8 Milestone 7 — ship something</li>
+        <li>12.9 Milestone 8 — build a game, and let it tell you what is missing</li>
+        <li>12.10 What to build after that</li>
+      </ol></li>
     <li>A &nbsp; Appendix — repository layout, build, tools</li>
   </ol>
 </section>
@@ -1002,6 +1015,8 @@ two APIs was not in the feature, it was in a convention two layers below it.</b>
 <p class="lede">This is the part worth arguing with. Everything else in the document
 describes a state; this describes a sequence, and the sequence is the transferable
 knowledge.</p>
+
+<p class="lede" style="border-left-color:#c0392b;"><b>Chapter 12 walks this chapter.</b> Here is the argument for the order; there are eight milestones that execute it, each ending with something running and a check that proves it.</p>
 
 <h3>4.1 &nbsp; Why order is the hard part</h3>
 
@@ -2913,6 +2928,411 @@ asset-backed curves for size, colour and alpha with an inline editor.</p>
   <li><b>Measure, and construct references that cannot be wrong.</b> Most of the
   hard-won entries in §9 were found by a measurement, and most of the ones that took
   longest were the ones where the picture looked plausible.</li>
+</ul>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>12 &nbsp; Walkthroughs — building it yourself</h2>
+
+<p class="lede">Chapter 4 argues an order. This chapter walks it. Eight milestones, each
+one ending with something running on your machine and a check that proves it — because a
+milestone you cannot demonstrate is a milestone you have not reached.</p>
+
+<p>Each is written the same way: <b>what you will have</b> when it is done, <b>the steps
+in order</b>, <b>the traps</b> that cost time here specifically, and <b>the proof</b> —
+the thing you run to know it worked. Follow them in sequence; each leans on the last, and
+that dependency is the whole argument of chapter 4.</p>
+
+<p>None of this is RageV-specific. The libraries named are the ones this engine happened
+to pick; the shape of each milestone would be the same with different ones.</p>
+
+<h3>12.1 &nbsp; Milestone 0 — a window, a device, and a triangle</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>An executable that opens a window, initialises a graphics device, clears to a colour
+you chose, draws one triangle, and exits cleanly with code 0.</p>
+</div>
+
+<p>This is deliberately small, and it is not the "hello triangle" of a tutorial — the
+difference is the last four words. Exiting cleanly means every object you created was
+destroyed in an order the API accepts, and getting that right now is much cheaper than
+retrofitting it once there are forty kinds of object.</p>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>Build system first.</b> CMake, with your dependencies vendored into the
+  repository rather than expected on the machine. You will thank yourself the first time
+  you clone onto a second computer. Aim for: clone, configure, build, run — no
+  prerequisites beyond a compiler.</li>
+  <li><b>A window.</b> GLFW is the reasonable default. Do <em>not</em> let anything but
+  one wrapper class touch it (§5.2 explains what happens when a second component
+  initialises it independently).</li>
+  <li><b>A device.</b> Vulkan: instance → physical device → logical device → queue →
+  swapchain. OpenGL: a context and a function loader. Enable the validation layer or
+  debug callback <em>now</em>, and make its output impossible to ignore.</li>
+  <li><b>One triangle</b>, with vertices in the shader rather than a buffer
+  (<code>gl_VertexIndex</code> and a constant array). You are testing the device and the
+  pipeline, not vertex input, and the fewer moving parts the better.</li>
+  <li><b>Clean shutdown.</b> Destroy in reverse order of creation; wait for the device to
+  be idle first.</li>
+</ol>
+
+<h4>Traps</h4>
+<ul>
+  <li><b>Do not run without validation.</b> Vulkan will happily produce a black screen for
+  a dozen different reasons, and the layer names all of them precisely. Turning it on later
+  means wading through a hundred accumulated messages.</li>
+  <li><b>Verify by exiting, not by killing.</b> If you close the window with the debugger's
+  stop button, no destructors run and every lifetime bug you are about to write stays
+  invisible. Make exit code 0 part of what "it works" means from day one.</li>
+</ul>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>The window shows your triangle, the console shows zero validation messages, and the
+process exits with code 0 when you close it. Add a flag now — <code>--frames=N</code> —
+that runs N frames and exits. Everything you automate later depends on the program being
+able to stop on its own.</p>
+</div>
+
+<h3>12.2 &nbsp; Milestone 1 — the scene model, with nothing drawn</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>A scene you can build in code, save to a text file, load back, and serialize again to
+a <em>byte-identical</em> file. With undo. And still nothing on screen.</p>
+</div>
+
+<p>This is the milestone people skip, and skipping it is the decision that caps a project
+(§4.2). Resist the urge to draw anything.</p>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>Pick an ECS</b> — EnTT is the usual answer in C++ — and wrap it in a
+  <code>Scene</code>. Do not let the ECS type escape into the rest of the engine; you want
+  to be able to change it.</li>
+  <li><b>UUIDs.</b> A 64-bit random identity component on every entity, assigned at
+  creation. Add a <code>Scene::GetEntityByUUID</code>. From here on, <em>every</em>
+  reference that outlives a frame is a UUID (§8.1).</li>
+  <li><b>Hierarchy.</b> A relationship component holding a parent UUID. Rebuild children on
+  load; do not serialize them. Write <code>UpdateWorldTransforms</code> as one top-down
+  pass and resist the dirty flag (§8.1).</li>
+  <li><b>Reflection.</b> A registry describing each component's fields — name, type, offset
+  — reachable generically. This is the piece that makes the next two steps small instead of
+  enormous (§5.3).</li>
+  <li><b>The serializer, written against the registry.</b> Walk components, walk fields,
+  write. Then read. YAML is a good choice: a human can diff it and fix it.</li>
+  <li><b>The undo stack.</b> Commands with execute and undo. Do it now, because every
+  editor action you write later must go through it, and retrofitting means rewriting all
+  of them.</li>
+</ol>
+
+<h4>Traps</h4>
+<ul>
+  <li><b>Field order must be fixed and explicit</b>, not whatever a hash map iterates. It
+  is the file format.</li>
+  <li><b>Decide what a missing field means</b> on load, once: an older file lacking a
+  field should get the default rather than failing. That is what lets you add fields
+  without breaking every scene.</li>
+</ul>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>The round-trip test: build a scene in code with a hierarchy and several component types,
+serialize to a string, deserialize, serialize again, and assert the two strings are equal.
+Twenty lines, and it will catch more real bugs over the project's life than anything else
+you write.</p>
+</div>
+
+<h3>12.3 &nbsp; Milestone 2 — the loop that everything else is written against</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>A fixed-timestep simulation with an interpolation alpha, and a demonstration that
+rendering is smooth when the simulation rate and the display rate disagree.</p>
+</div>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>The accumulator loop</b> exactly as in §2.13, including the clamp. Expose the
+  fixed rate as configuration, not a constant.</li>
+  <li><b>Two update callbacks</b>, distinguished by name so nobody can confuse them:
+  one per fixed step, one per frame.</li>
+  <li><b>Keep the previous simulation state.</b> Whatever moves needs its position from
+  the last step retained, so rendering can blend. This is the part that is annoying to add
+  later, because by then everything writes its state in place.</li>
+  <li><b>Expose the alpha</b> from the application, and use it when rendering.</li>
+</ol>
+
+<h4>Traps</h4>
+<ul>
+  <li><b>Zero steps in a frame is normal</b>, not an error. At 240 Hz with a 60 Hz
+  simulation it happens three frames in four.</li>
+  <li><b>Input events must survive a frame with no steps.</b> A key pressed and released
+  between two simulation steps must still be seen by one of them, or inputs are silently
+  dropped at high frame rates. Latch edges and clear them at the end of the step that
+  consumed them.</li>
+</ul>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>Move something at constant velocity. Run the simulation at 10 Hz and render at whatever
+your display does. Without interpolation you will see ten discrete jumps a second; with
+it, smooth motion. If it looks the same either way, your alpha is not being used.</p>
+</div>
+
+<h3>12.4 &nbsp; Milestone 3 — the RHI, proven by a second backend</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>Your triangle from milestone 0, rendering identically through two graphics APIs, with
+the renderer code unaware of which one is running.</p>
+</div>
+
+<p>This is the milestone that feels like a detour and is not. §7.1 explains why designing
+it against one API does not work: whatever you have will look like the shape of the
+problem.</p>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>Write the interface from the nouns</b>: device, buffer, texture, shader,
+  pipeline, resource set, sampler, command list. Nothing that mentions a mesh or a
+  material.</li>
+  <li><b>Port your existing backend behind it.</b> No new features. Getting back to the
+  same triangle is success.</li>
+  <li><b>Now write the second backend.</b> This is where the design is tested. Each time
+  you are tempted to emulate a concept the second API lacks, ask whether the abstraction
+  is at the wrong level (§7.1).</li>
+  <li><b>Shader reflection.</b> Compile GLSL to SPIR-V, reflect the bindings and vertex
+  inputs, and build pipeline layouts from that rather than from hand-written descriptions
+  that can disagree with the shader.</li>
+  <li><b>Frames in flight, honestly, in both</b> (§7.2). Including the fence in the
+  backend that does not need one.</li>
+</ol>
+
+<h4>Traps</h4>
+<ul>
+  <li><b>Image origin.</b> Vulkan's first row is the top, OpenGL's is the bottom. Decide
+  now how you hide it — a negative-height viewport is the usual answer — and write down
+  that texture <em>reads</em> are not covered by it (§7.7).</li>
+  <li><b>Depth range.</b> Standardise on 0..1 and call
+  <code>glClipControl</code> (§2.4).</li>
+  <li><b>Reflected vector widths.</b> A <code>uvec4</code> is 16 bytes, and a reflection
+  that reports a one-component format will describe it as 4 (§8.4).</li>
+</ul>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>Screenshot the same scene on both backends and compare the files. They will not be
+bit-identical — different rasterisation rules — but they should be visually
+indistinguishable, and a difference metric should be near zero. Automate this comparison
+now; §10 explains why it is the check that catches the bugs nothing else does.</p>
+</div>
+
+<h3>12.5 &nbsp; Milestone 4 — the render graph and a multi-pass frame</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>A frame built from declared passes with pooled targets: scene into an HDR buffer, then
+a tonemap pass to the backbuffer. Two passes, which is the point — build the graph
+<em>before</em> you need it.</p>
+</div>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>A target description</b> — size, format, whether it has depth — and a pool keyed
+  by that shape.</li>
+  <li><b>A pass</b>: a name, a declare callback, an execute callback (§6.3).</li>
+  <li><b>Compile</b>: resolve which targets are needed, allocate from the pool, and
+  <em>refuse</em> malformed frames. A target created and never written is an error, not a
+  warning.</li>
+  <li><b>Port your existing frame onto it.</b> Scene → HDR, tonemap → backbuffer.</li>
+</ol>
+
+<h4>Traps</h4>
+<ul>
+  <li><b>Build pipelines against what the <em>pass</em> writes</b>, not against the final
+  output format. Getting this backwards builds every pipeline against the wrong attachment
+  format (§6.2).</li>
+  <li><b>An even number of fullscreen passes hides a flip bug</b> (§7.7). With exactly two
+  passes you are in the hiding case, so verify orientation deliberately: render something
+  visibly asymmetric.</li>
+</ul>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>The picture is unchanged, and the graph reports two passes and reuses targets across
+frames. Then add a third pass — a colour tint, anything — and notice that it took a
+declaration and nothing else. That is what you built it for.</p>
+</div>
+
+<h3>12.6 &nbsp; Milestone 5 — it starts to look real</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>Physically-based shading, an environment that lights the scene, and shadows. This is
+the milestone where the engine stops looking like a demo.</p>
+</div>
+
+<p>Order matters within it, because each step makes the next one's errors visible.</p>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>Linear colour throughout</b> (§2.8). sRGB textures decoded on read, lighting in a
+  floating-point buffer, tonemap at the end. Do this <em>first</em>: doing it after you
+  have tuned materials means retuning all of them.</li>
+  <li><b>Cook-Torrance with metallic/roughness</b> (§2.9). Test with a grid of spheres
+  sweeping roughness on one axis and metallic on the other — the standard image, and it
+  makes every mistake obvious.</li>
+  <li><b>A sky</b>, even a gradient. Metals need something to reflect or they are black.</li>
+  <li><b>Image-based lighting</b> (§7.6): irradiance cube, prefiltered specular chain,
+  BRDF lookup table. Your sphere grid should now look like it is somewhere.</li>
+  <li><b>Shadows</b> (§7.5): depth from the light, then the bias work, then PCF, then
+  cascades. In that order, and expect the bias to take longer than the rest combined.</li>
+</ol>
+
+<h4>Traps</h4>
+<ul>
+  <li><b>Do not cull in the shadow pass.</b></li>
+  <li><b>Whatever poses the lit pass must pose the depth pass.</b></li>
+  <li><b>Generate mips in the command buffer that wrote mip 0</b> (§7.6), or your
+  prefiltered chain is built from nothing.</li>
+</ul>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>The sphere grid, lit only by an environment map, with correct-looking metals and a
+shadow that stays attached to its caster as the light rotates. Rotate the light through a
+full circle and watch for acne appearing at grazing angles — that is the test your bias
+has to pass.</p>
+</div>
+
+<h3>12.7 &nbsp; Milestone 6 — scripting, and hot reload</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>Behaviour you can write in a script, attach to an entity, and change without
+restarting.</p>
+</div>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>Make the engine a DLL</b> (§5.2) if it is not already, and read that section's
+  three rules before you start rather than after.</li>
+  <li><b>A script base class</b> with lifecycle callbacks, and a registry mapping a name
+  to a factory — the scene stores the name.</li>
+  <li><b>A project's scripts compile into their own module</b>, which the engine loads.
+  Unload it, rebuild it, load it again.</li>
+  <li><b>Reload while playing.</b> The rule that works: stop the scene, swap, resume.
+  Attempting to keep live instances across a reload is a much larger problem than it
+  looks.</li>
+</ol>
+
+<h4>Traps</h4>
+<ul>
+  <li><b>The class name is what scene files store</b>, so renaming a class breaks every
+  scene using it. Say so in your documentation before someone finds out.</li>
+  <li><b>Unloading a module is a request.</b> Verify it actually happened and report it
+  when it does not (§8.3), or "my change did nothing" becomes a recurring mystery.</li>
+</ul>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>Attach a script that rotates an entity. Press play. Change the rotation speed in the
+script, rebuild, and watch the speed change without the editor restarting.</p>
+</div>
+
+<h3>12.8 &nbsp; Milestone 7 — ship something</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>A folder you can send to someone, which runs without your editor, your source tree, or
+your machine.</p>
+</div>
+
+<p>Do this <b>before</b> the engine feels finished (§4.6). It is a test of the whole
+system that nothing else performs.</p>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>A project concept</b> — a file naming an asset root, a start scene and a few
+  settings — so the engine is not hard-coded to one folder.</li>
+  <li><b>A runtime executable</b> that opens a project and plays it, sharing all the
+  frame-building code with the editor.</li>
+  <li><b>A packager</b> that copies the executable, the engine, the assets, the shaders
+  and the scripts into an output folder.</li>
+  <li><b>Run it from somewhere else.</b> Not from the build directory. Copy the folder to
+  another location, or another machine, and run it.</li>
+</ol>
+
+<h4>Traps</h4>
+<p>This step exists to find these, so expect them rather than being discouraged:</p>
+<ul>
+  <li>Paths relative to the editor's working directory.</li>
+  <li>Shaders loaded from the source tree.</li>
+  <li>Assets whose handles were minted in the build output and are regenerated on a clean
+  build.</li>
+  <li>A pass that clears the backbuffer <em>after</em> the scene was drawn — a blank
+  window with a perfectly healthy draw-call count, which is exactly why the RHI needs a
+  screenshot capture (§10).</li>
+</ul>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>The folder runs on a machine that has never had your source tree on it.</p>
+</div>
+
+<h3>12.9 &nbsp; Milestone 8 — build a game, and let it tell you what is missing</h3>
+
+<div class="keyed">
+<h4>You will have</h4>
+<p>A small, complete, playable game — and a backlog written by evidence rather than by
+imagination.</p>
+</div>
+
+<p>This is the most valuable milestone in the list and the easiest to postpone. §4.8 has
+what it found here: six real engine holes in one session, none of which were bugs in a
+feature. They were all in the seams between features, and only an application that crosses
+the seams reaches them.</p>
+
+<h4>Steps</h4>
+<ol>
+  <li><b>Pick something genuinely small</b> and genuinely complete. One mechanic, a win
+  condition, a way to restart. Complete matters more than large; the seams are in the
+  completeness.</li>
+  <li><b>Build it as a real project</b>, in the project format from milestone 7 — not as
+  an engine sample compiled into the editor.</li>
+  <li><b>Use the parts you are least sure about.</b> If you have two scripting languages,
+  use both. If you have prefabs, spawn from one at runtime.</li>
+  <li><b>Write down every papercut as it happens</b>, without stopping to fix it. The list
+  is the deliverable.</li>
+  <li><b>Package it and play it</b> from the packaged folder.</li>
+</ol>
+
+<div class="keyed">
+<h4>Proof</h4>
+<p>Somebody who is not you plays it, from the packaged folder, without instructions. Then
+read your papercut list: that is your roadmap, and it will not resemble the one you would
+have written beforehand.</p>
+</div>
+
+<h3>12.10 &nbsp; What to build after that</h3>
+
+<p>At this point the engine works and the question changes from "what is missing" to
+"what is worth adding". Three principles, all of them earned in this document:</p>
+
+<ul>
+  <li><b>Let the game rank the list.</b> The papercuts from milestone 8 are ordered by
+  something real. A feature list ordered by what sounds impressive will put particles
+  before text, and then your game still cannot say "press F".</li>
+  <li><b>Measure before and after, in the same session</b> (§10). Two of this engine's
+  optimisations cut draw calls dramatically and moved the clock not at all.</li>
+  <li><b>Write the invariant down when you find it</b>, in terms of behaviour rather than
+  location (§7.7). Every entry in chapter 9 is a day someone will not lose again — and the
+  one that was written in terms of <em>where code lives</em> was violated a second time by
+  code that lived somewhere else.</li>
 </ul>
 </section>
 

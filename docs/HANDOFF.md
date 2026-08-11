@@ -1756,7 +1756,7 @@ learnopengl.com — a path from A to B, teaching the reader forward, rather than
 a description of a finished artefact. The user's words: it may end up "a whole
 book with pages in 3 digits" and that is acceptable; verbosity is wanted.
 
-**Where it is: 66 pages, 11 chapters, ~24,000 words.** The skeleton is
+**Where it is: 73 pages, 12 chapters, ~27,000 words.** The skeleton is
 complete and every chapter has real content, real code quoted verbatim, and
 real figures captured through `--screenshot`. Chapters 2 and 3 -- the maths,
 and how the two graphics APIs work with one feature traced down through both
@@ -1780,11 +1780,16 @@ value order:
    readers with a dark mode and printed as solid black rectangles. The
    document is one tone throughout now -- worth remembering for any future
    print deliverable.
-3. **No step-by-step "build this yourself" thread -- now the single biggest
-   gap.** learnopengl.com works because each chapter ends with something
-   running on the reader's machine. Chapter 4 names the steps and argues their
-   order; it does not walk anyone through one. This is what would take the
-   document from "explains an engine" to "gets you to one".
+3. ~~The build-this-yourself thread~~ -- **done**. Chapter 12 is nine
+   milestones that execute chapter 4's argument, each with what you will have,
+   the steps, the traps specific to that step, and **the proof** -- the thing
+   you run to know it worked. Written to be engine-agnostic: the libraries
+   named are the ones this project picked, not requirements.
+
+   What would improve it: real figures instead of ASCII diagrams, and
+   worked code listings inside the milestones rather than descriptions of what
+   to write. The milestones currently tell you what to build and what will go
+   wrong; they do not hand you the file.
 4. **Diagrams are ASCII.** Real vector figures for the transform pipeline, the
    frame graph and the cluster grid would carry a lot.
 5. **Chapter 2 could go further** -- tangent space, cubemap addressing, the
