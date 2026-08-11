@@ -26,6 +26,11 @@ namespace RageV
 		// particle's life, and the colour gradient. One type for all three,
 		// distinguished by how many channels a key carries.
 		Curve,
+		// A `.rvfont`: the metrics table beside a distance-field atlas, both
+		// produced by tools/rvfont. The `.ttf` it was baked from is *not* an
+		// asset -- nothing at runtime can read one, and treating it as one
+		// would offer a handle that never resolves.
+		Font,
 	};
 
 	const char* AssetTypeName(AssetType type);

@@ -19,6 +19,7 @@ namespace RageV
 			{ AssetType::Scene,    "Scene" },
 			{ AssetType::Audio,    "Audio" },
 			{ AssetType::Curve,    "Curve" },
+			{ AssetType::Font,     "Font" },
 		};
 	}
 
@@ -66,9 +67,14 @@ namespace RageV
 		if (lower == ".rprefab") return AssetType::Prefab;
 		if (lower == ".rage")    return AssetType::Scene;
 		if (lower == ".rcurve")  return AssetType::Curve;
+		if (lower == ".rvfont")  return AssetType::Font;
 
-		// Shaders, fonts and anything else are files the engine reads directly
-		// rather than assets it hands out by handle.
+		// A `.ttf` is deliberately absent. It is the *input* to tools/rvfont
+		// and nothing at runtime can read one, so importing it would hand out
+		// a handle that resolves to nothing.
+
+		// Shaders and anything else are files the engine reads directly rather
+		// than assets it hands out by handle.
 		return AssetType::None;
 	}
 }

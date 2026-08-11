@@ -8,6 +8,7 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "CurveSerializer.h"
+#include "FontSerializer.h"
 #include <fstream>
 #include <sstream>
 
@@ -39,6 +40,15 @@ namespace RageV::Assets
 		// null: a missing file must not be retried sixty times a second.
 		std::unordered_map<AssetHandle, Curve> s_Curves;
 		std::unordered_map<AssetHandle, Curve::Baked> s_BakedCurves;
+
+		// Fonts cache by value like curves -- a metrics table is a few thousand
+		// numbers. A failure caches as an *absent* entry marked in s_FontFailed
+		// rather than as an empty font, because "no glyphs" and "no font" want
+		// different answers from the caller and an empty table cannot say which
+		// it is.
+		std::unordered_map<AssetHandle, Font> s_Fonts;
+		std::unordered_set<AssetHandle> s_FontFailed;
+		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_FontAtlases;
 
 		constexpr PrimitiveType kPrimitives[] = {
 			PrimitiveType::Cube, PrimitiveType::Sphere, PrimitiveType::Plane,
@@ -89,6 +99,9 @@ namespace RageV::Assets
 		s_Textures.clear();
 		s_Curves.clear();
 		s_BakedCurves.clear();
+		s_Fonts.clear();
+		s_FontFailed.clear();
+		s_FontAtlases.clear();
 
 		// The loader and the filter hold the same textures by path and by
 		// pointer, and both used to be cleared only at shutdown -- so changing
@@ -254,6 +267,76 @@ namespace RageV::Assets
 
 		s_Curves[handle] = std::move(curve);
 		return &s_Curves[handle];
+	}
+
+	const Font* Manager::GetFont(AssetHandle handle)
+	{
+		// No device check: a metrics table is numbers, and keeping it that way
+		// is what lets the suite test text layout with no GPU at all.
+		if (!handle.IsValid())
+			return nullptr;
+
+		if (s_FontFailed.count(handle) != 0)
+			return nullptr;
+
+		const auto cached = s_Fonts.find(handle);
+		if (cached != s_Fonts.end())
+			return &cached->second;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+
+		Font font;
+		if (path.empty() || !FontSerializer::Load(font, path))
+		{
+			// Remembered, so a scene pointing at a font that is not there does
+			// not reopen the file once per frame for the rest of the session.
+			s_FontFailed.insert(handle);
+			return nullptr;
+		}
+
+		s_Fonts[handle] = std::move(font);
+		return &s_Fonts[handle];
+	}
+
+	RHI::Ref<RHI::RHITexture> Manager::GetFontAtlas(AssetHandle handle)
+	{
+		if (!s_Device || !handle.IsValid())
+			return nullptr;
+
+		const auto cached = s_FontAtlases.find(handle);
+		if (cached != s_FontAtlases.end())
+			return cached->second;
+
+		const Font* font = GetFont(handle);
+		if (!font)
+			return nullptr;
+
+		// The `.rvfont` names its atlas by filename, and it is resolved beside
+		// the metrics rather than against the asset root. The two are one
+		// output of one tool run, so a project that moves a font into a
+		// subfolder moves both and nothing has to be edited.
+		const std::filesystem::path metrics = Registry::GetAbsolutePath(handle);
+		const std::filesystem::path atlas = metrics.parent_path() / font->AtlasFile;
+
+		if (!std::filesystem::exists(atlas))
+		{
+			RV_CORE_ERROR("Font {0} names an atlas that is not there: {1}",
+						  metrics.filename().string(), font->AtlasFile);
+			s_FontAtlases[handle] = nullptr;
+			return nullptr;
+		}
+
+		// Linear, and no mips. Both matter and both are silent when wrong:
+		// treating a distance field as sRGB bends the distances so the edge
+		// lands somewhere else, and a mip chain averages distances from
+		// opposite sides of a stroke into a number that describes nothing.
+		// Either one renders as text that is soft for no visible reason.
+		RHI::Ref<RHI::RHITexture> texture =
+			TextureLoader::Load2D(*s_Device, atlas.string(), /*srgb*/ false,
+								  /*generateMips*/ false);
+
+		s_FontAtlases[handle] = texture;
+		return texture;
 	}
 
 	const Curve::Baked* Manager::GetBakedCurve(AssetHandle handle)

@@ -6,6 +6,7 @@
 #include "RageV/Animation/Skeleton.h"
 #include "RageV/Renderer/Material.h"
 #include "Curve.h"
+#include "Font.h"
 
 // Declared in the enclosing namespace on purpose. Inside
 // `namespace RageV::Assets` these would declare new types that nothing ever
@@ -72,6 +73,31 @@ namespace RageV::Assets
 		// What the editor calls when somebody finishes dragging a point --
 		// without it, an edited curve keeps rendering as the old shape.
 		static void ReloadCurve(AssetHandle handle);
+
+		// A baked font: the metrics table from a `.rvfont`. Null when the
+		// handle is unknown or the file will not load, and the failure is
+		// cached, because text that cannot find its font must not reopen the
+		// file once per frame.
+		//
+		// Unlike a curve, a failure is *not* papered over with an empty
+		// default. A curve with no keys evaluates to a sensible fallback; a
+		// font with no glyphs can only draw nothing, and silently drawing
+		// nothing is how a missing font gets mistaken for a layout bug.
+		//
+		// No device needed -- this is numbers on the CPU, which is what lets
+		// the test suite exercise layout headlessly. The atlas below is the
+		// half that needs a GPU.
+		static const Font* GetFont(AssetHandle handle);
+
+		// The distance-field atlas that goes with it.
+		//
+		// **Linear and unmipped**, unlike every other 2D texture here. A
+		// distance field is data: gamma-correcting it bends the distances so
+		// the edge lands in the wrong place, and a mip chain averages
+		// distances from opposite sides of a stroke into a value that means
+		// nothing. Both mistakes render as text that is soft in a way no
+		// amount of tuning the shader will fix.
+		static RHI::Ref<RHI::RHITexture> GetFontAtlas(AssetHandle handle);
 
 		// An environment map, built from whatever image the handle names. The
 		// conversion from a panorama is not cheap, so a failure is cached as

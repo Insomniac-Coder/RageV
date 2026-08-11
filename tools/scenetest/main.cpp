@@ -45,6 +45,7 @@
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ViewportGrid.h"
+#include "RageV/Asset/FontSerializer.h"
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/ShadowMap.h"
@@ -4078,6 +4079,146 @@ void main()
 		Check(true, "and a colour background draws nothing at all");
 	}
 
+	// Baked fonts.
+	//
+	// The metrics table is the half of text rendering that has no GPU in it,
+	// which is exactly why it is worth checking here: a wrong advance, a
+	// dropped kerning pair or an inverted plane bound all render as text that
+	// looks *almost* right, and "almost right" is not something a screenshot
+	// settles.
+	void CheckFont()
+	{
+		// --- the type ------------------------------------------------------
+		Check(AssetTypeFromExtension(".rvfont") == AssetType::Font,
+			  "a .rvfont is a Font asset");
+		Check(AssetTypeFromName("Font") == AssetType::Font &&
+			  std::string(AssetTypeName(AssetType::Font)) == "Font",
+			  "and its name round-trips, so existing .meta files keep meaning what they said");
+
+		// A font file is the *input* to rvfont. Importing one would hand out a
+		// handle that resolves to something nothing at runtime can read.
+		Check(AssetTypeFromExtension(".ttf") == AssetType::None,
+			  "a .ttf is deliberately not an asset");
+
+		// --- the file the editor ships -------------------------------------
+		Font font;
+		const bool loaded = Assets::FontSerializer::Load(font, "assets/Fonts/roboto.rvfont");
+		Check(loaded, "the staged font loads");
+		if (!loaded)
+			return;
+
+		Check(font.GetGlyphCount() > 150, "and carries its latin1 glyph table");
+		Check(font.GetKerningCount() > 100, "and the pairs the face actually kerns");
+		Check(!font.AtlasFile.empty() && font.AtlasWidth > 0 && font.AtlasHeight > 0,
+			  "and names an atlas with a size");
+
+		// --- metrics that a layout divides by ------------------------------
+		Check(font.Ascent > 0.0f, "the ascent is above the baseline");
+		Check(font.Descent < 0.0f, "the descent is below it, signed as the face reports");
+		Check(font.LineHeight >= font.Ascent - font.Descent,
+			  "and a line is at least tall enough for both");
+
+		// In em units, so a face is roughly one unit tall. This catches the
+		// whole class of bug where font units or pixels leak through: Roboto's
+		// ascent is about 0.93 em, and if this were in font units it would be
+		// nearer 1900.
+		Check(font.Ascent < 2.0f && font.Ascent > 0.5f,
+			  "and the metrics are in ems rather than font units or pixels");
+
+		// --- glyphs ---------------------------------------------------------
+		const Font::Glyph* a = font.Find('A');
+		Check(a && a->HasImage(), "'A' has a glyph with an image");
+		Check(a && a->Right > a->Left && a->Top > a->Bottom,
+			  "whose quad is the right way up and the right way round");
+		Check(a && a->Advance > 0.0f, "and moves the pen forward");
+
+		const Font::Glyph* space = font.Find(' ');
+		Check(space && !space->HasImage() && space->Advance > 0.0f,
+			  "a space has an advance and no image, which are separate questions");
+
+		Check(font.Find(0x1F600) == nullptr,
+			  "and a character the face does not have answers null rather than a box");
+
+		// A descender has to reach below the baseline, or every 'g' in the
+		// engine sits on the line. Bottom is in ems with y up, so it is negative.
+		const Font::Glyph* g = font.Find('g');
+		Check(g && g->Bottom < 0.0f, "'g' descends below the baseline");
+
+		// --- kerning --------------------------------------------------------
+		// Roboto kerns "AV" tighter; almost nothing kerns a letter against
+		// itself. Asking for a pair that is not stored must answer zero rather
+		// than something uninitialised.
+		Check(font.Kerning('A', 'V') < 0.0f, "AV kerns tighter, as the face says");
+		Check(font.Kerning('l', 'l') == 0.0f, "and an unlisted pair is zero, not garbage");
+
+		// --- the number that decides whether it looks right ------------------
+		// screenPxRange >= 2, rearranged. 48 px per em over a 6 px range is
+		// 16 px, and the tool prints the same figure when it bakes.
+		Check(std::fabs(font.SmallestSharpSize() - 2.0f * font.EmSize / font.PxRange) < 1e-4f,
+			  "the smallest sharp size is derived from the atlas, not stored beside it");
+		Check(font.SmallestSharpSize() > 4.0f && font.SmallestSharpSize() < 64.0f,
+			  "and lands somewhere a person would actually draw text");
+
+		// --- a file that is not one ------------------------------------------
+		// The loader builds into a local and moves it out at the end, so a
+		// caller that pre-filled a font keeps it rather than being left with
+		// half of a broken one.
+		{
+			const std::filesystem::path junk =
+				std::filesystem::temp_directory_path() / "ragev-not-a-font.rvfont";
+			{
+				std::ofstream file(junk);
+				file << "Atlas: nowhere.png\nGlyphs: []\n";
+			}
+
+			Font survivor = font;
+			Check(!Assets::FontSerializer::Load(survivor, junk),
+				  "a font with an empty glyph table fails to load");
+			Check(survivor.GetGlyphCount() == font.GetGlyphCount(),
+				  "and leaves the caller's font exactly as it was");
+
+			Check(!Assets::FontSerializer::Load(survivor, "assets/Fonts/does-not-exist.rvfont"),
+				  "as does one that is not there");
+
+			std::error_code error;
+			std::filesystem::remove(junk, error);
+		}
+
+		// --- through the manager, which is where the atlas comes from --------
+		if (Renderer::HasDevice())
+		{
+			const AssetHandle handle = Assets::Registry::GetHandle("fonts/roboto.rvfont");
+			Check(handle.IsValid(), "the sample project's font is in the registry");
+
+			if (handle.IsValid())
+			{
+				const Font* managed = Assets::Manager::GetFont(handle);
+				Check(managed != nullptr, "and resolves through the manager");
+				Check(managed == Assets::Manager::GetFont(handle),
+					  "cached, so asking twice is one file read");
+
+				RHI::Ref<RHI::RHITexture> atlas = Assets::Manager::GetFontAtlas(handle);
+				Check(atlas != nullptr, "and its atlas uploads");
+
+				// The invariant that is silent when broken. A distance field is
+				// data: loaded as sRGB the hardware would un-gamma every texel
+				// on read, moving every distance and putting the edge somewhere
+				// else. It renders as text that is soft for no visible reason,
+				// which is not a thing anybody debugs by looking.
+				if (atlas)
+				{
+					Check(atlas->GetDesc().Format == RHI::Format::R8G8B8A8_UNORM,
+						  "as a linear texture -- a distance field read as sRGB is bent");
+					Check(atlas->GetDesc().MipLevels == 1,
+						  "with no mip chain, which would average distances across a stroke");
+				}
+			}
+
+			Check(Assets::Manager::GetFont(AssetHandle::Invalid()) == nullptr,
+				  "an invalid handle answers null rather than an empty font");
+		}
+	}
+
 	// The editor's ground grid.
 	//
 	// The solve is the whole feature, and it is the kind that is wrong quietly:
@@ -5584,6 +5725,7 @@ int RunTests(int argc, char** argv)
 	CheckPrimitiveWinding();
 	CheckCubemap();
 	CheckSky();
+	CheckFont();
 	CheckViewportGrid();
 	CheckRenderersReady();
 	CheckFieldLabels();
