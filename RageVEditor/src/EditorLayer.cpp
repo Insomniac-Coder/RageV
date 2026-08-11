@@ -20,6 +20,9 @@
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Renderer/ParticleRenderer.h"
+#include "RageV/Renderer/UIRenderer.h"
+#include "RageV/Renderer/TextureLoader.h"
+#include "RageV/Asset/FontSerializer.h"
 #include "ImGuizmo.h"
 #include "RageV/ImGui/ImGuiBinding.h"
 #include "RageV/Math/Math.h"
@@ -356,6 +359,9 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 	if (m_ShowColliders)
 		scene.DrawOverlay = [this](RGPassContext&) { DrawColliderOverlay(); };
+
+	// TEMPORARY, with DrawUIProbe. Replaced by the scene's canvas in 6.3.
+	scene.DrawUI = [this](RGPassContext&) { DrawUIProbe(); };
 
 	// Only when something asked for it: the two extra attachments and the
 	// resolve cost nothing at all in a frame with no weighted emitters, and
@@ -851,6 +857,60 @@ void EditorLayer::LoadPanelState()
 		else if (key == "layout-width")    m_LastDockSize.x = (float)std::atof(trim(line.substr(equals + 1)).c_str());
 		else if (key == "layout-height")   m_LastDockSize.y = (float)std::atof(trim(line.substr(equals + 1)).c_str());
 	}
+}
+
+// TEMPORARY. See the declaration; this goes when canvases land in 6.3.
+void EditorLayer::DrawUIProbe()
+{
+	if (!UIRenderer::IsReady())
+		return;
+
+	// Loaded once, from the engine's own staged assets rather than through the
+	// registry: this font ships with the editor like the shaders do, and is not
+	// part of anybody's project.
+	if (m_ProbeFont.IsEmpty())
+	{
+		if (!Assets::FontSerializer::Load(m_ProbeFont, "assets/Fonts/roboto.rvfont"))
+			return;
+
+		// Linear and unmipped, for the reasons in Assets::Manager::GetFontAtlas.
+		m_ProbeAtlas = TextureLoader::Load2D(Renderer::GetDevice(),
+											 "assets/Fonts/" + m_ProbeFont.AtlasFile,
+											 /*srgb*/ false, /*generateMips*/ false);
+	}
+
+	if (!m_ProbeAtlas)
+		return;
+
+	const uint32_t width = (uint32_t)m_ViewportSize.x;
+	const uint32_t height = (uint32_t)m_ViewportSize.y;
+
+	UIRenderer::Begin(width, height);
+
+	// A panel first, so the ordering is visible: this must end up *behind* the
+	// text, which is the whole of what painter's order means here.
+	UIRenderer::DrawRect({ 16.0f, 16.0f, 430.0f, 168.0f },
+						 Vec4(0.05f, 0.05f, 0.07f, 0.72f));
+
+	const Vec4 white(1.0f, 1.0f, 1.0f, 1.0f);
+	const Vec4 accent(0.90f, 0.29f, 0.32f, 1.0f);
+
+	// Several sizes in one shot, because the one thing a distance field is for
+	// is staying sharp across them -- and because the smallest is near the
+	// atlas's own floor, which is where it should start to soften.
+	UIRenderer::DrawText("RageV", m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 68.0f), 44.0f, accent);
+	UIRenderer::DrawText("Sphinx of black quartz, judge my vow.",
+						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 100.0f), 18.0f, white);
+	UIRenderer::DrawText("AVATAR Wavy 0123456789 @#&",
+						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 128.0f), 18.0f, white);
+	UIRenderer::DrawText("smallest sharp size: 16 px", m_ProbeFont, m_ProbeAtlas,
+						 Vec2(32.0f, 152.0f), 16.0f, Vec4(0.65f, 0.66f, 0.72f, 1.0f));
+	UIRenderer::DrawText("below it, 11 px, softening as designed",
+						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 172.0f), 11.0f,
+						 Vec4(0.65f, 0.66f, 0.72f, 1.0f));
+
+	UIRenderer::End();
+
 }
 
 RageV::ViewportGridSettings EditorLayer::GridSettings() const

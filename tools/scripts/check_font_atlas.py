@@ -83,12 +83,11 @@ def reconstruct(font, pixels, glyph, size):
             u = (px + 0.5) / width
             v = (py + 0.5) / height
 
+            # The recorded rectangle is simply where the glyph is in the image,
+            # so this is a straight lerp across it. The baker already flipped
+            # the field's rows into image order.
             sx = ax + u * aw
-
-            # The baker writes glyph row 0 -- the *bottom*, since the field is
-            # generated y up -- to atlas row (height - 1 - Y). So the top of the
-            # glyph is the low row, and v runs down from it.
-            sy = (atlas_h - (ay + ah)) + v * ah
+            sy = ay + v * ah
 
             r, g, b = sample(pixels, atlas_w, atlas_h, sx, sy)
             d = median(r, g, b) - 0.5

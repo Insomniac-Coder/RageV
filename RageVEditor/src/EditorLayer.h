@@ -10,6 +10,7 @@
 #include "UI/EditorTheme.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Renderer/RenderGraph.h"
+#include "RageV/Asset/Font.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
 // first.
 #include "imgui.h"
@@ -245,6 +246,18 @@ private:
 	// stored, so switching theme moves the axes with everything else and there
 	// is no second copy of them to forget to update.
 	RageV::ViewportGridSettings GridSettings() const;
+
+	// TEMPORARY -- proves the UI renderer while there is nothing to drive it.
+	//
+	// 6.2 builds the renderer; canvases and text components arrive in 6.3 and
+	// 6.4, and this goes with them. It exists because a batched text renderer
+	// with no caller is a thing that compiles rather than a thing that works,
+	// and the failures worth catching now -- an upside-down projection, a
+	// mismatched vertex stride, a blurry field -- are all visible only when
+	// something draws.
+	RageV::Font m_ProbeFont;
+	RageV::RHI::Ref<RageV::RHI::RHITexture> m_ProbeAtlas;
+	void DrawUIProbe();
 
 	// Whether the game panel was actually visible last frame. A panel that is
 	// collapsed or behind another tab still has m_ShowGameViewport set, and

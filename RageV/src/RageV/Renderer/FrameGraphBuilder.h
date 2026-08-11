@@ -43,6 +43,17 @@ namespace RageV
 		std::function<void(RGPassContext&, const RHI::Ref<RHI::RHITexture>&,
 						   const RHI::Ref<RHI::RHITexture>&)> ResolveTransparent;
 
+		// The screen-space UI layer, drawn last of all -- after tone mapping and
+		// after anti-aliasing, straight into the output in LDR.
+		//
+		// That position is the whole design, and it costs something worth
+		// stating: **UI is not tone mapped and cannot bloom.** In exchange, a
+		// glyph is never softened by FXAA and never pushed through a transfer
+		// function that was fitted to a scene's dynamic range. Every engine
+		// makes this trade for an overlay canvas, and it is why overlay text
+		// stays crisp. See ENGINE-NOTES 7d.
+		std::function<void(RGPassContext&)> DrawUI;
+
 		SceneEnvironment Environment;
 
 		Vec4 ClearColor{ 0.05f, 0.05f, 0.06f, 1.0f };

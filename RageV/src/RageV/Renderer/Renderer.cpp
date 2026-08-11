@@ -7,6 +7,7 @@
 #include "RageV/Particles/GpuParticles.h"
 #include "Skybox.h"
 #include "ViewportGrid.h"
+#include "UIRenderer.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
 #include "PostProcess.h"
@@ -31,6 +32,7 @@ namespace RageV
 		Particles::Gpu::Init(device);
 		Skybox::Init(device);
 		ViewportGrid::Init(device);
+		UIRenderer::Init(device);
 		ShadowMap::Init(device);
 		EnvironmentIBL::Init(device);
 		PostProcess::Init(device);
@@ -41,6 +43,7 @@ namespace RageV
 		PostProcess::Shutdown();
 		EnvironmentIBL::Shutdown();
 		ShadowMap::Shutdown();
+		UIRenderer::Shutdown();
 		ViewportGrid::Shutdown();
 		Skybox::Shutdown();
 		Particles::Gpu::Shutdown();
@@ -63,6 +66,7 @@ namespace RageV
 		DebugRenderer::BeginFrame();
 		ParticleRenderer::BeginFrame();
 		Skybox::BeginFrame();
+		UIRenderer::BeginFrame();
 		// Cascades are rendered per frame, if at all. Anything left from the
 		// last one describes a camera that has since moved.
 		ShadowMap::Invalidate();

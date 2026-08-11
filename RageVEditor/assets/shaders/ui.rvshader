@@ -1,0 +1,126 @@
+// Screen-space UI: sprites and text, in one pipeline.
+//
+// ---------------------------------------------------------------------------
+// Why one pipeline and not two
+// ---------------------------------------------------------------------------
+//
+// A UI batch interleaves the two constantly -- a label on a panel on a bar, a
+// number over an icon -- and z order decides which comes first, not what kind
+// of quad it is. Two pipelines would mean a batch break at every one of those
+// transitions, which for a HUD is a draw call per widget.
+//
+// So the quad carries its own mode and the fragment shader branches. A branch
+// per fragment is nothing; a draw call per widget is the whole cost.
+//
+// ---------------------------------------------------------------------------
+// screenPxRange, and why it is measured rather than passed in
+// ---------------------------------------------------------------------------
+//
+// A distance field stores distances over a fixed range, in *atlas* pixels.
+// Antialiasing needs that range expressed in *screen* pixels, and below 2 it
+// fails outright -- colour fringes spread across the glyph instead of
+// resolving to an edge.
+//
+// The CPU knows how big it asked for the text to be, so it could work this out
+// and pass it. It must not. That number is only correct for a quad the CPU
+// laid out in screen space; the same glyphs on a sign in the world are under a
+// perspective divide, and every pixel of that sign has a different answer.
+//
+// Measuring it from the screen-space derivative of the texture coordinate is
+// correct in both cases, and costs one `fwidth`. It is the decision that makes
+// world-space text reuse this shader unchanged rather than needing its own.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) in vec2  a_Position;    // pixels, origin top left
+layout(location = 1) in vec2  a_TexCoord;
+layout(location = 2) in vec4  a_Color;
+layout(location = 3) in float a_TextureIndex;
+// x: 0 draws the texture, 1 treats it as a distance field.
+// y: the field's range in atlas pixels, which is a property of the atlas.
+layout(location = 4) in vec2  a_Mode;
+
+layout(push_constant) uniform UIParams
+{
+	// Pixels to clip space for whatever is being drawn into. Built on the CPU
+	// so that a viewport panel and a full window are the same code path.
+	mat4 Projection;
+} u_Params;
+
+layout(location = 0) out vec2      v_TexCoord;
+layout(location = 1) out vec4      v_Color;
+layout(location = 2) out vec2      v_Mode;
+layout(location = 3) flat out int  v_TextureIndex;
+
+void main()
+{
+	v_TexCoord     = a_TexCoord;
+	v_Color        = a_Color;
+	v_Mode         = a_Mode;
+	v_TextureIndex = int(a_TextureIndex + 0.5);
+
+	gl_Position = u_Params.Projection * vec4(a_Position, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(set = 0, binding = 0) uniform sampler2D u_Textures[32];
+
+layout(location = 0) in vec2      v_TexCoord;
+layout(location = 1) in vec4      v_Color;
+layout(location = 2) in vec2      v_Mode;
+layout(location = 3) flat in int  v_TextureIndex;
+
+layout(location = 0) out vec4 o_Color;
+
+const float kModeDistanceField = 0.5;   // anything above is a field
+
+float Median(float a, float b, float c)
+{
+	return max(min(a, b), min(max(a, b), c));
+}
+
+void main()
+{
+	// Taken before the branch, never inside it.
+	//
+	// A derivative is a difference across a 2x2 quad of pixels, so it is only
+	// defined where every lane in that quad has reached the same instruction.
+	// Putting an `fwidth` inside a conditional is the bug this engine already
+	// wrote up once, for the viewport grid -- see HANDOFF section 5. Here every
+	// lane in a quad belongs to one primitive and so shares a mode, which makes
+	// it *currently* safe and would stop being true the first time somebody
+	// merged two quads into one draw. Hoisting it costs nothing and does not
+	// depend on that staying true.
+	vec2 texelStep = fwidth(v_TexCoord);
+
+	vec4 sampled = texture(u_Textures[v_TextureIndex], v_TexCoord);
+
+	if (v_Mode.x > kModeDistanceField)
+	{
+		// The multi-channel field is in RGB and its median reconstructs the
+		// shape with corners intact -- that is the whole reason for three
+		// channels rather than one. Alpha carries the plain signed distance,
+		// which nothing reads yet; it is there for outlines and glow.
+		float distance = Median(sampled.r, sampled.g, sampled.b) - 0.5;
+
+		// The field's range, carried from atlas pixels into screen pixels.
+		vec2 atlasSize = vec2(textureSize(u_Textures[v_TextureIndex], 0));
+		vec2 unitRange = vec2(v_Mode.y) / atlasSize;
+		vec2 pixelsPerUnit = vec2(1.0) / max(texelStep, vec2(1.0e-8));
+
+		// Floored at 1. Below that the field cannot describe an edge at all,
+		// and letting the number go lower turns the smoothstep below into a
+		// step, which is a hard aliased edge rather than a soft wrong one.
+		float screenPxRange = max(0.5 * dot(unitRange, pixelsPerUnit), 1.0);
+
+		float coverage = clamp(distance * screenPxRange + 0.5, 0.0, 1.0);
+		o_Color = vec4(v_Color.rgb, v_Color.a * coverage);
+	}
+	else
+	{
+		o_Color = v_Color * sampled;
+	}
+}

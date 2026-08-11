@@ -556,11 +556,17 @@ int main(int argc, char** argv)
 				const float* source = glyph->Pixels.data() + ((size_t)y * glyph->W + x) * 4;
 
 				// The atlas image has y down; the field was generated y up,
-				// which is the convention every glyph outline uses. Flipping
-				// here rather than in the shader keeps the runtime unaware of
-				// it -- and a shader that flips is a shader that flips for
-				// world-space text too, where it would be wrong.
-				const int destY = atlasHeight - 1 - (glyph->Y + y);
+				// which is the convention every glyph outline uses. The flip
+				// happens here rather than in the shader, so the runtime never
+				// has to know -- and a shader that flips is a shader that also
+				// flips for world-space text, where it would be wrong.
+				//
+				// Note it flips *within the glyph's own rows*, not the whole
+				// image. Flipping the image would make the recorded rectangle
+				// mean something other than where the glyph is, and every
+				// reader would have to undo it to build a texture coordinate.
+				// This way the rectangle is simply where the glyph is.
+				const int destY = glyph->Y + (glyph->H - 1 - y);
 				unsigned char* dest = atlas.data()
 									+ ((size_t)destY * atlasWidth + (glyph->X + x)) * 4;
 

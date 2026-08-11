@@ -2,6 +2,7 @@
 #include "FrameGraphBuilder.h"
 #include "PostProcess.h"
 #include "Renderer.h"
+#include "UIRenderer.h"
 
 namespace RageV
 {
@@ -273,6 +274,30 @@ namespace RageV
 									  context.Width, context.Height, format,
 									  0.0625f, 0.125f);
 				});
+		}
+
+		// --- the UI, last ------------------------------------------------------
+		//
+		// After everything, into the finished image. Preserve, obviously -- the
+		// frame is already in there.
+		//
+		// The pass declares no depth: UI layering is the order quads were
+		// submitted, which is the order somebody authored, and a depth buffer
+		// would make it depend on numbers nobody set.
+		if (desc.DrawUI)
+		{
+			// The UI pipeline is built against the *output* format, not the
+			// scene's HDR one. Renderer::SetTargetFormats speaks for the scene
+			// and would give this the wrong answer.
+			UIRenderer::SetTargetFormats(desc.OutputFormat, Format::Undefined);
+
+			graph.AddPass("UI",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(desc.Output, RGLoad::Preserve);
+					builder.DisableDepth();
+				},
+				[draw = desc.DrawUI](RGPassContext& context) { draw(context); });
 		}
 	}
 }

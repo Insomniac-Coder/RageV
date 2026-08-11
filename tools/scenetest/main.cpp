@@ -46,6 +46,8 @@
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ViewportGrid.h"
 #include "RageV/Asset/FontSerializer.h"
+#include "RageV/Renderer/UIRenderer.h"
+#include "RageV/UI/TextLayout.h"
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/ShadowMap.h"
@@ -4079,6 +4081,64 @@ void main()
 		Check(true, "and a colour background draws nothing at all");
 	}
 
+	// The screen-space UI layer.
+	void CheckUIRenderer()
+	{
+		Check(UIRenderer::IsReady(), "the UI shader compiled");
+
+		// --- which way is up ------------------------------------------------
+		//
+		// This is here because it was wrong, on both backends in turn, and a
+		// screenshot was the only thing that said so. The obvious reasoning --
+		// Vulkan's framebuffer origin is the top left, OpenGL's is the bottom,
+		// so branch on the backend -- produces a HUD mirrored along the bottom
+		// edge, because the UI pass draws into the *finished* image and the
+		// post chain has already normalised its orientation.
+		//
+		// Runs on whichever backend the suite was started with, so the pair of
+		// runs covers both.
+		{
+			const Mat4 projection = UIRenderer::BuildProjection(800, 600);
+
+			const Vec4 topLeft = projection * Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+			const Vec4 bottomRight = projection * Vec4(800.0f, 600.0f, 0.0f, 1.0f);
+
+			Check(std::fabs(topLeft.x + 1.0f) < 1e-4f && std::fabs(bottomRight.x - 1.0f) < 1e-4f,
+				  "UI x runs left to right across the viewport");
+
+			// The whole point: y = 0 is the *top* of what the viewer sees, and
+			// clip +1 is the top, on every backend.
+			Check(std::fabs(topLeft.y - 1.0f) < 1e-4f,
+				  "UI y = 0 is the top of the image, not the bottom");
+			Check(std::fabs(bottomRight.y + 1.0f) < 1e-4f,
+				  "and y = height is the bottom");
+
+			// Inside the depth range even though the pass has no depth buffer:
+			// a clip z outside [0, 1] is clipped away, which would draw nothing
+			// at all and look exactly like the bug above.
+			Check(topLeft.z >= 0.0f && topLeft.z <= 1.0f,
+				  "and its depth lands inside the clip range");
+		}
+
+		// A degenerate viewport must not divide by zero. The editor hands over
+		// a zero size on the frame before the dock layout has run.
+		{
+			const Mat4 projection = UIRenderer::BuildProjection(0, 0);
+			const Vec4 point = projection * Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+			Check(std::isfinite(point.x) && std::isfinite(point.y),
+				  "a zero-sized viewport still produces a finite projection");
+		}
+
+		// --- drawing outside a frame ----------------------------------------
+		// Every entry point is reachable before a command list exists, because
+		// a panel can be submitted from anywhere.
+		UIRenderer::Begin(640, 480);
+		UIRenderer::DrawRect({ 0.0f, 0.0f, 10.0f, 10.0f }, Vec4(1.0f, 1.0f, 1.0f, 1.0f));
+		UIRenderer::DrawImage({ 0.0f, 0.0f, 10.0f, 10.0f }, nullptr);
+		UIRenderer::End();
+		Check(true, "drawing with no command list is survivable");
+	}
+
 	// Baked fonts.
 	//
 	// The metrics table is the half of text rendering that has no GPU in it,
@@ -5726,6 +5786,7 @@ int RunTests(int argc, char** argv)
 	CheckCubemap();
 	CheckSky();
 	CheckFont();
+	CheckUIRenderer();
 	CheckViewportGrid();
 	CheckRenderersReady();
 	CheckFieldLabels();
