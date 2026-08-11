@@ -93,6 +93,19 @@
   .num { font-family: "Segoe UI", sans-serif; font-size: 8.5pt; color: #8f2d22; letter-spacing: 1.2pt; text-transform: uppercase; }
   .keyed { background: #f6f7f9; border: 1px solid #dcdfe4; border-radius: 3px; padding: 8pt 11pt; margin: 9pt 0; font-size: 9.5pt; break-inside: avoid; }
   .keyed h4 { margin-top: 0; }
+
+  /* Equations. Deliberately plain HTML rather than a maths library: the PDF is
+     printed by a headless browser with no network, so anything loaded from a
+     CDN would silently render as raw markup. */
+  .eq {
+    font-family: "Cambria Math", "Latin Modern Math", Georgia, serif;
+    font-size: 11pt; text-align: center; margin: 9pt 0 10pt;
+    break-inside: avoid; line-height: 1.7;
+  }
+  .eq .where { display: block; font-size: 8.5pt; color: #4a4f57; font-family: "Segoe UI", sans-serif; margin-top: 3pt; }
+  var { font-style: italic; }
+  .mat { display: inline-table; vertical-align: middle; border-left: 1.5px solid #16181d; border-right: 1.5px solid #16181d; padding: 1pt 3pt; margin: 0 2pt; }
+  .mat td { border: none; padding: 0.5pt 4pt; text-align: center; font-size: 9pt; }
 </style>
 </head>
 <body>
@@ -123,52 +136,76 @@
       <ol><li>Who it is for · What it assumes · The one idea</li></ol></li>
     <li>1 &nbsp; What the engine is
       <ol><li>Capability · Scale · The two applications</li></ol></li>
-    <li>2 &nbsp; The build order — the spine of the document
+    <li>2 &nbsp; The mathematics, and what it is for
       <ol>
-        <li>2.1 Why order is the hard part</li>
-        <li>2.2 Phase 0 — the scene model, before anything is drawn</li>
-        <li>2.3 Phase 1 — assets and identity</li>
-        <li>2.4 Phase 2 — the loop, physics, scripts, audio</li>
-        <li>2.5 Phase 3 — the renderer, abstraction first</li>
-        <li>2.6 Phase 4 — projects, runtime, packaging</li>
-        <li>2.7 Phase 5 — scripting for real</li>
-        <li>2.8 The interlude that matters most — build a game</li>
-        <li>2.9 Phase 6 — what the game proved was missing</li>
+        <li>2.1 Vectors, and what the two products are actually for</li>
+        <li>2.2 Why 4×4 matrices, and what the fourth number is</li>
+        <li>2.3 The spaces a vertex passes through</li>
+        <li>2.4 The projection matrix, derived rather than copied</li>
+        <li>2.5 The depth buffer, and why z is not distance</li>
+        <li>2.6 Rotations: why the engine holds two representations</li>
+        <li>2.7 Normals do not transform like positions</li>
+        <li>2.8 Colour: linear light, sRGB storage, and HDR</li>
+        <li>2.9 The rendering equation, and what PBR actually computes</li>
+        <li>2.10 Alpha compositing, and why transparency is order-dependent</li>
+        <li>2.11 Frustum culling: six planes and one absolute value</li>
+        <li>2.12 Skinning: one equation and the test that validates it</li>
+        <li>2.13 The fixed timestep and the interpolation alpha</li>
       </ol></li>
-    <li>3 &nbsp; Architecture
+    <li>3 &nbsp; How the GPU and the two APIs actually work
       <ol>
-        <li>3.1 Layers and the direction of dependency</li>
-        <li>3.2 The module boundary — engine as a DLL</li>
-        <li>3.3 The three "one description" systems</li>
+        <li>3.1 What the hardware does</li>
+        <li>3.2 OpenGL: a global state machine</li>
+        <li>3.3 Vulkan: everything explicit, nothing implicit</li>
+        <li>3.4 The same idea in both APIs, side by side</li>
+        <li>3.5 A feature, followed all the way down through both</li>
       </ol></li>
-    <li>4 &nbsp; The frame
+    <li>4 &nbsp; The build order — the spine of the document
       <ol>
-        <li>4.1 Fixed simulation, free rendering</li>
-        <li>4.2 The render path, pass by pass</li>
-        <li>4.3 The render graph</li>
+        <li>4.1 Why order is the hard part</li>
+        <li>4.2 Phase 0 — the scene model, before anything is drawn</li>
+        <li>4.3 Phase 1 — assets and identity</li>
+        <li>4.4 Phase 2 — the loop, physics, scripts, audio</li>
+        <li>4.5 Phase 3 — the renderer, abstraction first</li>
+        <li>4.6 Phase 4 — projects, runtime, packaging</li>
+        <li>4.7 Phase 5 — scripting for real</li>
+        <li>4.8 The interlude that matters most — build a game</li>
+        <li>4.9 Phase 6 — what the game proved was missing</li>
       </ol></li>
-    <li>5 &nbsp; Rendering engineering
+    <li>5 &nbsp; Architecture
       <ol>
-        <li>5.1 Designing an RHI over two very different APIs</li>
-        <li>5.2 Frames in flight, and everything that follows from them</li>
-        <li>5.3 Batching and instancing</li>
-        <li>5.4 Lighting: clustered forward</li>
-        <li>5.5 Shadows</li>
-        <li>5.6 Image-based lighting and reflection probes</li>
-        <li>5.7 Post-processing</li>
-        <li>5.8 Transparency, and why it is the hardest easy problem</li>
-        <li>5.9 Compute, and moving a simulation to the GPU</li>
+        <li>5.1 Layers and the direction of dependency</li>
+        <li>5.2 The module boundary — engine as a DLL</li>
+        <li>5.3 The three "one description" systems</li>
       </ol></li>
-    <li>6 &nbsp; The systems around the renderer
+    <li>6 &nbsp; The frame
       <ol>
-        <li>6.1 Scene, entities, reflection</li>
-        <li>6.2 Assets</li>
-        <li>6.3 Scripting in two languages</li>
-        <li>6.4 Physics and audio</li>
+        <li>6.1 Fixed simulation, free rendering</li>
+        <li>6.2 The render path, pass by pass</li>
+        <li>6.3 The render graph</li>
       </ol></li>
-    <li>7 &nbsp; What experience taught — the load-bearing invariants</li>
-    <li>8 &nbsp; Verification: how any of this is known to work</li>
-    <li>9 &nbsp; Where it stands, and what comes next</li>
+    <li>7 &nbsp; Rendering engineering
+      <ol>
+        <li>7.1 Designing an RHI over two very different APIs</li>
+        <li>7.2 Frames in flight, and everything that follows</li>
+        <li>7.3 Batching and instancing</li>
+        <li>7.4 Lighting: clustered forward</li>
+        <li>7.5 Shadows</li>
+        <li>7.6 Image-based lighting and reflection probes</li>
+        <li>7.7 Post-processing</li>
+        <li>7.8 Transparency, and why it is the hardest easy problem</li>
+        <li>7.9 Compute, and moving a simulation to the GPU</li>
+      </ol></li>
+    <li>8 &nbsp; The systems around the renderer
+      <ol>
+        <li>8.1 Scene, entities, reflection</li>
+        <li>8.2 Assets</li>
+        <li>8.3 Scripting in two languages</li>
+        <li>8.4 Physics and audio</li>
+      </ol></li>
+    <li>9 &nbsp; What experience taught — the load-bearing invariants</li>
+    <li>10 &nbsp; Verification: how any of this is known to work</li>
+    <li>11 &nbsp; Where it stands, and what comes next</li>
     <li>A &nbsp; Appendix — repository layout, build, tools</li>
   </ol>
 </section>
@@ -275,13 +312,676 @@ two drifting into two renderers.</p>
 
 <!-- ===================================================================== -->
 <section class="part">
-<h2>2 &nbsp; The build order</h2>
+<h2>2 &nbsp; The mathematics, and what it is for</h2>
+
+<p class="lede">Everything in this chapter is standard, and none of it is hard. It is
+collected here because engine code assumes all of it silently, and reading a renderer
+without it is like reading a database without knowing what an index is — the code
+parses, and the reasons do not.</p>
+
+<h3>2.1 &nbsp; Vectors, and what the two products are actually for</h3>
+
+<p>You know what a vector is. What matters is that the two multiplication operations
+each answer one specific question, and essentially every use in a renderer is one of
+those two questions.</p>
+
+<p><b>The dot product answers "how much do these two directions agree?"</b> For unit
+vectors <var>a</var>·<var>b</var> = cos θ: it is 1 when they point the same way, 0 when
+perpendicular, negative when opposed.</p>
+
+<div class="eq">
+<var>a</var> · <var>b</var> = <var>a<sub>x</sub>b<sub>x</sub></var> + <var>a<sub>y</sub>b<sub>y</sub></var> + <var>a<sub>z</sub>b<sub>z</sub></var> = |<var>a</var>| |<var>b</var>| cos θ
+</div>
+
+<p>That single fact is doing the work in: <b>diffuse lighting</b> (a surface facing the
+light receives light in proportion to <var>n</var>·<var>l</var> — the same energy spread
+over a larger area at a glancing angle); <b>backface culling</b> (is the triangle's
+normal pointing away from the camera?); <b>depth sorting</b> (a point's distance
+<em>along the view direction</em> is (<var>p</var> − <var>eye</var>)·<var>forward</var>,
+which is what the particle renderer sorts by); and <b>frustum tests</b> (the signed
+distance from a point to a plane is a dot product).</p>
+
+<p><b>The cross product answers "give me a direction perpendicular to both."</b> Its
+main use in this engine is not geometry but <em>building coordinate frames</em>: given
+one axis, you need two more at right angles to it, and two cross products get you
+there. The camera's view matrix is built this way, and so is the cone the particle
+emitter spawns into:</p>
+
+<pre><code><span class="c">// An orthonormal frame around the axis. The reference axis just has to not</span>
+<span class="c">// be parallel; Y fails only when the axis is Y.</span>
+<span class="k">const</span> Vec3 reference = std::fabs(axis.y) &lt; 0.99f ? Vec3(0.0f, 1.0f, 0.0f)
+                                             : Vec3(1.0f, 0.0f, 0.0f);
+<span class="k">const</span> Vec3 tangent   = Math::Normalize(Math::Cross(reference, axis));
+<span class="k">const</span> Vec3 bitangent = Math::Cross(axis, tangent);</code></pre>
+
+<p>Note the guard. The cross product of two parallel vectors is the zero vector, which
+normalises to NaN and produces particles at infinity. Any time you build a frame from a
+single direction you need a fallback reference axis, and this is the idiom.</p>
+
+<h3>2.2 &nbsp; Why 4×4 matrices, and what the fourth number is</h3>
+
+<p>A 3×3 matrix can rotate, scale and shear, but it <b>cannot translate</b>: every such
+matrix maps the origin to the origin. Since moving things is rather central to a game
+engine, we need something more.</p>
+
+<p>The trick — <b>homogeneous coordinates</b> — is to add a fourth component <var>w</var>
+and work in 4D. A 3D point (<var>x</var>,&nbsp;<var>y</var>,&nbsp;<var>z</var>) becomes
+(<var>x</var>,&nbsp;<var>y</var>,&nbsp;<var>z</var>,&nbsp;1) and a 3D <em>direction</em>
+becomes (<var>x</var>,&nbsp;<var>y</var>,&nbsp;<var>z</var>,&nbsp;0). Now the fourth
+column of a 4×4 matrix can hold a translation, and it is multiplied by <var>w</var>:</p>
+
+<div class="eq">
+<table class="mat"><tr><td>1</td><td>0</td><td>0</td><td><var>t<sub>x</sub></var></td></tr>
+<tr><td>0</td><td>1</td><td>0</td><td><var>t<sub>y</sub></var></td></tr>
+<tr><td>0</td><td>0</td><td>1</td><td><var>t<sub>z</sub></var></td></tr>
+<tr><td>0</td><td>0</td><td>0</td><td>1</td></tr></table>
+<table class="mat"><tr><td><var>x</var></td></tr><tr><td><var>y</var></td></tr><tr><td><var>z</var></td></tr><tr><td><var>w</var></td></tr></table>
+&nbsp;=&nbsp;
+<table class="mat"><tr><td><var>x</var> + <var>w&thinsp;t<sub>x</sub></var></td></tr><tr><td><var>y</var> + <var>w&thinsp;t<sub>y</sub></var></td></tr><tr><td><var>z</var> + <var>w&thinsp;t<sub>z</sub></var></td></tr><tr><td><var>w</var></td></tr></table>
+<span class="where">A point (w = 1) is translated. A direction (w = 0) is not — which is exactly right.</span>
+</div>
+
+<blockquote><p><b>This is not notation, it is a correctness rule you will use constantly.</b>
+Transform a <em>position</em> with <var>w</var> = 1 and a <em>direction</em> with
+<var>w</var> = 0. Get it wrong and a normal or a velocity picks up the object's
+translation, which typically looks like geometry stretching toward the world origin.
+You can see the rule applied in the particle emitter, where the cone axis is a
+direction and the spawn point is a position:</p></blockquote>
+
+<pre><code><span class="c">// A direction: w = 0, so the emitter's position does not leak into it.</span>
+<span class="k">const</span> Vec3 axis   = local ? axisAuthored
+                         : Math::Normalize(Vec3(world * Vec4(axisAuthored, 0.0f)));
+<span class="c">// A position: the translation column of the matrix *is* the answer.</span>
+<span class="k">const</span> Vec3 origin = local ? Vec3(0.0f) : Vec3(world[3]);</code></pre>
+
+<p><b>Composition is multiplication, and it does not commute.</b> Rotating then
+translating is not the same as translating then rotating. The engine builds each
+entity's local matrix in the conventional scale → rotate → translate order:</p>
+
+<pre><code>Mat4 GetLocalTransform() <span class="k">const</span>
+{
+    Mat4 rotation = Math::ToMat4(Math::FromEuler(Rotation));
+    <span class="k">return</span> Math::Translate(Mat4(1.0f), Position) *
+           rotation *
+           Math::Scale(Mat4(1.0f), Scale);
+}</code></pre>
+
+<p>Read right to left, as the vector experiences it: scale the object about its own
+origin, then rotate it about its own origin, then move it. Any other order produces the
+thing every beginner sees once — an object that orbits the world origin when you scale
+it, or whose rotation is skewed by its scale.</p>
+
+<h3>2.3 &nbsp; The spaces a vertex passes through</h3>
+
+<p>A vertex makes the same journey every frame, through five coordinate systems. Almost
+every rendering bug is a value being used in the wrong one of these.</p>
+
+<pre class="ascii"><code>  model space      the mesh as the artist made it, origin at its own centre
+       |  × model matrix              (this object's world transform)
+  world space      everything in one shared frame; lights live here
+       |  × view matrix               (the inverse of the camera's transform)
+  view space       camera at the origin, looking down −Z
+       |  × projection matrix         (applies the lens)
+  clip space       4D, and w now holds the view distance
+       |  ÷ w                         ← the perspective divide, done by hardware
+  NDC              x,y in [−1,1], z in [0,1]; everything outside is clipped
+       |  viewport transform          (also hardware)
+  screen space     pixels</code></pre>
+
+<p>Two observations that matter more than the diagram:</p>
+<ul>
+  <li><b>The view matrix is the inverse of the camera's world transform.</b> There is no
+  "camera" in the maths — moving the camera left is identical to moving the entire world
+  right, and that is literally what the matrix does.</li>
+  <li><b>The perspective divide is the only non-linear step</b>, and it is where
+  perspective actually happens. The projection matrix does not make distant things
+  smaller; it arranges for <var>w</var> to hold the view distance so that the divide
+  does.</li>
+</ul>
+
+<h3>2.4 &nbsp; The projection matrix, derived rather than copied</h3>
+
+<p>Start from similar triangles. A point at view-space depth <var>d</var> (distance in
+front of the camera) and height <var>y</var> projects onto a screen plane at height
+<var>y</var>/<var>d</var>, scaled by how wide the lens is. With a vertical field of view
+<var>fov</var>, the half-height of the visible area at distance <var>d</var> is
+<var>d</var>·tan(<var>fov</var>/2), so:</p>
+
+<div class="eq">
+<var>y</var><sub>ndc</sub> = <var>y</var> / (<var>d</var> · tan(<var>fov</var>/2)) &emsp;&emsp;
+<var>x</var><sub>ndc</sub> = <var>x</var> / (<var>d</var> · tan(<var>fov</var>/2) · <var>aspect</var>)
+</div>
+
+<p>The division by <var>d</var> is the hardware's job, so the matrix's task is to put
+<var>d</var> into <var>w</var> and pre-scale <var>x</var> and <var>y</var> by the
+cotangent terms. In a right-handed view space the camera looks down −<var>Z</var>, so
+<var>d</var> = −<var>z</var>, which is where the −1 comes from:</p>
+
+<pre><code>Mat4 Perspective(<span class="k">float</span> verticalFovRadians, <span class="k">float</span> aspect,
+                 <span class="k">float</span> nearPlane, <span class="k">float</span> farPlane)
+{
+    <span class="c">// Right-handed, depth in [0, 1]. The [-1, 1] form in most textbooks</span>
+    <span class="c">// differs in [2].z and [3].z, and against a Vulkan-style clip volume it</span>
+    <span class="c">// throws away half the depth range while still producing a picture.</span>
+    <span class="k">const float</span> tanHalfFov = std::tan(verticalFovRadians * 0.5f);
+
+    Mat4 result(0.0f);
+    result[0].x =  1.0f / (aspect * tanHalfFov);          <span class="c">// x scale</span>
+    result[1].y =  1.0f / tanHalfFov;                     <span class="c">// y scale</span>
+    result[2].z =  farPlane / (nearPlane - farPlane);     <span class="c">// z remap</span>
+    result[2].w = -1.0f;                                  <span class="c">// w := -z  == d</span>
+    result[3].z = -(farPlane * nearPlane) / (farPlane - nearPlane);
+    <span class="k">return</span> result;
+}</code></pre>
+
+<p><code>result[2].w = -1</code> is the entire trick: it copies −<var>z</var> into
+<var>w</var>. The two <var>z</var> entries then remap depth into the range the hardware
+wants.</p>
+
+<blockquote><p><b>Depth ranges differ between APIs, and this is a real portability
+issue.</b> OpenGL's traditional clip volume has <var>z</var> in [−1,&nbsp;1]; Vulkan uses
+[0,&nbsp;1]. Using the textbook [−1,&nbsp;1] matrix against a [0,&nbsp;1] volume throws
+away half your depth precision while still producing a plausible picture. This engine
+uses [0,&nbsp;1] for both and tells OpenGL to match with
+<code>glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)</code>. Forget that call and every
+shadow comparison passes, and the scene renders uniformly lit.</p></blockquote>
+
+<h3>2.5 &nbsp; The depth buffer, and why z is not distance</h3>
+
+<p>Work out what the matrix above does to depth. With <var>d</var> = −<var>z</var>:</p>
+
+<div class="eq">
+<var>z</var><sub>ndc</sub> = <var>f</var>(<var>d</var> − <var>n</var>) / (<var>d</var>(<var>f</var> − <var>n</var>))
+<span class="where">n and f are the near and far plane distances</span>
+</div>
+
+<p>That is a <b>hyperbola in <var>d</var></b>, not a line. The consequence is worth
+seeing numerically, with this engine's usual near plane of 0.01 and far of 1000:</p>
+
+<table>
+  <tr><th>View distance <var>d</var></th><th><var>z</var><sub>ndc</sub></th><th>Share of the buffer used so far</th></tr>
+  <tr><td>0.01 (near plane)</td><td>0.000000</td><td>—</td></tr>
+  <tr><td>0.1</td><td>0.900901</td><td>90% of the range in the first 0.1 units</td></tr>
+  <tr><td>1</td><td>0.990010</td><td>99%</td></tr>
+  <tr><td>2</td><td>0.995010</td><td>99.5%</td></tr>
+  <tr><td>20</td><td>0.999510</td><td>99.95%</td></tr>
+  <tr><td>200</td><td>0.999960</td><td>99.996%</td></tr>
+  <tr><td>1000 (far plane)</td><td>1.000000</td><td>100%</td></tr>
+</table>
+
+<p>Two practical consequences follow, and both have bitten this engine.</p>
+
+<p><b>Precision.</b> Almost the entire buffer is spent on the first fraction of the
+range, so distant surfaces get very few distinguishable depth values and start to
+z-fight. The fix is not more bits, it is a <em>larger near plane</em>: the ratio
+<var>f</var>/<var>n</var> is what governs precision, so moving the near plane from 0.01
+to 0.1 helps enormously and moving the far plane rarely helps at all.</p>
+
+<p><b>Depth is not a distance and must never be used as one.</b> This is precisely the
+bug described in §6.8: a published weighting formula used <code>gl_FragCoord.z</code> as
+though it varied usefully with distance. Look at the table — between 2 and 200 units it
+varies by 0.00005. The formula was numerically dead and the picture looked plausible
+anyway.</p>
+
+<p>There is a clean way out, and it falls out of §2.4. Since <var>w</var> holds the view
+distance, and the hardware interpolates <b>1/<var>w</var></b> linearly across a triangle
+(which is what makes perspective-correct texturing work), the fragment shader is handed
+that reciprocal for free:</p>
+
+<div class="eq">
+<code>float d = 1.0 / gl_FragCoord.w;</code> &emsp;→&emsp; linear view distance, in world units
+</div>
+
+<h3>2.6 &nbsp; Rotations: why the engine holds two representations</h3>
+
+<p><b>Euler angles</b> are three numbers — yaw, pitch, roll — applied in some fixed
+order. They are what a human wants to type, and they are what the inspector shows. They
+have two failings: the order is a convention you must state, and at certain
+orientations two of the three axes align and you lose a degree of freedom (gimbal
+lock).</p>
+
+<p><b>Quaternions</b> are four numbers encoding an axis and an angle in a form that
+composes by multiplication, never gimbal-locks, and — crucially for animation —
+interpolates correctly. Interpolating Euler angles between two orientations swings
+through nonsense; spherical interpolation between quaternions takes the shortest arc at
+constant angular speed.</p>
+
+<p>The engine's split follows from that: <b>components store Euler angles</b>, because
+they are authored by a person and serialized to a text file a person may edit;
+<b>composition and animation use quaternions</b>, converted at the boundary, as
+<code>GetLocalTransform</code> above shows. Store what humans edit, compute in what maths
+prefers, convert in one place.</p>
+
+<h3>2.7 &nbsp; Normals do not transform like positions</h3>
+
+<p>A surface normal is perpendicular to the surface, and perpendicularity does not
+survive non-uniform scaling. Squash a sphere along Y and the normals of a naively
+transformed mesh no longer point away from the surface — lighting goes subtly, and then
+obviously, wrong.</p>
+
+<div class="eq">
+<var>n</var>′ = (<var>M</var><sup>−1</sup>)<sup>T</sup> <var>n</var>
+<span class="where">the inverse transpose of the model matrix, and for rotation-only matrices it equals M</span>
+</div>
+
+<p>The related engine-level version of the same idea: a particle emitter in local space
+scales its particles by the <em>longest basis axis</em> of its transform rather than by
+each axis separately, because a particle is a round thing and a non-uniform scale has no
+single correct answer for it.</p>
+
+<h3>2.8 &nbsp; Colour: linear light, sRGB storage, and HDR</h3>
+
+<p>This is the topic that produces the most "why does it look washed out" hours, and the
+rule is short: <b>light adds linearly, but images are not stored linearly.</b></p>
+
+<p>Displays and image files use roughly a <var>γ</var>&nbsp;≈&nbsp;2.2 curve (sRGB),
+which spends more of its 8 bits on darks, where the eye is more sensitive. Physical
+light does not work that way: two lamps are exactly twice one lamp. So the pipeline
+must be:</p>
+
+<ol>
+  <li><b>Decode on read.</b> Colour textures are sRGB and are converted to linear when
+  sampled — done by the hardware if the texture format says <code>_SRGB</code>. This is
+  why the engine loads sprites and albedo maps as sRGB and <em>data</em> maps
+  (roughness, normals, masks) as linear: a normal map is not a picture and decoding it
+  would corrupt it.</li>
+  <li><b>Do all lighting in linear space</b>, in a floating-point buffer. Values are not
+  confined to [0,&nbsp;1] — the sun is not "1.0 bright" — and this is what HDR means
+  here.</li>
+  <li><b>Tonemap once, at the end</b>, mapping the unbounded linear range into
+  displayable [0,&nbsp;1] with a filmic curve (ACES), then encode back to
+  <var>γ</var>.</li>
+</ol>
+
+<p>Hence a load-bearing invariant of the shading code: <b>the PBR shader outputs linear
+HDR only.</b> Any pass that applies a tone curve early makes every later pass wrong, and
+the error compounds silently because each individual image still looks like an image.</p>
+
+<h3>2.9 &nbsp; The rendering equation, and what PBR actually computes</h3>
+
+<p>All of shading approximates one integral: the light leaving a point toward the eye is
+the sum, over every incoming direction, of light arriving times the fraction of it the
+surface sends toward the eye.</p>
+
+<div class="eq">
+<var>L<sub>o</sub></var>(<var>v</var>) = ∫<sub>Ω</sub> <var>f<sub>r</sub></var>(<var>l</var>, <var>v</var>) <var>L<sub>i</sub></var>(<var>l</var>) (<var>n</var>·<var>l</var>) d<var>ω</var>
+<span class="where">f<sub>r</sub> is the BRDF — the surface's answer to "given light from l, how much goes to v?"</span>
+</div>
+
+<p>Note the <var>n</var>·<var>l</var> from §2.1 sitting inside it. "Physically based"
+means choosing an <var>f<sub>r</sub></var> that conserves energy and is derived from a
+model of the surface rather than from artistic knobs. This engine uses Cook-Torrance,
+whose specular term is:</p>
+
+<div class="eq">
+<var>f</var><sub>spec</sub> = <var>D</var>(<var>h</var>) · <var>F</var>(<var>v</var>,<var>h</var>) · <var>G</var>(<var>l</var>,<var>v</var>) &nbsp;/&nbsp; (4 (<var>n</var>·<var>l</var>)(<var>n</var>·<var>v</var>))
+</div>
+
+<p>The three terms model a surface as a field of microscopic mirrors:</p>
+<ul>
+  <li><b><var>D</var> — distribution</b> (GGX). What fraction of those micro-mirrors are
+  angled to bounce light from <var>l</var> into <var>v</var>? This is what roughness
+  controls, and it is the shape of the highlight.</li>
+  <li><b><var>F</var> — Fresnel</b> (Schlick's approximation). Everything becomes more
+  reflective at grazing angles — the reason a road looks like water toward the horizon.</li>
+  <li><b><var>G</var> — geometry</b> (Smith). Micro-mirrors shadow and mask each other
+  at glancing angles; this term removes energy that would otherwise be double-counted.</li>
+</ul>
+
+<p><b>Metallic/roughness</b> is the artist-facing parameterisation of that. Metals have
+no diffuse component and tint their reflection with their own colour; dielectrics have a
+diffuse colour and a colourless ~4% reflection. Rather than expose those as separate
+knobs, one <code>Metallic</code> value blends between the two behaviours, and
+<code>Roughness</code> drives <var>D</var>.</p>
+
+<h4>Why image-based lighting needs three precomputed things</h4>
+<p>The integral above has to be evaluated against the <em>whole environment</em>, not
+just a few point lights, and you cannot do that per pixel per frame. The standard
+split-sum approximation factors it into parts that can be precomputed, and this is
+exactly why the engine builds three artefacts from one environment map (§7.6):</p>
+<ul>
+  <li>an <b>irradiance cube</b> — the diffuse half, integrated over the hemisphere once;</li>
+  <li>a <b>prefiltered cube with roughness in its mips</b> — the specular half, where
+  rougher means a blurrier mip, so a roughness value becomes a mip level;</li>
+  <li>a <b>2D BRDF lookup table</b> — the remaining scale and bias, which depend only on
+  roughness and <var>n</var>·<var>v</var> and so are the same for every scene.</li>
+</ul>
+
+<h3>2.10 &nbsp; Alpha compositing, and why transparency is order-dependent</h3>
+
+<p>Blending a translucent fragment over what is already there is the <b>over</b>
+operator:</p>
+
+<div class="eq">
+<var>C</var><sub>result</sub> = <var>α<sub>s</sub></var> <var>C<sub>s</sub></var> + (1 − <var>α<sub>s</sub></var>) <var>C<sub>d</sub></var>
+</div>
+
+<p>Apply it twice, in the two possible orders, and the results differ — the operator is
+not commutative. <b>That single fact is the whole difficulty of transparency.</b> Opaque
+geometry escapes it because the depth test discards all but the nearest fragment, so
+order stops mattering; translucent geometry has no such escape and must either be sorted
+or use a formulation that does not care.</p>
+
+<p>Additive blending is the trivial escape: <var>C</var> = <var>C<sub>s</sub></var> +
+<var>C<sub>d</sub></var> is commutative because addition is. That is why fire and sparks
+are cheap and always correct, and why anything that reads as <em>matter</em> rather than
+<em>light</em> is not.</p>
+
+<p>Weighted-blended OIT (§6.8, §7.8) takes the other route — two accumulators that are
+each order-independent by construction:</p>
+
+<div class="eq">
+accum = Σ <var>w<sub>i</sub></var> · (<var>C<sub>i</sub></var> <var>α<sub>i</sub></var>, <var>α<sub>i</sub></var>) &emsp;&emsp;
+reveal = Π (1 − <var>α<sub>i</sub></var>)
+</div>
+<div class="eq">
+<var>C</var> = (accum.rgb / accum.a) · (1 − reveal) + <var>C</var><sub>background</sub> · reveal
+</div>
+
+<p>A sum and a product: neither cares about order. Now look at what happens if every
+<var>w<sub>i</sub></var> is the same constant <var>k</var>. It factors out of both the
+numerator and the denominator of accum.rgb&nbsp;/&nbsp;accum.a and <b>cancels
+exactly</b> — the weighting silently becomes a plain average. That is not a hypothetical;
+it is the bug §7.8 describes, and this equation is why replacing the weight with the
+literal <code>1.0</code> produced a pixel-identical image.</p>
+
+<h3>2.11 &nbsp; Frustum culling: six planes and one absolute value</h3>
+
+<p>The visible region is a truncated pyramid bounded by six planes. Those planes can be
+extracted directly from the combined view-projection matrix by adding and subtracting
+its rows — a point is inside the frustum exactly when its clip coordinates satisfy
+−<var>w</var> ≤ <var>x</var>,<var>y</var> ≤ <var>w</var> and 0 ≤ <var>z</var> ≤
+<var>w</var>, and rearranging those inequalities gives the plane equations.</p>
+
+<p>Testing a box against a plane looks like it needs eight corner tests. It does not.
+For a box with centre <var>c</var> and half-extents <var>e</var>, the projection of the
+box onto the plane normal has radius:</p>
+
+<div class="eq">
+<var>r</var> = <var>e<sub>x</sub></var>|<var>n<sub>x</sub></var>| + <var>e<sub>y</sub></var>|<var>n<sub>y</sub></var>| + <var>e<sub>z</sub></var>|<var>n<sub>z</sub></var>|
+<span class="where">and the box is outside when the centre's signed distance is less than −r</span>
+</div>
+
+<p>The absolute values are the entire trick, and the same trick reappears when a rotated
+box needs a world-space bounding box: taking the absolute value of the transform's basis
+rows gives a box that contains the rotated one. The engine's <code>TransformBounds</code>
+does exactly this, which is why a rotated particle quad still gets a correct bound.</p>
+
+<h3>2.12 &nbsp; Skinning: one equation and the test that validates it</h3>
+
+<p>A skinned vertex is attached to several bones with weights summing to 1. Each bone
+contributes the vertex transformed <em>out of</em> bind pose and <em>into</em> the bone's
+current pose:</p>
+
+<div class="eq">
+<var>v</var>′ = Σ<sub><var>i</var></sub> <var>w<sub>i</sub></var> · <var>M<sub>i</sub></var> · <var>B<sub>i</sub></var><sup>−1</sup> · <var>v</var>
+<span class="where">B<sub>i</sub><sup>−1</sup> is the inverse bind matrix; M<sub>i</sub> is the bone's current world matrix</span>
+</div>
+
+<p>The inverse bind matrix is the piece newcomers omit or misplace, and its meaning is
+simple: it moves the vertex from model space into the bone's local space <em>as the mesh
+was authored</em>, so that the bone's current transform then means "relative to where I
+started".</p>
+
+<p>That gives a beautiful test, and it is the one the engine uses. At the bind pose,
+<var>M<sub>i</sub></var> = <var>B<sub>i</sub></var>, so every product must be the
+identity. One assertion — every bone's skinning matrix is the identity at bind pose —
+simultaneously catches wrong inverse binds, wrong multiplication order, and matrices
+computed in the wrong space.</p>
+
+<h3>2.13 &nbsp; The fixed timestep and the interpolation alpha</h3>
+
+<p>Physics must advance in equal steps or it is not reproducible: a heavier frame would
+mean a larger step, a larger integration error, and a different outcome. But frames do
+not arrive at equal intervals. The standard resolution is an accumulator:</p>
+
+<pre class="ascii"><code>accumulator += min(frameTime, 0.25)      // clamped, so a stall is forgiven
+while accumulator >= dt:                 // zero or more times
+    simulate(dt)
+    accumulator -= dt
+alpha = accumulator / dt                 // in [0, 1): how far into the next step</code></pre>
+
+<p>The clamp matters: without it, a two-second stall would try to simulate two seconds
+of physics in one frame, taking even longer, and the loop never recovers — the "spiral of
+death". Forgiving the debt is the standard, correct choice.</p>
+
+<p><var>alpha</var> is the interesting part. At 240 Hz with a 60 Hz simulation, three
+frames in four run <em>zero</em> steps. Rendering the simulation state directly would
+show the same positions for four frames and then jump. Instead the renderer blends the
+previous and current simulation states:</p>
+
+<div class="eq">
+<var>p</var><sub>render</sub> = <var>p</var><sub>previous</sub> · (1 − <var>alpha</var>) + <var>p</var><sub>current</sub> · <var>alpha</var>
+</div>
+
+<p>This is why <code>Application::GetInterpolationAlpha()</code> exists and why physics
+transform sync happens per <em>frame</em> rather than per step — and why a script that
+moves a camera on the fixed step fights the interpolation rather than benefiting from
+it (§6.1).</p>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>3 &nbsp; How the GPU and the two APIs actually work</h2>
+
+<p class="lede">You cannot design an abstraction over Vulkan and OpenGL without knowing
+what each is abstracting. This chapter is the mental model, and it ends with one feature
+followed all the way down through both.</p>
+
+<h3>3.1 &nbsp; What the hardware does</h3>
+
+<p>A GPU is a machine for running the same small program over a very large number of
+independent items. A draw call feeds it in this shape:</p>
+
+<pre class="ascii"><code>vertex buffer -> [vertex shader]     one invocation per vertex; outputs clip-space position
+                        |
+                 [primitive assembly + clipping]
+                        |
+                 [rasteriser]        fixed function: which pixels does this triangle cover?
+                        |            interpolates the vertex outputs across them
+                 [fragment shader]   one invocation per covered pixel; outputs colour
+                        |
+                 [depth test, blend] fixed function
+                        v
+                  render target</code></pre>
+
+<p>Three properties of this machine explain most API design decisions:</p>
+<ul>
+  <li><b>Invocations cannot see each other and run in an unspecified order.</b> That is
+  what makes it fast and why transparency (§2.10) is hard: order is not yours to
+  choose.</li>
+  <li><b>It runs asynchronously from the CPU.</b> You submit work and it completes
+  later. Every synchronisation concept in either API exists because of this one
+  fact.</li>
+  <li><b>Switching state is expensive; changing data is cheap.</b> That is why draws are
+  batched by pipeline state (§7.3) rather than by object.</li>
+</ul>
+
+<h3>3.2 &nbsp; OpenGL: a global state machine</h3>
+
+<p>OpenGL models the GPU as one enormous global object with hundreds of settings. You
+mutate it with calls, then say "draw", and the draw uses whatever state happens to be
+set. There is no handle for "the pipeline" — the pipeline <em>is</em> the current
+state.</p>
+
+<pre><code><span class="c">// OpenGL: bind, mutate, draw. The object being edited is whatever was</span>
+<span class="c">// bound most recently, which is why order-of-calls is load-bearing.</span>
+glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+glDrawBuffers(2, buffers);            <span class="c">// which attachments outputs go to</span>
+glEnable(GL_BLEND);
+glBlendFunci(0, GL_ONE, GL_ONE);      <span class="c">// per-attachment blend</span>
+glUseProgram(program);
+glBindVertexArray(vao);
+glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, <span class="k">nullptr</span>);</code></pre>
+
+<p>The driver handles memory allocation, residency and synchronisation for you. That is
+genuinely convenient and it is also the problem: those decisions are made by heuristics
+you cannot see, on a thread you do not control, and when they are wrong you have no
+lever. The state machine also has a specific failure mode worth naming, because it
+caused a real bug here:</p>
+
+<blockquote><p><b>Global state persists into whatever runs next.</b>
+<code>glDrawBuffers</code> is framebuffer state, not draw state, so a pass that selected
+a subset of attachments leaves the <em>next</em> pass writing into that selection. The
+engine now sets it unconditionally on every pass. A related trap: with a subset
+selected, <code>glClearBufferfv</code> indexes into the <em>draw-buffer list</em>, not
+the framebuffer — selecting attachments 1 and 2 means clearing indices 0 and 1.</p></blockquote>
+
+<h3>3.3 &nbsp; Vulkan: everything explicit, nothing implicit</h3>
+
+<p>Vulkan removes the driver's judgement and hands you the decisions. There is far more
+code, and in exchange nothing is guessed on your behalf. The concepts you must know:</p>
+
+<table>
+  <tr><th>Concept</th><th>What it is, and why it exists</th></tr>
+  <tr><td><b>Physical / logical device</b></td><td>The GPU, and your connection to it. You query features (§3.5 shows why) and enable only what you use.</td></tr>
+  <tr><td><b>Queue</b></td><td>Where work is submitted. Work is a <i>list</i> you build, not a series of calls that execute.</td></tr>
+  <tr><td><b>Command buffer</b></td><td>A recorded list of GPU commands. Recording is CPU work; submission is when the GPU sees it. This is the single biggest departure from OpenGL.</td></tr>
+  <tr><td><b>Memory + buffers/images</b></td><td>You allocate memory and bind resources to it, choosing <i>device-local</i> (fast for the GPU) or <i>host-visible</i> (the CPU can write it). Getting this wrong is a performance cliff, not an error — see §7.9.</td></tr>
+  <tr><td><b>Descriptor set</b></td><td>A pre-baked bundle saying "this buffer is binding 0, that texture is binding 1". Replaces OpenGL's bind-before-draw with bind-a-set-of-bindings.</td></tr>
+  <tr><td><b>Pipeline</b></td><td>An immutable object baking shaders, blend state, depth state and vertex layout together. Created up front so the driver compiles once instead of guessing at draw time.</td></tr>
+  <tr><td><b>Render pass / dynamic rendering</b></td><td>Declares the attachments being drawn into. Vulkan 1.3's <i>dynamic rendering</i> lets you declare them inline instead of building objects ahead of time — this engine uses it exclusively, which is what makes §6.3's per-pass attachment subsets natural.</td></tr>
+  <tr><td><b>Fence / semaphore / barrier</b></td><td>CPU waits for GPU; GPU waits for GPU; and "this memory was written by X and will be read by Y". Nothing is implicit.</td></tr>
+  <tr><td><b>Swapchain</b></td><td>The images you present to. Owned by the presentation engine, which is a separate thing from the queues — a distinction that causes a specific crash, below.</td></tr>
+</table>
+
+<p>The mental shift is from <em>calls that do things</em> to <em>lists that are
+submitted</em>. Most Vulkan bugs are lifetime bugs: something was destroyed or rewritten
+while a submitted list still referred to it, and the symptom appears frames later. This
+is the origin of the frames-in-flight discipline in §7.2, and of an invariant that reads
+oddly until you know the model:</p>
+
+<blockquote><p><b>A swapchain is retired, not destroyed and replaced.</b> Pass the old
+handle as <code>oldSwapchain</code> and destroy it only after the new one exists —
+<code>vkDeviceWaitIdle</code> waits for the <em>queues</em>, and the presentation engine
+is not a queue. This crashed on unchecking VSync.</p></blockquote>
+
+<h3>3.4 &nbsp; The same idea in both APIs, side by side</h3>
+
+<table>
+  <tr><th>Idea</th><th>OpenGL</th><th>Vulkan</th></tr>
+  <tr><td>Shader program</td><td><code>glCreateProgram</code>, GLSL compiled by the driver</td><td>SPIR-V module, compiled offline or at load</td></tr>
+  <tr><td>Draw state</td><td>Whatever is currently set</td><td>An immutable pipeline object</td></tr>
+  <tr><td>Binding resources</td><td><code>glBindTextureUnit</code>, <code>glBindBufferBase</code></td><td>Descriptor sets, bound as a group</td></tr>
+  <tr><td>Render target</td><td>FBO + <code>glDrawBuffers</code></td><td>Dynamic rendering attachment list</td></tr>
+  <tr><td>Uploading</td><td><code>glBufferSubData</code> — driver decides how</td><td>Staging buffer + explicit copy + barrier</td></tr>
+  <tr><td>Synchronisation</td><td>Implicit; <code>glMemoryBarrier</code> for image/SSBO writes</td><td>Explicit barriers, semaphores and fences</td></tr>
+  <tr><td>Image origin</td><td>Bottom-left</td><td>Top-left — see §7.7, this one is a menace</td></tr>
+</table>
+
+<h3>3.5 &nbsp; A feature, followed all the way down through both</h3>
+
+<p>Take <b>weighted-blended transparency</b> (the maths is §2.10). It is a good worked
+example because it touches every layer: shaders, pipeline state, render targets,
+per-attachment blending, a device feature, and a resolve pass. Here is the whole descent,
+from what the engine asks for to what each API does.</p>
+
+<h4>1 — What the feature needs</h4>
+<p>Two extra colour attachments alongside the scene's HDR colour, sharing its depth
+buffer so particles depth-test against solid geometry; particles drawn once, writing two
+outputs with <em>different blend equations per attachment</em> (accumulation adds,
+revealage multiplies); and a fullscreen pass that reads both and composites.</p>
+
+<h4>2 — The shader writes two outputs</h4>
+<pre><code><span class="c">// Attachment 1: the running sum of premultiplied colour, weighted by depth.</span>
+layout(location = 0) out vec4  o_Accumulate;
+<span class="c">// Attachment 2: how much background is still showing.</span>
+layout(location = 1) out float o_Revealage;
+
+<span class="c">// NOT gl_FragCoord.z -- see 2.5. w holds the view distance.</span>
+<span class="k">float</span> d = 1.0 / max(gl_FragCoord.w, 1e-6);
+<span class="k">float</span> weight = color.a * clamp(kUnitWeightDistance / max(d, 1e-3), 1e-2, 3e3);
+
+o_Accumulate = vec4(color.rgb * color.a, color.a) * weight;
+o_Revealage  = color.a;   <span class="c">// blend equation dst *= (1 - src) makes this a product</span></code></pre>
+
+<p>Note that <code>location</code> here means "the <var>n</var>th attachment this pass
+bound", not "attachment <var>n</var> of the target". That indirection is the source of
+two of the traps below.</p>
+
+<h4>3 — The RHI request</h4>
+<p>The engine asks in API-neutral terms: a graphics pipeline whose colour formats are
+the two attachment formats, with per-attachment blend presets.</p>
+<pre><code>GraphicsPipelineDesc desc;
+desc.ColorFormats        = { Format::R16G16B16A16_SFLOAT, Format::R8_UNORM };
+desc.BlendPerAttachment  = { BlendPreset::WeightedAccumulate,   <span class="c">// ONE, ONE</span>
+                             BlendPreset::WeightedRevealage };  <span class="c">// ZERO, ONE_MINUS_SRC</span>
+desc.DepthStencil.DepthTestEnable  = <span class="k">true</span>;   <span class="c">// against the scene's depth</span>
+desc.DepthStencil.DepthWriteEnable = <span class="k">false</span>;  <span class="c">// particles do not occlude each other</span></code></pre>
+
+<h4>4a — What Vulkan does with that</h4>
+<p>The blend state is baked into the immutable pipeline object at creation, one
+<code>VkPipelineColorBlendAttachmentState</code> per attachment. And here the API
+imposes something OpenGL does not:</p>
+
+<pre><code>std::vector&lt;VkPipelineColorBlendAttachmentState&gt; blendAttachments(
+    std::max&lt;<span class="k">size_t</span>&gt;(1, m_Desc.ColorFormats.size()));
+
+<span class="c">// Attachments may only differ from one another where the device allows it.</span>
+<span class="c">// Without independentBlend, Vulkan requires every attachment to match the</span>
+<span class="c">// first, so honouring the request would be a validation error rather than</span>
+<span class="c">// a wrong picture.</span>
+<span class="k">const bool</span> perAttachment = !m_Desc.BlendPerAttachment.empty()
+                        &amp;&amp; m_Device.IndependentBlendSupported();</code></pre>
+
+<p><b><code>independentBlend</code> is an optional device feature.</b> It must be queried
+and enabled at device creation, and if it is missing the engine falls back to attachment
+zero's preset and warns, naming the pipeline — a wrong picture rather than a crash. This
+is the Vulkan pattern in miniature: capabilities are asked for, not assumed, and the
+validation layer tells you immediately when you assumed.</p>
+
+<p>At draw time the pass declares its attachments inline (dynamic rendering), which is
+what makes binding attachments 1 and 2 of a three-attachment target a natural thing to
+express rather than a new framebuffer object.</p>
+
+<h4>4b — What OpenGL does with that</h4>
+<p>There is no pipeline object, so the same information is applied as state at bind
+time: <code>glEnablei</code>/<code>glBlendFunci</code> per draw buffer. No feature query
+is needed — indexed blending is core in 4.x. But the framebuffer must be told which
+attachments the outputs map to, and that is persistent state:</p>
+
+<pre><code><span class="c">// glDrawBuffers decides which attachments the fragment shader's outputs</span>
+<span class="c">// land in, and the clears below address them by index into *this* list</span>
+<span class="c">// rather than into the framebuffer -- selecting attachments 1 and 2 means</span>
+<span class="c">// the shader's location 0 writes attachment 1.</span>
+<span class="k">for</span> (<span class="k">const</span> ColorBinding&amp; binding : info.ColorAttachments)
+    buffers.push_back(GL_COLOR_ATTACHMENT0 + binding.Index);
+
+<span class="k">if</span> (!buffers.empty())
+    glDrawBuffers((GLsizei)buffers.size(), buffers.data());</code></pre>
+
+<h4>5 — The resolve, and the bug that hid in it</h4>
+<p>A fullscreen triangle samples both accumulators and composites (§2.10). It is one
+pass, and one is an odd number — which is exactly the condition under which the
+image-origin difference in §3.4 stops cancelling out. Vulkan composited every weighted
+particle upside down for an entire release, because flipped smoke still looks like
+smoke. §7.7 has the full account; the point here is that <b>the disagreement between the
+two APIs was not in the feature, it was in a convention two layers below it.</b></p>
+
+<h4>What this example is meant to teach</h4>
+<ul>
+  <li><b>The same feature is "bake it into an object" on one API and "set it before the
+  draw" on the other.</b> An RHI that models the <em>request</em> rather than either
+  mechanism can serve both; one modelled on either API's mechanism cannot.</li>
+  <li><b>Vulkan tells you when you assumed a capability; OpenGL usually does not.</b>
+  Developing against Vulkan with validation on and porting to OpenGL catches more than
+  the reverse.</li>
+  <li><b>The differences that hurt are conventions, not features.</b> Image origin,
+  depth range and instance-index base each produce a correct picture on one backend and
+  a wrong one on the other, with no error anywhere. This is the entire argument for
+  comparing both backends' output as a standing practice (§10).</li>
+</ul>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>4 &nbsp; The build order</h2>
 
 <p class="lede">This is the part worth arguing with. Everything else in the document
 describes a state; this describes a sequence, and the sequence is the transferable
 knowledge.</p>
 
-<h3>2.1 &nbsp; Why order is the hard part</h3>
+<h3>4.1 &nbsp; Why order is the hard part</h3>
 
 <p>Most engine tutorials are organised by subsystem: here is a renderer, here is a
 physics integration, here is an editor. That organisation is fine for explaining a
@@ -310,7 +1010,7 @@ backend is a thought, and write the render graph before the third pass. Anywhere
 abstract late.</p>
 </div>
 
-<h3>2.2 &nbsp; Phase 0 — the scene model, before anything is drawn</h3>
+<h3>4.2 &nbsp; Phase 0 — the scene model, before anything is drawn</h3>
 
 <p><b>Deliverable:</b> a scene you can build in an editor, save, load, and get back
 byte-identical, with undo.</p>
@@ -330,7 +1030,7 @@ byte-identical, with undo.</p>
   a scene graph; storing only the parent link makes disagreement impossible.</li>
   <li><b>Component reflection</b> — a registry that describes each component's fields.
   Then write the serializer <em>against the registry</em>, and the inspector against it
-  afterwards. §3.3 covers why this single decision pays for itself repeatedly.</li>
+  afterwards. @@@@§9.3 covers why this single decision pays for itself repeatedly.</li>
   <li><b>An undo/redo command stack.</b> Early, because commands are how the editor
   mutates the scene, and retrofitting that means rewriting every editor action.</li>
   <li><b>A lossless round-trip test.</b> Build a scene, serialize, deserialize,
@@ -343,7 +1043,7 @@ want to draw more, and everything you add will be described in whatever ad-hoc w
 renderer already understands. The scene model is the vocabulary. Fix the vocabulary
 first.</p></blockquote>
 
-<h3>2.3 &nbsp; Phase 1 — assets and identity</h3>
+<h3>4.3 &nbsp; Phase 1 — assets and identity</h3>
 
 <p><b>Deliverable:</b> a scene file that references a mesh without containing it.</p>
 
@@ -357,13 +1057,13 @@ loader hands you.</p>
 first it will return objects, and you will spend the next phase converting object
 returns into handle returns everywhere.</p>
 
-<h3>2.4 &nbsp; Phase 2 — the loop, physics, scripts, audio</h3>
+<h3>4.4 &nbsp; Phase 2 — the loop, physics, scripts, audio</h3>
 
 <p><b>Deliverable:</b> a scene that <em>runs</em>, and reverts perfectly when you stop.</p>
 
 <ol>
   <li><b>The fixed-timestep loop first.</b> Before physics, before scripts. It is the
-  contract both will be written against, and §4.1 explains why it cannot be retrofitted
+  contract both will be written against, and @@@@§10.1 explains why it cannot be retrofitted
   cheaply.</li>
   <li><b>Play/edit split with snapshot restore.</b> Play mode operates on a copy;
   stopping restores the original exactly. Doing this before scripts exist means scripts
@@ -372,12 +1072,12 @@ returns into handle returns everywhere.</p>
   <code>"Jump"</code> survives rebinding; one written against a key code does not, and
   by the time you notice, fifty scripts have key codes in them.</li>
   <li><b>Scripts, then physics, then contact callbacks.</b> In that order within the
-  step, and documented as such — see §6.4.</li>
+  step, and documented as such — see @@§10.4.</li>
   <li><b>Audio</b> last of the four, because it is the only one nothing else depends
   on.</li>
 </ol>
 
-<h3>2.5 &nbsp; Phase 3 — the renderer, abstraction first</h3>
+<h3>4.5 &nbsp; Phase 3 — the renderer, abstraction first</h3>
 
 <p><b>Deliverable:</b> the picture in Figure 1, on two backends, from one set of code.</p>
 
@@ -389,12 +1089,12 @@ plumbing that render nothing new.</p>
   <li><b>The RHI.</b> A device, command list, buffer, texture, pipeline, shader,
   resource set and sampler abstraction, with two implementations. Writing this against a
   single backend is a trap: you will abstract the wrong things, because the shape of the
-  API you have is invisible to you until a second one disagrees with it. §5.1 covers what
+  API you have is invisible to you until a second one disagrees with it. @@§9.1 covers what
   to abstract and — as importantly — what not to.</li>
   <li><b>The render graph.</b> Passes declare the targets they read and write; the graph
   allocates and pools them and orders the passes. Written when the frame had three
   passes, which felt premature; the frame now has eleven, and adding a pass is a
-  declaration rather than a surgery. §4.3.</li>
+  declaration rather than a surgery. @@@@§10.3.</li>
   <li><b>Then features</b>, in roughly this order, because each depends on the previous:
   cube maps and sky → environment reflections → image-based lighting → shadows →
   culling → instanced batching → clustered lighting → skeletal animation.</li>
@@ -404,9 +1104,9 @@ plumbing that render nothing new.</p>
 in this phase — frustum culling and instanced batching — cut draw calls dramatically
 and produced <em>no</em> frame-time improvement whatsoever. Culling took 144 draws to
 60; instancing took 3238 to 854; the clock did not move either time. A draw count is not
-a frame time. See §8.</p></blockquote>
+a frame time. See §10.</p></blockquote>
 
-<h3>2.6 &nbsp; Phase 4 — projects, runtime, packaging</h3>
+<h3>4.6 &nbsp; Phase 4 — projects, runtime, packaging</h3>
 
 <p><b>Deliverable:</b> a folder you can send someone that runs without the editor.</p>
 
@@ -415,9 +1115,9 @@ discover that your asset paths were relative to the editor's working directory, 
 your shaders were loaded from the source tree, and that the runtime renders a blank
 window because a pass clears the backbuffer after the scene is drawn — a bug with a
 perfectly healthy draw-call count, which is why the RHI has a screenshot capture
-(§8).</p>
+(§10).</p>
 
-<h3>2.7 &nbsp; Phase 5 — scripting for real</h3>
+<h3>4.7 &nbsp; Phase 5 — scripting for real</h3>
 
 <p><b>Deliverable:</b> the same game logic, in C++ or C#, either reloadable without
 restarting.</p>
@@ -428,7 +1128,7 @@ build. The unload is verified with a weak reference; a context that will not die
 reported rather than ignored, because a leaked context means the old code is still
 running and the symptom is "my change did nothing".</p>
 
-<h3>2.8 &nbsp; The interlude that matters most — build a game</h3>
+<h3>4.8 &nbsp; The interlude that matters most — build a game</h3>
 
 <figure>
   <img src="figures/knockdown.jpg" alt="Knockdown">
@@ -461,7 +1161,7 @@ holes in one session</b>, every one of which was invisible from inside the engin
 seams between features, and only an application that crosses the seams finds them. A
 test suite written by the same person who wrote the feature tends to test the feature.</p>
 
-<h3>2.9 &nbsp; Phase 6 — what the game proved was missing</h3>
+<h3>4.9 &nbsp; Phase 6 — what the game proved was missing</h3>
 
 <p>The game produced a ranked list of what actually hurt, which is a far better backlog
 than a list of what sounds impressive. In order: <b>no text or UI</b> (the game
@@ -469,15 +1169,15 @@ communicated entirely through a light and four sounds), <b>no per-frame script h
 (camera smoothing and recoil had nowhere to live), <b>no particles</b>, and some small
 API gaps in audio.</p>
 
-<p>Particles were built first at the user's direction, and are covered in §5.8 and §5.9.
+<p>Particles were built first at the user's direction, and are covered in @@§9.8 and @@§9.9.
 Text and UI, and the per-frame hook, remain open.</p>
 </section>
 
 <!-- ===================================================================== -->
 <section class="part">
-<h2>3 &nbsp; Architecture</h2>
+<h2>5 &nbsp; Architecture</h2>
 
-<h3>3.1 &nbsp; Layers and the direction of dependency</h3>
+<h3>5.1 &nbsp; Layers and the direction of dependency</h3>
 
 <pre class="ascii"><code>Project (.rvproject: asset root, start scene, fixed Hz)
      |
@@ -510,7 +1210,7 @@ worth stating because they are what the layering buys:</p>
   Vulkan.</li>
 </ul>
 
-<h3>3.2 &nbsp; The module boundary — engine as a DLL</h3>
+<h3>5.2 &nbsp; The module boundary — engine as a DLL</h3>
 
 <p>The engine builds as <code>RageV.dll</code>. The editor, the runtime, the test tools
 and each project's game module link against it. This is what makes per-project C++
@@ -532,7 +1232,7 @@ held their own GLFW globals. The window was real and the engine's copy had never
 of it, so Vulkan reported a null <code>HWND</code> and OpenGL reported that it could not
 load GL functions — <em>one cause, two symptoms that look completely unrelated</em>.</p>
 
-<h3>3.3 &nbsp; The three "one description" systems</h3>
+<h3>5.3 &nbsp; The three "one description" systems</h3>
 
 <p>Three places in the engine define something once and generate everything else from
 it. Each replaced two or three hand-maintained copies that had already drifted at least
@@ -578,7 +1278,7 @@ them was worth converting back into a compile error:</p>
 past the end of the field. It is now a build error naming the offending enum.</p>
 
 <h4>The RHI</h4>
-<p>One interface, two implementations; discussed in §5.1.</p>
+<p>One interface, two implementations; discussed in @@§9.1.</p>
 
 <h4>Asset handles</h4>
 <p>One 64-bit identity per asset, one registry, one <code>.meta</code> sidecar. Every
@@ -590,9 +1290,9 @@ the C# bridge all worked immediately, because a curve reference is an
 
 <!-- ===================================================================== -->
 <section class="part">
-<h2>4 &nbsp; The frame</h2>
+<h2>6 &nbsp; The frame</h2>
 
-<h3>4.1 &nbsp; Fixed simulation, free rendering</h3>
+<h3>6.1 &nbsp; Fixed simulation, free rendering</h3>
 
 <pre class="ascii"><code>clamp frame time (0.25s)
 InputMap::Update()                    once per frame
@@ -636,7 +1336,7 @@ gap: a camera moved from a fixed-step callback updates on one frame in four at 2
 against a world that interpolates on all four — differential stutter, which reads worse
 than no smoothing at all.</p>
 
-<h3>4.2 &nbsp; The render path, pass by pass</h3>
+<h3>6.2 &nbsp; The render path, pass by pass</h3>
 
 <pre class="ascii"><code>(prefilter)      -> roughness levels, 36 small renders, ONCE per environment
 (shadow maps)    -> 4 cascades + a map per casting spot and a cube per point,
@@ -667,7 +1367,7 @@ FXAA             -> Output      on the tone-mapped image, not the linear one</co
   fitted to a frustum — so the editor's two viewports fit their own.</li>
 </ul>
 
-<h3>4.3 &nbsp; The render graph</h3>
+<h3>6.3 &nbsp; The render graph</h3>
 
 <p>A pass declares what it writes and what it samples; the graph pools the targets and
 executes in declaration order. A pass is two lambdas — one that declares, one that
@@ -702,9 +1402,9 @@ existing pass.</p>
 
 <!-- ===================================================================== -->
 <section class="part">
-<h2>5 &nbsp; Rendering engineering</h2>
+<h2>7 &nbsp; Rendering engineering</h2>
 
-<h3>5.1 &nbsp; Designing an RHI over two very different APIs</h3>
+<h3>7.1 &nbsp; Designing an RHI over two very different APIs</h3>
 
 <p>Vulkan and OpenGL disagree about almost everything that matters: who owns
 synchronisation, whether resources are bound or described, how memory is allocated, and
@@ -722,7 +1422,7 @@ exist in both worlds even when only one names them.</p>
 flight is the clearest example: it is a Vulkan concept, OpenGL has no equivalent, and
 hiding it would have meant either paying Vulkan's synchronisation cost on OpenGL or
 silently writing buffers the GPU was still reading. It is exposed, and OpenGL implements
-it honestly — which found a real bug, see §5.2.</p>
+it honestly — which found a real bug, see @@§9.2.</p>
 
 <h4>What to design at the level of intent</h4>
 <p>Buffer barriers are the good example. Vulkan wants an access mask and a stage; OpenGL
@@ -743,7 +1443,7 @@ read as an index buffer" — which both backends can implement without lying.</p
 place — it is what lets the headless test suite exercise real GPU work without a frame
 loop to borrow.</p>
 
-<h3>5.2 &nbsp; Frames in flight, and everything that follows</h3>
+<h3>7.2 &nbsp; Frames in flight, and everything that follows</h3>
 
 <p>The CPU records frame N+1 while the GPU executes frame N. Everything the GPU might
 still be reading therefore needs one copy per frame in flight, and everything destroyed
@@ -782,7 +1482,7 @@ per-frame-slot queue — but entity destruction happens in the simulation phase,
 proven fixed with a churn scene destroying ~180 materials a second under GPU load: <b>10
 validation errors in 4000 frames before, zero in 12000 after</b>.</p>
 
-<h3>5.3 &nbsp; Batching and instancing</h3>
+<h3>7.3 &nbsp; Batching and instancing</h3>
 
 <p>Meshes sharing a mesh handle, material and pipeline state are drawn as one instanced
 call, with per-instance transforms in a storage buffer. Two things about this are worth
@@ -806,7 +1506,7 @@ picture on one backend and scrambled transforms on the other.</p>
   binding model has less to do.</figcaption>
 </figure>
 
-<h3>5.4 &nbsp; Lighting: clustered forward</h3>
+<h3>7.4 &nbsp; Lighting: clustered forward</h3>
 
 <p>The view frustum is divided into a 16×9×24 grid of cells; lights are binned into cells
 on the CPU; the fragment shader loops only over the lights in its own cell. Directional
@@ -826,7 +1526,7 @@ holds N" precisely so this is visible rather than mysterious, and the scene gene
 takes a <code>--light-reach 0</code> flag to construct the pathological case on
 purpose.</p></blockquote>
 
-<h3>5.5 &nbsp; Shadows</h3>
+<h3>7.5 &nbsp; Shadows</h3>
 
 <p>Cascaded shadow maps for directional lights (four cascades fitted to the camera
 frustum), a single map per casting spot light, and a cube map per casting point light.
@@ -840,7 +1540,7 @@ Three rules that are each a day lost if missed:</p>
   comparison passes and the scene is uniformly lit.</li>
 </ul>
 
-<h3>5.6 &nbsp; Image-based lighting and reflection probes</h3>
+<h3>7.6 &nbsp; Image-based lighting and reflection probes</h3>
 
 <p>An environment cube map is convolved once into a diffuse irradiance cube and
 prefiltered into six roughness levels, and a BRDF lookup table is generated. Reflection
@@ -853,7 +1553,7 @@ an empty mip 0 and its metal read black for six frames. A bug that heals itself 
 a warm-up; it took a per-frame luminance measurement to show a hard step at frame 7
 rather than a gradual fill.</p></blockquote>
 
-<h3>5.7 &nbsp; Post-processing</h3>
+<h3>7.7 &nbsp; Post-processing</h3>
 
 <p>Bloom (13-tap Karis-weighted downsample, 3×3 tent upsample accumulating in place),
 exposure, ACES tonemapping and FXAA. One invariant here is the single most instructive
@@ -883,7 +1583,7 @@ code lives will be violated by code that lives somewhere else.</b> It is now sta
 terms of behaviour: anything that samples a render target and writes another owes the
 flip.</p>
 
-<h3>5.8 &nbsp; Transparency, and why it is the hardest easy problem</h3>
+<h3>7.8 &nbsp; Transparency, and why it is the hardest easy problem</h3>
 
 <p>Opaque geometry is order-independent because the depth buffer sorts it. Transparency
 is not, and everything else follows from that.</p>
@@ -944,7 +1644,7 @@ clamps flat outside that band — it draws the 20-unit and 200-unit layers ident
 buys is at the <em>near</em> end, which is where a camera standing inside a smoke cloud
 actually lives.</p>
 
-<h3>5.9 &nbsp; Compute, and moving a simulation to the GPU</h3>
+<h3>7.9 &nbsp; Compute, and moving a simulation to the GPU</h3>
 
 <p>Particles simulate on the CPU by default and on the GPU per emitter, with a switch
 that allocates nothing: the compute pipeline is built once, and an emitter's buffers are
@@ -1003,13 +1703,13 @@ widen how much particles differ in colour and opacity.</p>
 
 <!-- ===================================================================== -->
 <section class="part">
-<h2>6 &nbsp; The systems around the renderer</h2>
+<h2>8 &nbsp; The systems around the renderer</h2>
 
-<h3>6.1 &nbsp; Scene, entities, reflection</h3>
+<h3>8.1 &nbsp; Scene, entities, reflection</h3>
 
 <p>EnTT provides the storage. On top of it: a UUID on every entity, a relationship
 component holding only the parent link, world transforms recomputed in one top-down pass
-per frame, and the component registry of §3.3.</p>
+per frame, and the component registry of @@@@§9.3.</p>
 
 <p>World transforms are deliberately <b>not</b> a dirty-flag cache:</p>
 
@@ -1027,7 +1727,7 @@ Mat4 World{ 1.0f };</code></pre>
 faster and the cost of one missed invalidation — an object in the wrong place, sometimes
 — is far higher than the saving.</p>
 
-<h3>6.2 &nbsp; Assets</h3>
+<h3>8.2 &nbsp; Assets</h3>
 
 <p>Handles, a registry mapping handle to path, <code>.meta</code> sidecars, and a manager
 that loads and caches by handle. Two conventions worth copying:</p>
@@ -1041,7 +1741,7 @@ that loads and caches by handle. Two conventions worth copying:</p>
   load".</li>
 </ul>
 
-<h3>6.3 &nbsp; Scripting in two languages</h3>
+<h3>8.3 &nbsp; Scripting in two languages</h3>
 
 <p>C++ scripts live in a project's <code>Source/</code> and build into a game module DLL
 the engine loads. C# scripts live in <code>Scripts/</code> and build into an assembly
@@ -1056,7 +1756,7 @@ C# reaches components <b>by registry name with values as text</b> — the same n
 text forms the inspector and the scene file use. That trade is what keeps the C# surface
 from going stale when a component gains a field.</p>
 
-<h3>6.4 &nbsp; Physics and audio</h3>
+<h3>8.4 &nbsp; Physics and audio</h3>
 
 <p>Jolt, stepped after scripts within the fixed step, with contact events delivered
 after the step that produced them. Colliders are authored in local units and multiplied
@@ -1078,7 +1778,7 @@ step behind it.</p>
 
 <!-- ===================================================================== -->
 <section class="part">
-<h2>7 &nbsp; What experience taught</h2>
+<h2>9 &nbsp; What experience taught</h2>
 
 <p class="lede">Every entry below was a real bug that cost real time, and most of them
 fail silently rather than obviously. They are grouped by the kind of mistake rather than
@@ -1092,7 +1792,7 @@ by subsystem, because the kind is what transfers.</p>
   <li><b>A cache holding one object under two keys must be cleared as one.</b> The
   texture loader keyed by path and the IBL filter keyed by pointer were cleared at
   different times; changing project kept every old environment map alive.</li>
-  <li><b>Identical state must be the same object</b> (§5.3).</li>
+  <li><b>Identical state must be the same object</b> (@@§9.3).</li>
 </ul>
 
 <h3>Things that are silently the wrong size</h3>
@@ -1101,7 +1801,7 @@ by subsystem, because the kind is what transfers.</p>
   reflection returned a one-component format for every integer, so a <code>uvec4</code>
   of joint indices was 4 bytes where the buffer held 16, and the mesh drew as a spray of
   triangles.</li>
-  <li><b>A registered enum field must be int-sized</b> (§3.3).</li>
+  <li><b>A registered enum field must be int-sized</b> (@@@@§9.3).</li>
   <li><b>A skinned mesh needs one bone matrix per bone, never a short run</b> — it reads
   into the next character's.</li>
   <li><b>A descriptor pool is a chain, not a ceiling.</b> 1000 meshes segfaulted a fixed
@@ -1110,9 +1810,9 @@ by subsystem, because the kind is what transfers.</p>
 
 <h3>Things that differ between backends and look fine on one</h3>
 <ul>
-  <li><b>Fullscreen passes and the V flip</b> (§5.7) — and an even number of passes hides
+  <li><b>Fullscreen passes and the V flip</b> (@@§9.7) — and an even number of passes hides
   it.</li>
-  <li><b>Base instance</b> (§5.3).</li>
+  <li><b>Base instance</b> (@@§9.3).</li>
   <li><b>Clip control on OpenGL</b> (§5.5).</li>
   <li><b><code>glDrawBuffers</code> is persistent framebuffer state</b>, and
   <code>glClearBufferfv</code> indexes the draw-buffer list rather than the framebuffer.
@@ -1124,7 +1824,7 @@ by subsystem, because the kind is what transfers.</p>
 <h3>Things about lifetime</h3>
 <ul>
   <li><b>Deferred deletion must be slotted by the frame actually submitted</b>
-  (§5.2).</li>
+  (@@§9.2).</li>
   <li><b>Never rewrite a bound descriptor set.</b></li>
   <li><b><code>Layer</code>'s destructor must stay virtual.</b> Without it only
   <code>~Layer</code> ran and every derived member leaked — the editor's scene, its
@@ -1138,7 +1838,7 @@ by subsystem, because the kind is what transfers.</p>
 
 <h3>Things about measurement</h3>
 <ul>
-  <li><b>A draw count is not a frame time</b> (§2.5).</li>
+  <li><b>A draw count is not a frame time</b> (§4.5).</li>
   <li><b>A bug that heals itself reads as a warm-up</b> (§5.6).</li>
   <li><b>When a timing bug will not reproduce, failing to reproduce it is the
   evidence</b> — stop asking what you broke and go find the order-dependent hazard in
@@ -1152,7 +1852,7 @@ by subsystem, because the kind is what transfers.</p>
 
 <!-- ===================================================================== -->
 <section class="part">
-<h2>8 &nbsp; Verification: how any of this is known to work</h2>
+<h2>10 &nbsp; Verification: how any of this is known to work</h2>
 
 <p class="lede">A renderer is uniquely hostile to testing: its output is a picture, its
 failures are often plausible pictures, and the usual unit-test instinct produces tests
@@ -1183,7 +1883,7 @@ and then checks every element, proves the thing you care about.</p>
 
 <h3>Compare against something correct by construction</h3>
 <p>The strongest tool in the box, and the one that found two shipped bugs in an
-afternoon (§5.8). Do not compare a render against a stored reference image, which rots
+afternoon (@@§9.8). Do not compare a render against a stored reference image, which rots
 and which nobody can debug. Compare it against <em>another render</em> whose correctness
 is guaranteed by construction — a sorted single emitter is exactly correct, so it is the
 reference for an unsorted approximation of the same particles.</p>
@@ -1208,7 +1908,7 @@ still of smoke.</p>
 
 <!-- ===================================================================== -->
 <section class="part">
-<h2>9 &nbsp; Where it stands, and what comes next</h2>
+<h2>11 &nbsp; Where it stands, and what comes next</h2>
 
 <h3>Complete</h3>
 <p>Phases 0 through 5, the game-module arc, and a shipped mini game. The renderer,
@@ -1231,12 +1931,12 @@ asset-backed curves for size, colour and alpha with an inline editor.</p>
   <li><b>Text and game UI.</b> The largest gap by distance, and the one the mini game hit
   hardest — it could not display a score, a label or a prompt, and communicated entirely
   through a light and four sounds.</li>
-  <li><b>A per-frame script hook.</b> The second largest, and analysed in §4.1: every
+  <li><b>A per-frame script hook.</b> The second largest, and analysed in @@@@§10.1: every
   other presentation system already runs per frame, and scripts moving on the simulation
   step actively fight the interpolation.</li>
   <li><b>GPU alpha self-sorting.</b> A bitonic sort in compute keyed on view depth;
   because the default pool is 1000 particles, anything up to 2048 sorts inside a single
-  workgroup in shared memory — one dispatch. The measurement in §5.9 is the argument for
+  workgroup in shared memory — one dispatch. The measurement in @@§9.9 is the argument for
   it.</li>
   <li><b>Particle collision and sub-emitters</b>, both scoped and deliberately
   deferred.</li>
@@ -1251,7 +1951,7 @@ asset-backed curves for size, colour and alpha with an inline editor.</p>
   <li><b>Build something real with the engine before extending it.</b> One small game
   found six holes that no amount of internal testing had.</li>
   <li><b>Measure, and construct references that cannot be wrong.</b> Most of the
-  hard-won entries in §7 were found by a measurement, and most of the ones that took
+  hard-won entries in §9 were found by a measurement, and most of the ones that took
   longest were the ones where the picture looked plausible.</li>
 </ul>
 </section>

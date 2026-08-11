@@ -1743,6 +1743,45 @@ box, squared about that box's centre and resized to 512 -- 2.5 MB to 236 KB.
 Squared about the *content* rather than the image, because a billboard
 rotates about its middle and an off-centre sprite wobbles as it spins.
 
+### In progress - the architecture book (docs/design/)
+
+**Started 2026-08-11 and deliberately unfinished.** `docs/design/architecture.html`
+is the source, `RageV-Architecture.pdf` the deliverable, and
+`docs/design/README.md` has the regeneration command and its two traps.
+
+**The brief, which grew during the session and is the thing to honour:** a
+knowledge-transfer document written so that a software engineer *learning game
+development* could follow it and arrive at this engine. Explicitly modelled on
+learnopengl.com — a path from A to B, teaching the reader forward, rather than
+a description of a finished artefact. The user's words: it may end up "a whole
+book with pages in 3 digits" and that is acceptable; verbosity is wanted.
+
+**Where it is: 47 pages, 11 chapters, ~13,000 words.** The skeleton is
+complete and every chapter has real content, real code quoted verbatim, and
+real figures captured through `--screenshot`. Chapters 2 and 3 -- the maths,
+and how the two graphics APIs work with one feature traced down through both
+-- were added after the first draft and are the closest to the intended style.
+
+**What it still needs to become the book that was asked for.** Roughly in
+value order:
+
+1. **Chapters 5-8 are still written as reference, not as teaching.** They tell
+   a reader what exists; they do not walk them through building it. Each needs
+   the treatment chapter 3.5 got: start from what the feature must achieve,
+   derive the design, show the code, name what goes wrong.
+2. **Every rendering feature in chapter 7 deserves its own worked chapter** --
+   shadows, IBL, clustered lighting and post each currently get a page where
+   they need five to ten, with the maths inline rather than assumed.
+3. **No step-by-step "build this yourself" thread.** learnopengl.com works
+   because each chapter ends with something running. The build order in
+   chapter 4 names the steps but does not walk them.
+4. **Diagrams are ASCII.** Real vector figures for the transform pipeline, the
+   frame graph and the cluster grid would carry a lot.
+5. **Chapter 2 could go further** -- tangent space, cubemap addressing, the
+   sampling maths behind the IBL prefilter, and the bitonic sort for 6.11.
+
+Regenerate the PDF after any edit; the HTML alone is not the deliverable.
+
 ### Pending - the per-frame script hook
 
 **Agreed as the next engine gap after the current work** (2026-08-11), and
