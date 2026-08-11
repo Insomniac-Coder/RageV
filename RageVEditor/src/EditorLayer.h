@@ -234,6 +234,18 @@ private:
 	// would see.
 	bool m_ShowColliders = false;
 
+	// The ground grid. On by default, and the opposite call from the colliders
+	// above: this is not a diagnostic, it is the floor. Without one a scene with
+	// nothing in it is an empty gradient with no sense of scale, no horizon and
+	// no way to tell which way the camera is pointing. Scene view only, for the
+	// same reason the colliders are.
+	bool m_ShowGrid = true;
+
+	// The grid, in the current theme's colours. Built per frame rather than
+	// stored, so switching theme moves the axes with everything else and there
+	// is no second copy of them to forget to update.
+	RageV::ViewportGridSettings GridSettings() const;
+
 	// Whether the game panel was actually visible last frame. A panel that is
 	// collapsed or behind another tab still has m_ShowGameViewport set, and
 	// rendering the scene a second time for something nobody can see is a whole

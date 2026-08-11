@@ -31,8 +31,10 @@
 //   --scene=<path>          open this scene instead of the project's start scene
 //   --ui-scale=N|auto       editor UI scale; auto follows the monitor
 //   --theme=dark|light      editor theme; default is whatever was last used
+//   --camera=x,y,z,d,yaw,pitch   where the editor camera starts (degrees)
 
 #include "RageV/Renderer/RHI/RHITypes.h"
+#include "RageV/Math/Math.h"
 #include <string>
 #include <filesystem>
 
@@ -84,6 +86,21 @@ namespace RageV
 		// selected, and driving the hierarchy by hand is not a check anybody
 		// repeats. Ignored by the runtime, which has no inspector.
 		std::string  SelectEntity;
+
+		// --camera=x,y,z,distance,yaw,pitch: where the editor's viewport camera
+		// starts. Angles in degrees.
+		//
+		// The same family again, and added for the ground grid: an infinite
+		// plane looks completely different at a grazing angle and from a long
+		// way out, and both are exactly the cases that alias. Driving the camera
+		// by hand to check them is not a check anybody repeats, and "it looked
+		// fine from the default angle" is how a horizon full of moire ships.
+		// Ignored by the runtime, which renders through the scene's camera.
+		bool  HasCameraPose = false;
+		Vec3  CameraFocus{ 0.0f, 0.0f, 0.0f };
+		float CameraDistance = 10.0f;
+		float CameraYaw = 0.0f;
+		float CameraPitch = 0.0f;
 
 		// How much to scale the editor's font and spacing.
 		//

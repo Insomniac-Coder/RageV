@@ -337,6 +337,38 @@ namespace RageV::UI
 			c.Disc(0.66f, 0.34f, 0.095f);
 		}
 
+		// The ground plane, in perspective: two rails converging towards a
+		// vanishing point, crossed by rungs that crowd together as they recede.
+		//
+		// Perspective is the whole idea. Drawn flat it would be the snap lattice
+		// again, and the two sit in the same toolbar. Converging lines say
+		// "this is a floor in the world" rather than "these are increments",
+		// which is exactly the difference between the two buttons.
+		void GroundGrid(const Canvas& c)
+		{
+			// Four lines running away and three crossing them, which is the
+			// least that still reads as a *grid*. The first attempt at this had
+			// two rails and four rungs: at toolbar size that is a triangle with
+			// stripes in it, and it read as a traffic cone. What fixes it is
+			// interior lines that converge -- a shape with only an outline
+			// converging is a wedge, and a wedge is not a floor.
+			constexpr float back  = 0.30f;
+			constexpr float front = 0.84f;
+
+			// The outline, stopped well short of the vanishing point. A drawing
+			// that really converges to a dot is a smudge at 16px.
+			c.Path({ { 0.10f, front }, { 0.90f, front },
+					 { 0.68f, back }, { 0.32f, back } }, true);
+
+			c.Line(0.37f, front, 0.44f, back);
+			c.Line(0.63f, front, 0.56f, back);
+
+			// One rung, nearer the back than the middle. Even spacing is what a
+			// plan view looks like; crowding towards the horizon is what a
+			// plane in perspective looks like.
+			c.Line(0.21f, 0.57f, 0.79f, 0.57f);
+		}
+
 		// Three dots stacked. Reads as "there is more here" in every tool that
 		// has ever drawn it, which is the entire reason to use it rather than
 		// invent something.
@@ -458,6 +490,7 @@ namespace RageV::UI
 			case IconKind::ToolRotate:    ToolRotate(canvas);    break;
 			case IconKind::ToolScale:     ToolScale(canvas);     break;
 			case IconKind::SnapGrid:      SnapGrid(canvas);      break;
+			case IconKind::GroundGrid:    GroundGrid(canvas);    break;
 			case IconKind::More:          More(canvas);          break;
 			case IconKind::Play:          Play(canvas);          break;
 			case IconKind::Stop:          Stop(canvas);          break;

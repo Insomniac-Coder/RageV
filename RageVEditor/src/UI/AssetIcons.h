@@ -91,6 +91,12 @@ namespace RageV::UI
 		ToolRotate,
 		ToolScale,
 		SnapGrid,
+		// The ground plane in the viewport. Deliberately unlike SnapGrid, which
+		// sits three buttons away in the same toolbar: one is a lattice seen
+		// flat on and the other is a floor seen in perspective, so they differ
+		// in shape rather than in a detail. Two icons that need comparing to be
+		// told apart are one icon.
+		GroundGrid,
 		More,          // the overflow menu every tool draws as a vertical ellipsis
 		Play,
 		Stop,

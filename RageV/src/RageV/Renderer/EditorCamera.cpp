@@ -101,6 +101,20 @@ namespace RageV
 		RecalculateView();
 	}
 
+	void EditorCamera::SetOrbit(const Vec3& focalPoint, float distance,
+								float yawDegrees, float pitchDegrees)
+	{
+		m_FocalPoint = focalPoint;
+
+		// The same floor Focus uses. A distance of zero puts the eye on the
+		// pivot, where yaw and pitch stop meaning anything.
+		m_Distance = Math::Max(distance, 0.01f);
+		m_Yaw = Math::Radians(yawDegrees);
+		m_Pitch = Math::Radians(pitchDegrees);
+
+		RecalculateView();
+	}
+
 	float EditorCamera::ZoomSpeed() const
 	{
 		// Proportional to distance: a fixed step crawls when far out and

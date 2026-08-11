@@ -4,6 +4,7 @@
 #include "RageV/Core/UUID.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/ViewportGrid.h"
 #include "RageV/Renderer/RHI/RHIResources.h"
 #include "RageV/Math/Math.h"
 #include <string>
@@ -125,7 +126,13 @@ namespace RageV
 		// not to the scene.
 		void OnRenderRuntime(float aspectRatio = 0.0f);
 		// Draws through the viewport's own camera, which needs no entity.
-		void OnRenderEditor(const EditorCamera& camera);
+		//
+		// `grid` draws the editor's ground plane after the sky. Passed in rather
+		// than read from a setting, and only here: the game view and the runtime
+		// both go through OnRenderRuntime, which has nowhere to put one, so a
+		// grid cannot reach a picture that is meant to be what a player sees.
+		void OnRenderEditor(const EditorCamera& camera,
+							const ViewportGridSettings* grid = nullptr);
 
 		// Convolves the scene's environment map into roughness levels, once.
 		//
@@ -166,7 +173,8 @@ namespace RageV
 		entt::registry& GetRegistry() { return m_Registry; }
 
 	private:
-		void OnRender(const Camera& camera, const Mat4& cameraTransform);
+		void OnRender(const Camera& camera, const Mat4& cameraTransform,
+					  const ViewportGridSettings* grid = nullptr);
 
 		// The cube surfaces reflect: the nearest complete probe whose influence
 		// reaches the viewer, and the sky otherwise.

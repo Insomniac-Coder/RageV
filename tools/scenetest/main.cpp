@@ -44,6 +44,7 @@
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/Skybox.h"
+#include "RageV/Renderer/ViewportGrid.h"
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/ShadowMap.h"
@@ -4077,6 +4078,184 @@ void main()
 		Check(true, "and a colour background draws nothing at all");
 	}
 
+	// The editor's ground grid.
+	//
+	// The solve is the whole feature, and it is the kind that is wrong quietly:
+	// a grid drawn at the wrong depth, mirrored, or sliding with the camera
+	// still looks like a grid in a screenshot. So it is asked the questions a
+	// picture cannot answer -- always against a point whose depth is already
+	// known, because the claim being tested is that the two agree.
+	void CheckViewportGrid()
+	{
+		Check(ViewportGrid::IsReady(), "the grid shader compiled");
+
+		const Mat4 projection = Math::Perspective(Math::Radians(60.0f), 16.0f / 9.0f, 0.1f, 500.0f);
+
+		// A camera five up, looking down and forwards at the plane.
+		const Mat4 eye = Math::Translate(Mat4(1.0f), Vec3(3.0f, 5.0f, 12.0f)) *
+						 Math::Rotate(Mat4(1.0f), Math::Radians(-20.0f), Vec3(1.0f, 0.0f, 0.0f));
+
+		const Mat4 view = Math::Inverse(eye);
+		const Mat4 viewProjection = projection * view;
+		const Mat4 inverse = ViewportGrid::BuildInverseViewProjection(projection, eye);
+
+		// --- the matrix itself ----------------------------------------------
+		{
+			const Vec4 point(7.0f, -2.0f, 3.0f, 1.0f);
+			const Vec4 back = inverse * (viewProjection * point);
+			Check(Math::Length(Vec3(back) / back.w - Vec3(point)) < 1e-3f,
+				  "the grid's inverse view-projection undoes the one the scene was drawn with");
+		}
+
+		// --- the solve agrees with a depth that is already known --------------
+		//
+		// Every one of these projects a point that is *on* the plane, throws
+		// away the depth, and asks the solve to produce it again. Nothing here
+		// trusts the grid's own arithmetic for the answer.
+		{
+			const Vec3 samples[] = {
+				{  0.0f, 0.0f,   0.0f },
+				{  4.0f, 0.0f,   2.0f },
+				{ -6.0f, 0.0f,  -9.0f },
+				{  1.0f, 0.0f, -40.0f },
+			};
+
+			bool agreed = true;
+			bool onPlane = true;
+
+			for (const Vec3& world : samples)
+			{
+				const Vec4 clip = viewProjection * Vec4(world, 1.0f);
+				const Vec3 ndc = Vec3(clip) / clip.w;
+
+				float depth = -1.0f;
+				if (!ViewportGrid::PlaneDepthAt(inverse, ndc.x, ndc.y, depth))
+				{
+					agreed = false;
+					break;
+				}
+
+				agreed = agreed && std::fabs(depth - ndc.z) < 1e-4f;
+
+				// And the point it reconstructs is back where it started --
+				// which is what the shader goes on to take derivatives of.
+				const Vec4 hit = inverse * Vec4(ndc.x, ndc.y, depth, 1.0f);
+				const Vec3 back = Vec3(hit) / hit.w;
+				onPlane = onPlane && std::fabs(back.y) < 1e-3f &&
+						  Math::Length(back - world) < 1e-2f;
+			}
+
+			Check(agreed, "the plane's depth at a pixel is the depth of the point that projects there");
+			Check(onPlane, "and the position it reconstructs is on y = 0, where it started");
+		}
+
+		// --- near and far are the right way round -----------------------------
+		// A reversed depth range renders a grid that looks entirely correct
+		// until something is drawn in front of it.
+		{
+			auto depthOf = [&](const Vec3& world)
+			{
+				const Vec4 clip = viewProjection * Vec4(world, 1.0f);
+				const Vec3 ndc = Vec3(clip) / clip.w;
+				float depth = 0.0f;
+				ViewportGrid::PlaneDepthAt(inverse, ndc.x, ndc.y, depth);
+				return depth;
+			};
+
+			Check(depthOf({ 3.0f, 0.0f, 8.0f }) < depthOf({ 3.0f, 0.0f, -30.0f }),
+				  "a nearer piece of the plane has the smaller depth");
+		}
+
+		// --- above the horizon there is no plane ------------------------------
+		{
+			int found = 0;
+			for (float x = -0.9f; x <= 0.9f; x += 0.45f)
+			{
+				float depth = 0.0f;
+				if (ViewportGrid::PlaneDepthAt(inverse, x, 0.95f, depth))
+					found++;
+			}
+			Check(found == 0, "and nothing above the horizon hits it at all");
+		}
+
+		// --- whatever it answers is inside the depth range --------------------
+		// The contract the pipeline depends on: a fragment that is kept writes
+		// a depth the test can use.
+		{
+			bool inRange = true;
+			for (float y = -0.99f; y <= 0.99f; y += 0.09f)
+			{
+				for (float x = -0.99f; x <= 0.99f; x += 0.09f)
+				{
+					float depth = 0.0f;
+					if (ViewportGrid::PlaneDepthAt(inverse, x, y, depth))
+						inRange = inRange && depth >= 0.0f && depth <= 1.0f;
+				}
+			}
+			Check(inRange, "every pixel it accepts gets a depth inside [0, 1]");
+		}
+
+		// --- from underneath --------------------------------------------------
+		// A plane has two sides and the editor camera can get to both.
+		{
+			const Mat4 below = Math::Translate(Mat4(1.0f), Vec3(0.0f, -4.0f, 10.0f)) *
+							   Math::Rotate(Mat4(1.0f), Math::Radians(15.0f), Vec3(1.0f, 0.0f, 0.0f));
+			const Mat4 under = ViewportGrid::BuildInverseViewProjection(projection, below);
+
+			const Vec3 world(2.0f, 0.0f, 1.0f);
+			const Vec4 clip = (projection * Math::Inverse(below)) * Vec4(world, 1.0f);
+			const Vec3 ndc = Vec3(clip) / clip.w;
+
+			float depth = -1.0f;
+			const bool hit = ViewportGrid::PlaneDepthAt(under, ndc.x, ndc.y, depth);
+			Check(hit && std::fabs(depth - ndc.z) < 1e-4f,
+				  "a camera under the plane sees it from below, at the same depth");
+		}
+
+		// --- a grid is a place, not a direction -------------------------------
+		// The opposite of the property CheckSky asserts, and the reason the two
+		// build different matrices: the sky drops the camera's translation and
+		// this must not.
+		{
+			const Mat4 moved = Math::Translate(Mat4(1.0f), Vec3(30.0f, 5.0f, 12.0f)) *
+							   Math::Rotate(Mat4(1.0f), Math::Radians(-20.0f), Vec3(1.0f, 0.0f, 0.0f));
+			const Mat4 shifted = ViewportGrid::BuildInverseViewProjection(projection, moved);
+
+			auto worldAt = [](const Mat4& matrix, float x, float y, Vec3& out)
+			{
+				float depth = 0.0f;
+				if (!ViewportGrid::PlaneDepthAt(matrix, x, y, depth))
+					return false;
+				const Vec4 hit = matrix * Vec4(x, y, depth, 1.0f);
+				out = Vec3(hit) / hit.w;
+				return true;
+			};
+
+			Vec3 here, there;
+			const bool both = worldAt(inverse, 0.0f, -0.4f, here) &&
+							  worldAt(shifted, 0.0f, -0.4f, there);
+			Check(both && Math::Length(here - there) > 20.0f,
+				  "walking the camera across the world moves what the centre pixel lands on");
+		}
+
+		// --- edge on ----------------------------------------------------------
+		// The camera exactly in the plane, which is a real thing to do with an
+		// editor camera and is where the solve divides by something near zero.
+		{
+			const Mat4 flat = Math::Translate(Mat4(1.0f), Vec3(0.0f, 0.0f, 10.0f));
+			const Mat4 edge = ViewportGrid::BuildInverseViewProjection(projection, flat);
+
+			float depth = 0.0f;
+			const bool hit = ViewportGrid::PlaneDepthAt(edge, 0.0f, 0.0f, depth);
+			Check(!hit || (depth >= 0.0f && depth <= 1.0f),
+				  "and looking along the plane either declines or stays in range");
+		}
+
+		// --- outside a frame ---------------------------------------------------
+		ViewportGrid::Draw(Camera(projection), eye, ViewportGridSettings{});
+		Check(true, "drawing one with no command list is survivable");
+	}
+
 	void CheckFrameGraph()
 	{
 		if (!Renderer::HasDevice())
@@ -5385,6 +5564,7 @@ int RunTests(int argc, char** argv)
 	CheckPrimitiveWinding();
 	CheckCubemap();
 	CheckSky();
+	CheckViewportGrid();
 	CheckRenderersReady();
 	CheckFieldLabels();
 	CheckShadowToggle();

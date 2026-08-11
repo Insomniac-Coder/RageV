@@ -6,6 +6,7 @@
 #include "ParticleRenderer.h"
 #include "RageV/Particles/GpuParticles.h"
 #include "Skybox.h"
+#include "ViewportGrid.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
 #include "PostProcess.h"
@@ -29,6 +30,7 @@ namespace RageV
 		// draws, and Init logs which of the two it got.
 		Particles::Gpu::Init(device);
 		Skybox::Init(device);
+		ViewportGrid::Init(device);
 		ShadowMap::Init(device);
 		EnvironmentIBL::Init(device);
 		PostProcess::Init(device);
@@ -39,6 +41,7 @@ namespace RageV
 		PostProcess::Shutdown();
 		EnvironmentIBL::Shutdown();
 		ShadowMap::Shutdown();
+		ViewportGrid::Shutdown();
 		Skybox::Shutdown();
 		Particles::Gpu::Shutdown();
 		ParticleRenderer::Shutdown();
@@ -112,5 +115,6 @@ namespace RageV
 		DebugRenderer::SetTargetFormats(color, depth);
 		ParticleRenderer::SetTargetFormats(color, depth);
 		Skybox::SetTargetFormats(color, depth);
+		ViewportGrid::SetTargetFormats(color, depth);
 	}
 }

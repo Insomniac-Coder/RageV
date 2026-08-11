@@ -161,6 +161,14 @@ void EditorLayer::OnAttach()
 			}
 		}
 	}
+
+	// --camera puts the viewport somewhere repeatable. After the scene loads,
+	// because opening one is free to frame something.
+	if (config.HasCameraPose)
+	{
+		m_EditorCamera.SetOrbit(config.CameraFocus, config.CameraDistance,
+								config.CameraYaw, config.CameraPitch);
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -335,9 +343,15 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.DrawScene = [this](RGPassContext&)
 	{
 		if (m_UseEditorCamera)
-			m_Scene->OnRenderEditor(m_EditorCamera);
+		{
+			// A local, so it outlives the call rather than the expression.
+			const ViewportGridSettings grid = GridSettings();
+			m_Scene->OnRenderEditor(m_EditorCamera, m_ShowGrid ? &grid : nullptr);
+		}
 		else if (m_ViewportSize.y > 0.0f)
+		{
 			m_Scene->OnRenderRuntime(m_ViewportSize.x / m_ViewportSize.y);
+		}
 	};
 
 	if (m_ShowColliders)
@@ -828,6 +842,7 @@ void EditorLayer::LoadPanelState()
 		else if (key == "render-settings") m_ShowRenderSettings = value;
 		else if (key == "build-log")       m_ShowScriptBuild = value;
 		else if (key == "colliders")       m_ShowColliders = value;
+		else if (key == "grid")            m_ShowGrid = value;
 		// Not a bool like the rest, so it reads the raw text rather than `value`.
 		else if (key == "theme")           m_Theme = EditorTheme::Parse(trim(line.substr(equals + 1)).c_str());
 		else if (key == "content-folder")   m_PendingContentFolder = trim(line.substr(equals + 1));
@@ -836,6 +851,33 @@ void EditorLayer::LoadPanelState()
 		else if (key == "layout-width")    m_LastDockSize.x = (float)std::atof(trim(line.substr(equals + 1)).c_str());
 		else if (key == "layout-height")   m_LastDockSize.y = (float)std::atof(trim(line.substr(equals + 1)).c_str());
 	}
+}
+
+RageV::ViewportGridSettings EditorLayer::GridSettings() const
+{
+	const auto& colors = EditorTheme::Colors();
+
+	ViewportGridSettings settings;
+
+	// The axes come from the theme so the grid and the transform widget name
+	// them the same way -- a red line on the floor and a green handle for the
+	// same axis is worse than no colour at all.
+	settings.AxisXColor = Vec3(colors.AxisX.x, colors.AxisX.y, colors.AxisX.z);
+	settings.AxisZColor = Vec3(colors.AxisZ.x, colors.AxisZ.y, colors.AxisZ.z);
+
+	// The lines themselves do not, and that is not an oversight.
+	//
+	// The first version darkened them in the light theme, on the reasoning that
+	// a light theme has a light background. It does not -- the *panels* go pale
+	// and the viewport does not, because what is behind the grid is the scene's
+	// own sky and ground. A dark line picked for a pale panel was then drawn
+	// over a dark horizon and nearly vanished there.
+	//
+	// This is the mistake EditorTheme.h warns about (inverting a palette rather
+	// than authoring one) reaching a surface the theme does not own. The mid
+	// grey below is the one value that reads against both a bright sky and a
+	// dark ground, which is what the grid is actually drawn on.
+	return settings;
 }
 
 // Switching theme is a style change and nothing more: no resources are
@@ -867,6 +909,7 @@ void EditorLayer::SavePanelState()
 	file << "render-settings = " << (m_ShowRenderSettings ? 1 : 0) << "\n";
 	file << "build-log = "       << (m_ShowScriptBuild ? 1 : 0) << "\n";
 	file << "colliders = "       << (m_ShowColliders ? 1 : 0) << "\n";
+	file << "grid = "            << (m_ShowGrid ? 1 : 0) << "\n";
 	file << "theme = "           << EditorTheme::Name(m_Theme) << "\n";
 	file << "content-folder = "  << m_ContentBrowser.GetCurrentFolder() << "\n";
 	file << "layout-width = "    << (int)m_LastDockSize.x << "\n";
@@ -1091,6 +1134,15 @@ void EditorLayer::DrawMenuBar()
 		ImGui::MenuItem("Build Log",       nullptr, &m_ShowScriptBuild);
 		ImGui::Separator();
 
+		ImGui::MenuItem("Show Grid", "F2", &m_ShowGrid);
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("The ground plane at y = 0, in the scene view.\n\n"
+							  "Lines every unit and every ten, fading out as they\n"
+							  "get too close together to draw. The two coloured\n"
+							  "lines are the X and Z axes.");
+		}
+
 		ImGui::MenuItem("Show Colliders", "F3", &m_ShowColliders);
 		if (ImGui::IsItemHovered())
 		{
@@ -1312,6 +1364,16 @@ void EditorLayer::DrawToolbar()
 					   "Hold Ctrl for the same effect without leaving it on.",
 					   m_SnapEnabled))
 		m_SnapEnabled = !m_SnapEnabled;
+
+	// A full gap rather than the tight one, because this starts a different
+	// group: everything to the left of it changes the scene, and this only
+	// changes what is drawn.
+	Gap();
+	if (UI::IconButton("##grid", UI::IconKind::GroundGrid,
+					   "Show the ground grid in the scene view.\n\n"
+					   "Scene view only -- the game view is what a player would see.",
+					   m_ShowGrid))
+		m_ShowGrid = !m_ShowGrid;
 
 	// --- transport, centred -------------------------------------------------
 	// Centred because it is the control people reach for most, and because that
@@ -2214,9 +2276,10 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 		// Frame the selection, the one navigation shortcut every editor shares.
 		case RV_KEY_F: if (!control && !ImGui::GetIO().WantTextInput) { FocusSelection(); return true; } break;
 
-		// A function key rather than a letter: the overlay is toggled while
-		// looking at the scene, often with the other hand on the camera
-		// controls, and every unmodified letter near WASD is already a gizmo.
+		// Function keys rather than letters: both are toggled while looking at
+		// the scene, often with the other hand on the camera controls, and every
+		// unmodified letter near WASD is already a gizmo.
+		case RV_KEY_F2: m_ShowGrid = !m_ShowGrid; return true;
 		case RV_KEY_F3: m_ShowColliders = !m_ShowColliders; return true;
 
 		case RV_KEY_DELETE:

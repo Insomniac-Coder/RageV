@@ -63,7 +63,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-909 checks, `exit 0`. Then look at a frame:
+920 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -511,6 +511,24 @@ particle systems and rendering within the same frame.
 ---
 
 ## 5. Invariants that are load-bearing
+
+### Fullscreen passes that take derivatives
+
+- **No `discard` after an `fwidth`.** A derivative is a difference between
+  neighbouring pixels in a quad, so a lane that has already terminated leaves
+  its neighbours' derivatives undefined -- and the pixel next to the one you
+  wanted to discard is exactly the one that still needs a correct answer. Clamp
+  the out-of-range value to something finite, take the derivatives, and
+  multiply the alpha to zero at the end. See `grid.rvshader`.
+- **Write range tests as "is it inside", never as "is it outside".** Every
+  comparison against a NaN is false, so `depth >= 0.0 && depth <= 1.0` rejects
+  one and `depth < 0.0 || depth > 1.0` lets it through. The grid's solve
+  produces a NaN whenever the camera looks exactly along the plane, which is a
+  thing an editor camera does.
+- **A fragment shader can replace depth and still not write it.** They are
+  separate switches: `gl_FragDepth` decides what the depth *test* compares, and
+  `DepthStencil.DepthWriteEnable` decides whether the result is stored. A
+  translucent pass usually wants the first and not the second.
 
 ### Editor UI
 
@@ -1952,56 +1970,121 @@ editor-side ImGui primitives; a game's UI ships, is skinned, is authored in
 scenes and must work with no editor present. The design tokens are worth
 reading for the reasoning; the code is not reusable there.
 
-### Next - an infinite viewport grid (asked for 2026-08-11, not started)
+### Done - the infinite viewport grid (2026-08-11)
 
-**The user asked for this and it is deliberately not half-done.** It is a
-*shader* feature rather than a UI one, and the cheap version -- a big quad of
-debug lines -- is not what was asked for: it visibly ends, and it aliases badly
-at grazing angles. Below is the design so it can be picked up cold.
+`RageV/src/RageV/Renderer/ViewportGrid.{h,cpp}` and
+`RageVEditor/assets/shaders/grid.rvshader`. Infinite because it is not
+geometry: a grid made of lines has an extent, and the edge of it is visible
+from anywhere the camera can get to.
 
-**The approach.** A full-screen pass that reconstructs, per pixel, where the
-view ray meets the y=0 plane, and shades a grid analytically there. This is
-what gives "infinite": there is no geometry, so there is no edge.
+**The solve is a plane in clip space, not a ray in world space.** The design
+written before this was built said "reconstruct a world ray, intersect it with
+y=0, project the hit point back for a depth". That works and it is what most
+implementations do, but it is two matrix multiplies and it needs the camera
+position passed in. A projective transform maps planes to planes, so it
+collapses: a point is on y=0 exactly when its clip position is perpendicular to
+the **second row of the inverse view-projection**, which for a known pixel is
+one linear equation in one unknown.
 
-1. Draw a full-screen triangle. Turn each pixel's NDC into a world ray with the
-   inverse view-projection. **Watch the backend difference** -- Vulkan's NDC has
-   y pointing down; OpenGL is already on `glClipControl(..., GL_ZERO_TO_ONE)`
-   (see §5), so the depth range agrees and only y does not. This is the same
-   family of bug as the OIT resolve landing upside down; compare the two
-   backends' frames against each other before believing it.
-2. `t = -rayOrigin.y / rayDir.y`. Discard when `t <= 0` or the ray is near
-   parallel -- that is the horizon, and it is where a naive grid turns into a
-   moire fence.
-3. Lines analytically, with derivatives, not with a texture:
-   `vec2 g = abs(fract(p.xz / spacing - 0.5) - 0.5) / fwidth(p.xz / spacing);`
-   `float line = 1.0 - min(min(g.x, g.y), 1.0);`
-   That is anti-aliased at any distance for free, which a textured grid is not.
-4. **Two spacings, blended by distance** -- 1 unit and 10 units. One spacing
-   either disappears when zoomed out or is a solid sheet when zoomed in. Fade
-   the minor set out as its screen-space period approaches a pixel.
-5. Colour the two axes: X from `AxisX`, Z from `AxisZ`, so the grid agrees with
-   the transform widget. Everything else is a neutral line at low alpha.
-6. **Write real depth**, `gl_FragDepth` from the world hit point, or the grid
-   floats over everything it should be behind. This is the part most
-   implementations get wrong and it is why the pass needs the scene's depth.
+```
+depth = -(row.x * ndc.x + row.y * ndc.y + row.w) / row.z
+```
 
-**Where it goes.** A graph pass after the opaque pass and before the
-transparent one, reading the scene depth with `PreserveDepth` (§6.3). Not in
-`DebugRenderer` -- that batches lines, and this draws none.
+That is the plane's depth at that pixel, already in the [0,1] both backends
+use. The world position is then one multiply. Better than being shorter: the
+near plane, the far plane and the horizon all fall out of `0 <= depth <= 1`
+rather than each needing an epsilon of its own, and `row.z == 0` -- the camera
+looking exactly along the plane -- produces a NaN that the range test rejects
+for free. `ViewportGrid::PlaneDepthAt` is the same solve on the CPU so the
+test suite can check it against points whose depth is already known.
 
-**The toggle.** `m_ShowGrid` on EditorLayer, a `UI::IconButton` in the toolbar
-next to Snap, a Window menu item, and a line in `panels.ini` beside `theme` and
-`content-folder`. **Scene view only**, like `m_ShowColliders` -- the game view
-is meant to be what a player would see. An icon kind exists already:
-`IconKind::SnapGrid` is the snap toggle, so the grid wants its own, and the two
-must not look alike sitting next to each other.
+**The backend trap the design warned about cannot happen here, and the reason
+is worth keeping.** Vulkan's NDC has y down and OpenGL's has it up. It does not
+bite because `v_NDC` is the vertex's own clip position carried through the
+rasteriser: whatever the convention, a fragment's `v_NDC` *is* its NDC, and the
+matrix reading it is the one the scene was drawn with. The trap is
+reconstructing from `gl_FragCoord`, where the flip has to be applied by hand
+and nothing notices its absence. Verified anyway -- the two backends' viewports
+differ by a max of 23/255 on 667 of 560,000 pixels, all sub-pixel noise along
+the lines themselves.
 
-**How to verify it.** Screenshot both backends and compare them against each
-other -- a grid is exactly the kind of thing that looks plausible and is
-subtly wrong per backend. Check it at a grazing camera angle (the horizon),
-zoomed far out (the minor lines should have faded, not aliased), and with an
-object intersecting y=0 (the depth write). `--screenshot` with the demo scene
-covers the last one; the sample scene's ground plane sits at y=0.
+**Depth is written and depth writes are off**, which are two different things
+and both deliberate. `gl_FragDepth` carries the plane's depth so the depth
+*test* is real; without it every fragment sits on the far plane and the grid
+appears only where nothing was drawn, hiding a line in front of a distant wall
+as readily as one behind it. The pipeline still disables depth *writing*, like
+the sky does: an antialiased line has edge pixels at five percent coverage, and
+a fragment that faint has no business occluding a particle behind it.
+
+**Nothing is discarded**, and that is not laziness. Every `discard` here would
+be a discard *after* the `fwidth` calls above it, which leaves the neighbouring
+pixels' derivatives undefined -- and at the horizon the pixel beside an
+in-range one is precisely the one that was not. Out-of-range pixels clamp to a
+finite depth so the derivative stays finite, and multiply their alpha to zero.
+That turns the horizon into a fade instead of a fringe.
+
+**Two spacings, faded by density rather than by distance.** Each set fades out
+as `fwidth(coord/spacing)` -- cells per pixel -- crosses 0.18 to 0.55. No
+distance cutoff and no fog radius, so there is no circle where the grid stops:
+the minor set dissolves where it would alias, the major set survives ten times
+further, and the horizon takes care of itself. An infinity that overflows
+`fract` never arrives because the fade got there first.
+
+**Where it is drawn.** Inside the scene pass, after the sky and before the
+particles -- *not* the separate graph pass the design called for. After the
+sky, because the sky is drawn at the far plane against the depth test and would
+be rejected wherever the grid had already claimed a pixel. Before the
+particles, because the grid is scenery to them. A graph pass would have to sit
+after the whole scene pass, which puts it on the wrong side of the forward
+particles.
+
+**It reaches the scene through an argument, not a setting.**
+`Scene::OnRenderEditor(camera, grid)` takes an optional `ViewportGridSettings*`;
+`OnRenderRuntime` has nowhere to put one. So the game view and the shipped
+runtime cannot get a grid by construction rather than by remembering to check a
+flag.
+
+**`--camera=x,y,z,distance,yaw,pitch`** was added for this and is the third
+member of the `--screenshot` / `--select` family. An infinite plane looks
+completely different at a grazing angle and from 400 units out, and those are
+exactly the cases that alias; driving the camera by hand to check them is not a
+check anybody repeats.
+
+**A correction, and it is the same shape as the last two.** The first
+screenshot appeared to show the grid drawing straight through solid geometry --
+lines crossing the face of a cube. The obvious reading was a broken depth test.
+It was not: `Ground` in the sample scene sits at y=-1 with scale 1, so its top
+surface is at **y=-0.5**, and `Sphere (gold)` spans -0.8 to 1.0. The props
+straddle the origin plane, and a grid at y=0 genuinely passes through them.
+Two probes settled it -- writing a constant far depth (the grid vanished behind
+everything, so the test worked) and then a solid fill at the computed depth
+(the objects were cut at exactly y=0, so the depth was right). **The screenshot
+was evidence about the scene, not about the code**, and reading it the other
+way would have "fixed" a working depth test. Note this if the sample scene ever
+looks wrong: the grid is at y=0 and that scene's floor is not.
+
+**And a smaller one.** The line colour was first darkened in the light theme,
+reasoning that a light theme has a light background. It does not -- the panels
+go pale and the viewport does not, because what is behind the grid is the
+scene's own sky and ground. The dark line then nearly vanished against the dark
+horizon. That is the mistake `EditorTheme.h` warns about (inverting a palette
+instead of authoring one) reaching a surface the theme does not own. One mid
+grey reads against both; only the axes follow the theme, so that the grid and
+the transform widget name X and Z the same way.
+
+**The toggle** is `m_ShowGrid`, on by default -- the opposite call from the
+collider overlay, because this is the floor rather than a diagnostic, and a
+scene with nothing in it is otherwise a gradient with no scale, no horizon and
+no way to tell where the camera is pointing. Toolbar button, Window > Show
+Grid, **F2**, and `grid = ` in `panels.ini`. `IconKind::GroundGrid` is a floor
+in perspective, deliberately unlike `SnapGrid`'s flat lattice three buttons
+away; the first attempt had two rails and four rungs and read as a traffic cone
+at 18px, which converging *interior* lines fixed.
+
+**Verified**: 920 checks on both backends, 11 of them the grid's; the two
+backends diffed against each other; grazing (camera in the plane), 400 units
+out from above and from below, close in, both themes, the toggle off, and a
+malformed `--camera`.
 
 ### START HERE - text and game UI
 

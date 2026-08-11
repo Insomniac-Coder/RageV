@@ -925,10 +925,10 @@ namespace RageV
 		OnRender(component.Camera, camera.GetComponent<TransformComponent>().World);
 	}
 
-	void Scene::OnRenderEditor(const EditorCamera& camera)
+	void Scene::OnRenderEditor(const EditorCamera& camera, const ViewportGridSettings* grid)
 	{
 		UpdateWorldTransforms();
-		OnRender(camera, camera.GetTransform());
+		OnRender(camera, camera.GetTransform(), grid);
 	}
 
 	void Scene::PrepareEnvironment()
@@ -1347,7 +1347,8 @@ namespace RageV
 		}
 	}
 
-	void Scene::OnRender(const Camera& camera, const Mat4& cameraTransform)
+	void Scene::OnRender(const Camera& camera, const Mat4& cameraTransform,
+						 const ViewportGridSettings* grid)
 	{
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
 		LightList lights;
@@ -1481,6 +1482,15 @@ namespace RageV
 		// how this looked before.
 		if (Renderer::HasDevice() && m_Environment.Sky != SkyType::Color)
 			Skybox::Draw(camera, cameraTransform, m_Environment, sky);
+
+		// After the sky and before the particles, and neither half of that is
+		// interchangeable. After the sky, because the sky is drawn at the far
+		// plane against the depth test and would be rejected wherever the grid
+		// had already claimed a pixel. Before the particles, because the grid
+		// is scenery to them: drawn the other way round, a grid line paints
+		// over the smoke standing in front of it.
+		if (grid && Renderer::HasDevice())
+			ViewportGrid::Draw(camera, cameraTransform, *grid);
 
 		// Last, so a blended particle has the whole scene to blend against --
 		// including the sky.

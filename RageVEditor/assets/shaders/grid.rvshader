@@ -1,0 +1,199 @@
+// The editor's ground plane, as one fullscreen triangle.
+//
+// Infinite because it is not geometry. A grid built from lines has to end
+// somewhere, and wherever that is, it is visible: the horizon acquires a hard
+// edge that moves with the camera. This shades the plane y = 0 per pixel
+// instead, so there is no extent to run out of.
+//
+// ---------------------------------------------------------------------------
+// The solve, and why it is not a ray
+// ---------------------------------------------------------------------------
+//
+// The obvious version reconstructs a world-space ray per pixel, intersects it
+// with the plane, and then projects the hit point back to get a depth. That is
+// two matrix multiplies and needs the camera position passed in.
+//
+// A projective transform maps planes to planes, so the whole thing collapses.
+// A world point P is on y = 0 exactly when the y component of
+// `InvViewProjection * clip` is zero -- that is, when clip is perpendicular to
+// the *second row* of the inverse. For a given pixel the first two components
+// of clip are known, so that is one linear equation in one unknown:
+//
+//     row.x * ndc.x + row.y * ndc.y + row.z * depth + row.w = 0
+//
+// Solving it gives the depth of the plane at this pixel directly, in the same
+// [0, 1] both backends use. The world position then comes from one multiply,
+// and the near plane, the far plane and the horizon all fall out of the range
+// check on the result rather than needing epsilons of their own.
+//
+// ---------------------------------------------------------------------------
+// The backend difference this does *not* have
+// ---------------------------------------------------------------------------
+//
+// Vulkan's NDC has y pointing down and OpenGL's has it up, which is a real
+// difference and has produced upside-down passes in this engine before. It
+// cannot bite here, because `v_NDC` is the vertex's own clip position carried
+// through: whatever the convention, a fragment's v_NDC *is* its NDC, and the
+// matrix that reads it is the same one the scene was drawn with. The trap is
+// reconstructing from `gl_FragCoord` instead, where the y flip has to be
+// applied by hand and there is nothing to notice its absence.
+//
+// ---------------------------------------------------------------------------
+// Depth is written, and depth writes are off
+// ---------------------------------------------------------------------------
+//
+// Two different things, and both are deliberate. `gl_FragDepth` carries the
+// plane's real depth so the depth *test* is real -- without it every fragment
+// sits on the far plane, and the grid would appear only where nothing was
+// drawn, which hides a line in front of a distant wall as readily as one
+// behind it.
+//
+// The pipeline still disables depth *writing*, like the sky does. An
+// antialiased line has an edge pixel at five percent coverage, and a fragment
+// that faint has no business occluding a particle behind it.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_NDC;
+
+void main()
+{
+	vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	v_NDC = uv * 2.0 - 1.0;
+
+	// The far plane, as the sky does. The fragment shader replaces it with the
+	// plane's own depth; this is only what gets rasterised.
+	gl_Position = vec4(v_NDC, 1.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_NDC;
+layout(location = 0) out vec4 o_Color;
+
+layout(push_constant) uniform GridParams
+{
+	mat4 InvViewProjection;
+
+	// Scalars ride in the alpha lanes, which keeps this at 112 bytes -- inside
+	// the 128 every implementation guarantees, with a vec4 spare.
+	vec4 Line;    // rgb, a = opacity of a major line
+	vec4 AxisX;   // rgb, a = minor spacing, in world units
+	vec4 AxisZ;   // rgb, a = minor cells per major cell
+} u_Params;
+
+// A minor line is a subdivision, not a peer: at equal weight the eye cannot
+// find the decade and the grid reads as one dense mesh.
+const float kMinorOpacity = 0.40;
+
+// And an axis is a landmark, not a line. Drawn at the grid's own opacity it
+// washes out to a pale tint of itself against a bright floor -- the red axis
+// stopped reading as red at all -- which loses the one thing it is for.
+const float kAxisOpacity = 1.9;
+const float kAxisMaximum = 0.82;
+
+// The axes are wider than a grid line so they still read as axes where the
+// grid around them has faded.
+const float kAxisWidth = 1.7;
+
+// Where a set of lines starts and finishes fading, measured in cells per
+// pixel. Past about half a cell per pixel the lines are closer together than
+// the pixels drawing them, and what is left is aliasing rather than a grid.
+const float kFadeStart = 0.18;
+const float kFadeEnd   = 0.55;
+
+// Beyond this the world position has lost the precision `fract` needs, and the
+// fade above has long since taken the lines to nothing anyway.
+const float kMaxDistance = 1.0e6;
+
+// Coverage of the nearest line of a set, antialiased, plus how much of the set
+// survives at this density.
+//
+// The derivative is what makes it antialiased at every distance without a
+// texture or a supersample: `fwidth` is how far the coordinate moves across
+// one pixel, so dividing the distance-to-a-line by it measures that distance
+// *in pixels*, and clamping at one pixel is the line's own width.
+float LineCoverage(vec2 coord, float spacing, out float fade)
+{
+	vec2 cell = coord / spacing;
+	vec2 width = fwidth(cell);
+
+	float density = max(width.x, width.y);
+	fade = 1.0 - smoothstep(kFadeStart, kFadeEnd, density);
+
+	vec2 distance = abs(fract(cell - 0.5) - 0.5) / max(width, vec2(1.0e-8));
+	return (1.0 - min(min(distance.x, distance.y), 1.0)) * fade;
+}
+
+// The same, for a single line at coord = 0.
+float AxisCoverage(float coord)
+{
+	float width = max(fwidth(coord), 1.0e-8) * kAxisWidth;
+	return 1.0 - min(abs(coord) / width, 1.0);
+}
+
+void main()
+{
+	// Second row of the inverse: the plane y = 0, expressed in clip space.
+	// GLSL subscripts a matrix by column, so this gathers y from each of them.
+	vec4 plane = vec4(u_Params.InvViewProjection[0][1],
+					  u_Params.InvViewProjection[1][1],
+					  u_Params.InvViewProjection[2][1],
+					  u_Params.InvViewProjection[3][1]);
+
+	float depth = -(plane.x * v_NDC.x + plane.y * v_NDC.y + plane.w) / plane.z;
+
+	// Phrased as "is it inside" rather than "is it outside" on purpose. Looking
+	// along the plane makes plane.z zero and this a NaN, and every comparison
+	// against a NaN is false -- so the inside test rejects it and the outside
+	// test would have let it through.
+	bool inRange = depth >= 0.0 && depth <= 1.0;
+
+	// Clamped for the arithmetic below whether or not it was in range, because
+	// everything after this takes derivatives. A derivative is a difference
+	// between neighbouring pixels, so one pixel of a quad holding an infinity
+	// ruins the three beside it -- and at the horizon the pixel beside an
+	// in-range one is precisely the one that was not. Keeping it finite turns
+	// that boundary into the fade it should be.
+	float safeDepth = inRange ? depth : 1.0;
+
+	vec4 hit = u_Params.InvViewProjection * vec4(v_NDC, safeDepth, 1.0);
+
+	// hit.w is the reciprocal of the clip w, so it is positive in front of the
+	// camera and shrinks with distance. The floor caps how far the plane can be
+	// reconstructed rather than dividing by something near zero.
+	bool inFront = hit.w > 1.0 / kMaxDistance;
+	vec3 world = hit.xyz / max(hit.w, 1.0 / kMaxDistance);
+
+	float spacing = max(u_Params.AxisX.a, 1.0e-3);
+	float majorEvery = max(u_Params.AxisZ.a, 2.0);
+
+	float minorFade;
+	float majorFade;
+	float minor = LineCoverage(world.xz, spacing, minorFade);
+	float major = LineCoverage(world.xz, spacing * majorEvery, majorFade);
+
+	// The X axis is the line running *along* x, so it is where z is zero.
+	float axisX = AxisCoverage(world.z) * majorFade;
+	float axisZ = AxisCoverage(world.x) * majorFade;
+
+	float opacity = u_Params.Line.a;
+	float alpha = max(minor * kMinorOpacity, major) * opacity;
+
+	// One colour, not a sum: at the origin both axes cover the pixel, and
+	// adding them there gives a spot of a third colour that belongs to neither.
+	float axis = max(axisX, axisZ);
+	vec3 axisColor = axisX >= axisZ ? u_Params.AxisX.rgb : u_Params.AxisZ.rgb;
+
+	vec3 color = mix(u_Params.Line.rgb, axisColor, axis);
+	alpha = max(alpha, axis * min(opacity * kAxisOpacity, kAxisMaximum));
+
+	// Nothing is discarded. With depth writes off, an alpha of zero already
+	// contributes nothing -- and a discard here would be a discard *after* the
+	// derivatives above, which leaves the neighbouring pixels' derivatives
+	// undefined. Multiplying it out is free and has no such rule.
+	gl_FragDepth = safeDepth;
+	o_Color = vec4(color, alpha * ((inRange && inFront) ? 1.0 : 0.0));
+}

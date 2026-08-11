@@ -120,6 +120,51 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "camera")
+		{
+			// x,y,z,distance,yaw,pitch -- the editor camera's whole state, which
+			// is a focal point and an orbit around it rather than a position.
+			float parts[6] = { 0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f };
+			size_t count = 0;
+			size_t start = 0;
+
+			while (count < 6 && start <= value.size())
+			{
+				const size_t comma = value.find(',', start);
+				const std::string piece =
+					value.substr(start, comma == std::string::npos ? std::string::npos
+																   : comma - start);
+				try
+				{
+					parts[count++] = std::stof(piece);
+				}
+				catch (const std::exception&)
+				{
+					RV_CORE_WARN("camera expects six numbers "
+								 "x,y,z,distance,yaw,pitch; got '{0}'", value);
+					return false;
+				}
+
+				if (comma == std::string::npos)
+					break;
+				start = comma + 1;
+			}
+
+			if (count != 6)
+			{
+				RV_CORE_WARN("camera expects six numbers x,y,z,distance,yaw,pitch; "
+							 "got {0} in '{1}'", count, value);
+				return false;
+			}
+
+			config.CameraFocus = Vec3(parts[0], parts[1], parts[2]);
+			config.CameraDistance = parts[3];
+			config.CameraYaw = parts[4];
+			config.CameraPitch = parts[5];
+			config.HasCameraPose = true;
+			return true;
+		}
+
 		if (key == "theme")
 		{
 			const std::string wanted = ToLower(value);

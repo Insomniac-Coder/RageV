@@ -46,6 +46,13 @@ namespace RageV
 		// Frames a point at a distance that fits the given radius. Bound to F.
 		void Focus(const Vec3& point, float radius = 1.0f);
 
+		// The camera's whole state at once, in degrees. For --camera, and for
+		// anything else that needs a repeatable viewpoint: the four numbers
+		// below *are* the state, so setting them cannot leave a derived value
+		// disagreeing the way setting a position would.
+		void SetOrbit(const Vec3& focalPoint, float distance, float yawDegrees,
+					  float pitchDegrees);
+
 		float GetFOV() const { return m_FOV; }
 		void  SetFOV(float degrees);
 		float GetNearClip() const { return m_Near; }

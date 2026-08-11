@@ -127,8 +127,17 @@ Every flag below can also go in a `ragev.ini` file next to the executable, as
 | `--project=<path>` | The `.rvproject` to open, or a folder containing one. |
 | `--scene=<path>` | Open this scene instead of the project's start scene. |
 | `--screenshot=<file>` | Write a PNG of one frame and exit. |
+| `--screenshot-frame=N` | Which frame to capture. Default 30, to let the scene settle. |
 | `--benchmark=N` | Run N frames, print what they cost, and exit. |
 | `--ui-scale=N\|auto` | Editor font and spacing. `auto` follows the monitor. |
+| `--theme=dark\|light` | Editor theme. Default is whatever was last used. |
+| `--select=<name>` | Open with this entity selected, so the inspector has something in it. |
+| `--camera=x,y,z,d,yaw,pitch` | Where the editor's viewport camera starts. Angles in degrees. |
+
+The last four exist to make a screenshot repeatable. A picture of the editor is
+only worth taking if the next person can take the same one, and "open it and
+drag until it looks like this" is not a reproduction — so the theme, the
+selection and the viewpoint are all arguments.
 
 > [!NOTE]
 > `--vsync=off` set at startup and unchecked at runtime are not the same thing.

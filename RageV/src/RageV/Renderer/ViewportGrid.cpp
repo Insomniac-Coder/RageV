@@ -1,0 +1,169 @@
+#include <rvpch.h>
+#include "ViewportGrid.h"
+#include "Renderer.h"
+#include "RageV/Renderer/RHI/ShaderCompiler.h"
+
+namespace RageV
+{
+	using namespace RageV::RHI;
+
+	namespace
+	{
+		struct GridParams
+		{
+			Mat4 InvViewProjection{ 1.0f };
+			Vec4 Line{ 0.0f };    // rgb, a = opacity of a major line
+			Vec4 AxisX{ 0.0f };   // rgb, a = minor spacing, in world units
+			Vec4 AxisZ{ 0.0f };   // rgb, a = minor cells per major cell
+		};
+
+		// Same budget as the sky, and the same warning applies: 128 bytes is
+		// what every implementation guarantees, and the next vec4 is the last
+		// one that fits.
+		static_assert(sizeof(GridParams) == 112, "Grid push constants must stay under 128 bytes");
+
+		struct GridData
+		{
+			RHIDevice* Device = nullptr;
+
+			Ref<RHIShader> Shader;
+			Ref<RHIPipeline> Pipeline;
+
+			Format TargetColor = Format::R8G8B8A8_UNORM;
+			Format TargetDepth = Format::D32_SFLOAT;
+			bool PipelineDirty = true;
+
+			bool Ready = false;
+		};
+
+		std::unique_ptr<GridData> s_Data;
+	}
+
+	void ViewportGrid::Init(RHIDevice& device)
+	{
+		s_Data = std::make_unique<GridData>();
+		s_Data->Device = &device;
+
+		ShaderCompiler::Init();
+
+		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/grid.rvshader");
+		if (!compiled)
+		{
+			RV_CORE_ERROR("ViewportGrid: failed to compile assets/shaders/grid.rvshader");
+			return;
+		}
+
+		s_Data->Shader = device.CreateShader(*compiled);
+		s_Data->Ready = s_Data->Shader != nullptr;
+
+		if (!s_Data->Ready)
+			RV_CORE_ERROR("ViewportGrid unavailable; the editor's ground grid will not draw");
+	}
+
+	void ViewportGrid::Shutdown()
+	{
+		s_Data.reset();
+	}
+
+	void ViewportGrid::SetTargetFormats(Format color, Format depth)
+	{
+		if (!s_Data)
+			return;
+
+		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth && s_Data->Pipeline)
+			return;
+
+		s_Data->TargetColor = color;
+		s_Data->TargetDepth = depth;
+		s_Data->PipelineDirty = true;
+	}
+
+	bool ViewportGrid::IsReady()
+	{
+		return s_Data && s_Data->Ready;
+	}
+
+	Mat4 ViewportGrid::BuildInverseViewProjection(const Mat4& projection, const Mat4& cameraTransform)
+	{
+		// The camera's translation stays, unlike the sky's: a grid is a place in
+		// the world rather than a direction, and dropping the translation would
+		// leave it stuck to the camera.
+		return Math::Inverse(projection * Math::Inverse(cameraTransform));
+	}
+
+	bool ViewportGrid::PlaneDepthAt(const Mat4& inverseViewProjection,
+									float ndcX, float ndcY, float& depth)
+	{
+		// The plane y = 0, carried into clip space: the second row of the
+		// inverse, which is the y component of each of its columns. See
+		// grid.rvshader for why a plane rather than a ray.
+		const Vec4 plane(inverseViewProjection[0].y, inverseViewProjection[1].y,
+						 inverseViewProjection[2].y, inverseViewProjection[3].y);
+
+		if (plane.z == 0.0f)
+			return false;   // the view ray lies in the plane; no single depth
+
+		const float solved = -(plane.x * ndcX + plane.y * ndcY + plane.w) / plane.z;
+
+		// Written the same way round as the shader, and for the same reason: a
+		// NaN fails every comparison, so this rejects it and the negated form
+		// would not.
+		if (!(solved >= 0.0f && solved <= 1.0f))
+			return false;
+
+		const Vec4 hit = inverseViewProjection * Vec4(ndcX, ndcY, solved, 1.0f);
+		if (hit.w <= 0.0f)
+			return false;   // behind the camera
+
+		depth = solved;
+		return true;
+	}
+
+	void ViewportGrid::Draw(const Camera& camera, const Mat4& cameraTransform,
+							const ViewportGridSettings& settings)
+	{
+		if (!s_Data || !s_Data->Ready)
+			return;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		if (s_Data->PipelineDirty || !s_Data->Pipeline)
+		{
+			GraphicsPipelineDesc desc;
+			desc.Name = "ViewportGrid";
+			desc.Shader = s_Data->Shader;
+			desc.Topology = PrimitiveTopology::TriangleList;
+			desc.Rasterizer.Cull = CullMode::None;
+			desc.Blend = BlendPreset::AlphaBlend;
+
+			// Tested, not written -- see the header of grid.rvshader. The test
+			// is against the depth the fragment shader computes for the plane,
+			// which is the whole point of computing it.
+			desc.DepthStencil.DepthTestEnable = true;
+			desc.DepthStencil.DepthWriteEnable = false;
+			desc.DepthStencil.DepthCompare = CompareOp::LessOrEqual;
+
+			desc.ColorFormats = { s_Data->TargetColor };
+			desc.DepthFormat = s_Data->TargetDepth;
+
+			s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
+			s_Data->PipelineDirty = false;
+		}
+
+		if (!s_Data->Pipeline)
+			return;
+
+		GridParams params;
+		params.InvViewProjection =
+			BuildInverseViewProjection(camera.GetProjection(), cameraTransform);
+		params.Line = Vec4(settings.LineColor, Math::Clamp(settings.Opacity, 0.0f, 1.0f));
+		params.AxisX = Vec4(settings.AxisXColor, Math::Max(settings.Spacing, 1e-3f));
+		params.AxisZ = Vec4(settings.AxisZColor, Math::Max(settings.MajorEvery, 2.0f));
+
+		cmd->BindPipeline(s_Data->Pipeline);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd->Draw(3);
+	}
+}
