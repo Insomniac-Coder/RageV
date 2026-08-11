@@ -1244,6 +1244,12 @@ void EditorLayer::DrawToolbar()
 	// everything after it onto a second row -- inside a child exactly one row
 	// tall, which clips it away entirely. That is how the Play button became
 	// invisible the moment it was added after a checkbox.
+	// The same inset on the left as the right edge gets, so the row is
+	// centred in its own bar. The right side had an explicit gap and the left
+	// had none, which left the gizmo buttons clinging to the window edge while
+	// the camera toggle sat comfortably off it.
+	ImGui::SetCursorPosX(ImGui::GetCursorPosX() + EditorTheme::Space::Roomy);
+
 	auto Gap = [](float width = 10.0f)
 	{
 		ImGui::SameLine(0.0f, width);
@@ -1351,7 +1357,7 @@ void EditorLayer::DrawToolbar()
 		const char* label = m_UseEditorCamera ? "Editor Cam" : "Game Cam";
 		const float width = FitButton("Editor Cam");
 
-		const float rightEdge = ImGui::GetWindowWidth() - width - 12.0f;
+		const float rightEdge = ImGui::GetWindowWidth() - width - EditorTheme::Space::Roomy;
 		ImGui::SameLine(ImMax(rightEdge, ImGui::GetCursorPosX() + 10.0f));
 
 		// Filled while the viewport is showing the scene's camera rather than

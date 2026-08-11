@@ -161,8 +161,14 @@ namespace RageV::EditorTheme
 
 		// ---- the accent: interaction and state, nothing else --------------
 		colors[ImGuiCol_CheckMark]            = c.Accent;
-		colors[ImGuiCol_SliderGrab]           = c.Accent;
-		colors[ImGuiCol_SliderGrabActive]     = c.AccentHover;
+		// Muted at rest, full accent once touched.
+		//
+		// A thin fully saturated bar sitting in the middle of an otherwise
+		// empty field reads as a stray mark or an error rather than as a
+		// handle -- there is no track behind it to say it is a position on a
+		// range. Quieter at rest and a wider grab make it a control again.
+		colors[ImGuiCol_SliderGrab]           = c.AccentMuted;
+		colors[ImGuiCol_SliderGrabActive]     = c.Accent;
 		colors[ImGuiCol_ScrollbarGrabHovered] = c.Accent;
 		colors[ImGuiCol_ScrollbarGrabActive]  = c.AccentHover;
 		colors[ImGuiCol_ResizeGrip]           = { 0, 0, 0, 0 };   // invisible until touched
@@ -213,7 +219,7 @@ namespace RageV::EditorTheme
 		style.ItemInnerSpacing = { Space::Snug,  Space::Tight };
 		style.IndentSpacing    = 18.0f;
 		style.ScrollbarSize    = 11.0f;
-		style.GrabMinSize      = 10.0f;
+		style.GrabMinSize      = 14.0f;
 
 		style.WindowTitleAlign = { 0.0f, 0.5f };
 		style.WindowMenuButtonPosition = ImGuiDir_None;   // no collapse arrow

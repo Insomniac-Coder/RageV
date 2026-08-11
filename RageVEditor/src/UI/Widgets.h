@@ -54,7 +54,14 @@ namespace RageV::UI
 	// `resizable` off is for a table holding a single row: several one-row
 	// tables with the same proportions line up with each other, but a drag on
 	// one of them would move only that row's divider, which reads as a bug.
-	bool BeginProperties(const char* id, float labelFraction = 0.42f,
+	// 38%, not 42%.
+	//
+	// The first number was picked before anything used it. Once every row --
+	// including the three-field vector rows -- shared one column, 42% was
+	// leaving the values squashed: a 0.75 rendering as "0.7". The label side
+	// had the slack, because a property name is one or two short words and a
+	// value can be a sign, four digits and a point.
+	bool BeginProperties(const char* id, float labelFraction = 0.38f,
 						 bool resizable = true);
 	void EndProperties();
 

@@ -162,12 +162,15 @@ namespace RageV::UI
 
 		const float frameHeight = ImGui::GetFrameHeight();
 
-		// Narrower than it is tall. A square badge is the obvious choice and
-		// the wrong one: it holds a single letter, and at 1280x720 the three
-		// squares plus their fields do not fit the inspector -- which showed
-		// up as the Z field being clipped off the panel. Full height keeps the
-		// row aligned; two thirds of the width is all the glyph needs.
-		const ImVec2 buttonSize = { std::max(frameHeight * 0.68f, 16.0f), frameHeight };
+		// Narrower than it is tall, and narrower again than the first attempt.
+		//
+		// A square badge is the obvious choice and the wrong one: it holds a
+		// single letter, and three squares plus their fields do not fit the
+		// inspector. Two thirds was still too generous -- with every row on the
+		// same label column, a 0.75 was rendering as "0.7", and a value that
+		// silently drops a digit is worse than one that is slightly cramped.
+		// Just over half the height is all one glyph needs.
+		const ImVec2 buttonSize = { std::max(frameHeight * 0.54f, 15.0f), frameHeight };
 
 		// One pixel between a badge and its field so they read as one control,
 		// and a real gap between the three so they read as three.
@@ -265,7 +268,7 @@ namespace RageV::UI
 		bool OpenRow(const char* label, const char* tooltip)
 		{
 			ImGui::PushID(label);
-			if (!BeginProperties("##row", 0.42f, false))
+			if (!BeginProperties("##row", 0.38f, false))
 			{
 				ImGui::PopID();
 				return false;

@@ -381,7 +381,7 @@ namespace
 	// badges need more of the width than a single control does, and giving
 	// every row the vector's proportions would waste half the panel on the
 	// rest.
-	void BeginField(const char* label, const char* tooltip, float labelFraction = 0.42f)
+	void BeginField(const char* label, const char* tooltip, float labelFraction = 0.38f)
 	{
 		ImGui::PushID(label);
 
@@ -414,10 +414,24 @@ namespace
 
 	bool DrawVec3(const char* label, Vec3& values, float resetValue)
 	{
-		// A third rather than the usual 42%: three fields and three badges do
-		// not fit in what one control needs, and the labels here are short
-		// ("Position", "Rotation", "Scale").
-		BeginField(label, nullptr, 0.30f);
+		// The same 42% as every other row, unconditionally.
+		//
+		// Two failed attempts before this one, both of them me tuning a number
+		// instead of thinking. A flat 30% fixed the Z field clipping on a small
+		// window and gave the inspector two left edges -- a vector row starting
+		// its controls further left than the plain row above it, which reads as
+		// wrong long before anyone works out why. Then an adaptive fraction
+		// that widened when there was room, which misses the point entirely:
+		// **alignment requires the same fraction, so anything adaptive is
+		// misaligned by construction.**
+		//
+		// So it is binary, and alignment wins. At 42% the three fields get
+		// ~28px each in a 1600-wide window, which shows "0.75" fine; on a
+		// genuinely small window they hit DragVec3's floor and the row
+		// overflows its cell, where the table clips it. A clipped digit is a
+		// smaller problem than a column that does not line up, and unlike a
+		// negative width it is not an assertion.
+		BeginField(label, nullptr);
 		const bool changed = UI::DragVec3("##vec", values, resetValue);
 		EndField();
 		return changed;
@@ -488,7 +502,13 @@ namespace
 				if (hint.Kind == FieldHint::Widget::Color)
 				{
 					BeginField(field.DisplayName.c_str(), hint.Tooltip);
-					changed = ImGui::ColorEdit3("##value", Math::ValuePtr(*(Vec3*)value));
+					// NoInputs, like every other colour in the editor. The
+					// three numeric boxes ImGui shows by default eat the whole
+					// row to express something nobody reads as numbers, and
+					// left this path looking unlike the material editor beside
+					// it. The picker still has them, one click away.
+					changed = ImGui::ColorEdit3("##value", Math::ValuePtr(*(Vec3*)value),
+												ImGuiColorEditFlags_NoInputs);
 					EndField();
 				}
 				else if (hint.Kind == FieldHint::Widget::Degrees)
@@ -513,7 +533,9 @@ namespace
 			{
 				BeginField(field.DisplayName.c_str(), hint.Tooltip);
 				if (hint.Kind == FieldHint::Widget::Color)
-					changed = ImGui::ColorEdit4("##value", Math::ValuePtr(*(Vec4*)value));
+					changed = ImGui::ColorEdit4("##value", Math::ValuePtr(*(Vec4*)value),
+												ImGuiColorEditFlags_NoInputs
+												| ImGuiColorEditFlags_AlphaPreviewHalf);
 				else
 					changed = ImGui::DragFloat4("##value", Math::ValuePtr(*(Vec4*)value), hint.Speed);
 				EndField();
