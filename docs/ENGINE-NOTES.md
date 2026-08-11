@@ -564,13 +564,56 @@ Hit-test the topmost rect under the pointer, front to back, and then **say so**.
 that fires a weapon when you press the pause button. The action map stays what
 it is for gameplay; this sits in front of it.
 
-### Deliberately not in this phase
+### Text in the world is in, and one decision is what makes it cheap
 
-Each of these is a real feature with a real cost, left out so the phase can
-finish: **world-space canvases** (a second projection and depth interaction),
-**rich text markup**, **input fields** (carets, selection, IME — a project in
-itself), **layout groups and scroll views**, **localisation**, and **complex
-script shaping / RTL** (which is HarfBuzz, and is not a weekend).
+*Scope confirmed 2026-08-11: the phase covers screen-space UI **and**
+world-space text. The rest below is deferred to the end of the phase.*
+
+Two features were being confused under one name, and they cost very different
+amounts:
+
+- **World-space text** — a nameplate over a character, damage numbers, a
+  number painted on a door. The atlas, the glyph quads and the shader are the
+  same; what differs is a depth-tested pipeline into the HDR target (so
+  geometry occludes it, and it goes through the tone curve), optional
+  billboarding, and ordering with the other transparent content. Modest. **In.**
+- **A world-space *canvas*** — an interactive panel on a wall that you point at
+  and click. Rendering it is the easy half; *input* is the other half, and it
+  means raycasting into the world, hitting the plane, converting to a point on
+  it, and resolving what is in front. That is a second input path. **Deferred.**
+
+**The decision that makes the first one nearly free is in the shader, and it is
+made now.** `screenPxRange` is computed from **screen-space derivatives**, not
+from a quad size known at layout time:
+
+```glsl
+vec2 unitRange     = vec2(pxRange) / vec2(textureSize(msdf, 0));
+vec2 screenTexSize = vec2(1.0) / fwidth(vTexCoord);
+float range        = max(0.5 * dot(unitRange, screenTexSize), 1.0);
+```
+
+That is transform-agnostic: it holds under perspective, at any distance, on a
+rotated quad. Computing it CPU-side would work perfectly for a HUD and quietly
+make world-space text impossible without rewriting the shader. The second half
+of the same hedge: **turning a string into positioned glyph quads is a separate
+step from canvas layout**, so a world-space label reuses it untouched.
+
+(That shader takes an `fwidth`, so §5's derivative rules — written for the
+grid — apply to it too.)
+
+### Deferred to the end of the phase
+
+Each is a real feature with a real cost, and each is deliberately after the
+parts a game cannot ship without: a **world-space canvas** (above), **rich text
+markup** (a parser plus per-run styling through the whole layout path), **input
+fields** (carets, selection, clipboard, IME — a project in itself), **layout
+groups and scroll views**, **localisation**, and **complex script shaping /
+RTL**, which is HarfBuzz and is not a weekend.
+
+**One limit worth knowing rather than discovering.** The atlas is baked ahead
+of time, so Latin, Cyrillic and Greek are free, and **CJK works only if the
+glyphs actually used are subset** — all of it at once is an enormous texture.
+`rvfont` takes a character set for exactly this reason.
 
 ### The order to build it, and why the last step is the point
 
@@ -581,7 +624,9 @@ script shaping / RTL** (which is HarfBuzz, and is not a weekend).
    bugs will be.
 4. Components, serialization, inspector.
 5. Hit-testing and the button.
-6. **Knockdown gets a title, a score and "press F to reset".**
+6. **World-space text** — the same glyph builder, a depth-tested pipeline, and
+   billboarding.
+7. **Knockdown gets a title, a score and "press F to reset".**
 
 Step 6 is the acceptance test rather than a victory lap. The roadmap's own
 recommendation is that an engine improved from a game grows the features that

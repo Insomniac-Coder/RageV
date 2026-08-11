@@ -68,6 +68,7 @@ if(RAGEV_BUILD_TOOLS)
     add_subdirectory(tools/scenetest)
     add_subdirectory(tools/rvpack)
     add_subdirectory(tools/rvdoc)
+    add_subdirectory(tools/rvfont)
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio")
