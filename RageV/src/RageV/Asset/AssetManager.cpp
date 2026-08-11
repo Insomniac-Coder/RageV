@@ -7,6 +7,7 @@
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
 #include "RageV/Scene/SceneSerializer.h"
+#include "CurveSerializer.h"
 #include <fstream>
 #include <sstream>
 
@@ -33,6 +34,10 @@ namespace RageV::Assets
 		// Plain 2D textures -- particle sprites today, material maps whenever
 		// materials become assets. Failures cache as null like the cube's do.
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Textures;
+		// Curves are small and pure data, so they cache by value. A failure
+		// caches as an empty curve for the same reason a texture caches as
+		// null: a missing file must not be retried sixty times a second.
+		std::unordered_map<AssetHandle, Curve> s_Curves;
 
 		constexpr PrimitiveType kPrimitives[] = {
 			PrimitiveType::Cube, PrimitiveType::Sphere, PrimitiveType::Plane,
@@ -81,6 +86,7 @@ namespace RageV::Assets
 		s_Cubemaps.clear();
 		s_Irradiance.clear();
 		s_Textures.clear();
+		s_Curves.clear();
 
 		// The loader and the filter hold the same textures by path and by
 		// pointer, and both used to be cleared only at shutdown -- so changing
@@ -217,6 +223,63 @@ namespace RageV::Assets
 		auto texture = TextureLoader::Load2D(*s_Device, path.string());
 		s_Textures[handle] = texture;
 		return texture;
+	}
+
+	const Curve* Manager::GetCurve(AssetHandle handle)
+	{
+		// No device check, unlike the textures either side of this: a curve is
+		// numbers on the CPU. That is what lets the suite exercise it, and what
+		// will let a headless tool bake one.
+		if (!handle.IsValid())
+			return nullptr;
+
+		const auto cached = s_Curves.find(handle);
+		if (cached != s_Curves.end())
+			return &cached->second;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+
+		Curve curve;
+		if (path.empty() || !CurveSerializer::Load(curve, path))
+		{
+			// Cached even on failure, and returned rather than null: an emitter
+			// pointing at a missing curve should fall back to a value, not to a
+			// branch every caller has to remember. An empty curve evaluates to
+			// its stated fallback everywhere.
+			s_Curves[handle] = Curve();
+			return &s_Curves[handle];
+		}
+
+		s_Curves[handle] = std::move(curve);
+		return &s_Curves[handle];
+	}
+
+	AssetHandle Manager::CreateCurve(const Curve& curve, const std::filesystem::path& relativePath)
+	{
+		if (!Registry::IsInitialised())
+			return AssetHandle::Invalid();
+
+		const std::filesystem::path absolute = Registry::Root() / relativePath;
+		if (!CurveSerializer::Save(curve, absolute))
+			return AssetHandle::Invalid();
+
+		// After writing, so the file exists by the time the registry hashes it
+		// and mints its sidecar. Same order as CreatePrefab.
+		Registry::Refresh();
+
+		const AssetHandle handle = Registry::GetHandle(relativePath.generic_string());
+		if (handle.IsValid())
+			s_Curves[handle] = curve;
+
+		return handle;
+	}
+
+	void Manager::ReloadCurve(AssetHandle handle)
+	{
+		// The editor calls this when somebody has finished dragging a point.
+		// Without it the cache above is exactly the stale-data bug the probe's
+		// mip chain was: the file changes and the picture does not.
+		s_Curves.erase(handle);
 	}
 
 	RHI::Ref<RHI::RHITexture> Manager::GetCubemap(AssetHandle handle)

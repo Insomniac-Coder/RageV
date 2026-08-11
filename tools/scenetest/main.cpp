@@ -23,6 +23,7 @@
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
 #include "RageV/Asset/Curve.h"
+#include "RageV/Asset/CurveSerializer.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Scene/ComponentRegistry.h"
@@ -999,6 +1000,103 @@ namespace
 		Check(a == b, "two curves built the same way compare equal");
 		b.MoveKey(1, 0.5f, Vec4(1.0f, 0.0f, 0.0f, 0.0f));
 		Check(a != b, "and moving a key makes them differ");
+	}
+
+	// The .rcurve file, checked by round-tripping rather than by comparing
+	// against a stored blob: what matters is that a curve written and read back
+	// is the same curve, not that the bytes match a fixture nobody maintains.
+	void CheckCurveAsset()
+	{
+		Check(AssetTypeFromExtension(".rcurve") == AssetType::Curve,
+			  "a .rcurve file is recognised as a curve asset");
+		Check(AssetTypeFromName(AssetTypeName(AssetType::Curve)) == AssetType::Curve,
+			  "and the curve type survives a trip through its own name");
+
+		const std::filesystem::path path =
+			std::filesystem::temp_directory_path() / "ragev_scenetest_curve.rcurve";
+
+		// Deliberately awkward: keys out of order, a coincident pair, and times
+		// outside 0..1 -- all things a hand-edited file can contain.
+		Curve written(3);
+		written.AddKey(1.0f, Vec4(0.0f, 0.0f, 1.0f, 0.0f));
+		written.AddKey(0.0f, Vec4(1.0f, 0.0f, 0.0f, 0.0f));
+		written.AddKey(0.5f, Vec4(0.0f, 1.0f, 0.0f, 0.0f));
+		written.AddKey(0.5f, Vec4(0.5f, 0.5f, 0.5f, 0.0f));
+
+		Check(Assets::CurveSerializer::Save(written, path), "a curve writes to disk");
+
+		Curve read;
+		Check(Assets::CurveSerializer::Load(read, path), "and reads back");
+		Check(read.GetChannels() == 3, "with its channel count intact");
+		Check(read.GetKeyCount() == written.GetKeyCount(), "and every key");
+		Check(read == written, "and compares equal to what was written");
+
+		// Sampling is what the file is *for*, so check the curve behaves rather
+		// than only that the numbers survived.
+		Check(std::fabs(read.Evaluate(0.25f).x - written.Evaluate(0.25f).x) < 1e-5f,
+			  "and evaluates identically to the original");
+
+		// A missing file must fail rather than half-load, and must leave the
+		// caller's curve alone -- the caller may have pre-filled a default.
+		Curve untouched = Curve::Constant(Vec4(7.0f, 0.0f, 0.0f, 0.0f), 1);
+		Check(!Assets::CurveSerializer::Load(untouched, path.parent_path() / "no_such.rcurve"),
+			  "a missing curve file fails to load");
+		Check(std::fabs(untouched.EvaluateScalar(0.5f) - 7.0f) < 1e-5f,
+			  "and leaves the curve it was given untouched");
+
+		// Garbage must be reported, not parsed into something plausible.
+		const std::filesystem::path broken =
+			std::filesystem::temp_directory_path() / "ragev_scenetest_broken.rcurve";
+		{
+			std::ofstream file(broken);
+			file << "Curve: [this is not\n  valid: yaml\n";
+		}
+		Curve fromBroken;
+		Check(!Assets::CurveSerializer::Load(fromBroken, broken),
+			  "a malformed curve file is refused rather than half-read");
+
+		std::error_code error;
+		std::filesystem::remove(path, error);
+		std::filesystem::remove(broken, error);
+
+		// Through the manager, which is how anything but a test will reach one:
+		// write it into a project, get a handle back, and read it by handle.
+		// The interesting part is the ordering -- the registry has to see the
+		// file before it can mint a handle for it.
+		{
+			ScratchProject scratch("curvetest");
+
+			Curve authored(1);
+			authored.AddKey(0.0f, 0.25f);
+			authored.AddKey(0.4f, 1.0f);
+			authored.AddKey(1.0f, 0.0f);
+
+			const AssetHandle handle = Assets::Manager::CreateCurve(authored, "curves/puff.rcurve");
+			Check(handle.IsValid(), "a curve written through the manager gets a handle");
+
+			const Curve* fetched = Assets::Manager::GetCurve(handle);
+			Check(fetched != nullptr, "and comes back by handle");
+			Check(fetched && *fetched == authored, "as the curve that was written");
+
+			// The contract the emitter will lean on: a valid handle always
+			// answers something safe to sample, and an invalid one answers
+			// null so a caller can tell "no curve" from "empty curve".
+			Check(Assets::Manager::GetCurve(AssetHandle::Invalid()) == nullptr,
+				  "an invalid handle has no curve");
+
+			const AssetHandle missing(0x5ee0'0000'0000'0001ull);
+			const Curve* absent = Assets::Manager::GetCurve(missing);
+			Check(absent != nullptr && absent->IsEmpty(),
+				  "a handle naming no file answers an empty curve rather than null");
+			Check(absent && std::fabs(absent->EvaluateScalar(0.5f)) < 1e-5f,
+				  "which is safe to sample without a branch at every call site");
+
+			// Reload is what the editor will call after a drag; without it the
+			// cache above outlives the file it came from.
+			Assets::Manager::ReloadCurve(handle);
+			const Curve* again = Assets::Manager::GetCurve(handle);
+			Check(again && *again == authored, "a reloaded curve reads the file again");
+		}
 	}
 
 	// Particles, checked by counting rather than by looking. The simulation
@@ -5039,6 +5137,7 @@ int RunTests(int argc, char** argv)
 	CheckCompute();
 	CheckPhysics();
 	CheckCurves();
+	CheckCurveAsset();
 	CheckParticles();
 	CheckColliderOverlay();
 	CheckPicking();

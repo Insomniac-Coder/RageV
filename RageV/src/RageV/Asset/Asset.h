@@ -22,6 +22,10 @@ namespace RageV
 		Prefab,
 		Scene,
 		Audio,
+		// A keyed ramp over normalised time: size and alpha over a
+		// particle's life, and the colour gradient. One type for all three,
+		// distinguished by how many channels a key carries.
+		Curve,
 	};
 
 	const char* AssetTypeName(AssetType type);

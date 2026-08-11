@@ -5,6 +5,7 @@
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Animation/Skeleton.h"
 #include "RageV/Renderer/Material.h"
+#include "Curve.h"
 
 // Declared in the enclosing namespace on purpose. Inside
 // `namespace RageV::Assets` these would declare new types that nothing ever
@@ -45,6 +46,26 @@ namespace RageV::Assets
 		// cached like everything else here; a failure caches as null so a
 		// missing file is not retried per frame.
 		static RHI::Ref<RHI::RHITexture> GetTexture(AssetHandle handle);
+
+		// A keyed ramp -- size or alpha over a particle's life, or the colour
+		// gradient. Never null for a valid handle: a missing or unreadable file
+		// answers an *empty* curve, which evaluates to its fallback everywhere,
+		// so a caller reads a value rather than remembering a branch. Cached,
+		// including the failure, so a broken path is not reopened per frame.
+		//
+		// The pointer is owned by the cache and stays valid until ReloadCurve
+		// or a project change, which is long enough to sample from and too
+		// short to store.
+		static const Curve* GetCurve(AssetHandle handle);
+
+		// Writes a `.rcurve` beside the other assets and returns its handle.
+		static AssetHandle CreateCurve(const Curve& curve,
+									   const std::filesystem::path& relativePath);
+
+		// Drops the cached copy so the next GetCurve reads the file again.
+		// What the editor calls when somebody finishes dragging a point --
+		// without it, an edited curve keeps rendering as the old shape.
+		static void ReloadCurve(AssetHandle handle);
 
 		// An environment map, built from whatever image the handle names. The
 		// conversion from a panorama is not cheap, so a failure is cached as

@@ -18,6 +18,7 @@ namespace RageV
 			{ AssetType::Prefab,   "Prefab" },
 			{ AssetType::Scene,    "Scene" },
 			{ AssetType::Audio,    "Audio" },
+			{ AssetType::Curve,    "Curve" },
 		};
 	}
 
@@ -64,6 +65,7 @@ namespace RageV
 		if (lower == ".rmat")    return AssetType::Material;
 		if (lower == ".rprefab") return AssetType::Prefab;
 		if (lower == ".rage")    return AssetType::Scene;
+		if (lower == ".rcurve")  return AssetType::Curve;
 
 		// Shaders, fonts and anything else are files the engine reads directly
 		// rather than assets it hands out by handle.

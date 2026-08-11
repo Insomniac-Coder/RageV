@@ -62,7 +62,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-854 checks, `exit 0`. Then look at a frame:
+872 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -1357,7 +1357,7 @@ land in any order and look the same. It is what a GPU emitter of smoke
 wants, since sorting its pool would mean a readback.
 
 `scenes/particles_oit.rage` is the check; both backends composite it with
-no validation messages, 854 checks.
+no validation messages, 872 checks.
 
 **It costs nothing when nothing uses it.** The two attachments and the
 resolve pass only exist in frames whose scene contains a weighted
@@ -1562,7 +1562,7 @@ reintroduced deliberately to confirm it fails, and it names the flip as a flip.
 It is not in scenetest because scenetest cannot read pixels back; it runs the
 runtime and compares screenshots.
 
-Verified: 854 checks both backends, 0 validation messages, Debug/Release/Dist,
+Verified: 872 checks both backends, 0 validation messages, Debug/Release/Dist,
 `rvdoc --check`, and `particles_oit.rage` re-rendered on both backends with the
 weighted content now landing in the same place on each.
 
@@ -1626,9 +1626,21 @@ and the build stays runnable between them:
    an out-of-range channel count, and the bake endpoints. `Bake` samples
    inclusive of both ends -- `i/(count-1)`, not `i/count`, which would
    clip the end off every ramp.
-2. **The asset**: `AssetType::Curve`, a `.rcurve` extension, load and save,
-   and `Assets::Manager::GetCurve` beside the `GetTexture` added in 6.5.
-   Round-trip through a file is the check.
+2. ~~**The asset**~~ -- **done**. `AssetType::Curve`, a `.rcurve` extension,
+   `Assets::CurveSerializer` (YAML, so a curve stays diffable), and
+   `Manager::GetCurve` / `CreateCurve` / `ReloadCurve`. **The contract to
+   build on: a valid handle never answers null.** A missing or unreadable
+   file caches and returns an *empty* curve, which evaluates to its
+   fallback everywhere, so the emitter samples a value instead of every
+   call site remembering a branch; only an invalid handle answers null,
+   which is how "no curve authored" stays distinguishable from "curve
+   that failed to load". `ReloadCurve` exists because the cache is
+   otherwise exactly the stale-mip-chain bug. Loading goes through
+   `AddKey`, so a hand-edited file with keys out of order loads as the
+   curve it describes rather than one that runs backwards in the middle.
+   18 checks: round-trip with coincident and out-of-order keys, a missing
+   file leaving the caller's curve untouched, malformed YAML refused, and
+   the whole path through the manager inside a scratch project.
 3. **The component fields**: `SizeCurve`, `ColorGradient`, `AlphaCurve` as
    handles. **Keep `SizeStart/SizeEnd` and the colour pair working.** A null
    handle must mean "use the pair", so every scene that exists keeps
@@ -1705,7 +1717,7 @@ depth range is about ten units. That proves the plumbing, not the curve.
 
 Everything under it is verified: per-attachment blend, multi-attachment
 graph targets, the transparent pass and its shared depth, and the
-resolve. 854 checks, both backends, no validation messages.
+resolve. 872 checks, both backends, no validation messages.
 
 ### After that - the rest of phase 6
 
