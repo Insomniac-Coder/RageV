@@ -73,6 +73,20 @@ static void DrawEmptySelection()
 	UI::PopTextScale();
 }
 
+// Selection is also a request to *show* the thing selected.
+//
+// A viewport click already set this; what it could not do was make the row
+// visible, because a child of a collapsed parent is never drawn. The flag is
+// consumed by the next draw, which is the only place ImGui can open a node.
+void RageV::SceneHierarchyPanel::SetSelectedEntity(Entity entity)
+{
+	if (entity == m_Selected)
+		return;
+
+	m_Selected = entity;
+	m_RevealSelection = (bool)entity;
+}
+
 void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showProperties)
 {
 	if (showHierarchy && !*showHierarchy)
@@ -94,6 +108,20 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 	m_PendingDelete = {};
 	m_PendingReparent = false;
 	m_PendingCreateChild = false;
+
+	// The chain from the selection up to its root, so the walk below knows
+	// which nodes to open on the way down. Rebuilt rather than cached: a
+	// reparent between two selections would invalidate it, and it is a handful
+	// of lookups.
+	m_RevealPath.clear();
+	if (m_RevealSelection && m_Selected)
+	{
+		for (Entity parent = m_SceneRef->GetParent(m_Selected); parent;
+			 parent = m_SceneRef->GetParent(parent))
+		{
+			m_RevealPath.push_back(parent.GetUUID());
+		}
+	}
 
 	// Roots only; children are drawn by the recursion.
 	auto view = m_SceneRef->m_Registry.view<TagComponent, RelationshipComponent>();
@@ -250,8 +278,25 @@ void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	// menu below all attach to whatever that is. Adding them as items made
 	// ImGui assert on `id != 0`, which is it refusing to make a text label
 	// draggable.
+	// An ancestor of a pending reveal is forced open, so a nested selection
+	// arrives visible rather than hidden inside a collapsed parent.
+	if (m_RevealSelection
+		&& std::find(m_RevealPath.begin(), m_RevealPath.end(), id) != m_RevealPath.end())
+	{
+		ImGui::SetNextItemOpen(true);
+	}
+
 	const ImVec2 rowStart = ImGui::GetCursorScreenPos();
 	const bool opened = ImGui::TreeNodeEx((void*)id, flags, "%s", "");
+
+	// Reached the entity itself: bring it into view and consider the request
+	// served. Cleared here rather than at the end of the frame so a second
+	// entity with the same id further down cannot steal the scroll.
+	if (m_RevealSelection && entity == m_Selected)
+	{
+		ImGui::SetScrollHereY(0.5f);
+		m_RevealSelection = false;
+	}
 
 	if (selected)
 		ImGui::PopStyleColor(3);

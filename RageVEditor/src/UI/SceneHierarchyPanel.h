@@ -1,5 +1,6 @@
 #pragma once
 #include "RageV.h"
+#include <vector>
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Scene/SceneCommands.h"
 
@@ -18,7 +19,12 @@ namespace RageV
 		void SetCommandStack(CommandStack* stack) { m_Commands = stack; }
 
 		Entity GetSelectedEntity() const { return m_Selected; }
-		void SetSelectedEntity(Entity entity) { m_Selected = entity; }
+		// Selecting from anywhere -- a viewport click, a menu, loading a scene --
+		// also *reveals* the entity in the tree: every ancestor is expanded and
+		// the row is scrolled to. Without that, picking a nested object in the
+		// viewport highlighted a row nobody could see, because its parent was
+		// collapsed and the row was never drawn.
+		void SetSelectedEntity(Entity entity);
 		// Both panels are drawn here because they share the selection; the
 		// Window menu owns their visibility.
 		void OnImGuiRender(bool* showHierarchy, bool* showProperties);
@@ -74,6 +80,15 @@ namespace RageV
 	private:
 		std::shared_ptr<Scene> m_SceneRef;
 		Entity m_Selected;
+
+		// Set when the selection changes, cleared by the draw that acts on it.
+		// A flag rather than doing the work in the setter, because expanding a
+		// tree node is something only ImGui can do and only while drawing.
+		bool m_RevealSelection = false;
+		// The selected entity's ancestors, deepest last. Rebuilt each time a
+		// reveal is pending; a hierarchy is a handful of levels, so a vector
+		// and a linear search beat a set that has to be allocated.
+		std::vector<uint64_t> m_RevealPath;
 		CommandStack* m_Commands = nullptr;
 
 		// Structural changes are applied after the tree has been walked;
