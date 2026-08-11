@@ -62,7 +62,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-832 checks, `exit 0`. Then look at a frame:
+854 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -1340,7 +1340,7 @@ land in any order and look the same. It is what a GPU emitter of smoke
 wants, since sorting its pool would mean a readback.
 
 `scenes/particles_oit.rage` is the check; both backends composite it with
-no validation messages, 832 checks.
+no validation messages, 854 checks.
 
 **It costs nothing when nothing uses it.** The two attachments and the
 resolve pass only exist in frames whose scene contains a weighted
@@ -1545,7 +1545,7 @@ reintroduced deliberately to confirm it fails, and it names the flip as a flip.
 It is not in scenetest because scenetest cannot read pixels back; it runs the
 runtime and compares screenshots.
 
-Verified: 832 checks both backends, 0 validation messages, Debug/Release/Dist,
+Verified: 854 checks both backends, 0 validation messages, Debug/Release/Dist,
 `rvdoc --check`, and `particles_oit.rage` re-rendered on both backends with the
 weighted content now landing in the same place on each.
 
@@ -1571,34 +1571,68 @@ judged worth doing, which is not the order they were asked about:
 
 ### START HERE - 6.10, curves beyond start and end
 
-**The user picked this, and it is the cheapest large visual win left.**
+**The user picked this, and made three calls on it (2026-08-11): curves are
+assets, the editor is a real draggable one, and size, colour and alpha all
+get curves -- alpha as its own scalar curve, separate from the colour
+gradient.**
 
 Today every ramp is a two-point lerp on normalised age: `SizeStart/SizeEnd`,
 `ColorStart/ColorEnd` in `ParticleEmitterComponent`. Real effects want shapes
 -- smoke that swells fast then drifts, sparks that flash and decay, a puff
 that fades in *and* out.
 
-The runtime half is small and should stay small: bake a curve to a short LUT
-(64 texels is plenty), sample it by age. The CPU sim and
-`particle_sim.rvshader` both read the same one, which keeps the two paths
-structurally in sync exactly as the shared instance layout already does.
+**Curves as assets turns out to be the cheaper half, not the dearer one.**
+`AssetHandle` is already `FieldType::Asset` in `ComponentRegistry`, so a
+handle field costs *nothing* new: the inspector already draws asset fields,
+the serializer already writes them, and C# already reaches them as a path
+string. An inline curve would have needed a new `FieldType`, a new text form
+and a new inspector control before the first curve rendered. Check this
+claim before relying on it, but it is why the estimate below is as small as
+it is.
 
-**The cost is the editor and the serializer, and that is where the design
-decision is.** A curve has to be authorable, saveable, and reachable from C#
--- which reaches components by registry name *with values as text*. So:
+**One asset type, not two.** A scalar curve (size, alpha) and a colour
+gradient want the same file, handle, importer, `.meta` and content-browser
+entry, and differ only in how many channels a key carries and how the widget
+draws them. Give the asset a channel count -- 1 for a curve, 3 for a gradient
+-- and write the plumbing once. The widget switches representation: a graph
+with draggable points for one channel, a stop strip for three.
 
-1. Is a curve a new `FieldType` in `ComponentRegistry`, or an asset with a
-   handle? The registry answer keeps it inline in the scene file and makes it
-   work like every other field; the asset answer makes curves shareable
-   between emitters and is a bigger change.
-2. Whichever it is, it needs a text form, or C# loses access to half the
-   emitter. Look at how `Vec4` spells itself for the precedent.
-3. Then the inspector widget. This is the first field type in the engine that
-   is not a number, a string or a handle, so it is also the first that needs
-   real drawing rather than a stock ImGui control.
+**Build it bottom-up, in this order.** Each step is verifiable on its own,
+and the build stays runnable between them:
 
-Do 1 and 2 before touching the widget: a curve that cannot round-trip through
-a scene file is not a feature.
+1. ~~**The curve type and its evaluation**~~ -- **done**. `Asset/Curve.h`
+   is one type for both the scalar curves and the colour gradient,
+   carrying a channel count; keys are kept sorted on insert so sampling
+   never pays for authoring. 22 scenetest checks cover the edges that
+   authoring reaches and code does not: no keys, one key, two keys at
+   one time (a step, not a NaN), a point dragged past its neighbour,
+   an out-of-range channel count, and the bake endpoints. `Bake` samples
+   inclusive of both ends -- `i/(count-1)`, not `i/count`, which would
+   clip the end off every ramp.
+2. **The asset**: `AssetType::Curve`, a `.rcurve` extension, load and save,
+   and `Assets::Manager::GetCurve` beside the `GetTexture` added in 6.5.
+   Round-trip through a file is the check.
+3. **The component fields**: `SizeCurve`, `ColorGradient`, `AlphaCurve` as
+   handles. **Keep `SizeStart/SizeEnd` and the colour pair working.** A null
+   handle must mean "use the pair", so every scene that exists keeps
+   rendering and nobody is forced to author a curve to get a particle. That
+   is also what makes this landable in pieces.
+4. **The CPU sim** samples them, which is where it first becomes visible.
+5. **The GPU path**: bake each curve to a short LUT (64 texels is plenty),
+   sample by age in `particle_sim.rvshader`. The CPU sim and the compute
+   shader must read the *same* baked LUT rather than each evaluating keys, or
+   the two paths drift and it will look like a blending bug. This is the same
+   discipline the shared instance layout already enforces.
+6. **The editor**: the draggable curve widget. Left for last on purpose --
+   everything above is testable headlessly, and this is not.
+7. Docs: the manual's particles page, and a `tools/scripts` generator for a
+   couple of stock curves so there is something to look at immediately.
+
+**Where it will go wrong.** A curve asset edited in the editor has to
+invalidate whatever the renderer baked from it, or the picture keeps the old
+shape until something else forces a reload -- the same class of bug as the
+probe reading a stale mip chain. Decide early whether the LUT lives on the
+asset or in `GpuParticles`, and make the dirty flag explicit.
 
 ### After that - 6.11, GPU alpha self-sorting
 
@@ -1654,7 +1688,7 @@ depth range is about ten units. That proves the plumbing, not the curve.
 
 Everything under it is verified: per-attachment blend, multi-attachment
 graph targets, the transparent pass and its shared depth, and the
-resolve. 832 checks, both backends, no validation messages.
+resolve. 854 checks, both backends, no validation messages.
 
 ### After that - the rest of phase 6
 

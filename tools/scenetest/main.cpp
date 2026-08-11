@@ -22,6 +22,7 @@
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
+#include "RageV/Asset/Curve.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Scene/ComponentRegistry.h"
@@ -868,6 +869,136 @@ namespace
 
 		scene->OnRuntimeStop();
 		Check(scene->GetPhysics() == nullptr, "stop tears the physics world down");
+	}
+
+	// Curves: pure logic, so this is the one part of the ramp work that can be
+	// checked exhaustively rather than looked at. Everything here is an edge
+	// somebody hits by authoring rather than by writing code -- a curve with no
+	// keys, one key, two keys at the same time, a point dragged past its
+	// neighbour.
+	void CheckCurves()
+	{
+		const float epsilon = 1e-5f;
+		auto approx = [epsilon](float a, float b) { return std::fabs(a - b) < epsilon; };
+
+		// An empty curve answers its stated fallback rather than reading off
+		// the end of an empty vector.
+		Curve empty;
+		Check(empty.IsEmpty(), "a curve starts with no keys");
+		Check(approx(empty.EvaluateScalar(0.0f), 0.0f) &&
+			  approx(empty.EvaluateScalar(0.5f), 0.0f) &&
+			  approx(empty.EvaluateScalar(1.0f), 0.0f),
+			  "an empty curve evaluates to its fallback everywhere");
+
+		// One key is a constant, including outside its own time.
+		Curve single;
+		single.AddKey(0.35f, 2.0f);
+		Check(approx(single.EvaluateScalar(0.0f), 2.0f) &&
+			  approx(single.EvaluateScalar(0.35f), 2.0f) &&
+			  approx(single.EvaluateScalar(1.0f), 2.0f),
+			  "a curve with one key is that value everywhere");
+
+		Curve ramp = Curve::Linear(Vec4(0.0f, 0.0f, 0.0f, 0.0f),
+								   Vec4(10.0f, 0.0f, 0.0f, 0.0f), 1);
+		Check(approx(ramp.EvaluateScalar(0.0f), 0.0f) &&
+			  approx(ramp.EvaluateScalar(0.5f), 5.0f) &&
+			  approx(ramp.EvaluateScalar(1.0f), 10.0f),
+			  "a two-key ramp interpolates linearly between them");
+
+		// Clamped, not extrapolated. A particle's normalised age reaches
+		// exactly 1.0, and beyond the last key the answer must hold.
+		Check(approx(ramp.EvaluateScalar(-1.0f), 0.0f) &&
+			  approx(ramp.EvaluateScalar(4.0f), 10.0f),
+			  "a curve holds its end values rather than extrapolating");
+
+		// Keys land in time order however they were added, or evaluation walks
+		// the wrong span and the ramp runs backwards in the middle.
+		Curve unordered;
+		unordered.AddKey(1.0f, 3.0f);
+		unordered.AddKey(0.0f, 1.0f);
+		unordered.AddKey(0.5f, 2.0f);
+		bool sorted = true;
+		for (size_t i = 1; i < unordered.GetKeyCount(); i++)
+			sorted = sorted && unordered.GetKeys()[i - 1].Time <= unordered.GetKeys()[i].Time;
+		Check(sorted, "keys are kept in time order however they arrive");
+		Check(approx(unordered.EvaluateScalar(0.25f), 1.5f),
+			  "and evaluating one built out of order still interpolates correctly");
+
+		// Two keys at one time is a step, not a division by zero.
+		Curve step;
+		step.AddKey(0.0f, 0.0f);
+		step.AddKey(0.5f, 0.0f);
+		step.AddKey(0.5f, 1.0f);
+		step.AddKey(1.0f, 1.0f);
+		const float justBefore = step.EvaluateScalar(0.5f - 1e-4f);
+		const float justAfter = step.EvaluateScalar(0.5f + 1e-4f);
+		Check(justBefore < 0.01f && justAfter > 0.99f,
+			  "two keys at the same time are a step, not a NaN");
+
+		// Dragging a point past its neighbour re-sorts rather than inverting
+		// the curve, and reports where the dragged point ended up.
+		Curve dragged = Curve::Linear(Vec4(0.0f, 0.0f, 0.0f, 0.0f),
+									  Vec4(1.0f, 0.0f, 0.0f, 0.0f), 1);
+		dragged.AddKey(0.5f, 0.5f);
+		// Keys are 0.0, 0.5, 1.0; dragging the first to 0.9 puts it between the
+		// other two, so it reports index 1 -- past one neighbour, not both.
+		const size_t moved = dragged.MoveKey(0, 0.9f, Vec4(9.0f, 0.0f, 0.0f, 0.0f));
+		Check(moved == 1, "a key dragged past a neighbour reports its new index");
+		Check(approx(dragged.GetKeys()[moved].Value[0], 9.0f),
+			  "and it is the key that moved");
+		bool stillSorted = true;
+		for (size_t i = 1; i < dragged.GetKeyCount(); i++)
+			stillSorted = stillSorted && dragged.GetKeys()[i - 1].Time <= dragged.GetKeys()[i].Time;
+		Check(stillSorted, "and the curve is still in time order afterwards");
+
+		// Removing out of range is a no-op rather than a corruption.
+		const size_t before = dragged.GetKeyCount();
+		dragged.RemoveKey(99);
+		Check(dragged.GetKeyCount() == before, "removing a key that is not there does nothing");
+
+		// Channels: a gradient carries three, and each interpolates on its own.
+		Curve gradient(3);
+		gradient.AddKey(0.0f, Vec4(1.0f, 0.0f, 0.0f, 1.0f));
+		gradient.AddKey(1.0f, Vec4(0.0f, 0.0f, 1.0f, 1.0f));
+		const Vec4 middle = gradient.Evaluate(0.5f);
+		Check(gradient.GetChannels() == 3, "a gradient carries three channels");
+		Check(approx(middle.x, 0.5f) && approx(middle.y, 0.0f) && approx(middle.z, 0.5f),
+			  "and every channel interpolates independently");
+
+		// The channel count is clamped rather than trusted: a corrupt asset
+		// must not index off the end of a key.
+		Curve wide(99);
+		Check(wide.GetChannels() == Curve::kMaxChannels,
+			  "an out-of-range channel count is clamped to what a key holds");
+
+		// Baking is what both the CPU simulation and the compute shader read,
+		// so its endpoints have to be the curve's endpoints. Sampling at
+		// i/count rather than i/(count-1) would clip the end of every ramp --
+		// visible as a particle that never reaches its final size.
+		Vec4 baked[16] = {};
+		ramp.Bake(baked, 16);
+		Check(approx(baked[0].x, 0.0f), "baking starts at the curve's first value");
+		Check(approx(baked[15].x, 10.0f), "and ends at its last, rather than short of it");
+		Check(approx(baked[8].x, ramp.EvaluateScalar(8.0f / 15.0f)),
+			  "and matches direct evaluation in between");
+
+		// A one-texel bake is legal and must not divide by zero.
+		Vec4 tiny[1] = {};
+		ramp.Bake(tiny, 1);
+		Check(approx(tiny[0].x, 0.0f), "a single-sample bake takes the curve's start");
+
+		Vec4 unwritten(-1.0f, -1.0f, -1.0f, -1.0f);
+		ramp.Bake(&unwritten, 0);
+		Check(approx(unwritten.x, -1.0f), "baking zero samples writes nothing");
+		ramp.Bake(nullptr, 8);
+
+		// Equality is what a dirty check will be built on, so it has to see a
+		// moved key rather than only a different key count.
+		Curve a = Curve::Linear(Vec4(0.0f, 0.0f, 0.0f, 0.0f), Vec4(1.0f, 0.0f, 0.0f, 0.0f), 1);
+		Curve b = Curve::Linear(Vec4(0.0f, 0.0f, 0.0f, 0.0f), Vec4(1.0f, 0.0f, 0.0f, 0.0f), 1);
+		Check(a == b, "two curves built the same way compare equal");
+		b.MoveKey(1, 0.5f, Vec4(1.0f, 0.0f, 0.0f, 0.0f));
+		Check(a != b, "and moving a key makes them differ");
 	}
 
 	// Particles, checked by counting rather than by looking. The simulation
@@ -4907,6 +5038,7 @@ int RunTests(int argc, char** argv)
 	CheckRuntimePath();
 	CheckCompute();
 	CheckPhysics();
+	CheckCurves();
 	CheckParticles();
 	CheckColliderOverlay();
 	CheckPicking();
