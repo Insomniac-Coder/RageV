@@ -126,8 +126,20 @@
   }
   .eq .where { display: block; font-size: 8.5pt; color: #4a4f57; font-family: "Segoe UI", sans-serif; margin-top: 3pt; }
   var { font-style: italic; }
-  .mat { display: inline-table; vertical-align: middle; border-left: 1.5px solid #16181d; border-right: 1.5px solid #16181d; padding: 1pt 3pt; margin: 0 2pt; }
-  .mat td { border: none; padding: 0.5pt 4pt; text-align: center; font-size: 9pt; }
+
+  /* A matrix is an inline table and must NOT inherit the page's `table
+     { width: 100% }` rule, or each one stretches the full column width and
+     the columns scatter across the page. width:auto is the whole fix. */
+  .mat {
+    display: inline-table; width: auto; border-collapse: collapse;
+    vertical-align: middle; margin: 0 1pt;
+    border-left: 1.5px solid #16181d; border-right: 1.5px solid #16181d;
+  }
+  .mat td {
+    border: none; padding: 1.5pt 5pt; text-align: center;
+    font-size: 9pt; line-height: 1.25; white-space: nowrap;
+  }
+  .eq .op { padding: 0 3pt; font-size: 12pt; }
 </style>
 </head>
 <body>
@@ -409,11 +421,9 @@ column of a 4×4 matrix can hold a translation, and it is multiplied by <var>w</
 <table class="mat"><tr><td>1</td><td>0</td><td>0</td><td><var>t<sub>x</sub></var></td></tr>
 <tr><td>0</td><td>1</td><td>0</td><td><var>t<sub>y</sub></var></td></tr>
 <tr><td>0</td><td>0</td><td>1</td><td><var>t<sub>z</sub></var></td></tr>
-<tr><td>0</td><td>0</td><td>0</td><td>1</td></tr></table>
-<table class="mat"><tr><td><var>x</var></td></tr><tr><td><var>y</var></td></tr><tr><td><var>z</var></td></tr><tr><td><var>w</var></td></tr></table>
-&nbsp;=&nbsp;
-<table class="mat"><tr><td><var>x</var> + <var>w&thinsp;t<sub>x</sub></var></td></tr><tr><td><var>y</var> + <var>w&thinsp;t<sub>y</sub></var></td></tr><tr><td><var>z</var> + <var>w&thinsp;t<sub>z</sub></var></td></tr><tr><td><var>w</var></td></tr></table>
-<span class="where">A point (w = 1) is translated. A direction (w = 0) is not — which is exactly right.</span>
+<tr><td>0</td><td>0</td><td>0</td><td>1</td></tr></table><span class="op">×</span><table class="mat"><tr><td><var>x</var></td></tr><tr><td><var>y</var></td></tr><tr><td><var>z</var></td></tr><tr><td><var>w</var></td></tr></table><span class="op">=</span><table class="mat"><tr><td><var>x</var> + <var>w&thinsp;t<sub>x</sub></var></td></tr><tr><td><var>y</var> + <var>w&thinsp;t<sub>y</sub></var></td></tr><tr><td><var>z</var> + <var>w&thinsp;t<sub>z</sub></var></td></tr><tr><td><var>w</var></td></tr></table>
+<span class="where">translation matrix &emsp;×&emsp; the point &emsp;=&emsp; the result<br>
+A point (<var>w</var> = 1) is translated. A direction (<var>w</var> = 0) is not — which is exactly right.</span>
 </div>
 
 <blockquote><p><b>This is not notation, it is a correctness rule you will use constantly.</b>
@@ -451,17 +461,56 @@ it, or whose rotation is skewed by its scale.</p>
 <p>A vertex makes the same journey every frame, through five coordinate systems. Almost
 every rendering bug is a value being used in the wrong one of these.</p>
 
-<pre class="ascii"><code>  model space      the mesh as the artist made it, origin at its own centre
-       |  × model matrix              (this object's world transform)
-  world space      everything in one shared frame; lights live here
-       |  × view matrix               (the inverse of the camera's transform)
-  view space       camera at the origin, looking down −Z
-       |  × projection matrix         (applies the lens)
-  clip space       4D, and w now holds the view distance
-       |  ÷ w                         ← the perspective divide, done by hardware
-  NDC              x,y in [−1,1], z in [0,1]; everything outside is clipped
-       |  viewport transform          (also hardware)
-  screen space     pixels</code></pre>
+<figure>
+<svg viewBox="0 0 760 200" width="100%" style="max-width:172mm" xmlns="http://www.w3.org/2000/svg"
+     font-family="Segoe UI, Helvetica, sans-serif">
+  <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 z" fill="#8f2d22"/></marker></defs>
+  <g font-size="11">
+  <rect x="6"   y="34" width="104" height="34" rx="4" fill="#eef0f3" stroke="#9aa2ad"/>
+  <rect x="140" y="34" width="104" height="34" rx="4" fill="#eef0f3" stroke="#9aa2ad"/>
+  <rect x="274" y="34" width="104" height="34" rx="4" fill="#eef0f3" stroke="#9aa2ad"/>
+  <rect x="408" y="34" width="104" height="34" rx="4" fill="#fdf1ee" stroke="#c0392b"/>
+  <rect x="542" y="34" width="104" height="34" rx="4" fill="#eef0f3" stroke="#9aa2ad"/>
+  <rect x="660" y="34" width="94"  height="34" rx="4" fill="#eef0f3" stroke="#9aa2ad"/>
+  <text x="58"  y="56" text-anchor="middle">model</text>
+  <text x="192" y="56" text-anchor="middle">world</text>
+  <text x="326" y="56" text-anchor="middle">view</text>
+  <text x="460" y="56" text-anchor="middle" fill="#8f2d22" font-weight="600">clip (4D)</text>
+  <text x="594" y="56" text-anchor="middle">NDC</text>
+  <text x="707" y="56" text-anchor="middle">screen</text>
+  <g stroke="#8f2d22" stroke-width="1.4" marker-end="url(#ar)">
+    <line x1="112" y1="51" x2="136" y2="51"/><line x1="246" y1="51" x2="270" y2="51"/>
+    <line x1="380" y1="51" x2="404" y2="51"/><line x1="514" y1="51" x2="538" y2="51"/>
+    <line x1="648" y1="51" x2="656" y2="51"/>
+  </g>
+  <g font-size="9" fill="#4a4f57" text-anchor="middle">
+    <text x="124" y="24">model</text><text x="124" y="34">matrix</text>
+    <text x="258" y="24">view</text><text x="258" y="34">matrix</text>
+    <text x="392" y="24">projection</text><text x="392" y="34">matrix</text>
+    <text x="528" y="24" fill="#8f2d22" font-weight="600">divide by w</text>
+    <text x="528" y="34" fill="#8f2d22">hardware</text>
+    <text x="654" y="24">viewport</text>
+  </g>
+  <g font-size="9" fill="#5a5f67" text-anchor="middle">
+    <text x="58"  y="86">as authored,</text><text x="58"  y="97">own origin</text>
+    <text x="192" y="86">one shared frame;</text><text x="192" y="97">lights live here</text>
+    <text x="326" y="86">camera at origin,</text><text x="326" y="97">looking down -Z</text>
+    <text x="460" y="86">w now holds the</text><text x="460" y="97">view distance</text>
+    <text x="594" y="86">x,y in [-1,1]</text><text x="594" y="97">z in [0,1]</text>
+    <text x="707" y="86">pixels</text>
+  </g>
+  <rect x="404" y="118" width="352" height="70" rx="4" fill="#fdf6f4" stroke="#e2b3ab"/>
+  <text x="418" y="137" font-size="10" font-weight="600" fill="#8f2d22">The only non-linear step</text>
+  <text x="418" y="154" font-size="9.5" fill="#3c4149">The projection matrix does not make distant things</text>
+  <text x="418" y="167" font-size="9.5" fill="#3c4149">smaller. It arranges for w to hold the view distance,</text>
+  <text x="418" y="180" font-size="9.5" fill="#3c4149">so that the divide does.</text>
+  </g>
+</svg>
+<figcaption><b>Diagram 1.</b> The five coordinate systems a vertex passes through, and
+which matrix moves it between them. Almost every rendering bug is a value used in the
+wrong one of these.</figcaption>
+</figure>
 
 <p>Two observations that matter more than the diagram:</p>
 <ul>
@@ -808,17 +857,45 @@ followed all the way down through both.</p>
 <p>A GPU is a machine for running the same small program over a very large number of
 independent items. A draw call feeds it in this shape:</p>
 
-<pre class="ascii"><code>vertex buffer -> [vertex shader]     one invocation per vertex; outputs clip-space position
-                        |
-                 [primitive assembly + clipping]
-                        |
-                 [rasteriser]        fixed function: which pixels does this triangle cover?
-                        |            interpolates the vertex outputs across them
-                 [fragment shader]   one invocation per covered pixel; outputs colour
-                        |
-                 [depth test, blend] fixed function
-                        v
-                  render target</code></pre>
+<figure>
+<svg viewBox="0 0 720 215" width="100%" style="max-width:168mm" xmlns="http://www.w3.org/2000/svg"
+     font-family="Segoe UI, Helvetica, sans-serif">
+  <defs><marker id="ar2" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 z" fill="#8f2d22"/></marker></defs>
+  <g font-size="10.5">
+  <rect x="10" y="16" width="120" height="28" rx="3" fill="#eef0f3" stroke="#9aa2ad"/>
+  <text x="70" y="34" text-anchor="middle">vertex buffer</text>
+  <rect x="10" y="60" width="120" height="28" rx="3" fill="#fdf1ee" stroke="#c0392b"/>
+  <text x="70" y="78" text-anchor="middle" fill="#8f2d22" font-weight="600">vertex shader</text>
+  <rect x="10" y="104" width="120" height="28" rx="3" fill="#e9edf2" stroke="#9aa2ad" stroke-dasharray="3,2"/>
+  <text x="70" y="122" text-anchor="middle">assembly + clip</text>
+  <rect x="10" y="148" width="120" height="28" rx="3" fill="#e9edf2" stroke="#9aa2ad" stroke-dasharray="3,2"/>
+  <text x="70" y="166" text-anchor="middle">rasteriser</text>
+  <rect x="176" y="148" width="122" height="28" rx="3" fill="#fdf1ee" stroke="#c0392b"/>
+  <text x="237" y="166" text-anchor="middle" fill="#8f2d22" font-weight="600">fragment shader</text>
+  <rect x="344" y="148" width="130" height="28" rx="3" fill="#e9edf2" stroke="#9aa2ad" stroke-dasharray="3,2"/>
+  <text x="409" y="166" text-anchor="middle">depth test, blend</text>
+  <rect x="520" y="148" width="120" height="28" rx="3" fill="#eef0f3" stroke="#9aa2ad"/>
+  <text x="580" y="166" text-anchor="middle">render target</text>
+  <g stroke="#8f2d22" stroke-width="1.4" marker-end="url(#ar2)">
+    <line x1="70" y1="45" x2="70" y2="57"/><line x1="70" y1="89" x2="70" y2="101"/>
+    <line x1="70" y1="133" x2="70" y2="145"/>
+    <line x1="132" y1="162" x2="172" y2="162"/><line x1="300" y1="162" x2="340" y2="162"/>
+    <line x1="476" y1="162" x2="516" y2="162"/>
+  </g>
+  <rect x="176" y="16" width="464" height="116" rx="4" fill="#fdf6f4" stroke="#e2b3ab"/>
+  <text x="192" y="35" font-size="10.5" font-weight="600" fill="#8f2d22">Three properties that explain most API design</text>
+  <text x="192" y="56" font-size="9.5" fill="#3c4149">1. Invocations cannot see each other, and run in an unspecified order.</text>
+  <text x="206" y="69" font-size="9.5" fill="#5a5f67">This is why transparency is hard: order is not yours to choose.</text>
+  <text x="192" y="88" font-size="9.5" fill="#3c4149">2. It runs asynchronously from the CPU.</text>
+  <text x="206" y="101" font-size="9.5" fill="#5a5f67">Every synchronisation concept in either API exists because of this.</text>
+  <text x="192" y="120" font-size="9.5" fill="#3c4149">3. Changing state is expensive; changing data is cheap.</text>
+  <text x="10" y="202" font-size="9" fill="#5a5f67">Solid outline = a program you write &#8195; dashed = fixed function, owned by the hardware</text>
+  </g>
+</svg>
+<figcaption><b>Diagram 2.</b> The graphics pipeline. You write two of these stages; the
+hardware owns the rest.</figcaption>
+</figure>
 
 <p>Three properties of this machine explain most API design decisions:</p>
 <ul>
@@ -1698,11 +1775,41 @@ boundary is in the wrong place, and you will find out at the worst possible time
 would idle half the time. Instead the CPU records frame <var>N</var>+1 while the GPU
 executes frame <var>N</var>:</p>
 
-<pre class="ascii"><code>CPU:  [record 0][record 1][record 2][record 3] ...
-GPU:            [ execute 0 ][ execute 1 ][ execute 2 ] ...
-                 ^
-                 while this runs, the CPU is already writing frame 1's data
-</code></pre>
+<figure>
+<svg viewBox="0 0 720 195" width="100%" style="max-width:168mm" xmlns="http://www.w3.org/2000/svg"
+     font-family="Segoe UI, Helvetica, sans-serif">
+  <g font-size="10.5">
+  <text x="8" y="45" font-weight="600" fill="#3c4149">CPU</text>
+  <text x="8" y="95" font-weight="600" fill="#3c4149">GPU</text>
+  <g fill="#eef0f3" stroke="#9aa2ad">
+    <rect x="56"  y="28" width="140" height="26" rx="3"/>
+    <rect x="200" y="28" width="140" height="26" rx="3"/>
+    <rect x="344" y="28" width="140" height="26" rx="3"/>
+    <rect x="488" y="28" width="140" height="26" rx="3"/>
+  </g>
+  <g fill="#3c4149" text-anchor="middle" font-size="10">
+    <text x="126" y="46">record 0</text><text x="270" y="46">record 1</text>
+    <text x="414" y="46">record 2</text><text x="558" y="46">record 3</text>
+  </g>
+  <g fill="#fdf1ee" stroke="#c0392b">
+    <rect x="200" y="78" width="140" height="26" rx="3"/>
+    <rect x="344" y="78" width="140" height="26" rx="3"/>
+    <rect x="488" y="78" width="140" height="26" rx="3"/>
+  </g>
+  <g fill="#8f2d22" text-anchor="middle" font-size="10">
+    <text x="270" y="96">execute 0</text><text x="414" y="96">execute 1</text><text x="558" y="96">execute 2</text>
+  </g>
+  <line x1="270" y1="56" x2="270" y2="76" stroke="#8f2d22" stroke-width="1.2" stroke-dasharray="3,2"/>
+  <rect x="200" y="118" width="428" height="58" rx="4" fill="#fdf6f4" stroke="#e2b3ab"/>
+  <text x="214" y="136" font-size="10" font-weight="600" fill="#8f2d22">While the GPU executes frame 0, the CPU writes frame 1's data</text>
+  <text x="214" y="153" font-size="9.5" fill="#3c4149">So anything written per frame needs one copy per frame in flight,</text>
+  <text x="214" y="166" font-size="9.5" fill="#3c4149">and anything destroyed must outlive the frame that referenced it.</text>
+  <text x="8" y="190" font-size="9" fill="#5a5f67">Before recording into a slot, wait on the fence saying the frame that last used it has finished.</text>
+  </g>
+</svg>
+<figcaption><b>Diagram 3.</b> Frames in flight. Every rule in this section is derivable
+from this one picture.</figcaption>
+</figure>
 
 <p>That single picture generates every rule below. <b>Anything the CPU writes per frame
 may still be in use by the GPU</b>, so it needs one copy per frame in flight. Anything
