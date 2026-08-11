@@ -31,6 +31,48 @@ void RageV::SceneHierarchyPanel::SetSceneRef(const std::shared_ptr<Scene>& scene
 	m_Selected = {};
 }
 
+// The inspector with nothing to inspect.
+//
+// "Nothing selected." was accurate and useless: an empty panel is where a tool
+// has the reader's whole attention and the least to lose by spending three
+// lines telling them what to do with it. This is the only place in the editor
+// that explains selection at all.
+static void DrawEmptySelection()
+{
+	using namespace RageV;
+
+	ImGui::Dummy({ 0.0f, EditorTheme::Space::Wide });
+
+	const float size = ImGui::GetTextLineHeight() * 2.4f;
+	const float centre = (ImGui::GetContentRegionAvail().x - size) * 0.5f;
+	if (centre > 0.0f)
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + centre);
+
+	UI::DrawIcon(ImGui::GetWindowDrawList(), ImGui::GetCursorScreenPos(), size,
+				 UI::IconKind::Entity,
+				 ImGui::GetColorU32(EditorTheme::Colors().TextDisabled));
+	ImGui::Dummy({ size, size });
+
+	ImGui::Dummy({ 0.0f, EditorTheme::Space::Base });
+
+	ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextSecondary);
+	ImGui::PushTextWrapPos(0.0f);
+	ImGui::TextUnformatted("Nothing selected.");
+	ImGui::PopTextWrapPos();
+	ImGui::PopStyleColor();
+
+	ImGui::Dummy({ 0.0f, EditorTheme::Space::Tight });
+
+	UI::PushTextScale(EditorTheme::Type::Caption);
+	ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextDisabled);
+	ImGui::PushTextWrapPos(0.0f);
+	ImGui::TextUnformatted("Pick an entity in the Scene Hierarchy, or click one in "
+						   "the viewport, and its components appear here.");
+	ImGui::PopTextWrapPos();
+	ImGui::PopStyleColor();
+	UI::PopTextScale();
+}
+
 void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showProperties)
 {
 	if (showHierarchy && !*showHierarchy)
@@ -41,7 +83,7 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 			if (m_Selected)
 				ShowProperties(m_Selected);
 			else
-				ImGui::TextDisabled("Nothing selected.");
+				DrawEmptySelection();
 			ImGui::End();
 		}
 		return;
@@ -150,7 +192,7 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 		if (m_Selected)
 			ShowProperties(m_Selected);
 		else
-			ImGui::TextDisabled("Nothing selected.");
+			DrawEmptySelection();
 		ImGui::End();
 	}
 }

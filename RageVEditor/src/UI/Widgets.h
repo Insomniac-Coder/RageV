@@ -72,6 +72,21 @@ namespace RageV::UI
 	// widget that draws a second one is the bug this whole file exists to stop.
 	void PropertyRow(const char* label, const char* tooltip = nullptr);
 
+	// --- type ------------------------------------------------------------
+	//
+	// ImGui 1.92 can rebake a font at a new size on demand, so a scale costs a
+	// push and a pop rather than several preloaded fonts. Sizes are given as
+	// multipliers from EditorTheme::Type and applied against the *base* size,
+	// because GetFontSize() has the global DPI factor in it already and
+	// feeding that back in applies it twice.
+	void PushTextScale(float multiplier);
+	void PopTextScale();
+
+	// Small and dim: a unit, a hint, a table header, the count beside a name.
+	void TextCaption(const char* fmt, ...) IM_FMTARGS(1);
+	// The one number a panel exists to show.
+	void TextDisplay(const char* fmt, ...) IM_FMTARGS(1);
+
 	// A heading inside a panel. Quieter than a collapsing header -- this is for
 	// grouping rows that are already inside one.
 	void SectionHeader(const char* label);

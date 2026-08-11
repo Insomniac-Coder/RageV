@@ -1,6 +1,7 @@
 #include "Widgets.h"
 #include "EditorTheme.h"
 #include <algorithm>
+#include <cstdarg>
 
 namespace RageV::UI
 {
@@ -49,7 +50,12 @@ namespace RageV::UI
 		// Without this the label sits at the top of a row whose control is
 		// taller than a line of text, and every row looks a pixel off.
 		ImGui::AlignTextToFramePadding();
+		// Secondary on purpose. In a label/value row the label is the question
+		// and the control is the answer, and setting both at full strength is
+		// most of why a dense inspector reads as a wall of text.
+		ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextSecondary);
 		ImGui::TextUnformatted(label);
+		ImGui::PopStyleColor();
 
 		// A label too long for its column is clipped by the table. Saying so
 		// on hover is the difference between "this UI is broken" and "this
@@ -73,14 +79,62 @@ namespace RageV::UI
 		ImGui::SetNextItemWidth(-FLT_MIN);
 	}
 
+	void PushTextScale(float multiplier)
+	{
+		// Against FontSizeBase, not GetFontSize(). GetFontSize() is the size
+		// *after* the global DPI and UI-scale factors; feeding it back into
+		// PushFont applies them a second time, which ImGui's own header warns
+		// about in capitals.
+		ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * multiplier);
+	}
+
+	void PopTextScale()
+	{
+		ImGui::PopFont();
+	}
+
+	void TextCaption(const char* fmt, ...)
+	{
+		PushTextScale(EditorTheme::Type::Caption);
+		ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextSecondary);
+
+		va_list args;
+		va_start(args, fmt);
+		ImGui::TextV(fmt, args);
+		va_end(args);
+
+		ImGui::PopStyleColor();
+		PopTextScale();
+	}
+
+	void TextDisplay(const char* fmt, ...)
+	{
+		PushTextScale(EditorTheme::Type::Display);
+		ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextPrimary);
+
+		va_list args;
+		va_start(args, fmt);
+		ImGui::TextV(fmt, args);
+		va_end(args);
+
+		ImGui::PopStyleColor();
+		PopTextScale();
+	}
+
 	void SectionHeader(const char* label)
 	{
 		const auto& colors = EditorTheme::Colors();
 
+		// Smaller than body text, not larger. It looks backwards written down
+		// and is what every dense tool does: the separator line already says
+		// "a new group starts here", so the words only have to name it. A
+		// heading set larger than the content competes with the content.
 		ImGui::Spacing();
+		PushTextScale(EditorTheme::Type::Caption);
 		ImGui::PushStyleColor(ImGuiCol_Text, colors.TextSecondary);
 		ImGui::SeparatorText(label);
 		ImGui::PopStyleColor();
+		PopTextScale();
 	}
 
 	void HelpMarker(const char* text)

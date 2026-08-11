@@ -116,6 +116,31 @@ namespace RageV::EditorTheme
 		constexpr float Bay   = 24.0f;
 	}
 
+	// The type scale, as multipliers on the base font size.
+	//
+	// Multipliers rather than pixel sizes because the editor has a UI scale and
+	// a DPI factor already folded into the base; a scale in pixels would be
+	// right at 100% and wrong everywhere else.
+	//
+	// Four steps is deliberate. One size -- which is what this was -- means the
+	// only tools left for hierarchy are colour and boxes, and a panel where a
+	// title, a section heading, a label and a value all render identically is
+	// read by position rather than by weight. Ten steps is the other failure:
+	// nobody can tell 1.05x from 1.0x, so the extra steps are noise that has to
+	// be maintained.
+	namespace Type
+	{
+		// Hints, units, table headers, the small print under a control.
+		constexpr float Caption = 0.84f;
+		// Everything else.
+		constexpr float Body    = 1.00f;
+		// A panel's name, a modal's question.
+		constexpr float Title   = 1.22f;
+		// The one number a panel exists to show. Used sparingly -- if two
+		// things on a page are Display, neither of them is.
+		constexpr float Display = 1.55f;
+	}
+
 	namespace Radius
 	{
 		constexpr float Control = 5.0f;   // inputs, buttons, tabs

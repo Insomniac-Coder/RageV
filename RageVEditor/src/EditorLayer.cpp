@@ -707,7 +707,14 @@ void EditorLayer::OnImGuiRender()
 		m_LastDockSize = viewport->WorkSize;
 	}
 
-	ImGui::DockSpace(dockspaceID, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+	// NoCloseButton because every docked panel was showing *two* of them: one
+	// on its tab, and one the dock node draws on the right for whichever
+	// window is focused. Two controls for one action, on every panel, is the
+	// kind of duplication that reads as clutter without anybody being able to
+	// say why. The tab's own X is the one that stays -- it names what it
+	// closes.
+	ImGui::DockSpace(dockspaceID, ImVec2(0.0f, 0.0f),
+					 ImGuiDockNodeFlags_NoCloseButton | ImGuiDockNodeFlags_NoWindowMenuButton);
 	style.WindowMinSize.x = minWindowSize;
 
 	DrawMenuBar();
@@ -1109,6 +1116,53 @@ void EditorLayer::DrawMenuBar()
 	{
 		if (ImGui::MenuItem("About RageV")) m_ShowAbout = true;
 		ImGui::EndMenu();
+	}
+
+	// --- what is being edited, after the menus -------------------------------
+	//
+	// The menu bar said nothing about the document. A project name and a scene
+	// name lived only in the OS title bar, which is the one part of the window
+	// nobody looks at while working -- and "is this saved" was not shown
+	// anywhere at all.
+	//
+	// Caption weight and secondary colour, because this is a readout and the
+	// menus beside it are controls. It is information, not a place to click.
+	{
+		ImGui::SameLine(0.0f, EditorTheme::Space::Wide);
+
+		const std::string project = Project::GetActive() ? Project::Config().Name
+														: std::string("No project");
+		const std::string scene = m_ScenePath.empty()
+								? std::string("Untitled scene")
+								: m_ScenePath.filename().string();
+
+		UI::TextCaption("%s", project.c_str());
+
+		ImGui::SameLine(0.0f, EditorTheme::Space::Snug);
+		UI::PushTextScale(EditorTheme::Type::Caption);
+		ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextDisabled);
+		ImGui::TextUnformatted("/");
+		ImGui::PopStyleColor();
+		UI::PopTextScale();
+
+		ImGui::SameLine(0.0f, EditorTheme::Space::Snug);
+		UI::TextCaption("%s", scene.c_str());
+
+		// A dot rather than an asterisk in the name: the name is the name, and
+		// a mark beside it can be looked at or ignored without re-reading the
+		// word it was glued to.
+		if (m_Commands.CanUndo())
+		{
+			ImGui::SameLine(0.0f, EditorTheme::Space::Snug);
+			const ImVec2 at = ImGui::GetCursorScreenPos();
+			const float radius = ImGui::GetTextLineHeight() * 0.16f;
+			ImGui::GetWindowDrawList()->AddCircleFilled(
+				{ at.x + radius, at.y + ImGui::GetTextLineHeight() * 0.5f }, radius,
+				ImGui::GetColorU32(EditorTheme::Colors().Accent));
+			ImGui::Dummy({ radius * 2.0f, ImGui::GetTextLineHeight() });
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Unsaved changes since the last save.");
+		}
 	}
 
 	// Right-aligned backend picker.
