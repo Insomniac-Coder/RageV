@@ -1,0 +1,1305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RageV — Engine Architecture and Build Order</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+
+  /* The document owns its own colours. Without this a viewer in dark mode
+     inverts the background and leaves the body text unreadable, and the PDF
+     is only correct because print media happens not to apply the override. */
+  :root { color-scheme: only light; }
+  html { font-size: 10.5pt; background: #ffffff; }
+  body {
+    font-family: "Georgia", "Cambria", serif;
+    color: #16181d; background: #ffffff; line-height: 1.55; margin: 0;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+
+  /* Print gets its measure from the page margins. On screen there are none,
+     so give the text a column rather than letting it run the window's width. */
+  @media screen {
+    body { max-width: 190mm; margin: 0 auto; padding: 18mm 14mm; }
+    .cover { height: auto; padding-bottom: 30mm; }
+  }
+
+  h1, h2, h3, h4 { font-family: "Segoe UI", "Helvetica Neue", sans-serif; line-height: 1.25; }
+  h1 { font-size: 22pt; margin: 0 0 4pt; letter-spacing: -0.3pt; }
+  h2 {
+    font-size: 15pt; margin: 26pt 0 8pt; padding-bottom: 4pt;
+    border-bottom: 2px solid #c0392b; break-after: avoid;
+  }
+  h3 { font-size: 11.5pt; margin: 16pt 0 5pt; color: #8f2d22; break-after: avoid; }
+  h4 { font-size: 10.5pt; margin: 12pt 0 3pt; color: #333; break-after: avoid; }
+  p { margin: 0 0 8pt; text-align: justify; hyphens: auto; }
+
+  code, pre { font-family: "Cascadia Mono", "Consolas", monospace; }
+  code { font-size: 8.8pt; background: #f1f2f4; padding: 0.5pt 2.5pt; border-radius: 2px; }
+  pre {
+    font-size: 8pt; line-height: 1.4; background: #1c1f26; color: #e6e6e6;
+    padding: 8pt 10pt; border-radius: 4px; overflow-x: auto;
+    break-inside: avoid; margin: 8pt 0 10pt;
+  }
+  pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+  pre .c { color: #7f95a8; font-style: italic; }
+  pre .k { color: #d98a76; }
+  pre .s { color: #9ecf8a; }
+
+  .ascii {
+    background: #f6f7f9; color: #23262d; border: 1px solid #dcdfe4;
+    font-size: 8pt; line-height: 1.35;
+  }
+
+  figure { margin: 10pt 0 12pt; break-inside: avoid; text-align: center; }
+  figure img { max-width: 100%; border: 1px solid #cfd3d9; border-radius: 3px; }
+  figcaption {
+    font-size: 8.5pt; color: #4a4f57; margin-top: 4pt;
+    font-family: "Segoe UI", sans-serif; text-align: left;
+  }
+  figcaption b { color: #8f2d22; }
+
+  table { width: 100%; border-collapse: collapse; margin: 8pt 0 12pt; font-size: 9pt; break-inside: avoid; }
+  th, td { border: 1px solid #d7dade; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background: #eef0f3; font-family: "Segoe UI", sans-serif; font-size: 8.5pt; }
+  td code { font-size: 8.2pt; }
+
+  blockquote {
+    margin: 9pt 0; padding: 7pt 11pt; background: #fdf6f4;
+    border-left: 3px solid #c0392b; font-size: 9.5pt;
+  }
+  blockquote p:last-child { margin-bottom: 0; }
+  blockquote b { color: #8f2d22; }
+
+  ul, ol { margin: 0 0 9pt; padding-left: 17pt; }
+  li { margin-bottom: 3pt; text-align: justify; }
+
+  .cover { height: 245mm; display: flex; flex-direction: column; justify-content: center; break-after: page; }
+  .cover .rule { width: 60pt; height: 4px; background: #c0392b; margin: 14pt 0; }
+  .cover h1 { font-size: 34pt; letter-spacing: -1pt; }
+  .cover .sub { font-size: 13pt; color: #4a4f57; font-family: "Segoe UI", sans-serif; margin-top: 2pt; }
+  .cover .meta { margin-top: 26pt; font-size: 9.5pt; color: #5a5f67; font-family: "Segoe UI", sans-serif; }
+  .cover .meta b { color: #16181d; }
+
+  .toc { break-after: page; }
+  .toc h2 { border: none; }
+  .toc ol { list-style: none; padding-left: 0; font-family: "Segoe UI", sans-serif; font-size: 10pt; }
+  .toc > ol > li { margin: 7pt 0 3pt; font-weight: 600; }
+  .toc ol ol { padding-left: 14pt; font-weight: 400; font-size: 9pt; color: #4a4f57; }
+  .toc ol ol li { margin: 1.5pt 0; }
+
+  .part { break-before: page; }
+  .lede { font-size: 11pt; color: #3c4149; border-left: 3px solid #dcdfe4; padding-left: 10pt; margin-bottom: 14pt; }
+  .num { font-family: "Segoe UI", sans-serif; font-size: 8.5pt; color: #8f2d22; letter-spacing: 1.2pt; text-transform: uppercase; }
+  .keyed { background: #f6f7f9; border: 1px solid #dcdfe4; border-radius: 3px; padding: 8pt 11pt; margin: 9pt 0; font-size: 9.5pt; break-inside: avoid; }
+  .keyed h4 { margin-top: 0; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="num">Knowledge transfer document</div>
+  <h1>RageV</h1>
+  <div class="sub">Engine architecture, rendering engineering,<br>and the order it should be built in</div>
+  <div class="rule"></div>
+  <p style="font-size:11pt; color:#3c4149; max-width:118mm; text-align:left;">
+    A Windows game engine with two rendering backends, a scene editor, two scripting
+    languages and a shipped game. This document explains what it is made of, how the
+    pieces connect, what happens in a frame — and, most of all, the sequence in which
+    a competent engineer should build these things so that each step is provable
+    before the next one leans on it.
+  </p>
+  <div class="meta">
+    <b>Subject</b> &nbsp; RageV — C++20, Vulkan 1.3 and OpenGL 4.6, CMake<br>
+    <b>Audience</b> &nbsp; Software engineers. No graphics background assumed; C++ fluency is.<br>
+    <b>Status at time of writing</b> &nbsp; Phases 0–5 complete, phase 6 in progress. 888 automated checks.
+  </div>
+</section>
+
+<section class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>0 &nbsp; How to read this
+      <ol><li>Who it is for · What it assumes · The one idea</li></ol></li>
+    <li>1 &nbsp; What the engine is
+      <ol><li>Capability · Scale · The two applications</li></ol></li>
+    <li>2 &nbsp; The build order — the spine of the document
+      <ol>
+        <li>2.1 Why order is the hard part</li>
+        <li>2.2 Phase 0 — the scene model, before anything is drawn</li>
+        <li>2.3 Phase 1 — assets and identity</li>
+        <li>2.4 Phase 2 — the loop, physics, scripts, audio</li>
+        <li>2.5 Phase 3 — the renderer, abstraction first</li>
+        <li>2.6 Phase 4 — projects, runtime, packaging</li>
+        <li>2.7 Phase 5 — scripting for real</li>
+        <li>2.8 The interlude that matters most — build a game</li>
+        <li>2.9 Phase 6 — what the game proved was missing</li>
+      </ol></li>
+    <li>3 &nbsp; Architecture
+      <ol>
+        <li>3.1 Layers and the direction of dependency</li>
+        <li>3.2 The module boundary — engine as a DLL</li>
+        <li>3.3 The three "one description" systems</li>
+      </ol></li>
+    <li>4 &nbsp; The frame
+      <ol>
+        <li>4.1 Fixed simulation, free rendering</li>
+        <li>4.2 The render path, pass by pass</li>
+        <li>4.3 The render graph</li>
+      </ol></li>
+    <li>5 &nbsp; Rendering engineering
+      <ol>
+        <li>5.1 Designing an RHI over two very different APIs</li>
+        <li>5.2 Frames in flight, and everything that follows from them</li>
+        <li>5.3 Batching and instancing</li>
+        <li>5.4 Lighting: clustered forward</li>
+        <li>5.5 Shadows</li>
+        <li>5.6 Image-based lighting and reflection probes</li>
+        <li>5.7 Post-processing</li>
+        <li>5.8 Transparency, and why it is the hardest easy problem</li>
+        <li>5.9 Compute, and moving a simulation to the GPU</li>
+      </ol></li>
+    <li>6 &nbsp; The systems around the renderer
+      <ol>
+        <li>6.1 Scene, entities, reflection</li>
+        <li>6.2 Assets</li>
+        <li>6.3 Scripting in two languages</li>
+        <li>6.4 Physics and audio</li>
+      </ol></li>
+    <li>7 &nbsp; What experience taught — the load-bearing invariants</li>
+    <li>8 &nbsp; Verification: how any of this is known to work</li>
+    <li>9 &nbsp; Where it stands, and what comes next</li>
+    <li>A &nbsp; Appendix — repository layout, build, tools</li>
+  </ol>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>0 &nbsp; How to read this</h2>
+
+<p class="lede">This is not an API reference and not a tour of a finished thing. It is an
+attempt to answer a harder question: if you had to build this, what would you build
+first, and what would you have to understand at each step to avoid painting yourself
+into a corner?</p>
+
+<h3>Who it is for</h3>
+<p>Somebody with real software engineering experience — comfortable in C++, comfortable
+with build systems, comfortable reading someone else's architecture — who has not built
+a renderer or an editor before. Graphics knowledge is not assumed; where a graphics
+concept is needed it is explained in the place it first matters, rather than in a
+chapter of preliminaries you would have forgotten by the time it was used.</p>
+
+<h3>What it assumes about the reader's goal</h3>
+<p>That you want a working engine rather than a rendering demo. Those are different
+projects and they diverge almost immediately. A rendering demo can hard-code its scene,
+load its assets from a fixed path, and put its camera in a global. An engine cannot do
+any of those things, and the difference is not a refactor you do later — it is the
+reason the build order below starts where it does.</p>
+
+<h3>The one idea, if you read nothing else</h3>
+<blockquote>
+<p><b>Build the thing that other things will be described in terms of, before you build
+the things.</b> Identity before serialization. Serialization before the editor.
+Reflection before the inspector. The hardware abstraction before the renderer. The
+render graph before the passes. Every one of those pairs is cheap in that order and
+brutally expensive in the other, and the expense is not the code — it is that the
+second one has to be right in a hundred call sites you have already written.</p>
+</blockquote>
+
+<p>The corollary is that the most valuable early work looks the least impressive. Weeks
+where the screen shows nothing new are the weeks that decide whether the project has a
+ceiling. This document tries to make those weeks legible.</p>
+
+<h3>A note on the code excerpts</h3>
+<p>Every snippet is taken verbatim from the engine, including its comments. The comments
+are load-bearing: in this codebase a comment usually records <em>why</em> a thing is not
+the obvious thing, and most of them exist because the obvious thing was tried first and
+failed in a way that took days to find. Where that is the case, the failure is described
+too.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>1 &nbsp; What the engine is</h2>
+
+<figure>
+  <img src="figures/demo-scene.jpg" alt="The sample scene">
+  <figcaption><b>Figure 1.</b> The sample project, rendered by the standalone runtime.
+  Physically-based shading, a gold sphere reflecting a real-time reflection probe,
+  cascaded shadow maps, image-based lighting from an HDR environment, and a
+  GPU-textured particle flame on the pedestal. The boxes are Jolt rigid bodies that
+  have fallen and settled.</figcaption>
+</figure>
+
+<h3>Capability</h3>
+<p>RageV is a general-purpose 3D engine with an editor, targeting Windows. It renders
+through <b>either Vulkan 1.3 or OpenGL 4.6</b>, chosen at startup, from one set of
+engine code and one set of shaders. It has physically-based shading with image-based
+lighting, cascaded and omnidirectional shadows, real-time reflection probes, clustered
+forward lighting with no light count limit, frustum culling, instanced batching,
+skeletal animation, a CPU and GPU particle system, HDR post-processing, rigid-body
+physics, positional audio, and scripting in <b>both C++ and C#</b> with live reload in
+each.</p>
+
+<p>It ships games: a project is a folder with its own assets, scenes, scripts and game
+module, and the editor can package one into a standalone folder that runs without the
+editor present.</p>
+
+<h3>Scale</h3>
+<table>
+  <tr><th>Dimension</th><th>Figure</th><th>Note</th></tr>
+  <tr><td>Rendering backends</td><td>2</td><td>Vulkan 1.3 (dynamic rendering, no <code>VkRenderPass</code>) and OpenGL 4.6</td></tr>
+  <tr><td>Scripting languages</td><td>2</td><td>C++ game module DLL; C# via CoreCLR, both with hot reload</td></tr>
+  <tr><td>Automated checks</td><td>888</td><td>Run against both backends on every change</td></tr>
+  <tr><td>Frame, sample scene</td><td>0.80 ms Vulkan / 0.97 ms OpenGL</td><td>Release, 1600×900, vsync off</td></tr>
+  <tr><td>Frame, 1000 meshes</td><td>1.88 ms Vulkan / 1.59 ms OpenGL</td><td>Instanced batching; OpenGL wins here, and that is discussed</td></tr>
+  <tr><td>Frame, 256 local lights</td><td>3.15 ms Vulkan / 3.48 ms OpenGL</td><td>Clustered; 5.56 / 7.03 ms unclustered</td></tr>
+</table>
+
+<h3>The two applications</h3>
+<p>The engine is a DLL. Two executables link it: <b>RageVEditor</b>, which has panels,
+gizmos, an inspector and play-in-editor; and <b>RageVRuntime</b>, which opens a project
+and plays it. They share the entire frame-building path and differ only in where the
+finished image is delivered — an imported viewport texture for the editor, the
+backbuffer for the runtime. Keeping that difference to one variable is what stops the
+two drifting into two renderers.</p>
+
+<figure>
+  <img src="figures/editor.jpg" alt="The editor">
+  <figcaption><b>Figure 2.</b> The editor. Scene hierarchy, viewport with a transform
+  gizmo, reflection-driven inspector, content browser and render settings. Every field
+  in the inspector is generated from the same component description that drives the
+  scene file format and the C# bridge — see §3.3.</figcaption>
+</figure>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>2 &nbsp; The build order</h2>
+
+<p class="lede">This is the part worth arguing with. Everything else in the document
+describes a state; this describes a sequence, and the sequence is the transferable
+knowledge.</p>
+
+<h3>2.1 &nbsp; Why order is the hard part</h3>
+
+<p>Most engine tutorials are organised by subsystem: here is a renderer, here is a
+physics integration, here is an editor. That organisation is fine for explaining a
+subsystem and actively misleading as a plan, because it hides the dependencies that
+actually bite. Those are rarely compile-time dependencies. They are <em>format</em> and
+<em>identity</em> dependencies, and they bite when you try to change something after a
+hundred files already contain it.</p>
+
+<p>Two rules produced the order below.</p>
+
+<div class="keyed">
+<h4>Rule 1 — describe before you draw</h4>
+<p>An engine is a program for describing scenes. Rendering is one consumer of that
+description; serialization, the editor, the undo stack, prefabs, the network layer you
+have not written, and every script are the others. Build the description first, make it
+persist losslessly, and only then draw it. A renderer built first will invent its own
+notion of a scene, and every later system will be a translation layer.</p>
+</div>
+
+<div class="keyed">
+<h4>Rule 2 — abstraction before the features that would hard-code themselves</h4>
+<p>There are exactly two places where retrofitting an abstraction costs more than
+writing it up front: the graphics API boundary and the frame's pass structure. Both are
+touched by every rendering feature you will ever add. Write the RHI before the second
+backend is a thought, and write the render graph before the third pass. Anywhere else,
+abstract late.</p>
+</div>
+
+<h3>2.2 &nbsp; Phase 0 — the scene model, before anything is drawn</h3>
+
+<p><b>Deliverable:</b> a scene you can build in an editor, save, load, and get back
+byte-identical, with undo.</p>
+
+<p>Concretely, in this order:</p>
+<ol>
+  <li><b>An editor camera.</b> Trivially small, and it means every later step is
+  visible.</li>
+  <li><b>Entity UUIDs.</b> Not the ECS library's handles — those are recycled and mean
+  nothing outside one registry instance. A stable 64-bit identity on every entity,
+  assigned at creation, preserved through save, load and play mode. <em>This is the
+  single highest-leverage decision in the project</em> and it costs an afternoon.
+  Retrofitting identity later means touching prefabs, scripts, the undo stack, the
+  physics body map and every serialized reference at once.</li>
+  <li><b>Transform hierarchy</b>, with parent stored by UUID and children rebuilt on
+  load. Derived state that can disagree with its source is the most common bug class in
+  a scene graph; storing only the parent link makes disagreement impossible.</li>
+  <li><b>Component reflection</b> — a registry that describes each component's fields.
+  Then write the serializer <em>against the registry</em>, and the inspector against it
+  afterwards. §3.3 covers why this single decision pays for itself repeatedly.</li>
+  <li><b>An undo/redo command stack.</b> Early, because commands are how the editor
+  mutates the scene, and retrofitting that means rewriting every editor action.</li>
+  <li><b>A lossless round-trip test.</b> Build a scene, serialize, deserialize,
+  serialize again, compare the strings. This one test will catch more real bugs over the
+  project's life than any other, and it is twenty lines.</li>
+</ol>
+
+<blockquote><p><b>Why not draw first?</b> Because the moment you can draw, you will
+want to draw more, and everything you add will be described in whatever ad-hoc way the
+renderer already understands. The scene model is the vocabulary. Fix the vocabulary
+first.</p></blockquote>
+
+<h3>2.3 &nbsp; Phase 1 — assets and identity</h3>
+
+<p><b>Deliverable:</b> a scene file that references a mesh without containing it.</p>
+
+<p>Assets get the same treatment entities did: a 64-bit <code>AssetHandle</code>, a
+registry that maps handles to paths, and a <code>.meta</code> sidecar beside each source
+file that records the handle so it survives a rename. Then a real importer — glTF, via
+cgltf — and meshes, materials and textures as addressable assets rather than things a
+loader hands you.</p>
+
+<p>The ordering point: <b>import comes after handles</b>. If you write the importer
+first it will return objects, and you will spend the next phase converting object
+returns into handle returns everywhere.</p>
+
+<h3>2.4 &nbsp; Phase 2 — the loop, physics, scripts, audio</h3>
+
+<p><b>Deliverable:</b> a scene that <em>runs</em>, and reverts perfectly when you stop.</p>
+
+<ol>
+  <li><b>The fixed-timestep loop first.</b> Before physics, before scripts. It is the
+  contract both will be written against, and §4.1 explains why it cannot be retrofitted
+  cheaply.</li>
+  <li><b>Play/edit split with snapshot restore.</b> Play mode operates on a copy;
+  stopping restores the original exactly. Doing this before scripts exist means scripts
+  never get to assume they can mutate the authored scene.</li>
+  <li><b>Input as named actions</b>, never key codes. A script written against
+  <code>"Jump"</code> survives rebinding; one written against a key code does not, and
+  by the time you notice, fifty scripts have key codes in them.</li>
+  <li><b>Scripts, then physics, then contact callbacks.</b> In that order within the
+  step, and documented as such — see §6.4.</li>
+  <li><b>Audio</b> last of the four, because it is the only one nothing else depends
+  on.</li>
+</ol>
+
+<h3>2.5 &nbsp; Phase 3 — the renderer, abstraction first</h3>
+
+<p><b>Deliverable:</b> the picture in Figure 1, on two backends, from one set of code.</p>
+
+<p>This is the largest phase and the one most likely to be attempted in the wrong order.
+The correct order is counter-intuitive because it front-loads two pieces of pure
+plumbing that render nothing new.</p>
+
+<ol>
+  <li><b>The RHI.</b> A device, command list, buffer, texture, pipeline, shader,
+  resource set and sampler abstraction, with two implementations. Writing this against a
+  single backend is a trap: you will abstract the wrong things, because the shape of the
+  API you have is invisible to you until a second one disagrees with it. §5.1 covers what
+  to abstract and — as importantly — what not to.</li>
+  <li><b>The render graph.</b> Passes declare the targets they read and write; the graph
+  allocates and pools them and orders the passes. Written when the frame had three
+  passes, which felt premature; the frame now has eleven, and adding a pass is a
+  declaration rather than a surgery. §4.3.</li>
+  <li><b>Then features</b>, in roughly this order, because each depends on the previous:
+  cube maps and sky → environment reflections → image-based lighting → shadows →
+  culling → instanced batching → clustered lighting → skeletal animation.</li>
+</ol>
+
+<blockquote><p><b>The measurement discipline starts here.</b> Two of the optimisations
+in this phase — frustum culling and instanced batching — cut draw calls dramatically
+and produced <em>no</em> frame-time improvement whatsoever. Culling took 144 draws to
+60; instancing took 3238 to 854; the clock did not move either time. A draw count is not
+a frame time. See §8.</p></blockquote>
+
+<h3>2.6 &nbsp; Phase 4 — projects, runtime, packaging</h3>
+
+<p><b>Deliverable:</b> a folder you can send someone that runs without the editor.</p>
+
+<p>Doing this before the engine is "finished" is deliberate. Packaging is where you
+discover that your asset paths were relative to the editor's working directory, that
+your shaders were loaded from the source tree, and that the runtime renders a blank
+window because a pass clears the backbuffer after the scene is drawn — a bug with a
+perfectly healthy draw-call count, which is why the RHI has a screenshot capture
+(§8).</p>
+
+<h3>2.7 &nbsp; Phase 5 — scripting for real</h3>
+
+<p><b>Deliverable:</b> the same game logic, in C++ or C#, either reloadable without
+restarting.</p>
+
+<p>C# is hosted through CoreCLR, with the managed assembly loaded from <em>bytes</em>
+into a collectible <code>AssemblyLoadContext</code> that is retired and replaced on every
+build. The unload is verified with a weak reference; a context that will not die is
+reported rather than ignored, because a leaked context means the old code is still
+running and the symptom is "my change did nothing".</p>
+
+<h3>2.8 &nbsp; The interlude that matters most — build a game</h3>
+
+<figure>
+  <img src="figures/knockdown.jpg" alt="Knockdown">
+  <figcaption><b>Figure 3.</b> <i>Knockdown</i> — the mini game built to find out what
+  the engine was missing. Aim a launcher, lob balls at a crate pyramid, knock them into
+  the scoring zone. Deliberately split across both languages: C++ does input, aiming
+  and spawning; C# does scoring, the component bridge and audio.</figcaption>
+</figure>
+
+<p>Building a small, complete, shippable game before adding more engine features is the
+highest-value scheduling decision in the whole project. It found <b>six real engine
+holes in one session</b>, every one of which was invisible from inside the engine:</p>
+
+<ul>
+  <li>A menu item that had been implemented but never wired into the menu.</li>
+  <li>A rigid body added during play never joined the simulation — <code>AddBody</code>
+  existed and had no callers. The first ball fired hung in the air.</li>
+  <li>C# collision callbacks were never delivered from a real simulation. The entire
+  managed contact surface was written, bound, documented and tested at the table, and
+  unreachable.</li>
+  <li>Nothing outside the test suite ever booted the .NET host, so in a fresh editor C#
+  was dead until a manual build, and a packaged game had no C# at all.</li>
+  <li>Editor C# builds always failed, because a reference path was resolved against the
+  wrong directory.</li>
+  <li>A deferred-deletion race that freed descriptor sets while a frame was still in
+  flight — found later, but by the churn the game created.</li>
+</ul>
+
+<p>Note the pattern: <em>none of these were bugs in a feature</em>. They were bugs in the
+seams between features, and only an application that crosses the seams finds them. A
+test suite written by the same person who wrote the feature tends to test the feature.</p>
+
+<h3>2.9 &nbsp; Phase 6 — what the game proved was missing</h3>
+
+<p>The game produced a ranked list of what actually hurt, which is a far better backlog
+than a list of what sounds impressive. In order: <b>no text or UI</b> (the game
+communicated entirely through a light and four sounds), <b>no per-frame script hook</b>
+(camera smoothing and recoil had nowhere to live), <b>no particles</b>, and some small
+API gaps in audio.</p>
+
+<p>Particles were built first at the user's direction, and are covered in §5.8 and §5.9.
+Text and UI, and the per-frame hook, remain open.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>3 &nbsp; Architecture</h2>
+
+<h3>3.1 &nbsp; Layers and the direction of dependency</h3>
+
+<pre class="ascii"><code>Project (.rvproject: asset root, start scene, fixed Hz)
+     |
+Application  (fixed-step loop, InputMap, AssetRegistry/Manager, AudioEngine)
+     |
+   Layers -> EditorLayer | RuntimeLayer
+     |
+   Scene (EnTT)  --  PhysicsWorld (Jolt)   ScriptRegistry
+     |                     |
+     |                contact events
+     |                     v
+     |                 scripts  -->  AudioEngine (miniaudio)
+     |
+   RenderGraph  &lt;-  BuildFrame  ->  PostProcess
+     |
+  Renderer2D / Renderer3D / DebugRenderer
+     |
+    RHI  ->  Platform/Vulkan | Platform/OpenGL</code></pre>
+
+<p>Dependency runs strictly downward. The <code>Scene</code> knows nothing about the
+renderer; the renderer reads the scene and never writes it. The RHI knows nothing about
+scenes, meshes or materials — it knows buffers, textures and pipelines. Two consequences
+worth stating because they are what the layering buys:</p>
+
+<ul>
+  <li>The test suite can build scenes, simulate them and assert on them <b>without a
+  GPU</b>, because nothing in the scene layer needs a device.</li>
+  <li>A second backend was added without touching a single renderer file, because
+  everything above the RHI is written against the interface rather than against
+  Vulkan.</li>
+</ul>
+
+<h3>3.2 &nbsp; The module boundary — engine as a DLL</h3>
+
+<p>The engine builds as <code>RageV.dll</code>. The editor, the runtime, the test tools
+and each project's game module link against it. This is what makes per-project C++
+scripting possible without an engine rebuild, and it imposes two constraints that are
+easy to violate silently:</p>
+
+<blockquote><p><b>Static data read through an inline accessor does not cross a module
+boundary.</b> The consumer links its own copy. Anything that must be a singleton across
+the boundary needs an exported out-of-line accessor.</p>
+<p><b>A translation unit containing only static registrars is dropped from a static
+library.</b> It no longer bites the engine, which is linked from object files, but it is
+why built-in scripts are still registered by an explicit function call — and it would
+bite again the moment anything moved back into a <code>.lib</code>.</p></blockquote>
+
+<p>A related trap, found late and worth generalising: <b>a tool must not link a vendored
+library the engine already links privately.</b> The RHI smoke-test tool linked GLFW a
+second time and called <code>glfwInit</code> itself, so the executable and the DLL each
+held their own GLFW globals. The window was real and the engine's copy had never heard
+of it, so Vulkan reported a null <code>HWND</code> and OpenGL reported that it could not
+load GL functions — <em>one cause, two symptoms that look completely unrelated</em>.</p>
+
+<h3>3.3 &nbsp; The three "one description" systems</h3>
+
+<p>Three places in the engine define something once and generate everything else from
+it. Each replaced two or three hand-maintained copies that had already drifted at least
+once. This is the single most reusable idea in the codebase.</p>
+
+<h4>Component reflection</h4>
+<p>Each component is described once — its name, its fields, their types and editor
+hints:</p>
+
+<pre><code><span class="c">// Order is the serialization order and the inspector order, so it is</span>
+<span class="c">// fixed here rather than emerging from a hash map.</span>
+ComponentDesc desc;
+desc.Name = <span class="s">"ParticleEmitterComponent"</span>;
+desc.DisplayName = <span class="s">"Particle Emitter"</span>;
+desc.Fields = {
+    Field&lt;&amp;ParticleEmitterComponent::Rate&gt;(<span class="s">"Rate"</span>, Drag(1.0f, 0.0f, 10000.0f)),
+    Field&lt;&amp;ParticleEmitterComponent::ColorStart&gt;(<span class="s">"ColorStart"</span>, Color()),
+    Field&lt;&amp;ParticleEmitterComponent::SizeCurve&gt;(<span class="s">"SizeCurve"</span>,
+        Named(<span class="s">"Size curve"</span>, AssetRef(AssetType::Curve, <span class="s">"..."</span>))),
+    Field&lt;&amp;ParticleEmitterComponent::Blend&gt;(<span class="s">"Blend"</span>, Enum(kParticleBlendNames)),
+};
+Bind&lt;ParticleEmitterComponent&gt;(desc);</code></pre>
+
+<p>From that one description the engine derives <b>the scene file format</b>, <b>the
+inspector UI</b>, <b>the undo system's field-edit commands</b>, and <b>the C# component
+bridge</b> — C# reaches components by registry name with values as text, so a component
+gaining a field is visible from C# the moment it exists. Nothing here can go stale,
+because there is nowhere for it to go stale <em>to</em>.</p>
+
+<p>The cost of a type-erased system is that type errors become runtime errors. One of
+them was worth converting back into a compile error:</p>
+
+<pre><code><span class="k">else if constexpr</span> (std::is_enum_v&lt;T&gt;)
+{
+    <span class="k">static_assert</span>(<span class="k">sizeof</span>(T) == <span class="k">sizeof</span>(<span class="k">int</span>),
+        <span class="s">"A registered enum field must be int-sized: reflection reads and "</span>
+        <span class="s">"writes it through an int*, so a narrower underlying type is a "</span>
+        <span class="s">"silent memory stomp. Remove the ': uint8_t' from this enum."</span>);
+    <span class="k">return</span> FieldType::Enum;
+}</code></pre>
+
+<p>An <code>enum class : uint8_t</code> compiled, drew correctly, and wrote three bytes
+past the end of the field. It is now a build error naming the offending enum.</p>
+
+<h4>The RHI</h4>
+<p>One interface, two implementations; discussed in §5.1.</p>
+
+<h4>Asset handles</h4>
+<p>One 64-bit identity per asset, one registry, one <code>.meta</code> sidecar. Every
+reference anywhere — scene files, prefabs, components, the C# bridge — is that handle.
+When particle curves were added as a new asset type, the inspector, the serializer and
+the C# bridge all worked immediately, because a curve reference is an
+<code>AssetHandle</code> and the system already knew what those were.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>4 &nbsp; The frame</h2>
+
+<h3>4.1 &nbsp; Fixed simulation, free rendering</h3>
+
+<pre class="ascii"><code>clamp frame time (0.25s)
+InputMap::Update()                    once per frame
+for each fixed step:                  zero or more
+    Layer::OnFixedUpdate(dt)          scripts, then physics
+    InputMap::EndFixedStep()
+alpha = accumulator / dt
+BeginFrame -> Layer::OnUpdate(ts) -> ImGui -> EndFrame</code></pre>
+
+<p>Simulation advances in fixed steps; rendering does not. Above 60 Hz a frame commonly
+runs <em>zero</em> steps, which is exactly why rendering must interpolate rather than
+read the simulation directly. The renderer blends the last two simulation states by
+<code>alpha</code>.</p>
+
+<p>This split has a consequence that shapes the whole scripting API: <b>presentation
+belongs on the frame, simulation belongs on the step</b>, and every system has to pick
+one deliberately. In <code>Scene::OnUpdateRuntime</code> — the per-frame pass — each
+choice carries its reason:</p>
+
+<pre><code><span class="c">// On the frame rather than the fixed step, for the same reason the audio</span>
+<span class="c">// positions are: an animation is presentation, and pinning it to the</span>
+<span class="c">// simulation rate would make it stutter at any other frame rate.</span>
+UpdateAnimators(ts);
+
+<span class="c">// Per frame, not per step: this is where the blend between the last two</span>
+<span class="c">// simulation states is applied, and it is the frame that needs it.</span>
+<span class="k">if</span> (m_Physics)
+    m_Physics-&gt;SyncTransforms(*<span class="k">this</span>, Application::GetInterpolationAlpha());
+
+<span class="c">// After the sync, so a sound on a simulated body is placed where it is</span>
+<span class="c">// being drawn rather than one step behind it.</span>
+UpdateWorldTransforms();
+UpdateAudio();
+
+<span class="c">// Presentation too: nothing collides with a particle and nothing scores</span>
+<span class="c">// one, so they move at whatever rate the display shows them.</span>
+Particles::System::Update(*<span class="k">this</span>, ts.GetSeconds());</code></pre>
+
+<p>Scripts are currently the one system still pinned to the fixed step, which is a known
+gap: a camera moved from a fixed-step callback updates on one frame in four at 240 Hz,
+against a world that interpolates on all four — differential stutter, which reads worse
+than no smoothing at all.</p>
+
+<h3>4.2 &nbsp; The render path, pass by pass</h3>
+
+<pre class="ascii"><code>(prefilter)      -> roughness levels, 36 small renders, ONCE per environment
+(shadow maps)    -> 4 cascades + a map per casting spot and a cube per point,
+                    all scene renders, BEFORE the graph opens
+(probe faces)    -> probe cube  0..6 scene renders, BEFORE the graph opens
+Scene            -> SceneHDR    RGBA16F, linear, no tone curve
+  meshes                        reflect the environment cube
+  sky                           after the meshes, depth-tested, no depth write
+Transparent      -> accum + reveal   weighted-blended particles (only if used)
+ResolveTransparent -> SceneHDR       composites the two buffers back
+Overlay          -> SceneHDR    colliders, preserved load, depth-tested
+Bloom prefilter  -> Bloom0      13-tap, Karis weighted, clamped, soft knee
+Bloom down 1..4  -> Bloom1..4   13-tap, halving each time
+Bloom up 4..1    -> Bloom3..0   3x3 tent, ADDITIVE, accumulates in place
+Tonemap          -> LDR         exposure, + bloom, ACES, 1/2.2
+FXAA             -> Output      on the tone-mapped image, not the linear one</code></pre>
+
+<p>Several ordering decisions here are not arbitrary and are easy to get wrong:</p>
+<ul>
+  <li><b>The sky is drawn after the opaque meshes</b>, depth-tested with no depth write.
+  Drawing it first wastes fill on every pixel the scene covers; the depth test has
+  nothing to test against until the meshes have written depth.</li>
+  <li><b>FXAA runs on the tone-mapped image</b>, not the linear one. Edge detection on
+  unbounded HDR values finds edges that are not perceptually there.</li>
+  <li><b>Shadow maps and probe captures happen before the graph opens</b>, because each
+  opens render passes of its own and a pass cannot be nested inside another.</li>
+  <li><b>Shadows are fitted to the camera they will be drawn with</b>, since cascades are
+  fitted to a frustum — so the editor's two viewports fit their own.</li>
+</ul>
+
+<h3>4.3 &nbsp; The render graph</h3>
+
+<p>A pass declares what it writes and what it samples; the graph pools the targets and
+executes in declaration order. A pass is two lambdas — one that declares, one that
+draws:</p>
+
+<pre><code>graph.AddPass(<span class="s">"Scene"</span>,
+    [&amp;](RGPassBuilder&amp; builder)
+    {
+        <span class="c">// Attachment 0 only: every pipeline that draws the scene declares</span>
+        <span class="c">// one colour format, and a pass binding three would require all</span>
+        <span class="c">// of them to declare three.</span>
+        builder.WriteAttachments(sceneHDR, { { 0, desc.ClearColor } });
+        builder.SetClearColor(desc.ClearColor);
+    },
+    [draw = desc.DrawScene](RGPassContext&amp; context)
+    {
+        <span class="k">if</span> (draw)
+            draw(context);
+    });</code></pre>
+
+<p>Targets are pooled by shape, so eleven passes use seven targets. The graph also
+refuses malformed frames at compile time rather than producing an undefined picture: a
+pass binding an attachment its target does not have, or a target created and never
+written, are both errors.</p>
+
+<p>The payoff is concrete. Weighted-blended transparency needed a target with three
+colour attachments over one shared depth image, with the scene pass binding attachment 0
+and the transparent pass binding 1 and 2 — a structural change to the frame that
+amounted to <em>two new graph capabilities and two pass declarations</em>, and touched no
+existing pass.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>5 &nbsp; Rendering engineering</h2>
+
+<h3>5.1 &nbsp; Designing an RHI over two very different APIs</h3>
+
+<p>Vulkan and OpenGL disagree about almost everything that matters: who owns
+synchronisation, whether resources are bound or described, how memory is allocated, and
+which way up an image is stored. An abstraction over both is an exercise in choosing
+which disagreements to hide and which to expose.</p>
+
+<h4>What to abstract</h4>
+<p>The nouns, not the verbs of one API. <code>RHIDevice</code>, <code>RHIBuffer</code>,
+<code>RHITexture</code>, <code>RHIPipeline</code>, <code>RHIShader</code>,
+<code>RHIResourceSet</code>, <code>RHISampler</code>, <code>RHICommandList</code>. These
+exist in both worlds even when only one names them.</p>
+
+<h4>What to expose rather than hide</h4>
+<p>Anything whose cost differs by an order of magnitude between the two. Frames in
+flight is the clearest example: it is a Vulkan concept, OpenGL has no equivalent, and
+hiding it would have meant either paying Vulkan's synchronisation cost on OpenGL or
+silently writing buffers the GPU was still reading. It is exposed, and OpenGL implements
+it honestly — which found a real bug, see §5.2.</p>
+
+<h4>What to design at the level of intent</h4>
+<p>Buffer barriers are the good example. Vulkan wants an access mask and a stage; OpenGL
+wants a memory-barrier bit. Neither vocabulary translates. The RHI takes a
+<code>BufferSync</code> describing the <em>use</em> — "was written by compute, will be
+read as an index buffer" — which both backends can implement without lying.</p>
+
+<h4>One operation that is worth its cost</h4>
+<pre><code><span class="c">// Records a one-shot command list and blocks until the GPU has finished it.</span>
+<span class="c">// Outside the frame loop entirely: no swapchain image is acquired and</span>
+<span class="c">// nothing is presented.</span>
+<span class="c">//</span>
+<span class="c">// It stalls, by construction -- that is what makes it usable for work whose</span>
+<span class="c">// result is needed immediately, and what makes it wrong on the frame path.</span>
+<span class="k">virtual void</span> ExecuteImmediate(<span class="k">const</span> std::function&lt;<span class="k">void</span>(RHICommandList&amp;)&gt;&amp; record) = 0;</code></pre>
+
+<p>Asset upload uses it, one-off compute dispatches use it, and — the reason it earns its
+place — it is what lets the headless test suite exercise real GPU work without a frame
+loop to borrow.</p>
+
+<h3>5.2 &nbsp; Frames in flight, and everything that follows</h3>
+
+<p>The CPU records frame N+1 while the GPU executes frame N. Everything the GPU might
+still be reading therefore needs one copy per frame in flight, and everything destroyed
+needs to outlive the frame that used it. Three rules follow, all learned the hard
+way.</p>
+
+<blockquote><p><b>Every backend needs more than one frame in flight and a fence between
+them.</b> OpenGL originally reported one and had no fence, so subsystems rewrote
+per-frame buffers the GPU was still reading — a static scene rendered three different
+images in six frames. Fixing it cost 6% and bought correctness.</p></blockquote>
+
+<blockquote><p><b>A resource set holds one descriptor set per frame in flight, and
+commit writes only the current frame's.</b> Committing once at creation populates one
+and leaves the rest never written: validation catches it on frame two, a release build
+renders garbage.</p></blockquote>
+
+<p>The third is subtler and took a purpose-built repro to find. Deletion is deferred to a
+per-frame-slot queue — but entity destruction happens in the simulation phase,
+<em>before</em> <code>BeginFrame</code>, so a deleter pushed there landed in the slot
+<code>BeginFrame</code> was about to flush in the same iteration:</p>
+
+<pre><code><span class="k">void</span> Push(std::function&lt;<span class="k">void</span>()&gt; deleter)
+{
+    <span class="k">if</span> (!DeviceAlive || PerFrame.empty()) <span class="k">return</span>;
+
+    <span class="c">// Out-of-frame pushes are slotted by the most recently *submitted*</span>
+    <span class="c">// frame, not the current index -- otherwise they land in the slot</span>
+    <span class="c">// about to be flushed, behind a fence covering a frame from two</span>
+    <span class="c">// submissions ago. Deferred by zero frames, in every process.</span>
+    <span class="k">const</span> uint32_t count = (uint32_t)PerFrame.size();
+    <span class="k">const</span> uint32_t slot = InFrame ? FrameIndex : (FrameIndex + count - 1) % count;
+    PerFrame[slot].push_back(std::move(deleter));
+}</code></pre>
+
+<p>The GPU usually won the race, which is why it read as a rare runtime flake. It was
+proven fixed with a churn scene destroying ~180 materials a second under GPU load: <b>10
+validation errors in 4000 frames before, zero in 12000 after</b>.</p>
+
+<h3>5.3 &nbsp; Batching and instancing</h3>
+
+<p>Meshes sharing a mesh handle, material and pipeline state are drawn as one instanced
+call, with per-instance transforms in a storage buffer. Two things about this are worth
+transferring.</p>
+
+<p><b>Identical state must be the same object, or a batch key cannot see it.</b>
+Materials each created their own sampler with identical settings. The batcher compared
+sampler pointers, saw a difference that did not exist, and silently prevented all lit
+batching. Sharing one sampler dropped the frame to 60 draws and won 4.5× on OpenGL.</p>
+
+<p><b>A batch's base instance is a push constant, never <code>firstInstance</code>.</b>
+Vulkan's <code>gl_InstanceIndex</code> includes the base offset; OpenGL's
+<code>gl_InstanceID</code> does not. Using the API's own base instance produces a correct
+picture on one backend and scrambled transforms on the other.</p>
+
+<figure>
+  <img src="figures/stress.jpg" alt="1000 meshes">
+  <figcaption><b>Figure 4.</b> The stress scene — 1000 meshes at 1.88 ms (Vulkan) and
+  1.59 ms (OpenGL), Release, vsync off. OpenGL winning here is real and not a bug: at
+  this draw count the frame is dominated by per-draw CPU cost, where GL's simpler
+  binding model has less to do.</figcaption>
+</figure>
+
+<h3>5.4 &nbsp; Lighting: clustered forward</h3>
+
+<p>The view frustum is divided into a 16×9×24 grid of cells; lights are binned into cells
+on the CPU; the fragment shader loops only over the lights in its own cell. Directional
+lights are deliberately <em>not</em> binned — they reach every cell, so binning them is
+pure overhead.</p>
+
+<figure>
+  <img src="figures/clustered.jpg" alt="256 lights">
+  <figcaption><b>Figure 5.</b> 256 local lights. Clustered: 3.15 ms Vulkan / 3.48 ms
+  OpenGL, against 5.56 / 7.03 ms unclustered, with a pixel-identical image.</figcaption>
+</figure>
+
+<blockquote><p><b>Know where your optimisation does not help.</b> Where every light
+reaches the whole scene, the busiest cell holds all of them and clustering is pure
+overhead — measured at 5.76 → 6.62 ms, a loss. The benchmark prints "busiest cluster
+holds N" precisely so this is visible rather than mysterious, and the scene generator
+takes a <code>--light-reach 0</code> flag to construct the pathological case on
+purpose.</p></blockquote>
+
+<h3>5.5 &nbsp; Shadows</h3>
+
+<p>Cascaded shadow maps for directional lights (four cascades fitted to the camera
+frustum), a single map per casting spot light, and a cube map per casting point light.
+Three rules that are each a day lost if missed:</p>
+<ul>
+  <li><b>Whatever poses the lit pass must pose the depth pass.</b> Otherwise a character
+  walks and its shadow stands still.</li>
+  <li><b>Nothing is culled in the shadow pass.</b> An object outside the camera frustum
+  can still cast into it.</li>
+  <li><b>OpenGL needs <code>glClipControl(..., GL_ZERO_TO_ONE)</code></b> or every shadow
+  comparison passes and the scene is uniformly lit.</li>
+</ul>
+
+<h3>5.6 &nbsp; Image-based lighting and reflection probes</h3>
+
+<p>An environment cube map is convolved once into a diffuse irradiance cube and
+prefiltered into six roughness levels, and a BRDF lookup table is generated. Reflection
+probes capture the scene into a cube map from a point; the scene picks the nearest probe
+whose influence radius contains the camera, falling back to the sky.</p>
+
+<blockquote><p><b>Mip generation belongs in the command buffer that wrote mip 0.</b>
+<code>GenerateMips</code> submitted its own and waited, so a probe's chain was built from
+an empty mip 0 and its metal read black for six frames. A bug that heals itself reads as
+a warm-up; it took a per-frame luminance measurement to show a hard step at frame 7
+rather than a gradual fill.</p></blockquote>
+
+<h3>5.7 &nbsp; Post-processing</h3>
+
+<p>Bloom (13-tap Karis-weighted downsample, 3×3 tent upsample accumulating in place),
+exposure, ACES tonemapping and FXAA. One invariant here is the single most instructive
+bug in the codebase, because of how long it hid:</p>
+
+<pre><code><span class="c">// A fullscreen pass reads one render target and writes another, and the two</span>
+<span class="c">// backends do not store a rendered image the same way round.</span>
+<span class="c">//</span>
+<span class="c">// Vulkan's first framebuffer row is the top of the image; OpenGL's is the</span>
+<span class="c">// bottom. The RHI hides that everywhere else by giving Vulkan a negative-</span>
+<span class="c">// height viewport, so geometry lands in the same place on both -- but that</span>
+<span class="c">// fixes where a fragment *writes*, not where a texture coordinate *reads*.</span>
+<span class="c">//</span>
+<span class="c">// An even number of passes hides it, which is why this survived: with</span>
+<span class="c">// anti-aliasing on, the scene goes tonemap -> FXAA and comes out the right</span>
+<span class="c">// way up. The bloom chain has an odd number, and its contribution was being</span>
+<span class="c">// added upside down -- visible only once something was bright enough to</span>
+<span class="c">// bleed, as blobs mirrored about the middle of the image.</span>
+local.FlipY = s_Data-&gt;Device-&gt;GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;</code></pre>
+
+<p>It then bit a <em>second</em> time, years of commits later, and the reason is the
+transferable part. The invariant had been written down as "…and nothing else samples a
+render target", which stopped being true the moment the transparency resolve pass was
+written — a fullscreen pass living in the particle renderer rather than the
+post-processing file, so it inherited none of this. <b>A rule stated in terms of where
+code lives will be violated by code that lives somewhere else.</b> It is now stated in
+terms of behaviour: anything that samples a render target and writes another owes the
+flip.</p>
+
+<h3>5.8 &nbsp; Transparency, and why it is the hardest easy problem</h3>
+
+<p>Opaque geometry is order-independent because the depth buffer sorts it. Transparency
+is not, and everything else follows from that.</p>
+
+<figure>
+  <img src="figures/particles-blend.jpg" alt="Three blend modes">
+  <figcaption><b>Figure 6.</b> The three answers, in one scene. Left: a 2D flat-facing
+  fountain. Centre: additive fire. Right: weighted-blended smoke.</figcaption>
+</figure>
+
+<table>
+  <tr><th>Mode</th><th>How</th><th>Correct when</th></tr>
+  <tr><td><code>Additive</code></td><td>Sums light; order cannot affect a sum</td><td>Always — for things that <em>are</em> light: fire, sparks, flashes</td></tr>
+  <tr><td><code>Alpha</code></td><td>Sorted back to front</td><td>Exact, but needs a sort — impossible for a GPU-simulated pool without a readback</td></tr>
+  <tr><td><code>WeightedBlended</code></td><td>Two order-independent accumulators plus a resolve</td><td>Approximate, needs no sort, and the approximation is good for dense plumes</td></tr>
+</table>
+
+<p>Weighted-blended OIT (McGuire &amp; Bavoil) accumulates premultiplied colour weighted
+by a depth-dependent term into one buffer, and coverage into another; a resolve pass
+divides them. The technique lives or dies on that weight function, and validating it is
+a lesson in how to test a picture.</p>
+
+<h4>How to validate something whose failure mode is "looks fine"</h4>
+<p>The weight was taken from a well-known published snippet and eyeballed once. To check
+it, a scene was built whose correct answer is <em>arithmetic</em>: three emitters at 2,
+20 and 200 units, one motionless particle each, red/green/blue at alpha 0.5, every
+spatial quantity scaled by distance so all three subtend the same angle and land exactly
+concentric. Compositing 0.5 red over 0.5 green over 0.5 blue is 4:2:1 — a red-dominant
+pixel — and a single sorted CPU emitter produces that by construction. So the reference
+is not a stored image but a render that is <em>correct by definition</em>.</p>
+
+<figure>
+  <img src="figures/oit-layers.jpg" alt="Depth-weight test scene">
+  <figcaption><b>Figure 7.</b> The instrument. Three identical emitters at 2, 20 and 200
+  units, drawn concentric. Rendered as sorted alpha this is the ground truth; rendered
+  weighted it exposes exactly how much the depth weight is doing.</figcaption>
+</figure>
+
+<p>It found the weight was <b>a constant</b>. The published snippet uses
+<code>gl_FragCoord.z</code>, which is non-linear: with the sample scenes' near plane of
+0.01 it spans 0.995 to 1.0 across the entire world, so the depth term varied by 4% from
+arm's reach to the horizon — and a <code>1e8</code> multiplier put the product 39× over
+the clamp ceiling at every distance anyway. Since the resolve divides accumulated colour
+by accumulated alpha, <em>a constant weight cancels exactly</em>: the output was an
+unweighted average that still looked like plausible transparency. Proven by replacing the
+whole expression with the literal <code>1.0</code> and getting a pixel-identical
+image.</p>
+
+<blockquote><p><b>A formula whose output is later normalised must be tested for whether
+it still <em>varies</em>, not whether it looks sensible.</b> A constant is the one value
+that hides perfectly inside any normalisation.</p></blockquote>
+
+<p>The replacement falls as 1/distance on linear view depth. That is not the paper's
+recommendation, and the reason is a property the error table does not show: under the
+standard clamp, the paper's equation 9 only discriminates between 1.5 and 100 units and
+clamps flat outside that band — it draws the 20-unit and 200-unit layers identically.
+1/d discriminates from 0.03 to 9000 units, so ordering never collapses, and the range it
+buys is at the <em>near</em> end, which is where a camera standing inside a smoke cloud
+actually lives.</p>
+
+<h3>5.9 &nbsp; Compute, and moving a simulation to the GPU</h3>
+
+<p>Particles simulate on the CPU by default and on the GPU per emitter, with a switch
+that allocates nothing: the compute pipeline is built once, and an emitter's buffers are
+cached by UUID and retained while the emitter <em>exists</em>, not while it is using
+them. Measured at ~16k particles: <b>Vulkan 3.30 → 1.37 ms, OpenGL 3.80 → 1.58 ms</b>.</p>
+
+<p>Two findings generalise well beyond particles.</p>
+
+<blockquote><p><b>A persistently-mapped host-visible buffer written by a compute shader
+is a synchronisation point on OpenGL.</b> The state buffer was host-visible so a rare
+seed could be a memcpy. That made the GPU path <em>slower than the CPU one</em> — 6.9 ms
+against 3.3 — and stopped GPU timestamps resolving at all. Device-local, seeded through
+staging, fixed both. The first hypothesis (barrier interleaving) was wrong; only
+measurement found it.</p></blockquote>
+
+<p>The second is about keeping two implementations of one thing honest. When curve-driven
+ramps arrived, the naive design would have given the compute shader its own copy of the
+rule deciding whether a curve or a start/end pair wins per channel. Instead the CPU
+resolves the ramps once per emitter per frame and uploads the <em>answer</em> — 64
+samples — so the shader has no opinion to disagree with:</p>
+
+<pre><code><span class="c">// The ramps, already resolved on the CPU by Particles::Evaluate.</span>
+<span class="c">//</span>
+<span class="c">// This shader is handed the answer rather than the ingredients: it has no</span>
+<span class="c">// idea whether a channel came from a curve asset or a start/end pair, which</span>
+<span class="c">// is deliberate. That rule lives in exactly one place, and a shader that</span>
+<span class="c">// cannot express it cannot disagree with it.</span>
+vec4 ColorRamp[64];
+vec4 SizeRamp[64];   <span class="c">// x only</span></code></pre>
+
+<p>Verified by measurement, and the measurement found something else: under
+<code>Additive</code> the CPU and GPU paths agree to 0.10 of 255 on both backends; under
+<code>Alpha</code> a curved emitter differs by 2.7, seven times the run-to-run noise. That
+gap is not the ramp — switching to an order-independent blend collapses it — it is the
+GPU's inability to sort within an emitter, which <em>curves make worse</em> because they
+widen how much particles differ in colour and opacity.</p>
+
+<figure>
+  <img src="figures/curves-compare.jpg" alt="Curves versus endpoints">
+  <figcaption><b>Figure 8.</b> The same emitter twice. Left: size, colour and alpha as
+  start/end pairs. Right: the same three driven by curves — the gradient passes
+  <em>through</em> orange rather than crossfading past it, the size curve rounds it out
+  early, and an alpha curve fades it in <em>and</em> out, which two endpoints cannot
+  express at all.</figcaption>
+</figure>
+
+<figure>
+  <img src="figures/editor-curves.jpg" alt="The curve editor">
+  <figcaption><b>Figure 9.</b> Curves are assets, edited inline under the field that
+  references them — a graph with draggable points for a scalar ramp, a stop strip for a
+  gradient. Because a curve reference is an ordinary <code>AssetHandle</code>, the
+  inspector, the scene format and the C# bridge all supported it without
+  changes.</figcaption>
+</figure>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>6 &nbsp; The systems around the renderer</h2>
+
+<h3>6.1 &nbsp; Scene, entities, reflection</h3>
+
+<p>EnTT provides the storage. On top of it: a UUID on every entity, a relationship
+component holding only the parent link, world transforms recomputed in one top-down pass
+per frame, and the component registry of §3.3.</p>
+
+<p>World transforms are deliberately <b>not</b> a dirty-flag cache:</p>
+
+<pre><code><span class="c">// Recomputed unconditionally by Scene::UpdateWorldTransforms in one</span>
+<span class="c">// top-down pass per frame.</span>
+<span class="c">//</span>
+<span class="c">// Deliberately not a dirty-flag cache. A flag has to be set at every write</span>
+<span class="c">// site -- the inspector, the gizmo, scripts, the serializer, and everything</span>
+<span class="c">// added later -- and a single missed one leaves an object silently</span>
+<span class="c">// rendering in the wrong place. Recomputing is O(n) at scene scale and</span>
+<span class="c">// cannot be got wrong.</span>
+Mat4 World{ 1.0f };</code></pre>
+
+<p>This is a good example of choosing the boring implementation on purpose. The cache is
+faster and the cost of one missed invalidation — an object in the wrong place, sometimes
+— is far higher than the saving.</p>
+
+<h3>6.2 &nbsp; Assets</h3>
+
+<p>Handles, a registry mapping handle to path, <code>.meta</code> sidecars, and a manager
+that loads and caches by handle. Two conventions worth copying:</p>
+<ul>
+  <li><b>Failures are cached.</b> A missing texture caches as null so a broken path is
+  not reopened sixty times a second.</li>
+  <li><b>Never return null for a valid handle where a value will do.</b> A missing curve
+  answers an <em>empty</em> curve that evaluates to its fallback, so the caller samples a
+  value rather than every call site remembering a branch. Only an <em>invalid</em> handle
+  answers null — which keeps "no curve authored" distinguishable from "curve failed to
+  load".</li>
+</ul>
+
+<h3>6.3 &nbsp; Scripting in two languages</h3>
+
+<p>C++ scripts live in a project's <code>Source/</code> and build into a game module DLL
+the engine loads. C# scripts live in <code>Scripts/</code> and build into an assembly
+loaded from bytes into a collectible load context. Both hot reload; building while
+playing stops the scene, swaps both languages, and resumes play on the new code.</p>
+
+<p>The interop is an append-only function-pointer table with an explicit protocol
+version in both the native and managed headers. The one structural asymmetry is worth
+calling out because it is inherent rather than incidental: a template cannot cross a
+language boundary, so where C++ says <code>GetComponent&lt;LightComponent&gt;()</code>,
+C# reaches components <b>by registry name with values as text</b> — the same names and
+text forms the inspector and the scene file use. That trade is what keeps the C# surface
+from going stale when a component gains a field.</p>
+
+<h3>6.4 &nbsp; Physics and audio</h3>
+
+<p>Jolt, stepped after scripts within the fixed step, with contact events delivered
+after the step that produced them. Colliders are authored in local units and multiplied
+by the transform's absolute scale — worth knowing, because authoring the world radius
+directly produces a collider that is silently scale× too large.</p>
+
+<p>Audio is miniaudio, with positional sources updated per frame <em>after</em> transform
+sync, so a sound on a simulated body is placed where it is being drawn rather than one
+step behind it.</p>
+
+<figure>
+  <img src="figures/skinning.jpg" alt="Skeletal animation">
+  <figcaption><b>Figure 10.</b> GPU skinning. The invariant that catches the most bugs
+  at once: a skeleton at its bind pose must produce an identity skinning matrix for every
+  bone — one check that catches wrong inverse binds, wrong compose order and wrong space
+  simultaneously.</figcaption>
+</figure>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>7 &nbsp; What experience taught</h2>
+
+<p class="lede">Every entry below was a real bug that cost real time, and most of them
+fail silently rather than obviously. They are grouped by the kind of mistake rather than
+by subsystem, because the kind is what transfers.</p>
+
+<h3>Things that are two things pretending to be one</h3>
+<ul>
+  <li><b>A swapchain is retired, not destroyed and replaced.</b> Pass the old handle as
+  <code>oldSwapchain</code> and destroy it after the new one exists —
+  <code>vkDeviceWaitIdle</code> covers the queues, not the presentation engine.</li>
+  <li><b>A cache holding one object under two keys must be cleared as one.</b> The
+  texture loader keyed by path and the IBL filter keyed by pointer were cleared at
+  different times; changing project kept every old environment map alive.</li>
+  <li><b>Identical state must be the same object</b> (§5.3).</li>
+</ul>
+
+<h3>Things that are silently the wrong size</h3>
+<ul>
+  <li><b>A vertex attribute's reflected format must carry its vector width.</b> The
+  reflection returned a one-component format for every integer, so a <code>uvec4</code>
+  of joint indices was 4 bytes where the buffer held 16, and the mesh drew as a spray of
+  triangles.</li>
+  <li><b>A registered enum field must be int-sized</b> (§3.3).</li>
+  <li><b>A skinned mesh needs one bone matrix per bone, never a short run</b> — it reads
+  into the next character's.</li>
+  <li><b>A descriptor pool is a chain, not a ceiling.</b> 1000 meshes segfaulted a fixed
+  2000-set pool.</li>
+</ul>
+
+<h3>Things that differ between backends and look fine on one</h3>
+<ul>
+  <li><b>Fullscreen passes and the V flip</b> (§5.7) — and an even number of passes hides
+  it.</li>
+  <li><b>Base instance</b> (§5.3).</li>
+  <li><b>Clip control on OpenGL</b> (§5.5).</li>
+  <li><b><code>glDrawBuffers</code> is persistent framebuffer state</b>, and
+  <code>glClearBufferfv</code> indexes the draw-buffer list rather than the framebuffer.
+  Binding attachments 1 and 2 means clearing indices 0 and 1.</li>
+  <li><b><code>independentBlend</code> is a Vulkan device feature.</b> Different blend
+  state on different attachments is not free.</li>
+</ul>
+
+<h3>Things about lifetime</h3>
+<ul>
+  <li><b>Deferred deletion must be slotted by the frame actually submitted</b>
+  (§5.2).</li>
+  <li><b>Never rewrite a bound descriptor set.</b></li>
+  <li><b><code>Layer</code>'s destructor must stay virtual.</b> Without it only
+  <code>~Layer</code> ran and every derived member leaked — the editor's scene, its
+  render targets, every material in them. Undefined behaviour that survived months
+  because nothing looked wrong.</li>
+  <li><b>Wait for the device to idle before destroying anything</b>, not partway
+  through.</li>
+  <li><b>Verify shutdown by exiting, not by killing.</b> Every one of these was invisible
+  while runs were terminated rather than closed.</li>
+</ul>
+
+<h3>Things about measurement</h3>
+<ul>
+  <li><b>A draw count is not a frame time</b> (§2.5).</li>
+  <li><b>A bug that heals itself reads as a warm-up</b> (§5.6).</li>
+  <li><b>When a timing bug will not reproduce, failing to reproduce it is the
+  evidence</b> — stop asking what you broke and go find the order-dependent hazard in
+  that path.</li>
+  <li><b>Ask whether a defect predates your change.</b> Stashing and rebuilding takes ten
+  minutes and regularly turns "my regression" into "already there".</li>
+  <li><b>Benchmark runs taken far apart are not comparable.</b> Re-running an unchanged
+  baseline forty minutes later drifted 1.3% with no code involved.</li>
+</ul>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>8 &nbsp; Verification: how any of this is known to work</h2>
+
+<p class="lede">A renderer is uniquely hostile to testing: its output is a picture, its
+failures are often plausible pictures, and the usual unit-test instinct produces tests
+that pass while the screen is blank. This is the methodology that emerged.</p>
+
+<h3>The bar, in full</h3>
+<p>Every change is verified against all of the following before it is committed:</p>
+<ol>
+  <li><b>888 automated checks, on both backends, exit code 0.</b> Not "no failures
+  printed" — the exit code, because a harness that crashes halfway prints no
+  failures.</li>
+  <li><b>Zero validation-layer messages</b>, with validation explicitly enabled. It is
+  off by default because it costs ~1.5 ms/frame and made Vulkan read as slower than
+  OpenGL; a run without the flag reports zero messages whether or not there were
+  any.</li>
+  <li><b>The pixels, via the engine's own screenshot capture</b> — not a draw count.</li>
+  <li><b>Both backends' frames compared against each other</b>, not merely each on its
+  own. A Vulkan-only bloom flip survived an entire roadmap phase of clean runs because
+  nothing in the scene was bright enough for a mirrored contribution to show.</li>
+  <li><b>All three build configurations</b> for anything the editor displays.</li>
+</ol>
+
+<h3>Test the property, not the plumbing</h3>
+<p>The distinction that makes GPU testing tractable. A test that asserts a dispatch was
+recorded proves nothing. A test that runs 100 elements through a 64-wide workgroup — so
+the tail group runs past the end and the shader's bounds check is actually exercised —
+and then checks every element, proves the thing you care about.</p>
+
+<h3>Compare against something correct by construction</h3>
+<p>The strongest tool in the box, and the one that found two shipped bugs in an
+afternoon (§5.8). Do not compare a render against a stored reference image, which rots
+and which nobody can debug. Compare it against <em>another render</em> whose correctness
+is guaranteed by construction — a sorted single emitter is exactly correct, so it is the
+reference for an unsorted approximation of the same particles.</p>
+
+<h3>Reintroduce the bug to prove the test fails</h3>
+<p>A regression check that has never failed is a hypothesis. Both transparency bugs were
+deliberately put back to confirm the new check catches them and names them correctly.
+The same discipline was applied to the enum compile-time assert.</p>
+
+<h3>Build the repro before the fix</h3>
+<p>The deferred-deletion race was a rare flake until a scene was built to destroy ~180
+materials a second under GPU load. Then it was 10 errors in 4000 frames, reliably — and
+therefore provably fixed at zero in 12000.</p>
+
+<h3>Automate the eyeball where you can</h3>
+<p>Some checks genuinely need a picture, but "a picture" can still be reduced to a
+number. The transparency regression check renders the same particles two ways and
+compares <em>silhouettes</em> and channel ordering, which catches both a vertical flip and
+a weight that has stopped discriminating — neither of which a human reliably notices in a
+still of smoke.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>9 &nbsp; Where it stands, and what comes next</h2>
+
+<h3>Complete</h3>
+<p>Phases 0 through 5, the game-module arc, and a shipped mini game. The renderer,
+scene, asset, scripting, physics and audio systems described above are all in place and
+verified on both backends.</p>
+
+<h3>In progress</h3>
+<p>Phase 6. Particles are done — CPU and GPU simulation, three blend modes, and
+asset-backed curves for size, colour and alpha with an inline editor.</p>
+
+<figure>
+  <img src="figures/flame.jpg" alt="The brazier flame">
+  <figcaption><b>Figure 11.</b> The current end of the road: a textured, curve-driven,
+  additive flame burning on the sample scene's pedestal, in local space so it rides
+  whatever carries it.</figcaption>
+</figure>
+
+<h3>Open, in priority order</h3>
+<ol>
+  <li><b>Text and game UI.</b> The largest gap by distance, and the one the mini game hit
+  hardest — it could not display a score, a label or a prompt, and communicated entirely
+  through a light and four sounds.</li>
+  <li><b>A per-frame script hook.</b> The second largest, and analysed in §4.1: every
+  other presentation system already runs per frame, and scripts moving on the simulation
+  step actively fight the interpolation.</li>
+  <li><b>GPU alpha self-sorting.</b> A bitonic sort in compute keyed on view depth;
+  because the default pool is 1000 particles, anything up to 2048 sorts inside a single
+  workgroup in shared memory — one dispatch. The measurement in §5.9 is the argument for
+  it.</li>
+  <li><b>Particle collision and sub-emitters</b>, both scoped and deliberately
+  deferred.</li>
+</ol>
+
+<h3>What a reader should take away</h3>
+<p>Not the feature list. Three habits:</p>
+<ul>
+  <li><b>Order the work by what other work will be described in terms of.</b> Identity,
+  serialization, reflection and the two abstractions came first, and everything else was
+  cheaper because of it.</li>
+  <li><b>Build something real with the engine before extending it.</b> One small game
+  found six holes that no amount of internal testing had.</li>
+  <li><b>Measure, and construct references that cannot be wrong.</b> Most of the
+  hard-won entries in §7 were found by a measurement, and most of the ones that took
+  longest were the ones where the picture looked plausible.</li>
+</ul>
+</section>
+
+<!-- ===================================================================== -->
+<section class="part">
+<h2>A &nbsp; Appendix — repository layout, build, tools</h2>
+
+<h3>Layout</h3>
+<table>
+  <tr><th>Path</th><th>Contents</th></tr>
+  <tr><td><code>RageV/src/RageV/</code></td><td>Engine: Core, Scene, Renderer, Asset, Physics, Audio, Animation, Particles, Managed, Project, Scripts, Math</td></tr>
+  <tr><td><code>RageV/src/Platform/</code></td><td>Vulkan and OpenGL RHI implementations, Windows platform</td></tr>
+  <tr><td><code>RageVEditor/</code></td><td>Editor application, panels, and the engine's shipped shaders</td></tr>
+  <tr><td><code>RageVRuntime/</code></td><td>Standalone runtime</td></tr>
+  <tr><td><code>RageVScriptCore/</code></td><td>The managed class library C# scripts compile against</td></tr>
+  <tr><td><code>SampleProject/</code>, <code>Knockdown/</code></td><td>A sample project and a complete game</td></tr>
+  <tr><td><code>tools/</code></td><td><code>scenetest</code>, <code>rhismoke</code>, <code>rvdoc</code>, <code>rvpack</code>, and Python asset generators</td></tr>
+  <tr><td><code>docs/</code></td><td>Handoff, engine notes, roadmap, and the generated developer manual</td></tr>
+</table>
+
+<h3>Build and verify</h3>
+<pre><code>cmake --build build --config Debug
+
+build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan     <span class="c"># 888 checks, exit 0</span>
+build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
+build/bin/Debug/rhismoke/rhismoke.exe 120 --rhi=vulkan
+
+build/bin/Debug/RageVRuntime/RageVRuntime.exe \
+    --rhi=vulkan --validation=on --screenshot=f.png</code></pre>
+
+<h3>Flags worth knowing</h3>
+<table>
+  <tr><th>Flag</th><th>Purpose</th></tr>
+  <tr><td><code>--rhi=vulkan|opengl</code></td><td>Backend; also settable in <code>ragev.ini</code></td></tr>
+  <tr><td><code>--validation=on</code></td><td>Validation layers. Off by default, ~1.5 ms/frame</td></tr>
+  <tr><td><code>--screenshot=</code>, <code>--screenshot-frame=</code></td><td>Capture a frame and exit cleanly — the basis of visual verification</td></tr>
+  <tr><td><code>--benchmark=N</code></td><td>Frame-time statistics with the vsync state printed beside them</td></tr>
+  <tr><td><code>--scene=</code>, <code>--project=</code></td><td>Open a specific scene or project without editing configuration</td></tr>
+  <tr><td><code>--select=</code></td><td>Editor: open with an entity selected, so an inspector widget can be verified</td></tr>
+  <tr><td><code>--fixed-hz=</code></td><td>Run the simulation at a different rate to see what breaks</td></tr>
+</table>
+
+<blockquote><p><b>A last practical note.</b> Running an application without
+<code>--screenshot</code> or <code>--benchmark</code> leaves a window open indefinitely.
+That is not a hang, and both flags exist so that every verification run terminates on its
+own with an exit code worth trusting.</p></blockquote>
+</section>
+
+</body>
+</html>

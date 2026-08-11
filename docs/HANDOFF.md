@@ -1743,6 +1743,39 @@ box, squared about that box's centre and resized to 512 -- 2.5 MB to 236 KB.
 Squared about the *content* rather than the image, because a billboard
 rotates about its middle and an off-centre sprite wobbles as it spins.
 
+### Pending - the per-frame script hook
+
+**Agreed as the next engine gap after the current work** (2026-08-11), and
+recorded here rather than done because a design document took priority.
+
+`OnUpdate` is per *fixed step*, by design. Every other presentation system --
+animators, physics interpolation, world transforms, audio, both particle
+paths -- already runs per frame in `Scene::OnUpdateRuntime`, each with a
+comment saying why. Scripts are the one thing still pinned to the simulation
+rate, and that is now the second-largest gap in phase 6 after text/UI.
+
+The sharpest argument is not convenience: `SyncTransforms` blends the last
+two simulation states by `Application::GetInterpolationAlpha()`, so the world
+already moves smoothly at any display rate. A camera moved from `OnUpdate`
+updates on one frame in four at 240 Hz against a world that updates on all
+four -- which reads *worse* than if neither were smoothed, because the
+stutter is differential. No script can even see the alpha today.
+
+Two decisions it forces:
+
+1. **The name.** `OnUpdate` already means fixed step in both manuals and
+   every existing script, so it cannot be reused. Something that says frame
+   -- `OnFrame(dt)` -- makes the varying `dt` obvious at the call site.
+2. **Where in the frame.** A camera script must read *interpolated*
+   transforms, so it belongs after `UpdateWorldTransforms` and before
+   `UpdateAudio` -- around Scene.cpp's audio call. Earlier and it reads last
+   step's positions, which defeats the purpose.
+
+Both languages ship it together (they are equals at protocol 5), and the
+real risk is misuse: gameplay in a per-frame hook reintroduces frame-rate
+dependence, which is what the fixed step exists to prevent. That is a naming
+and documentation problem, not a code one.
+
 ### After that - 6.11, GPU alpha self-sorting
 
 Now cheaper than it looks, and no longer urgent -- weighted blending is the
