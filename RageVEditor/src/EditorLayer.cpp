@@ -133,15 +133,41 @@ void EditorLayer::OnAttach()
 	//
 	// The built-in demo stays as the fallback, for a project with no start
 	// scene and for no project at all. File > New Scene gives a blank one.
+	// --scene wins over the project's start scene, the same way it does for the
+	// runtime, and for the same reason: opening a particular scene to look at
+	// something should not mean editing the project's configuration first.
+	const EngineConfig& config = EngineConfig::Get();
+	const std::filesystem::path requested =
+		!config.ScenePath.empty() && Project::GetActive()
+			? Project::AssetPath(config.ScenePath)
+			: std::filesystem::path();
+
 	const std::filesystem::path start =
 		Project::GetActive() && !Project::Config().StartScene.empty()
 			? Project::AssetPath(Project::Config().StartScene)
 			: std::filesystem::path();
 
-	if (!start.empty() && std::filesystem::exists(start))
+	if (!requested.empty() && std::filesystem::exists(requested))
+		OpenSceneFile(requested);
+	else if (!start.empty() && std::filesystem::exists(start))
 		OpenSceneFile(start);
 	else
 		LoadDemoScene();
+
+	// --select names an entity to open with selected, so an inspector widget
+	// can be checked without somebody clicking the hierarchy first.
+	if (!config.SelectEntity.empty() && m_Scene)
+	{
+		for (auto handle : m_Scene->GetRegistry().view<TagComponent>())
+		{
+			Entity entity{ handle, m_Scene.get() };
+			if (entity.GetName() == config.SelectEntity)
+			{
+				m_SceneHierarchyPanel.SetSelectedEntity(entity);
+				break;
+			}
+		}
+	}
 }
 
 // -----------------------------------------------------------------------------

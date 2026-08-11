@@ -175,6 +175,15 @@ def main():
         handle.write(scene)
     print(f"wrote {scene_path}")
 
+    # The same scene simulating on the GPU. Both emitters read the ramp the
+    # CPU resolved, so the two files should be indistinguishable apart from
+    # the RNG -- which is the check that the compute path samples the same
+    # table rather than its own idea of one.
+    gpu_path = os.path.join(args.project, "assets", "scenes", "particles_curves_gpu.rage")
+    with open(gpu_path, "w", encoding="utf-8") as handle:
+        handle.write(scene.replace("SimulateOnGpu: false", "SimulateOnGpu: true"))
+    print(f"wrote {gpu_path}")
+
 
 if __name__ == "__main__":
     main()

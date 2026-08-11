@@ -1,4 +1,6 @@
 #include "SceneHierarchyPanel.h"
+#include "CurveEditor.h"
+#include "RageV/Asset/CurveSerializer.h"
 #include "imgui.h"
 #include "RageV/Project/Project.h"
 #include <cctype>
@@ -453,6 +455,35 @@ namespace
 									  Assets::Registry::GetMetadata(handle).Path.c_str());
 
 				EndField();
+
+				// A curve is edited where it is used. Everything else here is a
+				// reference to something with its own home -- a mesh, a texture
+				// -- but a ramp only means anything beside the emitter it
+				// shapes, so it gets drawn under its own field rather than in a
+				// window you have to go and find.
+				if (hint.Accepts == AssetType::Curve && handle.IsValid())
+				{
+					if (const Curve* loaded = Assets::Manager::GetCurve(handle))
+					{
+						// A copy to edit: the cached one is what the renderer is
+						// sampling this frame, and editing it in place would
+						// change the picture halfway through drawing it.
+						Curve editable = *loaded;
+
+						if (UI::CurveEditor::Draw(field.Name, editable, handle))
+						{
+							const std::filesystem::path path =
+								Assets::Registry::GetAbsolutePath(handle);
+
+							// Written through, then the cache dropped. The
+							// alternative -- updating the cache and saving on
+							// some later event -- is how an edit survives on
+							// screen and not on disk.
+							if (!path.empty() && Assets::CurveSerializer::Save(editable, path))
+								Assets::Manager::ReloadCurve(handle);
+						}
+					}
+				}
 				break;
 			}
 			case FieldType::String:

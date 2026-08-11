@@ -5,6 +5,7 @@
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
+#include "RageV/Asset/AssetManager.h"
 #include <unordered_map>
 #include <unordered_set>
 
@@ -52,8 +53,27 @@ namespace RageV::Particles
 			uint32_t Epoch = 0;
 			Mat4 Model;
 			Vec4 SpaceScale;
+
+			// The ramps, already resolved.
+			//
+			// The shader is handed the *answer*, not the ingredients: which of
+			// the curve and the start/end pair decides each channel is worked
+			// out once by Particles::Evaluate on the CPU, and only the result
+			// crosses. That rule therefore has exactly one implementation, and
+			// the shader has no copy of it to drift from -- which matters more
+			// here than the 2 KB, because a drift between the CPU and GPU paths
+			// reads as a simulation bug rather than a sampling one.
+			//
+			// Same 64 samples the CPU path reads, so switching an emitter
+			// between them cannot change its appearance.
+			Vec4 ColorRamp[Curve::Baked::kSize];
+			// x only. Three floats per element are wasted and std140 would pad
+			// a float array to the same size anyway, so packing would buy
+			// nothing but an indexing bug.
+			Vec4 SizeRamp[Curve::Baked::kSize];
 		};
-		static_assert(sizeof(EmitterParams) == 208, "Must match particle_sim.rvshader");
+		static_assert(sizeof(EmitterParams) == 208 + 2 * 16 * Curve::Baked::kSize,
+					  "Must match particle_sim.rvshader");
 
 		// One emitter's residency. Kept while the emitter exists, whether or
 		// not it is currently simulating on the GPU.
@@ -361,6 +381,28 @@ namespace RageV::Particles
 			params.Epoch = resident.Epoch;
 			params.Model = transform.World;
 			params.SpaceScale = Vec4(local ? 1.0f : 0.0f, scale, 0.0f, 0.0f);
+
+			// Resolve the ramps here, once per emitter per frame, using the
+			// same function the CPU renderer calls per particle. 64 samples of
+			// a handful of flops each, against a pool of up to sixteen
+			// thousand -- the cost is noise, and it buys the shader having no
+			// opinion about which of a curve and a pair wins.
+			const Curve::Baked* sizeCurve = RageV::Assets::Manager::GetBakedCurve(emitter.SizeCurve);
+			const Curve::Baked* colorCurve = RageV::Assets::Manager::GetBakedCurve(emitter.ColorGradient);
+			const Curve::Baked* alphaCurve = RageV::Assets::Manager::GetBakedCurve(emitter.AlphaCurve);
+
+			for (uint32_t i = 0; i < Curve::Baked::kSize; i++)
+			{
+				// Inclusive of both ends, matching Curve::Bake -- i/(kSize-1),
+				// never i/kSize, which would stop short of the last key and
+				// clip the end off every ramp.
+				const float t = (float)i / (float)(Curve::Baked::kSize - 1);
+				const Appearance appearance =
+					Evaluate(emitter, t, sizeCurve, colorCurve, alphaCurve);
+
+				params.ColorRamp[i] = appearance.Color;
+				params.SizeRamp[i] = Vec4(appearance.Size, 0.0f, 0.0f, 0.0f);
+			}
 
 			resident.Params->Upload(&params, sizeof(params));
 

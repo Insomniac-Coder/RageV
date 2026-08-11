@@ -18,6 +18,7 @@ several emitters parented together.
 | `Direction`, `Spread`, `Speed`, `SpeedJitter` | The cone they leave through. `Spread` is a half-angle in degrees; 180 is a sphere. |
 | `Gravity`, `Drag` | The emitter's **own** gravity, not the physics world's. |
 | `SizeStart`, `SizeEnd`, `ColorStart`, `ColorEnd` | Interpolated over each particle's life. |
+| `Size curve`, `Colour gradient`, `Alpha curve` | Shapes for the same three ramps, when a straight line will not do. See below. |
 | `Spin` | Maximum degrees per second, signed at random per particle. |
 | `Texture` | Optional sprite. A plain quad without one. |
 | `MaxParticles` | The pool. A full pool refuses to spawn rather than recycling. |
@@ -31,6 +32,53 @@ be hit by one, and no script is told about one.
 > should move as smoothly as the display can show it. A hitch is forgiven
 > rather than paid back, so a two-second stall does not produce two seconds of
 > particles in one frame.
+
+## Curves, when two endpoints are not enough
+
+A start and an end can only say "from this, to that, evenly". Plenty of
+effects need a shape: smoke that swells fast and then drifts, a spark that
+flashes and decays over a long tail, a puff that fades in **and** out. That
+last one is worth dwelling on — it needs three values, and a pair has two, so
+no amount of tuning `ColorStart` and `ColorEnd` will ever produce it.
+
+Curves are assets. Drop a `.rcurve` on **Size curve**, **Colour gradient** or
+**Alpha curve** and it takes over that ramp; leave one empty and the pair
+still decides it. They are independent, so authoring a size curve does not
+oblige you to author a colour one, and every emitter made before curves
+existed keeps working exactly as it did.
+
+The editor draws the curve under its own field, because a ramp only means
+anything beside the emitter it shapes:
+
+- **Drag** a point to move it. Drag one past its neighbour and the curve
+  re-sorts rather than turning inside out.
+- **Double click** empty space to add a point, or a point to remove it.
+- A **scalar curve** (size, alpha) is a graph, and its vertical range grows to
+  fit — a size curve in world units is not confined to 0..1.
+- A **gradient** is a stop strip. Stops move in time by dragging; hover one to
+  get a colour picker for it.
+
+`tools/scripts/make_curve_presets.py` writes four to start from — `swell`,
+`fade_in_out`, `flash_decay` and `ember` — and a scene putting a curved
+emitter beside an uncurved one.
+
+> [!NOTE]
+> **Alpha is its own curve, not the gradient's fourth channel.** Opacity and
+> hue almost never want the same shape, and keeping them apart is what lets
+> one gradient be shared between emitters that fade differently.
+
+> [!NOTE]
+> Curves work identically on the GPU. Both paths read the same 64-sample table
+> — resolved once on the CPU, so the simulation never has to decide which of a
+> curve and a pair wins — which is why switching `SimulateOnGpu` cannot change
+> how an emitter looks.
+
+> [!TRAP]
+> A curve makes an emitter's particles differ more from each other in colour
+> and opacity, and that is exactly the condition under which unsorted alpha
+> goes wrong. On a **GPU** emitter using `Alpha`, expect a curved ramp to make
+> the lack of sorting more visible than a plain one did. `Additive` and
+> `WeightedBlended` are unaffected, because neither depends on order.
 
 ## Facing: 3D and 2D from one component
 

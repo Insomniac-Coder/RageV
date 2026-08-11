@@ -1674,15 +1674,41 @@ and the build stays runnable between them:
    twice on a fresh checkout -- the scene can only name curves whose
    `.meta` the registry has already minted.
 
-5. **The GPU path**: bake each curve to a short LUT (64 texels is plenty),
-   sample by age in `particle_sim.rvshader`. The CPU sim and the compute
-   shader must read the *same* baked LUT rather than each evaluating keys, or
-   the two paths drift and it will look like a blending bug. This is the same
-   discipline the shared instance layout already enforces.
-6. **The editor**: the draggable curve widget. Left for last on purpose --
-   everything above is testable headlessly, and this is not.
-7. Docs: the manual's particles page, and a `tools/scripts` generator for a
-   couple of stock curves so there is something to look at immediately.
+5. ~~**The GPU path**~~, 6. ~~**the editor**~~ and 7. ~~**docs**~~ -- **done**.
+
+   The compute shader is handed the **answer, not the ingredients**: the CPU
+   resolves the ramps once per emitter per frame with `Particles::Evaluate`
+   and uploads 64 samples in the emitter UBO. The shader has no idea whether
+   a channel came from a curve or a pair, which is the point -- a rule it
+   cannot express is a rule it cannot disagree with. It costs 2 KB per
+   emitter and removes a whole class of drift.
+
+   Sampled from a uniform array rather than a texture, doing the same integer
+   index and lerp `Curve::Baked::Sample` does, so the two paths match bit for
+   bit with no filtering precision in the way.
+
+   **Proven, and the proof found something.** CPU against GPU on the same
+   scene: under `Additive` they agree to 0.10 of 255 on both emitters and
+   both backends. Under `Alpha` the curved emitter differed by 2.7 -- seven
+   times the run-to-run noise -- and that is *not* the ramp. It is the GPU
+   being unable to sort within an emitter, which curves make more visible
+   because they widen how much particles differ in colour and opacity. Which
+   is the strongest argument yet for 6.11.
+
+   The editor draws the curve inline under its own field, in two shapes from
+   one type: a graph with draggable points for a scalar, a stop strip with a
+   colour picker for a gradient. Drag re-sorts through `MoveKey` and follows
+   the point past its neighbours; double click adds on empty space and
+   removes on a point, never below one key. Edits write the `.rcurve` and
+   call `ReloadCurve` in the same breath, which is what stops an edit
+   surviving on screen and not on disk.
+
+   **Two flags were added to check it, and both generalise.** `--select=<name>`
+   opens the editor with an entity selected, because an inspector widget
+   cannot be verified with nothing selected and clicking the hierarchy is not
+   a check anybody repeats. And the editor now honours `--scene` the way the
+   runtime always has. Neither is demo scaffolding; both are the same family
+   as `--screenshot`.
 
 **Where it will go wrong.** A curve asset edited in the editor has to
 invalidate whatever the renderer baked from it, or the picture keeps the old

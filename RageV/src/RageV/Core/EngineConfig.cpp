@@ -114,6 +114,12 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "select")
+		{
+			config.SelectEntity = value;
+			return true;
+		}
+
 		if (key == "screenshot-frame" || key == "screenshotframe")
 		{
 			try

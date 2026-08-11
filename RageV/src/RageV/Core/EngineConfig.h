@@ -77,6 +77,12 @@ namespace RageV
 		// what everyone else opens. It is generally useful beyond that -- a
 		// bug report is much easier to act on with the scene attached.
 		std::string  ScenePath;
+		// --select=<entity name>: which entity the editor opens with selected.
+		// A verification affordance in the same family as --screenshot and
+		// --scene: an inspector widget can only be checked with something
+		// selected, and driving the hierarchy by hand is not a check anybody
+		// repeats. Ignored by the runtime, which has no inspector.
+		std::string  SelectEntity;
 
 		// How much to scale the editor's font and spacing.
 		//

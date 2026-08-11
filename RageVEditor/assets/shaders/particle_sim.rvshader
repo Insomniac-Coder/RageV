@@ -68,7 +68,40 @@ layout(std140, set = 0, binding = 2) uniform EmitterParams
 	// x local space (0 or 1), y uniform scale taken from Model's longest
 	// basis axis -- precomputed rather than three square roots per particle.
 	vec4 SpaceScale;
+
+	// The ramps, already resolved on the CPU by Particles::Evaluate.
+	//
+	// This shader is handed the answer rather than the ingredients: it has no
+	// idea whether a channel came from a curve asset or from a start/end pair,
+	// which is deliberate. That rule lives in exactly one place, and a shader
+	// that cannot express it cannot disagree with it.
+	//
+	// 64 samples, the same table Curve::Baked holds, so an emitter toggled
+	// between the CPU and GPU paths cannot change appearance.
+	vec4 ColorRamp[64];
+	vec4 SizeRamp[64];   // x only
 } u_Emitter;
+
+// Linear between neighbouring samples, clamped at both ends -- the exact
+// arithmetic Curve::Baked::Sample uses on the CPU. Written out rather than
+// left to a sampler: a uniform array indexed here matches the CPU bit for
+// bit, where a texture would introduce the hardware's filtering precision as
+// a second thing that could differ between the two paths.
+int RampIndex(float t, out float fraction)
+{
+	float clamped = clamp(t, 0.0, 1.0);
+	float scaled = clamped * 63.0;
+	int index = int(scaled);
+
+	if (index >= 63)
+	{
+		fraction = 0.0;
+		return 63;
+	}
+
+	fraction = scaled - float(index);
+	return index;
+}
 
 // Integer hash, so a slot's numbers depend on nothing but the slot and the
 // epoch. Two invocations never share a sequence, and a frame is reproducible.
@@ -200,8 +233,8 @@ void main()
 	u_State.Items[index] = particle;
 
 	// --- present -----------------------------------------------------------
-	// The same curves the CPU renderer applies when it fills instances, so
-	// the two paths reach the vertex shader with the same numbers.
+	// The same table the CPU renderer samples when it fills instances, so the
+	// two paths reach the vertex shader with the same numbers.
 	float t = clamp(particle.PositionAge.w / particle.VelocityLifetime.w, 0.0, 1.0);
 
 	// Local-space particles are stored in the emitter's frame and moved into
@@ -213,8 +246,13 @@ void main()
 					   : particle.PositionAge.xyz;
 	float scale = local ? u_Emitter.SpaceScale.y : 1.0;
 
-	float size = max(0.0, mix(u_Emitter.SizeSpin.x, u_Emitter.SizeSpin.y, t) * scale);
-	vec4 color = mix(u_Emitter.ColorStart, u_Emitter.ColorEnd, t);
+	float fraction;
+	int i = RampIndex(t, fraction);
+	int next = min(i + 1, 63);
+
+	float size = max(0.0, mix(u_Emitter.SizeRamp[i].x,
+							  u_Emitter.SizeRamp[next].x, fraction) * scale);
+	vec4 color = mix(u_Emitter.ColorRamp[i], u_Emitter.ColorRamp[next], fraction);
 
 	// Additive sums and ignores the alpha channel, so a fade has to happen in
 	// the payload. The CPU renderer folds it the same way; without this an
