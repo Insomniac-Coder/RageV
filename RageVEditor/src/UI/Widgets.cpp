@@ -123,10 +123,13 @@ namespace RageV::UI
 		const float available = ImGui::GetContentRegionAvail().x;
 		const float furniture = 3.0f * (buttonSize.x + hairline) + 2.0f * betweenAxes;
 
-		// The whole point of this function. `available` shrinks with the panel
-		// and `furniture` does not, so the subtraction goes negative on a
-		// narrow inspector -- which the previous version passed straight to
-		// ImGui.
+		// A floor, not the fix. `available` shrinks with the panel and
+		// `furniture` does not, so in principle this can go negative -- but it
+		// does not at any size reachable here, and measuring that mattered:
+		// the assertion the rewrite cured came from the old fixed 140px label
+		// column starving CalcItemWidth(), not from this subtraction. Keep the
+		// clamp because a negative width is an assert rather than a glitch;
+		// do not mistake it for the reason the panel works.
 		const float fieldWidth = std::max((available - furniture) / 3.0f, kMinControlWidth);
 
 		const ImVec4 axisColors[3] = { colors.AxisX, colors.AxisY, colors.AxisZ };

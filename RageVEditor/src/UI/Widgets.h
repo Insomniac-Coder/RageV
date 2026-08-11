@@ -83,11 +83,22 @@ namespace RageV::UI
 	// Three drag floats with X/Y/Z reset buttons, sized so they always fit the
 	// space they are given.
 	//
-	// The version this replaces split the available width three ways *without*
-	// subtracting the three axis buttons, so at a narrow panel the drag fields
-	// were asked to be negative pixels wide. ImGui asserts on the inverted clip
-	// rectangle that produces -- which is to say the editor did not merely look
-	// wrong when the panel was narrow, it stopped.
+	// The version this replaces asserted, and finding out which part of it was
+	// at fault took reintroducing the old code deliberately.
+	//
+	// It drew into `ImGui::Columns` with a *fixed* 140px label column, then
+	// called `PushMultiItemsWidths(3, CalcItemWidth())`. Once the padding grew,
+	// the fixed column left `CalcItemWidth()` too small, the split produced
+	// negative widths, and ImGui asserted on the inverted clip rectangle -- so
+	// the editor did not merely look wrong on a narrow panel, it stopped.
+	// Restoring that function on top of today's padding reproduces it on
+	// demand, at 1600x900 and at 1280x720.
+	//
+	// What fixes it is the proportional column plus widths computed here: the
+	// label column now gives space back instead of holding 140px whatever
+	// happens. The std::max below is belt and braces on top of that -- removing
+	// it does *not* bring the assertion back at any window size reachable
+	// here, which is worth knowing before trusting it as the guard.
 	bool DragVec3(const char* id, Vec3& values, float resetValue = 0.0f,
 				  float speed = 0.1f);
 
