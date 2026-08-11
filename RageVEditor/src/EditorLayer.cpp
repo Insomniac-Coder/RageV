@@ -707,6 +707,16 @@ void EditorLayer::OnImGuiRender()
 		m_LastDockSize = viewport->WorkSize;
 	}
 
+	// Before the dock space, not after it.
+	//
+	// DockSpace() takes the whole remaining content region, so anything drawn
+	// after it starts past the bottom of the window and is clipped away. That
+	// is where the toolbar was, which is why it has never appeared in a single
+	// screenshot of this editor -- gizmo mode, Play, Stop and the camera toggle
+	// were all being drawn into nothing. Drawn first, it claims its row and the
+	// dock space fills what is left.
+	DrawToolbar();
+
 	// NoCloseButton because every docked panel was showing *two* of them: one
 	// on its tab, and one the dock node draws on the right for whichever
 	// window is focused. Two controls for one action, on every panel, is the
@@ -718,7 +728,6 @@ void EditorLayer::OnImGuiRender()
 	style.WindowMinSize.x = minWindowSize;
 
 	DrawMenuBar();
-	DrawToolbar();
 
 	ImGui::End();
 
@@ -1242,25 +1251,26 @@ void EditorLayer::DrawToolbar()
 	const bool running = m_SceneState != SceneState::Edit;
 
 	// --- transform tools, left ----------------------------------------------
-	auto ModeButton = [&](const char* label, ImGuizmo::OPERATION op, const char* tip)
+	// Icons rather than "Mov"/"Rot"/"Scl". Three-letter abbreviations were the
+	// last place in the editor still speaking a different visual language from
+	// everything around them, and an abbreviation is worse than either an icon
+	// or the whole word: it has to be decoded and it still is not the label.
+	// The tooltip carries the name and the shortcut.
+	auto ModeButton = [&](const char* id, UI::IconKind icon, ImGuizmo::OPERATION op,
+						  const char* tip)
 	{
-		const bool active = m_GizmoOperation == op;
-		// Accent-filled while it is the active one, and through the helper so
-		// the label's colour comes with the fill. See UI::AccentButton.
-		const bool pressed = active
-			? UI::AccentButton(label, ImVec2(34.0f, 0.0f))
-			: ImGui::Button(label, ImVec2(34.0f, 0.0f));
-		if (pressed)
+		if (UI::IconButton(id, icon, tip, m_GizmoOperation == op))
 			m_GizmoOperation = op;
-		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("%s", tip);
 	};
 
-	ModeButton("Mov", ImGuizmo::OPERATION::TRANSLATE, "Translate (W)");
+	ModeButton("##translate", UI::IconKind::ToolTranslate,
+			   ImGuizmo::OPERATION::TRANSLATE, "Translate (W)");
 	Gap(4.0f);
-	ModeButton("Rot", ImGuizmo::OPERATION::ROTATE, "Rotate (E)");
+	ModeButton("##rotate", UI::IconKind::ToolRotate,
+			   ImGuizmo::OPERATION::ROTATE, "Rotate (E)");
 	Gap(4.0f);
-	ModeButton("Scl", ImGuizmo::OPERATION::SCALE, "Scale (R)");
+	ModeButton("##scale", UI::IconKind::ToolScale,
+			   ImGuizmo::OPERATION::SCALE, "Scale (R)");
 
 	Gap();
 	if (ImGui::Button(m_GizmoLocal ? "Local" : "World", ImVec2(52.0f, 0.0f)))

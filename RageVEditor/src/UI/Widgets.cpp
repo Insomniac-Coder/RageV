@@ -195,6 +195,19 @@ namespace RageV::UI
 		// A square badge wants its own radius, or the "X" sits in a lozenge.
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, EditorTheme::Radius::Control);
 
+		// The badge is about 20px wide and FramePadding.x is 8, which leaves an
+		// inner box of ~4px for a glyph that needs ~9. ImGui centres a label
+		// inside the *inner* rectangle, so the letter was being centred in a
+		// space narrower than itself and clipped hard against the left edge --
+		// which is why X, Y and Z looked shoved into a corner rather than sat
+		// in the middle of their colour.
+		//
+		// Zero horizontal padding gives the whole badge back to the glyph;
+		// ButtonTextAlign then centres it in the space it can actually use.
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+							ImVec2{ 0.0f, ImGui::GetStyle().FramePadding.y });
+		ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2{ 0.5f, 0.5f });
+
 		for (int axis = 0; axis < 3; axis++)
 		{
 			ImGui::PushID(axis);
@@ -230,7 +243,7 @@ namespace RageV::UI
 			ImGui::PopID();
 		}
 
-		ImGui::PopStyleVar(2);
+		ImGui::PopStyleVar(4);
 		ImGui::PopID();
 		return changed;
 	}
@@ -376,6 +389,41 @@ namespace RageV::UI
 		const bool pressed = ImGui::Button(label, size);
 
 		ImGui::PopStyleColor(4);
+		return pressed;
+	}
+
+	bool IconButton(const char* id, IconKind kind, const char* tooltip, bool active)
+	{
+		const auto& colors = EditorTheme::Colors();
+		const float side = ImGui::GetFrameHeight();
+
+		if (active)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, colors.Accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentHover);
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.AccentPressed);
+		}
+
+		const ImVec2 at = ImGui::GetCursorScreenPos();
+		const bool pressed = ImGui::Button(id, { side, side });
+		const bool hovered = ImGui::IsItemHovered();
+
+		if (active)
+			ImGui::PopStyleColor(3);
+
+		// OnAccent while filled, for the same reason AccentButton exists: the
+		// glyph is the label here, and a label on an accent fill has to clear
+		// 4.5:1 against it.
+		const ImU32 tint = ImGui::GetColorU32(
+			active ? colors.OnAccent : (hovered ? colors.TextPrimary : colors.TextSecondary));
+
+		const float inset = side * 0.24f;
+		DrawIcon(ImGui::GetWindowDrawList(), { at.x + inset, at.y + inset },
+				 side - inset * 2.0f, kind, tint);
+
+		if (hovered && tooltip)
+			ImGui::SetTooltip("%s", tooltip);
+
 		return pressed;
 	}
 

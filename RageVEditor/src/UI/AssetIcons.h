@@ -82,6 +82,19 @@ namespace RageV::UI
 		ParticleEmitter,
 		AudioSource,
 
+		// Toolbar actions. Not things -- verbs. They live here because the
+		// alternative is a second icon system with its own canvas and its own
+		// stroke weight, and two icon systems in one toolbar is exactly the
+		// mismatch these replace: three-letter abbreviations sitting next to
+		// fifteen drawn glyphs.
+		ToolTranslate,
+		ToolRotate,
+		ToolScale,
+		More,          // the overflow menu every tool draws as a vertical ellipsis
+		Play,
+		Stop,
+		Pause,
+
 		Unknown,
 	};
 

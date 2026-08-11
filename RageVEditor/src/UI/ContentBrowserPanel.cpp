@@ -280,6 +280,14 @@ namespace RageV
 			label += "...";
 		}
 
+		// Centred under the icon rather than left-aligned in the cell. The icon
+		// is centred in a cell `cellSize` wide and the label was not, so every
+		// short name sat off to one side of the thing it names -- and the
+		// shorter the name, the further off it looked.
+		const float labelWidth = ImGui::CalcTextSize(label.c_str()).x;
+		if (const float slack = cellSize - labelWidth; slack > 0.0f)
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + slack * 0.5f);
+
 		ImGui::TextUnformatted(label.c_str());
 		if (ImGui::IsItemHovered() && label != filename)
 			ImGui::SetTooltip("%s", filename.c_str());

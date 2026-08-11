@@ -750,8 +750,16 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 
 		if (desc.Removable)
 		{
+			// A vertical ellipsis, not an asterisk.
+			//
+			// The asterisk this replaces meant "component options", and an
+			// asterisk means *modified* everywhere else in software -- the
+			// menu bar three lines from here uses a mark in that exact sense
+			// for unsaved changes. One glyph, two opposite meanings, in one
+			// window. It also had no tooltip, so the only way to learn what it
+			// did was to press it and find out.
 			ImGui::SameLine(available.x - lineHeight * 0.5f);
-			if (ImGui::Button("*", ImVec2{ lineHeight, lineHeight }))
+			if (UI::IconButton("##options", UI::IconKind::More, "Component options"))
 				ImGui::OpenPopup("ComponentSettings");
 
 			if (ImGui::BeginPopup("ComponentSettings"))

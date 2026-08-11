@@ -271,6 +271,67 @@ namespace RageV::UI
 			c.Path({ { 0.72f, 0.26f }, { 0.84f, 0.50f }, { 0.72f, 0.74f } }, false);
 		}
 
+
+		// --- toolbar verbs --------------------------------------------------
+
+		// Move: arrows on both axes from a centre. The gizmo, flattened.
+		void ToolTranslate(const Canvas& c)
+		{
+			c.Line(0.50f, 0.14f, 0.50f, 0.86f);
+			c.Line(0.14f, 0.50f, 0.86f, 0.50f);
+			c.Path({ { 0.38f, 0.26f }, { 0.50f, 0.14f }, { 0.62f, 0.26f } }, false);
+			c.Path({ { 0.38f, 0.74f }, { 0.50f, 0.86f }, { 0.62f, 0.74f } }, false);
+			c.Path({ { 0.26f, 0.38f }, { 0.14f, 0.50f }, { 0.26f, 0.62f } }, false);
+			c.Path({ { 0.74f, 0.38f }, { 0.86f, 0.50f }, { 0.74f, 0.62f } }, false);
+		}
+
+		// Rotate: an arc with a head, which is the only way to draw a rotation
+		// that does not look like a circle.
+		void ToolRotate(const Canvas& c)
+		{
+			c.Draw->PathArcTo(c.At(0.50f, 0.50f), 0.30f * c.Size, -2.6f, 1.4f, 0);
+			c.Draw->PathStroke(c.Color, ImDrawFlags_None, c.Stroke());
+			c.Path({ { 0.62f, 0.14f }, { 0.76f, 0.24f }, { 0.60f, 0.32f } }, false);
+		}
+
+		// Scale: a box being pulled by a corner.
+		void ToolScale(const Canvas& c)
+		{
+			c.Rect(0.14f, 0.48f, 0.52f, 0.86f, 0.04f);
+			c.Line(0.56f, 0.44f, 0.84f, 0.16f);
+			c.Path({ { 0.62f, 0.16f }, { 0.86f, 0.16f }, { 0.86f, 0.40f } }, false);
+		}
+
+		// Three dots stacked. Reads as "there is more here" in every tool that
+		// has ever drawn it, which is the entire reason to use it rather than
+		// invent something.
+		void More(const Canvas& c)
+		{
+			c.Disc(0.50f, 0.26f, 0.075f);
+			c.Disc(0.50f, 0.50f, 0.075f);
+			c.Disc(0.50f, 0.74f, 0.075f);
+		}
+
+		void Play(const Canvas& c)
+		{
+			c.Draw->AddTriangleFilled(c.At(0.30f, 0.18f), c.At(0.82f, 0.50f),
+									  c.At(0.30f, 0.82f), c.Color);
+		}
+
+		void Stop(const Canvas& c)
+		{
+			c.Draw->AddRectFilled(c.At(0.24f, 0.24f), c.At(0.76f, 0.76f),
+								  c.Color, 0.04f * c.Size);
+		}
+
+		void Pause(const Canvas& c)
+		{
+			c.Draw->AddRectFilled(c.At(0.28f, 0.20f), c.At(0.44f, 0.80f),
+								  c.Color, 0.03f * c.Size);
+			c.Draw->AddRectFilled(c.At(0.56f, 0.20f), c.At(0.72f, 0.80f),
+								  c.Color, 0.03f * c.Size);
+		}
+
 		std::string LowerExtension(const std::filesystem::path& path)
 		{
 			std::string extension = path.extension().string();
@@ -358,6 +419,13 @@ namespace RageV::UI
 			case IconKind::Camera:   Camera(canvas);   break;
 			case IconKind::ParticleEmitter: ParticleEmitter(canvas); break;
 			case IconKind::AudioSource:    AudioSource(canvas);     break;
+			case IconKind::ToolTranslate: ToolTranslate(canvas); break;
+			case IconKind::ToolRotate:    ToolRotate(canvas);    break;
+			case IconKind::ToolScale:     ToolScale(canvas);     break;
+			case IconKind::More:          More(canvas);          break;
+			case IconKind::Play:          Play(canvas);          break;
+			case IconKind::Stop:          Stop(canvas);          break;
+			case IconKind::Pause:         Pause(canvas);         break;
 			default:                 UnknownFile(canvas); break;
 		}
 	}

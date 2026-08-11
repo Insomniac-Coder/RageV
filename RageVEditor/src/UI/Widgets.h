@@ -1,6 +1,7 @@
 #pragma once
 #include "imgui.h"
 #include "RageV/Math/Math.h"
+#include "AssetIcons.h"
 
 // The editor's layout primitives.
 //
@@ -162,6 +163,13 @@ namespace RageV::UI
 	// site was using it. A palette being correct and a palette being *used*
 	// correctly are separate claims.
 	bool AccentButton(const char* label, const ImVec2& size = ImVec2(0, 0));
+
+	// A square button with an icon in it and no text.
+	//
+	// `tooltip` is not optional. An icon-only control is a guess until someone
+	// hovers it, and the tooltip is the label -- leaving it out is how a
+	// toolbar becomes a memory test.
+	bool IconButton(const char* id, IconKind kind, const char* tooltip, bool active = false);
 
 	// A row of buttons that share the full width evenly. For a segmented
 	// control -- two or three mutually exclusive choices where a combo box
