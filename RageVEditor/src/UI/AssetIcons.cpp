@@ -2,6 +2,7 @@
 #include "EditorTheme.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <string>
 
 namespace RageV::UI
@@ -274,32 +275,66 @@ namespace RageV::UI
 
 		// --- toolbar verbs --------------------------------------------------
 
-		// Move: arrows on both axes from a centre. The gizmo, flattened.
+		// Move: a cross with four heads. Kept inside 0.20-0.80 rather than
+		// spanning the whole square -- at toolbar size an icon drawn edge to
+		// edge crowds the button and reads as heavier than its neighbours.
 		void ToolTranslate(const Canvas& c)
 		{
-			c.Line(0.50f, 0.14f, 0.50f, 0.86f);
-			c.Line(0.14f, 0.50f, 0.86f, 0.50f);
-			c.Path({ { 0.38f, 0.26f }, { 0.50f, 0.14f }, { 0.62f, 0.26f } }, false);
-			c.Path({ { 0.38f, 0.74f }, { 0.50f, 0.86f }, { 0.62f, 0.74f } }, false);
-			c.Path({ { 0.26f, 0.38f }, { 0.14f, 0.50f }, { 0.26f, 0.62f } }, false);
-			c.Path({ { 0.74f, 0.38f }, { 0.86f, 0.50f }, { 0.74f, 0.62f } }, false);
+			c.Line(0.50f, 0.20f, 0.50f, 0.80f);
+			c.Line(0.20f, 0.50f, 0.80f, 0.50f);
+			c.Path({ { 0.40f, 0.30f }, { 0.50f, 0.20f }, { 0.60f, 0.30f } }, false);
+			c.Path({ { 0.40f, 0.70f }, { 0.50f, 0.80f }, { 0.60f, 0.70f } }, false);
+			c.Path({ { 0.30f, 0.40f }, { 0.20f, 0.50f }, { 0.30f, 0.60f } }, false);
+			c.Path({ { 0.70f, 0.40f }, { 0.80f, 0.50f }, { 0.70f, 0.60f } }, false);
 		}
 
-		// Rotate: an arc with a head, which is the only way to draw a rotation
-		// that does not look like a circle.
+		// Rotate: an arc with a head *at the arc's own end*, pointing along the
+		// tangent.
+		//
+		// The version this replaces typed the head's three points in by hand
+		// and got them wrong: the arc ran from -2.6 to 1.4 radians, ending at
+		// (0.55, 0.80), and the head was drawn around (0.62, 0.14) -- the
+		// opposite corner, attached to nothing. Computing it from the same
+		// angle the arc stops at is the only version that cannot drift.
 		void ToolRotate(const Canvas& c)
 		{
-			c.Draw->PathArcTo(c.At(0.50f, 0.50f), 0.30f * c.Size, -2.6f, 1.4f, 0);
+			constexpr float begin = -2.35f;
+			constexpr float end = 0.95f;
+			constexpr float radius = 0.30f;
+
+			c.Draw->PathArcTo(c.At(0.50f, 0.50f), radius * c.Size, begin, end, 0);
 			c.Draw->PathStroke(c.Color, ImDrawFlags_None, c.Stroke());
-			c.Path({ { 0.62f, 0.14f }, { 0.76f, 0.24f }, { 0.60f, 0.32f } }, false);
+
+			const float ex = 0.50f + radius * std::cos(end);
+			const float ey = 0.50f + radius * std::sin(end);
+			const float tx = -std::sin(end), ty = std::cos(end);   // along the sweep
+			const float nx = std::cos(end),  ny = std::sin(end);   // outward
+
+			c.Draw->AddTriangleFilled(c.At(ex + nx * 0.115f, ey + ny * 0.115f),
+									  c.At(ex + tx * 0.190f, ey + ty * 0.190f),
+									  c.At(ex - nx * 0.115f, ey - ny * 0.115f),
+									  c.Color);
 		}
 
-		// Scale: a box being pulled by a corner.
+		// Scale: a box with a corner being pulled away from it.
 		void ToolScale(const Canvas& c)
 		{
-			c.Rect(0.14f, 0.48f, 0.52f, 0.86f, 0.04f);
-			c.Line(0.56f, 0.44f, 0.84f, 0.16f);
-			c.Path({ { 0.62f, 0.16f }, { 0.86f, 0.16f }, { 0.86f, 0.40f } }, false);
+			c.Rect(0.16f, 0.50f, 0.50f, 0.84f, 0.04f);
+			c.Line(0.52f, 0.48f, 0.78f, 0.22f);
+			c.Draw->AddTriangleFilled(c.At(0.86f, 0.14f), c.At(0.60f, 0.20f),
+									  c.At(0.80f, 0.40f), c.Color);
+		}
+
+		// Snap: a lattice with one intersection marked. Says "positions land on
+		// these" without needing a magnet, which reads as attraction rather
+		// than as alignment.
+		void SnapGrid(const Canvas& c)
+		{
+			c.Line(0.34f, 0.16f, 0.34f, 0.84f);
+			c.Line(0.66f, 0.16f, 0.66f, 0.84f);
+			c.Line(0.16f, 0.34f, 0.84f, 0.34f);
+			c.Line(0.16f, 0.66f, 0.84f, 0.66f);
+			c.Disc(0.66f, 0.34f, 0.095f);
 		}
 
 		// Three dots stacked. Reads as "there is more here" in every tool that
@@ -422,6 +457,7 @@ namespace RageV::UI
 			case IconKind::ToolTranslate: ToolTranslate(canvas); break;
 			case IconKind::ToolRotate:    ToolRotate(canvas);    break;
 			case IconKind::ToolScale:     ToolScale(canvas);     break;
+			case IconKind::SnapGrid:      SnapGrid(canvas);      break;
 			case IconKind::More:          More(canvas);          break;
 			case IconKind::Play:          Play(canvas);          break;
 			case IconKind::Stop:          Stop(canvas);          break;

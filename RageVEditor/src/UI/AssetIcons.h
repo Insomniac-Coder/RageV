@@ -90,6 +90,7 @@ namespace RageV::UI
 		ToolTranslate,
 		ToolRotate,
 		ToolScale,
+		SnapGrid,
 		More,          // the overflow menu every tool draws as a vertical ellipsis
 		Play,
 		Stop,

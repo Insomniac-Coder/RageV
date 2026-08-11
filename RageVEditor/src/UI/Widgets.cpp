@@ -417,7 +417,12 @@ namespace RageV::UI
 		const ImU32 tint = ImGui::GetColorU32(
 			active ? colors.OnAccent : (hovered ? colors.TextPrimary : colors.TextSecondary));
 
-		const float inset = side * 0.24f;
+		// 14%, not 24%. A 30px button inset by a quarter leaves ~14px of icon,
+		// and at 14px a 1px stroke with arrowheads a pixel and a half across
+		// collapses into a smudge -- which is what made the gizmo glyphs look
+		// like marks rather than symbols. The icons are drawn inside 0.16-0.84
+		// of their canvas already, so they carry their own breathing room.
+		const float inset = side * 0.14f;
 		DrawIcon(ImGui::GetWindowDrawList(), { at.x + inset, at.y + inset },
 				 side - inset * 2.0f, kind, tint);
 

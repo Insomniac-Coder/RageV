@@ -1273,23 +1273,46 @@ void EditorLayer::DrawToolbar()
 	ModeButton("##scale", UI::IconKind::ToolScale,
 			   ImGuizmo::OPERATION::SCALE, "Scale (R)");
 
+	// Widths measured from the label rather than typed in pixels.
+	//
+	// The toolbar used fixed numbers -- 52 for this, 96 for the camera toggle
+	// -- which are correct at 100% and too narrow at every other UI scale. At
+	// --ui-scale=2 the font doubles and the button does not, so "Local" became
+	// "Loc" and "Editor Cam" became "Editor".
+	auto FitButton = [](const char* label)
+	{
+		return ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f
+			 + EditorTheme::Space::Base;
+	};
+
 	Gap();
-	if (ImGui::Button(m_GizmoLocal ? "Local" : "World", ImVec2(52.0f, 0.0f)))
+	if (ImGui::Button(m_GizmoLocal ? "Local" : "World",
+					  ImVec2(FitButton("World"), 0.0f)))
 		m_GizmoLocal = !m_GizmoLocal;
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Gizmo space. Scaling is always local.");
 
 	Gap();
-	ImGui::Checkbox("Snap", &m_SnapEnabled);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Hold Ctrl while dragging for the same effect.");
+
+	// A toggle button, not a checkbox.
+	//
+	// ImGui draws a checkbox as an empty framed square with its label to the
+	// right, so in a row of icon buttons it read as a button with nothing in
+	// it -- the one control in the toolbar that looked broken. A toggle that
+	// fills with the accent when it is on says the same thing in the same
+	// language as the three gizmo buttons beside it.
+	if (UI::IconButton("##snap", UI::IconKind::SnapGrid,
+					   "Snap to increments while dragging.\n\n"
+					   "Hold Ctrl for the same effect without leaving it on.",
+					   m_SnapEnabled))
+		m_SnapEnabled = !m_SnapEnabled;
 
 	// --- transport, centred -------------------------------------------------
 	// Centred because it is the control people reach for most, and because that
 	// is where every other engine puts it.
 	{
-		constexpr float kPlayWidth = 52.0f;
-		constexpr float kPauseWidth = 62.0f;
+		const float kPlayWidth = FitButton("Stop");
+		const float kPauseWidth = FitButton("Resume");
 		const float transportWidth = kPlayWidth + kPauseWidth + 4.0f;
 
 		const float centre = (ImGui::GetWindowWidth() - transportWidth) * 0.5f;
@@ -1326,7 +1349,7 @@ void EditorLayer::DrawToolbar()
 	// --- viewpoint, right ---------------------------------------------------
 	{
 		const char* label = m_UseEditorCamera ? "Editor Cam" : "Game Cam";
-		constexpr float width = 96.0f;
+		const float width = FitButton("Editor Cam");
 
 		const float rightEdge = ImGui::GetWindowWidth() - width - 12.0f;
 		ImGui::SameLine(ImMax(rightEdge, ImGui::GetCursorPosX() + 10.0f));
