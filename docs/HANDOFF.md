@@ -1756,7 +1756,7 @@ learnopengl.com — a path from A to B, teaching the reader forward, rather than
 a description of a finished artefact. The user's words: it may end up "a whole
 book with pages in 3 digits" and that is acceptable; verbosity is wanted.
 
-**Where it is: 47 pages, 11 chapters, ~13,000 words.** The skeleton is
+**Where it is: 53 pages, 11 chapters, ~18,000 words.** The skeleton is
 complete and every chapter has real content, real code quoted verbatim, and
 real figures captured through `--screenshot`. Chapters 2 and 3 -- the maths,
 and how the two graphics APIs work with one feature traced down through both
@@ -1765,13 +1765,15 @@ and how the two graphics APIs work with one feature traced down through both
 **What it still needs to become the book that was asked for.** Roughly in
 value order:
 
-1. **Chapters 5-8 are still written as reference, not as teaching.** They tell
-   a reader what exists; they do not walk them through building it. Each needs
-   the treatment chapter 3.5 got: start from what the feature must achieve,
-   derive the design, show the code, name what goes wrong.
-2. **Every rendering feature in chapter 7 deserves its own worked chapter** --
-   shadows, IBL, clustered lighting and post each currently get a page where
-   they need five to ten, with the maths inline rather than assumed.
+1. ~~Chapter 7's four big features~~ -- **done**. Clustered lighting, shadows,
+   IBL and post-processing were rewritten from reference into teaching: the
+   problem first, the alternatives and why this one, the maths derived inline
+   (the geometric slice mapping and its logarithm, the shadow slope-scaled
+   normal offset and where the tangent comes from, the split-sum's three
+   precomputed artefacts, the Karis average and why fireflies need it), then
+   the code, then what goes wrong. 4.5k characters became 25k.
+2. **Chapters 5, 6 and 8 are still reference rather than teaching**, and 7.1,
+   7.2, 7.3 and 7.9 within chapter 7. Same treatment needed.
 3. **No step-by-step "build this yourself" thread.** learnopengl.com works
    because each chapter ends with something running. The build order in
    chapter 4 names the steps but does not walk them.

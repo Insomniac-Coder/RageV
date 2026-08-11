@@ -1508,56 +1508,385 @@ picture on one backend and scrambled transforms on the other.</p>
 
 <h3>7.4 &nbsp; Lighting: clustered forward</h3>
 
-<p>The view frustum is divided into a 16×9×24 grid of cells; lights are binned into cells
-on the CPU; the fragment shader loops only over the lights in its own cell. Directional
-lights are deliberately <em>not</em> binned — they reach every cell, so binning them is
-pure overhead.</p>
+<h4>The problem, stated plainly</h4>
+<p>Shading a pixel needs to know which lights reach it. The naive answer — loop over
+every light in the scene, for every pixel — costs <var>pixels</var> ×
+<var>lights</var>, and at 1600×900 with 256 lights that is 368 million lighting
+evaluations per frame, the overwhelming majority of which contribute nothing because the
+light is fifty metres away.</p>
 
+<p>Three families of solution exist, and the choice constrains the rest of the
+renderer:</p>
+
+<table>
+  <tr><th>Approach</th><th>Idea</th><th>Cost you accept</th></tr>
+  <tr><td><b>Forward</b></td><td>Loop all lights per pixel</td><td>Quadratic. Fine to about a dozen lights.</td></tr>
+  <tr><td><b>Deferred</b></td><td>Write material properties to a G-buffer, then shade once per pixel per light</td><td>Large bandwidth cost, awkward with transparency and MSAA, and every material must fit the G-buffer's fixed layout</td></tr>
+  <tr><td><b>Clustered forward</b></td><td>Divide the frustum into cells, bin lights into cells, shade forward but loop only over the cell's lights</td><td>A binning step and an indirection, and you keep forward's freedom</td></tr>
+</table>
+
+<p>This engine uses clustered forward, and the reason is the last column. Deferred would
+have forced a fixed material model, made the transparency work of §7.8 far harder, and
+spent bandwidth the engine would rather spend elsewhere. Clustered keeps forward's
+properties and removes its quadratic term.</p>
+
+<h4>The grid</h4>
+<p>The view frustum is cut into a 16 × 9 × 24 grid: 16 × 9 tiles across the screen, and
+24 <b>slices</b> along the view axis, for 3,456 cells. Each cell holds a list of the
+lights whose volume of influence intersects it. Binning happens on the CPU once per
+frame; the shader looks up one cell.</p>
+
+<p>Two details in that sentence are load-bearing.</p>
+
+<p><b>Tiles are cut in normalised device coordinates</b>, not in world space, so a tile
+is a frustum-shaped wedge that widens with distance — which is exactly the shape a
+screen tile projects to.</p>
+
+<p><b>Slices are cut along the camera's forward axis</b>, not by distance to the camera.
+Using distance would make each slice boundary a sphere rather than a plane, and a light
+straddling a boundary would be binned inconsistently with how the shader looks it up.
+The shader is explicit about this:</p>
+
+<pre><code><span class="c">// Distance along the camera's forward axis, which is what the slices were</span>
+<span class="c">// cut against -- not distance to the camera, which would make the slice</span>
+<span class="c">// boundaries spheres instead of planes.</span>
+<span class="k">float</span> viewDepth = dot(worldPos - u_Scene.CameraPosition.xyz,
+                     u_Scene.CameraForward.xyz);</code></pre>
+
+<h4>Why the slices are exponential, and where the log comes from</h4>
+<p>If the 24 slices were spread evenly from near to far, almost all of them would land
+in the distant half of the frustum, where §2.5 showed there is very little going on
+perceptually and where a slice is enormous. Near the camera — where cells are small and
+lights overlap most — you would have almost no subdivision at all.</p>
+
+<p>So slices are spaced <b>geometrically</b>: each is a constant <em>ratio</em> deeper
+than the last, which makes them uniform in log space. Given a near distance
+<var>n</var>, a far distance <var>f</var> and <var>k</var> slices, we want slice
+<var>i</var> to begin at:</p>
+
+<div class="eq">
+<var>d<sub>i</sub></var> = <var>n</var> · (<var>f</var>/<var>n</var>)<sup><var>i</var>/<var>k</var></sup>
+</div>
+
+<p>Inverting that to get a slice index from a depth gives a logarithm:</p>
+
+<div class="eq">
+<var>i</var> = <var>k</var> · log(<var>d</var>/<var>n</var>) / log(<var>f</var>/<var>n</var>)
+&nbsp;=&nbsp; log(<var>d</var>) · <b>scale</b> + <b>bias</b>
+<span class="where">scale = k / log(f/n)&emsp;bias = −k · log(n) / log(f/n)</span>
+</div>
+
+<p>Folding the constants into a scale and a bias on the CPU turns the per-pixel work
+into one logarithm and one multiply-add — no search, no loop:</p>
+
+<pre><code><span class="c">// The slice mapping is the inverse of the geometric series the grid was</span>
+<span class="c">// built with -- scale and bias arrive already folded, so this is a log and</span>
+<span class="c">// a multiply-add rather than a search.</span>
+<span class="k">float</span> slice = 0.0;
+<span class="k">if</span> (viewDepth &gt; u_Scene.ClusterDepth.x)
+    slice = log(viewDepth) * u_Scene.ClusterDepth.z + u_Scene.ClusterDepth.w;
+
+uint z = uint(clamp(slice, 0.0, sliceCount - 1.0));
+<span class="k">return</span> (z * uint(tileCount.y) + tile.y) * uint(tileCount.x) + tile.x;</code></pre>
+
+<blockquote><p><b>The CPU's binning and the GPU's lookup are two implementations of one
+mapping, and they must agree exactly.</b> Where they disagree a fragment reads a
+neighbouring cell's light list — which does not look like an indexing bug. It looks like
+lighting that snaps as the camera moves, and you will go looking in the wrong
+place.</p></blockquote>
+
+<p>One more subtlety in that function, and it is a portability point rather than a maths
+one. The tile is derived from the fragment's own interpolated clip position rather than
+from <code>gl_FragCoord</code>:</p>
+
+<pre><code><span class="c">// The fragment's own normalised device coordinate, from the interpolated</span>
+<span class="c">// clip position. Independent of the target's size and of which corner the</span>
+<span class="c">// backend calls the origin, both of which gl_FragCoord would drag in.</span>
+vec2 ndc = v_ClipPos.xy / max(abs(v_ClipPos.w), 1e-6) * sign(v_ClipPos.w);
+vec2 unit = clamp(ndc * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
+uvec2 tile = uvec2(unit * tileCount);</code></pre>
+
+<p><code>gl_FragCoord</code> is in pixels and measured from whichever corner the backend
+calls the origin (§3.4). Using it would have made the cluster lookup depend on the render
+target's size and disagree between Vulkan and OpenGL — the second of which produces a
+correct picture on one backend and misplaced lighting on the other, with no error
+anywhere.</p>
+
+<h4>What it bought, and where it costs</h4>
 <figure>
   <img src="figures/clustered.jpg" alt="256 lights">
   <figcaption><b>Figure 5.</b> 256 local lights. Clustered: 3.15 ms Vulkan / 3.48 ms
-  OpenGL, against 5.56 / 7.03 ms unclustered, with a pixel-identical image.</figcaption>
+  OpenGL, against 5.56 / 7.03 ms unclustered — with a pixel-identical image, which is
+  the check that the optimisation is an optimisation and not a change.</figcaption>
 </figure>
 
-<blockquote><p><b>Know where your optimisation does not help.</b> Where every light
-reaches the whole scene, the busiest cell holds all of them and clustering is pure
-overhead — measured at 5.76 → 6.62 ms, a loss. The benchmark prints "busiest cluster
-holds N" precisely so this is visible rather than mysterious, and the scene generator
-takes a <code>--light-reach 0</code> flag to construct the pathological case on
-purpose.</p></blockquote>
+<p>Directional lights are deliberately <b>not</b> binned. A directional light reaches
+every cell, so putting it in every cell's list costs memory and iteration to express
+"always". They are stored separately and applied unconditionally.</p>
+
+<blockquote><p><b>Know where your optimisation does not help — and instrument it so you
+can see.</b> When every light reaches the whole scene, the busiest cell holds all of
+them and clustering is pure overhead: measured at 5.76 → 6.62 ms, a loss. The benchmark
+prints "busiest cluster holds N" precisely so this is visible rather than mysterious, and
+the scene generator takes <code>--light-reach 0</code> to construct the pathological case
+deliberately. An optimisation you cannot see failing is one you will defend after it
+stops working.</p></blockquote>
 
 <h3>7.5 &nbsp; Shadows</h3>
 
-<p>Cascaded shadow maps for directional lights (four cascades fitted to the camera
-frustum), a single map per casting spot light, and a cube map per casting point light.
-Three rules that are each a day lost if missed:</p>
+<h4>The idea, and why it is only an idea</h4>
+<p>A point is in shadow if something blocks the straight line between it and the light.
+Testing that directly is ray tracing. The rasterisation approximation is a
+<b>shadow map</b>, and it is elegant: render the scene <em>from the light's position</em>
+storing only depth. That texture now records, for every direction the light can see, the
+distance to the nearest thing. To shade a point, transform it into the light's space and
+compare its depth against the recorded one — if the point is further away than what the
+light saw, something is in front of it.</p>
+
+<div class="eq">
+<var>p</var><sub>light</sub> = <var>P</var><sub>light</sub> <var>V</var><sub>light</sub> <var>p</var><sub>world</sub>
+&emsp;→&emsp; divide by <var>w</var> →
+&emsp; lit if <var>p</var><sub>light</sub>.<var>z</var> ≤ texture(shadowMap, <var>p</var><sub>light</sub>.<var>xy</var>)
+</div>
+
+<p>Everything difficult about shadow mapping comes from that comparison being between a
+<em>continuous</em> value and a <em>quantised</em> one.</p>
+
+<h4>Acne, and why the obvious fix causes a worse problem</h4>
+<p>A shadow map texel covers an area of the surface, and stores <em>one</em> depth for
+it. On a surface tilted relative to the light, the true depth varies across that texel
+while the stored value does not. Half the pixels in the texel therefore test as further
+than the recorded depth and declare themselves shadowed — <b>shadow acne</b>, the
+characteristic stripes of a surface shadowing itself.</p>
+
+<p>The obvious fix is a constant depth bias: subtract a little before comparing. It works
+until you find the constant that removes acne on a steep surface, notice it is large,
+and see that on a flat surface it has pushed the shadow away from the object casting it
+— <b>peter-panning</b>, an object floating above its own shadow. There is no constant
+that avoids both, because the required bias depends on the surface's slope relative to
+the light.</p>
+
+<p>This engine uses two mechanisms instead, and neither is a depth bias:</p>
+
+<pre><code><span class="c">// Two biases, because one is not enough and the reason is geometric. The</span>
+<span class="c">// shadow pass writes back faces, which pushes each caster's recorded depth</span>
+<span class="c">// behind it by its own thickness -- free, and proportional to the object.</span>
+<span class="c">// That does nothing for a surface nearly edge-on to the light, where one</span>
+<span class="c">// shadow texel spans a lot of depth, so the sample is also moved along the</span>
+<span class="c">// surface normal by a texel scaled by the slope. Pure depth bias is the</span>
+<span class="c">// option that was not taken: there is no constant that avoids both acne</span>
+<span class="c">// and shadows detaching from their casters.</span></code></pre>
+
+<p><b>Back-face rendering</b> costs nothing and scales itself: by recording the depth of
+each caster's <em>far</em> side, the recorded depth is already behind the lit surface by
+the object's own thickness. A thin object gets a small bias and a thick one a large
+bias, automatically.</p>
+
+<p><b>Normal offset</b> handles what remains. Rather than moving the depth, move the
+<em>sample position</em> along the surface normal by roughly one shadow texel — pushing
+the query out of the problematic texel entirely. The offset must grow with the slope,
+and the slope term is a small piece of trigonometry:</p>
+
+<div class="eq">
+tan θ = sin θ / cos θ = √(1 − (<var>n</var>·<var>l</var>)²) / (<var>n</var>·<var>l</var>)
+</div>
+
+<pre><code><span class="k">float</span> NdotL = clamp(dot(N, L), 0.0, 1.0);
+<span class="c">// tan of the angle to the light, clamped: at grazing incidence this runs</span>
+<span class="c">// away, and an offset larger than the geometry detaches the shadow.</span>
+<span class="k">float</span> slope  = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
+<span class="k">float</span> offset = u_Scene.CascadeTexel[cascade] * u_Scene.ShadowParams.y *
+                (1.0 + min(slope, 4.0));
+
+vec4 lightSpace = u_Scene.CascadeLookup[cascade] * vec4(worldPos + N * offset, 1.0);</code></pre>
+
+<p>Both clamps are necessary. As <var>n</var>·<var>l</var> → 0 the tangent goes to
+infinity, and an offset larger than the geometry moves the sample to somewhere unrelated
+— peter-panning by another route.</p>
+
+<h4>Soft edges: percentage-closer filtering</h4>
+<p>The comparison yields a boolean per texel, so a raw shadow edge is a hard staircase of
+map texels. <b>PCF</b> takes several neighbouring comparisons and averages the
+<em>results</em> — note, the results, not the depths; averaging depths is meaningless.
+The hardware helps: a depth-comparison sampler performs a 2×2 comparison and returns the
+filtered fraction in one fetch, so a 3×3 grid of those covers 4×4 texels for nine
+fetches.</p>
+
+<pre><code><span class="c">// 3x3 of hardware 2x2 taps. Nine fetches is the point at which the edge</span>
+<span class="c">// stops looking like a staircase and starts looking like a penumbra.</span>
+<span class="k">float</span> texel = u_Scene.ShadowParams.z;
+<span class="k">float</span> sum = 0.0;
+<span class="k">for</span> (<span class="k">int</span> y = -1; y &lt;= 1; ++y)
+<span class="k">for</span> (<span class="k">int</span> x = -1; x &lt;= 1; ++x)
+    sum += SampleCascade(cascade, vec3(coordinate.xy + vec2(x, y) * texel, coordinate.z));
+
+<span class="k">return</span> sum / 9.0;</code></pre>
+
+<h4>Cascades: one map cannot cover a view frustum</h4>
+<p>A directional light — the sun — has no position, so its shadow map must cover the
+whole visible world. Consider what that means: a 2048² map stretched over a 1 km view
+distance gives one texel per half metre, and the shadow of a chair is four texels
+across.</p>
+
+<p>The observation that rescues it is that <b>you do not need uniform resolution</b>.
+Things near the camera occupy many pixels and need fine shadows; things far away occupy
+few and do not. So the view frustum is split by distance into four <b>cascades</b>, each
+rendered into its own map with its own tight projection. The near cascade covers a few
+metres at high effective resolution; the far one covers the rest.</p>
+
+<p>Three consequences worth knowing before you build it:</p>
 <ul>
-  <li><b>Whatever poses the lit pass must pose the depth pass.</b> Otherwise a character
-  walks and its shadow stands still.</li>
-  <li><b>Nothing is culled in the shadow pass.</b> An object outside the camera frustum
-  can still cast into it.</li>
-  <li><b>OpenGL needs <code>glClipControl(..., GL_ZERO_TO_ONE)</code></b> or every shadow
-  comparison passes and the scene is uniformly lit.</li>
+  <li><b>Cascades are fitted to a camera frustum</b>, so they must be refitted whenever
+  the camera changes — which is why the editor's two viewports fit their own, and why
+  shadow rendering takes the camera it is about to be drawn with as a parameter.</li>
+  <li><b>The seam between cascades is visible</b> unless you blend. The engine's
+  <code>CascadeFactor</code> is deliberately split into a per-cascade function so the
+  band between two of them can ask both and interpolate.</li>
+  <li><b>Beyond the last cascade there is no data</b>, and the honest answer is
+  <em>lit</em>. Returning "shadowed" would put the far world in darkness; the code
+  returns 1.0 when the coordinate falls outside the recorded range.</li>
+</ul>
+
+<p>Spot lights need only one map — they have a position and a cone, which is exactly a
+perspective projection. Point lights need <b>six</b>, as a cube map, because they shine
+in every direction; that is why a point light casting shadows is the most expensive light
+type by a wide margin, and why it is opt-in per light.</p>
+
+<h4>The three invariants that cost days if missed</h4>
+<ul>
+  <li><b>Whatever poses the lit pass must pose the depth pass.</b> The shadow pass runs
+  different shaders, and it is easy to give the skinned depth shader a different bone
+  buffer — or none. The symptom is unmistakable once seen and baffling before: a
+  character walks and its shadow stands still.</li>
+  <li><b>Nothing is culled in the shadow pass.</b> Frustum culling for the <em>camera</em>
+  is exactly wrong here — an object behind the camera can still cast a shadow into
+  view.</li>
+  <li><b>OpenGL needs <code>glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)</code></b>
+  (§2.4). Without it the depth written is in [−1,1] while the comparison assumes [0,1],
+  every comparison passes, and the scene renders uniformly lit — which looks like shadows
+  being disabled rather than like a convention mismatch.</li>
 </ul>
 
 <h3>7.6 &nbsp; Image-based lighting and reflection probes</h3>
 
-<p>An environment cube map is convolved once into a diffuse irradiance cube and
-prefiltered into six roughness levels, and a BRDF lookup table is generated. Reflection
-probes capture the scene into a cube map from a point; the scene picks the nearest probe
-whose influence radius contains the camera, falling back to the sky.</p>
+<h4>What problem it solves</h4>
+<p>Point and directional lights model light arriving from a handful of directions. Real
+environments light objects from <em>every</em> direction — a white wall to the left tints
+everything left-facing. Without this, PBR materials look like plastic in a void:
+technically correct and obviously wrong, and metals look worst of all, because a metal
+has no diffuse term and is <em>entirely</em> reflection. A metal with nothing to reflect
+is black.</p>
+
+<p>Image-based lighting treats an environment map as the light source: the whole
+integral of §2.9, evaluated against a cube map instead of a list of lights.</p>
+
+<h4>Why it is precomputed into exactly three things</h4>
+<p>That integral cannot be evaluated per pixel per frame. The <b>split-sum
+approximation</b> factors it into pieces that each depend on only one or two variables,
+so each can be precomputed into a lookup:</p>
+
+<ol>
+  <li><b>The irradiance cube</b> — the diffuse half. For each direction, the
+  cosine-weighted average of all incoming light over the hemisphere around it. Because
+  the result is extremely smooth, it can be stored at very low resolution — a 32² cube is
+  ample.</li>
+  <li><b>The prefiltered environment cube</b> — the specular half, and the clever part.
+  A rough surface reflects a blurred version of its surroundings, and blur is what mip
+  levels already are. So the environment is convolved with the GGX distribution at
+  several roughness values and each result stored in a mip: <b>roughness becomes a mip
+  level</b>, and the hardware's trilinear filter interpolates between roughnesses for
+  free. This engine builds six levels.</li>
+  <li><b>The BRDF lookup table</b> — the remainder, a scale and a bias that depend only
+  on roughness and <var>n</var>·<var>v</var>. Two inputs means a 2D texture, and because
+  it depends on nothing scene-specific it is generated once at startup — 128×128
+  here.</li>
+</ol>
+
+<p>At shading time those three combine into a few texture fetches, which is the entire
+point of the exercise.</p>
+
+<h4>Reflection probes: the same machinery, dynamically</h4>
+<p>A static environment map cannot show the room an object is standing in. A
+<b>reflection probe</b> is an entity that renders the scene into a cube map from its own
+position — six scene renders — and objects near it reflect that instead of the sky. The
+engine picks the nearest probe whose influence radius contains the camera, falling back
+to the sky.</p>
+
+<p>Probes may be <b>baked</b> (captured once; costs nothing thereafter, right for a room
+whose surroundings do not move) or <b>realtime</b> (re-captured continuously, one face
+per frame by default). One face per frame rather than six is a deliberate trade: six
+renders in one frame is a visible hitch, while one is a sixth of the cost and a sixth of
+a second of latency on a reflection nobody is studying closely.</p>
+
+<h4>Two bugs this area produced, both instructive</h4>
 
 <blockquote><p><b>Mip generation belongs in the command buffer that wrote mip 0.</b>
-<code>GenerateMips</code> submitted its own and waited, so a probe's chain was built from
-an empty mip 0 and its metal read black for six frames. A bug that heals itself reads as
-a warm-up; it took a per-frame luminance measurement to show a hard step at frame 7
-rather than a gradual fill.</p></blockquote>
+<code>GenerateMips</code> submitted its own command buffer and waited, so a probe's mip
+chain was built from a mip 0 that had not been rendered yet — the probe's metal read
+black for six frames and then corrected itself. <em>A bug that heals itself reads as a
+warm-up</em>, which is why it survived; it took a per-frame luminance measurement to
+show a hard step at frame 7 rather than a gradual fill.</p></blockquote>
+
+<blockquote><p><b>The cube-map face table is the contract between capture and
+sampling.</b> Six faces means six view matrices, and the order and orientation
+conventions must match between the code that renders them and the code that samples
+them. Get one face's up-vector wrong and reflections are correct in five directions and
+mirrored in the sixth — which almost never points at anything you are
+looking at.</p></blockquote>
+
+<p>There is also a dependency worth internalising: <b>IBL is derived from the sky, so it
+is wrong whenever the sky is</b>. An early bug had the irradiance falling back to a sky
+that was never drawn, producing ambient light from an environment that did not exist.
+Precomputation creates these silent couplings, and the general rule is that anything
+derived must be invalidated by whatever it was derived from.</p>
 
 <h3>7.7 &nbsp; Post-processing</h3>
 
-<p>Bloom (13-tap Karis-weighted downsample, 3×3 tent upsample accumulating in place),
-exposure, ACES tonemapping and FXAA. One invariant here is the single most instructive
-bug in the codebase, because of how long it hid:</p>
+<h4>Why there is a post chain at all</h4>
+<p>§2.8 established that lighting must happen in linear space with unbounded values. A
+display takes bounded, gamma-encoded values. Post-processing is the bridge, and it is
+also the only place where effects that need the <em>whole image</em> can happen.</p>
+
+<h4>Bloom, and the three decisions inside it</h4>
+<p>Bloom is the glow around very bright things — physically, light scattering inside the
+eye and the lens. The implementation is a blur of the bright parts, added back. Three
+decisions matter.</p>
+
+<p><b>Thresholding with a soft knee.</b> A hard cutoff — "keep pixels above 1.0" —
+produces a visible edge where a gradient crosses the threshold, and makes bloom pop as
+brightness changes. A soft knee ramps the contribution in over a range instead.</p>
+
+<p><b>The Karis average, which exists to kill fireflies.</b> A single extremely bright
+pixel — a specular glint on a curved metal — survives downsampling and reappears as a
+large flickering blob, because averaging a huge value with small ones still gives a large
+value. Weighting each tap by 1/(1+luma) before averaging bounds any single sample's
+contribution. Without it, bloom flickers on exactly the content that most needs it.</p>
+
+<p><b>Blur by resampling, not by a wide kernel.</b> A blur wide enough to look like bloom
+would need an enormous kernel at full resolution. Instead the image is downsampled in
+five steps with a 13-tap filter, then upsampled back with a 3×3 tent filter,
+<em>accumulating additively into the level above at each step</em>. Each level
+contributes a different blur radius, and the sum is a wide, smooth, cheap falloff. The
+chain has an odd number of passes — remember that; it is about to matter.</p>
+
+<h4>Tonemapping</h4>
+<p>Mapping unbounded linear values into [0,1]. Simple <var>x</var>/(1+<var>x</var>)
+works and looks flat; the engine uses an <b>ACES</b> filmic approximation, which has the
+gentle toe and shoulder of film and keeps saturated highlights from tearing toward white.
+Then exposure, then encode to gamma. This is the <em>only</em> place a tone curve is
+applied, which is what makes the invariant "the PBR shader outputs linear HDR only"
+enforceable.</p>
+
+<h4>FXAA, and why it runs last</h4>
+<p>FXAA finds edges by luminance contrast and blurs along them. It runs on the
+<b>tone-mapped</b> image rather than the linear one, and this is not arbitrary: contrast
+in unbounded HDR is not perceptual contrast. A linear-space difference between 40.0 and
+41.0 is large numerically and invisible on screen; run edge detection there and it finds
+edges nobody can see while missing the ones they can.</p>
+
+<h4>The bug that has now happened twice</h4>
+<p>This is the single most instructive defect in the codebase, both for what it was and
+for how it came back.</p>
 
 <pre><code><span class="c">// A fullscreen pass reads one render target and writes another, and the two</span>
 <span class="c">// backends do not store a rendered image the same way round.</span>
@@ -1574,14 +1903,22 @@ bug in the codebase, because of how long it hid:</p>
 <span class="c">// bleed, as blobs mirrored about the middle of the image.</span>
 local.FlipY = s_Data-&gt;Device-&gt;GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;</code></pre>
 
-<p>It then bit a <em>second</em> time, years of commits later, and the reason is the
-transferable part. The invariant had been written down as "…and nothing else samples a
-render target", which stopped being true the moment the transparency resolve pass was
-written — a fullscreen pass living in the particle renderer rather than the
-post-processing file, so it inherited none of this. <b>A rule stated in terms of where
-code lives will be violated by code that lives somewhere else.</b> It is now stated in
-terms of behaviour: anything that samples a render target and writes another owes the
-flip.</p>
+<p>Read that carefully, because the mechanism generalises: an <em>even</em> number of
+mistakes cancels. The scene survived a whole roadmap phase because the ordinary path had
+two flips and the bloom path had one — and the one only became visible when the scene
+finally contained something bright enough to bloom.</p>
+
+<p>Then it happened again, and the second time is the transferable lesson. The invariant
+had been written down ending "…and nothing else samples a render target." That was true
+when written. It stopped being true the moment the transparency resolve pass of §7.8 was
+written — a fullscreen pass that samples two render targets, living in the particle
+renderer rather than the post-processing file, so it inherited none of this. One pass is
+an odd number. Vulkan composited every weighted particle upside down.</p>
+
+<blockquote><p><b>A rule stated in terms of where code lives will be violated by code
+that lives somewhere else.</b> The invariant is now stated in terms of behaviour:
+anything that samples a render target and writes another owes the flip, wherever it
+lives. That is a rule the resolve pass could not have slipped past.</p></blockquote>
 
 <h3>7.8 &nbsp; Transparency, and why it is the hardest easy problem</h3>
 
