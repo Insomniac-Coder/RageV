@@ -38,6 +38,7 @@ namespace RageV::Assets
 		// caches as an empty curve for the same reason a texture caches as
 		// null: a missing file must not be retried sixty times a second.
 		std::unordered_map<AssetHandle, Curve> s_Curves;
+		std::unordered_map<AssetHandle, Curve::Baked> s_BakedCurves;
 
 		constexpr PrimitiveType kPrimitives[] = {
 			PrimitiveType::Cube, PrimitiveType::Sphere, PrimitiveType::Plane,
@@ -87,6 +88,7 @@ namespace RageV::Assets
 		s_Irradiance.clear();
 		s_Textures.clear();
 		s_Curves.clear();
+		s_BakedCurves.clear();
 
 		// The loader and the filter hold the same textures by path and by
 		// pointer, and both used to be cleared only at shutdown -- so changing
@@ -254,6 +256,26 @@ namespace RageV::Assets
 		return &s_Curves[handle];
 	}
 
+	const Curve::Baked* Manager::GetBakedCurve(AssetHandle handle)
+	{
+		if (!handle.IsValid())
+			return nullptr;
+
+		const auto cached = s_BakedCurves.find(handle);
+		if (cached != s_BakedCurves.end())
+			return &cached->second;
+
+		// Through GetCurve, so the "a valid handle always answers something"
+		// contract is stated once. A missing file bakes an empty curve, which
+		// is a table of zeroes -- the fallback, sampled rather than branched on.
+		const Curve* curve = GetCurve(handle);
+		if (!curve)
+			return nullptr;
+
+		s_BakedCurves[handle] = curve->BakeTable();
+		return &s_BakedCurves[handle];
+	}
+
 	AssetHandle Manager::CreateCurve(const Curve& curve, const std::filesystem::path& relativePath)
 	{
 		if (!Registry::IsInitialised())
@@ -280,6 +302,7 @@ namespace RageV::Assets
 		// Without it the cache above is exactly the stale-data bug the probe's
 		// mip chain was: the file changes and the picture does not.
 		s_Curves.erase(handle);
+		s_BakedCurves.erase(handle);
 	}
 
 	RHI::Ref<RHI::RHITexture> Manager::GetCubemap(AssetHandle handle)

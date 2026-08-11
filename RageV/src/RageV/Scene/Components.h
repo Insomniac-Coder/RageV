@@ -407,10 +407,28 @@ namespace RageV
 		Vec3  Gravity{ 0.0f, -3.0f, 0.0f };
 		float Drag = 0.0f;               // fraction of velocity lost per second
 
+		// The two-point ramps every emitter has always had. They are not
+		// legacy: they are the common case, they need no asset, and an emitter
+		// authored before curves existed keeps working untouched. The curves
+		// below override them one at a time.
 		float SizeStart = 0.25f;
 		float SizeEnd = 0.05f;
 		Vec4  ColorStart{ 1.0f, 1.0f, 1.0f, 1.0f };
 		Vec4  ColorEnd{ 1.0f, 1.0f, 1.0f, 0.0f };
+
+		// Shapes, for the ramps a straight line cannot say: smoke that swells
+		// fast then holds, a spark that flashes and decays, a puff that fades
+		// in *and* out.
+		//
+		// Each is optional and independent. Unset -- the default -- means the
+		// pair above still decides that channel, so authoring a size curve does
+		// not oblige anyone to author a colour one. Alpha is deliberately its
+		// own curve rather than the gradient's fourth channel: opacity and hue
+		// almost never want the same shape, and splitting them is what lets a
+		// gradient be reused across emitters that fade differently.
+		AssetHandle SizeCurve = AssetHandle::Invalid();     // scalar, multiplies nothing -- it *is* the size
+		AssetHandle ColorGradient = AssetHandle::Invalid(); // three channels, RGB
+		AssetHandle AlphaCurve = AssetHandle::Invalid();    // scalar
 		float Spin = 0.0f;               // max degrees per second, signed at random
 
 		ParticleFacing Facing = ParticleFacing::Billboard;

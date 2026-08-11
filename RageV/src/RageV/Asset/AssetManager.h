@@ -62,6 +62,12 @@ namespace RageV::Assets
 		static AssetHandle CreateCurve(const Curve& curve,
 									   const std::filesystem::path& relativePath);
 
+		// The same curve as a flat table, which is what the simulation samples
+		// and what the GPU path will upload. Cached beside the curve and
+		// invalidated with it, so there is one place a stale ramp can come
+		// from rather than two. Never null for a valid handle, same contract.
+		static const Curve::Baked* GetBakedCurve(AssetHandle handle);
+
 		// Drops the cached copy so the next GetCurve reads the file again.
 		// What the editor calls when somebody finishes dragging a point --
 		// without it, an edited curve keeps rendering as the old shape.

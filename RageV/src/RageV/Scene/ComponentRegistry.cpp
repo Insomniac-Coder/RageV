@@ -643,6 +643,23 @@ namespace
 				Field<&ParticleEmitterComponent::ColorEnd>("ColorEnd",
 					Color("Faded to over each particle's life. An alpha of zero here "
 						  "is what makes smoke thin out instead of popping off.")),
+				Field<&ParticleEmitterComponent::SizeCurve>("SizeCurve",
+					Named("Size curve",
+						  AssetRef(AssetType::Curve,
+								   "A shape for size over life, instead of the straight "
+								   "line from SizeStart to SizeEnd. Leave empty to keep "
+								   "the pair."))),
+				Field<&ParticleEmitterComponent::ColorGradient>("ColorGradient",
+					Named("Colour gradient",
+						  AssetRef(AssetType::Curve,
+								   "Colour over life as a gradient, instead of ColorStart "
+								   "to ColorEnd. Three channels; opacity is the alpha "
+								   "curve's job."))),
+				Field<&ParticleEmitterComponent::AlphaCurve>("AlphaCurve",
+					Named("Alpha curve",
+						  AssetRef(AssetType::Curve,
+								   "Opacity over life on its own, so a particle can fade "
+								   "in and out. Overrides the alpha of the colour pair."))),
 				Field<&ParticleEmitterComponent::Spin>("Spin",
 					Drag(1.0f, 0.0f, 3600.0f, "Max degrees per second, signed at random "
 											  "per particle.")),

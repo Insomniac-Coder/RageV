@@ -89,6 +89,38 @@ namespace RageV
 		bool operator==(const Curve& other) const;
 		bool operator!=(const Curve& other) const { return !(*this == other); }
 
+		// A curve flattened to a fixed table, which is the form both the CPU
+		// and the GPU read.
+		//
+		// The CPU could evaluate keys directly and be exact, and that is
+		// precisely why it does not: the compute shader will sample a texture,
+		// so an emitter switched from CPU to GPU would change appearance
+		// slightly, and the difference would look like a simulation bug rather
+		// than two different samplers. One table, both paths, same answer --
+		// the same discipline that already keeps the two instance layouts
+		// identical.
+		struct Baked
+		{
+			// 64 texels resolves anything hand-authored. A ramp needs to be
+			// visibly kinked at a scale finer than 1/64 of a particle's life
+			// before this loses it.
+			static constexpr uint32_t kSize = 64;
+
+			Vec4 Samples[kSize] = {};
+
+			// Linear between neighbouring samples, clamped at both ends.
+			//
+			// Matched to a linear-filtered texture on purpose: a shader
+			// sampling this table as a kSize-wide 1D texture must read at
+			// `(t * (kSize - 1) + 0.5) / kSize` to land on the same texel
+			// centres and get the same answer. That expression is the contract
+			// between this function and the compute shader.
+			Vec4 Sample(float t) const;
+			float SampleScalar(float t) const { return Sample(t).x; }
+		};
+
+		Baked BakeTable() const;
+
 	private:
 		static uint32_t Clamp(uint32_t channels);
 

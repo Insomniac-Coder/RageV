@@ -62,7 +62,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-872 checks, `exit 0`. Then look at a frame:
+888 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -1357,7 +1357,7 @@ land in any order and look the same. It is what a GPU emitter of smoke
 wants, since sorting its pool would mean a readback.
 
 `scenes/particles_oit.rage` is the check; both backends composite it with
-no validation messages, 872 checks.
+no validation messages, 888 checks.
 
 **It costs nothing when nothing uses it.** The two attachments and the
 resolve pass only exist in frames whose scene contains a weighted
@@ -1562,7 +1562,7 @@ reintroduced deliberately to confirm it fails, and it names the flip as a flip.
 It is not in scenetest because scenetest cannot read pixels back; it runs the
 runtime and compares screenshots.
 
-Verified: 872 checks both backends, 0 validation messages, Debug/Release/Dist,
+Verified: 888 checks both backends, 0 validation messages, Debug/Release/Dist,
 `rvdoc --check`, and `particles_oit.rage` re-rendered on both backends with the
 weighted content now landing in the same place on each.
 
@@ -1641,12 +1641,39 @@ and the build stays runnable between them:
    18 checks: round-trip with coincident and out-of-order keys, a missing
    file leaving the caller's curve untouched, malformed YAML refused, and
    the whole path through the manager inside a scratch project.
-3. **The component fields**: `SizeCurve`, `ColorGradient`, `AlphaCurve` as
-   handles. **Keep `SizeStart/SizeEnd` and the colour pair working.** A null
-   handle must mean "use the pair", so every scene that exists keeps
-   rendering and nobody is forced to author a curve to get a particle. That
-   is also what makes this landable in pieces.
-4. **The CPU sim** samples them, which is where it first becomes visible.
+3. ~~**The component fields**~~ and 4. ~~**the CPU sim**~~ -- **done**.
+   `SizeCurve`, `ColorGradient` and `AlphaCurve` are asset handles on
+   `ParticleEmitterComponent`. **The pairs still work and are not
+   legacy**: an unset handle means that channel is still decided by
+   `SizeStart/SizeEnd` or the colour pair, so every scene already in the
+   repository renders identically and nobody has to author a curve to
+   get a particle. Each curve overrides *one* channel: the gradient
+   replaces RGB and deliberately ignores its own fourth channel, because
+   alpha has its own curve -- which is what lets one gradient be shared
+   between emitters that fade differently.
+
+   The resolution lives in `Particles::Evaluate`, a free function, not in
+   the renderer's instance loop: three things have to agree on this rule
+   -- the CPU path, the compute shader in step 5, and the suite -- and
+   two of them cannot call a lambda inside a draw call.
+
+   **Both paths read a baked table, never the keys.** `Curve::Baked` is
+   64 samples, cached beside the curve and invalidated with it. The CPU
+   could evaluate keys exactly and that is precisely why it does not:
+   the shader will sample a texture, and an emitter toggled to the GPU
+   must not change appearance. `Baked::Sample` is matched to a
+   linear-filtered texture -- **step 5's shader must read at
+   `(t * (kSize - 1) + 0.5) / kSize`** to hit the same texel centres.
+   Baking rounds off a peak that falls between two samples, by under one
+   table step; there is a check pinning that so a change to `kSize`
+   shows as a number moving rather than silently.
+
+   `tools/scripts/make_curve_presets.py` writes four stock curves and a
+   side-by-side scene (`scenes/particles_curves.rage`): the same emitter
+   twice, pairs on the left and curves on the right. Note it must be run
+   twice on a fresh checkout -- the scene can only name curves whose
+   `.meta` the registry has already minted.
+
 5. **The GPU path**: bake each curve to a short LUT (64 texels is plenty),
    sample by age in `particle_sim.rvshader`. The CPU sim and the compute
    shader must read the *same* baked LUT rather than each evaluating keys, or
@@ -1717,7 +1744,7 @@ depth range is about ten units. That proves the plumbing, not the curve.
 
 Everything under it is verified: per-attachment blend, multi-attachment
 graph targets, the transparent pass and its shared depth, and the
-resolve. 872 checks, both backends, no validation messages.
+resolve. 888 checks, both backends, no validation messages.
 
 ### After that - the rest of phase 6
 

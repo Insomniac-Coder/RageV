@@ -116,6 +116,34 @@ namespace RageV
 			out[i] = Evaluate((float)i * step);
 	}
 
+	Curve::Baked Curve::BakeTable() const
+	{
+		Baked baked;
+		Bake(baked.Samples, Baked::kSize);
+		return baked;
+	}
+
+	Vec4 Curve::Baked::Sample(float t) const
+	{
+		// Clamped, not wrapped: age reaches exactly 1.0 and must land on the
+		// last sample rather than folding back to the first.
+		const float clamped = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+		const float scaled = clamped * (float)(kSize - 1);
+
+		const uint32_t index = (uint32_t)scaled;
+		if (index >= kSize - 1)
+			return Samples[kSize - 1];
+
+		const float fraction = scaled - (float)index;
+		const Vec4& a = Samples[index];
+		const Vec4& b = Samples[index + 1];
+
+		return { a.x + (b.x - a.x) * fraction,
+				 a.y + (b.y - a.y) * fraction,
+				 a.z + (b.z - a.z) * fraction,
+				 a.w + (b.w - a.w) * fraction };
+	}
+
 	bool Curve::operator==(const Curve& other) const
 	{
 		if (m_Channels != other.m_Channels || m_Keys.size() != other.m_Keys.size())

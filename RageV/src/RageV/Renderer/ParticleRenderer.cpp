@@ -4,6 +4,7 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "RageV/Scene/Components.h"
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/Particles/ParticleSystem.h"
 #include <algorithm>
 #include <iterator>
 
@@ -345,6 +346,14 @@ namespace RageV
 		const size_t count = Math::Min(emitter.Pool.size(), (size_t)kMaxInstancesPerDraw);
 		draw.Instances.reserve(count);
 
+		// Fetched once for the emitter, not once per particle: the lookup is a
+		// hash and there can be sixteen thousand particles. Null means the
+		// handle was never set, which is the ordinary case -- the two-point
+		// ramps below still decide that channel.
+		const Curve::Baked* sizeCurve = Assets::Manager::GetBakedCurve(emitter.SizeCurve);
+		const Curve::Baked* colorCurve = Assets::Manager::GetBakedCurve(emitter.ColorGradient);
+		const Curve::Baked* alphaCurve = Assets::Manager::GetBakedCurve(emitter.AlphaCurve);
+
 		for (size_t i = 0; i < count; i++)
 		{
 			const Particle& particle = emitter.Pool[i];
@@ -353,10 +362,12 @@ namespace RageV
 			const Vec3 position = local
 								? Vec3(world * Vec4(particle.Position, 1.0f))
 								: particle.Position;
-			const float size = Math::Max(0.0f,
-				(emitter.SizeStart + (emitter.SizeEnd - emitter.SizeStart) * t) * scale);
 
-			Vec4 color = emitter.ColorStart + (emitter.ColorEnd - emitter.ColorStart) * t;
+			const Particles::Appearance appearance =
+				Particles::Evaluate(emitter, t, sizeCurve, colorCurve, alphaCurve);
+
+			const float size = Math::Max(0.0f, appearance.Size * scale);
+			Vec4 color = appearance.Color;
 
 			// Additive sums; the alpha channel would be ignored by the blend,
 			// so fading has to happen in the payload. Folding alpha into the

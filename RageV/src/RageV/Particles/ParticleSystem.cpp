@@ -52,6 +52,35 @@ namespace RageV::Particles
 		}
 	}
 
+	Appearance Evaluate(const ParticleEmitterComponent& emitter, float t,
+						const Curve::Baked* sizeCurve,
+						const Curve::Baked* colorGradient,
+						const Curve::Baked* alphaCurve)
+	{
+		Appearance out;
+
+		out.Size = sizeCurve
+				 ? sizeCurve->SampleScalar(t)
+				 : emitter.SizeStart + (emitter.SizeEnd - emitter.SizeStart) * t;
+
+		out.Color = emitter.ColorStart + (emitter.ColorEnd - emitter.ColorStart) * t;
+
+		// Channel by channel, so a gradient and an alpha curve compose instead
+		// of one having to carry the other. The gradient's own fourth channel
+		// is ignored on purpose: opacity has its own curve precisely so a
+		// gradient can be shared between emitters that fade differently.
+		if (colorGradient)
+		{
+			const Vec4 rgb = colorGradient->Sample(t);
+			out.Color = Vec4(rgb.x, rgb.y, rgb.z, out.Color.a);
+		}
+
+		if (alphaCurve)
+			out.Color.a = alphaCurve->SampleScalar(t);
+
+		return out;
+	}
+
 	void System::Emit(ParticleEmitterComponent& emitter, const Mat4& world, int count)
 	{
 		if (count <= 0)

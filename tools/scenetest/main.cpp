@@ -24,6 +24,7 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Asset/Curve.h"
 #include "RageV/Asset/CurveSerializer.h"
+#include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Scene/ComponentRegistry.h"
@@ -1096,6 +1097,159 @@ namespace
 			Assets::Manager::ReloadCurve(handle);
 			const Curve* again = Assets::Manager::GetCurve(handle);
 			Check(again && *again == authored, "a reloaded curve reads the file again");
+		}
+	}
+
+	// The ramps: which of the two-point pair and the curve decides each
+	// channel. All of this is arithmetic, so it is assertable exactly -- and
+	// it has to be, because getting it wrong looks like a plausible effect.
+	void CheckParticleCurves()
+	{
+		const float epsilon = 1e-4f;
+		auto approx = [epsilon](float a, float b) { return std::fabs(a - b) < epsilon; };
+
+		ParticleEmitterComponent emitter;
+		emitter.SizeStart = 1.0f;
+		emitter.SizeEnd = 3.0f;
+		emitter.ColorStart = Vec4(1.0f, 0.0f, 0.0f, 1.0f);
+		emitter.ColorEnd = Vec4(0.0f, 0.0f, 1.0f, 0.0f);
+
+		// Nothing set: the pairs decide, exactly as before curves existed.
+		// This is the check that every scene already in the repository is
+		// unaffected by the whole feature.
+		{
+			const Particles::Appearance a = Particles::Evaluate(emitter, 0.5f, nullptr, nullptr, nullptr);
+			Check(approx(a.Size, 2.0f), "with no curves, size still interpolates start to end");
+			Check(approx(a.Color.x, 0.5f) && approx(a.Color.z, 0.5f) && approx(a.Color.a, 0.5f),
+				  "and so does colour, alpha included");
+		}
+
+		// A size curve replaces the pair outright -- it is the size, not a
+		// multiplier. Anything else would make two authored numbers fight.
+		const Curve::Baked sizeCurve =
+			Curve::Linear(Vec4(10.0f, 0.0f, 0.0f, 0.0f), Vec4(20.0f, 0.0f, 0.0f, 0.0f), 1).BakeTable();
+		{
+			const Particles::Appearance a = Particles::Evaluate(emitter, 0.5f, &sizeCurve, nullptr, nullptr);
+			Check(approx(a.Size, 15.0f), "a size curve replaces the size pair");
+			Check(approx(a.Color.x, 0.5f), "and leaves colour alone");
+		}
+
+		// A gradient replaces RGB and must not touch alpha: opacity has its own
+		// curve so a gradient can be shared between emitters that fade
+		// differently. If the gradient's own fourth channel leaked through,
+		// alpha here would read 0 rather than 0.5.
+		Curve gradient(3);
+		gradient.AddKey(0.0f, Vec4(0.0f, 1.0f, 0.0f, 0.0f));
+		gradient.AddKey(1.0f, Vec4(0.0f, 1.0f, 0.0f, 0.0f));
+		const Curve::Baked gradientBaked = gradient.BakeTable();
+		{
+			const Particles::Appearance a = Particles::Evaluate(emitter, 0.5f, nullptr, &gradientBaked, nullptr);
+			Check(approx(a.Color.x, 0.0f) && approx(a.Color.y, 1.0f) && approx(a.Color.z, 0.0f),
+				  "a gradient replaces the colour pair's RGB");
+			Check(approx(a.Color.a, 0.5f),
+				  "and does not touch alpha, which is a separate curve's job");
+		}
+
+		// An alpha curve replaces only alpha, and composes with a gradient.
+		Curve fadeInOut(1);
+		fadeInOut.AddKey(0.0f, 0.0f);
+		fadeInOut.AddKey(0.5f, 1.0f);
+		fadeInOut.AddKey(1.0f, 0.0f);
+		const Curve::Baked alphaBaked = fadeInOut.BakeTable();
+		{
+			const Particles::Appearance a = Particles::Evaluate(emitter, 0.5f, nullptr, nullptr, &alphaBaked);
+
+			// Near one, not exactly one, and that is the table doing its job.
+			// The peak sits at t = 0.5, which is sample 31.5 of 64 -- between
+			// two texels -- so baking rounds it to the pair either side. The
+			// error is bounded by one table step, and the same rounding will
+			// happen on the GPU, which is the whole reason both read this table
+			// instead of one reading keys.
+			Check(a.Color.a > 0.97f && a.Color.a <= 1.0f,
+				  "an alpha curve replaces the pair's alpha");
+			Check(approx(a.Color.x, 0.5f), "and leaves RGB to the pair");
+
+			// The shape a pair cannot express at all, and the reason for the
+			// whole feature: opaque in the middle, invisible at both ends.
+			const Particles::Appearance start = Particles::Evaluate(emitter, 0.0f, nullptr, nullptr, &alphaBaked);
+			const Particles::Appearance end = Particles::Evaluate(emitter, 1.0f, nullptr, nullptr, &alphaBaked);
+			Check(approx(start.Color.a, 0.0f) && approx(end.Color.a, 0.0f),
+				  "and can fade in and out, which a start/end pair cannot");
+		}
+
+		// All three at once, each owning its own channel.
+		{
+			const Particles::Appearance a =
+				Particles::Evaluate(emitter, 0.5f, &sizeCurve, &gradientBaked, &alphaBaked);
+			Check(approx(a.Size, 15.0f) && approx(a.Color.y, 1.0f) && a.Color.a > 0.97f,
+				  "the three curves compose, each owning one channel");
+		}
+
+		// The resolution limit, stated rather than discovered: a peak that
+		// falls between two samples is rounded off, by less than one step of
+		// the table. Worth a check because it is the one way a baked curve
+		// differs from the curve somebody drew, and because a future change to
+		// kSize should show up here as a number moving rather than silently.
+		{
+			Curve spike(1);
+			spike.AddKey(0.0f, 0.0f);
+			spike.AddKey(0.5f, 1.0f);
+			spike.AddKey(1.0f, 0.0f);
+
+			const float exact = spike.EvaluateScalar(0.5f);
+			const float sampled = spike.BakeTable().SampleScalar(0.5f);
+			const float step = 1.0f / (float)(Curve::Baked::kSize - 1);
+
+			Check(approx(exact, 1.0f), "a curve evaluates its peak exactly");
+			Check(sampled < exact && exact - sampled < step,
+				  "and baking rounds a peak between samples off by under one table step");
+		}
+
+		// The baked table is what both the CPU and the GPU read, so it has to
+		// agree with the curve it came from. 64 samples over a straight line is
+		// exact; the check is that the table is sampled, not misindexed.
+		{
+			const Curve ramp = Curve::Linear(Vec4(0.0f, 0.0f, 0.0f, 0.0f),
+											 Vec4(1.0f, 0.0f, 0.0f, 0.0f), 1);
+			const Curve::Baked baked = ramp.BakeTable();
+			bool matches = true;
+			for (int i = 0; i <= 20; i++)
+			{
+				const float t = (float)i / 20.0f;
+				matches = matches && approx(baked.SampleScalar(t), ramp.EvaluateScalar(t));
+			}
+			Check(matches, "the baked table matches the curve it was baked from");
+			Check(approx(baked.SampleScalar(0.0f), 0.0f) && approx(baked.SampleScalar(1.0f), 1.0f),
+				  "at both ends included");
+		}
+
+		// The handles are ordinary asset fields, so they round-trip through a
+		// scene by the registry like everything else -- worth one check,
+		// because "it is just a handle" is exactly the assumption that breaks.
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity host = scene->CreateEntity("Emitter");
+			auto& authored = host.AddComponent<ParticleEmitterComponent>();
+			authored.SizeCurve = AssetHandle(0x1111'2222'3333'4444ull);
+			authored.ColorGradient = AssetHandle(0x5555'6666'7777'8888ull);
+			authored.AlphaCurve = AssetHandle(0x9999'aaaa'bbbb'ccccull);
+
+			SceneSerializer serializer(scene);
+			const std::string yaml = serializer.SerializeToString();
+
+			auto reloaded = std::make_shared<Scene>();
+			SceneSerializer reader(reloaded);
+			Check(reader.DeserializeFromString(yaml), "a scene with curve handles reloads");
+
+			bool found = false;
+			for (auto handle : reloaded->GetRegistry().view<ParticleEmitterComponent>())
+			{
+				const auto& read = reloaded->GetRegistry().get<ParticleEmitterComponent>(handle);
+				found = read.SizeCurve == authored.SizeCurve
+					 && read.ColorGradient == authored.ColorGradient
+					 && read.AlphaCurve == authored.AlphaCurve;
+			}
+			Check(found, "and all three curve handles survive the round trip");
 		}
 	}
 
@@ -5138,6 +5292,7 @@ int RunTests(int argc, char** argv)
 	CheckPhysics();
 	CheckCurves();
 	CheckCurveAsset();
+	CheckParticleCurves();
 	CheckParticles();
 	CheckColliderOverlay();
 	CheckPicking();
