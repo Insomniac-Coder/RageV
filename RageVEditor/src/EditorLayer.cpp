@@ -887,27 +887,49 @@ void EditorLayer::DrawUIProbe()
 
 	UIRenderer::Begin(width, height);
 
+	// Narrow on purpose: every string below is wider than this, so the wrapping
+	// and the alignment are visible rather than merely configured.
+	constexpr float kPanelWidth = 210.0f;
+
 	// A panel first, so the ordering is visible: this must end up *behind* the
 	// text, which is the whole of what painter's order means here.
-	UIRenderer::DrawRect({ 16.0f, 16.0f, 430.0f, 168.0f },
+	UIRenderer::DrawRect({ 16.0f, 16.0f, kPanelWidth + 32.0f, 280.0f },
 						 Vec4(0.05f, 0.05f, 0.07f, 0.72f));
 
 	const Vec4 white(1.0f, 1.0f, 1.0f, 1.0f);
 	const Vec4 accent(0.90f, 0.29f, 0.32f, 1.0f);
+	const Vec4 quiet(0.65f, 0.66f, 0.72f, 1.0f);
 
-	// Several sizes in one shot, because the one thing a distance field is for
-	// is staying sharp across them -- and because the smallest is near the
-	// atlas's own floor, which is where it should start to soften.
-	UIRenderer::DrawText("RageV", m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 68.0f), 44.0f, accent);
+	// Several sizes, because staying sharp across them is the one thing a
+	// distance field is for -- and the smallest is below the atlas's own floor,
+	// where it should visibly soften.
+	UIRenderer::DrawText("RageV", m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 28.0f), 44.0f, accent);
+
+	// Wrapped and justified three ways in one box, so a wrong alignment offset
+	// or a break in the wrong place is visible rather than plausible.
+	UI::TextStyle wrapped;
+	wrapped.Size = 15.0f;
+	wrapped.WrapWidth = kPanelWidth;
+
 	UIRenderer::DrawText("Sphinx of black quartz, judge my vow.",
-						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 100.0f), 18.0f, white);
-	UIRenderer::DrawText("AVATAR Wavy 0123456789 @#&",
-						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 128.0f), 18.0f, white);
-	UIRenderer::DrawText("smallest sharp size: 16 px", m_ProbeFont, m_ProbeAtlas,
-						 Vec2(32.0f, 152.0f), 16.0f, Vec4(0.65f, 0.66f, 0.72f, 1.0f));
-	UIRenderer::DrawText("below it, 11 px, softening as designed",
-						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 172.0f), 11.0f,
-						 Vec4(0.65f, 0.66f, 0.72f, 1.0f));
+						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 88.0f), wrapped, white);
+
+	wrapped.Align = UI::TextAlign::Center;
+	UIRenderer::DrawText("centred across two lines, broken at a space",
+						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 136.0f), wrapped, quiet);
+
+	wrapped.Align = UI::TextAlign::Right;
+	UIRenderer::DrawText("right aligned, and this one\nhas an explicit newline",
+						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 184.0f), wrapped, quiet);
+
+	// A single word wider than the box: it must break mid-word rather than run
+	// out of the panel.
+	wrapped.Align = UI::TextAlign::Left;
+	UIRenderer::DrawText("Supercalifragilisticexpialidocious0123456789",
+						 m_ProbeFont, m_ProbeAtlas, Vec2(32.0f, 232.0f), wrapped, quiet);
+
+	UIRenderer::DrawText("11 px, below the 16 px floor", m_ProbeFont, m_ProbeAtlas,
+						 Vec2(32.0f, 276.0f), 11.0f, quiet);
 
 	UIRenderer::End();
 

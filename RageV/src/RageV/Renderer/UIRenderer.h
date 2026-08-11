@@ -1,6 +1,7 @@
 #pragma once
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Asset/Font.h"
+#include "RageV/UI/TextLayout.h"
 #include "RageV/Math/Math.h"
 
 #include <string>
@@ -70,18 +71,27 @@ namespace RageV
 							  const Vec4& tint = Vec4(1.0f, 1.0f, 1.0f, 1.0f),
 							  const UIRect& uv = { 0.0f, 0.0f, 1.0f, 1.0f });
 
-		// One line of text, with its baseline starting at `pen`.
+		// Text, with the **top left of the block** at `position` -- not the
+		// baseline. A UI positions text in a box, so a box-relative origin is
+		// what every caller would otherwise work out for itself.
 		//
 		// Takes the font and its atlas rather than a handle: the renderer does
 		// not reach into the asset manager, so it stays usable from a test with
-		// a font built by hand.
+		// a font assembled by hand.
 		//
-		// `size` is the em size in pixels. Below the atlas's own
+		// `Size` is the em size in pixels. Below the atlas's own
 		// SmallestSharpSize the antialiasing degrades -- that is a property of
-		// the baked atlas, not of this call, and rvfont prints the number.
+		// the baked atlas rather than of this call, and rvfont prints the
+		// number when it bakes.
 		static void DrawText(const std::string& text, const Font& font,
 							 const RHI::Ref<RHI::RHITexture>& atlas,
-							 const Vec2& pen, float size, const Vec4& color);
+							 const Vec2& position, const UI::TextStyle& style,
+							 const Vec4& color);
+
+		// One line, left aligned, unwrapped -- the common case.
+		static void DrawText(const std::string& text, const Font& font,
+							 const RHI::Ref<RHI::RHITexture>& atlas,
+							 const Vec2& position, float size, const Vec4& color);
 
 		static uint32_t GetDrawCallCount();
 		static uint32_t GetQuadCount();

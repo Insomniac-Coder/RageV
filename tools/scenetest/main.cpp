@@ -4081,6 +4081,270 @@ void main()
 		Check(true, "and a colour background draws nothing at all");
 	}
 
+	// Text layout.
+	//
+	// Every one of these runs on the CPU with no window and no device, which is
+	// the entire reason layout was kept out of the renderer. The failures here
+	// are the ones that look plausible in a screenshot -- a line broken one
+	// word early, centring off by half a space, a width that quietly ignores
+	// kerning -- and none of them is settled by looking.
+	void CheckTextLayout()
+	{
+		Font font;
+		if (!Assets::FontSerializer::Load(font, "assets/Fonts/roboto.rvfont"))
+		{
+			Check(false, "text layout needs the staged font");
+			return;
+		}
+
+		// --- UTF-8 ----------------------------------------------------------
+		{
+			Check(UI::DecodeUtf8("abc").size() == 3, "ASCII decodes one byte per character");
+
+			// U+00E9, two bytes. The atlas is latin1, so this one is really there.
+			const std::vector<uint32_t> accented = UI::DecodeUtf8("caf\xC3\xA9");
+			Check(accented.size() == 4 && accented[3] == 0xE9,
+				  "a two-byte sequence decodes to one codepoint");
+
+			// A lead byte promising three continuations, with none. Stepping the
+			// promised length would swallow the 'a' and 'b' after it.
+			const std::vector<uint32_t> broken = UI::DecodeUtf8("\xE0" "ab");
+			Check(broken.size() == 3 && broken[0] == 0xFFFD &&
+				  broken[1] == 'a' && broken[2] == 'b',
+				  "a malformed byte becomes U+FFFD and eats nothing after it");
+		}
+
+		// --- advances and kerning --------------------------------------------
+		{
+			const float size = 32.0f;
+
+			// The claim: a measured width is the sum of the advances plus the
+			// kerning, and not merely "about right".
+			const Font::Glyph* a = font.Find('A');
+			const Font::Glyph* v = font.Find('V');
+			Check(a && v, "the font has A and V");
+
+			if (a && v)
+			{
+				const float unkerned = (a->Advance + v->Advance) * size;
+				const float measured = UI::MeasureLine("AV", font, size);
+				const float kerning = font.Kerning('A', 'V') * size;
+
+				Check(std::fabs(measured - (unkerned + kerning)) < 1e-3f,
+					  "a line's width is its advances plus its kerning, exactly");
+				Check(measured < unkerned,
+					  "and AV really is drawn tighter than the advances alone");
+			}
+
+			// Scale is linear in the size, which is what makes one atlas serve
+			// every size.
+			const float single = UI::MeasureLine("Hamburgefonstiv", font, 16.0f);
+			const float doubled = UI::MeasureLine("Hamburgefonstiv", font, 32.0f);
+			Check(std::fabs(doubled - single * 2.0f) < 1e-2f,
+				  "and doubling the size doubles the width");
+
+			Check(UI::MeasureLine("", font, size) == 0.0f, "an empty string is zero wide");
+		}
+
+		// --- lines --------------------------------------------------------
+		{
+			UI::TextStyle style;
+			style.Size = 20.0f;
+
+			const UI::TextLayout one = UI::Build("one line", font, style);
+			Check(one.LineCount == 1, "a string with no newline is one line");
+			Check(one.Glyphs.size() == 7, "and places a glyph for each character but the space");
+
+			const UI::TextLayout three = UI::Build("a\nb\nc", font, style);
+			Check(three.LineCount == 3, "explicit newlines start new lines");
+			Check(std::fabs(three.Height - font.LineHeight * style.Size * 3.0f) < 1e-3f,
+				  "and the height is three line boxes, not the height of the ink");
+
+			// The second line sits exactly one line box below the first.
+			//
+			// The same letter on every line, deliberately. A placed glyph's Y
+			// is its baseline minus its own height above it, so "a\nb\nc"
+			// measures the difference between the tops of a, b and c as much as
+			// the line spacing -- which is how the first version of this check
+			// managed to fail against correct code.
+			const UI::TextLayout stack = UI::Build("a\na\na", font, style);
+			Check(stack.Glyphs.size() == 3, "with one glyph on each");
+			if (stack.Glyphs.size() == 3)
+			{
+				const float step = stack.Glyphs[1].Y - stack.Glyphs[0].Y;
+				Check(std::fabs(step - font.LineHeight * style.Size) < 1e-3f,
+					  "spaced by exactly one line box");
+				Check(std::fabs(stack.Glyphs[2].Y - stack.Glyphs[1].Y - step) < 1e-3f,
+					  "and every line by the same step");
+			}
+
+			style.LineSpacing = 2.0f;
+			const UI::TextLayout loose = UI::Build("a\nb", font, style);
+			Check(std::fabs(loose.Height - font.LineHeight * style.Size * 4.0f) < 1e-3f,
+				  "and line spacing multiplies it");
+		}
+
+		// --- wrapping -------------------------------------------------------
+		{
+			UI::TextStyle style;
+			style.Size = 16.0f;
+
+			const std::string sentence = "the quick brown fox jumps over the lazy dog";
+
+			const float full = UI::MeasureLine(sentence, font, style.Size);
+			style.WrapWidth = full * 0.5f;
+
+			const UI::TextLayout wrapped = UI::Build(sentence, font, style);
+			Check(wrapped.LineCount >= 2, "a sentence wider than the box wraps");
+			Check(wrapped.Width <= style.WrapWidth + 1e-3f,
+				  "and no line ends up wider than the box");
+
+			// Every line has to start with a word rather than the space that
+			// broke it, or a wrapped paragraph is indented by accident.
+			//
+			// One repeated letter, so that every glyph shares a top and Y is
+			// therefore constant along a line. Grouping by Y is only a valid
+			// way to find line starts once that is true, and the first version
+			// of this check assumed it for mixed text, where it is not.
+			{
+				UI::TextStyle uniform;
+				uniform.Size = 16.0f;
+				uniform.WrapWidth = UI::MeasureLine("nnnn nnnn", font, uniform.Size) + 1.0f;
+
+				const UI::TextLayout rows =
+					UI::Build("nnnn nnnn nnnn nnnn nnnn nnnn", font, uniform);
+
+				Check(rows.LineCount >= 3, "the uniform paragraph wraps to several lines");
+
+				// The left edge of the first 'n' on a line, if no space were
+				// carried over. A leading space would push it a space further.
+				const Font::Glyph* n = font.Find('n');
+				const float expected = n ? n->Left * uniform.Size : 0.0f;
+
+				bool flush = true;
+				float lineY = -1.0f;
+				for (const UI::PlacedGlyph& glyph : rows.Glyphs)
+				{
+					if (glyph.Y > lineY + 1e-3f)
+					{
+						lineY = glyph.Y;
+						flush = flush && std::fabs(glyph.X - expected) < 1e-2f;
+					}
+				}
+				Check(flush, "and no line begins with the space it broke at");
+			}
+
+			// A word that cannot fit has to break rather than overflow: a long
+			// number running out of its panel is worse than an ugly break.
+			style.WrapWidth = UI::MeasureLine("mmmm", font, style.Size);
+			const UI::TextLayout forced =
+				UI::Build("Supercalifragilisticexpialidocious", font, style);
+			Check(forced.LineCount > 1, "a single word wider than the box breaks mid-word");
+			Check(forced.Width <= style.WrapWidth + 1e-3f, "and still respects the box");
+
+			// A box narrower than one character must not loop forever looking
+			// for something that fits.
+			style.WrapWidth = 0.5f;
+			const UI::TextLayout impossible = UI::Build("abc", font, style);
+			Check(impossible.LineCount == 3, "a box narrower than a character keeps one per line");
+		}
+
+		// --- alignment ------------------------------------------------------
+		{
+			UI::TextStyle style;
+			style.Size = 18.0f;
+			style.WrapWidth = 400.0f;
+
+			// Two lines of deliberately different widths, so an alignment
+			// offset that is silently zero cannot pass.
+			const std::string text = "wwwwwwwwwwww\ni";
+
+			const UI::TextLayout left = UI::Build(text, font, style);
+			style.Align = UI::TextAlign::Center;
+			const UI::TextLayout centre = UI::Build(text, font, style);
+			style.Align = UI::TextAlign::Right;
+			const UI::TextLayout right = UI::Build(text, font, style);
+
+			Check(left.Glyphs.size() == centre.Glyphs.size() &&
+				  left.Glyphs.size() == right.Glyphs.size(),
+				  "alignment moves glyphs rather than adding or dropping them");
+
+			const size_t last = left.Glyphs.size() - 1;   // the lone 'i'
+			Check(left.Glyphs[last].X < centre.Glyphs[last].X &&
+				  centre.Glyphs[last].X < right.Glyphs[last].X,
+				  "the short line moves right as the alignment does");
+
+			// Centring is half the slack, and being exact is the point: half a
+			// pixel out is invisible in one label and obvious in a column.
+			const float shortWidth = UI::MeasureLine("i", font, style.Size);
+			const float slack = left.Width - shortWidth;
+			Check(std::fabs((centre.Glyphs[last].X - left.Glyphs[last].X) - slack * 0.5f) < 1e-2f,
+				  "centring offsets by exactly half the slack");
+			Check(std::fabs((right.Glyphs[last].X - left.Glyphs[last].X) - slack) < 1e-2f,
+				  "and right alignment by all of it");
+
+			// The long line is the widest, so it does not move at all.
+			Check(std::fabs(left.Glyphs[0].X - right.Glyphs[0].X) < 1e-3f,
+				  "while the widest line stays where it is under every alignment");
+		}
+
+		// --- trailing spaces --------------------------------------------------
+		// A wrapped line ends with the space that broke it. Counting it would
+		// push centred text left by half a space, for a reason nobody could see.
+		{
+			UI::TextStyle style;
+			style.Size = 18.0f;
+
+			const UI::TextLayout bare = UI::Build("ab", font, style);
+			const UI::TextLayout trailing = UI::Build("ab   ", font, style);
+			Check(std::fabs(bare.Width - trailing.Width) < 1e-3f,
+				  "trailing spaces do not count towards a line's width");
+		}
+
+		// --- the block's origin ------------------------------------------------
+		{
+			UI::TextStyle style;
+			style.Size = 24.0f;
+
+			const UI::TextLayout layout = UI::Build("Hxy", font, style);
+			Check(std::fabs(layout.FirstBaseline - font.Ascent * style.Size) < 1e-3f,
+				  "the first baseline sits an ascent below the top of the block");
+
+			// Nothing may sit above the block, or text in a box would ride up
+			// out of it. A capital reaches close to the ascent without passing it.
+			bool insideTop = true;
+			for (const UI::PlacedGlyph& glyph : layout.Glyphs)
+				insideTop = insideTop && glyph.Y >= -1e-3f;
+			Check(insideTop, "and no glyph is placed above the top of the block");
+
+			// Texture coordinates point into the atlas the right way up.
+			Check(!layout.Glyphs.empty() && layout.Glyphs[0].V0 < layout.Glyphs[0].V1 &&
+				  layout.Glyphs[0].U0 < layout.Glyphs[0].U1,
+				  "and its texture coordinates run down and to the right");
+		}
+
+		// --- degenerate input ---------------------------------------------------
+		{
+			UI::TextStyle style;
+			style.Size = 0.0f;
+			Check(UI::Build("anything", font, style).Glyphs.empty(),
+				  "a size of zero places nothing");
+
+			style.Size = 16.0f;
+			Check(UI::Build("", font, style).Glyphs.empty(), "and so does an empty string");
+
+			Font empty;
+			Check(UI::Build("anything", empty, style).Glyphs.empty(),
+				  "as does a font with no glyphs");
+
+			// A character the face does not have draws nothing and moves the pen
+			// nowhere, rather than drawing a box the font layer invented.
+			const std::string missing = "a\xF0\x9F\x98\x80" "b";   // 'a', U+1F600, 'b'
+			Check(UI::Build(missing, font, style).Glyphs.size() == 2,
+				  "a character the face lacks is skipped rather than boxed");
+		}
+	}
+
 	// The screen-space UI layer.
 	void CheckUIRenderer()
 	{
@@ -5786,6 +6050,7 @@ int RunTests(int argc, char** argv)
 	CheckCubemap();
 	CheckSky();
 	CheckFont();
+	CheckTextLayout();
 	CheckUIRenderer();
 	CheckViewportGrid();
 	CheckRenderersReady();

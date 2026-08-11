@@ -421,22 +421,32 @@ namespace RageV
 	}
 
 	void UIRenderer::DrawText(const std::string& text, const Font& font,
-							  const Ref<RHITexture>& atlas, const Vec2& pen,
-							  float size, const Vec4& color)
+							  const Ref<RHITexture>& atlas, const Vec2& position,
+							  const UI::TextStyle& style, const Vec4& color)
 	{
-		if (!s_Data || !s_Data->Ready || !atlas || color.w <= 0.0f || size <= 0.0f)
+		if (!s_Data || !s_Data->Ready || !atlas || color.w <= 0.0f || style.Size <= 0.0f)
 			return;
 
 		// Layout is somebody else's job, and on purpose: this is the same call
 		// world-space text will make, with a different matrix afterwards.
-		const UI::TextLayout layout = UI::BuildLine(text, font, size);
+		const UI::TextLayout layout = UI::Build(text, font, style);
 
 		for (const UI::PlacedGlyph& glyph : layout.Glyphs)
 		{
-			const UIRect rect{ pen.x + glyph.X, pen.y + glyph.Y, glyph.Width, glyph.Height };
+			const UIRect rect{ position.x + glyph.X, position.y + glyph.Y,
+							   glyph.Width, glyph.Height };
 			PushQuad(rect, color, atlas, glyph.U0, glyph.V0, glyph.U1, glyph.V1,
 					 kModeField, font.PxRange);
 		}
+	}
+
+	void UIRenderer::DrawText(const std::string& text, const Font& font,
+							  const Ref<RHITexture>& atlas, const Vec2& position,
+							  float size, const Vec4& color)
+	{
+		UI::TextStyle style;
+		style.Size = size;
+		DrawText(text, font, atlas, position, style, color);
 	}
 
 	uint32_t UIRenderer::GetDrawCallCount()
