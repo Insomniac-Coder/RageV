@@ -40,7 +40,9 @@ public static unsafe class Interop
 	// 5: appended one-shots with pitch, and one from a point.
 	// 6: scripts gained a second rate. OnUpdate became OnTick, OnFrame joined
 	//    it, and the interpolation alpha became readable.
-	public const int ProtocolVersion = 6;
+	// 7: the game's UI -- a label's text, a button's click, and whether the UI
+	//    took the pointer.
+	public const int ProtocolVersion = 7;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the
@@ -166,6 +168,25 @@ public static unsafe class Interop
 			});
 			result |= 1 << 8;
 
+			// The last entries in the table.
+			//
+			// This is where an appended entry lands, and where getting the
+			// order wrong on one side shows up: every field before it keeps its
+			// offset, so the *only* symptom is the tail calling the wrong
+			// function. Distinctive return values on purpose -- a length, a
+			// success flag and a -1 -- because three calls that all answer zero
+			// would agree whichever way round they were.
+			byte* text = stackalloc byte[16];
+			if (Native.Api.GetUIText(entity, text, 16) == 3
+				&& Marshal.PtrToStringUTF8((IntPtr)text) == "hud"
+				&& Native.WithUtf8("score", utf8 => Native.Api.SetUIText(entity, utf8)) != 0
+				&& Native.Api.GetUIText(entity, text, 16) == 5
+				&& Native.Api.WasUIButtonClicked(entity) == 0
+				&& Native.Api.IsPointerOverUI() == 0)
+			{
+				result |= 1 << 9;
+			}
+
 			return result;
 		}
 		catch
@@ -178,5 +199,5 @@ public static unsafe class Interop
 	}
 
 	/// <summary>Every bit <see cref="SelfTest"/> sets when nothing is wrong.</summary>
-	public const int SelfTestAllPassed = (1 << 9) - 1;
+	public const int SelfTestAllPassed = (1 << 10) - 1;
 }

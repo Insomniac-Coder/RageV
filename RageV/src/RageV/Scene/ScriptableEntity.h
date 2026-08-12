@@ -234,6 +234,41 @@ namespace RageV
 		static bool WasActionReleased(const std::string& action);
 		static float GetAxis(const std::string& axis);
 
+		// Whether the game's UI has the pointer this frame.
+		//
+		// **Ask this before acting on a click.** The action map does not know a
+		// canvas exists, so without it a press on the pause button also fires
+		// the weapon behind it -- and the bug reads as a gameplay bug, nowhere
+		// near the menu that caused it.
+		//
+		//     if (!IsPointerOverUI() && WasActionPressed("Fire"))
+		//         Fire();
+		//
+		// Keyboard actions are unaffected: this is about the pointer.
+		static bool IsPointerOverUI();
+
+		// --- the game's UI ---------------------------------------------------
+		//
+		// Conveniences over components that are perfectly reachable with
+		// GetComponent -- they exist because this is the surface C# mirrors,
+		// and because a label and a button are what a game touches most.
+
+		// A UITextComponent's string, on this entity or another. Silently does
+		// nothing without the component; GetText answers empty.
+		void SetText(const std::string& text);
+		void SetText(Entity entity, const std::string& text);
+		std::string GetText();
+		std::string GetText(Entity entity);
+
+		// A completed press -- down and up, both on the same button. True for
+		// one simulation step, the same contract WasActionPressed has, so
+		// polling it from OnTick sees each click exactly once.
+		//
+		// The no-argument form is a script living on the button itself, which
+		// is the usual shape.
+		bool WasButtonClicked();
+		bool WasButtonClicked(Entity entity);
+
 		// --- time ------------------------------------------------------------
 		// The fixed step. The same number OnTick is handed, every call.
 		static float GetFixedDeltaTime();

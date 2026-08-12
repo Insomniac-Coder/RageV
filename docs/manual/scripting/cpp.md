@@ -433,6 +433,55 @@ Edges — `WasActionPressed` and `WasActionReleased` — are consumed by the fir
 step that runs, and a frame with no steps carries them forward rather than
 losing them. So a press is never missed and never seen twice.
 
+### One extra line, once there is a UI
+
+The action map does not know a canvas exists. So a click on a pause button is
+also a click at the world behind it, and the bug shows up as *"the gun fires
+when I open the menu"* — a gameplay symptom, nowhere near the menu that caused
+it. The fix is a guard, and it belongs on every pointer action in the game:
+
+```cpp
+if (!IsPointerOverUI() && WasActionPressed("Fire"))
+    Fire();
+```
+
+Keyboard actions are unaffected. `IsPointerOverUI` is true while the pointer is
+over a button — or over a rectangle whose `BlocksPointer` is set, which is how a
+modal's backdrop stops the world behind it — and it stays true for the *whole*
+of a press that began on a button, even if the hand has since moved off it.
+
+## The game's UI
+
+A button is a `UIImageComponent` and a `UIButtonComponent` on one entity, with a
+label as a child. The script polls it:
+
+```cpp
+void OnTick(Timestep) override
+{
+    if (WasButtonClicked())
+        m_Score++;
+}
+```
+
+On the fixed step, not the frame: a click is an event the game acts on, and
+acting on it twice because one frame ran two steps is exactly what the edge
+contract exists to prevent. It is the same contract `WasActionPressed` has —
+consumed by the first step that runs, carried forward by a frame with none.
+
+Text is written the same way it is read:
+
+```cpp
+SetText(FindEntityByName("Score"), "Score: " + std::to_string(m_Score));
+```
+
+A press that slides off the button before the release is **cancelled**, not
+delivered — the same behaviour every desktop toolkit has, and the difference
+between a button and a tripwire. Coming back to it before letting go completes
+the click.
+
+`ClickCounter` in `BuiltinScripts.cpp` is the whole of a working button in about
+a dozen lines.
+
 ## Time
 
 ```cpp
@@ -442,8 +491,8 @@ const float now  = GetTime();             // seconds since the process started
 
 ## The engine's own scripts as worked examples
 
-`RageV/src/RageV/Scripts/BuiltinScripts.cpp` contains six scripts that ship with
-the engine and are readable in about ten minutes:
+`RageV/src/RageV/Scripts/BuiltinScripts.cpp` contains seven scripts that ship
+with the engine and are readable in about ten minutes:
 
 | Script | What it demonstrates |
 |---|---|
@@ -453,6 +502,7 @@ the engine and are readable in about ten minutes:
 | `ImpactFlash` | Collision events driving a material change |
 | `ImpactSound` | Scaling a sound by `ImpactSpeed` |
 | `TriggerZone` | Trigger enter/exit bookkeeping, including the sleep caveat |
+| `ClickCounter` | A working UI button: poll the click, write the label |
 
 They exist partly so that pressing Play does something observable out of the box,
 and partly to be exactly this: the worked examples of what reads well.

@@ -602,3 +602,47 @@ Entities:
       Align: Right
       Wrap: false
       LineSpacing: 1
+  - EntityID: 7301884420193355006
+    RelationshipComponent:
+      Parent: 7301884420193355001
+    TagComponent:
+      Tag: Click Button
+    UIRectComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      OffsetMin: [40, -110]
+      OffsetMax: [320, -40]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0.5, 0.13, 0.15, 0.92]
+    UIButtonComponent:
+      Interactable: true
+      NormalColor: [0.85, 0.85, 0.85, 1]
+      HoverColor: [1, 1, 1, 1]
+      PressedColor: [0.6, 0.6, 0.6, 1]
+    NativeScriptComponent:
+      Script: ClickCounter
+  - EntityID: 7301884420193355007
+    RelationshipComponent:
+      Parent: 7301884420193355006
+    TagComponent:
+      Tag: Click Button Label
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [0, 18]
+      OffsetMax: [0, 0]
+      SortOrder: 2
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: Click me
+      Font: 12355000851502047045
+      Size: 30
+      Color: [0.97, 0.95, 0.95, 1]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1

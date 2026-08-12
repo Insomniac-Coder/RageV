@@ -14,6 +14,7 @@
 #include "RageV/Math/Math.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Scene/ScriptRegistry.h"
+#include "RageV/UI/Interaction.h"
 
 #include <sstream>
 
@@ -540,6 +541,50 @@ namespace RageV::Managed
 			return Application::GetInterpolationAlpha();
 		}
 
+		// --- appended for protocol 7: the game's UI --------------------------
+
+		int32_t __cdecl SetUIText(uint64_t entity, const char* text)
+		{
+			Entity found = Resolve(entity);
+			if (!found || !text || !found.HasComponent<UITextComponent>())
+				return 0;
+
+			found.GetComponent<UITextComponent>().Text = text;
+			return 1;
+		}
+
+		int32_t __cdecl GetUIText(uint64_t entity, char* buffer, int32_t capacity)
+		{
+			Entity found = Resolve(entity);
+			if (!found || !found.HasComponent<UITextComponent>())
+				return -1;
+
+			const std::string& text = found.GetComponent<UITextComponent>().Text;
+			const int32_t length = (int32_t)text.size();
+
+			if (buffer && capacity > 0)
+			{
+				const int32_t copied = std::min(length, capacity - 1);
+				std::memcpy(buffer, text.data(), (size_t)copied);
+				buffer[copied] = '\0';
+			}
+			return length;
+		}
+
+		int32_t __cdecl WasUIButtonClicked(uint64_t entity)
+		{
+			Entity found = Resolve(entity);
+			if (!found || !found.HasComponent<UIButtonComponent>())
+				return 0;
+
+			return found.GetComponent<UIButtonComponent>().Clicked ? 1 : 0;
+		}
+
+		int32_t __cdecl IsPointerOverUI()
+		{
+			return UI::WantsPointer() ? 1 : 0;
+		}
+
 		// --- components, through the registry --------------------------------
 
 		// The component instance a name refers to on an entity, or null.
@@ -771,6 +816,10 @@ namespace RageV::Managed
 			api.PlayOneShotPitched = &PlayOneShotPitched;
 			api.PlayOneShot2DPitched = &PlayOneShot2DPitched;
 			api.GetInterpolationAlpha = &GetInterpolationAlpha;
+			api.SetUIText = &SetUIText;
+			api.GetUIText = &GetUIText;
+			api.WasUIButtonClicked = &WasUIButtonClicked;
+			api.IsPointerOverUI = &IsPointerOverUI;
 			return api;
 		}
 	}

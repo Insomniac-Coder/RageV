@@ -564,6 +564,36 @@ Hit-test the topmost rect under the pointer, front to back, and then **say so**.
 that fires a weapon when you press the pause button. The action map stays what
 it is for gameplay; this sits in front of it.
 
+**Built, and three things were decided while building it.**
+
+**What blocks the pointer defaults to nothing.** Unity makes every graphic a
+raycast target unless told otherwise, and the failure that produces is a score
+label across the middle of the screen quietly eating the clicks aimed through
+it — reported as *"I cannot shoot when the crosshair is over my score"*, which
+points nowhere near the label. A HUD is overwhelmingly decoration, so
+`UIRectComponent::BlocksPointer` is **off** by default and a `UIButtonComponent`
+blocks regardless of it. That leaves exactly one case needing the checkbox — a
+modal's backdrop — chosen by somebody already thinking about blocking input.
+
+**A press is captured, so it can be cancelled.** The button a press started on
+is held until the release, and the release only clicks if it lands on that same
+button. Sliding off un-presses it; coming back re-presses it. Every desktop
+toolkit does this and it is the difference between a button and a tripwire.
+Capture is also why `WantsPointer` stays true for the whole of a press dragged
+clear of the button — otherwise one gesture is delivered to the menu *and* the
+world.
+
+**A click is an edge with the same contract an action press has.** `Clicked` is
+true for one simulation step and is consumed by `UI::EndFixedStep`, called at
+the end of `Scene::OnFixedUpdateRuntime` exactly as `InputMap::EndFixedStep` is
+called by the loop. A frame running three steps must not fire a button three
+times; a frame running none must not swallow it. Both halves are checked.
+
+The pointer is fed once a frame by whoever owns the layer, because only they can
+map it: the runtime's layer *is* the window, and the editor's is an image inside
+a docked panel that can be moved, resized and scaled — and there are two panels
+showing it. Both spend it at the same point in the frame, before the scripts.
+
 ### Text in the world is in, and one decision is what makes it cheap
 
 *Scope confirmed 2026-08-11: the phase covers screen-space UI **and**

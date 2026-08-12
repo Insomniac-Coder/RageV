@@ -580,6 +580,21 @@ namespace RageV
 
 		bool Visible = true;
 
+		// Whether the pointer stops here rather than reaching the game.
+		//
+		// **Off by default, which is not what Unity does, and the difference is
+		// deliberate.** There, every graphic is a raycast target unless you say
+		// otherwise, so a score label across the middle of the screen silently
+		// eats the clicks aimed through it -- and the symptom, "I cannot shoot
+		// when the crosshair is over my score", points nowhere near the cause.
+		//
+		// A HUD is overwhelmingly labels and decoration, and none of it should
+		// take input. A button takes the pointer whether or not this is set, so
+		// the only thing left needing it is the deliberate case: the backdrop of
+		// a modal, which is one entity and one checkbox, chosen by somebody who
+		// is already thinking about blocking input.
+		bool BlocksPointer = false;
+
 		UIRectComponent() = default;
 		UIRectComponent(const UIRectComponent&) = default;
 	};
@@ -631,6 +646,51 @@ namespace RageV
 
 		UITextComponent() = default;
 		UITextComponent(const UITextComponent&) = default;
+	};
+
+	// A rectangle that answers the pointer.
+	//
+	// It has no look of its own: the tints multiply into whatever
+	// UIImageComponent is on the same entity, so a button is an image plus this,
+	// and skinning one is skinning the image.
+	//
+	// **The defaults sit below white on purpose.** The colour picker works in
+	// 0..1, so a tint cannot brighten past what the image already is -- which
+	// leaves rest-at-white with nowhere for hover to go. Resting slightly dim
+	// buys that room in the direction the picker can express. Anyone who wants
+	// the image drawn exactly as authored sets Normal to white and gets a
+	// darkening hover instead, which is one click and the other convention.
+	struct UIButtonComponent
+	{
+		// Off leaves the rectangle drawn at its normal tint and passing the
+		// pointer through, which is what a greyed-out button wants.
+		bool Interactable = true;
+
+		Vec4 NormalColor{ 0.85f, 0.85f, 0.85f, 1.0f };
+		Vec4 HoverColor{ 1.0f, 1.0f, 1.0f, 1.0f };
+		Vec4 PressedColor{ 0.6f, 0.6f, 0.6f, 1.0f };
+
+		// --- state, not settings ---------------------------------------------
+		//
+		// Written every frame by UI::UpdatePointer and read by scripts. Not
+		// registered with the ComponentRegistry, which is what keeps it out of
+		// the scene file and out of the inspector: a click that survived a save
+		// and reload would be a click nobody made.
+
+		bool Hovered = false;
+
+		// Down *on this button*. Dragging off it while held clears this and
+		// restores it on return, the same as every desktop toolkit -- a press
+		// that slides off the button is a cancelled press, not a click.
+		bool Pressed = false;
+
+		// A completed press: down and up, both on this button. True for one
+		// simulation step, on the same terms as InputMap's action edges -- a
+		// frame that runs no step carries it forward rather than losing it.
+		bool Clicked = false;
+
+		UIButtonComponent() = default;
+		UIButtonComponent(const UIButtonComponent&) = default;
 	};
 
 	// Marks the root of an entity tree stamped out from a prefab asset.

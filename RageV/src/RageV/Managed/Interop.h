@@ -188,6 +188,32 @@ namespace RageV::Managed
 		// next, 0 to 1. Already applied to simulated bodies before OnFrame
 		// runs; this is for smoothing something the engine cannot see.
 		float (__cdecl* GetInterpolationAlpha)();
+
+		// --- appended for protocol 7: the game's UI --------------------------
+		//
+		// Only what the component bridge cannot already do. Setting a colour is
+		// absent on purpose: a UI entity has two of them, the image's and the
+		// text's, so one "SetUITint" would have to pick and would be wrong half
+		// the time -- SetComponentField(e, "UIImageComponent", "Color", ...)
+		// says which, and already works.
+
+		// The UITextComponent's string. Zero when the entity has no such
+		// component, which is the SetEntityName contract.
+		int32_t (__cdecl* SetUIText)(uint64_t entity, const char* text);
+		// Length-that-would-fit, the GetEntityName contract: -1 without the
+		// component, which stays distinguishable from a label that is
+		// legitimately empty and returns 0.
+		int32_t (__cdecl* GetUIText)(uint64_t entity, char* buffer, int32_t capacity);
+
+		// A completed press on this entity's UIButtonComponent, true for one
+		// simulation step. Not a component field, because it describes what the
+		// pointer did rather than what the author chose, and a field is a thing
+		// the scene file stores.
+		int32_t (__cdecl* WasUIButtonClicked)(uint64_t entity);
+
+		// Whether the UI has the pointer. **The one every game needs**: without
+		// it, clicking a button also fires the weapon behind it.
+		int32_t (__cdecl* IsPointerOverUI)();
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -344,7 +370,9 @@ namespace RageV::Managed
 		// 5: appended one-shots with pitch, and one from a point.
 		// 6: scripts gained a second rate. OnUpdate became OnTick, OnFrame
 		//    joined it, and the interpolation alpha became readable.
-		static constexpr int32_t kProtocolVersion = 6;
+		// 7: the game's UI -- a label's text, a button's click, and whether the
+		//    UI took the pointer.
+		static constexpr int32_t kProtocolVersion = 7;
 
 		// The editable fields of a script type, for the inspector. Empty when
 		// C# is not running or the type is unknown -- both of which the

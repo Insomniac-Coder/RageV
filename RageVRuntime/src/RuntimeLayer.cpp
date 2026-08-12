@@ -4,6 +4,9 @@
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Renderer/ParticleRenderer.h"
 #include "RageV/UI/Canvas.h"
+#include "RageV/UI/Interaction.h"
+#include "RageV/Core/Input.h"
+#include "RageV/Core/MouseButtonCodes.h"
 #include "imgui.h"
 #include "RageV/ImGui/ImGuiBinding.h"
 
@@ -108,6 +111,25 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 		m_Width = width;
 		m_Height = height;
 		m_Scene->OnViewportResize((float)width, (float)height);
+	}
+
+	// The pointer, before the scripts that read it.
+	//
+	// In a shipped game the UI layer *is* the window, so a cursor position
+	// needs no mapping at all -- which is the whole reason this is two lines
+	// here and a dozen in the editor, where the same layer is an image inside
+	// a panel.
+	{
+		const std::pair<float, float> cursor = Input::GetMousePosition();
+
+		UI::PointerInput pointer;
+		pointer.X = cursor.first;
+		pointer.Y = cursor.second;
+		pointer.Down = Input::IsMouseButtonPressed(RV_MOUSE_BUTTON_LEFT);
+		pointer.Inside = cursor.first >= 0.0f && cursor.second >= 0.0f
+					  && cursor.first < (float)m_Width && cursor.second < (float)m_Height;
+
+		UI::UpdatePointer(*m_Scene, (float)m_Width, (float)m_Height, pointer);
 	}
 
 	m_Scene->OnUpdateRuntime(ts);

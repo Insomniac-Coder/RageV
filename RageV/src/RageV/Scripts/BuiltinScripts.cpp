@@ -289,6 +289,67 @@ namespace RageV
 		Vec4 m_Tint{ 0.95f, 0.24f, 0.26f, 1.0f };
 	};
 
+	// Counts its own clicks into a label. The worked example for the UI, and
+	// the regression probe for it -- the same job ContactCounter does for the
+	// managed contact surface.
+	//
+	// Short on purpose: the whole of a working button is *one* line of polling
+	// in OnTick. Everything that makes that line correct -- hit-testing front
+	// to back, a press that is cancellable, an edge consumed by exactly one
+	// step -- happens before it is reached, which is the point.
+	class ClickCounter : public ScriptableEntity
+	{
+	public:
+		// Authored in the inspector, so the same script labels a Start button
+		// and a Quit one.
+		std::string Caption = "Click me";
+
+		void OnCreate() override
+		{
+			// The label is a child rather than this entity, because a button is
+			// an image and a caption laid out inside it. Cached here rather than
+			// searched every step.
+			for (Entity child : GetChildren())
+			{
+				if (child.HasComponent<UITextComponent>())
+				{
+					m_Label = child;
+					break;
+				}
+			}
+
+			Show();
+		}
+
+		// The fixed step, not the frame: a click is an event the game acts on,
+		// and acting on it twice because a frame ran two steps is exactly the
+		// bug the edge contract exists to prevent.
+		void OnTick(Timestep) override
+		{
+			if (!WasButtonClicked())
+				return;
+
+			m_Clicks++;
+			Show();
+		}
+
+		int Clicks() const { return m_Clicks; }
+
+	private:
+		void Show()
+		{
+			if (!m_Label)
+				return;
+
+			SetText(m_Label, m_Clicks == 0
+				? std::string(Caption)
+				: Caption + std::string(" x") + std::to_string(m_Clicks));
+		}
+
+		Entity m_Label;
+		int m_Clicks = 0;
+	};
+
 	// Called explicitly rather than registered by a static initializer.
 	//
 	// This file's only contents used to be registrar objects, and a linker may
@@ -314,5 +375,7 @@ namespace RageV
 		ScriptRegistry::Register("ImpactFlash", []() -> ScriptableEntity* { return new ImpactFlash(); });
 		ScriptRegistry::Register("ImpactSound", []() -> ScriptableEntity* { return new ImpactSound(); });
 		ScriptRegistry::Register("TriggerZone", []() -> ScriptableEntity* { return new TriggerZone(); });
+		ScriptRegistry::Register("ClickCounter", []() -> ScriptableEntity* { return new ClickCounter(); })
+			.Field<&ClickCounter::Caption>("Caption");
 	}
 }

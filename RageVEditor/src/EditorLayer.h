@@ -10,6 +10,7 @@
 #include "UI/EditorTheme.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Renderer/RenderGraph.h"
+#include "RageV/UI/Interaction.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
 // first.
 #include "imgui.h"
@@ -203,6 +204,23 @@ private:
 	void DrawColliderOverlay();
 	void HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2& imageSize);
 	bool m_IsViewportFocused = false, m_IsViewportHovered = false;
+
+	// --- the game UI's pointer ----------------------------------------------
+	//
+	// A shipped game's UI layer is the window, so the runtime hands the cursor
+	// straight through. Here the same layer is an image inside a docked panel
+	// that can be moved, resized and scaled, and there are two panels that show
+	// it -- so the position has to be mapped, and one of them has to win.
+	//
+	// Captured while a panel is drawn, which is where its geometry is known,
+	// and consumed at the top of the next OnUpdate -- the same place in the
+	// frame the runtime consumes its own, so a button behaves identically in
+	// both rather than nearly identically.
+	void CapturePointer(const ImVec2& imageOrigin, const ImVec2& imageSize,
+						const RageV::Vec2& layerSize, bool hovered);
+
+	RageV::UI::PointerInput m_Pointer;
+	RageV::Vec2 m_PointerLayer = { 0.0f, 0.0f };
 
 	// Panel visibility, driven by the Window menu.
 	bool m_ShowHierarchy = true;

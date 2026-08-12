@@ -621,6 +621,12 @@ namespace
 					FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
 							   "Hides this element. Its children still lay out against it, "
 							   "so hiding a panel does not move the label on it." }),
+				Field<&UIRectComponent::BlocksPointer>("BlocksPointer",
+					FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
+							   "Stops the pointer here instead of letting it reach the "
+							   "game. Off for labels and decoration, which is why a HUD "
+							   "does not eat clicks; on for the backdrop of a modal. A UI "
+							   "Button always blocks, whatever this says." }),
 			};
 			Bind<UIRectComponent>(desc);
 			s_Components.push_back(std::move(desc));
@@ -665,6 +671,34 @@ namespace
 					Drag(0.01f, 0.1f, 4.0f, "Multiplier on the font's own line height.")),
 			};
 			Bind<UITextComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- UI button ---------------------------------------------------------
+		//
+		// Hovered, Pressed and Clicked are deliberately absent. They are what
+		// the pointer did this frame, not what the author chose, and a field
+		// registered here is a field written to the scene file -- a click that
+		// survived a save and a reload would be a click nobody made.
+		{
+			ComponentDesc desc;
+			desc.Name = "UIButtonComponent";
+			desc.DisplayName = "UI Button";
+			desc.Fields = {
+				Field<&UIButtonComponent::Interactable>("Interactable",
+					FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
+							   "Off draws it at the normal tint and lets the pointer "
+							   "through -- a greyed-out button." }),
+				Field<&UIButtonComponent::NormalColor>("NormalColor",
+					Color("At rest. Multiplied into the UI Image on this entity, so "
+						  "white leaves it exactly as authored -- and the default sits "
+						  "below white so that hovering has room to brighten.")),
+				Field<&UIButtonComponent::HoverColor>("HoverColor",
+					Color("Under the pointer.")),
+				Field<&UIButtonComponent::PressedColor>("PressedColor",
+					Color("Held down on this button.")),
+			};
+			Bind<UIButtonComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
 

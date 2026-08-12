@@ -19,6 +19,7 @@
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Particles/GpuParticles.h"
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/UI/Interaction.h"
 #include "RageV/Math/Math.h"
 
 namespace RageV
@@ -824,6 +825,12 @@ namespace RageV
 			// other script code is.
 			FlushDestroyQueue();
 		}
+
+		// Last, so everything this step could run -- scripts in both languages
+		// and the contact handlers -- has already had its look at the click.
+		// The same contract InputMap::EndFixedStep enforces for action edges:
+		// one press, one step.
+		UI::EndFixedStep(*this);
 	}
 
 	void Scene::DispatchContactEvents()

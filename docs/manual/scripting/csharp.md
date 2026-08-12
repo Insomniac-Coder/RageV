@@ -275,6 +275,56 @@ it. `WasActionPressed` is consumed by the first step that runs and carried
 forward by a frame that runs none, so a press is never missed and never seen
 twice.
 
+### One extra line, once there is a UI
+
+The action map does not know a canvas exists, so a click on a pause button is
+also a click at the world behind it. The symptom is *"the gun fires when I open
+the menu"* — a gameplay bug, nowhere near the menu that caused it:
+
+```csharp
+if (!Input.IsPointerOverUI && Input.WasActionPressed("Fire"))
+    Fire();
+```
+
+Keyboard actions are unaffected. It is true while the pointer is over a button
+— or over a rectangle whose `BlocksPointer` is set, which is how a modal's
+backdrop stops the world behind it — and it stays true for the *whole* of a
+press that began on a button, even if the hand has since moved off it.
+
+## The game's UI
+
+A button is a `UIImageComponent` and a `UIButtonComponent` on one entity, with a
+label as a child. Poll it on the fixed step:
+
+```csharp
+public override void OnTick(float dt)
+{
+    if (m_StartButton.WasButtonClicked())
+        StartRound();
+}
+```
+
+On the fixed step, not the frame: a click is an event the game acts on, and
+acting on it twice because one frame ran two steps is what the edge contract
+exists to prevent. Same terms as `WasActionPressed` — consumed by the first step
+that runs, carried forward by a frame with none. A press dragged off the button
+before the release is cancelled and never reported.
+
+Text is a property:
+
+```csharp
+m_ScoreLabel.Text = $"Score: {m_Score}";
+```
+
+That one is a direct call rather than `SetComponentField`, because a score is
+written every frame and nobody should have to know a registry name for the
+commonest thing in a HUD. **Colour deliberately is not**: a UI entity has two of
+them, so it says which —
+
+```csharp
+m_Bar.SetComponentField("UIImageComponent", "Color", "0.9 0.2 0.2 1");
+```
+
 ## Logging
 
 ```csharp

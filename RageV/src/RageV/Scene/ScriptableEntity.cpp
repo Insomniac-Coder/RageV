@@ -5,6 +5,7 @@
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/Application.h"
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/UI/Interaction.h"
 #include "RageV/Math/Math.h"
 
 namespace RageV
@@ -261,4 +262,44 @@ namespace RageV
 	float ScriptableEntity::GetFixedDeltaTime()      { return Application::GetFixedTimestep(); }
 	float ScriptableEntity::GetTime()                { return Application::GetElapsedTime(); }
 	float ScriptableEntity::GetInterpolationAlpha()  { return Application::GetInterpolationAlpha(); }
+
+	bool ScriptableEntity::IsPointerOverUI()         { return UI::WantsPointer(); }
+
+	// -------------------------------------------------------------------------
+	// The game's UI
+	// -------------------------------------------------------------------------
+	void ScriptableEntity::SetText(const std::string& text)
+	{
+		SetText(m_Entity, text);
+	}
+
+	void ScriptableEntity::SetText(Entity entity, const std::string& text)
+	{
+		if (entity && entity.HasComponent<UITextComponent>())
+			entity.GetComponent<UITextComponent>().Text = text;
+	}
+
+	std::string ScriptableEntity::GetText()
+	{
+		return GetText(m_Entity);
+	}
+
+	std::string ScriptableEntity::GetText(Entity entity)
+	{
+		if (entity && entity.HasComponent<UITextComponent>())
+			return entity.GetComponent<UITextComponent>().Text;
+
+		return {};
+	}
+
+	bool ScriptableEntity::WasButtonClicked()
+	{
+		return WasButtonClicked(m_Entity);
+	}
+
+	bool ScriptableEntity::WasButtonClicked(Entity entity)
+	{
+		return entity && entity.HasComponent<UIButtonComponent>()
+			&& entity.GetComponent<UIButtonComponent>().Clicked;
+	}
 }

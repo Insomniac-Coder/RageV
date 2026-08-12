@@ -41,7 +41,8 @@ are all done. So is scripting, in both languages, with live reload in both:
   the errors showing. One rule, both languages. Play pressed during a build
   queues until the build lands.
 - **As of interop protocol 4 the languages are equals**, and protocol 6 gave
-  them both a second rate -- see below: audio, raycasts,
+  them both a second rate; protocol 7 gave them the game's UI -- see below:
+  audio, raycasts,
   hierarchy, and components by registry name with text values all reach C#.
   The one structural exception is typed GetComponent<T>, which cannot cross
   a boundary and is traded for the registry's named access.
@@ -63,7 +64,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1018 checks, `exit 0`. Then look at a frame:
+1059 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -568,6 +569,25 @@ particle systems and rendering within the same frame.
   image, and the post chain has already normalised the orientation -- branching
   on the framebuffer origin is wrong in both directions. `BuildProjection` is
   public and asserted per backend for exactly this reason.
+- **Hit-testing walks the resolved list backwards.** `UI::ResolveScene` returns
+  draw order, so the topmost element -- the only reading of "topmost" that
+  agrees with what is on screen -- is the *last* one in it. Walking forwards
+  finds whatever happens to be lowest and passes anything that does not overlap,
+  which looks correct until two things overlap.
+- **`UIButtonComponent`'s Hovered/Pressed/Clicked are not registered fields.**
+  They describe what the pointer did, not what the author chose, and a
+  registered field is a field the scene file stores -- a click that survived a
+  save and a reload would be a click nobody made. That is also why reading one
+  from C# needed a protocol entry rather than the component bridge.
+- **A click edge is consumed by `UI::EndFixedStep`, at the end of
+  `Scene::OnFixedUpdateRuntime`.** Clearing it per *frame* instead loses the
+  click whenever a frame runs no simulation step; clearing it before the scripts
+  run loses it always. Both are silent, and both are covered.
+- **The pointer must arrive in the UI layer's pixel space**, which is the
+  caller's job because only the caller knows what the screen is. The runtime
+  hands the cursor straight through; the editor maps screen to panel to layer,
+  and the last of those three matters only while a splitter is being dragged --
+  which is precisely when nobody would blame the splitter.
 
 ### Editor UI
 
@@ -2172,28 +2192,39 @@ this. It carries the reasoning; what follows is the state.
 | `Renderer/UIRenderer` | one batched pipeline for sprites and glyphs |
 | `UI/TextLayout` | UTF-8, kerning, wrapping, alignment -- all on the CPU |
 | `UI/Canvas` | anchors, canvas scaling, sort order, resolved over the entity hierarchy |
-| components | `UICanvas`, `UIRect`, `UIImage`, `UIText`, registered and serialized |
+| components | `UICanvas`, `UIRect`, `UIImage`, `UIText`, `UIButton`, registered and serialized |
+| `UI/Interaction` | hit-testing, the button state machine, and `WantsPointer` |
+| protocol 7 | `SetUIText` / `GetUIText` / `WasUIButtonClicked` / `IsPointerOverUI`, both languages |
 
-The demo scene has a HUD and so does the shipped runtime. 1018 checks.
+The demo scene has a HUD **with a working button** and so does the shipped
+runtime. 1059 checks.
 
-**START HERE: 6.4 -- widgets, hit-testing and scripting.** What is left before
-the phase is done:
+**6.4 is done (2026-08-12).** What landed beyond the obvious, each because the
+alternative is a bug nobody can trace:
 
-1. **`UIButtonComponent`** -- normal/hover/pressed tints and an event.
-2. **Hit-testing**, front to back through the resolved list, which
-   `UI::ResolveScene` already returns in draw order (so hit-testing walks it
-   backwards).
-3. **`UI::WantsPointer()`**, and this is the rule that matters: *a UI which
-   swallowed a click has to say so*, or the game fires a weapon when somebody
-   presses the pause button.
-4. **Scripting, both languages, protocol 7** -- set text, set tint, read a
-   button press. `OnFrame` already exists for the animation side.
-5. **6.4b world-space text** -- the same `TextLayout` through a depth-tested
-   pipeline into the HDR target, billboarded, ordered with the transparent
-   content. The shader needs no change: `screenPxRange` is measured from
-   screen-space derivatives precisely so this works under perspective.
-6. **6.x Knockdown gets a title, a score and "press F to reset"** -- the
-   acceptance test for the whole phase, because that absence is why it exists.
+- **Blocking the pointer is opt-in, not opt-out** -- the reasoning is in
+  ENGINE-NOTES 7d and the invariant is in 5. A button blocks regardless.
+- **A press is captured**, so sliding off cancels it and coming back completes
+  it, and `WantsPointer` stays true for the whole gesture.
+- **A click is an edge on `InputMap`'s exact contract**: one press, one step.
+- `ClickCounter` in `BuiltinScripts.cpp` is the worked example and the
+  regression probe -- scenetest presses it and reads the label back, which is
+  the only check here that would notice the step order being wrong.
+
+**START HERE: 6.4b -- world-space text.** The same `TextLayout` through a
+depth-tested pipeline into the HDR target, billboarded, ordered with the
+transparent content. **The shader needs no change**: `screenPxRange` is measured
+from screen-space derivatives precisely so this works under perspective.
+
+Then **6.x: Knockdown gets a title, a score and "press F to reset"** -- the
+acceptance test for the whole phase, because that absence is why it exists.
+
+**One thing 6.4 did not do**, and it is a deliberate omission rather than an
+oversight: a script polls `WasButtonClicked` rather than being called back. A
+callback would need either a name-to-method binding on the component (a second,
+weaker script mechanism) or a per-button script (an entity's worth of ceremony
+for one line). Polling on the fixed step is what the edge contract already
+makes correct, and it is one `if`.
 
 **Deferred to the end of the phase**, with their costs, in ENGINE-NOTES 7d: a
 world-space *canvas* (the input path, not the rendering), rich text, input
@@ -2397,7 +2428,7 @@ debts.
 
 ### Worth knowing before extending scripting further
 
-- **The NativeApi table is append-only and at protocol 6.** Inserting a
+- **The NativeApi table is append-only and at protocol 7.** Inserting a
   field in the middle rebinds every field after it on one side only; the
   crash lands somewhere unrelated. Append, bump kProtocolVersion on both
   sides (Interop.h and Interop.cs), and the handshake tests follow the

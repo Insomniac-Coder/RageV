@@ -62,6 +62,21 @@ public static unsafe class Input
 
 	public static float GetAxis(string axis) =>
 		Native.IsReady ? Native.WithUtf8(axis, utf8 => Native.Api.GetAxis(utf8)) : 0.0f;
+
+	/// <summary>Whether the game's UI has the pointer this frame.</summary>
+	/// <remarks>
+	/// <b>Ask this before acting on a click.</b> The action map does not know a
+	/// canvas exists, so without it a press on the pause button also fires the
+	/// weapon behind it — and that reads as a gameplay bug, nowhere near the
+	/// menu that caused it.
+	/// <code>
+	/// if (!Input.IsPointerOverUI &amp;&amp; Input.WasActionPressed("Fire"))
+	///     Fire();
+	/// </code>
+	/// Keyboard actions are unaffected: this is about the pointer.
+	/// </remarks>
+	public static bool IsPointerOverUI =>
+		Native.IsReady && Native.Api.IsPointerOverUI() != 0;
 }
 
 /// <summary>The simulation clock.</summary>
@@ -483,6 +498,61 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 				Native.WithUtf8(value, valueUtf8 =>
 					Native.Api.SetComponentField(id, componentUtf8, fieldUtf8, valueUtf8)))) != 0;
 	}
+
+	// --- the game's UI ---
+
+	/// <summary>This entity's UI Text, if it has one. Empty otherwise.</summary>
+	/// <remarks>
+	/// A direct entry rather than <see cref="SetComponentField"/> because a
+	/// score or a timer is written every frame, and because nobody should have
+	/// to know the registry name of the commonest thing in a HUD.
+	/// <para>
+	/// Colour is not here for the opposite reason: a UI entity has two of them,
+	/// the image's and the text's, so it goes through the component bridge,
+	/// which says which — <c>SetComponentField("UIImageComponent", "Color",
+	/// "1 0 0 1")</c>.
+	/// </para>
+	/// </remarks>
+	public string Text
+	{
+		get
+		{
+			if (!Native.IsReady)
+				return string.Empty;
+
+			// Length first, then the copy. The native side answers the length
+			// that *would* have fit, so a long label is read whole rather than
+			// silently clipped -- the GetEntityName contract.
+			int needed = Native.Api.GetUIText(Id, null, 0);
+			if (needed <= 0)
+				return string.Empty;
+
+			byte[] buffer = new byte[needed + 1];
+			fixed (byte* pointer = buffer)
+			{
+				Native.Api.GetUIText(Id, pointer, needed + 1);
+				return System.Runtime.InteropServices.Marshal.PtrToStringUTF8((IntPtr)pointer) ?? string.Empty;
+			}
+		}
+		set
+		{
+			if (!Native.IsReady)
+				return;
+
+			ulong id = Id;
+			Native.WithUtf8<int>(value ?? string.Empty, utf8 => Native.Api.SetUIText(id, utf8));
+		}
+	}
+
+	/// <summary>A completed press on this entity's UI Button — down and up, both on it.</summary>
+	/// <remarks>
+	/// True for one simulation step, the same contract
+	/// <see cref="Input.WasActionPressed"/> has, so polling it from
+	/// <c>OnTick</c> sees each click exactly once. A press that slides off the
+	/// button before release is cancelled and never reported.
+	/// </remarks>
+	public bool WasButtonClicked() =>
+		Native.IsReady && Native.Api.WasUIButtonClicked(Id) != 0;
 }
 
 /// <summary>One raycast answer. Test with <c>if (hit)</c>.</summary>

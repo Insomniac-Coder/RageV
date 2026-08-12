@@ -23,6 +23,7 @@
 #include "RageV/Renderer/UIRenderer.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/UI/Canvas.h"
+#include "RageV/UI/Interaction.h"
 #include "ImGuizmo.h"
 #include "RageV/ImGui/ImGuiBinding.h"
 #include "RageV/Math/Math.h"
@@ -288,6 +289,17 @@ void EditorLayer::OnUpdate(Timestep ts)
 	if (!cmd)
 		return;
 
+	// The pointer a panel recorded last frame, spent before the scripts that
+	// will read it -- the same order the runtime uses.
+	//
+	// Cleared afterwards rather than before, so a frame in which neither
+	// viewport was hovered parks the pointer instead of leaving a button lit
+	// under a cursor that has moved to the inspector.
+	if (m_SceneState != SceneState::Edit)
+		UI::UpdatePointer(*m_Scene, m_PointerLayer.x, m_PointerLayer.y, m_Pointer);
+
+	m_Pointer.Inside = false;
+
 	// Presentational per-frame work. Simulation happens on the fixed step in
 	// OnFixedUpdate, and only while playing.
 	if (m_SceneState == SceneState::Edit)
@@ -423,6 +435,14 @@ void EditorLayer::OnUpdate(Timestep ts)
 			m_Scene->OnRenderRuntime(m_GameViewportSize.x / m_GameViewportSize.y);
 		};
 
+		// The panel's whole claim is that it shows what the player sees, and a
+		// player sees the HUD. Resolved against this panel's own size rather
+		// than the scene view's, which is the point of a canvas that scales.
+		game.DrawUI = [this](RGPassContext& context)
+		{
+			UI::DrawScene(*m_Scene, context.Width, context.Height);
+		};
+
 		if (Particles::System::HasWeightedEmitters(*m_Scene))
 		{
 			game.DrawTransparent = [](RGPassContext&) { ParticleRenderer::FlushWeighted(); };
@@ -443,6 +463,31 @@ void EditorLayer::OnUpdate(Timestep ts)
 				RV_ERROR("Render graph (game view): {0}", error);
 		}
 	}
+}
+
+// One panel's claim on the pointer, recorded for the next OnUpdate.
+//
+// The mapping is two steps and both are needed: screen to panel-local, then
+// panel pixels to *layer* pixels. Those last two agree except on the frame a
+// panel is resized -- the render target follows a frame later, by design (see
+// ApplyPendingResizes) -- and skipping the ratio would put every button a few
+// pixels out for exactly as long as somebody is dragging a splitter, which is
+// precisely when they are least likely to blame the splitter.
+void EditorLayer::CapturePointer(const ImVec2& imageOrigin, const ImVec2& imageSize,
+								 const Vec2& layerSize, bool hovered)
+{
+	if (!hovered || imageSize.x <= 0.0f || imageSize.y <= 0.0f)
+		return;
+
+	const ImVec2 mouse = ImGui::GetMousePos();
+	const Vec2 local{ mouse.x - imageOrigin.x, mouse.y - imageOrigin.y };
+
+	m_PointerLayer = layerSize;
+	m_Pointer.X = local.x * (layerSize.x / imageSize.x);
+	m_Pointer.Y = local.y * (layerSize.y / imageSize.y);
+	m_Pointer.Down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+	m_Pointer.Inside = local.x >= 0.0f && local.y >= 0.0f
+					&& local.x < imageSize.x && local.y < imageSize.y;
 }
 
 // Click to select, the way every editor works.
@@ -612,6 +657,11 @@ void EditorLayer::OnScenePlay()
 	m_SceneSnapshot = serializer.SerializeToString();
 
 	m_SceneState = SceneState::Play;
+	// Whatever the cursor was doing before Play was pressed is not the start of
+	// a click on anything.
+	UI::ResetPointer(*m_Scene);
+	m_Pointer = {};
+
 	// After the snapshot: the bodies are built from the scene as it is being
 	// left, and torn down before it is restored.
 	m_Scene->OnRuntimeStart();
@@ -634,6 +684,11 @@ void EditorLayer::OnSceneStop()
 	m_SceneState = SceneState::Edit;
 	m_Scene->OnRuntimeStop();
 	m_SceneHierarchyPanel.SetSelectedEntity({});
+
+	// Before the restore replaces every entity: a capture naming an entity that
+	// no longer exists would be a press nobody could ever complete.
+	UI::ResetPointer(*m_Scene);
+	m_Pointer = {};
 
 	SceneSerializer serializer(m_Scene);
 	if (!serializer.DeserializeFromString(m_SceneSnapshot))
@@ -1942,6 +1997,13 @@ void EditorLayer::DrawViewportPanel()
 					 ImVec2{ 0, flip ? 1.0f : 0.0f }, ImVec2{ 1, flip ? 0.0f : 1.0f });
 	}
 
+	// Only while the scene is actually running, and only when this panel is the
+	// one showing it. Hovering a button in edit mode must not light it up: the
+	// rectangle under the cursor there is something being *authored*, and the
+	// click belongs to picking.
+	CapturePointer(imageOrigin, viewportSize, m_ViewportSize,
+				   m_IsViewportHovered && m_SceneState != SceneState::Edit);
+
 	// Before the gizmo, so ImGuizmo has not yet claimed the mouse this frame,
 	// and after the image, so the origin above is the image's.
 	HandleViewportPicking(imageOrigin, viewportSize);
@@ -1984,10 +2046,19 @@ void EditorLayer::DrawGameViewportPanel()
 	}
 	else if (auto color = m_GameTarget->GetColorTexture(0))
 	{
+		// Captured before the image is drawn, which is where the cursor still
+		// reports this panel's own top-left corner.
+		const ImVec2 imageOrigin = ImGui::GetCursorScreenPos();
+
 		const ImTextureID handle = (ImTextureID)color->GetImGuiHandle();
 		const bool flip = Renderer::GetDevice().GetBackend() == RHI::Backend::OpenGL;
 		ImGui::Image(handle, size,
 					 ImVec2{ 0, flip ? 1.0f : 0.0f }, ImVec2{ 1, flip ? 0.0f : 1.0f });
+
+		// This panel wins over the scene view when the cursor is in it, because
+		// it is drawn second and the two cannot both be hovered.
+		CapturePointer(imageOrigin, size, m_GameViewportSize,
+					   ImGui::IsWindowHovered() && m_SceneState != SceneState::Edit);
 
 		// Which camera won, and why -- otherwise a scene with several cameras
 		// gives no clue about what is being looked through.

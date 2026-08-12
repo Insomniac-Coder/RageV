@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "Canvas.h"
+#include "Interaction.h"
 #include "TextLayout.h"
 
 #include "RageV/Scene/Scene.h"
@@ -82,11 +83,18 @@ namespace RageV::UI
 			// must not move the label on it.
 			if (rect.Visible)
 			{
+				// A live button always takes the pointer, whatever the rect
+				// says. Anything else has to ask -- see UIRectComponent.
+				const bool interactive =
+					entity.HasComponent<UIButtonComponent>() &&
+					entity.GetComponent<UIButtonComponent>().Interactable;
+
 				ResolvedElement element;
 				element.Entity = (uint64_t)entity.GetUUID();
 				element.Rect = resolved;
 				element.Scale = scale;
 				element.SortOrder = rect.SortOrder;
+				element.BlocksPointer = rect.BlocksPointer || interactive;
 				element.Sequence = sequence++;
 				out.push_back(element);
 			}
@@ -184,10 +192,17 @@ namespace RageV::UI
 				RHI::Ref<RHI::RHITexture> texture =
 					image.Texture.IsValid() ? Assets::Manager::GetTexture(image.Texture) : nullptr;
 
+				// A button has no look of its own; it tints the image under it.
+				// Multiplied, so an untouched button with a white Normal draws
+				// exactly what the image says.
+				Vec4 color = image.Color;
+				if (entity.HasComponent<UIButtonComponent>())
+					color = color * ButtonTint(entity.GetComponent<UIButtonComponent>());
+
 				if (texture)
-					UIRenderer::DrawImage(pixels, texture, image.Color);
+					UIRenderer::DrawImage(pixels, texture, color);
 				else
-					UIRenderer::DrawRect(pixels, image.Color);
+					UIRenderer::DrawRect(pixels, color);
 			}
 
 			if (entity.HasComponent<UITextComponent>())

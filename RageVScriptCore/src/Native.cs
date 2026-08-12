@@ -100,6 +100,14 @@ internal unsafe struct NativeApi
 
 	// --- appended for protocol 6: the per-frame hook ------------------------
 	public delegate* unmanaged[Cdecl]<float> GetInterpolationAlpha;
+
+	// --- appended for protocol 7: the game's UI -----------------------------
+	// Colour is absent deliberately: a UI entity has two of them, so it goes
+	// through SetComponentField, which names which one.
+	public delegate* unmanaged[Cdecl]<ulong, byte*, int> SetUIText;
+	public delegate* unmanaged[Cdecl]<ulong, byte*, int, int> GetUIText;
+	public delegate* unmanaged[Cdecl]<ulong, int> WasUIButtonClicked;
+	public delegate* unmanaged[Cdecl]<int> IsPointerOverUI;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>

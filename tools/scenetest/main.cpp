@@ -49,6 +49,7 @@
 #include "RageV/Renderer/UIRenderer.h"
 #include "RageV/UI/TextLayout.h"
 #include "RageV/UI/Canvas.h"
+#include "RageV/UI/Interaction.h"
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
 #include "RageV/Renderer/ShadowMap.h"
@@ -4288,6 +4289,401 @@ void main()
 		}
 	}
 
+	// Hit-testing, the button state machine, and who owns the pointer.
+	//
+	// **Every failure here is a click that went to the wrong place**, and none
+	// of them is visible in a screenshot: a click that reached the game through
+	// a menu looks exactly like a click that did not, until somebody fires a
+	// weapon while pressing Pause. So the whole path is arithmetic over a
+	// resolved list, and the whole path runs with no window.
+	//
+	// The pointer's state machine is global -- one cursor, one capture -- so
+	// each block resets it first rather than inheriting whatever the last one
+	// left half-pressed.
+	void CheckUIInteraction()
+	{
+		// A canvas whose units are pixels, so a rectangle's numbers are the
+		// numbers the pointer is compared against and a failure is readable.
+		auto build = [](const std::shared_ptr<Scene>& scene, CanvasScaleMode mode)
+		{
+			Entity canvas = scene->CreateEntity("Canvas");
+			canvas.AddComponent<UICanvasComponent>().ScaleMode = mode;
+			return canvas;
+		};
+
+		auto addRect = [](const std::shared_ptr<Scene>& scene, const char* name,
+						  Entity parent, float x, float y, float w, float h, int32_t order)
+		{
+			Entity e = scene->CreateEntity(name);
+			scene->SetParent(e, parent);
+
+			UIRectComponent& rect = e.AddComponent<UIRectComponent>();
+			rect.AnchorMin = Vec2(0.0f, 0.0f);
+			rect.AnchorMax = Vec2(0.0f, 0.0f);
+			rect.OffsetMin = Vec2(x, y);
+			rect.OffsetMax = Vec2(x + w, y + h);
+			rect.SortOrder = order;
+			return e;
+		};
+
+		// --- what the pointer stops at -----------------------------------------
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
+
+			Entity back = addRect(scene, "Back", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			Entity front = addRect(scene, "Front", canvas, 50.0f, 50.0f, 100.0f, 100.0f, 1);
+			back.AddComponent<UIButtonComponent>();
+			front.AddComponent<UIButtonComponent>();
+
+			std::vector<UI::ResolvedElement> elements =
+				UI::ResolveScene(*scene, 400.0f, 400.0f);
+
+			auto hitEntity = [&](float x, float y) -> uint64_t
+			{
+				const int32_t index = UI::HitTest(elements, x, y);
+				return index >= 0 ? elements[index].Entity : 0;
+			};
+
+			// The overlap is the whole test. Both rectangles cover (75, 75), and
+			// the one drawn last is the one a hand aiming at the screen meant.
+			Check(hitEntity(75.0f, 75.0f) == (uint64_t)front.GetUUID(),
+				  "where two buttons overlap, the pointer hits the one drawn on top");
+			Check(hitEntity(25.0f, 25.0f) == (uint64_t)back.GetUUID(),
+				  "and hits the lower one where only it covers the point");
+			Check(hitEntity(300.0f, 300.0f) == 0,
+				  "and hits nothing outside every rectangle");
+
+			// A label over a button. This is the case Unity gets wrong by
+			// default and the reason BlocksPointer exists: decoration must not
+			// eat the click aimed through it.
+			Entity label = addRect(scene, "Label", canvas, 0.0f, 0.0f, 400.0f, 400.0f, 99);
+			label.AddComponent<UITextComponent>();
+
+			elements = UI::ResolveScene(*scene, 400.0f, 400.0f);
+			Check(hitEntity(75.0f, 75.0f) == (uint64_t)front.GetUUID(),
+				  "a label drawn over a button does not take the pointer from it");
+
+			label.GetComponent<UIRectComponent>().BlocksPointer = true;
+			elements = UI::ResolveScene(*scene, 400.0f, 400.0f);
+			Check(hitEntity(75.0f, 75.0f) == (uint64_t)label.GetUUID(),
+				  "and does take it once it asks to -- a modal's backdrop");
+
+			label.GetComponent<UIRectComponent>().BlocksPointer = false;
+
+			// A greyed-out button is not a hole in the UI *and* not a target.
+			front.GetComponent<UIButtonComponent>().Interactable = false;
+			elements = UI::ResolveScene(*scene, 400.0f, 400.0f);
+			Check(hitEntity(75.0f, 75.0f) == (uint64_t)back.GetUUID(),
+				  "a button that is not interactable lets the pointer through to "
+				  "what is behind it");
+
+			// Hidden is hidden for input too, or a faded-out menu keeps
+			// answering clicks nobody can see they are making.
+			front.GetComponent<UIButtonComponent>().Interactable = true;
+			front.GetComponent<UIRectComponent>().Visible = false;
+			elements = UI::ResolveScene(*scene, 400.0f, 400.0f);
+			Check(hitEntity(75.0f, 75.0f) == (uint64_t)back.GetUUID(),
+				  "and an invisible one cannot be clicked either");
+		}
+
+		// --- the pointer is in pixels, the layout is not -------------------------
+		//
+		// The bug this catches is silent and only on somebody else's monitor: a
+		// hit test done in canvas units is right at the reference resolution and
+		// wrong at every other one, by exactly the scale factor.
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ScaleWithScreen);
+
+			Entity button = addRect(scene, "Button", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			button.AddComponent<UIButtonComponent>();
+
+			// Twice the reference resolution on both axes, so the scale is 2 and
+			// the 100-unit button covers 200 pixels.
+			const std::vector<UI::ResolvedElement> elements =
+				UI::ResolveScene(*scene, 3840.0f, 2160.0f);
+
+			Check(UI::HitTest(elements, 150.0f, 150.0f) >= 0,
+				  "at twice the reference resolution the button covers twice the pixels");
+			Check(UI::HitTest(elements, 250.0f, 250.0f) < 0,
+				  "and stops where it is drawn, not where its units end");
+		}
+
+		// --- press, release, and the gesture in between --------------------------
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
+
+			Entity a = addRect(scene, "A", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			Entity b = addRect(scene, "B", canvas, 200.0f, 0.0f, 100.0f, 100.0f, 0);
+			a.AddComponent<UIButtonComponent>();
+			b.AddComponent<UIButtonComponent>();
+
+			auto move = [&](float x, float y, bool down)
+			{
+				UI::PointerInput pointer;
+				pointer.X = x;
+				pointer.Y = y;
+				pointer.Down = down;
+				pointer.Inside = true;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+			};
+
+			const UIButtonComponent& buttonA = a.GetComponent<UIButtonComponent>();
+			const UIButtonComponent& buttonB = b.GetComponent<UIButtonComponent>();
+
+			UI::ResetPointer(*scene);
+
+			move(50.0f, 50.0f, false);
+			Check(buttonA.Hovered && !buttonA.Pressed && !buttonA.Clicked,
+				  "hovering a button hovers it and nothing else");
+			Check(!buttonB.Hovered, "and leaves the other one alone");
+
+			move(50.0f, 50.0f, true);
+			Check(buttonA.Pressed && !buttonA.Clicked,
+				  "holding it down presses it, and a press is not yet a click");
+
+			move(50.0f, 50.0f, false);
+			Check(buttonA.Clicked, "releasing on it completes the click");
+			Check(!buttonB.Clicked, "and clicks nothing else");
+
+			UI::EndFixedStep(*scene);
+			Check(!buttonA.Clicked, "which the next simulation step consumes");
+
+			// The cancelled press. Every desktop toolkit does this, and it is
+			// the difference between a button and a tripwire.
+			UI::ResetPointer(*scene);
+			move(50.0f, 50.0f, true);
+			move(250.0f, 50.0f, true);
+			Check(!buttonA.Pressed, "sliding off a held button un-presses it");
+			Check(!buttonB.Pressed,
+				  "and does not press the one it slid onto -- that press began elsewhere");
+
+			move(250.0f, 50.0f, false);
+			Check(!buttonA.Clicked && !buttonB.Clicked,
+				  "and releasing over a different button clicks neither of them");
+
+			// ...and coming back completes it, because the press was cancelled,
+			// not thrown away.
+			UI::ResetPointer(*scene);
+			move(50.0f, 50.0f, true);
+			move(250.0f, 50.0f, true);
+			move(50.0f, 50.0f, true);
+			Check(buttonA.Pressed, "coming back to it presses it again");
+			move(50.0f, 50.0f, false);
+			Check(buttonA.Clicked, "and the release then counts");
+
+			// A press begun on nothing stays nothing, however it ends.
+			UI::ResetPointer(*scene);
+			UI::EndFixedStep(*scene);
+			move(350.0f, 350.0f, true);
+			move(50.0f, 50.0f, true);
+			move(50.0f, 50.0f, false);
+			Check(!buttonA.Clicked,
+				  "a press that began on empty space cannot click what it ends on");
+		}
+
+		// --- who owns the pointer -----------------------------------------------
+		//
+		// The one rule in ENGINE-NOTES 7d, and the reason any of this is public.
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
+
+			Entity button = addRect(scene, "Button", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			button.AddComponent<UIButtonComponent>();
+
+			Entity label = addRect(scene, "Label", canvas, 200.0f, 0.0f, 100.0f, 100.0f, 0);
+			label.AddComponent<UITextComponent>();
+
+			auto move = [&](float x, float y, bool down, bool inside = true)
+			{
+				UI::PointerInput pointer;
+				pointer.X = x;
+				pointer.Y = y;
+				pointer.Down = down;
+				pointer.Inside = inside;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+			};
+
+			UI::ResetPointer(*scene);
+
+			move(350.0f, 350.0f, false);
+			Check(!UI::WantsPointer(), "over empty space the UI does not want the pointer");
+
+			move(250.0f, 50.0f, false);
+			Check(!UI::WantsPointer(),
+				  "over a plain label it still does not -- a HUD is not a wall");
+
+			move(50.0f, 50.0f, false);
+			Check(UI::WantsPointer(), "over a button it does");
+
+			// The case that costs a bug report: the hand moves between press and
+			// release, and without capture the release reaches the game.
+			move(50.0f, 50.0f, true);
+			move(350.0f, 350.0f, true);
+			Check(UI::WantsPointer(),
+				  "and keeps it for the whole of a press that began on a button, "
+				  "even dragged clear of it");
+
+			move(350.0f, 350.0f, false);
+			Check(!UI::WantsPointer(), "letting go over nothing gives it back");
+
+			// A cursor that has left the window entirely is over nothing at all.
+			move(50.0f, 50.0f, false, /*inside*/ false);
+			Check(!UI::WantsPointer(),
+				  "and a pointer outside the layer wants nothing, wherever it reports "
+				  "itself to be");
+		}
+
+		// --- the tint, which is the only part anybody sees ------------------------
+		{
+			UIButtonComponent button;
+			button.NormalColor = Vec4(0.1f, 0.0f, 0.0f, 1.0f);
+			button.HoverColor = Vec4(0.2f, 0.0f, 0.0f, 1.0f);
+			button.PressedColor = Vec4(0.3f, 0.0f, 0.0f, 1.0f);
+
+			Check(UI::ButtonTint(button).x == 0.1f, "an untouched button draws at rest");
+
+			button.Hovered = true;
+			Check(UI::ButtonTint(button).x == 0.2f, "a hovered one at its hover tint");
+
+			button.Pressed = true;
+			Check(UI::ButtonTint(button).x == 0.3f,
+				  "and a held one at its pressed tint, which wins over hover");
+
+			// Pressed and hovered are both still set here: the point is that a
+			// button nobody can use looks like one nobody can use.
+			button.Interactable = false;
+			Check(UI::ButtonTint(button).x == 0.1f,
+				  "a button that is not interactable stays at rest whatever the "
+				  "pointer is doing");
+		}
+
+		// --- an edge is consumed once, and never lost ----------------------------
+		//
+		// The same contract InputMap has, and the same reason: a frame that runs
+		// three simulation steps must not fire a button three times, and a frame
+		// that runs none must not swallow the click.
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
+
+			Entity button = addRect(scene, "Button", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			button.AddComponent<UIButtonComponent>();
+
+			auto move = [&](bool down)
+			{
+				UI::PointerInput pointer;
+				pointer.X = 50.0f;
+				pointer.Y = 50.0f;
+				pointer.Down = down;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+			};
+
+			const UIButtonComponent& state = button.GetComponent<UIButtonComponent>();
+
+			UI::ResetPointer(*scene);
+			move(true);
+			move(false);
+			Check(state.Clicked, "a click is set on the release");
+
+			// Two frames of pointer movement with no step in between -- what a
+			// frame rate above the simulation rate does constantly.
+			move(false);
+			move(false);
+			Check(state.Clicked,
+				  "and survives frames that run no simulation step, rather than "
+				  "being lost between them");
+
+			UI::EndFixedStep(*scene);
+			Check(!state.Clicked, "the first step that runs consumes it");
+			UI::EndFixedStep(*scene);
+			Check(!state.Clicked, "and a second step in the same frame does not see it again");
+		}
+
+		// --- the whole chain, through a script -----------------------------------
+		//
+		// Everything above tests one link. This one presses a button and looks
+		// at the label, which is what somebody playing the game does -- and it
+		// is the only check here that would notice the step order being wrong,
+		// the edge being cleared before scripts ran, or a click reaching the
+		// component and no further.
+		//
+		// ClickCounter is the built-in worked example, so this doubles as its
+		// regression probe.
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
+
+			Entity button = addRect(scene, "Button", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			button.AddComponent<UIButtonComponent>();
+			button.AddComponent<NativeScriptComponent>("ClickCounter");
+
+			Entity label = addRect(scene, "Label", button, 0.0f, 0.0f, 100.0f, 40.0f, 1);
+			label.AddComponent<UITextComponent>();
+
+			auto move = [&](bool down)
+			{
+				UI::PointerInput pointer;
+				pointer.X = 50.0f;
+				pointer.Y = 50.0f;
+				pointer.Down = down;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+			};
+
+			auto caption = [&] { return label.GetComponent<UITextComponent>().Text; };
+
+			constexpr float dt = 1.0f / 60.0f;
+			UI::ResetPointer(*scene);
+			scene->OnRuntimeStart();
+			scene->OnFixedUpdateRuntime(dt);
+
+			Check(caption() == "Click me",
+				  "a button script writes its caption into the label as it starts");
+
+			// One frame: the pointer, then the step that reads it. The order the
+			// runtime and the editor both use.
+			move(true);
+			move(false);
+			scene->OnFixedUpdateRuntime(dt);
+			Check(caption() == "Click me x1", "clicking it once is counted once");
+
+			// Three steps with no further input. The click was consumed by the
+			// first, so the other two must see nothing -- this is the check that
+			// catches an edge that is never cleared.
+			scene->OnFixedUpdateRuntime(dt);
+			scene->OnFixedUpdateRuntime(dt);
+			scene->OnFixedUpdateRuntime(dt);
+			Check(caption() == "Click me x1",
+				  "and stays counted once however many steps follow");
+
+			move(true);
+			move(false);
+			scene->OnFixedUpdateRuntime(dt);
+			Check(caption() == "Click me x2", "a second click counts again");
+
+			// A press cancelled by moving away is not a click, all the way
+			// through to the label.
+			UI::ResetPointer(*scene);
+			{
+				UI::PointerInput pointer;
+				pointer.X = 50.0f; pointer.Y = 50.0f; pointer.Down = true;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+				pointer.X = 350.0f; pointer.Y = 350.0f;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+				pointer.Down = false;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+			}
+			scene->OnFixedUpdateRuntime(dt);
+			Check(caption() == "Click me x2",
+				  "and a press dragged off the button never reaches the script at all");
+
+			scene->OnRuntimeStop();
+		}
+	}
+
 	// Text layout.
 	//
 	// Every one of these runs on the CPU with no window and no device, which is
@@ -6259,6 +6655,7 @@ int RunTests(int argc, char** argv)
 	CheckFont();
 	CheckTextLayout();
 	CheckCanvasLayout();
+	CheckUIInteraction();
 	CheckUIRenderer();
 	CheckViewportGrid();
 	CheckRenderersReady();
@@ -6880,6 +7277,10 @@ int RunTests(int argc, char** argv)
 			Entity probe = scene->CreateEntity("InteropProbe");
 			probe.GetComponent<TransformComponent>().Position = { 3.0f, 4.0f, 5.0f };
 
+			// Three characters, so the self-test's length check is a number
+			// nothing else in the table happens to return.
+			probe.AddComponent<UITextComponent>().Text = "hud";
+
 			Managed::Interop::SetScene(scene.get());
 			Check(Managed::Interop::Init(assembly), "the interop table is handed to managed code");
 
@@ -6908,12 +7309,13 @@ int RunTests(int argc, char** argv)
 						"a float return crosses, from a call with no arguments",
 						"a destroyed or unknown entity answers rather than faults",
 						"managed code can reach the engine log",
+						"the table's last entries line up, which is where an append goes wrong",
 					};
 
 					for (int bit = 0; bit < (int)std::size(kShapes); bit++)
 						Check((result & (1 << bit)) != 0, kShapes[bit]);
 
-					Check(result == 511, "every shape that crosses the boundary works");
+					Check(result == 1023, "every shape that crosses the boundary works");
 				}
 
 				// The engine's own view of the table, so a change to it is

@@ -58,6 +58,11 @@ namespace RageV::UI
 		float Scale = 1.0f;       // canvas units to screen pixels
 		int32_t SortOrder = 0;
 
+		// Whether the pointer stops at this rectangle. Resolved here, with the
+		// geometry, so hit-testing is a walk over this list and nothing else --
+		// no scene lookups, and testable against a list built by hand.
+		bool BlocksPointer = false;
+
 		// Where it came out of the walk, so equal sort orders keep hierarchy
 		// order rather than whatever the sort felt like doing.
 		uint32_t Sequence = 0;

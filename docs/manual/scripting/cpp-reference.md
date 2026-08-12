@@ -134,6 +134,19 @@ By action name, never by key code. See `RageV/Core/InputMap.h` for the bindings.
 | `WasActionPressed` | Went down since the last step. Consumed by the first step that runs, so it is never missed and never seen twice. |
 | `WasActionReleased` | Came up since the last step. |
 | `GetAxis` | Axis value. Unknown axes read zero rather than failing. |
+| `IsPointerOverUI` | Whether the game's UI has the pointer this frame. **Ask before acting on a click** — the action map does not know a canvas exists. Static. |
+
+## The game's UI
+
+Conveniences over components `GetComponent` reaches perfectly well. They exist
+because this is the surface C# mirrors, and because a label and a button are
+what a game touches most.
+
+| Member | Description |
+|---|---|
+| `SetText` | A `UITextComponent`'s string, on this entity or another. Does nothing without the component. |
+| `GetText` | Reads it back; empty without the component. |
+| `WasButtonClicked` | A completed press — down and up, both on the same button. True for one simulation step, the same contract `WasActionPressed` has. A press dragged off the button before release is cancelled and never reported. |
 
 ## Time
 
