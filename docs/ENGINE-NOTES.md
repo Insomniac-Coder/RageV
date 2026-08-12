@@ -848,9 +848,51 @@ for the pass.
 - Wins only when the number of probes is large enough that A's extra binds
   matter, and this renderer draws 60 batches for 1000 meshes.
 
-**Take A.** B is where this goes if a scene ever has dozens of probes in view at
-once, and A does not block it: the selection logic -- which probe does this
-object want -- is identical either way, and only the delivery differs.
+**Decision: B**, taken by the user on 2026-08-12 against my recommendation of A.
+
+I argued for A on cost, and the argument does not survive contact with what the
+engine is for. A is one scene descriptor set per probe *in view* plus a sort key
+that fragments runs -- both of which get worse exactly as scenes get bigger,
+which is the direction this engine is going. B costs a feature in the RHI once
+and is then free forever: one bind for the pass, an index per instance, and a
+run that never splits because two objects wanted different reflections.
+
+The resolution objection was the real one, and it has an answer better than
+either option I first wrote down: **group probes into one array per resolution.**
+A scene using 128 everywhere gets one array and one bind, which is the common
+case; a scene mixing 128 and 512 gets two. That keeps the per-probe field, keeps
+the single bind for any sane scene, and degrades to A's bind count only if
+somebody uses a different resolution for every probe.
+
+### What B needs, in order
+
+1. **Cube arrays in the RHI.** Creation, view, and upload, on Vulkan and
+   OpenGL. This is the only genuinely new capability, and it is the reason the
+   cheap option was tempting.
+2. **The sky occupies slot 0 of every array.** "No probe within influence" then
+   costs no branch and no sentinel -- it is an index like any other, and the
+   shader samples the array the same way for every surface. A `-1` meaning sky
+   would put a conditional in the hot path for the most common case.
+3. **An index per instance**, alongside the model matrix that is already there.
+   Selection stays exactly what A would have done -- nearest probe whose
+   `Influence` reaches this object, else 0 -- and that logic is shared, which is
+   why the design work above was not wasted.
+4. **Irradiance has the same shape and the same problem.** A probe's diffuse
+   contribution is per probe too; today there is one irradiance cube for the
+   scene. Either a second array indexed identically, or accept scene-wide
+   irradiance and say so. **Do not leave this undecided** -- a scene whose
+   reflections move per object while its ambient does not is a bug that reads
+   as a lighting artefact.
+5. **`samplerCubeArray` in the PBR shader**, and in the skinned variant.
+
+### The trap A had, and B does not
+
+A needed the probe *sorted on* rather than merely compared, or two objects
+wanting different probes would land in one instanced draw. B has no such rule:
+the index rides the instance, so a run can hold objects using any mix of probes.
+That is the clearest statement of why B is the better shape, and it is worth
+keeping because it is the kind of constraint that is invisible until it is
+violated.
 
 ### Two things to get right, both of which look like bugs when they are wrong
 

@@ -2329,7 +2329,38 @@ optimisations in this renderer measured as worth nothing.
 > swung 0.78 to 0.23 between runs of an identical build. `--frame-time=<seconds>`
 > now pins it, and any future screenshot comparison should use it.
 
-**START HERE: phase 7.** Of it, materials as assets is the one that unblocks
+**START HERE: 7.7, per-object reflection probes, shape B.** Designed in
+ENGINE-NOTES §7e -- **read that first**, it carries the reasoning and the
+ordering. The short version:
+
+Today `Scene::ResolveEnvironment` picks one probe for the whole pass by distance
+from the *camera*, and it lands in the scene descriptor set which is bound once
+per pipeline change. Several probes therefore means every reflective surface
+reflects whichever is nearest the viewer. It is a **correctness** bug; an
+earlier version of this section sold it as a 31% performance win on a benchmark
+that had measured a realtime probe in a scene that opted into one.
+
+The work, in order:
+
+1. **Cube arrays in the RHI** -- creation, view, upload, both backends. The only
+   new capability, and the reason the cheaper shape was tempting.
+2. **One array per probe resolution**, so the per-probe `Resolution` field
+   survives. A scene using 128 everywhere gets one array and one bind.
+3. **The sky at slot 0 of every array**, so "no probe in influence" is an index
+   rather than a branch in the hot path.
+4. **An index per instance**, beside the model matrix. Selection is: nearest
+   probe whose `Influence` reaches this object, else 0.
+5. **Irradiance has the same shape** -- decide it rather than leave it. A scene
+   whose reflections move per object while its ambient does not reads as a
+   lighting bug.
+6. `samplerCubeArray` in the PBR shader and the skinned variant.
+
+**Verification is specified because a screenshot of one probe looks identical
+either way**: generate two probes with visibly different surroundings, put a
+reflective object beside each, and place the camera nearer the *wrong* one. The
+current build shows both objects reflecting the same thing.
+
+**Then the rest of phase 7.** Materials as assets is the one that unblocks
 ordinary authoring -- two entities still cannot share a material from the
 inspector.
 
