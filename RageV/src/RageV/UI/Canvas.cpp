@@ -246,4 +246,119 @@ namespace RageV::UI
 
 		UIRenderer::End();
 	}
+
+	void BillboardAxes(TextBillboard mode, const Mat4& cameraTransform,
+					   const Mat4& entityTransform, Vec3& right, Vec3& up)
+	{
+		// A world matrix's first three columns are its axes, and they carry the
+		// scale with them -- which is wanted for the entity's own plane (a
+		// scaled sign has bigger letters) and emphatically not for a billboard,
+		// where a scaled camera rig would change the size of every nameplate in
+		// the world. So the camera's are normalised and the entity's are not.
+		const Vec3 cameraRight = Math::Normalize(Vec3(cameraTransform[0]));
+		const Vec3 cameraUp = Math::Normalize(Vec3(cameraTransform[1]));
+
+		switch (mode)
+		{
+		case TextBillboard::Full:
+			right = cameraRight;
+			up = cameraUp;
+			break;
+
+		case TextBillboard::Upright:
+		{
+			// World up, with the horizontal axis taken square to it. Using the
+			// camera's right directly would let the text roll with the camera;
+			// deriving it from the camera's *forward* keeps the label facing
+			// the viewer while staying level.
+			const Vec3 worldUp{ 0.0f, 1.0f, 0.0f };
+			const Vec3 forward = Math::Normalize(Vec3(cameraTransform[2]));
+
+			Vec3 flat = Math::Cross(worldUp, forward);
+			const float length = Math::Length(flat);
+
+			// Looking straight down or straight up: the cross product
+			// degenerates and there is no "level" answer. Falling back to the
+			// camera's own right keeps the label readable instead of
+			// collapsing it to a line, and is the only frame in which this
+			// differs from Full.
+			right = length > 1.0e-4f ? flat * (1.0f / length) : cameraRight;
+			up = worldUp;
+			break;
+		}
+
+		case TextBillboard::None:
+		default:
+			right = Vec3(entityTransform[0]);
+			up = Vec3(entityTransform[1]);
+			break;
+		}
+	}
+
+	void DrawWorldText(Scene& scene, const Mat4& viewProjection, const Mat4& cameraTransform)
+	{
+		if (!UIRenderer::IsReady())
+			return;
+
+		auto view = scene.GetRegistry().view<WorldTextComponent, TransformComponent>();
+		if (view.begin() == view.end())
+			return;
+
+		bool opened = false;
+
+		for (auto handle : view)
+		{
+			Entity entity{ handle, &scene };
+
+			const WorldTextComponent& label = entity.GetComponent<WorldTextComponent>();
+			if (label.Text.empty() || label.Color.w <= 0.0f || label.Size <= 0.0f)
+				continue;
+
+			const Font* font = Assets::Manager::GetFont(label.Font);
+			RHI::Ref<RHI::RHITexture> atlas = Assets::Manager::GetFontAtlas(label.Font);
+			if (!font || !atlas)
+				continue;
+
+			// Opened lazily: a scene with the component present but nothing
+			// drawable must not cost a pipeline bind and an empty draw.
+			if (!opened)
+			{
+				UIRenderer::BeginWorld(viewProjection);
+				opened = true;
+			}
+
+			const Mat4& world = entity.GetComponent<TransformComponent>().World;
+
+			Vec3 right, up;
+			BillboardAxes(label.Billboard, cameraTransform, world, right, up);
+
+			TextStyle style;
+			style.Size = label.Size;
+			style.LineSpacing = label.LineSpacing;
+			style.WrapWidth = label.WrapWidth;
+
+			switch (label.Align)
+			{
+			case UITextAlign::Center: style.Align = TextAlign::Center; break;
+			case UITextAlign::Right:  style.Align = TextAlign::Right; break;
+			default:                  style.Align = TextAlign::Left; break;
+			}
+
+			// Centred on the entity rather than hanging down-right from it.
+			// A nameplate is placed *at* a point, and a label whose origin was
+			// its top-left corner would sit off to one side of everything it
+			// was parented to -- correctable by hand for one label, and wrong
+			// for every one somebody spawns.
+			const TextLayout measured = Build(label.Text, *font, style);
+			const Vec3 origin = Vec3(world[3])
+							  - right * (measured.Width * 0.5f)
+							  + up * (measured.Height * 0.5f);
+
+			UIRenderer::DrawWorldText(label.Text, *font, atlas, origin, right, up,
+									  style, label.Color);
+		}
+
+		if (opened)
+			UIRenderer::End();
+	}
 }

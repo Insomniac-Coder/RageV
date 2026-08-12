@@ -667,6 +667,31 @@ amounts:
   means raycasting into the world, hitting the plane, converting to a point on
   it, and resolving what is in front. That is a second input path. **Deferred.**
 
+**Built 2026-08-12, and the hedge paid.** `WorldTextComponent`, drawn by
+`UI::DrawWorldText` through the *same* shader, the same atlas and the same
+`UI::Build`. What it cost beyond that: one attribute widened from `vec2` to
+`vec3`, a second pipeline differing only in depth state and target formats, and
+`BillboardAxes`. The fragment stage was not touched.
+
+Three things worth stating because they are choices rather than consequences:
+
+- **Depth tested, depth *not* written.** Testing is what lets geometry occlude
+  a nameplate, which is the point. Writing would have each glyph quad occlude
+  the transparent things behind it — including the rest of its own string,
+  wherever two quads overlap.
+- **Drawn before the particles**, for the reason the grid is: a label is part of
+  the scene a blended particle blends *against*. The other order paints a
+  nameplate over the smoke standing in front of it.
+- **Billboarding is the caller's policy, not the renderer's.** `DrawWorldText`
+  takes the two axes the quads are laid out along; passing the camera's makes it
+  face the viewer, passing the entity's leaves it in its own plane. `Upright` is
+  the default because `Full` tips the text back when the camera looks down, and
+  a row of tipped nameplates reads as a bug.
+
+The camera's axes are **normalised** and the entity's are not — a scaled sign
+should have bigger letters, a scaled camera rig should not resize every label in
+the world.
+
 **The decision that makes the first one nearly free is in the shader, and it is
 made now.** `screenPxRange` is computed from **screen-space derivatives**, not
 from a quad size known at layout time:

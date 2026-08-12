@@ -33,7 +33,12 @@
 #type vertex
 #version 450 core
 
-layout(location = 0) in vec2  a_Position;    // pixels, origin top left
+// Screen-space quads put pixels here with z = 0, origin top left. World-space
+// text puts a point in world units. **One attribute for both**, because the
+// only thing that differs is which matrix the push constant carries -- and a
+// second vertex layout would mean a second pipeline layout, a second resource
+// set and a second copy of the fragment stage below.
+layout(location = 0) in vec3  a_Position;
 layout(location = 1) in vec2  a_TexCoord;
 layout(location = 2) in vec4  a_Color;
 layout(location = 3) in float a_TextureIndex;
@@ -43,8 +48,9 @@ layout(location = 4) in vec2  a_Mode;
 
 layout(push_constant) uniform UIParams
 {
-	// Pixels to clip space for whatever is being drawn into. Built on the CPU
-	// so that a viewport panel and a full window are the same code path.
+	// Whatever space a_Position is in, to clip space. An orthographic
+	// pixels-to-clip matrix for the screen layer; the camera's
+	// view-projection for text in the world.
 	mat4 Projection;
 } u_Params;
 
@@ -60,7 +66,7 @@ void main()
 	v_Mode         = a_Mode;
 	v_TextureIndex = int(a_TextureIndex + 0.5);
 
-	gl_Position = u_Params.Projection * vec4(a_Position, 0.0, 1.0);
+	gl_Position = u_Params.Projection * vec4(a_Position, 1.0);
 }
 
 #type fragment

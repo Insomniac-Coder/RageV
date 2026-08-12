@@ -83,6 +83,7 @@ namespace
 		const char* kColliderShapeNames[] = { "Box", "Sphere", "Capsule" };
 		const char* kCanvasScaleNames[] = { "ConstantPixels", "ScaleWithScreen" };
 		const char* kTextAlignNames[] = { "Left", "Center", "Right" };
+		const char* kBillboardNames[] = { "None", "Full", "Upright" };
 		const char* kParticleFacingNames[] = { "Billboard", "Flat" };
 		const char* kParticleBlendNames[] = { "Alpha", "Additive", "WeightedBlended" };
 		const char* kParticleSpaceNames[] = { "World", "Local" };
@@ -671,6 +672,38 @@ namespace
 					Drag(0.01f, 0.1f, 4.0f, "Multiplier on the font's own line height.")),
 			};
 			Bind<UITextComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
+		// --- world text --------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "WorldTextComponent";
+			desc.DisplayName = "World Text";
+			desc.Fields = {
+				Field<&WorldTextComponent::Text>("Text"),
+				Field<&WorldTextComponent::Font>("Font",
+					AssetRef(AssetType::Font, "A .rvfont baked by tools/rvfont -- the same "
+											  "asset a UI Text uses.")),
+				Field<&WorldTextComponent::Size>("Size",
+					Drag(0.01f, 0.01f, 100.0f, "Em height in world units, before this "
+											   "entity's scale. Roughly the height of a "
+											   "capital letter in metres.")),
+				Field<&WorldTextComponent::Color>("Color", Color()),
+				Field<&WorldTextComponent::Align>("Align", Enum(kTextAlignNames)),
+				Field<&WorldTextComponent::WrapWidth>("WrapWidth",
+					Drag(0.05f, 0.0f, 1000.0f, "Wrap at this width, in world units. Zero "
+											   "never wraps, which is what a nameplate "
+											   "wants.")),
+				Field<&WorldTextComponent::LineSpacing>("LineSpacing",
+					Drag(0.01f, 0.1f, 4.0f, "Multiplier on the font's own line height.")),
+				Field<&WorldTextComponent::Billboard>("Billboard",
+					Enum(kBillboardNames, "How it faces the camera. Upright turns to the "
+										  "viewer but stays level -- Full tips the text "
+										  "back when the camera looks down, which reads "
+										  "as a bug on a row of nameplates.")),
+			};
+			Bind<WorldTextComponent>(desc);
 			s_Components.push_back(std::move(desc));
 		}
 

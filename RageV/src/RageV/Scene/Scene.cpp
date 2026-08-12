@@ -20,6 +20,7 @@
 #include "RageV/Particles/GpuParticles.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/UI/Interaction.h"
+#include "RageV/UI/Canvas.h"
 #include "RageV/Math/Math.h"
 
 namespace RageV
@@ -1605,6 +1606,15 @@ namespace RageV
 		// over the smoke standing in front of it.
 		if (grid && Renderer::HasDevice())
 			ViewportGrid::Draw(camera, cameraTransform, *grid);
+
+		// Before the particles, for the same reason the grid is: a label is
+		// part of the scene a blended particle blends *against*. Drawn after,
+		// a nameplate would paint over the smoke standing in front of it.
+		//
+		// Depth-tested either way, so geometry occludes it -- which is the
+		// entire difference between this and the HUD.
+		UI::DrawWorldText(*this, camera.GetProjection() * Math::Inverse(cameraTransform),
+						  cameraTransform);
 
 		// Last, so a blended particle has the whole scene to blend against --
 		// including the sky.

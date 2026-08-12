@@ -710,6 +710,52 @@ namespace RageV
 		UIButtonComponent(const UIButtonComponent&) = default;
 	};
 
+	// How text in the world is oriented.
+	enum class TextBillboard : int32_t
+	{
+		// The text lies in the entity's own plane, facing its local +Z. A sign,
+		// a number painted on a floor, a label on a wall.
+		None = 0,
+		// Always square to the camera. A nameplate, damage numbers.
+		Full = 1,
+		// Turns to face the camera but stays upright. What a nameplate over a
+		// character usually wants: Full tips the text back when the camera
+		// looks down, and a row of tipped labels reads as a bug.
+		Upright = 2,
+	};
+
+	// Text drawn in the scene rather than on the screen.
+	//
+	// Same font asset, same layout, same shader as UITextComponent -- the
+	// differences are that this is positioned by an ordinary TransformComponent,
+	// is occluded by geometry, and goes into the HDR target *before* tone
+	// mapping, so it is lit-looking and can bloom where a HUD cannot.
+	struct WorldTextComponent
+	{
+		std::string Text = "Text";
+
+		// A `.rvfont` baked by tools/rvfont, exactly as the UI one.
+		AssetHandle Font = AssetHandle::Invalid();
+
+		// Em height in **world units**, then multiplied by the entity's scale.
+		// One means a capital letter is roughly a metre.
+		float Size = 0.5f;
+
+		Vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+		UITextAlign Align = UITextAlign::Center;
+
+		// In world units. Zero never wraps, which is what a nameplate wants.
+		float WrapWidth = 0.0f;
+
+		float LineSpacing = 1.0f;
+
+		TextBillboard Billboard = TextBillboard::Upright;
+
+		WorldTextComponent() = default;
+		WorldTextComponent(const WorldTextComponent&) = default;
+	};
+
 	// Marks the root of an entity tree stamped out from a prefab asset.
 	//
 	// The instance is fully materialised into the scene -- every entity is a

@@ -20,15 +20,21 @@ namespace RageV
 		constexpr float kModePlain = 0.0f;
 		constexpr float kModeField = 1.0f;
 
+		// Three components, not two, and the screen layer writes z = 0.
+		//
+		// Text in the world needs a real position, and giving it its own vertex
+		// type would mean a second pipeline layout and a second copy of the
+		// fragment stage. The two layers already differ in exactly two things
+		// -- the matrix and the depth state -- and this keeps it to two.
 		struct UIVertex
 		{
-			Vec2  Position;
+			Vec3  Position;
 			Vec2  TexCoord;
 			Vec4  Color;
 			float TextureIndex;
 			Vec2  Mode;         // x: plain or field, y: the field's range in atlas pixels
 		};
-		static_assert(sizeof(UIVertex) == 44,
+		static_assert(sizeof(UIVertex) == 48,
 					  "Must match the vertex stride reflected from ui.rvshader");
 
 		struct UIData
@@ -36,10 +42,19 @@ namespace RageV
 			RHIDevice* Device = nullptr;
 
 			Ref<RHIShader>   Shader;
+
+			// Two pipelines, one shader. They differ in exactly two things --
+			// whether the depth test runs, and what they draw into -- and
+			// nothing else about the two layers is allowed to diverge.
 			Ref<RHIPipeline> Pipeline;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
 			Format TargetDepth = Format::Undefined;
 			bool   PipelineDirty = true;
+
+			Ref<RHIPipeline> WorldPipeline;
+			Format WorldColor = Format::R16G16B16A16_SFLOAT;
+			Format WorldDepth = Format::D32_SFLOAT;
+			bool   WorldPipelineDirty = true;
 
 			// One set of storage per batch, for the reason Renderer2D documents:
 			// a draw is recorded against the buffer it was bound to, so anything
@@ -66,6 +81,11 @@ namespace RageV
 			Mat4 Projection{ 1.0f };
 			bool InLayer = false;
 
+			// Which pipeline the flush should bind. Set by Begin/BeginWorld,
+			// read by Flush, so a quad cannot be recorded against one layer and
+			// drawn with the other's depth state.
+			bool WorldLayer = false;
+
 			uint32_t DrawCalls = 0;
 			uint32_t QuadsThisFrame = 0;
 
@@ -74,12 +94,25 @@ namespace RageV
 
 		std::unique_ptr<UIData> s_Data;
 
-		UIData::Batch& AcquireBatch()
+		// Takes the pipeline the set will be built against. Both layers share
+		// one pool of batches, and a resource set belongs to a pipeline
+		// *layout* -- which is identical here, since it is one shader -- but
+		// passing it keeps that an argument rather than an assumption.
+		UIData::Batch& AcquireBatch(const Ref<RHIPipeline>& pipeline)
 		{
 			const uint32_t frame = s_Data->Device->GetFrameIndex();
 			auto& batches = s_Data->Batches[frame];
 
-			if (s_Data->BatchCursor >= batches.size())
+			// A loop, not an `if`, and the difference is a crash.
+			//
+			// Creating a pipeline clears this pool, because a resource set
+			// belongs to a pipeline layout. With one pipeline that only ever
+			// happened before the first draw, so growing by one per acquire was
+			// enough. With two, the *second* pipeline is built partway through
+			// a frame in which the cursor has already advanced -- and then a
+			// single push leaves the pool shorter than the cursor, and the
+			// index below runs off the end.
+			while (s_Data->BatchCursor >= batches.size())
 			{
 				UIData::Batch batch;
 
@@ -97,7 +130,7 @@ namespace RageV
 			UIData::Batch& batch = batches[s_Data->BatchCursor++];
 
 			if (!batch.TextureSet)
-				batch.TextureSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+				batch.TextureSet = s_Data->Device->CreateResourceSet(pipeline, 0);
 
 			return batch;
 		}
@@ -132,15 +165,54 @@ namespace RageV
 				frame.clear();
 		}
 
+		void EnsureWorldPipeline()
+		{
+			if (!s_Data->WorldPipelineDirty || !s_Data->Shader)
+				return;
+
+			GraphicsPipelineDesc desc;
+			desc.Name = "UIRenderer (world text)";
+			desc.Shader = s_Data->Shader;
+			desc.Topology = PrimitiveTopology::TriangleList;
+
+			// Two-sided, so a label keeps reading from behind rather than
+			// disappearing. A billboard never presents its back, but text laid
+			// flat in the world does, and vanishing is the worse answer.
+			desc.Rasterizer.Cull = CullMode::None;
+			desc.Blend = BlendPreset::AlphaBlend;
+
+			// **Tested, not written**, which is the whole difference from the
+			// screen layer. Testing is what lets geometry occlude a nameplate
+			// -- the point of drawing text in the world at all. Writing would
+			// have each glyph quad occlude the transparent things behind it,
+			// including the rest of its own string where the quads overlap.
+			desc.DepthStencil.DepthTestEnable = true;
+			desc.DepthStencil.DepthWriteEnable = false;
+
+			desc.ColorFormats = { s_Data->WorldColor };
+			desc.DepthFormat = s_Data->WorldDepth;
+
+			s_Data->WorldPipeline = s_Data->Device->CreatePipeline(desc);
+			s_Data->WorldPipelineDirty = false;
+
+			for (auto& frame : s_Data->Batches)
+				frame.clear();
+		}
+
 		uint32_t ResolveTextureSlot(const Ref<RHITexture>& texture);
 		void Flush();
 
 		// Four vertices, one quad, in submission order. The index buffer pairs
 		// them as 0-1-2, 2-3-0, so this is top-left, top-right, bottom-right,
 		// bottom-left.
-		void PushQuad(const UIRect& rect, const Vec4& color,
-					  const Ref<RHITexture>& texture, float u0, float v0, float u1, float v1,
-					  float mode, float pxRange)
+		// The general case: four positions, in whatever space the current
+		// layer's matrix expects. Both layers come through here, so batching,
+		// slot assignment and the flush-on-full rule cannot drift apart
+		// between them.
+		void PushQuadCorners(const Vec3 corners[4], const Vec4& color,
+							 const Ref<RHITexture>& texture,
+							 float u0, float v0, float u1, float v1,
+							 float mode, float pxRange)
 		{
 			if (!s_Data->InLayer)
 				return;
@@ -152,12 +224,6 @@ namespace RageV
 
 			UIVertex* vertex = s_Data->Vertices.data() + (size_t)s_Data->QuadCount * 4;
 
-			const Vec2 corners[4] = {
-				{ rect.X,       rect.Y        },
-				{ rect.Right(), rect.Y        },
-				{ rect.Right(), rect.Bottom() },
-				{ rect.X,       rect.Bottom() },
-			};
 			const Vec2 uvs[4] = {
 				{ u0, v0 }, { u1, v0 }, { u1, v1 }, { u0, v1 },
 			};
@@ -173,6 +239,23 @@ namespace RageV
 
 			s_Data->QuadCount++;
 			s_Data->QuadsThisFrame++;
+		}
+
+		void PushQuad(const UIRect& rect, const Vec4& color,
+					  const Ref<RHITexture>& texture, float u0, float v0, float u1, float v1,
+					  float mode, float pxRange)
+		{
+			// z = 0: the screen layer's matrix is orthographic over -1..1, so
+			// every quad lands in the middle of that range and the depth test
+			// is off anyway.
+			const Vec3 corners[4] = {
+				{ rect.X,       rect.Y,        0.0f },
+				{ rect.Right(), rect.Y,        0.0f },
+				{ rect.Right(), rect.Bottom(), 0.0f },
+				{ rect.X,       rect.Bottom(), 0.0f },
+			};
+
+			PushQuadCorners(corners, color, texture, u0, v0, u1, v1, mode, pxRange);
 		}
 
 		uint32_t ResolveTextureSlot(const Ref<RHITexture>& texture)
@@ -211,14 +294,21 @@ namespace RageV
 				return;
 			}
 
-			EnsurePipeline();
-			if (!s_Data->Pipeline)
+			if (s_Data->WorldLayer)
+				EnsureWorldPipeline();
+			else
+				EnsurePipeline();
+
+			const Ref<RHIPipeline>& pipeline =
+				s_Data->WorldLayer ? s_Data->WorldPipeline : s_Data->Pipeline;
+
+			if (!pipeline)
 			{
 				s_Data->QuadCount = 0;
 				return;
 			}
 
-			UIData::Batch& batch = AcquireBatch();
+			UIData::Batch& batch = AcquireBatch(pipeline);
 
 			batch.Vertices->Upload(s_Data->Vertices.data(),
 								   (uint64_t)s_Data->QuadCount * 4 * sizeof(UIVertex));
@@ -235,7 +325,7 @@ namespace RageV
 			}
 			batch.TextureSet->Commit();
 
-			cmd->BindPipeline(s_Data->Pipeline);
+			cmd->BindPipeline(pipeline);
 			cmd->BindResourceSet(0, batch.TextureSet);
 			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(Mat4), &s_Data->Projection);
 			cmd->BindVertexBuffer(0, batch.Vertices);
@@ -400,6 +490,7 @@ namespace RageV
 
 		Flush();
 		s_Data->InLayer = false;
+		s_Data->WorldLayer = false;
 	}
 
 	void UIRenderer::DrawRect(const UIRect& rect, const Vec4& color)
@@ -447,6 +538,66 @@ namespace RageV
 		UI::TextStyle style;
 		style.Size = size;
 		DrawText(text, font, atlas, position, style, color);
+	}
+
+	void UIRenderer::BeginWorld(const Mat4& viewProjection)
+	{
+		if (!s_Data || !s_Data->Ready)
+			return;
+
+		s_Data->Projection = viewProjection;
+		s_Data->QuadCount = 0;
+		s_Data->NextTextureSlot = 1;
+		s_Data->InLayer = true;
+		s_Data->WorldLayer = true;
+	}
+
+	void UIRenderer::SetWorldTargetFormats(Format color, Format depth)
+	{
+		if (!s_Data)
+			return;
+
+		if (s_Data->WorldColor != color || s_Data->WorldDepth != depth)
+		{
+			s_Data->WorldColor = color;
+			s_Data->WorldDepth = depth;
+			s_Data->WorldPipelineDirty = true;
+		}
+	}
+
+	void UIRenderer::DrawWorldText(const std::string& text, const Font& font,
+								   const Ref<RHITexture>& atlas, const Vec3& origin,
+								   const Vec3& right, const Vec3& up,
+								   const UI::TextStyle& style, const Vec4& color)
+	{
+		if (!s_Data || !s_Data->Ready || !atlas || color.w <= 0.0f || style.Size <= 0.0f)
+			return;
+
+		// **The same call the screen layer makes.** Layout is in its own units
+		// and knows nothing about where the text will end up, which is what
+		// makes this three lines rather than a second layout engine.
+		const UI::TextLayout layout = UI::Build(text, font, style);
+
+		for (const UI::PlacedGlyph& glyph : layout.Glyphs)
+		{
+			// Layout's y runs *down* the page, and `up` runs up the world, so
+			// the vertical term is subtracted. Getting this backwards renders
+			// every string upside down and mirrored about its own baseline --
+			// which reads as a font problem and is not one.
+			const Vec3 topLeft = origin + right * glyph.X - up * glyph.Y;
+			const Vec3 dx = right * glyph.Width;
+			const Vec3 dy = up * glyph.Height;
+
+			const Vec3 corners[4] = {
+				topLeft,
+				topLeft + dx,
+				topLeft + dx - dy,
+				topLeft - dy,
+			};
+
+			PushQuadCorners(corners, color, atlas, glyph.U0, glyph.V0, glyph.U1, glyph.V1,
+							kModeField, font.PxRange);
+		}
 	}
 
 	uint32_t UIRenderer::GetDrawCallCount()

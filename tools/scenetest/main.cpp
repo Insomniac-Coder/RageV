@@ -4290,6 +4290,119 @@ void main()
 		}
 	}
 
+	// Text in the world: which way a label faces.
+	//
+	// The rendering needs a GPU; **the orientation does not**, and it is the
+	// half that goes wrong in a way a screenshot makes look deliberate. A
+	// nameplate tipped 20 degrees back reads as a styling choice until somebody
+	// walks round it.
+	void CheckWorldText()
+	{
+		// A camera at the origin, yawed 30 degrees and pitched down 20, so no
+		// axis is accidentally aligned with a world one and a bug cannot pass
+		// by coincidence.
+		const Mat4 cameraTransform =
+			Math::Rotate(Mat4(1.0f), Math::Radians(30.0f), Vec3(0.0f, 1.0f, 0.0f)) *
+			Math::Rotate(Mat4(1.0f), Math::Radians(-20.0f), Vec3(1.0f, 0.0f, 0.0f));
+
+		const Vec3 worldUp{ 0.0f, 1.0f, 0.0f };
+
+		// --- full billboard ---------------------------------------------------
+		{
+			Vec3 right, up;
+			UI::BillboardAxes(TextBillboard::Full, cameraTransform, Mat4(1.0f), right, up);
+
+			Check(std::fabs(Math::Length(right) - 1.0f) < 1e-4f &&
+				  std::fabs(Math::Length(up) - 1.0f) < 1e-4f,
+				  "a full billboard's axes are unit length");
+
+			Check(std::fabs(Math::Dot(right, up)) < 1e-4f,
+				  "and perpendicular to each other");
+
+			// Square to the camera means the quad's normal is the camera's
+			// forward -- which is the definition, tested rather than assumed.
+			const Vec3 normal = Math::Cross(right, up);
+			const Vec3 forward = Math::Normalize(Vec3(cameraTransform[2]));
+			Check(std::fabs(std::fabs(Math::Dot(normal, forward)) - 1.0f) < 1e-4f,
+				  "and face square to the camera");
+		}
+
+		// --- a scaled camera rig must not resize the world ---------------------
+		//
+		// A world matrix's columns carry scale. Taking them unnormalised makes
+		// every nameplate in the game change size when somebody scales the
+		// camera's parent, which is a bug nobody would look for here.
+		{
+			const Mat4 scaled = cameraTransform * Math::Scale(Mat4(1.0f), Vec3(3.0f));
+
+			Vec3 right, up;
+			UI::BillboardAxes(TextBillboard::Full, scaled, Mat4(1.0f), right, up);
+
+			Check(std::fabs(Math::Length(right) - 1.0f) < 1e-4f &&
+				  std::fabs(Math::Length(up) - 1.0f) < 1e-4f,
+				  "scaling the camera does not change the size of a billboarded label");
+		}
+
+		// --- upright ------------------------------------------------------------
+		{
+			Vec3 right, up;
+			UI::BillboardAxes(TextBillboard::Upright, cameraTransform, Mat4(1.0f), right, up);
+
+			Check(Math::Length(up - worldUp) < 1e-4f,
+				  "an upright billboard's up axis is world up exactly");
+
+			Check(std::fabs(Math::Dot(right, worldUp)) < 1e-4f,
+				  "and its horizontal axis is level, whatever the camera's pitch");
+
+			Check(std::fabs(Math::Length(right) - 1.0f) < 1e-4f,
+				  "and unit length");
+
+			// It still turns to the viewer: the label's normal has to point
+			// back towards the camera in the horizontal plane.
+			const Vec3 normal = Math::Cross(right, up);
+			const Vec3 forward = Math::Normalize(Vec3(cameraTransform[2]));
+			const Vec3 flatNormal = Math::Normalize(Vec3{ normal.x, 0.0f, normal.z });
+			const Vec3 flatForward = Math::Normalize(Vec3{ forward.x, 0.0f, forward.z });
+
+			Check(std::fabs(std::fabs(Math::Dot(flatNormal, flatForward)) - 1.0f) < 1e-3f,
+				  "while still turning to face the viewer horizontally");
+		}
+
+		// --- looking straight down ----------------------------------------------
+		//
+		// World up and the camera's forward are parallel, so the cross product
+		// that gives the level axis degenerates. Falling back keeps the label
+		// readable; not falling back collapses it to a line, and the symptom is
+		// "the text disappears when I look down".
+		{
+			const Mat4 lookingDown =
+				Math::Rotate(Mat4(1.0f), Math::Radians(-90.0f), Vec3(1.0f, 0.0f, 0.0f));
+
+			Vec3 right, up;
+			UI::BillboardAxes(TextBillboard::Upright, lookingDown, Mat4(1.0f), right, up);
+
+			Check(Math::Length(right) > 0.5f,
+				  "a camera looking straight down still gives an upright label a "
+				  "horizontal axis rather than collapsing it");
+		}
+
+		// --- the entity's own plane ----------------------------------------------
+		{
+			// Scaled, because this is the one mode where scale *should* carry:
+			// a sign made twice as big has letters twice as big.
+			const Mat4 entity = Math::Scale(Mat4(1.0f), Vec3(2.0f));
+
+			Vec3 right, up;
+			UI::BillboardAxes(TextBillboard::None, cameraTransform, entity, right, up);
+
+			Check(std::fabs(Math::Length(right) - 2.0f) < 1e-4f,
+				  "text in the entity's own plane takes the entity's scale with it");
+
+			Check(std::fabs(right.x - 2.0f) < 1e-4f && std::fabs(up.y - 2.0f) < 1e-4f,
+				  "and its axes are the entity's, not the camera's");
+		}
+	}
+
 	// Hit-testing, the button state machine, and who owns the pointer.
 	//
 	// **Every failure here is a click that went to the wrong place**, and none
@@ -6905,6 +7018,7 @@ int RunTests(int argc, char** argv)
 	CheckTextLayout();
 	CheckCanvasLayout();
 	CheckUIInteraction();
+	CheckWorldText();
 	CheckUIRenderer();
 	CheckViewportGrid();
 	CheckRenderersReady();

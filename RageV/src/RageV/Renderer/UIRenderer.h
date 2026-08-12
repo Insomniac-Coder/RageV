@@ -93,6 +93,44 @@ namespace RageV
 							 const RHI::Ref<RHI::RHITexture>& atlas,
 							 const Vec2& position, float size, const Vec4& color);
 
+		// --- text in the world -----------------------------------------------
+		//
+		// A nameplate over a character, damage numbers, a number painted on a
+		// door. **The same shader, the same atlas and the same layout** -- what
+		// differs is the matrix and a depth test.
+		//
+		// It reuses the shader because `screenPxRange` is measured from
+		// screen-space derivatives rather than passed in. A CPU-side value
+		// would be right for a HUD and wrong for every pixel of a sign under a
+		// perspective divide; see ui.rvshader.
+
+		// The formats of the HDR target this draws into. Separate from
+		// SetTargetFormats because the two layers land in different places: the
+		// screen layer writes the finished LDR image, this one writes the scene
+		// before tone mapping, so a glowing label is possible here and not
+		// there.
+		static void SetWorldTargetFormats(RHI::Format color, RHI::Format depth);
+
+		// Opens a world-space layer. Quads are depth-*tested* against the scene
+		// and do not write depth, so geometry occludes the text and the glyphs
+		// of one string do not occlude each other.
+		static void BeginWorld(const Mat4& viewProjection);
+
+		// Text on the plane `right` x `up`, with the **top left of the block**
+		// at `origin` -- the same corner the screen version positions from.
+		//
+		// The axes are given rather than derived, and that is the whole
+		// billboarding policy: pass the camera's right and up for text that
+		// faces the viewer, the entity's for text lying in its own plane. The
+		// renderer does not need to know which was meant, and a caller that
+		// wants an upright billboard passes the camera's right with world up.
+		//
+		// `Size` in TextStyle is the em height in **world units**, not pixels.
+		static void DrawWorldText(const std::string& text, const Font& font,
+								  const RHI::Ref<RHI::RHITexture>& atlas,
+								  const Vec3& origin, const Vec3& right, const Vec3& up,
+								  const UI::TextStyle& style, const Vec4& color);
+
 		static uint32_t GetDrawCallCount();
 		static uint32_t GetQuadCount();
 

@@ -2211,13 +2211,45 @@ alternative is a bug nobody can trace:
   regression probe -- scenetest presses it and reads the label back, which is
   the only check here that would notice the step order being wrong.
 
-**START HERE: 6.4b -- world-space text.** The same `TextLayout` through a
-depth-tested pipeline into the HDR target, billboarded, ordered with the
-transparent content. **The shader needs no change**: `screenPxRange` is measured
-from screen-space derivatives precisely so this works under perspective.
+**START HERE: 6.x -- Knockdown gets a title, a score and "press F to reset".**
+The acceptance test for the whole phase, because that absence is why the phase
+exists. Everything it needs is built.
 
-Then **6.x: Knockdown gets a title, a score and "press F to reset"** -- the
-acceptance test for the whole phase, because that absence is why it exists.
+### 6.4b -- text in the world. Built.
+
+`WorldTextComponent`, drawn by `UI::DrawWorldText` through the **same shader,
+the same atlas and the same `UI::Build`** the HUD uses. The hedge made in the
+design paid exactly as intended: `screenPxRange` is measured from screen-space
+derivatives, so the fragment stage was not touched at all.
+
+What it actually cost: `a_Position` widened from `vec2` to `vec3` (the screen
+layer writes z = 0), a second pipeline differing only in depth state and target
+formats, and `UI::BillboardAxes`.
+
+- **Depth tested, depth not written.** Testing is the point -- geometry
+  occludes a nameplate. Writing would have each glyph quad occlude the
+  transparent things behind it, including the rest of its own string wherever
+  two quads overlap.
+- **Before the particles**, for the reason the grid is: a label is scene that a
+  blended particle blends against.
+- **Billboarding is the caller's policy.** `DrawWorldText` takes the two axes
+  the quads lie along. `Upright` is the default because `Full` tips the text
+  back when the camera looks down, and a row of tipped nameplates reads as a
+  bug.
+- The camera's axes are normalised, the entity's are not -- a scaled sign has
+  bigger letters, a scaled camera rig must not resize every label in the world.
+
+> [!TRAP]
+> **Creating a pipeline clears the batch pool, and that pool is shared.** With
+> one pipeline that only ever happened before the first draw, so `AcquireBatch`
+> growing by one per call was enough. The second pipeline is built *partway
+> through* a frame in which the cursor has already advanced -- one push then
+> leaves the pool shorter than the cursor, and the index runs off the end.
+>
+> It crashed on the first frame that drew both layers: `vector subscript out of
+> range`, in code neither commit had touched. The fix is a `while` instead of an
+> `if`. **A latent bug that having one caller kept dormant** -- worth
+> remembering the shape, because the next shared pool will have it too.
 
 ### 6.4c -- the button calls your method. Built.
 

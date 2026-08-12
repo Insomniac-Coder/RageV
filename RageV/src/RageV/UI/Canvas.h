@@ -10,6 +10,7 @@ namespace RageV
 {
 	class Scene;
 	struct UICanvasComponent;
+	enum class TextBillboard : int32_t;
 }
 
 namespace RageV::UI
@@ -80,4 +81,24 @@ namespace RageV::UI
 
 	// Resolves and draws. The half that needs the renderer and the assets.
 	void DrawScene(Scene& scene, uint32_t screenWidth, uint32_t screenHeight);
+
+	// Every WorldTextComponent in the scene, into the HDR target.
+	//
+	// Takes the camera's world matrix rather than only the view-projection,
+	// because billboarding needs the camera's *axes* and they cannot be
+	// recovered from a projection without inverting it once per label.
+	//
+	// Drawn with the transparent content: depth-tested so geometry occludes a
+	// label, and not depth-writing so the glyph quads of one string do not
+	// occlude each other where they overlap.
+	void DrawWorldText(Scene& scene, const Mat4& viewProjection, const Mat4& cameraTransform);
+
+	// The axes a label's quads are laid out along, for one billboard mode.
+	//
+	// Pure, and separate from the drawing so orientation can be asserted with
+	// no GPU -- "does a nameplate face the camera" is arithmetic, and it is the
+	// half of this that can be wrong in a way a screenshot makes look
+	// deliberate.
+	void BillboardAxes(TextBillboard mode, const Mat4& cameraTransform,
+					   const Mat4& entityTransform, Vec3& right, Vec3& up);
 }

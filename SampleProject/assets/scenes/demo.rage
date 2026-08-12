@@ -690,3 +690,19 @@ Entities:
       Align: Center
       Wrap: false
       LineSpacing: 1
+  - EntityID: 7301884420193355010
+    TagComponent:
+      Tag: Sphere Nameplate
+    TransformComponent:
+      Position: [0, 1.9, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    WorldTextComponent:
+      Text: gold sphere
+      Font: 12355000851502047045
+      Size: 0.32
+      Color: [1, 0.86, 0.4, 1]
+      Align: Center
+      WrapWidth: 0
+      LineSpacing: 1
+      Billboard: Upright
