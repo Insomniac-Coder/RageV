@@ -1265,8 +1265,48 @@ The gain was not symmetric and the reason is worth keeping. A resolution sweep
 before instancing showed the cost was resolution-*independent* — OpenGL 5.03 ms
 at 640x360 against 7.17 ms at 1600x900 — so it was submission, not fill.
 Instancing then took OpenGL from 7.17 ms to 1.59 ms and Vulkan from 1.96 ms to
-1.88 ms. **Vulkan was never submission-bound at this scale.** Its remaining cost
-is unattributed and is the next thing to measure.
+1.88 ms. **Vulkan was never submission-bound at this scale.**
+
+### And where Vulkan's remaining time actually went
+
+*Measured 2026-08-12. The note above said this was "unattributed and the next
+thing to measure" and stayed that way for a while, because attributing it needed
+GPU timestamp queries that did not exist yet. They do now, and the answer took
+one command.*
+
+Stress scene, 1000 meshes, Release, Vulkan, vsync off, 400 frames:
+
+| phase | CPU ms | GPU ms |
+|---|---|---|
+| shadow maps | 0.495 | 0.231 |
+| reflection probes | 0.217 | 0.257 |
+| render graph | 0.220 | 0.424 |
+| imgui | 0.083 | 0.003 |
+| present | 0.122 | — |
+| **accounted** | **1.138** | **0.916** |
+| unaccounted | 0.278 | — CPU idle, waiting on the GPU or the present |
+
+Whole frame: **0.922 ms of GPU work in a 1.417 ms frame.** Nothing dominates,
+which is why it read as mysterious -- there was no single villain to find.
+
+**The finding worth acting on: the reflection probe is 31% of the frame.**
+Removing it from the same scene:
+
+| | with probe | without |
+|---|---|---|
+| frame | 1.417 ms | **1.086 ms** |
+| GPU work | 0.922 ms | **0.678 ms** |
+
+0.33 ms of frame and 0.24 ms of GPU, for one probe, in a scene of a thousand
+grey meshes with nothing reflective enough to notice. That is the realtime
+prefilter noted in §9 -- 36 small renders amortised six a frame -- and it is
+paid whether or not anything in view is glossy.
+
+**So the ranked list for a renderer pass is now measured rather than guessed:**
+per-object probe selection (7.7) would let a scene skip probes nothing samples;
+shadow maps are the largest CPU phase at 0.495 ms; and front-to-back opaque
+sorting (7.8) is aimed at the render graph's 0.424 ms of GPU, which is the
+biggest single GPU line.
 
 An intermediate state is worth recording because it nearly shipped as a
 success: with materials still holding a sampler each, draws fell 3238 to 854 and
@@ -2244,6 +2284,25 @@ buys a draw path that does not change at all: `Gpu::GetInstances` hands back
 the sorted buffer and the renderer cannot tell. Past 2048 particles an emitter
 draws unsorted, as before, and says so once.
 
+**What it costs, measured** -- Release, Vulkan, vsync off, 400 frames, the
+particles scene with all three emitters on the GPU (two of them alpha, 1024
+particles each). Four alternating pairs, so machine drift hits both:
+
+| | GPU frame time |
+|---|---|
+| sorted | 0.247, 0.248, 0.245, 0.246 |
+| unsorted | 0.217, 0.219, 0.218, 0.227 |
+
+**+0.026 ms**, same direction in all four pairs, about five times the spread.
+That is +12% *of this frame*, and the honest reading is that this frame is
+nearly empty -- 0.25 ms total. In absolute terms it is 0.013 ms per sorted
+emitter, which in a real 8-16 ms frame is a fifth of a percent. Both numbers
+are true and quoting only the percentage would be alarming for no reason.
+
+**I asserted this was negligible before measuring it**, which is precisely what
+the roadmap warns about two lines from where it says two "obviously worth it"
+optimisations in this renderer measured as worth nothing.
+
 > [!TRAP]
 > **A pixel comparison cannot verify this, and three thresholds got tuned
 > before that was obvious.** The plan was to render one emitter on the CPU and
@@ -2957,7 +3016,10 @@ because the alternative is someone finding each one by being confused.
   and material so they batch; within a batch the order is arbitrary, so early-z
   does less than a front-to-back sort would. Worth a measurement before it is
   worth code.
-- **Vulkan's remaining 1.88 ms is unattributed.** See section 8.
+- ~~Vulkan's remaining 1.88 ms is unattributed.~~ **Attributed 2026-08-12**,
+  once GPU timestamps existed to do it with. See section 8; the short version
+  is that a *reflection probe* was 31% of the frame in a scene of 1000 meshes
+  that has nothing reflective worth the cost.
 
 ### Editor and tooling
 
