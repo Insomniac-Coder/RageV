@@ -468,7 +468,7 @@ rather than missed.
 | 7.4 | Billboard icons for lights, cameras and probes, and picking that hits them | M |
 | 7.5 | Animation blend component — `BlendPoses` is written and tested, nothing drives it | M |
 | 7.6 | Skinned bounds that cover the animation, not just the bind pose | M |
-| 7.7 | Per-object reflection probe selection, replacing the per-scene choice | M |
+| 7.7 | Per-object reflection probe selection, replacing the per-scene choice | M | ✅ done 2026-08-12. One cube array indexed per instance, sky at slot 0; the choice rides in the instance so a run never splits. Not one array per resolution -- that reintroduces a per-draw decision. Also gave probes diffuse light, which they had never had, and found three latent RHI bugs including a Vulkan device feature never enabled |
 | 7.8 | Front-to-back depth sorting for opaque draws | S |
 | 7.9 | SMAA | M |
 | 7.10 | TAA — needs motion vectors first, which also buy motion blur and upscaling | L |
