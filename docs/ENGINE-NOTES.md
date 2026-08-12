@@ -798,6 +798,86 @@ absence.
 
 ---
 
+## 7e. Per-object reflection probes (7.7)
+
+*Designed 2026-08-12, before writing any of it, because the two viable shapes
+differ in what they cost forever rather than in how long they take to type.*
+
+### What is wrong today
+
+`Scene::ResolveEnvironment` picks **one** probe for the whole pass, by distance
+from the *camera*, and hands it to `Renderer3D::BeginScene`. It lands in the
+scene descriptor set (set 0, binding 1 for the radiance cube and 5 for
+irradiance), which is bound once per pipeline change and never per draw.
+
+With one probe that is exactly right. With several it means every reflective
+surface in the scene reflects whichever probe is nearest the viewer: walk from
+the hallway into the kitchen and the hallway mirror starts showing the kitchen.
+
+**This is a correctness problem, not a performance one**, and an earlier note
+here said otherwise on the strength of a benchmark that measured a *realtime*
+probe in a scene that had opted into one. A baked probe -- the default -- costs
+0.066 ms CPU and 0.001 ms GPU. See HANDOFF §8.
+
+### The two shapes, and why the cheap one wins here
+
+**A. One scene set per distinct probe, with the probe in the sort key.**
+
+The scene set already exists per frame slot and is cheap to build. Build one per
+distinct probe in view instead, differing only in bindings 1 and 5; add the
+probe to `PendingDraw` and to the sort key so runs do not interleave; bind the
+matching set per run.
+
+- Costs one extra descriptor set per probe *in view*, and at most one extra
+  bind per run.
+- **Batching survives.** Objects near each other share a probe, which is the
+  same spatial coherence the mesh and material keys already exploit, so the run
+  count grows with the number of probes rather than with the number of objects.
+- Needs no RHI feature that does not exist and no shader change at all.
+
+**B. A cube array indexed per instance.**
+
+The textbook answer: every probe in one array, an index per instance, one bind
+for the pass.
+
+- Needs cube *array* support in the RHI -- creation, views, upload -- on both
+  backends, and a shader change to sample an array.
+- Forces every probe to share a resolution, because an array has one. The
+  component exposes `Resolution` per probe today, so that is a feature removed
+  to enable a feature.
+- Wins only when the number of probes is large enough that A's extra binds
+  matter, and this renderer draws 60 batches for 1000 meshes.
+
+**Take A.** B is where this goes if a scene ever has dozens of probes in view at
+once, and A does not block it: the selection logic -- which probe does this
+object want -- is identical either way, and only the delivery differs.
+
+### Two things to get right, both of which look like bugs when they are wrong
+
+**Selection is per object and must not be per *draw call*.** Instanced draws
+share one instance buffer and one bind; if two objects in the same instance run
+wanted different probes, the run has to split. That is what putting the probe in
+the sort key does, and it is why the key must be sorted on rather than merely
+compared.
+
+**The influence radius already exists and already means this.**
+`ReflectionProbeComponent::Influence` is documented as "how far from this probe
+its capture is still a reasonable answer". Per-camera selection quietly reads it
+against the camera; per-object selection reads it against the object, which is
+what it always said. Falling back to the sky outside every probe's influence is
+the existing behaviour and should stay.
+
+### How it gets verified
+
+Not by a screenshot of one probe, which looks identical either way. Two probes
+capturing visibly different surroundings, a reflective object beside each, and a
+camera positioned nearer to the *wrong* one -- so the current code shows both
+objects reflecting the same thing and the fixed code does not. That scene is the
+test, and it is worth generating rather than hand-authoring so the two probes
+are provably different.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
