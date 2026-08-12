@@ -271,7 +271,13 @@ namespace RageV {
 
 		while (m_Running) {
 			const float time = (float)GetTime();
-			const float frameTime = time - m_LastTime;
+			// A fixed frame time when one was asked for, so a capture is
+			// reproducible. Everything downstream of this -- particles,
+			// OnFrame, the interpolation alpha -- becomes a function of the
+			// frame *number* rather than of how busy this machine was.
+			const float frameTime = config.FrameTime > 0.0f
+								  ? config.FrameTime
+								  : time - m_LastTime;
 			m_LastTime = time;
 
 			m_Window->OnUpdate();

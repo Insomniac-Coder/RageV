@@ -236,6 +236,21 @@ namespace RageV
 			}
 		}
 
+		if (key == "frame-time" || key == "frametime")
+		{
+			try
+			{
+				const float seconds = std::stof(value);
+				config.FrameTime = seconds > 0.0f ? seconds : 0.0f;
+			}
+			catch (...)
+			{
+				RV_CORE_WARN("frame-time expects seconds, got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "fixed-hz" || key == "fixedhz")
 		{
 			try

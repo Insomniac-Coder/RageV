@@ -1,0 +1,183 @@
+// Sorts a GPU emitter's particles far to near, and writes them out in that
+// order. One dispatch, one workgroup, no readback.
+//
+// ---------------------------------------------------------------------------
+// Why this exists
+// ---------------------------------------------------------------------------
+//
+// Alpha blending is not commutative, so an alpha emitter has to draw its
+// particles back to front. The CPU path sorts its instance vector before
+// uploading and always has. The GPU path could not: the particles live in
+// device memory and reading them back is the one thing that path exists to
+// avoid, so it drew in pool order and accepted the error.
+//
+// That error was *measured* rather than assumed -- see HANDOFF. Against the
+// CPU path, an additive emitter agreed to 0.10 of 255 and an alpha one
+// differed by 2.7, seven times the run-to-run noise, with curve-driven
+// emitters worst because curves widen how much particles differ in opacity.
+// Switching that emitter to weighted blending collapsed the gap, which pinned
+// it on ordering rather than on the ramps.
+//
+// Weighted blending is still the right answer for smoke, where being
+// approximately right from every angle beats being exactly right from one.
+// This is for emitters that want the exact thing.
+//
+// ---------------------------------------------------------------------------
+// Why a single workgroup, and what happens past its limit
+// ---------------------------------------------------------------------------
+//
+// A bitonic sort of N elements is log2(N)*(log2(N)+1)/2 passes. Done globally
+// that is a separate dispatch per pass -- 55 of them at 2048 -- each with a
+// barrier, because there is no way to synchronise across workgroups.
+//
+// Inside one workgroup there is: barrier(). So the whole ladder runs in shared
+// memory in a single dispatch, and every pass costs a barrier rather than a
+// dispatch. The catch is the workgroup size limit, which is why this tops out
+// at kMaxSortable elements.
+//
+// **MaxParticles defaults to 1000**, and an emitter that wants more than 2048
+// exact-sorted particles is asking for something this version does not do: the
+// engine leaves it unsorted, exactly as before, and says so once. Weighted
+// blending is the answer at that scale anyway.
+
+#type compute
+#version 450 core
+
+// 1024 threads, two elements each. The pair-per-thread shape is what a bitonic
+// network wants: every compare-exchange step pairs element i with element
+// i^stride, so one thread owning both halves of a pair means no thread ever
+// waits on another thread's element within a step.
+layout(local_size_x = 1024) in;
+
+const uint kMaxSortable = 2048u;
+
+struct ParticleInstance
+{
+	vec4 PositionSize;   // xyz world position, w size
+	vec4 Color;
+	vec4 Params;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer SourceInstances
+{
+	ParticleInstance Items[];
+} u_Source;
+
+layout(std430, set = 0, binding = 1) writeonly buffer SortedInstances
+{
+	ParticleInstance Items[];
+} u_Sorted;
+
+layout(std140, set = 0, binding = 2) uniform SortParams
+{
+	// xyz the eye, w unused.
+	vec4 CameraPosition;
+	// xyz the view direction, w unused.
+	vec4 CameraForward;
+	// How many pool slots there are. Dead ones are zero-size quads and sort
+	// along with the rest: excluding them would need a compaction pass, and a
+	// degenerate quad costs a discarded triangle whether it is sorted or not.
+	uint Count;
+} u_Params;
+
+// Key and payload kept in separate arrays rather than one array of structs.
+// A bitonic pass touches both, but keeping them apart means each is a
+// contiguous run of the same 4-byte type, which is what avoids bank conflicts
+// on the strided accesses this network makes.
+shared float s_Keys[kMaxSortable];
+shared uint  s_Indices[kMaxSortable];
+
+void main()
+{
+	const uint thread = gl_LocalInvocationID.x;
+	const uint threads = gl_WorkGroupSize.x;
+	const uint count = min(u_Params.Count, kMaxSortable);
+
+	// --- load, padding to a power of two -----------------------------------
+	//
+	// A bitonic network is only defined on a power-of-two array. Padding with
+	// the *smallest* key puts it at the end under a descending sort, so the
+	// first `count` slots afterwards are exactly the real particles -- no
+	// bounds test in the scatter, and no chance of a pad index being used to
+	// read a particle.
+	uint padded = 1u;
+	while (padded < count)
+		padded <<= 1u;
+	padded = max(padded, 2u);
+
+	for (uint i = thread; i < padded; i += threads)
+	{
+		if (i < count)
+		{
+			vec3 position = u_Source.Items[i].PositionSize.xyz;
+			s_Keys[i] = dot(position - u_Params.CameraPosition.xyz,
+							u_Params.CameraForward.xyz);
+			s_Indices[i] = i;
+		}
+		else
+		{
+			s_Keys[i] = -3.402823466e+38;   // -FLT_MAX: sorts last, descending
+			s_Indices[i] = 0u;
+		}
+	}
+
+	barrier();
+
+	// --- the network --------------------------------------------------------
+	//
+	// Textbook bitonic: build sorted runs of length k, doubling, and merge each
+	// with a halving stride. The direction of a comparison depends on which
+	// half of its k-block the element sits in, which is what makes the runs
+	// alternate and the merge work.
+	//
+	// Sorted **descending** by view depth: farthest first, so the nearest
+	// particle blends last. That is the same order the CPU path sorts into --
+	// deliberately, because the two paths are compared against each other and
+	// a difference in convention would read as a difference in correctness.
+	for (uint k = 2u; k <= padded; k <<= 1u)
+	{
+		for (uint stride = k >> 1u; stride > 0u; stride >>= 1u)
+		{
+			for (uint i = thread; i < padded; i += threads)
+			{
+				const uint partner = i ^ stride;
+
+				// Each pair is handled by the lower index only, so no pair is
+				// swapped twice -- which would undo it.
+				if (partner > i)
+				{
+					// Ascending within the first half of each k-block,
+					// descending within the second. Inverted overall, because
+					// the result wanted is descending.
+					const bool ascending = ((i & k) != 0u);
+					const bool swap = (s_Keys[i] < s_Keys[partner]) != ascending;
+
+					if (swap)
+					{
+						const float key = s_Keys[i];
+						s_Keys[i] = s_Keys[partner];
+						s_Keys[partner] = key;
+
+						const uint index = s_Indices[i];
+						s_Indices[i] = s_Indices[partner];
+						s_Indices[partner] = index;
+					}
+				}
+			}
+
+			barrier();
+		}
+	}
+
+	// --- scatter -------------------------------------------------------------
+	//
+	// Writing whole instances rather than an index buffer the draw would
+	// indirect through. It costs 48 bytes of bandwidth per particle instead of
+	// 4, and buys something worth more than that: **the draw path does not
+	// change at all.** No extra binding in the shared vertex stage, no dummy
+	// identity buffer for the CPU path and the weighted path to bind, and
+	// nothing in the renderer that can tell a sorted emitter from an unsorted
+	// one. At 2048 particles the copy is 96 KB.
+	for (uint i = thread; i < count; i += threads)
+		u_Sorted.Items[i] = u_Source.Items[s_Indices[i]];
+}

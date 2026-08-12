@@ -2234,8 +2234,36 @@ scene and is exactly where the buttons live.
 > started there. `ragev_stage_managed(rvpack)` fixes the cause; the skip covers
 > every other way the host can be down.
 
-**START HERE: pick from 6.11 (GPU alpha self-sorting, the one phase-6 item left
-unbuilt) or phase 7.**
+**6.11 is built, so phase 6 is complete.** `particle_sort.rvshader` is a
+bitonic sort in shared memory -- one dispatch, one workgroup, no readback --
+writing a *second instance buffer* in sorted order rather than an index buffer
+the draw indirects through. That costs 48 bytes per particle instead of 4 and
+buys a draw path that does not change at all: `Gpu::GetInstances` hands back
+the sorted buffer and the renderer cannot tell. Past 2048 particles an emitter
+draws unsorted, as before, and says so once.
+
+> [!TRAP]
+> **A pixel comparison cannot verify this, and three thresholds got tuned
+> before that was obvious.** The plan was to render one emitter on the CPU and
+> on the GPU and diff the images, assuming both paths simulate the same
+> particles. *They do not.* An identical burst scene rendered each way differed
+> by **6.5 of 255 under additive blending**, where order cannot matter at all --
+> the two simulations agree statistically, not particle for particle. Every
+> version of that check was measuring the difference between two plumes and
+> calling it ordering, and one run of a completely unsorted build passed it.
+>
+> The instrument that works is in scenetest: dispatch the real shader on a
+> buffer built by hand, read it back, and check the order exactly. It catches
+> an inverted comparison, which the pixel check waved through.
+>
+> On the way, this also found that **particles simulate on frame time**, so two
+> captures of one scene were never the same picture -- the same measurement
+> swung 0.78 to 0.23 between runs of an identical build. `--frame-time=<seconds>`
+> now pins it, and any future screenshot comparison should use it.
+
+**START HERE: phase 7.** Of it, materials as assets is the one that unblocks
+ordinary authoring -- two entities still cannot share a material from the
+inspector.
 
 > [!TRAP]
 > **A project's C# is loaded from `Scripts/bin/`, not from `bin/`.** Editing a

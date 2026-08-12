@@ -1563,6 +1563,214 @@ namespace
 	// reaches the GPU, and the failure mode that matters -- a dispatch that
 	// silently does nothing -- looks exactly like success from every angle
 	// except the buffer's contents.
+	// The particle sort, against a buffer whose right answer is arithmetic.
+	//
+	// **This started as a pixel comparison and that was the wrong instrument.**
+	// The plan was to render one emitter on the CPU and on the GPU and diff the
+	// images, on the assumption that both paths simulate the same particles.
+	// They do not: an identical burst scene rendered each way differed by 6.5
+	// levels of 255 under *additive* blending, where order cannot matter at all.
+	// The two simulations agree statistically, not particle for particle, so
+	// every version of that comparison was measuring the difference between two
+	// plumes and calling it ordering. Three thresholds got tuned before that
+	// became obvious, and a run of the unsorted build passed one of them.
+	//
+	// So: dispatch the real shader on a buffer built here, read it back, and
+	// check the order exactly. No rendering, no camera, no plume.
+	void CheckParticleSort()
+	{
+		RHI::RHIDevice& device = Renderer::GetDevice();
+		if (!device.GetCaps().SupportsCompute)
+		{
+			Check(true, "no compute on this device; the particle sort is skipped");
+			return;
+		}
+
+		if (device.GetCaps().MaxComputeWorkGroupSize < 1024)
+		{
+			Check(true, "workgroups are too small for the particle sort here; skipped");
+			return;
+		}
+
+		auto compiled = RHI::ShaderCompiler::CompileFromFile("assets/shaders/particle_sort.rvshader");
+		Check(compiled.has_value(), "the particle sort shader compiles");
+		if (!compiled)
+			return;
+
+		RHI::Ref<RHI::RHIShader> shader = device.CreateShader(*compiled);
+		RHI::ComputePipelineDesc pipelineDesc;
+		pipelineDesc.Name = "scenetest.particlesort";
+		pipelineDesc.Shader = shader;
+		RHI::Ref<RHI::RHIComputePipeline> pipeline = device.CreateComputePipeline(pipelineDesc);
+
+		Check(pipeline != nullptr, "and builds a compute pipeline");
+		if (!pipeline)
+			return;
+
+		// Mirrors the shader's ParticleInstance and GpuParticles' InstanceData.
+		struct Instance
+		{
+			Vec4 PositionSize;
+			Vec4 Color;
+			Vec4 Params;
+		};
+		static_assert(sizeof(Instance) == 48, "Must match particle_sort.rvshader");
+
+		// Deliberately not a power of two, so the padding path runs. A count
+		// that happened to be 128 would leave the pad-and-trim logic untested,
+		// and that logic is where a sort silently drops or duplicates a
+		// particle.
+		constexpr uint32_t kCount = 300;
+
+		// The eye at the origin looking down -Z, so view depth is just -z and
+		// the expected order is readable by eye in a failure message.
+		const Vec3 eye{ 0.0f, 0.0f, 0.0f };
+		const Vec3 forward{ 0.0f, 0.0f, -1.0f };
+
+		std::vector<Instance> input(kCount);
+		for (uint32_t i = 0; i < kCount; i++)
+		{
+			// Interleaved rather than in order: a "sort" that did nothing at
+			// all would pass on already-sorted input, which is the classic way
+			// a sort test proves nothing. This ordering has no run longer than
+			// two and starts near-to-far, the opposite of the answer.
+			const float depth = (float)((i * 37u) % kCount) + 1.0f;
+
+			input[i].PositionSize = Vec4(0.0f, 0.0f, -depth, 0.25f);
+			// The payload carries the depth too, so a sort that orders the keys
+			// but scrambles the indices -- which looks perfect if you only
+			// check the positions -- is caught. Colour and position have to
+			// arrive together.
+			input[i].Color = Vec4(depth, 0.0f, 0.0f, 1.0f);
+			input[i].Params = Vec4((float)i, 0.0f, 0.0f, 0.0f);
+		}
+
+		RHI::BufferDesc sourceDesc;
+		sourceDesc.Size = kCount * sizeof(Instance);
+		sourceDesc.Usage = RHI::BufferUsage::Storage;
+		sourceDesc.Memory = RHI::MemoryDomain::HostVisible;
+		sourceDesc.DebugName = "scenetest.sort.source";
+		RHI::Ref<RHI::RHIBuffer> source = device.CreateBuffer(sourceDesc);
+		source->Upload(input.data(), sourceDesc.Size);
+
+		RHI::BufferDesc sortedDesc = sourceDesc;
+		sortedDesc.DebugName = "scenetest.sort.sorted";
+		RHI::Ref<RHI::RHIBuffer> sorted = device.CreateBuffer(sortedDesc);
+
+		struct Params
+		{
+			Vec4 CameraPosition;
+			Vec4 CameraForward;
+			uint32_t Count;
+			uint32_t Padding[3];
+		};
+
+		Params params{};
+		params.CameraPosition = Vec4(eye, 0.0f);
+		params.CameraForward = Vec4(forward, 0.0f);
+		params.Count = kCount;
+
+		RHI::BufferDesc paramsDesc;
+		paramsDesc.Size = sizeof(Params);
+		paramsDesc.Usage = RHI::BufferUsage::Uniform;
+		paramsDesc.Memory = RHI::MemoryDomain::HostVisible;
+		paramsDesc.DebugName = "scenetest.sort.params";
+		RHI::Ref<RHI::RHIBuffer> paramsBuffer = device.CreateBuffer(paramsDesc);
+		paramsBuffer->Upload(&params, sizeof(params));
+
+		RHI::Ref<RHI::RHIResourceSet> set = device.CreateResourceSet(pipeline, 0);
+		set->SetStorageBuffer(0, source, 0, sourceDesc.Size);
+		set->SetStorageBuffer(1, sorted, 0, sortedDesc.Size);
+		set->SetUniformBuffer(2, paramsBuffer, 0, sizeof(Params));
+		set->Commit();
+
+		device.ExecuteImmediate([&](RHI::RHICommandList& cmd)
+		{
+			cmd.BindComputePipeline(pipeline);
+			cmd.BindResourceSet(0, set);
+			cmd.Dispatch(1);   // one workgroup, by design
+			cmd.BufferBarrier(sorted, RHI::BufferSync::ComputeWrite,
+							  RHI::BufferSync::ShaderRead);
+		});
+
+		const auto* result = static_cast<const Instance*>(sorted->GetMappedPointer());
+		Check(result != nullptr, "the sorted buffer reads back");
+		if (!result)
+			return;
+
+		// --- far to near, which is the whole job --------------------------------
+		bool ordered = true;
+		uint32_t firstOutOfOrder = UINT32_MAX;
+		for (uint32_t i = 1; i < kCount; i++)
+		{
+			const float previous = -result[i - 1].PositionSize.z;
+			const float current = -result[i].PositionSize.z;
+
+			if (current > previous)
+			{
+				ordered = false;
+				if (firstOutOfOrder == UINT32_MAX)
+					firstOutOfOrder = i;
+			}
+		}
+
+		if (!ordered)
+		{
+			RV_CORE_ERROR("  sort: slot {0} is nearer than the one before it ({1} then {2})",
+						  firstOutOfOrder,
+						  -result[firstOutOfOrder - 1].PositionSize.z,
+						  -result[firstOutOfOrder].PositionSize.z);
+		}
+		Check(ordered, "the particle sort puts every particle behind the one after it");
+
+		// --- and nothing was invented or lost ------------------------------------
+		//
+		// Ordering alone is satisfied by an output of 300 copies of the
+		// farthest particle. This is the half that says it is the *same* set.
+		std::vector<bool> seen(kCount, false);
+		bool permutation = true;
+		for (uint32_t i = 0; i < kCount && permutation; i++)
+		{
+			const int slot = (int)result[i].Params.x;
+			if (slot < 0 || slot >= (int)kCount || seen[(size_t)slot])
+				permutation = false;
+			else
+				seen[(size_t)slot] = true;
+		}
+
+		Check(permutation, "and the result is a permutation of the input, not a copy of "
+						   "one element or a buffer with holes in it");
+
+		// --- the payload travelled with the key ----------------------------------
+		bool intact = true;
+		for (uint32_t i = 0; i < kCount; i++)
+		{
+			// Colour.r was set to the same depth the position encodes.
+			if (std::fabs(result[i].Color.x - (-result[i].PositionSize.z)) > 1e-3f)
+				intact = false;
+		}
+
+		Check(intact, "and each particle kept its own colour rather than being paired "
+					  "with another particle's");
+
+		// --- one particle, which is the degenerate case the padding must survive --
+		params.Count = 1;
+		paramsBuffer->Upload(&params, sizeof(params));
+
+		device.ExecuteImmediate([&](RHI::RHICommandList& cmd)
+		{
+			cmd.BindComputePipeline(pipeline);
+			cmd.BindResourceSet(0, set);
+			cmd.Dispatch(1);
+			cmd.BufferBarrier(sorted, RHI::BufferSync::ComputeWrite,
+							  RHI::BufferSync::ShaderRead);
+		});
+
+		Check(std::fabs(result[0].Params.x - input[0].Params.x) < 1e-3f,
+			  "a single-particle emitter sorts to itself rather than reading past its "
+			  "own end");
+	}
+
 	void CheckCompute()
 	{
 		if (!Renderer::HasDevice())
@@ -7119,6 +7327,7 @@ int RunTests(int argc, char** argv)
 	CheckPackaging();
 	CheckRuntimePath();
 	CheckCompute();
+	CheckParticleSort();
 	CheckPhysics();
 	CheckCurves();
 	CheckCurveAsset();

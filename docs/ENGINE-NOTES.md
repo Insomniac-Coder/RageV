@@ -711,6 +711,37 @@ step from canvas layout**, so a world-space label reuses it untouched.
 (That shader takes an `fwidth`, so §5's derivative rules — written for the
 grid — apply to it too.)
 
+### Measuring a change you cannot see directly
+
+*Learned building 6.11, 2026-08-12, at the cost of three tuned thresholds.*
+
+The GPU alpha sort had an obvious-looking test: render one emitter on the CPU
+and on the GPU, diff the images, and the difference is the ordering. It rests
+on the two paths simulating the *same particles*, which everything about them
+suggests -- one deterministic xorshift, one seed, one set of draws from it.
+
+**They do not.** An identical burst scene rendered each way differs by 6.5 of
+255 under *additive* blending, where order cannot matter at all. The two agree
+statistically, not particle for particle, so the comparison was measuring the
+difference between two plumes the whole time. A completely unsorted build
+passed one of the thresholds tuned to accommodate it.
+
+Two rules came out of it, both general:
+
+- **A control that should read zero, and a threshold derived from it.** The
+  additive comparison *was* the control here, and it was shouting -- 6.5 where
+  the claim needed ~0. Tuning past a loud control is how a measurement becomes
+  decoration.
+- **Prefer an instrument that reads the thing rather than a consequence of
+  it.** Dispatching the sort on a buffer built by hand and checking the output
+  order is exact, deterministic, needs no camera, and catches an inverted
+  comparison that the pixels waved through.
+
+And one engine change fell out: **particles simulate on frame time**, so two
+captures of one scene were never the same picture -- the same measurement swung
+0.78 to 0.23 between runs of an identical build. `--frame-time=<seconds>` pins
+the frame clock, and any screenshot comparison should use it.
+
 ### Deferred to the end of the phase
 
 Each is a real feature with a real cost, and each is deliberately after the

@@ -54,6 +54,19 @@ namespace RageV
 		// own rate could never win over the default.
 		bool         FixedHzExplicit = false;
 
+		// Pretend every frame took exactly this long, in seconds. Zero means
+		// use the real clock, which is what a game does.
+		//
+		// **For capture, not for playing.** Anything driven by frame time --
+		// particles, OnFrame scripts, the interpolation alpha -- otherwise
+		// depends on how fast this machine happened to run, so two screenshots
+		// of the same scene are never quite the same picture. That makes
+		// comparing them against each other measure the scheduler rather than
+		// the change under test, which is exactly what it did before this
+		// existed: a particle comparison swung 0.78 to 0.23 between two runs of
+		// an identical build.
+		float        FrameTime = 0.0f;
+
 		// Write a PNG of one frame and exit.
 		//
 		// The only way to check what the engine actually put on screen without
