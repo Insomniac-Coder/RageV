@@ -1193,7 +1193,7 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
 | Audio | `.ogg` is deliberately not claimed: it needs stb_vorbis, and a file that imports and then will not play is worse than one that does not import. |
 | Particles | A GPU emitter cannot sort its own alpha — sorting would need a readback. Use `Additive` or `WeightedBlended` there. Emitters are still sorted against each other. |
 | Particles | Weighted blending is an approximation and is loose in one known way: a stack of equally transparent layers spread over a very large depth range renders with the near one too strong. No depth-only weight avoids that; `Alpha` is what exactness costs a sort. Measured in §8 (6.9). |
-| Particles | No sub-emitters, no arbitrary curves (size and colour interpolate start to end), and nothing collides. |
+| Particles | No sub-emitters and nothing collides. Curves landed in 6.10. |
 
 ### Not built
 
@@ -1209,11 +1209,13 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
   manual's particles page. The order-independent path is validated as of 6.9,
   and **curves are done as of 6.10** -- size, colour and alpha as `.rcurve`
   assets with a draggable editor, read identically by the CPU and GPU paths.
-  Still missing within it: collision and sub-emitters (both deferred on
-  purpose, scoped in §8), and a GPU emitter cannot sort its own alpha -- which
-  is what `WeightedBlended` is for, and 6.11 would make exact.
-- **Text and game UI.** The largest gap by some distance, and the one the mini
-  game hit hardest -- see §8. Nothing can draw a score, a label or a menu.
+  Still missing within it: collision and sub-emitters, both deferred on
+  purpose and scoped in §8. **GPU alpha sorting landed in 6.11**, exact up to
+  2048 particles per emitter.
+- ~~Text and game UI.~~ **Built, all of phase 6**: an MSDF font pipeline,
+  screen-space canvases with anchors, buttons with hit-testing and bound
+  handlers, and world-space text. Knockdown has a title and a live score,
+  which is what the phase existed for.
 - ~~A per-frame script hook.~~ **Done 2026-08-11**: `OnFrame` in both
   languages, `OnUpdate` renamed to `OnTick`, and the interpolation alpha
   readable from a script. See §8.
