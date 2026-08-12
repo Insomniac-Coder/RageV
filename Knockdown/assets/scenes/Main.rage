@@ -526,3 +526,74 @@ Entities:
       Texture: 0
       MaxParticles: 512
       SimulateOnGpu: false
+  - EntityID: 5501884420193361001
+    TagComponent:
+      Tag: HUD
+    UICanvasComponent:
+      ScaleMode: ScaleWithScreen
+      ReferenceResolution: [1920, 1080]
+      MatchWidthOrHeight: 0.5
+      SortOrder: 0
+  - EntityID: 5501884420193361002
+    RelationshipComponent:
+      Parent: 5501884420193361001
+    TagComponent:
+      Tag: Title
+    UIRectComponent:
+      AnchorMin: [0.5, 0]
+      AnchorMax: [0.5, 0]
+      OffsetMin: [-400, 28]
+      OffsetMax: [400, 96]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: KNOCKDOWN
+      Font: 4471820395583019277
+      Size: 56
+      Color: [0.98, 0.96, 0.92, 0.95]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 5501884420193361003
+    RelationshipComponent:
+      Parent: 5501884420193361001
+    TagComponent:
+      Tag: Score
+    UIRectComponent:
+      AnchorMin: [0.5, 0]
+      AnchorMax: [0.5, 0]
+      OffsetMin: [-400, 96]
+      OffsetMax: [400, 148]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: 0 of 6 down
+      Font: 4471820395583019277
+      Size: 38
+      Color: [1, 0.72, 0.32, 1]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 5501884420193361004
+    RelationshipComponent:
+      Parent: 5501884420193361001
+    TagComponent:
+      Tag: Hint
+    UIRectComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [1, 1]
+      OffsetMin: [0, -56]
+      OffsetMax: [0, -18]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: A/D swing   W/S aim   Space fire   F reset
+      Font: 4471820395583019277
+      Size: 26
+      Color: [0.72, 0.75, 0.82, 0.85]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1

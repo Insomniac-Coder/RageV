@@ -2211,9 +2211,30 @@ alternative is a bug nobody can trace:
   regression probe -- scenetest presses it and reads the label back, which is
   the only check here that would notice the step order being wrong.
 
-**START HERE: 6.x -- Knockdown gets a title, a score and "press F to reset".**
-The acceptance test for the whole phase, because that absence is why the phase
-exists. Everything it needs is built.
+**Phase 6 is done.** Knockdown has a title, a live score and a control hint,
+which was the acceptance test -- the game existed for a whole phase with no way
+to write "4 of 6 down" on the screen, and that absence is why the phase
+happened.
+
+**START HERE: pick from 6.11 (GPU alpha self-sorting, the one phase-6 item left
+unbuilt) or phase 7.** Also unbuilt and offered: validating button bindings at
+scene load and in `rvpack`, so a dead binding is caught before shipping rather
+than on the click.
+
+> [!TRAP]
+> **A project's C# is loaded from `Scripts/bin/`, not from `bin/`.** Editing a
+> `.cs` and running the runtime runs the *old* assembly, silently -- the game
+> plays, the scripts are stale, and nothing says so. It cost a confused
+> round-trip here: the HUD's score label kept showing its authored placeholder
+> and the bug looked like it was in the new UI code.
+>
+> `dotnet build <project>/Scripts/<name>.csproj -o <project>/Scripts/bin
+> -p:RageVScriptCore=<path to the built RageV.ScriptCore.dll>`, or press Build
+> Scripts in the editor, which is what a person would do.
+>
+> **The way to catch this class of mistake: author the scene with a placeholder
+> the script must overwrite.** "0 of 6 down" in the file *and* from the script
+> proves nothing; "(score)" in the file proves the script ran.
 
 ### 6.4b -- text in the world. Built.
 

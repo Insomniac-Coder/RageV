@@ -9,8 +9,10 @@ using RageV;
 /// last one plays the win chime. Interact (F) resets the round by destroying
 /// what is left and stamping a fresh stack from the prefab.
 ///
-/// There is deliberately no text and no UI anywhere in this game: the light,
-/// the sounds and the crates themselves are the whole scoreboard.
+/// The light, the sounds and the crates are still most of the scoreboard —
+/// the HUD says in words what they were already saying, which is the point:
+/// this game existed for a whole phase with no way to write "4 of 6 down" on
+/// the screen, and that absence is why phase 6 happened.
 /// </remarks>
 public class GameManager : Script
 {
@@ -18,6 +20,7 @@ public class GameManager : Script
 
 	private Entity m_BeaconLight;
 	private Entity m_Confetti;
+	private Entity m_ScoreLabel;
 	private readonly HashSet<Entity> m_Out = new HashSet<Entity>();
 	private bool m_Won;
 
@@ -34,7 +37,12 @@ public class GameManager : Script
 		if (!m_Confetti.Exists)
 			Log.Warn("GameManager: no 'Confetti' emitter to fire on the win");
 
+		m_ScoreLabel = Entity.FindByName("Score");
+		if (!m_ScoreLabel.Exists)
+			Log.Warn("GameManager: no 'Score' label to write to");
+
 		SetBeacon(0.0f);
+		ShowScore();
 	}
 
 	public override void OnTick(float deltaTime)
@@ -53,6 +61,7 @@ public class GameManager : Script
 			return;
 
 		SetBeacon((float)m_Out.Count / m_TotalCrates);
+		ShowScore();
 
 		if (m_Out.Count >= m_TotalCrates)
 		{
@@ -65,6 +74,22 @@ public class GameManager : Script
 		{
 			PlayOneShot("audio/plink.wav", 0.8f);
 		}
+	}
+
+	/// <summary>The count, in words, on the HUD.</summary>
+	/// <remarks>
+	/// Written on every change rather than every frame. A score that only moves
+	/// when the score moves costs nothing at rest, and <c>Entity.Text</c> is a
+	/// direct call — no registry name, no parsing.
+	/// </remarks>
+	private void ShowScore()
+	{
+		if (!m_ScoreLabel.Exists)
+			return;
+
+		m_ScoreLabel.Text = m_Out.Count >= m_TotalCrates
+			? "all six down — F to reset"
+			: $"{m_Out.Count} of {m_TotalCrates} down";
 	}
 
 	/// <summary>The win, in particles. Additive, so it is correct from any angle.</summary>
@@ -114,6 +139,7 @@ public class GameManager : Script
 		m_Out.Clear();
 		m_Won = false;
 		SetBeacon(0.0f);
+		ShowScore();
 		Log.Info("GameManager: round reset");
 	}
 }
