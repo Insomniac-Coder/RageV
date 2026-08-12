@@ -21,6 +21,20 @@ namespace RageV
 		// A packager that empties a folder it was pointed at by mistake is a
 		// packager that eventually deletes someone's work.
 		bool Overwrite = false;
+
+		// Ship anyway when a UI button's OnClick names a method nothing
+		// answers to.
+		//
+		// **The default refuses**, and that is the point of the check. A
+		// method name in a scene file has no compiler behind it, so a rename
+		// leaves a button that does nothing and says nothing until a player
+		// clicks it. Packaging is the last moment anyone looks, so it is where
+		// the missing compiler goes.
+		//
+		// The escape exists because a project may be mid-refactor and want a
+		// build regardless -- but it has to be asked for, so nobody ships one
+		// by not noticing.
+		bool AllowDeadBindings = false;
 	};
 
 	struct PackageResult

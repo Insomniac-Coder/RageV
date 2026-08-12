@@ -370,11 +370,16 @@ public static unsafe class ScriptHost
 		&& !method.IsSpecialName
 		&& !method.IsGenericMethod
 		// Declared by the game, not inherited from Script or object. Without
-		// this the dropdown offers OnCreate, OnTick, ToString and GetHashCode,
-		// and binding a button to the engine's own callback is never what
-		// somebody meant.
+		// this the dropdown offers ToString and GetHashCode, and binding a
+		// button to those is never what somebody meant.
 		&& method.DeclaringType != typeof(Script)
-		&& method.DeclaringType != typeof(object);
+		&& method.DeclaringType != typeof(object)
+		// And not an *override* of one either. DeclaringType alone does not
+		// catch that: a script's `public override void OnCreate()` is declared
+		// by the script, so it passes the two tests above and turns up in the
+		// dropdown as though it were a handler. GetBaseDefinition walks back to
+		// where the virtual was first introduced, which is Script.
+		&& method.GetBaseDefinition().DeclaringType != typeof(Script);
 
 	/// <summary>Bindable method names on a script type, newline-separated, into the buffer.</summary>
     /// <remarks>

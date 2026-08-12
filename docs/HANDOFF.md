@@ -2216,10 +2216,26 @@ which was the acceptance test -- the game existed for a whole phase with no way
 to write "4 of 6 down" on the screen, and that absence is why the phase
 happened.
 
+**Binding validation is built too (6.4d).** `UI::ValidateBindings` runs at scene
+load as a **warning** -- an author mid-edit has half-wired buttons all the time
+-- and in `rvpack` as an **error**, because shipping one is not a normal state.
+`--allow-dead-bindings` downgrades it, and has to be asked for. Every scene in
+the project is checked, not only the start scene: a menu is usually its own
+scene and is exactly where the buttons live.
+
+> [!TRAP]
+> **A check that cannot look must not answer "no".** C# handlers are only
+> visible while .NET is up, so with the host down every managed binding reads as
+> broken -- and the packager would refuse a game whose buttons all work. That is
+> how a check gets switched off. `ValidateBindings` skips a managed target it
+> cannot inspect.
+>
+> It was not hypothetical: rvpack had no `managed/` beside it, so .NET never
+> started there. `ragev_stage_managed(rvpack)` fixes the cause; the skip covers
+> every other way the host can be down.
+
 **START HERE: pick from 6.11 (GPU alpha self-sorting, the one phase-6 item left
-unbuilt) or phase 7.** Also unbuilt and offered: validating button bindings at
-scene load and in `rvpack`, so a dead binding is caught before shipping rather
-than on the click.
+unbuilt) or phase 7.**
 
 > [!TRAP]
 > **A project's C# is loaded from `Scripts/bin/`, not from `bin/`.** Editing a

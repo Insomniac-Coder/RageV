@@ -4,6 +4,7 @@
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
+#include "RageV/Managed/Interop.h"
 
 namespace RageV::UI
 {
@@ -164,6 +165,80 @@ namespace RageV::UI
 		auto buttons = scene.GetRegistry().view<UIButtonComponent>();
 		for (auto handle : buttons)
 			buttons.get<UIButtonComponent>(handle).Clicked = false;
+	}
+
+	std::string BindingProblem::Describe() const
+	{
+		if (TargetMissing)
+		{
+			return "UI button '" + Button + "': its OnClick target entity " + Target +
+				   " is not in the scene, so '" + Method + "' can never be called. "
+				   "It was probably deleted -- drag a replacement in, or clear the slot.";
+		}
+
+		return "UI button '" + Button + "': nothing on '" + Target + "' answers to '" +
+			   Method + "'. A C++ script must register the method with .Method<>(); a C# "
+			   "one needs it public, with no arguments, returning void.";
+	}
+
+	std::vector<BindingProblem> ValidateBindings(Scene& scene)
+	{
+		std::vector<BindingProblem> problems;
+
+		auto view = scene.GetRegistry().view<UIButtonComponent>();
+		for (auto handle : view)
+		{
+			const UIButtonComponent& button = view.get<UIButtonComponent>(handle);
+
+			// No method named is not a broken binding -- it is a button read by
+			// polling, and most of them are. Reporting these would put a line
+			// in the log for every ordinary button in the project and teach
+			// everybody to ignore the check.
+			if (button.OnClickMethod.empty())
+				continue;
+
+			Entity self{ handle, &scene };
+
+			// The same empty-means-this-entity rule the dispatch uses. If these
+			// two ever disagree the check is worse than useless, because it
+			// would pass a binding that fails and fail one that works.
+			Entity target = button.OnClickTarget.IsValid()
+				? scene.GetEntityByUUID(button.OnClickTarget.Value)
+				: self;
+
+			if (!target)
+			{
+				problems.push_back({ self.GetName(), button.OnClickMethod,
+									 std::to_string((uint64_t)button.OnClickTarget), true });
+				continue;
+			}
+
+			// **An answer we cannot look up is not a "no".**
+			//
+			// A C# handler is only visible while .NET is up. If it is not --
+			// the host failed to start, the assembly was never built -- then
+			// every managed binding is *unknown*, and reporting them as broken
+			// would refuse to package a game whose buttons all work. A check
+			// that cries wolf is a check somebody turns off.
+			//
+			// The C++ registry needs nothing to be running, so a native script
+			// is always answerable.
+			const bool managedUnknown =
+				target.HasComponent<ManagedScriptComponent>() &&
+				!target.GetComponent<ManagedScriptComponent>().ScriptName.empty() &&
+				!Managed::Interop::IsReady();
+
+			if (managedUnknown)
+				continue;
+
+			if (!scene.CanInvokeScriptMethod(target, button.OnClickMethod))
+			{
+				problems.push_back({ self.GetName(), button.OnClickMethod,
+									 target.GetName(), false });
+			}
+		}
+
+		return problems;
 	}
 
 	Vec4 ButtonTint(const UIButtonComponent& button)

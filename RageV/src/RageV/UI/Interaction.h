@@ -96,4 +96,40 @@ namespace RageV::UI
 	// Which tint a button is currently drawn with. Pure, and separate from the
 	// drawing so a test can assert the state machine without a GPU.
 	Vec4 ButtonTint(const UIButtonComponent& button);
+
+	// --- bindings that will not resolve --------------------------------------
+	//
+	// **This is the compiler a scene file does not have.**
+	//
+	// A button stores a method's *name*, so renaming the method leaves the file
+	// naming something that is gone: the build passes and the button silently
+	// stops working. Clicking it says so, but only once somebody clicks it --
+	// which may be after the game ships.
+	//
+	// So the same question is asked at two earlier moments: when a scene loads
+	// (a warning, because an author is mid-edit and a half-wired button is a
+	// normal state to be in), and when a game is packaged (an error, because
+	// shipping one is not).
+
+	struct BindingProblem
+	{
+		std::string Button;   // the button entity's name, for a message
+		std::string Method;
+
+		// The target's name, or a note that it is gone. Two failures wear one
+		// shape here and the message has to tell them apart: a method that
+		// does not exist is a rename, a target that does not exist is a
+		// deletion, and they are fixed differently.
+		std::string Target;
+		bool TargetMissing = false;
+
+		std::string Describe() const;
+	};
+
+	// Every button in the scene whose OnClick names something unreachable.
+	// Empty when the scene is sound, which is the ordinary case.
+	//
+	// A button with no method named is not a problem: that is a button read by
+	// polling, and most are.
+	std::vector<BindingProblem> ValidateBindings(Scene& scene);
 }

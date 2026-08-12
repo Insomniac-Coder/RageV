@@ -3,6 +3,9 @@
 #include "Project.h"
 #include "ModuleBuild.h"
 #include "RageV/Core/Log.h"
+#include "RageV/Scene/Scene.h"
+#include "RageV/Scene/SceneSerializer.h"
+#include "RageV/UI/Interaction.h"
 #include "yaml-cpp/yaml.h"
 #include <fstream>
 
@@ -38,6 +41,53 @@ namespace RageV
 				out.pop_back();
 
 			return out.empty() ? "Game" : out;
+		}
+
+		// Every scene in the project, checked for buttons whose OnClick names
+		// something unreachable.
+		//
+		// **Every scene, not only the start scene.** A menu is usually its own
+		// scene and is exactly where the buttons are; checking only the one the
+		// game opens with would miss the case this was written for.
+		//
+		// The scripts are already loaded -- Project::Load brings in both the
+		// C++ module and the C# assembly -- so both languages resolve here the
+		// same way they will at runtime. That is the whole reason this can live
+		// in the packager rather than needing a running game.
+		void CheckSceneBindings(const PackageDesc& desc, PackageResult& result)
+		{
+			std::error_code error;
+			const fs::path assets = Project::AssetRoot();
+			if (!fs::is_directory(assets, error))
+				return;
+
+			for (const auto& entry : fs::recursive_directory_iterator(assets, error))
+			{
+				if (error || !entry.is_regular_file() || entry.path().extension() != ".rage")
+					continue;
+
+				// A scene that will not parse is a separate problem, and one
+				// the runtime already reports. Skipped rather than reported
+				// twice.
+				auto scene = std::make_shared<Scene>();
+				SceneSerializer serializer(scene);
+				if (!serializer.Deserialize(entry.path().string()))
+					continue;
+
+				const fs::path relative = fs::relative(entry.path(), assets, error);
+				const std::string name = error ? entry.path().filename().string()
+											   : relative.generic_string();
+
+				for (const UI::BindingProblem& problem : UI::ValidateBindings(*scene))
+				{
+					const std::string message = name + ": " + problem.Describe();
+
+					if (desc.AllowDeadBindings)
+						result.Warnings.push_back(message);
+					else
+						result.Errors.push_back(message);
+				}
+			}
 		}
 
 		bool DirectoryHasContent(const fs::path& path)
@@ -219,6 +269,8 @@ namespace RageV
 
 			if (!fs::is_directory(Project::AssetRoot(), error))
 				result.Errors.push_back("the project's asset folder is missing");
+
+			CheckSceneBindings(desc, result);
 		}
 
 		if (!desc.Overwrite && DirectoryHasContent(desc.OutputDirectory))

@@ -104,6 +104,18 @@ namespace RageV
 		// the only one able to write a message worth reading.
 		bool InvokeScriptMethod(Entity entity, const std::string& method);
 
+		// Whether that call *would* find something, without making it.
+		//
+		// Answered from the script **names** the entity carries rather than
+		// from live instances, because the callers run with the scene stopped:
+		// a load-time check, and the packager. InvokeScriptMethod cannot work
+		// that way -- it has to have an object to call on -- so the two
+		// resolve the same question through different doors, and the door this
+		// one uses is `ScriptName` where the other uses `ActiveScript`. They
+		// agree from the first simulation step onwards, which is the earliest
+		// anything could be invoked.
+		bool CanInvokeScriptMethod(Entity entity, const std::string& method);
+
 		// The bound half of a UI click. Runs on the fixed step, after the
 		// script pass -- instances are created there, and a handler on an
 		// entity spawned this same step has to exist before it can be called.

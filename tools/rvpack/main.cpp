@@ -60,6 +60,10 @@ int main(int argc, char** argv)
 		{
 			desc.Overwrite = true;
 		}
+		else if (argument == "--allow-dead-bindings")
+		{
+			desc.AllowDeadBindings = true;
+		}
 		else if (argument.rfind("--runtime=", 0) == 0)
 		{
 			desc.RuntimeExecutable = argument.substr(std::string("--runtime=").size());

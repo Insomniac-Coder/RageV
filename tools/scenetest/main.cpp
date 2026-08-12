@@ -5021,6 +5021,86 @@ void main()
 				  "and neither points back at the entity the prefab was made from");
 		}
 
+		// --- the check that stands in for the missing compiler --------------------
+		//
+		// A method name in a scene file is text nothing compiles, so the only
+		// defence is asking the same question earlier: on load, and at package
+		// time. These assert that the question is asked *correctly* -- a check
+		// that reports every sound binding as broken would be turned off within
+		// a day, and one that reports none is worth nothing.
+		{
+			auto scene = std::make_shared<Scene>();
+
+			Entity manager = scene->CreateEntity("Manager");
+			manager.AddComponent<NativeScriptComponent>("ClickCounter");
+
+			Entity ok = scene->CreateEntity("Good");
+			ok.AddComponent<UIRectComponent>();
+			UIButtonComponent& good = ok.AddComponent<UIButtonComponent>();
+			good.OnClickTarget = EntityRef(manager.GetUUID());
+			good.OnClickMethod = "Count";
+
+			Check(UI::ValidateBindings(*scene).empty(),
+				  "a binding that resolves is not reported");
+
+			// A button read by polling. Reporting these would put a line in the
+			// log for every ordinary button in a project, and teach everybody
+			// to ignore the check.
+			Entity polled = scene->CreateEntity("Polled");
+			polled.AddComponent<UIRectComponent>();
+			polled.AddComponent<UIButtonComponent>();
+
+			Check(UI::ValidateBindings(*scene).empty(),
+				  "and neither is a button with no method named -- that is polling");
+
+			// The rename: the method is gone, the file still says it.
+			Entity renamed = scene->CreateEntity("Renamed");
+			renamed.AddComponent<UIRectComponent>();
+			UIButtonComponent& stale = renamed.AddComponent<UIButtonComponent>();
+			stale.OnClickTarget = EntityRef(manager.GetUUID());
+			stale.OnClickMethod = "CountUp";   // ClickCounter declares Count
+
+			std::vector<UI::BindingProblem> problems = UI::ValidateBindings(*scene);
+			Check(problems.size() == 1, "a method nothing answers to is reported, once");
+
+			if (problems.size() == 1)
+			{
+				Check(problems[0].Button == "Renamed" && problems[0].Method == "CountUp" &&
+					  !problems[0].TargetMissing,
+					  "and the report names the button and the method, and says the "
+					  "target was found");
+			}
+
+			// The deletion: a different failure wearing the same shape, and the
+			// message has to tell them apart -- one is fixed by renaming, the
+			// other by dragging a replacement in.
+			stale.OnClickMethod = "Count";
+			stale.OnClickTarget = EntityRef(UUID(123456789));
+
+			problems = UI::ValidateBindings(*scene);
+			Check(problems.size() == 1 && problems[0].TargetMissing,
+				  "a target that is not in the scene is reported as a missing entity "
+				  "rather than as a missing method");
+
+			// An empty target means this entity, exactly as the dispatch reads
+			// it. If these two disagreed the check would pass bindings that
+			// fail and fail ones that work.
+			Entity selfBound = scene->CreateEntity("SelfBound");
+			selfBound.AddComponent<UIRectComponent>();
+			selfBound.AddComponent<NativeScriptComponent>("ClickCounter");
+			UIButtonComponent& own = selfBound.AddComponent<UIButtonComponent>();
+			own.OnClickMethod = "Count";
+
+			problems = UI::ValidateBindings(*scene);
+			bool selfReported = false;
+			for (const UI::BindingProblem& problem : problems)
+				selfReported = selfReported || problem.Button == "SelfBound";
+
+			Check(!selfReported,
+				  "an empty target resolves to the button's own entity, the same way "
+				  "the dispatch reads it");
+		}
+
 		// --- methods are declared, and the declaration is what a scene may name ----
 		{
 			const std::vector<ScriptMethod>& methods = ScriptRegistry::MethodsOf("ClickCounter");
@@ -8217,6 +8297,44 @@ int RunTests(int argc, char** argv)
 			// documented and never called from a real simulation. The first
 			// C# game found that in an afternoon; this is that afternoon,
 			// run backwards.
+			// --- a binding to a *managed* method -----------------------------
+			//
+			// The C++ half of this goes through ScriptRegistry, which needs
+			// nothing running. This half goes through reflection over a live
+			// .NET, and it is the half that silently answers "no method" when
+			// the host is not up -- which would refuse to package a game whose
+			// buttons all work. So both the found and the cannot-look cases are
+			// asserted here rather than assumed.
+			if (Managed::Interop::IsReady())
+			{
+				auto scene = std::make_shared<Scene>();
+
+				Entity manager = scene->CreateEntity("Manager");
+				manager.AddComponent<ManagedScriptComponent>("RageV.Builtin.ContactCounter");
+
+				Entity button = scene->CreateEntity("Button");
+				button.AddComponent<UIRectComponent>();
+				UIButtonComponent& binding = button.AddComponent<UIButtonComponent>();
+				binding.OnClickTarget = EntityRef(manager.GetUUID());
+				binding.OnClickMethod = "Reset";
+
+				Check(UI::ValidateBindings(*scene).empty(),
+					  "a binding to a C# method resolves with no registration at all");
+
+				Check(scene->CanInvokeScriptMethod(manager, "Reset"),
+					  "and the same answer comes back through CanInvokeScriptMethod");
+
+				// A lifecycle override is not a handler. Without the
+				// GetBaseDefinition filter it is declared by the script, passes
+				// the DeclaringType tests, and turns up in the dropdown.
+				Check(!scene->CanInvokeScriptMethod(manager, "OnCreate"),
+					  "an override of a Script callback is not offered as a handler");
+
+				binding.OnClickMethod = "Resett";
+				Check(UI::ValidateBindings(*scene).size() == 1,
+					  "and a misspelt C# method is caught, which is the whole point");
+			}
+
 			if (Managed::Interop::IsReady())
 			{
 				const Managed::ManagedApi& host = Managed::Interop::Managed();

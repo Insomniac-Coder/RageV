@@ -3,6 +3,7 @@
 #include <fstream>
 #include <algorithm>
 #include "Components.h"
+#include "RageV/UI/Interaction.h"
 #include "ComponentRegistry.h"
 #include "RageV/Renderer/Renderer.h"
 
@@ -606,6 +607,24 @@ namespace RageV
 		}
 
 		m_SceneRef->UpdateWorldTransforms();
+
+		// A button whose OnClick names something unreachable, reported when the
+		// scene opens rather than when somebody eventually clicks it.
+		//
+		// **Replace only.** Instantiating a prefab or restoring an undone
+		// delete brings in a *fragment*, and a binding pointing at the rest of
+		// the scene would read as broken while the fragment is the only thing
+		// that has been read so far.
+		//
+		// A warning, not a failure: an author mid-edit has half-wired buttons
+		// all the time, and a load that refused them would be unusable. The
+		// packager is where this becomes an error.
+		if (mode == ReadMode::Replace)
+		{
+			for (const UI::BindingProblem& problem : UI::ValidateBindings(*m_SceneRef))
+				RV_CORE_WARN("{0}", problem.Describe());
+		}
+
 		// Used to return false unconditionally, so every caller that checked
 		// the result saw a successful load as a failure.
 		return true;

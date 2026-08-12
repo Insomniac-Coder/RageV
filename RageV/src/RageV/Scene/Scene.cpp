@@ -941,6 +941,48 @@ namespace RageV
 		return invoked;
 	}
 
+	bool Scene::CanInvokeScriptMethod(Entity entity, const std::string& method)
+	{
+		if (!entity || method.empty())
+			return false;
+
+		if (auto* script = m_Registry.try_get<NativeScriptComponent>(entity))
+		{
+			for (const ScriptMethod& candidate : ScriptRegistry::MethodsOf(script->ScriptName))
+			{
+				if (candidate.Name == method)
+					return true;
+			}
+		}
+
+		if (auto* managed = m_Registry.try_get<ManagedScriptComponent>(entity);
+			managed && Managed::Interop::IsReady() && Managed::Interop::Managed().ListMethods)
+		{
+			// Length first, then the copy -- the GetEntityName contract. A
+			// script with many methods must not come back clipped, or a
+			// perfectly good binding would be reported dead.
+			const int32_t needed = Managed::Interop::Managed().ListMethods(
+				managed->ScriptName.c_str(), nullptr, 0);
+
+			if (needed > 0)
+			{
+				std::string listing((size_t)needed + 1, '\0');
+				Managed::Interop::Managed().ListMethods(managed->ScriptName.c_str(),
+														listing.data(), (int32_t)listing.size());
+
+				std::stringstream stream(listing.c_str());
+				std::string line;
+				while (std::getline(stream, line))
+				{
+					if (line == method)
+						return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
 	void Scene::DispatchContactEvents()
 	{
 		m_Physics->TakeContactEvents(m_ContactEvents);

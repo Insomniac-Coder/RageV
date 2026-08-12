@@ -91,6 +91,26 @@ public class ContactCounter : Script
 	public override void OnCollisionExit(Collision collision) => m_Exited++;
 	public override void OnTriggerEnter(Collision collision) => m_Entered++;
 	public override void OnTriggerExit(Collision collision) => m_Exited++;
+
+	/// <summary>Back to zero. Bindable from a UI button's On Click.</summary>
+	/// <remarks>
+	/// The C# counterpart of <c>ClickCounter.Count</c> in the native builtins,
+	/// and here for the same two reasons: it is the worked example of a
+	/// bindable managed method, and it is the regression probe for the half of
+	/// the binding path that goes through reflection rather than through
+	/// ScriptRegistry.
+	/// <para>
+	/// Note what is <i>not</i> needed: no registration, no attribute. Public,
+	/// no arguments, returns void — that is the whole contract, and it is the
+	/// one place C# is plainly less work than C++.
+	/// </para>
+	/// </remarks>
+	public void Reset()
+	{
+		m_Entered = 0;
+		m_Exited = 0;
+		m_HardestHit = 0.0f;
+	}
 }
 
 /// <summary>Moves with the movement axes, relative to its own orientation.</summary>
