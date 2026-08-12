@@ -1289,24 +1289,31 @@ Stress scene, 1000 meshes, Release, Vulkan, vsync off, 400 frames:
 Whole frame: **0.922 ms of GPU work in a 1.417 ms frame.** Nothing dominates,
 which is why it read as mysterious -- there was no single villain to find.
 
-**The finding worth acting on: the reflection probe is 31% of the frame.**
-Removing it from the same scene:
+**One line looked actionable and was mostly an artifact of the test scene.**
+The reflection probe was 31% of the frame -- 1.417 ms down to 1.086 without it.
+But `make_stress_scene.py` writes `Update: Realtime`, and **realtime is not the
+default**. The same scene with the probe left at `Baked`, which is what
+`ProbeUpdate` defaults to:
 
-| | with probe | without |
-|---|---|---|
-| frame | 1.417 ms | **1.086 ms** |
-| GPU work | 0.922 ms | **0.678 ms** |
+| probe | CPU ms | GPU ms | frame |
+|---|---|---|---|
+| Realtime | 0.206 | 0.248 | 1.386 ms |
+| **Baked** | **0.066** | **0.001** | **1.142 ms** |
 
-0.33 ms of frame and 0.24 ms of GPU, for one probe, in a scene of a thousand
-grey meshes with nothing reflective enough to notice. That is the realtime
-prefilter noted in §9 -- 36 small renders amortised six a frame -- and it is
-paid whether or not anything in view is glossy.
+A baked probe captures once and costs nothing afterwards, exactly as designed.
+So there is no probe problem to fix: there is a stress scene that opts into the
+expensive mode, and a measurement that has to name which mode it measured.
 
-**So the ranked list for a renderer pass is now measured rather than guessed:**
-per-object probe selection (7.7) would let a scene skip probes nothing samples;
-shadow maps are the largest CPU phase at 0.495 ms; and front-to-back opaque
-sorting (7.8) is aimed at the render graph's 0.424 ms of GPU, which is the
-biggest single GPU line.
+**Corrected ranking**, since the first version of this paragraph oversold 7.7 on
+a number that was really "we asked for realtime and got it":
+
+- **7.7 per-object probe selection is a correctness fix, not a performance one.**
+  Every reflective object in a scene uses one probe chosen by camera distance,
+  so several probes means everything reflects whichever is nearest the *camera*.
+  Worth doing; not worth doing for speed.
+- **Shadow maps are the largest CPU phase**, 0.495 ms, and that number is real.
+- **The render graph is the largest GPU line**, 0.424 ms, which is what
+  front-to-back opaque sorting (7.8) aims at.
 
 An intermediate state is worth recording because it nearly shipped as a
 success: with materials still holding a sampler each, draws fell 3238 to 854 and
@@ -3018,8 +3025,8 @@ because the alternative is someone finding each one by being confused.
   worth code.
 - ~~Vulkan's remaining 1.88 ms is unattributed.~~ **Attributed 2026-08-12**,
   once GPU timestamps existed to do it with. See section 8; the short version
-  is that a *reflection probe* was 31% of the frame in a scene of 1000 meshes
-  that has nothing reflective worth the cost.
+  is that nothing dominates -- 0.92 ms of GPU in a 1.42 ms frame, spread
+  across shadows, probes and the graph.
 
 ### Editor and tooling
 
