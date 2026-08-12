@@ -1,0 +1,45 @@
+Scene: Uniform sky irradiance check
+Version: 5
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.5, 0.5, 0.5]
+  SkyZenith: [0.5, 0.5, 0.5]
+  SkyGround: [0.5, 0.5, 0.5]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 7710000000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7710000000000000002
+    TagComponent:
+      Tag: White matte sphere
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [3, 3, 3]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [1, 1, 1, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1

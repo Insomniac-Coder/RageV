@@ -86,8 +86,13 @@ layout(std430, set = 0, binding = 10) readonly buffer CellIndexBlock
 	uint Indices[];
 } u_CellIndices;
 
-layout(set = 0, binding = 1) uniform samplerCube u_Environment;
-layout(set = 0, binding = 5) uniform samplerCube u_Irradiance;
+// Arrays, not single cubes, so which environment a surface reflects is an
+// index the instance carries rather than a binding the draw carries. Slot 0 is
+// the sky in both, which is what lets "no probe reaches this object" be an
+// index rather than a branch -- and what keeps a scene with no probes at all
+// costing exactly what it did before.
+layout(set = 0, binding = 1) uniform samplerCubeArray u_Environment;
+layout(set = 0, binding = 5) uniform samplerCubeArray u_Irradiance;
 layout(set = 0, binding = 6) uniform sampler2D u_BRDF;
 
 // Comparison samplers: the hardware compares against the reference and filters
@@ -132,6 +137,10 @@ layout(location = 3) flat in vec4 v_BaseColor;
 layout(location = 4) flat in vec4 v_EmissiveColor;
 layout(location = 5) flat in vec4 v_Surface;
 layout(location = 6) in vec4 v_ClipPos;
+// Which cube of u_Environment and u_Irradiance. Flat and per instance: it is
+// constant across the object, and interpolating it would put fragments in the
+// middle of a triangle between two probes.
+layout(location = 7) flat in float v_Probe;
 
 layout(location = 0) out vec4 o_Color;
 
@@ -557,7 +566,7 @@ void main()
 	// the ground side by ground, which is most of what makes a scene look like
 	// it is somewhere.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
-	vec3 irradiance = textureLod(u_Irradiance, RotateIntoSky(N), 0.0).rgb *
+	vec3 irradiance = textureLod(u_Irradiance, vec4(RotateIntoSky(N), v_Probe), 0.0).rgb *
 					  u_Scene.Environment.x;
 
 	float NdotV = max(dot(N, V), 0.0);
@@ -602,7 +611,7 @@ void main()
 	float lod = max(roughness * u_Scene.Environment.y,
 					log2(max(texelsPerPixel, 1.0)));
 
-	vec3 prefiltered = textureLod(u_Environment, reflection, lod).rgb *
+	vec3 prefiltered = textureLod(u_Environment, vec4(reflection, v_Probe), lod).rgb *
 					   u_Scene.Environment.x;
 
 	vec2 envBRDF = EnvBRDF(NdotV, roughness);

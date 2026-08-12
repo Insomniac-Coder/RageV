@@ -52,6 +52,7 @@
 #include "RageV/UI/Interaction.h"
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Renderer/ReflectionProbe.h"
+#include "RageV/Renderer/ProbeArray.h"
 #include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/LightGrid.h"
@@ -4219,6 +4220,200 @@ void main()
 		Check(tiny.GetFaceSize() >= 8, "and a face size of one is clamped to something renderable");
 	}
 
+	// Per-object probe selection, and the arrays the choice indexes into.
+	//
+	// Checked without looking at a picture, because a picture cannot fail this
+	// convincingly: two probes in one room contain much the same surroundings,
+	// so selecting the wrong one for every object still renders something that
+	// looks like a reflection. The scene below gives each probe a position and
+	// an influence radius and then asks, point by point, which slot an object
+	// there would read -- which is the actual output of the feature.
+	void CheckProbeSelection()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		auto scene = std::make_shared<Scene>();
+
+		Entity left = scene->CreateEntity("Left probe");
+		left.GetComponent<TransformComponent>().Position = { -10.0f, 0.0f, 0.0f };
+		{
+			auto& probe = left.AddComponent<ReflectionProbeComponent>();
+			probe.Resolution = 64;
+			probe.Influence = 6.0f;
+		}
+
+		Entity right = scene->CreateEntity("Right probe");
+		right.GetComponent<TransformComponent>().Position = { 10.0f, 0.0f, 0.0f };
+		{
+			auto& probe = right.AddComponent<ReflectionProbeComponent>();
+			probe.Resolution = 256;
+			probe.Influence = 6.0f;
+		}
+
+		// Nothing captured yet, so nothing is usable and every point falls
+		// through to the sky. Asserted before the capture rather than after,
+		// because "the sky is the answer" has to be true of an incomplete probe
+		// as well as of a distant one -- an incomplete cube is black on the
+		// faces it has not reached, and black is a worse lie than the sky.
+		Check(scene->ProbeSlotFor({ -10.0f, 0.0f, 0.0f }) == ProbeArray::kSkySlot,
+			  "a probe that has never captured is not selected");
+
+		// A real frame, which the rest of this file does not need and this
+		// check cannot do without: a capture records into the frame's command
+		// list, and outside one there is no list to record into, so every probe
+		// would stay incomplete and every assertion below would pass by
+		// agreeing that the answer is the sky.
+		auto capture = [&scene]()
+		{
+			RHI::RHICommandList* cmd = Renderer::GetDevice().BeginFrame();
+			if (!cmd)
+				return false;
+
+			// What the frame graph does before any pass runs, and what nothing
+			// else in this file has ever needed: the renderers build their
+			// pipelines against the formats they are told to expect, and a
+			// probe captures into an HDR target. Without this the pipelines
+			// keep the swapchain's 8-bit format and every draw into a probe
+			// face is a format mismatch -- which the driver renders anyway and
+			// only the validation layer objects to.
+			Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT,
+									   RHI::Format::D32_SFLOAT);
+
+			Renderer::BeginFrame(cmd);
+			scene->CaptureReflectionProbes();
+			Renderer::EndFrame();
+			Renderer::GetDevice().EndFrame();
+			return true;
+		};
+
+		if (!capture())
+		{
+			RV_CORE_WARN("probe selection: no frame available; skipped");
+			return;
+		}
+
+		Check(ProbeArray::IsReady(), "the probe arrays allocated");
+
+		if (const RHI::Ref<RHI::RHITexture> radiance = ProbeArray::GetRadiance())
+		{
+			Check(radiance->GetDesc().Type == RHI::TextureType::TextureCubeArray,
+				  "as a cube array the shader can index per object");
+			Check(radiance->GetDesc().Layers == ProbeArray::kSlots * CubeFaces::kFaceCount,
+				  "with six layers per slot");
+			Check(radiance->GetDesc().MipLevels > 1,
+				  "and a roughness chain, or every surface reflecting one is a mirror");
+		}
+
+		if (const RHI::Ref<RHI::RHITexture> irradiance = ProbeArray::GetIrradiance())
+		{
+			Check(irradiance->GetDesc().Type == RHI::TextureType::TextureCubeArray,
+				  "and the irradiance array has the same shape");
+			// The whole point of deciding it rather than leaving it: a scene
+			// whose reflections move per object while its ambient does not
+			// reads as a lighting bug, not as a missing feature.
+			Check(irradiance->GetDesc().Layers == ProbeArray::kSlots * CubeFaces::kFaceCount,
+				  "so diffuse follows the same probe specular does");
+		}
+
+		const uint32_t leftSlot = scene->ProbeSlotFor({ -10.0f, 0.0f, 0.0f });
+		const uint32_t rightSlot = scene->ProbeSlotFor({ 10.0f, 0.0f, 0.0f });
+
+		Check(leftSlot != ProbeArray::kSkySlot, "an object at the left probe selects a probe");
+		Check(rightSlot != ProbeArray::kSkySlot, "as does one at the right probe");
+		Check(leftSlot != rightSlot, "and the two probes are different slots");
+
+		// The mutation this is really for. Choosing against the camera -- the
+		// shape this replaced -- gives one answer for the whole scene, so both
+		// of these would come back the same.
+		Check(scene->ProbeSlotFor({ -8.0f, 0.0f, 0.0f }) == leftSlot,
+			  "an object near the left probe reflects the left one");
+		Check(scene->ProbeSlotFor({ 8.0f, 0.0f, 0.0f }) == rightSlot,
+			  "and one near the right probe reflects the right one, in the same frame");
+
+		// Between them and outside both radii. Influence is what makes a probe
+		// a local answer rather than a global one, and a selection that ignored
+		// it would hand this point the nearer of the two anyway.
+		Check(scene->ProbeSlotFor({ 0.0f, 0.0f, 0.0f }) == ProbeArray::kSkySlot,
+			  "and a point beyond every influence falls back to the sky");
+
+		// Just inside the right probe's reach, and much closer to it than to
+		// the left one. Tests the boundary in the direction that matters: the
+		// radius is a cutoff, not a weight.
+		Check(scene->ProbeSlotFor({ 4.5f, 0.0f, 0.0f }) == rightSlot,
+			  "a point inside one radius and outside the other takes the one it is in");
+
+		// A probe removed from the scene has to leave the table with it, or the
+		// frame afterwards still points objects at a slot nothing refills.
+		scene->DeleteEntity(right);
+		capture();
+
+		Check(scene->ProbeSlotFor({ 10.0f, 0.0f, 0.0f }) == ProbeArray::kSkySlot,
+			  "deleting a probe stops objects selecting it");
+		Check(scene->ProbeSlotFor({ -10.0f, 0.0f, 0.0f }) != ProbeArray::kSkySlot,
+			  "while the one still there keeps working");
+
+		// And with no probes at all, which is every scene anybody starts from.
+		scene->DeleteEntity(left);
+		capture();
+
+		Check(scene->ProbeSlotFor({ -10.0f, 0.0f, 0.0f }) == ProbeArray::kSkySlot,
+			  "a scene with no probes reflects the sky everywhere");
+	}
+
+	// One array, sized by the largest probe in the scene.
+	//
+	// Its own scene, with its own shape, because the property is about which
+	// probe wins and the obvious two-probe fixture cannot say. A view's
+	// iteration order is not something a test gets to choose, and with two
+	// probes "the largest" and "whichever one came back first" agree half the
+	// time -- which is to say the check passes for the wrong reason and reports
+	// nothing. Three probes with the largest in the middle has no such order:
+	// neither end of the pool is the answer.
+	void CheckProbeArraySize()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		auto scene = std::make_shared<Scene>();
+
+		auto place = [&scene](const char* name, int resolution)
+		{
+			Entity entity = scene->CreateEntity(name);
+			entity.AddComponent<ReflectionProbeComponent>().Resolution = resolution;
+		};
+
+		place("Small", 64);
+		place("Large", 256);
+		place("Smaller", 32);
+
+		RHI::RHICommandList* cmd = Renderer::GetDevice().BeginFrame();
+		if (!cmd)
+			return;
+
+		// As above: the pipelines have to expect the format a probe captures
+		// into before anything draws into one.
+		Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT);
+
+		Renderer::BeginFrame(cmd);
+		scene->CaptureReflectionProbes();
+		Renderer::EndFrame();
+		Renderer::GetDevice().EndFrame();
+
+		Check(ProbeArray::GetFaceSize() == 256,
+			  "the arrays are sized by the largest probe, not the first or the last");
+
+		// A smaller probe is not given an array of its own: one array is the
+		// whole reason a per-object index is enough, and two would mean an
+		// object had to select the binding as well as the slice.
+		if (const RHI::Ref<RHI::RHITexture> radiance = ProbeArray::GetRadiance())
+		{
+			Check(radiance->GetWidth() == 256,
+				  "and a probe below that size is resampled into its slice rather than "
+				  "getting an array of its own");
+		}
+	}
+
 	// The sky.
 	//
 	// The matrix is the whole feature: everything else is a colour lookup. A
@@ -7321,6 +7516,8 @@ int RunTests(int argc, char** argv)
 	CheckSkinnedImport();
 	CheckSkinnedVertexLayout();
 	CheckReflectionProbe();
+	CheckProbeSelection();
+	CheckProbeArraySize();
 	CheckFrameGraph();
 	CheckGameModule();
 	CheckProject();

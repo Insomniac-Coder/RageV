@@ -54,6 +54,29 @@ namespace RageV
 		static RHI::Ref<RHI::RHITexture> Prefilter(RHI::RHICommandList& cmd,
 												   const RHI::Ref<RHI::RHITexture>& source);
 
+		// The same two integrals, written into one slot of a cube array rather
+		// than into a cube of their own.
+		//
+		// `slot` is a cube index, not a layer: the faces of slot k are layers
+		// 6k..6k+5. The destination decides the face size and, for the
+		// prefilter, the number of roughness levels -- so a 256-pixel probe
+		// filtered into a 128-pixel array is resampled on the way in, which is
+		// what makes one array able to hold probes that were captured at
+		// different resolutions.
+		//
+		// Must be called outside a render pass, like Prefilter. Returns false
+		// when the convolution could not run at all, which the caller should
+		// treat as "this slot still holds nothing" rather than as a hard error.
+		static bool PrefilterInto(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
+								  const RHI::Ref<RHI::RHITexture>& destination, uint32_t slot);
+
+		// The diffuse half. There is a CPU convolution of this in Cubemap.h and
+		// it stays -- it runs at asset load, where 200 ms is affordable and a
+		// deterministic answer is worth having. This one exists because a
+		// reflection probe's capture never touches the CPU.
+		static bool IrradianceInto(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
+								   const RHI::Ref<RHI::RHITexture>& destination, uint32_t slot);
+
 		// What Prefilter last produced for this source, without building it.
 		// Returns `source` when there is nothing yet.
 		static RHI::Ref<RHI::RHITexture> GetPrefiltered(const RHI::Ref<RHI::RHITexture>& source);

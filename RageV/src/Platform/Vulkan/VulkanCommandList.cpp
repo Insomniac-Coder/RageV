@@ -478,6 +478,19 @@ namespace RageV::Vk
 		const int32_t width = (int32_t)source->GetWidth();
 		const int32_t height = (int32_t)source->GetHeight();
 
+		// The destination's own size at this mip, not the source's.
+		//
+		// Writing the source's rectangle into the destination is right only
+		// while the two agree, which they did for as long as every caller
+		// copied a face into a cube of the same face size. It stops being
+		// right the moment anything resamples -- a 256-pixel probe filtered
+		// into a 128-pixel array slice -- and the failure is quiet: the blit
+		// fills a corner and leaves the rest of the slice holding whatever it
+		// had. That is the same class of bug the OpenGL path's stale-attachment
+		// comment below is about, arriving from the other side.
+		const int32_t dstWidth  = (int32_t)std::max(destination->GetWidth() >> mip, 1u);
+		const int32_t dstHeight = (int32_t)std::max(destination->GetHeight() >> mip, 1u);
+
 		// Read bottom-to-top, write top-to-bottom.
 		//
 		// The face is captured with the same camera basis every cube-map
@@ -505,15 +518,22 @@ namespace RageV::Vk
 		region.dstSubresource.baseArrayLayer = layer;
 		region.dstSubresource.layerCount = 1;
 		region.dstOffsets[0] = { 0, 0, 0 };
-		region.dstOffsets[1] = { width, height, 1 };
+		region.dstOffsets[1] = { dstWidth, dstHeight, 1 };
 
 		// NEAREST is not a quality choice for depth: the specification requires
 		// it. Filtering depth would average two distances and produce one that
 		// nothing in the scene is at.
+		//
+		// For colour it is a quality choice, and only when the two sizes differ
+		// -- a same-size copy lands on texel centres either way, so the faces
+		// every existing caller copies are bit-identical to what they were.
+		const bool rescaling = dstWidth != width || dstHeight != height;
+		const VkFilter filter = (depth || !rescaling) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+
 		vkCmdBlitImage(m_CommandBuffer,
 					   src->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 					   dst->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-					   1, &region, VK_FILTER_NEAREST);
+					   1, &region, filter);
 
 		src->TransitionTo(m_CommandBuffer, depth
 										 ? VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL

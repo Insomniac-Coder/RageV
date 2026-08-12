@@ -356,6 +356,14 @@ namespace RageV::Vk
 			if (!features13.dynamicRendering || !features13.synchronization2)
 				continue;
 
+			// And imageCubeArray, which the lit shaders need to pick a
+			// reflection probe per object. Rejected here rather than left to
+			// fail later, because there is no fallback: without it the PBR
+			// shader cannot be created, so a device that gets past this point
+			// would draw nothing lit at all.
+			if (!features2.features.imageCubeArray)
+				continue;
+
 			// Rank rather than taking the first discrete GPU: the original code
 			// returned VK_NULL_HANDLE outright on integrated-only machines and
 			// then used it.
@@ -427,6 +435,17 @@ namespace RageV::Vk
 		// Indexing a sampler array with a non-constant expression, which the
 		// batched quad shader does.
 		features.shaderSampledImageArrayDynamicIndexing = supported.shaderSampledImageArrayDynamicIndexing;
+		// samplerCubeArray, which the PBR shaders use to pick a reflection
+		// probe per object. Both the SPIR-V capability and the cube-array image
+		// view require it.
+		//
+		// Neither failed loudly without it. This driver created the view and
+		// ran the shader regardless, and only the validation layer said the two
+		// were undefined -- so the whole feature worked on this machine and was
+		// undefined behaviour on any stricter one. Device selection above
+		// rejects a physical device that lacks it, so this is not a probe: by
+		// here it is known to be supported.
+		features.imageCubeArray = VK_TRUE;
 
 		VkPhysicalDeviceVulkan13Features features13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 		features13.dynamicRendering = VK_TRUE;

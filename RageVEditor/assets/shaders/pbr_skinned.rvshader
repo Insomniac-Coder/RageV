@@ -40,7 +40,7 @@ void main()
 	// Where this instance's bones begin. Carried in the instance rather than
 	// pushed, because a batch of several characters is one draw and each has
 	// its own skeleton somewhere in the buffer.
-	int base = int(instance.Skin.x);
+	int base = int(instance.Indices.x);
 
 	// The weighted sum of the four. Weights sum to one, so this is an average
 	// of the bones' transforms -- which is what makes an elbow bend smoothly
@@ -73,6 +73,7 @@ void main()
 	v_BaseColor     = instance.BaseColor;
 	v_EmissiveColor = instance.EmissiveColor;
 	v_Surface       = instance.Surface;
+	v_Probe         = instance.Indices.y;
 
 	gl_Position = u_Scene.ViewProjection * world;
 	v_ClipPos = gl_Position;

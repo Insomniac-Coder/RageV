@@ -150,6 +150,9 @@ namespace RageV::RHI
 		Texture2D,
 		Texture2DArray,   // cascaded shadow maps, texture atlases
 		TextureCube,      // point-light shadows, environment / irradiance maps
+		// N cubes end to end, so a shader can pick one per object rather than
+		// per draw. Layers is 6N: the faces of cube k are layers 6k..6k+5, in
+		// the same face order a single cube uses.
 		TextureCubeArray,
 	};
 
@@ -165,6 +168,16 @@ namespace RageV::RHI
 		uint32_t     Samples   = 1;
 		std::string  DebugName;
 	};
+
+	// How many array layers this description really asks for.
+	//
+	// A cube is six layers whatever its Layers field says, and every caller
+	// that allocates one either sets 6 or leaves the default 1 -- so the floor
+	// has to live somewhere. It lives here rather than in each backend because
+	// it did live in each backend, and the two had already drifted: Vulkan
+	// clamped and OpenGL did not, which for a plain cube costs nothing and for
+	// a cube array is the difference between allocating N cubes and one.
+	uint32_t EffectiveLayers(const TextureDesc& desc);
 
 	enum class FilterMode : uint8_t { Nearest, Linear };
 	enum class MipmapMode : uint8_t { Nearest, Linear };

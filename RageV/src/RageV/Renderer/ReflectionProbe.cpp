@@ -146,6 +146,13 @@ namespace RageV
 			m_Complete = true;
 		}
 
+		// A round has landed when the cursor comes back to the start with a
+		// full cube behind it. That is the moment the contents are new and
+		// everything derived from them -- the prefiltered slice, the irradiance
+		// slice -- is one capture out of date.
+		if (m_Complete && face == 0)
+			m_Generation++;
+
 		return face;
 	}
 }

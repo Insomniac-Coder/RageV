@@ -64,7 +64,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1059 checks, `exit 0`. Then look at a frame:
+1125 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -2246,7 +2246,7 @@ this. It carries the reasoning; what follows is the state.
 | protocol 7 | `SetUIText` / `GetUIText` / `WasUIButtonClicked` / `IsPointerOverUI`, both languages |
 
 The demo scene has a HUD **with a working button** and so does the shipped
-runtime. 1059 checks.
+runtime.
 
 **6.4 is done (2026-08-12).** What landed beyond the obvious, each because the
 alternative is a bug nobody can trace:
@@ -2329,40 +2329,81 @@ optimisations in this renderer measured as worth nothing.
 > swung 0.78 to 0.23 between runs of an identical build. `--frame-time=<seconds>`
 > now pins it, and any future screenshot comparison should use it.
 
-**START HERE: 7.7, per-object reflection probes, shape B.** Designed in
-ENGINE-NOTES §7e -- **read that first**, it carries the reasoning and the
-ordering. The short version:
+### 7.7 -- per-object reflection probes. Built, shape B.
 
-Today `Scene::ResolveEnvironment` picks one probe for the whole pass by distance
-from the *camera*, and it lands in the scene descriptor set which is bound once
-per pipeline change. Several probes therefore means every reflective surface
-reflects whichever is nearest the viewer. It is a **correctness** bug; an
-earlier version of this section sold it as a 31% performance win on a benchmark
-that had measured a realtime probe in a scene that opted into one.
+Reasoning in ENGINE-NOTES §7e. What is in the tree:
 
-The work, in order:
+`ProbeArray` owns **one** radiance cube array and one irradiance cube array,
+sixteen slots each. Slot 0 is the sky, always. Every complete probe gets a slot;
+`Scene::ProbeSlotFor` answers, per object, which slot it reflects -- nearest
+probe whose `Influence` reaches it, else 0 -- and the answer rides in
+`InstanceData.Indices.y`, so two objects that chose differently are still one
+instanced draw. The PBR shader and its skinned variant sample
+`samplerCubeArray`.
 
-1. **Cube arrays in the RHI** -- creation, view, upload, both backends. The only
-   new capability, and the reason the cheaper shape was tempting.
-2. **One array per probe resolution**, so the per-probe `Resolution` field
-   survives. A scene using 128 everywhere gets one array and one bind.
-3. **The sky at slot 0 of every array**, so "no probe in influence" is an index
-   rather than a branch in the hot path.
-4. **An index per instance**, beside the model matrix. Selection is: nearest
-   probe whose `Influence` reaches this object, else 0.
-5. **Irradiance has the same shape** -- decide it rather than leave it. A scene
-   whose reflections move per object while its ambient does not reads as a
-   lighting bug.
-6. `samplerCubeArray` in the PBR shader and the skinned variant.
+**The design said one array per resolution; that was wrong.** Two arrays means
+two bindings, and choosing between them is a per-draw decision -- which is the
+sort-key fragmentation shape B exists to avoid. The array has one face size, the
+largest `Resolution` in the scene, and a smaller probe is resampled up into its
+slice. Prefiltering already resamples, so this costs nothing real.
 
-**Verification is specified because a screenshot of one probe looks identical
-either way**: generate two probes with visibly different surroundings, put a
-reflective object beside each, and place the camera nearer the *wrong* one. The
-current build shows both objects reflecting the same thing.
+**Probes now contribute diffuse light, which they never did before.** The only
+irradiance convolution was `IrradianceFromCube`, a 200 ms CPU routine that runs
+at asset load -- impossible for a capture that never touches the CPU. So a metal
+object beside a probe reflected the probe while the diffuse half of the same
+surface was lit by the sky. `irradiance.rvshader` is the GPU version, normalised
+to match the CPU one exactly.
 
-**Then the rest of phase 7.** Materials as assets is the one that unblocks
-ordinary authoring -- two entities still cannot share a material from the
-inspector.
+**Three RHI bugs came out of this**, all latent and all silent.
+`CopyToTextureLayer` wrote the *source's* rectangle into the destination on both
+backends -- correct only while nothing resampled, and a filled corner with a
+stale remainder the moment something did. OpenGL allocated a cube array's
+storage from `Layers` directly where Vulkan clamped to six per cube; they agreed
+for 2D arrays, the only layered texture that existed, and would have disagreed
+on the first cube array either allocated.
+
+And **Vulkan never enabled the `imageCubeArray` device feature**, which both
+`samplerCubeArray` in SPIR-V and a cube-array image view require. This driver
+did it anyway. Every screenshot above was correct while the feature was formally
+undefined, and the only thing that ever said so was a validation line -- found
+by the editor run, after the runtime and scenetest runs had been checked for
+`error` and `FAIL` and passed both. **Grep for `[Vulkan]`, which §2 has said all
+along.** It is now a device-selection requirement, not just an enable: without
+it the lit pipeline cannot be created, so failing at startup beats drawing
+something wrong.
+
+**To see it work:**
+
+```bash
+build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --scene=scenes/probes2.rage --frame-time=0.016666 --screenshot-frame=60 --screenshot=two.png
+```
+
+Two emissive rooms, red and green, a mirror in each, camera nearer the red one.
+Left mirror red, right mirror green. Under the old camera-based selection both
+go *sky*, because the camera sits outside both influence radii -- so nothing in
+the scene gets a probe however close an object is to one.
+
+The same scene has **three matte spheres** -- one per room, one outside both --
+which is the diffuse half. No lights in the scene, so ambient is the only
+illumination: red room pink, green room green, third one neutral.
+
+**And one scene with a known-correct answer**, which is worth more than either:
+
+```bash
+build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --scene=scenes/irradiance_uniform.rage --frame-time=0.016666 --screenshot-frame=30 --screenshot=u.png
+```
+
+A white matte sphere under a sky that is one colour in every direction must be
+the same brightness as the sky behind it, because the cosine-weighted average of
+a constant is that constant. **203 against 205, ratio 0.990, both backends.** A
+convolution returning the integral instead of the average would read 3.14 and
+blow the sphere to white.
+
+**START HERE: the rest of phase 7.** Materials as assets (7.3) is the one that
+unblocks ordinary authoring -- two entities still cannot share a material from
+the inspector. Also open: `.pak` + VFS (7.1/7.2, do together or neither),
+billboard icons (7.4), animation blending (7.5), skinned bounds (7.6),
+front-to-back opaque sorting (7.8), SMAA (7.9), TAA (7.10).
 
 > [!TRAP]
 > **A project's C# is loaded from `Scripts/bin/`, not from `bin/`.** Editing a

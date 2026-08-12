@@ -201,14 +201,33 @@ namespace RageV
 		// that code outside the engine does not have to.
 		entt::registry& GetRegistry() { return m_Registry; }
 
+		// Which cube of the probe arrays an object at `position` reflects: the
+		// nearest probe whose influence reaches it, and slot 0 -- the sky --
+		// when none does.
+		//
+		// Public because it is the part of 7.7 worth checking without looking
+		// at a picture. Every way of getting this wrong produces a plausible
+		// reflection: the nearest probe and the second nearest usually contain
+		// much the same room, so a scene can select entirely the wrong probe
+		// for every object in it and still look approximately correct.
+		uint32_t ProbeSlotFor(const Vec3& position) const;
+
 	private:
 		void OnRender(const Camera& camera, const Mat4& cameraTransform,
 					  const ViewportGridSettings* grid = nullptr);
 
-		// The cube surfaces reflect: the nearest complete probe whose influence
-		// reaches the viewer, and the sky otherwise.
-		RHI::Ref<RHI::RHITexture> ResolveEnvironment(const Mat4& cameraTransform,
-													 const RHI::Ref<RHI::RHITexture>& sky);
+		// The sky cube for this frame, whether it came from an asset or from
+		// the gradient. Resolved in one place because three callers want it and
+		// two of them used to derive it themselves.
+		RHI::Ref<RHI::RHITexture> ResolveSky() const;
+
+		// The face size the probe arrays should hold: the largest resolution
+		// any probe in the scene asks for.
+		uint32_t ProbeFaceSize() const;
+
+		// Convolves the sky and every complete probe into their array slices,
+		// and records which slice each probe went to.
+		void PackProbes(RHI::RHICommandList& cmd);
 		void PropagateTransform(entt::entity handle, const Mat4& parentWorld);
 		void UnlinkFromParent(Entity entity);
 
@@ -245,6 +264,21 @@ namespace RageV
 		// and silently does not is the kind of thing someone spends an evening
 		// on.
 		bool m_ShadowBudgetWarned = false;
+		// The same, for a scene with more probes than the arrays have slots.
+		bool m_WarnedProbeCount = false;
+
+		// Where each complete probe went in the arrays, rebuilt every frame by
+		// PackProbes and read by ProbeSlotFor. One table for both, because a
+		// probe's slot and an object's choice of slot have to be the same
+		// answer -- deriving them from two walks of the registry would agree
+		// until one of the walks grew a condition the other did not.
+		struct ProbeSlot
+		{
+			Vec3 Position{ 0.0f };
+			float Influence = 0.0f;
+			uint32_t Slot = 0;
+		};
+		std::vector<ProbeSlot> m_ProbeSlots;
 
 		SceneEnvironment m_Environment;
 		std::vector<UUID> m_PendingDestroy;

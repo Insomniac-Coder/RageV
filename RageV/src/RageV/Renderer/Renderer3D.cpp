@@ -103,9 +103,18 @@ namespace RageV
 			Vec4 EmissiveColor;
 			// metallic, roughness, occlusion, normal scale
 			Vec4 Surface;
-			// x = where this instance's bones start in the bone buffer. Zero
+			// x = where this instance's bones start in the bone buffer, zero
 			// for anything the skinned pipeline does not draw.
-			Vec4 Skin{ 0.0f };
+			// y = which cube of the reflection-probe arrays this object
+			//     reflects. Slot 0 is the sky, so zero is a real answer and
+			//     not a missing one.
+			//
+			// Per instance, and that is the point: the probe rides along with
+			// the model matrix, so two objects choosing different probes still
+			// batch into one instanced draw. Selecting per draw instead would
+			// mean the probe had to be part of the sort key, and a run would
+			// split every time the answer changed.
+			Vec4 Indices{ 0.0f };
 		};
 		static_assert(sizeof(InstanceData) == 192,
 					  "Must match InstanceData in include/scene_vertex.glsl");
@@ -747,11 +756,16 @@ namespace RageV
 		// Never left unwritten. A binding the layout declares and the set does
 		// not fill is a validation error rather than a harmless omission, which
 		// is the same lesson the tonemap pass learned about its bloom input.
+		//
+		// Both are cube *arrays* now -- the probe arrays, whose slot 0 is the
+		// sky -- so the stand-in has to be one too. A plain cube here is a
+		// different descriptor type, which is a validation error rather than a
+		// dark reflection.
 		sceneSet->SetTexture(1, environmentMap ? environmentMap
-											   : TextureLoader::BlackCube(*s_Data->Device),
+											   : TextureLoader::BlackCubeArray(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
 		sceneSet->SetTexture(5, irradianceMap ? irradianceMap
-											  : TextureLoader::BlackCube(*s_Data->Device),
+											  : TextureLoader::BlackCubeArray(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
 
 		// The BRDF table. Never null in practice, but the binding has to be
@@ -1243,7 +1257,7 @@ namespace RageV
 	}
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const Mat4& transform,
-							  const Ref<Material>& material)
+							  const Ref<Material>& material, uint32_t probe)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
@@ -1269,6 +1283,8 @@ namespace RageV
 		draw.Instance.EmissiveColor = params.EmissiveColor;
 		draw.Instance.Surface = { params.Metallic, params.Roughness,
 								  params.Occlusion, params.NormalScale };
+		// No bones, and the probe the scene picked for this object.
+		draw.Instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
 
 		// Recorded, not drawn. EndScene sorts these and issues one draw per run
 		// of identical state; drawing here is what made the count equal the
@@ -1278,7 +1294,7 @@ namespace RageV
 
 	void Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const Mat4& transform,
 									 const Ref<Material>& material,
-									 const std::vector<Mat4>& bones)
+									 const std::vector<Mat4>& bones, uint32_t probe)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
@@ -1314,7 +1330,7 @@ namespace RageV
 		draw.Instance.EmissiveColor = params.EmissiveColor;
 		draw.Instance.Surface = { params.Metallic, params.Roughness,
 								  params.Occlusion, params.NormalScale };
-		draw.Instance.Skin = { (float)base, 0.0f, 0.0f, 0.0f };
+		draw.Instance.Indices = { (float)base, (float)probe, 0.0f, 0.0f };
 
 		s_Data->Pending.push_back(std::move(draw));
 	}

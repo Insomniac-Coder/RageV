@@ -10,6 +10,7 @@
 #include "UIRenderer.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
+#include "ProbeArray.h"
 #include "PostProcess.h"
 
 namespace RageV
@@ -35,12 +36,16 @@ namespace RageV
 		UIRenderer::Init(device);
 		ShadowMap::Init(device);
 		EnvironmentIBL::Init(device);
+		// After it: the arrays are filled by its two convolutions, and Begin
+		// asks it how many roughness levels a face size can carry.
+		ProbeArray::Init(device);
 		PostProcess::Init(device);
 	}
 
 	void Renderer::Shutdown()
 	{
 		PostProcess::Shutdown();
+		ProbeArray::Shutdown();
 		EnvironmentIBL::Shutdown();
 		ShadowMap::Shutdown();
 		UIRenderer::Shutdown();

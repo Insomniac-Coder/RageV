@@ -62,6 +62,12 @@ namespace RageV
 		// it will not read -- the binding still has to be filled.
 		static RHI::Ref<RHI::RHITexture> BlackCube(RHI::RHIDevice& device);
 
+		// The same, for a samplerCubeArray binding. A cube and a cube array are
+		// different descriptor types, so the plain black cube cannot stand in
+		// for one -- filling a cube-array binding with it is a validation error
+		// on one backend and a wrong sample on the other.
+		static RHI::Ref<RHI::RHITexture> BlackCubeArray(RHI::RHIDevice& device);
+
 		// Cached 1x1 defaults, created on first use.
 		static RHI::Ref<RHI::RHITexture> White(RHI::RHIDevice& device);
 		static RHI::Ref<RHI::RHITexture> Black(RHI::RHIDevice& device);

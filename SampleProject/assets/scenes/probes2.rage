@@ -1,0 +1,238 @@
+Scene: Two probes
+Version: 5
+Environment:
+  AmbientColor: [0.4, 0.4, 0.45]
+  AmbientIntensity: 0.05
+  Sky: 2
+  SkyHorizon: [0.52, 0.6, 0.72]
+  SkyZenith: [0.18, 0.31, 0.62]
+  SkyGround: [0.16, 0.15, 0.14]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 7700000000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [-4, 2.5, 18]
+      Rotation: [-0.06, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7700000000000000002
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, -1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 1, 40]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material:
+        BaseColor: [0.12, 0.12, 0.13, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7700000000000000010
+    TagComponent:
+      Tag: Red room back
+    TransformComponent:
+      Position: [-8, 1, -4]
+      Rotation: [0, 0, 0]
+      Scale: [8, 6, 0.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.05, 0.05, 1]
+        Emissive: [3, 0.05, 0.05, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 7700000000000000011
+    TagComponent:
+      Tag: Red room left
+    TransformComponent:
+      Position: [-12, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 6, 8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.05, 0.05, 1]
+        Emissive: [3, 0.05, 0.05, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 7700000000000000012
+    TagComponent:
+      Tag: Red room right
+    TransformComponent:
+      Position: [-4, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 6, 8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.05, 0.05, 1]
+        Emissive: [3, 0.05, 0.05, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 7700000000000000020
+    TagComponent:
+      Tag: Green room back
+    TransformComponent:
+      Position: [8, 1, -4]
+      Rotation: [0, 0, 0]
+      Scale: [8, 6, 0.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.05, 0.5, 0.15, 1]
+        Emissive: [0.05, 3, 0.4, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 7700000000000000021
+    TagComponent:
+      Tag: Green room left
+    TransformComponent:
+      Position: [4, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 6, 8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.05, 0.5, 0.15, 1]
+        Emissive: [0.05, 3, 0.4, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 7700000000000000022
+    TagComponent:
+      Tag: Green room right
+    TransformComponent:
+      Position: [12, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 6, 8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.05, 0.5, 0.15, 1]
+        Emissive: [0.05, 3, 0.4, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 7700000000000000030
+    TagComponent:
+      Tag: Mirror in the red room
+    TransformComponent:
+      Position: [-8, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [3, 3, 3]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [1, 1, 1, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.05
+        Occlusion: 1
+  - EntityID: 7700000000000000031
+    TagComponent:
+      Tag: Mirror in the green room
+    TransformComponent:
+      Position: [8, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [3, 3, 3]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [1, 1, 1, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.05
+        Occlusion: 1
+  - EntityID: 7700000000000000032
+    TagComponent:
+      Tag: Matte in the red room
+    TransformComponent:
+      Position: [-6, -0.4, 2.5]
+      Rotation: [0, 0, 0]
+      Scale: [1.6, 1.6, 1.6]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.8, 0.8, 0.8, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.95
+        Occlusion: 1
+  - EntityID: 7700000000000000033
+    TagComponent:
+      Tag: Matte in the green room
+    TransformComponent:
+      Position: [10, -0.4, 2.5]
+      Rotation: [0, 0, 0]
+      Scale: [1.6, 1.6, 1.6]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.8, 0.8, 0.8, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.95
+        Occlusion: 1
+  - EntityID: 7700000000000000034
+    TagComponent:
+      Tag: Matte outside both rooms
+    TransformComponent:
+      Position: [1, -0.4, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1.6, 1.6, 1.6]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.8, 0.8, 0.8, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.95
+        Occlusion: 1
+  - EntityID: 7700000000000000040
+    TagComponent:
+      Tag: Red probe
+    TransformComponent:
+      Position: [-8, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ReflectionProbeComponent:
+      Update: Baked
+      Resolution: 128
+      Influence: 6
+      NearClip: 0.05
+      FarClip: 100
+      FacesPerFrame: 1
+  - EntityID: 7700000000000000041
+    TagComponent:
+      Tag: Green probe
+    TransformComponent:
+      Position: [8, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ReflectionProbeComponent:
+      Update: Baked
+      Resolution: 128
+      Influence: 6
+      NearClip: 0.05
+      FarClip: 100
+      FacesPerFrame: 1

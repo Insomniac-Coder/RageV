@@ -33,6 +33,16 @@ namespace RageV
 		// drawn yet, so callers fall back to the sky until this is true.
 		bool IsComplete() const { return m_Complete; }
 
+		// Bumped each time a full round of faces lands, and never otherwise.
+		//
+		// What reads it is the probe array, which has to decide whether the
+		// slice it filled from this cube is still current. Comparing the cube
+		// pointer is not enough: a realtime probe re-captures into the *same*
+		// texture, so the pointer never changes while the contents do. A
+		// counter says "this is a different capture" without anyone having to
+		// remember to raise a flag.
+		uint64_t GetGeneration() const { return m_Generation; }
+
 		// Draws the scene from one face's camera. Given the projection and the
 		// camera's world transform, exactly as a viewport would be.
 		using DrawScene = std::function<void(const Camera&, const Mat4&)>;
@@ -71,5 +81,6 @@ namespace RageV
 
 		uint32_t m_FacesCaptured = 0;
 		bool m_Complete = false;
+		uint64_t m_Generation = 0;
 	};
 }

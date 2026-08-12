@@ -56,8 +56,17 @@ namespace RageV
 										  const std::vector<Mat4>& bones);
 		static void EndShadow();
 
+		// `probe` is which cube of the reflection-probe arrays this object
+		// reflects, chosen by the scene against the object's own position. Slot
+		// 0 is the sky, so it is the answer for an object no probe reaches --
+		// not a sentinel, and not something the shader has to branch on.
+		//
+		// Passed per object rather than set as state before a run of draws,
+		// because it lands in the instance stream: two objects that chose
+		// differently are still one instanced draw, and making it state would
+		// invite exactly the per-batch shape this replaced.
 		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
-							 const RHI::Ref<Material>& material);
+							 const RHI::Ref<Material>& material, uint32_t probe);
 
 		// A mesh a skeleton moves. `bones` is one matrix per bone, already
 		// composed with the inverse binds -- ComposeSkinning produces exactly
@@ -69,7 +78,7 @@ namespace RageV
 		// texture coordinates.
 		static void DrawSkinnedMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 									const RHI::Ref<Material>& material,
-									const std::vector<Mat4>& bones);
+									const std::vector<Mat4>& bones, uint32_t probe);
 
 		// Shared by every mesh that has no material of its own.
 		static RHI::Ref<Material> GetDefaultMaterial();

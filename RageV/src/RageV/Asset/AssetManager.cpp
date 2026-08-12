@@ -3,6 +3,7 @@
 #include "RageV/Core/Log.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
+#include "RageV/Renderer/ProbeArray.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
@@ -110,6 +111,11 @@ namespace RageV::Assets
 		// lifetime of. Cleared together or not at all.
 		TextureLoader::ClearCache();
 		EnvironmentIBL::ClearCache();
+		// The probe arrays hold slices convolved from those same textures, and
+		// remember which source filled each slot by address. Keeping them would
+		// be keeping a filtered copy of a freed cube, and a slot that believes
+		// it is current.
+		ProbeArray::ClearCache();
 	}
 
 	std::string Manager::GetDisplayName(AssetHandle handle)

@@ -79,9 +79,16 @@ struct InstanceData
 	// x = where this instance's bones start in the bone buffer. Only the
 	// skinned pipeline reads it; a static instance leaves it zero.
 	//
+	// y = which cube of u_Environment and u_Irradiance this object reflects.
+	// Slot 0 holds the sky, so zero means "nothing better than the sky was in
+	// range" rather than "unset".
+	//
 	// Per instance rather than pushed per batch, because two characters sharing
-	// one mesh are one instanced draw and each is in its own pose.
-	vec4 Skin;
+	// one mesh are one instanced draw and each is in its own pose -- and,
+	// for the probe, because two objects near different probes are still one
+	// draw. A per-batch probe would have to be part of the sort key, and every
+	// change of answer would cut a run in half.
+	vec4 Indices;
 };
 
 layout(std430, set = 0, binding = 7) readonly buffer InstanceBlock
@@ -115,4 +122,8 @@ layout(location = 5) flat out vec4 v_Surface;
 // flip -- the two backends differ in where NDC lands on the framebuffer, not in
 // the NDC itself.
 layout(location = 6) out vec4 v_ClipPos;
+// Which cube of the probe arrays this object reflects, straight out of the
+// instance. Flat for the same reason the surface parameters are: it is one
+// value for the whole object.
+layout(location = 7) flat out float v_Probe;
 

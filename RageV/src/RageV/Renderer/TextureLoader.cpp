@@ -16,6 +16,7 @@ namespace RageV
 		Ref<RHITexture> s_Black;
 		Ref<RHITexture> s_FlatNormal;
 		Ref<RHITexture> s_BlackCube;
+		Ref<RHITexture> s_BlackCubeArray;
 
 		// The suffixes a six-file skybox set uses, in the layer order the APIs
 		// index faces by.
@@ -295,6 +296,37 @@ namespace RageV
 		return s_BlackCube;
 	}
 
+	Ref<RHITexture> TextureLoader::BlackCubeArray(RHIDevice& device)
+	{
+		if (s_BlackCubeArray)
+			return s_BlackCubeArray;
+
+		// One cube's worth, because a binding only has to be *filled* -- a
+		// shader reading slice 3 of a one-slice array is undefined, but nothing
+		// reads this at all: it exists for the frames before the probe arrays
+		// are allocated, when every instance's probe index is still zero.
+		TextureDesc desc;
+		desc.Width = 1;
+		desc.Height = 1;
+		desc.Layers = CubeFaces::kFaceCount;
+		desc.Type = TextureType::TextureCubeArray;
+		desc.Format = Format::R16G16B16A16_SFLOAT;
+		desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+		desc.MipLevels = 1;
+		desc.DebugName = "default.blackcubearray";
+
+		auto texture = device.CreateTexture(desc);
+		if (!texture)
+			return nullptr;
+
+		const uint16_t texel[4] = { 0, 0, 0, FloatToHalf(1.0f) };
+		for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+			texture->UploadLayer(texel, sizeof(texel), face);
+
+		s_BlackCubeArray = texture;
+		return s_BlackCubeArray;
+	}
+
 	Ref<RHITexture> TextureLoader::White(RHIDevice& device)
 	{
 		if (!s_White)
@@ -329,5 +361,6 @@ namespace RageV
 		s_Black.reset();
 		s_FlatNormal.reset();
 		s_BlackCube.reset();
+		s_BlackCubeArray.reset();
 	}
 }

@@ -58,6 +58,13 @@ namespace RageV::RHI
 		return 0;
 	}
 
+	uint32_t EffectiveLayers(const TextureDesc& desc)
+	{
+		const bool isCube = desc.Type == TextureType::TextureCube ||
+							desc.Type == TextureType::TextureCubeArray;
+		return isCube ? std::max(6u, desc.Layers) : std::max(1u, desc.Layers);
+	}
+
 	const char* ShaderStageName(ShaderStage stage)
 	{
 		switch (stage)

@@ -244,7 +244,7 @@ namespace RageV::Vk
 
 		const bool isCube = m_Desc.Type == RHI::TextureType::TextureCube ||
 							m_Desc.Type == RHI::TextureType::TextureCubeArray;
-		const uint32_t layers = isCube ? std::max(6u, m_Desc.Layers) : m_Desc.Layers;
+		const uint32_t layers = RHI::EffectiveLayers(m_Desc);
 
 		VkImageUsageFlags usage = ToVkImageUsage(m_Desc.Usage);
 		usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;   // every texture can be uploaded to
@@ -355,9 +355,7 @@ namespace RageV::Vk
 
 	uint32_t VulkanTexture::EffectiveLayers() const
 	{
-		const bool isCube = m_Desc.Type == RHI::TextureType::TextureCube ||
-							m_Desc.Type == RHI::TextureType::TextureCubeArray;
-		return isCube ? std::max(6u, m_Desc.Layers) : m_Desc.Layers;
+		return RHI::EffectiveLayers(m_Desc);
 	}
 
 	void VulkanTexture::Upload(const void* data, uint64_t size)

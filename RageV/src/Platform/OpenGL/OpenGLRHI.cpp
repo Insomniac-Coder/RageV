@@ -268,8 +268,14 @@ namespace RageV::GL
 							 m_Desc.Type == TextureType::TextureCubeArray;
 		if (layered)
 		{
+			// EffectiveLayers, not Layers: a cube array's depth is its faces,
+			// six per cube, and this used to pass the field straight through
+			// while the Vulkan path applied the floor. The two agreed for
+			// 2D arrays -- the only layered texture that existed -- and would
+			// have disagreed for the first cube array either allocated.
 			glTextureStorage3D(m_Handle, (GLsizei)m_Desc.MipLevels, format.Internal,
-							   (GLsizei)m_Desc.Width, (GLsizei)m_Desc.Height, (GLsizei)m_Desc.Layers);
+							   (GLsizei)m_Desc.Width, (GLsizei)m_Desc.Height,
+							   (GLsizei)EffectiveLayers(m_Desc));
 		}
 		else
 		{
@@ -311,9 +317,7 @@ namespace RageV::GL
 		if (!data || size == 0)
 			return;
 
-		const bool isCube = m_Desc.Type == TextureType::TextureCube ||
-							m_Desc.Type == TextureType::TextureCubeArray;
-		const uint32_t layers = isCube ? std::max(6u, m_Desc.Layers) : m_Desc.Layers;
+		const uint32_t layers = EffectiveLayers(m_Desc);
 
 		if (layer >= layers)
 		{
@@ -1149,6 +1153,14 @@ namespace RageV::GL
 		const uint32_t width = source->GetWidth();
 		const uint32_t height = source->GetHeight();
 
+		// The destination's own size at this mip. See the Vulkan path's note:
+		// using the source's rectangle for both ends is right only while the
+		// two agree, and a resampling copy -- a bigger probe filtered into a
+		// smaller array slice -- would otherwise fill a corner and leave the
+		// rest of the slice untouched.
+		const uint32_t dstWidth  = std::max(destination->GetWidth() >> mip, 1u);
+		const uint32_t dstHeight = std::max(destination->GetHeight() >> mip, 1u);
+
 		if (!m_CopyRead) glCreateFramebuffers(1, &m_CopyRead);
 		if (!m_CopyDraw) glCreateFramebuffers(1, &m_CopyDraw);
 
@@ -1192,10 +1204,15 @@ namespace RageV::GL
 		// at the bottom of the rendered image -- and bottom-up is exactly how
 		// this backend stores one. The Vulkan path is where the difference is
 		// paid, because its viewport is flipped.
+		// GL_LINEAR is illegal for a depth blit and pointless for a copy that
+		// is not rescaling, which is every caller that predates cube arrays.
+		const bool rescaling = dstWidth != width || dstHeight != height;
+		const GLenum filter = (depth || !rescaling) ? GL_NEAREST : GL_LINEAR;
+
 		glBlitNamedFramebuffer(m_CopyRead, m_CopyDraw,
 							   0, 0, (GLint)width, (GLint)height,
-							   0, 0, (GLint)width, (GLint)height,
-							   mask, GL_NEAREST);
+							   0, 0, (GLint)dstWidth, (GLint)dstHeight,
+							   mask, filter);
 
 		glEnable(GL_SCISSOR_TEST);
 	}

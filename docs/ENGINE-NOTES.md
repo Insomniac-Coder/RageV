@@ -860,29 +860,74 @@ run that never splits because two objects wanted different reflections.
 The resolution objection was the real one, and it has an answer better than
 either option I first wrote down: **group probes into one array per resolution.**
 A scene using 128 everywhere gets one array and one bind, which is the common
-case; a scene mixing 128 and 512 gets two. That keeps the per-probe field, keeps
-the single bind for any sane scene, and degrades to A's bind count only if
-somebody uses a different resolution for every probe.
+case; a scene mixing 128 and 512 gets two.
+
+### What shipped, and the one place the design above was wrong
+
+B, in `ProbeArray` plus two new entry points on `EnvironmentIBL`. Everything in
+the ordered list below was built as written except item 0, which is a correction
+to the paragraph immediately above it.
+
+**One array per resolution does not work, and the reason is the whole point of
+B.** Two arrays means two bindings, and an object in the second array would have
+to select *which array* as well as which slice -- which is a per-draw decision
+again, and therefore the sort key again, and therefore the exact fragmentation B
+exists to avoid. The index-per-instance shape only holds if there is exactly one
+array.
+
+So the array has **one face size: the largest `Resolution` any probe in the
+scene asks for**. A smaller probe is resampled up into its slice on the way in.
+That costs it nothing real -- prefiltering is a resampling operation already,
+and its capture was going to be convolved to a lobe regardless -- and the common
+case, where every probe agrees, is exact. The per-probe field survives and now
+means what it says: how detailed the *capture* is.
+
+That mistake is worth keeping written down because it is the same mistake in a
+new place. "One array per resolution" reads like a compromise that keeps
+everything, and it quietly reintroduces the per-draw decision that made shape A
+lose.
 
 ### What B needs, in order
 
 1. **Cube arrays in the RHI.** Creation, view, and upload, on Vulkan and
    OpenGL. This is the only genuinely new capability, and it is the reason the
-   cheap option was tempting.
+   cheap option was tempting. *It turned out to be nearly free: `TextureCubeArray`
+   was already in the enum and both backends already switched on it, and
+   `CopyToTextureLayer` was already generic in layer and mip. Four real gaps:
+   OpenGL allocated a cube array's storage from `Layers` rather than from six
+   layers per cube, both backends wrote the **source's** rectangle into the
+   destination (fine while nothing resampled, silent corruption the moment
+   something did), a cube-array binding needs a cube-array stand-in --
+   `TextureLoader::BlackCube` is a different descriptor type -- and Vulkan
+   **never enabled the `imageCubeArray` device feature**, which both the SPIR-V
+   `SampledCubeArray` capability and a `VK_IMAGE_VIEW_TYPE_CUBE_ARRAY` view
+   require.*
+
+   *That last one is the one worth remembering, because of how it presented:
+   this driver created the view and ran the shader anyway. Every picture in this
+   section was correct while the whole feature was undefined behaviour, and the
+   only thing that said so was a validation line. It is now rejected at device
+   selection rather than merely enabled, because there is no fallback -- a
+   device without it cannot create the lit pipeline at all, and a clear failure
+   at startup beats a wrong picture later.*
 2. **The sky occupies slot 0 of every array.** "No probe within influence" then
    costs no branch and no sentinel -- it is an index like any other, and the
    shader samples the array the same way for every surface. A `-1` meaning sky
    would put a conditional in the hot path for the most common case.
 3. **An index per instance**, alongside the model matrix that is already there.
-   Selection stays exactly what A would have done -- nearest probe whose
-   `Influence` reaches this object, else 0 -- and that logic is shared, which is
-   why the design work above was not wasted.
-4. **Irradiance has the same shape and the same problem.** A probe's diffuse
-   contribution is per probe too; today there is one irradiance cube for the
-   scene. Either a second array indexed identically, or accept scene-wide
-   irradiance and say so. **Do not leave this undecided** -- a scene whose
-   reflections move per object while its ambient does not is a bug that reads
-   as a lighting artefact.
+   *It went in `InstanceData.Skin.y`, which is why that field is now called
+   `Indices`: x is the bone offset, y is the probe. A vec4 with one lane used
+   and a name describing that lane is how a struct starts lying.*
+4. **Irradiance has the same shape and the same problem.** *Decided: a second
+   array, indexed identically. Doing it needed a GPU convolution that did not
+   exist -- `IrradianceFromCube` is a CPU routine that runs at asset load and
+   takes 200 ms, which is fine for a cubemap off disk and impossible for a probe
+   whose capture never touches the CPU. So probes had **no** diffuse
+   contribution at all before this, and a metal object beside one reflected the
+   probe while the diffuse half of the same surface was still lit by the sky.
+   `irradiance.rvshader` is the fix, deliberately normalised to match the CPU
+   routine exactly -- the cosine-weighted average, not the integral, which under
+   cosine-importance sampling is the plain mean of the samples.*
 5. **`samplerCubeArray` in the PBR shader**, and in the skinned variant.
 
 ### The trap A had, and B does not
@@ -893,6 +938,71 @@ the index rides the instance, so a run can hold objects using any mix of probes.
 That is the clearest statement of why B is the better shape, and it is worth
 keeping because it is the kind of constraint that is invisible until it is
 violated.
+
+### How it is verified, and the one property no test covers
+
+Two instruments, because neither is sufficient alone.
+
+`CheckProbeSelection` and `CheckProbeArraySize` in scenetest ask which slot a
+point selects, which is the actual output of the feature and is checkable
+without a picture. Mutations confirmed: selection ignoring `Influence` (2
+failures), selection against a fixed point rather than the object -- the shape
+this replaced -- (4), sizing the array from the first probe instead of the
+largest (2).
+
+That last mutation **survived two earlier versions of the check**, and the
+reason is worth keeping. With two probes, "the largest" and "whichever one the
+registry hands back first" are the same answer whenever the view happens to
+visit the larger one first -- and a view's iteration order is not something a
+test gets to choose. The check passed for the wrong reason and reported nothing.
+`CheckProbeArraySize` now uses three probes with the largest in the middle,
+where neither end of the pool is the answer.
+
+`SampleProject/assets/scenes/probes2.rage` is the visual half: two emissive
+rooms, red and green, a mirror sphere in each, and **the camera placed nearer
+the red one**. Per object, the left mirror is red and the right is green. Under
+the old camera-based selection both go *sky* -- the camera is outside both
+influence radii, so nothing in the scene gets a probe however close an object is
+to one, which is a sharper statement of the old bug than the hallway-and-kitchen
+one above.
+
+The same scene carries **three matte spheres**, which is what verifies the
+diffuse half: one in each room and one outside both influences. The scene has no
+lights at all, so ambient is the only illumination and the tint has nowhere else
+to come from. Red room reads pink, green room reads green, the third stays
+neutral. A probe irradiance that silently fell back to the sky would leave all
+three neutral.
+
+`irradiance_uniform.rage` checks the convolution's *normalisation*, which is the
+one thing a two-colour picture cannot: a white matte sphere under a sky that is
+the same colour in every direction must be **the same brightness as the sky
+behind it**, because the cosine-weighted average of a constant is that constant.
+It reads 203 against 205, a ratio of 0.990, identically on both backends -- the
+1% being the Fresnel split between the diffuse and specular terms.
+
+That is worth more than the baseline comparison it replaced. The obvious check
+was "render the old build and the new one and diff", which needs a second build
+of reverted code and answers only "did this change". The uniform sky has a
+**known-correct answer**, so it answers "is this right" -- and a convolution
+returning the integral rather than the average would read 3.14 (a sphere blown
+to white) rather than merely different.
+
+And the process lesson, which cost a near-miss: **grep for `[Vulkan]`, not for
+your own guesses.** I checked those runs for `error` and for `FAIL` and found
+neither, because the validation layer says neither -- it says
+`vkCreateImageView(): ... imageCubeArray feature is not enabled`. HANDOFF §2
+already says every `[Vulkan]` line so far has been a real defect; this is the
+second time that sentence has paid for itself, and the first time it nearly did
+not because nobody read it.
+
+**Not covered:** whether a slot's *contents* are refreshed when a realtime probe
+re-captures. `SetProbe` compares the source pointer and the capture generation
+to decide; a mutation that returns early for any filled slot is invisible to
+every check here, because catching it needs to read the texture and the RHI has
+no readback. The generation counter exists precisely because the pointer alone
+cannot see a realtime probe re-capturing into a texture it already owned. If
+that path breaks, the symptom is a realtime probe that freezes on its first
+capture.
 
 ### Two things to get right, both of which look like bugs when they are wrong
 

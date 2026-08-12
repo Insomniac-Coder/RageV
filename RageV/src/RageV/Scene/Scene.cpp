@@ -13,6 +13,7 @@
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
+#include "RageV/Renderer/ProbeArray.h"
 #include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/ParticleRenderer.h"
@@ -1097,15 +1098,49 @@ namespace RageV
 		if (!cmd)
 			return;
 
+		// Slot 0 of the probe arrays, and the only slot a scene with no probes
+		// at all has. Filling it here rather than beside the probes keeps the
+		// two independent: a scene whose probes are all still capturing must
+		// still have something to reflect, and it is this.
+		//
+		// Cached on the source, so this is a pointer comparison on every frame
+		// after the one that built it.
+		ProbeArray::Begin(ProbeFaceSize());
+		ProbeArray::SetSky(*cmd, ResolveSky());
+	}
+
+	RHI::Ref<RHI::RHITexture> Scene::ResolveSky() const
+	{
 		RHI::Ref<RHI::RHITexture> sky;
 		if (m_Environment.Sky == SkyType::Cubemap)
 			sky = Assets::Manager::GetCubemap(m_Environment.SkyTexture);
 
-		sky = Skybox::ResolveEnvironment(m_Environment, sky);
+		return Skybox::ResolveEnvironment(m_Environment, sky);
+	}
 
-		// Cached on the source, so this is a map lookup on every frame after
-		// the one that built it.
-		EnvironmentIBL::Prefilter(*cmd, sky);
+	uint32_t Scene::ProbeFaceSize() const
+	{
+		// The largest probe in the scene decides, because there is one array
+		// and a slice cannot be a different size from its neighbours. A smaller
+		// probe is resampled up into its slice, which costs it nothing it had
+		// -- its capture was always going to be blurred by the convolution --
+		// and a scene where every probe agrees, which is every scene anybody
+		// authors, gets exactly the size it asked for.
+		uint32_t largest = 0;
+
+		auto view = m_Registry.view<const ReflectionProbeComponent>();
+		for (auto& item : view)
+		{
+			const auto& probe = view.get<const ReflectionProbeComponent>(item);
+			largest = Math::Max(largest, (uint32_t)Math::Clamp(probe.Resolution, 16, 1024));
+		}
+
+		// Zero probes still need slot 0 for the sky, and this is the only place
+		// its size is decided. Not a floor under the loop above: a scene of
+		// 64-pixel probes should get 64-pixel slices, and a floor would quietly
+		// give it four times the memory it asked for -- and would make "the
+		// largest probe decides" a sentence that is only true above 128.
+		return largest > 0 ? largest : 128;
 	}
 
 	void Scene::RenderShadows(const Camera& camera, const Mat4& cameraTransform)
@@ -1365,7 +1400,13 @@ namespace RageV
 
 		auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
 		if (view.begin() == view.end())
+		{
+			// Not merely nothing to capture: the selection table has to be
+			// emptied too, or the frame after the last probe is deleted still
+			// points objects at a slot whose contents are gone.
+			m_ProbeSlots.clear();
 			return;
+		}
 
 		// The probes are placed by transforms, and a probe parented to
 		// something that moved this frame is at last frame's position until
@@ -1408,43 +1449,28 @@ namespace RageV
 
 			probe.Dirty = false;
 
-			// A probe's cube gets the same GGX convolution the sky's does, once
-			// it holds a complete set of faces and each time it finishes a new
-			// round of them. Leaving it box filtered meant a rough metal
-			// reflecting a probe got a blur rather than a lobe -- which is the
-			// same gap that went unnoticed on the default sky, kept on purpose
-			// and no better for it.
-			//
-			// Thirty-six small renders per full capture. A baked probe pays it
-			// once; a realtime one updating a face a frame pays it every sixth,
-			// which is six renders a frame amortised.
-			if (probe.Probe->IsComplete() && probe.NextFace == 0)
-			{
-				EnvironmentIBL::Invalidate(probe.Probe->GetCube());
-				EnvironmentIBL::Prefilter(*cmd, probe.Probe->GetCube());
-			}
 		}
 
 		m_CapturingProbes = false;
+
+		PackProbes(*cmd);
 	}
 
-	RHI::Ref<RHI::RHITexture> Scene::ResolveEnvironment(const Mat4& cameraTransform,
-														const RHI::Ref<RHI::RHITexture>& sky)
+	void Scene::PackProbes(RHI::RHICommandList& cmd)
 	{
-		// A probe capture reflects the sky, never another probe. Two probes
-		// facing each other would otherwise capture each other capturing each
-		// other, one frame deeper every frame.
-		if (m_CapturingProbes)
-			return sky;
+		m_ProbeSlots.clear();
 
-		// Chosen against the viewer rather than per surface. Per surface is the
-		// right answer and needs the scene descriptor set rebound per draw, or
-		// a cube array indexed per object; neither is worth building before one
-		// probe works. With one probe in a scene the two agree anyway.
-		const Vec3 eye = Vec3(cameraTransform[3]);
+		ProbeArray::Begin(ProbeFaceSize());
+		if (!ProbeArray::IsReady())
+			return;
 
-		RHI::Ref<RHI::RHITexture> best = sky;
-		float nearest = std::numeric_limits<float>::max();
+		// The sky as well as the probes. Begin reallocates when the face size
+		// changes -- which happens the first time a 256-pixel probe joins a
+		// scene of 128s -- and that empties slot 0 along with everything else.
+		// Refilling it is a pointer comparison on every frame that did not.
+		ProbeArray::SetSky(cmd, ResolveSky());
+
+		uint32_t slot = ProbeArray::kSkySlot + 1;
 
 		auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
 		for (auto& item : view)
@@ -1452,16 +1478,68 @@ namespace RageV
 			auto [transform, probe] = view.get<TransformComponent, ReflectionProbeComponent>(item);
 
 			// An incomplete probe is black on the faces it has not reached. The
-			// sky is a better answer than a hole.
+			// sky is a better answer than a hole, and it is what an object gets
+			// by not appearing in this table at all.
 			if (!probe.Probe || !probe.Probe->IsComplete())
 				continue;
 
-			const float distance = Math::Distance(eye, Vec3(transform.World[3]));
+			if (slot >= ProbeArray::kSlots)
+			{
+				if (!m_WarnedProbeCount)
+				{
+					RV_CORE_WARN("Scene has more than {0} reflection probes; the rest "
+								 "reflect the sky", ProbeArray::kMaxProbes);
+					m_WarnedProbeCount = true;
+				}
+				break;
+			}
+
+			// Convolved into its slice, once per capture. A baked probe pays
+			// this on the frame it completes and never again; a realtime one
+			// pays it every sixth frame, which is what its generation counter
+			// is for.
+			if (!ProbeArray::SetProbe(cmd, slot, *probe.Probe))
+				continue;
+
+			// Recorded here rather than recomputed at selection time, so the
+			// table that says which slot a probe went into is the same table
+			// that decides which slot an object reads. Two walks of the
+			// registry in the same order would agree today and drift the first
+			// time either one grows a condition the other does not.
+			ProbeSlot entry;
+			entry.Position = Vec3(transform.World[3]);
+			entry.Influence = probe.Influence;
+			entry.Slot = slot;
+			m_ProbeSlots.push_back(entry);
+
+			slot++;
+		}
+	}
+
+	uint32_t Scene::ProbeSlotFor(const Vec3& position) const
+	{
+		// A probe capture reflects the sky, never another probe. Two probes
+		// facing each other would otherwise capture each other capturing each
+		// other, one frame deeper every frame.
+		if (m_CapturingProbes)
+			return ProbeArray::kSkySlot;
+
+		// Per object, against the object -- not against the camera. Choosing
+		// against the viewer was the shape this replaced: it gives one answer
+		// for the whole scene, so a mirror at the far end of a room reflects
+		// the probe standing next to the *camera*. With one probe the two agree,
+		// which is exactly why the old answer looked right for as long as it did.
+		uint32_t best = ProbeArray::kSkySlot;
+		float nearest = std::numeric_limits<float>::max();
+
+		for (const ProbeSlot& probe : m_ProbeSlots)
+		{
+			const float distance = Math::Distance(position, probe.Position);
 			if (distance > probe.Influence || distance >= nearest)
 				continue;
 
 			nearest = distance;
-			best = probe.Probe->GetCube();
+			best = probe.Slot;
 		}
 
 		return best;
@@ -1549,15 +1627,23 @@ namespace RageV
 			sky = Skybox::ResolveEnvironment(m_Environment, sky);
 		}
 
-		// The sky still draws the sky; only the surfaces reflect the probe.
-		// A probe's capture contains the sky already, so drawing the background
+		// The sky still draws the sky; only the surfaces reflect a probe. A
+		// probe's capture contains the sky already, so drawing the background
 		// from it would be a lower-resolution copy of what is there anyway.
-		RHI::Ref<RHI::RHITexture> environment = ResolveEnvironment(cameraTransform, sky);
+		//
+		// One binding for the whole pass, whatever the scene's probe count:
+		// surfaces reflect a *slice* of these, chosen per object below. The
+		// arrays already hold the prefiltered convolution -- nothing is filtered
+		// at bind time, and there is no per-probe cube left to look up.
+		RHI::Ref<RHI::RHITexture> environment = ProbeArray::GetRadiance();
+		RHI::Ref<RHI::RHITexture> probeIrradiance = ProbeArray::GetIrradiance();
 
-		// Surfaces reflect the prefiltered cube; the sky still draws the sharp
-		// one. Probes are filtered too, on the frame each completes a round of
-		// faces.
-		environment = EnvironmentIBL::GetPrefiltered(environment);
+		// A probe capture draws the scene, and the arrays are filled after the
+		// captures finish -- so during one they hold the previous frame's
+		// contents and slot 0 is the only slice a face may read. Everything a
+		// capture draws is pinned to it below.
+		if (environment && probeIrradiance)
+			irradiance = probeIrradiance;
 
 		// One frustum for this pass, shared by the meshes and the quads below.
 		// Built here rather than inside the mesh block because it belongs to
@@ -1595,6 +1681,11 @@ namespace RageV
 					continue;
 				}
 
+				// Which probe this object reflects. Against the object's own
+				// centre, not its origin: a long wall's origin can sit outside
+				// every probe's influence while most of the wall is inside one.
+				const uint32_t probe = ProbeSlotFor(centre);
+
 			// A skinned mesh has to reach the skinned pipeline whether or not
 				// anything is animating it: its vertex layout is the wider one,
 				// and the static pipeline would read joint indices as texture
@@ -1613,17 +1704,18 @@ namespace RageV
 					if (animator && !animator->Skinning.empty())
 					{
 						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material,
-													animator->Skinning);
+													animator->Skinning, probe);
 					}
 					else if (const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh))
 					{
 						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
-						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material, bind);
+						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material,
+													bind, probe);
 					}
 				}
 				else
 				{
-					Renderer3D::DrawMesh(resolved, transform.World, mesh.Material);
+					Renderer3D::DrawMesh(resolved, transform.World, mesh.Material, probe);
 				}
 			}
 
