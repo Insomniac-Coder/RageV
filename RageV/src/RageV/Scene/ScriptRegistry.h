@@ -37,6 +37,29 @@ namespace RageV
 		std::function<void(ScriptableEntity*, const std::string&)> Set;
 	};
 
+	// One method a scene file may name -- what a UI button's OnClick binds to.
+	//
+	// **Registered explicitly, and only for C++.** C# needs nothing like this:
+	// reflection can enumerate a type's methods and call one by name, so a
+	// managed handler works the moment it is written. C++ has no reflection at
+	// all, so the name has to be given to the engine from outside the class,
+	// exactly as a field's is.
+	//
+	// That asymmetry is real and is worth stating in both guides rather than
+	// letting somebody discover it when their C++ handler does not appear in
+	// the dropdown.
+	//
+	// **`void()` and nothing else.** A handler that took arguments would need
+	// the scene file to store them and the inspector to edit them, which is a
+	// small expression language nobody asked for; a return value would have
+	// nowhere to go. The method reads whatever it needs off its own entity,
+	// which is what the equivalent Unity handler does in practice.
+	struct ScriptMethod
+	{
+		std::string Name;
+		std::function<void(ScriptableEntity*)> Invoke;
+	};
+
 	// Maps a script's name to a way of constructing it, and to its fields.
 	//
 	// Without this, a script can only be attached from C++ with a compile-time
@@ -77,6 +100,21 @@ namespace RageV
 			template<auto Member>
 			Registration& Field(const char* name);
 
+			// Declares a method a scene may call by name -- a button's
+			// OnClick, and anything later that binds behaviour from data.
+			//
+			//     RV_REGISTER_SCRIPT(Menu).Method<&Menu::StartGame>("StartGame");
+			//
+			// Public, and `void()`. See ScriptMethod for why both.
+			//
+			// The registered name is what the scene file stores, so it is API
+			// in exactly the way the script's own name is: changing it breaks
+			// every button already bound to it. Keeping it the same as the C++
+			// method's name is the convention, and is what makes the two
+			// possible to keep in step by eye.
+			template<auto Fn>
+			Registration& Method(const char* name);
+
 		private:
 			std::string m_Name;
 		};
@@ -113,8 +151,15 @@ namespace RageV
 		// and is not an error.
 		static const std::vector<ScriptField>& FieldsOf(const std::string& name);
 
-		// Used by Registration::Field. Not meant to be called directly.
+		// The same, for methods. Answers without an instance -- which is the
+		// requirement, because the inspector fills its dropdown while the scene
+		// is stopped and no script instance exists anywhere.
+		static const std::vector<ScriptMethod>& MethodsOf(const std::string& name);
+
+		// Used by Registration::Field and ::Method. Not meant to be called
+		// directly.
 		static void AddField(const std::string& script, ScriptField field);
+		static void AddMethod(const std::string& script, ScriptMethod method);
 	};
 
 	namespace Detail
@@ -151,6 +196,20 @@ namespace RageV
 		{
 			using Owner = Class;
 			using Type = Value;
+		};
+
+		// The same for a method, and specialised *only* for `void()`.
+		//
+		// That is the signature check, and it is deliberately done by having no
+		// other specialisation to match: registering a method that takes an
+		// argument or returns something fails to compile at the registration
+		// line, naming the method. A runtime check would have reported it as a
+		// button that quietly does nothing.
+		template<typename T> struct ScriptMethodTraits;
+		template<typename Class>
+		struct ScriptMethodTraits<void (Class::*)()>
+		{
+			using Owner = Class;
 		};
 
 		// Registration runs before main, so a script is available without the
@@ -197,6 +256,26 @@ namespace RageV
 		}
 
 		ScriptRegistry::AddField(m_Name, std::move(field));
+		return *this;
+	}
+
+	template<auto Fn>
+	ScriptRegistry::Registration& ScriptRegistry::Registration::Method(const char* name)
+	{
+		using Owner = typename Detail::ScriptMethodTraits<decltype(Fn)>::Owner;
+
+		ScriptMethod method;
+		method.Name = name;
+
+		// The cast is safe because the only thing that ever calls this is the
+		// registry, against an instance it created from this same script's
+		// factory -- the same reasoning Field's accessors rest on.
+		method.Invoke = [](ScriptableEntity* script)
+		{
+			(static_cast<Owner*>(script)->*Fn)();
+		};
+
+		ScriptRegistry::AddMethod(m_Name, std::move(method));
 		return *this;
 	}
 }

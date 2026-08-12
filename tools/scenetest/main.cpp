@@ -2721,6 +2721,7 @@ void main()
 						case FieldType::Vec4:   expected = sizeof(Vec4); break;
 						case FieldType::String: expected = sizeof(std::string); break;
 						case FieldType::Asset:  expected = sizeof(AssetHandle); break;
+						case FieldType::Entity: expected = sizeof(EntityRef); break;
 					}
 
 					if (field.Size != expected && !offender)
@@ -4682,6 +4683,254 @@ void main()
 
 			scene->OnRuntimeStop();
 		}
+
+		// --- the bound handler ---------------------------------------------------
+		//
+		// The other half of the same click: instead of the script asking its own
+		// button, the button names a method and the engine calls it. The one
+		// thing worth proving beyond "it ran" is **where it ran** -- on another
+		// entity entirely, which is the case polling cannot express and the
+		// reason this exists.
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
+
+			// The handler lives here, on nothing that can be clicked.
+			Entity manager = scene->CreateEntity("Manager");
+			manager.AddComponent<NativeScriptComponent>("ClickCounter");
+
+			Entity label = addRect(scene, "Label", canvas, 200.0f, 0.0f, 100.0f, 40.0f, 1);
+			label.AddComponent<UITextComponent>();
+			scene->SetParent(label, manager);
+
+			Entity button = addRect(scene, "Button", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			UIButtonComponent& binding = button.AddComponent<UIButtonComponent>();
+			binding.OnClickTarget = EntityRef(manager.GetUUID());
+			binding.OnClickMethod = "Count";
+
+			auto click = [&]
+			{
+				UI::PointerInput pointer;
+				pointer.X = 50.0f;
+				pointer.Y = 50.0f;
+				pointer.Down = true;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+				pointer.Down = false;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+			};
+
+			auto caption = [&] { return label.GetComponent<UITextComponent>().Text; };
+
+			constexpr float dt = 1.0f / 60.0f;
+			UI::ResetPointer(*scene);
+			scene->OnRuntimeStart();
+			scene->OnFixedUpdateRuntime(dt);
+
+			click();
+			scene->OnFixedUpdateRuntime(dt);
+			Check(caption() == "Click me x1",
+				  "a button calls the method it names, on an entity that is not the "
+				  "button");
+
+			// The same edge contract the polled path has. A binding fired once
+			// per step for as long as Clicked stayed true would be the obvious
+			// way to get this wrong.
+			scene->OnFixedUpdateRuntime(dt);
+			scene->OnFixedUpdateRuntime(dt);
+			Check(caption() == "Click me x1", "once per click, however many steps follow");
+
+			// A binding that resolves to nothing must not be a crash and must
+			// not be a click either. It logs -- which this cannot assert, but
+			// the absence of a count is what proves nothing was called.
+			button.GetComponent<UIButtonComponent>().OnClickMethod = "NoSuchMethod";
+			click();
+			scene->OnFixedUpdateRuntime(dt);
+			Check(caption() == "Click me x1",
+				  "a method name nothing answers to calls nothing, and survives it");
+
+			// The target deleted out from under a live binding -- the state the
+			// inspector draws in red, reached the way it actually happens.
+			button.GetComponent<UIButtonComponent>().OnClickMethod = "Count";
+			scene->DestroyDeferred(manager);
+			scene->OnFixedUpdateRuntime(dt);   // the step that flushes the queue
+			click();
+			scene->OnFixedUpdateRuntime(dt);
+			Check(true, "and a binding whose target was destroyed survives being clicked");
+
+			scene->OnRuntimeStop();
+		}
+
+		// --- an empty method name is not a broken binding -------------------------
+		//
+		// It is a button read by polling, which is most of them. Getting this
+		// wrong would put a warning in the log for every ordinary click in the
+		// engine.
+		{
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
+
+			Entity button = addRect(scene, "Button", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			button.AddComponent<UIButtonComponent>();
+
+			constexpr float dt = 1.0f / 60.0f;
+			UI::ResetPointer(*scene);
+			scene->OnRuntimeStart();
+
+			UI::PointerInput pointer;
+			pointer.X = 50.0f; pointer.Y = 50.0f; pointer.Down = true;
+			UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+			pointer.Down = false;
+			UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+
+			scene->OnFixedUpdateRuntime(dt);
+			Check(true, "a button with no bound method is clicked without complaint");
+
+			scene->OnRuntimeStop();
+		}
+
+		// --- a binding survives a save ------------------------------------------
+		//
+		// This is the one that would fail if EntityRef were stored as an
+		// `entt::entity`, and it would fail *only after a reload* -- a handle is
+		// an index into one scene's pool, so it points at something plausible
+		// and wrong rather than at nothing. The UUID is the whole reason the
+		// wrapper exists.
+		{
+			auto scene = std::make_shared<Scene>();
+
+			Entity manager = scene->CreateEntity("Manager");
+			Entity button = scene->CreateEntity("Button");
+			button.AddComponent<UIRectComponent>();
+
+			UIButtonComponent& binding = button.AddComponent<UIButtonComponent>();
+			binding.OnClickTarget = EntityRef(manager.GetUUID());
+			binding.OnClickMethod = "Count";
+
+			const UUID managerId = manager.GetUUID();
+			const UUID buttonId = button.GetUUID();
+
+			SceneSerializer writer(scene);
+			const std::string text = writer.SerializeToString();
+
+			auto reloaded = std::make_shared<Scene>();
+			SceneSerializer reader(reloaded);
+			Check(reader.DeserializeFromString(text), "a scene with a bound button reloads");
+
+			Entity restored = reloaded->GetEntityByUUID(buttonId);
+			Check(restored && restored.HasComponent<UIButtonComponent>(),
+				  "and the button comes back with its component");
+
+			if (restored && restored.HasComponent<UIButtonComponent>())
+			{
+				const UIButtonComponent& after = restored.GetComponent<UIButtonComponent>();
+				Check(after.OnClickTarget.Value == managerId,
+					  "its OnClick target still names the same entity after a reload");
+				Check(after.OnClickMethod == "Count", "and still names the same method");
+
+				// The entity it names is really there, which is the property
+				// the reference is for -- equality above would also hold if
+				// both were garbage.
+				Check(reloaded->GetEntityByUUID(after.OnClickTarget.Value),
+					  "and that entity is in the reloaded scene");
+			}
+		}
+
+		// --- a binding inside a prefab follows the copy ---------------------------
+		//
+		// Instantiating gives every entity a fresh UUID, so a reference stored
+		// in the file names something that is no longer there. Parent links
+		// were already rewritten through the remap; entity fields now are too.
+		//
+		// Without it a prefab placed twice would have both copies' buttons
+		// driving whichever manager happened to be created first -- and it
+		// would look right until the second copy was clicked.
+		{
+			auto scene = std::make_shared<Scene>();
+
+			Entity root = scene->CreateEntity("Panel");
+			root.AddComponent<UIRectComponent>();
+
+			Entity manager = scene->CreateEntity("Manager");
+			scene->SetParent(manager, root);
+
+			Entity button = scene->CreateEntity("Button");
+			scene->SetParent(button, root);
+			button.AddComponent<UIRectComponent>();
+
+			UIButtonComponent& binding = button.AddComponent<UIButtonComponent>();
+			binding.OnClickTarget = EntityRef(manager.GetUUID());
+			binding.OnClickMethod = "Count";
+
+			SceneSerializer writer(scene);
+			const std::string prefab = writer.SerializeSubtree(root);
+
+			// Two copies, into the same scene, which is what makes this a test
+			// rather than a tautology.
+			SceneSerializer reader(scene);
+			Entity firstRoot = reader.Instantiate(prefab);
+			Entity secondRoot = reader.Instantiate(prefab);
+
+			Check(firstRoot, "a prefab holding a bound button instantiates");
+			Check(secondRoot, "and instantiates a second time");
+
+			auto boundTargetUnder = [&](Entity subtreeRoot) -> UUID
+			{
+				for (UUID childId : scene->GetChildren(subtreeRoot))
+				{
+					Entity child = scene->GetEntityByUUID(childId);
+					if (child && child.HasComponent<UIButtonComponent>())
+						return child.GetComponent<UIButtonComponent>().OnClickTarget.Value;
+				}
+				return UUID::Invalid();
+			};
+
+			auto managerUnder = [&](Entity subtreeRoot) -> UUID
+			{
+				for (UUID childId : scene->GetChildren(subtreeRoot))
+				{
+					Entity child = scene->GetEntityByUUID(childId);
+					if (child && child.GetName() == "Manager")
+						return childId;
+				}
+				return UUID::Invalid();
+			};
+
+			const UUID firstTarget = boundTargetUnder(firstRoot);
+			const UUID secondTarget = boundTargetUnder(secondRoot);
+
+			Check(firstTarget.IsValid() && firstTarget == managerUnder(firstRoot),
+				  "the copy's button points at the copy's own manager");
+			Check(secondTarget.IsValid() && secondTarget == managerUnder(secondRoot),
+				  "and the second copy points at its own, not at the first copy's");
+			Check(firstTarget != secondTarget,
+				  "so two copies of one prefab do not share a target");
+			Check(firstTarget != manager.GetUUID() && secondTarget != manager.GetUUID(),
+				  "and neither points back at the entity the prefab was made from");
+		}
+
+		// --- methods are declared, and the declaration is what a scene may name ----
+		{
+			const std::vector<ScriptMethod>& methods = ScriptRegistry::MethodsOf("ClickCounter");
+
+			bool hasCount = false;
+			for (const ScriptMethod& method : methods)
+				hasCount = hasCount || method.Name == "Count";
+
+			Check(hasCount, "a registered script method is listed for the inspector to offer");
+			Check(ScriptRegistry::MethodsOf("Spinner").empty(),
+				  "and a script that registers none lists none, which is not an error");
+			Check(ScriptRegistry::MethodsOf("NoSuchScript").empty(),
+				  "as does a script that does not exist");
+		}
+
+		// The pointer is one cursor and therefore one global, so a suite that
+		// leaves it parked over a button leaves *every later check* running in a
+		// world where the UI owns the pointer.
+		//
+		// That is not hypothetical: the interop self-test asserts
+		// IsPointerOverUI() == 0, and it is what caught this being missing --
+		// two failures, in a file nothing here had touched.
+		UI::ResetPointer();
 	}
 
 	// Text layout.

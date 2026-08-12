@@ -321,17 +321,42 @@ namespace RageV
 			Show();
 		}
 
+		// --- the two ways to hear about a click ------------------------------
+		//
+		// **This script demonstrates both, and that is the point of it.**
+		//
+		// `Count` is *bound*: a button's OnClick names it, and the engine calls
+		// it. That is the one to reach for when a manager handles several
+		// buttons, or when the handler does not live on the button.
+		//
+		// `OnTick` *polls*: it asks its own button whether it was clicked. That
+		// is the one to reach for when the script is on the button itself, or
+		// when a click is one of several things a step already checks.
+		//
+		// They are the same click seen two ways, so a button that both names
+		// Count and carries this script would count twice -- which is not a
+		// trap so much as arithmetic, and the demo scene binds one button per
+		// mechanism rather than doubling up on one.
+		void Count()
+		{
+			m_Clicks++;
+			Show();
+		}
+
 		// The fixed step, not the frame: a click is an event the game acts on,
 		// and acting on it twice because a frame ran two steps is exactly the
 		// bug the edge contract exists to prevent.
 		void OnTick(Timestep) override
 		{
-			if (!WasButtonClicked())
-				return;
-
-			m_Clicks++;
-			Show();
+			if (PollOwnButton && WasButtonClicked())
+				Count();
 		}
+
+		// Off for a button that binds Count, on for one that does not. Authored
+		// rather than inferred: this script cannot see its own button's
+		// binding, and guessing would make the double-count depend on a field
+		// nobody could see.
+		bool PollOwnButton = true;
 
 		int Clicks() const { return m_Clicks; }
 
@@ -376,6 +401,11 @@ namespace RageV
 		ScriptRegistry::Register("ImpactSound", []() -> ScriptableEntity* { return new ImpactSound(); });
 		ScriptRegistry::Register("TriggerZone", []() -> ScriptableEntity* { return new TriggerZone(); });
 		ScriptRegistry::Register("ClickCounter", []() -> ScriptableEntity* { return new ClickCounter(); })
-			.Field<&ClickCounter::Caption>("Caption");
+			.Field<&ClickCounter::Caption>("Caption")
+			.Field<&ClickCounter::PollOwnButton>("PollOwnButton")
+			// The worked example for a bound handler, and the regression probe
+			// for it -- the same role RageV.Builtin.ContactCounter plays for
+			// the contact path.
+			.Method<&ClickCounter::Count>("Count");
 	}
 }

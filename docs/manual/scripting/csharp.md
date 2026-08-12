@@ -294,7 +294,38 @@ press that began on a button, even if the hand has since moved off it.
 ## The game's UI
 
 A button is a `UIImageComponent` and a `UIButtonComponent` on one entity, with a
-label as a child. Poll it on the fixed step:
+label as a child. **There are two ways to hear about a click**, and they are the
+same click seen twice — use whichever fits, not both on one button.
+
+### The button calls your method
+
+Write an ordinary method and pick it from the button's **On Click** in the
+inspector:
+
+```csharp
+public class Menu : Script
+{
+    public void StartGame() { /* ... */ }
+    public void Quit()      { /* ... */ }
+}
+```
+
+**No registration.** This is the one place C# is plainly less work than C++,
+where every bindable method has to be declared to the engine by hand: reflection
+finds these, so writing the method is the whole job. It must be **public**, take
+no arguments and return `void` — the dropdown offers nothing else.
+
+The button's **Target** is which entity's script to call. Leave it empty for the
+button's own entity.
+
+> [!TRAP]
+> **The name in the scene file has no compiler behind it.** Rename `StartGame`
+> and the scene still says `"StartGame"` — the build succeeds and the button
+> stops working. So a binding that resolves to nothing **logs a warning on every
+> click**, naming the button, the target and the method. If a button does
+> nothing, read the log before reading the code.
+
+### Your script asks the button
 
 ```csharp
 public override void OnTick(float dt)
@@ -304,11 +335,15 @@ public override void OnTick(float dt)
 }
 ```
 
+Reach for this when one manager reads several buttons, or when the click is one
+of a few things a step already checks.
+
 On the fixed step, not the frame: a click is an event the game acts on, and
 acting on it twice because one frame ran two steps is what the edge contract
 exists to prevent. Same terms as `WasActionPressed` — consumed by the first step
 that runs, carried forward by a frame with none. A press dragged off the button
-before the release is cancelled and never reported.
+before the release is cancelled and never reported. **Both** mechanisms honour
+that, so a bound method is also called exactly once per click.
 
 Text is a property:
 

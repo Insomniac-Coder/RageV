@@ -697,6 +697,18 @@ namespace
 					Color("Under the pointer.")),
 				Field<&UIButtonComponent::PressedColor>("PressedColor",
 					Color("Held down on this button.")),
+				Field<&UIButtonComponent::OnClickTarget>("OnClickTarget",
+					FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
+							   "The entity whose script handles the click. Drag one from "
+							   "the Hierarchy. Leave it empty for this entity, which is "
+							   "what a script on the button itself wants." }),
+				Field<&UIButtonComponent::OnClickMethod>("OnClickMethod",
+					BindsMethod("OnClickTarget",
+						FieldHint{ FieldHint::Widget::Default, 0.0f, 0.0f, 0.1f, nullptr, 0,
+								   "The method to call. C++ scripts must register it with "
+								   ".Method<>(); C# ones need no registration. Empty means "
+								   "nothing is called and the click is read by polling "
+								   "instead." })),
 			};
 			Bind<UIButtonComponent>(desc);
 			s_Components.push_back(std::move(desc));

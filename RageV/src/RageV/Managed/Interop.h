@@ -311,6 +311,20 @@ namespace RageV::Managed
 		int32_t (__cdecl* GetFieldValue)(int32_t handle, const char* name,
 										 char* buffer, int32_t capacity);
 		int32_t (__cdecl* SetFieldValue)(int32_t handle, const char* name, const char* value);
+
+		// --- methods a scene may name ----------------------------------------
+		//
+		// The C# half of what ScriptRegistry::Method does for C++. There is no
+		// managed equivalent of the registration, because reflection does not
+		// need one -- which is why this is two entries and not three.
+
+		// Bindable method names on a *type*, newline-separated, with the
+		// GetEntityName contract. From the type rather than an instance
+		// because the inspector asks while the scene is stopped.
+		int32_t (__cdecl* ListMethods)(const char* typeName, char* buffer, int32_t capacity);
+
+		// Calls one on a live instance. 1 if it ran.
+		int32_t (__cdecl* InvokeMethod)(int32_t handle, const char* name);
 	};
 
 	// What kind of thing a script field is. Matches RageV.ScriptFieldType.

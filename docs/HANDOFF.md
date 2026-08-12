@@ -2219,44 +2219,68 @@ from screen-space derivatives precisely so this works under perspective.
 Then **6.x: Knockdown gets a title, a score and "press F to reset"** -- the
 acceptance test for the whole phase, because that absence is why it exists.
 
-### 6.4c -- the button calls your method. Decided, not yet built.
+### 6.4c -- the button calls your method. Built.
 
 6.4 shipped **polling**: a script asks `WasButtonClicked` each step. I recorded
 that as a deliberate omission and **the user overruled it on 2026-08-12** --
 build the Unity-shaped thing, where the button holds a target entity and a
-method name and the engine does the calling. That is the design to follow; the
-paragraph that used to be here argued for the cheaper one and was wrong about
-what is worth building.
+method name and the engine does the calling. They were right, and this is now
+the primary mechanism.
 
-**Polling stays.** It is the primitive the binding fires from, it is what a
-manager script reading five buttons actually wants, and it is already tested.
-This is additive.
+**Polling stayed.** It is the primitive the binding fires from, it is what a
+manager script reading five buttons wants, and it was already tested. The two
+are the same click seen twice, so a button should use one or the other --
+`ClickCounter` carries both and gates the polled half behind `PollOwnButton`
+precisely because binding *and* polling one button counts it twice.
 
-The five pieces, in dependency order (tasks 113-117):
+What landed:
 
-1. **`EntityRef` and `FieldType::Entity`** -- a reference to another entity as a
-   registered field, so the inspector can offer a slot to drag one into. Touches
-   the registry, `SceneSerializer`, `SceneCommands`' variant, the C# component
-   bridge's text form, and scenetest's field-width table -- the same seven-site
-   spread `FieldType::Vec2` had. Serialize the UUID, not the entt handle.
-2. **Script methods by name.** C++ has no reflection, so `ScriptRegistry` needs
-   `Method<&C::M>("Name")` beside its existing `Field<>`. C# needs no
-   registration -- public, no-argument, `void` methods are reachable by
-   reflection -- so the asymmetry is real and worth stating in both guides.
-3. **`UIButtonComponent::OnClickTarget` + `OnClickMethod`**, dispatched on the
-   fixed step *after* the script pass (instances are created there) and before
-   `UI::EndFixedStep` consumes the edge.
-4. **The inspector**: a drop target taking `RAGEV_ENTITY` from the hierarchy --
-   that payload already exists and carries an `entt::entity`, so it needs the
-   UUID taken from it -- and a combo of the target's methods.
-5. Tests with mutations, the demo scene's button rebound, docs.
+| | |
+|---|---|
+| `EntityRef` + `FieldType::Entity` | a reference to another entity, as a registered field |
+| `ScriptRegistry::Method<&C::M>()` | C++ methods a scene may name; C# needs none |
+| `ManagedApi::ListMethods` / `InvokeMethod` | the C# half, by reflection |
+| `Scene::InvokeScriptMethod` | both languages, both delivered -- modelled on `DeliverContact` |
+| `Scene::DispatchUIClicks` | on the fixed step, after the script pass |
+| inspector | an entity drop slot, and a combo of the target's methods |
+
+**`EntityRef` is a struct wrapping a UUID, not an alias for one**, and that is
+load-bearing: `AssetHandle` is *already* `using AssetHandle = UUID`, so a second
+alias would be indistinguishable from an asset and every entity slot would come
+up with the content browser's drop target. The wrapper is what makes
+`FieldType::Entity` deducible at all.
 
 > [!TRAP]
-> **A method name in a scene file has no compiler behind it.** Rename the
-> method and the button silently stops working -- the exact failure the `final
-> OnUpdate` guard exists to prevent elsewhere (see the rename trap below). So a
-> binding that names a target or a method it cannot resolve must **say so, once,
-> loudly** -- not per click, which floods, and not never, which is the bug.
+> **A method name in a scene file has no compiler behind it.** Rename the method
+> and the button silently stops working -- the exact failure the `final
+> OnUpdate` guard exists to prevent elsewhere. So an unresolvable binding warns
+> **on every click**, naming the button, the target and the method.
+>
+> The first draft warned *once per button*, which reads better and is wrong in
+> use: clicks two through ten then look exactly like the click never registered,
+> which is the harder bug to report. A click is a deliberate act; a line per
+> deliberate act is proportionate.
+
+**What the event system could and could not give this.** `Events/Event.h` is the
+Hazel-lineage platform dispatcher, and it is not reusable here: `EventDispatcher`
+holds one `Event&` and type-switches on it -- there is no subscriber list to
+join -- its `EventType` enum is window/key/mouse, its events are pumped outside
+the fixed step, and `Event` is an `RV_API` C++ class **no C# script can
+subscribe to**, which fails half the requirement on its own.
+
+The reusable precedent was a different one: **`Scene::DeliverContact`** already
+takes an engine-detected occurrence, finds the script instance on an entity, and
+calls into it in both languages. `InvokeScriptMethod` is that shape with a named
+method instead of a compile-time-known one, and `InvokeMethod` sits beside
+`InvokeContact` in the same table.
+
+**Verification note worth keeping.** The new UI tests failed *two checks in the
+interop self-test* -- a file they do not touch. The pointer is one cursor and
+therefore one global, and the suite left it parked over a button, so
+`IsPointerOverUI()` answered 1 where the self-test asserts 0. `CheckUIInteraction`
+now resets it on the way out. **A suite that leaves a global set is a suite that
+breaks whatever runs next**, and the only reason this was cheap to find is that
+something downstream asserted on it.
 
 **Deferred to the end of the phase**, with their costs, in ENGINE-NOTES 7d: a
 world-space *canvas* (the input path, not the rendering), rich text, input

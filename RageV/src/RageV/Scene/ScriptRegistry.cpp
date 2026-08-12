@@ -47,6 +47,12 @@ namespace RageV
 			return fields;
 		}
 
+		std::map<std::string, std::vector<ScriptMethod>>& Methods()
+		{
+			static std::map<std::string, std::vector<ScriptMethod>> methods;
+			return methods;
+		}
+
 		// On demand, so no caller has to remember it -- the same reason
 		// ComponentRegistry initialises itself.
 		void EnsureBuiltins()
@@ -103,9 +109,12 @@ namespace RageV
 		{
 			if (it->second.Scope == scope)
 			{
-				// The fields go with the factory: they hold getter and setter
-				// lambdas into the same module the factory points at.
+				// The fields and methods go with the factory: all of them hold
+				// lambdas into the same module the factory points at, and one
+				// left behind is a call into unmapped memory the next time
+				// anything looks the script up.
 				Fields().erase(it->first);
+				Methods().erase(it->first);
 				it = Factories().erase(it);
 				removed++;
 			}
@@ -154,6 +163,34 @@ namespace RageV
 		static const std::vector<ScriptField> none;
 		const auto it = Fields().find(name);
 		return it == Fields().end() ? none : it->second;
+	}
+
+	void ScriptRegistry::AddMethod(const std::string& script, ScriptMethod method)
+	{
+		std::vector<ScriptMethod>& methods = Methods()[script];
+
+		const auto existing = std::find_if(methods.begin(), methods.end(),
+			[&method](const ScriptMethod& seen) { return seen.Name == method.Name; });
+
+		// Two methods under one name would make which one a button calls depend
+		// on registration order -- the same reason a duplicate script name is
+		// refused rather than silently resolved.
+		if (existing != methods.end())
+		{
+			RV_CORE_WARN("Script '{0}' declares method '{1}' twice", script, method.Name);
+			return;
+		}
+
+		methods.push_back(std::move(method));
+	}
+
+	const std::vector<ScriptMethod>& ScriptRegistry::MethodsOf(const std::string& name)
+	{
+		EnsureBuiltins();
+
+		static const std::vector<ScriptMethod> none;
+		const auto it = Methods().find(name);
+		return it == Methods().end() ? none : it->second;
 	}
 
 	ScriptableEntity* ScriptRegistry::Create(const std::string& name)

@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include "RageV/Core/UUID.h"
+#include "RageV/Scene/EntityRef.h"
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsTypes.h"
 #include "RageV/Renderer/Camera.h"
@@ -669,6 +670,22 @@ namespace RageV
 		Vec4 NormalColor{ 0.85f, 0.85f, 0.85f, 1.0f };
 		Vec4 HoverColor{ 1.0f, 1.0f, 1.0f, 1.0f };
 		Vec4 PressedColor{ 0.6f, 0.6f, 0.6f, 1.0f };
+
+		// --- what the click does ---------------------------------------------
+		//
+		// The entity carrying the script, and the method on it to call. Both
+		// authored in the inspector, both stored in the scene.
+		//
+		// **Leaving the target empty means this entity**, which is the shape
+		// most buttons want -- a script on the button itself -- and saves
+		// dragging an entity onto its own slot to say so.
+		//
+		// A button may also be read by polling (`WasButtonClicked`), and an
+		// empty method is exactly that rather than a mistake: the two
+		// mechanisms are the same click seen two ways, and a menu is likely to
+		// use both.
+		EntityRef OnClickTarget;
+		std::string OnClickMethod;
 
 		// --- state, not settings ---------------------------------------------
 		//

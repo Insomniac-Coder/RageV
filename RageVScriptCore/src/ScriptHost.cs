@@ -348,6 +348,115 @@ public static unsafe class ScriptHost
 		}
 	}
 
+	// --- methods a scene may name -------------------------------------------
+	//
+	// A UI button stores a method's *name*, and the engine calls it. C# needs
+	// no registration for that — reflection can both enumerate a type's methods
+	// and call one — which is the whole difference from the C++ side, where
+	// every bindable method has to be declared to ScriptRegistry by hand.
+	//
+	// The filter is the same in both languages, and it is narrow on purpose:
+	// public, instance, no parameters, returns void. A handler that took
+	// arguments would need the scene file to store them and the inspector to
+	// edit them, which is a small expression language nobody asked for.
+
+	/// <summary>True if this is a method a scene is allowed to bind to.</summary>
+	private static bool IsBindable(MethodInfo method) =>
+		method.ReturnType == typeof(void)
+		&& method.GetParameters().Length == 0
+		// IsSpecialName covers property getters and setters, operators and
+		// event add/remove -- all of which are methods to reflection and none
+		// of which is a thing to bind a button to.
+		&& !method.IsSpecialName
+		&& !method.IsGenericMethod
+		// Declared by the game, not inherited from Script or object. Without
+		// this the dropdown offers OnCreate, OnTick, ToString and GetHashCode,
+		// and binding a button to the engine's own callback is never what
+		// somebody meant.
+		&& method.DeclaringType != typeof(Script)
+		&& method.DeclaringType != typeof(object);
+
+	/// <summary>Bindable method names on a script type, newline-separated, into the buffer.</summary>
+    /// <remarks>
+    /// Answers from the <b>type</b>, not from an instance, because the
+    /// inspector fills its dropdown while the scene is stopped and nothing is
+    /// instantiated anywhere.
+    /// </remarks>
+	/// <returns>The length that would have been written; -1 if the type is unknown.</returns>
+	[UnmanagedCallersOnly]
+	public static int ListMethods(byte* typeName, byte* buffer, int capacity)
+	{
+		try
+		{
+			Type? type = FindScriptType(Marshal.PtrToStringUTF8((IntPtr)typeName));
+			if (type is null)
+				return -1;
+
+			List<string> names = new();
+			foreach (MethodInfo method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+			{
+				if (IsBindable(method))
+					names.Add(method.Name);
+			}
+			names.Sort(StringComparer.Ordinal);
+
+			string joined = string.Join("\n", names);
+			byte[] bytes = System.Text.Encoding.UTF8.GetBytes(joined);
+
+			if (buffer is not null && capacity > 0)
+			{
+				int copied = Math.Min(bytes.Length, capacity - 1);
+				Marshal.Copy(bytes, 0, (IntPtr)buffer, copied);
+				buffer[copied] = 0;
+			}
+			return bytes.Length;
+		}
+		catch
+		{
+			return -1;
+		}
+	}
+
+	/// <summary>Calls a bindable method on a live instance.</summary>
+	/// <returns>1 if it ran, 0 if the handle or the name resolved to nothing.</returns>
+	/// <remarks>
+	/// An exception thrown by the handler is logged and swallowed, exactly as
+	/// the lifecycle callbacks do it: a managed exception must never unwind
+	/// through the native frame that called this.
+	/// </remarks>
+	[UnmanagedCallersOnly]
+	public static int InvokeMethod(int handle, byte* name)
+	{
+		try
+		{
+			Script? instance = Find(handle);
+			if (instance is null)
+				return 0;
+
+			string? methodName = Marshal.PtrToStringUTF8((IntPtr)name);
+			if (string.IsNullOrEmpty(methodName))
+				return 0;
+
+			MethodInfo? method = instance.GetType().GetMethod(
+				methodName, BindingFlags.Public | BindingFlags.Instance);
+
+			// The same filter the dropdown used. Without it, a scene file
+			// naming GetHashCode would reach it -- a scene is data and is
+			// editable by hand, so what the inspector offers is not a
+			// guarantee about what arrives here.
+			if (method is null || !IsBindable(method))
+				return 0;
+
+			method.Invoke(instance, null);
+			return 1;
+		}
+		catch (Exception e)
+		{
+			Log.Error($"Script method threw: {e.InnerException?.Message ?? e.Message}");
+			return 0;
+		}
+	}
+
 	/// <summary>How many instances are alive. A handle never released is a script that never stops.</summary>
 	[UnmanagedCallersOnly]
 	public static int LiveCount()

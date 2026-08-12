@@ -98,6 +98,10 @@ namespace RageV
 				case FieldType::Vec4:   EmitVec4(emitter, *(Vec4*)value); break;
 				case FieldType::String: emitter << *(std::string*)value; break;
 				case FieldType::Asset:  emitter << (uint64_t)*(AssetHandle*)value; break;
+				// The UUID, exactly as an asset reference is written -- and for
+				// the same reason: it is the only name for the target that
+				// survives this file being closed.
+				case FieldType::Entity: emitter << (uint64_t)*(EntityRef*)value; break;
 			}
 		}
 
@@ -124,6 +128,7 @@ namespace RageV
 				case FieldType::Vec4:   *(Vec4*)value = ReadVec4(node, *(Vec4*)value); break;
 				case FieldType::String: *(std::string*)value = node.as<std::string>(); break;
 				case FieldType::Asset:  *(AssetHandle*)value = AssetHandle(node.as<uint64_t>()); break;
+				case FieldType::Entity: *(EntityRef*)value = EntityRef(UUID(node.as<uint64_t>())); break;
 			}
 			}
 			catch (const YAML::Exception& e)
@@ -455,10 +460,24 @@ namespace RageV
 		// before its parent in the file.
 		std::vector<std::pair<UUID, UUID>> pendingParents;
 
-		// Old id -> new id, when instantiating. Parent links are rewritten
-		// through it so a copy points at its own copies rather than at the
-		// original's entities.
+		// Old id -> new id, when instantiating. Parent links and entity
+		// reference fields are both rewritten through it, so a copy points at
+		// its own copies rather than at the original's entities.
 		std::unordered_map<UUID, UUID> remapped;
+
+		// Every EntityRef field read while instantiating, to be remapped once
+		// the whole subtree is in and the map is complete. Held as
+		// (entity, component, field) rather than as a pointer to the value:
+		// adding a component to a later entity moves the pool the earlier one
+		// lives in, and a pointer taken now would be pointing into the old
+		// allocation by the time it was used.
+		struct PendingReference
+		{
+			UUID Entity;
+			const ComponentDesc* Component;
+			const FieldDesc* Field;
+		};
+		std::vector<PendingReference> pendingReferences;
 
 		for (const YAML::Node& entityNode : entities)
 		{
@@ -511,6 +530,18 @@ namespace RageV
 					const YAML::Node direct = componentNode[field.Name];
 					ReadField(direct ? direct : (nested ? nested[field.Name] : direct),
 							  field, component);
+
+					// An entity reference inside an instantiated subtree has to
+					// follow the copy, exactly as a parent link does -- a
+					// button in a prefab must call the script on *its* manager,
+					// not on the one belonging to whoever placed the prefab
+					// first.
+					//
+					// Deferred rather than remapped here, because a reference
+					// may point at an entity later in the file, and because
+					// adding components moves the storage this pointer is in.
+					if (mode == ReadMode::Instantiate && field.Type == FieldType::Entity)
+						pendingReferences.push_back({ id, &desc, &field });
 				}
 
 				if (desc.DeserializeExtra)
@@ -549,6 +580,29 @@ namespace RageV
 
 			child.GetComponent<RelationshipComponent>().Parent = resolvedParent;
 			parent.GetComponent<RelationshipComponent>().Children.push_back(childID);
+		}
+
+		// After every entity exists, so a reference pointing forward in the file
+		// resolves as readily as one pointing back.
+		for (const PendingReference& pending : pendingReferences)
+		{
+			Entity owner = m_SceneRef->GetEntityByUUID(pending.Entity);
+			if (!owner)
+				continue;
+
+			void* component = pending.Component->TryGet(owner);
+			if (!component)
+				continue;
+
+			EntityRef& reference = *(EntityRef*)pending.Field->Access(component);
+
+			// A reference *out* of the subtree is left exactly as it is. That
+			// is the deliberate half: a prefab whose button drives a scene-wide
+			// GameManager should keep driving that one, and only references to
+			// entities the file itself contained are the prefab's own.
+			const auto it = remapped.find(reference.Value);
+			if (it != remapped.end())
+				reference = EntityRef(it->second);
 		}
 
 		m_SceneRef->UpdateWorldTransforms();

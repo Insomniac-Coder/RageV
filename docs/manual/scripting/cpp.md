@@ -453,7 +453,44 @@ of a press that began on a button, even if the hand has since moved off it.
 ## The game's UI
 
 A button is a `UIImageComponent` and a `UIButtonComponent` on one entity, with a
-label as a child. The script polls it:
+label as a child. **There are two ways to hear about a click**, and they are the
+same click seen twice — use whichever fits, not both on one button.
+
+### The button calls your method
+
+Register the method, then pick it from the button's **On Click** in the
+inspector:
+
+```cpp
+class Menu : public ScriptableEntity
+{
+public:
+    void StartGame() { /* ... */ }
+    void Quit()      { /* ... */ }
+};
+
+RV_REGISTER_SCRIPT(Menu)
+    .Method<&Menu::StartGame>("StartGame")
+    .Method<&Menu::Quit>("Quit");
+```
+
+C++ has no reflection, so the engine cannot find `StartGame` on its own — the
+registration is how the name gets into the dropdown. (C# needs no equivalent;
+see the C# guide.) The method must be **public**, take no arguments and return
+`void`; anything else fails to compile at the registration line, naming the
+method.
+
+The button's **Target** is which entity's script to call. Leave it empty for the
+button's own entity, which is what a script sitting on the button wants.
+
+> [!TRAP]
+> **The name in the scene file has no compiler behind it.** Rename `StartGame`
+> in your code and the scene still says `"StartGame"` — the build succeeds and
+> the button stops working. So a binding that resolves to nothing **logs a
+> warning on every click**, naming the button, the target and the method. If a
+> button does nothing, read the log before reading the code.
+
+### Your script asks the button
 
 ```cpp
 void OnTick(Timestep) override
@@ -463,10 +500,17 @@ void OnTick(Timestep) override
 }
 ```
 
+Reach for this when the script is on the button itself, or when one manager
+reads several buttons — `if (WasButtonClicked(m_Start))` and
+`if (WasButtonClicked(m_Quit))` in one place is often clearer than two bindings
+pointing back at it.
+
 On the fixed step, not the frame: a click is an event the game acts on, and
 acting on it twice because one frame ran two steps is exactly what the edge
 contract exists to prevent. It is the same contract `WasActionPressed` has —
 consumed by the first step that runs, carried forward by a frame with none.
+**Both** mechanisms honour it, so a bound method is also called exactly once per
+click.
 
 Text is written the same way it is read:
 

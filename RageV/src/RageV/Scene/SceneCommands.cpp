@@ -120,6 +120,11 @@ namespace RageV
 			case FieldType::Vec4:   return *(Vec4*)value;
 			case FieldType::String: return *(std::string*)value;
 			case FieldType::Asset:  return (uint64_t)*(AssetHandle*)value;
+			// Through uint64_t rather than as an EntityRef of its own: the
+			// variant already carries that alternative for assets, and a second
+			// 64-bit alternative buys nothing an undo step can tell apart --
+			// the FieldDesc beside it says which kind it came from.
+			case FieldType::Entity: return (uint64_t)*(EntityRef*)value;
 		}
 
 		return 0;
@@ -140,6 +145,7 @@ namespace RageV
 			case FieldType::Vec4:   *(Vec4*)value = std::get<Vec4>(source); break;
 			case FieldType::String: *(std::string*)value = std::get<std::string>(source); break;
 			case FieldType::Asset:  *(AssetHandle*)value = AssetHandle(std::get<uint64_t>(source)); break;
+			case FieldType::Entity: *(EntityRef*)value = EntityRef(UUID(std::get<uint64_t>(source))); break;
 		}
 	}
 

@@ -92,6 +92,23 @@ namespace RageV
 		void StepManagedScripts(Timestep dt);
 		void ReleaseManagedScripts();
 
+		// Calls a method by name on whichever scripts an entity carries.
+		//
+		// **Both languages, both delivered** -- the same rule DeliverContact
+		// follows, and for the same reason: an entity may hold a C++ script and
+		// a C# one, and a call addressed to the entity belongs to both.
+		//
+		// The name comes from data (a button's OnClick binding), so failing to
+		// resolve it is an ordinary outcome rather than a bug here. It answers
+		// false and says nothing; the caller knows what the binding was and is
+		// the only one able to write a message worth reading.
+		bool InvokeScriptMethod(Entity entity, const std::string& method);
+
+		// The bound half of a UI click. Runs on the fixed step, after the
+		// script pass -- instances are created there, and a handler on an
+		// entity spawned this same step has to exist before it can be called.
+		void DispatchUIClicks();
+
 		// The per-frame script pass, both languages. Returns whether it stepped
 		// anything, so a scene with no scripts in it does not pay for the
 		// second hierarchy walk a script that moved something needs.

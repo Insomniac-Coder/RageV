@@ -564,6 +564,61 @@ Hit-test the topmost rect under the pointer, front to back, and then **say so**.
 that fires a weapon when you press the pause button. The action map stays what
 it is for gameplay; this sits in front of it.
 
+### A click reaches game code two ways, and both are wanted
+
+*Decided 2026-08-12, reversing an earlier call to ship only the first.*
+
+**Polling** — a script asks its own button `WasButtonClicked()`. One `if`, no
+machinery, and the natural shape for a manager reading five buttons in one
+place.
+
+**Binding** — the button stores a target entity and a method name, and the
+engine calls it. The Unity shape, and the one somebody arriving at this engine
+looks for.
+
+The first draft shipped only polling, on the argument that the second needed
+method reflection C++ does not have and would introduce a name that no compiler
+checks. Both halves of that are true and neither is a reason to skip it: the
+registration is six lines of template, and the unchecked name is a *reporting*
+problem, not a correctness one.
+
+**So the trap is answered rather than avoided.** A binding that resolves to
+nothing warns on **every click** — naming the button, the target and the method.
+Once-per-button reads better and is worse: clicks two through ten then look
+exactly like the click never registered, which is the harder bug to report.
+
+Three things follow that are worth stating because they are not obvious:
+
+- **`EntityRef` is a struct wrapping a UUID, not an alias for one.** Reflection
+  deduces a field's kind from its member type, and `AssetHandle` is *already*
+  `using AssetHandle = UUID` — so an alias would be indistinguishable from an
+  asset, and every entity slot would come up with the content browser's drop
+  target instead of the hierarchy's.
+- **The languages are asymmetric here, and it cannot be helped.** C# finds
+  bindable methods by reflection, so writing the method is the whole job; C++
+  has none, so `ScriptRegistry::Method<&C::M>("Name")` has to name it from
+  outside the class, exactly as `Field<>` does. Both guides say so rather than
+  leaving somebody to discover it when their C++ handler is missing from the
+  dropdown.
+- **`void()` only.** Arguments would need the scene file to store them and the
+  inspector to edit them, which is a small expression language nobody asked for;
+  a return value would have nowhere to go. Enforced by having no other template
+  specialisation to match, so a wrong signature fails at the registration line
+  naming the method — rather than at runtime, as a button that does nothing.
+
+**What the existing event system contributes: nothing, and that is not a
+missed reuse.** `Events/Event.h` is the Hazel-lineage platform dispatcher.
+`EventDispatcher` holds one `Event&` and type-switches on it — there is no
+subscriber list to join — its `EventType` is a closed window/key/mouse enum, its
+events are pumped outside the fixed step, and `Event` is an `RV_API` C++ class
+that **no C# script can subscribe to**, which fails half the requirement before
+any of the rest matters.
+
+The real precedent was elsewhere: **`Scene::DeliverContact`**, which already
+takes an engine-detected occurrence, finds the script instance on an entity, and
+calls into it in both languages. `Scene::InvokeScriptMethod` is that shape with
+a named method instead of a compile-time-known one.
+
 **Built, and three things were decided while building it.**
 
 **What blocks the pointer defaults to nothing.** Unity makes every graphic a

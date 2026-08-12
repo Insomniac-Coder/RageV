@@ -4,6 +4,7 @@
 #include <type_traits>
 #include "RageV/Math/Math.h"
 #include "RageV/Asset/Asset.h"
+#include "RageV/Scene/EntityRef.h"
 #include "yaml-cpp/yaml.h"
 
 namespace RageV
@@ -25,7 +26,7 @@ namespace RageV
 
 	enum class FieldType
 	{
-		Bool, Int, Float, Vec2, Vec3, Vec4, String, Enum, Asset
+		Bool, Int, Float, Vec2, Vec3, Vec4, String, Enum, Asset, Entity
 	};
 
 	// Decides whether a field applies in the component's current state.
@@ -58,6 +59,20 @@ namespace RageV
 		// drop it from disk, or toggling a light's type would lose its cone.
 		FieldVisibility VisibleIf = nullptr;
 
+		// Marks a String field as naming a *method*, on the entity referenced by
+		// the sibling Entity field with this key.
+		//
+		// The inspector then offers a dropdown of what that entity's script
+		// actually declares instead of a text box, which is the difference
+		// between a binding you pick and a binding you spell correctly. Null
+		// for every other string.
+		//
+		// A sibling *key* rather than a pointer or an index, because a
+		// FieldDesc is built one at a time and cannot refer to a neighbour that
+		// may not exist yet -- and because the key is the stable name the rest
+		// of this file is already built on.
+		const char* MethodsOn = nullptr;
+
 		// Overrides the label derived from the field's key.
 		//
 		// Derivation handles almost everything, but it can only work from the
@@ -74,6 +89,14 @@ namespace RageV
 	inline FieldHint Named(const char* label, FieldHint hint = {})
 	{
 		hint.Label = label;
+		return hint;
+	}
+
+	// The same shape, for a string field that names a method on the entity a
+	// sibling field points at: BindsMethod("OnClickTarget", ...)
+	inline FieldHint BindsMethod(const char* targetField, FieldHint hint = {})
+	{
+		hint.MethodsOn = targetField;
 		return hint;
 	}
 
@@ -150,7 +173,13 @@ namespace RageV
 		template<typename T>
 		constexpr FieldType TypeOf()
 		{
+			// EntityRef before AssetHandle would be equivalent -- they are
+			// distinct types -- but the order is kept alphabetically unhelpful
+			// and structurally deliberate: AssetHandle *is* UUID, so anything
+			// that becomes an alias of UUID later lands in the Asset arm by
+			// accident. EntityRef is a struct precisely so it cannot.
 			if constexpr (std::is_same_v<T, AssetHandle>)      return FieldType::Asset;
+			else if constexpr (std::is_same_v<T, EntityRef>)   return FieldType::Entity;
 			else if constexpr (std::is_same_v<T, bool>)        return FieldType::Bool;
 			else if constexpr (std::is_enum_v<T>)
 			{

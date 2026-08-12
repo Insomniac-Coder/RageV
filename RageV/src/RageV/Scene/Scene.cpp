@@ -804,6 +804,11 @@ namespace RageV
 
 		StepManagedScripts(dt);
 
+		// After both languages' OnTick, so a handler runs against a world the
+		// step has already advanced -- and after creation, so a button bound to
+		// something spawned this same step finds it.
+		DispatchUIClicks();
+
 		// Applied once the pass is over, so a script can destroy anything --
 		// including itself -- without deleting the object it is executing in.
 		FlushDestroyQueue();
@@ -831,6 +836,108 @@ namespace RageV
 		// The same contract InputMap::EndFixedStep enforces for action edges:
 		// one press, one step.
 		UI::EndFixedStep(*this);
+	}
+
+	// Every button clicked this step calls what it was bound to.
+	//
+	// **A binding that resolves to nothing complains, every time it is
+	// clicked.** The first draft of this warned once per button, which reads
+	// well and is wrong in use: clicks two through ten then look exactly like
+	// the click never registered, which is the harder bug to report. A click is
+	// a deliberate act, so a line per deliberate act is proportionate -- and it
+	// is the only thing standing between a renamed method and a button that
+	// silently does nothing, because a method name in a scene file has no
+	// compiler behind it.
+	void Scene::DispatchUIClicks()
+	{
+		// Collected before any of them runs. A handler may spawn an entity,
+		// destroy one, or add a component -- each of which restructures the
+		// pool a view is iterating, which is the same reason the script pass
+		// collects its handles first.
+		std::vector<entt::entity> clicked;
+		m_Registry.view<UIButtonComponent>().each(
+			[&](auto handle, UIButtonComponent& button)
+			{
+				if (button.Clicked && !button.OnClickMethod.empty())
+					clicked.push_back(handle);
+			});
+
+		for (entt::entity handle : clicked)
+		{
+			// May have been destroyed by an earlier handler in this same pass.
+			auto* button = m_Registry.try_get<UIButtonComponent>(handle);
+			if (!button)
+				continue;
+
+			// Copies, not references: invoking may move the component's
+			// storage, and both of these are read after that call.
+			const std::string method = button->OnClickMethod;
+			const EntityRef targetRef = button->OnClickTarget;
+
+			Entity self{ handle, this };
+			const std::string name = self.GetName();
+
+			// An empty target means this entity -- the script-on-the-button
+			// case, which is most of them.
+			Entity target = targetRef.IsValid() ? GetEntityByUUID(targetRef.Value) : self;
+
+			if (!target)
+			{
+				RV_CORE_WARN("UI button '{0}': OnClick target entity {1} is not in the "
+							 "scene, so '{2}' was not called. It was probably deleted.",
+							 name, (uint64_t)targetRef, method);
+				continue;
+			}
+
+			if (!InvokeScriptMethod(target, method))
+			{
+				RV_CORE_WARN("UI button '{0}': nothing on '{1}' answers to '{2}'. A C++ "
+							 "script must register the method with .Method<>(); a C# one "
+							 "needs it public, with no arguments, returning void.",
+							 name, target.GetName(), method);
+			}
+		}
+	}
+
+	bool Scene::InvokeScriptMethod(Entity entity, const std::string& method)
+	{
+		if (!entity || method.empty())
+			return false;
+
+		bool invoked = false;
+
+		// Native first, then managed -- the defined order the step already runs
+		// them in, so a handler present in both languages behaves the same way
+		// a contact delivered to both does.
+		if (auto* script = m_Registry.try_get<NativeScriptComponent>(entity);
+			script && script->Instance)
+		{
+			for (const ScriptMethod& candidate : ScriptRegistry::MethodsOf(script->ActiveScript))
+			{
+				if (candidate.Name == method)
+				{
+					candidate.Invoke(script->Instance);
+					invoked = true;
+					break;
+				}
+			}
+		}
+
+		// Re-fetched rather than held: the native handler above is entitled to
+		// destroy things, and one of the things it may destroy is this entity.
+		// The managed component's storage would have moved underneath a
+		// pointer taken before the call.
+		if (!m_Registry.valid(entity))
+			return invoked;
+
+		if (auto* managed = m_Registry.try_get<ManagedScriptComponent>(entity);
+			managed && managed->Handle != 0 && Managed::Interop::IsReady())
+		{
+			if (Managed::Interop::Managed().InvokeMethod(managed->Handle, method.c_str()) != 0)
+				invoked = true;
+		}
+
+		return invoked;
 	}
 
 	void Scene::DispatchContactEvents()

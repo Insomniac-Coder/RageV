@@ -671,6 +671,13 @@ namespace RageV::Managed
 					// internal names, and a script holding one could do
 					// nothing honest with it.
 					return Assets::Registry::GetMetadata(*(AssetHandle*)value).Path;
+				case FieldType::Entity:
+					// The UUID as a number, unlike an asset, because this one
+					// *is* honest across the boundary: a managed Entity is a
+					// UUID, so a script can take this text, construct an Entity
+					// from it and use it. A name would be the ambiguous choice
+					// here -- two entities may share one.
+					return std::to_string((uint64_t)*(EntityRef*)value);
 			}
 			return {};
 		}
@@ -700,6 +707,23 @@ namespace RageV::Managed
 					if (!handle.IsValid())
 						return false;   // an unknown path must not null a valid reference
 					*(AssetHandle*)value = handle;
+					return true;
+				}
+				case FieldType::Entity:
+				{
+					// Not validated against the scene, deliberately, and this
+					// is the one place it differs from Asset above. A script
+					// may legitimately point a reference at something it is
+					// about to spawn, and a UUID that names nothing *yet* is
+					// the same shape as one whose target was destroyed -- which
+					// every reader already has to handle. Refusing it here
+					// would forbid the first and not prevent the second.
+					std::istringstream stream(text);
+					uint64_t id = 0;
+					if (!(stream >> id))
+						return false;
+
+					*(EntityRef*)value = EntityRef(UUID(id));
 					return true;
 				}
 			}
@@ -881,6 +905,8 @@ namespace RageV::Managed
 		s_Managed.LiveCount     = (decltype(s_Managed.LiveCount))bind("LiveCount");
 		s_Managed.LoadAssembly  = (decltype(s_Managed.LoadAssembly))bind("LoadAssembly");
 		s_Managed.ListScriptTypes = (decltype(s_Managed.ListScriptTypes))bind("ListScriptTypes");
+		s_Managed.ListMethods   = (decltype(s_Managed.ListMethods))bind("ListMethods");
+		s_Managed.InvokeMethod  = (decltype(s_Managed.InvokeMethod))bind("InvokeMethod");
 
 		// A different managed type, so a different assembly-qualified name.
 		const auto bindFields = [&assembly](const char* method) -> void*

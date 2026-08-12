@@ -482,7 +482,67 @@ namespace
 		return changed;
 	}
 
-	bool DrawField(const FieldDesc& field, void* component)
+	// Every method an entity's scripts declare, in both languages, merged.
+	//
+	// Answered from the script *names* rather than from instances, because this
+	// runs while the scene is stopped -- which is when somebody is authoring a
+	// button, and when nothing has been instantiated anywhere.
+	std::vector<std::string> BindableMethods(Entity entity)
+	{
+		std::vector<std::string> names;
+		if (!entity)
+			return names;
+
+		if (entity.HasComponent<NativeScriptComponent>())
+		{
+			const std::string& script = entity.GetComponent<NativeScriptComponent>().ScriptName;
+			for (const ScriptMethod& method : ScriptRegistry::MethodsOf(script))
+				names.push_back(method.Name);
+		}
+
+		if (entity.HasComponent<ManagedScriptComponent>() && Managed::Interop::IsReady()
+			&& Managed::Interop::Managed().ListMethods)
+		{
+			const std::string& script = entity.GetComponent<ManagedScriptComponent>().ScriptName;
+
+			// Asked for the length first, as every other buffer call here
+			// does: a script with many methods must not come back clipped.
+			const int32_t needed =
+				Managed::Interop::Managed().ListMethods(script.c_str(), nullptr, 0);
+
+			if (needed > 0)
+			{
+				std::string listing((size_t)needed + 1, '\0');
+				Managed::Interop::Managed().ListMethods(script.c_str(), listing.data(),
+														(int32_t)listing.size());
+
+				std::stringstream stream(listing.c_str());
+				std::string line;
+				while (std::getline(stream, line))
+				{
+					if (!line.empty())
+						names.push_back(line);
+				}
+			}
+		}
+
+		std::sort(names.begin(), names.end());
+		names.erase(std::unique(names.begin(), names.end()), names.end());
+		return names;
+	}
+
+	// Takes the scene because one field type needs it: an entity reference is
+	// stored as a UUID and has to be shown as a *name*, which only the scene
+	// can answer -- and has to keep saying something useful when the answer is
+	// "that entity is gone".
+	//
+	// Takes the ComponentDesc and the owning entity for one *hint*: a
+	// method-name field says which sibling field holds the entity whose methods
+	// to offer, so resolving it means reading the component's other fields --
+	// and an unset one falls back to the entity the component is on, which a
+	// type-erased `void*` into a pool cannot answer for itself.
+	bool DrawField(const FieldDesc& field, void* component, Scene& scene,
+				   const ComponentDesc& desc, Entity owner)
 	{
 		void* value = field.Access(component);
 		const FieldHint& hint = field.Hint;
@@ -598,6 +658,86 @@ namespace
 				EndField();
 				break;
 			}
+			case FieldType::Entity:
+			{
+				BeginField(field.DisplayName.c_str(), hint.Tooltip);
+
+				EntityRef& reference = *(EntityRef*)value;
+				Entity target = scene.GetEntityByUUID(reference.Value);
+
+				// Three states, and the third is the one worth drawing
+				// carefully. An empty slot is ordinary. A resolved one shows a
+				// name. A slot that *names* something the scene does not have
+				// is a broken reference -- deleting the target leaves exactly
+				// this -- and if it drew as "None" nobody would ever find out
+				// why the button stopped working.
+				const bool missing = reference.IsValid() && !target;
+
+				std::string label;
+				if (!reference.IsValid())
+					label = "None";
+				else if (target)
+					label = target.GetName();
+				else
+					label = "Missing entity";
+
+				if (missing)
+					ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Danger);
+
+				ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f));
+
+				if (missing)
+					ImGui::PopStyleColor();
+
+				// The hierarchy is already a drag source and has been since
+				// reparenting was built, so this costs one target and no new
+				// payload type.
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
+					{
+						Entity dropped{ *(const entt::entity*)payload->Data, &scene };
+						if (dropped)
+						{
+							reference = EntityRef(dropped.GetUUID());
+							changed = true;
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
+
+				// Clearing needs to be possible and must not be the same
+				// gesture as opening something, so it is the context menu
+				// rather than a click.
+				if (ImGui::BeginPopupContextItem("##entity-ref"))
+				{
+					if (ImGui::MenuItem("Clear", nullptr, false, reference.IsValid()))
+					{
+						reference = EntityRef();
+						changed = true;
+					}
+					ImGui::EndPopup();
+				}
+
+				if (ImGui::IsItemHovered())
+				{
+					if (missing)
+					{
+						ImGui::SetTooltip("This slot names entity %llu, which is not in the "
+										  "scene.\nIt was probably deleted. Drag a "
+										  "replacement in, or right-click to clear.",
+										  (unsigned long long)(uint64_t)reference);
+					}
+					else
+					{
+						ImGui::SetTooltip("Drag an entity from the Hierarchy to set this.\n"
+										  "Right-click to clear.");
+					}
+				}
+
+				EndField();
+				break;
+			}
 			case FieldType::Asset:
 			{
 				BeginField(field.DisplayName.c_str(), hint.Tooltip);
@@ -692,6 +832,77 @@ namespace
 							}
 						}
 						ImGui::EndCombo();
+					}
+
+					EndField();
+					break;
+				}
+
+				// A method binding: offered from what the target's script
+				// actually declares, for the same reason scripts are picked
+				// rather than typed. This is the field the whole "a name in a
+				// scene file has no compiler behind it" problem lives in, and a
+				// dropdown is what keeps a *new* binding from being wrong --
+				// nothing here can stop an *old* one going stale when the
+				// method is renamed later, which is why the click reports it.
+				if (hint.MethodsOn)
+				{
+					std::string& current = *(std::string*)value;
+
+					// The sibling that says whose methods to offer, and the
+					// same empty-means-this-entity rule the dispatch uses.
+					Entity target = owner;
+					for (const FieldDesc& sibling : desc.Fields)
+					{
+						if (sibling.Name && std::string(sibling.Name) == hint.MethodsOn
+							&& sibling.Type == FieldType::Entity)
+						{
+							const EntityRef& reference = *(EntityRef*)sibling.Access(component);
+							if (reference.IsValid())
+								target = scene.GetEntityByUUID(reference.Value);
+							break;
+						}
+					}
+
+					const std::vector<std::string> methods = BindableMethods(target);
+
+					if (ImGui::BeginCombo("##value", current.empty() ? "(none)" : current.c_str()))
+					{
+						if (ImGui::Selectable("(none)", current.empty()))
+						{
+							current.clear();
+							changed = true;
+						}
+
+						for (const std::string& name : methods)
+						{
+							if (ImGui::Selectable(name.c_str(), name == current))
+							{
+								current = name;
+								changed = true;
+							}
+						}
+
+						// A binding whose method the target no longer declares
+						// still has to be selectable, or opening the dropdown
+						// to look would silently be a way to lose it.
+						if (!current.empty()
+							&& std::find(methods.begin(), methods.end(), current) == methods.end())
+						{
+							ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Danger);
+							ImGui::Selectable((current + "  (not found)").c_str(), true);
+							ImGui::PopStyleColor();
+						}
+
+						ImGui::EndCombo();
+					}
+
+					if (ImGui::IsItemHovered() && methods.empty())
+					{
+						ImGui::SetTooltip(
+							"That entity's script declares no bindable methods.\n\n"
+							"C++: register one with .Method<&Type::Name>(\"Name\").\n"
+							"C#: make it public, no arguments, returning void.");
 					}
 
 					EndField();
@@ -865,7 +1076,7 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 				// draw call, so this is the value from before the edit.
 				const FieldValue before = ReadFieldValue(field, component);
 
-				if (DrawField(field, component))
+				if (DrawField(field, component, *m_SceneRef, desc, entity))
 				{
 					changed = true;
 					if (!m_PendingEdit.Active)
