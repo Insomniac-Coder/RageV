@@ -926,37 +926,26 @@ namespace
 		return changed;
 	}
 
-	// Materials are the one thing a field list cannot describe: the component
-	// holds a Ref, not a value. Phase 1 makes them assets and this goes away.
-	void DrawMaterial(MeshComponent& mesh)
+	// What is left of the hand-written material section.
+	//
+	// Everything it used to draw -- base colour, metallic, roughness, occlusion,
+	// emissive -- is now a reflected field on MeshComponent and comes out of the
+	// generic field loop, tooltips and sliders included. Its own comment said
+	// "phase 1 makes them assets and this goes away", and this is that.
+	//
+	// The advice does not survive reflection, so it stays here: a warning that
+	// looks at a value rather than editing one.
+	void DrawMaterialAdvice(MeshComponent& mesh)
 	{
-		if (!mesh.Material)
-		{
-			ImGui::TextDisabled("Using the shared default material.");
-			if (ImGui::Button("Create Material", ImVec2(-1.0f, 0.0f)) && Renderer::HasDevice())
-				mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
+		// Only when this entity is actually deciding its own metallic value. If
+		// the number came from the material asset, the place to fix it is the
+		// asset, and the warning would follow every entity that uses it around.
+		if (!mesh.OverrideMetallic)
 			return;
-		}
-
-		auto& params = mesh.Material->GetParams();
-		bool changed = false;
-
-		ImGui::SeparatorText("Material");
-		changed |= UI::RowColor4("Base Colour", Math::ValuePtr(params.BaseColor));
-		changed |= UI::RowSliderFloat("Metallic", &params.Metallic, 0.0f, 1.0f, "%.2f",
-			"Metal or not. Real materials are one or the other; the values in "
-			"between are for a surface that is partly covered, like dusty chrome.");
-		changed |= UI::RowSliderFloat("Roughness", &params.Roughness, 0.0f, 1.0f, "%.2f",
-			"How scattered the reflection is. 0 is a mirror, 1 is chalk.");
-		changed |= UI::RowSliderFloat("Occlusion", &params.Occlusion, 0.0f, 1.0f, "%.2f",
-			"How much ambient light reaches the surface. Lower is more shadowed.");
-		changed |= UI::RowColor3("Emissive", Math::ValuePtr(params.EmissiveColor),
-			"Light the surface gives off. It does not light anything else -- there "
-			"is no emissive global illumination -- but it does feed the bloom pass.");
 
 		// Metals have no diffuse response, so a half-metallic surface is not
 		// physical -- it is almost always an authoring mistake.
-		if (params.Metallic > 0.05f && params.Metallic < 0.95f)
+		if (mesh.Metallic > 0.05f && mesh.Metallic < 0.95f)
 		{
 			ImGui::TextColored(EditorTheme::Colors().Warning, "Partially metallic");
 			if (ImGui::IsItemHovered())
@@ -964,9 +953,6 @@ namespace
 								  "values only make sense where a texture blends between "
 								  "the two across a surface.");
 		}
-
-		if (changed)
-			mesh.Material->Invalidate();
 	}
 }
 
@@ -1091,7 +1077,7 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 			}
 
 			if (std::string(desc.Name) == "MeshComponent")
-				DrawMaterial(*static_cast<MeshComponent*>(component));
+				DrawMaterialAdvice(*static_cast<MeshComponent*>(component));
 
 			if (std::string(desc.Name) == "ManagedScriptComponent")
 				DrawManagedScript(*static_cast<ManagedScriptComponent*>(component));

@@ -215,6 +215,35 @@ namespace
 			return static_cast<const AudioSourceComponent*>(component)->Spatial;
 		}
 
+		// One per override switch. Free functions rather than one parameterised
+		// helper because FieldVisibility is a plain function pointer -- which
+		// is deliberate, since a FieldDesc is a static description and must not
+		// own state.
+		bool OverridesBaseColor(const void* component)
+		{
+			return static_cast<const MeshComponent*>(component)->OverrideBaseColor;
+		}
+
+		bool OverridesEmissive(const void* component)
+		{
+			return static_cast<const MeshComponent*>(component)->OverrideEmissive;
+		}
+
+		bool OverridesMetallic(const void* component)
+		{
+			return static_cast<const MeshComponent*>(component)->OverrideMetallic;
+		}
+
+		bool OverridesRoughness(const void* component)
+		{
+			return static_cast<const MeshComponent*>(component)->OverrideRoughness;
+		}
+
+		bool OverridesOcclusion(const void* component)
+		{
+			return static_cast<const MeshComponent*>(component)->OverrideOcclusion;
+		}
+
 		bool IsPerspective(const void* component)
 		{
 			return static_cast<const CameraComponent*>(component)->Camera.Projection
@@ -324,31 +353,58 @@ namespace
 			desc.Fields = {
 				Field<&MeshComponent::Mesh>("Mesh",
 					AssetRef(AssetType::Mesh, "A built-in primitive or an imported model.")),
+				Field<&MeshComponent::Material>("Material",
+					AssetRef(AssetType::Material,
+							 "Shared. The texture maps live here; leave it empty for the "
+							 "renderer's default.")),
+
+				// The scalars, each behind its own switch. Ordinary reflected
+				// fields now -- the hook that used to write this by hand is
+				// gone, and with it the reason texture maps could not be saved.
+				//
+				// A value row appears only when its switch is on. Visibility is
+				// ignored by the serializer on purpose, so turning an override
+				// off keeps the value it had rather than dropping it: switch it
+				// back on and the colour is still there.
+				// The switch carries the property's name and the value row is
+				// just "Value". "Override Base Colour" does not fit the label
+				// column at *any* UI scale -- it rendered as "Override Bas" --
+				// and a value row only ever appears directly beneath its own
+				// ticked switch, so there is nothing for the short name to be
+				// confused with.
+				Field<&MeshComponent::OverrideBaseColor>("OverrideBaseColor",
+					Named("Base Colour", FieldHint{ .Tooltip =
+						"Replace the material's base colour for this entity only." })),
+				Field<&MeshComponent::BaseColor>("BaseColor",
+					OnlyWhen(OverridesBaseColor, Named("Value", Color()))),
+
+				Field<&MeshComponent::OverrideEmissive>("OverrideEmissive",
+					Named("Emissive", FieldHint{ .Tooltip =
+						"Light the surface gives off. It does not light anything else -- "
+						"there is no emissive global illumination -- but it does feed bloom." })),
+				Field<&MeshComponent::EmissiveColor>("EmissiveColor",
+					OnlyWhen(OverridesEmissive, Named("Value", Color()))),
+
+				Field<&MeshComponent::OverrideMetallic>("OverrideMetallic",
+					Named("Metallic", FieldHint{ .Tooltip =
+						"Metal or not. Real materials are one or the other; the values in "
+						"between are for a surface that is partly covered, like dusty chrome." })),
+				Field<&MeshComponent::Metallic>("Metallic",
+					OnlyWhen(OverridesMetallic, Named("Value", Slider(0.0f, 1.0f)))),
+
+				Field<&MeshComponent::OverrideRoughness>("OverrideRoughness",
+					Named("Roughness", FieldHint{ .Tooltip =
+						"How scattered the reflection is. 0 is a mirror, 1 is chalk." })),
+				Field<&MeshComponent::Roughness>("Roughness",
+					OnlyWhen(OverridesRoughness, Named("Value", Slider(0.0f, 1.0f)))),
+
+				Field<&MeshComponent::OverrideOcclusion>("OverrideOcclusion",
+					Named("Occlusion", FieldHint{ .Tooltip =
+						"How much ambient light reaches the surface. Lower is more shadowed." })),
+				Field<&MeshComponent::Occlusion>("Occlusion",
+					OnlyWhen(OverridesOcclusion, Named("Value", Slider(0.0f, 1.0f)))),
 			};
 
-			// Materials are the one thing a field list cannot express yet: the
-			// component holds a Ref, not a value. They become real assets in
-			// phase 1 and this hook goes away with them.
-			desc.SerializeExtra = [](YAML::Emitter& emitter, void* component)
-			{
-				auto* mesh = static_cast<MeshComponent*>(component);
-				if (!mesh->Material)
-					return;
-
-				const auto& params = mesh->Material->GetParams();
-				emitter << YAML::Key << "Material";
-				emitter << YAML::BeginMap;
-				emitter << YAML::Key << "BaseColor" << YAML::Value << YAML::Flow
-						<< YAML::BeginSeq << params.BaseColor.r << params.BaseColor.g
-						<< params.BaseColor.b << params.BaseColor.a << YAML::EndSeq;
-				emitter << YAML::Key << "Emissive" << YAML::Value << YAML::Flow
-						<< YAML::BeginSeq << params.EmissiveColor.r << params.EmissiveColor.g
-						<< params.EmissiveColor.b << params.EmissiveColor.a << YAML::EndSeq;
-				emitter << YAML::Key << "Metallic" << YAML::Value << params.Metallic;
-				emitter << YAML::Key << "Roughness" << YAML::Value << params.Roughness;
-				emitter << YAML::Key << "Occlusion" << YAML::Value << params.Occlusion;
-				emitter << YAML::EndMap;
-			};
 			desc.DeserializeExtra = [](const YAML::Node& node, void* component)
 			{
 				auto* mesh = static_cast<MeshComponent*>(component);
@@ -363,13 +419,18 @@ namespace
 						mesh->Mesh = PrimitiveHandle(type);
 				}
 
-				auto material = node["Material"];
-				if (!material || !Renderer::HasDevice())
+				// Version 5 and earlier wrote the material inline, as a nested
+				// map of scalars -- and *only* scalars, because a Ref cannot be
+				// written to a file. Scalars are exactly what an override is,
+				// so an old material converts into overrides losslessly: the
+				// scene renders identically and nothing needs migrating.
+				//
+				// This reads it and nothing writes it. An old scene saved from
+				// the editor comes back out in the new shape.
+				const YAML::Node material = node["Material"];
+				if (!material || !material.IsMap())
 					return;
 
-				mesh->Material = std::make_shared<Material>(Renderer::GetDevice(), "Material");
-
-				auto& params = mesh->Material->GetParams();
 				auto readVec4 = [](const YAML::Node& n, Vec4 fallback)
 				{
 					if (!n || !n.IsSequence() || n.size() != 4)
@@ -378,13 +439,31 @@ namespace
 									 n[2].as<float>(), n[3].as<float>());
 				};
 
-				params.BaseColor = readVec4(material["BaseColor"], params.BaseColor);
-				params.EmissiveColor = readVec4(material["Emissive"], params.EmissiveColor);
-				if (material["Metallic"])  params.Metallic = material["Metallic"].as<float>();
-				if (material["Roughness"]) params.Roughness = material["Roughness"].as<float>();
-				if (material["Occlusion"]) params.Occlusion = material["Occlusion"].as<float>();
-
-				mesh->Material->Invalidate();
+				if (material["BaseColor"])
+				{
+					mesh->OverrideBaseColor = true;
+					mesh->BaseColor = readVec4(material["BaseColor"], mesh->BaseColor);
+				}
+				if (material["Emissive"])
+				{
+					mesh->OverrideEmissive = true;
+					mesh->EmissiveColor = readVec4(material["Emissive"], mesh->EmissiveColor);
+				}
+				if (material["Metallic"])
+				{
+					mesh->OverrideMetallic = true;
+					mesh->Metallic = material["Metallic"].as<float>();
+				}
+				if (material["Roughness"])
+				{
+					mesh->OverrideRoughness = true;
+					mesh->Roughness = material["Roughness"].as<float>();
+				}
+				if (material["Occlusion"])
+				{
+					mesh->OverrideOcclusion = true;
+					mesh->Occlusion = material["Occlusion"].as<float>();
+				}
 			};
 
 			Bind<MeshComponent>(desc);

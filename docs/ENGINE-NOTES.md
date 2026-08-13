@@ -1030,6 +1030,107 @@ are provably different.
 
 ---
 
+## 7f. Materials as assets (7.3), and the line that was already drawn
+
+A material is a `Ref<Material>` living inside `MeshComponent`, written into the
+scene file as a nested map of five scalars. Two consequences, and the second is
+the serious one.
+
+**Nothing can share a material.** Every entity deserialises its own `Material`
+object, so "make these forty crates the same" is forty inspectors.
+
+**And texture maps do not survive being saved.** `Material` has all five --
+base colour, normal, metallic-roughness, occlusion, emissive -- with `MapFlags`
+and the sampling code in `pbr_fragment.glsl`. `AssetManager::InstantiateModel`
+fills them from a glTF import, so an imported model looks right. Then
+`SerializeExtra` writes BaseColor, Emissive, Metallic, Roughness and Occlusion,
+and **nothing else**. Save the scene, reopen it, and the textures are gone.
+`NormalScale` goes with them. This is not a missing feature; it is a finished
+feature with no way to store it, which is worse, because it works exactly once.
+
+### Where to cut, which is not a new decision
+
+The tempting shape is "a material is an asset, full stop". It is wrong here, and
+the scene in the repository says why: `demo.rage` uses **four** colours across
+**ten distinct roughness values** -- a PBR roughness sweep, which is what a demo
+scene is for. Pure material assets turn that into thirteen `.rmat` files
+describing what a person would call "blue plastic, varying roughness".
+
+The right cut is already in the renderer, in `Material::GetBatchKey`:
+
+- **The descriptor set** holds the five maps and the sampler. Two materials with
+  the same key bind identically, so their objects can be one draw. *That* is
+  what has to be shared, and sharing it is the entire point of the feature.
+- **The instance stream** holds the scalars -- `BaseColor`, `EmissiveColor` and
+  `Surface` are already per instance in `InstanceData`, precisely so a thousand
+  cubes differing only in colour stay one draw.
+
+So: **the asset is the maps; the overrides are the scalars.** Per-entity scalar
+overrides are not a concession to convenience, they are free by construction --
+they ride in a stream that is per entity already and cannot split a batch. A
+design that made colour shared would be *more* work at runtime, not less.
+
+### What that buys for free
+
+Every legacy inline material is scalars and nothing else. Scalars are exactly
+what an override holds. So an old scene's inline block converts **losslessly**
+into per-entity overrides with no material handle at all -- no migration script,
+no `.rmat` files, no scene edits, and `demo.rage` renders identically before and
+after. Backward compatibility falls out of cutting in the right place rather
+than being bolted on beside it.
+
+### The pieces
+
+1. `.rmat`, YAML beside `.rcurve`, holding the scalars **and five texture
+   handles**. `MapFlags` is *derived* from which handles resolve and never
+   stored -- a stored copy can disagree with the maps, and the flags are what
+   the shader branches on.
+2. `MaterialSerializer`, and `AssetType::Material` wired to the extension. The
+   enum entry has existed since phase 1 with nothing producing one.
+3. `Assets::Manager::GetMaterial`, cached by handle like every other type,
+   resolving texture handles through `GetTexture`.
+4. `MeshComponent`: `AssetHandle Material` plus the overrides. The
+   `SerializeExtra`/`DeserializeExtra` hook goes away -- its own comment has
+   said "this hook goes away with them" since phase 1.
+5. Inspector: an asset slot, and an override row per scalar.
+6. **glTF import writes `.rmat` files.** This is the part that fixes the defect
+   rather than the inconvenience: an imported material becomes a real asset, so
+   its textures are still there next time the scene opens.
+
+### The bug this shipped with for an hour, and the trap behind it
+
+`MaterialDesc`'s five handles were left default-constructed, and **a
+default-constructed `UUID` is random, never zero** -- which is right for an
+identity and catastrophic for a *reference*. Every material claimed all five
+maps and wrote five invented handles to its file. It rendered perfectly, because
+an unresolvable handle clears the slot on load, so the only thing wrong was the
+data on disk -- until one of those random numbers happened to name a real asset.
+
+Every other asset field in `Components.h` spells `AssetHandle::Invalid()` out.
+The two new ones did not, and that is the whole bug. It is the same shape as
+`EntityRef` needing to be its own type rather than an alias for `UUID`: **a
+field whose zero value means "none" cannot use a type whose default is
+"something new".**
+
+What found it was reading the generated `.rmat`, not a test. The test that now
+holds it is a *negative* one -- `!desc.OcclusionMap.IsValid()`, for a model that
+has no occlusion map. Asserting what a thing does not have is the half of a
+contract that gets skipped, and it is the half that catches a wrong default.
+
+### What to verify, and the check that would fail
+
+Sharing is easy to check and easy to fake. The one that matters:
+**import a textured model, save the scene, reopen it, and compare the pixels.**
+That is the case that is broken today and the only one that proves the asset is
+carrying the maps rather than the import path being re-run.
+
+And a batching check, because this is where it would silently regress: two
+entities with the same material asset and *different* colour overrides must
+still be **one draw**. If overrides ever reach the descriptor set instead of the
+instance stream, that number doubles and nothing else changes.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

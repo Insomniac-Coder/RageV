@@ -65,8 +65,15 @@ namespace RageV
 		// because it lands in the instance stream: two objects that chose
 		// differently are still one instanced draw, and making it state would
 		// invite exactly the per-batch shape this replaced.
+		// `params` is the material's scalars with the entity's overrides already
+		// folded in. Passed rather than read from `material`, because the
+		// material is *shared* -- writing an override into it would change
+		// every other object using it, and reading from it would make overrides
+		// impossible. The scalars ride in the instance stream, so this costs a
+		// struct copy and no draw calls.
 		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
-							 const RHI::Ref<Material>& material, uint32_t probe);
+							 const RHI::Ref<Material>& material,
+							 const MaterialParams& params, uint32_t probe);
 
 		// A mesh a skeleton moves. `bones` is one matrix per bone, already
 		// composed with the inverse binds -- ComposeSkinning produces exactly
@@ -78,6 +85,7 @@ namespace RageV
 		// texture coordinates.
 		static void DrawSkinnedMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 									const RHI::Ref<Material>& material,
+									const MaterialParams& params,
 									const std::vector<Mat4>& bones, uint32_t probe);
 
 		// Shared by every mesh that has no material of its own.

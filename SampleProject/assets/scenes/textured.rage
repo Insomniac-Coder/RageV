@@ -1,0 +1,69 @@
+Scene: Textured material
+Version: 5
+Environment:
+  AmbientColor: [0.5, 0.55, 0.6]
+  AmbientIntensity: 0.25
+  Sky: 1
+  SkyHorizon: [0.55, 0.62, 0.7]
+  SkyZenith: [0.3, 0.42, 0.62]
+  SkyGround: [0.22, 0.2, 0.18]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 7720000000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 1.1, 3.4]
+      Rotation: [-0.28, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7720000000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 4, 2]
+      Rotation: [-0.9, 0.6, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.97, 0.92]
+      Intensity: 3.2
+      Range: 20
+      InnerCone: 12
+      OuterCone: 25
+      CastShadows: true
+  - EntityID: 7720000000000000003
+    TagComponent:
+      Tag: Textured cube
+    TransformComponent:
+      Position: [0, 0.5, 0]
+      Rotation: [0, 0.6, 0]
+      Scale: [1.4, 1.4, 1.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 17655083655937514610
+  - EntityID: 7720000000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, -0.35, 0]
+      Rotation: [0, 0, 0]
+      Scale: [12, 1, 12]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [0.42, 0.44, 0.46, 1]
+      OverrideRoughness: true
+      Roughness: 0.9

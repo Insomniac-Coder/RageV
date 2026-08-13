@@ -1257,7 +1257,8 @@ namespace RageV
 	}
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const Mat4& transform,
-							  const Ref<Material>& material, uint32_t probe)
+							  const Ref<Material>& material, const MaterialParams& params,
+							  uint32_t probe)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
@@ -1265,8 +1266,6 @@ namespace RageV
 		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
 		if (!effective)
 			return;
-
-		const MaterialParams& params = effective->GetParams();
 
 		PendingDraw draw;
 		draw.MeshKey = mesh.get();
@@ -1293,7 +1292,7 @@ namespace RageV
 	}
 
 	void Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const Mat4& transform,
-									 const Ref<Material>& material,
+									 const Ref<Material>& material, const MaterialParams& params,
 									 const std::vector<Mat4>& bones, uint32_t probe)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
@@ -1314,8 +1313,6 @@ namespace RageV
 		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
 		if (!effective)
 			return;
-
-		const MaterialParams& params = effective->GetParams();
 
 		PendingDraw draw;
 		draw.MeshKey = mesh.get();

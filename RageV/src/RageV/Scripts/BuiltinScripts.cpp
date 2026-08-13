@@ -114,19 +114,29 @@ namespace RageV
 	public:
 		void OnCreate() override
 		{
-			// A null material means the renderer's shared default, which every
-			// other object without one is also drawn with. Tinting that would
-			// light up the whole scene on one collision.
-			if (!HasComponent<MeshComponent>() || !GetComponent<MeshComponent>().Material)
+			if (!HasComponent<MeshComponent>())
 				return;
 
-			m_Material = GetComponent<MeshComponent>().Material;
-			m_Rest = m_Material->GetParams().EmissiveColor;
+			// The entity's own emissive override, not the material's.
+			//
+			// This used to reach into the Material object and write its
+			// parameter block. That was already a shared resource in principle
+			// and is one in fact now: two crates using one `.rmat` would both
+			// light up when either was hit, and the flash would survive Stop
+			// because a material is not scene data and a snapshot does not
+			// restore it.
+			//
+			// An override is per entity, is scene data, and is restored by the
+			// snapshot like anything else on the component -- so OnDestroy no
+			// longer has to put anything back by hand.
+			auto& mesh = GetComponent<MeshComponent>();
+			m_Rest = mesh.OverrideEmissive ? mesh.EmissiveColor : Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+			m_Active = true;
 		}
 
 		void OnCollisionEnter(const Collision& collision) override
 		{
-			if (!m_Material)
+			if (!m_Active)
 				return;
 
 			// Saturating rather than linear: a fall from any real height lands
@@ -141,32 +151,20 @@ namespace RageV
 		// a high refresh rate.
 		void OnFrame(Timestep dt) override
 		{
-			if (!m_Material || m_Flash <= 0.0f)
+			if (!m_Active || m_Flash <= 0.0f || !HasComponent<MeshComponent>())
 				return;
 
 			m_Flash = Math::Max(m_Flash - dt.GetSeconds() / m_FadeSeconds, 0.0f);
 
-			auto& params = m_Material->GetParams();
-			params.EmissiveColor = m_Rest + Vec4(m_Colour * m_Flash, 0.0f);
-			// The parameter block is a GPU buffer; without this the write above
-			// never reaches it.
-			m_Material->Invalidate();
-		}
-
-		void OnDestroy() override
-		{
-			// Stop puts the scene back from a snapshot, but a material is a
-			// shared resource rather than scene data, so a flash left mid-fade
-			// would survive it.
-			if (!m_Material)
-				return;
-
-			m_Material->GetParams().EmissiveColor = m_Rest;
-			m_Material->Invalidate();
+			auto& mesh = GetComponent<MeshComponent>();
+			mesh.OverrideEmissive = true;
+			mesh.EmissiveColor = m_Rest + Vec4(m_Colour * m_Flash, 0.0f);
+			// No Invalidate: the scalars travel in the instance stream and are
+			// rebuilt every frame, so there is no GPU buffer to mark dirty.
 		}
 
 	private:
-		RHI::Ref<Material> m_Material;
+		bool m_Active = false;
 		Vec4 m_Rest{ 0.0f };
 		Vec3 m_Colour{ 1.0f, 0.55f, 0.25f };
 		float m_Flash = 0.0f;
@@ -229,21 +227,23 @@ namespace RageV
 			if (!collision.Other || !collision.Other.HasComponent<MeshComponent>())
 				return;
 
-			const RHI::Ref<Material> material = collision.Other.GetComponent<MeshComponent>().Material;
-			if (!material)
-				return;
-
-			// Keyed by entity, not by material: two entities may share one, and
-			// the second to leave would otherwise restore a colour that the
-			// first had already put back.
+			// Keyed by entity, and now tinting per entity too.
+			//
+			// The comment below used to explain why the *bookkeeping* was keyed
+			// by entity while the tint was written into a shared Material: two
+			// entities could share one, and the second to leave would restore a
+			// colour the first had already put back. The override removes the
+			// problem rather than working around it -- each entity carries its
+			// own base colour, so nothing is shared to get wrong.
 			const UUID id = collision.Other.GetUUID();
 			if (m_Occupants.find(id) != m_Occupants.end())
 				return;
 
-			m_Occupants[id] = { material, material->GetParams().BaseColor };
+			auto& mesh = collision.Other.GetComponent<MeshComponent>();
+			m_Occupants[id] = { mesh.OverrideBaseColor, mesh.BaseColor };
 
-			material->GetParams().BaseColor = m_Tint;
-			material->Invalidate();
+			mesh.OverrideBaseColor = true;
+			mesh.BaseColor = m_Tint;
 		}
 
 		void OnTriggerExit(const Collision& collision) override
@@ -267,7 +267,11 @@ namespace RageV
 	private:
 		struct Tinted
 		{
-			RHI::Ref<Material> Material;
+			// Whether the entity had a base-colour override *before* this zone
+			// touched it. Restoring has to put the switch back as well as the
+			// value, or an entity that had no override keeps one forever --
+			// with the colour it happened to be showing when it walked in.
+			bool HadOverride = false;
 			Vec4 Original{ 1.0f };
 		};
 
@@ -277,11 +281,15 @@ namespace RageV
 			if (it == m_Occupants.end())
 				return;
 
-			if (it->second.Material)
+			// The entity may be gone -- an exit can be *because* it was
+			// destroyed -- so this is a lookup rather than a stored reference.
+			if (Entity entity = FindEntityByUUID(id); entity && entity.HasComponent<MeshComponent>())
 			{
-				it->second.Material->GetParams().BaseColor = it->second.Original;
-				it->second.Material->Invalidate();
+				auto& mesh = entity.GetComponent<MeshComponent>();
+				mesh.OverrideBaseColor = it->second.HadOverride;
+				mesh.BaseColor = it->second.Original;
 			}
+
 			m_Occupants.erase(it);
 		}
 

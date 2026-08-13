@@ -180,13 +180,72 @@ namespace RageV
 	struct MeshComponent
 	{
 		AssetHandle Mesh = PrimitiveHandle(PrimitiveType::Cube);
+
 		// Null means the renderer's shared default material.
-		RHI::Ref<Material> Material;
+		//
+		// A handle rather than a `Ref<Material>`, which is what this was: a Ref
+		// is per entity by construction, so nothing could share a material and
+		// nothing could store the texture maps -- a scene file has no way to
+		// write a pointer, so an imported model's maps survived until the first
+		// save and no longer.
+		//
+		// Invalid() spelled out, like every other asset field here, because a
+		// default-constructed UUID is *random*. Left implicit, every mesh
+		// claimed a material that had never existed.
+		AssetHandle Material = AssetHandle::Invalid();
+
+		// Per-entity scalar overrides, applied on top of the material's own.
+		//
+		// These are free, and that is why they exist rather than forcing a
+		// separate asset per colour. `BaseColor`, `EmissiveColor` and `Surface`
+		// already travel per instance in the renderer's instance stream --
+		// deliberately, so a thousand cubes differing only in colour stay one
+		// draw. Overriding them costs nothing and **cannot split a batch**,
+		// because a batch is keyed on the descriptor set, and the descriptor
+		// set holds the maps and the sampler and none of these.
+		//
+		// The line is exactly the one `Material::GetBatchKey` already draws:
+		// the asset is the maps, the override is the scalars.
+		//
+		// Each has its own flag rather than a sentinel value, because every
+		// one of these has a legitimate zero -- a black emissive, a roughness
+		// of 0, a fully transparent base colour -- and a sentinel would make
+		// one of them unsayable.
+		bool OverrideBaseColor = false;
+		Vec4 BaseColor{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+		bool OverrideEmissive = false;
+		Vec4 EmissiveColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+
+		bool OverrideMetallic = false;
+		float Metallic = 0.0f;
+
+		bool OverrideRoughness = false;
+		float Roughness = 0.5f;
+
+		bool OverrideOcclusion = false;
+		float Occlusion = 1.0f;
 
 		MeshComponent() = default;
 		MeshComponent(const MeshComponent&) = default;
 		MeshComponent(PrimitiveType primitive) : Mesh(PrimitiveHandle(primitive)) {}
 		MeshComponent(AssetHandle mesh) : Mesh(mesh) {}
+
+		// The material's parameters with this entity's overrides folded in.
+		//
+		// Here rather than in the renderer so the scene, the tests and any
+		// future tool all get the same answer, and so there is one place the
+		// precedence is stated: the override wins where it is set.
+		MaterialParams ResolveParams(const MaterialParams& base) const
+		{
+			MaterialParams params = base;
+			if (OverrideBaseColor) params.BaseColor = BaseColor;
+			if (OverrideEmissive)  params.EmissiveColor = EmissiveColor;
+			if (OverrideMetallic)  params.Metallic = Metallic;
+			if (OverrideRoughness) params.Roughness = Roughness;
+			if (OverrideOcclusion) params.Occlusion = Occlusion;
+			return params;
+		}
 	};
 
 	// Plays a clip from the model a MeshComponent points at.

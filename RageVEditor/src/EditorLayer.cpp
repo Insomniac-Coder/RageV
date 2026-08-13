@@ -194,10 +194,13 @@ Entity EditorLayer::CreateEmpty(const std::string& name)
 Entity EditorLayer::CreateMesh(PrimitiveType primitive)
 {
 	Entity entity = CreateEmpty(PrimitiveTypeName(primitive));
-	auto& mesh = entity.AddComponent<MeshComponent>(primitive);
-	// Its own material rather than the shared default, so editing one object's
-	// surface does not change every other object using the default.
-	mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), PrimitiveTypeName(primitive));
+	entity.AddComponent<MeshComponent>(primitive);
+	// No material asset, and no private Material object either.
+	//
+	// This used to build one per primitive so that editing an object's surface
+	// did not change every other object using the default. Overrides give that
+	// for free: the scalars are per entity already, so a new cube starts on the
+	// shared default and can be recoloured without a material of its own.
 	return entity;
 }
 
@@ -2433,11 +2436,12 @@ void EditorLayer::LoadDemoScene()
 		Entity entity = m_Scene->CreateEntity(name);
 		auto& mesh = entity.AddComponent<MeshComponent>(primitive);
 
-		mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), name);
-		auto& params = mesh.Material->GetParams();
-		params.BaseColor = color;
-		params.Metallic = metallic;
-		params.Roughness = roughness;
+		mesh.OverrideBaseColor = true;
+		mesh.BaseColor = color;
+		mesh.OverrideMetallic = true;
+		mesh.Metallic = metallic;
+		mesh.OverrideRoughness = true;
+		mesh.Roughness = roughness;
 
 		auto& transform = entity.GetComponent<TransformComponent>();
 		transform.Position = position;
@@ -2558,10 +2562,10 @@ void EditorLayer::LoadDemoScene()
 		Entity box = m_Scene->CreateEntity("Falling Box " + std::to_string(i + 1));
 
 		auto& mesh = box.AddComponent<MeshComponent>(PrimitiveType::Cube);
-		mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), "Falling Box");
-		auto& params = mesh.Material->GetParams();
-		params.BaseColor = { 0.30f, 0.55f, 0.85f, 1.0f };
-		params.Roughness = 0.4f;
+		mesh.OverrideBaseColor = true;
+		mesh.BaseColor = { 0.30f, 0.55f, 0.85f, 1.0f };
+		mesh.OverrideRoughness = true;
+		mesh.Roughness = 0.4f;
 
 		auto& transform = box.GetComponent<TransformComponent>();
 		// Offset slightly on each axis so they topple rather than landing in a
@@ -2852,11 +2856,12 @@ void EditorLayer::PopulateStarterScene()
 		Entity entity = m_Scene->CreateEntity(name);
 		auto& mesh = entity.AddComponent<MeshComponent>(primitive);
 
-		mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), name);
-		auto& params = mesh.Material->GetParams();
-		params.BaseColor = colour;
-		params.Metallic = metallic;
-		params.Roughness = roughness;
+		mesh.OverrideBaseColor = true;
+		mesh.BaseColor = colour;
+		mesh.OverrideMetallic = true;
+		mesh.Metallic = metallic;
+		mesh.OverrideRoughness = true;
+		mesh.Roughness = roughness;
 
 		auto& transform = entity.GetComponent<TransformComponent>();
 		transform.Position = position;

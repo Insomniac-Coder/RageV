@@ -155,17 +155,24 @@ namespace
 		Entity child = scene->CreateEntity("Child");
 		child.GetComponent<TransformComponent>().Position = { 0.0f, 2.0f, 0.0f };
 		auto& mesh = child.AddComponent<MeshComponent>(PrimitiveType::Sphere);
-		if (Renderer::HasDevice())
-		{
-			mesh.Material = std::make_shared<Material>(Renderer::GetDevice(), "Fixture");
-			auto& params = mesh.Material->GetParams();
-			params.BaseColor = { 0.85f, 0.17f, 0.19f, 1.0f };
-			params.EmissiveColor = { 0.02f, 0.0f, 0.0f, 1.0f };
-			params.Metallic = 0.75f;
-			params.Roughness = 0.3f;
-			params.Occlusion = 0.9f;
-			mesh.Material->Invalidate();
-		}
+
+		// Overrides rather than a material, and no device needed for any of it.
+		//
+		// This fixture exists to be saved and reloaded, and it used to build a
+		// GPU Material to do that -- which is why it was behind a device check
+		// and why the round-trip test could not see these values at all when
+		// there was no renderer. They are plain component data now, so the
+		// round trip covers them everywhere it runs.
+		mesh.OverrideBaseColor = true;
+		mesh.BaseColor = { 0.85f, 0.17f, 0.19f, 1.0f };
+		mesh.OverrideEmissive = true;
+		mesh.EmissiveColor = { 0.02f, 0.0f, 0.0f, 1.0f };
+		mesh.OverrideMetallic = true;
+		mesh.Metallic = 0.75f;
+		mesh.OverrideRoughness = true;
+		mesh.Roughness = 0.3f;
+		mesh.OverrideOcclusion = true;
+		mesh.Occlusion = 0.9f;
 		scene->SetParent(child, root);
 
 		Entity grandchild = scene->CreateEntity("Grandchild");
@@ -4220,6 +4227,169 @@ void main()
 		Check(tiny.GetFaceSize() >= 8, "and a face size of one is clamped to something renderable");
 	}
 
+	// Materials as assets, and the defect that made them one.
+	//
+	// The interesting property is not "a material can be shared" -- that is easy
+	// to check and easy to fake. It is that **an imported model's texture maps
+	// survive being saved**. They did not: `Material` has had all five maps and
+	// the shader has sampled them since phase 3, but the only thing that could
+	// set them was the glTF importer, and the only place they lived was a
+	// `Ref<Material>` hanging off a component. A scene file cannot write a
+	// pointer, so an import looked correct exactly once -- until the first save.
+	void CheckMaterialAssets()
+	{
+		if (!Renderer::HasDevice() || !Assets::Registry::IsInitialised())
+			return;
+
+		// The generated fixture. Untextured models cannot fail this check,
+		// which is why every model in the tree failed to notice the bug.
+		const AssetHandle model = Assets::Registry::GetHandle("models/textured.gltf");
+		if (!model.IsValid())
+		{
+			Check(false, "the textured model fixture is registered "
+						 "(run tools/scripts/make_textured_model.py)");
+			return;
+		}
+
+		auto scene = std::make_shared<Scene>();
+		Entity root = Assets::Manager::InstantiateModel(*scene, model);
+		Check((bool)root, "a textured model instantiates");
+
+		// Find the entity the importer gave a mesh to.
+		Entity textured;
+		scene->GetRegistry().view<MeshComponent>().each(
+			[&](entt::entity handle, MeshComponent&) { textured = Entity(handle, scene.get()); });
+
+		Check((bool)textured, "and it has a mesh");
+		if (!textured)
+			return;
+
+		const AssetHandle material = textured.GetComponent<MeshComponent>().Material;
+		Check(material.IsValid(), "whose material is an asset handle, not an object");
+
+		// The file on disk, read back rather than remembered. What the importer
+		// held in memory is not what a reopened scene will get.
+		const std::filesystem::path path = Assets::Registry::GetAbsolutePath(material);
+		Check(!path.empty(), "backed by a file the registry can find");
+
+		Assets::MaterialDesc desc;
+		Check(Assets::MaterialSerializer::Load(desc, path), "which parses as a material");
+
+		Check(desc.BaseColorMap.IsValid(), "carrying the base colour map");
+		Check(desc.MetallicRoughnessMap.IsValid(), "the metallic-roughness map");
+		Check(desc.NormalMap.IsValid(), "and the normal map");
+
+		// And *not* the two the model does not have.
+		//
+		// The check that was missing, and the bug it would have caught: a
+		// default-constructed AssetHandle is a random UUID, not zero, so every
+		// unassigned map claimed a handle and wrote it to the file. It rendered
+		// correctly the whole time -- an unresolvable handle clears the slot on
+		// load -- so only the file was wrong, and only until one of those random
+		// numbers collided with a real asset.
+		//
+		// Asserting what a thing does *not* have is the half of a contract that
+		// gets skipped, and it is the half that catches a wrong default.
+		Check(!desc.OcclusionMap.IsValid(),
+			  "and no occlusion map, because the model has none");
+		Check(!desc.EmissiveMap.IsValid(), "nor an emissive one");
+
+		// The same property one level up: a fresh component references nothing.
+		Check(!MeshComponent{}.Material.IsValid(),
+			  "a new mesh component has no material rather than a random one");
+
+		// The maps resolve to real textures, not merely to non-zero handles.
+		Check(Assets::Manager::GetTexture(desc.BaseColorMap) != nullptr,
+			  "and each handle resolves to a texture");
+
+		// MapFlags is derived, never stored -- so a material loaded from disk
+		// reports the maps it actually has rather than the ones a stale field
+		// claimed. The shader branches on these.
+		const RHI::Ref<Material> resolved = Assets::Manager::GetMaterial(material);
+		Check(resolved != nullptr, "the manager builds a Material from it");
+		if (resolved)
+		{
+			const int32_t flags = resolved->GetParams().MapFlags;
+			Check((flags & MaterialMap_BaseColor) != 0, "with the base colour flag set");
+			Check((flags & MaterialMap_Normal) != 0, "the normal flag");
+			Check((flags & MaterialMap_MetallicRoughness) != 0, "and the metallic-roughness flag");
+		}
+
+		// Two entities on one material handle get the *same* object, which is
+		// what makes them one draw. A per-entity copy would render identically
+		// and batch not at all -- the failure that has no visual symptom.
+		Check(Assets::Manager::GetMaterial(material) == resolved,
+			  "and two lookups of one handle give the same object, so they batch");
+
+		// The round trip: save the scene, load it back, and ask the *reloaded*
+		// component. This is the step that used to lose the textures.
+		SceneSerializer serializer(scene);
+		const std::filesystem::path scenePath =
+			std::filesystem::temp_directory_path() / "rv_material_roundtrip.rage";
+		Check(serializer.Serialize(scenePath.string()), "a scene using it serializes");
+
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer reader(reloaded);
+		Check(reader.Deserialize(scenePath.string()), "and deserializes");
+
+		Entity after;
+		reloaded->GetRegistry().view<MeshComponent>().each(
+			[&](entt::entity handle, MeshComponent&) { after = Entity(handle, reloaded.get()); });
+
+		Check((bool)after, "the reloaded scene still has the mesh");
+		if (after)
+		{
+			Check(after.GetComponent<MeshComponent>().Material == material,
+				  "pointing at the same material asset");
+
+			const RHI::Ref<Material> reloadedMaterial =
+				Assets::Manager::GetMaterial(after.GetComponent<MeshComponent>().Material);
+
+			Check(reloadedMaterial != nullptr, "which still resolves");
+			if (reloadedMaterial)
+			{
+				// The whole point of 7.3, in one assertion.
+				Check((reloadedMaterial->GetParams().MapFlags & MaterialMap_BaseColor) != 0,
+					  "and its texture maps survived the save -- which they did not before");
+			}
+		}
+
+		std::error_code error;
+		std::filesystem::remove(scenePath, error);
+	}
+
+	// Per-entity scalar overrides, and the batching property that pays for them.
+	void CheckMaterialOverrides()
+	{
+		MeshComponent mesh;
+
+		MaterialParams base;
+		base.BaseColor = { 0.2f, 0.4f, 0.6f, 1.0f };
+		base.Roughness = 0.8f;
+		base.Metallic = 0.1f;
+
+		// Nothing overridden: the material's own values, untouched.
+		MaterialParams resolved = mesh.ResolveParams(base);
+		Check(resolved.BaseColor.r == base.BaseColor.r && resolved.Roughness == base.Roughness,
+			  "an entity with no overrides takes the material's parameters");
+
+		mesh.OverrideRoughness = true;
+		mesh.Roughness = 0.15f;
+
+		resolved = mesh.ResolveParams(base);
+		Check(resolved.Roughness == 0.15f, "an override wins over the material");
+		Check(resolved.BaseColor.r == base.BaseColor.r,
+			  "and changes only what it names -- the rest still comes from the asset");
+
+		// A legitimate zero. Each override has its own switch rather than a
+		// sentinel precisely because every one of these values has a
+		// meaningful zero, and a sentinel would make one of them unsayable.
+		mesh.OverrideMetallic = true;
+		mesh.Metallic = 0.0f;
+		resolved = mesh.ResolveParams(base);
+		Check(resolved.Metallic == 0.0f, "an override to zero is an override, not an absence");
+	}
+
 	// Per-object probe selection, and the arrays the choice indexes into.
 	//
 	// Checked without looking at a picture, because a picture cannot fail this
@@ -7516,6 +7686,8 @@ int RunTests(int argc, char** argv)
 	CheckSkinnedImport();
 	CheckSkinnedVertexLayout();
 	CheckReflectionProbe();
+	CheckMaterialOverrides();
+	CheckMaterialAssets();
 	CheckProbeSelection();
 	CheckProbeArraySize();
 	CheckFrameGraph();

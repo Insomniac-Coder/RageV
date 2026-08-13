@@ -36,6 +36,11 @@ namespace RageV::Assets
 		// Plain 2D textures -- particle sprites today, material maps whenever
 		// materials become assets. Failures cache as null like the cube's do.
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Textures;
+		// Materials, by handle. Shared on purpose: two entities pointing at one
+		// `.rmat` must get the same object, or their batch keys differ and the
+		// draws never merge -- which is the whole reason materials became
+		// assets. Failures cache as null like the textures do.
+		std::unordered_map<AssetHandle, RHI::Ref<Material>> s_Materials;
 		// Curves are small and pure data, so they cache by value. A failure
 		// caches as an empty curve for the same reason a texture caches as
 		// null: a missing file must not be retried sixty times a second.
@@ -98,6 +103,7 @@ namespace RageV::Assets
 		s_Cubemaps.clear();
 		s_Irradiance.clear();
 		s_Textures.clear();
+		s_Materials.clear();
 		s_Curves.clear();
 		s_BakedCurves.clear();
 		s_Fonts.clear();
@@ -244,6 +250,78 @@ namespace RageV::Assets
 		auto texture = TextureLoader::Load2D(*s_Device, path.string());
 		s_Textures[handle] = texture;
 		return texture;
+	}
+
+	RHI::Ref<Material> Manager::GetMaterial(AssetHandle handle)
+	{
+		if (!s_Device || !handle.IsValid())
+			return nullptr;
+
+		const auto cached = s_Materials.find(handle);
+		if (cached != s_Materials.end())
+			return cached->second;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+
+		MaterialDesc desc;
+		if (path.empty() || !MaterialSerializer::Load(desc, path))
+		{
+			// Cached as null so a broken path is not reopened per frame, and
+			// the caller falls back to the default material -- the same place
+			// an unassigned handle lands.
+			s_Materials[handle] = nullptr;
+			return nullptr;
+		}
+
+		auto material = std::make_shared<Material>(*s_Device, desc.Name);
+		material->GetParams() = desc.Params;
+
+		// The maps, and with them the flags. Assigning a null texture clears
+		// the slot and its flag, so a handle that resolves to nothing lands on
+		// the scalar parameter rather than on a missing binding.
+		auto assign = [&](AssetHandle map, void (Material::*setter)(const RHI::Ref<RHI::RHITexture>&))
+		{
+			if (map.IsValid())
+				(material.get()->*setter)(GetTexture(map));
+		};
+
+		assign(desc.BaseColorMap, &Material::SetBaseColorMap);
+		assign(desc.NormalMap, &Material::SetNormalMap);
+		assign(desc.MetallicRoughnessMap, &Material::SetMetallicRoughnessMap);
+		assign(desc.OcclusionMap, &Material::SetOcclusionMap);
+		assign(desc.EmissiveMap, &Material::SetEmissiveMap);
+
+		material->Invalidate();
+
+		s_Materials[handle] = material;
+		return material;
+	}
+
+	AssetHandle Manager::CreateMaterial(const MaterialDesc& material,
+										const std::filesystem::path& relativePath)
+	{
+		if (!Registry::IsInitialised())
+			return AssetHandle::Invalid();
+
+		const std::filesystem::path absolute = Registry::Root() / relativePath;
+		if (!MaterialSerializer::Save(material, absolute))
+			return AssetHandle::Invalid();
+
+		// After writing, so the file exists by the time the registry hashes it
+		// and mints its sidecar. Same order as CreateCurve and CreatePrefab.
+		Registry::Refresh();
+
+		// Deliberately *not* seeded into the cache from `material` here, unlike
+		// CreateCurve. A curve is the value it was created from; a Material is
+		// a GPU object that has to be built from the desc, and building it here
+		// would duplicate GetMaterial's resolve step -- which is where the
+		// texture handles turn into textures and the map flags get set.
+		return Registry::GetHandle(relativePath.generic_string());
+	}
+
+	void Manager::ReloadMaterial(AssetHandle handle)
+	{
+		s_Materials.erase(handle);
 	}
 
 	const Curve* Manager::GetCurve(AssetHandle handle)
@@ -538,36 +616,84 @@ namespace RageV::Assets
 		// point.
 		const std::filesystem::path directory = path.parent_path();
 
-		std::vector<RHI::Ref<RHI::RHITexture>> textures(model.Textures.size());
+		// The model's textures, as *handles* rather than loaded images.
+		//
+		// A glTF names its textures by relative URI; the registry addresses
+		// everything by handle. Importing one therefore means registering the
+		// file it points at, which is what makes the material below storable:
+		// a `.rmat` can hold a handle and cannot hold a loaded texture.
+		//
+		// A texture already in the project keeps the handle it has -- the
+		// registry is keyed on path -- so re-importing a model does not mint a
+		// second handle for a file two models share.
+		Registry::Refresh();
+
+		std::vector<AssetHandle> textures(model.Textures.size());
 		for (size_t i = 0; i < model.Textures.size(); i++)
 		{
 			const std::filesystem::path texturePath = directory / model.Textures[i].Path;
-			textures[i] = TextureLoader::Load2D(*s_Device, texturePath.string(),
-												model.Textures[i].SRGB);
+
+			std::error_code error;
+			const std::filesystem::path relative =
+				std::filesystem::relative(texturePath, Registry::Root(), error);
+
+			if (error || relative.empty())
+			{
+				RV_CORE_WARN("Model texture '{0}' is outside the project and cannot be "
+							 "addressed by handle", texturePath.string());
+				continue;
+			}
+
+			textures[i] = Registry::GetHandle(relative.generic_string());
+			if (!textures[i].IsValid())
+			{
+				RV_CORE_WARN("Model texture '{0}' has no asset handle; its material will "
+							 "fall back to the scalar parameter", relative.generic_string());
+			}
 		}
 
-		std::vector<RHI::Ref<Material>> materials(model.Materials.size());
+		// Each imported material becomes a real `.rmat` beside the model.
+		//
+		// This is the part that makes an import survive being saved. The maps
+		// used to be set on a Material object hanging off the component, which
+		// no scene file could write -- so a textured model looked correct until
+		// the first save and was untextured from then on. Now the maps live in
+		// an asset and the component stores its handle.
+		std::vector<AssetHandle> materials(model.Materials.size());
 		for (size_t i = 0; i < model.Materials.size(); i++)
 		{
 			const ImportedMaterial& source = model.Materials[i];
 
-			auto material = std::make_shared<Material>(*s_Device, source.Name);
-			material->GetParams() = source.Params;
+			MaterialDesc desc;
+			desc.Name = source.Name.empty() ? "Material" : source.Name;
+			desc.Params = source.Params;
 
-			auto assign = [&](int index, void (Material::*setter)(const RHI::Ref<RHI::RHITexture>&))
+			auto assign = [&](int index, AssetHandle& slot)
 			{
-				if (index >= 0 && index < (int)textures.size() && textures[index])
-					(material.get()->*setter)(textures[index]);
+				if (index >= 0 && index < (int)textures.size())
+					slot = textures[index];
 			};
 
-			assign(source.BaseColorTexture, &Material::SetBaseColorMap);
-			assign(source.NormalTexture, &Material::SetNormalMap);
-			assign(source.MetallicRoughnessTexture, &Material::SetMetallicRoughnessMap);
-			assign(source.OcclusionTexture, &Material::SetOcclusionMap);
-			assign(source.EmissiveTexture, &Material::SetEmissiveMap);
+			assign(source.BaseColorTexture, desc.BaseColorMap);
+			assign(source.NormalTexture, desc.NormalMap);
+			assign(source.MetallicRoughnessTexture, desc.MetallicRoughnessMap);
+			assign(source.OcclusionTexture, desc.OcclusionMap);
+			assign(source.EmissiveTexture, desc.EmissiveMap);
 
-			material->Invalidate();
-			materials[i] = material;
+			// Named after the model and the material's index, not just its
+			// name: a glTF may carry two materials called "Material", and two
+			// models certainly may.
+			std::error_code error;
+			const std::filesystem::path modelRelative =
+				std::filesystem::relative(path, Registry::Root(), error);
+			const std::string stem = error ? path.stem().string()
+										   : modelRelative.stem().string();
+
+			const std::filesystem::path materialPath =
+				modelRelative.parent_path() /
+				(stem + "_" + std::to_string(i) + "_" + desc.Name + ".rmat");
+
+			materials[i] = CreateMaterial(desc, materialPath);
 		}
 
 		// Every primitive gets a handle derived from the file's, so a mesh

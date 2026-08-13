@@ -1686,6 +1686,19 @@ namespace RageV
 				// every probe's influence while most of the wall is inside one.
 				const uint32_t probe = ProbeSlotFor(centre);
 
+				// The material, and this entity's scalars on top of it.
+				//
+				// A lookup per mesh per frame, like the mesh handle above it --
+				// and the same shape, so the two cannot drift in how a missing
+				// asset behaves. Null falls back to the renderer's default,
+				// which is what an entity with nothing assigned draws with.
+				RHI::Ref<Material> material = Assets::Manager::GetMaterial(mesh.Material);
+				if (!material)
+					material = Renderer3D::GetDefaultMaterial();
+
+				const MaterialParams params =
+					mesh.ResolveParams(material ? material->GetParams() : MaterialParams{});
+
 			// A skinned mesh has to reach the skinned pipeline whether or not
 				// anything is animating it: its vertex layout is the wider one,
 				// and the static pipeline would read joint indices as texture
@@ -1703,19 +1716,19 @@ namespace RageV
 					// property the tests assert.
 					if (animator && !animator->Skinning.empty())
 					{
-						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material,
+						Renderer3D::DrawSkinnedMesh(resolved, transform.World, material, params,
 													animator->Skinning, probe);
 					}
 					else if (const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh))
 					{
 						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
-						Renderer3D::DrawSkinnedMesh(resolved, transform.World, mesh.Material,
+						Renderer3D::DrawSkinnedMesh(resolved, transform.World, material, params,
 													bind, probe);
 					}
 				}
 				else
 				{
-					Renderer3D::DrawMesh(resolved, transform.World, mesh.Material, probe);
+					Renderer3D::DrawMesh(resolved, transform.World, material, params, probe);
 				}
 			}
 

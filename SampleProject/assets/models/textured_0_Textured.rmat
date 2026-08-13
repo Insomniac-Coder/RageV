@@ -1,0 +1,11 @@
+Material: Textured
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 1
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Maps:
+  BaseColor: 7094216867827831637
+  Normal: 6058802608496343546
+  MetallicRoughness: 2068778544591316995

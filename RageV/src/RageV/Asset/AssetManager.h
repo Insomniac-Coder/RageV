@@ -5,6 +5,7 @@
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Animation/Skeleton.h"
 #include "RageV/Renderer/Material.h"
+#include "MaterialSerializer.h"
 #include "Curve.h"
 #include "Font.h"
 
@@ -47,6 +48,30 @@ namespace RageV::Assets
 		// cached like everything else here; a failure caches as null so a
 		// missing file is not retried per frame.
 		static RHI::Ref<RHI::RHITexture> GetTexture(AssetHandle handle);
+
+		// A material, resolved from its `.rmat` and its five texture handles.
+		//
+		// Null for an invalid handle, and the caller draws with the renderer's
+		// shared default -- which is what an entity with no material assigned
+		// gets, so "unassigned" and "assigned something broken" reach the same
+		// place by the same route rather than by two.
+		//
+		// Cached by handle like everything else here. The cache is what makes
+		// sharing mean anything: two entities pointing at one `.rmat` get the
+		// *same* `Material` object, and therefore the same batch key, and
+		// therefore one draw. A per-entity copy would render identically and
+		// batch not at all.
+		static RHI::Ref<Material> GetMaterial(AssetHandle handle);
+
+		// Writes a `.rmat` beside the other assets and returns its handle.
+		static AssetHandle CreateMaterial(const MaterialDesc& material,
+										  const std::filesystem::path& relativePath);
+
+		// Drops the cached material so the next GetMaterial rebuilds it from
+		// the file. What the inspector calls after an edit -- without it a
+		// changed `.rmat` keeps rendering as the old one, which is the same
+		// stale-cache shape ReloadCurve exists for.
+		static void ReloadMaterial(AssetHandle handle);
 
 		// A keyed ramp -- size or alpha over a particle's life, or the colour
 		// gradient. Never null for a valid handle: a missing or unreadable file

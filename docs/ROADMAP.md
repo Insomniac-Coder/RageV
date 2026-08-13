@@ -464,7 +464,7 @@ rather than missed.
 |---|---|---|
 | 7.1 | Archive format (`.pak`) **and** the virtual file system it needs | L |
 | 7.2 | Asset cooking — parse glTF and decode images at build time, not at load | L |
-| 7.3 | Materials as assets, so two entities can share one from the inspector | M |
+| 7.3 | Materials as assets, so two entities can share one from the inspector | M | ✅ done 2026-08-13. `.rmat` carrying the five texture maps by handle, plus per-entity scalar overrides — the asset is what the descriptor set holds, the override is what the instance stream holds, which is the line `Material::GetBatchKey` already drew. **The real defect was not sharing but persistence**: `Material` has had all five maps since phase 3 and only the glTF importer could set them, so an imported model lost its textures on the first save. Legacy inline materials convert to overrides losslessly — demo.rage renders pixel-identical |
 | 7.4 | Billboard icons for lights, cameras and probes, and picking that hits them | M |
 | 7.5 | Animation blend component — `BlendPoses` is written and tested, nothing drives it | M |
 | 7.6 | Skinned bounds that cover the animation, not just the bind pose | M |
