@@ -1,0 +1,3044 @@
+Scene: Overdraw
+Version: 5
+Environment:
+  AmbientColor: [0.42, 0.47, 0.58]
+  AmbientIntensity: 0.12
+  Sky: 2
+  SkyHorizon: [0.52, 0.6, 0.72]
+  SkyZenith: [0.18, 0.31, 0.62]
+  SkyGround: [0.16, 0.15, 0.14]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 4000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 10, 0]
+      Rotation: [-0.9, -0.6, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 0
+      Color: [1, 0.97, 0.92]
+      Intensity: 3
+      Range: 30
+      InnerCone: 20
+      OuterCone: 30
+      CastsShadows: false
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Slab 0
+    TransformComponent:
+      Position: [0, 0, -2]
+      Rotation: [0, 0, 0]
+      Scale: [13.68, 13.68, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.35, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Slab 1
+    TransformComponent:
+      Position: [0, 0, -4]
+      Rotation: [0, 0, 0]
+      Scale: [18.24, 18.24, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.352, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1663341875487337577
+    TagComponent:
+      Tag: Slab 2
+    TransformComponent:
+      Position: [0, 0, -6]
+      Rotation: [0, 0, 0]
+      Scale: [22.8, 22.8, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.354, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13064056694810536062
+    TagComponent:
+      Tag: Slab 3
+    TransformComponent:
+      Position: [0, 0, -8]
+      Rotation: [0, 0, 0]
+      Scale: [27.36, 27.36, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.356, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6018027440424182931
+    TagComponent:
+      Tag: Slab 4
+    TransformComponent:
+      Position: [0, 0, -10]
+      Rotation: [0, 0, 0]
+      Scale: [31.92, 31.92, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.358, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17418742259747381416
+    TagComponent:
+      Tag: Slab 5
+    TransformComponent:
+      Position: [0, 0, -12]
+      Rotation: [0, 0, 0]
+      Scale: [36.48, 36.48, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.36, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10372713005361028285
+    TagComponent:
+      Tag: Slab 6
+    TransformComponent:
+      Position: [0, 0, -14]
+      Rotation: [0, 0, 0]
+      Scale: [41.04, 41.04, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.362, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3326683750974675154
+    TagComponent:
+      Tag: Slab 7
+    TransformComponent:
+      Position: [0, 0, -16]
+      Rotation: [0, 0, 0]
+      Scale: [45.6, 45.6, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.364, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14727398570297873639
+    TagComponent:
+      Tag: Slab 8
+    TransformComponent:
+      Position: [0, 0, -18]
+      Rotation: [0, 0, 0]
+      Scale: [50.16, 50.16, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.366, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7681369315911520508
+    TagComponent:
+      Tag: Slab 9
+    TransformComponent:
+      Position: [0, 0, -20]
+      Rotation: [0, 0, 0]
+      Scale: [54.72, 54.72, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.368, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 635340061525167377
+    TagComponent:
+      Tag: Slab 10
+    TransformComponent:
+      Position: [0, 0, -22]
+      Rotation: [0, 0, 0]
+      Scale: [59.28, 59.28, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.37, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12036054880848365862
+    TagComponent:
+      Tag: Slab 11
+    TransformComponent:
+      Position: [0, 0, -24]
+      Rotation: [0, 0, 0]
+      Scale: [63.84, 63.84, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.372, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4990025626462012731
+    TagComponent:
+      Tag: Slab 12
+    TransformComponent:
+      Position: [0, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [68.4, 68.4, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.374, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16390740445785211216
+    TagComponent:
+      Tag: Slab 13
+    TransformComponent:
+      Position: [0, 0, -28]
+      Rotation: [0, 0, 0]
+      Scale: [72.96, 72.96, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.376, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9344711191398858085
+    TagComponent:
+      Tag: Slab 14
+    TransformComponent:
+      Position: [0, 0, -30]
+      Rotation: [0, 0, 0]
+      Scale: [77.52, 77.52, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.378, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2298681937012504954
+    TagComponent:
+      Tag: Slab 15
+    TransformComponent:
+      Position: [0, 0, -32]
+      Rotation: [0, 0, 0]
+      Scale: [82.08, 82.08, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.38, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13699396756335703439
+    TagComponent:
+      Tag: Slab 16
+    TransformComponent:
+      Position: [0, 0, -34]
+      Rotation: [0, 0, 0]
+      Scale: [86.64, 86.64, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.382, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6653367501949350308
+    TagComponent:
+      Tag: Slab 17
+    TransformComponent:
+      Position: [0, 0, -36]
+      Rotation: [0, 0, 0]
+      Scale: [91.2, 91.2, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.384, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 18054082321272548793
+    TagComponent:
+      Tag: Slab 18
+    TransformComponent:
+      Position: [0, 0, -38]
+      Rotation: [0, 0, 0]
+      Scale: [95.76, 95.76, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.386, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11008053066886195662
+    TagComponent:
+      Tag: Slab 19
+    TransformComponent:
+      Position: [0, 0, -40]
+      Rotation: [0, 0, 0]
+      Scale: [100.32, 100.32, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.388, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3962023812499842531
+    TagComponent:
+      Tag: Slab 20
+    TransformComponent:
+      Position: [0, 0, -42]
+      Rotation: [0, 0, 0]
+      Scale: [104.88, 104.88, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.39, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15362738631823041016
+    TagComponent:
+      Tag: Slab 21
+    TransformComponent:
+      Position: [0, 0, -44]
+      Rotation: [0, 0, 0]
+      Scale: [109.44, 109.44, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.392, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8316709377436687885
+    TagComponent:
+      Tag: Slab 22
+    TransformComponent:
+      Position: [0, 0, -46]
+      Rotation: [0, 0, 0]
+      Scale: [114, 114, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.394, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1270680123050334754
+    TagComponent:
+      Tag: Slab 23
+    TransformComponent:
+      Position: [0, 0, -48]
+      Rotation: [0, 0, 0]
+      Scale: [118.56, 118.56, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.396, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12671394942373533239
+    TagComponent:
+      Tag: Slab 24
+    TransformComponent:
+      Position: [0, 0, -50]
+      Rotation: [0, 0, 0]
+      Scale: [123.12, 123.12, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.398, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5625365687987180108
+    TagComponent:
+      Tag: Slab 25
+    TransformComponent:
+      Position: [0, 0, -52]
+      Rotation: [0, 0, 0]
+      Scale: [127.68, 127.68, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.4, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17026080507310378593
+    TagComponent:
+      Tag: Slab 26
+    TransformComponent:
+      Position: [0, 0, -54]
+      Rotation: [0, 0, 0]
+      Scale: [132.24, 132.24, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.402, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9980051252924025462
+    TagComponent:
+      Tag: Slab 27
+    TransformComponent:
+      Position: [0, 0, -56]
+      Rotation: [0, 0, 0]
+      Scale: [136.8, 136.8, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.404, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2934021998537672331
+    TagComponent:
+      Tag: Slab 28
+    TransformComponent:
+      Position: [0, 0, -58]
+      Rotation: [0, 0, 0]
+      Scale: [141.36, 141.36, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.406, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14334736817860870816
+    TagComponent:
+      Tag: Slab 29
+    TransformComponent:
+      Position: [0, 0, -60]
+      Rotation: [0, 0, 0]
+      Scale: [145.92, 145.92, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.408, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7288707563474517685
+    TagComponent:
+      Tag: Slab 30
+    TransformComponent:
+      Position: [0, 0, -62]
+      Rotation: [0, 0, 0]
+      Scale: [150.48, 150.48, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.41, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 242678309088164554
+    TagComponent:
+      Tag: Slab 31
+    TransformComponent:
+      Position: [0, 0, -64]
+      Rotation: [0, 0, 0]
+      Scale: [155.04, 155.04, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.412, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11643393128411363039
+    TagComponent:
+      Tag: Slab 32
+    TransformComponent:
+      Position: [0, 0, -66]
+      Rotation: [0, 0, 0]
+      Scale: [159.6, 159.6, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.414, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4597363874025009908
+    TagComponent:
+      Tag: Slab 33
+    TransformComponent:
+      Position: [0, 0, -68]
+      Rotation: [0, 0, 0]
+      Scale: [164.16, 164.16, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.416, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15998078693348208393
+    TagComponent:
+      Tag: Slab 34
+    TransformComponent:
+      Position: [0, 0, -70]
+      Rotation: [0, 0, 0]
+      Scale: [168.72, 168.72, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.418, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8952049438961855262
+    TagComponent:
+      Tag: Slab 35
+    TransformComponent:
+      Position: [0, 0, -72]
+      Rotation: [0, 0, 0]
+      Scale: [173.28, 173.28, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.42, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1906020184575502131
+    TagComponent:
+      Tag: Slab 36
+    TransformComponent:
+      Position: [0, 0, -74]
+      Rotation: [0, 0, 0]
+      Scale: [177.84, 177.84, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.422, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13306735003898700616
+    TagComponent:
+      Tag: Slab 37
+    TransformComponent:
+      Position: [0, 0, -76]
+      Rotation: [0, 0, 0]
+      Scale: [182.4, 182.4, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.424, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6260705749512347485
+    TagComponent:
+      Tag: Slab 38
+    TransformComponent:
+      Position: [0, 0, -78]
+      Rotation: [0, 0, 0]
+      Scale: [186.96, 186.96, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.426, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17661420568835545970
+    TagComponent:
+      Tag: Slab 39
+    TransformComponent:
+      Position: [0, 0, -80]
+      Rotation: [0, 0, 0]
+      Scale: [191.52, 191.52, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.428, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10615391314449192839
+    TagComponent:
+      Tag: Slab 40
+    TransformComponent:
+      Position: [0, 0, -82]
+      Rotation: [0, 0, 0]
+      Scale: [196.08, 196.08, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.43, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3569362060062839708
+    TagComponent:
+      Tag: Slab 41
+    TransformComponent:
+      Position: [0, 0, -84]
+      Rotation: [0, 0, 0]
+      Scale: [200.64, 200.64, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.432, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14970076879386038193
+    TagComponent:
+      Tag: Slab 42
+    TransformComponent:
+      Position: [0, 0, -86]
+      Rotation: [0, 0, 0]
+      Scale: [205.2, 205.2, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.434, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7924047624999685062
+    TagComponent:
+      Tag: Slab 43
+    TransformComponent:
+      Position: [0, 0, -88]
+      Rotation: [0, 0, 0]
+      Scale: [209.76, 209.76, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.436, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 878018370613331931
+    TagComponent:
+      Tag: Slab 44
+    TransformComponent:
+      Position: [0, 0, -90]
+      Rotation: [0, 0, 0]
+      Scale: [214.32, 214.32, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.438, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12278733189936530416
+    TagComponent:
+      Tag: Slab 45
+    TransformComponent:
+      Position: [0, 0, -92]
+      Rotation: [0, 0, 0]
+      Scale: [218.88, 218.88, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.44, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5232703935550177285
+    TagComponent:
+      Tag: Slab 46
+    TransformComponent:
+      Position: [0, 0, -94]
+      Rotation: [0, 0, 0]
+      Scale: [223.44, 223.44, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.442, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16633418754873375770
+    TagComponent:
+      Tag: Slab 47
+    TransformComponent:
+      Position: [0, 0, -96]
+      Rotation: [0, 0, 0]
+      Scale: [228, 228, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.444, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9587389500487022639
+    TagComponent:
+      Tag: Slab 48
+    TransformComponent:
+      Position: [0, 0, -98]
+      Rotation: [0, 0, 0]
+      Scale: [232.56, 232.56, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.446, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2541360246100669508
+    TagComponent:
+      Tag: Slab 49
+    TransformComponent:
+      Position: [0, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [237.12, 237.12, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.448, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13942075065423867993
+    TagComponent:
+      Tag: Slab 50
+    TransformComponent:
+      Position: [0, 0, -102]
+      Rotation: [0, 0, 0]
+      Scale: [241.68, 241.68, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.45, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6896045811037514862
+    TagComponent:
+      Tag: Slab 51
+    TransformComponent:
+      Position: [0, 0, -104]
+      Rotation: [0, 0, 0]
+      Scale: [246.24, 246.24, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.452, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 18296760630360713347
+    TagComponent:
+      Tag: Slab 52
+    TransformComponent:
+      Position: [0, 0, -106]
+      Rotation: [0, 0, 0]
+      Scale: [250.8, 250.8, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.454, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11250731375974360216
+    TagComponent:
+      Tag: Slab 53
+    TransformComponent:
+      Position: [0, 0, -108]
+      Rotation: [0, 0, 0]
+      Scale: [255.36, 255.36, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.456, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4204702121588007085
+    TagComponent:
+      Tag: Slab 54
+    TransformComponent:
+      Position: [0, 0, -110]
+      Rotation: [0, 0, 0]
+      Scale: [259.92, 259.92, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.458, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15605416940911205570
+    TagComponent:
+      Tag: Slab 55
+    TransformComponent:
+      Position: [0, 0, -112]
+      Rotation: [0, 0, 0]
+      Scale: [264.48, 264.48, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.46, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8559387686524852439
+    TagComponent:
+      Tag: Slab 56
+    TransformComponent:
+      Position: [0, 0, -114]
+      Rotation: [0, 0, 0]
+      Scale: [269.04, 269.04, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.462, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1513358432138499308
+    TagComponent:
+      Tag: Slab 57
+    TransformComponent:
+      Position: [0, 0, -116]
+      Rotation: [0, 0, 0]
+      Scale: [273.6, 273.6, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.464, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12914073251461697793
+    TagComponent:
+      Tag: Slab 58
+    TransformComponent:
+      Position: [0, 0, -118]
+      Rotation: [0, 0, 0]
+      Scale: [278.16, 278.16, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.466, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5868043997075344662
+    TagComponent:
+      Tag: Slab 59
+    TransformComponent:
+      Position: [0, 0, -120]
+      Rotation: [0, 0, 0]
+      Scale: [282.72, 282.72, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.468, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17268758816398543147
+    TagComponent:
+      Tag: Slab 60
+    TransformComponent:
+      Position: [0, 0, -122]
+      Rotation: [0, 0, 0]
+      Scale: [287.28, 287.28, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.47, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10222729562012190016
+    TagComponent:
+      Tag: Slab 61
+    TransformComponent:
+      Position: [0, 0, -124]
+      Rotation: [0, 0, 0]
+      Scale: [291.84, 291.84, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.472, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3176700307625836885
+    TagComponent:
+      Tag: Slab 62
+    TransformComponent:
+      Position: [0, 0, -126]
+      Rotation: [0, 0, 0]
+      Scale: [296.4, 296.4, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.474, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14577415126949035370
+    TagComponent:
+      Tag: Slab 63
+    TransformComponent:
+      Position: [0, 0, -128]
+      Rotation: [0, 0, 0]
+      Scale: [300.96, 300.96, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.476, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7531385872562682239
+    TagComponent:
+      Tag: Slab 64
+    TransformComponent:
+      Position: [0, 0, -130]
+      Rotation: [0, 0, 0]
+      Scale: [305.52, 305.52, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.478, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 485356618176329108
+    TagComponent:
+      Tag: Slab 65
+    TransformComponent:
+      Position: [0, 0, -132]
+      Rotation: [0, 0, 0]
+      Scale: [310.08, 310.08, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.48, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11886071437499527593
+    TagComponent:
+      Tag: Slab 66
+    TransformComponent:
+      Position: [0, 0, -134]
+      Rotation: [0, 0, 0]
+      Scale: [314.64, 314.64, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.482, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4840042183113174462
+    TagComponent:
+      Tag: Slab 67
+    TransformComponent:
+      Position: [0, 0, -136]
+      Rotation: [0, 0, 0]
+      Scale: [319.2, 319.2, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.484, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16240757002436372947
+    TagComponent:
+      Tag: Slab 68
+    TransformComponent:
+      Position: [0, 0, -138]
+      Rotation: [0, 0, 0]
+      Scale: [323.76, 323.76, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.486, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9194727748050019816
+    TagComponent:
+      Tag: Slab 69
+    TransformComponent:
+      Position: [0, 0, -140]
+      Rotation: [0, 0, 0]
+      Scale: [328.32, 328.32, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.488, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2148698493663666685
+    TagComponent:
+      Tag: Slab 70
+    TransformComponent:
+      Position: [0, 0, -142]
+      Rotation: [0, 0, 0]
+      Scale: [332.88, 332.88, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.49, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13549413312986865170
+    TagComponent:
+      Tag: Slab 71
+    TransformComponent:
+      Position: [0, 0, -144]
+      Rotation: [0, 0, 0]
+      Scale: [337.44, 337.44, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.492, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6503384058600512039
+    TagComponent:
+      Tag: Slab 72
+    TransformComponent:
+      Position: [0, 0, -146]
+      Rotation: [0, 0, 0]
+      Scale: [342, 342, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.494, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17904098877923710524
+    TagComponent:
+      Tag: Slab 73
+    TransformComponent:
+      Position: [0, 0, -148]
+      Rotation: [0, 0, 0]
+      Scale: [346.56, 346.56, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.496, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10858069623537357393
+    TagComponent:
+      Tag: Slab 74
+    TransformComponent:
+      Position: [0, 0, -150]
+      Rotation: [0, 0, 0]
+      Scale: [351.12, 351.12, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.498, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3812040369151004262
+    TagComponent:
+      Tag: Slab 75
+    TransformComponent:
+      Position: [0, 0, -152]
+      Rotation: [0, 0, 0]
+      Scale: [355.68, 355.68, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.5, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15212755188474202747
+    TagComponent:
+      Tag: Slab 76
+    TransformComponent:
+      Position: [0, 0, -154]
+      Rotation: [0, 0, 0]
+      Scale: [360.24, 360.24, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.502, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8166725934087849616
+    TagComponent:
+      Tag: Slab 77
+    TransformComponent:
+      Position: [0, 0, -156]
+      Rotation: [0, 0, 0]
+      Scale: [364.8, 364.8, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.504, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1120696679701496485
+    TagComponent:
+      Tag: Slab 78
+    TransformComponent:
+      Position: [0, 0, -158]
+      Rotation: [0, 0, 0]
+      Scale: [369.36, 369.36, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.506, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12521411499024694970
+    TagComponent:
+      Tag: Slab 79
+    TransformComponent:
+      Position: [0, 0, -160]
+      Rotation: [0, 0, 0]
+      Scale: [373.92, 373.92, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.508, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5475382244638341839
+    TagComponent:
+      Tag: Slab 80
+    TransformComponent:
+      Position: [0, 0, -162]
+      Rotation: [0, 0, 0]
+      Scale: [378.48, 378.48, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.51, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16876097063961540324
+    TagComponent:
+      Tag: Slab 81
+    TransformComponent:
+      Position: [0, 0, -164]
+      Rotation: [0, 0, 0]
+      Scale: [383.04, 383.04, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.512, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9830067809575187193
+    TagComponent:
+      Tag: Slab 82
+    TransformComponent:
+      Position: [0, 0, -166]
+      Rotation: [0, 0, 0]
+      Scale: [387.6, 387.6, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.514, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2784038555188834062
+    TagComponent:
+      Tag: Slab 83
+    TransformComponent:
+      Position: [0, 0, -168]
+      Rotation: [0, 0, 0]
+      Scale: [392.16, 392.16, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.516, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14184753374512032547
+    TagComponent:
+      Tag: Slab 84
+    TransformComponent:
+      Position: [0, 0, -170]
+      Rotation: [0, 0, 0]
+      Scale: [396.72, 396.72, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.518, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7138724120125679416
+    TagComponent:
+      Tag: Slab 85
+    TransformComponent:
+      Position: [0, 0, -172]
+      Rotation: [0, 0, 0]
+      Scale: [401.28, 401.28, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.52, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 92694865739326285
+    TagComponent:
+      Tag: Slab 86
+    TransformComponent:
+      Position: [0, 0, -174]
+      Rotation: [0, 0, 0]
+      Scale: [405.84, 405.84, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.522, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11493409685062524770
+    TagComponent:
+      Tag: Slab 87
+    TransformComponent:
+      Position: [0, 0, -176]
+      Rotation: [0, 0, 0]
+      Scale: [410.4, 410.4, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.524, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4447380430676171639
+    TagComponent:
+      Tag: Slab 88
+    TransformComponent:
+      Position: [0, 0, -178]
+      Rotation: [0, 0, 0]
+      Scale: [414.96, 414.96, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.526, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15848095249999370124
+    TagComponent:
+      Tag: Slab 89
+    TransformComponent:
+      Position: [0, 0, -180]
+      Rotation: [0, 0, 0]
+      Scale: [419.52, 419.52, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.528, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8802065995613016993
+    TagComponent:
+      Tag: Slab 90
+    TransformComponent:
+      Position: [0, 0, -182]
+      Rotation: [0, 0, 0]
+      Scale: [424.08, 424.08, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.53, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1756036741226663862
+    TagComponent:
+      Tag: Slab 91
+    TransformComponent:
+      Position: [0, 0, -184]
+      Rotation: [0, 0, 0]
+      Scale: [428.64, 428.64, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.532, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13156751560549862347
+    TagComponent:
+      Tag: Slab 92
+    TransformComponent:
+      Position: [0, 0, -186]
+      Rotation: [0, 0, 0]
+      Scale: [433.2, 433.2, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.534, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6110722306163509216
+    TagComponent:
+      Tag: Slab 93
+    TransformComponent:
+      Position: [0, 0, -188]
+      Rotation: [0, 0, 0]
+      Scale: [437.76, 437.76, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.536, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17511437125486707701
+    TagComponent:
+      Tag: Slab 94
+    TransformComponent:
+      Position: [0, 0, -190]
+      Rotation: [0, 0, 0]
+      Scale: [442.32, 442.32, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.538, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10465407871100354570
+    TagComponent:
+      Tag: Slab 95
+    TransformComponent:
+      Position: [0, 0, -192]
+      Rotation: [0, 0, 0]
+      Scale: [446.88, 446.88, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.54, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3419378616714001439
+    TagComponent:
+      Tag: Slab 96
+    TransformComponent:
+      Position: [0, 0, -194]
+      Rotation: [0, 0, 0]
+      Scale: [451.44, 451.44, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.542, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14820093436037199924
+    TagComponent:
+      Tag: Slab 97
+    TransformComponent:
+      Position: [0, 0, -196]
+      Rotation: [0, 0, 0]
+      Scale: [456, 456, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.544, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7774064181650846793
+    TagComponent:
+      Tag: Slab 98
+    TransformComponent:
+      Position: [0, 0, -198]
+      Rotation: [0, 0, 0]
+      Scale: [460.56, 460.56, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.546, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 728034927264493662
+    TagComponent:
+      Tag: Slab 99
+    TransformComponent:
+      Position: [0, 0, -200]
+      Rotation: [0, 0, 0]
+      Scale: [465.12, 465.12, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.548, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12128749746587692147
+    TagComponent:
+      Tag: Slab 100
+    TransformComponent:
+      Position: [0, 0, -202]
+      Rotation: [0, 0, 0]
+      Scale: [469.68, 469.68, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.55, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5082720492201339016
+    TagComponent:
+      Tag: Slab 101
+    TransformComponent:
+      Position: [0, 0, -204]
+      Rotation: [0, 0, 0]
+      Scale: [474.24, 474.24, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.552, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16483435311524537501
+    TagComponent:
+      Tag: Slab 102
+    TransformComponent:
+      Position: [0, 0, -206]
+      Rotation: [0, 0, 0]
+      Scale: [478.8, 478.8, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.554, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9437406057138184370
+    TagComponent:
+      Tag: Slab 103
+    TransformComponent:
+      Position: [0, 0, -208]
+      Rotation: [0, 0, 0]
+      Scale: [483.36, 483.36, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.556, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2391376802751831239
+    TagComponent:
+      Tag: Slab 104
+    TransformComponent:
+      Position: [0, 0, -210]
+      Rotation: [0, 0, 0]
+      Scale: [487.92, 487.92, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.558, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13792091622075029724
+    TagComponent:
+      Tag: Slab 105
+    TransformComponent:
+      Position: [0, 0, -212]
+      Rotation: [0, 0, 0]
+      Scale: [492.48, 492.48, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.56, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6746062367688676593
+    TagComponent:
+      Tag: Slab 106
+    TransformComponent:
+      Position: [0, 0, -214]
+      Rotation: [0, 0, 0]
+      Scale: [497.04, 497.04, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.562, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 18146777187011875078
+    TagComponent:
+      Tag: Slab 107
+    TransformComponent:
+      Position: [0, 0, -216]
+      Rotation: [0, 0, 0]
+      Scale: [501.6, 501.6, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.564, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11100747932625521947
+    TagComponent:
+      Tag: Slab 108
+    TransformComponent:
+      Position: [0, 0, -218]
+      Rotation: [0, 0, 0]
+      Scale: [506.16, 506.16, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.566, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4054718678239168816
+    TagComponent:
+      Tag: Slab 109
+    TransformComponent:
+      Position: [0, 0, -220]
+      Rotation: [0, 0, 0]
+      Scale: [510.72, 510.72, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.568, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15455433497562367301
+    TagComponent:
+      Tag: Slab 110
+    TransformComponent:
+      Position: [0, 0, -222]
+      Rotation: [0, 0, 0]
+      Scale: [515.28, 515.28, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.57, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8409404243176014170
+    TagComponent:
+      Tag: Slab 111
+    TransformComponent:
+      Position: [0, 0, -224]
+      Rotation: [0, 0, 0]
+      Scale: [519.84, 519.84, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.572, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1363374988789661039
+    TagComponent:
+      Tag: Slab 112
+    TransformComponent:
+      Position: [0, 0, -226]
+      Rotation: [0, 0, 0]
+      Scale: [524.4, 524.4, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.574, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12764089808112859524
+    TagComponent:
+      Tag: Slab 113
+    TransformComponent:
+      Position: [0, 0, -228]
+      Rotation: [0, 0, 0]
+      Scale: [528.96, 528.96, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.576, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5718060553726506393
+    TagComponent:
+      Tag: Slab 114
+    TransformComponent:
+      Position: [0, 0, -230]
+      Rotation: [0, 0, 0]
+      Scale: [533.52, 533.52, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.578, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17118775373049704878
+    TagComponent:
+      Tag: Slab 115
+    TransformComponent:
+      Position: [0, 0, -232]
+      Rotation: [0, 0, 0]
+      Scale: [538.08, 538.08, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.58, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10072746118663351747
+    TagComponent:
+      Tag: Slab 116
+    TransformComponent:
+      Position: [0, 0, -234]
+      Rotation: [0, 0, 0]
+      Scale: [542.64, 542.64, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.582, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3026716864276998616
+    TagComponent:
+      Tag: Slab 117
+    TransformComponent:
+      Position: [0, 0, -236]
+      Rotation: [0, 0, 0]
+      Scale: [547.2, 547.2, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.584, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14427431683600197101
+    TagComponent:
+      Tag: Slab 118
+    TransformComponent:
+      Position: [0, 0, -238]
+      Rotation: [0, 0, 0]
+      Scale: [551.76, 551.76, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.586, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7381402429213843970
+    TagComponent:
+      Tag: Slab 119
+    TransformComponent:
+      Position: [0, 0, -240]
+      Rotation: [0, 0, 0]
+      Scale: [556.32, 556.32, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.588, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 335373174827490839
+    TagComponent:
+      Tag: Slab 120
+    TransformComponent:
+      Position: [0, 0, -242]
+      Rotation: [0, 0, 0]
+      Scale: [560.88, 560.88, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.59, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11736087994150689324
+    TagComponent:
+      Tag: Slab 121
+    TransformComponent:
+      Position: [0, 0, -244]
+      Rotation: [0, 0, 0]
+      Scale: [565.44, 565.44, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.592, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4690058739764336193
+    TagComponent:
+      Tag: Slab 122
+    TransformComponent:
+      Position: [0, 0, -246]
+      Rotation: [0, 0, 0]
+      Scale: [570, 570, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.594, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16090773559087534678
+    TagComponent:
+      Tag: Slab 123
+    TransformComponent:
+      Position: [0, 0, -248]
+      Rotation: [0, 0, 0]
+      Scale: [574.56, 574.56, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.596, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9044744304701181547
+    TagComponent:
+      Tag: Slab 124
+    TransformComponent:
+      Position: [0, 0, -250]
+      Rotation: [0, 0, 0]
+      Scale: [579.12, 579.12, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.598, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1998715050314828416
+    TagComponent:
+      Tag: Slab 125
+    TransformComponent:
+      Position: [0, 0, -252]
+      Rotation: [0, 0, 0]
+      Scale: [583.68, 583.68, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.6, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13399429869638026901
+    TagComponent:
+      Tag: Slab 126
+    TransformComponent:
+      Position: [0, 0, -254]
+      Rotation: [0, 0, 0]
+      Scale: [588.24, 588.24, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.602, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6353400615251673770
+    TagComponent:
+      Tag: Slab 127
+    TransformComponent:
+      Position: [0, 0, -256]
+      Rotation: [0, 0, 0]
+      Scale: [592.8, 592.8, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.604, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17754115434574872255
+    TagComponent:
+      Tag: Slab 128
+    TransformComponent:
+      Position: [0, 0, -258]
+      Rotation: [0, 0, 0]
+      Scale: [597.36, 597.36, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.606, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10708086180188519124
+    TagComponent:
+      Tag: Slab 129
+    TransformComponent:
+      Position: [0, 0, -260]
+      Rotation: [0, 0, 0]
+      Scale: [601.92, 601.92, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.608, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3662056925802165993
+    TagComponent:
+      Tag: Slab 130
+    TransformComponent:
+      Position: [0, 0, -262]
+      Rotation: [0, 0, 0]
+      Scale: [606.48, 606.48, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.61, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15062771745125364478
+    TagComponent:
+      Tag: Slab 131
+    TransformComponent:
+      Position: [0, 0, -264]
+      Rotation: [0, 0, 0]
+      Scale: [611.04, 611.04, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.612, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8016742490739011347
+    TagComponent:
+      Tag: Slab 132
+    TransformComponent:
+      Position: [0, 0, -266]
+      Rotation: [0, 0, 0]
+      Scale: [615.6, 615.6, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.614, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 970713236352658216
+    TagComponent:
+      Tag: Slab 133
+    TransformComponent:
+      Position: [0, 0, -268]
+      Rotation: [0, 0, 0]
+      Scale: [620.16, 620.16, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.616, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12371428055675856701
+    TagComponent:
+      Tag: Slab 134
+    TransformComponent:
+      Position: [0, 0, -270]
+      Rotation: [0, 0, 0]
+      Scale: [624.72, 624.72, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.618, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5325398801289503570
+    TagComponent:
+      Tag: Slab 135
+    TransformComponent:
+      Position: [0, 0, -272]
+      Rotation: [0, 0, 0]
+      Scale: [629.28, 629.28, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.62, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16726113620612702055
+    TagComponent:
+      Tag: Slab 136
+    TransformComponent:
+      Position: [0, 0, -274]
+      Rotation: [0, 0, 0]
+      Scale: [633.84, 633.84, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.622, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9680084366226348924
+    TagComponent:
+      Tag: Slab 137
+    TransformComponent:
+      Position: [0, 0, -276]
+      Rotation: [0, 0, 0]
+      Scale: [638.4, 638.4, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.624, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2634055111839995793
+    TagComponent:
+      Tag: Slab 138
+    TransformComponent:
+      Position: [0, 0, -278]
+      Rotation: [0, 0, 0]
+      Scale: [642.96, 642.96, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.626, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14034769931163194278
+    TagComponent:
+      Tag: Slab 139
+    TransformComponent:
+      Position: [0, 0, -280]
+      Rotation: [0, 0, 0]
+      Scale: [647.52, 647.52, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.628, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6988740676776841147
+    TagComponent:
+      Tag: Slab 140
+    TransformComponent:
+      Position: [0, 0, -282]
+      Rotation: [0, 0, 0]
+      Scale: [652.08, 652.08, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.63, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 18389455496100039632
+    TagComponent:
+      Tag: Slab 141
+    TransformComponent:
+      Position: [0, 0, -284]
+      Rotation: [0, 0, 0]
+      Scale: [656.64, 656.64, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.632, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11343426241713686501
+    TagComponent:
+      Tag: Slab 142
+    TransformComponent:
+      Position: [0, 0, -286]
+      Rotation: [0, 0, 0]
+      Scale: [661.2, 661.2, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.634, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4297396987327333370
+    TagComponent:
+      Tag: Slab 143
+    TransformComponent:
+      Position: [0, 0, -288]
+      Rotation: [0, 0, 0]
+      Scale: [665.76, 665.76, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.636, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15698111806650531855
+    TagComponent:
+      Tag: Slab 144
+    TransformComponent:
+      Position: [0, 0, -290]
+      Rotation: [0, 0, 0]
+      Scale: [670.32, 670.32, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.638, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8652082552264178724
+    TagComponent:
+      Tag: Slab 145
+    TransformComponent:
+      Position: [0, 0, -292]
+      Rotation: [0, 0, 0]
+      Scale: [674.88, 674.88, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.64, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1606053297877825593
+    TagComponent:
+      Tag: Slab 146
+    TransformComponent:
+      Position: [0, 0, -294]
+      Rotation: [0, 0, 0]
+      Scale: [679.44, 679.44, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.642, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13006768117201024078
+    TagComponent:
+      Tag: Slab 147
+    TransformComponent:
+      Position: [0, 0, -296]
+      Rotation: [0, 0, 0]
+      Scale: [684, 684, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.644, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5960738862814670947
+    TagComponent:
+      Tag: Slab 148
+    TransformComponent:
+      Position: [0, 0, -298]
+      Rotation: [0, 0, 0]
+      Scale: [688.56, 688.56, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.646, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17361453682137869432
+    TagComponent:
+      Tag: Slab 149
+    TransformComponent:
+      Position: [0, 0, -300]
+      Rotation: [0, 0, 0]
+      Scale: [693.12, 693.12, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.648, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10315424427751516301
+    TagComponent:
+      Tag: Slab 150
+    TransformComponent:
+      Position: [0, 0, -302]
+      Rotation: [0, 0, 0]
+      Scale: [697.68, 697.68, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.65, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3269395173365163170
+    TagComponent:
+      Tag: Slab 151
+    TransformComponent:
+      Position: [0, 0, -304]
+      Rotation: [0, 0, 0]
+      Scale: [702.24, 702.24, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.652, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14670109992688361655
+    TagComponent:
+      Tag: Slab 152
+    TransformComponent:
+      Position: [0, 0, -306]
+      Rotation: [0, 0, 0]
+      Scale: [706.8, 706.8, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.654, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7624080738302008524
+    TagComponent:
+      Tag: Slab 153
+    TransformComponent:
+      Position: [0, 0, -308]
+      Rotation: [0, 0, 0]
+      Scale: [711.36, 711.36, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.656, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 578051483915655393
+    TagComponent:
+      Tag: Slab 154
+    TransformComponent:
+      Position: [0, 0, -310]
+      Rotation: [0, 0, 0]
+      Scale: [715.92, 715.92, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.658, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11978766303238853878
+    TagComponent:
+      Tag: Slab 155
+    TransformComponent:
+      Position: [0, 0, -312]
+      Rotation: [0, 0, 0]
+      Scale: [720.48, 720.48, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.66, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4932737048852500747
+    TagComponent:
+      Tag: Slab 156
+    TransformComponent:
+      Position: [0, 0, -314]
+      Rotation: [0, 0, 0]
+      Scale: [725.04, 725.04, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.662, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16333451868175699232
+    TagComponent:
+      Tag: Slab 157
+    TransformComponent:
+      Position: [0, 0, -316]
+      Rotation: [0, 0, 0]
+      Scale: [729.6, 729.6, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.664, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9287422613789346101
+    TagComponent:
+      Tag: Slab 158
+    TransformComponent:
+      Position: [0, 0, -318]
+      Rotation: [0, 0, 0]
+      Scale: [734.16, 734.16, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.666, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2241393359402992970
+    TagComponent:
+      Tag: Slab 159
+    TransformComponent:
+      Position: [0, 0, -320]
+      Rotation: [0, 0, 0]
+      Scale: [738.72, 738.72, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.668, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13642108178726191455
+    TagComponent:
+      Tag: Slab 160
+    TransformComponent:
+      Position: [0, 0, -322]
+      Rotation: [0, 0, 0]
+      Scale: [743.28, 743.28, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.67, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6596078924339838324
+    TagComponent:
+      Tag: Slab 161
+    TransformComponent:
+      Position: [0, 0, -324]
+      Rotation: [0, 0, 0]
+      Scale: [747.84, 747.84, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.672, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17996793743663036809
+    TagComponent:
+      Tag: Slab 162
+    TransformComponent:
+      Position: [0, 0, -326]
+      Rotation: [0, 0, 0]
+      Scale: [752.4, 752.4, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.674, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10950764489276683678
+    TagComponent:
+      Tag: Slab 163
+    TransformComponent:
+      Position: [0, 0, -328]
+      Rotation: [0, 0, 0]
+      Scale: [756.96, 756.96, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.676, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3904735234890330547
+    TagComponent:
+      Tag: Slab 164
+    TransformComponent:
+      Position: [0, 0, -330]
+      Rotation: [0, 0, 0]
+      Scale: [761.52, 761.52, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.678, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15305450054213529032
+    TagComponent:
+      Tag: Slab 165
+    TransformComponent:
+      Position: [0, 0, -332]
+      Rotation: [0, 0, 0]
+      Scale: [766.08, 766.08, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.68, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8259420799827175901
+    TagComponent:
+      Tag: Slab 166
+    TransformComponent:
+      Position: [0, 0, -334]
+      Rotation: [0, 0, 0]
+      Scale: [770.64, 770.64, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.682, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1213391545440822770
+    TagComponent:
+      Tag: Slab 167
+    TransformComponent:
+      Position: [0, 0, -336]
+      Rotation: [0, 0, 0]
+      Scale: [775.2, 775.2, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.684, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12614106364764021255
+    TagComponent:
+      Tag: Slab 168
+    TransformComponent:
+      Position: [0, 0, -338]
+      Rotation: [0, 0, 0]
+      Scale: [779.76, 779.76, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.686, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5568077110377668124
+    TagComponent:
+      Tag: Slab 169
+    TransformComponent:
+      Position: [0, 0, -340]
+      Rotation: [0, 0, 0]
+      Scale: [784.32, 784.32, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.688, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16968791929700866609
+    TagComponent:
+      Tag: Slab 170
+    TransformComponent:
+      Position: [0, 0, -342]
+      Rotation: [0, 0, 0]
+      Scale: [788.88, 788.88, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.69, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9922762675314513478
+    TagComponent:
+      Tag: Slab 171
+    TransformComponent:
+      Position: [0, 0, -344]
+      Rotation: [0, 0, 0]
+      Scale: [793.44, 793.44, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.692, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2876733420928160347
+    TagComponent:
+      Tag: Slab 172
+    TransformComponent:
+      Position: [0, 0, -346]
+      Rotation: [0, 0, 0]
+      Scale: [798, 798, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.694, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14277448240251358832
+    TagComponent:
+      Tag: Slab 173
+    TransformComponent:
+      Position: [0, 0, -348]
+      Rotation: [0, 0, 0]
+      Scale: [802.56, 802.56, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.696, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7231418985865005701
+    TagComponent:
+      Tag: Slab 174
+    TransformComponent:
+      Position: [0, 0, -350]
+      Rotation: [0, 0, 0]
+      Scale: [807.12, 807.12, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.698, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 185389731478652570
+    TagComponent:
+      Tag: Slab 175
+    TransformComponent:
+      Position: [0, 0, -352]
+      Rotation: [0, 0, 0]
+      Scale: [811.68, 811.68, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.7, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11586104550801851055
+    TagComponent:
+      Tag: Slab 176
+    TransformComponent:
+      Position: [0, 0, -354]
+      Rotation: [0, 0, 0]
+      Scale: [816.24, 816.24, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.702, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4540075296415497924
+    TagComponent:
+      Tag: Slab 177
+    TransformComponent:
+      Position: [0, 0, -356]
+      Rotation: [0, 0, 0]
+      Scale: [820.8, 820.8, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.704, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15940790115738696409
+    TagComponent:
+      Tag: Slab 178
+    TransformComponent:
+      Position: [0, 0, -358]
+      Rotation: [0, 0, 0]
+      Scale: [825.36, 825.36, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.706, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 8894760861352343278
+    TagComponent:
+      Tag: Slab 179
+    TransformComponent:
+      Position: [0, 0, -360]
+      Rotation: [0, 0, 0]
+      Scale: [829.92, 829.92, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.708, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 1848731606965990147
+    TagComponent:
+      Tag: Slab 180
+    TransformComponent:
+      Position: [0, 0, -362]
+      Rotation: [0, 0, 0]
+      Scale: [834.48, 834.48, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.71, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13249446426289188632
+    TagComponent:
+      Tag: Slab 181
+    TransformComponent:
+      Position: [0, 0, -364]
+      Rotation: [0, 0, 0]
+      Scale: [839.04, 839.04, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.712, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6203417171902835501
+    TagComponent:
+      Tag: Slab 182
+    TransformComponent:
+      Position: [0, 0, -366]
+      Rotation: [0, 0, 0]
+      Scale: [843.6, 843.6, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.714, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 17604131991226033986
+    TagComponent:
+      Tag: Slab 183
+    TransformComponent:
+      Position: [0, 0, -368]
+      Rotation: [0, 0, 0]
+      Scale: [848.16, 848.16, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.716, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 10558102736839680855
+    TagComponent:
+      Tag: Slab 184
+    TransformComponent:
+      Position: [0, 0, -370]
+      Rotation: [0, 0, 0]
+      Scale: [852.72, 852.72, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.718, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 3512073482453327724
+    TagComponent:
+      Tag: Slab 185
+    TransformComponent:
+      Position: [0, 0, -372]
+      Rotation: [0, 0, 0]
+      Scale: [857.28, 857.28, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.72, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 14912788301776526209
+    TagComponent:
+      Tag: Slab 186
+    TransformComponent:
+      Position: [0, 0, -374]
+      Rotation: [0, 0, 0]
+      Scale: [861.84, 861.84, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.722, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 7866759047390173078
+    TagComponent:
+      Tag: Slab 187
+    TransformComponent:
+      Position: [0, 0, -376]
+      Rotation: [0, 0, 0]
+      Scale: [866.4, 866.4, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.724, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 820729793003819947
+    TagComponent:
+      Tag: Slab 188
+    TransformComponent:
+      Position: [0, 0, -378]
+      Rotation: [0, 0, 0]
+      Scale: [870.96, 870.96, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.726, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 12221444612327018432
+    TagComponent:
+      Tag: Slab 189
+    TransformComponent:
+      Position: [0, 0, -380]
+      Rotation: [0, 0, 0]
+      Scale: [875.52, 875.52, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.728, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 5175415357940665301
+    TagComponent:
+      Tag: Slab 190
+    TransformComponent:
+      Position: [0, 0, -382]
+      Rotation: [0, 0, 0]
+      Scale: [880.08, 880.08, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.73, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 16576130177263863786
+    TagComponent:
+      Tag: Slab 191
+    TransformComponent:
+      Position: [0, 0, -384]
+      Rotation: [0, 0, 0]
+      Scale: [884.64, 884.64, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.732, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 9530100922877510655
+    TagComponent:
+      Tag: Slab 192
+    TransformComponent:
+      Position: [0, 0, -386]
+      Rotation: [0, 0, 0]
+      Scale: [889.2, 889.2, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.734, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 2484071668491157524
+    TagComponent:
+      Tag: Slab 193
+    TransformComponent:
+      Position: [0, 0, -388]
+      Rotation: [0, 0, 0]
+      Scale: [893.76, 893.76, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.736, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 13884786487814356009
+    TagComponent:
+      Tag: Slab 194
+    TransformComponent:
+      Position: [0, 0, -390]
+      Rotation: [0, 0, 0]
+      Scale: [898.32, 898.32, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.738, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 6838757233428002878
+    TagComponent:
+      Tag: Slab 195
+    TransformComponent:
+      Position: [0, 0, -392]
+      Rotation: [0, 0, 0]
+      Scale: [902.88, 902.88, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.74, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 18239472052751201363
+    TagComponent:
+      Tag: Slab 196
+    TransformComponent:
+      Position: [0, 0, -394]
+      Rotation: [0, 0, 0]
+      Scale: [907.44, 907.44, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.742, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 11193442798364848232
+    TagComponent:
+      Tag: Slab 197
+    TransformComponent:
+      Position: [0, 0, -396]
+      Rotation: [0, 0, 0]
+      Scale: [912, 912, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.744, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 4147413543978495101
+    TagComponent:
+      Tag: Slab 198
+    TransformComponent:
+      Position: [0, 0, -398]
+      Rotation: [0, 0, 0]
+      Scale: [916.56, 916.56, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.746, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1
+  - EntityID: 15548128363301693586
+    TagComponent:
+      Tag: Slab 199
+    TransformComponent:
+      Position: [0, 0, -400]
+      Rotation: [0, 0, 0]
+      Scale: [921.12, 921.12, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.748, 0.3, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0.1
+        Roughness: 0.6
+        Occlusion: 1

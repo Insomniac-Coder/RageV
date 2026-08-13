@@ -6,6 +6,7 @@
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
 #include "LightGrid.h"
+#include "RageV/Core/EngineConfig.h"
 #include "RageV/Math/Math.h"
 
 namespace RageV
@@ -139,6 +140,21 @@ namespace RageV
 			Ref<Mesh> MeshRef;
 			Ref<Material> MaterialRef;
 			InstanceData Instance;
+			// Distance from the eye, for ordering batches front to back.
+			float ViewDepth = 0.0f;
+		};
+
+		// A maximal span of Pending sharing one pipeline, mesh and material --
+		// exactly what becomes one instanced draw. Ordering these rather than
+		// the draws inside them is what lets depth sorting and batching
+		// coexist.
+		struct DrawRun
+		{
+			size_t Begin = 0;
+			size_t End = 0;
+			// The nearest member, which is the one whose depth writes would
+			// occlude the most.
+			float Nearest = 0.0f;
 		};
 
 		// The depth pass has no material, so its only key is the mesh.
@@ -246,6 +262,10 @@ namespace RageV
 			// Accumulated between BeginScene and EndScene, then sorted.
 			std::vector<PendingDraw> Pending;
 			std::vector<InstanceData> InstanceScratch;
+			// Kept between frames so the front-to-back reorder allocates
+			// nothing on a stable scene.
+			std::vector<DrawRun> Runs;
+			std::vector<PendingDraw> SortScratch;
 
 			// The depth pass carries only a matrix per caster.
 			std::vector<PendingShadowDraw> ShadowPending;
@@ -832,6 +852,90 @@ namespace RageV
 
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 
+		// Orders draws front to back without breaking a single batch.
+		//
+		// Early-z only skips shading a pixel once something nearer has written
+		// depth, so the order draws arrive in decides how much fragment work is
+		// wasted. Measured on 200 full-screen slabs: **0.32 ms nearest-first
+		// against 33.9 ms furthest-first**, a factor of 105. That is the ceiling,
+		// and it is what makes this worth doing.
+		//
+		// **Two levels, and the inner one is where the win actually is.**
+		//
+		// Instances *within* a run share a mesh and a material by definition, so
+		// reordering them changes nothing about the draw -- same batch, same
+		// instance count, same state -- and buys the whole of the early-z effect.
+		// This is the level that matters: the slab scene is 200 objects sharing
+		// one cube and one material, so it is a *single* batch, and reordering
+		// batches alone left it at 33.5 ms against 33.9. Sorting inside the batch
+		// is what takes it to 0.32.
+		//
+		// Runs are then ordered by their nearest member, which helps when a scene
+		// has many distinct meshes rather than many copies of one.
+		//
+		// What is deliberately *not* done is a global sort by depth. It orders
+		// perfectly and dissolves the grouping instancing depends on, and on a
+		// realistic scene that trade loses: 1500 spread-out meshes measured
+		// 0.567 ms globally depth-sorted against 0.548 ms in the grouped order,
+		// because the draw calls lost cost more than the overdraw saved.
+		auto SortBatchesFrontToBack = [&]()
+		{
+			if (!EngineConfig::Get().DepthSortOpaque)
+				return;
+
+			auto& pending = s_Data->Pending;
+			if (pending.size() < 2)
+				return;
+
+			s_Data->Runs.clear();
+
+			for (size_t begin = 0; begin < pending.size();)
+			{
+				size_t end = begin + 1;
+				while (end < pending.size() &&
+					   pending[end].Skinned == pending[begin].Skinned &&
+					   pending[end].MeshKey == pending[begin].MeshKey &&
+					   pending[end].MaterialKey == pending[begin].MaterialKey)
+				{
+					end++;
+				}
+
+				// Inside the batch. Free, and the level the measurement says
+				// carries the effect.
+				std::sort(pending.begin() + begin, pending.begin() + end,
+						  [](const PendingDraw& a, const PendingDraw& b)
+						  { return a.ViewDepth < b.ViewDepth; });
+
+				s_Data->Runs.push_back({ begin, end, pending[begin].ViewDepth });
+				begin = end;
+			}
+
+			if (s_Data->Runs.size() < 2)
+				return;
+
+			// Skinned last whatever their depth: the two pipelines must stay
+			// separated, which is the property the grouping sort guarantees.
+			std::stable_sort(s_Data->Runs.begin(), s_Data->Runs.end(),
+							 [&](const DrawRun& a, const DrawRun& b)
+							 {
+								 const bool skinnedA = pending[a.Begin].Skinned;
+								 const bool skinnedB = pending[b.Begin].Skinned;
+								 if (skinnedA != skinnedB)
+									 return !skinnedA;
+								 return a.Nearest < b.Nearest;
+							 });
+
+			s_Data->SortScratch.clear();
+			s_Data->SortScratch.reserve(pending.size());
+			for (const DrawRun& run : s_Data->Runs)
+			{
+				for (size_t i = run.Begin; i < run.End; i++)
+					s_Data->SortScratch.push_back(std::move(pending[i]));
+			}
+
+			pending.swap(s_Data->SortScratch);
+		};
+
 		// Grouped, not merely sorted. Objects arrive in registry order, which
 		// is neither, so runs of identical state only exist after this.
 		std::sort(s_Data->Pending.begin(), s_Data->Pending.end(),
@@ -847,6 +951,8 @@ namespace RageV
 						  return a.MeshKey < b.MeshKey;
 					  return a.MaterialKey < b.MaterialKey;
 				  });
+
+		SortBatchesFrontToBack();
 
 		const uint32_t count = (uint32_t)s_Data->Pending.size();
 
@@ -1284,6 +1390,12 @@ namespace RageV
 								  params.Occlusion, params.NormalScale };
 		// No bones, and the probe the scene picked for this object.
 		draw.Instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
+
+		{
+			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
+			const Vec3 centre = Vec3(transform[3]);
+			draw.ViewDepth = Math::Length(centre - eye);
+		}
 
 		// Recorded, not drawn. EndScene sorts these and issues one draw per run
 		// of identical state; drawing here is what made the count equal the

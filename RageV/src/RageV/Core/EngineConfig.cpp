@@ -79,6 +79,9 @@ namespace RageV
 		if (key == "import-cache" || key == "importcache")
 			return ParseBool(value, config.UseImportCache);
 
+		if (key == "depth-sort" || key == "depthsort")
+			return ParseBool(value, config.DepthSortOpaque);
+
 		if (key == "project")
 		{
 			config.ProjectPath = value;

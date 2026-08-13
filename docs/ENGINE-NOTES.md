@@ -1948,6 +1948,83 @@ in one switch rather than a redesign.
 
 ---
 
+## 7m. Depth sorting (7.8), and why the obvious version loses
+
+The roadmap row demanded a measurement before any code, because *two
+"obviously worth it" optimisations in this renderer have measured as
+worth nothing*. This one is worth a great deal — and the measurement
+rewrote the design twice.
+
+### The ceiling, and how to see it
+
+Early-z only skips shading a pixel once something nearer has written
+depth, so the entire value of ordering is a property of how much a
+scene overlaps itself. `tools/scripts/make_overdraw_scene.py` builds
+the worst case anyone could hand the renderer: 200 full-screen slabs
+along the view axis, depth complexity 200. Nearest-first against
+furthest-first there is **0.32 ms against 33.9 ms — a factor of about
+100.** On the 1500-mesh stress scene, which spreads its objects out,
+the same comparison is worth ~15%.
+
+So the answer is "yes, and it depends entirely on the content" — which
+is why `--depth-sort=off` exists rather than a remembered number.
+
+### Two wrong designs, both measured
+
+**A global sort by depth loses.** It orders perfectly and dissolves the
+mesh+material grouping instancing depends on: 1500 meshes measured
+**0.567 ms fully depth-sorted against 0.548 ms in the existing grouped
+order**. The draw calls lost cost more than the overdraw saved.
+
+**Sorting only the batches does nothing where it matters.** The obvious
+repair — keep the runs intact, order the runs by their nearest member —
+was built, and moved the slab scene from 33.9 ms to 33.5. The reason is
+worth keeping: those 200 slabs share one mesh and one material, so they
+are *a single batch*. Reordering batches cannot reorder anything inside
+one.
+
+**What works is sorting inside each run, and then the runs.** Instances
+within a run share a mesh and a material by definition, so reordering
+them changes nothing about the draw — same batch, same instance count,
+same state — and collects the whole early-z effect. Ordering the runs
+afterwards helps a scene made of many distinct meshes rather than many
+copies of one. Both together: 0.32 ms on the slabs, and 0.546 against
+0.607 on the stress scene.
+
+### What it costs, and what it must not change
+
+CPU goes up ~0.085 ms on 1500 objects — a sort per run plus one pass.
+Worth noting alongside that: sorted GPU time is also far *steadier*
+(spread 0.010 ms against 0.119), because unsorted overdraw depends on
+registry order, which moves as culling changes.
+
+Reordering opaque, depth-tested draws cannot change the image, and
+`check_depth_sort.py` asserts exactly that rather than a tolerance:
+**0 of 4,320,000 subpixels differ on both backends**, and the draw count
+is identical either way — which is the evidence that the grouping
+survived, since a broken batch would show up as more draws.
+
+### The trap that cost the most here
+
+The first full set of measurements showed **no difference at all**
+between nearest-first and furthest-first, on any scene. That looked
+like a real finding and was nearly written up as one.
+
+It was a stale DLL. **Each executable's directory holds its own staged
+copy of `RageV.dll`, and `cmake --build --target RageV` does not
+refresh them** — only building the *application* target does. So three
+"different" runs were the same binary. The tell should have been
+obvious: the build output never named `Renderer3D.cpp`.
+
+The fix that made it visible was a control, not a rerun: log the first
+and last draw's depth once per mode. `first=6.00 … last=404.00` against
+`first=404.00 … last=6.00` proves the ordering changed; without it,
+"the two orderings measure the same" and "the probe never ran" are the
+same observation. **When an experiment reports no difference, prove the
+independent variable actually moved before believing it.**
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

@@ -469,7 +469,7 @@ rather than missed.
 | 7.5 | Animation blend component — `BlendPoses` is written and tested, nothing drives it | M | ✅ done 2026-08-13. A change of `Clip` starts a cross-fade; no Play call, so the inspector, a script and a loaded scene all get the same easing. The outgoing clip keeps running while it fades, because a frozen source slides mid-stride. Checked against Khronos' fox — 24 bones, three real clips — through the real `UpdateAnimators`, with a zero-blend control proving the easing is the blend and not the clips differing. ENGINE-NOTES §7k |
 | 7.6 | Skinned bounds that cover the animation, not just the bind pose | M | ✅ done 2026-08-13. A box per bone in bone space from one vertex pass, then the union over sampled poses of every clip — conservative, and cheap enough to do at load. All eight corners transformed, since a rotated box's extent is not recoverable from two. Verified on the fox: its animated bounds strictly contain the bind pose and are larger, which is precisely what was culling it early. ENGINE-NOTES §7k |
 | 7.7 | Per-object reflection probe selection, replacing the per-scene choice | M | ✅ done 2026-08-12. One cube array indexed per instance, sky at slot 0; the choice rides in the instance so a run never splits. Not one array per resolution -- that reintroduces a per-draw decision. Also gave probes diffuse light, which they had never had, and found three latent RHI bugs including a Vulkan device feature never enabled |
-| 7.8 | Front-to-back depth sorting for opaque draws | S |
+| 7.8 | Front-to-back depth sorting for opaque draws | S | ✅ done 2026-08-13. Justified by measurement first, as this row demanded — and the measurement moved the design. **Instances are ordered *within* each batch**, not globally: a global depth sort orders perfectly and dissolves the grouping instancing needs, measuring 0.567 ms against 0.548 for the existing order on 1500 spread-out meshes. Sorting runs alone is not enough either — 200 slabs sharing one mesh are a *single* batch, so it did nothing there. Doing both: **0.32 ms against 33.9 ms** on that scene, a factor of ~100, and 0.546 vs 0.607 on the stress scene with far less variance. Pixel-identical and draw-count-identical on both backends; `--depth-sort=off` and `check_depth_sort.py` keep it measurable. ENGINE-NOTES §7m |
 | 7.9 | SMAA | M |
 | 7.10 | TAA — needs motion vectors first, which also buy motion blur and upscaling | L |
 | 7.11 | Startup: an import cache, and loading off the main thread | M | ✅ done 2026-08-13. Reported as "Not Responding on launch"; the measurement said `Project::Load` was 0.18s of 4.79s and 3.2s was decoding 198 MB of PNG on the first *draw*. The 7.2 cookers already existed and had one caller — the packager — so the editor re-decoded everything every launch. They now run on import into a git-ignored `<project>/Cache`, keyed on the `.meta` hash with the hash in the filename, so a lookup is a stat. Loading moved to a worker behind a progress screen shared with the runtime; uploads step on the main thread so the bar covers them too. Editor 4.79s → 2.31s warm; first open 17.2s → 4.9s on four workers (capped by memory: one 4K cook holds a 256 MB float mip 0). Found and fixed a live defect on the way: the packager cooked font atlases, block-compressing a distance field. ENGINE-NOTES §7l |
@@ -488,6 +488,34 @@ while part of it is still on screen. Both are recorded in HANDOFF §9.
 and material, which is the half of 3.6 that was worth doing; sorting by depth as
 well helps early-z and nothing else. Two "obviously worth it" optimisations in
 this renderer have measured as worth nothing.
+
+---
+
+### Phase 9 — Post processing *(the pass that already exists, extended)*
+
+The chain today is **bloom, ACES tonemap and FXAA**, in `PostProcess`, running
+over the linear HDR target before it reaches the swapchain. Everything below
+hangs off that same pass, which is why this is a phase of small items rather
+than a rewrite: the target, the resolve and the tonemap ordering already exist.
+
+**Read this before picking one:** every effect here is cheap to add and easy
+to overuse. The demo scene already looked "dead" once for reasons that turned
+out to be exposure and a featureless sky (§7g), not a missing effect — so an
+effect that hides a lighting problem is worse than no effect.
+
+| # | Item | Size | Notes |
+|---|---|---|---|
+| 9.1 | Colour grading via a 3D LUT | S | The largest look-per-cost ratio here, and what artists actually reach for. Needs `.cube` loading and a **3D texture in the RHI, which does not exist yet** — the only item here with a prerequisite |
+| 9.2 | Auto exposure / eye adaptation | M | Log-average or histogram luminance via compute, which the engine already has. **Makes the tonemap frame-dependent**, so every screenshot comparison in the repo needs a way to pin it — the same trap `--frame-time` exists for |
+| 9.3 | Vignette, chromatic aberration, film grain | S | Three short additions to the tonemap pass. Cheap enough that the risk is taste, not time |
+| 9.4 | Depth of field | M | A circle of confusion from depth, then a separable bokeh blur. The depth buffer is already a graph resource |
+| 9.5 | Motion blur | M | **Blocked on motion vectors, which 7.10 (TAA) also needs** — whichever is done first should add them |
+| 9.6 | SSAO / GTAO | M | Contact shadows IBL cannot give. Read §7g first: occlusion maps are already sampled, so measure what this adds over them rather than assuming it is missing |
+| 9.7 | Screen-space reflections | L | Overlaps per-object probes (7.7), which already handle the general case. SSR earns its place on wet floors and little else; the honest version is a *fallback* to the probe, not a replacement |
+
+**Ordering, if it matters:** 9.3 then 9.1 gives most of the visible "graded"
+look for very little. 9.2 changes how everything else is judged, so it belongs
+before the expensive items rather than after.
 
 ---
 

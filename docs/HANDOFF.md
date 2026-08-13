@@ -1491,9 +1491,26 @@ one number per animator), animation events, root motion, layers and masks,
 and scrubbing in the preview. ENGINE-NOTES §7k has the reasoning behind what
 is there.
 
-**START HERE: the rest of phase 7** -- front-to-back opaque sorting (7.8,
-measure before building), SMAA (7.9), TAA (7.10). Phase 7 is otherwise
-complete.
+**START HERE: the rest of phase 7** -- SMAA (7.9) and TAA (7.10). 7.8 is
+done. Phase 7 is otherwise complete, and **Phase 9 (post processing) was
+added 2026-08-13** at the owner's direction: seven items hanging off the
+`PostProcess` pass that already exists, with colour grading (9.1) the best
+value and the only one needing new RHI (a 3D texture).
+
+**7.8 depth sorting is done, and the measurement rewrote the design twice.**
+A *global* depth sort loses -- it dissolves the batching (0.567ms vs 0.548 on
+1500 meshes). Sorting only the *batches* does nothing where it matters -- 200
+slabs sharing one mesh are a single batch. Sorting **inside each run, then the
+runs** wins: 0.32ms vs 33.9ms on a pure-overdraw scene (~100x), 0.546 vs 0.607
+on the stress scene with a tenth the variance. Pixel-identical and
+draw-count-identical on both backends. `--depth-sort=off` +
+`check_depth_sort.py`. ENGINE-NOTES §7m.
+
+**A build trap that cost an hour and will again: each executable's directory
+holds its own staged copy of `RageV.dll`, and `--target RageV` does not
+refresh them.** Only building the application target does. Three "different"
+runs were the same binary, and it read as a genuine null result. The tell is
+that the build output never names the .cpp you edited.
 
 **Startup was rebuilt (L, 2026-08-13; ENGINE-NOTES §7l).** The complaint
 was "Not Responding on launch"; the measurement said `Project::Load` was

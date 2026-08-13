@@ -24,6 +24,7 @@
 //   --width=N --height=N    window size
 //   --audio=on|off          open an output device at all
 //   --import-cache=on|off   read and write cooked assets (default on)
+//   --depth-sort=on|off     order opaque batches front to back (default on)
 //   --project=<path>        the .rvproject to open, or a folder containing one
 //   --screenshot=<file>     write a PNG of one frame and exit
 //   --loading-screenshot=<file>  write a PNG of a frame drawn while loading
@@ -149,6 +150,17 @@ namespace RageV
 		// nothing -- which is a valid state the editor shows rather than
 		// pretending it has a project.
 		std::string ProjectPath;
+
+		// Whether opaque batches are ordered nearest-first before drawing.
+		//
+		// On by default: early-z only skips shading a pixel once something
+		// nearer has written depth, and on a scene of 200 full-screen slabs
+		// this is 0.32 ms against 33.9 ms -- a factor of 105. Off exists for
+		// the same reason --import-cache=off does: the win depends entirely
+		// on how much a scene overlaps itself, so it has to stay measurable
+		// rather than remembered. On a spread-out 1500-mesh scene the same
+		// switch is worth a few percent.
+		bool         DepthSortOpaque = true;
 
 		// Whether cooked assets may be read from and written to the project's
 		// import cache (ENGINE-NOTES 7l).
