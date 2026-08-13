@@ -31,6 +31,7 @@
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
 #include "RageV/IO/PakFile.h"
+#include "RageV/IO/TextureCook.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Core/KeyCodes.h"
 #include "RageV/Scene/ScriptRegistry.h"
@@ -4307,6 +4308,102 @@ void main()
 		}
 	}
 
+	// The texture cooker (7.2c). The claims that matter: the encode choice
+	// follows the design's rules, the container round-trips, a normal map's
+	// mips stay unit length, and a cooked file loads through the same call a
+	// PNG does.
+	void CheckTextureCook()
+	{
+		using IO::CookedPixelFormat;
+		using IO::CookedTexture;
+		using IO::TextureCook;
+
+		// An 8x8 opaque gradient: colour, no alpha -> BC1, four mips.
+		std::vector<uint8_t> gradient(8 * 8 * 4);
+		for (uint32_t i = 0; i < 64; i++)
+		{
+			gradient[i * 4 + 0] = (uint8_t)(i * 4);
+			gradient[i * 4 + 1] = (uint8_t)(255 - i * 4);
+			gradient[i * 4 + 2] = 60;
+			gradient[i * 4 + 3] = 255;
+		}
+
+		CookedTexture albedo = TextureCook::Cook(gradient.data(), 8, 8, "brick_color.png");
+		Check(albedo.Format == CookedPixelFormat::BC1 && albedo.Mips.size() == 4,
+			  "opaque colour cooks to BC1 with a full chain");
+		Check(albedo.Mips[0].size() == 4 * 8 && albedo.Mips[3].size() == 8,
+			  "and every mip is whole blocks, down to 1x1");
+
+		std::vector<uint8_t> holes = gradient;
+		holes[3] = 128;
+		Check(TextureCook::Cook(holes.data(), 8, 8, "leaf.png").Format == CookedPixelFormat::BC3,
+			  "alpha that varies cooks to BC3");
+
+		Check(TextureCook::Cook(gradient.data(), 8, 8, "soil_roughness.png").Format ==
+				  CookedPixelFormat::BC4,
+			  "a data map's name cooks it to BC4 -- content alone cannot say, "
+			  "because a grey smoke sprite is not a roughness map");
+
+		Check(TextureCook::Cook(gradient.data(), 8, 8, "soil_normal.png").Format ==
+				  CookedPixelFormat::BC5,
+			  "a normal map's name cooks it to BC5");
+
+		// Renormalized mips, observable through the RGBA8 path a tiny
+		// texture takes: two texels tilted +x and -x average to a shortened
+		// vector, and the cooker must stretch it back to unit length --
+		// z = 0.8 stays 0.8 without the fix, becomes 1.0 with it.
+		{
+			std::vector<uint8_t> tilt(2 * 1 * 4);
+			const uint8_t xPlus = (uint8_t)std::lround((0.6 * 0.5 + 0.5) * 255);
+			const uint8_t xMinus = (uint8_t)std::lround((-0.6 * 0.5 + 0.5) * 255);
+			const uint8_t z = (uint8_t)std::lround((0.8 * 0.5 + 0.5) * 255);
+			tilt[0] = xPlus;  tilt[1] = 128; tilt[2] = z; tilt[3] = 255;
+			tilt[4] = xMinus; tilt[5] = 128; tilt[6] = z; tilt[7] = 255;
+
+			CookedTexture normals = TextureCook::Cook(tilt.data(), 2, 1, "tiny_normal.png");
+			Check(normals.Format == CookedPixelFormat::RGBA8,
+				  "below a block, cooking stores RGBA8 rather than padding");
+			Check(normals.Mips.size() == 2 && normals.Mips[1].size() == 4,
+				  "and still carries its chain");
+			Check(normals.Mips[1][2] > 250,
+				  "a normal mip is renormalized -- averaged vectors are "
+				  "stretched back to unit length");
+		}
+
+		// The container: exact round trip, and the sniff that routes it.
+		const std::vector<uint8_t> bytes = TextureCook::Serialize(albedo);
+		Check(TextureCook::IsCooked(bytes.data(), bytes.size()), "cooked bytes say so");
+		Check(!TextureCook::IsCooked((const uint8_t*)"\x89PNG", 4), "PNG bytes do not");
+
+		CookedTexture back;
+		Check(TextureCook::Deserialize(back, bytes.data(), bytes.size()) &&
+			  back.Width == 8 && back.Format == albedo.Format &&
+			  back.Mips == albedo.Mips,
+			  "the container round-trips exactly");
+
+		// And the loader takes it through the same call a PNG goes through.
+		if (Renderer::HasDevice())
+		{
+			const std::filesystem::path scratch = ScratchDir("cook");
+			std::error_code error;
+			std::filesystem::create_directories(scratch, error);
+			const std::filesystem::path file = scratch / "cooked_color.png";
+			{
+				std::ofstream out(file, std::ios::binary);
+				out.write((const char*)bytes.data(), (std::streamsize)bytes.size());
+			}
+
+			auto texture = TextureLoader::Load2D(Renderer::GetDevice(),
+												 file.string(), /*srgb*/ true, true);
+			Check(texture != nullptr, "a cooked file loads where a PNG would");
+			Check(texture && texture->GetDesc().MipLevels == 4 &&
+				  texture->GetFormat() == RHI::Format::BC1_SRGB,
+				  "with its own chain and the colour space the slot asked for");
+
+			std::filesystem::remove_all(scratch, error);
+		}
+	}
+
 	// The pak and the VFS (7.1). Design: ENGINE-NOTES 7h.
 	//
 	// The property that matters is shadowing: the VFS answers the same paths
@@ -8018,6 +8115,7 @@ int RunTests(int argc, char** argv)
 	CheckReflectionProbe();
 	CheckMaterialOverrides();
 	CheckCompressedTextures();
+	CheckTextureCook();
 	CheckVfsAndPak();
 	CheckMaterialAssets();
 	CheckProbeSelection();

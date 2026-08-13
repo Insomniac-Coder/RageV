@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "TextureLoader.h"
+#include "RageV/IO/TextureCook.h"
 #include "RageV/IO/VFS.h"
 #include "stb_image.h"
 #include <filesystem>
@@ -17,20 +18,6 @@ namespace RageV
 		// A miss is logged here, because the callers cite stbi_failure_reason
 		// -- which describes the last *decode* failure, and a file that never
 		// arrived was never decoded.
-		stbi_uc* LoadPixels(const std::string& path, int* width, int* height, int channels)
-		{
-			std::vector<uint8_t> bytes;
-			if (!VFS::ReadBytes(path, bytes))
-			{
-				RV_CORE_ERROR("Texture '{0}' does not exist, loose or in a pak", path);
-				return nullptr;
-			}
-
-			int unused = 0;
-			return stbi_load_from_memory(bytes.data(), (int)bytes.size(),
-										 width, height, &unused, channels);
-		}
-
 		float* LoadPixelsF(const std::string& path, int* width, int* height, int channels)
 		{
 			std::vector<uint8_t> bytes;
@@ -114,10 +101,50 @@ namespace RageV
 		if (const auto it = s_Cache.find(key); it != s_Cache.end())
 			return it->second;
 
-		int width = 0, height = 0;
+		std::vector<uint8_t> bytes;
+		if (!VFS::ReadBytes(path, bytes))
+		{
+			RV_CORE_ERROR("Texture '{0}' does not exist, loose or in a pak", path);
+			return nullptr;
+		}
+
+		// A cooked texture, if that is what the pak holds under this name:
+		// same path, same handle, different bytes. The chain is uploaded
+		// level by level and nothing is decoded or generated -- which is the
+		// whole point of cooking it.
+		if (IO::TextureCook::IsCooked(bytes.data(), bytes.size()))
+		{
+			IO::CookedTexture cooked;
+			if (!IO::TextureCook::Deserialize(cooked, bytes.data(), bytes.size()))
+			{
+				RV_CORE_ERROR("Cooked texture '{0}' will not parse", path);
+				return nullptr;
+			}
+
+			TextureDesc desc;
+			desc.Width = cooked.Width;
+			desc.Height = cooked.Height;
+			desc.Format = IO::TextureCook::PixelFormat(cooked.Format, srgb);
+			desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+			desc.MipLevels = (uint32_t)cooked.Mips.size();
+			desc.DebugName = path;
+
+			auto texture = device.CreateTexture(desc);
+			for (uint32_t mip = 0; mip < cooked.Mips.size(); mip++)
+				texture->UploadMip(cooked.Mips[mip].data(), cooked.Mips[mip].size(), mip, 0);
+
+			s_Cache[key] = texture;
+			RV_CORE_INFO("Loaded cooked texture {0} ({1}x{2}, {3} mips, {4})", path,
+						 cooked.Width, cooked.Height, cooked.Mips.size(),
+						 srgb ? "sRGB" : "linear");
+			return texture;
+		}
+
+		int width = 0, height = 0, ignored = 0;
 		// Forced to 4 channels: 3-channel uploads need row alignment handling
 		// that is not worth the memory saved.
-		stbi_uc* pixels = LoadPixels(path, &width, &height, 4);
+		stbi_uc* pixels = stbi_load_from_memory(bytes.data(), (int)bytes.size(),
+												&width, &height, &ignored, 4);
 		if (!pixels)
 		{
 			RV_CORE_ERROR("Failed to load texture '{0}': {1}", path, stbi_failure_reason());

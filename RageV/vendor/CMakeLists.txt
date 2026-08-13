@@ -12,10 +12,12 @@ target_include_directories(glad PUBLIC GLAD/include)
 set_target_properties(glad PROPERTIES FOLDER ${VENDOR_FOLDER})
 
 # ---------------------------------------------------------------------------
-# stb -- image load/write (source drop)
+# stb -- image load/write, and the BC encoder the texture cooker uses
+# (source drop; stb_dxt is public domain like the rest)
 # ---------------------------------------------------------------------------
-add_library(stb STATIC stb_image/stb_image.cpp stb_image/stb_write_image.cpp)
-target_include_directories(stb PUBLIC stb_image)
+add_library(stb STATIC stb_image/stb_image.cpp stb_image/stb_write_image.cpp
+				   stb_dxt/stb_dxt.cpp)
+target_include_directories(stb PUBLIC stb_image stb_dxt)
 set_target_properties(stb PROPERTIES FOLDER ${VENDOR_FOLDER})
 
 # ---------------------------------------------------------------------------
