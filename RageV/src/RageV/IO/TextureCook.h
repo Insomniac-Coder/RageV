@@ -65,5 +65,18 @@ namespace RageV::IO
 		// slot asked for. BC4/BC5 have no sRGB variant and are never asked
 		// for one -- data maps load linear.
 		static RHI::Format PixelFormat(CookedPixelFormat format, bool srgb);
+
+		// Linear value to sRGB byte, the two ways: the fast path the cooker
+		// actually uses, and the plain `pow`-and-round definition it must
+		// agree with everywhere.
+		//
+		// Exposed *only* so a check can sweep them against each other. The
+		// fast path is a table lookup plus a correction, and the argument for
+		// why that is exact depends on bucket widths against threshold
+		// spacings -- an argument, not a proof, and one whose first version
+		// was wrong by two bytes in 190 MB. A comparison over every float in
+		// range settles it in a way that reading the code cannot.
+		static uint8_t EncodeSrgbByte(float linear);
+		static uint8_t EncodeSrgbByteReference(float linear);
 	};
 }

@@ -1831,47 +1831,75 @@ computed the same thing faster.
 The peak, not the count, is the next thing to attack if this needs to
 be quicker again.
 
-### Where cooking actually spends its time — measured, and NOT acted on
+### Making the cook faster, and the three wrong turns on the way
 
-Before adding more threads, the cook was broken into phases (temporary
-instrument, since removed). Summed CPU across workers, 19 textures of
-the 4K set:
+The question was "should the worker pool size itself from the CPU?".
+The answer turned out to be no, and getting there cost three mistakes
+worth more than the code.
 
-| phase | | share |
-|---|---|---|
-| `ToBytes` | 7.49 s | **47.5%** |
-| `ToFloat` | 3.95 s | 25.0% |
-| BC encode | 3.13 s | 19.8% |
-| `Downsample` | 1.15 s | 7.3% |
+**Where the time goes** (mains power, `rvpack`, whole project):
+packaging with `--raw` — no cooking at all — is **0.72 s** against
+**12.84 s** cooking, so cooking is 95% of it. Inside the texture path,
+11.38 s of that: **cook 76%, PNG decode 23%, writing out 1%**. So
+decoding is not the problem; the mip-and-compress pass is.
 
-**Nearly three quarters of cooking is the two per-texel conversion
-loops, and block compression — the part that sounds expensive — is a
-fifth.** Two specific causes, both cheap to remove and both *exactly*
-replaceable:
+**Wrong turn one: the profile was taken on battery.** Broken into
+phases under power saver, the two per-texel conversion loops read as
+72% of cooking and block compression as 20%. Under power saver the CPU
+throttles and memory does not, so arithmetic's share is inflated. On
+mains the same loops are a much smaller slice. **Profile in the power
+state you care about** — this one pointed straight at the wrong work,
+and the "40% faster" it produced evaporated the moment the laptop was
+plugged in.
 
-- `ToFloat` and `ToBytes` call `std::pow` per channel for the sRGB
-  transfer function. `ToFloat`'s input is always a byte over 255, so a
-  **256-entry table is exact by construction**. The reverse is exact
-  too, via the 255 linear thresholds at which the encoded byte steps
-  up: `t[i] = SrgbToLinear((i + 0.5)/255)`, then the byte is an
-  `upper_bound` — eight comparisons instead of a `pow`.
-- `ToBytes` calls **`std::lround` four times per texel** — 67 million
-  libm calls for one 4K map. For values already clamped to [0,1] it is
-  identical to `(uint8_t)(v * 255.0f + 0.5f)`. This is why
-  `wood_normal`, which does no gamma work at all, still spends 1.0 s of
-  its 1.6 s in `ToBytes`.
+**Wrong turn two: `pow` was replaced with a binary search.** The
+conversion had `std::pow` per channel and `std::lround` four times per
+texel (67 million libm calls for one 4K map). Replacing the reverse
+transfer with a 255-entry threshold table and `upper_bound` measured as
+**exactly nothing** on mains: 12.84 s before, 12.88 s after. Eight
+unpredictable branches cost about what a `pow` costs, so the win in
+`ToFloat` was handed straight back in `ToBytes`. *A lookup table is not
+automatically faster than the maths it replaces.*
 
-And every loop here — `ToFloat`, `ToBytes`, `Downsample`,
-`RenormalizeNormals`, `EncodeMip` — is per-row or per-block with
-disjoint outputs, so **one asset can use the whole machine at roughly
-one asset's memory**. That is the scaling axis that does not trade
-memory for cores, and it is the one to take before raising the
-four-worker cap.
+**What worked was removing the branches.** `SrgbCandidates` is a
+4096-entry direct-indexed table holding the answer for the lowest value
+in each bucket, plus one branchless comparison to correct it. The
+bucket size is the whole argument: entry k is never above the true
+answer because the function only increases, and never more than one
+below because a bucket (2.44e-4) is narrower than the closest two
+thresholds ever come (1/3294.6 ≈ 3.04e-4, in the darks where sRGB is a
+straight line). **12.84 s → 9.70 s**, and the editor's first open
+3.90 s → 3.47 s.
 
-**Deliberately not built (owner's call, 2026-08-13): the remaining win
-was judged not worth the change right now.** Recorded here because the
-measurement is already paid for, and the conclusion is the useful part:
-*the expensive thing was not the compressor.*
+**Wrong turn three: "bit-identical" was claimed before it was true.**
+The first threshold table was built by carrying the midpoint
+`(i + 0.5)/255` back through `SrgbToLinear` — correct in real
+arithmetic, wrong in floating point, because the two transfers are not
+exact inverses and a value sitting on a rounding boundary lands on the
+far side. It moved **2 bytes in 190 MB** of cooked output: invisible
+under any pixel tolerance, and still a silent change to shipped
+content. The thresholds are now found by *bisecting the float bit
+pattern against the reference function itself*, which is exact by
+construction. The whole project's pak now hashes identically before and
+after (`e8405c2f`), verified under identical full builds.
+
+**The check that makes this safe is a sweep, not a rendering.**
+`CheckSrgbEncode` compares the fast path against `pow`-and-round over
+221,800 values — a dense uniform sweep, both float neighbours of every
+byte boundary, the linear segment where the margin is thinnest, and
+out-of-range inputs. Falsified by deleting the correction: it fails,
+first at 0.000155, exactly in the darks the bucket argument is tightest
+about. A pixel diff would not have caught two bytes in 190 MB; this
+does.
+
+**Parallelism inside one asset was built and then removed.** Every loop
+here is per-row or per-block with disjoint outputs, so one asset can use
+the whole machine at one asset's memory — the axis that scales with the
+CPU without scaling memory with it. Measured on mains: **zero**
+(12.88 s with it, 12.86 s with it forced off). These loops are not
+short of cores. It is recorded rather than kept, because the honest
+version of "should this scale with the CPU?" is that on this machine it
+already has all the CPU it can use.
 
 ### The bug the guard found on the way past
 

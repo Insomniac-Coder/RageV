@@ -1520,14 +1520,23 @@ New flags: `--import-cache=on|off` (the ablation the pixel check needs)
 and `--loading-screenshot=<file>`. New check:
 `tools/scripts/check_import_cache.py`.
 
-**Measured but deliberately not built** (owner's call): cooking is
-**47.5% `ToBytes`, 25% `ToFloat`, 19.8% BC encode, 7.3% downsample** --
-so it is the per-texel conversion loops, not the compressor. `ToBytes`
-calls `std::lround` four times per texel (67M libm calls per 4K map)
-and the gamma transfer uses `std::pow`; both have *exact* replacements
-(a 256-entry table, and `(uint8_t)(v * 255 + 0.5f)`). Every loop in the
-cooker is also per-row/per-block, so one asset could use the whole
-machine at one asset's memory. See ENGINE-NOTES §7l.
+**The cooker got faster, bit-identically** (ENGINE-NOTES §7l): `rvpack`
+**12.84s -> 9.70s**, editor first open **3.90s -> 3.47s**, with the
+project's pak hashing the same before and after. `std::pow` and
+`std::lround` in the per-texel loops are gone, replaced by a 4096-entry
+**direct-indexed** table plus one branchless correction. `CheckSrgbEncode`
+sweeps 221,800 values against `pow`-and-round; falsify it by deleting
+the correction.
+
+Three traps from it, all recorded in §7l: **profile in the power state
+you care about** (the profile that started this was taken on battery and
+pointed at the wrong work); **a lookup table is not automatically faster
+than the maths** (the first version used a binary search and measured as
+zero -- eight unpredictable branches cost what a `pow` costs); and
+**building a threshold table by inverting the transfer is wrong in
+floating point** (2 bytes differed in 190 MB -- bisect against the
+reference instead). Parallelism *inside* one asset was built, measured
+at zero on mains, and removed.
 
 **Still open**: `.hdr` skies are converted to cube faces and convolved
 on every load -- cooking those is a third format and its own feature.

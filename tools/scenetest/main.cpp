@@ -4462,6 +4462,83 @@ void main()
 		}
 	}
 
+	// The cooker's fast sRGB encode against the definition it replaced.
+	//
+	// This is the one place in the cook where "it looks the same" would not
+	// have been good enough, because the fast path is a table lookup whose
+	// correctness rests on an *argument* about bucket widths rather than on
+	// anything visible. The first version of that argument was wrong -- two
+	// bytes in 190 MB of cooked output, far under any pixel tolerance and
+	// still a silent change to shipped content.
+	//
+	// So this sweeps every float the cooker can hand it, and a mismatch is
+	// one check rather than a rendering somebody has to notice.
+	void CheckSrgbEncode()
+	{
+		using IO::TextureCook;
+
+		// Every float bit pattern in [0, 1] is four billion values, which is
+		// a minute of wall time for a suite that has to stay quick. These are
+		// where a table lookup can plausibly land on the wrong side: the two
+		// ends, the linear/power junction, and the exact thresholds
+		// themselves, plus their immediate float neighbours.
+		size_t checked = 0;
+		int mismatches = 0;
+		float worstAt = 0.0f;
+
+		auto compare = [&](float v)
+		{
+			checked++;
+			if (TextureCook::EncodeSrgbByte(v) != TextureCook::EncodeSrgbByteReference(v))
+			{
+				if (mismatches == 0)
+					worstAt = v;
+				mismatches++;
+			}
+		};
+
+		// A dense uniform sweep, finer than the table's own buckets so that
+		// every bucket is hit many times.
+		for (int i = 0; i <= 200000; i++)
+			compare((float)i / 200000.0f);
+
+		// Both sides of every byte boundary, which is where the correction
+		// either fires or fails to.
+		for (int b = 0; b < 256; b++)
+		{
+			const float centre = std::pow(((float)b / 255.0f + 0.055f) / 1.055f, 2.4f);
+			for (int step = -3; step <= 3; step++)
+			{
+				float v = centre;
+				for (int n = 0; n < std::abs(step); n++)
+					v = std::nextafter(v, step < 0 ? 0.0f : 1.0f);
+				compare(v);
+			}
+		}
+
+		// The linear segment, where the thresholds are tightest and the
+		// bucket-width argument is at its narrowest margin.
+		for (int i = 0; i <= 20000; i++)
+			compare(0.0031308f * (float)i / 20000.0f);
+
+		// Out of range, which the cooker does produce: a downsampled normal
+		// map can land a hair outside [0,1].
+		for (float v : { -1.0f, -0.001f, 0.0f, 1.0f, 1.001f, 2.0f })
+			compare(v);
+
+		Check(mismatches == 0,
+			  "the fast sRGB encode matches pow-and-round on all " +
+				  std::to_string(checked) + " values swept" +
+				  (mismatches ? " (first differs at " + std::to_string(worstAt) + ")" : ""));
+
+		// A control: the check above can only mean something if the two
+		// functions are capable of disagreeing at all.
+		Check(TextureCook::EncodeSrgbByte(0.0f) == 0 &&
+			  TextureCook::EncodeSrgbByte(1.0f) == 255 &&
+			  TextureCook::EncodeSrgbByte(0.5f) == 188,
+			  "and it encodes the ends and the midpoint as sRGB, not linearly");
+	}
+
 	// The bar the loading screen draws (7l).
 	//
 	// Small, and worth checking anyway: the two properties here are ones a
@@ -8782,6 +8859,7 @@ int RunTests(int argc, char** argv)
 	CheckCompressedTextures();
 	CheckTextureCook();
 	CheckMeshCook();
+	CheckSrgbEncode();
 	CheckBootProgress();
 	CheckImportCache();
 	CheckVfsAndPak();
