@@ -1298,6 +1298,19 @@ loose-vs-pak; and the end-to-end that matters -- package Knockdown, run the
 folder standalone on both backends, and the screenshots must be
 pixel-identical to the same game packaged loose.
 
+**Built, and the E2E earned its keep (2026-08-13).** The first pak run
+differed from the loose run by 9733 subpixels -- deterministically, the same
+count on both backends -- and the diff heatmap was *legible*: it spelled out
+the HUD text. One `std::filesystem::exists` had not gone through the VFS (the
+font's atlas, AssetManager), so the packaged game silently fell back to the
+default font. The control that made the verdict trustworthy: two runs of the
+same loose package differ by 12 subpixels (particle noise under a pinned
+frame clock), so 9733 was signal. After the fix: 12 on both backends -- the
+noise floor exactly. The lesson generalises: **when a subsystem grows a
+routing layer, grep for every direct existence check, not just every read** --
+a read that misses fails loudly, an existence check that misses quietly picks
+the fallback path. Suite: 1197 checks, both backends, Release included.
+
 ---
 
 ## 8. What this changes

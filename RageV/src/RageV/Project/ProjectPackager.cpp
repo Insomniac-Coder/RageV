@@ -3,6 +3,8 @@
 #include "Project.h"
 #include "ModuleBuild.h"
 #include "RageV/Core/Log.h"
+#include "RageV/IO/PakFile.h"
+#include "RageV/IO/VFS.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/UI/Interaction.h"
@@ -359,8 +361,44 @@ namespace RageV
 		// .meta sidecars come with it. They are the identity: a scene refers to
 		// an asset by handle and the handle lives in the sidecar, so a build
 		// without them is a build where nothing resolves.
-		if (!CopyTree(Project::AssetRoot(), desc.OutputDirectory / kContentDirectory, result))
-			return result;
+		//
+		// One archive by default: content.pak, which Project::Load mounts over
+		// content/ so the same paths resolve either way. Loose is the
+		// debugging escape hatch -- swap one file to test a fix -- and both
+		// forms carry exactly the tree the VFS enumeration sees.
+		if (desc.LooseContent)
+		{
+			if (!CopyTree(Project::AssetRoot(), desc.OutputDirectory / kContentDirectory, result))
+				return result;
+		}
+		else
+		{
+			IO::PakWriter writer;
+			for (const std::string& relative : IO::VFS::Enumerate(Project::AssetRoot()))
+			{
+				// Bytes through the VFS, not fopen: the project being packed
+				// may itself be running from a pak, and the enumeration just
+				// promised these paths resolve.
+				std::vector<uint8_t> bytes;
+				if (!IO::VFS::ReadBytes(Project::AssetRoot() / relative, bytes) ||
+					!writer.AddBytes(relative, std::move(bytes)))
+				{
+					result.Errors.push_back("could not pack " + relative);
+					return result;
+				}
+			}
+
+			const fs::path pak =
+				desc.OutputDirectory / (std::string(kContentDirectory) + ".pak");
+			if (!writer.Write(pak))
+			{
+				result.Errors.push_back("could not write " + pak.string());
+				return result;
+			}
+
+			result.FilesCopied += writer.Count();
+			result.BytesCopied += writer.TotalBytes();
+		}
 
 		WriteProjectFile(desc.OutputDirectory / (name + Project::kExtension), config);
 		WriteConfigFile(desc.OutputDirectory / "ragev.ini");

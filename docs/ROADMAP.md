@@ -462,7 +462,7 @@ rather than missed.
 
 | # | Item | Size |
 |---|---|---|
-| 7.1 | Archive format (`.pak`) **and** the virtual file system it needs | L |
+| 7.1 | Archive format (`.pak`) **and** the virtual file system it needs | L | ✅ done 2026-08-13. A mount shadows a directory: the VFS answers the same paths the filesystem would, so no call site can tell where bytes come from. Packaging writes `content.pak` (`--loose` keeps the folder form); `Project::Load` mounts it. Proven by pixel diff: Knockdown packaged both ways renders identically to the run-to-run noise floor on both backends — and the diff caught the one existence check that had not gone through the VFS, which cost the packaged HUD its font. Design: ENGINE-NOTES §7h |
 | 7.2 | Asset cooking — parse glTF and decode images at build time, not at load | L |
 | 7.3 | Materials as assets, so two entities can share one from the inspector | M | ✅ done 2026-08-13. `.rmat` carrying the five texture maps by handle, plus per-entity scalar overrides — the asset is what the descriptor set holds, the override is what the instance stream holds, which is the line `Material::GetBatchKey` already drew. **The real defect was not sharing but persistence**: `Material` has had all five maps since phase 3 and only the glTF importer could set them, so an imported model lost its textures on the first save. Legacy inline materials convert to overrides losslessly — demo.rage renders pixel-identical |
 | 7.4 | Billboard icons for lights, cameras and probes, and picking that hits them | M |

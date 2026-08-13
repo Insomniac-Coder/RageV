@@ -3,6 +3,7 @@
 #include "GameModule.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RageV/IO/VFS.h"
 #include "RageV/Managed/Interop.h"
 #include "yaml-cpp/yaml.h"
 #include <algorithm>
@@ -139,6 +140,18 @@ namespace RageV
 		loaded->Config.FixedHz = std::clamp(ReadUInt(project, "FixedHz", 60u), 20u, 240u);
 
 		s_Active = std::move(loaded);
+
+		// A packaged project's content is an archive named after its asset
+		// directory -- content.pak where content/ would have been. Mounted
+		// here, inside Load, so every caller's registry scan is downstream of
+		// it; and over whatever the previous project mounted, which is why the
+		// old mounts go first. A development project has no pak and mounts
+		// nothing, which costs nothing.
+		IO::VFS::UnmountAll();
+		const std::filesystem::path pak =
+			s_Active->Root / (s_Active->Config.AssetDirectory + ".pak");
+		if (std::filesystem::exists(pak, error))
+			IO::VFS::MountPak(AssetRoot(), pak);
 
 		RV_CORE_INFO("Project '{0}' opened at {1}", s_Active->Config.Name,
 					 s_Active->Root.string());
@@ -491,6 +504,9 @@ namespace RageV
 	void Project::Close()
 	{
 		GameModule::Unload();
+		// Every mount was filled from this project; none of them can answer
+		// for the next one.
+		IO::VFS::UnmountAll();
 		s_Active.reset();
 	}
 

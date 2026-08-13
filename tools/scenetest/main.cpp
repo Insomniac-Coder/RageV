@@ -6707,16 +6707,40 @@ void main()
 			  "a project file ships beside it");
 		Check(std::filesystem::exists(output / "assets" / "shaders" / "pbr.rvshader"),
 			  "engine assets ship, or the renderer cannot start");
-		Check(std::filesystem::exists(output / "content" / "scenes" / "main.rage"),
-			  "and the project's assets, under content/");
 		Check(std::filesystem::exists(output / "ragev.ini"),
 			  "with a config file the player can edit");
 
-		// The sidecar is the identity: a scene refers to an asset by handle and
-		// the handle lives in the .meta. A build without them is a build where
+		// The content is one archive since 7.1; Project::Load mounts it over
+		// content/, so the shipped project file's AssetDirectory still names
+		// the directory the pak shadows. The sidecars ride inside it -- they
+		// are the identity: a scene refers to an asset by handle and the
+		// handle lives in the .meta, so a pak without them is a pak where
 		// every reference resolves to nothing.
-		Check(std::filesystem::exists(output / "content" / "scenes" / "main.rage.meta"),
-			  "the .meta sidecars ship, because they are the asset identity");
+		Check(std::filesystem::exists(output / "content.pak"),
+			  "the project's assets ship as one archive");
+		Check(!std::filesystem::exists(output / "content"),
+			  "and not as a loose tree beside it");
+		{
+			IO::PakReader pak;
+			Check(pak.Open(output / "content.pak"), "which opens as a pak");
+			Check(pak.Contains("scenes/main.rage"),
+				  "holding the scene at the path the mount will answer");
+			Check(pak.Contains("scenes/main.rage.meta"),
+				  "and the .meta sidecars, because they are the asset identity");
+		}
+
+		// The escape hatch: a loose build is one where a single file can be
+		// swapped to test a fix without repacking.
+		{
+			PackageDesc loose = desc;
+			loose.OutputDirectory = output.parent_path() / "packaged-loose";
+			loose.LooseContent = true;
+			Check(PackageProject(loose).Success, "a loose build packages on request");
+			Check(std::filesystem::exists(loose.OutputDirectory / "content" /
+										  "scenes" / "main.rage.meta"),
+				  "and ships the old folder layout, sidecars included");
+			std::filesystem::remove_all(loose.OutputDirectory, error);
+		}
 
 		// --- the shipped project file must describe the shipped layout ---------
 		{

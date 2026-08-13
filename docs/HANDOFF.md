@@ -1393,10 +1393,26 @@ checks on both backends, validation clean. The instrument stays in the tree;
 any future derivative-convention doubt is one render plus one script away.
 Full writeup: ENGINE-NOTES 7g.
 
-**START HERE: the rest of phase 7** -- see the list under "Phase 7" above:
-`.pak` + VFS (7.1/7.2, both or neither), billboard icons (7.4), animation
-blending (7.5), skinned bounds (7.6), front-to-back opaque sorting (7.8,
-measure before building), SMAA (7.9), TAA (7.10).
+**Done: 7.1, the pak and the VFS (2026-08-13).** A mount shadows a directory
+-- the VFS answers the same paths the filesystem would -- so a development
+run mounts nothing and costs nothing, and a shipped game has `content.pak`
+where `content/` used to be (`rvpack --loose` keeps the folder form for
+debugging). Every content reader routes through it: textures from memory,
+the YAML serializers, cgltf via file callbacks, the registry scan (which
+trusts pak entries and never re-hashes or rewrites them), and audio through
+a ma_vfs bridge, streaming from the archive on its own thread. Proven by
+pixel diff: Knockdown packaged pak and loose renders identically to the
+run-to-run noise floor (12 subpixels) on both backends -- and getting there
+caught a real bug, an existence check that had not gone through the VFS and
+silently cost the packaged HUD its font. When a subsystem grows a routing
+layer, grep for the existence checks, not just the reads: a missed read
+fails loudly, a missed existence check quietly picks the fallback. Design
+and full writeup: ENGINE-NOTES 7h.
+
+**START HERE: the rest of phase 7** -- asset cooking (7.2, the pak's other
+hat: decode images and parse glTF at build time), billboard icons (7.4),
+animation blending (7.5), skinned bounds (7.6), front-to-back opaque sorting
+(7.8, measure before building), SMAA (7.9), TAA (7.10).
 
 The user's 4K Poly Haven materials are committed at full resolution (their
 call, 2026-08-13; ~198 MB -- forest_ground_06 as soil, bamboo_wall_02 as

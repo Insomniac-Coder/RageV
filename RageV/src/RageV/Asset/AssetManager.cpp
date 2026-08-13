@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "AssetManager.h"
+#include "RageV/IO/VFS.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
@@ -423,7 +424,10 @@ namespace RageV::Assets
 		const std::filesystem::path metrics = Registry::GetAbsolutePath(handle);
 		const std::filesystem::path atlas = metrics.parent_path() / font->AtlasFile;
 
-		if (!std::filesystem::exists(atlas))
+		// Through the VFS, like every content read: an atlas inside a pak does
+		// not exist on disk, and this check saying so cost the packaged HUD
+		// its font -- the E2E's pixel diff is what caught it.
+		if (!IO::VFS::Exists(atlas))
 		{
 			RV_CORE_ERROR("Font {0} names an atlas that is not there: {1}",
 						  metrics.filename().string(), font->AtlasFile);

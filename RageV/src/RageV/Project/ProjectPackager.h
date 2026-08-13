@@ -35,6 +35,14 @@ namespace RageV
 		// build regardless -- but it has to be asked for, so nobody ships one
 		// by not noticing.
 		bool AllowDeadBindings = false;
+
+		// Ship the content as a loose folder instead of content.pak.
+		//
+		// A debugging affordance: a loose build is one where a single file can
+		// be swapped to test a fix without repacking. The default is the
+		// archive, because the archive is what players get and the thing that
+		// ships should be the thing that was tested.
+		bool LooseContent = false;
 	};
 
 	struct PackageResult
@@ -54,28 +62,23 @@ namespace RageV
 
 	// Turns the open project into a folder someone else can run.
 	//
-	// The output is a directory, not an archive. An archive needs a virtual
-	// file system on the loading side to be worth anything, and every asset
-	// path in the engine currently goes through std::filesystem -- so packing
-	// would mean either a pack format nothing can read or a VFS layer, which
-	// is a larger feature than this one. A folder that runs is the whole of
-	// the value and none of that cost.
-	//
 	// Layout:
 	//     <output>/<Name>.exe          the runtime
 	//     <output>/<Name>.rvproject    rewritten to point at content/
 	//     <output>/assets/             engine assets: shaders, fonts
-	//     <output>/content/            the project's assets, .meta included
+	//     <output>/content.pak         the project's assets, .meta included
 	//     <output>/ragev.ini           backend and vsync, editable by the player
 	//
-	// The project's assets land in `content/` rather than merging into
-	// `assets/`, so the split 4.1 established -- engine assets the renderer
-	// needs versus project assets addressed by handle -- survives into the
-	// shipped game.
+	// The content is one archive (7.1) -- `content/` as a loose folder only
+	// under LooseContent -- and `Project::Load` mounts it over the asset root,
+	// so the same paths resolve either way. Engine assets stay a loose tree:
+	// the renderer needs them before any project opens, and shader iteration
+	// in development is precious.
 	//
-	// `.meta` sidecars ship. They are the identity: a scene refers to an asset
-	// by handle, and the handle lives in the sidecar. Leaving them out produces
-	// a game whose every asset reference resolves to nothing.
+	// `.meta` sidecars ship, inside the pak. They are the identity: a scene
+	// refers to an asset by handle, and the handle lives in the sidecar.
+	// Leaving them out produces a game whose every asset reference resolves
+	// to nothing.
 	PackageResult PackageProject(const PackageDesc& desc);
 
 	// Where the runtime probably is, given where this executable is.

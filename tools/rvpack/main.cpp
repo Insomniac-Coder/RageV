@@ -34,7 +34,9 @@ namespace
 			"  --overwrite        build into a directory that already has files in it\n"
 			"  --runtime=<exe>    the runtime to ship; found automatically otherwise\n"
 			"  --engine-assets=<dir>\n"
-			"                     shaders and fonts; taken from beside the runtime otherwise\n";
+			"                     shaders and fonts; taken from beside the runtime otherwise\n"
+			"  --loose            ship content/ as a folder instead of content.pak,\n"
+			"                     so single files can be swapped while debugging\n";
 	}
 }
 
@@ -59,6 +61,10 @@ int main(int argc, char** argv)
 		if (argument == "--overwrite")
 		{
 			desc.Overwrite = true;
+		}
+		else if (argument == "--loose")
+		{
+			desc.LooseContent = true;
 		}
 		else if (argument == "--allow-dead-bindings")
 		{
