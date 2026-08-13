@@ -16,8 +16,11 @@
 // greyscale maps the shader samples, which means reading a PNG and writing two.
 #include "stb_image.h"
 #include "stb_write_image.h"
+#include <atomic>
+#include <chrono>
 #include <fstream>
 #include <sstream>
+#include <thread>
 
 namespace RageV::Assets
 {
@@ -265,6 +268,17 @@ namespace RageV::Assets
 		for (const Pending& item : pending)
 			total += item.Bytes;
 
+		// Largest first.
+		//
+		// Longest-processing-time-first: with several workers pulling from
+		// one queue, the finish time is decided by whatever is still running
+		// at the end, and the worst case is a 40 MB normal map being handed
+		// out last while three workers sit idle behind it. Sorting big to
+		// small leaves only small pieces for the tail. Free, and it costs
+		// nothing on a warm cache where every item is a file read.
+		std::sort(pending.begin(), pending.end(),
+				  [](const Pending& a, const Pending& b) { return a.Bytes > b.Bytes; });
+
 		// Handed over before the cooking loop, so that a cancelled boot still
 		// leaves UploadPrepared with a consistent (if unfinished) list rather
 		// than one from the previous scene.
@@ -279,32 +293,77 @@ namespace RageV::Assets
 			return;
 		}
 
-		// Weighted by bytes when the sizes are known, and by count when they
-		// are not -- a project served entirely from a pak has no file sizes
-		// to ask for, and an all-zero denominator would pin the bar at zero.
-		uint64_t done = 0;
-		size_t index = 0;
+		// Cooked in parallel, because that is the slow case and it is
+		// embarrassingly parallel: every asset is an independent decode and
+		// encode, and the cookers hold nothing but `constexpr` state.
+		//
+		// **Bounded by memory, not by cores.** Cooking one 4K map holds its
+		// mip 0 as float -- 4096x4096x4 floats, 256 MB -- plus the byte
+		// buffer it encodes from, so each worker peaks in the hundreds of
+		// megabytes. Running one per hardware thread on a 16-thread machine
+		// would ask for several gigabytes to save a few seconds, and a
+		// machine that starts swapping is slower than the serial version it
+		// replaced. Four is the compromise, and the better optimisation is
+		// the peak rather than the count.
+		//
+		// Warm boots do none of this work -- every Fetch is a file read --
+		// so the threads cost a spawn and nothing else.
+		const unsigned hardware = std::thread::hardware_concurrency();
+		const size_t workers = std::min<size_t>(
+			pending.size(), std::max(1u, std::min(hardware ? hardware : 1u, 4u)));
 
-		for (const Pending& item : pending)
+		std::atomic<size_t> next{ 0 };
+		std::atomic<uint64_t> done{ 0 };
+		std::atomic<size_t> finished{ 0 };
+
+		auto cook = [&]()
 		{
-			if (progress.Cancelled())
-				return;
+			for (;;)
+			{
+				const size_t index = next.fetch_add(1, std::memory_order_relaxed);
+				if (index >= pending.size() || progress.Cancelled())
+					return;
 
-			progress.SetDetail(item.Label);
+				const Pending& item = pending[index];
 
-			// The one call that does the work: cooked bytes if the cache has
-			// them, and a decode plus a cook if not. The result is discarded
-			// -- what matters is that it is now on disk, so the main thread's
-			// upload is a read.
-			std::vector<uint8_t> bytes;
-			ImportCache::Fetch(item.Path, bytes);
+				// Several workers write this, so it flickers between their
+				// current files. That is honest -- several files really are
+				// being cooked at once -- and it is the only shared state
+				// here that is not a counter.
+				progress.SetDetail(item.Label);
 
-			done += item.Bytes;
-			index++;
+				// The one call that does the work: cooked bytes if the cache
+				// has them, and a decode plus a cook if not. The result is
+				// discarded -- what matters is that it is now on disk, so
+				// the main thread's upload is a read.
+				std::vector<uint8_t> bytes;
+				ImportCache::Fetch(item.Path, bytes);
 
-			progress.Advance(total > 0 ? (float)((double)done / (double)total)
-									   : (float)index / (float)pending.size());
-		}
+				const uint64_t soFar =
+					done.fetch_add(item.Bytes, std::memory_order_relaxed) + item.Bytes;
+				const size_t count = finished.fetch_add(1, std::memory_order_relaxed) + 1;
+
+				// Weighted by bytes when the sizes are known, by count when
+				// they are not: a project served entirely from a pak has no
+				// file sizes to ask for, and an all-zero denominator would
+				// pin the bar at zero for the whole phase. Advance is
+				// monotonic, so workers finishing out of order cannot make
+				// the bar retreat.
+				progress.Advance(total > 0 ? (float)((double)soFar / (double)total)
+										   : (float)count / (float)pending.size());
+			}
+		};
+
+		std::vector<std::thread> pool;
+		pool.reserve(workers - 1);
+		for (size_t i = 1; i < workers; i++)
+			pool.emplace_back(cook);
+
+		// This thread takes a share too, rather than waiting on the others.
+		cook();
+
+		for (std::thread& worker : pool)
+			worker.join();
 	}
 
 	bool Manager::UploadPrepared(Boot::Progress& progress, float budgetSeconds)

@@ -286,13 +286,31 @@ namespace RageV::IO
 
 		while (true)
 		{
-			FloatImage snapshot = level;
+			// Copied only for normal maps, which are the only ones that get
+			// modified before encoding -- renormalizing in place would feed a
+			// shortened, re-lengthened vector into the *next* downsample and
+			// compound the error down the chain.
+			//
+			// Everything else encodes straight from `level`. The copy is not
+			// small: a 4K mip 0 is 4096x4096x4 floats, 256 MB, so this was
+			// a quarter of a gigabyte memcpy'd per texture to be read once
+			// and thrown away. It matters most because cooking now runs on
+			// several threads at a time, where peak memory is the thing that
+			// decides how many threads are affordable.
 			if (isNormal)
+			{
+				FloatImage snapshot = level;
 				RenormalizeNormals(snapshot);
-
-			cooked.Mips.push_back(
-				EncodeMip(ToBytes(snapshot, srgbFilter), level.Width, level.Height,
-						  cooked.Format));
+				cooked.Mips.push_back(
+					EncodeMip(ToBytes(snapshot, srgbFilter), level.Width, level.Height,
+							  cooked.Format));
+			}
+			else
+			{
+				cooked.Mips.push_back(
+					EncodeMip(ToBytes(level, srgbFilter), level.Width, level.Height,
+							  cooked.Format));
+			}
 
 			if (level.Width == 1 && level.Height == 1)
 				break;

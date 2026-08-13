@@ -1506,19 +1506,26 @@ was "Not Responding on launch"; the measurement said `Project::Load` was
 - **Loading on a worker, with a loading screen.** The window is created
   hidden and shown when the renderer can draw in it. `Layer::OnLoad`
   runs on a worker (files and CPU, **never the device**);
-  `Layer::OnLoadStep` uploads on the main thread a slice per frame. The
-  17 s cold cook now draws **1037 frames** while it runs.
+  `Layer::OnLoadStep` uploads on the main thread a slice per frame.
 - **`Manager::PrepareScene`** walks the scene so the first frame has
-  nothing left to fetch, weighted by bytes.
+  nothing left to fetch, weighted by bytes, cooking on **four** workers
+  -- capped by memory, not cores: one 4K cook holds a 256 MB float mip
+  0, so one per hardware thread would ask for gigabytes.
+
+Cold open **17.2 s → 4.9 s**, drawing 249 frames throughout; warm 0.62 s.
+The cooked bytes are byte-for-byte what the serial version produced --
+the pixel check reports the same 0.540/255 to three decimals.
 
 New flags: `--import-cache=on|off` (the ablation the pixel check needs)
 and `--loading-screenshot=<file>`. New check:
 `tools/scripts/check_import_cache.py`.
 
-**Still open**: cold import is single-threaded and embarrassingly
-parallel -- 17 s is the number to beat, and it is the one that grows
-with the project. `.hdr` skies are still converted and convolved every
-load; cooking those is a third format and its own feature.
+**Still open**: `.hdr` skies are converted to cube faces and convolved
+on every load -- cooking those is a third format and its own feature.
+`Registry::Init` still hashes every loose asset at every boot (FNV-1a,
+a byte at a time, 198 MB here); it is on the worker and has a progress
+phase, but it stays O(project) per launch and is the next thing to
+hurt.
 
 The user's 4K Poly Haven materials are committed at full resolution (their
 call, 2026-08-13; ~198 MB -- forest_ground_06 as soil, bamboo_wall_02 as

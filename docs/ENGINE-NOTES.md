@@ -1771,8 +1771,9 @@ measurement.*
 
 | | wall | frames drawn while loading |
 |---|---|---|
-| editor, first open (cooking) | 17.2 s | **1037** |
-| editor, every open after | 0.95 s | 25 |
+| editor, first open, serial cook | 17.2 s | 1037 |
+| editor, first open, **4 workers** | **4.9 s** | 249 |
+| editor, every open after | 0.62 s | 13 |
 | runtime | 0.82 s | 20 |
 
 **The frame count is the result, not the seconds.** Cooking a project
@@ -1796,6 +1797,39 @@ two backends. It fires on the first frame that has *something on every
 line*: a fixed frame number reliably photographed the gap between a
 phase beginning and its first asset being named, which is to say it
 photographed the half worth checking as blank.
+
+### Cooking in parallel: bounded by memory, not by cores
+
+Every asset is an independent decode and encode, and the cookers hold
+nothing but `constexpr` state, so the cold path parallelises directly.
+**The cap is four workers on a 24-thread machine, and that is not
+timidity.** Cooking one 4K map holds its mip 0 as float --
+4096×4096×4 floats, 256 MB -- plus the byte buffer it encodes from.
+One worker per hardware thread would ask for several gigabytes to save
+a few seconds, and a machine that starts swapping is slower than the
+serial version it replaced.
+
+Two changes came out of looking at that number rather than at the
+thread count:
+
+- **`TextureCook::Cook` copied every mip level and used the copy
+  once.** The copy exists so a normal map can be renormalized without
+  feeding shortened-then-relengthened vectors into the next downsample
+  -- but it was made unconditionally, so a quarter of a gigabyte was
+  memcpy'd per 4K colour map for nothing. Now only normals copy.
+- **Largest first.** With several workers on one queue the finish time
+  is set by whatever is still running at the end, and the worst case is
+  a 40 MB map handed out last while three workers idle. Sorting big to
+  small left 4.93 s where round-robin left 5.20 s -- 5% for two lines.
+
+17.2 s → 4.9 s, and **the cooked bytes are unchanged**: the pixel check
+reports mean 0.540/255 on Vulkan and 0.553 on OpenGL, identical to the
+serial numbers to three decimal places. That is the result worth
+having from a concurrency change -- not that it is faster, but that it
+computed the same thing faster.
+
+The peak, not the count, is the next thing to attack if this needs to
+be quicker again.
 
 ### The bug the guard found on the way past
 
