@@ -143,6 +143,34 @@ namespace RageV::Anim
 	// interpolation: a component-wise blend of two quaternions shortens the arc
 	// and makes a limb dip through the middle of a turn.
 	void BlendPoses(const Pose& a, const Pose& b, float weight, Pose& out);
+
+	// A box that contains the mesh in *every* pose its clips can reach.
+	//
+	// The bind pose's box is not that box, and using it was a real defect: a
+	// limb swinging wide leaves it, so the mesh is culled while part of it is
+	// still on screen -- and a thing that vanishes when you look slightly away
+	// from it reads as a rendering bug rather than as a bounds one.
+	//
+	// **Per bone, not per vertex, and that is what makes it cheap.** One pass
+	// over the vertices reduces them to a box per bone in that bone's own
+	// space; after that a pose costs one transformed box per bone rather than
+	// a transform per vertex. It stays conservative because a skinned position
+	// is a weighted average of the same vertex placed by each of its bones, so
+	// it can never leave the union of those bones' transformed boxes.
+	//
+	// Sampled rather than solved: a clip's extreme is not analytic once
+	// rotations are interpolated, so this walks each clip at a fixed number of
+	// steps. Missing an extreme between two samples errs towards a box that is
+	// slightly small, which is why the result is padded.
+	//
+	// Positions, joints and weights are the mesh's parallel arrays. Vec3 out
+	// parameters rather than an AABB because that type lives in the renderer's
+	// Mesh.h, and nothing else here needs the renderer.
+	void SkinnedBounds(const Skeleton& skeleton, const std::vector<Clip>& clips,
+					   const std::vector<Vec3>& positions,
+					   const std::vector<UVec4>& joints,
+					   const std::vector<Vec4>& weights,
+					   Vec3& outMin, Vec3& outMax);
 }
 
 // Re-exported into RageV. Skeleton hangs off a Mesh and Clip is what an

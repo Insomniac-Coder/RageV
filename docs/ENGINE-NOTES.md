@@ -1488,6 +1488,63 @@ the shape was fine and the rasterizer was not.
 
 ---
 
+## 7k. The two debts skeletal animation left (7.5, 7.6)
+
+Both were recorded when skinning shipped and both are the same shape: a
+piece of machinery that exists, is tested, and **is not called**.
+
+### Cross-fading (7.5)
+
+`BlendPoses` had been written and tested since phase 3. Nothing drove it, so
+a character snapped between clips. The fix is not the blend -- it is the
+animator noticing.
+
+**A transition starts when `Clip` stops matching the runtime `Active`.** No
+`Play(clip, time)` call: the inspector, a script and a deserialized scene all
+set one field and get the same easing, and none of them has to know a blend
+exists. `Started` handles the first update, which adopts whatever is authored
+rather than fading in from a clip that never played.
+
+**The outgoing clip keeps its own clock and keeps running.** Freezing it is
+cheaper and visibly wrong -- a walk stops mid-stride and slides for the
+length of the blend, which reads as a hitch in the *new* clip rather than as
+the old one ending.
+
+### Bounds that cover the animation (7.6)
+
+A skinned mesh was culled by the box its bind-pose vertices made, and the
+bind pose is the one arrangement a limb is guaranteed to leave. A thing that
+vanishes when you look slightly away from it reads as a rendering bug.
+
+**Per bone, not per vertex.** One pass over the vertices reduces them to a
+box per bone in that bone's own space; after that a pose costs one
+transformed box per bone rather than a transform per vertex. It stays
+conservative because a skinned position is a weighted average of the same
+vertex placed by each of its bones, so it cannot leave the union of those
+bones' transformed boxes. All eight corners are transformed -- a rotated
+box's extent is not recoverable from two of them, which is the classic way to
+produce bounds that are too small in exactly the poses that needed them.
+
+Sampled rather than solved, because a clip's extreme is not analytic once
+rotations interpolate; the result is padded 2% against stepping over one.
+
+### Running somebody else's model
+
+The fixtures here are generated, which makes them exact and makes them
+agreeable. `SampleProject/assets/models/fox.glb` -- Khronos' sample fox, CC
+BY 4.0, attribution beside it -- is the opposite: twenty-four bones, three
+clips and a rig nobody here authored. It is now what the blend check runs
+against, because **a fixture with one clip can only ever exercise the
+transition to the bind pose**, and clip-to-clip is the thing 7.5 added.
+
+It paid for itself immediately by finding a gap in something else:
+**`GltfImporter` only reads a texture when the image has a `uri`**, so images
+embedded in a `.glb`'s buffer views are skipped and every GLB imports
+untextured. The fox is white for that reason and not because anything in
+7.5 or 7.6 is wrong. Recorded as a papercut rather than fixed here.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

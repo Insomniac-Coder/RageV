@@ -253,4 +253,134 @@ namespace RageV::Anim
 			out[i].Rotation = Math::Normalize(Math::Slerp(from, to, t));
 		}
 	}
+
+	void SkinnedBounds(const Skeleton& skeleton, const std::vector<Clip>& clips,
+					   const std::vector<Vec3>& positions,
+					   const std::vector<UVec4>& joints,
+					   const std::vector<Vec4>& weights,
+					   Vec3& outMin, Vec3& outMax)
+	{
+		constexpr float kInfinity = std::numeric_limits<float>::max();
+
+		outMin = Vec3(kInfinity);
+		outMax = Vec3(-kInfinity);
+
+		if (skeleton.IsEmpty() || positions.empty())
+			return;
+
+		// --- one pass over the vertices: a box per bone, in that bone's space
+		const size_t boneCount = skeleton.Size();
+		std::vector<Vec3> boneMin(boneCount, Vec3(kInfinity));
+		std::vector<Vec3> boneMax(boneCount, Vec3(-kInfinity));
+		std::vector<bool> used(boneCount, false);
+
+		const bool skinned = joints.size() == positions.size() &&
+							 weights.size() == positions.size();
+
+		for (size_t v = 0; v < positions.size(); v++)
+		{
+			if (!skinned)
+				break;
+
+			for (int influence = 0; influence < 4; influence++)
+			{
+				// A zero weight is not an influence, and the joint index
+				// beside it is meaningless padding -- reading it as a bone
+				// would stretch that bone's box to wherever the vertex is.
+				if (weights[v][influence] <= 0.0f)
+					continue;
+
+				const uint32_t bone = joints[v][influence];
+				if (bone >= boneCount)
+					continue;
+
+				// Into the bone's own space, which is what the inverse bind
+				// matrix is for. The box then travels with the bone.
+				const Vec3 local =
+					Vec3(skeleton.Bones[bone].InverseBind * Vec4(positions[v], 1.0f));
+
+				boneMin[bone] = Math::Min(boneMin[bone], local);
+				boneMax[bone] = Math::Max(boneMax[bone], local);
+				used[bone] = true;
+			}
+		}
+
+		// A mesh with a skeleton but no weights at all -- or none this
+		// function could read -- has nothing to say beyond its own vertices.
+		bool any = false;
+		for (size_t i = 0; i < boneCount; i++)
+			any = any || used[i];
+
+		if (!any)
+		{
+			for (const Vec3& p : positions)
+			{
+				outMin = Math::Min(outMin, p);
+				outMax = Math::Max(outMax, p);
+			}
+			return;
+		}
+
+		// --- every pose, one transformed box per bone -----------------------
+		std::vector<Mat4> skinning;
+
+		auto accumulate = [&](const Pose& pose)
+		{
+			ComposeSkinning(skeleton, pose, skinning);
+			if (skinning.size() < boneCount)
+				return;
+
+			for (size_t bone = 0; bone < boneCount; bone++)
+			{
+				if (!used[bone])
+					continue;
+
+				// All eight corners: a rotated box's extent is not obtainable
+				// from two transformed corners, and using only min and max is
+				// the classic way to produce bounds that are too small in
+				// exactly the poses that needed them.
+				for (int corner = 0; corner < 8; corner++)
+				{
+					const Vec3 point(
+						(corner & 1) ? boneMax[bone].x : boneMin[bone].x,
+						(corner & 2) ? boneMax[bone].y : boneMin[bone].y,
+						(corner & 4) ? boneMax[bone].z : boneMin[bone].z);
+
+					const Vec3 moved = Vec3(skinning[bone] * Vec4(point, 1.0f));
+					outMin = Math::Min(outMin, moved);
+					outMax = Math::Max(outMax, moved);
+				}
+			}
+		};
+
+		// The bind pose always counts: a model with no clips must come out
+		// with the bounds it already had.
+		Pose pose;
+		RestPose(skeleton, pose);
+		accumulate(pose);
+
+		// Enough steps to catch a limb's extreme without making load time a
+		// function of how many clips a model happens to ship with.
+		constexpr int kSamplesPerClip = 24;
+
+		for (const Clip& clip : clips)
+		{
+			if (clip.Duration <= 0.0f)
+				continue;
+
+			for (int step = 0; step <= kSamplesPerClip; step++)
+			{
+				const float time = clip.Duration * (float)step / (float)kSamplesPerClip;
+				SamplePose(skeleton, clip, time, /*loop*/ false, pose);
+				accumulate(pose);
+			}
+		}
+
+		// Padding, because sampling can step over an extreme between two
+		// times. Proportional to the box rather than absolute: a fixed margin
+		// is invisible on a building and enormous on a coin.
+		const Vec3 pad = (outMax - outMin) * 0.02f;
+		outMin -= pad;
+		outMax += pad;
+	}
 }

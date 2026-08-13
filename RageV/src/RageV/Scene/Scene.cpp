@@ -1608,18 +1608,88 @@ namespace RageV
 			// A clip index of -1, or one past the end, is the bind pose. Both
 			// are states a person can reach in the inspector and neither is an
 			// error worth a log line every frame.
-			const Anim::Clip* clip = nullptr;
-			if (clips && animator.Clip >= 0 && animator.Clip < (int)clips->size())
-				clip = &(*clips)[animator.Clip];
+			auto clipAt = [&](int index) -> const Anim::Clip*
+			{
+				if (!clips || index < 0 || index >= (int)clips->size())
+					return nullptr;
+				return &(*clips)[index];
+			};
+
+			// A change of Clip starts a cross-fade. Detected here rather than
+			// pushed by a Play call, so the inspector, a script and a
+			// deserialized scene all reach the same behaviour without any of
+			// them knowing the blend exists.
+			if (!animator.Started)
+			{
+				// The first update adopts whatever is authored. Fading in from
+				// clip 0 would be a transition out of something that never
+				// played.
+				animator.Active = animator.Clip;
+				animator.Started = true;
+			}
+			else if (animator.Clip != animator.Active)
+			{
+				// Only worth a fade if there is somewhere to fade from and
+				// time to do it in.
+				if (animator.BlendTime > 0.0f && clipAt(animator.Active))
+				{
+					animator.FadingFrom = animator.Active;
+					animator.FadingTime = animator.Time;
+					animator.FadeElapsed = 0.0f;
+				}
+				else
+				{
+					animator.FadingFrom = -1;
+				}
+
+				animator.Active = animator.Clip;
+				animator.Time = 0.0f;
+			}
+
+			const Anim::Clip* clip = clipAt(animator.Active);
+			const float dt = ts.GetSeconds();
 
 			if (animator.Playing && clip)
-				animator.Time += ts.GetSeconds() * animator.Speed;
+				animator.Time += dt * animator.Speed;
 
 			Pose pose;
 			if (clip)
 				SamplePose(*skeleton, *clip, animator.Time, animator.Loop, pose);
 			else
 				RestPose(*skeleton, pose);
+
+			// The outgoing clip, still running, mixed out over BlendTime.
+			if (animator.FadingFrom >= 0)
+			{
+				animator.FadeElapsed += dt;
+
+				const float weight = animator.BlendTime > 0.0f
+								   ? Math::Clamp(animator.FadeElapsed / animator.BlendTime,
+												 0.0f, 1.0f)
+								   : 1.0f;
+
+				if (weight >= 1.0f)
+				{
+					animator.FadingFrom = -1;
+				}
+				else if (const Anim::Clip* outgoing = clipAt(animator.FadingFrom))
+				{
+					if (animator.Playing)
+						animator.FadingTime += dt * animator.Speed;
+
+					Pose previous;
+					SamplePose(*skeleton, *outgoing, animator.FadingTime,
+							   animator.Loop, previous);
+
+					// Weight runs 0 to 1 *towards the new clip*, so the
+					// outgoing pose is the `a` argument. Reversing these is a
+					// blend that plays backwards and looks like the clips are
+					// swapped.
+					Pose blended;
+					BlendPoses(previous, pose, weight, blended);
+					pose = std::move(blended);
+				}
+			}
 
 			ComposeSkinning(*skeleton, pose, animator.Skinning);
 		}

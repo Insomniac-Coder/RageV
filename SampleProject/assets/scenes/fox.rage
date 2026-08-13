@@ -1,0 +1,71 @@
+Scene: Fox
+Version: 5
+Environment:
+  AmbientColor: [0.42, 0.46, 0.56]
+  AmbientIntensity: 0.12
+  Sky: 1
+  SkyHorizon: [0.66, 0.62, 0.56]
+  SkyZenith: [0.32, 0.45, 0.66]
+  SkyGround: [0.22, 0.2, 0.18]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 7742000000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 1.1, 4.2]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7742000000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 5, 3]
+      Rotation: [-0.7, -0.6, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.96, 0.9]
+      Intensity: 2.8
+      Range: 20
+      InnerCone: 12
+      OuterCone: 25
+      CastShadows: true
+  - EntityID: 7742000000000000003
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [24, 1, 24]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 0
+  - EntityID: 7742000000000000004
+    TagComponent:
+      Tag: Fox
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0.6, 0]
+      Scale: [0.022, 0.022, 0.022]
+    MeshComponent:
+      Mesh: 11679010045657754579
+      Material: 0
+    AnimatorComponent:
+      Clip: 2
+      Playing: true
+      Loop: true
+      Speed: 1
+      BlendTime: 0.35

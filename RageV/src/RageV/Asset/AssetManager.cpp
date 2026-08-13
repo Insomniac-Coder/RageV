@@ -208,6 +208,29 @@ namespace RageV::Assets
 			auto skinnedMesh = std::make_shared<Mesh>(*s_Device, skinned,
 													  model.Primitives[0].Indices,
 													  model.Primitives[0].Name);
+
+			// Bounds that cover the animation rather than the bind pose (7.6).
+			// Done here because this is the only place that has the mesh, the
+			// skeleton and the clips at once -- the mesh cannot compute it and
+			// the animation module cannot reach the mesh.
+			{
+				std::vector<Vec3> positions;
+				positions.reserve(model.Primitives[0].Vertices.size());
+				for (const MeshVertex& vertex : model.Primitives[0].Vertices)
+					positions.push_back(vertex.Position);
+
+				AABB animated;
+				Anim::SkinnedBounds(model.Skeleton, model.Clips, positions,
+									model.Primitives[0].Joints,
+									model.Primitives[0].Weights,
+									animated.Min, animated.Max);
+
+				// Only when it produced something: a model whose weights this
+				// could not read keeps the box its vertices gave it.
+				if (animated.Min.x <= animated.Max.x)
+					skinnedMesh->SetBounds(animated);
+			}
+
 			s_Meshes[handle] = skinnedMesh;
 			return skinnedMesh;
 		}

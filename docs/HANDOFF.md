@@ -1234,11 +1234,17 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
   material so they batch, which is the half of 3.6 that was worth measuring.
   Sorting them by depth as well would let early-z reject more, and is worth a
   measurement before it is worth code.
-- **Animation blending between clips.** `BlendPoses` exists and is tested; no
-  component drives it, so a character snaps between clips rather than easing.
-- **Skinned bounds are the bind pose's.** A limb swinging wide leaves the box,
-  so a skinned mesh can be culled while part of it is still on screen. Proper
-  bounds mean per-clip boxes, or one grown to cover every pose.
+- ~~**Animation blending between clips.**~~ **Done 2026-08-13 (7.5)**: a
+  change of `Clip` starts a cross-fade, with the outgoing clip still running
+  while it fades. See §7k of ENGINE-NOTES.
+- ~~**Skinned bounds are the bind pose's.**~~ **Done 2026-08-13 (7.6)**: a box
+  per bone, unioned over sampled poses of every clip, computed at load.
+- **A `.glb` imports untextured.** `GltfImporter` only reads a texture when
+  the image has a `uri`, so images stored in a GLB's buffer views -- which is
+  what glTF-Binary *is* -- are skipped silently. Found by importing Khronos'
+  fox for the animation work: 1 material, 0 textures, a white model. Nothing
+  in the repository hit it before because every model here was a `.gltf` with
+  sibling PNGs.
 - **An archive format.** Packaging emits a folder, not a `.pak`. Packing needs
   a virtual file system on the loading side to be worth anything.
 - **Asset cooking.** glTF is parsed at load, PNGs decoded at load.
@@ -1447,9 +1453,27 @@ those resolve about axes half a pixel apart. Measured against its own mirror:
 9.4/255 mean before, 0.7 after. Two rounds were spent redrawing correct
 geometry before measuring it; ENGINE-NOTES §7j has the lesson.
 
-**START HERE: the rest of phase 7** -- animation blending (7.5), skinned
-bounds (7.6), front-to-back opaque sorting (7.8, measure before building),
-SMAA (7.9), TAA (7.10). 7.5 and 7.6 pair naturally as one animation session.
+**Done: 7.5 and 7.6, the two debts skeletal animation left (2026-08-13).**
+Both were the same shape -- machinery that existed, was tested, and was never
+called. `BlendPoses` now runs because the animator notices `Clip` changing;
+there is no Play call, so the inspector, a script and a loaded scene all get
+the same easing, and the outgoing clip keeps running while it fades rather
+than freezing mid-stride. Skinned bounds are a box per bone in bone space
+from one vertex pass, unioned over sampled poses of every clip -- conservative
+by construction, since a skinned position is a weighted average of the same
+vertex placed by each of its bones.
+
+**Both are checked against somebody else's rig.** `models/fox.glb` (Khronos'
+sample fox, CC BY 4.0, attribution beside it) brings 24 bones and three
+clips, and a fixture with one clip can only ever exercise the transition to
+the bind pose. The blend check drives the real `UpdateAnimators` and pins the
+mid-fade pose against what each clip alone would say, with a zero-blend
+control proving the easing is the blend rather than the clips differing.
+`scenes/fox.rage` runs it. ENGINE-NOTES §7k.
+
+**START HERE: the rest of phase 7** -- front-to-back opaque sorting (7.8,
+measure before building), SMAA (7.9), TAA (7.10). Phase 7 is otherwise
+complete.
 
 The user's 4K Poly Haven materials are committed at full resolution (their
 call, 2026-08-13; ~198 MB -- forest_ground_06 as soil, bamboo_wall_02 as

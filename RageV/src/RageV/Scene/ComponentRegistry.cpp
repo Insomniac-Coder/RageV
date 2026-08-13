@@ -562,6 +562,9 @@ namespace
 				Field<&AnimatorComponent::Loop>("Loop"),
 				Field<&AnimatorComponent::Speed>("Speed",
 					Drag(0.05f, -4.0f, 4.0f, "Negative plays the clip backwards.")),
+				Field<&AnimatorComponent::BlendTime>("Blend Time",
+					Drag(0.01f, 0.0f, 2.0f, "Seconds to cross-fade when the clip "
+											"changes. Zero snaps.")),
 			};
 			Bind<AnimatorComponent>(desc);
 			s_Components.push_back(std::move(desc));

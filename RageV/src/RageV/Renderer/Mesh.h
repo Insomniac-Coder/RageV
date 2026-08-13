@@ -104,6 +104,14 @@ namespace RageV
 
 		const AABB& GetBounds() const { return m_Bounds; }
 
+		// Replaces the box computed from the vertices.
+		//
+		// For skinned meshes, whose drawn shape is not their vertices: the
+		// bind pose's box is the one place a limb is guaranteed *not* to be
+		// once a clip runs. `Anim::SkinnedBounds` produces the replacement and
+		// the asset manager applies it, because only it has the clips.
+		void SetBounds(const AABB& bounds) { m_Bounds = bounds; }
+
 		// Positions and indices kept on the CPU.
 		//
 		// Needed because clicking in the viewport has to answer "what is under

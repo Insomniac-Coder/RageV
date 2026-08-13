@@ -3616,6 +3616,60 @@ void main()
 			Check(pose.empty() && skinning.empty(),
 				  "an empty skeleton samples to an empty pose rather than crashing");
 		}
+
+		// --- 7.6: bounds that cover the animation, not the bind pose ---------
+		//
+		// The fixture is a single bone with a vertex a unit out along +X and a
+		// clip that swings it to +Y. The bind box therefore does not contain
+		// the animated position at all, which is the defect stated as a
+		// number rather than as a worry.
+		{
+			Skeleton arm;
+			Bone root;
+			root.Name = "root";
+			root.Parent = -1;
+			root.InverseBind = Mat4(1.0f);
+			arm.Bones = { root };
+
+			const std::vector<Vec3> positions = { { 1.0f, 0.0f, 0.0f } };
+			const std::vector<UVec4> joints = { { 0u, 0u, 0u, 0u } };
+			const std::vector<Vec4> weights = { { 1.0f, 0.0f, 0.0f, 0.0f } };
+
+			Anim::Clip swing;
+			swing.Tracks.resize(1);
+			swing.Tracks[0].Rotation.Times = { 0.0f, 1.0f };
+			swing.Tracks[0].Rotation.Values = {
+				Quat(1.0f, 0.0f, 0.0f, 0.0f),
+				// A quarter turn about +Z carries the vertex from +X to +Y.
+				Math::AngleAxis(Math::Radians(90.0f), Vec3(0.0f, 0.0f, 1.0f)),
+			};
+			swing.RecomputeDuration();
+
+			Vec3 boundsMin, boundsMax;
+			Anim::SkinnedBounds(arm, { swing }, positions, joints, weights,
+								boundsMin, boundsMax);
+
+			Check(boundsMax.y > 0.9f,
+				  "a clip that swings a vertex to +Y grows the box to reach it "
+				  "-- the bind pose's box stops at y = 0");
+			Check(boundsMax.x > 0.9f,
+				  "and the bind pose is still inside, because a model may hold it");
+
+			// No clips at all must not move the answer: a static skinned mesh
+			// keeps the box its vertices gave it, give or take the padding.
+			Vec3 restMin, restMax;
+			Anim::SkinnedBounds(arm, {}, positions, joints, weights, restMin, restMax);
+			Check(std::fabs(restMax.x - 1.0f) < 0.05f && restMax.y < 0.05f,
+				  "with no clips the bounds are the bind pose's");
+
+			// A skeleton with no weights this can read falls back to the raw
+			// vertices rather than to an empty box, which would cull the mesh
+			// everywhere.
+			Vec3 rawMin, rawMax;
+			Anim::SkinnedBounds(arm, { swing }, positions, {}, {}, rawMin, rawMax);
+			Check(std::fabs(rawMax.x - 1.0f) < 1e-4f,
+				  "unreadable weights fall back to the vertices, not to nothing");
+		}
 	}
 
 	// Importing a skinned model.
@@ -7112,6 +7166,214 @@ void main()
 	// eye: a flipped y axis is only visible off the centre line, a missing
 	// inverse only when something is rotated, and an ignored scale only when
 	// something is not unit-sized.
+	// Cross-fading between clips (7.5).
+	//
+	// `BlendPoses` was written and tested long before this; what was missing
+	// is that *nothing called it*, so a character snapped. The claim here is
+	// therefore about the animator, not the blend: changing `Clip` has to put
+	// the pose somewhere between the two clips for a while, and a check that
+	// only asserted the endpoints would pass on the snapping version too.
+	void CheckAnimationBlend()
+	{
+		// One bone, two clips: one holds it at rest, the other turns it a
+		// quarter. Halfway through a fade the bone must be at neither.
+		Skeleton skeleton;
+		Bone bone;
+		bone.Name = "bone";
+		bone.Parent = -1;
+		skeleton.Bones = { bone };
+
+		Anim::Clip still;
+		still.Name = "still";
+		still.Tracks.resize(1);
+		still.Tracks[0].Rotation.Times = { 0.0f, 1.0f };
+		still.Tracks[0].Rotation.Values = { Quat(1.0f, 0.0f, 0.0f, 0.0f),
+											Quat(1.0f, 0.0f, 0.0f, 0.0f) };
+		still.RecomputeDuration();
+
+		const Quat turned = Math::AngleAxis(Math::Radians(90.0f), Vec3(0.0f, 0.0f, 1.0f));
+
+		Anim::Clip turn;
+		turn.Name = "turn";
+		turn.Tracks.resize(1);
+		turn.Tracks[0].Rotation.Times = { 0.0f, 1.0f };
+		turn.Tracks[0].Rotation.Values = { turned, turned };
+		turn.RecomputeDuration();
+
+		// **Driven through Scene::UpdateAnimators, not through a copy of it.**
+		// A check that re-implements the pass it is checking passes on the
+		// broken version too, which is the whole failure mode this suite
+		// exists to avoid.
+		//
+		// Against the fox rather than the generated limb, because the fox is
+		// the one model here with **three clips**: a clip-to-clip cross-fade
+		// is the thing 7.5 added, and a fixture with one clip can only ever
+		// exercise the transition to the bind pose. Twenty-four bones, and
+		// somebody else's rig -- which is the other reason to use it.
+		if (!Renderer::HasDevice() || !Assets::Registry::IsInitialised())
+			return;
+
+		const AssetHandle model = Assets::Registry::GetHandle("models/fox.glb");
+		if (!model.IsValid() || !Assets::Manager::GetSkeleton(model))
+			return;
+
+		const std::vector<Anim::Clip>* foxClips = Assets::Manager::GetClips(model);
+		Check(foxClips && foxClips->size() >= 3,
+			  "the fox brings three clips, or this check proves less than it says");
+		if (!foxClips || foxClips->size() < 3)
+			return;
+
+		auto scene = std::make_shared<Scene>();
+		Entity character = scene->CreateEntity("Fox");
+		character.AddComponent<MeshComponent>().Mesh = model;
+
+		AnimatorComponent& animator = character.AddComponent<AnimatorComponent>();
+		animator.Clip = 0;
+		animator.BlendTime = 0.5f;
+
+		// How far the pose is from the bind pose, which is the one number
+		// that says "the bone has moved" without knowing which bone the
+		// fixture animates.
+		auto deviation = [&]()
+		{
+			float worst = 0.0f;
+			for (const Mat4& m : character.GetComponent<AnimatorComponent>().Skinning)
+			{
+				for (int column = 0; column < 4; column++)
+					for (int row = 0; row < 4; row++)
+						worst = Math::Max(worst,
+							std::fabs(m[column][row] - (column == row ? 1.0f : 0.0f)));
+			}
+			return worst;
+		};
+
+		// Run the clip until the bone is somewhere the bind pose is not.
+		for (int frame = 0; frame < 12; frame++)
+			scene->UpdateAnimators(1.0f / 60.0f);
+
+		const float moved = deviation();
+		Check(moved > 0.05f, "the clip moves the skeleton away from its bind pose");
+
+		// The two references this has to sit between: what each clip alone
+		// says at the moment sampled. Built by running the same pass with no
+		// blend time, so they are the engine's own answers rather than a
+		// second implementation's.
+		auto poseOf = [&](int clip, float warmup, float then)
+		{
+			auto reference = std::make_shared<Scene>();
+			Entity subject = reference->CreateEntity("Fox");
+			subject.AddComponent<MeshComponent>().Mesh = model;
+
+			AnimatorComponent& plain = subject.AddComponent<AnimatorComponent>();
+			plain.Clip = clip;
+			plain.BlendTime = 0.0f;
+
+			if (warmup > 0.0f)
+				reference->UpdateAnimators(warmup);
+			reference->UpdateAnimators(then);
+
+			return subject.GetComponent<AnimatorComponent>().Skinning;
+		};
+
+		auto distance = [](const std::vector<Mat4>& a, const std::vector<Mat4>& b)
+		{
+			float worst = 0.0f;
+			const size_t count = Math::Min(a.size(), b.size());
+			for (size_t i = 0; i < count; i++)
+				for (int column = 0; column < 4; column++)
+					for (int row = 0; row < 4; row++)
+						worst = Math::Max(worst, std::fabs(a[i][column][row] - b[i][column][row]));
+			return worst;
+		};
+
+		// Switch to a different clip, then step half the blend.
+		character.GetComponent<AnimatorComponent>().Clip = 2;
+		scene->UpdateAnimators(0.25f);   // half of BlendTime
+
+		const std::vector<Mat4> midFade = character.GetComponent<AnimatorComponent>().Skinning;
+
+		// Where each clip would be on its own at this instant. The outgoing
+		// one has been running 12 frames plus the blend; the incoming one
+		// started at zero when the switch happened.
+		const std::vector<Mat4> outgoingAlone = poseOf(0, 12.0f / 60.0f, 0.25f);
+		const std::vector<Mat4> incomingAlone = poseOf(2, 0.0f, 0.25f);
+
+		Check(distance(midFade, outgoingAlone) > 1e-3f &&
+			  distance(midFade, incomingAlone) > 1e-3f,
+			  "halfway through a clip-to-clip fade the pose is neither clip's "
+			  "-- which is the whole difference from snapping");
+
+		// And it arrives on the new clip.
+		scene->UpdateAnimators(0.30f);
+		Check(character.GetComponent<AnimatorComponent>().FadingFrom < 0,
+			  "the fade finishes and nothing is left fading");
+		Check(distance(character.GetComponent<AnimatorComponent>().Skinning,
+					   poseOf(2, 0.0f, 0.55f)) < 1e-3f,
+			  "and the pose is the new clip's alone");
+
+		// The control that makes the number above mean something: with no
+		// blend time the same switch lands on the new clip in one update. If
+		// this also produced an in-between pose, the check above would be
+		// measuring the clips rather than the fade.
+		{
+			auto snapScene = std::make_shared<Scene>();
+			Entity snapped = snapScene->CreateEntity("Fox");
+			snapped.AddComponent<MeshComponent>().Mesh = model;
+
+			AnimatorComponent& instant = snapped.AddComponent<AnimatorComponent>();
+			instant.Clip = 0;
+			instant.BlendTime = 0.0f;
+
+			for (int frame = 0; frame < 12; frame++)
+				snapScene->UpdateAnimators(1.0f / 60.0f);
+
+			snapped.GetComponent<AnimatorComponent>().Clip = 2;
+			snapScene->UpdateAnimators(0.25f);
+
+			Check(distance(snapped.GetComponent<AnimatorComponent>().Skinning,
+						   incomingAlone) < 1e-3f,
+				  "a blend time of zero still snaps, so the easing above is "
+				  "the blend and not the clips happening to differ");
+		}
+
+		// --- 7.6 on the same real rig ----------------------------------------
+		// The generated fixture proves the arithmetic; this proves it against
+		// twenty-four bones and three clips somebody else authored.
+		{
+			Assets::ImportedModel imported;
+			if (Assets::GltfImporter::Import(Project::AssetPath("models/fox.glb"), imported) &&
+				!imported.Primitives.empty() && imported.HasSkeleton())
+			{
+				std::vector<Vec3> positions;
+				positions.reserve(imported.Primitives[0].Vertices.size());
+				for (const MeshVertex& vertex : imported.Primitives[0].Vertices)
+					positions.push_back(vertex.Position);
+
+				Vec3 bindMin, bindMax, animatedMin, animatedMax;
+				Anim::SkinnedBounds(imported.Skeleton, {}, positions,
+									imported.Primitives[0].Joints,
+									imported.Primitives[0].Weights, bindMin, bindMax);
+				Anim::SkinnedBounds(imported.Skeleton, imported.Clips, positions,
+									imported.Primitives[0].Joints,
+									imported.Primitives[0].Weights,
+									animatedMin, animatedMax);
+
+				const Vec3 bindSize = bindMax - bindMin;
+				const Vec3 animatedSize = animatedMax - animatedMin;
+
+				Check(animatedSize.x >= bindSize.x - 1e-3f &&
+					  animatedSize.y >= bindSize.y - 1e-3f &&
+					  animatedSize.z >= bindSize.z - 1e-3f,
+					  "a real rig's animated bounds contain its bind pose on every axis");
+				Check(animatedSize.x > bindSize.x * 1.02f ||
+					  animatedSize.y > bindSize.y * 1.02f ||
+					  animatedSize.z > bindSize.z * 1.02f,
+					  "and are larger on at least one -- the fox leaves its bind "
+					  "box when it runs, which is exactly what culled it early");
+			}
+		}
+	}
+
 	// Viewport gizmo icons (7.4). The claim the feature exists to make is a
 	// negative one turned positive: an entity with no mesh and no collider
 	// could not be clicked at all, and now can be -- so the check has to show
@@ -8354,6 +8616,7 @@ int RunTests(int argc, char** argv)
 	CheckParticleCurves();
 	CheckParticles();
 	CheckColliderOverlay();
+	CheckAnimationBlend();
 	CheckEditorIcons();
 	CheckPicking();
 	CheckContactCallbacks();

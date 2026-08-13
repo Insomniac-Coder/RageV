@@ -277,9 +277,39 @@ namespace RageV
 		bool Loop = true;
 		float Speed = 1.0f;
 
+		// How long a change of `Clip` takes to cross-fade, in seconds. Zero
+		// snaps, which is what this did before there was a blend at all.
+		//
+		// On the animator rather than on the clip, because the right length
+		// is a property of the *transition*: the same walk clip wants a long
+		// ease from an idle and none at all from a stumble. Per-transition
+		// tables are the next step up and are not worth it until something
+		// asks.
+		float BlendTime = 0.15f;
+
 		// Seconds into the clip. Not serialized: it means nothing outside the
 		// run that produced it, for the same reason an audio voice is not.
 		float Time = 0.0f;
+
+		// --- the cross-fade, all runtime and none of it serialized ----------
+		//
+		// A transition starts when `Clip` stops matching `Active`, so nothing
+		// has to call a Play function: the inspector, a script and the
+		// serializer all set one field and get the same easing. `Started`
+		// exists so the *first* update reconciles the two without fading in
+		// from a clip that never played.
+		int   Active = 0;
+		bool  Started = false;
+
+		// The outgoing clip, or -1 when nothing is fading.
+		//
+		// It keeps its own clock and keeps advancing while it fades out. A
+		// frozen source is the cheaper version and it is visibly wrong: a walk
+		// stops mid-stride and slides for the length of the blend, which reads
+		// as a hitch in the new clip rather than as the old one ending.
+		int   FadingFrom = -1;
+		float FadingTime = 0.0f;
+		float FadeElapsed = 0.0f;
 
 		// The pose, rebuilt each frame. Kept here rather than in the renderer
 		// so a script can read a bone's position -- a weapon in a hand needs
