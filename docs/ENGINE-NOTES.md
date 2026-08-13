@@ -1221,6 +1221,85 @@ in the middle.
 
 ---
 
+## 7h. The pak and the VFS (7.1): design first
+
+ROADMAP said it plainly: packing without a virtual file system is worthless,
+because every asset path in the engine goes through `std::filesystem`. So the
+VFS is the feature and the archive is its payload.
+
+**The design in one sentence: a mount shadows a directory.** Every reader in
+the engine builds absolute paths through `Project::AssetPath`, and rewriting
+that convention would touch every call site twice -- once to thread a new path
+type through, once to fix what the first pass broke. Instead the VFS answers
+*the same paths the filesystem would*: mounting `content.pak` over
+`<install>/content` means a request for `<install>/content/scenes/menu.rage`
+is answered from the archive, and a request nothing shadows falls through to
+the real filesystem untouched. A development run mounts nothing and costs
+nothing; a shipped run mounts one pak; the call sites cannot tell and do not
+care. Precedence when both exist: **the pak wins, loose files are fallthrough
+for entries the pak lacks** -- a stale loose file silently overriding shipped
+content is the harder bug to see, and additive patch paks can layer by mount
+order later.
+
+**The API is deliberately small.** `Mount`/`Unmount`, `ReadBytes`, `ReadText`,
+`Exists`, `Enumerate` (recursive, files only, merged across pak and loose),
+`Origin` (pak / loose / missing -- the registry needs to know), and
+`OpenStream` for the one consumer that cannot take a byte blob: audio, which
+reads a file in pieces over the sound's lifetime from its own thread. Streams
+are why the reader holds no shared mutable state after mounting -- the entry
+table is immutable and every open stream owns its own handle to the pak file,
+so thread-safety is by construction rather than by mutex.
+
+**The format (`.rvpak`, magic `RVPK`, version 1)** is a header, the raw entry
+blobs, then a table: path hash (FNV-1a of the normalized relative path),
+offset, size, flags, and a string table holding the paths themselves so hash
+collisions are checked rather than trusted. Paths are normalized to lowercase
+with forward slashes on both store and lookup, because the loose filesystem
+this replaces was case-insensitive and a pak that suddenly is not would break
+scenes that worked for months. **No compression in version 1, and that is a
+decision, not an omission**: the heavy payloads are PNGs, which are already
+compressed, and cooking (7.2) will replace those bytes wholesale -- choosing a
+codec now optimizes bytes that are scheduled to disappear. The per-entry flags
+field is where a method goes when one is worth having.
+
+**What routes through it:** everything under the project's asset root.
+Textures (stb's `_from_memory` variants), models (cgltf's file callbacks,
+which also cover the .bin a .gltf references), every YAML serializer (scene,
+material, curve, font -- they all read whole files), the asset registry's scan
+(via `Enumerate`), and audio (a `ma_vfs_callbacks` bridge into `OpenStream`;
+the vendored miniaudio takes it via `ma_engine_config.pResourceManagerVFS`).
+
+**What deliberately does not:** engine assets -- shaders and fonts stay a
+loose tree beside the executable, because shader iteration in development is
+precious, the tree is small, and the runtime needs it before any project
+opens. The `.rvproject`, `ragev.ini`, the game module DLL and the managed/
+assemblies are real files by nature: the OS and the CLR load them by path.
+The editor never mounts a pak at all -- it edits loose projects, and its
+writes (scenes, .rmat, .meta) stay ordinary file writes.
+
+**The registry over a read-only mount trusts the pak.** Hashing every entry
+at boot would read the whole archive to answer a question that cannot come up
+-- a pak's content cannot have changed since it was written. Entries whose
+origin is a pak keep their stored `SourceHash`, are never re-hashed, and never
+get their sidecar rewritten; a pak entry missing its `.meta` mints a handle in
+memory with a warning, because the packager's job is to make that impossible.
+
+**Packaging writes the pak.** `PackageProject` walks the asset root into
+`content.pak` instead of copying the tree (`--loose` keeps the old behaviour
+as a debugging escape hatch), and `Project::Load` mounts `content.pak` over
+the asset root whenever the file exists beside the project. Nothing else in
+the shipped layout changes: exe, `RageV.dll`, module DLLs, `managed/`, engine
+`assets/`, one archive where `content/` used to be.
+
+**Verification:** pak round-trip byte-identical through the writer and
+reader; normalization (mixed case, backslashes) resolves; the precedence rule;
+enumeration merging; a scene loaded from a pak; registry handles identical
+loose-vs-pak; and the end-to-end that matters -- package Knockdown, run the
+folder standalone on both backends, and the screenshots must be
+pixel-identical to the same game packaged loose.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

@@ -30,6 +30,8 @@
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
+#include "RageV/IO/PakFile.h"
+#include "RageV/IO/VFS.h"
 #include "RageV/Core/KeyCodes.h"
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Physics/PhysicsWorld.h"
@@ -4227,6 +4229,135 @@ void main()
 		Check(tiny.GetFaceSize() >= 8, "and a face size of one is clamped to something renderable");
 	}
 
+	// The pak and the VFS (7.1). Design: ENGINE-NOTES 7h.
+	//
+	// The property that matters is shadowing: the VFS answers the same paths
+	// the filesystem would, so a mounted archive changes where bytes come from
+	// and nothing else. Every claim here is phrased against that -- the pak
+	// wins where both hold a path, loose files answer where the pak is silent,
+	// and a lookup spelled with backslashes and capitals finds an entry stored
+	// lowercase, because the loose filesystem it replaces was case-insensitive.
+	void CheckVfsAndPak()
+	{
+		namespace fs = std::filesystem;
+
+		Check(IO::NormalizePath("A\\B/../Rock.PNG") == "a/rock.png",
+			  "normalization lowers case, fixes slashes and resolves dot segments");
+
+		const fs::path scratch = ScratchDir("vfs");
+		std::error_code error;
+		fs::remove_all(scratch, error);
+		fs::create_directories(scratch / "textures", error);
+
+		// The loose tree: one file the pak will shadow, one it will not.
+		const std::string looseRock = "loose rock bytes";
+		const std::string onlyLoose = "only on disk";
+		{
+			std::ofstream(scratch / "textures" / "rock.png", std::ios::binary) << looseRock;
+			std::ofstream(scratch / "only_loose.txt", std::ios::binary) << onlyLoose;
+		}
+
+		// The archive: bytes that differ from the loose file, a text entry,
+		// and a binary one with embedded zeros -- the bytes a text-mode
+		// mistake would eat.
+		const std::string pakRock = "pak rock bytes, and different ones";
+		std::vector<uint8_t> binary(70000);
+		for (size_t i = 0; i < binary.size(); i++)
+			binary[i] = (uint8_t)(i * 31);
+
+		const fs::path pakFile = scratch / "content.rvpak";
+		{
+			IO::PakWriter writer;
+			Check(writer.AddBytes("textures/rock.png",
+								  { pakRock.begin(), pakRock.end() }),
+				  "the writer takes an entry");
+			Check(!writer.AddBytes("Textures\\ROCK.png", { 1, 2, 3 }),
+				  "two spellings of one normalized path are refused, not resolved silently");
+			Check(writer.AddBytes("scenes/menu.rage", { 'S', 'c' }), "a second entry");
+			Check(writer.AddBytes("blobs/data.bin", binary), "a binary entry");
+			Check(writer.Write(pakFile), "the archive writes");
+		}
+
+		{
+			IO::PakReader reader;
+			Check(reader.Open(pakFile), "the archive opens");
+			Check(reader.Entries().size() == 3, "it holds what was added, once each");
+
+			std::vector<uint8_t> bytes;
+			Check(reader.ReadBytes("blobs/data.bin", bytes) && bytes == binary,
+				  "binary bytes survive the round trip exactly");
+			Check(!reader.ReadBytes("blobs/absent.bin", bytes),
+				  "a missing entry answers false rather than something");
+		}
+
+		Check(VFS::MountCount() == 0, "nothing is mounted before the test mounts");
+		Check(VFS::MountPak(scratch, pakFile), "the pak mounts over the scratch root");
+
+		{
+			std::string text;
+			Check(VFS::ReadText(scratch / "textures" / "rock.png", text) && text == pakRock,
+				  "the pak wins where the pak and a loose file hold the same path");
+			Check(VFS::ReadText(scratch / "only_loose.txt", text) && text == onlyLoose,
+				  "a path the pak lacks falls through to the loose file");
+			Check(VFS::ReadText(fs::path(scratch) / "Textures\\ROCK.PNG", text) && text == pakRock,
+				  "a lookup in the wrong case with the wrong slashes still resolves");
+
+			Check(VFS::Origin(scratch / "scenes" / "menu.rage") == FileOrigin::Pak,
+				  "origin says pak for a pak entry");
+			Check(VFS::Origin(scratch / "only_loose.txt") == FileOrigin::Loose,
+				  "origin says loose for a loose file");
+			Check(VFS::Origin(scratch / "nowhere.txt") == FileOrigin::Missing,
+				  "origin says missing for neither");
+		}
+
+		{
+			const std::vector<std::string> files = VFS::Enumerate(scratch);
+			const auto has = [&](const char* path)
+			{
+				return std::find(files.begin(), files.end(), path) != files.end();
+			};
+
+			Check(files.size() == 5, "enumeration merges the pak and the loose tree");
+			Check(has("textures/rock.png") && has("scenes/menu.rage") &&
+				  has("blobs/data.bin") && has("only_loose.txt") && has("content.rvpak"),
+				  "and holds each path once, wherever it lives");
+
+			const std::vector<std::string> under = VFS::Enumerate(scratch / "blobs");
+			Check(under.size() == 1 && under[0] == "data.bin",
+				  "enumerating a subdirectory answers relative to it");
+		}
+
+		{
+			// Two independent streams over one entry: interleaved reads must
+			// not share a cursor, because this is exactly what the audio
+			// thread does beside the loader.
+			auto a = VFS::OpenStream(scratch / "blobs" / "data.bin");
+			auto b = VFS::OpenStream(scratch / "blobs" / "data.bin");
+			Check(a && b && a->Size() == binary.size(), "streams open on a pak entry");
+
+			uint8_t bytesA[16] = {};
+			uint8_t bytesB[16] = {};
+			Check(a->Seek(60000) && a->Read(bytesA, 16) == 16, "a stream reads at an offset");
+			Check(b->Read(bytesB, 16) == 16, "the other stream still reads from its start");
+			Check(std::memcmp(bytesA, binary.data() + 60000, 16) == 0 &&
+				  std::memcmp(bytesB, binary.data(), 16) == 0,
+				  "and each got its own bytes");
+
+			uint8_t past[8] = {};
+			Check(a->Seek(binary.size()) && a->Read(past, 8) == 0,
+				  "a read at the end answers zero rather than the next asset's bytes");
+		}
+
+		VFS::UnmountAll();
+		{
+			std::string text;
+			Check(VFS::ReadText(scratch / "textures" / "rock.png", text) && text == looseRock,
+				  "unmounting uncovers the loose file again");
+		}
+
+		fs::remove_all(scratch, error);
+	}
+
 	// Materials as assets, and the defect that made them one.
 	//
 	// The interesting property is not "a material can be shared" -- that is easy
@@ -7784,6 +7915,7 @@ int RunTests(int argc, char** argv)
 	CheckSkinnedVertexLayout();
 	CheckReflectionProbe();
 	CheckMaterialOverrides();
+	CheckVfsAndPak();
 	CheckMaterialAssets();
 	CheckProbeSelection();
 	CheckProbeArraySize();
