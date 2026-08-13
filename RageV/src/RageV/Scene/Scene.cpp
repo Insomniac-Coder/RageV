@@ -1105,7 +1105,7 @@ namespace RageV
 		//
 		// Cached on the source, so this is a pointer comparison on every frame
 		// after the one that built it.
-		ProbeArray::Begin(ProbeFaceSize());
+		ProbeArray::Begin(ProbeFaceSize(), 1 + ProbeCount());
 		ProbeArray::SetSky(*cmd, ResolveSky());
 	}
 
@@ -1118,15 +1118,30 @@ namespace RageV
 		return Skybox::ResolveEnvironment(m_Environment, sky);
 	}
 
+	uint32_t Scene::ProbeCount()
+	{
+		auto view = m_Registry.view<const ReflectionProbeComponent>();
+		return (uint32_t)view.size();
+	}
+
 	uint32_t Scene::ProbeFaceSize() const
 	{
-		// The largest probe in the scene decides, because there is one array
+		// The largest source in the scene decides, because there is one array
 		// and a slice cannot be a different size from its neighbours. A smaller
 		// probe is resampled up into its slice, which costs it nothing it had
 		// -- its capture was always going to be blurred by the convolution --
 		// and a scene where every probe agrees, which is every scene anybody
 		// authors, gets exactly the size it asked for.
+		//
+		// The sky is a source too, and forgetting it was a real regression: a
+		// 512 HDR sky reflected through a 128 slice keeps a quarter of its
+		// sharpness, and every reflective surface in the scene goes soft with
+		// it. The memory this costs is what the dynamic slot count in Begin
+		// exists to pay for.
 		uint32_t largest = 0;
+
+		if (const RHI::Ref<RHI::RHITexture> sky = ResolveSky())
+			largest = Math::Max(largest, sky->GetWidth());
 
 		auto view = m_Registry.view<const ReflectionProbeComponent>();
 		for (auto& item : view)
@@ -1460,7 +1475,7 @@ namespace RageV
 	{
 		m_ProbeSlots.clear();
 
-		ProbeArray::Begin(ProbeFaceSize());
+		ProbeArray::Begin(ProbeFaceSize(), 1 + ProbeCount());
 		if (!ProbeArray::IsReady())
 			return;
 

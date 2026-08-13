@@ -4392,6 +4392,35 @@ void main()
 		mesh.Metallic = 0.0f;
 		resolved = mesh.ResolveParams(base);
 		Check(resolved.Metallic == 0.0f, "an override to zero is an override, not an absence");
+
+		// The serializer round-trips the newest fields. Both of today's silent
+		// failures were fields that existed and were dropped somewhere between
+		// authoring and disk -- this pins the whole set.
+		{
+			Assets::MaterialDesc out;
+			out.Name = "RoundTrip";
+			out.Params.HeightScale = 0.07f;
+			out.Params.Specular = 0.3f;
+			out.Params.UvTransform = { 4.0f, 4.0f, 0.25f, 0.0f };
+			out.HeightMap = AssetHandle(1234567890123ull);
+			out.RoughnessMap = AssetHandle(9876543210987ull);
+
+			const std::filesystem::path path =
+				std::filesystem::temp_directory_path() / "rv_material_fields.rmat";
+			Check(Assets::MaterialSerializer::Save(out, path), "a material with the new fields saves");
+
+			Assets::MaterialDesc in;
+			Check(Assets::MaterialSerializer::Load(in, path), "and loads");
+			Check(in.Params.HeightScale == 0.07f, "keeping its parallax depth");
+			Check(in.Params.Specular == 0.3f, "its specular");
+			Check(in.Params.UvTransform.x == 4.0f && in.Params.UvTransform.z == 0.25f,
+				  "its tiling and offset");
+			Check(in.HeightMap == out.HeightMap && in.RoughnessMap == out.RoughnessMap,
+				  "and its map handles");
+
+			std::error_code error;
+			std::filesystem::remove(path, error);
+		}
 	}
 
 	// Per-object probe selection, and the arrays the choice indexes into.
@@ -4473,8 +4502,12 @@ void main()
 		{
 			Check(radiance->GetDesc().Type == RHI::TextureType::TextureCubeArray,
 				  "as a cube array the shader can index per object");
-			Check(radiance->GetDesc().Layers == ProbeArray::kSlots * CubeFaces::kFaceCount,
-				  "with six layers per slot");
+			// 3 slots: the sky plus this scene's two probes. Slots follow the
+			// scene now rather than being sixteen always, because face size
+			// follows the sky's resolution and sixteen slots at 512 would be a
+			// quarter gigabyte.
+			Check(radiance->GetDesc().Layers == 3 * CubeFaces::kFaceCount,
+				  "with six layers per slot, one slot per probe plus the sky");
 			Check(radiance->GetDesc().MipLevels > 1,
 				  "and a roughness chain, or every surface reflecting one is a mirror");
 		}
@@ -4486,7 +4519,7 @@ void main()
 			// The whole point of deciding it rather than leaving it: a scene
 			// whose reflections move per object while its ambient does not
 			// reads as a lighting bug, not as a missing feature.
-			Check(irradiance->GetDesc().Layers == ProbeArray::kSlots * CubeFaces::kFaceCount,
+			Check(irradiance->GetDesc().Layers == 3 * CubeFaces::kFaceCount,
 				  "so diffuse follows the same probe specular does");
 		}
 

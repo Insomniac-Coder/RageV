@@ -10,9 +10,8 @@ for:
     file is simply absent, and the material falls back to its scalar. The
     shader takes roughness and metallic as separate maps precisely so no
     repacking stands between a downloaded material and the engine.
-  * Displacement is downloaded and discarded. There is no displacement or
-    parallax in the shader, and shipping a map nothing reads would be four
-    megabytes of lie per material.
+  * Displacement is kept: it drives the parallax mapping, which is what makes
+    a surface read as deep rather than as a photograph of a deep surface.
   * The normal map wanted is **NormalGL**, not NormalDX. They differ in the
     sign of the green channel, and picking the wrong one lights every dent as
     a bump -- which looks fine until you compare it with the colour map.
@@ -39,11 +38,13 @@ except ImportError:
 # The four surfaces, and what each is for in the demo scene. Tiling is in the
 # material because the primitives' UVs span 0..1 per face whatever their size --
 # see MaterialParams::UvTransform.
+# name, tiling, parallax depth in UV units. Depth is per material because it
+# is a property of the surface: soil is deep, planed wood is nearly flat.
 MATERIALS = [
-    ("Metal053C",  "rusted_steel", (1.0, 1.0)),
-    ("Ground037",  "soil",         (5.0, 5.0)),
-    ("WoodFloor007", "wood",        (1.0, 1.0)),
-    ("Bricks023",  "brick",        (1.5, 1.5)),
+    ("Metal053C",    "rusted_steel", (1.0, 1.0), 0.015),
+    ("Ground037",    "soil",         (5.0, 5.0), 0.05),
+    ("WoodFloor007", "wood",         (1.0, 1.0), 0.012),
+    ("Bricks023",    "brick",        (1.5, 1.5), 0.04),
 ]
 
 # ambientCG's suffix -> what RageV calls it. Displacement is deliberately absent.
@@ -53,6 +54,7 @@ WANTED = {
     "AmbientOcclusion": "ao",
     "Roughness": "roughness",
     "Metalness": "metallic",
+    "Displacement": "height",
 }
 
 
@@ -75,7 +77,7 @@ def main():
     os.makedirs(args.target, exist_ok=True)
     total = 0
 
-    for asset, name, tiling in MATERIALS:
+    for asset, name, tiling, height_scale in MATERIALS:
         print(f"{name} ({asset})")
         archive = fetch(asset, args.resolution)
 
@@ -87,7 +89,18 @@ def main():
                 continue
 
             image = Image.open(io.BytesIO(archive.read(member)))
-            image = image.convert("RGB")
+
+            # Displacement ships as 16-bit greyscale, and PIL's convert("RGB")
+            # CLAMPS rather than rescales -- everything above 255 saturates, so
+            # a 16-bit height field silently becomes a pure white image. White
+            # is height 1.0 everywhere, which makes the parallax march an exact
+            # no-op: the bug renders as nothing happening at all.
+            if image.mode in ("I", "I;16", "I;16B", "I;16L"):
+                # point() with a scalar multiply is the one transform PIL
+                # supports on 32-bit images; Image.eval is not.
+                image = image.convert("I").point(lambda v: v * (1.0 / 256.0)).convert("L")
+            else:
+                image = image.convert("RGB")
 
             # Normal maps keep their full resolution; everything else is
             # downsampled.
@@ -113,7 +126,8 @@ def main():
         # be invented: it lives in the .meta the registry creates.
         sidecar = os.path.join(args.target, f"{name}.maps.json")
         with open(sidecar, "w") as handle:
-            json.dump({"name": name, "maps": written, "tiling": tiling}, handle, indent=1)
+            json.dump({"name": name, "maps": written, "tiling": tiling,
+                       "height_scale": height_scale}, handle, indent=1)
 
         print(f"  wrote {len(written)} maps")
 

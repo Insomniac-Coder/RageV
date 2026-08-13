@@ -42,6 +42,17 @@ namespace RageV
 
 		static bool IsReady();
 
+		// Makes sure the arrays exist, hold cubes of `faceSize`, and have room
+		// for `slots` cubes.
+		//
+		// `slots` is 1 + the scene's probe count, not the fixed maximum,
+		// because face size now follows the *sky's* resolution as well as the
+		// probes' -- a 512px HDR sky reflected through a 128px slice loses
+		// three quarters of its detail, which reads as everything reflective
+		// going soft. Sixteen fixed slots at 512 would be a quarter gigabyte;
+		// two slots at 512 is 33 MB, and two is what a scene with one probe
+		// needs.
+		//
 		// Makes sure the arrays exist and hold cubes of `faceSize`.
 		//
 		// Changing the face size reallocates, which empties every slot. That is
@@ -52,7 +63,7 @@ namespace RageV
 		// index sufficient -- with two, an object would have to select the
 		// binding as well as the slice, which is the thing this design exists
 		// to avoid.
-		static void Begin(uint32_t faceSize);
+		static void Begin(uint32_t faceSize, uint32_t slots);
 
 		// Fills slot 0 from the scene's sky. A no-op when the same cube is
 		// already there, which is every frame after the first.

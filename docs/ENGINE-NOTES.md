@@ -1157,13 +1157,23 @@ What made the demo look broken was three scene facts and one regression:
 3. **White-on-white cannot show fresnel.** 4% of the sky added to a bright
    white diffuse is invisible by arithmetic. The demo now keeps one dark glossy
    dielectric (the smooth sphere), which is the classic showcase for a reason.
-4. **Real 7.7 regression: reflections are capped at the probe array's face
-   size.** The array defaults to 128, so a 512 HDR sky's reflections lost
-   three-quarters of their resolution relative to pre-7.7. Not visible with the
-   gradient sky (32px source), clearly relevant with a cubemap one. The fix is
-   for `Scene::ProbeFaceSize` to consider the sky's own resolution -- with the
-   slot count made dynamic first, because sixteen fixed slots at 512 would be a
-   quarter gigabyte of cube array. **Open item, not yet fixed.**
+4. **Real 7.7 regression, now fixed: reflections were capped at the probe
+   array's face size.** The array defaulted to 128, so a 512 HDR sky's
+   reflections lost three-quarters of their resolution relative to pre-7.7.
+   `Scene::ProbeFaceSize` now counts the sky as a source, and the slot count is
+   dynamic -- 1 + the scene's probe count rather than sixteen always -- because
+   sixteen fixed slots at 512 would have been a quarter gigabyte of cube array.
+   A one-probe scene under a 512 sky is 2 slots, ~33 MB.
+
+**Open: backend parity of the derivative tangent frame.** VK and GL differ more
+than filtering noise on normal-mapped, parallaxed surfaces (mean 14.7/255 on
+the close-up). The suspect is `dFdy` flipping sign under Vulkan's
+negative-height viewport, which would flip the perturbation and parallax
+direction on exactly one backend. The old `ApplyNormalMap` used the identical
+construction, but **no compared scene carried a normal map until today**, so
+this would be latent since phase 3. Needs a purpose-built scene with a known
+asymmetric relief -- a height ramp whose high side is stated -- so the two
+backends can be checked against the *answer*, not just against each other.
 
 Two process notes. The `Specular` F0 rework was the obvious suspect (it touched
 exactly dielectric-vs-metal, and metals still worked); a pixel-identical diff

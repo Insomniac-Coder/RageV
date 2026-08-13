@@ -111,6 +111,16 @@ namespace RageV
 			if (!node)
 				return;
 
+			// A map where a handle should be is not malformed data -- it is a
+			// version-5 scene, whose MeshComponent stored the material as a
+			// nested block of scalars. The component's DeserializeExtra reads
+			// that block into per-entity overrides; this field keeping its
+			// default (no asset) is exactly the right outcome. Warning about it
+			// made every legacy scene open under a wall of red that looked like
+			// breakage and described none.
+			if (field.Type == FieldType::Asset && node.IsMap())
+				return;
+
 			void* value = field.Access(component);
 
 			// A field whose text does not convert leaves its default rather

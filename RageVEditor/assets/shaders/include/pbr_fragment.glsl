@@ -24,6 +24,7 @@ const int MAP_EMISSIVE           = 1 << 4;
 const int MAP_ROUGHNESS          = 1 << 5;
 const int MAP_METALLIC           = 1 << 6;
 const int MAP_SPECULAR           = 1 << 7;
+const int MAP_HEIGHT             = 1 << 8;
 
 layout(set = 0, binding = 0) uniform SceneData
 {
@@ -126,11 +127,12 @@ layout(set = 1, binding = 0) uniform MaterialData
 	// F0 = 0.08 * Specular for anything that is not metal. 0.5 is the 4% this
 	// used to hardcode.
 	float Specular;
-	// std140 pads out to a vec4 boundary, so these must be declared or the
+	// Depth of the parallax displacement, in UV units.
+	float HeightScale;
+	// std140 pads out to a vec4 boundary, so this must be declared or the
 	// offsets here and in MaterialParams disagree -- and a uniform block that
 	// disagrees does not fail, it reads the wrong sixteen bytes.
 	int   _pad0;
-	int   _pad1;
 	// xy scale, zw offset. See MaterialParams::UvTransform.
 	vec4  UvTransform;
 } u_Material;
@@ -148,6 +150,7 @@ layout(set = 1, binding = 5) uniform sampler2D u_EmissiveMap;
 layout(set = 1, binding = 6) uniform sampler2D u_RoughnessMap;
 layout(set = 1, binding = 7) uniform sampler2D u_MetallicMap;
 layout(set = 1, binding = 8) uniform sampler2D u_SpecularMap;
+layout(set = 1, binding = 9) uniform sampler2D u_HeightMap;
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
@@ -426,11 +429,12 @@ vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 
 // Screen-space derivative TBN. Avoids needing tangents in the vertex format,
 // which means generated primitives and imported meshes work the same way.
-vec3 ApplyNormalMap(vec3 N, vec3 worldPos, vec2 uv)
+// The tangent frame from screen-space derivatives (Schuler's construction),
+// so meshes need no precomputed tangents. Built once per fragment and shared
+// by parallax and normal mapping -- two frames that drifted would shade one
+// direction and displace another, which reads as the texture swimming.
+mat3 TangentFrame(vec3 N, vec3 worldPos, vec2 uv)
 {
-	vec3 tangentNormal = texture(u_NormalMap, uv).xyz * 2.0 - 1.0;
-	tangentNormal.xy *= v_Surface.w;
-
 	vec3 dp1 = dFdx(worldPos);
 	vec3 dp2 = dFdy(worldPos);
 	vec2 duv1 = dFdx(uv);
@@ -442,8 +446,58 @@ vec3 ApplyNormalMap(vec3 N, vec3 worldPos, vec2 uv)
 	vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
 
 	float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-	mat3 TBN = mat3(T * invmax, B * invmax, N);
+	return mat3(T * invmax, B * invmax, N);
+}
+
+vec3 PerturbNormal(mat3 TBN, vec2 uv)
+{
+	vec3 tangentNormal = texture(u_NormalMap, uv).xyz * 2.0 - 1.0;
+	tangentNormal.xy *= v_Surface.w;
 	return normalize(TBN * tangentNormal);
+}
+
+// Parallax occlusion: march the view ray through the height field and use the
+// texel where the ray actually meets the surface.
+//
+// This, not the normal map, is what makes a surface read as *deep*. A normal
+// map changes how a texel is shaded; parallax changes which texel is there at
+// all as the view moves, and that motion cue is most of what the eye calls
+// depth on a ground plane seen at an angle. Without it a bumpy floor is a
+// photograph of a bumpy floor.
+vec2 Parallax(vec2 uv, vec3 viewTS)
+{
+	float scale = u_Material.HeightScale;
+	if (scale <= 0.0)
+		return uv;
+
+	// More steps at grazing angles, where the ray crosses more surface. The
+	// clamp on viewTS.z stops the offset exploding at the silhouette, where a
+	// grazing ray would otherwise sample texels from the far side of the tile.
+	float steps = mix(28.0, 10.0, clamp(viewTS.z, 0.0, 1.0));
+	float layer = 1.0 / steps;
+	vec2 delta = (viewTS.xy / max(viewTS.z, 0.15)) * scale / steps;
+
+	// textureLod, not texture: the loop's trip count varies per fragment, and
+	// implicit derivatives inside divergent control flow are undefined.
+	vec2 cur = uv;
+	float depth = 0.0;
+	float h = 1.0 - textureLod(u_HeightMap, cur, 0.0).r;
+	float prevH = h;
+
+	while (depth < h && depth < 1.0)
+	{
+		prevH = h;
+		cur -= delta;
+		depth += layer;
+		h = 1.0 - textureLod(u_HeightMap, cur, 0.0).r;
+	}
+
+	// One secant step between the sample above the surface and the one below,
+	// which removes the visible layering the raw march leaves on slopes.
+	float after = h - depth;
+	float before = prevH - (depth - layer);
+	float t = clamp(after / (after - before + 1e-5), 0.0, 1.0);
+	return cur + delta * t;
 }
 
 void main()
@@ -452,6 +506,15 @@ void main()
 	// coordinate or the normals stop lining up with the colour they belong to,
 	// which reads as a lighting bug rather than as a UV one.
 	vec2 uv = v_TexCoord * u_Material.UvTransform.xy + u_Material.UvTransform.zw;
+
+	vec3 Ngeo = normalize(v_Normal);
+	vec3 V = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
+	mat3 TBN = TangentFrame(Ngeo, v_WorldPos, uv);
+
+	// Parallax before any map is sampled, so colour, normal, roughness and
+	// occlusion all agree about which texel is under this pixel.
+	if (HasMap(MAP_HEIGHT))
+		uv = Parallax(uv, transpose(TBN) * V);
 
 	vec4 baseColor = v_BaseColor;
 	if (HasMap(MAP_BASE_COLOR))
@@ -476,11 +539,9 @@ void main()
 	if (HasMap(MAP_OCCLUSION))
 		occlusion *= texture(u_OcclusionMap, uv).r;
 
-	vec3 N = normalize(v_Normal);
+	vec3 N = Ngeo;
 	if (HasMap(MAP_NORMAL))
-		N = ApplyNormalMap(N, v_WorldPos, uv);
-
-	vec3 V = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
+		N = PerturbNormal(TBN, uv);
 
 	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
 	// the reflectance and have no diffuse response at all.

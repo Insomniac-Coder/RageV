@@ -57,6 +57,7 @@ namespace RageV::Assets
 		emitter << YAML::Key << "Occlusion"   << YAML::Value << params.Occlusion;
 		emitter << YAML::Key << "NormalScale" << YAML::Value << params.NormalScale;
 		emitter << YAML::Key << "Specular"    << YAML::Value << params.Specular;
+		emitter << YAML::Key << "HeightScale" << YAML::Value << params.HeightScale;
 
 		// Written as a pair of pairs rather than a raw vec4, because "Tiling:
 		// [8, 8]" is what somebody editing this by hand is looking for.
@@ -75,7 +76,7 @@ namespace RageV::Assets
 		const bool anyMap = material.BaseColorMap.IsValid() || material.NormalMap.IsValid() ||
 							material.OcclusionMap.IsValid() || material.EmissiveMap.IsValid() ||
 							material.RoughnessMap.IsValid() || material.MetallicMap.IsValid() ||
-							material.SpecularMap.IsValid();
+							material.SpecularMap.IsValid() || material.HeightMap.IsValid();
 
 		if (anyMap)
 		{
@@ -87,6 +88,7 @@ namespace RageV::Assets
 			EmitMap(emitter, "Roughness", material.RoughnessMap);
 			EmitMap(emitter, "Metallic", material.MetallicMap);
 			EmitMap(emitter, "Specular", material.SpecularMap);
+			EmitMap(emitter, "Height", material.HeightMap);
 			emitter << YAML::EndMap;
 		}
 
@@ -142,6 +144,7 @@ namespace RageV::Assets
 		if (root["Occlusion"])   params.Occlusion = root["Occlusion"].as<float>();
 		if (root["NormalScale"]) params.NormalScale = root["NormalScale"].as<float>();
 		if (root["Specular"])    params.Specular = root["Specular"].as<float>();
+		if (root["HeightScale"]) params.HeightScale = root["HeightScale"].as<float>();
 
 		auto readPair = [](const YAML::Node& node, float& x, float& y)
 		{
@@ -164,6 +167,7 @@ namespace RageV::Assets
 			material.RoughnessMap = ReadMap(maps["Roughness"]);
 			material.MetallicMap = ReadMap(maps["Metallic"]);
 			material.SpecularMap = ReadMap(maps["Specular"]);
+			material.HeightMap = ReadMap(maps["Height"]);
 		}
 
 		// Whatever the file said, the flags come from the handles. See Save.

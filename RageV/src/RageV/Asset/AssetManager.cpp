@@ -310,6 +310,7 @@ namespace RageV::Assets
 		assign(desc.RoughnessMap, &Material::SetRoughnessMap, ColorSpace::Linear);
 		assign(desc.MetallicMap, &Material::SetMetallicMap, ColorSpace::Linear);
 		assign(desc.SpecularMap, &Material::SetSpecularMap, ColorSpace::Linear);
+		assign(desc.HeightMap, &Material::SetHeightMap, ColorSpace::Linear);
 
 		material->Invalidate();
 

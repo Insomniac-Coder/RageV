@@ -49,6 +49,7 @@ namespace RageV::Assets
 		AssetHandle RoughnessMap = AssetHandle::Invalid();
 		AssetHandle MetallicMap = AssetHandle::Invalid();
 		AssetHandle SpecularMap = AssetHandle::Invalid();
+		AssetHandle HeightMap = AssetHandle::Invalid();
 	};
 
 	// Reads and writes `.rmat`, the file behind AssetType::Material.

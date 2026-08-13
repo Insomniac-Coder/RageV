@@ -30,6 +30,7 @@ namespace RageV
 			Ref<RHITexture> Irradiance;
 
 			uint32_t FaceSize = 0;
+			uint32_t SlotCount = 0;
 			std::array<Occupant, ProbeArray::kSlots> Slots{};
 		};
 
@@ -41,13 +42,14 @@ namespace RageV
 				s_Data->Slots.fill(Occupant{});
 		}
 
-		// A cube array, sized for kSlots cubes of `faceSize`.
-		Ref<RHITexture> CreateArray(uint32_t faceSize, uint32_t levels, const char* name)
+		// A cube array, sized for `slots` cubes of `faceSize`.
+		Ref<RHITexture> CreateArray(uint32_t faceSize, uint32_t slots, uint32_t levels,
+									const char* name)
 		{
 			TextureDesc desc;
 			desc.Width = faceSize;
 			desc.Height = faceSize;
-			desc.Layers = ProbeArray::kSlots * CubeFaces::kFaceCount;
+			desc.Layers = slots * CubeFaces::kFaceCount;
 			desc.Type = TextureType::TextureCubeArray;
 			desc.Format = Format::R16G16B16A16_SFLOAT;
 			// TransferDst because every slice arrives through
@@ -104,14 +106,16 @@ namespace RageV
 		return s_Data ? s_Data->FaceSize : 0;
 	}
 
-	void ProbeArray::Begin(uint32_t faceSize)
+	void ProbeArray::Begin(uint32_t faceSize, uint32_t slots)
 	{
 		if (!s_Data || !s_Data->Device)
 			return;
 
-		faceSize = Math::Clamp(faceSize, 16u, 512u);
+		faceSize = Math::Clamp(faceSize, 16u, 1024u);
+		slots = Math::Clamp(slots, 1u, kSlots);
 
-		if (s_Data->Radiance && s_Data->Irradiance && s_Data->FaceSize == faceSize)
+		if (s_Data->Radiance && s_Data->Irradiance &&
+			s_Data->FaceSize == faceSize && s_Data->SlotCount == slots)
 			return;
 
 		const uint32_t levels = EnvironmentIBL::LevelsFor(faceSize);
@@ -124,9 +128,10 @@ namespace RageV
 			return;
 		}
 
-		s_Data->Radiance = CreateArray(faceSize, levels, "probes.radiance");
-		s_Data->Irradiance = CreateArray(kIrradianceSize, 1, "probes.irradiance");
+		s_Data->Radiance = CreateArray(faceSize, slots, levels, "probes.radiance");
+		s_Data->Irradiance = CreateArray(kIrradianceSize, slots, 1, "probes.irradiance");
 		s_Data->FaceSize = faceSize;
+		s_Data->SlotCount = slots;
 
 		// Everything the old arrays held is gone with them, including slot 0.
 		Forget();
@@ -134,7 +139,7 @@ namespace RageV
 		if (s_Data->Radiance && s_Data->Irradiance)
 		{
 			RV_CORE_INFO("Probe arrays ready ({0} slots, {1} px radiance faces, "
-						 "{2} roughness levels)", kSlots, faceSize, levels);
+						 "{2} roughness levels)", slots, faceSize, levels);
 		}
 	}
 
@@ -162,7 +167,7 @@ namespace RageV
 
 	bool ProbeArray::SetProbe(RHICommandList& cmd, uint32_t slot, const ReflectionProbe& probe)
 	{
-		if (!IsReady() || slot == kSkySlot || slot >= kSlots)
+		if (!IsReady() || slot == kSkySlot || slot >= s_Data->SlotCount)
 			return false;
 
 		const Ref<RHITexture>& cube = probe.GetCube();

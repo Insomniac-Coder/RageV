@@ -221,9 +221,12 @@ namespace RageV
 		// two of them used to derive it themselves.
 		RHI::Ref<RHI::RHITexture> ResolveSky() const;
 
-		// The face size the probe arrays should hold: the largest resolution
-		// any probe in the scene asks for.
+		// The face size the probe arrays should hold: the largest of the sky's
+		// resolution and every probe's.
 		uint32_t ProbeFaceSize() const;
+
+		// How many reflection probes the scene has, for sizing the arrays.
+		uint32_t ProbeCount();
 
 		// Convolves the sky and every complete probe into their array slices,
 		// and records which slice each probe went to.

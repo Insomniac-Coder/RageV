@@ -38,6 +38,7 @@ ROLES = {
     "ao": "Occlusion",
     "roughness": "Roughness",
     "metallic": "Metallic",
+    "height": "Height",
 }
 
 
@@ -91,11 +92,12 @@ def main():
             "Occlusion: 1",
             "NormalScale: 1",
             "Specular: 0.5",
+            f"HeightScale: {spec.get('height_scale', 0.05):g}",
             f"Tiling: [{tiling[0]:g}, {tiling[1]:g}]",
             "UvOffset: [0, 0]",
             "Maps:",
         ]
-        for key in ("BaseColor", "Normal", "Occlusion", "Roughness", "Metallic"):
+        for key in ("BaseColor", "Normal", "Occlusion", "Roughness", "Metallic", "Height"):
             if key in maps:
                 lines.append(f"  {key}: {maps[key]}")
 

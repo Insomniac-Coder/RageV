@@ -110,6 +110,12 @@ namespace RageV
 		Invalidate();
 	}
 
+	void Material::SetHeightMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_Height, texture, m_Params.MapFlags, MaterialMap_Height);
+		Invalidate();
+	}
+
 	void Material::EnsureResources(const Ref<RHIPipeline>& pipeline, uint32_t set)
 	{
 		if (m_Built)
@@ -165,6 +171,9 @@ namespace RageV
 			resourceSet->SetTexture(6, m_Roughness         ? m_Roughness         : TextureLoader::White(m_Device),      m_Sampler);
 			resourceSet->SetTexture(7, m_Metallic          ? m_Metallic          : TextureLoader::White(m_Device),      m_Sampler);
 			resourceSet->SetTexture(8, m_Specular         ? m_Specular          : TextureLoader::White(m_Device),      m_Sampler);
+			// Black, not white: absent height = flat, and flat is height 0
+			// everywhere rather than a raised slab.
+			resourceSet->SetTexture(9, m_Height           ? m_Height            : TextureLoader::Black(m_Device),      m_Sampler);
 
 			resourceSet->Commit();
 			m_FrameDirty[frame] = false;
@@ -194,6 +203,7 @@ namespace RageV
 		mix(m_Roughness.get());
 		mix(m_Metallic.get());
 		mix(m_Specular.get());
+		mix(m_Height.get());
 		mix(m_Sampler.get());
 
 		// MapFlags is the one scalar the shader still reads from the material

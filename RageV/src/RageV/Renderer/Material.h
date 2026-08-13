@@ -40,7 +40,12 @@ namespace RageV
 		// In the padding rather than after UvTransform, so the block stays 80
 		// bytes and the std140 layout does not move.
 		float Specular = 0.5f;
-		int32_t _padding[2] = {};
+
+		// How deep the height map displaces, in UV units. 0.05 reads as a few
+		// centimetres of relief on a metre-scale tile; 0 turns parallax off
+		// even when a map is bound.
+		float HeightScale = 0.05f;
+		int32_t _padding = 0;
 
 		// How this material's maps meet the surface: xy scales the texture
 		// coordinate, zw offsets it. (1, 1, 0, 0) is the mesh's own UVs.
@@ -91,6 +96,12 @@ namespace RageV
 
 		// Dielectric reflectance, greyscale, modulating the Specular scalar.
 		MaterialMap_Specular          = 1 << 7,
+
+		// A height field, driving parallax. This is the map that makes a
+		// ground plane read as having depth: normals change shading, parallax
+		// changes *where the texels are* as the view moves, and the second is
+		// the cue the eye actually uses on a surface seen at an angle.
+		MaterialMap_Height            = 1 << 8,
 	};
 
 	class Material
@@ -112,6 +123,7 @@ namespace RageV
 		void SetRoughnessMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetMetallicMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetSpecularMap(const RHI::Ref<RHI::RHITexture>& texture);
+		void SetHeightMap(const RHI::Ref<RHI::RHITexture>& texture);
 
 		// Marks every frame's descriptor set and parameter buffer as needing a
 		// rewrite. Call after touching GetParams() directly.
@@ -155,6 +167,7 @@ namespace RageV
 		RHI::Ref<RHI::RHITexture> m_Roughness;
 		RHI::Ref<RHI::RHITexture> m_Metallic;
 		RHI::Ref<RHI::RHITexture> m_Specular;
+		RHI::Ref<RHI::RHITexture> m_Height;
 		RHI::Ref<RHI::RHISampler> m_Sampler;
 
 		// Per frame in flight: the parameter block is host-visible and may be
