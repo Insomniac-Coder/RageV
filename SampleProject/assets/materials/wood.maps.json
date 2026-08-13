@@ -4,8 +4,7 @@
   "color": "wood_color.png",
   "normal": "wood_normal.png",
   "ao": "wood_ao.png",
-  "roughness": "wood_roughness.png",
-  "metallic": "wood_metallic.png"
+  "roughness": "wood_roughness.png"
  },
  "tiling": [
   1.0,

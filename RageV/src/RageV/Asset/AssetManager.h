@@ -44,10 +44,32 @@ namespace RageV::Assets
 		static const Skeleton* GetSkeleton(AssetHandle handle);
 		static const std::vector<Anim::Clip>* GetClips(AssetHandle handle);
 
-		// A plain 2D texture -- a particle sprite, an image. sRGB, mipped, and
+		// Whether a texture's values are *colour* or *numbers*.
+		//
+		// A base colour or emissive map is a picture: it was authored in sRGB
+		// and has to be decoded to linear before it is lit. A normal,
+		// roughness, metallic or occlusion map is data that merely happens to
+		// be stored in an image, and decoding it bends every value.
+		//
+		// Getting this wrong does not fail. A normal map read as sRGB has its
+		// X and Y pulled toward the centre, so every surface goes *flat* --
+		// which reads as "the normal maps are not being applied" rather than as
+		// a colour-space mistake, and that is exactly how it was found.
+		enum class ColorSpace { Srgb, Linear };
+
+		// A plain 2D texture -- a particle sprite, a material map. Mipped, and
 		// cached like everything else here; a failure caches as null so a
 		// missing file is not retried per frame.
-		static RHI::Ref<RHI::RHITexture> GetTexture(AssetHandle handle);
+		//
+		// Cached separately per colour space, because the same file read the
+		// two ways is two different textures and one cache would hand back
+		// whichever was asked for first.
+		//
+		// sRGB by default because the first caller was particle sprites, which
+		// are pictures. Every material map except base colour and emissive
+		// wants Linear.
+		static RHI::Ref<RHI::RHITexture> GetTexture(AssetHandle handle,
+													ColorSpace space = ColorSpace::Srgb);
 
 		// A material, resolved from its `.rmat` and its five texture handles.
 		//

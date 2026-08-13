@@ -40,10 +40,10 @@ except ImportError:
 # material because the primitives' UVs span 0..1 per face whatever their size --
 # see MaterialParams::UvTransform.
 MATERIALS = [
-    ("Metal053C",    "rusted_steel", (1.0, 1.0)),
-    ("Ground048",    "soil",         (6.0, 6.0)),
-    ("WoodFloor043", "wood",         (1.0, 1.0)),
-    ("Bricks097",    "brick",        (2.0, 2.0)),
+    ("Metal053C",  "rusted_steel", (1.0, 1.0)),
+    ("Ground037",  "soil",         (5.0, 5.0)),
+    ("WoodFloor007", "wood",        (1.0, 1.0)),
+    ("Bricks023",  "brick",        (1.5, 1.5)),
 ]
 
 # ambientCG's suffix -> what RageV calls it. Displacement is deliberately absent.
@@ -88,7 +88,18 @@ def main():
 
             image = Image.open(io.BytesIO(archive.read(member)))
             image = image.convert("RGB")
-            if args.size and image.size[0] != args.size:
+
+            # Normal maps keep their full resolution; everything else is
+            # downsampled.
+            #
+            # Because for a normal map, resolution *is* the relief. Halving one
+            # averages neighbouring normals toward flat, and measurably so:
+            # Ground048 loses a third of its deviation going 1K to 512 (27.6 to
+            # 19.4), which is the difference between ground that reads as
+            # ground and ground that reads as a photograph of ground. A colour
+            # or roughness map loses only detail nobody was looking at.
+            resize = args.size and role != "normal"
+            if resize and image.size[0] != args.size:
                 image = image.resize((args.size, args.size), Image.LANCZOS)
 
             path = os.path.join(args.target, f"{name}_{role}.png")

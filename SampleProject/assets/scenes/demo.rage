@@ -37,7 +37,7 @@ Entities:
       Scale: [20, 1, 20]
     MeshComponent:
       Mesh: 8241982477996916738
-      Material: 14207891531362159016
+      Material: 2253873544424874864
     RigidBodyComponent:
       Type: Static
       Mass: 1
@@ -63,7 +63,7 @@ Entities:
       Scale: [1.5, 1.5, 1.5]
     MeshComponent:
       Mesh: 8241982477996916736
-      Material: 14917157809614686117
+      Material: 12456084283590913901
     NativeScriptComponent:
       Script: Spinner
   - EntityID: 13871191845555187975
@@ -106,7 +106,7 @@ Entities:
       Scale: [1.4, 1.4, 1.4]
     MeshComponent:
       Mesh: 8241982477996916739
-      Material: 13764788492376090398
+      Material: 13042967132365226213
   - EntityID: 14105287064397593774
     TagComponent:
       Tag: Sphere (smooth)
@@ -166,7 +166,7 @@ Entities:
       Scale: [1.2, 0.6, 1.2]
     MeshComponent:
       Mesh: 8241982477996916739
-      Material: 3187420511756770187
+      Material: 17313890138267408253
   - EntityID: 12080736543617860364
     RelationshipComponent:
       Parent: 6370971351885114703
@@ -248,12 +248,12 @@ Entities:
       Tag: Sun
     TransformComponent:
       Position: [0, 0, 0]
-      Rotation: [-0.9599311, -0.5235988, 0]
+      Rotation: [-0.45, -0.7, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Directional
-      Color: [0.55, 0.58, 0.65]
-      Intensity: 1.2
+      Color: [1, 0.96, 0.88]
+      Intensity: 3.4
       Range: 10
       InnerCone: 20
       OuterCone: 30

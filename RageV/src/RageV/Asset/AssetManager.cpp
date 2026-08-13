@@ -40,6 +40,9 @@ namespace RageV::Assets
 		// Plain 2D textures -- particle sprites today, material maps whenever
 		// materials become assets. Failures cache as null like the cube's do.
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_Textures;
+		// The same files read linearly: normal, roughness, metallic and
+		// occlusion maps are numbers stored in an image, not pictures.
+		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_DataTextures;
 		// Materials, by handle. Shared on purpose: two entities pointing at one
 		// `.rmat` must get the same object, or their batch keys differ and the
 		// draws never merge -- which is the whole reason materials became
@@ -107,6 +110,7 @@ namespace RageV::Assets
 		s_Cubemaps.clear();
 		s_Irradiance.clear();
 		s_Textures.clear();
+		s_DataTextures.clear();
 		s_Materials.clear();
 		s_Curves.clear();
 		s_BakedCurves.clear();
@@ -232,27 +236,31 @@ namespace RageV::Assets
 		return found != s_Clips.end() ? &found->second : nullptr;
 	}
 
-	RHI::Ref<RHI::RHITexture> Manager::GetTexture(AssetHandle handle)
+	RHI::Ref<RHI::RHITexture> Manager::GetTexture(AssetHandle handle, ColorSpace space)
 	{
 		if (!s_Device || !handle.IsValid())
 			return nullptr;
 
-		const auto cached = s_Textures.find(handle);
-		if (cached != s_Textures.end())
+		// One cache per colour space. The same PNG decoded both ways is two
+		// different textures, and a single cache would return whichever was
+		// asked for first -- so a normal map would come back sRGB if some
+		// sprite had loaded it earlier.
+		auto& cache = space == ColorSpace::Srgb ? s_Textures : s_DataTextures;
+
+		const auto cached = cache.find(handle);
+		if (cached != cache.end())
 			return cached->second;
 
 		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 		if (path.empty())
 		{
-			s_Textures[handle] = nullptr;
+			cache[handle] = nullptr;
 			return nullptr;
 		}
 
-		// sRGB: these are pictures -- sprites, particle sheets -- not data
-		// maps, and a linear read of one looks washed out everywhere it is
-		// shown.
-		auto texture = TextureLoader::Load2D(*s_Device, path.string());
-		s_Textures[handle] = texture;
+		auto texture = TextureLoader::Load2D(*s_Device, path.string(),
+											 space == ColorSpace::Srgb);
+		cache[handle] = texture;
 		return texture;
 	}
 
@@ -283,19 +291,25 @@ namespace RageV::Assets
 		// The maps, and with them the flags. Assigning a null texture clears
 		// the slot and its flag, so a handle that resolves to nothing lands on
 		// the scalar parameter rather than on a missing binding.
-		auto assign = [&](AssetHandle map, void (Material::*setter)(const RHI::Ref<RHI::RHITexture>&))
+		auto assign = [&](AssetHandle map, void (Material::*setter)(const RHI::Ref<RHI::RHITexture>&),
+						  ColorSpace space)
 		{
 			if (map.IsValid())
-				(material.get()->*setter)(GetTexture(map));
+				(material.get()->*setter)(GetTexture(map, space));
 		};
 
-		assign(desc.BaseColorMap, &Material::SetBaseColorMap);
-		assign(desc.NormalMap, &Material::SetNormalMap);
-		assign(desc.OcclusionMap, &Material::SetOcclusionMap);
-		assign(desc.EmissiveMap, &Material::SetEmissiveMap);
-		assign(desc.RoughnessMap, &Material::SetRoughnessMap);
-		assign(desc.MetallicMap, &Material::SetMetallicMap);
-		assign(desc.SpecularMap, &Material::SetSpecularMap);
+		// Two of these are pictures and five are data. Reading a normal map
+		// through sRGB pulls its X and Y toward the centre and flattens every
+		// surface using it -- which looks like the normal maps not being
+		// applied at all, and is how this was found.
+		assign(desc.BaseColorMap, &Material::SetBaseColorMap, ColorSpace::Srgb);
+		assign(desc.EmissiveMap, &Material::SetEmissiveMap, ColorSpace::Srgb);
+
+		assign(desc.NormalMap, &Material::SetNormalMap, ColorSpace::Linear);
+		assign(desc.OcclusionMap, &Material::SetOcclusionMap, ColorSpace::Linear);
+		assign(desc.RoughnessMap, &Material::SetRoughnessMap, ColorSpace::Linear);
+		assign(desc.MetallicMap, &Material::SetMetallicMap, ColorSpace::Linear);
+		assign(desc.SpecularMap, &Material::SetSpecularMap, ColorSpace::Linear);
 
 		material->Invalidate();
 
