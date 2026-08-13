@@ -472,6 +472,7 @@ rather than missed.
 | 7.8 | Front-to-back depth sorting for opaque draws | S |
 | 7.9 | SMAA | M |
 | 7.10 | TAA — needs motion vectors first, which also buy motion blur and upscaling | L |
+| 7.11 | Startup: an import cache, and loading off the main thread | M | ✅ done 2026-08-13. Reported as "Not Responding on launch"; the measurement said `Project::Load` was 0.18s of 4.79s and 3.2s was decoding 198 MB of PNG on the first *draw*. The 7.2 cookers already existed and had one caller — the packager — so the editor re-decoded everything every launch. They now run on import into a git-ignored `<project>/Cache`, keyed on the `.meta` hash with the hash in the filename, so a lookup is a stat. Loading moved to a worker behind a progress screen shared with the runtime; uploads step on the main thread so the bar covers them too. Editor 4.79s → 2.31s warm; first open 17.2s → 4.9s on four workers (capped by memory: one 4K cook holds a 256 MB float mip 0). Found and fixed a live defect on the way: the packager cooked font atlases, block-compressing a distance field. ENGINE-NOTES §7l |
 
 **7.1 and 7.2 are one item wearing two hats.** Packing without a virtual file
 system is worthless, because every asset path in the engine goes through
