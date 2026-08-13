@@ -1579,10 +1579,34 @@ against, because **a fixture with one clip can only ever exercise the
 transition to the bind pose**, and clip-to-clip is the thing 7.5 added.
 
 It paid for itself immediately by finding a gap in something else:
-**`GltfImporter` only reads a texture when the image has a `uri`**, so images
-embedded in a `.glb`'s buffer views are skipped and every GLB imports
-untextured. The fox is white for that reason and not because anything in
-7.5 or 7.6 is wrong. Recorded as a papercut rather than fixed here.
+**`GltfImporter` only read a texture when the image had a `uri`**, so images
+embedded in a `.glb`'s buffer views were skipped and every GLB imported
+untextured. The fox was white for that reason and not because anything in
+7.5 or 7.6 was wrong.
+
+**Fixed 2026-08-13.** glTF carries an image three ways and only one of them
+is a path: a sibling file, a buffer view inside a `.glb`, or a `data:` URI.
+The importer handled the first, dropped the second, and stored the third's
+entire base64 blob *as a filename*. Both of the latter now get written out
+beside the model — the same answer the metallic-roughness split already
+gives, and for the same reason: **a material stores a handle, the registry
+mints handles for files, and an image that exists only inside a model file
+can never have one.** Extracting at import also makes it an ordinary asset,
+so packaging and cooking need no special case for it.
+
+Two details that are not incidental. The extracted name comes from the
+image's *index*, not its glTF name, because it has to be identical on every
+re-import or the asset gets a fresh handle and every material referring to it
+breaks. And the file extension is sniffed from the magic bytes rather than
+taken from `mimeType`, because the magic is what the loader will sniff — an
+exporter that mislabels one would otherwise produce a `.png` that stb reads
+as a JPEG.
+
+**The import cache version went to `v2` in the same change**, and that is the
+transferable part: the model's source hash did not move, so a `v1` `.rvmesh`
+would have kept serving the empty texture list it was cooked with, and the
+fix would have looked like it had not worked. *The importer is an encode rule
+as much as the cooker is.*
 
 ---
 

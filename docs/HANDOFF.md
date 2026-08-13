@@ -64,7 +64,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1284 checks, `exit 0`. Then look at a frame:
+1294 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -1239,12 +1239,15 @@ found rather than assumed, and is not a bug so much as a thing not built yet.
   while it fades. See §7k of ENGINE-NOTES.
 - ~~**Skinned bounds are the bind pose's.**~~ **Done 2026-08-13 (7.6)**: a box
   per bone, unioned over sampled poses of every clip, computed at load.
-- **A `.glb` imports untextured.** `GltfImporter` only reads a texture when
-  the image has a `uri`, so images stored in a GLB's buffer views -- which is
-  what glTF-Binary *is* -- are skipped silently. Found by importing Khronos'
-  fox for the animation work: 1 material, 0 textures, a white model. Nothing
-  in the repository hit it before because every model here was a `.gltf` with
-  sibling PNGs.
+- ~~**A `.glb` imports untextured.**~~ **Done 2026-08-13.** `GltfImporter`
+  only read a texture when the image had a `uri`, so images stored in a GLB's
+  buffer views -- which is what glTF-Binary *is* -- were skipped silently, and
+  a `data:` URI was stored as a *filename*. Both now extract beside the model
+  and become ordinary project assets, which is what lets a material hold a
+  handle to one. The fox is orange. **The import cache version was bumped to
+  `v2` with it**: the model's source hash did not move, so a `v1` `.rvmesh`
+  would keep serving the empty texture list it was cooked with and the fix
+  would look like it had not worked -- *the importer counts as an encode rule*.
 - **An archive format.** Packaging emits a folder, not a `.pak`. Packing needs
   a virtual file system on the loading side to be worth anything.
 - **Asset cooking.** glTF is parsed at load, PNGs decoded at load.

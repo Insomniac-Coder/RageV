@@ -4462,6 +4462,85 @@ void main()
 		}
 	}
 
+	// A `.glb`'s embedded texture has to become a project asset.
+	//
+	// glTF carries an image three ways and only one of them is a path: a
+	// `.gltf` names a sibling file, a `.glb` puts the pixels in its binary
+	// chunk, and either may inline them as a `data:` URI. The importer only
+	// ever handled the first, so **every GLB imported untextured** -- which
+	// is why the fox in the demo scene was white, and it read as a rendering
+	// problem rather than an import one for long enough to be worth a check.
+	//
+	// The claim is not "the importer ran". It is that the pixels reached a
+	// *file*, that file got a *handle*, and the handle reached the material
+	// -- because a material stores handles, and an image living inside a
+	// model file can never have one.
+	void CheckEmbeddedGlbTexture()
+	{
+		const AssetHandle model = Assets::Registry::GetHandle("models/fox.glb");
+		Check(model.IsValid(), "the registry minted a handle for fox.glb");
+		if (!model.IsValid())
+			return;
+
+		Assets::ImportedModel imported;
+		Check(Assets::GltfImporter::ImportSource(Project::AssetRoot() / "models/fox.glb",
+												 imported),
+			  "fox.glb imports from source");
+
+		Check(!imported.Textures.empty(),
+			  "and its embedded image is reported as a texture, not dropped");
+		if (imported.Textures.empty())
+			return;
+
+		// Extracted beside the model, named from the image index so that a
+		// re-import resolves to the same file and keeps its handle.
+		const std::filesystem::path extracted =
+			Project::AssetRoot() / "models" / imported.Textures[0].Path;
+		Check(std::filesystem::exists(extracted),
+			  "the pixels were written out as " + imported.Textures[0].Path);
+
+		Check(imported.Textures[0].SRGB,
+			  "and a base colour map is imported as sRGB, not as data");
+
+		// The half that actually decides whether the fox is white: the
+		// material has to name it.
+		Check(!imported.Materials.empty() && imported.Materials[0].BaseColorTexture == 0,
+			  "the material points at it rather than falling back to its scalars");
+
+		// And it has to survive the registry, or the `.rmat` an import writes
+		// would store a handle that resolves to nothing.
+		Assets::Registry::Refresh();
+		const AssetHandle texture =
+			Assets::Registry::GetHandle("models/" + imported.Textures[0].Path);
+		Check(texture.IsValid(), "and the extracted file has an asset handle");
+
+		// The end of the chain, and the only part a person would ever notice:
+		// instantiating the model must produce a material that actually names
+		// the map. Everything above can pass while this fails, because the
+		// handle has to survive being written into a `.rmat` and read back.
+		auto scene = std::make_shared<Scene>();
+		Entity root = Assets::Manager::InstantiateModel(*scene, model);
+		Check((bool)root, "fox.glb instantiates");
+
+		AssetHandle material = AssetHandle::Invalid();
+		for (auto handle : scene->GetRegistry().view<MeshComponent>())
+		{
+			const auto& mesh = scene->GetRegistry().get<MeshComponent>(handle);
+			if (mesh.Material.IsValid())
+			{
+				material = mesh.Material;
+				break;
+			}
+		}
+
+		Check(material.IsValid(), "and its mesh carries a material handle");
+
+		RHI::Ref<Material> resolved = Assets::Manager::GetMaterial(material);
+		Check(resolved && (resolved->GetParams().MapFlags & MaterialMap_BaseColor),
+			  "which resolves to a material whose base colour map is bound -- the fox "
+			  "is textured rather than white");
+	}
+
 	// The cooker's fast sRGB encode against the definition it replaced.
 	//
 	// This is the one place in the cook where "it looks the same" would not
@@ -8859,6 +8938,7 @@ int RunTests(int argc, char** argv)
 	CheckCompressedTextures();
 	CheckTextureCook();
 	CheckMeshCook();
+	CheckEmbeddedGlbTexture();
 	CheckSrgbEncode();
 	CheckBootProgress();
 	CheckImportCache();

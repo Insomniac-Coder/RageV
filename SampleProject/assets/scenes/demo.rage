@@ -690,7 +690,7 @@ Entities:
       Scale: [0.022, 0.022, 0.022]
     MeshComponent:
       Mesh: 11679010045657754579
-      Material: 0
+      Material: 14845622431998451938
     AnimatorComponent:
       Clip: 2
       Playing: true

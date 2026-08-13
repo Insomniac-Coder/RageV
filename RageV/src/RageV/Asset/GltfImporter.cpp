@@ -6,6 +6,8 @@
 #include "RageV/IO/VFS.h"
 #include "RageV/Math/Math.h"
 #include <cgltf.h>
+#include <fstream>
+#include <cstring>
 
 namespace RageV::Assets
 {
@@ -67,13 +69,139 @@ namespace RageV::Assets
 				out.Scale = { node.scale[0], node.scale[1], node.scale[2] };
 		}
 
-		int AddTexture(ImportedModel& model, const cgltf_texture_view& view, bool srgb)
+		// What an image needs in order to become a project asset.
+		struct ImportContext
 		{
-			if (!view.texture || !view.texture->image || !view.texture->image->uri)
+			const cgltf_data* Data = nullptr;
+			// Beside the model, which is where every other imported file goes.
+			std::filesystem::path Directory;
+			// The model's filename, so two models in one folder cannot collide
+			// on `_0.png`.
+			std::string Stem;
+		};
+
+		// glTF's three ways of carrying an image, and only one of them is a path.
+		//
+		// A `.gltf` usually names a sibling file, which is the case this
+		// importer was written for. A `.glb` puts the pixels in its binary
+		// chunk with no URI at all, and either form may inline them as a
+		// `data:` URI. **Both of the latter used to be dropped** -- the
+		// buffer-view case returned nothing, so every GLB imported untextured,
+		// and the data-URI case stored the entire base64 blob as a *filename*.
+		//
+		// Both are fixed by writing the pixels out beside the model, which is
+		// the same answer the metallic-roughness split already gives and for
+		// the same reason: a material stores a *handle*, the registry mints
+		// handles for files, and an image that exists only inside a model file
+		// can never have one. Extracting at import also makes the texture an
+		// ordinary project asset, so packaging and cooking need no special case.
+		//
+		// The name is derived from the image's index rather than its glTF
+		// name, because it has to be identical on every re-import or the asset
+		// would get a fresh handle each time and every material referring to
+		// it would break.
+		std::string ExtractImage(const ImportContext& context, const cgltf_image& image)
+		{
+			const cgltf_size index = cgltf_image_index(context.Data, &image);
+
+			const uint8_t* bytes = nullptr;
+			cgltf_size size = 0;
+			void* decoded = nullptr;
+
+			if (image.uri && std::strncmp(image.uri, "data:", 5) == 0)
+			{
+				const char* comma = std::strchr(image.uri, ',');
+				if (!comma)
+					return {};
+
+				cgltf_options options = {};
+				if (cgltf_load_buffer_base64(&options, std::strlen(comma + 1), comma + 1,
+											 &decoded) != cgltf_result_success)
+					return {};
+
+				bytes = (const uint8_t*)decoded;
+				// The decoded length is three quarters of the base64 text,
+				// less whatever the padding stands in for.
+				const cgltf_size encoded = std::strlen(comma + 1);
+				size = encoded / 4 * 3;
+				if (encoded >= 1 && comma[encoded] == '=') size--;
+				if (encoded >= 2 && comma[encoded - 1] == '=') size--;
+			}
+			else if (image.buffer_view)
+			{
+				bytes = (const uint8_t*)cgltf_buffer_view_data(image.buffer_view);
+				size = image.buffer_view->size;
+			}
+
+			if (!bytes || size == 0)
+			{
+				free(decoded);
+				return {};
+			}
+
+			// From the bytes, not from `mimeType`: the magic number is what the
+			// loader will sniff, and an exporter that mislabels one would
+			// otherwise write a `.png` that stb reads as a JPEG.
+			const char* extension = ".bin";
+			if (size >= 8 && std::memcmp(bytes, "\x89PNG\r\n\x1a\n", 8) == 0)
+				extension = ".png";
+			else if (size >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8)
+				extension = ".jpg";
+
+			const std::string name =
+				context.Stem + "_" + std::to_string((unsigned)index) + extension;
+			const std::filesystem::path file = context.Directory / name;
+
+			std::error_code error;
+			if (!std::filesystem::exists(file, error))
+			{
+				// A model loaded out of a pak has no directory to write into,
+				// and a shipped game has no reason to: it ships the extracted
+				// texture as an ordinary asset already.
+				if (!std::filesystem::is_directory(context.Directory, error))
+				{
+					RV_CORE_WARN("'{0}' carries its image inline and there is nowhere to "
+								 "extract it to; the material will fall back to its "
+								 "scalar parameters", context.Stem);
+					free(decoded);
+					return {};
+				}
+
+				std::ofstream out(file, std::ios::binary | std::ios::trunc);
+				if (!out || !out.write((const char*)bytes, (std::streamsize)size))
+				{
+					RV_CORE_WARN("Could not write '{0}'", file.string());
+					free(decoded);
+					return {};
+				}
+
+				RV_CORE_INFO("Extracted embedded image to {0} ({1} bytes)", name, size);
+			}
+
+			free(decoded);
+			return name;
+		}
+
+		int AddTexture(ImportedModel& model, const ImportContext& context,
+					   const cgltf_texture_view& view, bool srgb)
+		{
+			if (!view.texture || !view.texture->image)
+				return -1;
+
+			const cgltf_image& image = *view.texture->image;
+
+			// A plain relative path stays exactly as it was; anything inlined
+			// is written out and referred to by the file it landed in.
+			const std::string file =
+				(image.uri && std::strncmp(image.uri, "data:", 5) != 0)
+					? std::string(image.uri)
+					: ExtractImage(context, image);
+
+			if (file.empty())
 				return -1;
 
 			ImportedTexture texture;
-			texture.Path = view.texture->image->uri;
+			texture.Path = file;
 			texture.SRGB = srgb;
 
 			// Deduplicated: a base colour and an emissive map are commonly the
@@ -88,7 +216,8 @@ namespace RageV::Assets
 			return (int)model.Textures.size() - 1;
 		}
 
-		void ReadMaterial(ImportedModel& model, const cgltf_material& source, ImportedMaterial& out)
+		void ReadMaterial(ImportedModel& model, const ImportContext& context,
+						  const cgltf_material& source, ImportedMaterial& out)
 		{
 			out.Name = source.name ? source.name : "Material";
 
@@ -101,10 +230,10 @@ namespace RageV::Assets
 				out.Params.Metallic = pbr.metallic_factor;
 				out.Params.Roughness = pbr.roughness_factor;
 
-				out.BaseColorTexture = AddTexture(model, pbr.base_color_texture, true);
+				out.BaseColorTexture = AddTexture(model, context, pbr.base_color_texture, true);
 				// Metallic-roughness is data, not colour: sampling it through
 				// sRGB would bend both channels.
-				out.MetallicRoughnessTexture = AddTexture(model, pbr.metallic_roughness_texture, false);
+				out.MetallicRoughnessTexture = AddTexture(model, context, pbr.metallic_roughness_texture, false);
 
 				if (out.BaseColorTexture >= 0)
 					out.Params.MapFlags |= MaterialMap_BaseColor;
@@ -122,9 +251,9 @@ namespace RageV::Assets
 			out.Params.NormalScale = source.normal_texture.scale != 0.0f
 								   ? source.normal_texture.scale : 1.0f;
 
-			out.NormalTexture = AddTexture(model, source.normal_texture, false);
-			out.OcclusionTexture = AddTexture(model, source.occlusion_texture, false);
-			out.EmissiveTexture = AddTexture(model, source.emissive_texture, true);
+			out.NormalTexture = AddTexture(model, context, source.normal_texture, false);
+			out.OcclusionTexture = AddTexture(model, context, source.occlusion_texture, false);
+			out.EmissiveTexture = AddTexture(model, context, source.emissive_texture, true);
 
 			if (out.NormalTexture >= 0)    out.Params.MapFlags |= MaterialMap_Normal;
 			if (out.OcclusionTexture >= 0) out.Params.MapFlags |= MaterialMap_Occlusion;
@@ -597,9 +726,15 @@ namespace RageV::Assets
 		out = ImportedModel{};
 		out.Name = path.stem().string();
 
+		// Where an inlined image gets written, if this model carries any.
+		ImportContext context;
+		context.Data = data;
+		context.Directory = path.parent_path();
+		context.Stem = path.stem().string();
+
 		out.Materials.resize(data->materials_count);
 		for (cgltf_size i = 0; i < data->materials_count; i++)
-			ReadMaterial(out, data->materials[i], out.Materials[i]);
+			ReadMaterial(out, context, data->materials[i], out.Materials[i]);
 
 		// The skin, before the primitives, because reading a primitive's
 		// JOINTS_0 needs the mapping the skin produces.

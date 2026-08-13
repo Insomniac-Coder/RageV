@@ -63,7 +63,13 @@ namespace RageV::Assets
 		// invalidates every entry at once. A per-file check could not do
 		// that: the files themselves are still perfectly readable, they are
 		// just no longer what this build would have produced.
-		static constexpr const char* kVersion = "v1";
+		//
+		// **The importer counts as an encode rule.** v2 is here because
+		// `GltfImporter` started extracting images that a `.glb` carries in
+		// its binary chunk: the source hash of the model has not moved, so a
+		// v1 `.rvmesh` would keep being served with the empty texture list it
+		// was cooked with, and the fix would look like it had not worked.
+		static constexpr const char* kVersion = "v2";
 	};
 
 	// What must never be cooked. Shared by the cache and the packager so that
