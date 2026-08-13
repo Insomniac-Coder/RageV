@@ -1,0 +1,92 @@
+#pragma once
+
+// Cooked assets, kept between launches.
+//
+// 7.2 built the cookers and measured what they save -- the material closeup
+// dropped 3.7s to 2.0s, which was "the entire decode share" -- and then wired
+// them to exactly one caller: the packager. So a *shipped* game boots from
+// cooked bytes, while the editor, where somebody opens the same project
+// twenty times a day, decodes every PNG in the scene every single time.
+//
+// This is the second caller. Cook on first sight into `<project>/Cache`,
+// keyed on the content hash the registry already maintains for exactly this
+// purpose, and every launch after the first reads a finished mip chain
+// instead of building one.
+//
+// Design and measurements: ENGINE-NOTES 7l.
+
+#include <cstdint>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+namespace RageV::Assets
+{
+	class ImportCache
+	{
+	public:
+		// Cooked bytes for a source asset, cooking them first if no entry
+		// matches the source's current hash.
+		//
+		// **False means "read the source yourself", and every caller must be
+		// able to.** No open project, no registry entry, an extension with no
+		// cooker, a source already inside a pak (those bytes are cooked
+		// already, or were deliberately shipped raw), a font atlas, or a cook
+		// that failed all answer false. A cache that cannot answer makes
+		// loading slow; it must never make it wrong.
+		//
+		// `absoluteSource` is the same path the loader would have read, so a
+		// call site is one line ahead of its existing VFS read.
+		static bool Fetch(const std::filesystem::path& absoluteSource,
+						  std::vector<uint8_t>& out);
+
+		// Whether Fetch could answer for this path at all. Lets the loading
+		// bar be sized, and the cold-import pass find its work, without
+		// cooking anything.
+		static bool IsCookable(const std::filesystem::path& absoluteSource);
+
+		// Whether a *current* entry is already on disk. The difference
+		// between this and IsCookable is exactly the cold work remaining,
+		// which is what makes a first-open bar honest about being slower.
+		static bool IsCached(const std::filesystem::path& absoluteSource);
+
+		// Deletes every cooked file for the open project. Behind the editor's
+		// "Rebuild Import Cache", and what a test calls to force the cold
+		// path deliberately rather than by deleting a folder by hand.
+		static void Clear();
+
+		// What the cache currently occupies, for the editor to show. Zero
+		// when there is no project or no cache yet.
+		static uint64_t SizeOnDisk();
+
+		// Bumped when the cooked formats or the encode rules change, which
+		// invalidates every entry at once. A per-file check could not do
+		// that: the files themselves are still perfectly readable, they are
+		// just no longer what this build would have produced.
+		static constexpr const char* kVersion = "v1";
+	};
+
+	// What must never be cooked. Shared by the cache and the packager so that
+	// the two cannot quietly disagree about it.
+	namespace CookPolicy
+	{
+		// An MSDF atlas is *data* that happens to be shaped like an image:
+		// the shader reads signed distances out of it.
+		//
+		// Block compression quantizes those distances to a two-endpoint
+		// palette per 4x4 block, and a mip chain averages distances from
+		// opposite sides of a stroke into a number that describes nothing.
+		// Both render as text that is soft for no visible reason -- the same
+		// silent failure the colour-space rule in AssetManager::GetFontAtlas
+		// exists to prevent, which is how that one was eventually found.
+		//
+		// Recognised by *reading* the `.rvfont` files, each of which names
+		// its atlas, rather than by a filename convention: that field exists
+		// precisely so the pairing does not have to be guessed.
+		bool IsFontAtlas(const std::string& relativePath);
+
+		// Drops the remembered atlas set. Called when the project changes,
+		// because the answer belongs to a project.
+		void Reset();
+	}
+}

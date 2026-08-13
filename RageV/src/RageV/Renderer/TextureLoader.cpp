@@ -1,5 +1,10 @@
 #include <rvpch.h>
 #include "TextureLoader.h"
+// Upwards, from the renderer into the asset layer, which is the one place
+// that direction is worth taking: every texture in the engine arrives through
+// Load2D, so asking the cache here covers all of them, where asking in
+// AssetManager would cover only the ones routed through handles.
+#include "RageV/Asset/ImportCache.h"
 #include "RageV/IO/TextureCook.h"
 #include "RageV/IO/VFS.h"
 #include "stb_image.h"
@@ -101,19 +106,46 @@ namespace RageV
 		if (const auto it = s_Cache.find(key); it != s_Cache.end())
 			return it->second;
 
+		// The import cache first, which answers with cooked bytes for exactly
+		// this source when it has cooked them before (7l). A miss is silent
+		// and falls through to the source read below, so a project with no
+		// cache -- or no write permission for one -- simply loads the slow way.
+		//
+		// **Only when a mip chain was asked for.** A caller passing false
+		// wants the image as authored: the font atlas is a distance field,
+		// and cooking one both block-compresses and mips it, which are the
+		// two things GetFontAtlas exists to avoid. The cache refuses atlases
+		// itself, and this refuses anything else that wants no chain, because
+		// a rule that silent deserves both halves.
 		std::vector<uint8_t> bytes;
-		if (!VFS::ReadBytes(path, bytes))
+		const bool cooked = generateMips && Assets::ImportCache::Fetch(path, bytes);
+
+		if (!cooked && !VFS::ReadBytes(path, bytes))
 		{
 			RV_CORE_ERROR("Texture '{0}' does not exist, loose or in a pak", path);
 			return nullptr;
 		}
 
-		// A cooked texture, if that is what the pak holds under this name:
-		// same path, same handle, different bytes. The chain is uploaded
-		// level by level and nothing is decoded or generated -- which is the
-		// whole point of cooking it.
+		// A cooked texture, if that is what the cache or the pak holds under
+		// this name: same path, same handle, different bytes. The chain is
+		// uploaded level by level and nothing is decoded or generated --
+		// which is the whole point of cooking it.
 		if (IO::TextureCook::IsCooked(bytes.data(), bytes.size()))
 		{
+			// Cooked bytes where the caller wanted none can only have come
+			// from a pak, since the cache was not consulted at all above.
+			// Uploading one level is the most that can be salvaged: the block
+			// compression happened at cook time and cannot be undone here.
+			// Loud, because soft text with no other symptom is exactly the
+			// bug this is.
+			if (!generateMips)
+			{
+				RV_CORE_WARN("'{0}' is cooked, but was asked for without mips -- it is "
+							 "almost certainly a font atlas that the packager should "
+							 "have shipped raw. Only the top level is uploaded; the "
+							 "block compression cannot be undone at load.", path);
+			}
+
 			IO::CookedTexture cooked;
 			if (!IO::TextureCook::Deserialize(cooked, bytes.data(), bytes.size()))
 			{
@@ -121,21 +153,24 @@ namespace RageV
 				return nullptr;
 			}
 
+			const uint32_t levels =
+				generateMips ? (uint32_t)cooked.Mips.size() : 1u;
+
 			TextureDesc desc;
 			desc.Width = cooked.Width;
 			desc.Height = cooked.Height;
 			desc.Format = IO::TextureCook::PixelFormat(cooked.Format, srgb);
 			desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
-			desc.MipLevels = (uint32_t)cooked.Mips.size();
+			desc.MipLevels = levels;
 			desc.DebugName = path;
 
 			auto texture = device.CreateTexture(desc);
-			for (uint32_t mip = 0; mip < cooked.Mips.size(); mip++)
+			for (uint32_t mip = 0; mip < levels; mip++)
 				texture->UploadMip(cooked.Mips[mip].data(), cooked.Mips[mip].size(), mip, 0);
 
 			s_Cache[key] = texture;
 			RV_CORE_INFO("Loaded cooked texture {0} ({1}x{2}, {3} mips, {4})", path,
-						 cooked.Width, cooked.Height, cooked.Mips.size(),
+						 cooked.Width, cooked.Height, levels,
 						 srgb ? "sRGB" : "linear");
 			return texture;
 		}

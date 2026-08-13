@@ -9,6 +9,13 @@ out/
 # Python bytecode, from importing the generator scripts as modules.
 __pycache__/
 
+# The per-project import cache: cooked .rvtex/.rvmesh, derived from the
+# source assets beside them and rebuilt whenever their content hash moves.
+# Never committed -- it is large, it is machine-local, and a stale copy
+# arriving over a checkout is a debugging session nobody would enjoy. The
+# source asset and its .meta are the things under version control.
+Cache/
+
 # .NET intermediates. The script assembly's *output* goes to build/ like
 # everything else; obj/ is what dotnet leaves beside the csproj regardless.
 obj/

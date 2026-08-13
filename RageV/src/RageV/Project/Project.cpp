@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "Project.h"
 #include "GameModule.h"
+#include "RageV/Asset/ImportCache.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/IO/VFS.h"
@@ -140,6 +141,11 @@ namespace RageV
 		loaded->Config.FixedHz = std::clamp(ReadUInt(project, "FixedHz", 60u), 20u, 240u);
 
 		s_Active = std::move(loaded);
+
+		// Which files are font atlases is a fact about a project, and the
+		// previous one's answer is worse than no answer: it would exempt the
+		// wrong paths from cooking and cook the right ones.
+		Assets::CookPolicy::Reset();
 
 		// A packaged project's content is an archive named after its asset
 		// directory -- content.pak where content/ would have been. Mounted
@@ -452,6 +458,13 @@ namespace RageV
 			ignore << "\n# C# build intermediates.\n";
 			ignore << "Scripts/obj/\n";
 			ignore << "Scripts/bin/\n";
+			// Derived from the assets beside it and rebuilt whenever their
+			// content hash moves, so committing it is all cost. The real
+			// hazard is not size: a cooked file arriving over a checkout
+			// carries the hash it was cooked from on another machine, and
+			// would be accepted as current for a source it never saw.
+			ignore << "\n# Import cache: cooked assets, rebuilt on demand.\n";
+			ignore << "Cache/\n";
 		}
 
 		auto created = std::make_unique<ActiveProject>();
@@ -473,6 +486,11 @@ namespace RageV
 	std::filesystem::path Project::BinaryRoot()
 	{
 		return s_Active ? s_Active->Root / "bin" : std::filesystem::path{};
+	}
+
+	std::filesystem::path Project::CacheRoot()
+	{
+		return s_Active ? s_Active->Root / "Cache" : std::filesystem::path{};
 	}
 
 	bool Project::Save()
@@ -504,6 +522,7 @@ namespace RageV
 	void Project::Close()
 	{
 		GameModule::Unload();
+		Assets::CookPolicy::Reset();
 		// Every mount was filled from this project; none of them can answer
 		// for the next one.
 		IO::VFS::UnmountAll();

@@ -1586,6 +1586,210 @@ untextured. The fox is white for that reason and not because anything in
 
 ---
 
+## 7l. Boot: why the window hangs, and what actually costs the time
+
+The report was "launching with a project shows Not Responding for a
+while before anything appears". The fix people reach for is "load the
+project on a thread". **Measure first, because that thread would have
+bought 0.18 of the 4.8 seconds.**
+
+Editor cold start, Release, Vulkan, SampleProject with the 4K set:
+
+| | wall |
+|---|---|
+| `--project=` pointing at nothing (device + `Renderer::Init` only) | 1.44 s |
+| a light scene (adds project load, game DLL, CoreCLR, registry scan) | 1.62 s |
+| the demo scene | **4.79 s** |
+
+So `Project::Load` -- YAML, the game module, booting .NET -- is ~0.18 s
+and is *not* the problem. **3.2 s is the scene's textures**: thirteen
+maps, 198 MB of PNG, decoded to roughly 800 MB of RGBA on one thread.
+And they are not even loaded by "loading" -- they are pulled in lazily
+by the first draw that needs them, which is why the stall lands *after*
+every "ready" line in the log.
+
+That is also the only part that grows with the project, which decides
+what the work is.
+
+### Three problems wearing one coat
+
+They are independent, and each needs its own fix:
+
+1. **The window exists before anything can draw in it.** It is created
+   at the top of `Application`'s constructor and not pumped until the
+   first frame completes, so Windows paints it white and marks it
+   unresponsive for the whole boot. → Create it **hidden**; `Show()` it
+   once the renderer can present. A window that is not there yet cannot
+   look broken.
+2. **Nothing pumps the message loop while loading.** → A **boot loop**:
+   the main thread pumps, drains GPU work and draws a loading screen
+   while a worker does the loading.
+3. **Assets load on first draw, not during loading.** A progress bar
+   over work that happens after the bar is gone measures nothing. →
+   **Preload** what the scene references, then hand over a scene whose
+   first frame has nothing left to fetch.
+
+### The cooker already exists; it just never ran here
+
+7.2 built `.rvtex` and `.rvmesh` and measured exactly this saving --
+the material closeup dropped 3.7 s to 2.0 s, "the entire decode share".
+But `TextureCook::Cook` has exactly one caller: the **packager**. A
+shipped game boots from cooked bytes and the editor, where somebody
+opens the project twenty times a day, decodes 198 MB of PNG every
+single time.
+
+**So the largest win is not threading at all -- it is not repeating
+work whose answer cannot have changed.** Cook on import, into a
+per-project cache, and the decode disappears from every launch after
+the first. Threading still earns its place: the *first* open is slower
+than a decode (BC encoding costs more than unpacking a PNG), and a
+large project's warm boot is still worth showing progress for.
+
+**Where the cache goes, and why not under `assets/`:** a per-project
+`Cache/` folder, deliberately *outside* the asset tree. Cooked files
+under `assets/` would be walked by `Registry::ScanDirectory`, indexed
+as assets, and minted `.meta` sidecars -- the cache would become
+content, and content that shadows its own source.
+
+**The key is the hash that already exists for this.** `AssetMetadata`
+carries `SourceHash` with the comment "an importer compares it against
+what it cached last time" -- written for an importer that had not been
+built yet. This is that importer. Content hash rather than mtime,
+because a checkout or a copy moves the timestamp without changing
+anything, and re-cooking 198 MB after every `git pull` is precisely the
+thing that makes a pipeline feel slow.
+
+**Existence is validity: the hash goes in the *filename*.**
+`Cache/v1/materials/soil_normal.png.<hash>.rvtex`. Checking the cache
+is then a `stat`, not a parse -- no reading a file to discover it is
+stale. The name is also readable, so a cache can be inspected by
+looking at it. Writing an entry sweeps its siblings, or a project
+edited all week accumulates every version of every texture. The `v1/`
+level invalidates the whole cache when the cooked format or the encode
+rules change, which a per-file check could not do.
+
+The encode choice keys on the *name* (§7i), so the name must be part of
+the key: two files with identical bytes and different suffixes cook
+differently, and hashing bytes alone would hand one the other's
+encoding. Mirroring the asset path inside the cache gives that for
+free.
+
+**The cache is never committed.** It is derived data -- every byte of
+it is reproducible from the source asset beside it -- and it is larger
+than the sources it came from. Worse than the size: a cooked file
+arriving over a checkout carries *someone else's* hash in its name, so
+it would be treated as valid for a source it was never cooked from.
+`Cache/` is ignored in this repository and in the `.gitignore` every
+new project is scaffolded with, because a game developer's project is
+where this actually accumulates. The source asset and its `.meta` stay
+in version control; the `.meta` is identity, which is the opposite of
+derived.
+
+### One thread rule
+
+The RHI is not thread-safe and an OpenGL context belongs to one thread.
+So there is a single rule, and it is worth stating as a rule because
+every future addition to loading will have to obey it:
+
+> **Decode on the worker. Touch the device only on the main thread.**
+
+Enforced by a small queue: the worker posts a job and blocks on it, the
+boot loop drains it between pumps. Call sites do not change --
+`TextureLoader::Load2D` still returns a texture -- because the
+marshalling lives inside the loader rather than at each of its callers.
+The invariant that makes this safe is that during boot the main thread
+draws *only* the loading screen, so it never loads an asset
+concurrently with the worker.
+
+### A bar that tells the truth
+
+Counting assets would be a lie: this scene's assets range from 596 KB
+to 40 MB, so an evenly-stepping bar would cross 90% and then sit there
+through the largest texture. **Weight each asset by its size on disk.**
+Wrong in detail -- a megabyte of `.glb` and a megabyte of PNG do not
+cost the same -- but right in shape, which is the entire job of a
+progress bar. It also degrades honestly on a cache hit, where a cooked
+file is both smaller and cheaper.
+
+The screen lives in the engine, not the editor: a packaged game boots
+with the same delay for the same reasons, and the runtime is not a
+lesser citizen. It shows the phase and the current action, because
+"Loading..." for four seconds and "Decoding soil_normal.png" for four
+seconds are very different experiences of the same four seconds.
+
+### What stays slow, and is admitted rather than hidden
+
+`Registry::Init` hashes **every** loose asset in the project on every
+launch -- FNV-1a, a byte at a time, over 198 MB here. It moves onto the
+worker with everything else and gets its own progress phase, but it
+remains O(project) work at every boot, and it will be the next thing to
+hurt. Named here so the next person measuring a slow boot does not have
+to rediscover it.
+
+The 1.44 s of device and `Renderer::Init` is untouched: it is pipeline
+and shader creation, it must precede anything that can draw a loading
+screen, and there is no window on screen during it.
+
+### The cache, measured (2026-08-13, Release, Vulkan, SampleProject)
+
+| | wall |
+|---|---|
+| editor, before any of this | 4.79 s |
+| editor, first open (cooking all 18 maps) | 18.92 s |
+| editor, every open after that | **2.70 s** |
+| runtime `--import-cache=off` | 7.50 s |
+| runtime `--import-cache=on` | **3.38 s** |
+
+Cache on disk: 175 MB against 198 MB of source. Disk was never the
+point (PNG is already entropy-coded) -- the load is now a read and an
+upload instead of a read, an inflate, a mip build and an upload, and
+the VRAM arithmetic of §7i applies unchanged.
+
+**18.9 s to cook is the cost that has to come down**, and it is
+one-time-per-asset rather than per-launch. It is also the reason the
+loading screen is not optional: three seconds with a progress bar is a
+different thing from nineteen with a frozen window.
+
+**`--import-cache=off` exists so this stays measurable.** Cooking is
+lossy, so its acceptance test is a bounded pixel diff rather than
+equality, and a bound means nothing without the noise floor beside it.
+`tools/scripts/check_import_cache.py` renders three frames -- cooked,
+cooked again, and from source -- and reports both.
+
+**The control earned its place on the first run.** Cooked-vs-source
+came back at mean 5.178/255, six times the bound, which read exactly
+like a broken cooker. It was not: the demo scene has falling cubes and
+an animated fox, the two runs took 7.5 s and 3.4 s to reach frame 30,
+and the physics had settled differently. With `--frame-time` pinned the
+control is **0.000/255** -- bit-identical between runs -- and the real
+answer is **mean 0.540/255, max 68 on Vulkan; 0.553 and 76 on OpenGL**,
+against a 2.0/255 bound. The lesson is the one §7i already recorded and
+this rediscovered: *a difference measured without a control is not a
+measurement.*
+
+### The bug the guard found on the way past
+
+The packager cooked **every** `.png` it could decode, and a font's MSDF
+atlas is a `.png`. So every packaged build has been block-compressing
+and mip-chaining a distance field -- destroying exactly the two
+properties `GetFontAtlas` has a paragraph explaining it must preserve.
+The only symptom is text that looks slightly soft, with nothing to
+point at, which is the same silent shape as reading an atlas as sRGB.
+
+Fixed on both sides, deliberately: `CookPolicy::IsFontAtlas` stops the
+producers (packager and cache) from cooking one, and `Load2D` refuses
+to take a cooked chain when the caller asked for no mips, uploading
+only the top level and saying why. A rule this quiet deserves a guard
+at both ends, and the loader's half also covers packages built before
+the fix.
+
+`.hdr` environment maps are still converted to cube faces and convolved
+for irradiance on every load. Cooking those is its own format and its
+own feature; the cache is built so adding a third cooked kind is a case
+in one switch rather than a redesign.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

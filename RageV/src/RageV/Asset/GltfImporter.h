@@ -109,6 +109,18 @@ namespace RageV::Assets
 	public:
 		// Returns false and logs on failure. Accepts .gltf and .glb, with
 		// buffers either external, embedded as data URIs, or in the GLB chunk.
+		//
+		// Answers from cooked bytes when there are any -- the import cache
+		// for a `.glb` seen before, or a pak in a shipped game -- and parses
+		// the source otherwise. Every caller wanting *a model* wants this one.
 		static bool Import(const std::filesystem::path& path, ImportedModel& out);
+
+		// The same, from the source file only, with no cooked shortcut.
+		//
+		// Exists for the one caller that must not take the shortcut: the
+		// import cache, whose job is to *produce* the cooked form. Calling
+		// Import there would ask the cache for the answer it is in the middle
+		// of computing, which is a recursion rather than a cache hit.
+		static bool ImportSource(const std::filesystem::path& path, ImportedModel& out);
 	};
 }

@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "GltfImporter.h"
+#include "ImportCache.h"
 #include "MeshCook.h"
 #include "RageV/Core/Log.h"
 #include "RageV/IO/VFS.h"
@@ -544,24 +545,30 @@ namespace RageV::Assets
 
 	bool GltfImporter::Import(const std::filesystem::path& path, ImportedModel& out)
 	{
-		const std::string filename = path.string();
-
-		// A cooked mesh, if that is what the pak holds under this name. One
-		// sniff here covers every caller -- meshes, skeletons and clips all
-		// arrive through this function -- and a development run never sees
-		// anything but source glTF.
+		// A cooked mesh, if that is what the import cache or the pak holds
+		// under this name. One sniff here covers every caller -- meshes,
+		// skeletons and clips all arrive through this function.
+		//
+		// The cache is asked first and answers only for `.glb`; a `.gltf`
+		// keeps its geometry in a sibling `.bin` that the cache's key does
+		// not cover, so it is always re-imported. See ImportCache.cpp.
+		std::vector<uint8_t> bytes;
+		if ((ImportCache::Fetch(path, bytes) || IO::VFS::ReadBytes(path, bytes)) &&
+			MeshCook::IsCooked(bytes.data(), bytes.size()))
 		{
-			std::vector<uint8_t> bytes;
-			if (IO::VFS::ReadBytes(path, bytes) &&
-				MeshCook::IsCooked(bytes.data(), bytes.size()))
-			{
-				if (MeshCook::Deserialize(out, bytes.data(), bytes.size()))
-					return true;
+			if (MeshCook::Deserialize(out, bytes.data(), bytes.size()))
+				return true;
 
-				RV_CORE_ERROR("Cooked mesh '{0}' will not parse", filename);
-				return false;
-			}
+			RV_CORE_ERROR("Cooked mesh '{0}' will not parse", path.string());
+			return false;
 		}
+
+		return ImportSource(path, out);
+	}
+
+	bool GltfImporter::ImportSource(const std::filesystem::path& path, ImportedModel& out)
+	{
+		const std::string filename = path.string();
 
 		cgltf_options options = {};
 		options.file.read = VfsFileRead;

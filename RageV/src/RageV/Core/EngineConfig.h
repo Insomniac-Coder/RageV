@@ -23,6 +23,7 @@
 //   --fixed-hz=N            simulation steps per second (default 60)
 //   --width=N --height=N    window size
 //   --audio=on|off          open an output device at all
+//   --import-cache=on|off   read and write cooked assets (default on)
 //   --project=<path>        the .rvproject to open, or a folder containing one
 //   --screenshot=<file>     write a PNG of one frame and exit
 //   --screenshot-frame=N    which frame to capture (default 30, to let the
@@ -138,6 +139,18 @@ namespace RageV
 		// nothing -- which is a valid state the editor shows rather than
 		// pretending it has a project.
 		std::string ProjectPath;
+
+		// Whether cooked assets may be read from and written to the project's
+		// import cache (ENGINE-NOTES 7l).
+		//
+		// On by default, because the cache is the difference between a boot
+		// that decodes 198 MB of PNG and one that does not. Off exists to make
+		// the comparison *repeatable*: cooking is lossy by design, so the
+		// acceptance test for it is a bounded pixel diff of the same scene
+		// rendered both ways, and without a switch that diff means deleting a
+		// folder and hoping nothing else moved. The same reason --benchmark
+		// and --frame-time exist.
+		bool         UseImportCache = true;
 
 		// Whether to open an audio device. Off means the engine still tracks
 		// every sound it would have played and simply plays none of them, which

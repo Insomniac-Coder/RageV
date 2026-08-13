@@ -3,6 +3,7 @@
 #include "Project.h"
 #include "ModuleBuild.h"
 #include "RageV/Asset/GltfImporter.h"
+#include "RageV/Asset/ImportCache.h"
 #include "RageV/Asset/MeshCook.h"
 #include "RageV/Core/Log.h"
 #include "RageV/IO/PakFile.h"
@@ -187,6 +188,19 @@ namespace RageV
 		{
 			const fs::path path(relative);
 			const std::string extension = path.extension().string();
+
+			// A font's MSDF atlas ships exactly as authored.
+			//
+			// It is a distance field, not a picture: the shader reads
+			// distances out of it, block compression quantizes those to two
+			// endpoints per 4x4 block, and a mip chain averages distances
+			// from opposite sides of a stroke. This cooked every `.png` it
+			// found for a while, atlases included, and the only symptom was
+			// packaged text that looked slightly soft -- the same silent
+			// class of failure as reading one as sRGB, which is why
+			// GetFontAtlas already carries a paragraph about it.
+			if (Assets::CookPolicy::IsFontAtlas(relative))
+				return bytes;
 
 			if (extension == ".png" || extension == ".jpg" || extension == ".jpeg")
 			{

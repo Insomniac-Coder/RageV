@@ -69,6 +69,18 @@ namespace RageV
 		static std::filesystem::path BinaryRoot();
 		// Root() / AssetDirectory. Where the asset registry is pointed.
 		static std::filesystem::path AssetRoot();
+		// Root() / "Cache". Where cooked assets are kept between launches.
+		//
+		// Deliberately *outside* AssetRoot(): the registry walks the asset
+		// directory and mints a handle plus a `.meta` for everything it finds,
+		// so a cooked file living there would become content -- content that
+		// shadows the source it was cooked from. Outside, it is invisible to
+		// every part of the engine except the one that reads it.
+		//
+		// Derived data, and git-ignored for a sharper reason than size: the
+		// hash a cooked file is keyed by is in its name, so a copy arriving
+		// over a checkout claims to be current for a source it never saw.
+		static std::filesystem::path CacheRoot();
 		// Absolute path for something stored relative to the asset directory.
 		static std::filesystem::path AssetPath(const std::string& relative);
 

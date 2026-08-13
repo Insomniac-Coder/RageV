@@ -76,6 +76,9 @@ namespace RageV
 		if (key == "audio")
 			return ParseBool(value, config.EnableAudio);
 
+		if (key == "import-cache" || key == "importcache")
+			return ParseBool(value, config.UseImportCache);
+
 		if (key == "project")
 		{
 			config.ProjectPath = value;
