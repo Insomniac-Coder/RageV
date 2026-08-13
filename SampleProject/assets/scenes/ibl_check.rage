@@ -1,0 +1,62 @@
+Scene: Dielectric IBL check
+Version: 5
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 2
+  SkyHorizon: [0.75, 0.5, 0.3]
+  SkyZenith: [0.2, 0.35, 0.6]
+  SkyGround: [0.12, 0.1, 0.09]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 17858281879166177050
+Entities:
+  - EntityID: 7730000000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0.4, 5]
+      Rotation: [-0.05, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7730000000000000002
+    TagComponent:
+      Tag: Dark glossy dielectric
+    TransformComponent:
+      Position: [-1.4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [0.02, 0.02, 0.03, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.06
+  - EntityID: 7730000000000000003
+    TagComponent:
+      Tag: White rough dielectric
+    TransformComponent:
+      Position: [1.4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [0.9, 0.9, 0.9, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.95

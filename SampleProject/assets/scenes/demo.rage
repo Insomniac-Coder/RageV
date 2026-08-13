@@ -117,7 +117,7 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916737
       Material:
-        BaseColor: [0.8, 0.8, 0.82, 1]
+        BaseColor: [0.02, 0.025, 0.035, 1]
         Emissive: [0, 0, 0, 1]
         Metallic: 0
         Roughness: 0.08
@@ -253,7 +253,7 @@ Entities:
     LightComponent:
       Type: Directional
       Color: [1, 0.96, 0.88]
-      Intensity: 3.4
+      Intensity: 1.8
       Range: 10
       InnerCone: 20
       OuterCone: 30

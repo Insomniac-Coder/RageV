@@ -1131,6 +1131,51 @@ instance stream, that number doubles and nothing else changes.
 
 ---
 
+## 7g. "Is the PBR even working?", and the instrument that answers it
+
+The demo scene read as un-lit texture paste, and the accusation deserved a
+better answer than a rendered opinion. The method that settled it, kept here
+because the question will come back:
+
+**`ibl_check.rage` is a scene with no analytic light at all** -- ambient zero,
+no sun -- holding a dark glossy dielectric sphere and a white rough one.
+Environment specular is then the *only* illumination, so it cannot hide behind
+diffuse. Under the gradient sky the glossy sphere measured centre (32,34,46)
+against grazing rim (203,196,199) -- the fresnel curve from 4% to full sky
+brightness -- while the rough sphere read 181 centre, 182 rim: flat, as
+roughness 0.95 should be. Under the 512px HDR sky the reflected horizon line is
+sharp across the glossy sphere. The physics works.
+
+What made the demo look broken was three scene facts and one regression:
+
+1. **The gradient sky is a 32px featureless gradient.** A mirror of it is soft
+   mush at any roughness, because there is nothing in it to mirror. Judging
+   reflection sharpness against a gradient sky judges nothing.
+2. **A 3.4-intensity sun pushed every bright surface into the ACES shoulder**,
+   where an added 4% reflection compresses to ~1/255 -- measured by ablating
+   dielectric F0 to zero and diffing: mean 1.2/255 on the white spheres.
+3. **White-on-white cannot show fresnel.** 4% of the sky added to a bright
+   white diffuse is invisible by arithmetic. The demo now keeps one dark glossy
+   dielectric (the smooth sphere), which is the classic showcase for a reason.
+4. **Real 7.7 regression: reflections are capped at the probe array's face
+   size.** The array defaults to 128, so a 512 HDR sky's reflections lost
+   three-quarters of their resolution relative to pre-7.7. Not visible with the
+   gradient sky (32px source), clearly relevant with a cubemap one. The fix is
+   for `Scene::ProbeFaceSize` to consider the sky's own resolution -- with the
+   slot count made dynamic first, because sixteen fixed slots at 512 would be a
+   quarter gigabyte of cube array. **Open item, not yet fixed.**
+
+Two process notes. The `Specular` F0 rework was the obvious suspect (it touched
+exactly dielectric-vs-metal, and metals still worked); a pixel-identical diff
+against the old constant exonerated it in one render. And a regex that edits a
+scene file by matching `Tag:` then skipping "some lines" matched across an
+entity boundary and blackened the pedestal instead of the sphere -- scene edits
+want anchored, asserted matches or the editor, not patterns with `(?:.*?
+)*?`
+in the middle.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
