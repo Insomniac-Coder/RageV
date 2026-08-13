@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "AssetRegistry.h"
 #include "RageV/Core/Log.h"
+#include "RageV/IO/VFS.h"
 #include "yaml-cpp/yaml.h"
 #include <fstream>
 
@@ -46,8 +47,12 @@ namespace RageV::Assets
 		s_Root = std::filesystem::absolute(assetsRoot);
 		s_Initialised = true;
 
+		// The root may be a real directory, a mounted pak, or both -- a
+		// shipped game has an archive where content/ used to be, and no
+		// directory at all. The scan asks the VFS either way; this check only
+		// exists so an empty registry says why it is empty.
 		std::error_code error;
-		if (!std::filesystem::exists(s_Root, error))
+		if (!std::filesystem::exists(s_Root, error) && IO::VFS::MountCount() == 0)
 		{
 			RV_CORE_WARN("Assets root '{0}' does not exist; the registry will be empty",
 						 s_Root.string());
@@ -89,19 +94,13 @@ namespace RageV::Assets
 
 	void Registry::ScanDirectory(const std::filesystem::path& directory)
 	{
-		std::error_code error;
-		for (const auto& entry : std::filesystem::directory_iterator(directory, error))
+		// Through the VFS, so the scan sees pak entries and loose files with
+		// one walk -- a shipped game's content is an archive, and the
+		// registry is how everything else finds out what is in it.
+		for (const std::string& relative : IO::VFS::Enumerate(directory))
 		{
-			if (error)
-				break;
+			const std::filesystem::path file = directory / relative;
 
-			if (entry.is_directory())
-			{
-				ScanDirectory(entry.path());
-				continue;
-			}
-
-			const std::filesystem::path& file = entry.path();
 			// The sidecars themselves are not assets.
 			if (file.extension() == ".meta")
 				continue;
@@ -122,11 +121,11 @@ namespace RageV::Assets
 		metadata.Type = type;
 		metadata.Path = ToRelative(file);
 
-		if (std::filesystem::exists(metaPath))
+		if (std::string text; IO::VFS::ReadText(metaPath, text))
 		{
 			try
 			{
-				const YAML::Node node = YAML::LoadFile(metaPath.string());
+				const YAML::Node node = YAML::Load(text);
 				if (node["Handle"])
 					metadata.Handle = AssetHandle(node["Handle"].as<uint64_t>());
 				if (node["Type"])
@@ -139,6 +138,22 @@ namespace RageV::Assets
 				RV_CORE_WARN("Could not read '{0}' ({1}); a new handle will be minted",
 							 metaPath.string(), e.what());
 			}
+		}
+
+		// A pak's content cannot have changed since it was written, so hashing
+		// it at boot would read the whole archive to answer a question that
+		// cannot come up. The stored hash stands, nothing is rewritten, and a
+		// pak entry missing its sidecar is the packager's bug -- named here,
+		// because the minted handle will not match what any scene refers to.
+		if (IO::VFS::Origin(file) == IO::FileOrigin::Pak)
+		{
+			if (!metadata.Handle.IsValid())
+			{
+				metadata.Handle = AssetHandle();
+				RV_CORE_WARN("'{0}' is in a pak without a .meta; scenes cannot refer "
+							 "to the handle minted for it", metadata.Path);
+			}
+			return metadata;
 		}
 
 		// A missing or unreadable sidecar means a new identity. Everything that

@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "SceneSerializer.h"
+#include "RageV/IO/VFS.h"
 #include <fstream>
 #include <algorithm>
 #include "Components.h"
@@ -309,16 +310,17 @@ namespace RageV
 
 	bool SceneSerializer::Deserialize(const std::string& filepath)
 	{
-		std::ifstream file(filepath);
-		if (!file)
+		// Through the VFS: a scene in a shipped pak and a scene on disk are
+		// the same call. Writes stay ordinary files -- only the editor writes,
+		// and the editor edits loose projects.
+		std::string text;
+		if (!VFS::ReadText(filepath, text))
 		{
 			RV_CORE_ERROR("Could not open '{0}' for reading", filepath);
 			return false;
 		}
 
-		std::stringstream ss;
-		ss << file.rdbuf();
-		return DeserializeFromString(ss.str());
+		return DeserializeFromString(text);
 	}
 
 	// Snapshot of a subtree, in the same document shape a whole scene uses so

@@ -2,6 +2,7 @@
 #include "AudioEngine.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Asset/AssetRegistry.h"
+#include "RageV/IO/VFS.h"
 
 // miniaudio's implementation lives in the vendored miniaudio.c; this is the
 // only translation unit in the engine that needs its declarations, which keeps
@@ -68,11 +69,102 @@ namespace RageV::Audio
 				return {};
 
 			const std::filesystem::path path = Assets::Registry::GetAbsolutePath(clip);
-			if (path.empty() || !std::filesystem::exists(path))
+			if (path.empty() || !IO::VFS::Exists(path))
 				return {};
 
 			return path.string();
 		}
+
+		// --- the VFS bridge -------------------------------------------------
+		// Audio is the one consumer that cannot take a byte blob: miniaudio
+		// streams a clip in pieces over the sound's lifetime, from its own
+		// thread. These callbacks hand it VFS streams, so a clip in a pak
+		// plays exactly the way a loose one does. Safe across threads because
+		// each open answers an independent stream and the VFS holds no
+		// mutable state after mounting.
+		//
+		// miniaudio reads the callbacks through the ma_vfs*, so they must be
+		// the struct's first member.
+		struct EngineVfs
+		{
+			ma_vfs_callbacks Callbacks{};
+		};
+
+		ma_result VfsOpen(ma_vfs*, const char* path, ma_uint32 openMode, ma_vfs_file* out)
+		{
+			// The mixer never writes, and a pak could not take it if it did.
+			if (openMode & MA_OPEN_MODE_WRITE)
+				return MA_NOT_IMPLEMENTED;
+
+			auto stream = IO::VFS::OpenStream(path);
+			if (!stream)
+				return MA_DOES_NOT_EXIST;
+
+			*out = stream.release();
+			return MA_SUCCESS;
+		}
+
+		ma_result VfsOpenW(ma_vfs*, const wchar_t*, ma_uint32, ma_vfs_file*)
+		{
+			// Nothing in the engine opens audio by wide path; loud is better
+			// than a conversion nobody exercises.
+			return MA_NOT_IMPLEMENTED;
+		}
+
+		ma_result VfsClose(ma_vfs*, ma_vfs_file file)
+		{
+			delete (IO::VFS::Stream*)file;
+			return MA_SUCCESS;
+		}
+
+		ma_result VfsRead(ma_vfs*, ma_vfs_file file, void* dst, size_t bytes, size_t* read)
+		{
+			const size_t got = ((IO::VFS::Stream*)file)->Read(dst, bytes);
+			if (read)
+				*read = got;
+
+			// MA_AT_END only when nothing came back: a short read at the end
+			// is still a successful read of what remained.
+			return (got == 0 && bytes > 0) ? MA_AT_END : MA_SUCCESS;
+		}
+
+		ma_result VfsWrite(ma_vfs*, ma_vfs_file, const void*, size_t, size_t*)
+		{
+			return MA_NOT_IMPLEMENTED;
+		}
+
+		ma_result VfsSeek(ma_vfs*, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+		{
+			IO::VFS::Stream* stream = (IO::VFS::Stream*)file;
+
+			ma_int64 target = offset;
+			if (origin == ma_seek_origin_current)
+				target += (ma_int64)stream->Tell();
+			else if (origin == ma_seek_origin_end)
+				target += (ma_int64)stream->Size();
+
+			if (target < 0 || !stream->Seek((uint64_t)target))
+				return MA_BAD_SEEK;
+
+			return MA_SUCCESS;
+		}
+
+		ma_result VfsTell(ma_vfs*, ma_vfs_file file, ma_int64* cursor)
+		{
+			*cursor = (ma_int64)((IO::VFS::Stream*)file)->Tell();
+			return MA_SUCCESS;
+		}
+
+		ma_result VfsInfo(ma_vfs*, ma_vfs_file file, ma_file_info* info)
+		{
+			info->sizeInBytes = ((IO::VFS::Stream*)file)->Size();
+			return MA_SUCCESS;
+		}
+
+		EngineVfs s_Vfs = { {
+			VfsOpen, VfsOpenW, VfsClose, VfsRead,
+			VfsWrite, VfsSeek, VfsTell, VfsInfo,
+		} };
 	}
 
 	const char* AudioBusName(AudioBus bus)
@@ -106,6 +198,8 @@ namespace RageV::Audio
 		// roadmap, and every extra listener costs a spatialisation pass per
 		// sound.
 		config.listenerCount = 1;
+		// Every clip comes in through the engine's VFS, pak or loose alike.
+		config.pResourceManagerVFS = (ma_vfs*)&s_Vfs;
 
 		if (mode == AudioMode::Offline)
 		{

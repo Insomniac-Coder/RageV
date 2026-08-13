@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "GltfImporter.h"
 #include "RageV/Core/Log.h"
+#include "RageV/IO/VFS.h"
 #include "RageV/Math/Math.h"
 #include <cgltf.h>
 
@@ -502,6 +503,42 @@ namespace RageV::Assets
 			out.Material = IndexOf(source.material, data.materials, sizeof(cgltf_material));
 			return true;
 		}
+
+		// cgltf reads the .gltf itself, its external .bin, and everything a
+		// URI names through this one callback -- so a model in a pak imports
+		// exactly the way a loose one does, sibling files included.
+		cgltf_result VfsFileRead(const cgltf_memory_options* memory,
+								 const cgltf_file_options*, const char* path,
+								 cgltf_size* size, void** data)
+		{
+			std::vector<uint8_t> bytes;
+			if (!IO::VFS::ReadBytes(path, bytes))
+				return cgltf_result_file_not_found;
+
+			// Allocated the way cgltf frees: through its own memory options,
+			// because cgltf_free releases every buffer this handed over.
+			void* copy = memory->alloc_func
+					   ? memory->alloc_func(memory->user_data, bytes.size())
+					   : malloc(bytes.size());
+			if (!copy)
+				return cgltf_result_out_of_memory;
+
+			std::memcpy(copy, bytes.data(), bytes.size());
+			*data = copy;
+			if (size)
+				*size = bytes.size();
+
+			return cgltf_result_success;
+		}
+
+		void VfsFileRelease(const cgltf_memory_options* memory,
+							const cgltf_file_options*, void* data)
+		{
+			if (memory->free_func)
+				memory->free_func(memory->user_data, data);
+			else
+				free(data);
+		}
 	}
 
 	bool GltfImporter::Import(const std::filesystem::path& path, ImportedModel& out)
@@ -509,6 +546,8 @@ namespace RageV::Assets
 		const std::string filename = path.string();
 
 		cgltf_options options = {};
+		options.file.read = VfsFileRead;
+		options.file.release = VfsFileRelease;
 		cgltf_data* data = nullptr;
 
 		cgltf_result result = cgltf_parse_file(&options, filename.c_str(), &data);

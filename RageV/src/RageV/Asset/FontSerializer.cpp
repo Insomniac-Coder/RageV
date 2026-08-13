@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "FontSerializer.h"
 #include "RageV/Core/Log.h"
+#include "RageV/IO/VFS.h"
 
 #include "yaml-cpp/yaml.h"
 
@@ -10,14 +11,14 @@ namespace RageV::Assets
 {
 	bool FontSerializer::Load(Font& out, const std::filesystem::path& path)
 	{
-		std::ifstream file(path);
-		if (!file)
+		std::string text;
+		if (!IO::VFS::ReadText(path, text))
 			return false;
 
 		YAML::Node root;
 		try
 		{
-			root = YAML::Load(file);
+			root = YAML::Load(text);
 		}
 		catch (const YAML::Exception& error)
 		{

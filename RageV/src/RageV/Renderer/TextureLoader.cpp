@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "TextureLoader.h"
+#include "RageV/IO/VFS.h"
 #include "stb_image.h"
 #include <filesystem>
 
@@ -9,6 +10,40 @@ namespace RageV
 
 	namespace
 	{
+		// Every image comes in through the VFS, so a texture in a pak and a
+		// texture on disk are the same call. stb decodes from memory either
+		// way; the bytes just stop coming from fopen.
+		//
+		// A miss is logged here, because the callers cite stbi_failure_reason
+		// -- which describes the last *decode* failure, and a file that never
+		// arrived was never decoded.
+		stbi_uc* LoadPixels(const std::string& path, int* width, int* height, int channels)
+		{
+			std::vector<uint8_t> bytes;
+			if (!VFS::ReadBytes(path, bytes))
+			{
+				RV_CORE_ERROR("Texture '{0}' does not exist, loose or in a pak", path);
+				return nullptr;
+			}
+
+			int unused = 0;
+			return stbi_load_from_memory(bytes.data(), (int)bytes.size(),
+										 width, height, &unused, channels);
+		}
+
+		float* LoadPixelsF(const std::string& path, int* width, int* height, int channels)
+		{
+			std::vector<uint8_t> bytes;
+			if (!VFS::ReadBytes(path, bytes))
+			{
+				RV_CORE_ERROR("Texture '{0}' does not exist, loose or in a pak", path);
+				return nullptr;
+			}
+
+			int unused = 0;
+			return stbi_loadf_from_memory(bytes.data(), (int)bytes.size(),
+										  width, height, &unused, channels);
+		}
 		std::unordered_map<std::string, Ref<RHITexture>> s_Cache;
 		std::unordered_map<std::string, Ref<RHITexture>> s_CubeCache;
 		std::unordered_map<std::string, Ref<RHITexture>> s_IrradianceCache;
@@ -79,10 +114,10 @@ namespace RageV
 		if (const auto it = s_Cache.find(key); it != s_Cache.end())
 			return it->second;
 
-		int width = 0, height = 0, channels = 0;
+		int width = 0, height = 0;
 		// Forced to 4 channels: 3-channel uploads need row alignment handling
 		// that is not worth the memory saved.
-		stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &channels, 4);
+		stbi_uc* pixels = LoadPixels(path, &width, &height, 4);
 		if (!pixels)
 		{
 			RV_CORE_ERROR("Failed to load texture '{0}': {1}", path, stbi_failure_reason());
@@ -187,8 +222,8 @@ namespace RageV
 				const std::filesystem::path facePath =
 					source.parent_path() / (base + kFaceSuffixes[face] + extension);
 
-				int width = 0, height = 0, channels = 0;
-				float* pixels = stbi_loadf(facePath.string().c_str(), &width, &height, &channels, 4);
+				int width = 0, height = 0;
+				float* pixels = LoadPixelsF(facePath.string(), &width, &height, 4);
 				if (!pixels)
 				{
 					RV_CORE_ERROR("Cube face '{0}' will not load: {1}",
@@ -218,11 +253,11 @@ namespace RageV
 		}
 		else
 		{
-			int width = 0, height = 0, channels = 0;
+			int width = 0, height = 0;
 			// Float, whatever the file was. stb un-gammas an LDR image on the
 			// way through, so both paths end up linear -- which is what the
 			// scene target holds and what the maths downstream assumes.
-			float* pixels = stbi_loadf(path.c_str(), &width, &height, &channels, 4);
+			float* pixels = LoadPixelsF(path, &width, &height, 4);
 			if (!pixels)
 			{
 				RV_CORE_ERROR("Failed to load environment map '{0}': {1}", path,
