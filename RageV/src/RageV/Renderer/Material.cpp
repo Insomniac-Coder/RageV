@@ -98,6 +98,24 @@ namespace RageV
 		Invalidate();
 	}
 
+	void Material::SetRoughnessMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_Roughness, texture, m_Params.MapFlags, MaterialMap_Roughness);
+		Invalidate();
+	}
+
+	void Material::SetMetallicMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_Metallic, texture, m_Params.MapFlags, MaterialMap_Metallic);
+		Invalidate();
+	}
+
+	void Material::SetSpecularMap(const Ref<RHITexture>& texture)
+	{
+		AssignMap(m_Specular, texture, m_Params.MapFlags, MaterialMap_Specular);
+		Invalidate();
+	}
+
 	void Material::EnsureResources(const Ref<RHIPipeline>& pipeline, uint32_t set)
 	{
 		if (m_Built)
@@ -142,6 +160,13 @@ namespace RageV
 			resourceSet->SetTexture(3, m_MetallicRoughness ? m_MetallicRoughness : TextureLoader::White(m_Device),      m_Sampler);
 			resourceSet->SetTexture(4, m_Occlusion         ? m_Occlusion         : TextureLoader::White(m_Device),      m_Sampler);
 			resourceSet->SetTexture(5, m_Emissive          ? m_Emissive          : TextureLoader::Black(m_Device),      m_Sampler);
+			// White stands in for both: unset means "use the scalar", and the
+			// shader only reads these when their flag is set, so the value
+			// never reaches a pixel. It still has to be a real texture --
+			// an unwritten binding is a validation error, not an unused one.
+			resourceSet->SetTexture(6, m_Roughness         ? m_Roughness         : TextureLoader::White(m_Device),      m_Sampler);
+			resourceSet->SetTexture(7, m_Metallic          ? m_Metallic          : TextureLoader::White(m_Device),      m_Sampler);
+			resourceSet->SetTexture(8, m_Specular         ? m_Specular          : TextureLoader::White(m_Device),      m_Sampler);
 
 			resourceSet->Commit();
 			m_FrameDirty[frame] = false;
@@ -169,6 +194,9 @@ namespace RageV
 		mix(m_MetallicRoughness.get());
 		mix(m_Occlusion.get());
 		mix(m_Emissive.get());
+		mix(m_Roughness.get());
+		mix(m_Metallic.get());
+		mix(m_Specular.get());
 		mix(m_Sampler.get());
 
 		// MapFlags is the one scalar the shader still reads from the material

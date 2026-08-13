@@ -43,6 +43,13 @@ namespace RageV::Assets
 		AssetHandle MetallicRoughnessMap = AssetHandle::Invalid();
 		AssetHandle OcclusionMap = AssetHandle::Invalid();
 		AssetHandle EmissiveMap = AssetHandle::Invalid();
+
+		// Separate greyscale roughness and metallic, and dielectric
+		// reflectance. What a downloaded material actually ships; the packed
+		// MetallicRoughnessMap above is the glTF form.
+		AssetHandle RoughnessMap = AssetHandle::Invalid();
+		AssetHandle MetallicMap = AssetHandle::Invalid();
+		AssetHandle SpecularMap = AssetHandle::Invalid();
 	};
 
 	// Reads and writes `.rmat`, the file behind AssetType::Material.

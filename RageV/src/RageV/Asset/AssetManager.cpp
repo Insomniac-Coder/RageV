@@ -290,6 +290,9 @@ namespace RageV::Assets
 		assign(desc.MetallicRoughnessMap, &Material::SetMetallicRoughnessMap);
 		assign(desc.OcclusionMap, &Material::SetOcclusionMap);
 		assign(desc.EmissiveMap, &Material::SetEmissiveMap);
+		assign(desc.RoughnessMap, &Material::SetRoughnessMap);
+		assign(desc.MetallicMap, &Material::SetMetallicMap);
+		assign(desc.SpecularMap, &Material::SetSpecularMap);
 
 		material->Invalidate();
 

@@ -56,6 +56,14 @@ namespace RageV::Assets
 		emitter << YAML::Key << "Roughness"   << YAML::Value << params.Roughness;
 		emitter << YAML::Key << "Occlusion"   << YAML::Value << params.Occlusion;
 		emitter << YAML::Key << "NormalScale" << YAML::Value << params.NormalScale;
+		emitter << YAML::Key << "Specular"    << YAML::Value << params.Specular;
+
+		// Written as a pair of pairs rather than a raw vec4, because "Tiling:
+		// [8, 8]" is what somebody editing this by hand is looking for.
+		emitter << YAML::Key << "Tiling" << YAML::Value << YAML::Flow
+				<< YAML::BeginSeq << params.UvTransform.x << params.UvTransform.y << YAML::EndSeq;
+		emitter << YAML::Key << "UvOffset" << YAML::Value << YAML::Flow
+				<< YAML::BeginSeq << params.UvTransform.z << params.UvTransform.w << YAML::EndSeq;
 
 		// MapFlags is deliberately absent.
 		//
@@ -66,7 +74,9 @@ namespace RageV::Assets
 		// texture nobody assigned.
 		const bool anyMap = material.BaseColorMap.IsValid() || material.NormalMap.IsValid() ||
 							material.MetallicRoughnessMap.IsValid() ||
-							material.OcclusionMap.IsValid() || material.EmissiveMap.IsValid();
+							material.OcclusionMap.IsValid() || material.EmissiveMap.IsValid() ||
+							material.RoughnessMap.IsValid() || material.MetallicMap.IsValid() ||
+							material.SpecularMap.IsValid();
 
 		if (anyMap)
 		{
@@ -76,6 +86,9 @@ namespace RageV::Assets
 			EmitMap(emitter, "MetallicRoughness", material.MetallicRoughnessMap);
 			EmitMap(emitter, "Occlusion", material.OcclusionMap);
 			EmitMap(emitter, "Emissive", material.EmissiveMap);
+			EmitMap(emitter, "Roughness", material.RoughnessMap);
+			EmitMap(emitter, "Metallic", material.MetallicMap);
+			EmitMap(emitter, "Specular", material.SpecularMap);
 			emitter << YAML::EndMap;
 		}
 
@@ -130,6 +143,19 @@ namespace RageV::Assets
 		if (root["Roughness"])   params.Roughness = root["Roughness"].as<float>();
 		if (root["Occlusion"])   params.Occlusion = root["Occlusion"].as<float>();
 		if (root["NormalScale"]) params.NormalScale = root["NormalScale"].as<float>();
+		if (root["Specular"])    params.Specular = root["Specular"].as<float>();
+
+		auto readPair = [](const YAML::Node& node, float& x, float& y)
+		{
+			if (node && node.IsSequence() && node.size() == 2)
+			{
+				x = node[0].as<float>();
+				y = node[1].as<float>();
+			}
+		};
+
+		readPair(root["Tiling"], params.UvTransform.x, params.UvTransform.y);
+		readPair(root["UvOffset"], params.UvTransform.z, params.UvTransform.w);
 
 		if (const YAML::Node maps = root["Maps"])
 		{
@@ -138,6 +164,9 @@ namespace RageV::Assets
 			material.MetallicRoughnessMap = ReadMap(maps["MetallicRoughness"]);
 			material.OcclusionMap = ReadMap(maps["Occlusion"]);
 			material.EmissiveMap = ReadMap(maps["Emissive"]);
+			material.RoughnessMap = ReadMap(maps["Roughness"]);
+			material.MetallicMap = ReadMap(maps["Metallic"]);
+			material.SpecularMap = ReadMap(maps["Specular"]);
 		}
 
 		// Whatever the file said, the flags come from the handles. See Save.

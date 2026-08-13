@@ -26,16 +26,73 @@ namespace RageV
 		// Which maps are present, as bit flags; the shader falls back to the
 		// scalar parameter for any that are not.
 		int32_t MapFlags = 0;
-		int32_t _padding[3] = {};
+
+		// Reflectance of the surface when it is *not* metal, on the convention
+		// everyone uses: F0 = 0.08 * Specular, so 0.5 is the 4% that almost
+		// every dielectric actually has and that the shader hardcoded until
+		// now. Metals ignore it -- their F0 is their albedo.
+		//
+		// 0.5 by default, which reproduces the old constant exactly, so no
+		// existing material changes appearance. Worth having because 4% is
+		// wrong for a few real things: water is nearer 2%, gemstones and some
+		// plastics considerably more.
+		//
+		// In the padding rather than after UvTransform, so the block stays 80
+		// bytes and the std140 layout does not move.
+		float Specular = 0.5f;
+		int32_t _padding[2] = {};
+
+		// How this material's maps meet the surface: xy scales the texture
+		// coordinate, zw offsets it. (1, 1, 0, 0) is the mesh's own UVs.
+		//
+		// Needed because the built-in primitives give every face UVs spanning
+		// 0..1, and scaling an entity does not touch them -- so a ground plane
+		// scaled to twelve units stretches one copy of its texture across the
+		// whole thing. A material for a real surface has a texel density, and
+		// this is where it is said.
+		//
+		// On the material rather than per entity, unlike the scalar overrides.
+		// Colour varies per object constantly; tiling is a property of the
+		// texture set, and putting it in the instance stream would charge every
+		// untextured object sixteen bytes for something almost none of them
+		// use. Unity draws the line in the same place. Per-entity tiling, if it
+		// is ever wanted, belongs in the instance stream beside the overrides.
+		Vec4 UvTransform{ 1.0f, 1.0f, 0.0f, 0.0f };
 	};
+
+	// The instance stream has had one of these since it was written; this block
+	// never did, and adding a field to it is precisely when that costs
+	// something. A uniform block whose C++ and GLSL layouts disagree does not
+	// fail to compile or to bind -- it reads the wrong sixteen bytes, and the
+	// symptom is a material whose roughness is somebody else's tiling.
+	static_assert(sizeof(MaterialParams) == 80,
+				  "Must match the MaterialData block in include/pbr_fragment.glsl");
 
 	enum MaterialMap : int32_t
 	{
 		MaterialMap_BaseColor         = 1 << 0,
 		MaterialMap_Normal            = 1 << 1,
+		// glTF's packing: roughness in green, metallic in blue, one texture.
 		MaterialMap_MetallicRoughness = 1 << 2,
 		MaterialMap_Occlusion         = 1 << 3,
 		MaterialMap_Emissive          = 1 << 4,
+
+		// The same two as separate greyscale maps, which is how every texture
+		// library that is not a glTF ships them -- ambientCG, Poly Haven and
+		// Quixel all do. Supporting only the packed form meant every downloaded
+		// material had to be repacked before it could be used, which is a
+		// processing step standing between the engine and its own asset
+		// pipeline.
+		//
+		// A separate map *replaces* the packed one's channel rather than
+		// multiplying with it; see the shader. Both forms exist because glTF
+		// genuinely carries the packed one and splitting it at import would
+		// mean decoding and rewriting somebody's textures.
+		MaterialMap_Roughness         = 1 << 5,
+		MaterialMap_Metallic          = 1 << 6,
+
+		// Dielectric reflectance, greyscale, modulating the Specular scalar.
+		MaterialMap_Specular          = 1 << 7,
 	};
 
 	class Material
@@ -53,6 +110,12 @@ namespace RageV
 		void SetMetallicRoughnessMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetOcclusionMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetEmissiveMap(const RHI::Ref<RHI::RHITexture>& texture);
+
+		// Separate greyscale maps, read from the red channel. Either one
+		// overrides the packed metallic-roughness map's corresponding channel.
+		void SetRoughnessMap(const RHI::Ref<RHI::RHITexture>& texture);
+		void SetMetallicMap(const RHI::Ref<RHI::RHITexture>& texture);
+		void SetSpecularMap(const RHI::Ref<RHI::RHITexture>& texture);
 
 		// Marks every frame's descriptor set and parameter buffer as needing a
 		// rewrite. Call after touching GetParams() directly.
@@ -94,6 +157,9 @@ namespace RageV
 		RHI::Ref<RHI::RHITexture> m_MetallicRoughness;
 		RHI::Ref<RHI::RHITexture> m_Occlusion;
 		RHI::Ref<RHI::RHITexture> m_Emissive;
+		RHI::Ref<RHI::RHITexture> m_Roughness;
+		RHI::Ref<RHI::RHITexture> m_Metallic;
+		RHI::Ref<RHI::RHITexture> m_Specular;
 		RHI::Ref<RHI::RHISampler> m_Sampler;
 
 		// Per frame in flight: the parameter block is host-visible and may be

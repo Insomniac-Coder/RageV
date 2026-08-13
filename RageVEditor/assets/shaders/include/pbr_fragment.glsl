@@ -19,6 +19,12 @@ const int MAP_NORMAL             = 1 << 1;
 const int MAP_METALLIC_ROUGHNESS = 1 << 2;
 const int MAP_OCCLUSION          = 1 << 3;
 const int MAP_EMISSIVE           = 1 << 4;
+// Must match MaterialMap in Material.h. Separate roughness and metallic, which
+// is how every texture library that is not a glTF ships them, plus dielectric
+// reflectance.
+const int MAP_ROUGHNESS          = 1 << 5;
+const int MAP_METALLIC           = 1 << 6;
+const int MAP_SPECULAR           = 1 << 7;
 
 layout(set = 0, binding = 0) uniform SceneData
 {
@@ -118,6 +124,16 @@ layout(set = 1, binding = 0) uniform MaterialData
 	float Occlusion;
 	float NormalScale;
 	int   MapFlags;
+	// F0 = 0.08 * Specular for anything that is not metal. 0.5 is the 4% this
+	// used to hardcode.
+	float Specular;
+	// std140 pads out to a vec4 boundary, so these must be declared or the
+	// offsets here and in MaterialParams disagree -- and a uniform block that
+	// disagrees does not fail, it reads the wrong sixteen bytes.
+	int   _pad0;
+	int   _pad1;
+	// xy scale, zw offset. See MaterialParams::UvTransform.
+	vec4  UvTransform;
 } u_Material;
 
 layout(set = 1, binding = 1) uniform sampler2D u_BaseColorMap;
@@ -125,6 +141,11 @@ layout(set = 1, binding = 2) uniform sampler2D u_NormalMap;
 layout(set = 1, binding = 3) uniform sampler2D u_MetallicRoughnessMap;
 layout(set = 1, binding = 4) uniform sampler2D u_OcclusionMap;
 layout(set = 1, binding = 5) uniform sampler2D u_EmissiveMap;
+// Separate greyscale roughness and metallic, read from red. Every texture
+// library that is not a glTF ships them this way.
+layout(set = 1, binding = 6) uniform sampler2D u_RoughnessMap;
+layout(set = 1, binding = 7) uniform sampler2D u_MetallicMap;
+layout(set = 1, binding = 8) uniform sampler2D u_SpecularMap;
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
@@ -425,9 +446,14 @@ vec3 ApplyNormalMap(vec3 N, vec3 worldPos, vec2 uv)
 
 void main()
 {
+	// The material's tiling, applied once. Every map has to use the same
+	// coordinate or the normals stop lining up with the colour they belong to,
+	// which reads as a lighting bug rather than as a UV one.
+	vec2 uv = v_TexCoord * u_Material.UvTransform.xy + u_Material.UvTransform.zw;
+
 	vec4 baseColor = v_BaseColor;
 	if (HasMap(MAP_BASE_COLOR))
-		baseColor *= texture(u_BaseColorMap, v_TexCoord);
+		baseColor *= texture(u_BaseColorMap, uv);
 
 	vec3 albedo = baseColor.rgb;
 
@@ -436,26 +462,44 @@ void main()
 	if (HasMap(MAP_METALLIC_ROUGHNESS))
 	{
 		// glTF packing: roughness in green, metallic in blue.
-		vec3 mr = texture(u_MetallicRoughnessMap, v_TexCoord).rgb;
+		vec3 mr = texture(u_MetallicRoughnessMap, uv).rgb;
 		roughness *= mr.g;
 		metallic  *= mr.b;
 	}
+
+	// A separate map *replaces* the packed one's channel rather than
+	// compounding with it. Both can be assigned -- nothing forbids it -- and
+	// multiplying would darken a surface for no reason a person could see,
+	// which is the kind of wrongness that gets blamed on the lighting.
+	if (HasMap(MAP_ROUGHNESS))
+		roughness = v_Surface.y * texture(u_RoughnessMap, uv).r;
+	if (HasMap(MAP_METALLIC))
+		metallic = v_Surface.x * texture(u_MetallicMap, uv).r;
+
 	roughness = clamp(roughness, 0.045, 1.0);   // fully smooth aliases badly
 	metallic  = clamp(metallic, 0.0, 1.0);
 
 	float occlusion = v_Surface.z;
 	if (HasMap(MAP_OCCLUSION))
-		occlusion *= texture(u_OcclusionMap, v_TexCoord).r;
+		occlusion *= texture(u_OcclusionMap, uv).r;
 
 	vec3 N = normalize(v_Normal);
 	if (HasMap(MAP_NORMAL))
-		N = ApplyNormalMap(N, v_WorldPos, v_TexCoord);
+		N = ApplyNormalMap(N, v_WorldPos, uv);
 
 	vec3 V = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
 
 	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
 	// the reflectance and have no diffuse response at all.
-	vec3 F0 = mix(vec3(0.04), albedo, metallic);
+	// Dielectric reflectance, on the convention everyone uses: F0 = 0.08 *
+	// specular, so the default 0.5 is the 4% that was hardcoded here. Metals
+	// ignore it entirely -- their F0 *is* their albedo, which is what the mix
+	// below says.
+	float specular = u_Material.Specular;
+	if (HasMap(MAP_SPECULAR))
+		specular *= texture(u_SpecularMap, uv).r;
+
+	vec3 F0 = mix(vec3(0.08 * clamp(specular, 0.0, 1.0)), albedo, metallic);
 
 	vec3 Lo = vec3(0.0);
 
@@ -619,7 +663,7 @@ void main()
 
 	vec3 emissive = v_EmissiveColor.rgb;
 	if (HasMap(MAP_EMISSIVE))
-		emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
+		emissive *= texture(u_EmissiveMap, uv).rgb;
 
 	vec3 color = ambient + Lo + emissive;
 

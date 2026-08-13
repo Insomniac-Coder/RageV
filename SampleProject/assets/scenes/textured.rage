@@ -52,7 +52,7 @@ Entities:
       Scale: [1.4, 1.4, 1.4]
     MeshComponent:
       Mesh: 8241982477996916736
-      Material: 17655083655937514610
+      Material: 14224687387229177352
   - EntityID: 7720000000000000004
     TagComponent:
       Tag: Ground
@@ -62,7 +62,7 @@ Entities:
       Scale: [12, 1, 12]
     MeshComponent:
       Mesh: 8241982477996916738
-      Material: 0
+      Material: 2364157502274629324
       OverrideBaseColor: true
       BaseColor: [0.42, 0.44, 0.46, 1]
       OverrideRoughness: true

@@ -1,4 +1,4 @@
-Material: Textured
+Material: Separate maps
 BaseColor: [1, 1, 1, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 1
@@ -9,6 +9,6 @@ Specular: 0.5
 Tiling: [1, 1]
 UvOffset: [0, 0]
 Maps:
-  BaseColor: 7094216867827831637
-  Normal: 6058802608496343546
-  MetallicRoughness: 2068778544591316995
+  BaseColor: 5587037947883747059
+  Roughness: 17941280797275227854
+  Metallic: 6507775321046804049
