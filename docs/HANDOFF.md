@@ -2538,11 +2538,11 @@ a constant is that constant. **203 against 205, ratio 0.990, both backends.** A
 convolution returning the integral instead of the average would read 3.14 and
 blow the sphere to white.
 
-**START HERE: the rest of phase 7.** Materials as assets (7.3) is the one that
-unblocks ordinary authoring -- two entities still cannot share a material from
-the inspector. Also open: `.pak` + VFS (7.1/7.2, do together or neither),
-billboard icons (7.4), animation blending (7.5), skinned bounds (7.6),
-front-to-back opaque sorting (7.8), SMAA (7.9), TAA (7.10).
+**Superseded -- this was the plan for phase 7 when it was written, and it is
+kept only because the reasoning below it still explains why these were
+grouped. The live list is the START HERE at the top of §8.** Of the items it
+names, 7.1, 7.2, 7.3, 7.4, 7.5 and 7.6 are all done; only 7.8, 7.9 and 7.10
+remain.
 
 > [!TRAP]
 > **A project's C# is loaded from `Scripts/bin/`, not from `bin/`.** Editing a
