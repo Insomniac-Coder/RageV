@@ -465,7 +465,14 @@ mat3 TangentFrame(vec3 N, vec3 worldPos, vec2 uv)
 
 vec3 PerturbNormal(mat3 TBN, vec2 uv)
 {
-	vec3 tangentNormal = texture(u_NormalMap, uv).xyz * 2.0 - 1.0;
+	// Z is reconstructed from XY, never read -- one path for every normal
+	// map. A two-channel (BC5) map has no Z to read; for an RGB map whose
+	// normals are unit length the reconstruction *is* the stored Z, and one
+	// that was not unit length gets renormalized, which is a correction. A
+	// shader that branched on the texture's format here would be two shading
+	// paths waiting to drift.
+	vec2 xy = texture(u_NormalMap, uv).xy * 2.0 - 1.0;
+	vec3 tangentNormal = vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
 	tangentNormal.xy *= v_Surface.w;
 	return normalize(TBN * tangentNormal);
 }

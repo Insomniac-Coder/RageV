@@ -1313,6 +1313,78 @@ the fallback path. Suite: 1197 checks, both backends, Release included.
 
 ---
 
+## 7i. Asset cooking (7.2): design first
+
+The measurement that justifies the feature: ~6 seconds of a
+material_closeup boot is the 4K texture pipeline -- PNG decode, upload,
+GPU mip generation -- and none of it is block-compressed, so each 4K
+RGBA8 map with its chain is ~89 MB of VRAM and the closeup's ten maps
+are roughly a gigabyte. Cooking removes the decode and, more
+importantly, puts BCn on the GPU: 4-8x less VRAM and bandwidth.
+
+**Cooking is a content transform inside the pak build, invisible to
+every reference.** Cooked bytes replace source bytes *under the same
+path*: the pak entry `materials/soil_color.png` simply holds `.rvtex`
+bytes instead of PNG bytes, and loaders sniff the magic before handing
+anything to stb or cgltf. Nothing else can tell: `.meta` handles,
+scenes and materials keep the names they had, the editor and every
+development run keep loading source files, and `rvpack --raw` ships
+source bytes for debugging. No reference rewriting exists because no
+references change.
+
+**`.rvtex` (RVTX v1):** width, height, mip count, pixel format --
+RGBA8, BC1, BC3, BC4, BC5 -- and per-mip payload blobs. Mips are built
+at cook time on the CPU (box filter; a normal map's mips are
+renormalized per texel, because averaging unit vectors shortens them).
+A cooked texture is never `GenerateMips`ed at load. sRGB stays a
+*load-time view decision*, as it already is for PNGs -- the same bytes
+upload as UNORM or SRGB depending on which slot asks -- so the cooker
+does not need to know what a texture is for.
+
+**The encode is chosen from content and one honest name convention:**
+`*_normal*` cooks to BC5 (xy only; every pipeline in this repository
+names normal maps that way); a map whose pixels are grey and opaque
+cooks to BC4 (the shader already reads roughness, metallic, occlusion
+and height from `.r`); alpha that varies cooks to BC3; everything else
+BC1. The encoder is the vendored `stb_dxt`, in the same spirit as
+`stb_image`.
+
+**BC5 forces one shader decision, made globally rather than per
+format: `PerturbNormal` reconstructs Z from XY unconditionally.** For a
+unit-length source normal the reconstruction is exactly the stored Z,
+so RGB maps do not change; a map that was not unit length gets
+implicitly renormalized, which is a correction rather than a
+regression. One path for PNG and BC5 alike -- a shader that branched on
+the texture's format would be the drift this file exists to prevent.
+Verified with the parity fixture (stated answer, both backends) and the
+closeup ablations before any RHI work starts.
+
+**The RHI grows compressed formats, and uploads that take a chain.**
+BC1/BC3 in UNORM and SRGB, BC4/BC5 in UNORM; block-aligned size math;
+an upload path that accepts every mip pre-built, because compressed
+targets cannot be blitted into existence. Vulkan has BC in core;
+desktop GL has S3TC as the ubiquitous extension and RGTC in core.
+Support is checked at device selection -- the imageCubeArray lesson --
+and a device without it fails the cooked texture loudly rather than
+quietly showing the fallback.
+
+**`.rvmesh` (RVMS v1)** is the serialized `ImportedModel`: primitives
+with names, vertex kind, vertices and indices; the skeleton; the clips.
+The cooker runs the same `GltfImporter` the editor uses -- one parser,
+no drift -- and the loader sniffs the magic before cgltf ever sees the
+bytes. `.hdr` skies ship raw in v1: one per scene, loaded once, and
+cooking cube faces plus irradiance is its own feature.
+
+**Verification:** the raw pak keeps the pixel-identical E2E from 7.1
+unchanged. The cooked pak is lossy by design, so its acceptance is a
+*bounded* diff against loose -- the bound stated from measurement, not
+hope -- plus the closeup ablation numbers surviving on both backends,
+plus the load-time before/after that motivated the feature. Unit
+checks: rvtex and rvmesh round trips, the BC4 greyscale detection, mip
+chain sizes, and renormalized normal mips.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
