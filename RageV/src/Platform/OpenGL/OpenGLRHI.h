@@ -63,6 +63,8 @@ namespace RageV::GL
 
 		void Upload(const void* data, uint64_t size) override;
 		void UploadLayer(const void* data, uint64_t size, uint32_t layer) override;
+		void UploadMip(const void* data, uint64_t size, uint32_t mip,
+					   uint32_t layer) override;
 		void GenerateMips() override;
 		uint64_t GetImGuiHandle() override { return (uint64_t)m_Handle; }
 

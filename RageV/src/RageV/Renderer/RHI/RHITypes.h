@@ -58,6 +58,17 @@ namespace RageV::RHI
 		R32G32B32_SINT,
 		R32G32B32A32_SINT,
 
+		// Block-compressed, for cooked textures (7.2). Four-by-four texel
+		// blocks: BC1 and BC4 are 8 bytes a block, BC3 and BC5 are 16. A
+		// compressed image cannot be blitted, so a cooked texture arrives
+		// with its whole mip chain and GenerateMips never runs on it.
+		BC1_UNORM,
+		BC1_SRGB,
+		BC3_UNORM,
+		BC3_SRGB,
+		BC4_UNORM,
+		BC5_UNORM,
+
 		D16_UNORM,
 		D32_SFLOAT,
 		D24_UNORM_S8_UINT,
@@ -66,7 +77,15 @@ namespace RageV::RHI
 
 	bool IsDepthFormat(Format format);
 	bool IsStencilFormat(Format format);
+	// Bytes per pixel. Zero for the block-compressed formats, which have no
+	// per-pixel size -- their bytes come from TextureDataSize.
 	uint32_t FormatSize(Format format);
+
+	bool IsCompressedFormat(Format format);
+	// The bytes one mip level of `width` x `height` occupies, whatever the
+	// format: pixels times size for ordinary formats, whole 4x4 blocks for
+	// compressed ones -- a 2x2 BC mip still occupies a full block.
+	uint64_t TextureDataSize(Format format, uint32_t width, uint32_t height);
 
 	// ---------------------------------------------------------------------
 	// Buffers

@@ -364,6 +364,13 @@ namespace RageV::Vk
 			if (!features2.features.imageCubeArray)
 				continue;
 
+			// BC, for cooked textures. One feature bit covers every BC format,
+			// and every desktop GPU this engine can run on has it -- but the
+			// imageCubeArray lesson stands: a requirement that is not stated
+			// at selection is undefined behaviour on the machine that lacks it.
+			if (!features2.features.textureCompressionBC)
+				continue;
+
 			// Rank rather than taking the first discrete GPU: the original code
 			// returned VK_NULL_HANDLE outright on integrated-only machines and
 			// then used it.
@@ -446,6 +453,8 @@ namespace RageV::Vk
 		// rejects a physical device that lacks it, so this is not a probe: by
 		// here it is known to be supported.
 		features.imageCubeArray = VK_TRUE;
+		// Selection above rejected any device without it; see the note there.
+		features.textureCompressionBC = VK_TRUE;
 
 		VkPhysicalDeviceVulkan13Features features13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 		features13.dynamicRendering = VK_TRUE;

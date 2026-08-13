@@ -15,10 +15,35 @@ namespace RageV::GL
 			GLenum Type     = 0;
 		};
 
+// The S3TC enums are an extension, so the core-profile GLAD header does not
+// carry them. The values are ABI constants -- every driver that reports
+// GL_EXT_texture_compression_s3tc accepts exactly these.
+#ifndef GL_COMPRESSED_RGBA_S3TC_DXT1_EXT
+#define GL_COMPRESSED_RGBA_S3TC_DXT1_EXT 0x83F1
+#endif
+#ifndef GL_COMPRESSED_RGBA_S3TC_DXT5_EXT
+#define GL_COMPRESSED_RGBA_S3TC_DXT5_EXT 0x83F3
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT 0x8C4D
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT 0x8C4F
+#endif
+
 		GLFormat ToGLFormat(Format format)
 		{
 			switch (format)
 			{
+				// Compressed: Format/Type stay zero -- uploads go through the
+				// glCompressed* entry points, which take the internal format
+				// and a byte count instead of a pixel transfer description.
+				case Format::BC1_UNORM:  return { GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, 0, 0 };
+				case Format::BC1_SRGB:   return { GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT, 0, 0 };
+				case Format::BC3_UNORM:  return { GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, 0, 0 };
+				case Format::BC3_SRGB:   return { GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT, 0, 0 };
+				case Format::BC4_UNORM:  return { GL_COMPRESSED_RED_RGTC1, 0, 0 };
+				case Format::BC5_UNORM:  return { GL_COMPRESSED_RG_RGTC2, 0, 0 };
 				case Format::R8_UNORM:            return { GL_R8,      GL_RED,  GL_UNSIGNED_BYTE };
 				case Format::R8G8_UNORM:          return { GL_RG8,     GL_RG,   GL_UNSIGNED_BYTE };
 				case Format::R8G8B8A8_UNORM:      return { GL_RGBA8,   GL_RGBA, GL_UNSIGNED_BYTE };
@@ -343,8 +368,71 @@ namespace RageV::GL
 							format.Format, format.Type, data);
 	}
 
+	void OpenGLTextureRHI::UploadMip(const void* data, uint64_t size, uint32_t mip,
+									 uint32_t layer)
+	{
+		if (!data || size == 0)
+			return;
+
+		if (mip >= m_Desc.MipLevels || layer >= EffectiveLayers(m_Desc))
+		{
+			RV_CORE_WARN("Texture '{0}' has {1} mips and {2} layers; asked for "
+						 "mip {3} of layer {4}", m_Desc.DebugName,
+						 m_Desc.MipLevels, EffectiveLayers(m_Desc), mip, layer);
+			return;
+		}
+
+		const uint32_t width = std::max(m_Desc.Width >> mip, 1u);
+		const uint32_t height = std::max(m_Desc.Height >> mip, 1u);
+		const uint64_t expected = TextureDataSize(m_Desc.Format, width, height);
+
+		// Exact, matching the Vulkan path: a short buffer reads out of
+		// bounds, a long one means the mip math disagrees.
+		if (size != expected)
+		{
+			RV_CORE_WARN("Texture '{0}' mip {1} is {2}x{3} and takes {4} bytes; "
+						 "given {5}", m_Desc.DebugName, mip, width, height,
+						 expected, size);
+			return;
+		}
+
+		const GLFormat format = ToGLFormat(m_Desc.Format);
+		const bool layered = m_Desc.Type != TextureType::Texture2D;
+
+		if (IsCompressedFormat(m_Desc.Format))
+		{
+			if (layered)
+				glCompressedTextureSubImage3D(m_Handle, (GLint)mip, 0, 0, (GLint)layer,
+											  (GLsizei)width, (GLsizei)height, 1,
+											  format.Internal, (GLsizei)size, data);
+			else
+				glCompressedTextureSubImage2D(m_Handle, (GLint)mip, 0, 0,
+											  (GLsizei)width, (GLsizei)height,
+											  format.Internal, (GLsizei)size, data);
+			return;
+		}
+
+		if (layered)
+			glTextureSubImage3D(m_Handle, (GLint)mip, 0, 0, (GLint)layer,
+								(GLsizei)width, (GLsizei)height, 1,
+								format.Format, format.Type, data);
+		else
+			glTextureSubImage2D(m_Handle, (GLint)mip, 0, 0,
+								(GLsizei)width, (GLsizei)height,
+								format.Format, format.Type, data);
+	}
+
 	void OpenGLTextureRHI::GenerateMips()
 	{
+		// A compressed image cannot be filtered into existence; its chain
+		// arrives via UploadMip or not at all. Same rule as Vulkan's.
+		if (IsCompressedFormat(m_Desc.Format))
+		{
+			RV_CORE_WARN("Texture '{0}' is block-compressed; its mips must be "
+						 "uploaded, not generated", m_Desc.DebugName);
+			return;
+		}
+
 		if (m_Desc.MipLevels > 1)
 			glGenerateTextureMipmap(m_Handle);
 	}
@@ -1337,6 +1425,27 @@ namespace RageV::GL
 			GLfloat maxAnisotropy = 1.0f;
 			glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAnisotropy);
 			m_Caps.MaxAnisotropy = maxAnisotropy;
+		}
+
+		// BC1/BC3 ride the S3TC extension (RGTC, for BC4/BC5, is core).
+		// Every desktop driver has shipped it for two decades, but the
+		// imageCubeArray lesson stands: state the requirement where the
+		// device is examined, so the machine that lacks it says so at boot
+		// instead of showing black textures with no explanation.
+		{
+			GLint extensionCount = 0;
+			glGetIntegerv(GL_NUM_EXTENSIONS, &extensionCount);
+
+			bool s3tc = false;
+			for (GLint i = 0; i < extensionCount && !s3tc; i++)
+			{
+				const char* name = (const char*)glGetStringi(GL_EXTENSIONS, (GLuint)i);
+				s3tc = name && std::strcmp(name, "GL_EXT_texture_compression_s3tc") == 0;
+			}
+
+			if (!s3tc)
+				RV_CORE_ERROR("This driver lacks GL_EXT_texture_compression_s3tc; "
+							  "cooked BC1/BC3 textures will not load");
 		}
 
 		m_Caps.SupportsDynamicRendering = false;

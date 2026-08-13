@@ -53,9 +53,46 @@ namespace RageV::RHI
 			case Format::R32G32B32A32_UINT:
 			case Format::R32G32B32A32_SINT:
 			case Format::R32G32B32A32_SFLOAT:   return 16;
+			// No per-pixel size exists; TextureDataSize is the question to ask.
+			case Format::BC1_UNORM:
+			case Format::BC1_SRGB:
+			case Format::BC3_UNORM:
+			case Format::BC3_SRGB:
+			case Format::BC4_UNORM:
+			case Format::BC5_UNORM:             return 0;
 			case Format::Undefined:             return 0;
 		}
 		return 0;
+	}
+
+	bool IsCompressedFormat(Format format)
+	{
+		switch (format)
+		{
+			case Format::BC1_UNORM:
+			case Format::BC1_SRGB:
+			case Format::BC3_UNORM:
+			case Format::BC3_SRGB:
+			case Format::BC4_UNORM:
+			case Format::BC5_UNORM:
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	uint64_t TextureDataSize(Format format, uint32_t width, uint32_t height)
+	{
+		if (!IsCompressedFormat(format))
+			return (uint64_t)FormatSize(format) * width * height;
+
+		// Whole 4x4 blocks: a 2x2 mip still occupies one.
+		const uint64_t blocksX = (width + 3) / 4;
+		const uint64_t blocksY = (height + 3) / 4;
+
+		const bool halfSize = format == Format::BC1_UNORM || format == Format::BC1_SRGB ||
+							  format == Format::BC4_UNORM;
+		return blocksX * blocksY * (halfSize ? 8 : 16);
 	}
 
 	uint32_t EffectiveLayers(const TextureDesc& desc)

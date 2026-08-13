@@ -62,6 +62,14 @@ namespace RageV::RHI
 		// seams, so mips are generated once, after the last face lands.
 		virtual void UploadLayer(const void* data, uint64_t size, uint32_t layer) = 0;
 
+		// One mip level of one layer, for textures whose chain was built
+		// offline. This is how a cooked texture arrives: a compressed image
+		// cannot be blitted, so GenerateMips can never make its chain -- every
+		// level is uploaded, and none is derived. `size` must be exactly
+		// TextureDataSize for that level's dimensions.
+		virtual void UploadMip(const void* data, uint64_t size, uint32_t mip,
+							   uint32_t layer) = 0;
+
 		virtual void GenerateMips() = 0;
 
 		// Opaque handle for ImGui::Image. GL hands back the texture name;

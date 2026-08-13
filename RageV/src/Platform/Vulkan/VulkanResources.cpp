@@ -363,7 +363,7 @@ namespace RageV::Vk
 		if (!data || size == 0)
 			return;
 
-		StageInto(data, size, 0);
+		StageInto(data, size, 0, 0);
 
 		if (m_Desc.MipLevels > 1)
 			GenerateMips();
@@ -383,10 +383,42 @@ namespace RageV::Vk
 
 		// No mip generation here. The caller does it once the last layer is in,
 		// because a blit chain reads every layer of the level above.
-		StageInto(data, size, layer);
+		StageInto(data, size, 0, layer);
 	}
 
-	void VulkanTexture::StageInto(const void* data, uint64_t size, uint32_t layer)
+	void VulkanTexture::UploadMip(const void* data, uint64_t size, uint32_t mip,
+								  uint32_t layer)
+	{
+		if (!data || size == 0)
+			return;
+
+		if (mip >= m_Desc.MipLevels || layer >= EffectiveLayers())
+		{
+			RV_CORE_WARN("Texture '{0}' has {1} mips and {2} layers; asked for "
+						 "mip {3} of layer {4}", m_Desc.DebugName,
+						 m_Desc.MipLevels, EffectiveLayers(), mip, layer);
+			return;
+		}
+
+		const uint32_t width = std::max(m_Desc.Width >> mip, 1u);
+		const uint32_t height = std::max(m_Desc.Height >> mip, 1u);
+		const uint64_t expected = TextureDataSize(m_Desc.Format, width, height);
+
+		// Exact, not "at least": a short buffer reads out of bounds, and a
+		// long one means the caller's mip math disagrees with this one --
+		// which will not stay harmless.
+		if (size != expected)
+		{
+			RV_CORE_WARN("Texture '{0}' mip {1} is {2}x{3} and takes {4} bytes; "
+						 "given {5}", m_Desc.DebugName, mip, width, height,
+						 expected, size);
+			return;
+		}
+
+		StageInto(data, size, mip, layer);
+	}
+
+	void VulkanTexture::StageInto(const void* data, uint64_t size, uint32_t mip, uint32_t layer)
 	{
 		VkBufferCreateInfo stagingInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 		stagingInfo.size = size;
@@ -411,10 +443,11 @@ namespace RageV::Vk
 
 			VkBufferImageCopy region{};
 			region.imageSubresource.aspectMask = m_Aspect;
-			region.imageSubresource.mipLevel = 0;
+			region.imageSubresource.mipLevel = mip;
 			region.imageSubresource.baseArrayLayer = layer;
 			region.imageSubresource.layerCount = 1;
-			region.imageExtent = { m_Desc.Width, m_Desc.Height, 1 };
+			region.imageExtent = { std::max(m_Desc.Width >> mip, 1u),
+								   std::max(m_Desc.Height >> mip, 1u), 1 };
 
 			vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
@@ -436,6 +469,16 @@ namespace RageV::Vk
 	{
 		if (m_Desc.MipLevels <= 1)
 			return;
+
+		// A compressed image cannot be blitted -- its chain arrives via
+		// UploadMip or not at all. Loud, because a silent skip here renders
+		// as a texture that shimmers at distance and nothing says why.
+		if (IsCompressedFormat(m_Desc.Format))
+		{
+			RV_CORE_WARN("Texture '{0}' is block-compressed; its mips must be "
+						 "uploaded, not generated", m_Desc.DebugName);
+			return;
+		}
 
 		VkFormatProperties properties;
 		vkGetPhysicalDeviceFormatProperties(m_Device.GetPhysicalDevice(), ToVkFormat(m_Desc.Format), &properties);

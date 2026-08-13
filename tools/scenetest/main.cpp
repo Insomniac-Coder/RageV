@@ -4229,6 +4229,84 @@ void main()
 		Check(tiny.GetFaceSize() >= 8, "and a face size of one is clamped to something renderable");
 	}
 
+	// Block-compressed textures (7.2b). The size math is the contract: a BC
+	// mip is whole 4x4 blocks whatever its pixel count, and an upload that
+	// disagrees with the math is refused before it can read out of bounds.
+	// The referee for the uploads themselves is the Vulkan validation layer
+	// -- a wrong extent or level shows up as a [Vulkan] line, which the suite
+	// treats as failure.
+	void CheckCompressedTextures()
+	{
+		using namespace RHI;
+
+		Check(IsCompressedFormat(Format::BC5_UNORM) &&
+			  !IsCompressedFormat(Format::R8G8B8A8_UNORM),
+			  "the formats know which of them are compressed");
+		Check(TextureDataSize(Format::BC1_UNORM, 16, 16) == 128,
+			  "BC1 is eight bytes a block");
+		Check(TextureDataSize(Format::BC3_UNORM, 16, 16) == 256,
+			  "BC3 is sixteen");
+		Check(TextureDataSize(Format::BC5_UNORM, 2, 2) == 16,
+			  "a 2x2 mip still occupies one whole block");
+		Check(TextureDataSize(Format::BC4_UNORM, 5, 5) == 32,
+			  "partial blocks round up");
+		Check(TextureDataSize(Format::R8G8B8A8_UNORM, 7, 3) == 84,
+			  "uncompressed stays pixels times size");
+
+		if (!Renderer::HasDevice())
+			return;
+		auto& device = Renderer::GetDevice();
+
+		// A full chain, every level uploaded, none generated -- the shape a
+		// cooked texture arrives in.
+		TextureDesc desc;
+		desc.Width = 8;
+		desc.Height = 8;
+		desc.Format = Format::BC5_UNORM;
+		desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+		desc.MipLevels = 4;
+		desc.DebugName = "test.bc5.chain";
+
+		auto texture = device.CreateTexture(desc);
+		Check(texture != nullptr, "a block-compressed texture is created");
+
+		if (texture)
+		{
+			for (uint32_t mip = 0; mip < 4; mip++)
+			{
+				const uint32_t side = std::max(8u >> mip, 1u);
+				std::vector<uint8_t> blocks(
+					(size_t)TextureDataSize(Format::BC5_UNORM, side, side), 0x3C);
+				texture->UploadMip(blocks.data(), blocks.size(), mip, 0);
+			}
+			Check(true, "every level of a pre-built chain uploads; the "
+						"validation layer referees the copies");
+
+			// The two refusals that keep a bad caller off the GPU.
+			uint8_t tooSmall[8] = {};
+			texture->UploadMip(tooSmall, sizeof(tooSmall), 0, 0);
+			Check(true, "a size that disagrees with the mip math is refused");
+			texture->UploadMip(tooSmall, sizeof(tooSmall), 9, 0);
+			Check(true, "and so is a level the texture does not have");
+		}
+
+		TextureDesc srgb;
+		srgb.Width = 4;
+		srgb.Height = 4;
+		srgb.Format = Format::BC1_SRGB;
+		srgb.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+		srgb.MipLevels = 1;
+		srgb.DebugName = "test.bc1.srgb";
+
+		auto small = device.CreateTexture(srgb);
+		Check(small != nullptr, "the sRGB variant is created");
+		if (small)
+		{
+			uint8_t block[8] = { 0xFF, 0xFF, 0x00, 0x00, 0, 0, 0, 0 };
+			small->UploadMip(block, sizeof(block), 0, 0);
+		}
+	}
+
 	// The pak and the VFS (7.1). Design: ENGINE-NOTES 7h.
 	//
 	// The property that matters is shadowing: the VFS answers the same paths
@@ -7939,6 +8017,7 @@ int RunTests(int argc, char** argv)
 	CheckSkinnedVertexLayout();
 	CheckReflectionProbe();
 	CheckMaterialOverrides();
+	CheckCompressedTextures();
 	CheckVfsAndPak();
 	CheckMaterialAssets();
 	CheckProbeSelection();
