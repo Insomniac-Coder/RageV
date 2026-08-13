@@ -91,6 +91,12 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "loading-screenshot" || key == "loadingscreenshot")
+		{
+			config.LoadingScreenshotPath = value;
+			return true;
+		}
+
 		if (key == "ui-scale" || key == "uiscale")
 		{
 			if (ToLower(value) == "auto")

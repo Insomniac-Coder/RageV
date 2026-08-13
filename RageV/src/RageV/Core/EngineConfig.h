@@ -26,6 +26,7 @@
 //   --import-cache=on|off   read and write cooked assets (default on)
 //   --project=<path>        the .rvproject to open, or a folder containing one
 //   --screenshot=<file>     write a PNG of one frame and exit
+//   --loading-screenshot=<file>  write a PNG of a frame drawn while loading
 //   --screenshot-frame=N    which frame to capture (default 30, to let the
 //                           scene settle and any first-frame allocation pass)
 //   --benchmark=N           run N frames, print a frame-time summary, exit
@@ -76,6 +77,15 @@ namespace RageV
 		// was drawn, a scene rendered through the wrong camera.
 		std::string ScreenshotPath;
 		uint32_t    ScreenshotFrame = 30;
+
+		// Write a PNG of a frame drawn *during* loading, and keep going.
+		//
+		// A separate flag because the loading screen is over before the first
+		// ordinary frame, so --screenshot can never catch it -- and a screen
+		// nothing can capture is a screen nobody can check on two backends.
+		// Which frame is deliberately not configurable: the second, because
+		// the first is where ImGui is still deciding what size it is.
+		std::string LoadingScreenshotPath;
 
 		// Run this many frames, print what they cost, and exit. Zero is off.
 		//

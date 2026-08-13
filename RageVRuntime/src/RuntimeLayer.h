@@ -19,6 +19,14 @@ public:
 	RuntimeLayer();
 
 	void OnAttach() override;
+	// The project's scene and its assets, on the boot worker while the
+	// loading screen runs. A game has the same seconds-long start the editor
+	// does, and no more reason to spend them on a frozen window.
+	void OnLoad(RageV::Boot::Progress& progress) override;
+	// Back on the main thread: the uploads, a slice per frame, then the
+	// target and starting the scene.
+	bool OnLoadStep(RageV::Boot::Progress& progress) override;
+	void OnLoaded() override;
 	void OnUpdate(RageV::Timestep ts) override;
 	void OnFixedUpdate(RageV::Timestep dt) override;
 	void OnImGuiRender() override;
@@ -42,6 +50,10 @@ private:
 	uint32_t m_Width = 0;
 	uint32_t m_Height = 0;
 	bool m_Ready = false;
+
+	// Which scene was opened, carried from OnLoad so OnLoaded can name it in
+	// the one line a shipped game logs about starting.
+	std::string m_SceneName;
 
 	// A frame-time readout, toggled with F1. The one piece of developer
 	// furniture that earns its place in a shipped build: "is it slow" is the

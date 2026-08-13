@@ -2,6 +2,7 @@
 #include "Asset.h"
 #include "AssetRegistry.h"
 #include "GltfImporter.h"
+#include "RageV/Core/Boot.h"
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Animation/Skeleton.h"
 #include "RageV/Renderer/Material.h"
@@ -174,6 +175,38 @@ namespace RageV::Assets
 
 		// Stamps out a copy with fresh ids. Returns the root.
 		static Entity InstantiatePrefab(Scene& scene, AssetHandle handle);
+
+		// Gets everything a scene refers to ready to load, reporting each one.
+		//
+		// **CPU only, and safe to call from the boot worker** -- it decodes
+		// and cooks into the import cache but creates nothing on the GPU. The
+		// device calls stay where they always were, on the main thread, and
+		// are cheap by the time this has run: a read and an upload rather than
+		// a read, an inflate and a mip build.
+		//
+		// That split is the whole reason loading can be threaded at all
+		// without making the RHI thread-safe. See ENGINE-NOTES 7l.
+		//
+		// Progress is weighted by each source's size on disk, because this
+		// scene's assets differ by a factor of sixty and a bar that steps once
+		// per asset would cross 90% and sit there through the largest texture.
+		static void PrepareScene(Scene& scene, Boot::Progress& progress);
+
+		// Turns what PrepareScene found into GPU resources, **on the main
+		// thread**, spending at most `budgetSeconds` per call and returning
+		// true while work remains.
+		//
+		// Stepped rather than done in one go so the boot loop can draw a
+		// frame between slices: without it the bar reaches 100%, vanishes,
+		// and the window then freezes for the second it takes to upload
+		// everything -- which is the original complaint, moved rather than
+		// fixed.
+		//
+		// A budget rather than one asset per call, because those differ. One
+		// per frame is fine for twenty assets and is *slower than not
+		// bothering* for five hundred: at vsync that is eight seconds of
+		// deliberate waiting to avoid one second of stall.
+		static bool UploadPrepared(Boot::Progress& progress, float budgetSeconds);
 
 		static void ClearCache();
 	};

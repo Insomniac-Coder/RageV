@@ -1,4 +1,5 @@
 #include "RuntimeLayer.h"
+#include "RageV/Asset/AssetManager.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Particles/ParticleSystem.h"
@@ -23,6 +24,27 @@ void RuntimeLayer::OnAttach()
 	// starts with its own empty one. See ImGuiBinding.h.
 	ImGuiBinding::Bind();
 
+	// The scene draws into a linear HDR target, not the swapchain: bloom needs
+	// values from before the tone curve compresses them, and there are none
+	// left once an 8-bit backbuffer has been written. The tonemap pass is what
+	// reaches the swapchain.
+	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT);
+
+	m_Graph = std::make_unique<RenderGraph>(Renderer::GetDevice());
+
+	// So the UI pass does not wipe the frame this layer just drew.
+	//
+	// Set here rather than after the scene loads, because the loading screen
+	// is drawn through that same pass and needs the opposite: it *is* the
+	// whole frame while it runs, and the boot loop draws nothing underneath
+	// it. Turning the clear off before there is anything to preserve would
+	// leave the bar compositing over whatever the swapchain last held.
+	Application::Get().GetImGuiLayer()->SetClearsBackbuffer(true);
+}
+
+// On the boot worker. Files and CPU only -- see Layer::OnLoad.
+void RuntimeLayer::OnLoad(Boot::Progress& progress)
+{
 	if (!Project::GetActive())
 	{
 		RV_ERROR("No project. Pass --project=<folder>, or put a .rvproject "
@@ -44,38 +66,66 @@ void RuntimeLayer::OnAttach()
 
 	const std::filesystem::path scenePath = Project::AssetPath(startScene);
 
-	m_Scene = std::make_shared<Scene>();
-	SceneSerializer serializer(m_Scene);
+	progress.BeginPhase("Opening scene", 0.0f, 0.15f);
+	progress.SetDetail(scenePath.filename().string());
+
+	auto scene = std::make_shared<Scene>();
+	SceneSerializer serializer(scene);
 	if (!serializer.Deserialize(scenePath.string()))
 	{
 		RV_ERROR("Could not load the start scene {0}", scenePath.string());
-		m_Scene.reset();
+		return;
+	}
+
+	m_Scene = std::move(scene);
+
+	if (progress.Cancelled())
+		return;
+
+	progress.BeginPhase("Loading assets", 0.15f, 0.95f);
+	Assets::Manager::PrepareScene(*m_Scene, progress);
+
+	m_SceneName = startScene;
+}
+
+// Main thread, one slice per loading-screen frame.
+bool RuntimeLayer::OnLoadStep(Boot::Progress& progress)
+{
+	if (!m_Scene)
+		return false;
+
+	progress.BeginPhase("Uploading assets", 0.95f, 1.0f);
+	return Assets::Manager::UploadPrepared(progress, 1.0f / 12.0f);
+}
+
+// Back on the main thread, after the uploads.
+void RuntimeLayer::OnLoaded()
+{
+	// A game with nothing to run says so and exits, rather than presenting an
+	// empty window that is indistinguishable from a broken one. Decided here
+	// because OnLoad is where it becomes knowable, and acted on here because
+	// this is the last point before the first frame.
+	if (!m_Scene)
+	{
+		Application::Get().Close();
 		return;
 	}
 
 	auto& device = Renderer::GetDevice();
 
-	// The scene draws into a linear HDR target, not the swapchain: bloom needs
-	// values from before the tone curve compresses them, and there are none
-	// left once an 8-bit backbuffer has been written. The tonemap pass is what
-	// reaches the swapchain.
-	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT);
-
-	m_Graph = std::make_unique<RenderGraph>(device);
-
-	// So the UI pass does not wipe the frame this layer just drew.
-	Application::Get().GetImGuiLayer()->SetClearsBackbuffer(false);
-
 	m_Width = device.GetSwapchainWidth();
 	m_Height = device.GetSwapchainHeight();
 	m_Scene->OnViewportResize((float)m_Width, (float)m_Height);
+
+	// The scene owns the frame from here, so the UI pass must stop clearing.
+	Application::Get().GetImGuiLayer()->SetClearsBackbuffer(false);
 
 	// A game starts running. There is no Play button to press, and that
 	// difference is most of what separates this from the editor.
 	m_Scene->OnRuntimeStart();
 	m_Ready = true;
 
-	RV_INFO("Running '{0}' -- {1}", Project::Config().Name, startScene);
+	RV_INFO("Running '{0}' -- {1}", Project::Config().Name, m_SceneName);
 }
 
 void RuntimeLayer::OnFixedUpdate(Timestep dt)

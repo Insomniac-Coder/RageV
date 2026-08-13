@@ -35,6 +35,17 @@ namespace RageV {
 		virtual unsigned int GetWidth() const = 0;
 		virtual unsigned int GetHeight() const = 0;
 
+		// Makes a window created with Visible = false appear, and brings it
+		// forward.
+		//
+		// The reason the application creates its window hidden: the device,
+		// the shaders and every pipeline take well over a second, and a window
+		// that exists through all of it is a white rectangle nobody is pumping
+		// -- which Windows greys out and labels "Not Responding". Showing it
+		// at the first moment something can actually be drawn in it means the
+		// first thing anyone sees is the loading screen. Idempotent.
+		virtual void Show() = 0;
+
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
 		virtual void SetVsync(bool enabled) = 0;
 		virtual bool IsVSync() const = 0;

@@ -30,6 +30,12 @@ public:
 	~EditorLayer() override;
 
 	void OnAttach() override;
+	// Opening the project's scene, on the boot worker. No device calls.
+	void OnLoad(RageV::Boot::Progress& progress) override;
+	// Its assets, back on the main thread where the device lives, a slice at
+	// a time so the bar keeps moving through the uploads.
+	bool OnLoadStep(RageV::Boot::Progress& progress) override;
+	void OnLoaded() override;
 	void OnUpdate(RageV::Timestep ts) override;
 	void OnFixedUpdate(RageV::Timestep dt) override;
 	void OnImGuiRender() override;

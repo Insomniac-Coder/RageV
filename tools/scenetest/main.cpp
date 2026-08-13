@@ -30,8 +30,10 @@
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
+#include "RageV/Core/Boot.h"
 #include "RageV/IO/PakFile.h"
 #include "RageV/IO/TextureCook.h"
+#include "RageV/Asset/ImportCache.h"
 #include "RageV/Asset/MeshCook.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Core/KeyCodes.h"
@@ -4460,6 +4462,145 @@ void main()
 		}
 	}
 
+	// The bar the loading screen draws (7l).
+	//
+	// Small, and worth checking anyway: the two properties here are ones a
+	// person watching a four-second boot would not reliably notice being
+	// wrong, and both were deliberate decisions rather than accidents of the
+	// implementation.
+	void CheckBootProgress()
+	{
+		Boot::Progress progress;
+
+		progress.BeginPhase("Opening", 0.0f, 0.2f);
+		progress.Advance(0.5f);
+		Check(std::abs(progress.Get().Fraction - 0.1f) < 0.001f,
+			  "a phase's progress maps into the slice of the bar it owns");
+
+		progress.SetDetail("scenes/demo.rage");
+		Check(progress.Get().Detail == "scenes/demo.rage" &&
+			  progress.Get().Phase == "Opening",
+			  "the phase and the current action are reported separately");
+
+		// Monotonic. A bar that goes backwards reads as a fault even when the
+		// number behind it is perfectly correct, and every source of that here
+		// is legitimate: a phase that turns out to be empty, an Advance called
+		// with a stale fraction, a later phase beginning at a lower mark.
+		progress.Advance(0.1f);
+		Check(std::abs(progress.Get().Fraction - 0.1f) < 0.001f,
+			  "advancing backwards inside a phase does not rewind the bar");
+
+		progress.BeginPhase("Loading", 0.05f, 0.9f);
+		Check(progress.Get().Fraction >= 0.1f - 0.001f,
+			  "and neither does a phase that starts behind where the bar is");
+
+		Check(progress.Get().Detail.empty(),
+			  "a new phase clears the action, rather than leaving the last one's");
+
+		// Cancellation is polled from the worker while the main thread owns
+		// the window, so it has to be readable without the lock the rest of
+		// this takes.
+		Check(!progress.Cancelled(), "a fresh boot is not cancelled");
+		progress.Cancel();
+		Check(progress.Cancelled(), "and a close during loading sets it");
+
+		Check(!progress.IsDone(), "cancelling is not finishing");
+		progress.Finish();
+		Check(progress.IsDone() && progress.Get().Fraction == 1.0f,
+			  "finishing fills the bar, so the last frame drawn is not a partial one");
+	}
+
+	// The import cache (7l).
+	//
+	// The claims worth testing are the ones that decide whether a *stale*
+	// asset can be served, because that is the failure this design could have
+	// and a slow load is not.
+	void CheckImportCache()
+	{
+		using Assets::ImportCache;
+		// An alias, not a using-declaration: CookPolicy is a namespace, and
+		// `using` refuses one.
+		namespace CookPolicy = Assets::CookPolicy;
+
+		const std::filesystem::path materials = Project::AssetRoot() / "materials";
+		const std::filesystem::path atlas = Project::AssetRoot() / "fonts" / "roboto.png";
+
+		Check(ImportCache::IsCookable(materials / "brick_color.png"),
+			  "a material map is cookable");
+		Check(!ImportCache::IsCookable(Project::AssetRoot() / "scenes" / "demo.rage"),
+			  "a scene is not -- there is no cooker for it");
+
+		// The guard that keeps a distance field out of a block compressor.
+		// Checked through both doors, because the whole point of having two
+		// is that either alone would have let the packaged build through.
+		Check(CookPolicy::IsFontAtlas("fonts/roboto.png"),
+			  "a font's atlas is recognised from the .rvfont that names it");
+		Check(!CookPolicy::IsFontAtlas("materials/brick_color.png"),
+			  "and an ordinary texture is not");
+		Check(!ImportCache::IsCookable(atlas),
+			  "so the atlas is never cooked, which would quantize its distances");
+
+		// A `.gltf` keeps its geometry in a sibling `.bin` that the cache's
+		// key does not cover, so it is excluded on purpose. Stated as a check
+		// because it looks like an oversight otherwise.
+		Check(!ImportCache::IsCookable(Project::AssetRoot() / "models" / "textured.gltf"),
+			  "a .gltf is excluded: its .bin is outside the hash the key uses");
+		Check(ImportCache::IsCookable(Project::AssetRoot() / "models" / "fox.glb"),
+			  "a .glb is not, because it carries its buffers inside the hashed file");
+
+		std::vector<uint8_t> bytes;
+		Check(ImportCache::Fetch(materials / "brick_color.png", bytes) &&
+			  IO::TextureCook::IsCooked(bytes.data(), bytes.size()),
+			  "fetching a texture answers cooked bytes");
+
+		Check(ImportCache::IsCached(materials / "brick_color.png"),
+			  "and leaves an entry behind for the next launch");
+
+		std::vector<uint8_t> again;
+		ImportCache::Fetch(materials / "brick_color.png", again);
+		Check(again == bytes, "which is byte-identical to what cooking produced");
+
+		// The same source bytes under two names.
+		//
+		// The encode is chosen from the *name* (7i), so a key built from
+		// content alone would hand one of these the other's encoding -- a
+		// normal map served BC1, or a colour map sampled back as two
+		// channels. Both render as something wrong that nothing reports, so
+		// the collision is worth an explicit check rather than a comment.
+		std::error_code error;
+		const std::filesystem::path source = materials / "parity_tilt_normal.png";
+		const std::filesystem::path colour = materials / "cachekeytest_color.png";
+		const std::filesystem::path normal = materials / "cachekeytest_normal.png";
+
+		if (std::filesystem::exists(source, error))
+		{
+			std::filesystem::copy_file(source, colour,
+				std::filesystem::copy_options::overwrite_existing, error);
+			std::filesystem::copy_file(source, normal,
+				std::filesystem::copy_options::overwrite_existing, error);
+			Assets::Registry::Refresh();
+
+			std::vector<uint8_t> asColour, asNormal;
+			const bool both = ImportCache::Fetch(colour, asColour) &&
+							  ImportCache::Fetch(normal, asNormal);
+
+			IO::CookedTexture c, n;
+			Check(both &&
+				  IO::TextureCook::Deserialize(c, asColour.data(), asColour.size()) &&
+				  IO::TextureCook::Deserialize(n, asNormal.data(), asNormal.size()) &&
+				  c.Format != n.Format,
+				  "identical bytes under two names get two cache entries, encoded by name");
+
+			// Removed before the registry rescan that follows, so the sample
+			// project is left exactly as it was found.
+			std::filesystem::remove(colour, error);
+			std::filesystem::remove(normal, error);
+			std::filesystem::remove(colour.string() + ".meta", error);
+			std::filesystem::remove(normal.string() + ".meta", error);
+			Assets::Registry::Refresh();
+		}
+	}
+
 	// The mesh cooker (7.2d). The claim is fidelity: a model that went
 	// through Serialize and Deserialize must be indistinguishable from the
 	// import it came from -- vertices, indices, skeleton, clips, everything
@@ -8641,6 +8782,8 @@ int RunTests(int argc, char** argv)
 	CheckCompressedTextures();
 	CheckTextureCook();
 	CheckMeshCook();
+	CheckBootProgress();
+	CheckImportCache();
 	CheckVfsAndPak();
 	CheckMaterialAssets();
 	CheckProbeSelection();

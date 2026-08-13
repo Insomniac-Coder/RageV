@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "AssetManager.h"
+#include "ImportCache.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Renderer/TextureLoader.h"
@@ -101,6 +102,278 @@ namespace RageV::Assets
 	{
 		ClearCache();
 		s_Device = nullptr;
+	}
+
+	namespace
+	{
+		// Why an asset was wanted, which decides how it is uploaded.
+		//
+		// The registry's AssetType is not enough on its own: a texture named
+		// by a material must be resolved *through* the material, so that each
+		// map gets the colour space its slot needs. Resolving one directly as
+		// a standalone texture would build an sRGB view of a normal map and
+		// cache it -- correct-looking, and twice the VRAM for a texture
+		// nothing samples.
+		enum class WantKind
+		{
+			Mesh,
+			Material,
+			StandaloneTexture,   // a UI image or a particle sprite: a picture
+			Font,
+			Curve,
+			Cubemap,
+			Nothing,             // audio streams; there is no upload to do
+		};
+
+		// One asset the scene refers to, and what it will cost.
+		struct Pending
+		{
+			AssetHandle Handle = AssetHandle::Invalid();
+			WantKind Kind = WantKind::Nothing;
+			std::filesystem::path Path;
+			uint64_t Bytes = 0;
+			std::string Label;
+		};
+
+		// What PrepareScene found, kept for UploadPrepared to walk. One boot
+		// loads one scene, so a single list with a cursor is the whole state
+		// this needs.
+		std::vector<Pending> s_Prepared;
+		size_t s_UploadCursor = 0;
+		uint64_t s_PreparedBytes = 0;
+		uint64_t s_UploadedBytes = 0;
+
+		// Adds a handle's source file once. Handles repeat constantly -- five
+		// entities sharing a material name the same four maps -- and cooking
+		// one twice is the exact waste this whole feature exists to remove.
+		void Want(AssetHandle handle, WantKind kind, std::vector<Pending>& out,
+				  std::unordered_set<AssetHandle>& seen)
+		{
+			if (!handle.IsValid() || !seen.insert(handle).second)
+				return;
+
+			const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+			if (path.empty())
+				return;   // a primitive or a virtual asset: nothing to read
+
+			Pending pending;
+			pending.Handle = handle;
+			pending.Kind = kind;
+			pending.Path = path;
+			pending.Label = Registry::GetMetadata(handle).Path;
+
+			// Size on disk is the weight. Wrong in detail -- a megabyte of
+			// glTF and a megabyte of PNG do not cost the same -- and right in
+			// shape, which is all a bar needs to be.
+			std::error_code error;
+			pending.Bytes = std::filesystem::exists(path, error)
+						  ? (uint64_t)std::filesystem::file_size(path, error) : 0;
+			if (error)
+				pending.Bytes = 0;
+
+			out.push_back(std::move(pending));
+		}
+
+		// A material's own file, plus every map it names. The `.rmat` is
+		// parsed here rather than resolved through GetMaterial because that
+		// one builds a GPU material, and this runs on the worker.
+		//
+		// The maps are added as WantKind::Nothing: they must be *cooked*, so
+		// they belong in the list the worker walks, but they must not be
+		// *uploaded* individually -- GetMaterial pulls each one with the
+		// colour space its slot needs, and that is the only correct way to.
+		void WantMaterial(AssetHandle handle, std::vector<Pending>& out,
+						  std::unordered_set<AssetHandle>& seen)
+		{
+			if (!handle.IsValid() || seen.count(handle))
+				return;
+
+			const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+			Want(handle, WantKind::Material, out, seen);
+			if (path.empty())
+				return;
+
+			MaterialDesc desc;
+			if (!MaterialSerializer::Load(desc, path))
+				return;
+
+			for (AssetHandle map : { desc.BaseColorMap, desc.NormalMap, desc.OcclusionMap,
+									 desc.EmissiveMap, desc.RoughnessMap, desc.MetallicMap,
+									 desc.SpecularMap, desc.HeightMap })
+			{
+				Want(map, WantKind::Nothing, out, seen);
+			}
+		}
+	}
+
+	void Manager::PrepareScene(Scene& scene, Boot::Progress& progress)
+	{
+		std::vector<Pending> pending;
+		std::unordered_set<AssetHandle> seen;
+
+		// Said out loud, because the gather is not instant: it opens every
+		// material in the scene to find the maps each one names. Without this
+		// the screen sits on a phase with a blank second line for as long as
+		// that takes, which reads as having stopped.
+		progress.SetDetail("Reading what the scene refers to");
+
+		auto& registry = scene.GetRegistry();
+
+		for (auto handle : registry.view<MeshComponent>())
+		{
+			const auto& mesh = registry.get<MeshComponent>(handle);
+			Want(mesh.Mesh, WantKind::Mesh, pending, seen);
+			WantMaterial(mesh.Material, pending, seen);
+		}
+
+		for (auto handle : registry.view<UIImageComponent>())
+		{
+			Want(registry.get<UIImageComponent>(handle).Texture,
+				 WantKind::StandaloneTexture, pending, seen);
+		}
+
+		for (auto handle : registry.view<ParticleEmitterComponent>())
+		{
+			const auto& emitter = registry.get<ParticleEmitterComponent>(handle);
+			Want(emitter.Texture, WantKind::StandaloneTexture, pending, seen);
+			Want(emitter.SizeCurve, WantKind::Curve, pending, seen);
+			Want(emitter.ColorGradient, WantKind::Curve, pending, seen);
+			Want(emitter.AlphaCurve, WantKind::Curve, pending, seen);
+		}
+
+		for (auto handle : registry.view<UITextComponent>())
+			Want(registry.get<UITextComponent>(handle).Font, WantKind::Font, pending, seen);
+
+		for (auto handle : registry.view<WorldTextComponent>())
+			Want(registry.get<WorldTextComponent>(handle).Font, WantKind::Font, pending, seen);
+
+		// Audio is streamed from disk over a sound's lifetime, so there is
+		// nothing to upload -- but it is listed anyway, because a clip still
+		// has to be found and a scene whose audio is missing should say so
+		// during loading rather than the first time something plays.
+		for (auto handle : registry.view<AudioSourceComponent>())
+			Want(registry.get<AudioSourceComponent>(handle).Clip, WantKind::Nothing, pending, seen);
+
+		// The sky. Not cookable today -- an `.hdr` still becomes cube faces
+		// and an irradiance convolution on every load -- but naming it here
+		// keeps it in the bar's denominator, so the phase does not appear to
+		// stall on work the bar is pretending does not exist. Uploading it
+		// during loading is what moves that convolution off the first frame.
+		Want(AssetHandle(scene.GetEnvironment().SkyTexture), WantKind::Cubemap, pending, seen);
+
+		uint64_t total = 0;
+		for (const Pending& item : pending)
+			total += item.Bytes;
+
+		// Handed over before the cooking loop, so that a cancelled boot still
+		// leaves UploadPrepared with a consistent (if unfinished) list rather
+		// than one from the previous scene.
+		s_Prepared = pending;
+		s_UploadCursor = 0;
+		s_PreparedBytes = total;
+		s_UploadedBytes = 0;
+
+		if (pending.empty())
+		{
+			progress.Advance(1.0f);
+			return;
+		}
+
+		// Weighted by bytes when the sizes are known, and by count when they
+		// are not -- a project served entirely from a pak has no file sizes
+		// to ask for, and an all-zero denominator would pin the bar at zero.
+		uint64_t done = 0;
+		size_t index = 0;
+
+		for (const Pending& item : pending)
+		{
+			if (progress.Cancelled())
+				return;
+
+			progress.SetDetail(item.Label);
+
+			// The one call that does the work: cooked bytes if the cache has
+			// them, and a decode plus a cook if not. The result is discarded
+			// -- what matters is that it is now on disk, so the main thread's
+			// upload is a read.
+			std::vector<uint8_t> bytes;
+			ImportCache::Fetch(item.Path, bytes);
+
+			done += item.Bytes;
+			index++;
+
+			progress.Advance(total > 0 ? (float)((double)done / (double)total)
+									   : (float)index / (float)pending.size());
+		}
+	}
+
+	bool Manager::UploadPrepared(Boot::Progress& progress, float budgetSeconds)
+	{
+		if (s_UploadCursor >= s_Prepared.size())
+		{
+			// Freed rather than left lying around: this is one entry per
+			// asset in the scene, and it has no reader after boot.
+			s_Prepared.clear();
+			s_Prepared.shrink_to_fit();
+			return false;
+		}
+
+		const auto started = std::chrono::steady_clock::now();
+
+		while (s_UploadCursor < s_Prepared.size())
+		{
+			const Pending& item = s_Prepared[s_UploadCursor];
+
+			progress.SetDetail(item.Label);
+
+			switch (item.Kind)
+			{
+			case WantKind::Mesh:
+				GetMesh(item.Handle);
+				break;
+			// Every map with the colour space its slot asks for, which is
+			// why the maps are not uploaded one by one.
+			case WantKind::Material:
+				GetMaterial(item.Handle);
+				break;
+			case WantKind::StandaloneTexture:
+				GetTexture(item.Handle, ColorSpace::Srgb);
+				break;
+			case WantKind::Font:
+				GetFont(item.Handle);
+				GetFontAtlas(item.Handle);
+				break;
+			case WantKind::Curve:
+				GetCurve(item.Handle);
+				GetBakedCurve(item.Handle);
+				break;
+			// The expensive one: six faces converted from a panorama, plus
+			// the irradiance convolution. Doing it here rather than on the
+			// first frame is most of what this step is worth.
+			case WantKind::Cubemap:
+				GetCubemap(item.Handle);
+				GetIrradiance(item.Handle);
+				break;
+			case WantKind::Nothing:
+				break;
+			}
+
+			s_UploadedBytes += item.Bytes;
+			s_UploadCursor++;
+
+			progress.Advance(s_PreparedBytes > 0
+				? (float)((double)s_UploadedBytes / (double)s_PreparedBytes)
+				: (float)s_UploadCursor / (float)s_Prepared.size());
+
+			// Checked after at least one asset, so a budget smaller than a
+			// single upload still makes progress instead of spinning.
+			const std::chrono::duration<float> spent =
+				std::chrono::steady_clock::now() - started;
+			if (spent.count() >= budgetSeconds)
+				break;
+		}
+
+		return s_UploadCursor < s_Prepared.size();
 	}
 
 	void Manager::ClearCache()

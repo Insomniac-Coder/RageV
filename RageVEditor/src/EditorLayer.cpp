@@ -120,6 +120,15 @@ void EditorLayer::OnAttach()
 	m_ContentBrowser.SetActivateCallback(
 		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
 
+	// The scene itself is opened in OnLoad, on the boot worker. Everything
+	// above needs the device and is cheap; parsing a scene and pulling in its
+	// assets is the opposite of both, and doing it here is what used to leave
+	// the window unpumped for seconds.
+}
+
+// On the boot worker. Files and CPU only -- see Layer::OnLoad.
+void EditorLayer::OnLoad(Boot::Progress& progress)
+{
 	// Open on the project's start scene -- the one the runtime will run.
 	//
 	// The editor used to build its own demo in code every time, which meant the
@@ -144,12 +153,42 @@ void EditorLayer::OnAttach()
 			? Project::AssetPath(Project::Config().StartScene)
 			: std::filesystem::path();
 
-	if (!requested.empty() && std::filesystem::exists(requested))
-		OpenSceneFile(requested);
-	else if (!start.empty() && std::filesystem::exists(start))
-		OpenSceneFile(start);
+	const std::filesystem::path scene =
+		!requested.empty() && std::filesystem::exists(requested) ? requested
+		: !start.empty() && std::filesystem::exists(start)       ? start
+																 : std::filesystem::path();
+
+	progress.BeginPhase("Opening scene", 0.0f, 0.15f);
+	if (!scene.empty())
+		progress.SetDetail(scene.filename().string());
+
+	if (!scene.empty())
+		OpenSceneFile(scene);
 	else
 		LoadDemoScene();
+
+	if (progress.Cancelled())
+		return;
+
+	// Decode and cook everything the scene names, so that the first frame
+	// after this has nothing left to fetch. The expensive half; it reports
+	// per-asset, which is what the bar's detail line shows.
+	progress.BeginPhase("Loading assets", 0.15f, 0.95f);
+	if (m_Scene)
+		Assets::Manager::PrepareScene(*m_Scene, progress);
+}
+
+// Main thread, one slice per loading-screen frame.
+bool EditorLayer::OnLoadStep(Boot::Progress& progress)
+{
+	progress.BeginPhase("Uploading assets", 0.95f, 1.0f);
+	return Assets::Manager::UploadPrepared(progress, 1.0f / 12.0f);
+}
+
+// Back on the main thread, after the uploads. Cheap finishing touches only.
+void EditorLayer::OnLoaded()
+{
+	const EngineConfig& config = EngineConfig::Get();
 
 	// --select names an entity to open with selected, so an inspector widget
 	// can be checked without somebody clicking the hierarchy first.

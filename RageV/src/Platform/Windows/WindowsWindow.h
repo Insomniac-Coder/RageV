@@ -12,6 +12,7 @@ namespace RageV
 		virtual ~WindowsWindow();
 
 		void OnUpdate() override;
+		void Show() override;
 
 		inline unsigned int GetWidth() const override { return m_Data.Width; }
 		inline unsigned int GetHeight() const override { return m_Data.Height; }

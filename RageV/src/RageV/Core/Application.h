@@ -51,7 +51,24 @@ namespace RageV {
 		static bool Exists();
 		ImGuiLayer* GetImGuiLayer() const { return m_ImGuiLayer; }
 		RHI::RHIDevice& GetDevice() { return *m_Device; }
+
+		// What the loading screen puts above its bar. The runtime overrides
+		// it with the game's name; the editor keeps the default.
+		virtual std::string GetLoadingTitle() const { return m_Name; }
+
 	private:
+		// Drives the layers' OnLoad on a worker while this thread pumps the
+		// window and draws the loading screen, then their OnLoaded here.
+		// Returns false when the window was closed during it, in which case
+		// no frame should be rendered at all.
+		bool RunBootPhase();
+
+		// One frame of loading screen: pump, render, present. Deliberately a
+		// whole frame through the same path an ordinary one takes, rather
+		// than a special case -- a bespoke present path during boot is a
+		// second renderer to keep working on two backends.
+		void DrawLoadingFrame(const Boot::Status& status);
+
 		std::unique_ptr<Window> m_Window;
 		// Declared after the window: the device is built from it and must be
 		// destroyed before it.

@@ -12,10 +12,12 @@
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "Timestep.h"
+#include "RageV/ImGui/LoadingScreen.h"
 #include "Platform/Windows/WindowsPlatform.h"
 
 #include <stb_write_image.h>
 #include <filesystem>
+#include <thread>
 
 namespace RageV {
 
@@ -36,8 +38,19 @@ namespace RageV {
 
 		const EngineConfig& config = EngineConfig::Get();
 
-		m_Window = std::unique_ptr<Window>(Window::Create(
-			WindowProps(appname, config.WindowWidth, config.WindowHeight)));
+		// Created hidden, and shown in Run() once the renderer can put a
+		// loading screen in it.
+		//
+		// Everything below -- device, shaders, every pipeline -- is over a
+		// second, and nothing pumps a message loop during it. A window that
+		// exists through that is a white rectangle the compositor greys out
+		// and labels "Not Responding", which is the startup complaint this
+		// whole path exists to answer. No window at all for that second is
+		// simply a program starting.
+		WindowProps props(appname, config.WindowWidth, config.WindowHeight);
+		props.Visible = false;
+
+		m_Window = std::unique_ptr<Window>(Window::Create(props));
 		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
 
 		RHI::DeviceDesc deviceDesc;
@@ -254,9 +267,157 @@ namespace RageV {
 		return true;
 	}
 
+	// One frame whose only content is the loading screen.
+	//
+	// Through BeginFrame/EndFrame like any other, rather than a private
+	// present path: a second way to get a picture onto the swapchain is a
+	// second thing to keep working on two backends, and this one would only
+	// ever be exercised for the couple of seconds nobody is looking closely.
+	void Application::DrawLoadingFrame(const Boot::Status& status)
+	{
+		if (m_Minimised)
+			return;
+
+		RHI::RHICommandList* cmd = m_Device->BeginFrame();
+		if (!cmd)
+			return;
+
+		Renderer::BeginFrame(cmd);
+
+		m_ImGuiLayer->Begin();
+		LoadingScreen::Draw(GetLoadingTitle(), status);
+		m_ImGuiLayer->End();
+
+		Renderer::EndFrame();
+		m_Device->EndFrame();
+	}
+
+	bool Application::RunBootPhase()
+	{
+		Boot::Progress progress;
+		const double started = GetTime();
+
+		// The window appears here: the first thing drawn in it is the bar.
+		m_Window->Show();
+
+		std::thread worker([this, &progress]()
+		{
+			for (Layer* layer : m_LayerStack)
+			{
+				if (progress.Cancelled())
+					break;
+
+				layer->OnLoad(progress);
+			}
+
+			progress.Finish();
+		});
+
+		uint32_t bootFrame = 0;
+		bool captured = false;
+		std::string loadingShot = EngineConfig::Get().LoadingScreenshotPath;
+
+		while (!progress.IsDone() && m_Running)
+		{
+			m_Window->OnUpdate();
+
+			// Counted here, unconditionally, and not inside the capture test
+			// below -- where it started, behind a `--loading-screenshot`
+			// short-circuit that made every ordinary run report zero frames
+			// and look exactly like a boot loop that never spun.
+			bootFrame++;
+
+			const Boot::Status status = progress.Get();
+
+			// Captured on the first frame that has something on every line.
+			//
+			// Not simply "frame 2": ImGui has no display size until it has
+			// drawn once, and the frames right after that land in the gap
+			// where a phase has begun and named nothing yet -- so a fixed
+			// frame number reliably photographed a screen with its detail
+			// line empty, which is the half most worth checking. Frame 2 is
+			// the fallback for a project that loads no assets at all, so the
+			// flag always produces a file.
+			if (!loadingShot.empty() && !captured && bootFrame >= 2 &&
+				(!status.Detail.empty() || bootFrame > 8))
+			{
+				captured = true;
+				const std::string path = std::move(loadingShot);
+				m_Device->RequestCapture([path](const uint8_t* rgba, uint32_t w, uint32_t h)
+				{
+					WriteScreenshot(path, rgba, w, h);
+				});
+			}
+
+			DrawLoadingFrame(status);
+		}
+
+		// A close during loading. Told to stop, then waited for: the worker
+		// holds references to members that are about to be destroyed, so
+		// there is no version of this that skips the join.
+		if (!m_Running)
+			progress.Cancel();
+
+		worker.join();
+
+		if (!m_Running)
+		{
+			RV_CORE_INFO("Loading cancelled after {0:.2f}s", GetTime() - started);
+			return false;
+		}
+
+		// The second half, on this thread, where the device may be touched.
+		// Still inside the loading screen: the bar keeps moving and the
+		// window keeps pumping while the uploads happen.
+		//
+		// A twelfth of a second per slice. Long enough that the frames
+		// between slices are not most of the cost, short enough that the
+		// window still answers -- and the *reason* it is a budget rather
+		// than an asset count is that assets differ by a factor of sixty.
+		constexpr float kUploadBudgetSeconds = 1.0f / 12.0f;
+
+		for (bool more = true; more && m_Running; )
+		{
+			more = false;
+			for (Layer* layer : m_LayerStack)
+				more |= layer->OnLoadStep(progress);
+
+			m_Window->OnUpdate();
+			bootFrame++;
+			DrawLoadingFrame(progress.Get());
+		}
+
+		if (!m_Running)
+			return false;
+
+		for (Layer* layer : m_LayerStack)
+			layer->OnLoaded();
+
+		// The frame count is the point, not decoration. "Loading took four
+		// seconds" says nothing about whether the window was usable during
+		// them; "four seconds, 243 frames" says the message loop ran
+		// throughout, which is the entire difference between this and the
+		// frozen white rectangle it replaced. A boot reporting single-digit
+		// frames means something is blocking the main thread again.
+		RV_CORE_INFO("Loaded in {0:.2f}s ({1} frames drawn while loading)",
+					 GetTime() - started, bootFrame);
+
+		return m_Running;
+	}
+
 	void Application::Run() {
 
 		m_FixedStep.Timestep = 1.0f / (float)GetFixedHz();
+
+		// Before the first frame and before the clock starts: loading is not
+		// a frame that took four seconds, and letting it become one would
+		// hand the fixed step four seconds of accumulated time to spend in
+		// one burst of physics.
+		if (!RunBootPhase())
+			return;
+
+		m_LastTime = (float)GetTime();
+		m_FixedStep.Reset();
 
 		const EngineConfig& config = EngineConfig::Get();
 		uint64_t frameNumber = 0;

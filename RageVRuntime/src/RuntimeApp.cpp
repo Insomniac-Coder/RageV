@@ -32,13 +32,21 @@ public:
 	RageVRuntime()
 		: Application(ResolveTitle())
 	{
-		auto* layer = new RuntimeLayer();
-		PushLayer(layer);
+		PushLayer(new RuntimeLayer());
 
-		// PushLayer runs OnAttach, so by here the layer knows whether it found
-		// anything to run.
-		if (!layer->IsReady())
-			Close();
+		// Whether there is anything to run is no longer knowable here: the
+		// scene is opened on the boot worker, after this constructor returns.
+		// RuntimeLayer::OnLoaded closes the application when it found nothing,
+		// which is the first moment the answer exists.
+	}
+
+	// The game's name, not the window title's -- they are the same string
+	// here, but the loading screen is asking what is loading rather than what
+	// the title bar says, and a packaged game may want those to differ.
+	std::string GetLoadingTitle() const override
+	{
+		return RageV::Project::GetActive() ? RageV::Project::Config().Name
+										   : std::string("RageV");
 	}
 };
 

@@ -40,6 +40,19 @@ void RageV::WindowsWindow::OnUpdate()
 	glfwPollEvents();
 }
 
+void RageV::WindowsWindow::Show()
+{
+	if (!m_Window)
+		return;
+
+	// Focus as well as visibility. A window that appears behind whatever the
+	// developer was reading, after a second of nothing, reads as a launch
+	// that failed -- and they alt-tab away before the loading screen it was
+	// about to draw ever gets looked at.
+	glfwShowWindow(m_Window);
+	glfwFocusWindow(m_Window);
+}
+
 void RageV::WindowsWindow::SetVsync(bool enabled)
 {
 	// Swap interval is a GL-context concept; on Vulkan the present mode is a

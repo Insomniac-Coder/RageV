@@ -1767,6 +1767,36 @@ against a 2.0/255 bound. The lesson is the one §7i already recorded and
 this rediscovered: *a difference measured without a control is not a
 measurement.*
 
+### The boot loop, measured
+
+| | wall | frames drawn while loading |
+|---|---|---|
+| editor, first open (cooking) | 17.2 s | **1037** |
+| editor, every open after | 0.95 s | 25 |
+| runtime | 0.82 s | 20 |
+
+**The frame count is the result, not the seconds.** Cooking a project
+for the first time still takes seventeen seconds; what changed is that
+1037 frames were drawn during them, so the window pumped throughout,
+the bar moved, and the whole thing could be cancelled by closing it.
+Every boot logs both numbers for that reason -- a boot reporting
+single-digit frames means something has gone back to blocking the main
+thread, and that is the regression worth catching.
+
+Warm boot went 0.29 s to 0.95 s when the uploads moved *into* the loop,
+and total wall 2.78 s to 3.07 s. That is not a regression: the 0.29 s
+version was followed by a frozen second while the first frame pulled in
+every texture. The extra 0.3 s is the vsync'd frames between upload
+slices -- the price of the window being alive, paid deliberately.
+
+`--loading-screenshot=<file>` captures a boot frame, because a screen
+that is gone before the first ordinary frame can never be caught by
+`--screenshot`, and a screen nothing can capture cannot be checked on
+two backends. It fires on the first frame that has *something on every
+line*: a fixed frame number reliably photographed the gap between a
+phase beginning and its first asset being named, which is to say it
+photographed the half worth checking as blank.
+
 ### The bug the guard found on the way past
 
 The packager cooked **every** `.png` it could decode, and a font's MSDF
