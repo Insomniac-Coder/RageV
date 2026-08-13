@@ -87,6 +87,21 @@ namespace RageV
 		// body refers to entities that are about to be replaced.
 		void OnRuntimeStop();
 
+		// Freezes a running scene without leaving play mode.
+		//
+		// Stopping the fixed step is not enough, and the editor's pause used to
+		// do only that: the physics blend runs on the *frame*, and the
+		// interpolation alpha keeps moving while the two states it blends are
+		// frozen -- so a body paused mid-fall was re-blended to a different
+		// point along its last step every frame, which reads as jittering in
+		// place. Paused therefore also holds everything the frame advances:
+		// the physics blend, the animators, the frame scripts and the
+		// particles. World transforms still derive and audio positions still
+		// follow, so a paused scene can be inspected and edited and what is on
+		// screen stays truthful.
+		void SetPaused(bool paused) { m_Paused = paused; }
+		bool IsPaused() const { return m_Paused; }
+
 		// Null outside play mode.
 		// The managed half of the fixed-step script pass, and its teardown.
 		void StepManagedScripts(Timestep dt);
@@ -257,6 +272,9 @@ namespace RageV
 	private:
 		entt::registry m_Registry;
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
+		// See SetPaused. Runtime state, deliberately not serialized: a saved
+		// scene is not "a scene somebody had paused".
+		bool m_Paused = false;
 		// True while probe faces are being rendered. A probe capture draws the
 		// scene, and the scene reflects a probe -- without this the second
 		// probe in a scene would capture the first one's reflection of it, and

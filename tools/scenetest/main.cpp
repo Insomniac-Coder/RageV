@@ -7408,6 +7408,66 @@ void main()
 			  "stopping puts everything physics moved back exactly");
 	}
 
+	// Pausing has to hold the frame, not just the fixed step. The physics
+	// blend runs on the *frame*, with an interpolation alpha that keeps
+	// moving while paused -- so a pause that only stopped the stepping
+	// re-blended the two frozen simulation states at a different point every
+	// frame, and a body paused mid-fall jittered along its last step. The
+	// observable contract: a paused frame does not rewrite simulated
+	// transforms, a paused fixed pass does not advance bodies, and resuming
+	// does both again.
+	void CheckPauseHoldsTheScene()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		Entity ground = scene->CreateEntity("Ground");
+		ground.GetComponent<TransformComponent>().Position = { 0.0f, -1.0f, 0.0f };
+		ground.AddComponent<RigidBodyComponent>(BodyType::Static);
+		ground.AddComponent<ColliderComponent>().HalfExtents = { 25.0f, 1.0f, 25.0f };
+
+		Entity box = scene->CreateEntity("Box");
+		box.GetComponent<TransformComponent>().Position = { 0.0f, 6.0f, 0.0f };
+		box.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+		box.AddComponent<ColliderComponent>();
+
+		scene->OnRuntimeStart();
+		Check(!scene->IsPaused(), "a fresh run starts unpaused");
+
+		// Mid-fall, so the two states the frame blends are a real step apart.
+		for (int i = 0; i < 10; i++)
+			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		scene->OnUpdateRuntime(1.0f / 60.0f);
+
+		const Vec3 atPause = box.GetComponent<TransformComponent>().Position;
+		Check(atPause.y < 6.0f, "the box was falling when the pause hit");
+
+		scene->SetPaused(true);
+
+		// The discriminating observable for the jitter: the sentinel survives
+		// only if the paused frame stops re-syncing simulated transforms.
+		box.GetComponent<TransformComponent>().Position = { 42.0f, 42.0f, 42.0f };
+		scene->OnUpdateRuntime(1.0f / 60.0f);
+		Check(box.GetComponent<TransformComponent>().Position.x == 42.0f,
+			  "a paused frame does not rewrite simulated transforms");
+
+		// However many times the accumulator fires it.
+		for (int i = 0; i < 30; i++)
+			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+
+		scene->SetPaused(false);
+		scene->OnUpdateRuntime(1.0f / 60.0f);
+		Check(std::fabs(box.GetComponent<TransformComponent>().Position.y - atPause.y) < 1e-4f,
+			  "half a second of paused fixed steps moved nothing");
+
+		for (int i = 0; i < 10; i++)
+			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		scene->OnUpdateRuntime(1.0f / 60.0f);
+		Check(box.GetComponent<TransformComponent>().Position.y < atPause.y - 0.01f,
+			  "resuming lets the box keep falling");
+
+		scene->OnRuntimeStop();
+	}
+
 	void CheckInputMap()
 	{
 		InputMap::ClearBindings();
@@ -7744,6 +7804,7 @@ int RunTests(int argc, char** argv)
 	CheckContactCallbacks();
 	CheckTriggerCallbacks();
 	CheckPhysicsRestoresOnStop();
+	CheckPauseHoldsTheScene();
 	CheckPlayModeRestore();
 
 	// --- audio ---------------------------------------------------------------

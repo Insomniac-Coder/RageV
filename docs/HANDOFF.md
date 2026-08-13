@@ -503,6 +503,17 @@ audio: listener and source positions
 particles, CPU then GPU
 ```
 
+**Pause holds the frame, not just the fixed step** (`Scene::SetPaused`). The
+physics blend runs on the *frame*, and the interpolation alpha keeps moving
+while the two states it blends are frozen — so a pause that only stopped the
+stepping re-blended a falling body to a different point along its last step
+every frame, which reads as jittering in place. Paused, `OnUpdateRuntime`
+derives world transforms and pushes audio positions and advances nothing:
+no physics blend, no animators, no `OnFrame` scripts, no particles.
+`OnFixedUpdateRuntime` guards itself too, so a game's own pause menu gets the
+same behaviour through `SetPaused` without its layer having to know.
+`OnRuntimeStart` clears the flag — a fresh run is never paused.
+
 Audio is deliberately not in the fixed list. Listener and source positions are
 pushed on the **frame**, after physics transforms have been interpolated — audio
 is presentation, and belongs where rendering is for the same reason. `OnFrame`

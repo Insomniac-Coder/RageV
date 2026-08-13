@@ -458,6 +458,9 @@ namespace RageV
 
 	void Scene::OnRuntimeStart()
 	{
+		// A fresh run is never paused, whatever state the last one ended in.
+		m_Paused = false;
+
 		m_Physics = std::make_unique<Physics::World>();
 		m_Physics->Build(*this);
 
@@ -489,6 +492,23 @@ namespace RageV
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		// A paused frame derives and places, but advances nothing.
+		//
+		// Skipping the physics blend is the part that matters most: the
+		// interpolation alpha keeps moving while the two states it blends are
+		// frozen, so re-blending every frame walks a falling body up and down
+		// its last step -- jitter, in place, on a scene that claims to be
+		// paused. The animators, frame scripts and particles hold for the same
+		// reason the fixed step does: paused means the scene stays as it was
+		// mid-run. The world transforms still derive so an inspector edit is
+		// visible, and audio positions still follow the entities they sit on.
+		if (m_Paused)
+		{
+			UpdateWorldTransforms();
+			UpdateAudio();
+			return;
+		}
+
 		// On the frame rather than the fixed step, for the same reason the
 		// audio positions are: an animation is presentation, and pinning it to
 		// the simulation rate would make it stutter at any other frame rate.
@@ -712,6 +732,12 @@ namespace RageV
 
 	void Scene::OnFixedUpdateRuntime(Timestep dt)
 	{
+		// Guarded here as well as at the callers, so pausing works for anyone
+		// holding a Scene -- a game's own pause menu reaches it through
+		// SetPaused without every layer having to know.
+		if (m_Paused)
+			return;
+
 		// Bodies for anything that gained a rigid body after Build -- a spawned
 		// prefab, an entity a script assembled. Before the script pass, so a
 		// spawned thing's OnCreate can already push its body around; its

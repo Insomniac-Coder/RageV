@@ -717,6 +717,12 @@ void EditorLayer::OnScenePause(bool paused)
 		return;
 
 	m_SceneState = paused ? SceneState::Paused : SceneState::Play;
+
+	// The scene holds the pause, not just this layer: the frame pass is what
+	// re-blends physics transforms, and it has to know to hold them -- gating
+	// the fixed step alone left paused bodies jittering along their last step.
+	if (m_Scene)
+		m_Scene->SetPaused(paused);
 }
 
 void EditorLayer::OnImGuiRender()
