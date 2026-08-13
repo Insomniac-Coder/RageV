@@ -226,6 +226,18 @@ namespace RageV
 		bool OverrideOcclusion = false;
 		float Occlusion = 1.0f;
 
+		// How strongly the material's normal map bends the surface normal. 1 is
+		// the map as authored, 0 ignores it, and above 1 exaggerates.
+		//
+		// Free like the rest: NormalScale already travels in the instance
+		// stream as Surface.w, because the shader has always read it from
+		// there. Worth having per entity rather than only per material, since
+		// the right strength depends on how close the object gets to the camera
+		// -- the same brick at arm's length and across a courtyard want
+		// different relief from one shared material.
+		bool OverrideNormalScale = false;
+		float NormalScale = 1.0f;
+
 		MeshComponent() = default;
 		MeshComponent(const MeshComponent&) = default;
 		MeshComponent(PrimitiveType primitive) : Mesh(PrimitiveHandle(primitive)) {}
@@ -244,6 +256,7 @@ namespace RageV
 			if (OverrideMetallic)  params.Metallic = Metallic;
 			if (OverrideRoughness) params.Roughness = Roughness;
 			if (OverrideOcclusion) params.Occlusion = Occlusion;
+			if (OverrideNormalScale) params.NormalScale = NormalScale;
 			return params;
 		}
 	};

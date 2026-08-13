@@ -105,8 +105,13 @@ namespace RageV::Assets
 
 				if (out.BaseColorTexture >= 0)
 					out.Params.MapFlags |= MaterialMap_BaseColor;
+
+				// No flag for the packed texture: there is no packed slot to
+				// flag any more. AssetManager::InstantiateModel splits it into
+				// a roughness map and a metallic map, and the flags are set
+				// there, when the two halves have handles and are real assets.
 				if (out.MetallicRoughnessTexture >= 0)
-					out.Params.MapFlags |= MaterialMap_MetallicRoughness;
+					out.Params.MapFlags |= MaterialMap_Roughness | MaterialMap_Metallic;
 			}
 
 			out.Params.EmissiveColor = { source.emissive_factor[0], source.emissive_factor[1],

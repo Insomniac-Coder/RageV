@@ -1,0 +1,13 @@
+{
+ "name": "brick",
+ "maps": {
+  "color": "brick_color.png",
+  "normal": "brick_normal.png",
+  "ao": "brick_ao.png",
+  "roughness": "brick_roughness.png"
+ },
+ "tiling": [
+  2.0,
+  2.0
+ ]
+}

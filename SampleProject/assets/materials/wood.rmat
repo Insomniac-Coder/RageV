@@ -1,0 +1,16 @@
+Material: wood
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 1
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 14198779968724515366
+  Normal: 16879633271845014029
+  Occlusion: 8976412717691383086
+  Roughness: 12212188532531239971
+  Metallic: 4591858211679180346

@@ -1,0 +1,13 @@
+{
+ "name": "rusted_steel",
+ "maps": {
+  "color": "rusted_steel_color.png",
+  "normal": "rusted_steel_normal.png",
+  "roughness": "rusted_steel_roughness.png",
+  "metallic": "rusted_steel_metallic.png"
+ },
+ "tiling": [
+  1.0,
+  1.0
+ ]
+}

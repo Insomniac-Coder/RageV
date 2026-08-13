@@ -4276,7 +4276,10 @@ void main()
 		Check(Assets::MaterialSerializer::Load(desc, path), "which parses as a material");
 
 		Check(desc.BaseColorMap.IsValid(), "carrying the base colour map");
-		Check(desc.MetallicRoughnessMap.IsValid(), "the metallic-roughness map");
+		// Split at import: glTF packs these into one texture and the shader
+		// takes them separately, so the importer writes two greyscale PNGs.
+		Check(desc.RoughnessMap.IsValid(), "a roughness map split out of the packed one");
+		Check(desc.MetallicMap.IsValid(), "and a metallic map");
 		Check(desc.NormalMap.IsValid(), "and the normal map");
 
 		// And *not* the two the model does not have.
@@ -4312,7 +4315,8 @@ void main()
 			const int32_t flags = resolved->GetParams().MapFlags;
 			Check((flags & MaterialMap_BaseColor) != 0, "with the base colour flag set");
 			Check((flags & MaterialMap_Normal) != 0, "the normal flag");
-			Check((flags & MaterialMap_MetallicRoughness) != 0, "and the metallic-roughness flag");
+			Check((flags & MaterialMap_Roughness) != 0, "the roughness flag");
+			Check((flags & MaterialMap_Metallic) != 0, "and the metallic flag");
 		}
 
 		// Two entities on one material handle get the *same* object, which is

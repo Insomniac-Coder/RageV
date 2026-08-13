@@ -16,7 +16,6 @@ const float PI = 3.14159265359;
 
 const int MAP_BASE_COLOR         = 1 << 0;
 const int MAP_NORMAL             = 1 << 1;
-const int MAP_METALLIC_ROUGHNESS = 1 << 2;
 const int MAP_OCCLUSION          = 1 << 3;
 const int MAP_EMISSIVE           = 1 << 4;
 // Must match MaterialMap in Material.h. Separate roughness and metallic, which
@@ -138,7 +137,10 @@ layout(set = 1, binding = 0) uniform MaterialData
 
 layout(set = 1, binding = 1) uniform sampler2D u_BaseColorMap;
 layout(set = 1, binding = 2) uniform sampler2D u_NormalMap;
-layout(set = 1, binding = 3) uniform sampler2D u_MetallicRoughnessMap;
+// Binding 3 held the packed metallic-roughness map. glTF was the only source
+// of one and the importer splits it now, so nothing writes this -- the slot
+// stays declared because the descriptor set layout is built from the shader.
+layout(set = 1, binding = 3) uniform sampler2D u_Unused3;
 layout(set = 1, binding = 4) uniform sampler2D u_OcclusionMap;
 layout(set = 1, binding = 5) uniform sampler2D u_EmissiveMap;
 // Separate greyscale roughness and metallic, read from red. Every texture
@@ -459,22 +461,13 @@ void main()
 
 	float metallic  = v_Surface.x;
 	float roughness = v_Surface.y;
-	if (HasMap(MAP_METALLIC_ROUGHNESS))
-	{
-		// glTF packing: roughness in green, metallic in blue.
-		vec3 mr = texture(u_MetallicRoughnessMap, uv).rgb;
-		roughness *= mr.g;
-		metallic  *= mr.b;
-	}
-
-	// A separate map *replaces* the packed one's channel rather than
-	// compounding with it. Both can be assigned -- nothing forbids it -- and
-	// multiplying would darken a surface for no reason a person could see,
-	// which is the kind of wrongness that gets blamed on the lighting.
+	// Separate greyscale maps, read from red. glTF packs these two into one
+	// texture; the importer splits it, so by the time a material exists there
+	// is no packed form left to handle.
 	if (HasMap(MAP_ROUGHNESS))
-		roughness = v_Surface.y * texture(u_RoughnessMap, uv).r;
+		roughness *= texture(u_RoughnessMap, uv).r;
 	if (HasMap(MAP_METALLIC))
-		metallic = v_Surface.x * texture(u_MetallicMap, uv).r;
+		metallic *= texture(u_MetallicMap, uv).r;
 
 	roughness = clamp(roughness, 0.045, 1.0);   // fully smooth aliases badly
 	metallic  = clamp(metallic, 0.0, 1.0);

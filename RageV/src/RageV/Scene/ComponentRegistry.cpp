@@ -244,6 +244,11 @@ namespace
 			return static_cast<const MeshComponent*>(component)->OverrideOcclusion;
 		}
 
+		bool OverridesNormalScale(const void* component)
+		{
+			return static_cast<const MeshComponent*>(component)->OverrideNormalScale;
+		}
+
 		bool IsPerspective(const void* component)
 		{
 			return static_cast<const CameraComponent*>(component)->Camera.Projection
@@ -403,6 +408,18 @@ namespace
 						"How much ambient light reaches the surface. Lower is more shadowed." })),
 				Field<&MeshComponent::Occlusion>("Occlusion",
 					OnlyWhen(OverridesOcclusion, Named("Value", Slider(0.0f, 1.0f)))),
+
+				// Up to 4, not 1: the useful direction for this one is usually
+				// *more*. A tiling material authored for a wall reads flat on
+				// something the camera gets close to, and exaggerating is the
+				// fix. 0 turns the map off without unassigning it, which is how
+				// you find out whether it was the normal map all along.
+				Field<&MeshComponent::OverrideNormalScale>("OverrideNormalScale",
+					Named("Normal Scale", FieldHint{ .Tooltip =
+						"How strongly the material's normal map bends the surface. 1 is the "
+						"map as authored, 0 ignores it, above 1 exaggerates the relief." })),
+				Field<&MeshComponent::NormalScale>("NormalScale",
+					OnlyWhen(OverridesNormalScale, Named("Value", Slider(0.0f, 4.0f)))),
 			};
 
 			desc.DeserializeExtra = [](const YAML::Node& node, void* component)

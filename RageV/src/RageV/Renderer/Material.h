@@ -72,8 +72,6 @@ namespace RageV
 	{
 		MaterialMap_BaseColor         = 1 << 0,
 		MaterialMap_Normal            = 1 << 1,
-		// glTF's packing: roughness in green, metallic in blue, one texture.
-		MaterialMap_MetallicRoughness = 1 << 2,
 		MaterialMap_Occlusion         = 1 << 3,
 		MaterialMap_Emissive          = 1 << 4,
 
@@ -84,10 +82,10 @@ namespace RageV
 		// processing step standing between the engine and its own asset
 		// pipeline.
 		//
-		// A separate map *replaces* the packed one's channel rather than
-		// multiplying with it; see the shader. Both forms exist because glTF
-		// genuinely carries the packed one and splitting it at import would
-		// mean decoding and rewriting somebody's textures.
+		// glTF is the exception: it packs the two into one texture. Rather
+		// than carry a second path through the material, the descriptor set
+		// and the shader for one file format, the importer splits it once and
+		// writes the halves as real assets.
 		MaterialMap_Roughness         = 1 << 5,
 		MaterialMap_Metallic          = 1 << 6,
 
@@ -107,12 +105,10 @@ namespace RageV
 		// Passing nullptr clears the map and reverts to the scalar parameter.
 		void SetBaseColorMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetNormalMap(const RHI::Ref<RHI::RHITexture>& texture);
-		void SetMetallicRoughnessMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetOcclusionMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetEmissiveMap(const RHI::Ref<RHI::RHITexture>& texture);
 
-		// Separate greyscale maps, read from the red channel. Either one
-		// overrides the packed metallic-roughness map's corresponding channel.
+		// Separate greyscale maps, read from the red channel.
 		void SetRoughnessMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetMetallicMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetSpecularMap(const RHI::Ref<RHI::RHITexture>& texture);
@@ -154,7 +150,6 @@ namespace RageV
 
 		RHI::Ref<RHI::RHITexture> m_BaseColor;
 		RHI::Ref<RHI::RHITexture> m_Normal;
-		RHI::Ref<RHI::RHITexture> m_MetallicRoughness;
 		RHI::Ref<RHI::RHITexture> m_Occlusion;
 		RHI::Ref<RHI::RHITexture> m_Emissive;
 		RHI::Ref<RHI::RHITexture> m_Roughness;

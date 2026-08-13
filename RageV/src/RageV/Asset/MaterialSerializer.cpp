@@ -73,7 +73,6 @@ namespace RageV::Assets
 		// branches on, so the file would win and the surface would sample a
 		// texture nobody assigned.
 		const bool anyMap = material.BaseColorMap.IsValid() || material.NormalMap.IsValid() ||
-							material.MetallicRoughnessMap.IsValid() ||
 							material.OcclusionMap.IsValid() || material.EmissiveMap.IsValid() ||
 							material.RoughnessMap.IsValid() || material.MetallicMap.IsValid() ||
 							material.SpecularMap.IsValid();
@@ -83,7 +82,6 @@ namespace RageV::Assets
 			emitter << YAML::Key << "Maps" << YAML::Value << YAML::BeginMap;
 			EmitMap(emitter, "BaseColor", material.BaseColorMap);
 			EmitMap(emitter, "Normal", material.NormalMap);
-			EmitMap(emitter, "MetallicRoughness", material.MetallicRoughnessMap);
 			EmitMap(emitter, "Occlusion", material.OcclusionMap);
 			EmitMap(emitter, "Emissive", material.EmissiveMap);
 			EmitMap(emitter, "Roughness", material.RoughnessMap);
@@ -161,7 +159,6 @@ namespace RageV::Assets
 		{
 			material.BaseColorMap = ReadMap(maps["BaseColor"]);
 			material.NormalMap = ReadMap(maps["Normal"]);
-			material.MetallicRoughnessMap = ReadMap(maps["MetallicRoughness"]);
 			material.OcclusionMap = ReadMap(maps["Occlusion"]);
 			material.EmissiveMap = ReadMap(maps["Emissive"]);
 			material.RoughnessMap = ReadMap(maps["Roughness"]);

@@ -37,12 +37,7 @@ Entities:
       Scale: [20, 1, 20]
     MeshComponent:
       Mesh: 8241982477996916738
-      Material:
-        BaseColor: [0.14, 0.14, 0.16, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.85
-        Occlusion: 1
+      Material: 14207891531362159016
     RigidBodyComponent:
       Type: Static
       Mass: 1
@@ -68,12 +63,7 @@ Entities:
       Scale: [1.5, 1.5, 1.5]
     MeshComponent:
       Mesh: 8241982477996916736
-      Material:
-        BaseColor: [0.85, 0.17, 0.19, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.35
-        Occlusion: 1
+      Material: 14917157809614686117
     NativeScriptComponent:
       Script: Spinner
   - EntityID: 13871191845555187975
@@ -116,12 +106,7 @@ Entities:
       Scale: [1.4, 1.4, 1.4]
     MeshComponent:
       Mesh: 8241982477996916739
-      Material:
-        BaseColor: [0.9, 0.91, 0.92, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 1
-        Roughness: 0.45
-        Occlusion: 1
+      Material: 13764788492376090398
   - EntityID: 14105287064397593774
     TagComponent:
       Tag: Sphere (smooth)
@@ -181,12 +166,7 @@ Entities:
       Scale: [1.2, 0.6, 1.2]
     MeshComponent:
       Mesh: 8241982477996916739
-      Material:
-        BaseColor: [0.22, 0.23, 0.26, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.7
-        Occlusion: 1
+      Material: 3187420511756770187
   - EntityID: 12080736543617860364
     RelationshipComponent:
       Parent: 6370971351885114703
@@ -198,12 +178,7 @@ Entities:
       Scale: [0.55, 0.55, 0.55]
     MeshComponent:
       Mesh: 8241982477996916736
-      Material:
-        BaseColor: [0.85, 0.17, 0.19, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.25
-        Occlusion: 1
+      Material: 3187420511756770187
   - EntityID: 7777000000000000030
     RelationshipComponent:
       Parent: 6370971351885114703

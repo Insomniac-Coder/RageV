@@ -1,0 +1,13 @@
+{
+ "name": "soil",
+ "maps": {
+  "color": "soil_color.png",
+  "normal": "soil_normal.png",
+  "ao": "soil_ao.png",
+  "roughness": "soil_roughness.png"
+ },
+ "tiling": [
+  6.0,
+  6.0
+ ]
+}

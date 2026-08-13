@@ -80,12 +80,6 @@ namespace RageV
 		Invalidate();
 	}
 
-	void Material::SetMetallicRoughnessMap(const Ref<RHITexture>& texture)
-	{
-		AssignMap(m_MetallicRoughness, texture, m_Params.MapFlags, MaterialMap_MetallicRoughness);
-		Invalidate();
-	}
-
 	void Material::SetOcclusionMap(const Ref<RHITexture>& texture)
 	{
 		AssignMap(m_Occlusion, texture, m_Params.MapFlags, MaterialMap_Occlusion);
@@ -157,7 +151,11 @@ namespace RageV
 			// shader will not read it, so absent maps bind a neutral 1x1.
 			resourceSet->SetTexture(1, m_BaseColor         ? m_BaseColor         : TextureLoader::White(m_Device),      m_Sampler);
 			resourceSet->SetTexture(2, m_Normal            ? m_Normal            : TextureLoader::FlatNormal(m_Device), m_Sampler);
-			resourceSet->SetTexture(3, m_MetallicRoughness ? m_MetallicRoughness : TextureLoader::White(m_Device),      m_Sampler);
+			// Binding 3 was the packed metallic-roughness map. glTF is the only
+			// thing that produced one and the import splits it now, so nothing
+			// fills this -- but the shader still declares the slot, and an
+			// unwritten binding is a validation error rather than an unused one.
+			resourceSet->SetTexture(3, TextureLoader::White(m_Device), m_Sampler);
 			resourceSet->SetTexture(4, m_Occlusion         ? m_Occlusion         : TextureLoader::White(m_Device),      m_Sampler);
 			resourceSet->SetTexture(5, m_Emissive          ? m_Emissive          : TextureLoader::Black(m_Device),      m_Sampler);
 			// White stands in for both: unset means "use the scalar", and the
@@ -191,7 +189,6 @@ namespace RageV
 
 		mix(m_BaseColor.get());
 		mix(m_Normal.get());
-		mix(m_MetallicRoughness.get());
 		mix(m_Occlusion.get());
 		mix(m_Emissive.get());
 		mix(m_Roughness.get());

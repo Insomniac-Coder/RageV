@@ -10,6 +10,10 @@
 #include "RageV/Scene/SceneSerializer.h"
 #include "CurveSerializer.h"
 #include "FontSerializer.h"
+// The import splits glTF's packed metallic-roughness texture into the two
+// greyscale maps the shader samples, which means reading a PNG and writing two.
+#include "stb_image.h"
+#include "stb_write_image.h"
 #include <fstream>
 #include <sstream>
 
@@ -287,7 +291,6 @@ namespace RageV::Assets
 
 		assign(desc.BaseColorMap, &Material::SetBaseColorMap);
 		assign(desc.NormalMap, &Material::SetNormalMap);
-		assign(desc.MetallicRoughnessMap, &Material::SetMetallicRoughnessMap);
 		assign(desc.OcclusionMap, &Material::SetOcclusionMap);
 		assign(desc.EmissiveMap, &Material::SetEmissiveMap);
 		assign(desc.RoughnessMap, &Material::SetRoughnessMap);
@@ -655,6 +658,73 @@ namespace RageV::Assets
 			}
 		}
 
+		// glTF's packed metallic-roughness texture, split into the two greyscale
+		// maps the engine actually samples.
+		//
+		// The shader takes roughness and metallic separately, because that is
+		// how every texture library ships them. glTF is the exception: it packs
+		// roughness into green and metallic into blue of one image. Rather than
+		// carry a second code path through the material, the descriptor set and
+		// the shader for the sake of one file format, the import splits it once.
+		//
+		// Written to disk rather than split in memory, and that is not
+		// incidental: a material stores *handles*, and a texture that exists
+		// only in memory has none -- so an in-memory split would render
+		// correctly and vanish on save, which is the exact bug this whole task
+		// was about.
+		auto splitMetallicRoughness = [&](int textureIndex,
+										  AssetHandle& roughnessOut, AssetHandle& metallicOut)
+		{
+			if (textureIndex < 0 || textureIndex >= (int)model.Textures.size())
+				return;
+
+			const std::filesystem::path packed = directory / model.Textures[textureIndex].Path;
+
+			int width = 0, height = 0, channels = 0;
+			stbi_uc* pixels = stbi_load(packed.string().c_str(), &width, &height, &channels, 4);
+			if (!pixels)
+			{
+				RV_CORE_WARN("Could not read '{0}' to split its metallic-roughness channels",
+							 packed.string());
+				return;
+			}
+
+			std::vector<stbi_uc> roughness((size_t)width * height);
+			std::vector<stbi_uc> metallic((size_t)width * height);
+			for (size_t i = 0; i < roughness.size(); i++)
+			{
+				roughness[i] = pixels[i * 4 + 1];   // green
+				metallic[i]  = pixels[i * 4 + 2];   // blue
+			}
+			stbi_image_free(pixels);
+
+			const std::filesystem::path stem = packed.parent_path() / packed.stem();
+
+			auto write = [&](const char* suffix, const std::vector<stbi_uc>& channel,
+							 AssetHandle& out)
+			{
+				const std::filesystem::path path = stem.string() + suffix + ".png";
+				if (stbi_write_png(path.string().c_str(), width, height, 1,
+								   channel.data(), width) == 0)
+				{
+					RV_CORE_WARN("Could not write '{0}'", path.string());
+					return;
+				}
+
+				std::error_code error;
+				const std::filesystem::path relative =
+					std::filesystem::relative(path, Registry::Root(), error);
+				if (error || relative.empty())
+					return;
+
+				Registry::Refresh();
+				out = Registry::GetHandle(relative.generic_string());
+			};
+
+			write("_roughness", roughness, roughnessOut);
+			write("_metallic", metallic, metallicOut);
+		};
+
 		// Each imported material becomes a real `.rmat` beside the model.
 		//
 		// This is the part that makes an import survive being saved. The maps
@@ -679,9 +749,12 @@ namespace RageV::Assets
 
 			assign(source.BaseColorTexture, desc.BaseColorMap);
 			assign(source.NormalTexture, desc.NormalMap);
-			assign(source.MetallicRoughnessTexture, desc.MetallicRoughnessMap);
 			assign(source.OcclusionTexture, desc.OcclusionMap);
 			assign(source.EmissiveTexture, desc.EmissiveMap);
+
+			// Not assigned -- split. See above.
+			splitMetallicRoughness(source.MetallicRoughnessTexture,
+								   desc.RoughnessMap, desc.MetallicMap);
 
 			// Named after the model and the material's index, not just its
 			// name: a glTF may carry two materials called "Material", and two

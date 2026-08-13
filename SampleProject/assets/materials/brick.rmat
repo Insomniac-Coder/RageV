@@ -1,0 +1,15 @@
+Material: brick
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+Tiling: [2, 2]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 7438492114307428870
+  Normal: 12840404347396698971
+  Occlusion: 8583970790350809561
+  Roughness: 666037232956166156

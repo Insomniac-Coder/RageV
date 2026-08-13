@@ -40,13 +40,12 @@ namespace RageV::Assets
 		// new".
 		AssetHandle BaseColorMap = AssetHandle::Invalid();
 		AssetHandle NormalMap = AssetHandle::Invalid();
-		AssetHandle MetallicRoughnessMap = AssetHandle::Invalid();
 		AssetHandle OcclusionMap = AssetHandle::Invalid();
 		AssetHandle EmissiveMap = AssetHandle::Invalid();
 
 		// Separate greyscale roughness and metallic, and dielectric
-		// reflectance. What a downloaded material actually ships; the packed
-		// MetallicRoughnessMap above is the glTF form.
+		// reflectance. glTF packs the first two into one texture; the importer
+		// splits it, so nothing downstream of an import sees a packed map.
 		AssetHandle RoughnessMap = AssetHandle::Invalid();
 		AssetHandle MetallicMap = AssetHandle::Invalid();
 		AssetHandle SpecularMap = AssetHandle::Invalid();
