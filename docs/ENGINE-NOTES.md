@@ -1341,12 +1341,18 @@ A cooked texture is never `GenerateMips`ed at load. sRGB stays a
 upload as UNORM or SRGB depending on which slot asks -- so the cooker
 does not need to know what a texture is for.
 
-**The encode is chosen from content and one honest name convention:**
-`*_normal*` cooks to BC5 (xy only; every pipeline in this repository
-names normal maps that way); a map whose pixels are grey and opaque
-cooks to BC4 (the shader already reads roughness, metallic, occlusion
-and height from `.r`); alpha that varies cooks to BC3; everything else
-BC1. The encoder is the vendored `stb_dxt`, in the same spirit as
+**The encode is chosen by name convention, and only alpha by content:**
+`*_normal*` cooks to BC5 (xy only); the data-map suffixes --
+`_roughness`, `_metallic`, `_ao`, `_occlusion`, `_height`,
+`_displacement` -- cook to BC4 from red (the shader already reads all
+of them from `.r`); alpha that varies cooks to BC3; everything else
+BC1. **Content alone cannot pick BC4, and the first draft of this
+design had that wrong**: "grey and opaque" describes a smoke sprite as
+well as a roughness map, and a grey sprite cooked BC4 samples back
+pure red. The suffixes are how every pipeline in this repository --
+the fetchers, the applier, the glTF splitter -- already names its
+maps, so the convention was already load-bearing before cooking leaned
+on it. The encoder is the vendored `stb_dxt`, in the same spirit as
 `stb_image`.
 
 **BC5 forces one shader decision, made globally rather than per
@@ -1378,10 +1384,26 @@ cooking cube faces plus irradiance is its own feature.
 **Verification:** the raw pak keeps the pixel-identical E2E from 7.1
 unchanged. The cooked pak is lossy by design, so its acceptance is a
 *bounded* diff against loose -- the bound stated from measurement, not
-hope -- plus the closeup ablation numbers surviving on both backends,
-plus the load-time before/after that motivated the feature. Unit
-checks: rvtex and rvmesh round trips, the BC4 greyscale detection, mip
+hope -- plus the load-time before/after that motivated the feature.
+Unit checks: rvtex and rvmesh round trips, the encode selection, mip
 chain sizes, and renormalized normal mips.
+
+**Built, measured (2026-08-13, Release, SampleProject with the 4K
+set).** The cooked mesh path is *exact*: textured.rage renders 0
+differing subpixels cooked-vs-loose on both backends, because the
+.rvmesh geometry is bit-identical to a fresh import and the fixture's
+block-flat textures are BC-representable exactly. The 4K materials
+land at **mean 0.89/255 (max 77)** against loose -- under the 1.28/255
+cross-backend residual that already exists on this scene, so the BC
+quantization is smaller than the noise the two backends disagree by;
+cooked VK-vs-GL parity is 1.22/255, unchanged from loose. The
+material_closeup run drops **3.7s to 2.0s** wall (whole run, engine
+init included -- the entire decode share). Disk barely moves (181 vs
+200 MB pak; PNG was already entropy-coded) because disk was never the
+point: the VRAM arithmetic is 32 bits per texel RGBA8 against 4 for
+BC1/BC4 and 8 for BC3/BC5 -- the closeup's ten 4K maps go from ~0.9 GB
+resident to ~0.15. Packaging the 198 MB project cooks in ~16s. The
+Vulkan validation layer stays silent with every cooked format bound.
 
 ---
 

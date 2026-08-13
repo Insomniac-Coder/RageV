@@ -41,8 +41,18 @@ namespace RageV
 		// A debugging affordance: a loose build is one where a single file can
 		// be swapped to test a fix without repacking. The default is the
 		// archive, because the archive is what players get and the thing that
-		// ships should be the thing that was tested.
+		// ships should be the thing that was tested. Loose content is always
+		// raw -- source files are what loose means.
 		bool LooseContent = false;
+
+		// Pack source bytes instead of cooking them (7.2). The default cooks:
+		// textures become .rvtex (pre-decoded, pre-mipped, block-compressed)
+		// and models become .rvmesh, each under the path and name the source
+		// had, so nothing that references them can tell. Raw exists for
+		// debugging a cook-shaped problem -- a raw pak renders
+		// pixel-identically to a loose folder, a cooked one is lossy by
+		// design and bounded by measurement.
+		bool RawContent = false;
 	};
 
 	struct PackageResult

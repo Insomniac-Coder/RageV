@@ -6903,6 +6903,15 @@ void main()
 			SceneSerializer serializer(scene);
 			serializer.Serialize((Project::AssetRoot() / "scenes" / "main.rage").string());
 		}
+
+		// A real PNG, so the cook step has something to cook. The engine icon
+		// beside this executable is one; what it depicts does not matter.
+		std::filesystem::create_directories(Project::AssetRoot() / "textures", error);
+		std::filesystem::copy_file("assets/icon-32.png",
+								   Project::AssetRoot() / "textures" / "crate_color.png",
+								   std::filesystem::copy_options::overwrite_existing, error);
+		Check(!error, "the fixture texture copied in");
+
 		Assets::Registry::Refresh();
 
 		// Stand-ins for the runtime and the engine's own assets. Packaging is
@@ -6983,6 +6992,34 @@ void main()
 				  "holding the scene at the path the mount will answer");
 			Check(pak.Contains("scenes/main.rage.meta"),
 				  "and the .meta sidecars, because they are the asset identity");
+
+			// Cooking is the default, and it is a content transform: the entry
+			// keeps the source's path and name, only the bytes change.
+			std::vector<uint8_t> entry;
+			Check(pak.ReadBytes("textures/crate_color.png", entry) &&
+				  IO::TextureCook::IsCooked(entry.data(), entry.size()),
+				  "the texture cooked into the pak under its own name");
+
+			IO::CookedTexture cooked;
+			Check(IO::TextureCook::Deserialize(cooked, entry.data(), entry.size()) &&
+				  cooked.Width == 32 && cooked.Mips.size() == 6,
+				  "with its dimensions and a full chain");
+		}
+
+		// --raw is the escape hatch: source bytes, byte for byte.
+		{
+			PackageDesc raw = desc;
+			raw.OutputDirectory = output.parent_path() / "packaged-raw";
+			raw.RawContent = true;
+			Check(PackageProject(raw).Success, "a raw build packages on request");
+
+			IO::PakReader pak;
+			std::vector<uint8_t> entry;
+			Check(pak.Open(raw.OutputDirectory / "content.pak") &&
+				  pak.ReadBytes("textures/crate_color.png", entry) &&
+				  entry.size() >= 4 && std::memcmp(entry.data(), "\x89PNG", 4) == 0,
+				  "and its texture is still a PNG");
+			std::filesystem::remove_all(raw.OutputDirectory, error);
 		}
 
 		// The escape hatch: a loose build is one where a single file can be

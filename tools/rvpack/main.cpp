@@ -36,7 +36,9 @@ namespace
 			"  --engine-assets=<dir>\n"
 			"                     shaders and fonts; taken from beside the runtime otherwise\n"
 			"  --loose            ship content/ as a folder instead of content.pak,\n"
-			"                     so single files can be swapped while debugging\n";
+			"                     so single files can be swapped while debugging\n"
+			"  --raw              pack source bytes without cooking them; a raw pak\n"
+			"                     renders pixel-identically to a loose folder\n";
 	}
 }
 
@@ -65,6 +67,10 @@ int main(int argc, char** argv)
 		else if (argument == "--loose")
 		{
 			desc.LooseContent = true;
+		}
+		else if (argument == "--raw")
+		{
+			desc.RawContent = true;
 		}
 		else if (argument == "--allow-dead-bindings")
 		{

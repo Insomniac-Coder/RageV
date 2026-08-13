@@ -2,9 +2,13 @@
 #include "ProjectPackager.h"
 #include "Project.h"
 #include "ModuleBuild.h"
+#include "RageV/Asset/GltfImporter.h"
+#include "RageV/Asset/MeshCook.h"
 #include "RageV/Core/Log.h"
 #include "RageV/IO/PakFile.h"
+#include "RageV/IO/TextureCook.h"
 #include "RageV/IO/VFS.h"
+#include "stb_image.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/UI/Interaction.h"
@@ -169,6 +173,57 @@ namespace RageV
 
 			std::ofstream stream(file);
 			stream << out.c_str();
+		}
+
+		// The cook step (7.2): source bytes in, load-ready bytes out, same
+		// path either way. Textures decode once here instead of on every
+		// boot, and come back with a full mip chain, block-compressed; models
+		// come back as the import, serialized. Anything that fails to cook
+		// ships raw with a warning -- a shipped game that loads slowly beats
+		// one missing an asset.
+		std::vector<uint8_t> CookForPak(const std::string& relative,
+										std::vector<uint8_t> bytes,
+										PackageResult& result)
+		{
+			const fs::path path(relative);
+			const std::string extension = path.extension().string();
+
+			if (extension == ".png" || extension == ".jpg" || extension == ".jpeg")
+			{
+				int width = 0, height = 0, channels = 0;
+				stbi_uc* pixels = stbi_load_from_memory(bytes.data(), (int)bytes.size(),
+														&width, &height, &channels, 4);
+				if (!pixels)
+				{
+					result.Warnings.push_back(relative + " would not decode; shipped raw");
+					return bytes;
+				}
+
+				const IO::CookedTexture cooked =
+					IO::TextureCook::Cook(pixels, (uint32_t)width, (uint32_t)height, relative);
+				stbi_image_free(pixels);
+
+				return IO::TextureCook::Serialize(cooked);
+			}
+
+			if (extension == ".gltf" || extension == ".glb")
+			{
+				Assets::ImportedModel model;
+				if (!Assets::GltfImporter::Import(Project::AssetRoot() / relative, model))
+				{
+					result.Warnings.push_back(relative + " would not import; shipped raw");
+					return bytes;
+				}
+
+				return Assets::MeshCook::Serialize(model);
+			}
+
+			// Everything else -- scenes, materials, sidecars, audio, .hdr
+			// skies -- ships as-is. The .bin a .gltf references ships too:
+			// a model that fell back raw still needs it, and a few kilobytes
+			// of buffer is not worth a bookkeeping pass that could drop the
+			// wrong one.
+			return bytes;
 		}
 
 		void WriteConfigFile(const fs::path& file)
@@ -380,8 +435,16 @@ namespace RageV
 				// may itself be running from a pak, and the enumeration just
 				// promised these paths resolve.
 				std::vector<uint8_t> bytes;
-				if (!IO::VFS::ReadBytes(Project::AssetRoot() / relative, bytes) ||
-					!writer.AddBytes(relative, std::move(bytes)))
+				if (!IO::VFS::ReadBytes(Project::AssetRoot() / relative, bytes))
+				{
+					result.Errors.push_back("could not pack " + relative);
+					return result;
+				}
+
+				if (!desc.RawContent)
+					bytes = CookForPak(relative, std::move(bytes), result);
+
+				if (!writer.AddBytes(relative, std::move(bytes)))
 				{
 					result.Errors.push_back("could not pack " + relative);
 					return result;

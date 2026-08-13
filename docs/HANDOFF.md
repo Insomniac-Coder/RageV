@@ -1409,10 +1409,26 @@ layer, grep for the existence checks, not just the reads: a missed read
 fails loudly, a missed existence check quietly picks the fallback. Design
 and full writeup: ENGINE-NOTES 7h.
 
-**START HERE: the rest of phase 7** -- asset cooking (7.2, the pak's other
-hat: decode images and parse glTF at build time), billboard icons (7.4),
-animation blending (7.5), skinned bounds (7.6), front-to-back opaque sorting
-(7.8, measure before building), SMAA (7.9), TAA (7.10).
+**Done: 7.2, asset cooking (2026-08-13).** A content transform inside the
+pak build: textures become `.rvtex` (pre-decoded, pre-mipped,
+block-compressed via the vendored stb_dxt) and models become `.rvmesh` (the
+import, serialized), each under the source's own path, with loaders sniffing
+the magic -- so nothing that references them can tell, and a development run
+never sees anything but source files. The RHI grew BC1/BC3/BC4/BC5 and
+`UploadMip`; `PerturbNormal` reconstructs Z unconditionally so PNG and BC5
+normals share one path. Measured on the 4K set (Release): material_closeup
+drops 3.7s to 2.0s wall, VRAM arithmetic goes ~0.9 GB to ~0.15, the visual
+delta is mean 0.89/255 -- under the cross-backend residual that already
+exists -- and the cooked *mesh* path is pixel-exact. `rvpack --raw` ships
+source bytes; `--loose` still ships the folder. One design correction made
+out loud: content alone cannot pick BC4 -- "grey and opaque" describes a
+smoke sprite as well as a roughness map -- so the encode keys on the
+data-map name suffixes every pipeline here already uses. Design and numbers:
+ENGINE-NOTES 7i.
+
+**START HERE: the rest of phase 7** -- billboard icons (7.4), animation
+blending (7.5), skinned bounds (7.6), front-to-back opaque sorting (7.8,
+measure before building), SMAA (7.9), TAA (7.10).
 
 The user's 4K Poly Haven materials are committed at full resolution (their
 call, 2026-08-13; ~198 MB -- forest_ground_06 as soil, bamboo_wall_02 as
