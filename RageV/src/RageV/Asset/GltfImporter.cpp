@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "GltfImporter.h"
+#include "MeshCook.h"
 #include "RageV/Core/Log.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Math/Math.h"
@@ -544,6 +545,23 @@ namespace RageV::Assets
 	bool GltfImporter::Import(const std::filesystem::path& path, ImportedModel& out)
 	{
 		const std::string filename = path.string();
+
+		// A cooked mesh, if that is what the pak holds under this name. One
+		// sniff here covers every caller -- meshes, skeletons and clips all
+		// arrive through this function -- and a development run never sees
+		// anything but source glTF.
+		{
+			std::vector<uint8_t> bytes;
+			if (IO::VFS::ReadBytes(path, bytes) &&
+				MeshCook::IsCooked(bytes.data(), bytes.size()))
+			{
+				if (MeshCook::Deserialize(out, bytes.data(), bytes.size()))
+					return true;
+
+				RV_CORE_ERROR("Cooked mesh '{0}' will not parse", filename);
+				return false;
+			}
+		}
 
 		cgltf_options options = {};
 		options.file.read = VfsFileRead;

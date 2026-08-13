@@ -32,6 +32,7 @@
 #include "RageV/Core/InputMap.h"
 #include "RageV/IO/PakFile.h"
 #include "RageV/IO/TextureCook.h"
+#include "RageV/Asset/MeshCook.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Core/KeyCodes.h"
 #include "RageV/Scene/ScriptRegistry.h"
@@ -4404,6 +4405,86 @@ void main()
 		}
 	}
 
+	// The mesh cooker (7.2d). The claim is fidelity: a model that went
+	// through Serialize and Deserialize must be indistinguishable from the
+	// import it came from -- vertices, indices, skeleton, clips, everything
+	// InstantiateModel and the animator read. The skinned fixture is used
+	// because it exercises every optional block at once.
+	void CheckMeshCook()
+	{
+		using Assets::GltfImporter;
+		using Assets::ImportedModel;
+		using Assets::MeshCook;
+
+		// The skinned fixture, because it exercises every optional block --
+		// skeleton, clips, joints, weights -- and a round trip that only
+		// proved static geometry would be silent about all of them.
+		ImportedModel model;
+		if (!GltfImporter::Import(Project::AssetPath("models/limb.gltf"), model))
+			return;
+		Check(model.HasSkeleton() && !model.Clips.empty(),
+			  "the fixture carries a skeleton and clips, or this check proves less than it says");
+
+		const std::vector<uint8_t> bytes = MeshCook::Serialize(model);
+		Check(MeshCook::IsCooked(bytes.data(), bytes.size()), "cooked mesh bytes say so");
+		Check(!MeshCook::IsCooked((const uint8_t*)"glTF", 4), "a GLB's magic does not");
+
+		ImportedModel back;
+		Check(MeshCook::Deserialize(back, bytes.data(), bytes.size()),
+			  "the cooked mesh parses back");
+
+		Check(back.Name == model.Name &&
+			  back.Primitives.size() == model.Primitives.size() &&
+			  back.Materials.size() == model.Materials.size() &&
+			  back.Nodes.size() == model.Nodes.size(),
+			  "with the same shape the import had");
+
+		bool geometryIdentical = !back.Primitives.empty();
+		for (size_t i = 0; i < back.Primitives.size() && geometryIdentical; i++)
+		{
+			const auto& a = model.Primitives[i];
+			const auto& b = back.Primitives[i];
+			geometryIdentical =
+				a.Name == b.Name && a.Material == b.Material &&
+				a.Indices == b.Indices &&
+				a.Vertices.size() == b.Vertices.size() &&
+				std::memcmp(a.Vertices.data(), b.Vertices.data(),
+							a.Vertices.size() * sizeof(MeshVertex)) == 0 &&
+				a.Joints == b.Joints;
+			// Weights compare bitwise through the vector's own operator==,
+			// which is exact for copied floats.
+		}
+		Check(geometryIdentical, "every primitive's geometry is bit-identical");
+
+		Check(back.Skeleton.Bones.size() == model.Skeleton.Bones.size() &&
+			  back.Clips.size() == model.Clips.size(),
+			  "the skeleton and its clips came through");
+
+		if (!model.Skeleton.Bones.empty())
+		{
+			const auto& a = model.Skeleton.Bones[0];
+			const auto& b = back.Skeleton.Bones[0];
+			Check(a.Name == b.Name && a.Parent == b.Parent &&
+				  std::memcmp(&a.InverseBind, &b.InverseBind, sizeof(Mat4)) == 0,
+				  "a bone survives with its inverse bind exact");
+		}
+
+		if (!model.Clips.empty() && !model.Clips[0].Tracks.empty())
+		{
+			const auto& a = model.Clips[0];
+			const auto& b = back.Clips[0];
+			Check(a.Name == b.Name && a.Duration == b.Duration &&
+				  a.Tracks.size() == b.Tracks.size() &&
+				  a.Tracks[0].Rotation.Times == b.Tracks[0].Rotation.Times,
+				  "a clip survives with its keyframes exact");
+		}
+
+		// Truncation answers false, never a partial model.
+		ImportedModel truncated;
+		Check(!MeshCook::Deserialize(truncated, bytes.data(), bytes.size() / 2),
+			  "a truncated cooked mesh is refused");
+	}
+
 	// The pak and the VFS (7.1). Design: ENGINE-NOTES 7h.
 	//
 	// The property that matters is shadowing: the VFS answers the same paths
@@ -8116,6 +8197,7 @@ int RunTests(int argc, char** argv)
 	CheckMaterialOverrides();
 	CheckCompressedTextures();
 	CheckTextureCook();
+	CheckMeshCook();
 	CheckVfsAndPak();
 	CheckMaterialAssets();
 	CheckProbeSelection();
