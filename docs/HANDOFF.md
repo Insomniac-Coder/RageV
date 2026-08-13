@@ -1387,11 +1387,11 @@ Full writeup: ENGINE-NOTES 7g.
 blending (7.5), skinned bounds (7.6), front-to-back opaque sorting (7.8,
 measure before building), SMAA (7.9), TAA (7.10).
 
-Also pending from 2026-08-13, needing the user's decisions: 198 MB of the
-user's 4K Poly Haven materials sit uncommitted in `SampleProject/assets/
-materials` (commit / downsample to 2K / gitignore), and `demo.rage`'s
-uncommitted state has the sun removed and the HDR sky per their experiment --
-the committed demo still has sun + gradient.
+The user's 4K Poly Haven materials are committed at full resolution (their
+call, 2026-08-13; ~198 MB -- forest_ground_06 as soil, bamboo_wall_02 as
+wood, metal_plate_02 as rusted steel, brick still ambientCG). Still pending
+their decision: `demo.rage`'s uncommitted state has the sun removed and the
+HDR sky per their experiment -- the committed demo still has sun + gradient.
 
 ---
 

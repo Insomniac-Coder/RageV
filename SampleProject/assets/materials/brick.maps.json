@@ -4,10 +4,12 @@
   "color": "brick_color.png",
   "normal": "brick_normal.png",
   "ao": "brick_ao.png",
-  "roughness": "brick_roughness.png"
+  "roughness": "brick_roughness.png",
+  "height": "brick_height.png"
  },
  "tiling": [
   1.5,
   1.5
- ]
+ ],
+ "height_scale": 0.04
 }

@@ -3,11 +3,12 @@
  "maps": {
   "color": "soil_color.png",
   "normal": "soil_normal.png",
-  "ao": "soil_ao.png",
-  "roughness": "soil_roughness.png"
+  "roughness": "soil_roughness.png",
+  "height": "soil_height.png"
  },
  "tiling": [
-  5.0,
-  5.0
- ]
+  6,
+  6
+ ],
+ "height_scale": 0.05
 }

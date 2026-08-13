@@ -4,10 +4,12 @@
   "color": "rusted_steel_color.png",
   "normal": "rusted_steel_normal.png",
   "roughness": "rusted_steel_roughness.png",
-  "metallic": "rusted_steel_metallic.png"
+  "metallic": "rusted_steel_metallic.png",
+  "height": "rusted_steel_height.png"
  },
  "tiling": [
-  1.0,
-  1.0
- ]
+  1,
+  1
+ ],
+ "height_scale": 0.02
 }

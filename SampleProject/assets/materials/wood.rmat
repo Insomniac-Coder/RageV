@@ -6,10 +6,11 @@ Roughness: 1
 Occlusion: 1
 NormalScale: 1
 Specular: 0.5
+HeightScale: 0.02
 Tiling: [1, 1]
 UvOffset: [0, 0]
 Maps:
-  BaseColor: 2990531784391989863
-  Normal: 4580741710320491268
-  Occlusion: 15873017903981818616
-  Roughness: 13321081200972659680
+  BaseColor: 10613873159764570968
+  Normal: 8374394024450062275
+  Roughness: 14722946847724631757
+  Height: 3600103724061119284

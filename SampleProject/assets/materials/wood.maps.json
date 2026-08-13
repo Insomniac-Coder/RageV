@@ -3,11 +3,12 @@
  "maps": {
   "color": "wood_color.png",
   "normal": "wood_normal.png",
-  "ao": "wood_ao.png",
-  "roughness": "wood_roughness.png"
+  "roughness": "wood_roughness.png",
+  "height": "wood_height.png"
  },
  "tiling": [
-  1.0,
-  1.0
- ]
+  1,
+  1
+ ],
+ "height_scale": 0.02
 }
