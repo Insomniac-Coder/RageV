@@ -1426,9 +1426,30 @@ smoke sprite as well as a roughness map -- so the encode keys on the
 data-map name suffixes every pipeline here already uses. Design and numbers:
 ENGINE-NOTES 7i.
 
-**START HERE: the rest of phase 7** -- billboard icons (7.4), animation
-blending (7.5), skinned bounds (7.6), front-to-back opaque sorting (7.8,
-measure before building), SMAA (7.9), TAA (7.10).
+**Done: 7.4, viewport gizmo icons (2026-08-13).** Lights, cameras, probes and
+audio sources have no mesh and no collider, so `PickEntity` could not see
+them and the hierarchy panel was the only way to select one. They now carry a
+billboarded mark, drawn through `UIRenderer`'s existing world layer -- no new
+pipeline, and editor-only the way the grid is, by being a pointer
+`OnRenderRuntime` has nowhere to pass. The drawer and the picker share one
+`EditorIcons::Collect` and one `EditorIcons::Radius`, so a mark's hit area
+cannot drift from where it is drawn; constant *angular* size is what makes
+that sharing possible, because the picker can size the mark from the ray's
+origin alone. Marks compete with geometry by distance, so a wall in front of
+a light wins -- which is what the depth-tested picture already says. Nine
+scenetest checks, including the negative one that names the defect: without
+the marks, a light cannot be clicked at all.
+
+Also fixed in passing: the toolbar's ground-grid mark, reported twice as
+"uneven". The geometry was symmetric all along -- the outline went through
+ImGui's polyline rasterizer and the interior through its line rasterizer, and
+those resolve about axes half a pixel apart. Measured against its own mirror:
+9.4/255 mean before, 0.7 after. Two rounds were spent redrawing correct
+geometry before measuring it; ENGINE-NOTES §7j has the lesson.
+
+**START HERE: the rest of phase 7** -- animation blending (7.5), skinned
+bounds (7.6), front-to-back opaque sorting (7.8, measure before building),
+SMAA (7.9), TAA (7.10). 7.5 and 7.6 pair naturally as one animation session.
 
 The user's 4K Poly Haven materials are committed at full resolution (their
 call, 2026-08-13; ~198 MB -- forest_ground_06 as soil, bamboo_wall_02 as

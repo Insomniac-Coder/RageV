@@ -68,6 +68,7 @@
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Scene/ScenePicking.h"
+#include "RageV/Renderer/EditorIcons.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
@@ -7111,6 +7112,107 @@ void main()
 	// eye: a flipped y axis is only visible off the centre line, a missing
 	// inverse only when something is rotated, and an ignored scale only when
 	// something is not unit-sized.
+	// Viewport gizmo icons (7.4). The claim the feature exists to make is a
+	// negative one turned positive: an entity with no mesh and no collider
+	// could not be clicked at all, and now can be -- so the check has to show
+	// both halves, or it is only testing that a sphere test works.
+	void CheckEditorIcons()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		// A light: no mesh, no collider, nothing for the old picker to find.
+		Entity light = scene->CreateEntity("Key Light");
+		light.AddComponent<LightComponent>();
+		light.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 0.0f };
+
+		// A camera, to prove the kinds are distinguished, placed off to one
+		// side so the two marks never overlap.
+		Entity camera = scene->CreateEntity("Watcher");
+		camera.AddComponent<CameraComponent>();
+		camera.GetComponent<TransformComponent>().Position = { 4.0f, 0.0f, 0.0f };
+
+		// An entity carrying two of the kinds: one mark, the first that
+		// matches, so a click is never ambiguous about which it meant.
+		Entity both = scene->CreateEntity("Light with a speaker on it");
+		both.AddComponent<LightComponent>();
+		both.AddComponent<AudioSourceComponent>();
+		both.GetComponent<TransformComponent>().Position = { -4.0f, 0.0f, 0.0f };
+
+		scene->UpdateWorldTransforms();
+
+		const std::vector<EditorIcon> icons = EditorIcons::Collect(*scene);
+		Check(icons.size() == 3, "every geometry-less entity gets a mark, and only one");
+
+		const auto kindOf = [&](UUID id)
+		{
+			for (const EditorIcon& icon : icons)
+				if (icon.Entity == id)
+					return icon.Kind;
+			return EditorIconKind::Count;
+		};
+
+		Check(kindOf(light.GetUUID()) == EditorIconKind::Light &&
+			  kindOf(camera.GetUUID()) == EditorIconKind::Camera,
+			  "and the mark says which kind it is");
+		Check(kindOf(both.GetUUID()) == EditorIconKind::Light,
+			  "an entity with two kinds takes the first, not one of each");
+
+		// Constant angular size: twice as far away is twice as large in world
+		// units, which is what keeps it the same size on screen.
+		// `near` and `far` would be the obvious names and are both macros in
+		// the Windows headers -- the same trap RayIntersectsBox documents.
+		const Vec3 eye{ 0.0f, 0.0f, 10.0f };
+		const float atTen = EditorIcons::Radius({ 0.0f, 0.0f, 0.0f }, eye);
+		const float atTwenty = EditorIcons::Radius({ 0.0f, 0.0f, -10.0f }, eye);
+		Check(std::fabs(atTwenty - atTen * 2.0f) < 1e-4f,
+			  "a mark's world radius grows with distance, so its screen size does not");
+
+		// --- the point of the feature ------------------------------------------
+		EditorCamera view(45.0f, 1.0f, 0.1f, 1000.0f);
+		const Mat4 eyeTransform = Math::Translate(Mat4(1.0f), eye);
+		const Ray atLight = ScreenPointToRay(view, eyeTransform, { 0.0f, 0.0f });
+
+		Check(!PickEntity(*scene, atLight),
+			  "without the marks a light cannot be clicked at all -- which is "
+			  "the defect 7.4 exists to fix");
+
+		PickOptions options;
+		options.IconHandles = true;
+		Check(PickEntity(*scene, atLight, options).Entity == light,
+			  "with them, the ray through its mark selects it");
+
+		// The hit area is the mark, not the whole viewport: a ray that passes
+		// well outside the drawn radius must miss.
+		{
+			const float radius = EditorIcons::Radius({ 0.0f, 0.0f, 0.0f }, eye);
+			Ray beside;
+			beside.Origin = eye;
+			beside.Direction = Math::Normalize(Vec3(radius * 3.0f, 0.0f, -10.0f));
+			Check(!PickEntity(*scene, beside, options),
+				  "a ray outside the mark misses it");
+
+			Ray inside;
+			inside.Origin = eye;
+			inside.Direction = Math::Normalize(Vec3(radius * 0.5f, 0.0f, -10.0f));
+			Check(PickEntity(*scene, inside, options).Entity == light,
+				  "and one inside it hits, at the radius the drawer used");
+		}
+
+		// Geometry in front wins, because the mark is depth-tested on screen
+		// and a pick that ignored that would select something invisible.
+		{
+			Entity wall = scene->CreateEntity("Wall");
+			wall.AddComponent<MeshComponent>(PrimitiveType::Cube);
+			wall.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 5.0f };
+			wall.GetComponent<TransformComponent>().Scale = { 4.0f, 4.0f, 0.2f };
+			scene->UpdateWorldTransforms();
+
+			Check(PickEntity(*scene, atLight, options).Entity == wall,
+				  "geometry in front of a mark wins, as the depth-tested "
+				  "picture already says it should");
+		}
+	}
+
 	void CheckPicking()
 	{
 		// A camera at +Z looking back at the origin, which is the convention
@@ -8252,6 +8354,7 @@ int RunTests(int argc, char** argv)
 	CheckParticleCurves();
 	CheckParticles();
 	CheckColliderOverlay();
+	CheckEditorIcons();
 	CheckPicking();
 	CheckContactCallbacks();
 	CheckTriggerCallbacks();

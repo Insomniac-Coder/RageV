@@ -352,21 +352,46 @@ namespace RageV::UI
 			// stripes in it, and it read as a traffic cone. What fixes it is
 			// interior lines that converge -- a shape with only an outline
 			// converging is a wedge, and a wedge is not a floor.
-			constexpr float back  = 0.30f;
-			constexpr float front = 0.84f;
+			//
+			// **This mark was reported as "uneven" twice, and the cause was
+			// not its geometry.** The geometry is symmetric to three decimal
+			// places and always was. What made it lopsided on screen is that
+			// the outline went through ImGui's *polyline* rasterizer while the
+			// rails and rung went through its *line* rasterizer, and the two
+			// resolve a stroke about axes half a pixel apart -- so the mark
+			// had two mirror axes at once, and every interior line's bright
+			// core sat against its neighbour's dim edge. Drawing the outline
+			// as four ordinary lines puts every stroke through one rasterizer
+			// and gives it one axis.
+			//
+			// Measured against its own mirror: 9.4/255 mean before, 0.7 after.
+			// The number is the point -- this was twice mistaken for a shape
+			// problem and twice "fixed" by moving geometry that was already
+			// correct, because it was looked at rather than measured.
+			constexpr float back  = 0.29f;
+			constexpr float front = 0.79f;
 
 			// The outline, stopped well short of the vanishing point. A drawing
 			// that really converges to a dot is a smudge at 16px.
-			c.Path({ { 0.10f, front }, { 0.90f, front },
-					 { 0.68f, back }, { 0.32f, back } }, true);
+			c.Line(0.10f, front, 0.90f, front);
+			c.Line(0.90f, front, 0.70f, back);
+			c.Line(0.70f, back, 0.30f, back);
+			c.Line(0.30f, back, 0.10f, front);
 
-			c.Line(0.37f, front, 0.44f, back);
-			c.Line(0.63f, front, 0.56f, back);
+			// The rails divide each edge in thirds, which is where a real
+			// floor's would fall.
+			c.Line(0.367f, front, 0.433f, back);
+			c.Line(0.633f, front, 0.567f, back);
 
-			// One rung, nearer the back than the middle. Even spacing is what a
-			// plan view looks like; crowding towards the horizon is what a
-			// plane in perspective looks like.
-			c.Line(0.21f, 0.57f, 0.79f, 0.57f);
+			// One rung, genuinely nearer the back than the middle -- the
+			// previous one sat at the exact midpoint while the comment claimed
+			// otherwise, so the two bands were equal and the mark read as a
+			// plan view with a wedge drawn round it. Even spacing is what a
+			// plan looks like; crowding towards the horizon is what a plane in
+			// perspective looks like, and it has to be in the geometry rather
+			// than in the comment.
+			constexpr float rung = 0.50f;   // 58% of the way back
+			c.Line(0.216f, rung, 0.784f, rung);
 		}
 
 		// Three dots stacked. Reads as "there is more here" in every tool that
@@ -463,7 +488,28 @@ namespace RageV::UI
 		if (!drawList || size <= 0.0f)
 			return;
 
-		const Canvas canvas{ drawList, topLeft, size, color };
+		// **Snapped to whole pixels, at an even size, before anything is
+		// drawn.** This is the difference between art that is symmetric and
+		// art that looks symmetric.
+		//
+		// Callers compute this rect from proportions -- IconButton insets a
+		// button by 14% of its side -- so both the origin and the size arrive
+		// fractional. The canvas maps 0..1 onto that rect, so a mark's centre
+		// line lands between two pixels and its mirrored halves resolve
+		// differently: the ground-grid mark measured 4.3/255 mean different
+		// from its own mirror, peaking at 156, and read as lopsided at
+		// toolbar size. Every icon had it; only the one with fine symmetric
+		// interior structure showed it.
+		//
+		// Even, not merely integral, because 0.5 of an odd width is a half
+		// pixel -- which is the same bug one level down.
+		const float snapped = std::max(2.0f, std::floor(size * 0.5f) * 2.0f);
+		const float slack = (size - snapped) * 0.5f;
+
+		topLeft.x = std::floor(topLeft.x + slack + 0.5f);
+		topLeft.y = std::floor(topLeft.y + slack + 0.5f);
+
+		const Canvas canvas{ drawList, topLeft, snapped, color };
 
 		switch (kind)
 		{

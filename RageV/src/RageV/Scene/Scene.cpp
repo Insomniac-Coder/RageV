@@ -8,6 +8,7 @@
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Core/Application.h"
 #include "RageV/Renderer/Renderer2D.h"
+#include "RageV/Renderer/EditorIcons.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/Skybox.h"
@@ -1109,10 +1110,11 @@ namespace RageV
 		OnRender(component.Camera, camera.GetComponent<TransformComponent>().World);
 	}
 
-	void Scene::OnRenderEditor(const EditorCamera& camera, const ViewportGridSettings* grid)
+	void Scene::OnRenderEditor(const EditorCamera& camera, const ViewportGridSettings* grid,
+							   const EditorIconSettings* icons)
 	{
 		UpdateWorldTransforms();
-		OnRender(camera, camera.GetTransform(), grid);
+		OnRender(camera, camera.GetTransform(), grid, icons);
 	}
 
 	void Scene::PrepareEnvironment()
@@ -1624,7 +1626,8 @@ namespace RageV
 	}
 
 	void Scene::OnRender(const Camera& camera, const Mat4& cameraTransform,
-						 const ViewportGridSettings* grid)
+						 const ViewportGridSettings* grid,
+						 const EditorIconSettings* icons)
 	{
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
 		LightList lights;
@@ -1803,6 +1806,16 @@ namespace RageV
 		// entire difference between this and the HUD.
 		UI::DrawWorldText(*this, camera.GetProjection() * Math::Inverse(cameraTransform),
 						  cameraTransform);
+
+		// The gizmo marks, beside the world text and for the same reasons:
+		// depth-tested so geometry occludes them, and before the particles so
+		// they are scenery rather than an overlay. Editor only, structurally
+		// -- `icons` is null on every path a player's picture goes through.
+		if (icons && Renderer::HasDevice())
+		{
+			EditorIcons::Draw(*this, camera.GetProjection() * Math::Inverse(cameraTransform),
+							  cameraTransform, *icons);
+		}
 
 		// Last, so a blended particle has the whole scene to blend against --
 		// including the sky.

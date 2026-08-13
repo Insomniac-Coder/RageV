@@ -131,6 +131,22 @@ namespace RageV
 								  const Vec3& origin, const Vec3& right, const Vec3& up,
 								  const UI::TextStyle& style, const Vec4& color);
 
+		// A sprite on the plane `right` x `up`, **centred** at `center` and
+		// reaching one full axis length in each direction -- so passing the
+		// camera's right and up scaled by a radius draws a billboard of that
+		// radius. Centred rather than corner-positioned because every caller
+		// so far has a point in the world and wants the mark *on* it; the
+		// text entry point above positions from a corner for the opposite
+		// reason, that a block of text is laid out in a box.
+		//
+		// `uv` selects a region, which is what lets one atlas hold every
+		// editor gizmo, and the tint is a multiply -- so white art plus a
+		// colour is all the theming a mark needs.
+		static void DrawWorldSprite(const Vec3& center, const Vec3& right, const Vec3& up,
+									const RHI::Ref<RHI::RHITexture>& texture,
+									const Vec4& tint = Vec4(1.0f, 1.0f, 1.0f, 1.0f),
+									const UIRect& uv = { 0.0f, 0.0f, 1.0f, 1.0f });
+
 		static uint32_t GetDrawCallCount();
 		static uint32_t GetQuadCount();
 

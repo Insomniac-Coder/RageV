@@ -17,6 +17,8 @@ namespace RageV
 	class Entity;
 	class Camera;
 	class EditorCamera;
+	// Only ever held as a pointer here; the editor is what fills one in.
+	struct EditorIconSettings;
 
 	class Scene
 	{
@@ -175,8 +177,13 @@ namespace RageV
 		// than read from a setting, and only here: the game view and the runtime
 		// both go through OnRenderRuntime, which has nowhere to put one, so a
 		// grid cannot reach a picture that is meant to be what a player sees.
+		//
+		// `icons` is the same argument again, for the gizmo marks on entities
+		// with no geometry (7.4) -- and the same structural guarantee, which
+		// is why it is a second pointer rather than a flag on the first.
 		void OnRenderEditor(const EditorCamera& camera,
-							const ViewportGridSettings* grid = nullptr);
+							const ViewportGridSettings* grid = nullptr,
+							const EditorIconSettings* icons = nullptr);
 
 		// Convolves the scene's environment map into roughness levels, once.
 		//
@@ -229,7 +236,8 @@ namespace RageV
 
 	private:
 		void OnRender(const Camera& camera, const Mat4& cameraTransform,
-					  const ViewportGridSettings* grid = nullptr);
+					  const ViewportGridSettings* grid = nullptr,
+					  const EditorIconSettings* icons = nullptr);
 
 		// The sky cube for this frame, whether it came from an asset or from
 		// the gradient. Resolved in one place because three callers want it and

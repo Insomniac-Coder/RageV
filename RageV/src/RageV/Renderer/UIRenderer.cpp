@@ -600,6 +600,29 @@ namespace RageV
 		}
 	}
 
+	void UIRenderer::DrawWorldSprite(const Vec3& center, const Vec3& right, const Vec3& up,
+									 const Ref<RHITexture>& texture, const Vec4& tint,
+									 const UIRect& uv)
+	{
+		if (!s_Data || !s_Data->Ready || !texture || tint.w <= 0.0f)
+			return;
+
+		// Wound the way the glyph quads are -- top left, top right, bottom
+		// right, bottom left -- because both go through PushQuadCorners, and
+		// the V coordinates below assume that order. `up` is subtracted for
+		// the lower corners for the same reason it is there: texture V runs
+		// down the image and `up` runs up the world.
+		const Vec3 corners[4] = {
+			center - right + up,
+			center + right + up,
+			center + right - up,
+			center - right - up,
+		};
+
+		PushQuadCorners(corners, tint, texture, uv.X, uv.Y, uv.Right(), uv.Bottom(),
+						kModePlain, 0.0f);
+	}
+
 	uint32_t UIRenderer::GetDrawCallCount()
 	{
 		return s_Data ? s_Data->DrawCalls : 0;

@@ -3,6 +3,7 @@
 #include "Scene.h"
 #include "Components.h"
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/Renderer/EditorIcons.h"
 #include "RageV/Physics/ColliderShapes.h"
 #include "RageV/Math/Math.h"
 
@@ -44,6 +45,44 @@ namespace RageV
 
 			distance = Math::Dot(ac, q) * inverse;
 			return distance > kEpsilon;   // ahead of the ray, not behind it
+		}
+
+		// A camera-facing disc of world radius `radius` at `center`.
+		//
+		// The test is the perpendicular distance from the centre to the ray,
+		// which for a disc that always faces the viewer is not an
+		// approximation of the quad on screen -- it *is* it. A ray-vs-quad
+		// test would need the billboard's axes; this needs nothing but the
+		// ray, which is what keeps the picker free of the camera's basis.
+		//
+		// The distance reported is the closest approach, so the mark sits at
+		// the depth of the point it marks. Reporting the sphere's near face
+		// instead would put it a radius closer and let an icon win against
+		// geometry genuinely in front of it.
+		bool RayIntersectsBillboard(const Ray& ray, const Vec3& center, float radius,
+									float& distance)
+		{
+			const float length = Math::Length(ray.Direction);
+			if (length < 1e-9f)
+				return false;
+
+			// Normalised here rather than assumed: every distance this
+			// function reports is compared against the mesh path's world-unit
+			// distances, and a ray whose direction is not unit length would
+			// make those two scales silently different.
+			const Vec3 direction = ray.Direction / length;
+			const Vec3 toCenter = center - ray.Origin;
+
+			const float along = Math::Dot(toCenter, direction);
+			if (along <= 0.0f)
+				return false;   // behind the camera
+
+			const Vec3 closest = ray.Origin + direction * along;
+			if (Math::Length(closest - center) > radius)
+				return false;
+
+			distance = along;
+			return true;
 		}
 	}
 
@@ -119,7 +158,7 @@ namespace RageV
 		return ray;
 	}
 
-	PickResult PickEntity(Scene& scene, const Ray& ray)
+	PickResult PickEntity(Scene& scene, const Ray& ray, const PickOptions& options)
 	{
 		// The same world matrices everything else uses, so what is picked is
 		// what is drawn.
@@ -234,6 +273,25 @@ namespace RageV
 			float distance = 0.0f;
 			if (RayIntersectsBox(local, -extents, extents, distance))
 				consider(Entity{ handle, &scene }, distance / lengthScale);
+		}
+
+		// --- gizmo icons, for entities with no geometry at all ----------------
+		// A light or a camera has neither mesh nor collider, so without this
+		// the hierarchy panel is the only way to select one.
+		if (options.IconHandles)
+		{
+			for (const EditorIcon& icon : EditorIcons::Collect(scene))
+			{
+				// The same radius the drawer uses, from the same function --
+				// and it needs only the camera's position, which is where a
+				// screen-point ray starts.
+				const float radius =
+					EditorIcons::Radius(icon.Position, ray.Origin, options.IconScale);
+
+				float distance = 0.0f;
+				if (RayIntersectsBillboard(ray, icon.Position, radius, distance))
+					consider(scene.GetEntityByUUID(icon.Entity), distance);
+			}
 		}
 
 		return best;

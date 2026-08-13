@@ -1407,6 +1407,87 @@ Vulkan validation layer stays silent with every cooked format bound.
 
 ---
 
+## 7j. Viewport gizmo icons (7.4)
+
+A light, a camera, a reflection probe and an audio source have no mesh and
+no collider. `PickEntity` tested exactly those two things, so **none of them
+could be clicked at all** -- the hierarchy panel was the only way to select
+one. The mark is what makes the entity visible; the mark's radius is what
+makes it clickable, and the second half is the feature.
+
+**No new pipeline.** `UIRenderer`'s world layer already draws textured quads
+that are depth-tested and do not write depth, which is exactly what a
+billboard wants; it gained `DrawWorldSprite` beside `DrawWorldText`.
+Billboarding is the camera's own right and up vectors spanning the quad --
+no per-mark rotation to build, nothing to get wrong at the poles. Renderer2D
+was the other candidate and was rejected: it writes depth, so the
+transparent corners of every mark would punch rectangular holes in the
+particles behind it.
+
+**Editor only, structurally.** `OnRenderEditor` takes an `EditorIconSettings*`
+exactly as it takes a `ViewportGridSettings*`, and for the same reason: the
+runtime and the game view go through `OnRenderRuntime`, which has nowhere to
+put one, so a mark cannot reach a picture meant to be what a player sees.
+
+**One `Collect`, one `Radius`, two callers.** The drawer and the picker share
+both functions rather than each walking the registry and each sizing the
+mark. This is the failure this codebase keeps finding -- two derivations
+agree until one grows a condition -- and here it would show as a mark whose
+hit area is not where it is drawn, which reads as "clicking sometimes does
+nothing".
+
+**Constant angular size is what makes that sharing possible.** The radius is
+`kAngularRadius * distance from the camera`, which needs the camera's
+*position* and nothing else -- and a screen-point ray already starts at the
+camera position, so the picker computes the same number without being handed
+a camera at all. Constant *pixel* size would have needed the FOV and the
+viewport height on both sides. The cost is that a mark tracks zoom the way a
+real object does instead of pinning itself to a pixel count, which is the
+honest trade rather than a limitation.
+
+**Picking is ray-versus-sphere, and for a camera-facing disc that is exact.**
+The perpendicular distance from the centre to the ray *is* the screen-space
+test; a ray-versus-quad test would need the billboard's axes. The distance
+reported is the closest approach, so the mark sits at the depth of the point
+it marks -- reporting the sphere's near face would put it a radius closer and
+let a mark beat geometry genuinely in front of it. Marks compete with
+geometry by distance like everything else, so a wall in front of a light wins
+and the mark behind it is not selectable, which is what the depth-tested
+picture already says.
+
+**The art carries a dark outline, and that is not decoration.** A mark is
+drawn against the scene -- sky, ground, whatever is being built -- so a light
+one disappears over a bright sky and a dark one over a shadow. The first
+version was white with a shaped alpha and washed out against the demo scene's
+sky. Because the tint *multiplies*, a white interior takes the tint and a
+black ring stays black, so one atlas still serves both the normal and the
+selected colour. `tools/scripts/make_editor_icons.py` generates it with zlib
+and struct alone, for the reason `make_icon.py` gives.
+
+### The toolbar's grid mark, and measuring instead of looking
+
+Reported twice as "uneven", and both times the geometry was blamed. It was
+symmetric to three decimal places throughout. The cause: the outline went
+through ImGui's **polyline** rasterizer while the rails and rung went through
+its **line** rasterizer, and the two resolve a stroke about axes half a pixel
+apart -- so the mark had two mirror axes at once and every interior line's
+bright core sat against its neighbour's dim edge.
+
+Two attempts at redrawing it moved geometry that was already correct and
+barely moved the number. What settled it was **measuring the mark against its
+own mirror**: 9.4/255 mean before, 0.7 after, once the outline was drawn as
+four ordinary lines so every stroke shared one rasterizer. `DrawIcon` also
+snaps its canvas to whole pixels at an even size, which every icon wanted
+anyway -- callers compute that rect from proportions, so it arrived
+fractional.
+
+**The generalisable part: "it looks wrong" is a report about pixels, and
+pixels can be measured.** Two rounds were spent redrawing a shape on the
+strength of looking at it. A mirror diff would have said in one minute that
+the shape was fine and the rasterizer was not.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

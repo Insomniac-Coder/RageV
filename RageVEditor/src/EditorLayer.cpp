@@ -362,9 +362,11 @@ void EditorLayer::OnUpdate(Timestep ts)
 	{
 		if (m_UseEditorCamera)
 		{
-			// A local, so it outlives the call rather than the expression.
+			// Locals, so they outlive the call rather than the expression.
 			const ViewportGridSettings grid = GridSettings();
-			m_Scene->OnRenderEditor(m_EditorCamera, m_ShowGrid ? &grid : nullptr);
+			const EditorIconSettings icons = IconSettings();
+			m_Scene->OnRenderEditor(m_EditorCamera, m_ShowGrid ? &grid : nullptr,
+									m_ShowIcons ? &icons : nullptr);
 		}
 		else if (m_ViewportSize.y > 0.0f)
 		{
@@ -562,9 +564,15 @@ void EditorLayer::HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2&
 							   camera.GetComponent<TransformComponent>().World, ndc);
 	}
 
+	// The marks are clickable exactly when they are drawn -- otherwise a click
+	// would select a light nobody can see.
+	PickOptions options;
+	options.IconHandles = m_ShowIcons && m_UseEditorCamera;
+	options.IconScale = IconSettings().Scale;
+
 	// Clicking nothing clears the selection, which is how a click becomes a way
 	// to deselect rather than a thing that can only ever select.
-	const PickResult hit = PickEntity(*m_Scene, ray);
+	const PickResult hit = PickEntity(*m_Scene, ray, options);
 	m_SceneHierarchyPanel.SetSelectedEntity(hit ? hit.Entity : Entity{});
 }
 
@@ -951,6 +959,25 @@ RageV::ViewportGridSettings EditorLayer::GridSettings() const
 	// than authoring one) reaching a surface the theme does not own. The mid
 	// grey below is the one value that reads against both a bright sky and a
 	// dark ground, which is what the grid is actually drawn on.
+	return settings;
+}
+
+RageV::EditorIconSettings EditorLayer::IconSettings() const
+{
+	EditorIconSettings settings;
+
+	// The selected mark takes the theme's accent, so the icon agrees with the
+	// hierarchy row and the inspector header about what is selected. The
+	// unselected one does *not* follow the theme, for the reason the grid's
+	// lines do not: what a mark is drawn against is the scene, not a panel,
+	// and a colour picked for a pale panel disappears against a dark horizon.
+	const auto& accent = EditorTheme::Colors().Accent;
+	settings.SelectedTint = Vec4(accent.x, accent.y, accent.z, 1.0f);
+
+	settings.Selected = m_SceneHierarchyPanel.GetSelectedEntity()
+					  ? m_SceneHierarchyPanel.GetSelectedEntity().GetUUID()
+					  : UUID::Invalid();
+
 	return settings;
 }
 

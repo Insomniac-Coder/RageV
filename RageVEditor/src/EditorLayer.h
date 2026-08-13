@@ -10,6 +10,7 @@
 #include "UI/EditorTheme.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Renderer/RenderGraph.h"
+#include "RageV/Renderer/EditorIcons.h"
 #include "RageV/UI/Interaction.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
 // first.
@@ -263,6 +264,16 @@ private:
 	// stored, so switching theme moves the axes with everything else and there
 	// is no second copy of them to forget to update.
 	RageV::ViewportGridSettings GridSettings() const;
+
+	// The viewport marks on entities with no geometry -- lights, cameras,
+	// probes, audio sources. Scene view only, like the grid and the colliders,
+	// and on by default: without them those entities cannot be clicked at all,
+	// so this is closer to the floor than to a diagnostic.
+	bool m_ShowIcons = true;
+
+	// Built per frame like the grid's, and for the same reason -- the selected
+	// entity and the theme both move underneath it.
+	RageV::EditorIconSettings IconSettings() const;
 
 
 	// Whether the game panel was actually visible last frame. A panel that is
