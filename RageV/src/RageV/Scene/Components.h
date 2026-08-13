@@ -277,6 +277,19 @@ namespace RageV
 		bool Loop = true;
 		float Speed = 1.0f;
 
+		// Whether this animator advances while the scene is only being
+		// *edited*. Off by default, and that default is the point.
+		//
+		// An editor whose characters are all mid-stride is an editor where
+		// nothing holds still to be placed against, where every screenshot of
+		// the scene differs, and where a paused frame is not a state anybody
+		// asked for. Animation belongs to the running game; previewing it is a
+		// deliberate act, per animator, and this is the switch for it.
+		//
+		// It changes nothing about Play: a scene that is running animates
+		// whatever this says.
+		bool RunInEditor = false;
+
 		// How long a change of `Clip` takes to cross-fade, in seconds. Zero
 		// snaps, which is what this did before there was a blend at all.
 		//

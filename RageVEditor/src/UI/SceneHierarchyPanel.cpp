@@ -482,6 +482,121 @@ namespace
 		return changed;
 	}
 
+	// For the clip search below. ASCII only and deliberately so: it compares a
+	// name against what somebody typed, and both come from the same keyboard.
+	std::string ToLower(std::string value)
+	{
+		for (char& c : value)
+		{
+			if (c >= 'A' && c <= 'Z')
+				c = (char)(c - 'A' + 'a');
+		}
+		return value;
+	}
+
+	// An animation clip, chosen by name from the model on this entity.
+	//
+	// Returns whether the value changed. -1 is the bind pose and is always
+	// offered: it is a legitimate state -- what a character that has never
+	// been told to move looks like -- and not an error.
+	//
+	// The search box is not decoration. A rig can carry dozens of clips with
+	// names that share a prefix ("run_forward", "run_left", "run_stop"), and a
+	// list that has to be scrolled past its own naming convention is a list
+	// that gets the wrong entry picked.
+	bool DrawClipField(int* value, Entity owner)
+	{
+		std::vector<std::string> names;
+		if (owner && owner.HasComponent<MeshComponent>())
+		{
+			const AssetHandle mesh = owner.GetComponent<MeshComponent>().Mesh;
+			if (const std::vector<Anim::Clip>* clips = Assets::Manager::GetClips(mesh))
+			{
+				for (size_t i = 0; i < clips->size(); i++)
+				{
+					const std::string& name = (*clips)[i].Name;
+					// glTF does not require an animation to be named, and an
+					// unnamed one still has to be selectable.
+					names.push_back(name.empty() ? "Clip " + std::to_string(i) : name);
+				}
+			}
+		}
+
+		const int current = *value;
+		const bool inRange = current >= 0 && current < (int)names.size();
+
+		std::string preview;
+		if (current < 0)
+			preview = "(bind pose)";
+		else if (inRange)
+			preview = names[current];
+		else
+			preview = "Clip " + std::to_string(current) + "  (missing)";
+
+		bool changed = false;
+
+		// One buffer: only one combo can be open at a time, and it is cleared
+		// every time one opens.
+		static char filter[64] = {};
+
+		if (ImGui::BeginCombo("##value", preview.c_str()))
+		{
+			if (ImGui::IsWindowAppearing())
+			{
+				filter[0] = '\0';
+				ImGui::SetKeyboardFocusHere();
+			}
+
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			ImGui::InputTextWithHint("##search", "Search", filter, sizeof(filter));
+			ImGui::Separator();
+
+			const std::string needle = ToLower(filter);
+			const auto matches = [&](const std::string& text)
+			{
+				return needle.empty() || ToLower(text).find(needle) != std::string::npos;
+			};
+
+			if (matches("bind pose") && ImGui::Selectable("(bind pose)", current < 0))
+			{
+				*value = -1;
+				changed = true;
+			}
+
+			for (size_t i = 0; i < names.size(); i++)
+			{
+				if (!matches(names[i]))
+					continue;
+
+				if (ImGui::Selectable(names[i].c_str(), current == (int)i))
+				{
+					*value = (int)i;
+					changed = true;
+				}
+			}
+
+			// An index the model no longer has still has to be visible, or
+			// opening the dropdown to look would be a way to lose it silently
+			// -- the same rule the method binding follows.
+			if (current >= 0 && !inRange)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Danger);
+				ImGui::Selectable(preview.c_str(), true);
+				ImGui::PopStyleColor();
+			}
+
+			ImGui::EndCombo();
+		}
+
+		if (ImGui::IsItemHovered() && names.empty())
+		{
+			ImGui::SetTooltip("This entity's mesh has no animations.\n\n"
+							  "Only a model imported with a skeleton carries any.");
+		}
+
+		return changed;
+	}
+
 	// Every method an entity's scripts declare, in both languages, merged.
 	//
 	// Answered from the script *names* rather than from instances, because this
@@ -560,8 +675,18 @@ namespace
 			case FieldType::Int:
 			{
 				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-				changed = ImGui::DragInt("##value", (int*)value, hint.Speed,
-										 (int)hint.Min, (int)hint.Max);
+
+				// An animation clip: offered by name, from the model on this
+				// entity. An index is what the component stores and is the
+				// wrong thing to *ask* for -- "2" says nothing about which
+				// animation it is, and the answer changes when the model is
+				// re-exported with a clip inserted.
+				if (hint.ClipList)
+					changed = DrawClipField((int*)value, owner);
+				else
+					changed = ImGui::DragInt("##value", (int*)value, hint.Speed,
+											 (int)hint.Min, (int)hint.Max);
+
 				EndField();
 				break;
 			}

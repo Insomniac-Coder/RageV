@@ -482,10 +482,12 @@ namespace RageV
 
 	void Scene::OnUpdateEditor(Timestep ts)
 	{
-		// Animated in the editor too, so a character previews without pressing
-		// Play. Scripts and physics deliberately do not run here; an animation
-		// is presentation and changes nothing anyone can save.
-		UpdateAnimators(ts);
+		// Animated only where an animator asked to be. Scripts and physics
+		// deliberately do not run here either; the difference is that an
+		// animation is presentation, so previewing one changes nothing anyone
+		// can save -- which is what makes an opt-in reasonable where running a
+		// script would not be.
+		UpdateAnimators(ts, /*editing*/ true);
 
 		// Nothing. Editing a scene must not run it.
 		(void)ts;
@@ -1588,13 +1590,27 @@ namespace RageV
 		return best;
 	}
 
-	void Scene::UpdateAnimators(Timestep ts)
+	void Scene::UpdateAnimators(Timestep ts, bool editing)
 	{
 		auto view = m_Registry.view<MeshComponent, AnimatorComponent>();
 
 		for (auto& item : view)
 		{
 			auto [mesh, animator] = view.get<MeshComponent, AnimatorComponent>(item);
+
+			// Editing, and this animator did not ask to preview: hold still.
+			//
+			// The pose is *cleared* rather than left where it was, because the
+			// renderer draws an empty pose as the bind pose -- so unticking
+			// the box returns the character to the shape it was modelled in
+			// rather than freezing it wherever the preview happened to stop.
+			// A stale pose would also be the one thing on screen that no
+			// longer corresponds to anything in the scene.
+			if (editing && !animator.RunInEditor)
+			{
+				animator.Skinning.clear();
+				continue;
+			}
 
 			const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh);
 			if (!skeleton || skeleton->IsEmpty())

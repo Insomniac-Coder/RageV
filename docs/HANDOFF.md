@@ -1471,6 +1471,23 @@ mid-fade pose against what each clip alone would say, with a zero-blend
 control proving the easing is the blend rather than the clips differing.
 `scenes/fox.rage` runs it. ENGINE-NOTES §7k.
 
+**Animation is deliberately unfinished, and will be revisited.** Two changes
+landed at the owner's direction after 7.5/7.6: animators no longer run in
+edit mode unless `RunInEditor` is ticked (off by default -- animation belongs
+to the running game, and an editor full of mid-stride characters has nothing
+standing still to build against), and a clip is chosen from a searchable
+dropdown of the model's own clip names rather than typed as an index.
+
+**When it is picked up again, settle the scene format first.** `Clip` is
+stored as an *index*, so re-exporting a model with a clip inserted silently
+repoints every scene that used it; storing the name is the robust choice and
+is a file-format decision, which is the kind that gets more expensive the
+longer it waits. Also absent, in rough order of how much each is missed: a
+state machine with per-transition blend times (the blend length is currently
+one number per animator), animation events, root motion, layers and masks,
+and scrubbing in the preview. ENGINE-NOTES §7k has the reasoning behind what
+is there.
+
 **START HERE: the rest of phase 7** -- front-to-back opaque sorting (7.8,
 measure before building), SMAA (7.9), TAA (7.10). Phase 7 is otherwise
 complete.

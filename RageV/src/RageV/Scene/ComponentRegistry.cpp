@@ -148,6 +148,13 @@ namespace
 			return hint;
 		}
 
+		// A tooltip and nothing else, for widgets that need no range.
+		FieldHint Tip(const char* tooltip, FieldHint hint = {})
+		{
+			hint.Tooltip = tooltip;
+			return hint;
+		}
+
 		// Stored in radians, shown in degrees. Without this the inspector would
 		// present 0.785 where the user means 45.
 		FieldHint Degrees()
@@ -556,10 +563,17 @@ namespace
 			desc.DisplayName = "Animator";
 			desc.Fields = {
 				Field<&AnimatorComponent::Clip>("Clip",
-					Drag(1.0f, -1.0f, 64.0f, "Which clip of the model's own list. "
-											 "-1 holds the bind pose.")),
+					PicksClip(Tip("Which of this model's animations to play. "
+								  "The bind pose is the shape it was modelled in."))),
 				Field<&AnimatorComponent::Playing>("Playing"),
 				Field<&AnimatorComponent::Loop>("Loop"),
+				Field<&AnimatorComponent::RunInEditor>("RunInEditor",
+					Named("Run in editor",
+						Tip("Preview this animation while the scene is only being "
+							"edited.\n\nOff by default: animation belongs to the "
+							"running game, and an editor whose characters are all "
+							"mid-stride has nothing holding still to build "
+							"against. Play ignores this and animates regardless."))),
 				Field<&AnimatorComponent::Speed>("Speed",
 					Drag(0.05f, -4.0f, 4.0f, "Negative plays the clip backwards.")),
 				Field<&AnimatorComponent::BlendTime>("Blend Time",

@@ -7336,6 +7336,48 @@ void main()
 				  "the blend and not the clips happening to differ");
 		}
 
+		// --- when an animator is allowed to run at all -----------------------
+		//
+		// Animation belongs to the running game. In the editor a character
+		// holds its bind pose unless somebody asked for a preview, because an
+		// editor whose characters are all mid-stride has nothing standing
+		// still to build against.
+		{
+			auto editorScene = std::make_shared<Scene>();
+			Entity idle = editorScene->CreateEntity("Fox");
+			idle.AddComponent<MeshComponent>().Mesh = model;
+			idle.AddComponent<AnimatorComponent>().Clip = 2;
+
+			for (int frame = 0; frame < 12; frame++)
+				editorScene->UpdateAnimators(1.0f / 60.0f, /*editing*/ true);
+
+			Check(idle.GetComponent<AnimatorComponent>().Skinning.empty(),
+				  "an animator does not run while the scene is only being edited");
+			Check(idle.GetComponent<AnimatorComponent>().Time == 0.0f,
+				  "and its clock does not advance either");
+
+			// The opt-in.
+			idle.GetComponent<AnimatorComponent>().RunInEditor = true;
+			for (int frame = 0; frame < 12; frame++)
+				editorScene->UpdateAnimators(1.0f / 60.0f, /*editing*/ true);
+
+			Check(!idle.GetComponent<AnimatorComponent>().Skinning.empty() &&
+				  idle.GetComponent<AnimatorComponent>().Time > 0.0f,
+				  "ticking Run in editor previews it");
+
+			// And back off: the pose is cleared rather than frozen, so the
+			// character returns to the shape it was modelled in.
+			idle.GetComponent<AnimatorComponent>().RunInEditor = false;
+			editorScene->UpdateAnimators(1.0f / 60.0f, /*editing*/ true);
+			Check(idle.GetComponent<AnimatorComponent>().Skinning.empty(),
+				  "unticking it returns to the bind pose rather than freezing");
+
+			// Play ignores the switch entirely.
+			editorScene->UpdateAnimators(1.0f / 60.0f, /*editing*/ false);
+			Check(!idle.GetComponent<AnimatorComponent>().Skinning.empty(),
+				  "and a running scene animates whatever that switch says");
+		}
+
 		// --- 7.6 on the same real rig ----------------------------------------
 		// The generated fixture proves the arithmetic; this proves it against
 		// twenty-four bones and three clips somebody else authored.

@@ -77,10 +77,15 @@ namespace RageV
 
 		// Advances every animator and rebuilds its pose.
 		//
+		// `editing` says the scene is being edited rather than played, and in
+		// that state only animators with `RunInEditor` advance; the rest have
+		// their pose cleared, which draws them at their bind pose. Animation
+		// is something a running game does, so the editor's default is still.
+		//
 		// Public because both update paths call it and neither is the other's
 		// business. On the frame rather than the fixed step: an animation is
 		// presentation, like the audio positions and the transform blend.
-		void UpdateAnimators(Timestep ts);
+		void UpdateAnimators(Timestep ts, bool editing = false);
 
 		// --- frame ----------------------------------------------------------
 		// Creates the physics world and every body in it. Called on Play.

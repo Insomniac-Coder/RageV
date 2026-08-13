@@ -73,6 +73,20 @@ namespace RageV
 		// of this file is already built on.
 		const char* MethodsOn = nullptr;
 
+		// Marks an Int field as choosing an **animation clip of the mesh on
+		// this same entity**, so the inspector offers their names instead of
+		// asking for an index.
+		//
+		// The set is the model's own clips and not every animation in the
+		// project, because a clip is authored against a skeleton: offering
+		// another model's would be offering something that cannot play. -1 is
+		// the bind pose and is always offered.
+		//
+		// A flag rather than a sibling key like MethodsOn, because the source
+		// is not a sibling field -- it is the entity's MeshComponent, which
+		// the inspector already has in hand.
+		bool ClipList = false;
+
 		// Overrides the label derived from the field's key.
 		//
 		// Derivation handles almost everything, but it can only work from the
@@ -97,6 +111,13 @@ namespace RageV
 	inline FieldHint BindsMethod(const char* targetField, FieldHint hint = {})
 	{
 		hint.MethodsOn = targetField;
+		return hint;
+	}
+
+	// And for an int field that indexes the entity's own animation clips.
+	inline FieldHint PicksClip(FieldHint hint = {})
+	{
+		hint.ClipList = true;
 		return hint;
 	}
 

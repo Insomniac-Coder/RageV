@@ -1528,6 +1528,47 @@ produce bounds that are too small in exactly the poses that needed them.
 Sampled rather than solved, because a clip's extreme is not analytic once
 rotations interpolate; the result is padded 2% against stepping over one.
 
+### Where animation runs, and how a clip is chosen
+
+Two changes at the owner's direction, made after the pair above and worth
+recording because both are about the *editor's* relationship to animation
+rather than about animation itself.
+
+**Animation is something a running game does.** Animators no longer advance
+in edit mode; `AnimatorComponent::RunInEditor` opts one in, and it is off by
+default. An editor whose characters are all mid-stride has nothing standing
+still to place things against, no two screenshots of a scene alike, and no
+frame that corresponds to anything. Previewing is a deliberate, per-animator
+act. `UpdateAnimators` takes `editing`, and a skipped animator has its pose
+**cleared rather than left alone** -- the renderer draws an empty pose as the
+bind pose, so unticking the box returns the character to the shape it was
+modelled in instead of freezing it wherever the preview stopped. A stale pose
+would be the one thing on screen corresponding to nothing.
+
+Scripts and physics were already excluded from edit mode; the reason an
+animator may opt back in where they may not is that **an animation changes
+nothing anyone can save**.
+
+**A clip is chosen by name.** The inspector offers the model's own clips in a
+searchable dropdown instead of asking for an index: "2" says nothing about
+which animation it is. The list is the entity's own model's clips and not
+every animation in the project, because a clip is authored against a skeleton
+-- offering another model's would be offering something that cannot play. The
+search box earns its place on rigs whose clips share prefixes
+(`run_forward`, `run_left`, `run_stop`), where a list scrolled past its own
+naming convention is a list that gets the wrong entry picked. An index the
+model no longer has stays visible and marked, for the reason the method
+binding does: opening a dropdown to look must not be a way to lose a value.
+
+> [!NOTE]
+> **Animation is unfinished by agreement, and the scene format is the part to
+> settle first.** `Clip` is stored as an *index*, so re-exporting a model with
+> a clip inserted silently repoints every scene that used it. Storing the name
+> is the robust choice and is a file-format decision, which is the kind that
+> gets more expensive the longer it waits. Also absent: a state machine and
+> per-transition blend times (the blend length is currently per animator),
+> events, root motion, layers and masks, and any scrubbing in the preview.
+
 ### Running somebody else's model
 
 The fixtures here are generated, which makes them exact and makes them
