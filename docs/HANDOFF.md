@@ -1520,6 +1520,15 @@ New flags: `--import-cache=on|off` (the ablation the pixel check needs)
 and `--loading-screenshot=<file>`. New check:
 `tools/scripts/check_import_cache.py`.
 
+**Measured but deliberately not built** (owner's call): cooking is
+**47.5% `ToBytes`, 25% `ToFloat`, 19.8% BC encode, 7.3% downsample** --
+so it is the per-texel conversion loops, not the compressor. `ToBytes`
+calls `std::lround` four times per texel (67M libm calls per 4K map)
+and the gamma transfer uses `std::pow`; both have *exact* replacements
+(a 256-entry table, and `(uint8_t)(v * 255 + 0.5f)`). Every loop in the
+cooker is also per-row/per-block, so one asset could use the whole
+machine at one asset's memory. See ENGINE-NOTES §7l.
+
 **Still open**: `.hdr` skies are converted to cube faces and convolved
 on every load -- cooking those is a third format and its own feature.
 `Registry::Init` still hashes every loose asset at every boot (FNV-1a,

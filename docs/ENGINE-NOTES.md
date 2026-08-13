@@ -1831,6 +1831,48 @@ computed the same thing faster.
 The peak, not the count, is the next thing to attack if this needs to
 be quicker again.
 
+### Where cooking actually spends its time — measured, and NOT acted on
+
+Before adding more threads, the cook was broken into phases (temporary
+instrument, since removed). Summed CPU across workers, 19 textures of
+the 4K set:
+
+| phase | | share |
+|---|---|---|
+| `ToBytes` | 7.49 s | **47.5%** |
+| `ToFloat` | 3.95 s | 25.0% |
+| BC encode | 3.13 s | 19.8% |
+| `Downsample` | 1.15 s | 7.3% |
+
+**Nearly three quarters of cooking is the two per-texel conversion
+loops, and block compression — the part that sounds expensive — is a
+fifth.** Two specific causes, both cheap to remove and both *exactly*
+replaceable:
+
+- `ToFloat` and `ToBytes` call `std::pow` per channel for the sRGB
+  transfer function. `ToFloat`'s input is always a byte over 255, so a
+  **256-entry table is exact by construction**. The reverse is exact
+  too, via the 255 linear thresholds at which the encoded byte steps
+  up: `t[i] = SrgbToLinear((i + 0.5)/255)`, then the byte is an
+  `upper_bound` — eight comparisons instead of a `pow`.
+- `ToBytes` calls **`std::lround` four times per texel** — 67 million
+  libm calls for one 4K map. For values already clamped to [0,1] it is
+  identical to `(uint8_t)(v * 255.0f + 0.5f)`. This is why
+  `wood_normal`, which does no gamma work at all, still spends 1.0 s of
+  its 1.6 s in `ToBytes`.
+
+And every loop here — `ToFloat`, `ToBytes`, `Downsample`,
+`RenormalizeNormals`, `EncodeMip` — is per-row or per-block with
+disjoint outputs, so **one asset can use the whole machine at roughly
+one asset's memory**. That is the scaling axis that does not trade
+memory for cores, and it is the one to take before raising the
+four-worker cap.
+
+**Deliberately not built (owner's call, 2026-08-13): the remaining win
+was judged not worth the change right now.** Recorded here because the
+measurement is already paid for, and the conclusion is the useful part:
+*the expensive thing was not the compressor.*
+
 ### The bug the guard found on the way past
 
 The packager cooked **every** `.png` it could decode, and a font's MSDF
