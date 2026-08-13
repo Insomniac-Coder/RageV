@@ -1165,15 +1165,50 @@ What made the demo look broken was three scene facts and one regression:
    sixteen fixed slots at 512 would have been a quarter gigabyte of cube array.
    A one-probe scene under a 512 sky is 2 slots, ~33 MB.
 
-**Open: backend parity of the derivative tangent frame.** VK and GL differ more
-than filtering noise on normal-mapped, parallaxed surfaces (mean 14.7/255 on
-the close-up). The suspect is `dFdy` flipping sign under Vulkan's
-negative-height viewport, which would flip the perturbation and parallax
-direction on exactly one backend. The old `ApplyNormalMap` used the identical
-construction, but **no compared scene carried a normal map until today**, so
-this would be latent since phase 3. Needs a purpose-built scene with a known
-asymmetric relief -- a height ramp whose high side is stated -- so the two
-backends can be checked against the *answer*, not just against each other.
+**Resolved: backend parity of the derivative tangent frame.** VK and GL
+differed by mean 14.7/255 on normal-mapped, parallaxed surfaces, and the
+suspect was right: under Vulkan's negative-height viewport `dFdy` is the
+negative of GL's, both terms of T and of B in the screen-derivative
+construction flip, and the frame comes out **rotated 180 degrees about N** on
+exactly one backend -- bumps lit from the wrong side, parallax marching the
+wrong way. Latent since phase 3 (`ApplyNormalMap` was the same construction);
+invisible until 2026-08-13 because no *compared* scene carried a normal map.
+
+Three things worth keeping from the resolution:
+
+1. **The planned fix could not have worked, and algebra said so before any
+   render.** The plan was handedness correction, `if (dot(cross(T, B), N) < 0)
+   B = -B;`. But negating both T and B is a *rotation*, and `cross(T, B)` does
+   not move under it -- the handedness test reads identically on both
+   backends. The discriminant that does detect the flip is the screen-space
+   orientation `det(dp1, dp2, N) = dot(dp1, cross(dp2, N))`: positive under
+   GL's derivative convention, negative under Vulkan's flipped one (and on
+   backfaces, where the flip is also correct). `TangentFrame` now divides that
+   sign out, which makes the frame a property of the surface rather than of
+   the rasterizer. UV mirroring is untouched -- its sign lives in the UV
+   determinant, which the construction already handles.
+2. **The verdict came from a stated answer, not a backend diff.**
+   `tools/scripts/make_parity_fixture.py` writes `parity_frame.rage`: a plane
+   whose normal map tilts 45 degrees toward +u (= world +X, by the Plane
+   primitive's construction) beside a flat control, lit from +X. Truth: tilt
+   plane brighter than control (N.L 0.97 vs 0.5); a rotated frame gives N.L =
+   0 and near-black. `check_tangent_frame.py` measures a render and answers
+   CORRECT or FLIPPED. Before the fix: GL CORRECT, VK FLIPPED. After: both
+   CORRECT, the two backends **bit-identical** on the fixture, and GL
+   bit-identical to its pre-fix self -- the fix is provably a no-op on the
+   backend that was already right. One instrument calibration lesson: at sun
+   intensity 3 both planes sat on the ACES shoulder and the 1.9x linear gap
+   compressed to five percent; the fixture uses a low dim light (30 degrees,
+   1.5) so the gap survives into the pixels.
+3. **The residual after the fix is filtering, and it was decomposed, not
+   waved away.** material_closeup dropped 14.7 -> 1.28/255. Ablating
+   HeightScale to zero: 0.79; ablating shadows as well: 0.79 (shadows
+   innocent). The heatmap shows full-width horizontal zero-diff bands on the
+   receding ground -- trilinear LOD fractions crossing integer levels, where
+   drivers round differently at minification. Magnification-dominant scenes
+   (textured.rage) diff at 6 subpixels in 1.5M. So: ~13.4/255 was the frame,
+   ~0.8 is driver LOD rounding, ~0.5 more comes from parallax-displaced UVs
+   feeding implicit-derivative fetches. Nothing directional remains.
 
 Two process notes. The `Specular` F0 rework was the obvious suspect (it touched
 exactly dielectric-vs-metal, and metals still worked); a pixel-identical diff

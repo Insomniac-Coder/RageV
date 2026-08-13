@@ -1361,31 +1361,31 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-**START HERE: the tangent-frame backend parity bug.** VK and GL disagree by
-mean 14.7/255 on normal-mapped, parallaxed surfaces (`material_closeup.rage`;
-build a side-by-side of the brick face and the difference is visible, not
-statistical). The suspect is `TangentFrame` in
-`RageVEditor/assets/shaders/include/pbr_fragment.glsl`: T and B come from
-`dFdx/dFdy` of world position and uv, and under Vulkan's negative-height
-viewport `dFdy` changes sign relative to GL -- both terms of T and of B flip,
-so the whole frame, the normal perturbation and the parallax direction flip on
-exactly one backend. Latent since phase 3 (`ApplyNormalMap` was the identical
-construction); observable only since 2026-08-13 because no *compared* scene
-carried a normal map before then.
+**Done: the tangent-frame backend parity bug (2026-08-13).** The suspect was
+right and the planned fix was wrong. Under Vulkan's negative-height viewport
+`dFdy` is the negative of GL's, both terms of T and of B flip, and the frame
+comes out **rotated 180 degrees about N** -- and a rotation preserves
+handedness, so the planned `dot(cross(T, B), N)` correction reads identically
+on both backends and could never have caught it. The discriminant that works
+is the screen orientation `det(dp1, dp2, N) = dot(dp1, cross(dp2, N))`;
+`TangentFrame` now divides its sign out. Verified with a stated answer, not a
+backend diff: `make_parity_fixture.py` writes a scene whose truth is known
+(tilted normal map beside a flat control; `check_tangent_frame.py` gives the
+verdict) -- before the fix GL read CORRECT and VK FLIPPED, after it both read
+CORRECT, the backends are bit-identical on the fixture, and GL is
+bit-identical to its pre-fix self. material_closeup dropped 14.7 -> 1.28/255;
+the residual decomposes into driver LOD rounding at minification (0.79, bands
+in the heatmap, shadows ablated and exonerated) plus parallax-displaced UVs
+under implicit-derivative fetches -- nothing directional. ibl_check and
+irradiance_uniform: 55 and 0 differing subpixels of 1.5M. 1160/1160 scenetest
+checks on both backends, validation clean. The instrument stays in the tree;
+any future derivative-convention doubt is one render plus one script away.
+Full writeup: ENGINE-NOTES 7g.
 
-**Do it with a stated answer, not another backend diff.** Generate a fixture
-whose relief direction is known -- a height ramp rising toward +X, or a normal
-map tilted a known way -- light it from a known side, and check *each* backend
-against the truth (`tools/scripts/make_textured_model.py` is the precedent for
-generated fixtures). Two backends can agree and both be wrong; a diff alone
-cannot say which one flipped.
-
-**Likely fix:** enforce the frame's handedness against the geometric normal --
-`if (dot(cross(T, B), N) < 0) B = -B;` shaped -- rather than branching on the
-backend. Handedness correction is standard, backend-agnostic, and also guards
-mirrored UVs. Whatever the fix, `ibl_check.rage` and the uniform-sky scene must
-stay pixel-identical (no normal maps there), and the ablation numbers on
-`material_closeup.rage` should survive on both backends.
+**START HERE: the rest of phase 7** -- see the list under "Phase 7" above:
+`.pak` + VFS (7.1/7.2, both or neither), billboard icons (7.4), animation
+blending (7.5), skinned bounds (7.6), front-to-back opaque sorting (7.8,
+measure before building), SMAA (7.9), TAA (7.10).
 
 Also pending from 2026-08-13, needing the user's decisions: 198 MB of the
 user's 4K Poly Haven materials sit uncommitted in `SampleProject/assets/

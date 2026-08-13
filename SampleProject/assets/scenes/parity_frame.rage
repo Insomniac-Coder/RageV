@@ -1,0 +1,59 @@
+Scene: Tangent-frame parity
+Version: 5
+Environment:
+  AmbientColor: [1, 1, 1]
+  AmbientIntensity: 0.05
+  Sky: 0
+Entities:
+  - EntityID: 7741000000000000201
+    TagComponent:
+      Tag: Overhead Camera
+    TransformComponent:
+      Position: [0, 6, 0]
+      Rotation: [-1.5707963, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 45
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7741000000000000202
+    TagComponent:
+      Tag: Light from +X, 30 degrees up
+    TransformComponent:
+      Position: [0, 4, 0]
+      Rotation: [-0.5235988, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 1, 1]
+      Intensity: 1.5
+      Range: 20
+      InnerCone: 12
+      OuterCone: 25
+      CastShadows: false
+  - EntityID: 7741000000000000203
+    TagComponent:
+      Tag: Tilted normal map (left)
+    TransformComponent:
+      Position: [-1.3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2, 1, 2]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 7741000000000000102
+  - EntityID: 7741000000000000204
+    TagComponent:
+      Tag: Flat control (right)
+    TransformComponent:
+      Position: [1.3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2, 1, 2]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 7741000000000000103

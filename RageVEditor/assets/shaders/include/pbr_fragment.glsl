@@ -445,6 +445,20 @@ mat3 TangentFrame(vec3 N, vec3 worldPos, vec2 uv)
 	vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
 	vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
 
+	// The construction inherits the orientation of the screen: under Vulkan's
+	// negative-height viewport dFdy is the negative of GL's, both terms of T
+	// and of B flip, and the frame comes out rotated 180 degrees about N --
+	// bumps lit from the wrong side, parallax marching the wrong way, on
+	// exactly one backend. det(dp1, dp2, N) carries that orientation and
+	// nothing else the frame should keep, so divide its sign out. Handedness
+	// correction could not do this: negating both T and B is a rotation, and
+	// cross(T, B) does not move.
+	if (dot(dp1, dp2perp) < 0.0)
+	{
+		T = -T;
+		B = -B;
+	}
+
 	float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
 	return mat3(T * invmax, B * invmax, N);
 }

@@ -1,0 +1,75 @@
+Scene: Material close-up
+Version: 5
+Environment:
+  AmbientColor: [0.4, 0.45, 0.55]
+  AmbientIntensity: 0.06
+  Sky: 1
+  SkyHorizon: [0.62, 0.55, 0.46]
+  SkyZenith: [0.3, 0.42, 0.62]
+  SkyGround: [0.2, 0.18, 0.16]
+  SkyIntensity: 0.9
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 7740000000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0.5, 5.2]
+      Rotation: [-0.13, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7740000000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 4, 2]
+      Rotation: [-0.32, -0.9, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.93, 0.82]
+      Intensity: 2.6
+      Range: 20
+      InnerCone: 12
+      OuterCone: 25
+      CastShadows: true
+  - EntityID: 7740000000000000003
+    TagComponent:
+      Tag: Soil ground
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [14, 1, 14]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 2253873544424874864
+  - EntityID: 7740000000000000004
+    TagComponent:
+      Tag: Brick block
+    TransformComponent:
+      Position: [-1.6, 0.5, 1.2]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 12456084283590913901
+  - EntityID: 7740000000000000005
+    TagComponent:
+      Tag: Rust drum
+    TransformComponent:
+      Position: [1.7, 0.55, 0.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.1, 1.1, 1.1]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material: 13042967132365226213
