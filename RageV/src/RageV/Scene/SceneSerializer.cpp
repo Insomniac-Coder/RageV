@@ -220,6 +220,7 @@ namespace RageV
 		emitter << YAML::Key << "AntiAliasing" << YAML::Value << (uint32_t)environment.AA;
 		emitter << YAML::Key << "SupersampleFactor" << YAML::Value << environment.SupersampleFactor;
 		emitter << YAML::Key << "MsaaSamples" << YAML::Value << environment.MsaaSamples;
+		emitter << YAML::Key << "TemporalFeedback" << YAML::Value << environment.TemporalFeedback;
 		emitter << YAML::EndMap;
 
 		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
@@ -468,6 +469,8 @@ namespace RageV
 					target.SupersampleFactor = value.as<int>();
 				if (const YAML::Node value = environment["MsaaSamples"])
 					target.MsaaSamples = value.as<int>();
+				if (const YAML::Node value = environment["TemporalFeedback"])
+					target.TemporalFeedback = value.as<float>();
 			}
 		}
 

@@ -2959,6 +2959,32 @@ the filter: it was, by reloading the scene. The mode is now written to
 `ragev.ini` on the click, beside vsync and the backend, which are the
 same kind of judgement — about this machine rather than about the scene.
 
+### Two lists of the same settings
+
+`TemporalFeedback` was described by `RenderSettingsRegistry` and absent
+from `SceneSerializer`'s hand-written environment block. So it was
+editable in the inspector, reachable from a script, and **reset to its
+default every time the scene was reopened** — and worse for the person
+debugging, a scene file that set it was silently ignored, which made an
+experiment testing three different values produce three identical
+images. That wasted a diagnosis: the numbers said the blend weight had
+no effect, and the reason was that the blend weight never arrived.
+
+There was already a check saying "every described name has to be a key
+the serializer writes". It named three fields by hand. A fourth was
+invisible to it.
+
+It is driven off the registry now: every scalar field is nudged off its
+default, saved, reloaded and compared, so a setting added tomorrow is
+covered without anybody choosing to cover it. Verified by deleting the
+emitter line again and watching it name the casualty —
+`TemporalFeedback (0.375000 -> 0.900000)`.
+
+The deeper point is that two hand-written lists of the same thing drift,
+always, and the drift is silent in both directions. The registry is the
+one that knows what a setting *is*; anything else describing the same
+settings should be generated from it or checked against it.
+
 ### A near-miss worth more than the feature
 
 The way to prove a change is inert is to render the same frame with the

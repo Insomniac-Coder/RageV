@@ -2088,7 +2088,12 @@ void EditorLayer::DrawRenderSettingsPanel()
 
 		if (environment.AA == AntiAliasing::TAA)
 		{
+			// The format string is a parameter of its own, before the tooltip.
+			// Omitting it puts the help text where printf expects "%.3f", and
+			// a format with no conversion in it renders as itself -- so the
+			// row showed a paragraph of prose where the number belongs.
 			UI::RowDragFloat("Feedback", &environment.TemporalFeedback, 0.005f, 0.0f, 0.98f,
+				"%.3f",
 				"How much of the accumulated image survives each frame. This is the "
 					   "ghosting-versus-flicker dial and there is no correct value: higher "
 					   "converges on a cleaner image and holds onto history that has stopped "

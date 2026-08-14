@@ -3384,6 +3384,101 @@ void main()
 		Check(aa && aa->Size == sizeof(int),
 			  "and int-sized, because the text bridge reads it as one");
 
+		// **Every** described field survives a save and a load, not the three
+		// somebody remembered to list.
+		//
+		// The registry and the serializer are two hand-written lists of the
+		// same settings, and they drift silently: a field described here but
+		// absent from the emitter is reachable from a script, editable in the
+		// inspector, and reset to its default the moment the scene is
+		// reopened. TemporalFeedback shipped exactly that way -- the check
+		// below used to name AA, Exposure and BloomIntensity, and a fourth
+		// field was invisible to it.
+		//
+		// Driven off the registry rather than a list, so a setting added
+		// tomorrow is covered without anybody choosing to cover it.
+		{
+			auto probe = std::make_shared<Scene>();
+			SceneEnvironment& live = probe->GetEnvironment();
+
+			// A value that is not the default, per type, so "the serializer
+			// wrote nothing and the loader kept its default" cannot pass.
+			// Through Access rather than the text bridge, which is private to
+			// the interop layer.
+			std::vector<std::pair<std::string, double>> written;
+			for (const FieldDesc& field : RenderSettingsRegistry::Fields())
+			{
+				if (!field.Access)
+					continue;
+
+				void* member = field.Access(&live);
+				switch (field.Type)
+				{
+					case FieldType::Bool:
+						*(bool*)member = !*(bool*)member;
+						written.emplace_back(field.Name, *(bool*)member ? 1.0 : 0.0);
+						break;
+					case FieldType::Int:
+					case FieldType::Enum:
+						*(int32_t*)member = 1;
+						written.emplace_back(field.Name, 1.0);
+						break;
+					case FieldType::Float:
+						*(float*)member = 0.375f;
+						written.emplace_back(field.Name, 0.375);
+						break;
+					default: break;   // colours and handles, checked by hand above
+				}
+			}
+
+			Check(written.size() >= 8,
+				  "the render settings offer enough scalar fields to be worth checking");
+
+			const std::filesystem::path path =
+				std::filesystem::temp_directory_path() / "rv_render_settings_all.rage";
+			SceneSerializer(probe).Serialize(path.string());
+
+			auto reloaded = std::make_shared<Scene>();
+			Check(SceneSerializer(reloaded).Deserialize(path.string()),
+				  "a scene carrying every render setting loads back");
+
+			std::string lost;
+			for (const auto& [name, expected] : written)
+			{
+				const FieldDesc* field = RenderSettingsRegistry::Find(name);
+				if (!field || !field->Access)
+					continue;
+
+				void* member = field->Access(&reloaded->GetEnvironment());
+				double got = 0.0;
+				switch (field->Type)
+				{
+					case FieldType::Bool:  got = *(bool*)member ? 1.0 : 0.0; break;
+					case FieldType::Int:
+					case FieldType::Enum:  got = (double)*(int32_t*)member; break;
+					case FieldType::Float: got = (double)*(float*)member; break;
+					default: continue;
+				}
+
+				if (std::fabs(got - expected) > 1e-4)
+				{
+					lost += (lost.empty() ? "" : ", ") + name + " (" +
+							std::to_string(expected) + " -> " + std::to_string(got) + ")";
+				}
+			}
+
+			Check(lost.empty(),
+				  "and every one of them comes back with the value it was given -- a "
+				  "setting the registry describes but the serializer never writes is "
+				  "one that resets itself every time the scene is reopened");
+
+			if (!lost.empty())
+				RV_CORE_ERROR("render settings lost across a save: {0}", lost);
+
+			std::error_code error;
+			std::filesystem::remove(path, error);
+		}
+
 		Check(RenderSettingsRegistry::Find("Exposure") != nullptr, "exposure is there");
 		Check(RenderSettingsRegistry::Find("BloomIntensity") != nullptr, "so is bloom");
 		Check(RenderSettingsRegistry::Find("Nonsense") == nullptr,
