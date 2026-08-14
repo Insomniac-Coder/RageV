@@ -1984,7 +1984,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		// Only the modes that exist. Offering TAA here and doing nothing would
 		// be worse than not offering it; the roadmap is where "not yet"
 		// belongs.
-		const char* aaModes[] = { "None", "FXAA", "SMAA", "SSAA" };
+		const char* aaModes[] = { "None", "FXAA", "SMAA", "SSAA", "MSAA" };
 		int aa = (int)environment.AA;
 		if (UI::RowCombo("Anti-aliasing",
 		&aa,
@@ -2002,11 +2002,22 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "because those are not edges -- they are detail the frame never "
 				   "sampled finely enough, and no filter on the finished image can "
 				   "invent it. Costs the square of the factor in fill.\n\n"
+				   "MSAA takes several coverage samples per pixel but shades once, so "
+				   "geometry edges get several levels of coverage for close to the price "
+				   "of one shaded pixel -- and shading aliasing gets nothing. It resolves "
+				   "before the tone curve, which is the correct place.\n\n"
 				   "TAA is better than either and needs motion vectors -- every mesh "
 				   "carrying its previous transform and the renderer writing a velocity "
 				   "target. That is a renderer feature with its own prerequisites, not a "
 				   "post pass."))
 			environment.AA = (AntiAliasing)aa;
+
+		if (environment.AA == AntiAliasing::MSAA)
+		{
+			UI::RowDragInt("Samples", &environment.MsaaSamples, 0.05f, 1, 8,
+				"Coverage samples per pixel. Costs bandwidth and a little rasterizer "
+					   "work rather than shading, so 4 is an ordinary choice.");
+		}
 
 		if (environment.AA == AntiAliasing::SSAA)
 		{

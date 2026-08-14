@@ -119,7 +119,17 @@ namespace RageV
 			const uint32_t frame = s_Data->Device->GetFrameIndex();
 			auto& batches = s_Data->Batches[frame];
 
-			if (s_Data->BatchCursor >= batches.size())
+			// `while`, not `if`, and this is not defensive padding.
+			//
+			// The pool is cleared whenever the pipelines are rebuilt, and a
+			// rebuild can land in the middle of a frame -- MSAA changes the
+			// sample count in BuildFrame, which runs *after* a reflection probe
+			// has already captured six faces and advanced this cursor. Growing
+			// by one and then indexing the cursor reads past the end, which is
+			// a segfault on the first frame of any scene with both a probe and
+			// a particle emitter. Found by MSAA; present since the pool was
+			// written. ENGINE-NOTES 7q.
+			while (s_Data->BatchCursor >= batches.size())
 			{
 				const std::string index =
 					std::to_string(frame) + "." + std::to_string(batches.size());

@@ -52,7 +52,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-MODES = ("none", "fxaa", "smaa", "ssaa")
+MODES = ("none", "fxaa", "smaa", "ssaa", "msaa")
 BACKENDS = ("vulkan", "opengl")
 # Four regimes, and each one reaches code the others do not.
 #
@@ -84,10 +84,18 @@ FLAT_DISTANCE = 4.0
 REQUIRED_GAIN = 2.5
 
 # The two backends run different drivers and different rasterisers, so their
-# coverage will not be bit-identical everywhere in general. On this scene it
-# has been exactly equal; anything under this is still evidence the direction
-# handling matches.
+# coverage will not be bit-identical everywhere in general. On this scene the
+# post filters have been exactly equal; anything under this is still evidence
+# the direction handling matches.
 BACKEND_TOLERANCE = 0.002
+
+# MSAA gets its own, wider, and the reason is not sloppiness: *where the
+# coverage samples sit inside a pixel is not specified identically* by the two
+# APIs. Vulkan defines standard sample locations; OpenGL leaves them to the
+# implementation. Two correct implementations can therefore disagree slightly
+# on a partly covered pixel, and demanding they match would be demanding
+# something neither API promises.
+MSAA_BACKEND_TOLERANCE = 0.010
 
 # The unfiltered control, from theory.
 QUANTISATION_RMS = 1.0 / np.sqrt(12.0)
@@ -312,6 +320,24 @@ def main():
             failures.append(
                 f"{angle} deg: SSAA measures {a:.4f} on Vulkan and {b:.4f} on OpenGL")
 
+        # MSAA, on the same linear-space yardstick: it resolves before the
+        # tone curve exactly as supersampling does.
+        msaa = (results[(angle, "vulkan", "none", "linear")]
+                / results[(angle, "vulkan", "msaa", "linear")])
+        if msaa < 2.0:
+            failures.append(
+                f"{angle} deg: MSAA is only {msaa:.1f}x better than no filter at all. "
+                f"Either the scene target is not multisampled or a pipeline's sample "
+                f"count does not match it -- which is undefined behaviour rather than "
+                f"an error, so nothing else will say so")
+
+        a = results[(angle, "vulkan", "msaa", "linear")]
+        b = results[(angle, "opengl", "msaa", "linear")]
+        if abs(a - b) > MSAA_BACKEND_TOLERANCE:
+            failures.append(
+                f"{angle} deg: MSAA measures {a:.4f} on Vulkan and {b:.4f} on OpenGL, "
+                f"further apart than sample-position freedom explains")
+
     # --- the case a single straight edge is not ------------------------------
     #
     # Every measurement above is one long straight edge, which is the *easy*
@@ -354,6 +380,13 @@ def main():
             f"{fan['fxaa']:.3f}. Reconstructing an edge has to beat guessing at "
             f"one even when the silhouette turns every few pixels -- that is what "
             f"the diagonal pass is for")
+
+    if fan["msaa"] >= fan["ssaa"]:
+        failures.append(
+            f"on small features MSAA scores {fan['msaa']:.3f} against SSAA 2x's "
+            f"{fan['ssaa']:.3f}. Four coverage samples should beat four shaded ones "
+            f"on geometry, since the reference is a supersampled render and MSAA is "
+            f"resolving in the same space")
 
     if fan["smaa"] >= fan["none"]:
         failures.append(

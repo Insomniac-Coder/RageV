@@ -1172,10 +1172,7 @@ namespace
 	namespace
 	{
 		// The names a script writes, and the same order the enum declares.
-		// MSAA is deliberately absent while FrameGraphBuilder refuses it. A name
-		// here is a mode a script can select and an inspector can show, and one
-		// that quietly does nothing is worse than one that is not offered.
-		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA" };
+		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA", "MSAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
 
 		std::vector<FieldDesc> BuildRenderSettings()
@@ -1186,6 +1183,12 @@ namespace
 						 "FXAA guesses at an edge from one pixel's neighbourhood. "
 						 "SMAA reconstructs it and is about five times more accurate "
 						 "for three times the cost.")),
+
+				Field<&SceneEnvironment::MsaaSamples>("MsaaSamples",
+					Tip("Coverage samples per pixel under MSAA. Costs bandwidth "
+						"and a little rasterizer work rather than shading, so 4 "
+						"is an ordinary choice where supersampling at 4 is a "
+						"statement.")),
 
 				Field<&SceneEnvironment::SupersampleFactor>("SupersampleFactor",
 					Tip("How many times larger SSAA draws each axis. Cost is the "

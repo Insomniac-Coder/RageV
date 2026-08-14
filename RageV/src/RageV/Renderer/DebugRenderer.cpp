@@ -87,7 +87,7 @@ namespace RageV
 			const uint32_t frame = s_Data->Device->GetFrameIndex();
 			auto& batches = s_Data->Batches[frame];
 
-			if (s_Data->BatchCursor >= batches.size())
+			while (s_Data->BatchCursor >= batches.size())
 			{
 				const std::string index = std::to_string(frame) + "." + std::to_string(batches.size());
 

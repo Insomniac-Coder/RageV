@@ -316,7 +316,7 @@ namespace RageV
 			const uint32_t frame = s_Data->Device->GetFrameIndex();
 			auto& slots = s_Data->SceneSlots[frame];
 
-			if (s_Data->SceneCursor >= slots.size())
+			while (s_Data->SceneCursor >= slots.size())
 			{
 				Renderer3DData::SceneSlot slot;
 
@@ -346,7 +346,7 @@ namespace RageV
 			const uint32_t frame = s_Data->Device->GetFrameIndex();
 			auto& slots = s_Data->ShadowSlots[frame];
 
-			if (s_Data->ShadowCursor >= slots.size())
+			while (s_Data->ShadowCursor >= slots.size())
 				slots.push_back(Renderer3DData::ShadowSlot{});
 
 			Renderer3DData::ShadowSlot& slot = slots[s_Data->ShadowCursor++];

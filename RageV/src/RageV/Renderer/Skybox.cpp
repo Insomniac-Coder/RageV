@@ -317,7 +317,7 @@ namespace RageV
 		const uint32_t frame = s_Data->Device->GetFrameIndex();
 		auto& sets = s_Data->Sets[frame];
 
-		if (s_Data->SetCursor >= sets.size())
+		while (s_Data->SetCursor >= sets.size())
 			sets.push_back(s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0));
 
 		Ref<RHIResourceSet>& set = sets[s_Data->SetCursor++];

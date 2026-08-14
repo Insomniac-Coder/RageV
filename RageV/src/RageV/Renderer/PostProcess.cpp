@@ -198,7 +198,7 @@ namespace RageV
 		const uint32_t frame = s_Data->Device->GetFrameIndex();
 		auto& sets = s_Data->Sets[frame];
 
-		if (s_Data->SetCursor >= sets.size())
+		while (s_Data->SetCursor >= sets.size())
 			sets.push_back(s_Data->Device->CreateResourceSet(pipeline, 0));
 
 		// A set built against one pipeline layout cannot be bound to another.

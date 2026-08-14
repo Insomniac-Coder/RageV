@@ -21,11 +21,6 @@ namespace RageV
 	// and a history buffer. That is a renderer feature with its own
 	// prerequisites, not a post pass -- and the same motion vectors would then
 	// also buy motion blur and temporal upscaling.
-	//   MSAA is **not selectable yet** -- the value exists and the RHI under
-	//   it is complete, and FrameGraphBuilder refuses it while one crash is
-	//   outstanding. See the note there and ENGINE-NOTES 7q; do not offer it
-	//   in a UI until that flips.
-	//
 	//   MSAA takes several coverage samples per pixel and keeps a depth for
 	//   each, but runs the fragment shader **once**. So geometry edges get
 	//   several levels of coverage for close to the price of one shaded

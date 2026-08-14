@@ -173,7 +173,7 @@ namespace RageV
 					// second environment filtered in the same frame -- a probe after
 					// the sky -- rewrote descriptor sets the command buffer had
 					// already bound, which invalidates it.
-					if (s_Data->SetCursor >= s_Data->Sets.size())
+					while (s_Data->SetCursor >= s_Data->Sets.size())
 						s_Data->Sets.push_back(s_Data->Device->CreateResourceSet(pipeline, 0));
 
 					Ref<RHIResourceSet>& set = s_Data->Sets[s_Data->SetCursor++];

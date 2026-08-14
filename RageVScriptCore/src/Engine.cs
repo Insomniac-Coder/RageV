@@ -797,6 +797,15 @@ public enum AntiAliasing
 	/// <see cref="RenderSettings.SupersampleFactor"/> in fill.
 	/// </summary>
 	Ssaa = 3,
+
+	/// <summary>
+	/// Several coverage samples per pixel, shaded once. Geometry edges get
+	/// several levels of coverage for close to the price of one shaded pixel,
+	/// and shading aliasing gets nothing — a specular highlight is one shaded
+	/// sample either way. Resolves before the tone curve, which is the correct
+	/// place. See <see cref="RenderSettings.MsaaSamples"/>.
+	/// </summary>
+	Msaa = 4,
 }
 
 /// <summary>
@@ -889,6 +898,16 @@ public static unsafe class RenderSettings
 		get => int.TryParse(Get("SupersampleFactor"), out int value) ? value : 1;
 		set => Set("SupersampleFactor",
 				   value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>
+	/// Coverage samples per pixel when <see cref="AntiAliasing"/> is
+	/// <see cref="RageV.AntiAliasing.Msaa"/>. Ignored otherwise, clamped to 1..8.
+	/// </summary>
+	public static int MsaaSamples
+	{
+		get => int.TryParse(Get("MsaaSamples"), out int value) ? value : 4;
+		set => Set("MsaaSamples", value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 	}
 
 	/// <summary>Multiplies the scene before the tone curve. 1 is neutral.</summary>

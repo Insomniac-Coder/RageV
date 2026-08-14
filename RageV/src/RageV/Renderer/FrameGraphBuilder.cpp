@@ -79,27 +79,7 @@ namespace RageV
 		// ENGINE-NOTES 7q. What cannot be hidden is the pipeline state: a
 		// pipeline's sample count has to equal the attachment's, so the
 		// renderers are told before anything is recorded.
-		// **MSAA is groundwork, not a mode yet.** The RHI below it is complete
-		// and verified -- multisampled targets, hardware resolve, both
-		// backends, zero validation lines -- and it is switched off here
-		// because of one unresolved crash rather than shipped half-working.
-		//
-		// The repro is six entities: a camera, a light, a reflection probe and
-		// a particle emitter. Both backends, `vector subscript out of range`
-		// on the first frame, validation silent. Remove either the probe or
-		// the emitter and it runs; SSAA and SMAA on the same scene are fine.
-		//
-		// The shape of it is clear even though the line is not: probe capture
-		// re-renders the whole scene into a target that is not the scene
-		// target, and every renderer holds *one* pipeline set built for *one*
-		// target shape. MSAA is simply the first thing that ever made those
-		// two shapes differ. The fix is a pipeline cache keyed on target shape
-		// -- what PostProcess already does, and what UIRenderer's world layer
-		// now does -- rather than the single slot each renderer keeps.
-		// ENGINE-NOTES 7q.
-		constexpr bool kMsaaEnabled = false;
-
-		const int msaa = (kMsaaEnabled && aa == AntiAliasing::MSAA)
+		const int msaa = aa == AntiAliasing::MSAA
 			? Math::Clamp(config.MsaaOverride > 0 ? config.MsaaOverride
 												  : desc.Environment.MsaaSamples, 1, kMaxMsaaSamples)
 			: 1;

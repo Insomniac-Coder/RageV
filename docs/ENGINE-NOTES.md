@@ -2584,142 +2584,91 @@ sample count MSAA should cost far less than SSAA and score close to it on
 geometry. If it lands near SSAA's *cost*, the fragment shader is running
 per sample and the pipeline state is wrong.
 
-### Where this actually stands
+### What it measured
 
-**The RHI is done and the mode is switched off.** Multisampled targets,
-hardware resolve on both backends, `GetColorTexture` handing out the
-resolve so nothing downstream changed, the sample count reaching every
-pipeline. On a scene of geometry it works and it measures: **coverage
-error 0.1912 → 0.0597 at 43°** against the linear-space ideal, which
-beats SSAA at 2× (0.0648) for four samples against four. Zero validation
-lines on both backends.
+Coverage error against the exact edge, RMS, on the **linear-space** ideal
+— the one MSAA and SSAA can reach, because both resolve before the tone
+curve. Lower is better:
 
-`FrameGraphBuilder` refuses it anyway, because of one crash that is not
-understood yet, and a mode that segfaults is not a mode.
+| Edge | none | FXAA | SMAA | SSAA 2× | MSAA 4× |
+|---|---|---|---|---|---|
+| 8° | 0.1730 | 0.1555 | 0.1006 | 0.0707 | **0.0434** |
+| 43° | 0.1912 | 0.1689 | 0.1156 | 0.0648 | **0.0597** |
+| 47° | 0.1812 | 0.1601 | 0.1099 | **0.0610** | 0.0609 |
+| 77° | 0.2691 | 0.2343 | 0.1565 | 0.0954 | **0.0817** |
 
-**The repro is six entities**: a camera, a light, a reflection probe and a
-particle emitter. Both backends, `vector subscript out of range` on the
-first frame, validation silent — so it is a CPU indexing bug, not a GPU
-state error. Remove *either* the probe or the emitter and it runs. SSAA
-and SMAA on the same scene are fine, and `--msaa=1` is fine.
+And on the fan of thin bars, against a 4× supersampled render (§7p):
+none 6.469, FXAA 5.598, SMAA 4.092, SSAA 2× 2.268, **MSAA 4× 1.932** —
+the closest thing to the reference that is not the reference.
 
-The shape is clear even though the line is not. **Probe capture
-re-renders the entire scene into a target that is not the scene target**,
-and every renderer holds *one* pipeline set built for *one* target shape.
-MSAA is simply the first thing that ever made those two shapes differ —
-the probe face has one colour attachment where the scene target has
-three, and now a different sample count as well.
+**The prediction held, which is the part that matters.** §7q said before
+any of this was measured: at equal sample count MSAA should cost far less
+than SSAA and score close to it, and *if it lands near SSAA's cost the
+fragment shader is running per sample and the pipeline state is wrong*.
+Render graph GPU on the demo scene, one batch:
 
-Four fixes went in on the way and all of them were real:
+| | GPU | over none |
+|---|---|---|
+| none | 0.618 ms | — |
+| MSAA 4× | 0.671 ms | **+0.053** |
+| SMAA | 0.719 ms | +0.101 |
+| SSAA 2× | 1.771 ms | +1.153 |
 
-- the resolve images were not in the pass-end layout transition, so every
-  later pass sampled an image in `COLOR_ATTACHMENT_OPTIMAL`;
+Four coverage samples for **+0.053 ms** against four shaded samples for
++1.153 — twenty-two times cheaper, and better on every angle. It is also
+cheaper than SMAA while beating it, which makes MSAA the mode to reach
+for on anything with a GPU budget, and leaves SMAA as the one that costs
+nothing in memory and works on content MSAA cannot see.
+
+**What MSAA still cannot do** is the whole of what SSAA is for: shading
+aliasing. A specular highlight sparkling across a curved surface is one
+shaded sample under MSAA at any sample count. That is not a gap to close;
+it is the definition of the technique.
+
+### The bug, and the four fixes that were not it
+
+Five hypothesis-driven fixes with one confirmation is the pattern §7m and
+§7n both warn about, and this went four rounds of it before stopping to
+*diagnose* instead. Worth recording in that order, because the four wrong
+turns were all real defects:
+
+- the resolve images were missing from the pass-end layout transition, so
+  every later pass sampled an image still in `COLOR_ATTACHMENT_OPTIMAL`
+  — **validation said so immediately**, which is why this one was cheap;
 - `UIRenderer`'s **world** layer draws inside the scene pass and needs the
-  scene's count, while its screen layer does not;
+  scene's sample count, while its screen layer must not have it;
 - that layer rebuilt its pipeline whenever the count moved, and rebuilding
-  **flushes the batch buffers** — fine at startup, catastrophic mid-frame.
-  It now caches one pipeline per sample count, which is what `PostProcess`
-  has always done;
-- a probe's scratch face has to be rebuilt when the count changes, exactly
-  as it already is when the resolution changes.
+  **flushes the batch buffers**;
+- a probe's scratch face has to follow the count, as it already follows
+  the resolution.
 
-None of them was the crash. **The honest reading is that the single-slot
-pipeline cache is the defect and MSAA only exposed it**, so the next step
-is to key every renderer's pipeline on target shape rather than to keep
-guessing — five hypothesis-driven fixes with one confirmation is the
-pattern §7m and §7n both warn about, and it is where this stopped.
+None of them was the crash. What found it was giving up on hypotheses and
+bisecting: `demo.rage` down to **six entities — a camera, a light, a
+reflection probe and a particle emitter**, both backends, first frame,
+validation silent.
 
----
+The bug was one word:
 
-## 7q. MSAA (7.13): design first
+```cpp
+if   (s_Data->BatchCursor >= batches.size())   // grows the pool by one
+Batch& batch = batches[s_Data->BatchCursor++]; // then indexes the cursor
+```
 
-The last of the four, and the only one that is an *RHI* feature rather
-than a pass. Everything before it worked on images the renderer had
-already finished; this changes how the scene is rasterized.
+`if` is only safe when the cursor is exactly at the end. The pool is
+**cleared whenever the pipelines are rebuilt**, and a rebuild lands
+mid-frame under MSAA: `BuildFrame` sets the sample count *after* a probe
+has already captured six faces and advanced that cursor. Clear the vector,
+add one back, index four — out of range.
 
-**What it actually does, and what it does not.** The rasterizer takes N
-coverage samples per pixel and keeps a depth value for each, but runs the
-fragment shader **once** per pixel per triangle. So geometry edges get N
-levels of coverage for close to the cost of one shaded pixel — and
-shading aliasing gets nothing at all. A specular highlight sparkling on a
-curved surface is one shaded sample either way. That is the whole
-difference from SSAA (§7o), which shades every sample and therefore fixes
-both and costs the square.
+`UIRenderer` already said `while`. Six other pooled-resource sites said
+`if`, and every one of them is now `while`, because the post-condition a
+grow owes its caller is `cursor < size` and only one of those spellings
+guarantees it.
 
-### Where the sample count has to reach
-
-Three places, and the third is the one that bites:
-
-1. **The images.** Vulkan already honours `TextureDesc::Samples` — it has
-   since the field existed. OpenGL ignores it entirely and needs
-   `GL_TEXTURE_2D_MULTISAMPLE`.
-2. **The resolve.** Vulkan uses dynamic rendering, so
-   `VkRenderingAttachmentInfo` carries `resolveImageView` and
-   `resolveMode` directly and the hardware resolves when the pass ends.
-   OpenGL blits between two framebuffers.
-3. **Every pipeline drawn into the target.** `rasterizationSamples` must
-   equal the attachment's count. A mismatch is undefined behaviour rather
-   than an error, which is the worst kind. `Renderer::SetTargetFormats`
-   already fans the colour and depth formats out to all six renderers
-   that draw the scene, so the count goes with them.
-
-### The trick that keeps it out of the frame graph
-
-A multisampled image cannot be read by an ordinary `sampler2D`. Taken
-literally that infects everything downstream — bloom, tone mapping, the
-transparency composite — with a second code path.
-
-It does not have to. **`RHIRenderTarget::GetColorTexture` returns the
-*resolved* image when the target is multisampled**, and the resolve is
-part of ending the pass. Every existing caller keeps saying
-`context.Color(sceneHDR)` and keeps getting something it can sample. The
-frame graph's only change is a number on one target description.
-
-Two consequences worth stating rather than discovering:
-
-- The resolve runs at the end of **every** pass that writes the target,
-  not once at the end of the frame. On the scene target that is up to
-  four resolves where one would do. Correct, wasteful, and measurable —
-  which is the right order to do those in.
-- The multisampled image keeps its contents between passes, so
-  `RGLoad::Preserve` still means what it meant.
-
-### Transparency, which is the reason this is an L
-
-Weighted-blended OIT (§ phase 6) puts its accumulation and revealage
-buffers on the *scene's* target so they share one depth buffer. Under
-MSAA all three colour attachments and the depth become multisampled
-together — there is no mixing sample counts in one pass.
-
-The composite then samples accumulation and revealage. With the rule
-above it samples their *resolved* copies, which is exactly right: it is a
-fullscreen pass with no coverage of its own, so it would write the same
-value to every sample anyway. **Transparency is composited at one sample
-and that is not a compromise** — the alpha it carries is not a coverage
-mask, so there is nothing per-sample about it to preserve.
-
-That also keeps the pass order the frame already has: scene, transparent,
-composite into the multisampled colour, overlay, resolve. A collider
-wireframe still lands over the smoke it describes.
-
-### What has to be true afterwards
-
-MSAA resolves in **linear light, before the tone curve**, exactly as SSAA
-does — so it belongs in the second column of §7o's table, and comparing
-it against the first would repeat the mistake that section documents.
-
-The instruments already exist. Four angles, both backends, flat regions
-untouched, and the fan of thin bars against a 4× supersampled reference
-(§7p) — which is the interesting one, because it is the test where MSAA
-should beat every post filter on geometry and still lose to SSAA on the
-bars' shaded interiors. If it does not, something in the sample count did
-not reach one of the three places above.
-
-**And one prediction worth writing down before measuring**, because it is
-the claim that decides whether MSAA is worth its complexity: at equal
-sample count MSAA should cost far less than SSAA and score close to it on
-geometry. If it lands near SSAA's *cost*, the fragment shader is running
-per sample and the pipeline state is wrong.
+**MSAA did not cause this; it is the first thing that ever cleared a pool
+mid-frame.** Which is the general shape of the whole exercise: the crash
+was in code four years of frames had never stressed, and the new feature
+was the stress.
 
 ---
 

@@ -3038,7 +3038,7 @@ void main()
 		const FieldDesc* aa = RenderSettingsRegistry::Find("AntiAliasing");
 		Check(aa != nullptr, "and anti-aliasing is one of them");
 		Check(aa && aa->Type == FieldType::Enum, "described as a choice, not a number");
-		Check(aa && aa->Hint.EnumCount == 4, "with all four modes named");
+		Check(aa && aa->Hint.EnumCount == 5, "with all five modes named");
 		// An enum crossing as text is read back as int, so a mismatch here is
 		// a stack write past the member rather than a wrong value.
 		Check(aa && aa->Size == sizeof(int),
@@ -7263,6 +7263,16 @@ void main()
 		// output directly. Otherwise tone mapping lands in an intermediate
 		// nothing presents, and a scene saved by a later version opens as a
 		// black window with no error anywhere.
+		// MSAA changes the *shape* of the scene target rather than adding a
+		// pass, so the frame looks exactly like the unfiltered one -- which is
+		// the whole design, and the thing worth asserting.
+		environment.AA = AntiAliasing::MSAA;
+		environment.MsaaSamples = 4;
+		Check(build(1600, 900, environment), "with MSAA it compiles");
+		Check(!hasPass("FXAA") && !hasPass("SMAA") && !hasPass("SSAA resolve"),
+			  "and adds no resolve pass of its own, because the hardware does it");
+		Check(hasPass("Tonemap"), "with tone mapping writing the output directly");
+
 		// SSAA draws the scene larger and resolves it down, so it adds a pass
 		// *before* bloom and skips the one after tone mapping entirely.
 		environment.AA = AntiAliasing::SSAA;
