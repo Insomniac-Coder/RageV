@@ -229,8 +229,17 @@ one non-negotiable is that every layer reads and writes through
 scene serializer is such a list and it has already silently dropped a
 setting (ENGINE-NOTES 7r).
 
-**What to do next:** section 8 -- the per-project game module, which is what
-making the engine a DLL was for.
+**What to do next: roadmap 9.0** -- render and post-processing settings become
+per-project, overridden by two profile assets. Specified 2026-08-14, not yet
+built, and ordered before 9.1-9.7 because each of those adds settings that
+would otherwise land in the wrong home.
+
+Roadmap **phase 8 is not next and is not skipped**: it is the reopened
+non-goals -- GI, bindless, GPU-driven rendering, terrain, navmesh, networking,
+other platforms, XR, FBX, visual scripting, an asset store. Every one is L or
+XL, several are larger than everything built so far, and the roadmap's own
+instruction stands: none of them should be started because it sounds
+interesting. They are proposals, not tasks.
 
 ---
 
@@ -3358,14 +3367,24 @@ way to know which.
 ### Smaller, none blocking
 
 - **Materials as assets**, so two entities can share one from the inspector.
-- **Billboard icons for lights and cameras**, which would also make them
-  clickable — picking tests geometry and they have none.
-- **Per-object reflection probe selection**, replacing the per-scene choice.
-- **SMAA** (`M`) needs two lookup textures vendored. **TAA** (`L`) needs motion
-  vectors first: every mesh carrying its previous transform, a velocity target,
-  a jittered projection and a history buffer. The same motion vectors would
-  then buy motion blur and temporal upscaling, which is the argument for doing
-  it properly rather than cheaply.
+
+Four entries that stood here are done, and two of them were wrong about what
+they needed -- kept as a note rather than deleted, because the errors are the
+useful part:
+
+- **Billboard icons** and **per-object probe selection** shipped as 7.4 and
+  7.7.
+- **SMAA** was listed as needing "two lookup textures vendored". It does not.
+  Its AreaTex answers "what fraction of this pixel did the line cover", which
+  is a trapezoid -- about fifteen lines of arithmetic that a modern GPU runs
+  for less than the dependent texture fetch it replaces. 179 KB of vendored
+  data was avoided by deriving the thing it encodes (ENGINE-NOTES 7n).
+- **TAA** was listed as `L`, needing motion vectors, a jittered projection and
+  a history buffer. All correct, all built, and the estimate was right about
+  the size and wrong about where the difficulty sits: none of the three parts
+  was hard, and every real defect was in *what could see them* -- a check
+  suite that never moved the camera, and a neighbourhood clip that hides
+  reprojection errors wherever the neighbourhood is uniform (7r).
 
 ## 9. Known rough edges
 
