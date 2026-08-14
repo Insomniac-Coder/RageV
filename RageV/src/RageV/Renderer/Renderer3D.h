@@ -74,7 +74,15 @@ namespace RageV
 		// struct copy and no draw calls.
 		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 							 const RHI::Ref<Material>& material,
-							 const MaterialParams& params, uint32_t probe);
+							 const MaterialParams& params, uint32_t probe,
+							 const Mat4* previousTransform = nullptr);
+		// Where this instance was last frame, or null for "it did not move".
+		//
+		// A pointer with a null default rather than a required argument: every
+		// caller that has no idea is telling the truth by saying nothing, and
+		// the answer it gets -- zero velocity -- is the correct one for static
+		// geometry, which is most of a scene. ENGINE-NOTES 7r.
+
 
 		// A mesh a skeleton moves. `bones` is one matrix per bone, already
 		// composed with the inverse binds -- ComposeSkinning produces exactly
@@ -87,7 +95,8 @@ namespace RageV
 		static void DrawSkinnedMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 									const RHI::Ref<Material>& material,
 									const MaterialParams& params,
-									const std::vector<Mat4>& bones, uint32_t probe);
+									const std::vector<Mat4>& bones, uint32_t probe,
+									const Mat4* previousTransform = nullptr);
 
 		// Shared by every mesh that has no material of its own.
 		static RHI::Ref<Material> GetDefaultMaterial();

@@ -1863,18 +1863,20 @@ namespace RageV
 					if (animator && !animator->Skinning.empty())
 					{
 						Renderer3D::DrawSkinnedMesh(resolved, transform.World, material, params,
-													animator->Skinning, probe);
+													animator->Skinning, probe,
+													&transform.PreviousWorld);
 					}
 					else if (const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh))
 					{
 						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
 						Renderer3D::DrawSkinnedMesh(resolved, transform.World, material, params,
-													bind, probe);
+													bind, probe, &transform.PreviousWorld);
 					}
 				}
 				else
 				{
-					Renderer3D::DrawMesh(resolved, transform.World, material, params, probe);
+					Renderer3D::DrawMesh(resolved, transform.World, material, params, probe,
+										 &transform.PreviousWorld);
 				}
 			}
 

@@ -68,6 +68,9 @@ layout(set = 0, binding = 0) uniform SceneData
 struct InstanceData
 {
 	mat4 Model;
+	// Where Model was last frame. The difference between the two projections
+	// of a vertex is its motion vector -- see ENGINE-NOTES 7r.
+	mat4 PreviousModel;
 	// Precomputed on the CPU. It is transpose(inverse(mat3(Model))), which was
 	// being computed per *vertex* -- two 3x3 inversions on every vertex of
 	// every mesh, to produce a value constant across the whole instance.

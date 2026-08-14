@@ -95,6 +95,16 @@ namespace RageV
 		struct InstanceData
 		{
 			Mat4 Model;
+
+			// The same matrix on the previous frame. The difference between
+			// where a vertex projects under the two is the motion vector, and
+			// it belongs per instance for the same reason Model does: two
+			// objects moving differently still batch into one instanced draw.
+			//
+			// Equal to Model for anything that did not move, which is most of
+			// a scene, and produces exactly zero velocity there rather than
+			// something small and wrong.
+			Mat4 PreviousModel;
 			// transpose(inverse(mat3(Model))), as a mat4 because std430 pads a
 			// mat3 to the same size anyway and a mat4 has no surprises in it.
 			// Computed once per instance rather than once per vertex, which is
@@ -117,7 +127,7 @@ namespace RageV
 			// split every time the answer changed.
 			Vec4 Indices{ 0.0f };
 		};
-		static_assert(sizeof(InstanceData) == 192,
+		static_assert(sizeof(InstanceData) == 256,
 					  "Must match InstanceData in include/scene_vertex.glsl");
 
 		// One submitted mesh, held until EndScene can sort them.
@@ -1372,7 +1382,8 @@ namespace RageV
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const Mat4& transform,
 							  const Ref<Material>& material, const MaterialParams& params,
-							  uint32_t probe)
+							  uint32_t probe,
+							   const Mat4* previousTransform)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
@@ -1388,6 +1399,7 @@ namespace RageV
 		draw.MaterialRef = effective;
 
 		draw.Instance.Model = transform;
+		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;
 		// Once per object rather than once per vertex, which is where the
 		// shader was doing it -- an inverse and a transpose of a 3x3 for every
 		// vertex of every mesh, all producing the same matrix.
@@ -1413,7 +1425,8 @@ namespace RageV
 
 	void Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const Mat4& transform,
 									 const Ref<Material>& material, const MaterialParams& params,
-									 const std::vector<Mat4>& bones, uint32_t probe)
+									 const std::vector<Mat4>& bones, uint32_t probe,
+							   const Mat4* previousTransform)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
@@ -1442,6 +1455,7 @@ namespace RageV
 		draw.MaterialRef = effective;
 
 		draw.Instance.Model = transform;
+		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;
 		draw.Instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
 		draw.Instance.BaseColor = params.BaseColor;
 		draw.Instance.EmissiveColor = params.EmissiveColor;
