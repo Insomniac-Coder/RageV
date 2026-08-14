@@ -1,0 +1,113 @@
+// SMAA pass 1 of 3: where are the edges?
+//
+// Writes two flags per pixel into an RG8 target:
+//
+//   .r  there is a discontinuity between me and the pixel to my WEST
+//   .g  there is a discontinuity between me and the pixel to my NORTH
+//
+// Two flags rather than four, because an edge belongs to the pair of pixels
+// either side of it and storing it twice is how the two copies disagree.
+//
+// This runs on the tone-mapped image, like FXAA and for the same reason: it
+// thresholds on perceived brightness, and perceived brightness is what the
+// transfer function produces. Run on linear values it misses edges in dark
+// regions and finds imaginary ones in bright.
+//
+// See docs/ENGINE-NOTES.md section 7n.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Edges;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	// Luma difference below which two pixels are the same colour as far as
+	// this is concerned. Too low and the filter finds edges inside a texture
+	// and softens detail that was meant to be there.
+	float Threshold;
+	// Local contrast adaptation. An edge is kept only if it is at least this
+	// fraction of the strongest edge nearby -- which is what stops a faint
+	// gradient beside a hard silhouette from being treated as a silhouette.
+	float LocalContrast;
+	float Unused;
+	float FlipY;
+} u_Params;
+
+// Rec. 709 luma. The reference uses this rather than the green channel FXAA
+// settles for: FXAA only needs to *find* a contrast, and this has to classify
+// which side of an edge a pixel is on.
+float Luma(vec3 color)
+{
+	return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main()
+{
+	// The destination row this fragment writes and the source row v_UV names
+	// are the same row on OpenGL and opposite rows on Vulkan. See
+	// PostProcess::Dispatch.
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	vec2 texel = u_Params.TexelSize;
+
+	// And the part FXAA never had to care about: *after* that flip, the y axis
+	// still runs opposite ways in sample space. One pixel towards the top of
+	// the image is -texel.y on Vulkan and +texel.y on OpenGL. FXAA treats
+	// north and south identically so it could not tell; this pass writes a
+	// flag that means specifically "north", so it very much can.
+	vec2 up    = vec2(0.0, texel.y * (flip ? -1.0 : 1.0));
+	vec2 right = vec2(texel.x, 0.0);
+
+	float lumaHere  = Luma(texture(u_Source, uv).rgb);
+	float lumaWest  = Luma(texture(u_Source, uv - right).rgb);
+	float lumaNorth = Luma(texture(u_Source, uv + up).rgb);
+
+	vec2 delta = abs(lumaHere - vec2(lumaWest, lumaNorth));
+	vec2 edges = step(vec2(u_Params.Threshold), delta);
+
+	// Most of the frame is not an edge, and everything below costs four more
+	// fetches.
+	//
+	// Writing zero rather than discarding, which is what the reference does
+	// and what this had first. `discard` compiles to OpDemoteToHelperInvocation
+	// under SPIR-V 1.6 -- OpKill is deprecated there -- and that capability
+	// needs a device feature this engine does not enable, so it costs a Vulkan
+	// validation error for the sake of not writing two bytes.
+	if (edges.x + edges.y == 0.0)
+	{
+		o_Edges = vec4(0.0);
+		return;
+	}
+
+	float lumaEast  = Luma(texture(u_Source, uv + right).rgb);
+	float lumaSouth = Luma(texture(u_Source, uv - up).rgb);
+	float lumaWW    = Luma(texture(u_Source, uv - 2.0 * right).rgb);
+	float lumaNN    = Luma(texture(u_Source, uv + 2.0 * up).rgb);
+
+	// The strongest edge in the neighbourhood, on either axis: this pixel's
+	// two, the two on its far sides, and the two one step further out.
+	vec2 strongest = max(delta, abs(lumaHere - vec2(lumaEast, lumaSouth)));
+	strongest = max(strongest, abs(vec2(lumaWest, lumaNorth) - vec2(lumaWW, lumaNN)));
+
+	float local = max(strongest.x, strongest.y);
+	edges *= step(vec2(local), delta * u_Params.LocalContrast);
+
+	o_Edges = vec4(edges, 0.0, 1.0);
+}

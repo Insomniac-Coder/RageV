@@ -94,26 +94,44 @@ void main()
 	float lumaSW = Luma(texture(u_Source, uv + vec2(-texel.x,  texel.y)).rgb);
 	float lumaSE = Luma(texture(u_Source, uv + vec2( texel.x,  texel.y)).rgb);
 
+	// Which way the edge *runs*, from second differences across it.
+	//
+	// A horizontal edge is one whose brightness changes going up and down and
+	// not going left and right -- so it is found by differencing **down the
+	// columns**, and the blend then steps in y. These two were swapped for as
+	// long as this shader has existed, which made FXAA step *along* every
+	// edge instead of across it: on a clean straight edge the two taps either
+	// side are the same colour, so the filter returned the pixel unchanged and
+	// did nothing at all. It only appeared to work because a busy scene has
+	// enough diagonal and broken edges to leave marks anyway. Found by
+	// measuring it against a single straight edge -- see ENGINE-NOTES 7n.
 	float edgeHorizontal =
-		abs(lumaNW - 2.0 * lumaN + lumaNE) +
-		abs(lumaW  - 2.0 * lumaM + lumaE ) * 2.0 +
-		abs(lumaSW - 2.0 * lumaS + lumaSE);
-
-	float edgeVertical =
 		abs(lumaNW - 2.0 * lumaW + lumaSW) +
 		abs(lumaN  - 2.0 * lumaM + lumaS ) * 2.0 +
 		abs(lumaNE - 2.0 * lumaE + lumaSE);
 
+	float edgeVertical =
+		abs(lumaNW - 2.0 * lumaN + lumaNE) +
+		abs(lumaW  - 2.0 * lumaM + lumaE ) * 2.0 +
+		abs(lumaSW - 2.0 * lumaS + lumaSE);
+
 	bool horizontal = edgeHorizontal >= edgeVertical;
 
-	// Step perpendicular to the edge, towards whichever side is more different.
+	// Step perpendicular to the edge, towards whichever side is more different:
+	// that is the side the real edge is on, and a bilinear tap half a pixel
+	// that way is this pixel mixed with it.
 	float luma1 = horizontal ? lumaN : lumaW;
 	float luma2 = horizontal ? lumaS : lumaE;
 
 	float gradient1 = abs(luma1 - lumaM);
 	float gradient2 = abs(luma2 - lumaM);
 
-	float stepLength = horizontal ? texel.y : texel.x;
+	// Negative reaches luma1, because N and W are both sampled at *minus* one
+	// texel above. This was positive, so every edge was stepped towards the
+	// side that matched -- where the tap returns the pixel's own colour and
+	// the whole filter is a no-op. Together with the swapped orientation test
+	// above, that is why FXAA changed nothing at all on a clean straight edge.
+	float stepLength = horizontal ? -texel.y : -texel.x;
 	if (gradient1 < gradient2)
 		stepLength = -stepLength;
 

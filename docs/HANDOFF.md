@@ -1,6 +1,6 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-11.
+**Read this first.** Updated 2026-08-14.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
 finished with, and `main` is pushed.
@@ -64,7 +64,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1294 checks, `exit 0`. Then look at a frame:
+1303 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -80,7 +80,15 @@ python tools/scripts/check_oit.py --config Debug
 
 4/4, `exit 0`.
 
-**Five things that are easy to get wrong here, all learned the hard way:**
+**Six things that are easy to get wrong here, all learned the hard way:**
+
+0. **A default nobody has measured is a default nobody has tested.** FXAA
+   shipped as the default anti-aliasing for a whole roadmap phase with two
+   inverted signs that made it a *complete no-op* on any clean edge. It
+   survived screenshots on both backends, three documents describing it, and
+   a hand-written shader comment explaining the very line that was wrong.
+   What caught it was the first time anything asked it for a number.
+   ENGINE-NOTES §7n.
 
 1. **Run each tool from its own directory.** Assets are staged per target.
 2. **`--validation=on` for *every* verification run, editor included.**
@@ -96,7 +104,15 @@ python tools/scripts/check_oit.py --config Debug
    Vulkan-only bloom flip survived a whole roadmap phase of clean runs, because
    nothing in the scene was bright enough for a mirrored contribution to show.
    `--screenshot` on both and look at them side by side.
-5. **The harness prints `FAIL` in capitals.** A case-insensitive search for
+5. **`discard` costs a Vulkan device feature.** glslang targeting SPIR-V 1.6
+   compiles it to `OpDemoteToHelperInvocation`, because `OpKill` is deprecated
+   there, and that capability needs `shaderDemoteToHelperInvocation` which
+   this engine does not enable. The symptom is one validation line per run,
+   from shader *creation*, so it appears whether or not the shader is ever
+   drawn with. Write the zero and return instead, unless the feature gets
+   turned on deliberately.
+
+6. **The harness prints `FAIL` in capitals.** A case-insensitive search for
    "fail" also matches the word *fails* inside the names of passing checks, and
    returns a count that looks like failures and is not. Match case, and read the
    `OK` line at the end.

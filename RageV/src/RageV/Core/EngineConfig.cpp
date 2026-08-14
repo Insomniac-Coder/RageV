@@ -82,6 +82,25 @@ namespace RageV
 		if (key == "depth-sort" || key == "depthsort")
 			return ParseBool(value, config.DepthSortOpaque);
 
+		if (key == "aa" || key == "anti-aliasing" || key == "antialiasing")
+		{
+			const std::string lowered = ToLower(value);
+			if (lowered == "none" || lowered == "off")
+				config.AAOverride = AntiAliasing::None;
+			else if (lowered == "fxaa")
+				config.AAOverride = AntiAliasing::FXAA;
+			else if (lowered == "smaa")
+				config.AAOverride = AntiAliasing::SMAA;
+			else
+			{
+				RV_CORE_WARN("Unknown anti-aliasing mode '{0}'; expected 'none', 'fxaa' or 'smaa'",
+							 value);
+				return false;
+			}
+			config.HasAAOverride = true;
+			return true;
+		}
+
 		if (key == "project")
 		{
 			config.ProjectPath = value;

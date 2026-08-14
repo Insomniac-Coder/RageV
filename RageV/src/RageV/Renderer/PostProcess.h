@@ -48,6 +48,23 @@ namespace RageV
 						 uint32_t width, uint32_t height, RHI::Format outputFormat,
 						 float contrastThreshold, float relativeThreshold);
 
+		// SMAA, in the three passes it takes. Also on the tone-mapped image,
+		// and for the same reason FXAA is. ENGINE-NOTES 7n.
+
+		// 1: where the discontinuities are, into RG8.
+		static void SmaaEdges(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
+							  uint32_t width, uint32_t height, RHI::Format outputFormat,
+							  float threshold, float localContrast);
+
+		// 2: reconstruct the line each edge belongs to and store its coverage.
+		static void SmaaWeights(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& edges,
+								uint32_t width, uint32_t height, RHI::Format outputFormat);
+
+		// 3: mix each pixel along the axis its coverage came from.
+		static void SmaaBlend(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
+							  const RHI::Ref<RHI::RHITexture>& weights,
+							  uint32_t width, uint32_t height, RHI::Format outputFormat);
+
 		// A straight copy, for when anti-aliasing is off but the chain still
 		// has to land in the target the caller wanted.
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
@@ -59,11 +76,26 @@ namespace RageV
 		// Which shader. Pipelines are cached per (shader, output format),
 		// because the chain writes into an HDR format and then an LDR one, and
 		// a pipeline bakes the format it renders to.
-		enum class Shader { Prefilter, Downsample, Upsample, Tonemap, FXAA, Blit, Count };
+		enum class Shader
+		{
+			Prefilter, Downsample, Upsample, Tonemap, FXAA, Blit,
+			SmaaEdges, SmaaWeights, SmaaBlend,
+			Count
+		};
+
+		// How a binding wants to read its texture.
+		//
+		// Bloom and FXAA sample between texels and want the filter; SMAA's
+		// first two passes address exact texels and its edge and weight maps
+		// are *classifications*, not colours -- a filtered read of a flag
+		// halfway between "edge" and "no edge" is a value that means nothing.
+		enum class Sampling { Linear, Point };
 
 		static void Dispatch(RHI::RHICommandList& cmd, Shader shader, RHI::Format outputFormat,
 							 const RHI::Ref<RHI::RHITexture>& first,
 							 const RHI::Ref<RHI::RHITexture>& second,
-							 const void* params, uint32_t paramSize);
+							 const void* params, uint32_t paramSize,
+							 Sampling firstSampling = Sampling::Linear,
+							 Sampling secondSampling = Sampling::Linear);
 	};
 }

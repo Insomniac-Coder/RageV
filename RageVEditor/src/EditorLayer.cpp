@@ -1981,10 +1981,10 @@ void EditorLayer::DrawRenderSettingsPanel()
 			trackAmbient("Bloom intensity");
 		}
 
-		// Only the modes that exist. Offering SMAA and TAA here and doing
-		// nothing would be worse than not offering them; the roadmap is where
-		// "not yet" belongs.
-		const char* aaModes[] = { "None", "FXAA" };
+		// Only the modes that exist. Offering TAA here and doing nothing would
+		// be worse than not offering it; the roadmap is where "not yet"
+		// belongs.
+		const char* aaModes[] = { "None", "FXAA", "SMAA" };
 		int aa = (int)environment.AA;
 		if (UI::RowCombo("Anti-aliasing",
 		&aa,
@@ -1992,8 +1992,11 @@ void EditorLayer::DrawRenderSettingsPanel()
 		IM_ARRAYSIZE(aaModes),
 		"FXAA is one pass over the tone-mapped image: cheap, no prerequisites, "
 				   "and it softens the picture slightly.\n\n"
-				   "SMAA is sharper for the same idea and needs two precomputed lookup "
-				   "textures vendored in.\n\n"
+				   "SMAA reconstructs the edge instead of guessing at it -- it finds the "
+				   "run of pixels an edge spans, works out which way the real line sloped, "
+				   "and computes the coverage from that. Three passes over two small "
+				   "intermediates, and sharper for it. It has no diagonal pass yet, so a "
+				   "45-degree edge is the one case FXAA can still win.\n\n"
 				   "TAA is better than either and needs motion vectors -- every mesh "
 				   "carrying its previous transform and the renderer writing a velocity "
 				   "target. That is a renderer feature with its own prerequisites, not a "

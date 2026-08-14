@@ -136,7 +136,7 @@ RageV actually needs — deliberately far below Godot in most rows.
 | Tonemapping | Linear/Reinhard/Filmic/ACES/AgX | **ACES, inside the PBR shader** | move to a post pass |
 | Shadows | CSM, cube, PCSS-like blur | ❌ none | CSM directional + cube point + spot |
 | IBL / sky | PBR sky, sky shaders, reflection probes | ❌ flat ambient constant | skybox + irradiance + prefiltered + BRDF LUT |
-| Post chain | bloom, DOF, SSAO, SSR, TAA, FSR2 | ❌ none | HDR target, tonemap, bloom, FXAA |
+| Post chain | bloom, DOF, SSAO, SSR, TAA, FSR2 | ❌ none | HDR target, tonemap, bloom, FXAA, SMAA |
 | GI | SDFGI, VoxelGI, lightmaps | ❌ none | **out of scope** |
 | Culling / instancing | clustered, occlusion | ✅ frustum cull + instancing | occlusion, depth sort |
 | **Scene graph** | Node tree | flat EnTT registry, **no parenting** | parent/child, world transforms |
@@ -302,7 +302,7 @@ written here:
 | # | Item | Size |
 |---|---|---|
 | 3.1 | **Render graph** — declare passes and resources, derive barriers | L | ✅ built smaller: the RHI already tracks layouts, so it owns targets, describes the frame and validates it. See ENGINE-NOTES §6. |
-| 3.2 | HDR target + tonemap/bloom post chain (moves ACES out of the PBR shader) | M | ✅ plus FXAA |
+| 3.2 | HDR target + tonemap/bloom post chain (moves ACES out of the PBR shader) | M | ✅ plus FXAA, and SMAA in 7.9 |
 | 3.3 | Skybox + cubemaps (`TextureType::TextureCube` already exists in the RHI) | M | ✅ three background modes, CPU panorama-to-cube conversion, plus reflection probes (baked and realtime), which were not on this list |
 | 3.4 | **IBL** — irradiance, prefiltered specular, BRDF LUT; replaces the flat ambient term | L | ✅ all three: CPU hemisphere convolution for irradiance, GPU importance-sampled GGX per roughness level, and a CPU-integrated BRDF table checked against its analytic corners |
 | 3.5 | **Shadows** — CSM directional, cube point, spot. Sphere-fit cascades, texel snapping, normal-offset bias (ENGINE-NOTES §5) | XL | ✅ all three types; cascade fitting checked in scenetest rather than by eye; four spot and four point lights cast at once |
@@ -470,8 +470,10 @@ rather than missed.
 | 7.6 | Skinned bounds that cover the animation, not just the bind pose | M | ✅ done 2026-08-13. A box per bone in bone space from one vertex pass, then the union over sampled poses of every clip — conservative, and cheap enough to do at load. All eight corners transformed, since a rotated box's extent is not recoverable from two. Verified on the fox: its animated bounds strictly contain the bind pose and are larger, which is precisely what was culling it early. ENGINE-NOTES §7k |
 | 7.7 | Per-object reflection probe selection, replacing the per-scene choice | M | ✅ done 2026-08-12. One cube array indexed per instance, sky at slot 0; the choice rides in the instance so a run never splits. Not one array per resolution -- that reintroduces a per-draw decision. Also gave probes diffuse light, which they had never had, and found three latent RHI bugs including a Vulkan device feature never enabled |
 | 7.8 | Front-to-back depth sorting for opaque draws | S | ✅ done 2026-08-13. Justified by measurement first, as this row demanded — and the measurement moved the design. **Instances are ordered *within* each batch**, not globally: a global depth sort orders perfectly and dissolves the grouping instancing needs, measuring 0.567 ms against 0.548 for the existing order on 1500 spread-out meshes. Sorting runs alone is not enough either — 200 slabs sharing one mesh are a *single* batch, so it did nothing there. Doing both: **0.32 ms against 33.9 ms** on that scene, a factor of ~100, and 0.546 vs 0.607 on the stress scene with far less variance. Pixel-identical and draw-count-identical on both backends; `--depth-sort=off` and `check_depth_sort.py` keep it measurable. ENGINE-NOTES §7m |
-| 7.9 | SMAA | M |
+| 7.9 | SMAA | M | ✅ done 2026-08-14. Three passes — edges, coverage weights, blend — and **no vendored lookup tables**, which this row said it would need: SMAA's AreaTex answers "what fraction of this pixel did the line cover", and that is a trapezoid, about fifteen lines of arithmetic that a modern GPU runs for less than the dependent texture fetch it replaces. Measured on a scene that is one straight edge at a known angle, so the exact coverage is computable: **coverage error 0.1291 → 0.0210 at 8° and 0.0790 → 0.0082 at 45°**, six to ten times better than no filter and five times better than FXAA, with both backends agreeing to four decimals and zero pixels touched away from the edge. Costs 0.058 ms against FXAA's 0.019 at 1600×900. **The check found FXAA had two inverted signs and had been a complete no-op on any clean edge since it was written** — see below. No diagonal or corner pass; the 45° measurement says neither is needed yet. ENGINE-NOTES §7n |
 | 7.10 | TAA — needs motion vectors first, which also buy motion blur and upscaling | L |
+| 7.12 | SSAA — render larger, box-filter down | S | The only mode here that anti-aliases *shading* rather than geometry: specular sparkle and texture aliasing survive every morphological filter and MSAA both. The render graph already scales targets, so this is a scale on the scene target and a resolve. Costs the square of the factor in fill, which is why it is a quality option and not a default |
+| 7.13 | MSAA | L | The real RHI item: sample counts on textures, render targets and pipelines, plus a resolve attachment and the multisampled depth the scene pass needs. The OIT accumulation attachments share the scene target, so they have to move with it. Unlike the post filters it resolves in *linear* space, before the tone curve, which is the correct place and a visible difference on high-contrast edges |
 | 7.11 | Startup: an import cache, and loading off the main thread | M | ✅ done 2026-08-13. Reported as "Not Responding on launch"; the measurement said `Project::Load` was 0.18s of 4.79s and 3.2s was decoding 198 MB of PNG on the first *draw*. The 7.2 cookers already existed and had one caller — the packager — so the editor re-decoded everything every launch. They now run on import into a git-ignored `<project>/Cache`, keyed on the `.meta` hash with the hash in the filename, so a lookup is a stat. Loading moved to a worker behind a progress screen shared with the runtime; uploads step on the main thread so the bar covers them too. Editor 4.79s → 2.31s warm; first open 17.2s → 4.9s on four workers (capped by memory: one 4K cook holds a 256 MB float mip 0). Found and fixed a live defect on the way: the packager cooked font atlases, block-compressing a distance field. ENGINE-NOTES §7l |
 
 **7.1 and 7.2 are one item wearing two hats.** Packing without a virtual file
@@ -493,7 +495,8 @@ this renderer have measured as worth nothing.
 
 ### Phase 9 — Post processing *(the pass that already exists, extended)*
 
-The chain today is **bloom, ACES tonemap and FXAA**, in `PostProcess`, running
+The chain today is **bloom, ACES tonemap and a choice of FXAA or SMAA**, in
+`PostProcess`, running
 over the linear HDR target before it reaches the swapchain. Everything below
 hangs off that same pass, which is why this is a phase of small items rather
 than a rewrite: the target, the resolve and the tonemap ordering already exist.

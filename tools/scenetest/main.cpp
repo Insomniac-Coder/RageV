@@ -7197,6 +7197,25 @@ void main()
 		// than in an intermediate nobody then presents.
 		Check(hasPass("Tonemap"), "with tone mapping writing the output itself");
 
+		// --- SMAA replaces the one pass with three ------------------------------
+		environment.AA = AntiAliasing::SMAA;
+		Check(build(1600, 900, environment), "with SMAA it compiles");
+		Check(hasPass("SMAA edges"), "finds edges");
+		Check(hasPass("SMAA weights"), "reconstructs their coverage");
+		Check(hasPass("SMAA blend"), "and spends it");
+		Check(!hasPass("FXAA"), "and does not also run FXAA");
+		Check(hasPass("Tonemap"), "still tone mapping first, because both filters "
+								  "threshold on perceived brightness");
+
+		// A mode this build has no pass for must fall back to writing the
+		// output directly. Otherwise tone mapping lands in an intermediate
+		// nothing presents, and a scene saved by a later version opens as a
+		// black window with no error anywhere.
+		environment.AA = (AntiAliasing)99;
+		Check(build(1600, 900, environment), "an unknown anti-aliasing mode compiles");
+		Check(!hasPass("FXAA") && !hasPass("SMAA"), "running neither filter");
+		Check(hasPass("Tonemap"), "with tone mapping writing the output itself");
+
 		environment.AA = AntiAliasing::FXAA;
 
 		// --- a tiny frame --------------------------------------------------------

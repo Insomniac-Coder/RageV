@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "FrameGraphBuilder.h"
 #include "PostProcess.h"
+#include "RageV/Core/EngineConfig.h"
 #include "Renderer.h"
 #include "UIRenderer.h"
 
@@ -212,11 +213,21 @@ namespace RageV
 		}
 
 		// --- tone mapping -------------------------------------------------------
-		const bool wantAA = desc.Environment.AA != AntiAliasing::None && PostProcess::IsReady();
+		//
+		// Resolved to a mode this build actually has a pass for, rather than
+		// tested for "not None". A scene file can name a mode from a later
+		// version, and the failure that causes is silent and total: tone
+		// mapping goes into an intermediate, nothing writes the real output,
+		// and the window is black with no error anywhere.
+		const EngineConfig& config = EngineConfig::Get();
+		const AntiAliasing requested = config.HasAAOverride ? config.AAOverride
+															: desc.Environment.AA;
+		const AntiAliasing aa = PostProcess::IsReady() ? requested : AntiAliasing::None;
+		const bool wantAA = aa == AntiAliasing::FXAA || aa == AntiAliasing::SMAA;
 
-		// With anti-aliasing on, tone mapping lands in an intermediate that
-		// FXAA then reads. FXAA works on perceived brightness, so it has to run
-		// after the transfer function, not before.
+		// With anti-aliasing on, tone mapping lands in an intermediate that the
+		// filter then reads. Both filters work on perceived brightness, so they
+		// have to run after the transfer function, not before.
 		RGResource tonemapped = desc.Output;
 		if (wantAA)
 		{
@@ -230,7 +241,7 @@ namespace RageV
 		{
 			const SceneEnvironment env = desc.Environment;
 			const RGResource bloomSource = bloom;
-			const Format format = wantAA ? desc.OutputFormat : desc.OutputFormat;
+			const Format format = desc.OutputFormat;
 
 			graph.AddPass("Tonemap",
 				[&](RGPassBuilder& builder)
@@ -251,7 +262,7 @@ namespace RageV
 				});
 		}
 
-		if (wantAA)
+		if (aa == AntiAliasing::FXAA)
 		{
 			const RGResource source = tonemapped;
 			const Format format = desc.OutputFormat;
@@ -273,6 +284,85 @@ namespace RageV
 					PostProcess::FXAA(context.Cmd, context.Color(source),
 									  context.Width, context.Height, format,
 									  0.0625f, 0.125f);
+				});
+		}
+		else if (aa == AntiAliasing::SMAA)
+		{
+			const RGResource source = tonemapped;
+			const Format format = desc.OutputFormat;
+
+			// Two intermediates, both full resolution and both small: two
+			// bytes a pixel for the edge flags and four for the weights. They
+			// are 8-bit because what they hold is a classification and a
+			// coverage fraction that never leaves [0, 1/2] -- and because the
+			// pass that reads them is bandwidth bound, not precision bound.
+			RGTargetDesc edgesDesc;
+			edgesDesc.Name = "SMAAEdges";
+			edgesDesc.Color = Format::R8G8_UNORM;
+			edgesDesc.Depth = Format::Undefined;
+			const RGResource edges = graph.CreateTarget(edgesDesc);
+
+			RGTargetDesc weightsDesc;
+			weightsDesc.Name = "SMAAWeights";
+			weightsDesc.Color = Format::R8G8B8A8_UNORM;
+			weightsDesc.Depth = Format::Undefined;
+			const RGResource weights = graph.CreateTarget(weightsDesc);
+
+			// Cleared to zero, and the edge pass *relies* on it: it discards
+			// rather than writing where there is no edge, so the clear value
+			// is what the majority of the frame ends up holding. A clear of
+			// anything else would read as an edge everywhere flat.
+			const Vec4 empty(0.0f, 0.0f, 0.0f, 0.0f);
+
+			graph.AddPass("SMAA edges",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(edges);
+					builder.SetClearColor(empty);
+					builder.Sample(source);
+					builder.DisableDepth();
+				},
+				[source](RGPassContext& context)
+				{
+					// 0.1 of full-range luma is the reference's default for
+					// its quality preset, and 2.0 is its local contrast
+					// factor: an edge survives only if it is at least half
+					// the strongest edge beside it, which is what keeps a
+					// soft gradient next to a hard silhouette from being
+					// treated as one.
+					PostProcess::SmaaEdges(context.Cmd, context.Color(source),
+										   context.Width, context.Height,
+										   Format::R8G8_UNORM, 0.1f, 2.0f);
+				});
+
+			graph.AddPass("SMAA weights",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(weights);
+					builder.SetClearColor(empty);
+					builder.Sample(edges);
+					builder.DisableDepth();
+				},
+				[edges](RGPassContext& context)
+				{
+					PostProcess::SmaaWeights(context.Cmd, context.Color(edges),
+											 context.Width, context.Height,
+											 Format::R8G8B8A8_UNORM);
+				});
+
+			graph.AddPass("SMAA blend",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(desc.Output);
+					builder.Sample(source);
+					builder.Sample(weights);
+					builder.DisableDepth();
+				},
+				[source, weights, format](RGPassContext& context)
+				{
+					PostProcess::SmaaBlend(context.Cmd, context.Color(source),
+										   context.Color(weights),
+										   context.Width, context.Height, format);
 				});
 		}
 

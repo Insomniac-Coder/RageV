@@ -1,0 +1,104 @@
+// SMAA pass 3 of 3: spend the weights.
+//
+// Pass 2 stored each edge's coverage once, on the pixel south or east of it.
+// This gathers the other half from the neighbour, so every pixel ends up with
+// all four of its own numbers:
+//
+//   top     my own .r
+//   bottom  the .g of the pixel below me -- its north edge is my south edge
+//   left    my own .b
+//   right   the .a of the pixel to my right -- its west edge is my east edge
+//
+// Then one axis wins and the pixel is mixed along it. Only one, because a
+// pixel that took coverage from all four sides at a corner would be blended
+// twice for the same geometry.
+//
+// See docs/ENGINE-NOTES.md section 7n.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+layout(set = 0, binding = 1) uniform sampler2D u_Weights;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	float Unused0;
+	float Unused1;
+	float Unused2;
+	float FlipY;
+} u_Params;
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	vec2 texel = u_Params.TexelSize;
+	vec2 up    = vec2(0.0, texel.y * (flip ? -1.0 : 1.0));
+	vec2 east  = vec2(texel.x, 0.0);
+
+	vec4 mine = texture(u_Weights, uv);
+	float top    = mine.r;
+	float left   = mine.b;
+	float bottom = texture(u_Weights, uv - up).g;
+	float right  = texture(u_Weights, uv + east).a;
+
+	vec3 centre = texture(u_Source, uv).rgb;
+
+	// Most of the frame. This has to be an exact passthrough rather than a
+	// blend that happens to weigh nothing -- "anti-aliasing must not touch
+	// what is not an edge" is checked as bit equality against --aa=none, and
+	// that is the property that separates a sharp filter from one quietly
+	// softening the whole image.
+	if (top + bottom + left + right < 1e-5)
+	{
+		o_Color = vec4(centre, 1.0);
+		return;
+	}
+
+	// One axis, the one carrying the stronger coverage.
+	vec2 towardsA, towardsB;
+	float weightA, weightB;
+
+	if (max(top, bottom) >= max(left, right))
+	{
+		towardsA = up;     weightA = top;
+		towardsB = -up;    weightB = bottom;
+	}
+	else
+	{
+		towardsA = -east;  weightA = left;
+		towardsB = east;   weightB = right;
+	}
+
+	// A bilinear tap offset by w towards a neighbour *is* the mix
+	// (1-w)*centre + w*neighbour -- the filter does the interpolation, and w
+	// never exceeds a half so the tap cannot reach past the neighbour.
+	//
+	// Two such taps overlap on the centre, so subtracting it once leaves
+	// exactly (1 - a - b)*centre + a*first + b*second. The reference
+	// normalises the two weights and mixes the taps instead, which is the
+	// same answer whenever one of them is zero -- almost always -- and an
+	// approximation when both are. This costs one more fetch and is the
+	// model evaluated rather than approximated.
+	vec3 first  = texture(u_Source, uv + towardsA * weightA).rgb;
+	vec3 second = texture(u_Source, uv + towardsB * weightB).rgb;
+
+	o_Color = vec4(first + second - centre, 1.0);
+}

@@ -1,0 +1,205 @@
+// SMAA pass 2 of 3: how much of each pixel did the real edge actually cover?
+//
+// This is the pass that makes morphological anti-aliasing different in kind
+// from FXAA. It does not blur an edge it found -- it reconstructs the straight
+// line the rasterizer was approximating, and then computes coverage from it.
+//
+// For a pixel whose north side is an edge:
+//
+//   1. Walk left and right along the run of north-edges it belongs to.
+//   2. At each end of the run, look at the *crossing* edge -- the vertical
+//      discontinuity that stopped it. Which row that sits in says whether the
+//      silhouette stepped up or stepped down there.
+//   3. That gives the line two endpoints, half a pixel above or below the row
+//      boundary. Everything else is the area of a trapezoid.
+//
+// The reference implementation looks step 3 up in a 179 KB texture. It is
+// fifteen lines of arithmetic, and on any current GPU a dependent texture
+// fetch costs more than the arithmetic it replaces. See ENGINE-NOTES 7n.
+//
+// Output, RGBA8, all four in [0, 0.5]:
+//
+//   .r  I blend this much towards the pixel NORTH of me
+//   .g  the pixel north of me blends this much back towards me
+//   .b  I blend this much towards the pixel WEST of me
+//   .a  the pixel west of me blends this much back towards me
+//
+// Two edges, four numbers: an edge is computed once, by the pixel on its
+// south or east side, and both sides of the answer are stored. The blending
+// pass gathers the other half from its neighbour. Computing it twice would
+// mean two searches per edge and two chances to disagree.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Weights;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Edges;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	float Unused0;
+	float Unused1;
+	float Unused2;
+	float FlipY;
+} u_Params;
+
+// How far a run is followed before the filter gives up and treats that end as
+// carrying no slope information. Longer reaches shallower edges and costs a
+// fetch per step -- but only on edge pixels, which are a small part of a frame.
+//
+// A plain point-sampled step rather than the reference's two-at-a-time
+// bilinear trick. That trick is an optimisation, and this repository has been
+// wrong about two "obviously worth it" optimisations already; it gets measured
+// before it gets clever.
+const int kMaxSearchSteps = 16;
+
+// Where the line leaves this end of the run, in pixels either side of the
+// boundary it is crossing.
+//
+//   negative side  the silhouette steps that way, so the line exits half a
+//                  pixel to the negative side: north for a horizontal run,
+//                  west for a vertical one
+//   positive side  the other way
+//   both, or none  no slope information. Both means a hard perpendicular stop
+//                  -- a corner rather than a slope. None means the search hit
+//                  its limit. Either way a flat end is the honest answer.
+float EndHeight(float crossingNegative, float crossingPositive)
+{
+	bool negative = crossingNegative > 0.5;
+	bool positive = crossingPositive > 0.5;
+
+	if (negative == positive)
+		return 0.0;
+
+	return negative ? -0.5 : 0.5;
+}
+
+// The coverage of one pixel by a line that enters the run at height `yStart`
+// and leaves it at `yEnd`, with `d1` pixels of run behind this one and `d2`
+// ahead.
+//
+// Returns (positive side, negative side): how much of this pixel belongs to
+// the other side of the line, and how much of the pixel across the boundary
+// belongs to this one. Exactly one of the two is non-zero unless the line
+// crosses the boundary inside this very pixel.
+vec2 Coverage(float d1, float d2, float yStart, float yEnd)
+{
+	float length = d1 + d2 + 1.0;
+
+	// Where the line enters and leaves *this* pixel. The run spans
+	// [-d1, d2+1] and this pixel is [0, 1] of it.
+	float y0 = mix(yStart, yEnd, d1 / length);
+	float y1 = mix(yStart, yEnd, (d1 + 1.0) / length);
+
+	if (y0 * y1 >= 0.0)
+	{
+		// Both ends the same side of the boundary: one trapezoid, and its
+		// sign says which of the two pixels the sliver belongs to.
+		float area = 0.5 * (y0 + y1);
+		return area >= 0.0 ? vec2(area, 0.0) : vec2(0.0, -area);
+	}
+
+	// The line crosses the boundary inside this pixel, so both pixels get
+	// something: two triangles meeting where it crosses.
+	float crossing = -y0 / (y1 - y0);
+	float first  = 0.5 * y0 * crossing;
+	float second = 0.5 * y1 * (1.0 - crossing);
+
+	return y0 >= 0.0 ? vec2(first, -second) : vec2(second, -first);
+}
+
+void main()
+{
+	// See PostProcess::Dispatch for the flip, and ENGINE-NOTES 7n for why this
+	// pass needs the *direction* as well: after the flip, one pixel towards
+	// the top of the image is still -texel.y on Vulkan and +texel.y on OpenGL,
+	// and every offset below is signed.
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	vec2 texel = u_Params.TexelSize;
+	vec2 up    = vec2(0.0, texel.y * (flip ? -1.0 : 1.0));
+	vec2 right = vec2(texel.x, 0.0);
+
+	vec2 edges = texture(u_Edges, uv).rg;
+	vec4 weights = vec4(0.0);
+
+	// --- the north edge: a horizontal run --------------------------------
+	if (edges.y > 0.5)
+	{
+		float behind = 0.0;
+		for (int i = 1; i <= kMaxSearchSteps; i++)
+		{
+			if (texture(u_Edges, uv - float(i) * right).g <= 0.5)
+				break;
+			behind += 1.0;
+		}
+
+		float ahead = 0.0;
+		for (int i = 1; i <= kMaxSearchSteps; i++)
+		{
+			if (texture(u_Edges, uv + float(i) * right).g <= 0.5)
+				break;
+			ahead += 1.0;
+		}
+
+		// The run covers columns [x - behind, x + ahead]. The vertical edge
+		// that ends it is the west-edge flag of the first column *in* the run
+		// on the left, and of the first column past it on the right.
+		vec2 westEnd = uv - behind * right;
+		vec2 eastEnd = uv + (ahead + 1.0) * right;
+
+		float yStart = EndHeight(texture(u_Edges, westEnd + up).r,
+								 texture(u_Edges, westEnd).r);
+		float yEnd   = EndHeight(texture(u_Edges, eastEnd + up).r,
+								 texture(u_Edges, eastEnd).r);
+
+		weights.rg = Coverage(behind, ahead, yStart, yEnd);
+	}
+
+	// --- the west edge: a vertical run, the same thing rotated ------------
+	if (edges.x > 0.5)
+	{
+		float behind = 0.0;
+		for (int i = 1; i <= kMaxSearchSteps; i++)
+		{
+			if (texture(u_Edges, uv + float(i) * up).r <= 0.5)
+				break;
+			behind += 1.0;
+		}
+
+		float ahead = 0.0;
+		for (int i = 1; i <= kMaxSearchSteps; i++)
+		{
+			if (texture(u_Edges, uv - float(i) * up).r <= 0.5)
+				break;
+			ahead += 1.0;
+		}
+
+		vec2 northEnd = uv + behind * up;
+		vec2 southEnd = uv - (ahead + 1.0) * up;
+
+		float yStart = EndHeight(texture(u_Edges, northEnd - right).g,
+								 texture(u_Edges, northEnd).g);
+		float yEnd   = EndHeight(texture(u_Edges, southEnd - right).g,
+								 texture(u_Edges, southEnd).g);
+
+		weights.ba = Coverage(behind, ahead, yStart, yEnd);
+	}
+
+	o_Weights = weights;
+}

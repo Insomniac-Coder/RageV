@@ -25,6 +25,7 @@
 //   --audio=on|off          open an output device at all
 //   --import-cache=on|off   read and write cooked assets (default on)
 //   --depth-sort=on|off     order opaque batches front to back (default on)
+//   --aa=none|fxaa|smaa     override the scene's anti-aliasing choice
 //   --project=<path>        the .rvproject to open, or a folder containing one
 //   --screenshot=<file>     write a PNG of one frame and exit
 //   --loading-screenshot=<file>  write a PNG of a frame drawn while loading
@@ -37,6 +38,7 @@
 //   --camera=x,y,z,d,yaw,pitch   where the editor camera starts (degrees)
 
 #include "RageV/Renderer/RHI/RHITypes.h"
+#include "RageV/Renderer/Environment.h"
 #include "RageV/Math/Math.h"
 #include <string>
 #include <filesystem>
@@ -150,6 +152,17 @@ namespace RageV
 		// nothing -- which is a valid state the editor shows rather than
 		// pretending it has a project.
 		std::string ProjectPath;
+
+		// Which anti-aliasing filter to use, whatever the scene asked for.
+		//
+		// The same family as --scene and --camera. Comparing two filters means
+		// rendering the identical frame three ways, and the alternative --
+		// editing the scene file between runs -- changes the input as well as
+		// the thing under test. It is also the only way to capture "no
+		// anti-aliasing at all", which is the control every claim here is
+		// measured against.
+		bool         HasAAOverride = false;
+		AntiAliasing AAOverride = AntiAliasing::None;
 
 		// Whether opaque batches are ordered nearest-first before drawing.
 		//

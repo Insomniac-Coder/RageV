@@ -36,7 +36,10 @@ namespace RageV
 				case 2: return "assets/shaders/bloom_upsample.rvshader";
 				case 3: return "assets/shaders/tonemap.rvshader";
 				case 4: return "assets/shaders/fxaa.rvshader";
-				default: return "assets/shaders/blit.rvshader";
+				case 5: return "assets/shaders/blit.rvshader";
+				case 6: return "assets/shaders/smaa_edges.rvshader";
+				case 7: return "assets/shaders/smaa_weights.rvshader";
+				default: return "assets/shaders/smaa_blend.rvshader";
 			}
 		}
 
@@ -44,13 +47,16 @@ namespace RageV
 		{
 			RHIDevice* Device = nullptr;
 
-			std::array<Ref<RHIShader>, 6> Shaders;
+			// One per Shader::Count. Not spelled with the enum because that is
+			// private to PostProcess and this struct is not.
+			std::array<Ref<RHIShader>, 9> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
 			std::map<std::pair<int, Format>, Ref<RHIPipeline>> Pipelines;
 
 			Ref<RHISampler> Sampler;
+			Ref<RHISampler> PointSampler;
 
 			// One set per draw, not one reused: a descriptor set that is
 			// already bound must not be rewritten, and the bloom chain binds a
@@ -99,6 +105,14 @@ namespace RageV
 		sampler.MaxLod = 0.0f;
 		s_Data->Sampler = device.CreateSampler(sampler);
 
+		// SMAA's edge and weight maps hold classifications rather than colours.
+		// Filtering them produces values that are not any of the things they
+		// encode -- half an edge flag is not "half an edge", it is nothing.
+		sampler.MinFilter = FilterMode::Nearest;
+		sampler.MagFilter = FilterMode::Nearest;
+		sampler.Mipmap = MipmapMode::Nearest;
+		s_Data->PointSampler = device.CreateSampler(sampler);
+
 		{
 			TextureDesc desc;
 			desc.Width = 1;
@@ -118,7 +132,7 @@ namespace RageV
 		// and the errors above scroll past. Announcing readiness anyway is how
 		// a broken post chain looks like a working one that draws nothing.
 		if (ok)
-			RV_CORE_INFO("PostProcess ready (bloom, ACES tonemap, FXAA)");
+			RV_CORE_INFO("PostProcess ready (bloom, ACES tonemap, FXAA, SMAA)");
 		else
 			RV_CORE_ERROR("PostProcess unavailable; the frame will not be tone mapped");
 	}
@@ -141,7 +155,8 @@ namespace RageV
 
 	void PostProcess::Dispatch(RHICommandList& cmd, Shader shader, Format outputFormat,
 							   const Ref<RHITexture>& first, const Ref<RHITexture>& second,
-							   const void* params, uint32_t paramSize)
+							   const void* params, uint32_t paramSize,
+							   Sampling firstSampling, Sampling secondSampling)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -192,13 +207,18 @@ namespace RageV
 		if (!set)
 			set = s_Data->Device->CreateResourceSet(pipeline, 0);
 
-		set->SetTexture(0, first, s_Data->Sampler);
+		const auto samplerFor = [](Sampling sampling)
+		{
+			return sampling == Sampling::Point ? s_Data->PointSampler : s_Data->Sampler;
+		};
+
+		set->SetTexture(0, first, samplerFor(firstSampling));
 
 		// Only when the shader actually declares a second binding. Writing one
 		// it does not have is not a harmless extra -- the layout has a single
 		// binding, so the write is out of range and the driver takes it badly.
 		if (second)
-			set->SetTexture(1, second, s_Data->Sampler);
+			set->SetTexture(1, second, samplerFor(secondSampling));
 
 		set->Commit();
 
@@ -291,6 +311,42 @@ namespace RageV
 		params.A = contrastThreshold;
 		params.B = relativeThreshold;
 		Dispatch(cmd, Shader::FXAA, outputFormat, source, nullptr, &params, sizeof(params));
+	}
+
+	void PostProcess::SmaaEdges(RHICommandList& cmd, const Ref<RHITexture>& source,
+								uint32_t width, uint32_t height, Format outputFormat,
+								float threshold, float localContrast)
+	{
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u), 1.0f / (float)Math::Max(height, 1u) };
+		params.A = threshold;
+		params.B = localContrast;
+		// Point: every tap is a whole number of texels away, so filtering
+		// would only add rounding.
+		Dispatch(cmd, Shader::SmaaEdges, outputFormat, source, nullptr, &params, sizeof(params),
+				 Sampling::Point);
+	}
+
+	void PostProcess::SmaaWeights(RHICommandList& cmd, const Ref<RHITexture>& edges,
+								  uint32_t width, uint32_t height, Format outputFormat)
+	{
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u), 1.0f / (float)Math::Max(height, 1u) };
+		Dispatch(cmd, Shader::SmaaWeights, outputFormat, edges, nullptr, &params, sizeof(params),
+				 Sampling::Point);
+	}
+
+	void PostProcess::SmaaBlend(RHICommandList& cmd, const Ref<RHITexture>& source,
+								const Ref<RHITexture>& weights,
+								uint32_t width, uint32_t height, Format outputFormat)
+	{
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u), 1.0f / (float)Math::Max(height, 1u) };
+		// The colour is read *between* texels -- that offset tap is where the
+		// blending actually happens, and the filter is what performs it. The
+		// weights beside it are read exactly.
+		Dispatch(cmd, Shader::SmaaBlend, outputFormat, source, weights, &params, sizeof(params),
+				 Sampling::Linear, Sampling::Point);
 	}
 
 	void PostProcess::Blit(RHICommandList& cmd, const Ref<RHITexture>& source, Format outputFormat)

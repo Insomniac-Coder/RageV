@@ -6,23 +6,26 @@ namespace RageV
 {
 	// How the image is anti-aliased.
 	//
-	// Only two of these are real today. The other two are named because the
-	// choice is worth being explicit about and because what each *needs* is
-	// the useful part:
+	//   FXAA looks at one pixel's neighbourhood and guesses. One pass, no
+	//   prerequisites, and it softens the picture slightly -- which is its
+	//   well-known cost and the reason it was first rather than best.
 	//
-	//   SMAA needs two precomputed lookup textures -- an area table and a
-	//   search table -- vendored into the repository, and three passes rather
-	//   than one. Sharper than FXAA for the same idea.
+	//   SMAA reconstructs the silhouette instead: it finds the run of pixels
+	//   an edge spans, works out which way the real line sloped, and computes
+	//   the coverage the rasterizer should have produced. Three passes over
+	//   two small intermediates, and sharper for it. ENGINE-NOTES 7n.
 	//
-	//   TAA needs motion vectors, which means every mesh carrying its previous
-	//   world transform and the renderer writing a velocity target, plus a
-	//   jittered projection and a history buffer. That is a renderer feature
-	//   with its own prerequisites, not a post pass -- and the same motion
-	//   vectors would then also buy motion blur and temporal upscaling.
+	// TAA is named in the roadmap and absent here on purpose: it needs motion
+	// vectors, which means every mesh carrying its previous world transform
+	// and the renderer writing a velocity target, plus a jittered projection
+	// and a history buffer. That is a renderer feature with its own
+	// prerequisites, not a post pass -- and the same motion vectors would then
+	// also buy motion blur and temporal upscaling.
 	enum class AntiAliasing : uint32_t
 	{
 		None = 0,
 		FXAA = 1,
+		SMAA = 2,
 	};
 
 	// What fills the pixels no geometry covers.

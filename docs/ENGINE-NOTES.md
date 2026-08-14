@@ -2025,6 +2025,201 @@ independent variable actually moved before believing it.**
 
 ---
 
+## 7n. SMAA (7.9): the algorithm, minus the lookup tables
+
+FXAA looks at one pixel's neighbourhood and guesses. Morphological
+anti-aliasing does something categorically different: it **reconstructs
+the silhouette**. It finds the run of pixels a near-horizontal edge
+spans, works out from the ends of that run which way the real line was
+sloping, and computes how much of each pixel the line actually covered.
+That is why it is sharper — it is not blurring an edge it found, it is
+computing the coverage the rasterizer should have produced.
+
+Three passes, and they are cheap for a reason worth stating: **only edge
+pixels do any work.** The first pass rejects the flat majority of the
+frame, and the second runs a search only where the first found
+something.
+
+| Pass | Reads | Writes | What it decides |
+|---|---|---|---|
+| Edges | the tone-mapped image | RG8 | is there a discontinuity on my west side, on my north side |
+| Weights | the edge map | RGBA8 | given the run this edge belongs to, what fraction of each pixel the true line covered |
+| Blend | the image + the weights | the output | two bilinear taps, offset by those fractions |
+
+Like FXAA this runs **after** the tone curve, for the same reason: it
+thresholds on perceived brightness, and perceived brightness is what the
+transfer function produces.
+
+### The deviation: no AreaTex, no SearchTex
+
+Reference SMAA ships two precomputed lookup textures, and the ROADMAP
+row for 7.9 said this would need them vendored in. It does not, and the
+reason is worth recording because it is the same reason twice.
+
+**AreaTex** answers "given a run of length *L*, my position in it, and
+how the line terminates at each end, what fraction of my pixel is
+covered?" That is a **trapezoid area**, and it is about fifteen lines of
+arithmetic:
+
+```
+L  = d1 + d2 + 1                  // run length in pixels
+y0 = yLeft + (yRight - yLeft) * d1     / L    // where the line enters this pixel
+y1 = yLeft + (yRight - yLeft) * (d1+1) / L    // and where it leaves
+```
+
+with `yLeft`/`yRight` ∈ {−½, 0, +½} read off the crossing edges. If `y0`
+and `y1` share a sign the coverage is the trapezoid `(y0+y1)/2`; if they
+do not, the line crosses inside the pixel and the two triangles either
+side of the crossing are the two weights. Sign says which neighbour the
+coverage belongs to: **negative means the line sits above the row
+boundary, so the pixel above is the one that is partly covered.**
+
+A 179 KB table exists to avoid that arithmetic on 2008 hardware. On
+anything current a dependent texture fetch costs more than the maths it
+replaces, and the table costs a blob in the repository whose contents
+nobody in this project can check.
+
+**SearchTex** is an acceleration for the run search: it lets one
+bilinear tap cover two pixels and still resolve which of the two ended
+the run. That ambiguity only exists in the general case. Searching
+outward from a known edge, **the run is contiguous by construction** —
+if a two-pixel tap averages ½, the nearer one is the edge and the
+further one is not, because the other way round is not reachable. So
+the table answers a question this loop cannot ask.
+
+The v1 search is a plain point-sampled loop anyway, 16 steps each way,
+because the two-at-a-time version is an optimisation and this repository
+has been wrong about two "obviously worth it" optimisations already. It
+gets measured before it gets clever.
+
+What this costs, honestly: the areas are computed to float precision
+rather than quantised to the table's 8 bits, so **this will not match a
+reference SMAA implementation pixel for pixel.** It is not trying to. It
+is trying to be the algorithm, legibly.
+
+### The trap this feature has that FXAA did not: y is not the same way up
+
+`PostProcess::Dispatch` already fills a `FlipY` push constant, because a
+fullscreen pass reads a texture and writes a framebuffer and the two
+backends do not agree on which end of the image row zero is. For every
+pass so far that was the whole story — flip the sample coordinate and
+the image comes out the right way up.
+
+**That is not sufficient here, and the reason is subtle.** After the
+flip, a fragment at the top of the destination does read the top of the
+source, on both backends. What differs is the *direction* the y axis
+runs in sample space: to move one pixel towards the top of the image you
+add `−texel.y` on Vulkan and `+texel.y` on OpenGL.
+
+FXAA never noticed because FXAA is symmetric — it treats north and south
+identically, so getting them the wrong way round changes nothing. This
+filter is not symmetric anywhere. `edges.g` means *specifically* "there
+is a discontinuity between me and the pixel above me", the weight pass
+searches perpendicular to that, and the blend pass offsets towards one
+named neighbour. Get the direction wrong on one backend and the image
+still looks anti-aliased — every edge is simply smoothed towards the
+wrong side by half a pixel.
+
+So the shaders take a `DirY` of ±1 and every vertical offset is
+multiplied by it. And the acceptance test is built on exactly this:
+**the two backends must agree**, on a scene chosen to have edges at
+angles where being off by one row is visible. A silent half-pixel shift
+is the failure mode, and only a cross-backend diff catches it.
+
+### The acceptance test, which is a measurement rather than a look
+
+Three claims, three pieces of evidence, all in `check_smaa.py` against a
+scene that is one straight edge at a known angle (`make_aa_scene.py`):
+
+1. **It must not touch what is not an edge.** Bit-identical to
+   `--aa=none` more than four pixels out. Exact, not a tolerance.
+2. **Both backends must agree.** The `DirY` check above.
+3. **It must actually straighten edges.** The scene's geometry is known,
+   so the exact coverage of every pixel is computable, and the metric is
+   the RMS error against it.
+
+**And the measurement carries its own control.** With no filter, every
+pixel is wholly one side or the other, so the column sums are a
+staircase — and a staircase's deviation from the line it approximates is
+the uniform quantisation error, **1/√12 = 0.2887 px at any angle**. The
+unfiltered image measures 0.2885. A measurement that does not reproduce
+a number known in advance is not evidence of anything, and that is the
+lesson §7m paid for.
+
+### The numbers (2026-08-14, Release, 1600×900, RTX 5070 Ti Laptop)
+
+Coverage error against the exact edge, RMS, lower better:
+
+| Edge | none | FXAA | SMAA |
+|---|---|---|---|
+| 8° | 0.1291 | 0.1072 | **0.0210** (6.1× none, 5.1× FXAA) |
+| 45° | 0.0790 | 0.0454 | **0.0082** (9.6× none, 5.5× FXAA) |
+
+Vulkan and OpenGL agree to four decimal places on every one of those, and
+**0 of 1,427,200 pixels** away from the edge were touched.
+
+Cost, as the render graph's own GPU span on the demo scene, three runs
+each: 0.440 ms with no filter, 0.459 with FXAA, **0.498 with SMAA**. So
+SMAA costs 0.058 ms against FXAA's 0.019 — three passes for three times
+the price, which is the least surprising result here.
+
+**The 45° answer settles the open question.** The design above expected
+the orthogonal-only version to be weakest exactly where FXAA is
+strongest, and said the measurement would decide whether a diagonal pass
+was needed. It is not: on a straight 45° edge the run is one pixel long,
+both ends carry a crossing edge, and the two-triangle case in `Coverage`
+lands on the right answer. What the diagonal pass buys is *diagonal
+staircases on small features*, which this scene does not have — so it
+stays unwritten, and unclaimed.
+
+**Corner detection is also absent.** Reference SMAA attenuates the weight
+near a sharp 90° corner so it does not get rounded off; without it, the
+"both ends step the same way" pattern reconstructs as a flat line half a
+pixel off and over-blends a short run. Ten lines when a case is found
+that shows it.
+
+### What this found in FXAA, which is the more useful result
+
+Measuring SMAA against FXAA needs FXAA to work. It did not.
+
+The check said FXAA changed **zero pixels** on a clean straight edge, on
+both backends. Two candidate explanations — the pass never ran, or it ran
+and did nothing — and they are not distinguishable by staring. The
+control was to make the FXAA shader write pure red: 0.22% of the frame
+came back red, about 3,200 pixels, which is exactly the two rows either
+side of a 1600-pixel edge. **So it ran, on precisely the right pixels,
+and returned every one of them unchanged.**
+
+Two independent sign errors, both of which had been there since the
+shader was written:
+
+- **The orientation test was inverted.** `edgeHorizontal` was built from
+  second differences *along rows*, which detects a **vertical** edge, and
+  `edgeVertical` from differences down columns. So every edge was
+  classified as the opposite of what it was.
+- **The step direction was inverted.** `N` and `W` are sampled at *minus*
+  one texel, so reaching the more-different neighbour needs a negative
+  step; the code started positive and flipped only when the *other* side
+  was more different.
+
+Either alone is a wrong-looking blur. Together they are a no-op: the
+filter stepped along the edge instead of across it, where the two taps
+either side are the same colour, so the bilinear tap returned the pixel
+itself. It only ever appeared to work because a busy scene has enough
+broken and diagonal edges to leave marks anyway — which is exactly how it
+survived a phase of screenshots.
+
+Repaired, FXAA is worth 1.2× at 8° and 1.7× at 45°. That is a plausible
+figure for FXAA, and it is now a figure rather than an assumption.
+
+**The general lesson is the mirror of §7m's.** There the trap was
+believing a null result; here it was that a feature which had shipped,
+been screenshotted on two backends, and been described in three
+documents had never once been asked to produce a number. **A default
+nobody has measured is a default nobody has tested.**
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
