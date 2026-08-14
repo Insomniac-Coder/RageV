@@ -234,12 +234,16 @@ per-project, overridden by two profile assets. Specified 2026-08-14, not yet
 built, and ordered before 9.1-9.7 because each of those adds settings that
 would otherwise land in the wrong home.
 
-Roadmap **phase 8 is not next and is not skipped**: it is the reopened
-non-goals -- GI, bindless, GPU-driven rendering, terrain, navmesh, networking,
-other platforms, XR, FBX, visual scripting, an asset store. Every one is L or
-XL, several are larger than everything built so far, and the roadmap's own
-instruction stands: none of them should be started because it sounds
-interesting. They are proposals, not tasks.
+Roadmap **phase 8 is open work, not excluded** -- GI, bindless, GPU-driven
+rendering, terrain, navmesh, networking, other platforms, XR, FBX, visual
+scripting, an asset store. They were §7 non-goals and were *reopened at the
+owner's direction*; nobody has ruled any of them out. What the roadmap adds is
+a price tag, not a veto: every one is L or XL and several are larger than
+everything built so far, so each wants a deliberate decision rather than being
+picked up because it sounds interesting. 8.2 is the one that is a decision
+about the engine rather than a feature -- descriptor indexing is core in
+Vulkan 1.2 and OpenGL 4.5 has no equivalent, so it means either dropping
+OpenGL or maintaining two binding models.
 
 ---
 
