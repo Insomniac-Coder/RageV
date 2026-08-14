@@ -2911,6 +2911,54 @@ motion rather than the background's — is a known improvement and
 deliberately absent. It needs the scene's depth sampled by the resolve,
 and it is a refinement of something not yet verified.
 
+### The defect none of this caught, and why
+
+Everything above was measured, on both backends, against computed ideals.
+All of it passed. And the feature was still broken in a way anybody
+using the editor would hit in the first minute: **changing the
+anti-aliasing mode while the application is running corrupted the
+frame.** Dark and enormously bloomed on Vulkan; on OpenGL, a mirrored
+ghost of another image behind the scene.
+
+One cause. `PostProcess` pools its descriptor sets by *position* — slot
+four is whichever dispatch happens to be fourth — and the shaders here
+do not share a binding layout: most declare one texture, tone mapping
+and SMAA's blend declare two, the temporal resolve declares three. The
+number of passes before tone mapping depends on the mode, so on the
+frame the mode changes, slot four is a different shader than it was, and
+a set built for a one-texture layout is handed to a two-texture one. It
+silently drops the binding the old layout did not have. Tone mapping
+loses its bloom texture and samples whatever is still bound there.
+
+The code carried a comment saying the set "is rebuilt when the pipeline
+it was made for is not this one". It did not do that. The comment
+described the intent and the code implemented `if (!set)`. A comment is
+not a test.
+
+**Why every check missed it.** Each one starts the application in a
+mode, renders, and exits. `check_smaa.py` runs six modes — as six
+separate processes. `check_taa_jitter.py` runs twenty-six — all of them
+separate processes. The pooled state that breaks only exists *within*
+one process, across a change. Nothing in this repository had ever
+changed a render setting while running, so a whole class of state
+transitions had no coverage at all, and the number of checks said
+nothing about it.
+
+`CheckAntiAliasingSwitch` now renders every ordered pair of the six
+modes into a real frame through one pool, and counts warnings. Verified
+the way a check has to be: **reverted the fix, and watched it fail with
+48 warnings** — because a check that has never failed is a check nobody
+has tested.
+
+Two smaller things fell out of the same report. The dropdown recorded no
+undo command, so choosing a mode was invisible to the save system — the
+scene was never marked changed, nothing prompted, nothing saved, and the
+next launch read FXAA out of the file. And a switch between backends is
+a *restart*, which is why it looked as though the backend was resetting
+the filter: it was, by reloading the scene. The mode is now written to
+`ragev.ini` on the click, beside vsync and the backend, which are the
+same kind of judgement — about this machine rather than about the scene.
+
 ### A near-miss worth more than the feature
 
 The way to prove a change is inert is to render the same frame with the

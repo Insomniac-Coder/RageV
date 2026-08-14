@@ -45,6 +45,15 @@ namespace RageV
 			}
 		}
 
+		// One pooled descriptor set, and the pipeline it was built for.
+		struct PooledSet
+		{
+			Ref<RHIResourceSet> Set;
+			// Compared, never dereferenced. Raw because the pipeline is owned
+			// by the pipeline map and outlives the pool.
+			const RHIPipeline*  Pipeline = nullptr;
+		};
+
 		struct PostData
 		{
 			RHIDevice* Device = nullptr;
@@ -64,7 +73,25 @@ namespace RageV
 			// already bound must not be rewritten, and the bloom chain binds a
 			// different source a dozen times in a frame. Pooled per frame in
 			// flight and reset by BeginFrame.
-			std::vector<std::vector<Ref<RHIResourceSet>>> Sets;
+			//
+			// **Paired with the pipeline it was built for**, and that is not
+			// bookkeeping -- it is the whole correctness of the pool. A set
+			// knows its pipeline's binding layout, and the shaders here do not
+			// all have the same one: most declare a single texture, tone
+			// mapping and SMAA's blend declare two, the temporal resolve
+			// declares three. Slot 4 of the pool is whichever dispatch happens
+			// to be fourth, and *that changes when the anti-aliasing mode
+			// changes*, because the modes contribute different numbers of
+			// passes.
+			//
+			// Reused across a layout change, a set silently drops every
+			// binding the old layout did not have -- so tone mapping loses its
+			// bloom texture and samples whatever is still bound in its place.
+			// The symptom is a dark scene with enormous bloom, and it appears
+			// only when somebody switches mode with the application running,
+			// which is why every check here missed it: they each start in one
+			// mode and exit.
+			std::vector<std::vector<PooledSet>> Sets;
 			uint32_t SetCursor = 0;
 
 			// Stands in for the bloom texture when bloom is off. The tonemap
@@ -201,14 +228,25 @@ namespace RageV
 		auto& sets = s_Data->Sets[frame];
 
 		while (s_Data->SetCursor >= sets.size())
-			sets.push_back(s_Data->Device->CreateResourceSet(pipeline, 0));
+			sets.push_back({});
 
-		// A set built against one pipeline layout cannot be bound to another.
-		// The layouts here are identical in shape, but the handle is not, so
-		// the set is rebuilt when the pipeline it was made for is not this one.
-		Ref<RHIResourceSet>& set = sets[s_Data->SetCursor++];
-		if (!set)
-			set = s_Data->Device->CreateResourceSet(pipeline, 0);
+		// A set built against one pipeline layout cannot serve another, and
+		// the layouts here are *not* all the same shape -- see PooledSet.
+		// Rebuilt when the slot holds a set made for a different pipeline,
+		// which is what happens on the frame the anti-aliasing mode changes.
+		//
+		// Safe to replace here: the pool is per frame in flight, and the
+		// cursor is reset by BeginFrame, which runs after the fence for this
+		// frame index has been waited on. Nothing in flight still refers to
+		// the set being dropped.
+		PooledSet& slot = sets[s_Data->SetCursor++];
+		if (!slot.Set || slot.Pipeline != pipeline.get())
+		{
+			slot.Set = s_Data->Device->CreateResourceSet(pipeline, 0);
+			slot.Pipeline = pipeline.get();
+		}
+
+		const Ref<RHIResourceSet>& set = slot.Set;
 
 		const auto samplerFor = [](Sampling sampling)
 		{

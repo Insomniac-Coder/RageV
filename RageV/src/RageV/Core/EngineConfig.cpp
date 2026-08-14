@@ -407,6 +407,34 @@ namespace RageV
 		return SaveSetting("vsync", enabled ? "on" : "off");
 	}
 
+	void EngineConfig::SetAntiAliasingOverride(AntiAliasing aa)
+	{
+		// The storage directly, rather than casting the const off what Get
+		// hands out. Same object either way; this one does not require the
+		// reader to check whether it is defined behaviour.
+		s_Config.AAOverride = aa;
+		s_Config.HasAAOverride = true;
+	}
+
+	bool EngineConfig::SaveAntiAliasingPreference(AntiAliasing aa)
+	{
+		// The same names --aa= takes, so the file and the flag are one
+		// vocabulary rather than two that have to be kept in step.
+		const char* name = "fxaa";
+		switch (aa)
+		{
+			case AntiAliasing::None: name = "none"; break;
+			case AntiAliasing::FXAA: name = "fxaa"; break;
+			case AntiAliasing::SMAA: name = "smaa"; break;
+			case AntiAliasing::SSAA: name = "ssaa"; break;
+			case AntiAliasing::MSAA: name = "msaa"; break;
+			case AntiAliasing::TAA:  name = "taa";  break;
+			default: return false;   // a mode from a later version
+		}
+
+		return SaveSetting("aa", name);
+	}
+
 	bool EngineConfig::SaveSetting(const std::string& key, const std::string& value)
 	{
 		std::error_code ec;

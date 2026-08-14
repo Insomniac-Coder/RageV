@@ -17,6 +17,10 @@
 //     scenetest [--rhi=vulkan|opengl]
 #include <rvpch.h>
 #include "RageV/Core/Log.h"
+// For the counting sink in CheckAntiAliasingSwitch. Test-side only: the
+// engine did not have to grow a hook for a check to watch its warnings.
+#include "spdlog/sinks/base_sink.h"
+#include <atomic>
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Scene/Scene.h"
@@ -3192,6 +3196,125 @@ void main()
 				&& unmoved[column].w == projection[column].w;
 		}
 		Check(identical, "and no offset at all leaves the projection bit-identical");
+	}
+
+	// Changing the anti-aliasing mode with the application running.
+	//
+	// This is the check that was missing, and its absence cost a user-visible
+	// defect that every other check here walked straight past: they each start
+	// in one mode, render, and exit. Nothing switched.
+	//
+	// The post-process pass sequence is a different *shape* per mode -- FXAA
+	// adds one pass, SMAA three, TAA one with three texture bindings instead
+	// of one -- and the descriptor sets are pooled by position. Slot four is
+	// whichever dispatch happens to be fourth, so on the frame the mode
+	// changes, a set built for one pipeline's layout is handed to another's.
+	// Reused that way it silently drops every binding the old layout did not
+	// have, and tone mapping loses its bloom texture: a dark scene with
+	// enormous bloom on Vulkan, and a ghost of some other image behind the
+	// scene on OpenGL.
+	//
+	// Detected by counting warnings, because that is what the RHI does when a
+	// set is asked for a binding its pipeline does not have. Backend-specific
+	// in where it fires and not in what it means.
+	void CheckAntiAliasingSwitch()
+	{
+		if (!Renderer::HasDevice() || !PostProcess::IsReady())
+			return;
+
+		// A sink on the core logger, for the duration of this check. Nothing
+		// in the engine had to grow a hook for it.
+		struct CountingSink : spdlog::sinks::base_sink<std::mutex>
+		{
+			std::atomic<int> Warnings{ 0 };
+		protected:
+			void sink_it_(const spdlog::details::log_msg& message) override
+			{
+				if (message.level >= spdlog::level::warn)
+					Warnings++;
+			}
+			void flush_() override {}
+		};
+
+		auto counter = std::make_shared<CountingSink>();
+		auto& sinks = Log::GetCoreLogger()->sinks();
+		sinks.push_back(counter);
+
+		RenderGraph graph(Renderer::GetDevice());
+		TemporalHistory history;
+
+		auto renderOnce = [&](AntiAliasing aa)
+		{
+			// Resets the descriptor-set cursor, which is what makes the next
+			// frame reuse slot 0, slot 1, slot 2 ... exactly as a real frame
+			// does. Without it every dispatch would take a fresh slot and the
+			// defect this is looking for could not happen.
+			PostProcess::BeginFrame();
+
+			graph.Begin(320, 200);
+
+			RGTargetDesc output;
+			output.Name = "SwitchOutput";
+			output.Color = RHI::Format::R8G8B8A8_UNORM;
+			output.Depth = RHI::Format::Undefined;
+
+			SceneEnvironment environment;
+			environment.AA = aa;
+			// On, so tone mapping binds a real bloom texture rather than the
+			// black stand-in -- the binding that goes missing is this one.
+			environment.BloomEnabled = true;
+
+			FrameDesc frame;
+			frame.Output = graph.CreateTarget(output);
+			frame.Width = 320;
+			frame.Height = 200;
+			frame.Environment = environment;
+			frame.OutputFormat = RHI::Format::R8G8B8A8_UNORM;
+			frame.DrawScene = [](RGPassContext&) {};
+			frame.History = &history;
+
+			BuildFrame(graph, frame);
+
+			if (!graph.Compile())
+				return false;
+
+			Renderer::GetDevice().ExecuteImmediate([&](RHI::RHICommandList& cmd)
+			{
+				graph.Execute(cmd);
+			});
+			return true;
+		};
+
+		// Every ordered pair of modes, so no single ordering can be the one
+		// that happens to work. Each mode is rendered twice in a row as well,
+		// which is the case that always worked and is worth keeping honest.
+		const AntiAliasing modes[] = { AntiAliasing::None, AntiAliasing::FXAA,
+									   AntiAliasing::SMAA, AntiAliasing::SSAA,
+									   AntiAliasing::MSAA, AntiAliasing::TAA };
+
+		bool compiled = true;
+		for (AntiAliasing from : modes)
+		{
+			for (AntiAliasing to : modes)
+			{
+				compiled = renderOnce(from) && compiled;
+				compiled = renderOnce(to) && compiled;
+			}
+		}
+
+		Check(compiled, "every anti-aliasing mode compiles and executes a real frame");
+
+		const int warnings = counter->Warnings.load();
+		Check(warnings == 0,
+			  "and switching between any two of them logs nothing -- a pooled "
+			  "descriptor set reused across two pipeline layouts drops the "
+			  "bindings the old one did not have, which is a lost bloom texture "
+			  "and not an error anybody would trace back to the dropdown");
+
+		if (warnings != 0)
+			RV_CORE_ERROR("anti-aliasing switch produced {0} warning(s)", warnings);
+
+		sinks.pop_back();
 	}
 
 	// The history pair on its own, away from the graph.
@@ -9312,6 +9435,7 @@ int RunTests(int argc, char** argv)
 	CheckMotionHistory();
 	CheckTemporalJitter();
 	CheckTemporalHistory();
+	CheckAntiAliasingSwitch();
 	CheckRenderSettings();
 	CheckShadowToggle();
 	CheckShadowCascades();

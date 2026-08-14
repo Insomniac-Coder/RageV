@@ -1993,11 +1993,38 @@ void EditorLayer::DrawRenderSettingsPanel()
 			trackAmbient("Bloom intensity");
 		}
 
+		// A combo settles in one click rather than over a drag, so it records
+		// its edit immediately instead of on deactivation.
+		//
+		// **Recording it is what makes it persist**, and that is the whole
+		// reason this is not a bare assignment. An edit that pushes no command
+		// leaves the scene looking unmodified, so nothing prompts to save it
+		// and nothing saves it -- and the next launch reads the scene file,
+		// which still says FXAA. That looked like "the renderer forgets the
+		// setting" and was really "the editor never treated it as a change".
+		auto recordEnvironment = [&](const char* label, const SceneEnvironment& before)
+		{
+			const SceneEnvironment after = environment;
+			std::weak_ptr<Scene> scene = m_Scene;
+
+			m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
+				label,
+				[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
+				[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
+		};
+
 		// Only the modes that exist. Offering TAA here and doing nothing would
 		// be worse than not offering it; the roadmap is where "not yet"
 		// belongs.
 		const char* aaModes[] = { "None", "FXAA", "SMAA", "SSAA", "MSAA", "TAA" };
-		int aa = (int)environment.AA;
+
+		// The *effective* mode, not the scene's stored one. With a preference
+		// in ragev.ini -- or --aa on the command line -- the override is what
+		// actually renders, and a dropdown showing the other value would be a
+		// panel disagreeing with the picture beside it.
+		const EngineConfig& config = EngineConfig::Get();
+		int aa = (int)(config.HasAAOverride ? config.AAOverride : environment.AA);
+		const SceneEnvironment beforeAA = environment;
 		if (UI::RowCombo("Anti-aliasing",
 		&aa,
 		aaModes,
@@ -2022,13 +2049,33 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "one sample. IT IS UNFINISHED: the jitter and the motion vectors are "
 				   "in, the history buffer is not, so choosing it today gets a half-pixel "
 				   "wobble and nothing to accumulate it into."))
+		{
 			environment.AA = (AntiAliasing)aa;
+
+			// Three things, from one click, and each answers a different
+			// question about "where does this live".
+			//
+			// The scene edit is what a *packaged game* will use, and being a
+			// recorded edit is what makes it undoable and saveable.
+			recordEnvironment("Anti-aliasing", beforeAA);
+
+			// The live override is what makes the choice visible on the next
+			// frame instead of the next launch.
+			EngineConfig::SetAntiAliasingOverride(environment.AA);
+
+			// And ragev.ini is what makes it survive a restart without anybody
+			// pressing Ctrl+S -- the same place vsync and the backend picker
+			// already keep their answers. Which filter to run is a judgement
+			// about this machine, not about the scene.
+			EngineConfig::SaveAntiAliasingPreference(environment.AA);
+		}
 
 		if (environment.AA == AntiAliasing::MSAA)
 		{
 			UI::RowDragInt("Samples", &environment.MsaaSamples, 0.05f, 1, 8,
 				"Coverage samples per pixel. Costs bandwidth and a little rasterizer "
 					   "work rather than shading, so 4 is an ordinary choice.");
+			trackAmbient("MSAA samples");
 		}
 
 		if (environment.AA == AntiAliasing::SSAA)
@@ -2036,6 +2083,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 			UI::RowDragInt("Supersample", &environment.SupersampleFactor, 0.05f, 1, 4,
 				"How many times larger each axis is drawn. Cost is the square of it: "
 					   "2 is four times the pixels shaded, 4 is sixteen.");
+			trackAmbient("Supersample factor");
 		}
 
 		if (environment.AA == AntiAliasing::TAA)
@@ -2046,6 +2094,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 					   "converges on a cleaner image and holds onto history that has stopped "
 					   "being true for longer, lower is sharper under motion and noisier "
 					   "standing still. 0.9 halves a sample's influence in about seven frames.");
+			trackAmbient("Temporal feedback");
 		}
 	}
 

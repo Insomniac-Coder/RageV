@@ -26,6 +26,8 @@
 //   --import-cache=on|off   read and write cooked assets (default on)
 //   --depth-sort=on|off     order opaque batches front to back (default on)
 //   --aa=none|fxaa|smaa|ssaa|msaa|taa  override the scene's anti-aliasing choice
+//                           (also written to ragev.ini by the editor's
+//                           Render Settings dropdown, so a choice sticks)
 //   --ssaa=N                how many times larger SSAA draws each axis
 //   --msaa=N                coverage samples per pixel for MSAA
 //   --project=<path>        the .rvproject to open, or a folder containing one
@@ -163,6 +165,9 @@ namespace RageV
 		// the thing under test. It is also the only way to capture "no
 		// anti-aliasing at all", which is the control every claim here is
 		// measured against.
+		// Also written by the editor's dropdown, into ragev.ini, so a choice
+		// survives a restart without saving a scene -- see
+		// SaveAntiAliasingPreference.
 		bool         HasAAOverride = false;
 		AntiAliasing AAOverride = AntiAliasing::None;
 
@@ -220,6 +225,15 @@ namespace RageV
 
 		static const EngineConfig& Get();
 
+		// The one setting here that changes while the engine is running.
+		//
+		// Everything else is fixed at startup by design -- the backend decides
+		// how the window is created, so it cannot move. Anti-aliasing can, and
+		// the editor's dropdown has to take effect on the next *frame* rather
+		// than the next launch, or picking a filter would do nothing visible
+		// until a restart.
+		static void SetAntiAliasingOverride(AntiAliasing aa);
+
 		static const char* BackendName(RHI::Backend backend);
 
 		// Writes `rhi=` into ragev.ini beside the executable, preserving every
@@ -235,6 +249,19 @@ namespace RageV
 		// Writes `vsync=` the same way, so the editor's checkbox survives a
 		// plain restart rather than only the session it was clicked in.
 		static bool SaveVSyncPreference(bool enabled);
+
+		// And `aa=`, for the same reason and with one difference worth
+		// stating: anti-aliasing is *also* a scene property, so writing it
+		// here makes it an override that applies to every scene this
+		// installation opens.
+		//
+		// That is the intent rather than an accident. Which filter to run is a
+		// judgement about this machine and this monitor -- the same judgement
+		// vsync and the backend are -- and having to re-pick it every launch,
+		// or save a scene asset to record it, is not how a viewing preference
+		// should behave. A packaged game still uses what its scene stores,
+		// because ragev.ini is the developer's file and does not ship.
+		static bool SaveAntiAliasingPreference(AntiAliasing aa);
 
 	private:
 		// Rewrites one `key=value` line in ragev.ini, preserving every other.
