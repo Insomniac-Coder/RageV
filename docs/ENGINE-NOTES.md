@@ -2313,6 +2313,110 @@ output, 4× asks for a 16K scene target.
 
 ---
 
+## 7p. SMAA's diagonal pass (7.14): design first
+
+The orthogonal reconstruction is 6.1× on a shallow edge and **1.6× on a
+43° one**. That gap is not a tuning problem, and it is worth being
+precise about why, because the fix follows from it.
+
+On a near-diagonal edge every run is **one pixel long**. So `d1 = d2 = 0`,
+the run length is 1, both ends carry a crossing edge, and `Coverage`
+lands in its two-triangle branch with the line crossing the pixel's
+middle: two triangles of ⅛ each, for every pixel on the edge, regardless
+of where the real line actually sits. The reconstruction has no
+information left to use — the pattern it reads is the same for every
+offset.
+
+**The information is there; it is just along the other axis.** Walk
+*diagonally* instead and the run is long again.
+
+### The two staircases, which are not the same shape
+
+Take a region boundary and rasterize it. Which flags a boundary pixel
+carries depends on which way the diagonal leans, and the two cases need
+different searches.
+
+**Anti-diagonal, "/"** — light where `col + row > K`. The pixel at
+`col + row = K + 1` has a dark pixel to its north (`row − 1` gives
+`K`) *and* a dark pixel to its west (`col − 1` gives `K`). So:
+
+> **both flags land on one pixel**, and stepping `(+1, −1)` keeps the sum
+> constant, so the whole run has both flags.
+
+**Main diagonal, "\"** — light where `row > col`. The pixel `(c, c+1)` is
+light with a dark pixel above it, so it carries a north edge and no west
+edge. The pixel `(c, c)` is dark with a light pixel to its west, so it
+carries a west edge and no north edge. So:
+
+> **the flags alternate between two interleaved runs**, and stepping
+> `(+1, +1)` keeps whichever flag a pixel started with.
+
+That is the whole reason the reference ships two diagonal searches rather
+than one, and it is the thing to get right before writing either.
+
+### What the run length tells you, and the one honest ambiguity
+
+For an *exactly* 45° edge the staircase is perfect and the run never
+ends. That is not a defect of the search — it is a real ambiguity in the
+image: **every sub-pixel offset of a true 45° line produces the identical
+staircase.** There is nothing to recover, and the maximum-entropy answer
+is that the line passes through the pixel centre, which is coverage ½.
+Any implementation claiming better than ½ there is inventing it.
+
+Away from 45° the run is finite, and its length is the measurement. Over
+one run the line drifts by exactly one pixel across the diagonal — that
+drift is what ends the run — so position within the run gives the offset.
+
+### The coverage, exactly
+
+A near-diagonal line in the pixel's own frame is `y = s·x + k` with
+`s ≈ ±1`. For the anti-diagonal, `s = −1` and `k` ∈ [0, 2] carries the
+line from one corner to the other. The fraction of the pixel above it is
+
+```
+A(k) = ∫₀¹ clamp(k − x, 0, 1) dx = G(k) − G(k − 1)
+```
+
+with `G(t) = 0` for `t < 0`, `t²/2` on `[0, 1]`, and `t − ½` above — the
+integral of the clamp, and exact rather than sampled. It checks out at
+the three cases anyone can verify by eye: `A(1) = ½` (corner to corner),
+`A(½) = ⅛` (one corner triangle), `A(1½) = ⅞`. The main diagonal is
+`G(k + 1) − G(k)`, the same function mirrored.
+
+And `k` comes from the run, exactly as `yStart`/`yEnd` do in the
+orthogonal case. With `d1` steps behind and `d2` ahead, `L = d1 + d2 + 1`:
+
+```
+k = ½ + (d1 + ½) / L        // drifting one way
+k = 1½ − (d1 + ½) / L       // the other
+k = 1                        // both ends hit the search limit
+```
+
+The third line is the 45° ambiguity above, and it falls out rather than
+being special-cased: with no end information the line is centred, and
+`A(1) = ½`.
+
+**This is the same shape of argument as the orthogonal pass** — walk the
+run, read the ends, integrate a clamped line — which is the point. It is
+one more coverage function, not a second algorithm, and it needs no table
+for the same reason the first one did not.
+
+### What has to be true afterwards
+
+`check_smaa.py` already has the instrument. **43° must move off 1.6×, and
+8° must not regress from 6.1×** — a diagonal search that fires on shallow
+edges would trade one for the other, and that is the failure mode to
+watch for rather than a crash. Both backends must still agree, and flat
+regions must still be bit-identical to `--aa=none`.
+
+One thing the current check cannot see: this is aimed at *diagonal
+staircases on small features*, and the test scene is a single long
+straight edge. A shape whose silhouette turns every few pixels is where
+the difference is visible, and the check should grow one before this is
+called finished.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
