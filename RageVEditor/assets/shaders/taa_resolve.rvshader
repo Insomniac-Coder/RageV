@@ -169,6 +169,14 @@ void main()
 	// same way on both backends, while this shader's v runs downward on one
 	// and upward on the other. Same reasoning as the flip above, applied to a
 	// direction rather than to a position.
+	//
+	// **Measured, not argued.** This was reasoning until a scene existed that
+	// could tell the difference, and reasoning is how a sign gets shipped
+	// backwards. On a textured patch falling 16 px a frame, judged against a
+	// 4x supersampled render of the same frame: this convention scores 19.8
+	// RMS and the opposite one 29.9, on both backends. A still scene says
+	// nothing about it at all -- velocity is zero everywhere there, and either
+	// sign times zero is zero. ENGINE-NOTES 7r.
 	vec2 velocity = texture(u_Velocity, uv).xy;
 	velocity.y = flip ? -velocity.y : velocity.y;
 
@@ -201,6 +209,22 @@ void main()
 		}
 	}
 
+	// Bilinear, deliberately, and this was tested rather than assumed.
+	//
+	// Anything moving reprojects to a position between texels, so the history
+	// is resampled every frame, and bilinear resampling compounds into
+	// softness -- which is the textbook argument for a Catmull-Rom fetch
+	// instead. That was implemented, nine taps for one, and **measured no
+	// difference at all**: 19.830 against 19.774 on the moving patch, 3.817
+	// against 3.816 standing still. At this scene's speed the neighbourhood
+	// clip is discarding the history the sharper kernel would have preserved,
+	// so the kernel has nothing to do.
+	//
+	// Reverted rather than kept on the strength of the theory, because a nine
+	// times more expensive fetch has to buy something. It would be worth
+	// revisiting on *slow* motion -- a pixel a frame or less, where the clip
+	// keeps most of the history and the resampling is what degrades it -- and
+	// that scene does not exist here yet.
 	vec3 history = ToYCoCg(texture(u_History, historyUV).rgb);
 	history = ClipToBox(history, 0.5 * (lowest + highest), 0.5 * (highest - lowest));
 

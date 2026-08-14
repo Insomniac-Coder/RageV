@@ -195,17 +195,33 @@ namespace RageV
 		// How much of TAA's accumulated image survives each frame. Ignored by
 		// every other mode.
 		//
-		// **This is the ghosting-versus-flicker dial, and there is no correct
-		// value.** Higher accumulates more frames, which converges on a
-		// cleaner image and holds onto history that has stopped being true for
-		// longer; lower forgets faster, which is sharper under motion and
-		// noisier standing still. 0.9 halves a sample's influence in about
-		// seven frames and is the usual starting point.
+		// **This is the ghosting-versus-sharpness dial, and there is no correct
+		// value** -- but there is a measured curve, which is better than the
+		// guess that used to be here.
 		//
-		// A number here rather than a constant in the shader because which
-		// side of that trade a scene wants depends on the scene -- a slow
-		// architectural fly-through and a first-person shooter disagree, and
-		// both are right. ENGINE-NOTES 7r.
-		float TemporalFeedback = 0.9f;
+		// Against a 4x supersampled render of the same frame, on a scene with
+		// one textured patch falling 16 px a frame and an identical one
+		// standing still (RMS, lower better):
+		//
+		//               moving    still
+		//   no filter    16.08    16.73
+		//   0.0          17.15    17.95
+		//   0.3          15.38    10.14
+		//   0.6          16.32     5.39
+		//   0.9          19.83     3.82
+		//
+		// Still content improves all the way up. Moving content has a minimum
+		// near 0.3 and is *worse than no filter at all* by 0.9. The default
+		// was 0.9 -- chosen when every scene in this repository was static,
+		// which is exactly the regime that number is best in and the one
+		// nobody complains about.
+		//
+		// 0.6 rather than the moving optimum: it is within a quarter of a unit
+		// of no filter under motion while still being three times better than
+		// it standing still, where 0.3 gives up half of that. A scene that
+		// knows it is mostly still should raise it, and one that is mostly
+		// motion should lower it -- which is the whole reason this is a number
+		// and not a constant. ENGINE-NOTES 7r.
+		float TemporalFeedback = 0.6f;
 	};
 }

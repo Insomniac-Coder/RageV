@@ -2911,6 +2911,74 @@ motion rather than the background's — is a known improvement and
 deliberately absent. It needs the scene's depth sampled by the resolve,
 and it is a refinement of something not yet verified.
 
+### The moving check, and the three answers it gave
+
+`make_motion_scene.py` builds what 7r asked for: a textured patch falling
+16 px a frame with an identical one standing still beside it, judged
+against a 4x supersampled render of the same frame. Deterministic —
+the block falls under the fixed-step solver, so frame 30 is frame 30 on
+any machine.
+
+**The first version of that scene could not have found anything.** It
+was one uniform bright block on a dark sky, and it showed *no ghost at
+all* with any reprojection, on either backend. The neighbourhood clip
+rejects wrong-place history whenever the neighbourhood is uniform:
+history from the wrong side of a flat bright block is outside the box,
+history from the wrong side of flat background is outside the box, and
+the clip discards both. **The defence masks exactly the mistake being
+hunted.** A patch of small cells at different brightnesses has no
+uniform neighbourhood anywhere, so wrong-place history is locally
+plausible, survives the clip, and lands in the image.
+
+**1. The reprojection's vertical sign is right.** 19.8 RMS as shipped
+against 29.9 with the sign inverted, on both backends. That was the last
+claim in TAA resting on argument.
+
+**2. Catmull-Rom history sampling buys nothing here, and was reverted.**
+The textbook argument is sound — moving content reprojects between
+texels, so the history is resampled every frame, and bilinear compounds
+into softness. Implemented, nine taps for one, measured: **19.830
+against 19.774 moving, 3.817 against 3.816 still.** At this speed the
+clip is already discarding the history the sharper kernel would have
+preserved. Reverted, because a nine-times more expensive fetch has to
+buy something, and the theory is not the evidence. It is worth
+revisiting on *slow* motion — a pixel a frame or less — and that scene
+does not exist yet.
+
+**3. The default feedback was wrong, and that was the real finding.**
+
+|            | moving | still |
+|---|---|---|
+| no filter  | 16.08 | 16.73 |
+| 0.0        | 17.15 | 17.95 |
+| 0.3        | **15.38** | 10.14 |
+| 0.6        | 16.32 |  5.39 |
+| 0.9        | 19.83 | **3.82** |
+
+Still content improves all the way up; moving content bottoms out near
+0.3 and is *worse than no filter at all* by 0.9. The default was 0.9 —
+picked when every scene here was static, which is the one regime that
+number is best in. It is 0.6 now: within a quarter of a unit of no
+filter under motion, three times better than it standing still.
+
+**And the guard written from it could not fail.** `check_taa_motion.py`
+allowed TAA to be 1.25x worse than no filter under motion before it
+complains -- a figure taken from measuring the inverted sign at a
+feedback of 0.9, where it costs 1.86x. But the default is 0.6 now, less
+history is used, and a backwards reprojection is correspondingly
+cheaper: 1.21x. The check passed a build whose reprojection ran
+backwards. Caught by flipping the sign again and re-running rather than
+by reasoning, and the threshold is 1.10 now -- measured on both sides,
+1.01 correct against 1.21 inverted. **A threshold is only worth having
+at the setting it actually runs at**, and every one of them here should
+be re-measured when the value it was derived from changes.
+
+Worth naming the shape of this. Two of the three things measured were
+hypotheses I was confident in — a biased blend weight, then a resampling
+kernel — and both were wrong about *this* symptom. The one that was
+right came from a sweep rather than a theory. The static scene had made
+every one of these invisible for three steps of work.
+
 ### The defect none of this caught, and why
 
 Everything above was measured, on both backends, against computed ideals.
