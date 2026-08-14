@@ -1515,6 +1515,34 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
+**Done: 9.1, colour grading (2026-08-14).** A `.cube` lookup table on the post
+profile's Colour LUT row, applied **after the tone curve** — which is where a
+LUT exported from Resolve or Photoshop expects to be, so one does here what it
+did there. The cost of that choice is stated rather than hidden: a LUT at that
+point cannot recover highlight detail ACES has already compressed, and a
+shaper-based path is a later addition rather than a correction of this one.
+
+The prerequisite the roadmap named is in: `TextureType::Texture3D` on both
+backends, with `TextureDesc::Depth` separate from `Layers` because **an
+array's layers are not filtered across and a volume's depth is** — conflating
+them gives a LUT with no interpolation along blue, which grades the picture
+and grades it wrongly. 16-bit float entries, because 8-bit ones quantise
+before the trilinear filter and band in the smooth gradients a grade is judged
+on, and because linear filtering of a 32-bit float image is optional in Vulkan
+and guaranteed for 16.
+
+**The check is the point of the item.** A LUT is sampled at texel centres, so
+a colour c maps to `(c*(N-1)+0.5)/N` and not to c. Get it wrong and the image
+is still graded, still smooth, still plausible — just not the grade that was
+authored, by a little, everywhere, with no artefact to notice. So
+`check_color_grading.py` does not ask whether grading changes the picture. It
+asserts that **an identity LUT is byte-identical to no LUT** — 0 differing
+subpixels on both backends — and that a red/blue swap lands exactly on the
+frame with its channels exchanged. Falsified rather than assumed: dropping the
+half-texel term makes it fail on all 4,320,000 subpixels at 3/255, which is
+precisely the "looks like nothing" magnitude the design predicted. ENGINE-NOTES
+7t.
+
 **Done: 9.0, where a setting lives (2026-08-14).** `SceneEnvironment` was one
 struct holding three unrelated kinds of thing, serialized into every `.rage`.
 It is three now, each in the file that owns it:
@@ -1566,7 +1594,11 @@ a build working exactly as intended. Re-measured at 0.0, 0.6 and 0.9 and set
 to 1.25 — clear at the shipped default, failing with accumulation off. Design
 and full writeup: ENGINE-NOTES 7s.
 
-**Two editor papercuts fixed alongside it (2026-08-14).** The window size is
+**Three editor papercuts fixed alongside it (2026-08-14).** Ctrl+S opened a
+Save-As dialog every time: `SaveScene` always prompted and never read
+`m_ScenePath`, which was already tracked for the title bar and Set Start
+Scene. It writes the file the scene came from now and only asks when there is
+none; Ctrl+Shift+S is Save As. The window size is
 written to `ragev.ini` on exit, through the same `width`/`height` keys
 `--width`/`--height` already read, so the editor comes back the size it was
 left at. And both modals — About and the backend-restart prompt — set their

@@ -61,7 +61,7 @@ slider.
 | Kind | Setting | Home | Edited in |
 |---|---|---|---|
 | **Cost** | Anti-aliasing and its parameters, shadow cascades, resolution, distance | The `.rvproject` | Render Settings → Render settings |
-| **Look** | Exposure, bloom — and everything phase 9 adds | A `.rvpostprofile` asset | The camera that names it, or the asset itself |
+| **Look** | Exposure, bloom, the colour-grading LUT — and everything phase 9 adds | A `.rvpostprofile` asset | The camera that names it, or the asset itself |
 | **Place** | Ambient light, the sky and its rotation | The `.rage` scene | Render Settings → Environment |
 
 **Cost belongs to the project** because it is a judgement about the hardware,
@@ -89,6 +89,13 @@ selected, its own settings appear directly underneath, so a grade is edited
 where it is used. The same settings appear in the Inspector when the
 `.rvpostprofile` is clicked in the Content browser — one drawer, so the two
 cannot disagree.
+
+**Colour grading** is a `.cube` lookup table dropped on the profile's Colour
+LUT row — the format every grading tool exports. It is applied *after* the
+tone curve, on display-referred values, which is what a LUT was authored
+against: one exported from Resolve or Photoshop does here what it did there.
+The trade, stated: a LUT at that point cannot recover highlight detail the
+tone curve has already compressed.
 
 **Editing one edits the asset.** Two cameras pointed at the same profile are
 two cameras that will always agree, which is usually what is wanted and is

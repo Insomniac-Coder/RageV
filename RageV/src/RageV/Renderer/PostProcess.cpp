@@ -99,6 +99,13 @@ namespace RageV
 			// to be filled with something -- and black adds nothing.
 			Ref<RHITexture> Black;
 
+			// And for the grading LUT, which the tonemap shader also declares
+			// unconditionally. A 2-cube identity rather than a black one: if
+			// the shader's size guard were ever wrong, sampling this grades
+			// nothing, where sampling black would turn the frame black -- so
+			// the stand-in fails in the direction that stays debuggable.
+			Ref<RHITexture> IdentityLut;
+
 			bool Ready = false;
 		};
 
@@ -152,6 +159,30 @@ namespace RageV
 			s_Data->Black = device.CreateTexture(desc);
 			const uint32_t black = 0xff000000;
 			s_Data->Black->Upload(&black, sizeof(black));
+		}
+
+		{
+			TextureDesc desc;
+			desc.Type = TextureType::Texture3D;
+			desc.Width = desc.Height = desc.Depth = 2;
+			desc.Format = Format::R16G16B16A16_SFLOAT;
+			desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+			desc.DebugName = "PostProcess.identityLut";
+			s_Data->IdentityLut = device.CreateTexture(desc);
+
+			// The eight corners of the colour cube, red fastest -- the same
+			// order a `.cube` uses. Written as halves by hand rather than
+			// through the asset layer, because PostProcess must come up before
+			// any project is open.
+			constexpr uint16_t kZero = 0x0000;   // 0.0
+			constexpr uint16_t kOne  = 0x3C00;   // 1.0
+			const uint16_t identity[8 * 4] = {
+				kZero, kZero, kZero, kOne,   kOne,  kZero, kZero, kOne,
+				kZero, kOne,  kZero, kOne,   kOne,  kOne,  kZero, kOne,
+				kZero, kZero, kOne,  kOne,   kOne,  kZero, kOne,  kOne,
+				kZero, kOne,  kOne,  kOne,   kOne,  kOne,  kOne,  kOne,
+			};
+			s_Data->IdentityLut->UploadLayer(identity, sizeof(identity), 0);
 		}
 
 		s_Data->Sets.resize(device.GetFramesInFlight());
@@ -337,13 +368,31 @@ namespace RageV
 
 	void PostProcess::Tonemap(RHICommandList& cmd, const Ref<RHITexture>& scene,
 							  const Ref<RHITexture>& bloom, Format outputFormat,
-							  float exposure, float bloomIntensity)
+							  float exposure, float bloomIntensity,
+							  const Ref<RHITexture>& lut, uint32_t lutSize,
+							  float lutStrength)
 	{
+		if (!s_Data)
+			return;
+
+		// A LUT that failed to load, or none at all, grades nothing -- but the
+		// binding is still filled, because a declared sampler with nothing
+		// bound is undefined behaviour rather than a black texture. The
+		// identity volume is what fills it, and the size of 0 is what stops
+		// the shader sampling it.
+		const bool grading = lut && lutSize >= 2;
+
 		PostParams params;
 		params.TexelSize = { exposure, bloomIntensity };
-		// Never null: the shader declares the binding whether or not bloom ran.
+		params.A = grading ? (float)lutSize : 0.0f;
+		params.B = lutStrength;
+
+		// Never null: the shader declares both extra bindings whether or not
+		// bloom ran and whether or not anything is being graded.
 		Dispatch(cmd, Shader::Tonemap, outputFormat, scene,
-				 bloom ? bloom : s_Data->Black, &params, sizeof(params));
+				 bloom ? bloom : s_Data->Black, &params, sizeof(params),
+				 Sampling::Linear, Sampling::Linear,
+				 grading ? lut : s_Data->IdentityLut, Sampling::Linear);
 	}
 
 	void PostProcess::FXAA(RHICommandList& cmd, const Ref<RHITexture>& source,

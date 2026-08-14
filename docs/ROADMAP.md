@@ -516,7 +516,7 @@ effect that hides a lighting problem is worse than no effect.
 | # | Item | Size | Notes |
 |---|---|---|---|
 | 9.0 | **Render settings on the project, a post profile on the camera** | M | **Done 2026-08-14.** The home every item below stores its settings in |
-| 9.1 | Colour grading via a 3D LUT | S | The largest look-per-cost ratio here, and what artists actually reach for. Needs `.cube` loading and a **3D texture in the RHI, which does not exist yet** — the only item here with a prerequisite |
+| 9.1 | Colour grading via a 3D LUT | S | **Done 2026-08-14.** `.cube` loading, `Texture3D` in both backends, applied after the tone curve so a LUT from any grading tool does here what it did there. The check that decides it: an identity LUT is byte-identical to no LUT, which is the only way to catch a half-texel sampling error — see ENGINE-NOTES 7t |
 | 9.2 | Auto exposure / eye adaptation | M | Log-average or histogram luminance via compute, which the engine already has. **Makes the tonemap frame-dependent**, so every screenshot comparison in the repo needs a way to pin it — the same trap `--frame-time` exists for |
 | 9.3 | Vignette, chromatic aberration, film grain | S | Three short additions to the tonemap pass. Cheap enough that the risk is taste, not time |
 | 9.4 | Depth of field | M | A circle of confusion from depth, then a separable bokeh blur. The depth buffer is already a graph resource |

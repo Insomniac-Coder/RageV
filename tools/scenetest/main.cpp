@@ -29,6 +29,7 @@
 #include "RageV/Asset/Curve.h"
 #include "RageV/Asset/CurveSerializer.h"
 #include "RageV/Asset/PostProfileSerializer.h"
+#include "RageV/Asset/CubeLut.h"
 #include "RageV/Scene/FieldSerializer.h"
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Scene/SceneSerializer.h"
@@ -3636,6 +3637,103 @@ void main()
 	}
 
 	// A camera names its profile, and the scene resolves it.
+	// The `.cube` reader, on the CPU. The half the pixel check cannot reach:
+	// a file that is refused has no frame to look at.
+	void CheckCubeLut()
+	{
+		const std::filesystem::path path =
+			std::filesystem::temp_directory_path() / "rv_lut.cube";
+
+		auto write = [&](const std::string& text)
+		{
+			std::ofstream file(path);
+			file << text;
+		};
+
+		// --- the identity, which is also the order assertion ------------------
+		{
+			const Assets::ColorLut identity = Assets::IdentityLut(4);
+			Check(identity.IsValid(), "an identity LUT is well formed");
+			Check(identity.Size == 4 && identity.Values.size() == 64,
+				  "with size^3 entries");
+
+			// Red fastest: entry 1 is one red step along, entry 4 is one green
+			// step along. Reversing the order swaps exactly these two, which is
+			// why they are the ones asserted -- a table read backwards grades
+			// plausibly and wrongly, and nothing else here would notice.
+			Check(std::fabs(identity.Values[1].x - 1.0f / 3.0f) < 1e-5f &&
+				  identity.Values[1].y == 0.0f,
+				  "and red changing fastest, which is the format's order");
+			Check(identity.Values[4].x == 0.0f &&
+				  std::fabs(identity.Values[4].y - 1.0f / 3.0f) < 1e-5f,
+				  "green next");
+			Check(identity.Values[16].z > 0.0f && identity.Values[16].x == 0.0f,
+				  "and blue slowest");
+		}
+
+		// --- a file round-trips ----------------------------------------------
+		{
+			std::string text = "# a comment\nTITLE \"test\"\nLUT_3D_SIZE 2\n";
+			for (int i = 0; i < 8; i++)
+				text += "0.25 0.5 0.75\n";
+			write(text);
+
+			Assets::ColorLut lut;
+			Check(Assets::LoadCubeLut(lut, path), "a well-formed .cube loads");
+			Check(lut.Size == 2 && lut.Values.size() == 8, "with its 8 entries");
+			Check(std::fabs(lut.Values[3].y - 0.5f) < 1e-5f, "and their values");
+		}
+
+		// --- what has to be refused ------------------------------------------
+		//
+		// Every one of these would otherwise load as a table that is partly
+		// right, and a partly-right LUT grades the picture: the failure has to
+		// be the load rather than the frame.
+		{
+			Assets::ColorLut lut;
+
+			write("LUT_3D_SIZE 2\n0.0 0.0 0.0\n0.0 0.0 0.0\n");
+			Check(!Assets::LoadCubeLut(lut, path),
+				  "a truncated .cube is refused, not padded");
+
+			write("0.5 0.5 0.5\nLUT_3D_SIZE 2\n");
+			Check(!Assets::LoadCubeLut(lut, path),
+				  "so is data before the size, which has nowhere to go");
+
+			write("LUT_1D_SIZE 16\n");
+			Check(!Assets::LoadCubeLut(lut, path),
+				  "and a 1D LUT, which shares the extension and is not this");
+
+			write("LUT_3D_SIZE 999\n");
+			Check(!Assets::LoadCubeLut(lut, path),
+				  "and a size no tool emits, before it is allocated");
+
+			write("# nothing but a comment\n");
+			Check(!Assets::LoadCubeLut(lut, path),
+				  "and a file with no size at all");
+		}
+
+		// --- a refused load leaves the caller alone ---------------------------
+		{
+			Assets::ColorLut kept = Assets::IdentityLut(2);
+			write("LUT_1D_SIZE 16\n");
+			Check(!Assets::LoadCubeLut(kept, path) && kept.Size == 2,
+				  "and a refused load leaves what the caller already had");
+		}
+
+		// --- the upload form --------------------------------------------------
+		{
+			const Assets::ColorLut identity = Assets::IdentityLut(2);
+			const std::vector<uint16_t> halves = Assets::ToHalfRGBA(identity);
+			Check(halves.size() == 8 * 4, "the half-float form is RGBA per entry");
+			Check(halves[0] == 0x0000 && halves[3] == 0x3C00,
+				  "with 0 and 1 landing on the right bits");
+		}
+
+		std::error_code error;
+		std::filesystem::remove(path, error);
+	}
+
 	void CheckPostProfileOnCamera()
 	{
 		const PostSettings neutral;
@@ -9709,6 +9807,7 @@ int RunTests(int argc, char** argv)
 	CheckAntiAliasingSwitch();
 	CheckRenderSettings();
 	CheckPostProfileOnCamera();
+	CheckCubeLut();
 	CheckShadowToggle();
 	CheckShadowCascades();
 	CheckIrradiance();

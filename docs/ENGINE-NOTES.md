@@ -3286,6 +3286,99 @@ the test suite on every run.
 
 ---
 
+## 7t. Colour grading (9.1): design first, because one of the decisions is invisible
+
+A 3D LUT is a lookup: the frame's colour is a coordinate, and the table says
+what that colour becomes. It is how every grading tool in the world exports a
+look, which is the whole reason it is the largest look-per-cost item in phase
+9 — the work is not inventing a colour transform, it is *accepting one*
+somebody else authored, unchanged.
+
+Three decisions, and the third is the one that will otherwise cost a week.
+
+### 1. Where in the chain it applies: **after the tone curve**
+
+The frame reaches the tonemap pass in linear HDR, is compressed by ACES, and
+becomes display-referred. A LUT can go on either side of that, and the two
+are not interchangeable:
+
+- **After** — the LUT is fed values in [0, 1] that mean what a display shows.
+  This is what a `.cube` exported from Resolve, Lightroom or Photoshop was
+  authored against, so any LUT from any tool does here what it did there.
+- **Before** — the LUT is fed unbounded linear values, which have to be
+  squeezed into [0, 1] by a *shaper* first. That is a real workflow (it is
+  what "log LUT" means) and it is strictly better for highlights, because
+  the LUT can still see detail the tone curve is about to crush. It also
+  requires whoever authored the LUT to have used the same shaper the engine
+  uses, and to know that they did.
+
+**After.** The point of this item is that a look authored elsewhere arrives
+intact; a pipeline where two thirds of the LUTs on the internet come out
+wrong is not that. The cost is stated rather than hidden: **a LUT here cannot
+recover highlight detail ACES has already compressed.** A shaper-based path
+is a later addition, not a correction of this one — they are different
+features with different inputs.
+
+### 2. The format: `.cube`, and 16-bit float on the GPU
+
+Adobe/IRIDAS `.cube` is text, ubiquitous, and takes about forty lines to
+parse: `LUT_3D_SIZE n`, optional `DOMAIN_MIN`/`DOMAIN_MAX`, then n³ RGB
+triples with **red changing fastest** — index `r + g*n + b*n*n`. Getting that
+order backwards produces a LUT that is a plausible-looking wrong grade, so it
+is asserted rather than assumed.
+
+The texture is `R16G16B16A16_SFLOAT` rather than RGBA8. A LUT is sampled
+trilinearly and then written to an 8-bit target, so 8-bit table entries
+quantise *before* interpolation and band in smooth gradients — the exact
+place a grade is looked at. At 33³ the float version is 143 KB, which is not
+a number worth optimising.
+
+### 3. The invisible one: **an identity LUT has to be a no-op, exactly**
+
+A 3D LUT is sampled at texel *centres*, so a colour c in [0, 1] maps to
+
+    uv = (c * (N - 1) + 0.5) / N
+
+and not to `c`. The difference is half a texel — at N = 32, about 1.5% of the
+range.
+
+**Nothing about a wrong scale looks broken.** The image is still graded, still
+smooth, still plausible; it is just not the grade that was authored, by a
+little, everywhere, forever. There is no artefact to notice and no frame to
+point at. It is the same shape of defect as the reprojection sign in §7r,
+which a static scene could not show: the failure hides inside a result that
+looks fine.
+
+So the check is not "does grading change the picture". It is:
+
+> **An identity LUT must leave the frame byte-identical to no LUT at all.**
+
+That is a property with one right answer, it fails loudly on any scale or
+offset mistake, on either backend, and it costs one generated file and one
+comparison. Everything else about this item is ordinary work; this is the
+part that decides whether the ordinary work is correct.
+
+A second check measures a LUT with a *known* transform — a channel swap,
+which is exact under trilinear interpolation because it moves table entries
+rather than blending them — so "the LUT is sampled at all" and "the LUT is
+sampled correctly" are two separate failures rather than one.
+
+### What it costs in the RHI
+
+A third texture type. `TextureDesc` grows a `Depth`, read only for
+`Texture3D`: reusing `Layers` would have been fewer lines and is wrong for a
+reason worth writing down — **an array's layers are not filtered across and a
+3D texture's depth is.** Conflating them yields a LUT with no interpolation
+along blue, which is, again, a grade that looks fine and is not the one that
+was authored.
+
+OpenGL is mostly free: `GL_TEXTURE_2D_ARRAY` already goes through
+`glTexImage3D`, so only the target and the R-axis wrap differ. Vulkan needs
+`VK_IMAGE_TYPE_3D` and `VK_IMAGE_VIEW_TYPE_3D`, and its depth extent is the
+`extent.depth` that array layers deliberately do not use.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

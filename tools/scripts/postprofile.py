@@ -50,6 +50,36 @@ def profile_handle(name):
     return h or 0x7261676556504F53
 
 
+def write_named(path, settings):
+    """Write a profile at an exact path, and its `.meta`. Returns the handle.
+
+    For a check that needs several profiles for one scene -- grading wants an
+    ungraded one, an identity one and a swapped one, all against the same
+    picture, which is the only way the comparison means anything.
+    """
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    handle = profile_handle(path.name)
+
+    lines = ["PostProfile: 1"]
+    for key, value in settings.items():
+        if isinstance(value, bool):
+            lines.append(f"{key}: {'true' if value else 'false'}")
+        elif isinstance(value, int) and not isinstance(value, bool):
+            lines.append(f"{key}: {value}")
+        else:
+            lines.append(f"{key}: {value:g}")
+
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    meta = path.with_name(path.name + ".meta")
+    meta.write_text(
+        f"Handle: {handle}\nType: PostProfile\nSourceHash: 0\n", encoding="utf-8")
+
+    return handle
+
+
 def write_beside(scene_path, settings):
     """Write `<scene>.rvpostprofile` and its `.meta`. Returns the handle.
 

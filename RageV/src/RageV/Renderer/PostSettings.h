@@ -1,4 +1,5 @@
 #pragma once
+#include "RageV/Core/UUID.h"
 
 namespace RageV
 {
@@ -52,5 +53,23 @@ namespace RageV
 		// It bounds the contribution, not the pixel: the scene keeps its real
 		// values, and only what bleeds out of them is limited.
 		float BloomClamp = 16.0f;
+
+		// --- colour grading -----------------------------------------------------
+		// A `.cube` lookup table, applied **after** the tone curve, on
+		// display-referred values -- which is what a LUT exported from any
+		// grading tool was authored against, so one does here what it did
+		// there. The cost of that choice, stated rather than hidden: a LUT at
+		// this point cannot recover highlight detail ACES has already
+		// compressed. ENGINE-NOTES 7t.
+		//
+		// Spelled UUID rather than AssetHandle for the reason SkyTexture is:
+		// they are the same type, and the asset layer already depends on this
+		// one.
+		UUID ColorLut = UUID::Invalid();
+
+		// How much of the graded result is used, against the ungraded one.
+		// A look is rarely wanted at full strength on the first try, and a
+		// dial is the difference between grading and re-exporting.
+		float ColorLutStrength = 1.0f;
 	};
 }

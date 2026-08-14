@@ -13,6 +13,7 @@
 #include "CurveSerializer.h"
 #include "FontSerializer.h"
 #include "PostProfileSerializer.h"
+#include "CubeLut.h"
 // The import splits glTF's packed metallic-roughness texture into the two
 // greyscale maps the shader samples, which means reading a PNG and writing two.
 #include "stb_image.h"
@@ -67,6 +68,10 @@ namespace RageV::Assets
 		// which is what a camera with no profile at all renders, so a broken
 		// reference degrades to "no grading" rather than to a black frame.
 		std::unordered_map<AssetHandle, PostSettings> s_PostProfiles;
+
+		// Grading LUTs, as 3D textures. Failures cache as null like every
+		// other GPU resource here.
+		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_ColorLuts;
 
 		// Fonts cache by value like curves -- a metrics table is a few thousand
 		// numbers. A failure caches as an *absent* entry marked in s_FontFailed
@@ -924,6 +929,51 @@ namespace RageV::Assets
 	void Manager::ReloadPostProfile(AssetHandle handle)
 	{
 		s_PostProfiles.erase(handle);
+	}
+
+	RHI::Ref<RHI::RHITexture> Manager::GetColorLut(AssetHandle handle)
+	{
+		if (!s_Device || !handle.IsValid())
+			return nullptr;
+
+		const auto cached = s_ColorLuts.find(handle);
+		if (cached != s_ColorLuts.end())
+			return cached->second;
+
+		ColorLut lut;
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+		if (path.empty() || !LoadCubeLut(lut, path) || !lut.IsValid())
+		{
+			s_ColorLuts[handle] = nullptr;
+			return nullptr;
+		}
+
+		RHI::TextureDesc desc;
+		desc.Type = RHI::TextureType::Texture3D;
+		desc.Width = lut.Size;
+		desc.Height = lut.Size;
+		desc.Depth = lut.Size;
+		desc.MipLevels = 1;
+		// 16-bit float rather than 8-bit unorm. A LUT is filtered and *then*
+		// written to an 8-bit target, so 8-bit entries quantise before the
+		// interpolation and band in exactly the smooth gradients a grade is
+		// judged on. At 33 cubed the float version is 143 KB.
+		desc.Format = RHI::Format::R16G16B16A16_SFLOAT;
+		desc.Usage = RHI::TextureUsage::Sampled;
+		desc.DebugName = "ColorLut";
+
+		RHI::Ref<RHI::RHITexture> texture = s_Device->CreateTexture(desc);
+		if (!texture)
+		{
+			s_ColorLuts[handle] = nullptr;
+			return nullptr;
+		}
+
+		const std::vector<uint16_t> halves = ToHalfRGBA(lut);
+		texture->UploadLayer(halves.data(), halves.size() * sizeof(uint16_t), 0);
+
+		s_ColorLuts[handle] = texture;
+		return texture;
 	}
 
 	void Manager::ReloadAllPostProfiles()

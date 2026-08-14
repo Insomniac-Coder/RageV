@@ -173,12 +173,25 @@ namespace RageV::RHI
 		// per draw. Layers is 6N: the faces of cube k are layers 6k..6k+5, in
 		// the same face order a single cube uses.
 		TextureCubeArray,
+
+		// A volume, sampled with three coordinates and filtered along all
+		// three. Colour-grading LUTs are the reason it exists (9.1).
+		//
+		// **Not the same thing as Texture2DArray**, and the difference is the
+		// whole point rather than a technicality: an array's layers are
+		// discrete and are never blended, a volume's depth slices are. A LUT
+		// built on an array is a LUT with no interpolation along blue, which
+		// grades the picture and grades it wrongly. ENGINE-NOTES 7t.
+		Texture3D,
 	};
 
 	struct TextureDesc
 	{
 		uint32_t     Width     = 1;
 		uint32_t     Height    = 1;
+		// The third extent, read only for Texture3D. Separate from Layers
+		// because the two are filtered differently -- see TextureType.
+		uint32_t     Depth     = 1;
 		uint32_t     MipLevels = 1;   // 0 means "generate the full chain"
 		uint32_t     Layers    = 1;   // cube faces count as 6 layers
 		TextureType  Type      = TextureType::Texture2D;

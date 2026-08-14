@@ -1237,7 +1237,8 @@ void EditorLayer::DrawMenuBar()
 		if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) OpenScene();
 		ImGui::Separator();
 		if (ImGui::MenuItem("Import Model...")) ImportModel();
-		if (ImGui::MenuItem("Save Scene As...", "Ctrl+S")) SaveScene();
+		if (ImGui::MenuItem("Save Scene", "Ctrl+S")) SaveScene();
+		if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) SaveSceneAs();
 		ImGui::Separator();
 		if (ImGui::MenuItem("Load Demo Scene")) LoadDemoScene();
 		ImGui::Separator();
@@ -2430,7 +2431,17 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 			break;
 		}
 		case RV_KEY_Y: if (control) { m_Commands.Redo(); return true; } break;
-		case RV_KEY_S: if (control) { SaveScene(); return true; } break;
+		case RV_KEY_S:
+			if (control)
+			{
+				// Shift is the "ask me where" modifier, the same way it is
+				// everywhere else. Without it Ctrl+S writes the file the
+				// scene came from and says nothing.
+				if (shift) SaveSceneAs();
+				else       SaveScene();
+				return true;
+			}
+			break;
 
 		// Gizmo modes, matching the convention most editors use. Ignored while
 		// typing into a field.
@@ -2844,15 +2855,51 @@ void EditorLayer::OpenSceneFile(const std::filesystem::path& filepath)
 		m_ScenePath.clear();
 }
 
+// Ctrl+S. Writes the file the scene came from, and only asks where when there
+// is no such file.
+//
+// It used to be SaveSceneAs unconditionally, so every Ctrl+S opened a file
+// dialog on a scene that already had a path -- which is not a save, it is a
+// prompt, and the shortcut that is pressed most often in any editor is the one
+// that must not stop to ask a question it already knows the answer to.
+//
+// `m_ScenePath` was already tracked for "Set Start Scene" and the title bar;
+// this is the first thing to read it.
 void EditorLayer::SaveScene()
+{
+	if (m_ScenePath.empty())
+	{
+		SaveSceneAs();
+		return;
+	}
+
+	SceneSerializer serializer(m_Scene);
+	if (serializer.Serialize(m_ScenePath.string()))
+		RV_INFO("Saved {0}", m_ScenePath.filename().string());
+	else
+		RV_ERROR("Could not save {0}", m_ScenePath.string());
+}
+
+// Ctrl+Shift+S, and what Ctrl+S falls back to for a scene that has never been
+// written. Always asks.
+void EditorLayer::SaveSceneAs()
 {
 	const std::string filepath = FileDialogs::SaveFile("RageV Scene (*.rage)\0*.rage\0");
 	if (filepath.empty())
 		return;
 
 	SceneSerializer serializer(m_Scene);
-	serializer.Serialize(filepath);
+	if (!serializer.Serialize(filepath))
+	{
+		// The path is not adopted on a failed write. Taking it anyway would
+		// leave the next Ctrl+S silently writing somewhere that has already
+		// refused once.
+		RV_ERROR("Could not save {0}", filepath);
+		return;
+	}
+
 	m_ScenePath = filepath;
+	RV_INFO("Saved {0}", m_ScenePath.filename().string());
 }
 
 // Switching projects re-roots the asset registry, which is the whole point of

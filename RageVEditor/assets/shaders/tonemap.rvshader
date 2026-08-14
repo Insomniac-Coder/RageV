@@ -27,12 +27,20 @@ layout(location = 0) out vec4 o_Color;
 layout(set = 0, binding = 0) uniform sampler2D u_Scene;
 layout(set = 0, binding = 1) uniform sampler2D u_Bloom;
 
+// The colour-grading LUT: a volume, sampled with the graded colour as its
+// coordinate. Declared whether or not one is assigned -- the binding is always
+// filled, with a 2-cube identity when there is nothing to grade with, because
+// a declared-but-unbound sampler is undefined behaviour on both backends.
+layout(set = 0, binding = 2) uniform sampler3D u_ColorLut;
+
 layout(push_constant) uniform Params
 {
 	float Exposure;
 	float BloomIntensity;
-	float Unused0;
-	float Unused1;
+	// Entries per axis, or 0 for "do not grade". A size rather than a flag
+	// because the sampling scale below needs the number anyway.
+	float LutSize;
+	float LutStrength;
 	float Unused2;
 	float FlipY;
 } u_Params;
@@ -66,6 +74,27 @@ void main()
 	// The swapchain is UNORM rather than sRGB, so the transfer function is
 	// applied here instead of by the hardware.
 	color = pow(color, vec3(1.0 / 2.2));
+
+	// Colour grading, **after** the transfer function.
+	//
+	// A `.cube` from a grading tool was authored against what a display shows
+	// -- encoded, in 0..1 -- so this is the point where the value the LUT
+	// expects actually exists. Applying it in linear light would need a shaper
+	// the LUT's author also used, which is a different feature with a
+	// different input. ENGINE-NOTES 7t.
+	if (u_Params.LutSize > 1.5)
+	{
+		// Texel *centres*: a colour c lands at (c * (N-1) + 0.5) / N, not at
+		// c. The difference is half a texel -- about 1.5% of the range at
+		// N = 32 -- and getting it wrong produces a grade that is smooth,
+		// plausible and not the one that was authored, everywhere, with no
+		// artefact to notice. The identity check exists for exactly this line.
+		float n = u_Params.LutSize;
+		vec3 coord = (clamp(color, 0.0, 1.0) * (n - 1.0) + 0.5) / n;
+
+		vec3 graded = texture(u_ColorLut, coord).rgb;
+		color = mix(color, graded, clamp(u_Params.LutStrength, 0.0, 1.0));
+	}
 
 	o_Color = vec4(color, 1.0);
 }

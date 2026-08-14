@@ -155,6 +155,15 @@ namespace RageV::Assets
 		static AssetHandle CreatePostProfile(const PostSettings& settings,
 											 const std::filesystem::path& relativePath);
 
+		// The colour-grading LUT a `.cube` describes, as a 3D texture.
+		//
+		// Null when the handle is unset, unknown, or the file will not parse --
+		// and the failure is cached, because a profile pointing at a broken LUT
+		// must not reopen the file sixty times a second. A null LUT grades
+		// nothing, which is the same picture as no LUT at all: a malformed file
+		// costs its look rather than the frame. ENGINE-NOTES 7t.
+		static RHI::Ref<RHI::RHITexture> GetColorLut(AssetHandle handle);
+
 		// Drops the cached copy so the next GetPostSettings reads the file.
 		// The inspector calls it after writing an edit through, which is what
 		// makes a grade change visible on the next frame rather than the next

@@ -3,3 +3,14 @@ Project:
   AssetDirectory: assets
   StartScene: scenes/demo.rage
   FixedHz: 60
+  RenderSettings:
+    AntiAliasing: TAA
+    MsaaSamples: 4
+    SupersampleFactor: 2
+    TemporalFeedback: 0.6
+    ShadowsEnabled: true
+    ShadowDistance: 40
+    ShadowSplitLambda: 0.85
+    ShadowNormalOffset: 0.9
+    ShadowCascades: 4
+    ShadowResolution: 2048

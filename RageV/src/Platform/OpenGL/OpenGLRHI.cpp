@@ -131,6 +131,7 @@ namespace RageV::GL
 				case TextureType::Texture2DArray:   return GL_TEXTURE_2D_ARRAY;
 				case TextureType::TextureCube:      return GL_TEXTURE_CUBE_MAP;
 				case TextureType::TextureCubeArray: return GL_TEXTURE_CUBE_MAP_ARRAY;
+				case TextureType::Texture3D:        return GL_TEXTURE_3D;
 			}
 			return GL_TEXTURE_2D;
 		}
@@ -306,7 +307,11 @@ namespace RageV::GL
 
 		glCreateTextures(target, 1, &m_Handle);
 
-		const bool layered = m_Desc.Type == TextureType::Texture2DArray ||
+		// A volume takes Storage3D as well, and takes its *Depth* rather than
+		// its layer count -- which is why the two are separate fields.
+		const bool volume = m_Desc.Type == TextureType::Texture3D;
+		const bool layered = volume ||
+							 m_Desc.Type == TextureType::Texture2DArray ||
 							 m_Desc.Type == TextureType::TextureCubeArray;
 		if (layered)
 		{
@@ -317,7 +322,7 @@ namespace RageV::GL
 			// have disagreed for the first cube array either allocated.
 			glTextureStorage3D(m_Handle, (GLsizei)m_Desc.MipLevels, format.Internal,
 							   (GLsizei)m_Desc.Width, (GLsizei)m_Desc.Height,
-							   (GLsizei)EffectiveLayers(m_Desc));
+							   (GLsizei)(volume ? m_Desc.Depth : EffectiveLayers(m_Desc)));
 		}
 		else
 		{
@@ -373,6 +378,19 @@ namespace RageV::GL
 		if (m_Desc.Type == TextureType::Texture2D)
 		{
 			glTextureSubImage2D(m_Handle, 0, 0, 0, (GLsizei)m_Desc.Width, (GLsizei)m_Desc.Height,
+								format.Format, format.Type, data);
+			return;
+		}
+
+		// A volume is uploaded whole, every slice in one call: its data is one
+		// contiguous block, and `layer` is not a slice index -- it is the
+		// argument the layered types use, and matching the Vulkan side means
+		// ignoring it here rather than reinterpreting it.
+		if (m_Desc.Type == TextureType::Texture3D)
+		{
+			glTextureSubImage3D(m_Handle, 0, 0, 0, 0,
+								(GLsizei)m_Desc.Width, (GLsizei)m_Desc.Height,
+								(GLsizei)m_Desc.Depth,
 								format.Format, format.Type, data);
 			return;
 		}

@@ -40,6 +40,9 @@ namespace RageV
 		// difference between changing a look once and changing it everywhere
 		// it was pasted. ENGINE-NOTES 7s.
 		PostProfile,
+		// A `.cube`: a colour-grading lookup table, uploaded as a 3D texture.
+		// The look a grading tool exported, accepted unchanged.
+		ColorLut,
 	};
 
 	const char* AssetTypeName(AssetType type);

@@ -2,6 +2,7 @@
 #include "FrameGraphBuilder.h"
 #include "PostProcess.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RageV/Asset/AssetManager.h"
 #include "Renderer.h"
 #include "UIRenderer.h"
 
@@ -540,6 +541,15 @@ namespace RageV
 			const RGResource bloomSource = bloom;
 			const Format format = desc.OutputFormat;
 
+			// Resolved here rather than inside the pass, because a graph pass
+			// is a lambda that runs later and the asset manager is not
+			// something to reach into from execute time. Null when there is no
+			// LUT, when the handle is unknown, or when the `.cube` would not
+			// parse -- all of which grade nothing.
+			const RHI::Ref<RHI::RHITexture> lut =
+				Assets::Manager::GetColorLut(AssetHandle(post.ColorLut));
+			const uint32_t lutSize = lut ? lut->GetWidth() : 0;
+
 			graph.AddPass("Tonemap",
 				[&](RGPassBuilder& builder)
 				{
@@ -549,13 +559,14 @@ namespace RageV
 						builder.Sample(bloomSource);
 					builder.DisableDepth();
 				},
-				[shaded, bloomSource, post, format](RGPassContext& context)
+				[shaded, bloomSource, post, format, lut, lutSize](RGPassContext& context)
 				{
 					PostProcess::Tonemap(context.Cmd, context.Color(shaded),
 										 bloomSource != kRGInvalid ? context.Color(bloomSource)
 																   : nullptr,
 										 format, post.Exposure,
-										 bloomSource != kRGInvalid ? post.BloomIntensity : 0.0f);
+										 bloomSource != kRGInvalid ? post.BloomIntensity : 0.0f,
+										 lut, lutSize, post.ColorLutStrength);
 				});
 		}
 

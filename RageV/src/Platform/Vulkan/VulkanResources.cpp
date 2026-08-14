@@ -28,6 +28,7 @@ namespace RageV::Vk
 				case RHI::TextureType::Texture2DArray:   return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 				case RHI::TextureType::TextureCube:      return VK_IMAGE_VIEW_TYPE_CUBE;
 				case RHI::TextureType::TextureCubeArray: return VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+				case RHI::TextureType::Texture3D:        return VK_IMAGE_VIEW_TYPE_3D;
 			}
 			return VK_IMAGE_VIEW_TYPE_2D;
 		}
@@ -249,12 +250,18 @@ namespace RageV::Vk
 		VkImageUsageFlags usage = ToVkImageUsage(m_Desc.Usage);
 		usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;   // every texture can be uploaded to
 
+		// A volume's third extent is `extent.depth`, which every other texture
+		// type here leaves at 1 -- and its arrayLayers stays 1, because Vulkan
+		// has no 3D array. That is the shape of the distinction: depth is
+		// filtered, layers are not. ENGINE-NOTES 7t.
+		const bool isVolume = m_Desc.Type == RHI::TextureType::Texture3D;
+
 		VkImageCreateInfo imageInfo{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-		imageInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageInfo.imageType = isVolume ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
 		imageInfo.format = ToVkFormat(m_Desc.Format);
-		imageInfo.extent = { m_Desc.Width, m_Desc.Height, 1 };
+		imageInfo.extent = { m_Desc.Width, m_Desc.Height, isVolume ? m_Desc.Depth : 1 };
 		imageInfo.mipLevels = m_Desc.MipLevels;
-		imageInfo.arrayLayers = layers;
+		imageInfo.arrayLayers = isVolume ? 1 : layers;
 		imageInfo.samples = (VkSampleCountFlagBits)m_Desc.Samples;
 		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
 		imageInfo.usage = usage;
@@ -441,13 +448,20 @@ namespace RageV::Vk
 		{
 			TransitionTo(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
+			// A volume is uploaded whole -- one copy covering every slice --
+			// because its data is one contiguous block and it has no layers to
+			// walk. `layer` is not a slice index and must stay 0 here; the
+			// z extent is what carries the depth.
+			const bool isVolume = m_Desc.Type == RHI::TextureType::Texture3D;
+
 			VkBufferImageCopy region{};
 			region.imageSubresource.aspectMask = m_Aspect;
 			region.imageSubresource.mipLevel = mip;
-			region.imageSubresource.baseArrayLayer = layer;
+			region.imageSubresource.baseArrayLayer = isVolume ? 0 : layer;
 			region.imageSubresource.layerCount = 1;
 			region.imageExtent = { std::max(m_Desc.Width >> mip, 1u),
-								   std::max(m_Desc.Height >> mip, 1u), 1 };
+								   std::max(m_Desc.Height >> mip, 1u),
+								   isVolume ? std::max(m_Desc.Depth >> mip, 1u) : 1 };
 
 			vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 

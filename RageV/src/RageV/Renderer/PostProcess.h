@@ -39,9 +39,15 @@ namespace RageV
 
 		// Exposure, bloom, ACES and the transfer function, in one pass. This is
 		// where linear HDR becomes an image.
+		// `lut` is a 3D texture or null; null grades nothing, which is the same
+		// picture as no LUT at all. `lutSize` is its entries per axis, and the
+		// shader needs it because a LUT is sampled at texel centres rather
+		// than at the colour itself. ENGINE-NOTES 7t.
 		static void Tonemap(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& scene,
 							const RHI::Ref<RHI::RHITexture>& bloom, RHI::Format outputFormat,
-							float exposure, float bloomIntensity);
+							float exposure, float bloomIntensity,
+							const RHI::Ref<RHI::RHITexture>& lut = nullptr,
+							uint32_t lutSize = 0, float lutStrength = 1.0f);
 
 		// Anti-aliasing, on the tone-mapped image.
 		static void FXAA(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,

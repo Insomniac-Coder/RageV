@@ -21,6 +21,7 @@ namespace RageV
 			{ AssetType::Curve,    "Curve" },
 			{ AssetType::Font,     "Font" },
 			{ AssetType::PostProfile, "PostProfile" },
+			{ AssetType::ColorLut,    "ColorLut" },
 		};
 	}
 
@@ -70,6 +71,7 @@ namespace RageV
 		if (lower == ".rcurve")  return AssetType::Curve;
 		if (lower == ".rvfont")  return AssetType::Font;
 		if (lower == ".rvpostprofile") return AssetType::PostProfile;
+		if (lower == ".cube")    return AssetType::ColorLut;
 
 		// A `.ttf` is deliberately absent. It is the *input* to tools/rvfont
 		// and nothing at runtime can read one, so importing it would hand out

@@ -1214,6 +1214,11 @@ namespace
 			return static_cast<const RenderSettings*>(block)->ShadowsEnabled;
 		}
 
+		bool HasColorLut(const void* block)
+		{
+			return static_cast<const PostSettings*>(block)->ColorLut.IsValid();
+		}
+
 		bool BloomOn(const void* block)
 		{
 			return static_cast<const PostSettings*>(block)->BloomEnabled;
@@ -1341,6 +1346,22 @@ namespace
 
 				Field<&PostSettings::BloomIntensity>("BloomIntensity",
 					Named("Intensity", OnlyWhen(BloomOn, Drag(0.002f, 0.0f, 2.0f)))),
+
+				Field<&PostSettings::ColorLut>("ColorLut",
+					Named("Colour LUT",
+						AssetRef(AssetType::ColorLut,
+							"A .cube lookup table, applied after the tone curve -- "
+							"which is where a LUT exported from a grading tool "
+							"expects to be, so one does here what it did there. It "
+							"cannot recover highlight detail the tone curve has "
+							"already compressed; that is a different feature."))),
+
+				Field<&PostSettings::ColorLutStrength>("ColorLutStrength",
+					Named("LUT strength",
+						OnlyWhen(HasColorLut, Slider(0.0f, 1.0f,
+							"How much of the graded result is used, against the "
+							"ungraded one. A look is rarely wanted at full "
+							"strength on the first try.")))),
 
 				Field<&PostSettings::BloomClamp>("BloomClamp",
 					Named("Clamp", OnlyWhen(BloomOn,
