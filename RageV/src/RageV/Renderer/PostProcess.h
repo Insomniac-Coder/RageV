@@ -71,6 +71,21 @@ namespace RageV
 								uint32_t sourceWidth, uint32_t sourceHeight,
 								RHI::Format outputFormat, int factor);
 
+		// TAA's resolve: blend the jittered frame into the accumulated one.
+		//
+		// On the linear HDR scene, in the same slot as the SSAA resolve and
+		// for the same reason. `history` is last frame's output of this same
+		// pass and `velocity` the scene's motion vectors; `hasHistory` is
+		// false on the first frame and after a resize, where the correct
+		// answer is the current frame whole. ENGINE-NOTES 7r.
+		static void TemporalResolve(RHI::RHICommandList& cmd,
+									const RHI::Ref<RHI::RHITexture>& current,
+									const RHI::Ref<RHI::RHITexture>& history,
+									const RHI::Ref<RHI::RHITexture>& velocity,
+									uint32_t width, uint32_t height,
+									RHI::Format outputFormat,
+									float feedback, bool hasHistory);
+
 		// A straight copy, for when anti-aliasing is off but the chain still
 		// has to land in the target the caller wanted.
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
@@ -87,6 +102,7 @@ namespace RageV
 			Prefilter, Downsample, Upsample, Tonemap, FXAA, Blit,
 			SmaaEdges, SmaaWeights, SmaaBlend,
 			SsaaResolve,
+			TaaResolve,
 			Count
 		};
 
@@ -98,11 +114,17 @@ namespace RageV
 		// halfway between "edge" and "no edge" is a value that means nothing.
 		enum class Sampling { Linear, Point };
 
+		// `third` is only for the temporal resolve, which needs the frame, the
+		// history and the motion vectors at once. Null bindings are skipped
+		// rather than filled: writing a binding the shader never declared is
+		// out of range for the layout, and the driver takes it badly.
 		static void Dispatch(RHI::RHICommandList& cmd, Shader shader, RHI::Format outputFormat,
 							 const RHI::Ref<RHI::RHITexture>& first,
 							 const RHI::Ref<RHI::RHITexture>& second,
 							 const void* params, uint32_t paramSize,
 							 Sampling firstSampling = Sampling::Linear,
-							 Sampling secondSampling = Sampling::Linear);
+							 Sampling secondSampling = Sampling::Linear,
+							 const RHI::Ref<RHI::RHITexture>& third = nullptr,
+							 Sampling thirdSampling = Sampling::Linear);
 	};
 }

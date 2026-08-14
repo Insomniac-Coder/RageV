@@ -1,0 +1,203 @@
+// TAA's second half: blend this frame into the accumulated one.
+//
+// The jitter (ENGINE-NOTES 7r) has already moved the projection by a
+// different fraction of a pixel; this is what turns that into an image. Each
+// frame contributes a small share, so after a dozen frames a pixel holds the
+// average of a dozen sub-pixel positions -- which is supersampling, spread
+// over time instead of over fill rate.
+//
+// **This runs on the linear HDR scene, before bloom and tone mapping**, in
+// the same slot as the SSAA resolve and for the same reason: averaging is
+// only meaningful where the numbers add up. Two samples of 0.0 and 1.0
+// describe a surface that reflected half the light. Averaging after the tone
+// curve asks what is halfway between two *display* values, which is a
+// different and wrong question -- see ssaa_resolve.rvshader, which makes the
+// same argument at more length, and 7n for why FXAA and SMAA have to be on
+// the other side of the curve.
+//
+// Everything below the reprojection is about one problem: **the history is
+// often wrong, and blending it in anyway is what ghosting is.** A pixel that
+// was hidden behind something last frame has no history; a pixel whose
+// surface moved has history belonging to whatever used to be there. Three
+// defences, in order of how much they matter:
+//
+//   1. **Reprojection.** Sample the history where this surface *was*, not
+//      where this pixel is. Without it a temporal filter is only correct for
+//      a still camera and smears everything else.
+//
+//   2. **Neighbourhood clipping.** Build the colour box of the 3x3
+//      neighbourhood around this pixel and pull the history into it. History
+//      that cannot be explained by anything nearby does not belong here. This
+//      is a heuristic and worth saying so: it trades ghosting for flicker,
+//      and where the line sits is a taste decision -- which is why the blend
+//      weight is a number in the inspector rather than a constant somebody
+//      chose once.
+//
+//   3. **A weighted mean.** A single very bright sample dominates a linear
+//      average and flickers as it enters and leaves a pixel. Weighting each
+//      side by 1/(1+luma) before mixing and undoing it afterwards makes the
+//      blend behave like one done in a perceptual space while still producing
+//      a linear result.
+//
+// The clipping is done in **YCoCg** rather than RGB. The neighbourhood of an
+// edge is a line through colour space, not a cube, and an RGB bounding box
+// around a red-to-blue transition contains magenta -- a colour no pixel in
+// the neighbourhood has, and one the history is then free to keep. YCoCg puts
+// luminance on its own axis, where most of the variation actually is, so the
+// box is a much tighter fit around the same samples.
+//
+// See docs/ENGINE-NOTES.md section 7r.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Current;
+layout(set = 0, binding = 1) uniform sampler2D u_History;
+layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
+
+layout(push_constant) uniform Params
+{
+	// One texel of the scene target.
+	vec2  TexelSize;
+	// How much of the accumulated image survives each frame. 0.9 means a
+	// sample's influence has halved after about seven frames and is gone
+	// after thirty.
+	float Feedback;
+	// Zero on the first frame, after a resize, and any other time the history
+	// does not describe this scene at this size.
+	float HasHistory;
+	float Unused0;
+	float FlipY;
+} u_Params;
+
+// Y, Co, Cg. The transform is exact and cheap -- adds and shifts in fixed
+// point, which is why every temporal filter uses it for this.
+vec3 ToYCoCg(vec3 c)
+{
+	return vec3(dot(c, vec3(0.25, 0.5, 0.25)),
+				dot(c, vec3(0.5, 0.0, -0.5)),
+				dot(c, vec3(-0.25, 0.5, -0.25)));
+}
+
+vec3 ToRGB(vec3 c)
+{
+	return vec3(c.x + c.y - c.z,
+				c.x + c.z,
+				c.x - c.y - c.z);
+}
+
+// Pull `history` towards `centre` until it is inside the box, rather than
+// clamping each channel independently.
+//
+// Clamping per channel moves the colour to the nearest corner of the box,
+// which is a colour that may be nowhere near the line the neighbourhood
+// actually occupies. Clipping walks along the segment from the centre and
+// stops at the face it leaves through, which keeps the hue and gives up only
+// the amount it has to.
+vec3 ClipToBox(vec3 history, vec3 centre, vec3 extent)
+{
+	vec3 offset = history - centre;
+	// Guarded: a perfectly flat neighbourhood has zero extent on some axis,
+	// and the ratio there is 0/0 rather than "infinitely far outside".
+	vec3 units = abs(offset / max(extent, vec3(1e-5)));
+	float furthest = max(units.x, max(units.y, units.z));
+
+	return furthest > 1.0 ? centre + offset / furthest : history;
+}
+
+// The 1/(1+luma) weighting. Its `.x` is the Y of a YCoCg colour, which is
+// what makes this cheap: the luminance is already computed.
+//
+// No matching unweight, and that is not an omission -- with two samples the
+// division by the sum of the weights is the unweighting. It only needs
+// undoing when the weights are used to accumulate rather than to mix.
+float Weight(vec3 c) { return 1.0 / (1.0 + max(c.x, 0.0)); }
+
+void main()
+{
+	// See PostProcess::Dispatch: the two backends do not store a rendered
+	// image the same way up, so one of them samples flipped.
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	vec4 current = texture(u_Current, uv);
+
+	// Nothing to accumulate into. Not a special case to be tidied away later
+	// -- it is the correct answer on the first frame and after every resize,
+	// and taking it whole is what stops one frame of uninitialised memory
+	// fading out over the next thirty.
+	if (u_Params.HasHistory < 0.5)
+	{
+		o_Color = current;
+		return;
+	}
+
+	// Where this surface was last frame. The velocity attachment is in the
+	// same UV units as this sample, and jitter-free -- the scene's fragment
+	// shader subtracts the offset back out, because half a pixel of camera
+	// dither is not the surface moving.
+	//
+	// The vertical direction is the one that has to be stated: velocity was
+	// written as a difference of *clip* coordinates, whose y axis runs the
+	// same way on both backends, while this shader's v runs downward on one
+	// and upward on the other. Same reasoning as the flip above, applied to a
+	// direction rather than to a position.
+	vec2 velocity = texture(u_Velocity, uv).xy;
+	velocity.y = flip ? -velocity.y : velocity.y;
+
+	vec2 historyUV = uv - velocity;
+
+	// Off the edge of the image there is no history, and clamping would smear
+	// the border pixel inward along whatever direction the camera turned.
+	if (any(lessThan(historyUV, vec2(0.0))) || any(greaterThan(historyUV, vec2(1.0))))
+	{
+		o_Color = current;
+		return;
+	}
+
+	// The 3x3 neighbourhood, in YCoCg, as a box.
+	vec3 centreYCoCg = ToYCoCg(current.rgb);
+	vec3 lowest = centreYCoCg;
+	vec3 highest = centreYCoCg;
+
+	for (int y = -1; y <= 1; y++)
+	{
+		for (int x = -1; x <= 1; x++)
+		{
+			if (x == 0 && y == 0)
+				continue;
+
+			vec3 neighbour = ToYCoCg(
+				texture(u_Current, uv + u_Params.TexelSize * vec2(x, y)).rgb);
+			lowest = min(lowest, neighbour);
+			highest = max(highest, neighbour);
+		}
+	}
+
+	vec3 history = ToYCoCg(texture(u_History, historyUV).rgb);
+	history = ClipToBox(history, 0.5 * (lowest + highest), 0.5 * (highest - lowest));
+
+	// Weighted by 1/(1+luma) on each side, mixed, and unweighted. Both terms
+	// are in YCoCg here, so `.x` is the luminance the weight wants.
+	float currentWeight = (1.0 - u_Params.Feedback) * Weight(centreYCoCg);
+	float historyWeight = u_Params.Feedback * Weight(history);
+	float total = max(currentWeight + historyWeight, 1e-5);
+
+	vec3 blended = (centreYCoCg * currentWeight + history * historyWeight) / total;
+
+	o_Color = vec4(ToRGB(blended), current.a);
+}

@@ -2824,6 +2824,93 @@ that assertion is the one a clock cannot accidentally pass, because a
 time-driven jitter can be reproducible under `--frame-time` and still
 have no period at all.
 
+### The history, and the three things that reject it
+
+**Where it lives.** Outside the graph, handed in. The graph pools its
+targets by shape and hands out whichever is free, so a target has no
+identity from one frame to the next — "the image I wrote last frame" is
+not a thing it can express. `TemporalHistory` is a pair the caller owns,
+ping-ponged, and `FrameDesc::History` is how it gets in. A caller that
+supplies none gets **no jitter either**: jittering without somewhere to
+accumulate is a wobble and strictly worse than not jittering, so the
+absence of a history turns the whole mode off rather than leaving half
+of it running.
+
+One per *frame chain*, not one per process. The editor has two, because
+its viewport and the game's are different sizes showing different
+cameras, and a shared history would have each dragging the other's image
+behind it.
+
+The target written this frame **is** next frame's history, and the rest
+of the chain reads it — so bloom and tone mapping consume the
+accumulated image rather than the jittered one, and nothing is copied
+anywhere. Bloom in particular matters: a threshold applied to a frame
+wobbling by half a pixel flickers along every bright edge, and a glow
+that shimmers is more obvious than the aliasing it was hiding.
+
+**Where it runs.** On the linear HDR scene, in the same slot as the SSAA
+resolve, and mutually exclusive with it. Same argument as §7o: averaging
+is only meaningful where the numbers add up. This puts TAA on the
+*supersampling* side of §7n's two definitions of correct, reaching for
+the same ideal MSAA and SSAA reach for rather than the one FXAA and SMAA
+are stuck with.
+
+**What rejects the history**, in the order it matters:
+
+1. **Reprojection**, or the filter is only correct for a still camera.
+2. **Neighbourhood clipping** in YCoCg. The 3×3 box around the current
+   pixel, and the history pulled into it. RGB would be worse and not
+   marginally: the neighbourhood of an edge is a *line* through colour
+   space, and an RGB bounding box around a red-to-blue transition
+   contains magenta — a colour no pixel nearby has, and one the history
+   is then free to keep. And **clipping, not clamping**: clamping each
+   channel independently moves the colour to the nearest corner of the
+   box, which can be nowhere near the line; clipping walks the segment
+   from the box centre and stops at the face it leaves through, giving
+   up only what it has to.
+3. **A weighted mean.** Each side weighted by 1/(1+luma) before mixing.
+   A single very bright sample dominates a linear average and flickers
+   as it enters and leaves a pixel. No matching unweight step, and that
+   is not an omission: with two samples the division by the sum of the
+   weights *is* the unweighting.
+
+The blend weight is a number in the inspector — `TemporalFeedback` —
+because it is the ghosting-versus-flicker dial and there is no correct
+value. A slow architectural fly-through and a first-person shooter
+disagree about it and both are right. Clamped short of 1, which would be
+a filter that never accepts a new frame: the image would freeze on
+whatever it first accumulated and look, from outside, exactly like the
+resolve having stopped.
+
+### What TAA.4 does not yet do, and one number that says why
+
+**The sky still writes zero velocity**, and the fix turned out not to be
+a line of shader. The sky is infinitely far away so it has no motion of
+its own, but it does move across the screen when the camera turns, and a
+filter told otherwise reprojects it onto itself. Fixing that needs the
+previous rotation-only view-projection in the sky shader — and that
+block is **112 bytes of the 128 every Vulkan implementation guarantees**,
+with a `static_assert` already guarding the same budget for the grid. A
+mat4 is 64 more. So the fix is a uniform buffer for the sky's
+parameters, which is its own change with its own risk, and it belongs
+next to the moving-camera check that can see whether it worked.
+
+**The vertical direction of the reprojection is the other one.** Velocity
+is a difference of *clip* coordinates, whose y axis runs the same way on
+both backends, while the resolve's v runs downward on one and upward on
+the other — so the y component is negated on exactly the backend that
+flips, by the same reasoning as every other fullscreen pass. That is
+reasoning, not measurement: **the sign is unobservable on a static
+scene**, because velocity is zero everywhere. It is measured by the
+moving check in 7.10's last step, and until that lands this is the
+weakest claim in the section.
+
+Depth-based velocity dilation — taking the velocity of the nearest of
+the neighbouring pixels, so a thin foreground object drags its own
+motion rather than the background's — is a known improvement and
+deliberately absent. It needs the scene's depth sampled by the resolve,
+and it is a refinement of something not yet verified.
+
 ### A near-miss worth more than the feature
 
 The way to prove a change is inert is to render the same frame with the

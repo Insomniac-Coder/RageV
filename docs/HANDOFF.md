@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1340 checks, `exit 0`. Then look at a frame:
+1365 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -167,14 +167,30 @@ byte-identical, frame 30 and 38 are byte-identical *to each other* while 30 and
 31 differ, all eight offsets distinct, and nothing more than 4 px from an edge
 moves. 353 pixels move per frame, the same number on both backends.
 
-**The next two steps, in order** (7r has the reasoning for each):
+History: `TemporalHistory`, a caller-owned ping-pong pair, imported into the
+graph. The target written this frame is next frame's history *and* what bloom
+and tone mapping read, so nothing is copied. Rejection is a YCoCg
+neighbourhood clip plus a 1/(1+luma) weighted mean; `TemporalFeedback` is the
+ghosting-versus-flicker dial in the inspector. On a static scene it is the best
+of all six modes at three of four angles on the linear yardstick.
 
-1. **History and reprojection** -- persistent targets outside the graph pool,
-   since pooled targets have no identity across frames -- with a
-   neighbourhood AABB clamp so disocclusion does not ghost.
-2. **A moving-scene check.** A static scene lets TAA converge and flatters it
-   maximally; ghosting is its only real failure mode and no existing check
-   can see it.
+**What is left, and both are honest gaps rather than polish:**
+
+1. **The reprojection's vertical sign is reasoned, not measured.** Velocity is
+   a difference of clip coordinates, whose y runs the same way on both
+   backends, while the resolve's v does not -- so it is negated on the backend
+   that flips, like every other fullscreen pass. **This is unobservable on a
+   static scene**, because velocity is zero everywhere, so no check here has
+   tested it.
+2. **The sky writes zero velocity**, so it smears when the camera turns.
+   Visible on a detailed cubemap sky, near-invisible on the gradient. The fix
+   is *not* a line of shader: the sky's push-constant block is 112 bytes of the
+   128 every Vulkan implementation guarantees and a previous view-projection is
+   64 more, so it needs a uniform buffer for the sky's parameters.
+
+**Both are what the next step is for:** a moving-scene check. A static scene
+lets TAA converge and flatters it maximally; ghosting under motion is its only
+real failure mode, and it is also the only thing that can see either gap above.
 
 **Before diffing two screenshots, prove they contain what you think.** An
 inertness check here reported OpenGL as 100% changed in all five modes; the

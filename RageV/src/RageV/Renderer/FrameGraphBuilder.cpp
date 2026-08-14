@@ -213,11 +213,25 @@ namespace RageV
 		// sequence would make --screenshot-frame=30 produce a different image
 		// on every run, and the failure would look like noise rather than like
 		// a mistake. ENGINE-NOTES 7r.
-		const Vec2 jitter = aa == AntiAliasing::TAA
+		//
+		// Only when there is somewhere to accumulate into. Jittering without a
+		// history is a wobble and nothing else -- strictly worse than not
+		// jittering -- so a caller with no TemporalHistory gets the unjittered
+		// frame rather than the worse half of a feature.
+		const bool wantTemporal = aa == AntiAliasing::TAA && desc.History != nullptr
+							   && PostProcess::IsReady();
+
+		const Vec2 jitter = wantTemporal
 			? TemporalJitter(Renderer::GetFrameCount(),
 							 desc.Width * (uint32_t)supersample,
 							 desc.Height * (uint32_t)supersample)
 			: Vec2(0.0f, 0.0f);
+
+		// A history left over from before the mode changed describes a frame
+		// this chain is no longer producing. Switching to FXAA for ten seconds
+		// and back must not resume from a ten-second-old image.
+		if (!wantTemporal && desc.History)
+			desc.History->Invalidate();
 
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
@@ -345,6 +359,68 @@ namespace RageV
 											 context.Height * supersample,
 											 Format::R16G16B16A16_SFLOAT, supersample);
 				});
+		}
+
+		// --- TAA resolve ---------------------------------------------------------
+		//
+		// The same slot as the SSAA resolve above, and mutually exclusive with
+		// it: both are a mode of anti-aliasing that produces the shaded image
+		// the rest of the chain consumes, and both belong before bloom and
+		// tone mapping because averaging is only meaningful in linear light.
+		//
+		// Bloom reading the *accumulated* image rather than the jittered one
+		// is not incidental. A threshold applied to a frame that is wobbling
+		// by half a pixel flickers along every bright edge, and a glow that
+		// shimmers is more obvious than the aliasing it was hiding.
+		if (wantTemporal)
+		{
+			TemporalHistory& history = *desc.History;
+			history.Prepare(Renderer::GetDevice(), desc.Width, desc.Height,
+							Format::R16G16B16A16_SFLOAT);
+
+			// Null only if the device refused the allocation, which is a
+			// bigger problem than anti-aliasing; the frame still renders.
+			if (history.Current() && history.Previous())
+			{
+				// The target written this frame *is* next frame's history, so
+				// the accumulated image is never copied anywhere -- the rest
+				// of the chain reads the same image the next frame will
+				// reproject.
+				const RGResource current = graph.Import(history.Current(), "TemporalCurrent");
+				const RGResource previous = graph.Import(history.Previous(), "TemporalPrevious");
+				const RGResource source = shaded;
+				const float feedback = desc.Environment.TemporalFeedback;
+				const bool hasHistory = history.HasHistory();
+
+				graph.AddPass("TAA resolve",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(current);
+						builder.Sample(source);
+						builder.Sample(previous);
+						builder.DisableDepth();
+					},
+					[source, previous, velocityIndex, feedback, hasHistory](RGPassContext& context)
+					{
+						PostProcess::TemporalResolve(
+							context.Cmd,
+							context.Color(source),
+							context.Color(previous),
+							// The velocity attachment of the scene target,
+							// which is the same target `source` is when SSAA
+							// is off -- and SSAA and TAA cannot both be on.
+							context.Color(source, velocityIndex),
+							context.Width, context.Height,
+							Format::R16G16B16A16_SFLOAT, feedback, hasHistory);
+					});
+
+				shaded = current;
+
+				// Swapped here rather than by the caller. A ping-pong that
+				// somebody has to remember to advance is a ping-pong that
+				// spends a session reading the target it is writing.
+				history.Advance();
+			}
 		}
 
 		// --- bloom -------------------------------------------------------------

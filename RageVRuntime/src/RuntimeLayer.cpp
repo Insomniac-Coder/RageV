@@ -231,6 +231,9 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Height = m_Height;
 	frame.Environment = m_Scene->GetEnvironment();
 	frame.OutputFormat = device.GetSwapchainFormat();
+	// One frame chain, so one history. See TemporalHistory for why the graph
+	// cannot own this.
+	frame.History = &m_History;
 	frame.DrawScene = [this](RGPassContext& context)
 	{
 		m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);

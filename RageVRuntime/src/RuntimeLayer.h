@@ -45,6 +45,10 @@ private:
 	// Rebuilt every frame, but kept between them: it pools the targets it
 	// allocates, so a stable frame allocates nothing after the first.
 	std::unique_ptr<RageV::RenderGraph> m_Graph;
+
+	// Where TAA accumulates. Owned here because the graph's targets are pooled
+	// by shape and have no identity across frames.
+	RageV::TemporalHistory m_History;
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 
 	uint32_t m_Width = 0;

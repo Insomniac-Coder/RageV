@@ -10,6 +10,7 @@
 #include "UI/EditorTheme.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Renderer/RenderGraph.h"
+#include "RageV/Renderer/TemporalHistory.h"
 #include "RageV/Renderer/EditorIcons.h"
 #include "RageV/UI/Interaction.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
@@ -191,6 +192,14 @@ private:
 	// scene view had just finished with -- at the scene view's resolution.
 	std::unique_ptr<RageV::RenderGraph> m_Graph;
 	std::unique_ptr<RageV::RenderGraph> m_GameGraph;
+
+	// Where TAA accumulates, one per graph. Two, not one: these panels are
+	// different sizes showing different cameras, and a shared history would
+	// have each dragging the other's image behind it. Owned here rather than
+	// by the graph because a pooled target has no identity across frames --
+	// see TemporalHistory.
+	RageV::TemporalHistory m_SceneHistory;
+	RageV::TemporalHistory m_GameHistory;
 
 	// What both viewport textures are, and what the post chain's last pass
 	// writes. ImGui samples them, so they are LDR.

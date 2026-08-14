@@ -3194,6 +3194,59 @@ void main()
 		Check(identical, "and no offset at all leaves the projection bit-identical");
 	}
 
+	// The history pair on its own, away from the graph.
+	//
+	// Small and worth having, because every one of these properties is
+	// invisible in the picture: a pair that failed to swap looks like a filter
+	// that converged instantly, and a resize that kept its history looks like
+	// one frame of smear that nobody catches while dragging a panel edge.
+	void CheckTemporalHistory()
+	{
+		RHI::RHIDevice& device = Renderer::GetDevice();
+
+		TemporalHistory history;
+		Check(!history.HasHistory(), "a fresh history has nothing in it");
+		Check(!history.Current(), "and nothing allocated");
+
+		history.Prepare(device, 320, 200, RHI::Format::R16G16B16A16_SFLOAT);
+		Check(history.Current() && history.Previous(), "Prepare allocates both halves");
+		Check(!history.HasHistory(),
+			  "which are not history yet -- a freshly allocated image holds "
+			  "whatever the driver left in it");
+
+		const RHI::Ref<RHI::RHIRenderTarget> first = history.Current();
+		history.Advance();
+		Check(history.HasHistory(), "after a frame there is a history");
+		Check(history.Previous() == first,
+			  "and it is the target that frame wrote");
+		Check(history.Current() != first, "while the next frame writes the other one");
+
+		history.Advance();
+		Check(history.Current() == first, "and the pair alternates rather than growing");
+
+		// A resize throws it away. Reprojecting into an image of another size
+		// is meaningless, and stretching it would smear a whole frame every
+		// time somebody drags a panel edge.
+		history.Prepare(device, 640, 400, RHI::Format::R16G16B16A16_SFLOAT);
+		Check(!history.HasHistory(), "a resize forgets the accumulated image");
+		Check(history.Current() && history.Current()->GetWidth() == 640,
+			  "and reallocates at the new size");
+
+		history.Advance();
+		history.Prepare(device, 640, 400, RHI::Format::R16G16B16A16_SFLOAT);
+		Check(history.HasHistory(),
+			  "while preparing at the same size again keeps it, which is what "
+			  "happens on every frame that is not a resize");
+
+		// A viewport dragged shut. Not an error and not a reason to free
+		// anything, but the history stops describing anything.
+		history.Prepare(device, 0, 0, RHI::Format::R16G16B16A16_SFLOAT);
+		Check(!history.HasHistory(), "a zero-sized target has no history either");
+
+		history.Release();
+		Check(!history.Current() && !history.HasHistory(), "and Release empties it");
+	}
+
 	void CheckRenderSettings()
 	{
 		const auto& fields = RenderSettingsRegistry::Fields();
@@ -7454,16 +7507,74 @@ void main()
 		Check(build(1600, 900, environment), "SSAA at a factor of one compiles");
 		Check(!hasPass("SSAA resolve"), "and adds no resolve pass at all");
 
-		// TAA adds no pass either, and for a different reason from MSAA's: the
-		// filter that would read the jittered frames does not exist yet. What
-		// it must not do is leave tone mapping writing into an intermediate
-		// nothing presents, which is how an unhandled mode fails.
+		// TAA needs somewhere to accumulate, and a caller that has not supplied
+		// one gets no filter rather than the worse half of the feature: the
+		// jitter without the history is a wobble and nothing else.
 		environment.SupersampleFactor = 2;
 		environment.AA = AntiAliasing::TAA;
-		Check(build(1600, 900, environment), "with TAA it compiles");
+		Check(build(1600, 900, environment), "with TAA and no history it compiles");
+		Check(!hasPass("TAA resolve"),
+			  "and does not resolve, because there is nowhere to accumulate into");
 		Check(!hasPass("FXAA") && !hasPass("SMAA") && !hasPass("SSAA resolve"),
-			  "and adds no resolve pass, because the history buffer is 7.10's next step");
+			  "running no other filter either");
 		Check(hasPass("Tonemap"), "with tone mapping writing the output directly");
+
+		// And with one, the resolve appears. The history is the caller's,
+		// because a pooled graph target has no identity from one frame to the
+		// next -- which is the whole reason this parameter exists.
+		{
+			TemporalHistory history;
+
+			auto buildTemporal = [&](const SceneEnvironment& environment)
+			{
+				graph.Begin(1600, 900);
+
+				FrameDesc frame;
+				frame.Output = graph.Backbuffer();
+				frame.Width = 1600;
+				frame.Height = 900;
+				frame.Environment = environment;
+				frame.OutputFormat = RHI::Format::R8G8B8A8_UNORM;
+				frame.DrawScene = [](RGPassContext&) {};
+				frame.History = &history;
+
+				BuildFrame(graph, frame);
+				return graph.Compile();
+			};
+
+			Check(buildTemporal(environment), "with TAA and a history it compiles");
+			Check(hasPass("TAA resolve"), "and resolves into the accumulated image");
+			Check(hasPass("Tonemap"), "which tone mapping then reads");
+
+			// The first frame has nothing to blend with. Advance is called by
+			// BuildFrame, so after one frame there is a history and after two
+			// the filter is actually accumulating.
+			Check(history.HasHistory(),
+				  "and one frame later there is something to accumulate into");
+			Check(history.Current() && history.Previous(),
+				  "with both halves of the pair allocated");
+			Check(history.Current() != history.Previous(),
+				  "and they are not the same target, which would be a filter "
+				  "sampling the image it is drawing into");
+
+			const RHI::Ref<RHI::RHIRenderTarget> afterOne = history.Current();
+			Check(buildTemporal(environment), "a second TAA frame compiles");
+			Check(history.Current() == afterOne || history.Previous() == afterOne,
+				  "and the pair ping-pongs rather than reallocating");
+
+			// Switching away has to forget. Ten seconds of FXAA and back must
+			// not resume from a ten-second-old image, and the reason this is
+			// checked rather than assumed is that nothing about the picture
+			// would show it -- the stale frame is blended in at 10% and is
+			// gone before anyone can point at it.
+			SceneEnvironment other = environment;
+			other.AA = AntiAliasing::FXAA;
+			Check(buildTemporal(other), "switching to FXAA compiles");
+			Check(!hasPass("TAA resolve"), "and stops resolving");
+			Check(!history.HasHistory(),
+				  "and throws the accumulated image away, so switching back "
+				  "starts again rather than resuming from whenever it stopped");
+		}
 
 		environment.SupersampleFactor = 2;
 		environment.AA = (AntiAliasing)99;
@@ -9200,6 +9311,7 @@ int RunTests(int argc, char** argv)
 	CheckFieldLabels();
 	CheckMotionHistory();
 	CheckTemporalJitter();
+	CheckTemporalHistory();
 	CheckRenderSettings();
 	CheckShadowToggle();
 	CheckShadowCascades();

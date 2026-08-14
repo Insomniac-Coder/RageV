@@ -922,6 +922,25 @@ public static unsafe class RenderSettings
 		set => Set("MsaaSamples", value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 	}
 
+	/// <summary>
+	/// How much of TAA's accumulated image survives each frame, when
+	/// <see cref="AntiAliasing"/> is <see cref="RageV.AntiAliasing.Taa"/>.
+	/// Ignored otherwise, clamped to 0..0.98.
+	/// <para>
+	/// <b>The ghosting-versus-flicker dial, and there is no correct value.</b>
+	/// Higher converges on a cleaner image and holds onto history that has
+	/// stopped being true for longer; lower is sharper under motion and
+	/// noisier standing still. 0.9 halves a sample's influence in about seven
+	/// frames. A slow fly-through and a shooter disagree about this, and both
+	/// are right — which is why it is a number rather than a constant.
+	/// </para>
+	/// </summary>
+	public static float TemporalFeedback
+	{
+		get => GetFloat("TemporalFeedback");
+		set => SetFloat("TemporalFeedback", value);
+	}
+
 	/// <summary>Multiplies the scene before the tone curve. 1 is neutral.</summary>
 	public static float Exposure
 	{

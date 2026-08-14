@@ -34,10 +34,19 @@ const float SKY_CUBEMAP  = 2.0;
 
 layout(location = 0) in vec2 v_NDC;
 layout(location = 0) out vec4 o_Color;
-// Nothing here reports motion. The attachment is bound for the whole pass, so
-// every pipeline in it declares the output; writing zero is the truthful
-// answer for a background, a gizmo or a particle, and leaving it unwritten
-// would be whatever the clear happened to be. ENGINE-NOTES 7r.
+// Zero, which is truthful for a still camera and a lie for a turning one.
+//
+// The sky is infinitely far away, so it has no motion of its own -- but it
+// does move across the screen when the camera rotates, and a temporal filter
+// told otherwise reprojects it onto itself and smears it. Visible on a
+// detailed cubemap sky, close to invisible on the gradient, and invisible in
+// every check here because they all hold the camera still.
+//
+// Fixing it needs the *previous* rotation-only view-projection, and that does
+// not fit: this block is 112 bytes of the 128 every implementation
+// guarantees, and a mat4 is 64 more. So the fix is a uniform buffer for the
+// sky's parameters rather than a line of shader -- which is why it is not
+// here yet. ENGINE-NOTES 7r.
 layout(location = 1) out vec2 o_Velocity;
 
 

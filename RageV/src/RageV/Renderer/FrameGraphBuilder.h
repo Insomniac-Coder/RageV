@@ -1,6 +1,7 @@
 #pragma once
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/TemporalHistory.h"
 #include <functional>
 
 namespace RageV
@@ -53,6 +54,19 @@ namespace RageV
 		// makes this trade for an overlay canvas, and it is why overlay text
 		// stays crisp. See ENGINE-NOTES 7d.
 		std::function<void(RGPassContext&)> DrawUI;
+
+		// Where a temporal filter keeps last frame's result.
+		//
+		// Supplied by the caller because the graph cannot: its targets are
+		// pooled by shape and reused within a frame, so none of them has an
+		// identity that survives to the next one. Null means TAA falls back to
+		// no filter at all -- which is what scenetest and a probe capture
+		// want, and is a good deal better than a mode that silently
+		// accumulates into whichever target happened to be free.
+		//
+		// One per frame chain. The editor has two, because its viewport and
+		// the game's are different sizes showing different cameras.
+		TemporalHistory* History = nullptr;
 
 		SceneEnvironment Environment;
 

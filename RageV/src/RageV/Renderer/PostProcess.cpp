@@ -40,7 +40,8 @@ namespace RageV
 				case 6: return "assets/shaders/smaa_edges.rvshader";
 				case 7: return "assets/shaders/smaa_weights.rvshader";
 				case 8: return "assets/shaders/smaa_blend.rvshader";
-				default: return "assets/shaders/ssaa_resolve.rvshader";
+				case 9: return "assets/shaders/ssaa_resolve.rvshader";
+				default: return "assets/shaders/taa_resolve.rvshader";
 			}
 		}
 
@@ -50,7 +51,7 @@ namespace RageV
 
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not.
-			std::array<Ref<RHIShader>, 10> Shaders;
+			std::array<Ref<RHIShader>, 11> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -157,7 +158,8 @@ namespace RageV
 	void PostProcess::Dispatch(RHICommandList& cmd, Shader shader, Format outputFormat,
 							   const Ref<RHITexture>& first, const Ref<RHITexture>& second,
 							   const void* params, uint32_t paramSize,
-							   Sampling firstSampling, Sampling secondSampling)
+							   Sampling firstSampling, Sampling secondSampling,
+							   const Ref<RHITexture>& third, Sampling thirdSampling)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -220,6 +222,9 @@ namespace RageV
 		// binding, so the write is out of range and the driver takes it badly.
 		if (second)
 			set->SetTexture(1, second, samplerFor(secondSampling));
+
+		if (third)
+			set->SetTexture(2, third, samplerFor(thirdSampling));
 
 		set->Commit();
 
@@ -363,6 +368,38 @@ namespace RageV
 		// widen the footprint for an odd one.
 		Dispatch(cmd, Shader::SsaaResolve, outputFormat, source, nullptr, &params, sizeof(params),
 				 Sampling::Point);
+	}
+
+	void PostProcess::TemporalResolve(RHICommandList& cmd, const Ref<RHITexture>& current,
+									  const Ref<RHITexture>& history,
+									  const Ref<RHITexture>& velocity,
+									  uint32_t width, uint32_t height, Format outputFormat,
+									  float feedback, bool hasHistory)
+	{
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+							 1.0f / (float)Math::Max(height, 1u) };
+		// Clamped short of 1, which would be a filter that never accepts a new
+		// frame: the image would freeze on whatever it first accumulated and
+		// look, from the outside, exactly like the resolve having stopped.
+		params.A = Math::Clamp(feedback, 0.0f, 0.98f);
+		params.B = hasHistory ? 1.0f : 0.0f;
+
+		// The neighbourhood is read at exact texel offsets, so the current
+		// frame is sampled point -- a filtered read of a 3x3 box would blur
+		// the box before the clip is computed from it, which widens it and
+		// lets more ghosting through.
+		//
+		// The history is linear, and that one is not a preference: it is
+		// sampled at a reprojected position that lands between texels
+		// whenever anything moves by a fraction of a pixel, which is always.
+		//
+		// Velocity is point for the same reason SMAA's maps are: it is a
+		// measurement per pixel, and the average of two pixels' motion is the
+		// motion of nothing.
+		Dispatch(cmd, Shader::TaaResolve, outputFormat, current, history,
+				 &params, sizeof(params), Sampling::Point, Sampling::Linear,
+				 velocity, Sampling::Point);
 	}
 
 	void PostProcess::Blit(RHICommandList& cmd, const Ref<RHITexture>& source, Format outputFormat)

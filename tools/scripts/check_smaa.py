@@ -52,7 +52,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-MODES = ("none", "fxaa", "smaa", "ssaa", "msaa")
+MODES = ("none", "fxaa", "smaa", "ssaa", "msaa", "taa")
 BACKENDS = ("vulkan", "opengl")
 # Four regimes, and each one reaches code the others do not.
 #
@@ -82,6 +82,15 @@ FLAT_DISTANCE = 4.0
 # it at 1.4 would have let the diagonal pass regress all the way out again
 # without this failing.
 REQUIRED_GAIN = 2.5
+
+# The same kind of floor for TAA, against the linear-space ideal.
+#
+# A static scene converges over thirty frames on roughly what eight jittered
+# samples give, so this should be comfortably clear of it -- the floor is here
+# to catch the history being dropped, not to grade the filter. Set below what
+# SSAA at 2x manages, because a filter that merely matched four regular
+# samples would still be working.
+TAA_REQUIRED_GAIN = 1.5
 
 # The two backends run different drivers and different rasterisers, so their
 # coverage will not be bit-identical everywhere in general. On this scene the
@@ -337,6 +346,34 @@ def main():
             failures.append(
                 f"{angle} deg: MSAA measures {a:.4f} on Vulkan and {b:.4f} on OpenGL, "
                 f"further apart than sample-position freedom explains")
+
+        # TAA, on the linear yardstick too: it accumulates before the tone
+        # curve, so it is reaching for the same ideal SSAA and MSAA are.
+        #
+        # **And this number flatters it, which is the honest caveat.** The
+        # scene is static, so thirty frames of accumulation converge on
+        # something close to an eight-sample supersample for the price of one
+        # -- which is TAA at its very best and the case nobody complains
+        # about. Its actual failure mode is ghosting under motion, which no
+        # still frame can show; check_taa_motion.py is where that lives. What
+        # this proves is narrower and still worth proving: that the history is
+        # being accumulated at all, and in the right space.
+        taa = (results[(angle, "vulkan", "none", "linear")]
+               / results[(angle, "vulkan", "taa", "linear")])
+        if taa < TAA_REQUIRED_GAIN:
+            failures.append(
+                f"{angle} deg: TAA is only {taa:.1f}x better than no filter at all "
+                f"against the linear-space ideal, and thirty frames of accumulation on "
+                f"a static scene has to be at least {TAA_REQUIRED_GAIN}x. Either the "
+                f"history is not being blended in, or it is being rejected everywhere")
+
+        a = results[(angle, "vulkan", "taa", "linear")]
+        b = results[(angle, "opengl", "taa", "linear")]
+        if abs(a - b) > BACKEND_TOLERANCE:
+            failures.append(
+                f"{angle} deg: TAA measures {a:.4f} on Vulkan and {b:.4f} on OpenGL. "
+                f"The reprojection reads the history with a vertical direction that "
+                f"differs between the backends, and this is where getting it wrong shows")
 
     # --- the case a single straight edge is not ------------------------------
     #

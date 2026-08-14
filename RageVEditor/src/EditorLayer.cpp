@@ -407,6 +407,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Environment = m_Scene->GetEnvironment();
 	scene.ClearColor = Vec4(m_ClearColor, 1.0f);
 	scene.OutputFormat = kViewportFormat;
+	scene.History = &m_SceneHistory;
 	scene.DrawScene = [this](RGPassContext&)
 	{
 		if (m_UseEditorCamera)
@@ -484,6 +485,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Environment = m_Scene->GetEnvironment();
 		game.ClearColor = Vec4(m_ClearColor, 1.0f);
 		game.OutputFormat = kViewportFormat;
+		game.History = &m_GameHistory;
 		game.DrawScene = [this](RGPassContext&)
 		{
 			m_Scene->OnRenderRuntime(m_GameViewportSize.x / m_GameViewportSize.y);
@@ -2034,6 +2036,16 @@ void EditorLayer::DrawRenderSettingsPanel()
 			UI::RowDragInt("Supersample", &environment.SupersampleFactor, 0.05f, 1, 4,
 				"How many times larger each axis is drawn. Cost is the square of it: "
 					   "2 is four times the pixels shaded, 4 is sixteen.");
+		}
+
+		if (environment.AA == AntiAliasing::TAA)
+		{
+			UI::RowDragFloat("Feedback", &environment.TemporalFeedback, 0.005f, 0.0f, 0.98f,
+				"How much of the accumulated image survives each frame. This is the "
+					   "ghosting-versus-flicker dial and there is no correct value: higher "
+					   "converges on a cleaner image and holds onto history that has stopped "
+					   "being true for longer, lower is sharper under motion and noisier "
+					   "standing still. 0.9 halves a sample's influence in about seven frames.");
 		}
 	}
 

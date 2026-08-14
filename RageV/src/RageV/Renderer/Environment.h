@@ -186,5 +186,21 @@ namespace RageV
 		// costs bandwidth and a little rasterizer work rather than shading, so
 		// 4 is an ordinary choice where supersampling at 4 is a statement.
 		int MsaaSamples = 4;
+
+		// How much of TAA's accumulated image survives each frame. Ignored by
+		// every other mode.
+		//
+		// **This is the ghosting-versus-flicker dial, and there is no correct
+		// value.** Higher accumulates more frames, which converges on a
+		// cleaner image and holds onto history that has stopped being true for
+		// longer; lower forgets faster, which is sharper under motion and
+		// noisier standing still. 0.9 halves a sample's influence in about
+		// seven frames and is the usual starting point.
+		//
+		// A number here rather than a constant in the shader because which
+		// side of that trade a scene wants depends on the scene -- a slow
+		// architectural fly-through and a first-person shooter disagree, and
+		// both are right. ENGINE-NOTES 7r.
+		float TemporalFeedback = 0.9f;
 	};
 }

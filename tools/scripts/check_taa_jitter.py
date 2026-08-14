@@ -19,9 +19,12 @@ So this measures that, and it is the whole point of the file:
 byte-identical. A clock anywhere in the sequence fails here.
 
 **2. Periodic.** The sequence is eight offsets long, so frame 30 and frame 38
-must be byte-identical *to each other* while frame 30 and frame 31 differ.
-This is the check a clock cannot accidentally pass: a time-driven jitter can
-be reproducible run-to-run under `--frame-time` and still have no period.
+are drawn through the same offset and must be far closer to each other than
+frame 30 and frame 31 are. Not identical -- they accumulated 29 frames and 37
+frames respectively, and the difference between those is what is left of the
+first frame after each. This is the check a clock cannot accidentally pass: a
+time-driven jitter can be reproducible run-to-run under `--frame-time` and
+still have no period at all.
 
 **3. Eight distinct offsets.** Frames 30 to 37 must all differ from each
 other. Halton is a low-discrepancy sequence -- the point of it is that
@@ -65,6 +68,11 @@ ANGLE = 8
 # Pixels this far from the edge are not edge pixels, and a sub-pixel offset
 # must leave them exactly alone.
 FLAT_DISTANCE = 4.0
+
+# How much closer a frame one whole period away has to be than a frame one
+# step away. A floor to catch the sequence not being periodic at all, not a
+# grade -- the measured ratio is far above it.
+PERIOD_MARGIN = 3.0
 
 
 def run(exe, args):
@@ -151,18 +159,35 @@ def main():
         else:
             print("  taa@30 == taa@30, run twice        identical")
 
-        # 2. Periodic, which a clock cannot fake.
+        # 2. Periodic -- but no longer *identical*, and the difference is the
+        #    whole of what TAA.4 changed.
+        #
+        # Frames 30 and 38 are drawn through the same offset. They are not the
+        # same picture, because 30 has accumulated 29 frames and 38 has
+        # accumulated 37, and the two accumulations differ by whatever is left
+        # of the first frame -- 0.9^30 against 0.9^38, a few percent apart.
+        # This check demanded byte-equality while the jitter had nothing to
+        # accumulate into, and that premise died with the history buffer.
+        #
+        # What survives is scale-free and stronger for it: **a frame one
+        # period away must be far closer than a frame one step away.** A clock
+        # cannot satisfy that -- frame 38 would land on an unrelated offset
+        # and be no nearer than any other frame.
         wrapped = shoot(exe, backend, "taa", 30 + PHASE,
                         shots / f"{backend}-taa-{30 + PHASE}.png")
-        count, worst = differing(frames[30], wrapped)
-        if count:
+
+        same_offset = float(np.abs(frames[30] - wrapped).mean())
+        next_offset = float(np.abs(frames[30] - frames[31]).mean())
+
+        if same_offset * PERIOD_MARGIN >= next_offset:
             failures.append(
-                f"{backend}: taa@30 and taa@{30 + PHASE} differ in {count} subpixels "
-                f"(worst {worst}), and the sequence is {PHASE} long, so they are the "
-                f"same offset. Either the phase here disagrees with "
-                f"kJitterPhase, or the index is not the frame number")
+                f"{backend}: taa@30 differs from taa@{30 + PHASE} by {same_offset:.4f} "
+                f"per subpixel and from taa@31 by {next_offset:.4f}. One period away "
+                f"should be far closer than one frame away, and it is not -- so the "
+                f"sequence is not indexed by the frame number with a period of {PHASE}")
         else:
-            print(f"  taa@30 == taa@{30 + PHASE}                    identical (period {PHASE})")
+            print(f"  taa@30 vs taa@{30 + PHASE}: {same_offset:.4f} per subpixel, "
+                  f"vs {next_offset:.4f} one frame away  ({next_offset / max(same_offset, 1e-9):.0f}x)")
 
         # 3. Eight distinct offsets.
         for a in range(30, 30 + PHASE):
@@ -219,6 +244,27 @@ def main():
                 f"of the {PHASE} frames. The jitter is not reaching the projection")
         else:
             print(f"  jitter moves {moved // PHASE:6d} pixels/frame  none of them flat")
+
+        # There is deliberately no convergence check here.
+        #
+        # One was written and removed, and the reason is worth keeping. The
+        # idea was that an accumulation settles, so consecutive frames late in
+        # the sequence should differ less than consecutive frames early in it.
+        # Measured: 0.0044 per subpixel at frame 12 and 0.0047 at frame 60 --
+        # the wrong way round, on both backends, with a working filter.
+        #
+        # It was measuring the 8-bit output quantisation. A mean of 0.0045
+        # across 4.3M subpixels is about 19,000 of them landing on the other
+        # side of a rounding boundary, which is not a signal that decays. And
+        # frames 12 and 60 sit at the same point of an 8-long sequence, as do
+        # 13 and 61, so the jitter contributed identically to both pairs and
+        # the whole difference was noise.
+        #
+        # Accumulation is already measured properly, against a computed ideal
+        # rather than against another render, by check_smaa.py: TAA scores 2.9
+        # to 5.1 times better than no filter on the linear-light yardstick,
+        # and a filter that dropped its history could not. A second, worse
+        # test of the same thing is worth less than none.
 
     print()
     if failures:

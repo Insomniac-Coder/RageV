@@ -1199,6 +1199,13 @@ namespace
 						"square of it: two is four times the pixels shaded, four "
 						"is sixteen.")),
 
+				Field<&SceneEnvironment::TemporalFeedback>("TemporalFeedback",
+					Tip("How much of TAA's accumulated image survives each frame. "
+						"This is the ghosting-versus-flicker dial and there is no "
+						"correct value: higher converges cleaner and holds stale "
+						"history longer, lower is sharper under motion and noisier "
+						"standing still.")),
+
 				Field<&SceneEnvironment::Exposure>("Exposure"),
 
 				Field<&SceneEnvironment::BloomEnabled>("BloomEnabled"),
