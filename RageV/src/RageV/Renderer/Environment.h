@@ -37,12 +37,17 @@ namespace RageV
 	//   into the same place: what happens when the accumulation is wrong,
 	//   because something moved. ENGINE-NOTES 7r.
 	//
-	//   **TAA is incomplete.** The jitter and the motion vectors are in; the
-	//   history buffer and the rejection that makes it usable are not, so
-	//   selecting it today gets a scene that wobbles by half a pixel and no
-	//   filter to make anything of it. It is in the enum because the jitter
-	//   has to be switchable to be verified, and hiding an unfinished mode
-	//   behind a second flag would mean deleting that flag later.
+	//   **TAA works, and is not finished.** All three parts are in -- motion
+	//   vectors, jitter, history with neighbourhood rejection -- and on a
+	//   static scene it measures better than every other mode here. What is
+	//   missing is the check for the case it is *bad* at: nothing in this
+	//   repository has yet rendered TAA with anything moving, so two of its
+	//   claims are reasoned rather than measured. The sky reports no motion,
+	//   so it smears when the camera turns; and the vertical direction of the
+	//   reprojection is argued from how every other fullscreen pass behaves,
+	//   which a still frame cannot confirm because velocity is zero
+	//   everywhere in one. ENGINE-NOTES 7r says it plainly: TAA is not
+	//   finished until that check exists.
 	enum class AntiAliasing : uint32_t
 	{
 		None = 0,

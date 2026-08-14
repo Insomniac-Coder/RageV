@@ -1184,9 +1184,10 @@ namespace
 						 "FXAA guesses at an edge from one pixel's neighbourhood. "
 						 "SMAA reconstructs it and is about five times more accurate "
 						 "for three times the cost. SSAA and MSAA resolve in linear "
-						 "light, before the tone curve. TAA is unfinished -- it "
-						 "jitters the frame but has no history buffer to "
-						 "accumulate into yet.")),
+						 "light, before the tone curve. TAA accumulates a jittered "
+						 "frame over time and beats all of them standing still, "
+						 "but has never been checked with anything moving -- the "
+						 "sky smears when the camera turns.")),
 
 				Field<&SceneEnvironment::MsaaSamples>("MsaaSamples",
 					Tip("Coverage samples per pixel under MSAA. Costs bandwidth "

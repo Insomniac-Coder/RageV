@@ -2046,9 +2046,11 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "before the tone curve, which is the correct place.\n\n"
 				   "TAA offsets the projection by a fraction of a pixel each frame and "
 				   "accumulates, which converges on a supersampled image for the cost of "
-				   "one sample. IT IS UNFINISHED: the jitter and the motion vectors are "
-				   "in, the history buffer is not, so choosing it today gets a half-pixel "
-				   "wobble and nothing to accumulate it into."))
+				   "one sample. Standing still it beats every other mode here.\n\n"
+				   "NOT YET CHECKED IN MOTION, which is the only case it is bad at: the "
+				   "sky reports no motion of its own, so it smears when you turn the "
+				   "camera, and the reprojection's vertical direction is reasoned rather "
+				   "than measured. Feedback below trades ghosting against flicker."))
 		{
 			environment.AA = (AntiAliasing)aa;
 

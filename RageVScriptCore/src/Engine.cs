@@ -812,9 +812,13 @@ public enum AntiAliasing
 	/// and accumulates the results, converging on a supersampled image for the
 	/// cost of one sample.
 	/// <para>
-	/// <b>Unfinished.</b> The jitter and the motion vectors are in; the history
-	/// buffer that would accumulate anything is not. Selecting it today gets a
-	/// scene that wobbles by half a pixel and no filter to make use of it.
+	/// <b>Works, and not finished.</b> On a static scene it measures better
+	/// than every other mode here. What is missing is the check for the case
+	/// it is bad at: nothing has yet rendered it with anything moving, so the
+	/// sky smears when the camera turns (it reports no motion of its own) and
+	/// the reprojection's vertical direction is reasoned rather than measured.
+	/// See <see cref="RenderSettings.TemporalFeedback"/> for the dial between
+	/// ghosting and flicker.
 	/// </para>
 	/// </summary>
 	Taa = 5,
