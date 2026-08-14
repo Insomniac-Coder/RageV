@@ -195,6 +195,12 @@ namespace RageV
 		// Like the shadow and probe passes, it opens render passes of its own
 		// and so belongs before the frame graph. Unlike them it does nothing
 		// after the first frame with a given environment.
+		// Copy every transform's world matrix into its previous one. Call
+		// exactly once per frame, before anything recomputes them: this is
+		// what makes a motion vector the difference between two frames rather
+		// than between two calls. ENGINE-NOTES 7r.
+		void AdvanceMotionHistory();
+
 		void PrepareEnvironment();
 
 		// Renders the shadow cascades for the first directional light that casts.

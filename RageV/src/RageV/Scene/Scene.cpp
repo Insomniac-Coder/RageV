@@ -481,8 +481,20 @@ namespace RageV
 		m_Physics.reset();
 	}
 
+	void Scene::AdvanceMotionHistory()
+	{
+		auto view = m_Registry.view<TransformComponent>();
+		for (auto handle : view)
+		{
+			TransformComponent& transform = view.get<TransformComponent>(handle);
+			transform.PreviousWorld = transform.World;
+		}
+	}
+
 	void Scene::OnUpdateEditor(Timestep ts)
 	{
+		AdvanceMotionHistory();
+
 		// Animated only where an animator asked to be. Scripts and physics
 		// deliberately do not run here either; the difference is that an
 		// animation is presentation, so previewing one changes nothing anyone
@@ -496,6 +508,8 @@ namespace RageV
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		AdvanceMotionHistory();
+
 		// A paused frame derives and places, but advances nothing.
 		//
 		// Skipping the physics blend is the part that matters most: the

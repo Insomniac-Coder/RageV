@@ -3030,6 +3030,46 @@ void main()
 	// is what C# reaches over the name-and-text bridge, so a name that drifts
 	// from the serializer's is a setting a script can write and a save cannot
 	// keep -- silently, because both halves work on their own.
+	// A motion vector is the difference between two *frames*, not between two
+	// calls -- and the transforms are recomputed several times a frame, by the
+	// update, a probe capture and a shadow pass. So the history advances once,
+	// explicitly, and this is what says so. ENGINE-NOTES 7r.
+	void CheckMotionHistory()
+	{
+		auto scene = std::make_shared<Scene>();
+		Entity entity = scene->CreateEntity("Mover");
+		auto& transform = entity.GetComponent<TransformComponent>();
+
+		transform.Position = { 1.0f, 0.0f, 0.0f };
+		scene->OnUpdateEditor(0.016f);
+		scene->UpdateWorldTransforms();
+
+		Check(std::fabs(transform.World[3].x - 1.0f) < 1e-5f, "a moved entity is where it was put");
+
+		// Second frame: the history is last frame's world matrix.
+		transform.Position = { 4.0f, 0.0f, 0.0f };
+		scene->OnUpdateEditor(0.016f);
+		scene->UpdateWorldTransforms();
+
+		Check(std::fabs(transform.World[3].x - 4.0f) < 1e-5f, "and moves when it is moved");
+		Check(std::fabs(transform.PreviousWorld[3].x - 1.0f) < 1e-5f,
+			  "with the previous frame's position still available to difference against");
+
+		// Recomputing within the same frame must not consume the history --
+		// that is the whole reason it is advanced separately.
+		scene->UpdateWorldTransforms();
+		scene->UpdateWorldTransforms();
+		Check(std::fabs(transform.PreviousWorld[3].x - 1.0f) < 1e-5f,
+			  "and recomputing transforms again in the same frame does not flatten it to zero motion");
+
+		// A frame in which nothing moved has to report no motion, or every
+		// static object in the scene smears.
+		scene->OnUpdateEditor(0.016f);
+		scene->UpdateWorldTransforms();
+		Check(std::fabs(transform.PreviousWorld[3].x - 4.0f) < 1e-5f,
+			  "a frame that moved nothing reports no motion at all");
+	}
+
 	void CheckRenderSettings()
 	{
 		const auto& fields = RenderSettingsRegistry::Fields();
@@ -9021,6 +9061,7 @@ int RunTests(int argc, char** argv)
 	CheckViewportGrid();
 	CheckRenderersReady();
 	CheckFieldLabels();
+	CheckMotionHistory();
 	CheckRenderSettings();
 	CheckShadowToggle();
 	CheckShadowCascades();

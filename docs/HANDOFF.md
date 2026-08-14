@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1320 checks, `exit 0`. Then look at a frame:
+1328 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -147,6 +147,14 @@ was a real bug, and most fail silently rather than obviously.
 **What is true right now, honestly:** §6 — what works, what works with a
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
+
+**In progress:** TAA (7.10), designed in ENGINE-NOTES 7r and started. The
+first prerequisite -- every transform remembering where it was last frame --
+is in and checked, and nothing reads it yet. Next is the velocity attachment
+itself, which is the part with a real design fork in it: every pipeline that
+draws in the scene pass has to declare the second colour output, or the
+velocity comes from a second geometry pass instead. 7r says why motion
+vectors get finished and verified before any temporal filter exists.
 
 **What to do next:** section 8 -- the per-project game module, which is what
 making the engine a DLL was for.

@@ -71,6 +71,19 @@ namespace RageV
 		// scale and cannot be got wrong.
 		Mat4 World{ 1.0f };
 
+		// Where `World` was on the previous frame, which is what a motion
+		// vector is made of.
+		//
+		// Derived state, so it is not serialized and not shown: a saved scene
+		// that carried a previous transform would be claiming an object had
+		// been moving before it was loaded.
+		//
+		// Copied once per frame by AdvanceMotionHistory rather than inside
+		// PropagateTransform, because the transforms are recomputed several
+		// times a frame -- the update, a probe capture, a shadow pass -- and
+		// "the value before this call" is zero motion by the second one.
+		Mat4 PreviousWorld{ 1.0f };
+
 		TransformComponent() = default;
 		TransformComponent(const TransformComponent&) = default;
 		TransformComponent(const Vec3& position) { Position = position; }
