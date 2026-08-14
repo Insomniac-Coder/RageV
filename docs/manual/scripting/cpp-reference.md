@@ -113,6 +113,12 @@ No-ops outside play mode and on an entity with no rigid body. World space.
 | `GetLinearVelocity` | Current velocity. |
 | `Raycast` | Nearest body along the ray, which may be this one. Direction need not be normalised — the ray extends to its length. Test with `if (hit)`. |
 
+## Rendering
+
+| Member | Description |
+|---|---|
+| `GetRenderSettings` | The scene's render settings, live — anti-aliasing, exposure, bloom, ambient, sky, shadows. Read fresh when the frame is built, so a change made in `OnTick` or `OnFrame` is on screen that frame. Not saved: it is a runtime override, not an edit to the scene asset. |
+
 ## Audio
 
 | Member | Description |

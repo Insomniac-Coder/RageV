@@ -41,7 +41,8 @@ are all done. So is scripting, in both languages, with live reload in both:
   the errors showing. One rule, both languages. Play pressed during a build
   queues until the build lands.
 - **As of interop protocol 4 the languages are equals**, and protocol 6 gave
-  them both a second rate; protocol 7 gave them the game's UI -- see below:
+  them both a second rate; protocol 7 gave them the game's UI and protocol 8 the
+  scene's render settings -- see below:
   audio, raycasts,
   hierarchy, and components by registry name with text values all reach C#.
   The one structural exception is typed GetComponent<T>, which cannot cross
@@ -64,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1303 checks, `exit 0`. Then look at a frame:
+1315 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png

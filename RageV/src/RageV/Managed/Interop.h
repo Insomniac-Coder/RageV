@@ -214,6 +214,30 @@ namespace RageV::Managed
 		// Whether the UI has the pointer. **The one every game needs**: without
 		// it, clicking a button also fires the weapon behind it.
 		int32_t (__cdecl* IsPointerOverUI)();
+
+		// --- appended for protocol 8: the scene's render settings ------------
+		//
+		// By name and as text, exactly like the component bridge and for the
+		// same reason: `SceneEnvironment` is a struct, and a struct cannot
+		// cross this boundary while a name and a piece of text can. A C++
+		// script never needed this -- it can already write
+		// `GetScene().GetEnvironment()` -- so this pair is what makes the two
+		// languages equal on the render settings.
+		//
+		// Driven by `RenderSettingsRegistry`, so a setting added there reaches
+		// C# without a new entry here. The names are the scene file's own
+		// keys, so what a script writes and what a save contains cannot drift.
+		//
+		// Values take effect on the next frame the graph is built, which is
+		// the same frame for anything set in OnTick or OnFrame. They are *not*
+		// written back to the scene file: this is a runtime override, and a
+		// game turning its own bloom down should not silently edit the asset.
+
+		// Length-that-would-fit, the GetEntityName contract; -1 for a name
+		// that is not a setting, which stays distinguishable from a setting
+		// whose value is legitimately the empty string.
+		int32_t (__cdecl* GetRenderSetting)(const char* name, char* buffer, int32_t capacity);
+		int32_t (__cdecl* SetRenderSetting)(const char* name, const char* value);
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -386,7 +410,7 @@ namespace RageV::Managed
 		//    joined it, and the interpolation alpha became readable.
 		// 7: the game's UI -- a label's text, a button's click, and whether the
 		//    UI took the pointer.
-		static constexpr int32_t kProtocolVersion = 7;
+		static constexpr int32_t kProtocolVersion = 8;
 
 		// The editable fields of a script type, for the inspector. Empty when
 		// C# is not running or the type is unknown -- both of which the

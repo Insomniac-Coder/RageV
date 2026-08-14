@@ -174,6 +174,11 @@ namespace RageV
 		return {};
 	}
 
+	SceneEnvironment& ScriptableEntity::GetRenderSettings()
+	{
+		return GetScene().GetEnvironment();
+	}
+
 	// -------------------------------------------------------------------------
 	// Audio
 	// -------------------------------------------------------------------------

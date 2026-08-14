@@ -3023,6 +3023,58 @@ void main()
 	// driven by that same registry, and the gather in Scene::RenderShadows --
 	// and a light that silently keeps casting after being told not to is
 	// indistinguishable from the feature not existing.
+	// The render settings a script can reach.
+	//
+	// Three things have to agree and are edited separately: the described
+	// field list, the scene file's keys, and the C# property names. The first
+	// is what C# reaches over the name-and-text bridge, so a name that drifts
+	// from the serializer's is a setting a script can write and a save cannot
+	// keep -- silently, because both halves work on their own.
+	void CheckRenderSettings()
+	{
+		const auto& fields = RenderSettingsRegistry::Fields();
+		Check(!fields.empty(), "the render settings are described");
+
+		const FieldDesc* aa = RenderSettingsRegistry::Find("AntiAliasing");
+		Check(aa != nullptr, "and anti-aliasing is one of them");
+		Check(aa && aa->Type == FieldType::Enum, "described as a choice, not a number");
+		Check(aa && aa->Hint.EnumCount == 3, "with all three modes named");
+		// An enum crossing as text is read back as int, so a mismatch here is
+		// a stack write past the member rather than a wrong value.
+		Check(aa && aa->Size == sizeof(int),
+			  "and int-sized, because the text bridge reads it as one");
+
+		Check(RenderSettingsRegistry::Find("Exposure") != nullptr, "exposure is there");
+		Check(RenderSettingsRegistry::Find("BloomIntensity") != nullptr, "so is bloom");
+		Check(RenderSettingsRegistry::Find("Nonsense") == nullptr,
+			  "and a name that is not a setting resolves to nothing rather than to the first one");
+
+		// Every described name has to be a key the serializer writes, or a
+		// script's change cannot survive a save.
+		SceneEnvironment environment;
+		environment.AA = AntiAliasing::SMAA;
+		environment.Exposure = 0.42f;
+		environment.BloomIntensity = 0.17f;
+
+		auto scene = std::make_shared<Scene>();
+		scene->GetEnvironment() = environment;
+
+		const std::filesystem::path path =
+			std::filesystem::temp_directory_path() / "rv_render_settings.rage";
+		SceneSerializer(scene).Serialize(path.string());
+
+		auto loaded = std::make_shared<Scene>();
+		Check(SceneSerializer(loaded).Deserialize(path.string()),
+			  "a scene carrying render settings loads back");
+
+		const SceneEnvironment& out = loaded->GetEnvironment();
+		Check(out.AA == AntiAliasing::SMAA, "with SMAA still chosen");
+		Check(std::fabs(out.Exposure - 0.42f) < 1e-5f, "the exposure it was given");
+		Check(std::fabs(out.BloomIntensity - 0.17f) < 1e-5f, "and the bloom");
+
+		std::filesystem::remove(path);
+	}
+
 	void CheckShadowToggle()
 	{
 		// Described, therefore in the inspector: the panel is generated from
@@ -8943,6 +8995,7 @@ int RunTests(int argc, char** argv)
 	CheckViewportGrid();
 	CheckRenderersReady();
 	CheckFieldLabels();
+	CheckRenderSettings();
 	CheckShadowToggle();
 	CheckShadowCascades();
 	CheckIrradiance();

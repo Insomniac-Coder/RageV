@@ -360,6 +360,58 @@ them, so it says which —
 m_Bar.SetComponentField("UIImageComponent", "Color", "0.9 0.2 0.2 1");
 ```
 
+## Render settings
+
+The scene's post-processing, live. Read fresh when each frame is built, so a
+change made in `OnTick` or `OnFrame` is on screen that frame.
+
+```csharp
+using RageV;
+
+public class Flashbang : Script
+{
+    private float _remaining;
+
+    public void Detonate() => _remaining = 2.0f;
+
+    protected override void OnFrame(float dt)
+    {
+        if (_remaining <= 0.0f)
+            return;
+
+        _remaining -= dt;
+
+        // Blown out, recovering over two seconds.
+        RenderSettings.Exposure = 1.0f + 4.0f * Math.Max(_remaining, 0.0f) / 2.0f;
+    }
+}
+```
+
+The typed properties are `AntiAliasing`, `Exposure`, `BloomEnabled`,
+`BloomThreshold`, `BloomIntensity`, `AmbientIntensity`, `ShadowsEnabled` and
+`ShadowDistance`.
+
+```csharp
+RenderSettings.AntiAliasing = AntiAliasing.Smaa;   // None, Fxaa, Smaa
+RenderSettings.BloomEnabled = false;
+```
+
+Anything without a property is still reachable by name — the properties are a
+typed front for the same bridge, and the names are the scene file's own keys:
+
+```csharp
+RenderSettings.Set("SkyIntensity", "0.2");
+string sky = RenderSettings.Get("SkyIntensity");
+```
+
+**These are not saved.** They are a runtime override; a game dimming its own
+bloom should not quietly edit the scene asset. Reopening the scene brings back
+whatever the Render Settings panel says.
+
+**A settings menu is the obvious use, and quality is the other one.** Dropping
+to `AntiAliasing.Fxaa`, or to `None`, is the cheapest frame time a game can buy
+back without touching its content.
+
 ## Logging
 
 ```csharp

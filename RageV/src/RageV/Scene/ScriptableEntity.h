@@ -4,6 +4,7 @@
 #include "RageV/Asset/Asset.h"
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsWorld.h"
+#include "RageV/Renderer/Environment.h"
 #include "Entity.h"
 #include "RageV/Math/Math.h"
 #include <string>
@@ -205,6 +206,24 @@ namespace RageV
 		// Nearest body along the ray, which may be this one. Direction need not
 		// be normalised; the ray extends to its length. Test with `if (hit)`.
 		RayHit Raycast(const Vec3& origin, const Vec3& direction);
+
+		// --- rendering ---------------------------------------------------------
+		// The scene's render settings, live: anti-aliasing, exposure, bloom,
+		// ambient, sky and shadows.
+		//
+		//     GetRenderSettings().AA = AntiAliasing::SMAA;
+		//     GetRenderSettings().Exposure = 0.6f;   // a flashbang wearing off
+		//
+		// Writable, and read fresh when the frame is built -- so a change made
+		// in OnTick or OnFrame is on screen that frame. It is *not* saved: this
+		// is a runtime override, and a game dimming its own bloom should not
+		// quietly edit the scene asset.
+		//
+		// The struct is reachable through `GetScene()` too; this is the short
+		// way to say it, and the name C# knows it by. C# reaches the same
+		// settings as `RenderSettings.AntiAliasing` and friends, over a name
+		// and a piece of text, because a struct cannot cross that boundary.
+		SceneEnvironment& GetRenderSettings();
 
 		// --- audio -----------------------------------------------------------
 		// This entity's AudioSourceComponent. Restarts it if it is already

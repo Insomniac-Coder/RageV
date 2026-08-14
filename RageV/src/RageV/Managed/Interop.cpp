@@ -786,6 +786,49 @@ namespace RageV::Managed
 			return 1;
 		}
 
+		// --- the scene's render settings ------------------------------------
+		//
+		// The same two functions the component bridge has, one level up: no
+		// entity, because these belong to the scene. `RenderSettingsRegistry`
+		// supplies the names and the accessors, and the text conversion above
+		// is reused verbatim -- a setting added to that list arrives here with
+		// nothing written.
+
+		int32_t __cdecl GetRenderSetting(const char* name, char* buffer, int32_t capacity)
+		{
+			if (!s_Scene || !name)
+				return -1;
+
+			const FieldDesc* field = RenderSettingsRegistry::Find(name);
+			if (!field)
+				return -1;
+
+			const std::string text = ComponentFieldToText(*field, &s_Scene->GetEnvironment());
+			const int32_t length = (int32_t)text.size();
+			if (buffer && capacity > 0)
+			{
+				const int32_t copied = std::min(length, capacity - 1);
+				std::memcpy(buffer, text.data(), (size_t)copied);
+				buffer[copied] = '\0';
+			}
+			return length;
+		}
+
+		int32_t __cdecl SetRenderSetting(const char* name, const char* value)
+		{
+			if (!s_Scene || !name || !value)
+				return 0;
+
+			const FieldDesc* field = RenderSettingsRegistry::Find(name);
+			if (!field)
+				return 0;
+
+			// No OnChanged hook: nothing here caches derived state. The frame
+			// graph reads the environment fresh every frame, which is what
+			// makes a write from OnTick visible in the same frame.
+			return ComponentFieldFromText(*field, &s_Scene->GetEnvironment(), value) ? 1 : 0;
+		}
+
 		NativeApi BuildApi()
 		{
 			NativeApi api{};
@@ -844,6 +887,8 @@ namespace RageV::Managed
 			api.GetUIText = &GetUIText;
 			api.WasUIButtonClicked = &WasUIButtonClicked;
 			api.IsPointerOverUI = &IsPointerOverUI;
+			api.GetRenderSetting = &GetRenderSetting;
+			api.SetRenderSetting = &SetRenderSetting;
 			return api;
 		}
 	}

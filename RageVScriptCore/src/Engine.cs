@@ -764,3 +764,158 @@ public abstract class Script
 	protected ulong PlayOneShot(string clipPath = "", float volume = 1.0f, float pitch = 1.0f) =>
 		Entity.PlayOneShot(clipPath, volume, pitch);
 }
+
+/// <summary>Which anti-aliasing filter the frame ends with.</summary>
+/// <remarks>
+/// The numbers are the scene file's, so this enum and a saved scene cannot
+/// drift apart.
+/// </remarks>
+public enum AntiAliasing
+{
+	/// <summary>None. Every pixel is wholly one side of every edge.</summary>
+	None = 0,
+
+	/// <summary>
+	/// One pass over the finished image, guessing at each edge from its
+	/// neighbourhood. Cheap, and it softens the picture slightly.
+	/// </summary>
+	Fxaa = 1,
+
+	/// <summary>
+	/// Reconstructs each edge instead of guessing: finds the run of pixels it
+	/// spans, works out which way the real line sloped, and computes coverage
+	/// from that. About five times more accurate than FXAA for three times the
+	/// cost.
+	/// </summary>
+	Smaa = 2,
+}
+
+/// <summary>
+/// The scene's render settings, live — anti-aliasing, exposure, bloom, ambient,
+/// sky and shadows.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Read fresh when each frame is built, so a change made in OnTick or OnFrame
+/// is on screen that frame:
+/// </para>
+/// <code>
+/// RenderSettings.AntiAliasing = AntiAliasing.Smaa;
+/// RenderSettings.Exposure = 0.6f;   // a flashbang wearing off
+/// </code>
+/// <para>
+/// <b>Not saved.</b> This is a runtime override; a game dimming its own bloom
+/// should not quietly edit the scene asset.
+/// </para>
+/// <para>
+/// Anything without a property here is still reachable by name through
+/// <see cref="Get"/> and <see cref="Set"/> — the properties are the typed
+/// front for the same name-and-text bridge, and the names are the scene
+/// file's own keys.
+/// </para>
+/// </remarks>
+public static unsafe class RenderSettings
+{
+	/// <summary>One setting, as text. Empty when the name is not a setting.</summary>
+	public static string Get(string name)
+	{
+		if (!Native.IsReady)
+			return string.Empty;
+
+		int needed = Native.WithUtf8(name, nameUtf8 =>
+			Native.Api.GetRenderSetting(nameUtf8, null, 0));
+
+		if (needed <= 0)
+			return string.Empty;
+
+		byte[] buffer = new byte[needed + 1];
+		fixed (byte* pointer = buffer)
+		{
+			byte* captured = pointer;
+			Native.WithUtf8(name, nameUtf8 =>
+				Native.Api.GetRenderSetting(nameUtf8, captured, needed + 1));
+			return System.Runtime.InteropServices.Marshal.PtrToStringUTF8((IntPtr)pointer)
+				?? string.Empty;
+		}
+	}
+
+	/// <summary>Writes one setting from its text form. False when the name is unknown.</summary>
+	public static bool Set(string name, string value)
+	{
+		if (!Native.IsReady)
+			return false;
+
+		return Native.WithUtf8(name, nameUtf8 =>
+			Native.WithUtf8(value, valueUtf8 =>
+				Native.Api.SetRenderSetting(nameUtf8, valueUtf8))) != 0;
+	}
+
+	private static float GetFloat(string name) =>
+		float.TryParse(Get(name), System.Globalization.NumberStyles.Float,
+					   System.Globalization.CultureInfo.InvariantCulture, out float value)
+			? value : 0.0f;
+
+	private static void SetFloat(string name, float value) =>
+		Set(name, value.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+
+	private static bool GetBool(string name) => Get(name) == "true";
+	private static void SetBool(string name, bool value) => Set(name, value ? "true" : "false");
+
+	/// <summary>Which anti-aliasing filter runs, or none.</summary>
+	public static AntiAliasing AntiAliasing
+	{
+		get => int.TryParse(Get("AntiAliasing"), out int value) ? (AntiAliasing)value
+															   : AntiAliasing.None;
+		set => Set("AntiAliasing", ((int)value).ToString(
+			System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>Multiplies the scene before the tone curve. 1 is neutral.</summary>
+	public static float Exposure
+	{
+		get => GetFloat("Exposure");
+		set => SetFloat("Exposure", value);
+	}
+
+	/// <summary>Whether bright areas bleed.</summary>
+	public static bool BloomEnabled
+	{
+		get => GetBool("BloomEnabled");
+		set => SetBool("BloomEnabled", value);
+	}
+
+	/// <summary>Brightness above which a pixel contributes to bloom.</summary>
+	public static float BloomThreshold
+	{
+		get => GetFloat("BloomThreshold");
+		set => SetFloat("BloomThreshold", value);
+	}
+
+	/// <summary>How much of the blurred image is added back.</summary>
+	public static float BloomIntensity
+	{
+		get => GetFloat("BloomIntensity");
+		set => SetFloat("BloomIntensity", value);
+	}
+
+	/// <summary>Scales the flat ambient term, which is what unlit faces get.</summary>
+	public static float AmbientIntensity
+	{
+		get => GetFloat("AmbientIntensity");
+		set => SetFloat("AmbientIntensity", value);
+	}
+
+	/// <summary>Whether the directional light casts shadows at all.</summary>
+	public static bool ShadowsEnabled
+	{
+		get => GetBool("ShadowsEnabled");
+		set => SetBool("ShadowsEnabled", value);
+	}
+
+	/// <summary>How far from the camera shadows are still drawn, in world units.</summary>
+	public static float ShadowDistance
+	{
+		get => GetFloat("ShadowDistance");
+		set => SetFloat("ShadowDistance", value);
+	}
+}

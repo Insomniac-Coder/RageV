@@ -526,6 +526,49 @@ the click.
 `ClickCounter` in `BuiltinScripts.cpp` is the whole of a working button in about
 a dozen lines.
 
+## Render settings
+
+The scene's post-processing, live. `GetRenderSettings()` hands back the
+struct the renderer reads when it builds the frame, so a change made in
+`OnTick` or `OnFrame` is on screen that frame.
+
+```cpp
+class Flashbang : public RageV::ScriptableEntity
+{
+public:
+    void Detonate() { m_Remaining = 2.0f; }
+
+    void OnFrame(RageV::Timestep dt) override
+    {
+        if (m_Remaining <= 0.0f)
+            return;
+
+        m_Remaining -= dt;
+
+        // Blown out, recovering over two seconds.
+        GetRenderSettings().Exposure = 1.0f + 4.0f * std::max(m_Remaining, 0.0f) / 2.0f;
+    }
+
+private:
+    float m_Remaining = 0.0f;
+};
+```
+
+Everything in `SceneEnvironment` is there: `AA`, `Exposure`, the five bloom
+values, the ambient term, the sky and the shadow settings.
+
+```cpp
+GetRenderSettings().AA = RageV::AntiAliasing::SMAA;
+GetRenderSettings().BloomEnabled = false;
+```
+
+**These are not saved.** They are a runtime override; a game dimming its own
+bloom should not quietly edit the scene asset.
+
+C# reaches the same settings as `RenderSettings.Exposure` and friends, over a
+name and a piece of text rather than the struct — a struct cannot cross that
+boundary.
+
 ## Time
 
 ```cpp

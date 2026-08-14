@@ -1166,4 +1166,65 @@ namespace
 		}
 		return nullptr;
 	}
+
+	// --- the scene's render settings ------------------------------------------
+
+	namespace
+	{
+		// The names a script writes, and the same order the enum declares.
+		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA" };
+		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
+
+		std::vector<FieldDesc> BuildRenderSettings()
+		{
+			return {
+				Field<&SceneEnvironment::AA>("AntiAliasing",
+					Enum(kAntiAliasingNames,
+						 "FXAA guesses at an edge from one pixel's neighbourhood. "
+						 "SMAA reconstructs it and is about five times more accurate "
+						 "for three times the cost.")),
+
+				Field<&SceneEnvironment::Exposure>("Exposure"),
+
+				Field<&SceneEnvironment::BloomEnabled>("BloomEnabled"),
+				Field<&SceneEnvironment::BloomThreshold>("BloomThreshold"),
+				Field<&SceneEnvironment::BloomKnee>("BloomKnee"),
+				Field<&SceneEnvironment::BloomIntensity>("BloomIntensity"),
+				Field<&SceneEnvironment::BloomClamp>("BloomClamp"),
+
+				Field<&SceneEnvironment::AmbientColor>("AmbientColor", Color()),
+				Field<&SceneEnvironment::AmbientIntensity>("AmbientIntensity"),
+
+				Field<&SceneEnvironment::Sky>("Sky", Enum(kSkyNames)),
+				Field<&SceneEnvironment::SkyHorizon>("SkyHorizon", Color()),
+				Field<&SceneEnvironment::SkyZenith>("SkyZenith", Color()),
+				Field<&SceneEnvironment::SkyGround>("SkyGround", Color()),
+				Field<&SceneEnvironment::SkyIntensity>("SkyIntensity"),
+				Field<&SceneEnvironment::SkyRotation>("SkyRotation", Degrees()),
+
+				Field<&SceneEnvironment::ShadowsEnabled>("ShadowsEnabled"),
+				Field<&SceneEnvironment::ShadowDistance>("ShadowDistance"),
+				Field<&SceneEnvironment::ShadowSplitLambda>("ShadowSplitLambda"),
+				Field<&SceneEnvironment::ShadowNormalOffset>("ShadowNormalOffset"),
+			};
+		}
+	}
+
+	const std::vector<FieldDesc>& RenderSettingsRegistry::Fields()
+	{
+		// Function-local, so it is built on first use and cannot depend on the
+		// order two translation units' globals happen to initialise in.
+		static const std::vector<FieldDesc> fields = BuildRenderSettings();
+		return fields;
+	}
+
+	const FieldDesc* RenderSettingsRegistry::Find(const std::string& name)
+	{
+		for (const auto& field : Fields())
+		{
+			if (name == field.Name)
+				return &field;
+		}
+		return nullptr;
+	}
 }

@@ -291,4 +291,30 @@ namespace RageV
 		static const std::vector<ComponentDesc>& All();
 		static const ComponentDesc* Find(const std::string& name);
 	};
+
+	// The scene's render settings, described the same way a component is.
+	//
+	// `SceneEnvironment` is not a component -- it belongs to the scene rather
+	// than to any entity, which is why it has never had a registry entry and
+	// why the inspector and the serializer each write it out by hand. What it
+	// lacked was a way for a *script* to reach it: a C++ script can already
+	// say `GetScene().GetEnvironment().AA = ...`, and C# has no equivalent,
+	// because a struct cannot cross the interop boundary but a name and a
+	// piece of text can.
+	//
+	// So this is the same `FieldDesc` list, and the same text conversion the
+	// component bridge already uses reaches it unchanged. A setting added
+	// here is visible from C# without anyone touching a binding -- the
+	// property that made the component bridge worth building.
+	//
+	// **Not everything in the struct is here.** The sky's texture handle and
+	// the shadow map's resolution are absent: one is an asset reference that
+	// means nothing as a number to a script, and the other reallocates render
+	// targets, which is not a thing to do from a per-frame hook.
+	class RenderSettingsRegistry
+	{
+	public:
+		static const std::vector<FieldDesc>& Fields();
+		static const FieldDesc* Find(const std::string& name);
+	};
 }

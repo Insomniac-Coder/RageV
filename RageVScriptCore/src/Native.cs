@@ -108,6 +108,12 @@ internal unsafe struct NativeApi
 	public delegate* unmanaged[Cdecl]<ulong, byte*, int, int> GetUIText;
 	public delegate* unmanaged[Cdecl]<ulong, int> WasUIButtonClicked;
 	public delegate* unmanaged[Cdecl]<int> IsPointerOverUI;
+
+	// --- appended for protocol 8: the scene's render settings ---------------
+	// By name and as text, like the component bridge: SceneEnvironment is a
+	// struct, and a struct cannot cross this boundary while a name can.
+	public delegate* unmanaged[Cdecl]<byte*, byte*, int, int> GetRenderSetting;
+	public delegate* unmanaged[Cdecl]<byte*, byte*, int> SetRenderSetting;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>
