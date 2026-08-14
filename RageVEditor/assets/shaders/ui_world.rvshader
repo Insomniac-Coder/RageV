@@ -1,10 +1,11 @@
-// The screen-space UI shader.
+// The world-space UI shader: ui.rvshader plus a velocity output.
 //
-// One colour output, because the UI pass writes the finished image and nothing
-// else. Its world-space twin is ui_world.rvshader, which is this file plus a
-// velocity output -- the two are separate files rather than one because a
-// pipeline's outputs have to match the attachments of the pass it is drawn in,
-// and these two are drawn in passes of different shapes. ENGINE-NOTES 7r.
+// World text and the editor's billboard marks draw *inside the scene pass*,
+// which binds colour and velocity, so this pipeline has to declare both. The
+// screen-space twin draws into the finished image and must not. Kept as two
+// files rather than one with a define because the shader compiler here takes
+// a path, not a permutation -- factor into an include the moment a third
+// variant appears. ENGINE-NOTES 7r.
 // Screen-space UI: sprites and text, in one pipeline.
 //
 // ---------------------------------------------------------------------------
@@ -87,6 +88,12 @@ layout(location = 2) in vec2      v_Mode;
 layout(location = 3) flat in int  v_TextureIndex;
 
 layout(location = 0) out vec4 o_Color;
+// Nothing here reports motion. The attachment is bound for the whole pass, so
+// every pipeline in it declares the output; writing zero is the truthful
+// answer for a background, a gizmo or a particle, and leaving it unwritten
+// would be whatever the clear happened to be. ENGINE-NOTES 7r.
+layout(location = 1) out vec2 o_Velocity;
+
 
 const float kModeDistanceField = 0.5;   // anything above is a field
 
@@ -97,6 +104,8 @@ float Median(float a, float b, float c)
 
 void main()
 {
+	o_Velocity = vec2(0.0);
+
 	// Taken before the branch, never inside it.
 	//
 	// A derivative is a difference across a 2x2 quad of pixels, so it is only

@@ -38,6 +38,15 @@ namespace RageV
 		// undefined behaviour rather than an error, so it travels with the
 		// formats and gets compared with them.
 			uint32_t TargetSamples = 1;
+
+		// Where the scene writes its motion vectors, or Undefined for a pass
+		// that has no velocity attachment bound.
+		//
+		// One shape for every pass that writes the scene target -- the scene
+		// pass and the overlay both bind {colour, velocity}. 7q paid for the
+		// alternative: pipelines built for one target shape being bound into a
+		// pass with another is undefined behaviour rather than an error.
+			Format TargetVelocity = Format::Undefined;
 			bool PipelineDirty = true;
 
 			// One set per draw, pooled per frame in flight, for the same reason
@@ -119,17 +128,20 @@ namespace RageV
 		s_Data.reset();
 	}
 
-	void Skybox::SetTargetFormats(Format color, Format depth, uint32_t samples)
+	void Skybox::SetTargetFormats(Format color, Format depth, uint32_t samples,
+									   Format velocity)
 	{
 		if (!s_Data)
 			return;
 
 		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth &&
-			s_Data->TargetSamples == samples && s_Data->Pipeline)
+			s_Data->TargetSamples == samples &&
+			s_Data->TargetVelocity == velocity && s_Data->Pipeline)
 			return;
 
 		s_Data->TargetColor = color;
 		s_Data->TargetSamples = samples;
+		s_Data->TargetVelocity = velocity;
 		s_Data->TargetDepth = depth;
 		s_Data->PipelineDirty = true;
 	}
@@ -305,6 +317,8 @@ namespace RageV
 
 			desc.ColorFormats = { s_Data->TargetColor };
 			desc.Samples = s_Data->TargetSamples;
+			if (s_Data->TargetVelocity != Format::Undefined)
+				desc.ColorFormats.push_back(s_Data->TargetVelocity);
 			desc.DepthFormat = s_Data->TargetDepth;
 
 			s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);

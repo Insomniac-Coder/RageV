@@ -60,7 +60,13 @@ namespace RageV
 		RenderTargetDesc scratch;
 		scratch.Width = m_FaceSize;
 		scratch.Height = m_FaceSize;
-		scratch.ColorAttachments = { { Format::R16G16B16A16_SFLOAT } };
+		// Colour *and* velocity, because the pipelines that draw the scene
+		// declare both, and a pipeline bound into a pass with fewer
+		// attachments is undefined behaviour. Nothing reads a probe's motion
+		// vectors; the attachment exists so the shapes agree. Same lesson as
+		// the sample count one item earlier -- ENGINE-NOTES 7q and 7r.
+		scratch.ColorAttachments = { { Format::R16G16B16A16_SFLOAT },
+									 { Format::R16G16_SFLOAT } };
 		scratch.HasDepth = true;
 		scratch.DepthAttachment.Format = Format::D32_SFLOAT;
 		// The same sample count the scene is being drawn at.

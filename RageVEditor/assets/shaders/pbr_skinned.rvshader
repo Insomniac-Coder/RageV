@@ -77,6 +77,16 @@ void main()
 
 	gl_Position = u_Scene.ViewProjection * world;
 	v_ClipPos = gl_Position;
+	// The *previous model matrix* applied to the *current* skinned position.
+	//
+	// Honest about what it is: the bones are not double-buffered, so a limb's
+	// own deformation contributes no velocity and only the object's movement
+	// does. A walking figure therefore reports the motion of the character and
+	// not of the arm -- which is right for the body and wrong at the extremities.
+	// Recording it here rather than in a backlog because the fix is a second
+	// bone buffer and that is a memory decision, not an oversight.
+	v_PrevClipPos = u_Scene.PreviousViewProjection * instance.PreviousModel *
+					vec4(a_Position, 1.0);
 }
 
 #type fragment

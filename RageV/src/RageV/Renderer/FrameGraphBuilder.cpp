@@ -84,12 +84,14 @@ namespace RageV
 												  : desc.Environment.MsaaSamples, 1, kMaxMsaaSamples)
 			: 1;
 		sceneDesc.Samples = (uint32_t)msaa;
-		Renderer::SetTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa);
+		Renderer::SetTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
+								   Format::R16G16_SFLOAT);
 		// The UI renderer's *world* layer draws inside the scene pass -- world
 		// text, and the editor's light and camera marks -- so it takes the
 		// scene's sample count. Its screen-space layer is set separately, down
 		// with the UI pass, and stays at one.
-		UIRenderer::SetWorldTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa);
+		UIRenderer::SetWorldTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
+										  Format::R16G16_SFLOAT);
 
 		// Accumulation and revealage live on the *scene's* target rather than
 		// one of their own, so the transparent pass depth-tests against the
@@ -104,15 +106,35 @@ namespace RageV
 			sceneDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R8_UNORM };
 		}
 
+		// Motion vectors, in screen space, two half floats a pixel.
+		//
+		// **Appended**, so transparency keeps attachments 1 and 2 and nothing
+		// that already binds them has to learn a new number. Half float rather
+		// than 8-bit because a velocity is signed and routinely a small
+		// fraction of a pixel, which is exactly where 8 bits has nothing left.
+		//
+		// Always present rather than only when a temporal filter wants it: a
+		// target whose *shape* depends on a setting is a target the reflection
+		// probes and every pipeline have to agree with about that setting too,
+		// and 7q is the record of how that goes.
+		const uint32_t velocityIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
+		sceneDesc.ExtraColors.push_back(Format::R16G16_SFLOAT);
+
 		const RGResource sceneHDR = graph.CreateTarget(sceneDesc);
 
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
-				// Attachment 0 only: every pipeline that draws the scene
-				// declares one colour format, and a pass binding three would
-				// require all of them to declare three.
-				builder.WriteAttachments(sceneHDR, { { 0, desc.ClearColor } });
+				// Colour and velocity. Not the transparency attachments:
+				// a pipeline's declared colour formats have to match what
+				// the pass binds, and the pass that accumulates transparency
+				// binds a different pair -- which is what WriteAttachments is
+				// for. Every pipeline drawing here declares both of these.
+				builder.WriteAttachments(sceneHDR,
+					{ { 0, desc.ClearColor },
+					  // Zero is "did not move", which is what anything that
+					  // never writes velocity should read back as.
+					  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
 				builder.SetClearColor(desc.ClearColor);
 			},
 			[draw = desc.DrawScene](RGPassContext& context)
@@ -168,9 +190,14 @@ namespace RageV
 			graph.AddPass("Overlay",
 				[&](RGPassBuilder& builder)
 				{
-					// Preserve: the scene is already in there.
-					builder.WriteAttachments(sceneHDR, { { 0, desc.ClearColor } },
-											 RGLoad::Preserve);
+					// Preserve: the scene is already in there. Velocity is
+					// bound too, because the debug renderer's pipeline is
+					// built for the scene target's shape and this is the
+					// scene target.
+					builder.WriteAttachments(sceneHDR,
+						{ { 0, desc.ClearColor },
+						  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } },
+						RGLoad::Preserve);
 				},
 				[draw = desc.DrawOverlay](RGPassContext& context) { draw(context); });
 		}

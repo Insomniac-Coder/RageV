@@ -61,6 +61,8 @@ namespace RageV
 			// two pipelines, two counts, and conflating them is what made a
 			// four-sample scene bind a one-sample pipeline and crash.
 			uint32_t WorldSamples = 1;
+			Format WorldVelocity = Format::Undefined;
+			Ref<RHIShader> WorldShader;
 			bool   WorldPipelineDirty = true;
 
 			// One world pipeline per sample count, rather than one rebuilt
@@ -201,7 +203,7 @@ namespace RageV
 
 			GraphicsPipelineDesc desc;
 			desc.Name = "UIRenderer (world text)";
-			desc.Shader = s_Data->Shader;
+			desc.Shader = s_Data->WorldShader ? s_Data->WorldShader : s_Data->Shader;
 			desc.Topology = PrimitiveTopology::TriangleList;
 
 			// Two-sided, so a label keeps reading from behind rather than
@@ -219,6 +221,8 @@ namespace RageV
 			desc.DepthStencil.DepthWriteEnable = false;
 
 			desc.ColorFormats = { s_Data->WorldColor };
+			if (s_Data->WorldVelocity != Format::Undefined)
+				desc.ColorFormats.push_back(s_Data->WorldVelocity);
 			desc.Samples = s_Data->WorldSamples;
 			desc.DepthFormat = s_Data->WorldDepth;
 
@@ -413,6 +417,12 @@ namespace RageV
 		}
 
 		s_Data->Shader = device.CreateShader(*compiled);
+
+		// The world layer's twin, which differs only by a velocity output.
+		if (auto world = ShaderCompiler::CompileFromFile("assets/shaders/ui_world.rvshader"))
+			s_Data->WorldShader = device.CreateShader(*world);
+		else
+			RV_CORE_ERROR("UIRenderer: failed to compile assets/shaders/ui_world.rvshader");
 		s_Data->Ready = s_Data->Shader != nullptr;
 
 		{
@@ -583,7 +593,8 @@ namespace RageV
 		s_Data->WorldLayer = true;
 	}
 
-	void UIRenderer::SetWorldTargetFormats(Format color, Format depth, uint32_t samples)
+	void UIRenderer::SetWorldTargetFormats(Format color, Format depth, uint32_t samples,
+										   Format velocity)
 	{
 		if (!s_Data)
 			return;
@@ -591,10 +602,12 @@ namespace RageV
 		// A format change invalidates every cached pipeline. A *sample count*
 		// change does not -- it selects among them, which is the whole point
 		// of the cache.
-		if (s_Data->WorldColor != color || s_Data->WorldDepth != depth)
+		if (s_Data->WorldColor != color || s_Data->WorldDepth != depth ||
+			s_Data->WorldVelocity != velocity)
 		{
 			s_Data->WorldColor = color;
 			s_Data->WorldDepth = depth;
+			s_Data->WorldVelocity = velocity;
 			s_Data->WorldPipelines.clear();
 			s_Data->WorldPipelineDirty = true;
 		}

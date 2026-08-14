@@ -148,13 +148,39 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**In progress:** TAA (7.10), designed in ENGINE-NOTES 7r and started. The
-first prerequisite -- every transform remembering where it was last frame --
-is in and checked, and nothing reads it yet. Next is the velocity attachment
-itself, which is the part with a real design fork in it: every pipeline that
-draws in the scene pass has to declare the second colour output, or the
-velocity comes from a second geometry pass instead. 7r says why motion
-vectors get finished and verified before any temporal filter exists.
+**In progress: TAA (7.10).** Designed in ENGINE-NOTES 7r; motion vectors are
+**done**. The scene target carries an RG16F velocity attachment, the PBR
+shaders write real screen-space motion, and everything else in the scene pass
+writes zero. Nothing reads it yet, which is deliberate -- 7r says why the
+prerequisite gets verified before the filter that would hide it.
+
+**The next three steps, in order** (7r has the reasoning for each):
+
+1. **Jitter**, indexed by *frame number, not elapsed time*. This is the one
+   that breaks things if got wrong: every screenshot check in tools/scripts
+   assumes a frame is a pure function of the scene, and a clock-driven jitter
+   makes all of them irreproducible with a failure that looks like noise.
+   Must not reach shadow cascades or probe captures.
+2. **History and reprojection** -- persistent targets outside the graph pool,
+   since pooled targets have no identity across frames -- with a
+   neighbourhood AABB clamp so disocclusion does not ghost.
+3. **A moving-scene check.** A static scene lets TAA converge and flatters it
+   maximally; ghosting is its only real failure mode and no existing check
+   can see it.
+
+**Two known gaps in the motion vectors themselves**, both recorded rather
+than forgotten: the **sky writes zero** (it needs camera-rotation velocity or
+it smears when you turn -- fix it in step 2, where it becomes observable),
+and **skinned meshes report only the object's motion, not the limb's**, because
+the bones are not double-buffered. That is a memory decision, not an oversight.
+
+**The pattern that bit three times in a row today**, and will again: a
+renderer learns the scene target's *shape* from BuildFrame, but a reflection
+probe captures the scene **before** the graph is built on the first frame. So
+anything shape-related -- sample count, colour formats, attachment count --
+has to be stated at layer init *as well as* in BuildFrame, and scenetest has
+its own two call sites that need it too. Grep for `R16G16_SFLOAT` to find all
+five places.
 
 **What to do next:** section 8 -- the per-project game module, which is what
 making the engine a DLL was for.

@@ -52,6 +52,15 @@ layout(set = 0, binding = 0) uniform SceneData
 	mat4 SpotLookup[4];
 
 	int  LightCount;
+	int  _pad0;
+	int  _pad1;
+	int  _pad2;
+
+	// Last frame's ViewProjection. Appended, so every offset above is
+	// unchanged -- this block is mirrored by hand in Renderer3D.cpp and the
+	// two disagreeing is a picture that is wrong rather than a build that
+	// fails. ENGINE-NOTES 7r.
+	mat4 PreviousViewProjection;
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.
@@ -129,4 +138,8 @@ layout(location = 6) out vec4 v_ClipPos;
 // instance. Flat for the same reason the surface parameters are: it is one
 // value for the whole object.
 layout(location = 7) flat out float v_Probe;
+
+// Where this vertex was last frame, in clip space. The fragment differences
+// the two projections to get its motion vector.
+layout(location = 8) out vec4 v_PrevClipPos;
 

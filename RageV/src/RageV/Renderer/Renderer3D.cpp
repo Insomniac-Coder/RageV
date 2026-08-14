@@ -67,6 +67,12 @@ namespace RageV
 
 			int32_t   LightCount;
 			int32_t   _padding[3];
+
+			// Last frame's ViewProjection, for motion vectors. Appended so
+			// every offset above is unchanged -- this struct is mirrored by
+			// hand in include/scene_vertex.glsl, and the two disagreeing is a
+			// wrong picture rather than a failed build. ENGINE-NOTES 7r.
+			Mat4 PreviousViewProjection;
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -196,7 +202,18 @@ namespace RageV
 		// rasterizationSamples disagrees with the attachment it draws into is
 		// undefined behaviour rather than an error, so it travels with the
 		// formats and gets compared with them.
+			// What ViewProjection was the last time BeginScene ran.
+			Mat4 PreviousSceneViewProjection{ 1.0f };
 			uint32_t TargetSamples = 1;
+
+		// Where the scene writes its motion vectors, or Undefined for a pass
+		// that has no velocity attachment bound.
+		//
+		// One shape for every pass that writes the scene target -- the scene
+		// pass and the overlay both bind {colour, velocity}. 7q paid for the
+		// alternative: pipelines built for one target shape being bound into a
+		// pass with another is undefined behaviour rather than an error.
+			Format TargetVelocity = Format::Undefined;
 			bool   PipelineDirty = true;
 			bool   Wireframe = false;
 
@@ -466,16 +483,19 @@ namespace RageV
 		return s_Data ? s_Data->DefaultMaterial : nullptr;
 	}
 
-	void Renderer3D::SetTargetFormats(Format color, Format depth, uint32_t samples)
+	void Renderer3D::SetTargetFormats(Format color, Format depth, uint32_t samples,
+									   Format velocity)
 	{
 		if (!s_Data)
 			return;
 		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth &&
-			s_Data->TargetSamples == samples && s_Data->Pipeline)
+			s_Data->TargetSamples == samples &&
+			s_Data->TargetVelocity == velocity && s_Data->Pipeline)
 			return;
 
 		s_Data->TargetColor = color;
 		s_Data->TargetSamples = samples;
+		s_Data->TargetVelocity = velocity;
 		s_Data->TargetDepth = depth;
 		s_Data->PipelineDirty = true;
 	}
@@ -506,6 +526,8 @@ namespace RageV
 		desc.DepthStencil.DepthWriteEnable = true;
 		desc.ColorFormats = { s_Data->TargetColor };
 		desc.Samples = s_Data->TargetSamples;
+		if (s_Data->TargetVelocity != Format::Undefined)
+			desc.ColorFormats.push_back(s_Data->TargetVelocity);
 		desc.DepthFormat = s_Data->TargetDepth;
 
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
@@ -559,7 +581,19 @@ namespace RageV
 			return;
 
 		s_Data->Scene = {};
+		// Last frame's, before this frame's overwrites it.
+		//
+		// From the previous *BeginScene*, not the previous frame: a probe
+		// capture calls this six times with six different cameras, and a
+		// velocity differenced against one of those would be the motion of the
+		// camera between two faces of a cube. The scene pass is the last
+		// caller in a frame, so what the scene pass reads is what the scene
+		// pass wrote -- which is the property that makes this correct without
+		// tracking whose camera it was.
+		s_Data->Scene.PreviousViewProjection = s_Data->PreviousSceneViewProjection;
+
 		s_Data->Scene.ViewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
+		s_Data->PreviousSceneViewProjection = s_Data->Scene.ViewProjection;
 		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
 		s_Data->Scene.Ambient = Vec4(environment.AmbientColor, environment.AmbientIntensity);
 

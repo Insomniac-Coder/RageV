@@ -5312,7 +5312,8 @@ void main()
 			// face is a format mismatch -- which the driver renders anyway and
 			// only the validation layer objects to.
 			Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT,
-									   RHI::Format::D32_SFLOAT);
+									   RHI::Format::D32_SFLOAT,
+									   1, RHI::Format::R16G16_SFLOAT);
 
 			Renderer::BeginFrame(cmd);
 			scene->CaptureReflectionProbes();
@@ -5431,7 +5432,8 @@ void main()
 
 		// As above: the pipelines have to expect the format a probe captures
 		// into before anything draws into one.
-		Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT);
+		Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT,
+								   1, RHI::Format::R16G16_SFLOAT);
 
 		Renderer::BeginFrame(cmd);
 		scene->CaptureReflectionProbes();

@@ -111,7 +111,17 @@ void EditorLayer::OnAttach()
 	// these are what the finished, tone-mapped image lands in for ImGui to
 	// sample. Pipelines bake their attachment formats, so the renderer is told
 	// what the *scene* pass writes.
-	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT);
+	// The velocity format is named here as well as in BuildFrame, and that is
+	// not redundancy. A reflection probe captures the scene *before* the frame
+	// graph is built on the very first frame, so pipelines that learn the
+	// target's shape only from BuildFrame are bound into a probe face that
+	// already has the extra attachment. ENGINE-NOTES 7r.
+	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT,
+							   1, RHI::Format::R16G16_SFLOAT);
+	// The UI's world layer draws in the scene pass too, and learns the shape
+	// from the same two places for the same reason.
+	UIRenderer::SetWorldTargetFormats(RHI::Format::R16G16B16A16_SFLOAT,
+									  RHI::Format::D32_SFLOAT, 1, RHI::Format::R16G16_SFLOAT);
 
 	auto& graphDevice = Renderer::GetDevice();
 	m_Graph = std::make_unique<RenderGraph>(graphDevice);

@@ -35,6 +35,8 @@ void main()
 
 	gl_Position = u_Scene.ViewProjection * world;
 	v_ClipPos = gl_Position;
+	v_PrevClipPos = u_Scene.PreviousViewProjection * instance.PreviousModel *
+					vec4(a_Position, 1.0);
 }
 
 #type fragment

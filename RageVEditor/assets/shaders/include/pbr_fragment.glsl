@@ -167,8 +167,15 @@ layout(location = 6) in vec4 v_ClipPos;
 // constant across the object, and interpolating it would put fragments in the
 // middle of a triangle between two probes.
 layout(location = 7) flat in float v_Probe;
+layout(location = 8) in vec4 v_PrevClipPos;
 
 layout(location = 0) out vec4 o_Color;
+
+// Screen-space motion, in UV units: where this pixel is now minus where the
+// same surface point was last frame. Zero for anything that did not move,
+// exactly, because PreviousModel equals Model there and the subtraction
+// cancels rather than nearly cancelling.
+layout(location = 1) out vec2 o_Velocity;
 
 bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
 
@@ -190,6 +197,18 @@ uint ClusterIndexFor(vec3 worldPos)
 	// The fragment's own normalised device coordinate, from the interpolated
 	// clip position. Independent of the target's size and of which corner the
 	// backend calls the origin, both of which gl_FragCoord would drag in.
+	// Screen motion, in UV units. The halving turns an NDC difference into a
+	// texture-coordinate one, which is what a history fetch is addressed in.
+	//
+	// Exactly zero where nothing moved: PreviousModel equals Model there and
+	// the two projections are the same expression, so the subtraction cancels
+	// rather than nearly cancelling.
+	{
+		vec2 nowNDC  = v_ClipPos.xy     / max(abs(v_ClipPos.w), 1e-6)     * sign(v_ClipPos.w);
+		vec2 thenNDC = v_PrevClipPos.xy / max(abs(v_PrevClipPos.w), 1e-6) * sign(v_PrevClipPos.w);
+		o_Velocity = (nowNDC - thenNDC) * 0.5;
+	}
+
 	vec2 ndc = v_ClipPos.xy / max(abs(v_ClipPos.w), 1e-6) * sign(v_ClipPos.w);
 	vec2 unit = clamp(ndc * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
 

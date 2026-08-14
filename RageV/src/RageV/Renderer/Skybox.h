@@ -19,7 +19,8 @@ namespace RageV
 		static void Shutdown();
 
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth,
-									 uint32_t samples = 1);
+									 uint32_t samples = 1,
+									 RHI::Format velocity = RHI::Format::Undefined);
 
 		// Resets the per-frame descriptor pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();

@@ -19,7 +19,8 @@ namespace RageV
 		// Colour and depth formats of the target this renderer draws into.
 		// Pipelines are built against them, so they must be known up front.
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth,
-									 uint32_t samples = 1);
+									 uint32_t samples = 1,
+									 RHI::Format velocity = RHI::Format::Undefined);
 
 		// Rebuilds the pipeline with PolygonMode::Line. Both backends support
 		// it, so this is a genuine toggle rather than a GL-only debug aid.

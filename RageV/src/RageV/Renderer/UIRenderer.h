@@ -110,7 +110,8 @@ namespace RageV
 		// before tone mapping, so a glowing label is possible here and not
 		// there.
 		static void SetWorldTargetFormats(RHI::Format color, RHI::Format depth,
-										  uint32_t samples = 1);
+										  uint32_t samples = 1,
+										  RHI::Format velocity = RHI::Format::Undefined);
 
 		// Opens a world-space layer. Quads are depth-*tested* against the scene
 		// and do not write depth, so geometry occludes the text and the glyphs

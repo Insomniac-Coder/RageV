@@ -96,6 +96,12 @@ void main()
 
 layout(location = 0) in vec2 v_NDC;
 layout(location = 0) out vec4 o_Color;
+// Nothing here reports motion. The attachment is bound for the whole pass, so
+// every pipeline in it declares the output; writing zero is the truthful
+// answer for a background, a gizmo or a particle, and leaving it unwritten
+// would be whatever the clear happened to be. ENGINE-NOTES 7r.
+layout(location = 1) out vec2 o_Velocity;
+
 
 layout(push_constant) uniform GridParams
 {
@@ -168,6 +174,8 @@ float AxisCoverage(float coord, float footprint)
 
 void main()
 {
+	o_Velocity = vec2(0.0);
+
 	// Second row of the inverse: the plane y = 0, expressed in clip space.
 	// GLSL subscripts a matrix by column, so this gathers y from each of them.
 	vec4 plane = vec4(u_Params.InvViewProjection[0][1],

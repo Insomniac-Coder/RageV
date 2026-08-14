@@ -1,3 +1,4 @@
+#include "RageV/Renderer/UIRenderer.h"
 #include "RuntimeLayer.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Project/Project.h"
@@ -28,7 +29,17 @@ void RuntimeLayer::OnAttach()
 	// values from before the tone curve compresses them, and there are none
 	// left once an 8-bit backbuffer has been written. The tonemap pass is what
 	// reaches the swapchain.
-	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT);
+	// The velocity format is named here as well as in BuildFrame, and that is
+	// not redundancy. A reflection probe captures the scene *before* the frame
+	// graph is built on the very first frame, so pipelines that learn the
+	// target's shape only from BuildFrame are bound into a probe face that
+	// already has the extra attachment. ENGINE-NOTES 7r.
+	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT,
+							   1, RHI::Format::R16G16_SFLOAT);
+	// The UI's world layer draws in the scene pass too, and learns the shape
+	// from the same two places for the same reason.
+	UIRenderer::SetWorldTargetFormats(RHI::Format::R16G16B16A16_SFLOAT,
+									  RHI::Format::D32_SFLOAT, 1, RHI::Format::R16G16_SFLOAT);
 
 	m_Graph = std::make_unique<RenderGraph>(Renderer::GetDevice());
 
