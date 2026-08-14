@@ -939,6 +939,7 @@ void EditorLayer::OnImGuiRender()
 
 	DrawAboutPopup();
 	DrawBackendRestartPopup();
+	DrawUnsavedChangesPopup();
 }
 
 // Splits are declared as fractions of what is left, so the arrangement is
@@ -1176,7 +1177,11 @@ void EditorLayer::DrawMenuBar()
 
 	if (ImGui::BeginMenu("File"))
 	{
-		if (ImGui::MenuItem("New Scene", "Ctrl+N"))   NewScene();
+		if (ImGui::MenuItem("New Scene", "Ctrl+N"))
+		{
+			if (ConfirmDiscardScene(PendingAction::NewScene))
+				NewScene();
+		}
 		if (ImGui::MenuItem("New Project...")) NewProject();
 		if (ImGui::IsItemHovered())
 		{
@@ -1234,7 +1239,11 @@ void EditorLayer::DrawMenuBar()
 
 		ImGui::Separator();
 
-		if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) OpenScene();
+		if (ImGui::MenuItem("Open Scene...", "Ctrl+O"))
+		{
+			if (ConfirmDiscardScene(PendingAction::OpenSceneDialog))
+				OpenScene();
+		}
 		ImGui::Separator();
 		if (ImGui::MenuItem("Import Model...")) ImportModel();
 		if (ImGui::MenuItem("Save Scene", "Ctrl+S")) SaveScene();
@@ -1419,7 +1428,12 @@ void EditorLayer::DrawMenuBar()
 		// A dot rather than an asterisk in the name: the name is the name, and
 		// a mark beside it can be looked at or ignored without re-reading the
 		// word it was glued to.
-		if (m_Commands.CanUndo())
+		//
+		// **Unsaved, not edited.** This asked `CanUndo()`, which is true from
+		// the first edit of a session until the scene is closed -- so it stayed
+		// lit through every save, which makes it decoration. A mark that is
+		// always on is a mark that cannot warn.
+		if (m_Commands.IsSceneDirty())
 		{
 			ImGui::SameLine(0.0f, EditorTheme::Space::Snug);
 			const ImVec2 at = ImGui::GetCursorScreenPos();
@@ -1925,10 +1939,14 @@ void EditorLayer::DrawRenderSettingsPanel()
 			const RenderSettings before = m_RenderBefore;
 			const RenderSettings after = render;
 
+			// Undoable, but not a *scene* edit: it is written to the project
+			// two lines down, so counting it would light the unsaved-scene mark
+			// for something already on disk.
 			m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
 				"Render settings",
 				[after]  { Project::Render() = after;  Project::Save(); },
-				[before] { Project::Render() = before; Project::Save(); }));
+				[before] { Project::Render() = before; Project::Save(); },
+				/*touchesScene*/ false));
 
 			// Written now as well as on undo, so there is no Ctrl+S to
 			// remember. A project file is four lines and a settings block.
@@ -2318,10 +2336,11 @@ void EditorLayer::DrawBackendRestartPopup()
 	ImGui::Spacing();
 	ImGui::TextDisabled("Saved to ragev.ini, so a manual start uses it too.");
 	ImGui::Spacing();
-	// Said rather than worked around. The editor has no dirty tracking and
-	// loses unsaved work when it closes for any other reason too; quietly
-	// saving here would be this one button behaving unlike the rest.
-	ImGui::TextDisabled("Restarting closes the editor. Save your scene first.");
+	// Closing goes through the same door everything else does: the unsaved
+	// prompt is raised by the WindowCloseEvent, so this no longer has to warn
+	// about work it cannot protect.
+	ImGui::TextDisabled("Restarting closes the editor. Unsaved scene changes\n"
+						"are asked about first.");
 	ImGui::Spacing();
 	ImGui::Separator();
 	ImGui::Spacing();
@@ -2388,6 +2407,19 @@ void EditorLayer::OnEvent(Event& e)
 
 	EventDispatcher dispatcher(e);
 	dispatcher.Dispatch<KeyPressedEvent>(RV_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
+
+	// Returning true stops the close -- Application dispatches this to the
+	// layers first for exactly that reason. The window goes when the prompt's
+	// Save or Discard button calls Close(), and not before.
+	dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent&)
+		{
+			// Already asking. A second click on the X while the prompt is up
+			// is not an answer, so it changes nothing.
+			if (m_PendingAction != PendingAction::None)
+				return true;
+
+			return !ConfirmDiscardScene(PendingAction::Quit);
+		});
 }
 
 // Returns true when the shortcut was consumed. Every path used to fall off the
@@ -2405,10 +2437,22 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 		case RV_KEY_N:
 		{
 			if (control && shift) { CreateEmpty("Entity"); return true; }
-			if (control)          { NewScene();            return true; }
+			if (control)
+			{
+				if (ConfirmDiscardScene(PendingAction::NewScene))
+					NewScene();
+				return true;
+			}
 			break;
 		}
-		case RV_KEY_O: if (control) { OpenScene(); return true; } break;
+		case RV_KEY_O:
+			if (control)
+			{
+				if (ConfirmDiscardScene(PendingAction::OpenSceneDialog))
+					OpenScene();
+				return true;
+			}
+			break;
 
 		// The conventional binding, and a second way to reach a control that
 		// was previously only on the toolbar.
@@ -2827,6 +2871,111 @@ void EditorLayer::OnAssetActivated(AssetHandle handle, AssetType type)
 	FocusSelection();
 }
 
+// --- unsaved changes ---------------------------------------------------------
+//
+// **The gap this closes is a design consequence, not an oversight.** Attaching
+// a post profile to a camera and then grading that profile is one gesture that
+// lands in two places: the profile is an asset and writes itself on the edit,
+// the camera's reference to it is scene data and waits for Ctrl+S. Half of the
+// work persisted and half did not, the editor said nothing on the way out, and
+// what came back looked like "the setting was not saved". ENGINE-NOTES 7s.
+//
+// Making the two schedules one is not the fix -- a scene that autosaves is a
+// scene you cannot experiment in. Never discarding it without asking is.
+bool EditorLayer::ConfirmDiscardScene(PendingAction next, const std::filesystem::path& scene)
+{
+	if (!m_Commands.IsSceneDirty())
+		return true;
+
+	m_PendingAction = next;
+	m_PendingScenePath = scene;
+	m_ShowUnsavedPrompt = true;
+	return false;
+}
+
+void EditorLayer::RunPendingAction()
+{
+	// Read and disarmed before anything runs. Two of these paths lead back
+	// through SaveScene, which calls this again on its way out; leaving the
+	// action armed would run it twice.
+	const PendingAction action = m_PendingAction;
+	const std::filesystem::path scene = m_PendingScenePath;
+	m_PendingAction = PendingAction::None;
+	m_PendingScenePath.clear();
+
+	switch (action)
+	{
+		case PendingAction::None: break;
+		case PendingAction::Quit:            Application::Get().Close(); break;
+		case PendingAction::NewScene:        NewScene();                 break;
+		case PendingAction::OpenSceneDialog: OpenScene();                break;
+		case PendingAction::OpenScenePath:   OpenSceneFile(scene);       break;
+	}
+}
+
+void EditorLayer::DrawUnsavedChangesPopup()
+{
+	if (m_ShowUnsavedPrompt)
+	{
+		ImGui::OpenPopup("Unsaved changes");
+		m_ShowUnsavedPrompt = false;
+	}
+
+	// Centred every frame it is open, not only the frame it appears -- the same
+	// reason DrawBackendRestartPopup does it.
+	const ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(ImVec2(viewport->GetCenter()), ImGuiCond_Always,
+							ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(430.0f, 0.0f), ImGuiCond_Appearing);
+	if (!ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_NoResize))
+		return;
+
+	const std::string name = m_ScenePath.empty() ? std::string("This scene")
+												 : m_ScenePath.filename().string();
+
+	ImGui::TextWrapped("%s has changes that are not on disk.", name.c_str());
+	ImGui::Spacing();
+
+	// Named, because the surprise is *which* changes. A grade edited through a
+	// camera has already written itself; the camera pointing at it has not.
+	ImGui::TextDisabled("Entities, components and the environment live in the\n"
+						"scene file. Post profiles and materials are assets and\n"
+						"have already saved themselves.");
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Spacing();
+
+	const float width = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
+
+	if (ImGui::Button("Save", ImVec2(width, 0.0f)))
+	{
+		ImGui::CloseCurrentPopup();
+		// Which runs the pending action itself, once the write succeeds. A
+		// failed write leaves it armed and nothing happens, which is the
+		// outcome that loses nothing.
+		SaveScene();
+	}
+
+	ImGui::SameLine();
+
+	if (ImGui::Button("Discard", ImVec2(width, 0.0f)))
+	{
+		ImGui::CloseCurrentPopup();
+		RunPendingAction();
+	}
+
+	ImGui::SameLine();
+
+	if (ImGui::Button("Cancel", ImVec2(width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+	{
+		ImGui::CloseCurrentPopup();
+		m_PendingAction = PendingAction::None;
+		m_PendingScenePath.clear();
+	}
+
+	ImGui::EndPopup();
+}
+
 void EditorLayer::OpenScene()
 {
 	const std::string filepath = FileDialogs::OpenFile("RageV Scene (*.rage)\0*.rage\0");
@@ -2875,9 +3024,20 @@ void EditorLayer::SaveScene()
 
 	SceneSerializer serializer(m_Scene);
 	if (serializer.Serialize(m_ScenePath.string()))
+	{
+		m_Commands.MarkSaved();
 		RV_INFO("Saved {0}", m_ScenePath.filename().string());
+	}
 	else
+	{
 		RV_ERROR("Could not save {0}", m_ScenePath.string());
+	}
+
+	// Whatever the user was on their way to doing when the prompt appeared.
+	// After the write, and only after a successful one -- a failed save that
+	// still quit would be the bug this prompt exists to prevent, wearing a
+	// different hat.
+	RunPendingAction();
 }
 
 // Ctrl+Shift+S, and what Ctrl+S falls back to for a scene that has never been
@@ -2886,7 +3046,14 @@ void EditorLayer::SaveSceneAs()
 {
 	const std::string filepath = FileDialogs::SaveFile("RageV Scene (*.rage)\0*.rage\0");
 	if (filepath.empty())
+	{
+		// Backing out of the file dialog backs out of whatever the prompt was
+		// on the way to. Leaving it armed would quit the editor the next time
+		// anything happened to call RunPendingAction.
+		m_PendingAction = PendingAction::None;
+		m_PendingScenePath.clear();
 		return;
+	}
 
 	SceneSerializer serializer(m_Scene);
 	if (!serializer.Serialize(filepath))
@@ -2895,11 +3062,16 @@ void EditorLayer::SaveSceneAs()
 		// leave the next Ctrl+S silently writing somewhere that has already
 		// refused once.
 		RV_ERROR("Could not save {0}", filepath);
+		m_PendingAction = PendingAction::None;
+		m_PendingScenePath.clear();
 		return;
 	}
 
 	m_ScenePath = filepath;
+	m_Commands.MarkSaved();
 	RV_INFO("Saved {0}", m_ScenePath.filename().string());
+
+	RunPendingAction();
 }
 
 // Switching projects re-roots the asset registry, which is the whole point of

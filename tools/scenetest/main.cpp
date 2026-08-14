@@ -9668,6 +9668,93 @@ void main()
 		stack.Push(std::make_unique<AddComponentCommand>(scene, childID, "AudioSourceComponent"));
 		Check(!stack.CanRedo(), "a new edit clears the redo branch");
 	}
+
+	// What the editor's unsaved-changes mark and its closing prompt both ask.
+	//
+	// The mark used to be `CanUndo()`, which says "something has been edited
+	// this session" -- true from the first edit until the scene is closed, and
+	// therefore lit right through every save. Nothing warned that a post
+	// profile attached to a camera was still only in memory, and closing the
+	// editor threw it away without a word.
+	//
+	// The interesting cases are not "an edit makes it dirty". They are the ones
+	// a boolean flag gets wrong: undoing back to the save point is *clean*,
+	// re-editing from a point behind the save point can never be clean again,
+	// and an edit that writes itself is not a scene change at all.
+	void CheckSceneDirty(const std::shared_ptr<Scene>& scene)
+	{
+		UUID rootID = UUID::Invalid();
+		for (auto handle : scene->GetRegistry().view<TagComponent>())
+		{
+			Entity entity{ handle, scene.get() };
+			if (entity.GetName() == "Root")
+				rootID = entity.GetUUID();
+		}
+
+		if (!rootID.IsValid())
+		{
+			Check(false, "dirty-tracking fixture entity present");
+			return;
+		}
+
+		const auto rename = [&](const char* from, const char* to)
+		{
+			return std::make_unique<FieldEditCommand>(scene, rootID, "TagComponent", "Tag",
+													  FieldValue(std::string(from)),
+													  FieldValue(std::string(to)));
+		};
+
+		CommandStack stack;
+		Check(!stack.IsSceneDirty(), "a fresh stack is clean");
+
+		stack.Push(rename("Root", "A"));
+		Check(stack.IsSceneDirty(), "an edit makes the scene dirty");
+
+		stack.MarkSaved();
+		Check(!stack.IsSceneDirty(), "saving makes it clean");
+
+		stack.Push(rename("A", "B"));
+		Check(stack.IsSceneDirty(), "editing after a save makes it dirty again");
+
+		// The case a flag cannot express: the scene is byte-for-byte what was
+		// written, so there is nothing to prompt about.
+		stack.Undo();
+		Check(!stack.IsSceneDirty(), "undoing back to the save point is clean again");
+
+		stack.Redo();
+		Check(stack.IsSceneDirty(), "redoing past the save point is dirty again");
+
+		// Behind the save point, then a new edit. The saved state is now on a
+		// branch that has been discarded, so no amount of undoing reaches it --
+		// and the count alone would collide with it, reporting a modified scene
+		// as saved. It must stay dirty from here.
+		stack.Undo();
+		stack.Undo();
+		Check(stack.IsSceneDirty(), "undoing past the save point is dirty");
+		stack.Push(rename("Root", "C"));
+		Check(stack.IsSceneDirty(), "a new edit from behind the save point is dirty");
+		stack.Undo();
+		Check(stack.IsSceneDirty(), "and undoing it does not resurrect the lost save point");
+
+		// A scene load levels both sides: what is in memory is what is on disk.
+		stack.Clear();
+		Check(!stack.IsSceneDirty(), "clearing the stack is clean");
+
+		// The render settings live on the project and are written the instant
+		// they change. Undoable, but not something a scene file would keep --
+		// counting them would light the mark for something already on disk.
+		int value = 0;
+		stack.PushApplied(std::make_unique<ValueEditCommand>(
+			"Render settings", [&value] { value = 1; }, [&value] { value = 0; },
+			/*touchesScene*/ false));
+		Check(!stack.IsSceneDirty(), "an edit that writes itself is not an unsaved scene change");
+		Check(stack.CanUndo(), "and is still undoable");
+
+		stack.Push(rename("Root", "D"));
+		Check(stack.IsSceneDirty(), "a scene edit beside it still counts");
+		stack.Undo();
+		Check(!stack.IsSceneDirty(), "and undoing only that one is clean");
+	}
 }
 
 // A scratch directory nobody else is using.
@@ -9937,6 +10024,16 @@ int RunTests(int argc, char** argv)
 		SceneSerializer serializer(scene);
 		serializer.DeserializeFromString(a);
 		CheckUndo(scene);
+	}
+
+	// --- pass 4: what "unsaved" means ----------------------------------------
+	// Its own scene, because CheckUndo leaves the fixture partway through a
+	// history and this one starts from a known-clean stack.
+	{
+		auto scene = std::make_shared<Scene>();
+		SceneSerializer serializer(scene);
+		serializer.DeserializeFromString(a);
+		CheckSceneDirty(scene);
 	}
 
 	Check(a == b, "save -> load -> save is byte-identical");

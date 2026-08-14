@@ -102,6 +102,15 @@ two cameras that will always agree, which is usually what is wanted and is
 occasionally a surprise; the inspector names the file it is writing to for
 exactly that reason.
 
+> [!TRAP]
+> **The profile saves itself. The camera pointing at it does not.** A grade
+> you edit is written to its `.rvpostprofile` immediately; *which* profile a
+> camera names is scene data and waits for **Ctrl+S**, like everything else
+> in the scene. Attaching a profile and grading it therefore lands in two
+> files on two schedules. The dot beside the scene name in the menu bar is
+> lit whenever the scene has changes that are not on disk, and closing the
+> editor, opening another scene or starting a new one all ask first.
+
 The editor's viewport grades through the **primary camera's** profile, not a
 setting of its own — the viewport is meant to show what the game shows, and a
 grade you cannot see while authoring is a grade you author blind.

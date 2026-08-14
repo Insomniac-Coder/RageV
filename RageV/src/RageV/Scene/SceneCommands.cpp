@@ -67,11 +67,35 @@ namespace RageV
 	{
 		// A new edit invalidates the redo branch -- there is no tree here, and
 		// keeping one would mean deciding what "redo" means after a divergence.
+		//
+		// If the save point was *in* that branch -- saved, then undone, then
+		// edited again -- it has just become unreachable, and the depth it sat
+		// at is about to be occupied by a different history. Marked unreachable
+		// rather than left to collide, which would report a modified scene as
+		// saved.
 		m_Redo.clear();
+		if (m_SavedDepth > m_SceneDepth)
+			m_SavedDepth = -1;
+
+		if (command->TouchesScene())
+			m_SceneDepth++;
+
 		m_Undo.push_back(std::move(command));
 
 		if (m_Undo.size() > kLimit)
+		{
+			// The oldest command is gone, so every position shifts down by one
+			// and the state before it can never be returned to. Shifting the
+			// save point with it keeps the comparison meaning the same thing;
+			// if it was the bottom, it goes to -1, which is the truth -- there
+			// is no longer any sequence of undos that reaches the saved scene.
+			if (m_Undo.front()->TouchesScene())
+			{
+				m_SceneDepth--;
+				m_SavedDepth--;
+			}
 			m_Undo.erase(m_Undo.begin());
+		}
 	}
 
 	void CommandStack::Undo()
@@ -81,6 +105,9 @@ namespace RageV
 
 		std::unique_ptr<EditorCommand> command = std::move(m_Undo.back());
 		m_Undo.pop_back();
+		if (command->TouchesScene())
+			m_SceneDepth--;
+
 		command->Undo();
 		m_Redo.push_back(std::move(command));
 	}
@@ -92,6 +119,9 @@ namespace RageV
 
 		std::unique_ptr<EditorCommand> command = std::move(m_Redo.back());
 		m_Redo.pop_back();
+		if (command->TouchesScene())
+			m_SceneDepth++;
+
 		command->Execute();
 		m_Undo.push_back(std::move(command));
 	}
@@ -100,6 +130,11 @@ namespace RageV
 	{
 		m_Undo.clear();
 		m_Redo.clear();
+
+		// A fresh scene, or one just loaded: what is in memory is what is on
+		// disk, so both sides start level.
+		m_SceneDepth = 0;
+		m_SavedDepth = 0;
 	}
 
 	// -------------------------------------------------------------------------

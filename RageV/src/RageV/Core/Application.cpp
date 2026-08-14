@@ -171,7 +171,6 @@ namespace RageV {
 
 	void Application::OnEvent(Event& e) {
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<WindowCloseEvent>(RV_BIND_FUNCTION(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(RV_BIND_FUNCTION(Application::OnWindowResize));
 
 		// Fed rather than sampled: a wheel has no queryable state, so it is the
@@ -190,6 +189,19 @@ namespace RageV {
 			if (e.m_Handled)
 				break;
 		}
+
+		// Closing is dispatched *after* the layers, and only if none of them
+		// objected. It is the one event a layer may need to stop: the editor
+		// asks about an unsaved scene before letting the window go.
+		//
+		// It used to be dispatched first, which made that impossible in a way
+		// that looked like the handler never running. `Dispatch` marks the
+		// event handled from the callback's return value, and OnWindowClose
+		// returns true -- so the loop above broke after the topmost overlay and
+		// the editor layer was never asked. Anything a layer wants to veto has
+		// to be offered to the layers before it is acted on.
+		if (!e.m_Handled)
+			dispatcher.Dispatch<WindowCloseEvent>(RV_BIND_FUNCTION(Application::OnWindowClose));
 	}
 
 	bool Application::OnWindowResize(WindowResizeEvent& e)

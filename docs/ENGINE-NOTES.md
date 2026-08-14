@@ -3284,6 +3284,61 @@ own `.meta` so the handle is fixed rather than minted on first scan, and
 points the camera at it. That is the same path a person uses, exercised by
 the test suite on every run.
 
+### What splitting the ownership cost, and what pays for it
+
+Reported after 9.1 shipped, as *"I pick the post profile for the scene
+camera, apply a LUT to it, restart the editor, and it is gone."*
+
+Both halves of that gesture had done exactly what they were built to do.
+The LUT was written to the `.rvpostprofile` the instant it was set — the
+file on disk carried it. The camera's *reference* to the profile is scene
+data and was waiting for Ctrl+S, which never came. On restart the camera
+had no profile, so the grade drawn underneath it disappeared with it, and
+the whole thing read as "neither was saved".
+
+**One gesture, two persistence schedules.** That is the price of the
+ownership split on this page, and it is not a bug in either half. The
+tempting fix — save the scene too, on the edit — is worse than the problem:
+a scene that writes itself is a scene you cannot experiment in, and play
+mode is snapshot-then-restore precisely so that trying things is free.
+
+What was actually missing is that **nothing said so**. The editor's
+unsaved-changes mark asked `CommandStack::CanUndo()`, which is true from
+the first edit of a session until the scene is closed — so it stayed lit
+through every save and carried no information; and closing the window took
+the scene with it without a word.
+
+So the mark now asks a real question and the window has a door:
+
+- `CommandStack` tracks a **position**, not a flag: how many scene-touching
+  commands are on the undo stack, against what that count was at the last
+  save. A flag cannot tell that undoing back to the save point has made the
+  scene clean again. The saved position goes to −1 — permanently dirty —
+  when it becomes unreachable, which happens two ways: a new edit discards
+  the redo branch the save point was on, and a command ageing off the
+  bottom of the bounded stack. Both are "no sequence of undos reaches the
+  saved scene", and guessing *clean* there is how an editor loses work.
+- `EditorCommand::TouchesScene()` exists because one thing on that stack is
+  not a scene edit. The render settings live on the `.rvproject` and are
+  written the moment they change; counting them would light the mark for
+  something already on disk.
+- Closing, New Scene and Open Scene all go through one prompt —
+  Save / Discard / Cancel. `WindowCloseEvent` had to move to **after** the
+  layer walk in `Application::OnEvent` for this to be possible at all:
+  `EventDispatcher::Dispatch` marks the event handled from its callback's
+  return value, and `OnWindowClose` returns true, so the loop broke at the
+  topmost overlay and the editor layer was never asked. Anything a layer
+  may need to veto has to reach the layers before it is acted on.
+
+The prompt also names the split rather than hiding it: entities, components
+and the environment are in the scene file; profiles and materials are
+assets and have already saved themselves. That is the one sentence that
+makes the two schedules make sense instead of look broken.
+
+`CheckSceneDirty` in `tools/scenetest` pins the cases a boolean would get
+wrong — undo back to the save point, redo past it, and a new edit from
+behind it.
+
 ---
 
 ## 7t. Colour grading (9.1): design first, because one of the decisions is invisible

@@ -37,6 +37,16 @@ namespace RageV
 
 		// Shown next to the Edit menu entries.
 		virtual std::string Name() const = 0;
+
+		// Whether this edit is something a scene file would have to be written
+		// to keep.
+		//
+		// Everything here used to be, and one thing no longer is: the render
+		// settings moved to the project and are written the instant they change
+		// (ENGINE-NOTES 7s). Counting those would light the unsaved mark for
+		// something already on disk, and a mark that is on when nothing is
+		// unsaved is a mark nobody reads.
+		virtual bool TouchesScene() const { return true; }
 	};
 
 	class CommandStack
@@ -61,7 +71,29 @@ namespace RageV
 
 		size_t Depth() const { return m_Undo.size(); }
 
+		// Whether the scene differs from what was last written to disk.
+		//
+		// A *position* rather than a flag: how many scene-touching commands are
+		// on the undo stack, against what that count was at the last save. A
+		// flag cannot tell that undoing back to the saved state has made the
+		// scene clean again, and would leave the mark lit for the rest of the
+		// session. This can, and does.
+		bool IsSceneDirty() const { return m_SceneDepth != m_SavedDepth; }
+
+		// Called once the scene has been written. From here, this position is
+		// what is on disk.
+		void MarkSaved() { m_SavedDepth = m_SceneDepth; }
+
 	private:
+		// Both sides of the comparison IsSceneDirty makes. `m_SavedDepth` is
+		// deliberately signed and allowed to go negative: -1 means "the saved
+		// state is no longer reachable" -- the branch it was on has been
+		// discarded by a new edit, or the command has aged off the bottom of a
+		// bounded stack -- and no position can ever equal it again, which is
+		// exactly right. Guessing "clean" there is how an editor loses work.
+		int m_SceneDepth = 0;
+		int m_SavedDepth = 0;
+
 		std::vector<std::unique_ptr<EditorCommand>> m_Undo;
 		std::vector<std::unique_ptr<EditorCommand>> m_Redo;
 
@@ -241,16 +273,23 @@ namespace RageV
 	class ValueEditCommand : public EditorCommand
 	{
 	public:
-		ValueEditCommand(std::string name, std::function<void()> apply, std::function<void()> revert)
-			: m_Name(std::move(name)), m_Apply(std::move(apply)), m_Revert(std::move(revert)) {}
+		// `touchesScene` is false for the one thing on this stack that writes
+		// itself: the project's render settings, saved the moment they change.
+		// See EditorCommand::TouchesScene.
+		ValueEditCommand(std::string name, std::function<void()> apply, std::function<void()> revert,
+						 bool touchesScene = true)
+			: m_Name(std::move(name)), m_Apply(std::move(apply)), m_Revert(std::move(revert)),
+			  m_TouchesScene(touchesScene) {}
 
 		void Execute() override { m_Apply(); }
 		void Undo() override { m_Revert(); }
 		std::string Name() const override { return m_Name; }
+		bool TouchesScene() const override { return m_TouchesScene; }
 
 	private:
 		std::string m_Name;
 		std::function<void()> m_Apply;
 		std::function<void()> m_Revert;
+		bool m_TouchesScene = true;
 	};
 }

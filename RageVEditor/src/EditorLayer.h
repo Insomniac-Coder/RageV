@@ -48,6 +48,35 @@ public:
 	void OpenSceneFile(const std::filesystem::path& filepath);
 	void SaveScene();
 	void SaveSceneAs();
+
+	// --- unsaved changes -----------------------------------------------------
+	//
+	// Which parts of a scene are on disk is not obvious from the inside. A post
+	// profile is an asset and writes itself the moment it is edited; the camera
+	// that names it is scene data and does not. Two edits in one gesture,
+	// persisting on two schedules -- and the half that waits used to be lost by
+	// closing the editor, silently. ENGINE-NOTES 7s.
+	//
+	// So: nothing that discards the scene does so without asking.
+	enum class PendingAction
+	{
+		None,
+		Quit,
+		NewScene,
+		OpenSceneDialog,
+		OpenScenePath,
+	};
+
+	// True when the caller may go ahead now. False when the prompt has been
+	// raised instead, in which case the action runs later -- from the prompt's
+	// Save or Discard button -- and the caller must simply return.
+	bool ConfirmDiscardScene(PendingAction next, const std::filesystem::path& scene = {});
+
+	// Performs whatever ConfirmDiscardScene deferred, and disarms it. Safe to
+	// call when nothing is pending.
+	void RunPendingAction();
+
+	void DrawUnsavedChangesPopup();
 	void NewProject();
 	// The part of NewProject after its dialog: `picked` names the .rvproject,
 	// and a folder of that name is created beside it.
@@ -189,6 +218,12 @@ private:
 	// the next launch comes up the size this one was left at -- read back by
 	// the same `width`/`height` keys `--width`/`--height` use.
 	ImVec2 m_WindowSize{ 0.0f, 0.0f };
+
+	// What the unsaved-changes prompt is standing in the way of, and where it
+	// was going. None when no prompt is up.
+	PendingAction m_PendingAction = PendingAction::None;
+	std::filesystem::path m_PendingScenePath;
+	bool m_ShowUnsavedPrompt = false;
 
 	RageV::RenderSettings m_RenderBefore;
 	bool m_RenderEditDirty = false;
