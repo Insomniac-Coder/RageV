@@ -28,6 +28,8 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Asset/Curve.h"
 #include "RageV/Asset/CurveSerializer.h"
+#include "RageV/Asset/PostProfileSerializer.h"
+#include "RageV/Scene/FieldSerializer.h"
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
@@ -3258,17 +3260,20 @@ void main()
 			output.Color = RHI::Format::R8G8B8A8_UNORM;
 			output.Depth = RHI::Format::Undefined;
 
-			SceneEnvironment environment;
-			environment.AA = aa;
+			RenderSettings render;
+			render.AA = aa;
+
+			PostSettings post;
 			// On, so tone mapping binds a real bloom texture rather than the
 			// black stand-in -- the binding that goes missing is this one.
-			environment.BloomEnabled = true;
+			post.BloomEnabled = true;
 
 			FrameDesc frame;
 			frame.Output = graph.CreateTarget(output);
 			frame.Width = 320;
 			frame.Height = 200;
-			frame.Environment = environment;
+			frame.Render = render;
+			frame.Post = post;
 			frame.OutputFormat = RHI::Format::R8G8B8A8_UNORM;
 			frame.DrawScene = [](RGPassContext&) {};
 			frame.History = &history;
@@ -3370,10 +3375,91 @@ void main()
 		Check(!history.Current() && !history.HasHistory(), "and Release empties it");
 	}
 
+	// A value that is not the default, per type, so "the writer wrote nothing
+	// and the reader kept its default" cannot pass. Returns what it wrote.
+	//
+	// Through Access rather than the text bridge, which is private to the
+	// interop layer.
+	std::vector<std::pair<std::string, double>> PokeEverySetting(
+		const std::vector<FieldDesc>& fields, void* block)
+	{
+		std::vector<std::pair<std::string, double>> written;
+
+		for (const FieldDesc& field : fields)
+		{
+			if (!field.Access)
+				continue;
+
+			void* member = field.Access(block);
+			switch (field.Type)
+			{
+				case FieldType::Bool:
+					*(bool*)member = !*(bool*)member;
+					written.emplace_back(field.Name, *(bool*)member ? 1.0 : 0.0);
+					break;
+				case FieldType::Int:
+				case FieldType::Enum:
+					*(int32_t*)member = 1;
+					written.emplace_back(field.Name, 1.0);
+					break;
+				case FieldType::Float:
+					*(float*)member = 0.375f;
+					written.emplace_back(field.Name, 0.375);
+					break;
+				default: break;   // colours and handles, checked by hand
+			}
+		}
+
+		return written;
+	}
+
+	// Which of them did not survive the round trip, as a sentence.
+	std::string LostSettings(const std::vector<FieldDesc>& fields, void* block,
+							 const std::vector<std::pair<std::string, double>>& written)
+	{
+		std::string lost;
+
+		for (const auto& [name, expected] : written)
+		{
+			const FieldDesc* field = nullptr;
+			for (const FieldDesc& candidate : fields)
+			{
+				if (name == candidate.Name)
+				{
+					field = &candidate;
+					break;
+				}
+			}
+			if (!field || !field->Access)
+				continue;
+
+			void* member = field->Access(block);
+			double got = 0.0;
+			switch (field->Type)
+			{
+				case FieldType::Bool:  got = *(bool*)member ? 1.0 : 0.0; break;
+				case FieldType::Int:
+				case FieldType::Enum:  got = (double)*(int32_t*)member; break;
+				case FieldType::Float: got = (double)*(float*)member; break;
+				default: continue;
+			}
+
+			if (std::fabs(got - expected) > 1e-4)
+			{
+				lost += (lost.empty() ? "" : ", ") + name + " (" +
+						std::to_string(expected) + " -> " + std::to_string(got) + ")";
+			}
+		}
+
+		return lost;
+	}
+
 	void CheckRenderSettings()
 	{
-		const auto& fields = RenderSettingsRegistry::Fields();
-		Check(!fields.empty(), "the render settings are described");
+		// --- the three blocks are described, and do not collide ---------------
+		Check(!RenderSettingsRegistry::Fields().empty(), "the render settings are described");
+		Check(!PostSettingsRegistry::Fields().empty(), "so are the post settings");
+		Check(!SceneEnvironmentRegistry::Fields().empty(), "and the scene's environment");
 
 		const FieldDesc* aa = RenderSettingsRegistry::Find("AntiAliasing");
 		Check(aa != nullptr, "and anti-aliasing is one of them");
@@ -3384,130 +3470,213 @@ void main()
 		Check(aa && aa->Size == sizeof(int),
 			  "and int-sized, because the text bridge reads it as one");
 
-		// **Every** described field survives a save and a load, not the three
-		// somebody remembered to list.
-		//
-		// The registry and the serializer are two hand-written lists of the
-		// same settings, and they drift silently: a field described here but
-		// absent from the emitter is reachable from a script, editable in the
-		// inspector, and reset to its default the moment the scene is
-		// reopened. TemporalFeedback shipped exactly that way -- the check
-		// below used to name AA, Exposure and BloomIntensity, and a fourth
-		// field was invisible to it.
-		//
-		// Driven off the registry rather than a list, so a setting added
-		// tomorrow is covered without anybody choosing to cover it.
+		// **One flat namespace, three owners.** The C# bridge resolves a name
+		// by asking each registry in turn, so a name in two of them would make
+		// the answer depend on the order it happens to look -- and the wrong
+		// arm would write into a struct of a different shape at the same
+		// offset. Cheap to assert, impossible to notice otherwise.
 		{
-			auto probe = std::make_shared<Scene>();
-			SceneEnvironment& live = probe->GetEnvironment();
+			std::vector<std::string> seen;
+			std::string clashes;
 
-			// A value that is not the default, per type, so "the serializer
-			// wrote nothing and the loader kept its default" cannot pass.
-			// Through Access rather than the text bridge, which is private to
-			// the interop layer.
-			std::vector<std::pair<std::string, double>> written;
-			for (const FieldDesc& field : RenderSettingsRegistry::Fields())
+			const std::vector<FieldDesc>* blocks[] = {
+				&RenderSettingsRegistry::Fields(),
+				&PostSettingsRegistry::Fields(),
+				&SceneEnvironmentRegistry::Fields(),
+			};
+
+			for (const std::vector<FieldDesc>* block : blocks)
 			{
-				if (!field.Access)
-					continue;
-
-				void* member = field.Access(&live);
-				switch (field.Type)
+				for (const FieldDesc& field : *block)
 				{
-					case FieldType::Bool:
-						*(bool*)member = !*(bool*)member;
-						written.emplace_back(field.Name, *(bool*)member ? 1.0 : 0.0);
-						break;
-					case FieldType::Int:
-					case FieldType::Enum:
-						*(int32_t*)member = 1;
-						written.emplace_back(field.Name, 1.0);
-						break;
-					case FieldType::Float:
-						*(float*)member = 0.375f;
-						written.emplace_back(field.Name, 0.375);
-						break;
-					default: break;   // colours and handles, checked by hand above
+					const std::string name = field.Name;
+					if (std::find(seen.begin(), seen.end(), name) != seen.end())
+						clashes += (clashes.empty() ? "" : ", ") + name;
+					else
+						seen.push_back(name);
 				}
 			}
 
-			Check(written.size() >= 8,
-				  "the render settings offer enough scalar fields to be worth checking");
+			Check(clashes.empty(),
+				  "and no setting name appears in two blocks, which would make "
+				  "FindSetting's answer depend on the order it looks");
+			if (!clashes.empty())
+				RV_CORE_ERROR("setting names in more than one block: {0}", clashes);
+		}
+
+		// A setting reaches its owner, and only its owner.
+		Check(FindSetting("AntiAliasing").Block == SettingsBlock::Render,
+			  "anti-aliasing resolves to the project's block");
+		Check(FindSetting("Exposure").Block == SettingsBlock::Post,
+			  "exposure to the post profile's");
+		Check(FindSetting("SkyIntensity").Block == SettingsBlock::SceneEnvironment,
+			  "and the sky to the scene's");
+		Check(!FindSetting("Nonsense"),
+			  "while a name that is not a setting resolves to nothing rather than "
+			  "to the first block that was asked");
+
+		// --- each block survives its own file ---------------------------------
+		//
+		// The registry and a file format are two descriptions of the same
+		// settings, and they drift silently: a field described but never
+		// written is reachable from a script, editable in the inspector, and
+		// reset to its default the moment the file is reopened.
+		// `TemporalFeedback` shipped exactly that way. Driven off the registry
+		// rather than a list, so a setting added tomorrow is covered without
+		// anybody choosing to cover it. ENGINE-NOTES 7s.
+
+		// The scene, which keeps ambient and the sky.
+		{
+			auto probe = std::make_shared<Scene>();
+			const auto written = PokeEverySetting(SceneEnvironmentRegistry::Fields(),
+												  &probe->GetEnvironment());
+
+			Check(written.size() >= 4,
+				  "the scene's environment offers enough scalar fields to be worth checking");
 
 			const std::filesystem::path path =
-				std::filesystem::temp_directory_path() / "rv_render_settings_all.rage";
+				std::filesystem::temp_directory_path() / "rv_environment_all.rage";
 			SceneSerializer(probe).Serialize(path.string());
 
 			auto reloaded = std::make_shared<Scene>();
 			Check(SceneSerializer(reloaded).Deserialize(path.string()),
-				  "a scene carrying every render setting loads back");
+				  "a scene carrying every environment setting loads back");
 
-			std::string lost;
-			for (const auto& [name, expected] : written)
-			{
-				const FieldDesc* field = RenderSettingsRegistry::Find(name);
-				if (!field || !field->Access)
-					continue;
-
-				void* member = field->Access(&reloaded->GetEnvironment());
-				double got = 0.0;
-				switch (field->Type)
-				{
-					case FieldType::Bool:  got = *(bool*)member ? 1.0 : 0.0; break;
-					case FieldType::Int:
-					case FieldType::Enum:  got = (double)*(int32_t*)member; break;
-					case FieldType::Float: got = (double)*(float*)member; break;
-					default: continue;
-				}
-
-				if (std::fabs(got - expected) > 1e-4)
-				{
-					lost += (lost.empty() ? "" : ", ") + name + " (" +
-							std::to_string(expected) + " -> " + std::to_string(got) + ")";
-				}
-			}
-
+			const std::string lost = LostSettings(SceneEnvironmentRegistry::Fields(),
+												  &reloaded->GetEnvironment(), written);
 			Check(lost.empty(),
-				  "and every one of them comes back with the value it was given -- a "
-				  "setting the registry describes but the serializer never writes is "
-				  "one that resets itself every time the scene is reopened");
-
+				  "and every one of them comes back with the value it was given");
 			if (!lost.empty())
-				RV_CORE_ERROR("render settings lost across a save: {0}", lost);
+				RV_CORE_ERROR("environment settings lost across a save: {0}", lost);
 
 			std::error_code error;
 			std::filesystem::remove(path, error);
 		}
 
-		Check(RenderSettingsRegistry::Find("Exposure") != nullptr, "exposure is there");
-		Check(RenderSettingsRegistry::Find("BloomIntensity") != nullptr, "so is bloom");
-		Check(RenderSettingsRegistry::Find("Nonsense") == nullptr,
-			  "and a name that is not a setting resolves to nothing rather than to the first one");
+		// The post profile, which is its own asset.
+		{
+			PostSettings block;
+			const auto written = PokeEverySetting(PostSettingsRegistry::Fields(), &block);
 
-		// Every described name has to be a key the serializer writes, or a
-		// script's change cannot survive a save.
-		SceneEnvironment environment;
-		environment.AA = AntiAliasing::SMAA;
-		environment.Exposure = 0.42f;
-		environment.BloomIntensity = 0.17f;
+			Check(written.size() >= 5,
+				  "the post settings offer enough scalar fields to be worth checking");
 
+			const std::filesystem::path path =
+				std::filesystem::temp_directory_path() / "rv_post_all.rvpostprofile";
+			Check(Assets::PostProfileSerializer::Save(block, path), "a post profile writes");
+
+			PostSettings reloaded;
+			Check(Assets::PostProfileSerializer::Load(reloaded, path), "and loads back");
+
+			const std::string lost =
+				LostSettings(PostSettingsRegistry::Fields(), &reloaded, written);
+			Check(lost.empty(), "with every setting the registry describes still on it");
+			if (!lost.empty())
+				RV_CORE_ERROR("post settings lost across a save: {0}", lost);
+
+			// A file that is not a profile must not load as a profile of pure
+			// defaults, which would render and would be wrong invisibly.
+			{
+				std::ofstream junk(path);
+				junk << "Curve: 1\nKeys: []\n";
+			}
+			PostSettings untouched;
+			untouched.Exposure = 3.0f;
+			Check(!Assets::PostProfileSerializer::Load(untouched, path),
+				  "while a file that is not a profile is refused");
+			Check(std::fabs(untouched.Exposure - 3.0f) < 1e-5f,
+				  "and a refused load leaves the caller's settings alone");
+
+			std::error_code error;
+			std::filesystem::remove(path, error);
+		}
+
+		// The project, which keeps the cost settings.
+		{
+			RenderSettings& live = Project::Render();
+			const RenderSettings restore = live;
+
+			const auto written = PokeEverySetting(RenderSettingsRegistry::Fields(), &live);
+			Check(written.size() >= 8,
+				  "the render settings offer enough scalar fields to be worth checking");
+
+			// Round-tripped through the emitter and the reader directly rather
+			// than through Project::Save, which needs a project open on disk.
+			// The same two functions the project file uses, so this covers the
+			// same drift.
+			YAML::Emitter emitter;
+			emitter << YAML::BeginMap;
+			WriteFields(emitter, RenderSettingsRegistry::Fields(), &live);
+			emitter << YAML::EndMap;
+
+			RenderSettings reloaded;
+			ReadFields(YAML::Load(emitter.c_str()), RenderSettingsRegistry::Fields(), &reloaded);
+
+			const std::string lost =
+				LostSettings(RenderSettingsRegistry::Fields(), &reloaded, written);
+			Check(lost.empty(),
+				  "and every one of them survives the project file -- a setting the "
+				  "registry describes but the writer never emits is one that resets "
+				  "itself every time the project is reopened");
+			if (!lost.empty())
+				RV_CORE_ERROR("render settings lost across a save: {0}", lost);
+
+			// A block with nothing in it leaves every default in place, which
+			// is what a project written before a setting existed must do.
+			RenderSettings sparse;
+			const RenderSettings fresh;
+			ReadFields(YAML::Load("{}"), RenderSettingsRegistry::Fields(), &sparse);
+			Check(sparse.AA == fresh.AA &&
+				  std::fabs(sparse.TemporalFeedback - fresh.TemporalFeedback) < 1e-6f,
+				  "while an empty block leaves every default alone, so an older "
+				  "project gains a setting rather than being zeroed by one");
+
+			live = restore;
+		}
+	}
+
+	// A camera names its profile, and the scene resolves it.
+	void CheckPostProfileOnCamera()
+	{
+		const PostSettings neutral;
 		auto scene = std::make_shared<Scene>();
-		scene->GetEnvironment() = environment;
+
+		Check(scene->GetPostSettings().Exposure == neutral.Exposure,
+			  "a scene with no camera grades with the defaults rather than with zero");
+
+		Entity camera = scene->CreateEntity("Camera");
+		camera.AddComponent<CameraComponent>();
+
+		Check(scene->GetPostSettings().BloomEnabled == neutral.BloomEnabled,
+			  "and so does a camera with no profile attached");
+
+		// A handle that resolves to nothing -- the file was deleted, or the
+		// project moved -- must degrade to the neutral grade rather than to a
+		// black frame, because a profile of zeroes is not neutral.
+		camera.GetComponent<CameraComponent>().PostProfile = AssetHandle(0x9E3779B97F4A7C15ull);
+		Check(std::fabs(scene->GetPostSettings().Exposure - neutral.Exposure) < 1e-5f,
+			  "and a profile handle that resolves to nothing does too");
+
+		// The handle itself is a serialized field on the camera, so a scene
+		// that names a profile still names it after a save.
+		const AssetHandle chosen(0x1234567890ABCDEFull);
+		camera.GetComponent<CameraComponent>().PostProfile = chosen;
 
 		const std::filesystem::path path =
-			std::filesystem::temp_directory_path() / "rv_render_settings.rage";
+			std::filesystem::temp_directory_path() / "rv_camera_profile.rage";
 		SceneSerializer(scene).Serialize(path.string());
 
-		auto loaded = std::make_shared<Scene>();
-		Check(SceneSerializer(loaded).Deserialize(path.string()),
-			  "a scene carrying render settings loads back");
+		auto reloaded = std::make_shared<Scene>();
+		Check(SceneSerializer(reloaded).Deserialize(path.string()),
+			  "a scene whose camera names a post profile loads back");
 
-		const SceneEnvironment& out = loaded->GetEnvironment();
-		Check(out.AA == AntiAliasing::SMAA, "with SMAA still chosen");
-		Check(std::fabs(out.Exposure - 0.42f) < 1e-5f, "the exposure it was given");
-		Check(std::fabs(out.BloomIntensity - 0.17f) < 1e-5f, "and the bloom");
+		Entity restored = reloaded->GetPrimaryCameraEntity();
+		Check(restored && restored.HasComponent<CameraComponent>(), "with its camera");
+		Check(restored && restored.GetComponent<CameraComponent>().PostProfile == chosen,
+			  "still pointing at the same profile");
 
-		std::filesystem::remove(path);
+		std::error_code error;
+		std::filesystem::remove(path, error);
 	}
 
 	void CheckShadowToggle()
@@ -7631,7 +7800,11 @@ void main()
 
 		RenderGraph graph(Renderer::GetDevice());
 
-		auto build = [&](uint32_t width, uint32_t height, const SceneEnvironment& environment)
+		// Two blocks rather than one, because the chain reads two: what the
+		// frame costs comes from the project and what it grades comes from the
+		// camera's profile. ENGINE-NOTES 7s.
+		auto build = [&](uint32_t width, uint32_t height,
+						 const RenderSettings& render, const PostSettings& post)
 		{
 			graph.Begin(width, height);
 
@@ -7639,7 +7812,8 @@ void main()
 			frame.Output = graph.Backbuffer();
 			frame.Width = width;
 			frame.Height = height;
-			frame.Environment = environment;
+			frame.Render = render;
+			frame.Post = post;
 			frame.OutputFormat = RHI::Format::R8G8B8A8_UNORM;
 			frame.DrawScene = [](RGPassContext&) {};
 
@@ -7657,10 +7831,11 @@ void main()
 			return false;
 		};
 
-		SceneEnvironment environment;
+		RenderSettings render;
+		PostSettings post;
 
 		// --- the full chain -----------------------------------------------------
-		Check(build(1600, 900, environment), "the standard frame compiles");
+		Check(build(1600, 900, render, post), "the standard frame compiles");
 		Check(hasPass("Scene"), "it draws the scene");
 		Check(hasPass("Bloom prefilter"), "thresholds for bloom");
 		Check(hasPass("Bloom down"), "downsamples");
@@ -7671,24 +7846,24 @@ void main()
 		const size_t withEverything = graph.GetPassCount();
 
 		// --- bloom off ----------------------------------------------------------
-		environment.BloomEnabled = false;
-		Check(build(1600, 900, environment), "with bloom off it still compiles");
+		post.BloomEnabled = false;
+		Check(build(1600, 900, render, post), "with bloom off it still compiles");
 		Check(!hasPass("Bloom"), "and has no bloom passes at all");
 		Check(hasPass("Tonemap"), "but still tone maps, because that is not optional");
 		Check(graph.GetPassCount() < withEverything, "so the frame is shorter");
 
 		// --- anti-aliasing off ---------------------------------------------------
-		environment.BloomEnabled = true;
-		environment.AA = AntiAliasing::None;
-		Check(build(1600, 900, environment), "with anti-aliasing off it compiles");
+		post.BloomEnabled = true;
+		render.AA = AntiAliasing::None;
+		Check(build(1600, 900, render, post), "with anti-aliasing off it compiles");
 		Check(!hasPass("FXAA"), "and skips the FXAA pass");
 		// Without FXAA the tonemap has to land in the output directly, rather
 		// than in an intermediate nobody then presents.
 		Check(hasPass("Tonemap"), "with tone mapping writing the output itself");
 
 		// --- SMAA replaces the one pass with three ------------------------------
-		environment.AA = AntiAliasing::SMAA;
-		Check(build(1600, 900, environment), "with SMAA it compiles");
+		render.AA = AntiAliasing::SMAA;
+		Check(build(1600, 900, render, post), "with SMAA it compiles");
 		Check(hasPass("SMAA edges"), "finds edges");
 		Check(hasPass("SMAA weights"), "reconstructs their coverage");
 		Check(hasPass("SMAA blend"), "and spends it");
@@ -7703,34 +7878,34 @@ void main()
 		// MSAA changes the *shape* of the scene target rather than adding a
 		// pass, so the frame looks exactly like the unfiltered one -- which is
 		// the whole design, and the thing worth asserting.
-		environment.AA = AntiAliasing::MSAA;
-		environment.MsaaSamples = 4;
-		Check(build(1600, 900, environment), "with MSAA it compiles");
+		render.AA = AntiAliasing::MSAA;
+		render.MsaaSamples = 4;
+		Check(build(1600, 900, render, post), "with MSAA it compiles");
 		Check(!hasPass("FXAA") && !hasPass("SMAA") && !hasPass("SSAA resolve"),
 			  "and adds no resolve pass of its own, because the hardware does it");
 		Check(hasPass("Tonemap"), "with tone mapping writing the output directly");
 
 		// SSAA draws the scene larger and resolves it down, so it adds a pass
 		// *before* bloom and skips the one after tone mapping entirely.
-		environment.AA = AntiAliasing::SSAA;
-		environment.SupersampleFactor = 2;
-		Check(build(1600, 900, environment), "with SSAA it compiles");
+		render.AA = AntiAliasing::SSAA;
+		render.SupersampleFactor = 2;
+		Check(build(1600, 900, render, post), "with SSAA it compiles");
 		Check(hasPass("SSAA resolve"), "and resolves the larger scene down");
 		Check(!hasPass("FXAA") && !hasPass("SMAA"),
 			  "with no post filter, because its work is already done");
 
 		// A factor of one is SSAA that supersamples nothing, and a resolve
 		// pass that averages one sample is a blit with extra steps.
-		environment.SupersampleFactor = 1;
-		Check(build(1600, 900, environment), "SSAA at a factor of one compiles");
+		render.SupersampleFactor = 1;
+		Check(build(1600, 900, render, post), "SSAA at a factor of one compiles");
 		Check(!hasPass("SSAA resolve"), "and adds no resolve pass at all");
 
 		// TAA needs somewhere to accumulate, and a caller that has not supplied
 		// one gets no filter rather than the worse half of the feature: the
 		// jitter without the history is a wobble and nothing else.
-		environment.SupersampleFactor = 2;
-		environment.AA = AntiAliasing::TAA;
-		Check(build(1600, 900, environment), "with TAA and no history it compiles");
+		render.SupersampleFactor = 2;
+		render.AA = AntiAliasing::TAA;
+		Check(build(1600, 900, render, post), "with TAA and no history it compiles");
 		Check(!hasPass("TAA resolve"),
 			  "and does not resolve, because there is nowhere to accumulate into");
 		Check(!hasPass("FXAA") && !hasPass("SMAA") && !hasPass("SSAA resolve"),
@@ -7743,7 +7918,7 @@ void main()
 		{
 			TemporalHistory history;
 
-			auto buildTemporal = [&](const SceneEnvironment& environment)
+			auto buildTemporal = [&](const RenderSettings& render)
 			{
 				graph.Begin(1600, 900);
 
@@ -7751,7 +7926,8 @@ void main()
 				frame.Output = graph.Backbuffer();
 				frame.Width = 1600;
 				frame.Height = 900;
-				frame.Environment = environment;
+				frame.Render = render;
+				frame.Post = post;
 				frame.OutputFormat = RHI::Format::R8G8B8A8_UNORM;
 				frame.DrawScene = [](RGPassContext&) {};
 				frame.History = &history;
@@ -7760,7 +7936,7 @@ void main()
 				return graph.Compile();
 			};
 
-			Check(buildTemporal(environment), "with TAA and a history it compiles");
+			Check(buildTemporal(render), "with TAA and a history it compiles");
 			Check(hasPass("TAA resolve"), "and resolves into the accumulated image");
 			Check(hasPass("Tonemap"), "which tone mapping then reads");
 
@@ -7776,7 +7952,7 @@ void main()
 				  "sampling the image it is drawing into");
 
 			const RHI::Ref<RHI::RHIRenderTarget> afterOne = history.Current();
-			Check(buildTemporal(environment), "a second TAA frame compiles");
+			Check(buildTemporal(render), "a second TAA frame compiles");
 			Check(history.Current() == afterOne || history.Previous() == afterOne,
 				  "and the pair ping-pongs rather than reallocating");
 
@@ -7785,7 +7961,7 @@ void main()
 			// checked rather than assumed is that nothing about the picture
 			// would show it -- the stale frame is blended in at 10% and is
 			// gone before anyone can point at it.
-			SceneEnvironment other = environment;
+			RenderSettings other = render;
 			other.AA = AntiAliasing::FXAA;
 			Check(buildTemporal(other), "switching to FXAA compiles");
 			Check(!hasPass("TAA resolve"), "and stops resolving");
@@ -7794,21 +7970,21 @@ void main()
 				  "starts again rather than resuming from whenever it stopped");
 		}
 
-		environment.SupersampleFactor = 2;
-		environment.AA = (AntiAliasing)99;
-		Check(build(1600, 900, environment), "an unknown anti-aliasing mode compiles");
+		render.SupersampleFactor = 2;
+		render.AA = (AntiAliasing)99;
+		Check(build(1600, 900, render, post), "an unknown anti-aliasing mode compiles");
 		Check(!hasPass("FXAA") && !hasPass("SMAA"), "running neither filter");
 		Check(hasPass("Tonemap"), "with tone mapping writing the output itself");
 
-		environment.AA = AntiAliasing::FXAA;
+		render.AA = AntiAliasing::FXAA;
 
 		// --- a tiny frame --------------------------------------------------------
 		// The chain has to stop before the levels are a handful of texels,
 		// where the filters stop meaning anything and a zero-sized target is
 		// one division away.
-		Check(build(64, 64, environment), "a small frame compiles");
+		Check(build(64, 64, render, post), "a small frame compiles");
 		const size_t smallPasses = graph.GetPassCount();
-		Check(build(1600, 900, environment), "a large one compiles");
+		Check(build(1600, 900, render, post), "a large one compiles");
 		Check(graph.GetPassCount() > smallPasses,
 			  "and has more bloom levels than the small one");
 
@@ -9532,6 +9708,7 @@ int RunTests(int argc, char** argv)
 	CheckTemporalHistory();
 	CheckAntiAliasingSwitch();
 	CheckRenderSettings();
+	CheckPostProfileOnCamera();
 	CheckShadowToggle();
 	CheckShadowCascades();
 	CheckIrradiance();

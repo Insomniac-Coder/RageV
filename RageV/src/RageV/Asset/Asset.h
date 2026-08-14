@@ -31,6 +31,15 @@ namespace RageV
 		// asset -- nothing at runtime can read one, and treating it as one
 		// would offer a handle that never resolves.
 		Font,
+		// A `.rvpostprofile`: how a camera's frame is graded. Exposure, bloom,
+		// and everything roadmap phase 9 adds.
+		//
+		// An asset rather than a field on the camera, because a grade is
+		// authored content that several cameras -- and eventually several
+		// scenes -- should be able to share, and because sharing one is the
+		// difference between changing a look once and changing it everywhere
+		// it was pasted. ENGINE-NOTES 7s.
+		PostProfile,
 	};
 
 	const char* AssetTypeName(AssetType type);

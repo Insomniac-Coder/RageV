@@ -117,7 +117,13 @@ No-ops outside play mode and on an entity with no rigid body. World space.
 
 | Member | Description |
 |---|---|
-| `GetRenderSettings` | The scene's render settings, live — anti-aliasing, exposure, bloom, ambient, sky, shadows. Read fresh when the frame is built, so a change made in `OnTick` or `OnFrame` is on screen that frame. Not saved: it is a runtime override, not an edit to the scene asset. |
+| `GetRenderSettings` | What the frame costs, from the project: anti-aliasing and its parameters, shadows. Read fresh when the frame is built, so a change made in `OnTick` or `OnFrame` is on screen that frame. Note `ragev.ini` and `--aa=` still override the mode after this. |
+| `GetEnvironment` | Where the frame is, from the scene: ambient light and the sky. |
+| `GetPostSettings` | How the frame is graded, from the profile the scene's primary camera points at — exposure and bloom. **Null when that camera has no profile**, which is the honest answer: with none there is no grade to write to. |
+
+None of the three is saved. They are runtime overrides — a game dimming its
+own bloom should not quietly edit an asset — and the editor drops its cached
+profiles when Play stops.
 
 ## Audio
 

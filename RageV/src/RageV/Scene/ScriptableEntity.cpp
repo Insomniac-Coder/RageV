@@ -5,6 +5,7 @@
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/Application.h"
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/Project/Project.h"
 #include "RageV/UI/Interaction.h"
 #include "RageV/Math/Math.h"
 
@@ -174,9 +175,28 @@ namespace RageV
 		return {};
 	}
 
-	SceneEnvironment& ScriptableEntity::GetRenderSettings()
+	RenderSettings& ScriptableEntity::GetRenderSettings()
+	{
+		return Project::Render();
+	}
+
+	SceneEnvironment& ScriptableEntity::GetEnvironment()
 	{
 		return GetScene().GetEnvironment();
+	}
+
+	PostSettings* ScriptableEntity::GetPostSettings()
+	{
+		// The primary camera's, which is the one the game is looking through.
+		// A script wanting a different camera's grade reaches it the long way,
+		// through that entity's CameraComponent -- this is the short way to
+		// say "the view the player has".
+		Entity camera = GetScene().GetPrimaryCameraEntity();
+		if (!camera || !camera.HasComponent<CameraComponent>())
+			return nullptr;
+
+		return Assets::Manager::GetPostProfile(
+			camera.GetComponent<CameraComponent>().PostProfile);
 	}
 
 	// -------------------------------------------------------------------------

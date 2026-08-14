@@ -41,9 +41,9 @@ are all done. So is scripting, in both languages, with live reload in both:
   the errors showing. One rule, both languages. Play pressed during a build
   queues until the build lands.
 - **As of interop protocol 4 the languages are equals**, and protocol 6 gave
-  them both a second rate; protocol 7 gave them the game's UI and protocol 8 the
-  scene's render settings -- see below:
-  audio, raycasts,
+  them both a second rate; protocol 7 gave them the game's UI and protocol 8
+  the render settings -- one flat name space over three owners since 9.0, so a
+  script does not have to know which file a setting lives in. Audio, raycasts,
   hierarchy, and components by registry name with text values all reach C#.
   The one structural exception is typed GetComponent<T>, which cannot cross
   a boundary and is traded for the registry's named access.
@@ -1514,6 +1514,64 @@ not, which is the same mistake as the culling number, caught this time.
 ---
 
 ## 8. Next steps
+
+**Done: 9.0, where a setting lives (2026-08-14).** `SceneEnvironment` was one
+struct holding three unrelated kinds of thing, serialized into every `.rage`.
+It is three now, each in the file that owns it:
+
+| Home | Holds | Edited in |
+|---|---|---|
+| `.rvproject` → `RenderSettings` | AA and its parameters, shadows | Render Settings → Render settings |
+| `.rvpostprofile` → `PostSettings` | Exposure, bloom, and all of 9.1–9.7 | The **Camera component** that names it |
+| `.rage` → `SceneEnvironment` | Ambient, sky | Render Settings → Environment |
+
+**The owner revised the roadmap's design before it was built**, and both
+changes removed work: no render profile asset (the project is the only layer
+that was wanted), and the post profile is *attached to a camera* rather than
+being a sparse override of project defaults — which deletes the per-field
+"is this set?" bit, the inherited-versus-equal UI problem and the merge step
+that §9.0 used to call the part to design for. A profile is optional; a
+camera without one renders the neutral grade. The **post profile is on the
+camera and nowhere else** — an earlier pass of this work also put it in the
+Render Settings panel, which was wrong and is gone.
+
+**All four formats are read and written through the registry**, by one pair of
+functions in `Scene/FieldSerializer` (hoisted out of SceneSerializer, not
+copied). That closes the drift `TemporalFeedback` shipped: registered,
+inspectable, in nobody's serializer, resetting on every load. The checks
+enforce the shape rather than a list — set every registered field to a
+non-default, round-trip, compare — so a field added tomorrow is covered
+without anyone choosing to cover it. `FindSetting` keeps one flat name space
+for scripts over the three owners, and a check asserts no name is in two.
+
+Scene version 6. A version-5 scene still carrying the moved keys is
+**reported**, naming each and where it went, rather than migrated (a load
+that edits the project file is hard to undo) or dropped (what
+`TemporalFeedback` did). Only non-default values are named, so the generated
+test scenes and `Knockdown/Main.rage` — which stores the whole block at its
+defaults — load silently.
+
+**The move changed no pixels, and that is measured:** `check_taa_motion.py`
+reproduces its recorded numbers to three decimals through the new path, which
+required `make_aa_scene.py` and `make_motion_scene.py` to write a real
+`.rvpostprofile` with its own `.meta` and point the camera at it — their
+`BloomEnabled: false` had become an inert key, and the checks would have gone
+on printing numbers for a picture they were not designed for.
+
+**It also surfaced a stale threshold nobody had re-run.** `check_smaa.py`
+required TAA to beat no filter by 1.5x on a static scene, measured when the
+feedback default was 0.9; 7.10 moved it to 0.6 and re-calibrated the *motion*
+check only, so this one has been failing at two of four angles ever since on
+a build working exactly as intended. Re-measured at 0.0, 0.6 and 0.9 and set
+to 1.25 — clear at the shipped default, failing with accumulation off. Design
+and full writeup: ENGINE-NOTES 7s.
+
+**Two editor papercuts fixed alongside it (2026-08-14).** The window size is
+written to `ragev.ini` on exit, through the same `width`/`height` keys
+`--width`/`--height` already read, so the editor comes back the size it was
+left at. And both modals — About and the backend-restart prompt — set their
+position every frame rather than only on `Appearing`, which is why the
+restart dialog stayed at the old centre's coordinates after a resize.
 
 **Done: the tangent-frame backend parity bug (2026-08-13).** The suspect was
 right and the planned fix was wrong. Under Vulkan's negative-height viewport

@@ -41,6 +41,8 @@ ground and nothing else varying across either.
 import argparse
 import pathlib
 
+import postprofile
+
 PRIMITIVE_BASE = 0x7261676556000000
 CUBE, SPHERE, PLANE, CYLINDER, QUAD = range(5)
 
@@ -68,7 +70,7 @@ def _header(name, sky_rgb=(0.02, 0.02, 0.025)):
 
     return [
         f"Scene: {name}",
-        "Version: 5",
+        "Version: 6",
         "Environment:",
         "  AmbientColor: [0, 0, 0]",
         "  AmbientIntensity: 0",
@@ -78,17 +80,15 @@ def _header(name, sky_rgb=(0.02, 0.02, 0.025)):
         f"  SkyGround: {vec(sky_rgb)}",
         "  SkyIntensity: 1",
         "  SkyRotation: 0",
-        "  Exposure: 1",
-        # Bloom would spread the block's edges across the very pixels a smear
-        # would occupy, which is the signal being measured.
-        "  BloomEnabled: false",
-        "  ShadowsEnabled: false",
-        "  AntiAliasing: 0",
+        # Bloom is off, and it is not off *here* any more: since version 6 the
+        # grade is a `.rvpostprofile` the camera names, and a scene writing
+        # `BloomEnabled: false` writes a key nothing reads. See main().
         "Entities:",
     ]
 
 
-def _camera(next_id, position, rotation=(0, 0, 0), script=None, speed=None):
+def _camera(next_id, position, rotation=(0, 0, 0), script=None, speed=None,
+            profile=None):
     lines = [
         f"  - EntityID: {next_id()}",
         "    TagComponent:",
@@ -108,6 +108,8 @@ def _camera(next_id, position, rotation=(0, 0, 0), script=None, speed=None):
         "      OrthographicNearClip: -1",
         "      OrthographicFarClip: 1",
     ]
+    if profile is not None:
+        lines.append(f"      PostProfile: {profile}")
     if script:
         lines += [
             "    NativeScriptComponent:",
@@ -167,7 +169,7 @@ def _emissive_block(next_id, tag, position, scale, colour, dynamic=False):
     return lines
 
 
-def build_falling():
+def build_falling(profile):
     """A block falling through a dark frame, camera fixed.
 
     Motion is vertical in screen space, which is the axis whose sign has
@@ -179,7 +181,7 @@ def build_falling():
     next_id = _ids()
     lines = _header("Motion falling block")
 
-    lines += _camera(next_id, (0, 0, CAMERA_Z))
+    lines += _camera(next_id, (0, 0, CAMERA_Z), profile=profile)
 
     # Starts above the frame and is near the middle by frame 30 at 60 Hz:
     # 0.5 * 9.81 * 0.5^2 is about 1.2 m of fall. The check locates it rather
@@ -224,7 +226,7 @@ def build_falling():
     return chr(10).join(lines) + chr(10)
 
 
-def build_panning(speed=0.6):
+def build_panning(profile, speed=0.6):
     """The camera yaws, so everything sweeps horizontally -- including the sky.
 
     `Rotator` is the sample project's own script and turns about Y from
@@ -256,7 +258,8 @@ def build_panning(speed=0.6):
     lines.insert(lines.index("Entities:"),
                  "  SkyTexture: 17858281879166177050")
 
-    lines += _camera(next_id, (0, 0, 0), script="Rotator", speed=speed)
+    lines += _camera(next_id, (0, 0, 0), script="Rotator", speed=speed,
+                     profile=profile)
 
     # Ringed around the camera so the turn always has something in view.
     import math
@@ -278,9 +281,19 @@ def main():
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    text = build_falling() if args.kind == "falling" else build_panning(args.speed)
     path = pathlib.Path(args.output)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Bloom would spread the block's edges across the very pixels a smear
+    # would occupy, which is the signal being measured. It is a profile the
+    # camera points at now rather than a key in the scene -- and the scene
+    # kept writing that key inertly for one commit, which would have left the
+    # measurement running against a picture it was not designed for.
+    # ENGINE-NOTES 7s.
+    profile = postprofile.write_beside(path, { "BloomEnabled": False })
+
+    text = (build_falling(profile) if args.kind == "falling"
+            else build_panning(profile, args.speed))
     path.write_text(text, encoding="utf-8")
     print(f"wrote {path} ({args.kind})")
 

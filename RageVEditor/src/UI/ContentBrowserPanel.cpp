@@ -206,7 +206,14 @@ namespace RageV
 		// the grid reads as a grid rather than as a wall of tiles, with the
 		// hover fill as the only thing that moves.
 		const auto& colors = EditorTheme::Colors();
-		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+		const bool selected = handle.IsValid() && handle == m_Selected;
+
+		// Transparent at rest so the grid reads as a grid rather than a wall
+		// of tiles, with the hover fill as the only thing that moves -- except
+		// on the selected cell, which keeps its fill so that a panel scrolled
+		// away from the cursor still says which file the inspector is showing.
+		ImGui::PushStyleColor(ImGuiCol_Button,
+							  selected ? colors.AccentMuted : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
 		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentFaint);
 		ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.AccentMuted);
 
@@ -255,8 +262,18 @@ namespace RageV
 			}
 			else if (handle.IsValid())
 			{
-				ImGui::SetTooltip("%s\n%s\n\nDrag onto a field in the Inspector, or double-click.",
+				ImGui::SetTooltip("%s\n%s\n\nClick to inspect, double-click to open,\n"
+								  "or drag onto a field in the Inspector.",
 								  filename.c_str(), AssetTypeName(type));
+
+				// Selection first, so a double click inspects *and* opens
+				// rather than opening something the panel never showed.
+				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+				{
+					m_Selected = handle;
+					if (m_OnSelect)
+						m_OnSelect(handle, type);
+				}
 
 				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && m_OnActivate)
 					m_OnActivate(handle, type);

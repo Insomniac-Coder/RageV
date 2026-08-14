@@ -1,6 +1,6 @@
 # Core concepts
 
-Six words carry most of the manual. This page defines them once.
+A handful of words carry most of the manual. This page defines them once.
 
 ## Project
 
@@ -51,6 +51,53 @@ renaming a file does not break the scenes that use it.
 
 A **prefab** is a saved entity, hierarchy and all, that can be spawned at
 runtime.
+
+## Where a setting lives
+
+Three homes, and which one a setting is in follows from what kind of thing it
+is. Nothing here is arbitrary, and knowing the rule saves hunting for a
+slider.
+
+| Kind | Setting | Home | Edited in |
+|---|---|---|---|
+| **Cost** | Anti-aliasing and its parameters, shadow cascades, resolution, distance | The `.rvproject` | Render Settings → Render settings |
+| **Look** | Exposure, bloom — and everything phase 9 adds | A `.rvpostprofile` asset | The camera that names it, or the asset itself |
+| **Place** | Ambient light, the sky and its rotation | The `.rage` scene | Render Settings → Environment |
+
+**Cost belongs to the project** because it is a judgement about the hardware,
+and that judgement does not change because a different level loaded. It used
+to be per scene, which meant a project with forty scenes stored its shadow
+resolution forty times. Two narrower layers still override the anti-aliasing
+mode, both about *this machine* rather than this project: the `AntiAliasing`
+key in `ragev.ini`, and `--aa=` on the command line. The panel says so when
+one of them is winning.
+
+**Look belongs to an asset** because a grade is authored content that several
+cameras should be able to share, and because sharing one is the difference
+between changing a look once and changing it everywhere it was pasted.
+
+### The post profile
+
+A `.rvpostprofile` is attached to a **camera**, on the Post profile row of its
+Camera component, and it is **optional**: a camera with no profile renders
+the neutral grade — exposure 1, bloom on — which is what every scene rendered
+with before profiles existed.
+
+The row is a dropdown of every profile in the project, plus **New post
+profile…**, which writes one and attaches it in a click. Whichever is
+selected, its own settings appear directly underneath, so a grade is edited
+where it is used. The same settings appear in the Inspector when the
+`.rvpostprofile` is clicked in the Content browser — one drawer, so the two
+cannot disagree.
+
+**Editing one edits the asset.** Two cameras pointed at the same profile are
+two cameras that will always agree, which is usually what is wanted and is
+occasionally a surprise; the inspector names the file it is writing to for
+exactly that reason.
+
+The editor's viewport grades through the **primary camera's** profile, not a
+setting of its own — the viewport is meant to show what the game shows, and a
+grade you cannot see while authoring is a grade you author blind.
 
 ## Play mode
 

@@ -215,18 +215,25 @@ namespace RageV::Managed
 		// it, clicking a button also fires the weapon behind it.
 		int32_t (__cdecl* IsPointerOverUI)();
 
-		// --- appended for protocol 8: the scene's render settings ------------
+		// --- appended for protocol 8: the render settings --------------------
 		//
 		// By name and as text, exactly like the component bridge and for the
-		// same reason: `SceneEnvironment` is a struct, and a struct cannot
-		// cross this boundary while a name and a piece of text can. A C++
-		// script never needed this -- it can already write
-		// `GetScene().GetEnvironment()` -- so this pair is what makes the two
-		// languages equal on the render settings.
+		// same reason: a settings block is a struct, and a struct cannot cross
+		// this boundary while a name and a piece of text can. A C++ script
+		// never needed this -- it can already write `GetRenderSettings()` --
+		// so this pair is what makes the two languages equal on the render
+		// settings.
 		//
-		// Driven by `RenderSettingsRegistry`, so a setting added there reaches
-		// C# without a new entry here. The names are the scene file's own
-		// keys, so what a script writes and what a save contains cannot drift.
+		// Driven by the three settings registries, so a setting added to any
+		// of them reaches C# without a new entry here. **One flat namespace,
+		// three owners**: the name says which block it belongs to, and the
+		// bridge resolves the project, the scene or the primary camera's post
+		// profile accordingly. A post setting on a camera with no profile
+		// attached reports "no such setting", because there is genuinely
+		// nothing there to write.
+		//
+		// The names are the file formats' own keys, so what a script writes
+		// and what a save contains cannot drift.
 		//
 		// Values take effect on the next frame the graph is built, which is
 		// the same frame for anything set in OnTick or OnFrame. They are *not*

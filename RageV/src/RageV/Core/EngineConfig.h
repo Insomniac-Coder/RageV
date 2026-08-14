@@ -42,7 +42,7 @@
 //   --camera=x,y,z,d,yaw,pitch   where the editor camera starts (degrees)
 
 #include "RageV/Renderer/RHI/RHITypes.h"
-#include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/RenderSettings.h"
 #include "RageV/Math/Math.h"
 #include <string>
 #include <filesystem>
@@ -251,17 +251,27 @@ namespace RageV
 		static bool SaveVSyncPreference(bool enabled);
 
 		// And `aa=`, for the same reason and with one difference worth
-		// stating: anti-aliasing is *also* a scene property, so writing it
-		// here makes it an override that applies to every scene this
+		// stating: anti-aliasing is *also* a project property, so writing it
+		// here makes it an override that applies to every project this
 		// installation opens.
 		//
 		// That is the intent rather than an accident. Which filter to run is a
 		// judgement about this machine and this monitor -- the same judgement
-		// vsync and the backend are -- and having to re-pick it every launch,
-		// or save a scene asset to record it, is not how a viewing preference
-		// should behave. A packaged game still uses what its scene stores,
-		// because ragev.ini is the developer's file and does not ship.
+		// vsync and the backend are -- and having to re-pick it every launch is
+		// not how a viewing preference should behave. A packaged game still
+		// uses what its project stores, because ragev.ini is the developer's
+		// file and does not ship.
 		static bool SaveAntiAliasingPreference(AntiAliasing aa);
+
+		// And `width=`/`height=`, so the editor comes back the size it was
+		// left at.
+		//
+		// The same two keys `--width`/`--height` set, which is the point: the
+		// size is restored by the machinery that already reads them rather
+		// than by a second path that would have to be kept in step. Ignored
+		// when either is zero -- a minimised window is not a size anybody
+		// asked to come back to.
+		static bool SaveWindowSize(uint32_t width, uint32_t height);
 
 	private:
 		// Rewrites one `key=value` line in ragev.ini, preserving every other.

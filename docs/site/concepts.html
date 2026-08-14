@@ -14,7 +14,7 @@
 <main id="content">
 <article>
 <h1 id="core-concepts">Core concepts<a class="anchor" href="#core-concepts" aria-label="Link to this section">#</a></h1>
-<p>Six words carry most of the manual. This page defines them once.</p>
+<p>A handful of words carry most of the manual. This page defines them once.</p>
 <h2 id="project">Project<a class="anchor" href="#project" aria-label="Link to this section">#</a></h2>
 <p>A <code>.rvproject</code> file naming an asset root, a start scene, and a simulation rate. Everything an asset refers to is relative to that root, which is what lets a project be copied, packaged and opened on another machine.</p>
 <p>The engine can run without a project. It shows you that state rather than inventing one.</p>
@@ -31,6 +31,20 @@
 <h2 id="asset">Asset<a class="anchor" href="#asset" aria-label="Link to this section">#</a></h2>
 <p>A mesh, material, texture, prefab, audio clip or scene stored under the project&#39;s asset root and referenced by an <code>AssetHandle</code> — a stable identifier, not a file path. A <code>.meta</code> sidecar next to each asset records the handle, so moving or renaming a file does not break the scenes that use it.</p>
 <p>A <strong>prefab</strong> is a saved entity, hierarchy and all, that can be spawned at runtime.</p>
+<h2 id="where-a-setting-lives">Where a setting lives<a class="anchor" href="#where-a-setting-lives" aria-label="Link to this section">#</a></h2>
+<p>Three homes, and which one a setting is in follows from what kind of thing it is. Nothing here is arbitrary, and knowing the rule saves hunting for a slider.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Kind</th><th style="text-align:left">Setting</th><th style="text-align:left">Home</th><th style="text-align:left">Edited in</th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Cost</strong></td><td style="text-align:left">Anti-aliasing and its parameters, shadow cascades, resolution, distance</td><td style="text-align:left">The <code>.rvproject</code></td><td style="text-align:left">Render Settings → Render settings</td></tr>
+<tr><td style="text-align:left"><strong>Look</strong></td><td style="text-align:left">Exposure, bloom — and everything phase 9 adds</td><td style="text-align:left">A <code>.rvpostprofile</code> asset</td><td style="text-align:left">The camera that names it, or the asset itself</td></tr>
+<tr><td style="text-align:left"><strong>Place</strong></td><td style="text-align:left">Ambient light, the sky and its rotation</td><td style="text-align:left">The <code>.rage</code> scene</td><td style="text-align:left">Render Settings → Environment</td></tr>
+</tbody></table></div>
+<p><strong>Cost belongs to the project</strong> because it is a judgement about the hardware, and that judgement does not change because a different level loaded. It used to be per scene, which meant a project with forty scenes stored its shadow resolution forty times. Two narrower layers still override the anti-aliasing mode, both about <em>this machine</em> rather than this project: the <code>AntiAliasing</code> key in <code>ragev.ini</code>, and <code>--aa=</code> on the command line. The panel says so when one of them is winning.</p>
+<p><strong>Look belongs to an asset</strong> because a grade is authored content that several cameras should be able to share, and because sharing one is the difference between changing a look once and changing it everywhere it was pasted.</p>
+<h3 id="the-post-profile">The post profile<a class="anchor" href="#the-post-profile" aria-label="Link to this section">#</a></h3>
+<p>A <code>.rvpostprofile</code> is attached to a <strong>camera</strong>, on the Post profile row of its Camera component, and it is <strong>optional</strong>: a camera with no profile renders the neutral grade — exposure 1, bloom on — which is what every scene rendered with before profiles existed.</p>
+<p>The row is a dropdown of every profile in the project, plus <strong>New post profile…</strong>, which writes one and attaches it in a click. Whichever is selected, its own settings appear directly underneath, so a grade is edited where it is used. The same settings appear in the Inspector when the <code>.rvpostprofile</code> is clicked in the Content browser — one drawer, so the two cannot disagree.</p>
+<p><strong>Editing one edits the asset.</strong> Two cameras pointed at the same profile are two cameras that will always agree, which is usually what is wanted and is occasionally a surprise; the inspector names the file it is writing to for exactly that reason.</p>
+<p>The editor&#39;s viewport grades through the <strong>primary camera&#39;s</strong> profile, not a setting of its own — the viewport is meant to show what the game shows, and a grade you cannot see while authoring is a grade you author blind.</p>
 <h2 id="play-mode">Play mode<a class="anchor" href="#play-mode" aria-label="Link to this section">#</a></h2>
 <p>The editor has two states, and the difference matters more than it looks.</p>
 <ul>
@@ -47,7 +61,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="getting-started.html"><span class="pager-label">Previous</span><span class="pager-title">Getting started</span></a><a class="pager-link pager-next" href="particles.html"><span class="pager-label">Next</span><span class="pager-title">Particles</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#project">Project</a><a class="toc-link toc-l2" href="#scene">Scene</a><a class="toc-link toc-l2" href="#entity">Entity</a><a class="toc-link toc-l2" href="#component">Component</a><a class="toc-link toc-l3" href="#the-transform-is-a-hierarchy">The transform is a hierarchy</a><a class="toc-link toc-l2" href="#asset">Asset</a><a class="toc-link toc-l2" href="#play-mode">Play mode</a><a class="toc-link toc-l2" href="#the-fixed-step">The fixed step</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#project">Project</a><a class="toc-link toc-l2" href="#scene">Scene</a><a class="toc-link toc-l2" href="#entity">Entity</a><a class="toc-link toc-l2" href="#component">Component</a><a class="toc-link toc-l3" href="#the-transform-is-a-hierarchy">The transform is a hierarchy</a><a class="toc-link toc-l2" href="#asset">Asset</a><a class="toc-link toc-l2" href="#where-a-setting-lives">Where a setting lives</a><a class="toc-link toc-l3" href="#the-post-profile">The post profile</a><a class="toc-link toc-l2" href="#play-mode">Play mode</a><a class="toc-link toc-l2" href="#the-fixed-step">The fixed step</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>

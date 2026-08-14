@@ -4,6 +4,7 @@
 #include "RageV/Core/UUID.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/PostSettings.h"
 #include "RageV/Renderer/ViewportGrid.h"
 #include "RageV/Renderer/RHI/RHIResources.h"
 #include "RageV/Math/Math.h"
@@ -228,6 +229,20 @@ namespace RageV
 
 		SceneEnvironment& GetEnvironment() { return m_Environment; }
 		const SceneEnvironment& GetEnvironment() const { return m_Environment; }
+
+		// How the frame is graded: the profile attached to this scene's
+		// primary camera, or the neutral grade when it has none.
+		//
+		// One function, three callers -- the editor's viewport, the editor's
+		// game view and the runtime -- because a grade that differs between
+		// the panel you author in and the panel you check in is a grade you
+		// cannot author. The editor's *viewport* uses the primary camera's
+		// profile rather than a setting of its own for the same reason.
+		//
+		// Never fails: an unset, unknown or unreadable handle all answer the
+		// defaults, which is what every scene rendered with before profiles
+		// existed. ENGINE-NOTES 7s.
+		PostSettings GetPostSettings();
 
 		// For tools and tests that need to iterate arbitrary component sets.
 		// The editor panels reach it through friendship instead; this exists so

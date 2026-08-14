@@ -112,6 +112,7 @@ def main():
 
     sys.path.insert(0, str(root / "tools" / "scripts"))
     import make_aa_scene
+    import postprofile
 
     scenes = root / "SampleProject" / "assets" / "scenes"
     shots = root / "build" / "taa-check"
@@ -119,7 +120,9 @@ def main():
 
     # Rewritten every run, like check_smaa.py: a check that depends on a file
     # somebody generated once is a check that silently measures another scene.
-    (scenes / f"aa_edge{ANGLE}.rage").write_text(make_aa_scene.build(ANGLE))
+    scene = scenes / f"aa_edge{ANGLE}.rage"
+    profile = postprofile.write_beside(scene, { "BloomEnabled": False })
+    scene.write_text(make_aa_scene.build(ANGLE, profile))
 
     failures = []
 

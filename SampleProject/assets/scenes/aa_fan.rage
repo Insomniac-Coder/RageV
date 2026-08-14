@@ -1,5 +1,5 @@
 Scene: AA fan
-Version: 5
+Version: 6
 Environment:
   AmbientColor: [0, 0, 0]
   AmbientIntensity: 0
@@ -9,10 +9,6 @@ Environment:
   SkyGround: [0.05, 0.05, 0.06]
   SkyIntensity: 1
   SkyRotation: 0
-  Exposure: 1
-  BloomEnabled: false
-  ShadowsEnabled: false
-  AntiAliasing: 0
 Entities:
   - EntityID: 11400714819323198485
     TagComponent:
@@ -31,6 +27,7 @@ Entities:
       OrthographicScale: 10
       OrthographicNearClip: -1
       OrthographicFarClip: 1
+      PostProfile: 1991090538511422664
   - EntityID: 4354685564936845354
     TagComponent:
       Tag: Bar 0

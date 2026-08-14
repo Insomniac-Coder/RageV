@@ -435,6 +435,17 @@ namespace RageV
 		return SaveSetting("aa", name);
 	}
 
+	bool EngineConfig::SaveWindowSize(uint32_t width, uint32_t height)
+	{
+		if (width == 0 || height == 0)
+			return false;
+
+		// Both, or neither: a file carrying a new width beside an old height
+		// would open at an aspect ratio nothing was ever left at.
+		return SaveSetting("width", std::to_string(width)) &&
+			   SaveSetting("height", std::to_string(height));
+	}
+
 	bool EngineConfig::SaveSetting(const std::string& key, const std::string& value)
 	{
 		std::error_code ec;

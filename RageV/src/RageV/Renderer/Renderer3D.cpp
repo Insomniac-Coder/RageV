@@ -586,6 +586,7 @@ namespace RageV
 
 	void Renderer3D::BeginScene(const Camera& camera, const Mat4& cameraTransform,
 								const LightList& lights, const SceneEnvironment& environment,
+								const RenderSettings& render,
 								const Ref<RHITexture>& environmentMap,
 								const Ref<RHITexture>& irradianceMap,
 								const Vec2& jitter)
@@ -720,14 +721,14 @@ namespace RageV
 
 			s_Data->Scene.ShadowParams = {
 				(float)cascadeCount,
-				environment.ShadowNormalOffset,
+				render.ShadowNormalOffset,
 				1.0f / (float)resolution,
 				0.0f,
 			};
 		}
 		else
 		{
-			s_Data->Scene.ShadowParams.y = environment.ShadowNormalOffset;
+			s_Data->Scene.ShadowParams.y = render.ShadowNormalOffset;
 		}
 
 		// Which map each light got, decided when the shadows were rendered.

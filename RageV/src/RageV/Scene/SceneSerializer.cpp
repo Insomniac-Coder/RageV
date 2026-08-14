@@ -6,150 +6,16 @@
 #include "Components.h"
 #include "RageV/UI/Interaction.h"
 #include "ComponentRegistry.h"
+#include "FieldSerializer.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/PostSettings.h"
+#include "RageV/Renderer/RenderSettings.h"
+#include <cstring>
 
 namespace RageV
 {
 	namespace
 	{
-		YAML::Emitter& EmitVec2(YAML::Emitter& emitter, const Vec2& v)
-		{
-			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << YAML::EndSeq;
-			return emitter;
-		}
-
-		YAML::Emitter& EmitVec3(YAML::Emitter& emitter, const Vec3& v)
-		{
-			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
-			return emitter;
-		}
-
-		YAML::Emitter& EmitVec4(YAML::Emitter& emitter, const Vec4& v)
-		{
-			emitter << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << v.w << YAML::EndSeq;
-			return emitter;
-		}
-
-		Vec2 ReadVec2(const YAML::Node& node, const Vec2& fallback)
-		{
-			if (!node || !node.IsSequence() || node.size() != 2)
-				return fallback;
-			return { node[0].as<float>(), node[1].as<float>() };
-		}
-
-		Vec3 ReadVec3(const YAML::Node& node, const Vec3& fallback)
-		{
-			if (!node || !node.IsSequence() || node.size() != 3)
-				return fallback;
-			return { node[0].as<float>(), node[1].as<float>(), node[2].as<float>() };
-		}
-
-		Vec4 ReadVec4(const YAML::Node& node, const Vec4& fallback)
-		{
-			if (!node || !node.IsSequence() || node.size() != 4)
-				return fallback;
-			return { node[0].as<float>(), node[1].as<float>(),
-					 node[2].as<float>(), node[3].as<float>() };
-		}
-
-		// Enums go to disk by name. Reordering an enum should not silently turn
-		// every saved cube into a sphere -- that was already true of primitives
-		// and is now true of light types and projections too.
-		void WriteEnum(YAML::Emitter& emitter, const FieldDesc& field, int value)
-		{
-			if (field.Hint.EnumNames && value >= 0 && value < field.Hint.EnumCount)
-				emitter << field.Hint.EnumNames[value];
-			else
-				emitter << value;
-		}
-
-		int ReadEnum(const YAML::Node& node, const FieldDesc& field, int fallback)
-		{
-			if (!node)
-				return fallback;
-
-			const std::string text = node.as<std::string>();
-
-			if (field.Hint.EnumNames)
-			{
-				for (int i = 0; i < field.Hint.EnumCount; i++)
-				{
-					if (text == field.Hint.EnumNames[i])
-						return i;
-				}
-			}
-
-			// Version 1 and 2 wrote enums as indices, so those still load.
-			try { return std::stoi(text); }
-			catch (...) { return fallback; }
-		}
-
-		void WriteField(YAML::Emitter& emitter, const FieldDesc& field, void* component)
-		{
-			void* value = field.Access(component);
-			emitter << YAML::Key << field.Name << YAML::Value;
-
-			switch (field.Type)
-			{
-				case FieldType::Bool:   emitter << *(bool*)value; break;
-				case FieldType::Int:    emitter << *(int*)value; break;
-				case FieldType::Enum:   WriteEnum(emitter, field, *(int*)value); break;
-				case FieldType::Float:  emitter << *(float*)value; break;
-				case FieldType::Vec2:   EmitVec2(emitter, *(Vec2*)value); break;
-				case FieldType::Vec3:   EmitVec3(emitter, *(Vec3*)value); break;
-				case FieldType::Vec4:   EmitVec4(emitter, *(Vec4*)value); break;
-				case FieldType::String: emitter << *(std::string*)value; break;
-				case FieldType::Asset:  emitter << (uint64_t)*(AssetHandle*)value; break;
-				// The UUID, exactly as an asset reference is written -- and for
-				// the same reason: it is the only name for the target that
-				// survives this file being closed.
-				case FieldType::Entity: emitter << (uint64_t)*(EntityRef*)value; break;
-			}
-		}
-
-		void ReadField(const YAML::Node& node, const FieldDesc& field, void* component)
-		{
-			if (!node)
-				return;
-
-			// A map where a handle should be is not malformed data -- it is a
-			// version-5 scene, whose MeshComponent stored the material as a
-			// nested block of scalars. The component's DeserializeExtra reads
-			// that block into per-entity overrides; this field keeping its
-			// default (no asset) is exactly the right outcome. Warning about it
-			// made every legacy scene open under a wall of red that looked like
-			// breakage and described none.
-			if (field.Type == FieldType::Asset && node.IsMap())
-				return;
-
-			void* value = field.Access(component);
-
-			// A field whose text does not convert leaves its default rather
-			// than taking down the load. One malformed value in a hand-edited
-			// scene should cost that value, not the file.
-			try
-			{
-			switch (field.Type)
-			{
-				case FieldType::Bool:   *(bool*)value = node.as<bool>(); break;
-				case FieldType::Int:    *(int*)value = node.as<int>(); break;
-				case FieldType::Enum:   *(int*)value = ReadEnum(node, field, *(int*)value); break;
-				case FieldType::Float:  *(float*)value = node.as<float>(); break;
-				case FieldType::Vec2:   *(Vec2*)value = ReadVec2(node, *(Vec2*)value); break;
-				case FieldType::Vec3:   *(Vec3*)value = ReadVec3(node, *(Vec3*)value); break;
-				case FieldType::Vec4:   *(Vec4*)value = ReadVec4(node, *(Vec4*)value); break;
-				case FieldType::String: *(std::string*)value = node.as<std::string>(); break;
-				case FieldType::Asset:  *(AssetHandle*)value = AssetHandle(node.as<uint64_t>()); break;
-				case FieldType::Entity: *(EntityRef*)value = EntityRef(UUID(node.as<uint64_t>())); break;
-			}
-			}
-			catch (const YAML::Exception& e)
-			{
-				RV_CORE_WARN("Field '{0}' could not be read ({1}); left at its default",
-							 field.Name, e.what());
-			}
-		}
-
 		// Which key an entity actually stores a component under. Version 1 keyed
 		// the colour component "Color" while everything else used its type name.
 		//
@@ -170,6 +36,111 @@ namespace RageV
 				return desc.Name;
 			return nullptr;
 		}
+
+		// Whether this file's value for a field is something other than the
+		// field's default.
+		//
+		// By reading it into a default-constructed block and comparing the
+		// bytes, rather than by parsing the scalar and comparing values per
+		// type: the point is to ask a question the *registry* can answer for
+		// any field, so a setting added later is covered without anybody
+		// remembering this function exists.
+		//
+		// Trivially-copyable fields only, which every setting that moved is
+		// (bool, int, float, enum). A String field would have to be compared
+		// rather than memcmp'd, so it is excluded rather than mishandled.
+		bool DiffersFromDefault(const YAML::Node& value, const FieldDesc& field, void* block)
+		{
+			if (field.Size == 0 || field.Type == FieldType::String)
+				return false;
+
+			std::vector<uint8_t> original(field.Size);
+			std::memcpy(original.data(), field.Access(block), field.Size);
+
+			ReadField(value, field, block);
+			const bool differs =
+				std::memcmp(original.data(), field.Access(block), field.Size) != 0;
+
+			// Restored, so the caller's block stays pristine for the next
+			// field -- reading one key must not change the answer for another.
+			std::memcpy(field.Access(block), original.data(), field.Size);
+			return differs;
+		}
+
+		std::string Join(const std::vector<std::string>& names)
+		{
+			std::string text;
+			for (size_t i = 0; i < names.size(); i++)
+			{
+				if (i)
+					text += (i + 1 == names.size()) ? " and " : ", ";
+				text += names[i];
+			}
+			return text;
+		}
+
+		// A version-5 scene still carries the render and post settings that
+		// version 6 moved. Say so, once, naming them and where each went.
+		//
+		// **Reported rather than migrated**, because migrating means a scene
+		// load silently editing the project file or minting an asset, which is
+		// hard to undo and unpleasant to discover. **Reported rather than
+		// dropped**, because dropping is precisely what happened to
+		// `TemporalFeedback` when it was missing from this serializer: three
+		// scenes that set it rendered identically and the reason took a
+		// diagnosis to find.
+		//
+		// Only keys whose value differs from the default are named. Every
+		// generated test scene in this repository writes `AntiAliasing: 0`
+		// because its generator always has, and a warning that fires on those
+		// is a warning nobody reads.
+		void ReportMovedSettings(const YAML::Node& environment, const std::string& sceneName)
+		{
+			RenderSettings render;
+			PostSettings post;
+
+			std::vector<std::string> toProject;
+			std::vector<std::string> toProfile;
+
+			for (const FieldDesc& field : RenderSettingsRegistry::Fields())
+			{
+				const YAML::Node& constEnv = environment;
+				if (const YAML::Node value = constEnv[field.Name])
+				{
+					if (DiffersFromDefault(value, field, &render))
+						toProject.push_back(field.Name);
+				}
+			}
+
+			for (const FieldDesc& field : PostSettingsRegistry::Fields())
+			{
+				const YAML::Node& constEnv = environment;
+				if (const YAML::Node value = constEnv[field.Name])
+				{
+					if (DiffersFromDefault(value, field, &post))
+						toProfile.push_back(field.Name);
+				}
+			}
+
+			if (toProject.empty() && toProfile.empty())
+				return;
+
+			std::string message = "Scene '" + sceneName + "' still sets ";
+			if (!toProject.empty())
+			{
+				message += Join(toProject) + ", which moved to the .rvproject";
+				if (!toProfile.empty())
+					message += "; and ";
+			}
+			if (!toProfile.empty())
+			{
+				message += Join(toProfile) +
+						   ", which moved to a .rvpostprofile attached to a camera";
+			}
+			message += ". Those values were not applied. ENGINE-NOTES 7s.";
+
+			RV_CORE_WARN("{0}", message);
+		}
 	}
 
 	SceneSerializer::SceneSerializer(const std::shared_ptr<Scene>& sceneRef)
@@ -188,39 +159,17 @@ namespace RageV
 		emitter << YAML::Key << "Scene" << YAML::Value << "Untitled";
 		emitter << YAML::Key << "Version" << YAML::Value << kVersion;
 
-		// Scene-wide, not owned by any entity.
-		const SceneEnvironment& environment = m_SceneRef->GetEnvironment();
+		// Scene-wide, not owned by any entity -- and, since version 6, only
+		// what a scene genuinely owns: ambient light and the sky. The cost
+		// settings that used to be written here live on the project and the
+		// look settings live on a `.rvpostprofile`. ENGINE-NOTES 7s.
+		//
+		// Registry-driven, like every component below it. The hand-written
+		// list this replaced is where `TemporalFeedback` went missing.
 		emitter << YAML::Key << "Environment";
 		emitter << YAML::BeginMap;
-		emitter << YAML::Key << "AmbientColor" << YAML::Value;
-		EmitVec3(emitter, environment.AmbientColor);
-		emitter << YAML::Key << "AmbientIntensity" << YAML::Value << environment.AmbientIntensity;
-		emitter << YAML::Key << "Sky" << YAML::Value << (uint32_t)environment.Sky;
-		emitter << YAML::Key << "SkyHorizon" << YAML::Value;
-		EmitVec3(emitter, environment.SkyHorizon);
-		emitter << YAML::Key << "SkyZenith" << YAML::Value;
-		EmitVec3(emitter, environment.SkyZenith);
-		emitter << YAML::Key << "SkyGround" << YAML::Value;
-		EmitVec3(emitter, environment.SkyGround);
-		emitter << YAML::Key << "SkyIntensity" << YAML::Value << environment.SkyIntensity;
-		emitter << YAML::Key << "SkyRotation" << YAML::Value << environment.SkyRotation;
-		emitter << YAML::Key << "SkyTexture" << YAML::Value << (uint64_t)environment.SkyTexture;
-		emitter << YAML::Key << "Exposure" << YAML::Value << environment.Exposure;
-		emitter << YAML::Key << "BloomEnabled" << YAML::Value << environment.BloomEnabled;
-		emitter << YAML::Key << "BloomThreshold" << YAML::Value << environment.BloomThreshold;
-		emitter << YAML::Key << "BloomKnee" << YAML::Value << environment.BloomKnee;
-		emitter << YAML::Key << "BloomIntensity" << YAML::Value << environment.BloomIntensity;
-		emitter << YAML::Key << "BloomClamp" << YAML::Value << environment.BloomClamp;
-		emitter << YAML::Key << "ShadowsEnabled" << YAML::Value << environment.ShadowsEnabled;
-		emitter << YAML::Key << "ShadowCascades" << YAML::Value << environment.ShadowCascades;
-		emitter << YAML::Key << "ShadowResolution" << YAML::Value << environment.ShadowResolution;
-		emitter << YAML::Key << "ShadowDistance" << YAML::Value << environment.ShadowDistance;
-		emitter << YAML::Key << "ShadowSplitLambda" << YAML::Value << environment.ShadowSplitLambda;
-		emitter << YAML::Key << "ShadowNormalOffset" << YAML::Value << environment.ShadowNormalOffset;
-		emitter << YAML::Key << "AntiAliasing" << YAML::Value << (uint32_t)environment.AA;
-		emitter << YAML::Key << "SupersampleFactor" << YAML::Value << environment.SupersampleFactor;
-		emitter << YAML::Key << "MsaaSamples" << YAML::Value << environment.MsaaSamples;
-		emitter << YAML::Key << "TemporalFeedback" << YAML::Value << environment.TemporalFeedback;
+		WriteFields(emitter, SceneEnvironmentRegistry::Fields(),
+					&m_SceneRef->GetEnvironment());
 		emitter << YAML::EndMap;
 
 		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
@@ -415,62 +364,17 @@ namespace RageV
 
 			if (const YAML::Node environment = node["Environment"])
 			{
-				SceneEnvironment& target = m_SceneRef->m_Environment;
-				target.AmbientColor = ReadVec3(environment["AmbientColor"], target.AmbientColor);
-				if (const YAML::Node intensity = environment["AmbientIntensity"])
-					target.AmbientIntensity = intensity.as<float>();
+				// Sparse and registry-driven: a key the file does not carry
+				// keeps the struct's default, which is why a scene written
+				// before the sky existed gains a gradient rather than a black
+				// void.
+				ReadFields(environment, SceneEnvironmentRegistry::Fields(),
+						   &m_SceneRef->m_Environment);
 
-				// Absent in a scene written before the sky existed. Left at the
-				// struct's default, which is the gradient -- an older scene
-				// gains a sky rather than a black void, and that is the better
-				// of the two surprises.
-				if (const YAML::Node value = environment["Sky"])
-					target.Sky = (SkyType)value.as<uint32_t>();
-				target.SkyHorizon = ReadVec3(environment["SkyHorizon"], target.SkyHorizon);
-				target.SkyZenith = ReadVec3(environment["SkyZenith"], target.SkyZenith);
-				target.SkyGround = ReadVec3(environment["SkyGround"], target.SkyGround);
-				if (const YAML::Node value = environment["SkyIntensity"])
-					target.SkyIntensity = value.as<float>();
-				if (const YAML::Node value = environment["SkyRotation"])
-					target.SkyRotation = value.as<float>();
-				if (const YAML::Node value = environment["SkyTexture"])
-					target.SkyTexture = UUID(value.as<uint64_t>());
-
-				// Absent in a scene written before post processing existed, which is
-				// why each is read only if present rather than defaulted to zero.
-				if (const YAML::Node value = environment["Exposure"])
-					target.Exposure = value.as<float>();
-				if (const YAML::Node value = environment["BloomEnabled"])
-					target.BloomEnabled = value.as<bool>();
-				if (const YAML::Node value = environment["BloomThreshold"])
-					target.BloomThreshold = value.as<float>();
-				if (const YAML::Node value = environment["BloomKnee"])
-					target.BloomKnee = value.as<float>();
-				if (const YAML::Node value = environment["BloomIntensity"])
-					target.BloomIntensity = value.as<float>();
-				if (const YAML::Node value = environment["BloomClamp"])
-					target.BloomClamp = value.as<float>();
-
-				if (const YAML::Node value = environment["ShadowsEnabled"])
-					target.ShadowsEnabled = value.as<bool>();
-				if (const YAML::Node value = environment["ShadowCascades"])
-					target.ShadowCascades = value.as<int>();
-				if (const YAML::Node value = environment["ShadowResolution"])
-					target.ShadowResolution = value.as<int>();
-				if (const YAML::Node value = environment["ShadowDistance"])
-					target.ShadowDistance = value.as<float>();
-				if (const YAML::Node value = environment["ShadowSplitLambda"])
-					target.ShadowSplitLambda = value.as<float>();
-				if (const YAML::Node value = environment["ShadowNormalOffset"])
-					target.ShadowNormalOffset = value.as<float>();
-				if (const YAML::Node value = environment["AntiAliasing"])
-					target.AA = (AntiAliasing)value.as<uint32_t>();
-				if (const YAML::Node value = environment["SupersampleFactor"])
-					target.SupersampleFactor = value.as<int>();
-				if (const YAML::Node value = environment["MsaaSamples"])
-					target.MsaaSamples = value.as<int>();
-				if (const YAML::Node value = environment["TemporalFeedback"])
-					target.TemporalFeedback = value.as<float>();
+				// And say so if this file still carries the settings that
+				// moved, rather than dropping them without a word.
+				if (version < 6)
+					ReportMovedSettings(environment, node["Scene"].as<std::string>("Untitled"));
 			}
 		}
 

@@ -177,7 +177,22 @@ private:
 	// captured on the first frame of the drag and recorded on release.
 	bool m_GizmoDragging = false;
 	RageV::TransformComponent m_GizmoBefore;
-	RageV::SceneEnvironment m_AmbientBefore;
+
+	// The same shape for the two settings blocks the Render Settings panel
+	// edits: captured before the first change of a gesture, recorded once
+	// nothing is being dragged. Without it a slider scrub is fifty undo steps.
+	//
+	// The project's block also *saves* on that same edge, which is what
+	// removes the Ctrl+S nobody should have to remember for a preference.
+	// The window's size, sampled every frame. Written to ragev.ini on exit so
+	// the next launch comes up the size this one was left at -- read back by
+	// the same `width`/`height` keys `--width`/`--height` use.
+	ImVec2 m_WindowSize{ 0.0f, 0.0f };
+
+	RageV::RenderSettings m_RenderBefore;
+	bool m_RenderEditDirty = false;
+	RageV::SceneEnvironment m_EnvironmentBefore;
+	bool m_EnvironmentEditDirty = false;
 	// The scene renders here; the viewport panel samples it. Replaces the
 	// GL-only FrameBuffer so the same code works on either backend.
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_SceneTarget;

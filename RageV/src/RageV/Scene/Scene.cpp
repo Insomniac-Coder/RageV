@@ -23,6 +23,7 @@
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Particles/GpuParticles.h"
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/Project/Project.h"
 #include "RageV/UI/Interaction.h"
 #include "RageV/UI/Canvas.h"
 #include "RageV/Math/Math.h"
@@ -342,6 +343,16 @@ namespace RageV
 		}
 
 		return best;
+	}
+
+	PostSettings Scene::GetPostSettings()
+	{
+		Entity camera = GetPrimaryCameraEntity();
+		if (!camera || !camera.HasComponent<CameraComponent>())
+			return PostSettings{};
+
+		return Assets::Manager::GetPostSettings(
+			camera.GetComponent<CameraComponent>().PostProfile);
 	}
 
 	void Scene::OnViewportResize(float width, float height)
@@ -1209,7 +1220,7 @@ namespace RageV
 		// A probe capture draws the scene, and the scene samples shadows. Doing
 		// this during one would fit cascades to a cube face's 90-degree frustum
 		// and then leave them there for the real camera.
-		if (m_CapturingProbes || !m_Environment.ShadowsEnabled || !Renderer::HasDevice())
+		if (m_CapturingProbes || !Project::Render().ShadowsEnabled || !Renderer::HasDevice())
 			return;
 
 		if (!ShadowMap::IsReady())
@@ -1228,9 +1239,9 @@ namespace RageV
 			return;
 
 		const uint32_t localResolution =
-			(uint32_t)Math::Clamp(m_Environment.ShadowResolution / 2, 256, 4096);
+			(uint32_t)Math::Clamp(Project::Render().ShadowResolution / 2, 256, 4096);
 		const uint32_t pointResolution =
-			(uint32_t)Math::Clamp(m_Environment.ShadowResolution / 4, 128, 2048);
+			(uint32_t)Math::Clamp(Project::Render().ShadowResolution / 4, 128, 2048);
 
 		// Drawing every caster, once per map. Culling is roadmap 3.6, and until
 		// it exists a shadow map costs a full scene walk.
@@ -1426,9 +1437,9 @@ namespace RageV
 		if (casterIndex < 0)
 			return;
 
-		const uint32_t count = (uint32_t)Math::Clamp(m_Environment.ShadowCascades, 1,
+		const uint32_t count = (uint32_t)Math::Clamp(Project::Render().ShadowCascades, 1,
 													(int)ShadowMap::kMaxCascades);
-		const uint32_t resolution = (uint32_t)Math::Clamp(m_Environment.ShadowResolution, 256, 8192);
+		const uint32_t resolution = (uint32_t)Math::Clamp(Project::Render().ShadowResolution, 256, 8192);
 
 		// Aspect and field of view come from the projection rather than being
 		// passed alongside it: an editor camera and a scene camera describe
@@ -1439,9 +1450,9 @@ namespace RageV
 
 		ShadowCascade cascades[ShadowMap::kMaxCascades];
 		ShadowMap::ComputeCascades(cameraTransform, fovY, aspect,
-								   0.1f, m_Environment.ShadowDistance,
+								   0.1f, Project::Render().ShadowDistance,
 								   direction, count, resolution,
-								   m_Environment.ShadowSplitLambda,
+								   Project::Render().ShadowSplitLambda,
 								   flip, cascades);
 
 		ShadowMap::SetLightIndex(casterIndex);
@@ -1845,7 +1856,7 @@ namespace RageV
 			// the renderer, so a caller that did not jitter its camera cannot
 			// accidentally get the correction applied to it.
 			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment,
-								   environment, irradiance, jitter);
+								   Project::Render(), environment, irradiance, jitter);
 
 			for (auto& item : meshView)
 			{

@@ -528,9 +528,16 @@ a dozen lines.
 
 ## Render settings
 
-The scene's post-processing, live. `GetRenderSettings()` hands back the
-struct the renderer reads when it builds the frame, so a change made in
-`OnTick` or `OnFrame` is on screen that frame.
+Live, and there are **three** of them, because a setting has three owners.
+
+| Accessor | Holds | Stored in |
+|---|---|---|
+| `GetRenderSettings()` | Anti-aliasing and its parameters, shadows | The `.rvproject` |
+| `GetPostSettings()` | Exposure, bloom — the grade | A `.rvpostprofile` the camera names |
+| `GetEnvironment()` | Ambient light, the sky | The `.rage` |
+
+All three are read when the frame is built, so a change made in `OnTick` or
+`OnFrame` is on screen that frame.
 
 ```cpp
 class Flashbang : public RageV::ScriptableEntity
@@ -546,7 +553,8 @@ public:
         m_Remaining -= dt;
 
         // Blown out, recovering over two seconds.
-        GetRenderSettings().Exposure = 1.0f + 4.0f * std::max(m_Remaining, 0.0f) / 2.0f;
+        if (RageV::PostSettings* post = GetPostSettings())
+            post->Exposure = 1.0f + 4.0f * std::max(m_Remaining, 0.0f) / 2.0f;
     }
 
 private:
@@ -554,20 +562,26 @@ private:
 };
 ```
 
-Everything in `SceneEnvironment` is there: `AA`, `Exposure`, the five bloom
-values, the ambient term, the sky and the shadow settings.
+**`GetPostSettings()` is null when the primary camera has no profile**, which
+is the honest answer rather than a silent no-op: with no profile there is no
+grade to write to. Attach a `.rvpostprofile` in the inspector — the Post
+profile row on the camera has a **New post profile…** entry — and it stops
+being null.
 
 ```cpp
 GetRenderSettings().AA = RageV::AntiAliasing::SMAA;
-GetRenderSettings().BloomEnabled = false;
+GetEnvironment().AmbientIntensity = 0.0f;
 ```
 
-**These are not saved.** They are a runtime override; a game dimming its own
-bloom should not quietly edit the scene asset.
+**None of these is saved.** They are a runtime override; a game dimming its
+own bloom should not quietly edit an asset. The editor drops its cached
+profiles when Play stops, so a grade a script changed is back to the file's
+by the time you are editing again.
 
-C# reaches the same settings as `RenderSettings.Exposure` and friends, over a
-name and a piece of text rather than the struct — a struct cannot cross that
-boundary.
+C# reaches all three through one flat namespace of names —
+`RenderSettings.Exposure` and friends, over a name and a piece of text rather
+than the struct, because a struct cannot cross that boundary. Which block a
+name belongs to is resolved on this side.
 
 ## Time
 

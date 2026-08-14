@@ -397,16 +397,28 @@ RenderSettings.BloomEnabled = false;
 ```
 
 Anything without a property is still reachable by name — the properties are a
-typed front for the same bridge, and the names are the scene file's own keys:
+typed front for the same bridge, and the names are the file formats' own keys:
 
 ```csharp
 RenderSettings.Set("SkyIntensity", "0.2");
 string sky = RenderSettings.Get("SkyIntensity");
 ```
 
+**One name space, three owners.** A setting lives in one of three places —
+anti-aliasing and shadows on the project, exposure and bloom on a
+`.rvpostprofile` the camera names, ambient and the sky on the scene — and
+this API deliberately does not make you care which: the name says where it
+goes. See [Where a setting lives](../concepts.md#where-a-setting-lives).
+
+The one consequence worth knowing: **a post setting on a camera with no
+profile attached reports "no such setting"**, because there is genuinely
+nothing there to write. `Set` answers false and `Get` answers null. Attach a
+profile in the inspector — the camera's Post profile row has a **New post
+profile…** entry — and both start working.
+
 **These are not saved.** They are a runtime override; a game dimming its own
-bloom should not quietly edit the scene asset. Reopening the scene brings back
-whatever the Render Settings panel says.
+bloom should not quietly edit an asset. The editor drops its cached profiles
+when Play stops, so what you go back to editing is what the file says.
 
 **A settings menu is the obvious use, and quality is the other one.** Dropping
 to `AntiAliasing.Fxaa`, or to `None`, is the cheapest frame time a game can buy

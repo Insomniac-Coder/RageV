@@ -106,16 +106,20 @@ namespace RageV
 		return shift * projection;
 	}
 
-	AntiAliasing ResolveAntiAliasing(const SceneEnvironment& environment)
+	AntiAliasing ResolveAntiAliasing(const RenderSettings& render)
 	{
 		// Resolved in one place, because the alternative has already cost a
 		// day: the SMAA passes branched on the scene's stored mode while the
 		// rest of the frame branched on the resolved one, so --aa=smaa built
 		// FXAA's chain and the two modes came out byte-identical. Anything
 		// that needs to know which filter is running asks here.
+		//
+		// This is also the whole of the render override chain: the project's
+		// answer, then `ragev.ini`, then `--aa=`. Nothing else in the engine
+		// knows those last two exist.
 		const EngineConfig& config = EngineConfig::Get();
 		const AntiAliasing requested = config.HasAAOverride ? config.AAOverride
-															: environment.AA;
+															: render.AA;
 
 		// Every mode but None is a pass PostProcess owns. Without it the chain
 		// would tone map into an intermediate that nothing then reads, and the
@@ -130,14 +134,14 @@ namespace RageV
 
 		// Which filter, resolved once, by the function everything else asks.
 		const EngineConfig& config = EngineConfig::Get();
-		const AntiAliasing aa = ResolveAntiAliasing(desc.Environment);
+		const AntiAliasing aa = ResolveAntiAliasing(desc.Render);
 
 		// SSAA is decided here rather than with the other two, because it is
 		// the only one that changes the size of the scene target -- everything
 		// else in the frame reacts to something that has already been drawn.
 		const int requestedFactor = config.SupersampleOverride > 0
 			? config.SupersampleOverride
-			: desc.Environment.SupersampleFactor;
+			: desc.Render.SupersampleFactor;
 		const int supersample = aa == AntiAliasing::SSAA
 			? Math::Clamp(requestedFactor, 1, kMaxSupersample)
 			: 1;
@@ -163,7 +167,7 @@ namespace RageV
 		// renderers are told before anything is recorded.
 		const int msaa = aa == AntiAliasing::MSAA
 			? Math::Clamp(config.MsaaOverride > 0 ? config.MsaaOverride
-												  : desc.Environment.MsaaSamples, 1, kMaxMsaaSamples)
+												  : desc.Render.MsaaSamples, 1, kMaxMsaaSamples)
 			: 1;
 		sceneDesc.Samples = (uint32_t)msaa;
 		Renderer::SetTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
@@ -389,7 +393,7 @@ namespace RageV
 				const RGResource current = graph.Import(history.Current(), "TemporalCurrent");
 				const RGResource previous = graph.Import(history.Previous(), "TemporalPrevious");
 				const RGResource source = shaded;
-				const float feedback = desc.Environment.TemporalFeedback;
+				const float feedback = desc.Render.TemporalFeedback;
 				const bool hasHistory = history.HasHistory();
 
 				graph.AddPass("TAA resolve",
@@ -425,7 +429,7 @@ namespace RageV
 
 		// --- bloom -------------------------------------------------------------
 		RGResource bloom = kRGInvalid;
-		const bool wantBloom = desc.Environment.BloomEnabled && PostProcess::IsReady();
+		const bool wantBloom = desc.Post.BloomEnabled && PostProcess::IsReady();
 
 		std::vector<RGResource> levels;
 		if (wantBloom)
@@ -452,7 +456,7 @@ namespace RageV
 
 		if (!levels.empty())
 		{
-			const SceneEnvironment env = desc.Environment;
+			const PostSettings post = desc.Post;
 
 			// Down: threshold into the first level, then halve repeatedly.
 			graph.AddPass("Bloom prefilter",
@@ -461,13 +465,13 @@ namespace RageV
 					builder.Write(levels[0]);
 					builder.Sample(shaded);
 				},
-				[shaded, env](RGPassContext& context)
+				[shaded, post](RGPassContext& context)
 				{
 					PostProcess::Prefilter(context.Cmd, context.Color(shaded),
 										   context.Width * 2, context.Height * 2,
 										   Format::R16G16B16A16_SFLOAT,
-										   env.BloomThreshold, env.BloomKnee,
-										   env.BloomClamp);
+										   post.BloomThreshold, post.BloomKnee,
+										   post.BloomClamp);
 				});
 
 			for (size_t i = 1; i < levels.size(); i++)
@@ -532,7 +536,7 @@ namespace RageV
 		}
 
 		{
-			const SceneEnvironment env = desc.Environment;
+			const PostSettings post = desc.Post;
 			const RGResource bloomSource = bloom;
 			const Format format = desc.OutputFormat;
 
@@ -545,13 +549,13 @@ namespace RageV
 						builder.Sample(bloomSource);
 					builder.DisableDepth();
 				},
-				[shaded, bloomSource, env, format](RGPassContext& context)
+				[shaded, bloomSource, post, format](RGPassContext& context)
 				{
 					PostProcess::Tonemap(context.Cmd, context.Color(shaded),
 										 bloomSource != kRGInvalid ? context.Color(bloomSource)
 																   : nullptr,
-										 format, env.Exposure,
-										 bloomSource != kRGInvalid ? env.BloomIntensity : 0.0f);
+										 format, post.Exposure,
+										 bloomSource != kRGInvalid ? post.BloomIntensity : 0.0f);
 				});
 		}
 

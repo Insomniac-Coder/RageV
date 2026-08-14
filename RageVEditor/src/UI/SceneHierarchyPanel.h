@@ -31,7 +31,19 @@ namespace RageV
 
 		void ShowProperties(Entity entity);
 
+		// Show an asset in Properties instead of the selected entity.
+		//
+		// Invalid clears it and hands the panel back to the entity. Set from
+		// the content browser when a file is clicked, which is the gesture the
+		// owner asked for: "if the post processing asset file is tapped in the
+		// content browser the game engine should show properties of it in
+		// inspector".
+		void SetInspectedAsset(AssetHandle handle) { m_InspectedAsset = handle; }
+		AssetHandle GetInspectedAsset() const { return m_InspectedAsset; }
+
 	private:
+		void DrawProperties();
+		void DrawAssetProperties();
 		void DrawEntityNode(Entity entity);
 
 		// Continuous edits -- a drag, a slider scrub, typing in a field --
@@ -85,6 +97,10 @@ namespace RageV
 		// A flag rather than doing the work in the setter, because expanding a
 		// tree node is something only ImGui can do and only while drawing.
 		bool m_RevealSelection = false;
+
+		// The asset Properties is showing, if any. Invalid means the panel
+		// belongs to the selected entity, which is the ordinary case.
+		AssetHandle m_InspectedAsset = AssetHandle::Invalid();
 		// The selected entity's ancestors, deepest last. Rebuilt each time a
 		// reveal is pending; a hierarchy is a handful of levels, so a vector
 		// and a linear search beat a set that has to be allocated.

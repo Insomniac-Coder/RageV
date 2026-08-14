@@ -1,4 +1,5 @@
 #include "SceneHierarchyPanel.h"
+#include "FieldEditor.h"
 #include "CurveEditor.h"
 #include "RageV/Asset/CurveSerializer.h"
 #include "imgui.h"
@@ -80,6 +81,12 @@ static void DrawEmptySelection()
 // consumed by the next draw, which is the only place ImGui can open a node.
 void RageV::SceneHierarchyPanel::SetSelectedEntity(Entity entity)
 {
+	// The asset goes even when the entity does not change: clicking an entity
+	// that is already selected still means "show me this", and leaving the
+	// panel on a file would make that click do nothing visible.
+	if (entity)
+		m_InspectedAsset = AssetHandle::Invalid();
+
 	if (entity == m_Selected)
 		return;
 
@@ -94,10 +101,7 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 		if (showProperties && *showProperties)
 		{
 			ImGui::Begin("Properties", showProperties);
-			if (m_Selected)
-				ShowProperties(m_Selected);
-			else
-				DrawEmptySelection();
+			DrawProperties();
 			ImGui::End();
 		}
 		return;
@@ -217,11 +221,71 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 	if (showProperties && *showProperties)
 	{
 		ImGui::Begin("Properties", showProperties);
-		if (m_Selected)
-			ShowProperties(m_Selected);
-		else
-			DrawEmptySelection();
+		DrawProperties();
 		ImGui::End();
+	}
+}
+
+// What the Properties panel is showing: an entity, or an asset.
+//
+// Two sources, one panel, and the last thing clicked wins -- the same rule
+// every editor with a project browser follows. Clicking an asset does not
+// clear the entity selection, because the gizmo and the viewport outline hang
+// off that and losing them to a glance at a file would be worse than the
+// panel changing; clicking an entity clears the asset, because that is the
+// gesture that means "show me this instead". ENGINE-NOTES 7s.
+void RageV::SceneHierarchyPanel::DrawProperties()
+{
+	if (m_InspectedAsset.IsValid())
+	{
+		DrawAssetProperties();
+		return;
+	}
+
+	if (m_Selected)
+		ShowProperties(m_Selected);
+	else
+		DrawEmptySelection();
+}
+
+void RageV::SceneHierarchyPanel::DrawAssetProperties()
+{
+	const AssetMetadata& metadata = Assets::Registry::GetMetadata(m_InspectedAsset);
+
+	if (!metadata.IsValid())
+	{
+		// The file was deleted, or the registry was rescanned and lost it.
+		// Said rather than shown blank, and the selection dropped so the
+		// panel does not sit on a dead handle for the rest of the session.
+		ImGui::TextDisabled("That asset is no longer in the registry.");
+		m_InspectedAsset = AssetHandle::Invalid();
+		return;
+	}
+
+	UI::PushTextScale(1.15f);
+	ImGui::TextUnformatted(std::filesystem::path(metadata.Path).filename().string().c_str());
+	UI::PopTextScale();
+	UI::TextCaption("%s -- %s", AssetTypeName(metadata.Type), metadata.Path.c_str());
+
+	ImGui::Separator();
+
+	switch (metadata.Type)
+	{
+		case AssetType::PostProfile:
+			// The same drawer the camera's inspector uses, so a profile edited
+			// from the content browser and one edited from the camera that
+			// names it are the same rows in the same order with the same
+			// tooltips. Two implementations of this would have diverged the
+			// first time either was improved.
+			UI::DrawPostProfile(m_InspectedAsset);
+			break;
+
+		default:
+			// Everything else is a reference to something with its own editor
+			// or no editor at all. Saying so is better than an empty panel
+			// that looks broken.
+			ImGui::TextDisabled("No inspector for this asset type yet.");
+			break;
 	}
 }
 
@@ -335,7 +399,10 @@ void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	}
 
 	if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+	{
 		m_Selected = entity;
+		m_InspectedAsset = AssetHandle::Invalid();
+	}
 
 	// --- drag and drop ------------------------------------------------------
 	if (ImGui::BeginDragDropSource())
@@ -405,651 +472,8 @@ void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 namespace
 {
 	using namespace RageV;
+	using namespace RageV::UI;
 
-	// One property row: label left, control right, both sized against the panel
-	// rather than against a number somebody typed once.
-	//
-	// A one-row table per field rather than one table around the whole
-	// inspector, because the fields are drawn from a dozen call sites that do
-	// not know about each other. Several one-row tables with the same
-	// proportions line up with each other, which is the property that matters;
-	// what is given up is dragging the divider, so they are not resizable
-	// (a drag that moved one row and not the rest would read as a bug).
-	// BeginTable answers false when the whole table is culled -- scrolled out
-	// of view, or in a panel collapsed to nothing -- and EndTable must not be
-	// called then. Rather than make thirteen call sites branch, the miss falls
-	// back to a plain label-then-control row: it does not align, but nothing
-	// nothing is visible to align with, and the pairing stays unconditional.
-	std::vector<bool> g_FieldUsedTable;
-
-	// `labelFraction` exists for one row type: three axis fields and their
-	// badges need more of the width than a single control does, and giving
-	// every row the vector's proportions would waste half the panel on the
-	// rest.
-	void BeginField(const char* label, const char* tooltip, float labelFraction = 0.38f)
-	{
-		ImGui::PushID(label);
-
-		const bool table = UI::BeginProperties("##field", labelFraction, false);
-		g_FieldUsedTable.push_back(table);
-
-		if (table)
-		{
-			UI::PropertyRow(label, tooltip);
-			return;
-		}
-
-		ImGui::TextUnformatted(label);
-		if (tooltip && ImGui::IsItemHovered())
-			ImGui::SetTooltip("%s", tooltip);
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(-FLT_MIN);
-	}
-
-	void EndField()
-	{
-		if (!g_FieldUsedTable.empty())
-		{
-			if (g_FieldUsedTable.back())
-				UI::EndProperties();
-			g_FieldUsedTable.pop_back();
-		}
-		ImGui::PopID();
-	}
-
-	bool DrawVec3(const char* label, Vec3& values, float resetValue)
-	{
-		// The same 42% as every other row, unconditionally.
-		//
-		// Two failed attempts before this one, both of them me tuning a number
-		// instead of thinking. A flat 30% fixed the Z field clipping on a small
-		// window and gave the inspector two left edges -- a vector row starting
-		// its controls further left than the plain row above it, which reads as
-		// wrong long before anyone works out why. Then an adaptive fraction
-		// that widened when there was room, which misses the point entirely:
-		// **alignment requires the same fraction, so anything adaptive is
-		// misaligned by construction.**
-		//
-		// So it is binary, and alignment wins. At 42% the three fields get
-		// ~28px each in a 1600-wide window, which shows "0.75" fine; on a
-		// genuinely small window they hit DragVec3's floor and the row
-		// overflows its cell, where the table clips it. A clipped digit is a
-		// smaller problem than a column that does not line up, and unlike a
-		// negative width it is not an assertion.
-		BeginField(label, nullptr);
-		const bool changed = UI::DragVec3("##vec", values, resetValue);
-		EndField();
-		return changed;
-	}
-
-	// For the clip search below. ASCII only and deliberately so: it compares a
-	// name against what somebody typed, and both come from the same keyboard.
-	std::string ToLower(std::string value)
-	{
-		for (char& c : value)
-		{
-			if (c >= 'A' && c <= 'Z')
-				c = (char)(c - 'A' + 'a');
-		}
-		return value;
-	}
-
-	// An animation clip, chosen by name from the model on this entity.
-	//
-	// Returns whether the value changed. -1 is the bind pose and is always
-	// offered: it is a legitimate state -- what a character that has never
-	// been told to move looks like -- and not an error.
-	//
-	// The search box is not decoration. A rig can carry dozens of clips with
-	// names that share a prefix ("run_forward", "run_left", "run_stop"), and a
-	// list that has to be scrolled past its own naming convention is a list
-	// that gets the wrong entry picked.
-	bool DrawClipField(int* value, Entity owner)
-	{
-		std::vector<std::string> names;
-		if (owner && owner.HasComponent<MeshComponent>())
-		{
-			const AssetHandle mesh = owner.GetComponent<MeshComponent>().Mesh;
-			if (const std::vector<Anim::Clip>* clips = Assets::Manager::GetClips(mesh))
-			{
-				for (size_t i = 0; i < clips->size(); i++)
-				{
-					const std::string& name = (*clips)[i].Name;
-					// glTF does not require an animation to be named, and an
-					// unnamed one still has to be selectable.
-					names.push_back(name.empty() ? "Clip " + std::to_string(i) : name);
-				}
-			}
-		}
-
-		const int current = *value;
-		const bool inRange = current >= 0 && current < (int)names.size();
-
-		std::string preview;
-		if (current < 0)
-			preview = "(bind pose)";
-		else if (inRange)
-			preview = names[current];
-		else
-			preview = "Clip " + std::to_string(current) + "  (missing)";
-
-		bool changed = false;
-
-		// One buffer: only one combo can be open at a time, and it is cleared
-		// every time one opens.
-		static char filter[64] = {};
-
-		if (ImGui::BeginCombo("##value", preview.c_str()))
-		{
-			if (ImGui::IsWindowAppearing())
-			{
-				filter[0] = '\0';
-				ImGui::SetKeyboardFocusHere();
-			}
-
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::InputTextWithHint("##search", "Search", filter, sizeof(filter));
-			ImGui::Separator();
-
-			const std::string needle = ToLower(filter);
-			const auto matches = [&](const std::string& text)
-			{
-				return needle.empty() || ToLower(text).find(needle) != std::string::npos;
-			};
-
-			if (matches("bind pose") && ImGui::Selectable("(bind pose)", current < 0))
-			{
-				*value = -1;
-				changed = true;
-			}
-
-			for (size_t i = 0; i < names.size(); i++)
-			{
-				if (!matches(names[i]))
-					continue;
-
-				if (ImGui::Selectable(names[i].c_str(), current == (int)i))
-				{
-					*value = (int)i;
-					changed = true;
-				}
-			}
-
-			// An index the model no longer has still has to be visible, or
-			// opening the dropdown to look would be a way to lose it silently
-			// -- the same rule the method binding follows.
-			if (current >= 0 && !inRange)
-			{
-				ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Danger);
-				ImGui::Selectable(preview.c_str(), true);
-				ImGui::PopStyleColor();
-			}
-
-			ImGui::EndCombo();
-		}
-
-		if (ImGui::IsItemHovered() && names.empty())
-		{
-			ImGui::SetTooltip("This entity's mesh has no animations.\n\n"
-							  "Only a model imported with a skeleton carries any.");
-		}
-
-		return changed;
-	}
-
-	// Every method an entity's scripts declare, in both languages, merged.
-	//
-	// Answered from the script *names* rather than from instances, because this
-	// runs while the scene is stopped -- which is when somebody is authoring a
-	// button, and when nothing has been instantiated anywhere.
-	std::vector<std::string> BindableMethods(Entity entity)
-	{
-		std::vector<std::string> names;
-		if (!entity)
-			return names;
-
-		if (entity.HasComponent<NativeScriptComponent>())
-		{
-			const std::string& script = entity.GetComponent<NativeScriptComponent>().ScriptName;
-			for (const ScriptMethod& method : ScriptRegistry::MethodsOf(script))
-				names.push_back(method.Name);
-		}
-
-		if (entity.HasComponent<ManagedScriptComponent>() && Managed::Interop::IsReady()
-			&& Managed::Interop::Managed().ListMethods)
-		{
-			const std::string& script = entity.GetComponent<ManagedScriptComponent>().ScriptName;
-
-			// Asked for the length first, as every other buffer call here
-			// does: a script with many methods must not come back clipped.
-			const int32_t needed =
-				Managed::Interop::Managed().ListMethods(script.c_str(), nullptr, 0);
-
-			if (needed > 0)
-			{
-				std::string listing((size_t)needed + 1, '\0');
-				Managed::Interop::Managed().ListMethods(script.c_str(), listing.data(),
-														(int32_t)listing.size());
-
-				std::stringstream stream(listing.c_str());
-				std::string line;
-				while (std::getline(stream, line))
-				{
-					if (!line.empty())
-						names.push_back(line);
-				}
-			}
-		}
-
-		std::sort(names.begin(), names.end());
-		names.erase(std::unique(names.begin(), names.end()), names.end());
-		return names;
-	}
-
-	// Takes the scene because one field type needs it: an entity reference is
-	// stored as a UUID and has to be shown as a *name*, which only the scene
-	// can answer -- and has to keep saying something useful when the answer is
-	// "that entity is gone".
-	//
-	// Takes the ComponentDesc and the owning entity for one *hint*: a
-	// method-name field says which sibling field holds the entity whose methods
-	// to offer, so resolving it means reading the component's other fields --
-	// and an unset one falls back to the entity the component is on, which a
-	// type-erased `void*` into a pool cannot answer for itself.
-	bool DrawField(const FieldDesc& field, void* component, Scene& scene,
-				   const ComponentDesc& desc, Entity owner)
-	{
-		void* value = field.Access(component);
-		const FieldHint& hint = field.Hint;
-		bool changed = false;
-
-		switch (field.Type)
-		{
-			case FieldType::Bool:
-			{
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-				changed = ImGui::Checkbox("##value", (bool*)value);
-				EndField();
-				break;
-			}
-			case FieldType::Int:
-			{
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-
-				// An animation clip: offered by name, from the model on this
-				// entity. An index is what the component stores and is the
-				// wrong thing to *ask* for -- "2" says nothing about which
-				// animation it is, and the answer changes when the model is
-				// re-exported with a clip inserted.
-				if (hint.ClipList)
-					changed = DrawClipField((int*)value, owner);
-				else
-					changed = ImGui::DragInt("##value", (int*)value, hint.Speed,
-											 (int)hint.Min, (int)hint.Max);
-
-				EndField();
-				break;
-			}
-			case FieldType::Enum:
-			{
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-				int& current = *(int*)value;
-				const char* preview = (hint.EnumNames && current >= 0 && current < hint.EnumCount)
-									? hint.EnumNames[current] : "?";
-
-				if (ImGui::BeginCombo("##value", preview))
-				{
-					for (int i = 0; i < hint.EnumCount; i++)
-					{
-						const bool isSelected = current == i;
-						if (ImGui::Selectable(hint.EnumNames[i], isSelected))
-						{
-							current = i;
-							changed = true;
-						}
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
-					}
-					ImGui::EndCombo();
-				}
-				EndField();
-				break;
-			}
-			case FieldType::Float:
-			{
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-				float* target = (float*)value;
-
-				if (hint.Kind == FieldHint::Widget::Slider)
-					changed = ImGui::SliderFloat("##value", target, hint.Min, hint.Max);
-				else
-					changed = ImGui::DragFloat("##value", target, hint.Speed, hint.Min, hint.Max);
-				EndField();
-				break;
-			}
-			case FieldType::Vec2:
-			{
-				// Two plain boxes rather than the coloured X/Y/Z badges the
-				// transform uses. Those badges say "this is a direction in the
-				// world", and a UI anchor is a fraction of a rectangle -- the
-				// same decoration would be claiming something untrue.
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-				changed = ImGui::DragFloat2("##value", Math::ValuePtr(*(Vec2*)value),
-											hint.Speed, hint.Min, hint.Max);
-				EndField();
-				break;
-			}
-			case FieldType::Vec3:
-			{
-				if (hint.Kind == FieldHint::Widget::Color)
-				{
-					BeginField(field.DisplayName.c_str(), hint.Tooltip);
-					// NoInputs, like every other colour in the editor. The
-					// three numeric boxes ImGui shows by default eat the whole
-					// row to express something nobody reads as numbers, and
-					// left this path looking unlike the material editor beside
-					// it. The picker still has them, one click away.
-					changed = ImGui::ColorEdit3("##value", Math::ValuePtr(*(Vec3*)value),
-												ImGuiColorEditFlags_NoInputs);
-					EndField();
-				}
-				else if (hint.Kind == FieldHint::Widget::Degrees)
-				{
-					// Stored in radians. Converting here rather than at the call
-					// site means every angle field behaves the same way.
-					Vec3 degrees = Math::Degrees(*(Vec3*)value);
-					if (DrawVec3(field.Name, degrees, 0.0f))
-					{
-						*(Vec3*)value = Math::Radians(degrees);
-						changed = true;
-					}
-				}
-				else
-				{
-					const float reset = std::string(field.Name) == "Scale" ? 1.0f : 0.0f;
-					changed = DrawVec3(field.Name, *(Vec3*)value, reset);
-				}
-				break;
-			}
-			case FieldType::Vec4:
-			{
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-				if (hint.Kind == FieldHint::Widget::Color)
-					changed = ImGui::ColorEdit4("##value", Math::ValuePtr(*(Vec4*)value),
-												ImGuiColorEditFlags_NoInputs
-												| ImGuiColorEditFlags_AlphaPreviewHalf);
-				else
-					changed = ImGui::DragFloat4("##value", Math::ValuePtr(*(Vec4*)value), hint.Speed);
-				EndField();
-				break;
-			}
-			case FieldType::Entity:
-			{
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-
-				EntityRef& reference = *(EntityRef*)value;
-				Entity target = scene.GetEntityByUUID(reference.Value);
-
-				// Three states, and the third is the one worth drawing
-				// carefully. An empty slot is ordinary. A resolved one shows a
-				// name. A slot that *names* something the scene does not have
-				// is a broken reference -- deleting the target leaves exactly
-				// this -- and if it drew as "None" nobody would ever find out
-				// why the button stopped working.
-				const bool missing = reference.IsValid() && !target;
-
-				std::string label;
-				if (!reference.IsValid())
-					label = "None";
-				else if (target)
-					label = target.GetName();
-				else
-					label = "Missing entity";
-
-				if (missing)
-					ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Danger);
-
-				ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f));
-
-				if (missing)
-					ImGui::PopStyleColor();
-
-				// The hierarchy is already a drag source and has been since
-				// reparenting was built, so this costs one target and no new
-				// payload type.
-				if (ImGui::BeginDragDropTarget())
-				{
-					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
-					{
-						Entity dropped{ *(const entt::entity*)payload->Data, &scene };
-						if (dropped)
-						{
-							reference = EntityRef(dropped.GetUUID());
-							changed = true;
-						}
-					}
-					ImGui::EndDragDropTarget();
-				}
-
-				// Clearing needs to be possible and must not be the same
-				// gesture as opening something, so it is the context menu
-				// rather than a click.
-				if (ImGui::BeginPopupContextItem("##entity-ref"))
-				{
-					if (ImGui::MenuItem("Clear", nullptr, false, reference.IsValid()))
-					{
-						reference = EntityRef();
-						changed = true;
-					}
-					ImGui::EndPopup();
-				}
-
-				if (ImGui::IsItemHovered())
-				{
-					if (missing)
-					{
-						ImGui::SetTooltip("This slot names entity %llu, which is not in the "
-										  "scene.\nIt was probably deleted. Drag a "
-										  "replacement in, or right-click to clear.",
-										  (unsigned long long)(uint64_t)reference);
-					}
-					else
-					{
-						ImGui::SetTooltip("Drag an entity from the Hierarchy to set this.\n"
-										  "Right-click to clear.");
-					}
-				}
-
-				EndField();
-				break;
-			}
-			case FieldType::Asset:
-			{
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-
-				AssetHandle& handle = *(AssetHandle*)value;
-				const std::string name = Assets::Manager::GetDisplayName(handle);
-
-				// A button rather than a label: it is the drop target, and a
-				// target you cannot see is one nobody finds.
-				ImGui::Button(name.c_str(), ImVec2(-1.0f, 0.0f));
-
-				if (ImGui::BeginDragDropTarget())
-				{
-					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ASSET"))
-					{
-						const AssetHandle dropped = *(const AssetHandle*)payload->Data;
-						const AssetMetadata& metadata = Assets::Registry::GetMetadata(dropped);
-
-						// Refused rather than stored: a handle of the wrong
-						// type resolves to nothing, and silently accepting it
-						// would present as the field simply not working.
-						if (hint.Accepts == AssetType::None || metadata.Type == hint.Accepts)
-						{
-							handle = dropped;
-							changed = true;
-						}
-					}
-					ImGui::EndDragDropTarget();
-				}
-
-				if (ImGui::IsItemHovered() && handle.IsValid())
-					ImGui::SetTooltip("%s\n\nDrop an asset from the Content browser to change it.",
-									  Assets::Registry::GetMetadata(handle).Path.c_str());
-
-				EndField();
-
-				// A curve is edited where it is used. Everything else here is a
-				// reference to something with its own home -- a mesh, a texture
-				// -- but a ramp only means anything beside the emitter it
-				// shapes, so it gets drawn under its own field rather than in a
-				// window you have to go and find.
-				if (hint.Accepts == AssetType::Curve && handle.IsValid())
-				{
-					if (const Curve* loaded = Assets::Manager::GetCurve(handle))
-					{
-						// A copy to edit: the cached one is what the renderer is
-						// sampling this frame, and editing it in place would
-						// change the picture halfway through drawing it.
-						Curve editable = *loaded;
-
-						if (UI::CurveEditor::Draw(field.Name, editable, handle))
-						{
-							const std::filesystem::path path =
-								Assets::Registry::GetAbsolutePath(handle);
-
-							// Written through, then the cache dropped. The
-							// alternative -- updating the cache and saving on
-							// some later event -- is how an edit survives on
-							// screen and not on disk.
-							if (!path.empty() && Assets::CurveSerializer::Save(editable, path))
-								Assets::Manager::ReloadCurve(handle);
-						}
-					}
-				}
-				break;
-			}
-			case FieldType::String:
-			{
-				BeginField(field.DisplayName.c_str(), hint.Tooltip);
-
-				// Scripts are picked from what is registered, not typed. A
-				// free-text field lets a typo produce an entity that does
-				// nothing with no indication why.
-				if (std::string(field.Name) == "Script")
-				{
-					std::string& current = *(std::string*)value;
-					const std::vector<std::string> names = ScriptRegistry::GetNames();
-
-					if (ImGui::BeginCombo("##value", current.empty() ? "(none)" : current.c_str()))
-					{
-						if (ImGui::Selectable("(none)", current.empty()))
-						{
-							current.clear();
-							changed = true;
-						}
-						for (const std::string& name : names)
-						{
-							if (ImGui::Selectable(name.c_str(), name == current))
-							{
-								current = name;
-								changed = true;
-							}
-						}
-						ImGui::EndCombo();
-					}
-
-					EndField();
-					break;
-				}
-
-				// A method binding: offered from what the target's script
-				// actually declares, for the same reason scripts are picked
-				// rather than typed. This is the field the whole "a name in a
-				// scene file has no compiler behind it" problem lives in, and a
-				// dropdown is what keeps a *new* binding from being wrong --
-				// nothing here can stop an *old* one going stale when the
-				// method is renamed later, which is why the click reports it.
-				if (hint.MethodsOn)
-				{
-					std::string& current = *(std::string*)value;
-
-					// The sibling that says whose methods to offer, and the
-					// same empty-means-this-entity rule the dispatch uses.
-					Entity target = owner;
-					for (const FieldDesc& sibling : desc.Fields)
-					{
-						if (sibling.Name && std::string(sibling.Name) == hint.MethodsOn
-							&& sibling.Type == FieldType::Entity)
-						{
-							const EntityRef& reference = *(EntityRef*)sibling.Access(component);
-							if (reference.IsValid())
-								target = scene.GetEntityByUUID(reference.Value);
-							break;
-						}
-					}
-
-					const std::vector<std::string> methods = BindableMethods(target);
-
-					if (ImGui::BeginCombo("##value", current.empty() ? "(none)" : current.c_str()))
-					{
-						if (ImGui::Selectable("(none)", current.empty()))
-						{
-							current.clear();
-							changed = true;
-						}
-
-						for (const std::string& name : methods)
-						{
-							if (ImGui::Selectable(name.c_str(), name == current))
-							{
-								current = name;
-								changed = true;
-							}
-						}
-
-						// A binding whose method the target no longer declares
-						// still has to be selectable, or opening the dropdown
-						// to look would silently be a way to lose it.
-						if (!current.empty()
-							&& std::find(methods.begin(), methods.end(), current) == methods.end())
-						{
-							ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Danger);
-							ImGui::Selectable((current + "  (not found)").c_str(), true);
-							ImGui::PopStyleColor();
-						}
-
-						ImGui::EndCombo();
-					}
-
-					if (ImGui::IsItemHovered() && methods.empty())
-					{
-						ImGui::SetTooltip(
-							"That entity's script declares no bindable methods.\n\n"
-							"C++: register one with .Method<&Type::Name>(\"Name\").\n"
-							"C#: make it public, no arguments, returning void.");
-					}
-
-					EndField();
-					break;
-				}
-
-				std::string& text = *(std::string*)value;
-				char buffer[256];
-				memset(buffer, 0, sizeof(buffer));
-				strncpy_s(buffer, text.c_str(), sizeof(buffer) - 1);
-				if (ImGui::InputText("##value", buffer, sizeof(buffer)))
-				{
-					text = buffer;
-					changed = true;
-				}
-				EndField();
-				break;
-			}
-		}
-
-		return changed;
-	}
 
 	// What is left of the hand-written material section.
 	//
@@ -1187,7 +611,7 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 				// draw call, so this is the value from before the edit.
 				const FieldValue before = ReadFieldValue(field, component);
 
-				if (DrawField(field, component, *m_SceneRef, desc, entity))
+				if (UI::DrawField(field, component, m_SceneRef.get(), &desc, entity))
 				{
 					changed = true;
 					if (!m_PendingEdit.Active)
@@ -1431,7 +855,7 @@ std::string RageV::SceneHierarchyPanel::FormatFloat(float value)
 // actually has.
 void RageV::SceneHierarchyPanel::DrawScriptNameRow(std::string& label)
 {
-	BeginField("Name", "A label for this component. Free text -- it names the\n"
+	UI::BeginField("Name", "A label for this component. Free text -- it names the\n"
 					   "component, not the script, which is chosen below.");
 
 	// Zero-initialised, and copy() is given one byte less than the buffer, so
@@ -1442,7 +866,7 @@ void RageV::SceneHierarchyPanel::DrawScriptNameRow(std::string& label)
 	if (ImGui::InputText("##scriptlabel", buffer, sizeof(buffer)))
 		label = buffer;
 
-	EndField();
+	UI::EndField();
 }
 
 // Whether a source file registers a script under its own file name.
@@ -1519,7 +943,7 @@ std::vector<std::string> RageV::SceneHierarchyPanel::ScanUnbuiltScripts(
 // the loop, exactly as component removal already is.
 void RageV::SceneHierarchyPanel::DrawScriptLanguageRow(bool managed)
 {
-	BeginField("Language",
+	UI::BeginField("Language",
 			   "C++ scripts are compiled into the engine and need a rebuild.\n"
 			   "C# scripts live in the project and rebuild from File > Build Scripts.");
 
@@ -1533,7 +957,7 @@ void RageV::SceneHierarchyPanel::DrawScriptLanguageRow(bool managed)
 												 : PendingScriptSwap::ToCpp;
 	}
 
-	EndField();
+	UI::EndField();
 }
 
 // The script row: everything available in this language, and a way to make one
@@ -1550,7 +974,7 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 {
 	bool changed = false;
 
-	BeginField("Script", "The name written into the scene file. Renaming a script\n"
+	UI::BeginField("Script", "The name written into the scene file. Renaming a script\n"
 						 "breaks every scene that used it.");
 
 	const std::string current = scriptName.empty() ? "(none)" : scriptName;
@@ -1608,7 +1032,7 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 		ImGui::EndCombo();
 	}
 
-	EndField();
+	UI::EndField();
 
 	if (m_OpenNewScript)
 	{
@@ -1903,7 +1327,7 @@ void RageV::SceneHierarchyPanel::DrawScriptField(const std::string& name, int ki
 	// rather than sitting under it -- so a column of fields stays a column.
 	const float resetWidth = stored ? 52.0f : 0.0f;
 
-	BeginField(name.c_str(), stored ? nullptr : "Unchanged, so the script's own default applies.");
+	UI::BeginField(name.c_str(), stored ? nullptr : "Unchanged, so the script's own default applies.");
 	if (resetWidth > 0.0f)
 		ImGui::PushItemWidth(-resetWidth);
 
@@ -1966,7 +1390,7 @@ void RageV::SceneHierarchyPanel::DrawScriptField(const std::string& name, int ki
 			ImGui::SetTooltip("Back to the script's own default (%s)", defaultValue.c_str());
 	}
 
-	EndField();
+	UI::EndField();
 }
 
 // The native kinds and the managed ones are separate enums that happen to line

@@ -3145,6 +3145,147 @@ an attachment every fragment must write belongs.
 
 ---
 
+## 7s. Where a setting lives (9.0): the project, the profile and the scene
+
+Design first, and this one is entirely about **ownership**. Nothing here
+changes a pixel. What it changes is which file a value is stored in, and
+that decides how many places a person has to edit to change one thing.
+
+### The state it replaces
+
+`SceneEnvironment` is one struct with twenty-six fields, serialized into
+every `.rage`. It holds three unrelated kinds of thing:
+
+- **Cost knobs** — anti-aliasing and its samples, shadow cascades,
+  resolution and distance. What this *hardware* can afford.
+- **Look knobs** — exposure and the four bloom parameters. Authored
+  content, chosen by whoever is grading the game.
+- **Place** — ambient colour, the sky and its rotation. What this
+  particular scene *is*.
+
+All three were per scene, so a project with forty scenes stored its
+exposure forty times and changed it forty times. Anti-aliasing was worse:
+it was per scene **and** in `ragev.ini` as a machine-wide override, because
+a viewing preference has to survive a restart without saving a scene asset.
+Two homes, and the ini quietly won.
+
+### What the roadmap proposed, and what the owner changed
+
+The roadmap's 9.0 called for two assets, `.rvrenderprofile` and
+`.rvpostprofile`, each a *sparse* layer over project defaults. The owner
+revised it before any of it was built:
+
+> Render setting should be per project basis (and no I am dropping the idea
+> of render profile) and post profile should be optional and it should be an
+> asset that can be attachable to camera component.
+
+**Both changes remove work rather than adding it, and the second removes a
+whole class of bug.** A sparse layer needs a per-field "is this set?" bit,
+a UI that can render "inherited" distinctly from "happens to equal the
+default", and a merge step; the roadmap said so and called it the part to
+design for. A profile that is *attached to a camera* needs none of that,
+because there is nothing underneath it to inherit from — a camera either
+has a profile, and uses all of it, or has none, and uses the engine
+defaults. Sparseness was only ever forced by the layering, and the layering
+is gone.
+
+Render settings stop being an asset for a simpler reason: there is exactly
+one machine running the editor and one quality level being authored. A
+project field plus the existing `ragev.ini` override covers it, and a
+quality *preset* — the thing an asset would have bought — is a player-facing
+feature nothing here has asked for.
+
+### The three homes
+
+| Home | Holds | Read by |
+|---|---|---|
+| `.rvproject` → `RenderSettings` | AA and its three parameters, shadows | The frame graph, once per frame |
+| `.rvpostprofile` → `PostSettings` | Exposure, bloom, **and all of 9.1–9.7** | The camera that names it |
+| `.rage` → `SceneEnvironment` | Ambient, sky, sky rotation, sky texture | The scene pass |
+
+And two override chains, both short:
+
+    render:  project  →  ragev.ini / --aa=
+    post:    engine default  →  the camera's profile, if it has one
+
+The post chain has no project layer on purpose. "No profile" already means
+something perfectly definite — the struct's defaults, which is what every
+scene renders with today — and a project-wide post block would be a second
+answer to the same question, discoverable only by whoever knew to look.
+
+### Why the camera and not the scene
+
+Because a post profile is *how this view is graded*, and a scene can hold
+several views. The editor already renders two cameras of the same scene at
+once — the viewport's and the game's — and a scene-level grade cannot tell
+them apart. Attaching it to `CameraComponent` also lands on the thing that
+eventually blends: a post *volume* is a trigger that swaps or lerps the
+camera's profile as it moves, and that is a component reading a field
+rather than a redesign. This is the roadmap's own open question about
+volumes, answered by putting the field where a volume would write to it.
+
+**The editor viewport resolves through the scene's primary camera.** Not a
+separate editor-only setting: the viewport is meant to show what the game
+shows, and a grade you cannot see while authoring is a grade you author
+blind.
+
+### The part that decides whether this is maintainable
+
+`RenderSettingsRegistry` already described every one of these fields — name,
+type, range, help — and the scene serializer wrote them out by hand anyway.
+They drifted: `TemporalFeedback` was in the registry, in the inspector and
+in the struct, and **not** in the serializer, so it silently reset to its
+default on every load and three scene files that set it were all rendering
+the same picture. That cost a wasted diagnosis (§7r).
+
+Splitting one struct into three multiplies the number of hand-written lists
+by three, which is that bug three more times. So:
+
+**Every one of these blocks is read and written through its registry.**
+`SettingsRegistry::Fields()` returns a `FieldDesc` list per block, and one
+pair of functions emits and reads a YAML map from any of them. The scene
+serializer, the project file, the `.rvpostprofile` and the C# bridge all
+go through it. A field added to a struct and its registry is on disk, in
+the inspector, and reachable from C# with nothing else touched — and a
+field added to the struct and *not* the registry is invisible everywhere,
+which is a failure that shows up on the first save rather than months later.
+
+The checks enforce the shape rather than the list: for each block, set
+every registered field to a non-default value, round-trip, compare. A field
+the serializer cannot carry fails that, whatever it is called.
+
+### What happens to the scenes already on disk
+
+Scene version 5 → 6. A version-5 scene still carries the render and post
+keys, and the loader still reads them — but only to **report** them:
+
+    scene 'x.rage' (v5) sets AntiAliasing, Exposure, BloomIntensity, which
+    moved in version 6. AntiAliasing is now in the .rvproject; Exposure and
+    BloomIntensity are now on a .rvpostprofile attached to a camera. The
+    values in this file were not applied.
+
+Reported rather than migrated, and reported rather than dropped. Migrating
+would mean a scene load silently editing the project file or minting an
+asset, which is the kind of thing that is impossible to undo and unpleasant
+to discover; dropping is what `TemporalFeedback` did. Only keys whose value
+*differs from the default* are named, so the dozens of generated test scenes
+that write `AntiAliasing: 0` because the generator always has do not produce
+a warning that means nothing.
+
+### The one thing that had to change outside the engine
+
+`tools/scripts/make_motion_scene.py` writes `BloomEnabled: false`, because
+bloom spreads a moving block's edges across exactly the pixels the TAA
+measurement is looking at. After this change that key is inert and bloom
+would be **on** — so the check would still run, still produce numbers, and
+the numbers would be measuring something else. A generator that has to
+disable an effect now writes a `.rvpostprofile` beside the scene, with its
+own `.meta` so the handle is fixed rather than minted on first scan, and
+points the camera at it. That is the same path a person uses, exercised by
+the test suite on every run.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

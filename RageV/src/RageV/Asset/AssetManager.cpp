@@ -12,6 +12,7 @@
 #include "RageV/Scene/SceneSerializer.h"
 #include "CurveSerializer.h"
 #include "FontSerializer.h"
+#include "PostProfileSerializer.h"
 // The import splits glTF's packed metallic-roughness texture into the two
 // greyscale maps the shader samples, which means reading a PNG and writing two.
 #include "stb_image.h"
@@ -58,6 +59,14 @@ namespace RageV::Assets
 		// null: a missing file must not be retried sixty times a second.
 		std::unordered_map<AssetHandle, Curve> s_Curves;
 		std::unordered_map<AssetHandle, Curve::Baked> s_BakedCurves;
+
+		// Post profiles cache by value for the same reason curves do: half a
+		// dozen numbers, read once per frame by whichever camera names them.
+		// A failure caches as the *defaults*, which is deliberate -- a camera
+		// pointing at a profile that will not load renders the neutral grade,
+		// which is what a camera with no profile at all renders, so a broken
+		// reference degrades to "no grading" rather than to a black frame.
+		std::unordered_map<AssetHandle, PostSettings> s_PostProfiles;
 
 		// Fonts cache by value like curves -- a metrics table is a few thousand
 		// numbers. A failure caches as an *absent* entry marked in s_FontFailed
@@ -850,6 +859,76 @@ namespace RageV::Assets
 		// mip chain was: the file changes and the picture does not.
 		s_Curves.erase(handle);
 		s_BakedCurves.erase(handle);
+	}
+
+	PostSettings Manager::GetPostSettings(AssetHandle handle)
+	{
+		// By value, and never a failure. A camera with no profile and a camera
+		// pointing at a profile that will not load both want the same thing --
+		// the neutral grade -- and returning it from one place means no caller
+		// carries a null branch whose two arms have to be kept identical.
+		//
+		// No device check: this is numbers on the CPU, which is what lets the
+		// suite exercise it headlessly.
+		if (!handle.IsValid())
+			return PostSettings{};
+
+		const auto cached = s_PostProfiles.find(handle);
+		if (cached != s_PostProfiles.end())
+			return cached->second;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+
+		PostSettings settings;
+		if (!path.empty())
+			PostProfileSerializer::Load(settings, path);
+
+		// Cached even when the load failed, so a camera pointing at a missing
+		// profile does not reopen the file sixty times a second.
+		s_PostProfiles[handle] = settings;
+		return settings;
+	}
+
+	PostSettings* Manager::GetPostProfile(AssetHandle handle)
+	{
+		if (!handle.IsValid())
+			return nullptr;
+
+		// Through GetPostSettings, so "cached, including the failure" is
+		// stated once. The lookup that follows cannot miss: that call inserts.
+		GetPostSettings(handle);
+		return &s_PostProfiles[handle];
+	}
+
+	AssetHandle Manager::CreatePostProfile(const PostSettings& settings,
+										   const std::filesystem::path& relativePath)
+	{
+		if (!Registry::IsInitialised())
+			return AssetHandle::Invalid();
+
+		const std::filesystem::path absolute = Registry::Root() / relativePath;
+		if (!PostProfileSerializer::Save(settings, absolute))
+			return AssetHandle::Invalid();
+
+		// After writing, so the file exists by the time the registry hashes it
+		// and mints its sidecar. Same order as CreateCurve and CreatePrefab.
+		Registry::Refresh();
+
+		const AssetHandle handle = Registry::GetHandle(relativePath.generic_string());
+		if (handle.IsValid())
+			s_PostProfiles[handle] = settings;
+
+		return handle;
+	}
+
+	void Manager::ReloadPostProfile(AssetHandle handle)
+	{
+		s_PostProfiles.erase(handle);
+	}
+
+	void Manager::ReloadAllPostProfiles()
+	{
+		s_PostProfiles.clear();
 	}
 
 	RHI::Ref<RHI::RHITexture> Manager::GetCubemap(AssetHandle handle)

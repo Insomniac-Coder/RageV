@@ -98,6 +98,13 @@
 <tr><td style="text-align:left"><code>GetLinearVelocity</code></td><td style="text-align:left">Current velocity.</td></tr>
 <tr><td style="text-align:left"><code>Raycast</code></td><td style="text-align:left">Nearest body along the ray, which may be this one. Direction need not be normalised — the ray extends to its length. Test with <code>if (hit)</code>.</td></tr>
 </tbody></table></div>
+<h2 id="rendering">Rendering<a class="anchor" href="#rendering" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>GetRenderSettings</code></td><td style="text-align:left">What the frame costs, from the project: anti-aliasing and its parameters, shadows. Read fresh when the frame is built, so a change made in <code>OnTick</code> or <code>OnFrame</code> is on screen that frame. Note <code>ragev.ini</code> and <code>--aa=</code> still override the mode after this.</td></tr>
+<tr><td style="text-align:left"><code>GetEnvironment</code></td><td style="text-align:left">Where the frame is, from the scene: ambient light and the sky.</td></tr>
+<tr><td style="text-align:left"><code>GetPostSettings</code></td><td style="text-align:left">How the frame is graded, from the profile the scene&#39;s primary camera points at — exposure and bloom. <strong>Null when that camera has no profile</strong>, which is the honest answer: with none there is no grade to write to.</td></tr>
+</tbody></table></div>
+<p>None of the three is saved. They are runtime overrides — a game dimming its own bloom should not quietly edit an asset — and the editor drops its cached profiles when Play stops.</p>
 <h2 id="audio">Audio<a class="anchor" href="#audio" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>PlaySource</code></td><td style="text-align:left">Plays this entity&#39;s <code>AudioSourceComponent</code>, restarting it if already playing. Does nothing without the component.</td></tr>
@@ -114,6 +121,14 @@
 <tr><td style="text-align:left"><code>WasActionPressed</code></td><td style="text-align:left">Went down since the last step. Consumed by the first step that runs, so it is never missed and never seen twice.</td></tr>
 <tr><td style="text-align:left"><code>WasActionReleased</code></td><td style="text-align:left">Came up since the last step.</td></tr>
 <tr><td style="text-align:left"><code>GetAxis</code></td><td style="text-align:left">Axis value. Unknown axes read zero rather than failing.</td></tr>
+<tr><td style="text-align:left"><code>IsPointerOverUI</code></td><td style="text-align:left">Whether the game&#39;s UI has the pointer this frame. <strong>Ask before acting on a click</strong> — the action map does not know a canvas exists. Static.</td></tr>
+</tbody></table></div>
+<h2 id="the-game-s-ui">The game&#39;s UI<a class="anchor" href="#the-game-s-ui" aria-label="Link to this section">#</a></h2>
+<p>Conveniences over components <code>GetComponent</code> reaches perfectly well. They exist because this is the surface C# mirrors, and because a label and a button are what a game touches most.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>SetText</code></td><td style="text-align:left">A <code>UITextComponent</code>&#39;s string, on this entity or another. Does nothing without the component.</td></tr>
+<tr><td style="text-align:left"><code>GetText</code></td><td style="text-align:left">Reads it back; empty without the component.</td></tr>
+<tr><td style="text-align:left"><code>WasButtonClicked</code></td><td style="text-align:left">A completed press — down and up, both on the same button. True for one simulation step, the same contract <code>WasActionPressed</code> has. A press dragged off the button before release is cancelled and never reported.</td></tr>
 </tbody></table></div>
 <h2 id="time">Time<a class="anchor" href="#time" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
@@ -124,7 +139,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/cpp.html"><span class="pager-label">Previous</span><span class="pager-title">Writing a script in C++</span></a><a class="pager-link pager-next" href="../scripting/csharp.html"><span class="pager-label">Next</span><span class="pager-title">Writing a script in C#</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#lifecycle">Lifecycle</a><a class="toc-link toc-l2" href="#collision-callbacks">Collision callbacks</a><a class="toc-link toc-l3" href="#the-collision-struct">The Collision struct</a><a class="toc-link toc-l2" href="#identity">Identity</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#transform">Transform</a><a class="toc-link toc-l2" href="#other-entities">Other entities</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#time">Time</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#lifecycle">Lifecycle</a><a class="toc-link toc-l2" href="#collision-callbacks">Collision callbacks</a><a class="toc-link toc-l3" href="#the-collision-struct">The Collision struct</a><a class="toc-link toc-l2" href="#identity">Identity</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#transform">Transform</a><a class="toc-link toc-l2" href="#other-entities">Other entities</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#rendering">Rendering</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#the-game-s-ui">The game&#39;s UI</a><a class="toc-link toc-l2" href="#time">Time</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>

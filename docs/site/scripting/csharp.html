@@ -152,6 +152,75 @@ spawned.<span class="tok-call">Destroy</span>();
 <span class="tok-type">float</span> forward = <span class="tok-type">Input</span>.<span class="tok-call">GetAxis</span>(<span class="tok-string">&quot;MoveForward&quot;</span>);
 </code></pre></figure>
 <p>By action name, never by key code — there is deliberately no way to ask about a key. A script written against <code>&quot;Jump&quot;</code> keeps working when the player rebinds it. <code>WasActionPressed</code> is consumed by the first step that runs and carried forward by a frame that runs none, so a press is never missed and never seen twice.</p>
+<h3 id="one-extra-line-once-there-is-a-ui">One extra line, once there is a UI<a class="anchor" href="#one-extra-line-once-there-is-a-ui" aria-label="Link to this section">#</a></h3>
+<p>The action map does not know a canvas exists, so a click on a pause button is also a click at the world behind it. The symptom is <em>&quot;the gun fires when I open the menu&quot;</em> — a gameplay bug, nowhere near the menu that caused it:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">if</span> (!<span class="tok-type">Input</span>.IsPointerOverUI &amp;&amp; <span class="tok-type">Input</span>.<span class="tok-call">WasActionPressed</span>(<span class="tok-string">&quot;Fire&quot;</span>))
+    <span class="tok-call">Fire</span>();
+</code></pre></figure>
+<p>Keyboard actions are unaffected. It is true while the pointer is over a button — or over a rectangle whose <code>BlocksPointer</code> is set, which is how a modal&#39;s backdrop stops the world behind it — and it stays true for the <em>whole</em> of a press that began on a button, even if the hand has since moved off it.</p>
+<h2 id="the-game-s-ui">The game&#39;s UI<a class="anchor" href="#the-game-s-ui" aria-label="Link to this section">#</a></h2>
+<p>A button is a <code>UIImageComponent</code> and a <code>UIButtonComponent</code> on one entity, with a label as a child. <strong>There are two ways to hear about a click</strong>, and they are the same click seen twice — use whichever fits, not both on one button.</p>
+<h3 id="the-button-calls-your-method">The button calls your method<a class="anchor" href="#the-button-calls-your-method" aria-label="Link to this section">#</a></h3>
+<p>Write an ordinary method and pick it from the button&#39;s <strong>On Click</strong> in the inspector:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">public</span> <span class="tok-keyword">class</span> Menu : <span class="tok-type">Script</span>
+{
+    <span class="tok-keyword">public</span> <span class="tok-keyword">void</span> <span class="tok-call">StartGame</span>() { <span class="tok-comment">/* ... */</span> }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">void</span> <span class="tok-call">Quit</span>()      { <span class="tok-comment">/* ... */</span> }
+}
+</code></pre></figure>
+<p><strong>No registration.</strong> This is the one place C# is plainly less work than C++, where every bindable method has to be declared to the engine by hand: reflection finds these, so writing the method is the whole job. It must be <strong>public</strong>, take no arguments and return <code>void</code> — the dropdown offers nothing else.</p>
+<p>The button&#39;s <strong>Target</strong> is which entity&#39;s script to call. Leave it empty for the button&#39;s own entity.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>The name in the scene file has no compiler behind it.</strong> Rename <code>StartGame</code> and the scene still says <code>&quot;StartGame&quot;</code> — the build succeeds and the button stops working. So a binding that resolves to nothing <strong>logs a warning on every click</strong>, naming the button, the target and the method. If a button does nothing, read the log before reading the code.</p>
+</aside>
+<h3 id="your-script-asks-the-button">Your script asks the button<a class="anchor" href="#your-script-asks-the-button" aria-label="Link to this section">#</a></h3>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">float</span> dt)
+{
+    <span class="tok-keyword">if</span> (m_StartButton.<span class="tok-call">WasButtonClicked</span>())
+        <span class="tok-call">StartRound</span>();
+}
+</code></pre></figure>
+<p>Reach for this when one manager reads several buttons, or when the click is one of a few things a step already checks.</p>
+<p>On the fixed step, not the frame: a click is an event the game acts on, and acting on it twice because one frame ran two steps is what the edge contract exists to prevent. Same terms as <code>WasActionPressed</code> — consumed by the first step that runs, carried forward by a frame with none. A press dragged off the button before the release is cancelled and never reported. <strong>Both</strong> mechanisms honour that, so a bound method is also called exactly once per click.</p>
+<p>Text is a property:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code>m_ScoreLabel.Text = $<span class="tok-string">&quot;Score: {m_Score}&quot;</span>;
+</code></pre></figure>
+<p>That one is a direct call rather than <code>SetComponentField</code>, because a score is written every frame and nobody should have to know a registry name for the commonest thing in a HUD. <strong>Colour deliberately is not</strong>: a UI entity has two of them, so it says which —</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code>m_Bar.<span class="tok-call">SetComponentField</span>(<span class="tok-string">&quot;UIImageComponent&quot;</span>, <span class="tok-string">&quot;Color&quot;</span>, <span class="tok-string">&quot;0.9 0.2 0.2 1&quot;</span>);
+</code></pre></figure>
+<h2 id="render-settings">Render settings<a class="anchor" href="#render-settings" aria-label="Link to this section">#</a></h2>
+<p>The scene&#39;s post-processing, live. Read fresh when each frame is built, so a change made in <code>OnTick</code> or <code>OnFrame</code> is on screen that frame.</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-keyword">using</span> RageV;
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">class</span> Flashbang : <span class="tok-type">Script</span>
+{
+    <span class="tok-keyword">private</span> <span class="tok-type">float</span> _remaining;
+
+    <span class="tok-keyword">public</span> <span class="tok-keyword">void</span> <span class="tok-call">Detonate</span>() =&gt; _remaining = <span class="tok-number">2.0f</span>;
+
+    <span class="tok-keyword">protected</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnFrame</span>(<span class="tok-type">float</span> dt)
+    {
+        <span class="tok-keyword">if</span> (_remaining &lt;= <span class="tok-number">0.0f</span>)
+            <span class="tok-keyword">return</span>;
+
+        _remaining -= dt;
+
+        <span class="tok-comment">// Blown out, recovering over two seconds.</span>
+        RenderSettings.Exposure = <span class="tok-number">1.0f</span> + <span class="tok-number">4.0f</span> * Math.<span class="tok-call">Max</span>(_remaining, <span class="tok-number">0.0f</span>) / <span class="tok-number">2.0f</span>;
+    }
+}
+</code></pre></figure>
+<p>The typed properties are <code>AntiAliasing</code>, <code>Exposure</code>, <code>BloomEnabled</code>, <code>BloomThreshold</code>, <code>BloomIntensity</code>, <code>AmbientIntensity</code>, <code>ShadowsEnabled</code> and <code>ShadowDistance</code>.</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code>RenderSettings.AntiAliasing = AntiAliasing.Smaa;   <span class="tok-comment">// None, Fxaa, Smaa</span>
+RenderSettings.BloomEnabled = <span class="tok-keyword">false</span>;
+</code></pre></figure>
+<p>Anything without a property is still reachable by name — the properties are a typed front for the same bridge, and the names are the file formats&#39; own keys:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code>RenderSettings.<span class="tok-call">Set</span>(<span class="tok-string">&quot;SkyIntensity&quot;</span>, <span class="tok-string">&quot;0.2&quot;</span>);
+<span class="tok-type">string</span> sky = RenderSettings.<span class="tok-call">Get</span>(<span class="tok-string">&quot;SkyIntensity&quot;</span>);
+</code></pre></figure>
+<p><strong>One name space, three owners.</strong> A setting lives in one of three places — anti-aliasing and shadows on the project, exposure and bloom on a <code>.rvpostprofile</code> the camera names, ambient and the sky on the scene — and this API deliberately does not make you care which: the name says where it goes. See <a href="../concepts.html#where-a-setting-lives">Where a setting lives</a>.</p>
+<p>The one consequence worth knowing: <strong>a post setting on a camera with no profile attached reports &quot;no such setting&quot;</strong>, because there is genuinely nothing there to write. <code>Set</code> answers false and <code>Get</code> answers null. Attach a profile in the inspector — the camera&#39;s Post profile row has a <strong>New post profile…</strong> entry — and both start working.</p>
+<p><strong>These are not saved.</strong> They are a runtime override; a game dimming its own bloom should not quietly edit an asset. The editor drops its cached profiles when Play stops, so what you go back to editing is what the file says.</p>
+<p><strong>A settings menu is the obvious use, and quality is the other one.</strong> Dropping to <code>AntiAliasing.Fxaa</code>, or to <code>None</code>, is the cheapest frame time a game can buy back without touching its content.</p>
 <h2 id="logging">Logging<a class="anchor" href="#logging" aria-label="Link to this section">#</a></h2>
 <figure class="code"><figcaption>csharp</figcaption><pre><code>Log.<span class="tok-call">Info</span>($<span class="tok-string">&quot;{Entity.Name} is ready&quot;</span>);
 Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fuel&quot;</span>);
@@ -216,7 +285,7 @@ Log.<span class="tok-call">Warn</span>(<span class="tok-string">&quot;low on fue
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/cpp-reference.html"><span class="pager-label">Previous</span><span class="pager-title">C++ API reference</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#fields-and-the-inspector">Fields and the inspector</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#two-rates-and-choosing-between-them">Two rates, and choosing between them</a><a class="toc-link toc-l3" href="#why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame</a><a class="toc-link toc-l3" href="#ordering-exactly">Ordering, exactly</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#finding-spawning-destroying">Finding, spawning, destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#logging">Logging</a><a class="toc-link toc-l2" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#when-something-throws">When something throws</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#fields-and-the-inspector">Fields and the inspector</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#two-rates-and-choosing-between-them">Two rates, and choosing between them</a><a class="toc-link toc-l3" href="#why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame</a><a class="toc-link toc-l3" href="#ordering-exactly">Ordering, exactly</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#finding-spawning-destroying">Finding, spawning, destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l3" href="#one-extra-line-once-there-is-a-ui">One extra line, once there is a UI</a><a class="toc-link toc-l2" href="#the-game-s-ui">The game&#39;s UI</a><a class="toc-link toc-l3" href="#the-button-calls-your-method">The button calls your method</a><a class="toc-link toc-l3" href="#your-script-asks-the-button">Your script asks the button</a><a class="toc-link toc-l2" href="#render-settings">Render settings</a><a class="toc-link toc-l2" href="#logging">Logging</a><a class="toc-link toc-l2" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#when-something-throws">When something throws</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>

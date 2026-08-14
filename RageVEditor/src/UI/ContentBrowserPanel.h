@@ -23,6 +23,23 @@ namespace RageV
 			m_OnActivate = std::move(callback);
 		}
 
+		// Called when an asset is *selected* -- a single click. The editor
+		// points the Properties panel at it.
+		//
+		// Separate from activation, which is the double click and means "open
+		// this": opening a scene is destructive enough that it must not happen
+		// because somebody looked at a file. One click to inspect, two to open,
+		// which is the split every editor with a project browser uses.
+		void SetSelectCallback(std::function<void(AssetHandle, AssetType)> callback)
+		{
+			m_OnSelect = std::move(callback);
+		}
+
+		// Highlight this file, or none. Set from the editor so that clearing
+		// the inspector -- by selecting an entity -- clears the highlight too,
+		// rather than leaving a cell looking current when it is not.
+		void SetSelected(AssetHandle handle) { m_Selected = handle; }
+
 		void OnImGuiRender(bool* open);
 
 		// Which folder is open, so it can be remembered between sessions.
@@ -41,6 +58,8 @@ namespace RageV
 		// Assets::Registry::Init runs after the panel is constructed.
 		std::filesystem::path m_Current;
 		std::function<void(AssetHandle, AssetType)> m_OnActivate;
+		std::function<void(AssetHandle, AssetType)> m_OnSelect;
+		AssetHandle m_Selected = AssetHandle::Invalid();
 
 		float m_Thumbnail = 72.0f;
 		float m_Padding = 14.0f;

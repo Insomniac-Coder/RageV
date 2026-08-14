@@ -1,6 +1,8 @@
 #pragma once
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/PostSettings.h"
+#include "RageV/Renderer/RenderSettings.h"
 #include "RageV/Renderer/TemporalHistory.h"
 #include <functional>
 
@@ -68,7 +70,15 @@ namespace RageV
 		// the game's are different sizes showing different cameras.
 		TemporalHistory* History = nullptr;
 
+		// The three settings blocks the frame reads, from their three owners:
+		// the scene, the project, and the camera's profile. Copies rather than
+		// pointers, because the passes below outlive this call -- a graph pass
+		// is a lambda that runs at execute time, and capturing a reference to
+		// the caller's stack is how a frame ends up grading itself with
+		// whatever the memory held. ENGINE-NOTES 7s.
 		SceneEnvironment Environment;
+		RenderSettings Render;
+		PostSettings Post;
 
 		Vec4 ClearColor{ 0.05f, 0.05f, 0.06f, 1.0f };
 
@@ -82,13 +92,14 @@ namespace RageV
 	// compile is reported where the frame is owned.
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc);
 
-	// Which filter is actually running: the scene's choice unless --aa
-	// overrode it, and None if the post-process stack failed to come up.
+	// Which filter is actually running: the project's choice unless ragev.ini
+	// or --aa overrode it, and None if the post-process stack failed to come
+	// up.
 	//
 	// Public because more than the frame graph needs the answer, and two
 	// places deciding it independently is a bug this repository has already
 	// shipped once -- see the note on the definition.
-	AntiAliasing ResolveAntiAliasing(const SceneEnvironment& environment);
+	AntiAliasing ResolveAntiAliasing(const RenderSettings& render);
 
 	// This frame's sub-pixel offset for a target of this size, in NDC.
 	//

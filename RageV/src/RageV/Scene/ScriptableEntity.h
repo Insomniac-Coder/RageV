@@ -5,6 +5,8 @@
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/PostSettings.h"
+#include "RageV/Renderer/RenderSettings.h"
 #include "Entity.h"
 #include "RageV/Math/Math.h"
 #include <string>
@@ -208,22 +210,41 @@ namespace RageV
 		RayHit Raycast(const Vec3& origin, const Vec3& direction);
 
 		// --- rendering ---------------------------------------------------------
-		// The scene's render settings, live: anti-aliasing, exposure, bloom,
-		// ambient, sky and shadows.
+		//
+		// Three of them, because a setting has three possible owners and
+		// pretending otherwise is what this used to do. ENGINE-NOTES 7s.
+		//
+		// All three are writable and read fresh when the frame is built, so a
+		// change made in OnTick or OnFrame is on screen that frame. None of
+		// them is saved: these are runtime overrides, and a game dimming its
+		// own bloom should not quietly edit an asset.
+
+		// What the frame costs, from the project: anti-aliasing and its
+		// parameters, shadows.
 		//
 		//     GetRenderSettings().AA = AntiAliasing::SMAA;
-		//     GetRenderSettings().Exposure = 0.6f;   // a flashbang wearing off
 		//
-		// Writable, and read fresh when the frame is built -- so a change made
-		// in OnTick or OnFrame is on screen that frame. It is *not* saved: this
-		// is a runtime override, and a game dimming its own bloom should not
-		// quietly edit the scene asset.
+		// Note the machine can still override the mode -- `ragev.ini` and
+		// `--aa=` are checked after this -- so writing AA and reading back the
+		// picture is not guaranteed to agree.
+		RenderSettings& GetRenderSettings();
+
+		// Where the frame is, from the scene: ambient light and the sky.
 		//
-		// The struct is reachable through `GetScene()` too; this is the short
-		// way to say it, and the name C# knows it by. C# reaches the same
-		// settings as `RenderSettings.AntiAliasing` and friends, over a name
-		// and a piece of text, because a struct cannot cross that boundary.
-		SceneEnvironment& GetRenderSettings();
+		//     GetEnvironment().AmbientIntensity = 0.0f;
+		SceneEnvironment& GetEnvironment();
+
+		// How the frame is graded, from the profile the scene's primary camera
+		// points at.
+		//
+		//     if (PostSettings* post = GetPostSettings())
+		//         post->Exposure = 0.6f;   // a flashbang wearing off
+		//
+		// **Null when that camera has no profile**, which is the honest answer:
+		// with no profile there is no grade to write to, and a silent no-op
+		// would look like the engine ignoring the write. Attach a
+		// `.rvpostprofile` in the inspector and this stops being null.
+		PostSettings* GetPostSettings();
 
 		// --- audio -----------------------------------------------------------
 		// This entity's AudioSourceComponent. Restarts it if it is already

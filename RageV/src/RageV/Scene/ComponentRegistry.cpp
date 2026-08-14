@@ -3,6 +3,8 @@
 #include "Components.h"
 #include "Entity.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/RenderSettings.h"
+#include "RageV/Renderer/PostSettings.h"
 #include "ScriptRegistry.h"
 
 namespace RageV
@@ -334,6 +336,19 @@ namespace
 					OnlyWhen(IsOrthographic, Drag(0.1f))),
 				Field<&CameraComponent::Camera, &SceneCamera::OrthographicFar>("OrthographicFarClip",
 					OnlyWhen(IsOrthographic, Drag(0.1f))),
+
+				// Last, and deliberately: it is the one field here that opens
+				// a second block of settings underneath itself, so anything
+				// after it would read as belonging to the profile.
+				Field<&CameraComponent::PostProfile>("PostProfile",
+					AssetRef(AssetType::PostProfile,
+						"How this camera grades its frame -- exposure, bloom, and "
+						"everything phase 9 adds. Optional: no profile renders the "
+						"neutral grade, which is what every scene did before "
+						"profiles existed.\n\n"
+						"It is an asset, so two cameras can share one and a look "
+						"can be changed in one place. Editing the fields below "
+						"edits that file, for every camera using it.")),
 			};
 			// Version 4 and earlier stored a boolean. A camera that was primary
 			// becomes rank 0 and one that was not becomes 50, which preserves
@@ -1167,7 +1182,7 @@ namespace
 		return nullptr;
 	}
 
-	// --- the scene's render settings ------------------------------------------
+	// --- the three settings blocks --------------------------------------------
 
 	namespace
 	{
@@ -1176,78 +1191,267 @@ namespace
 												   "MSAA", "TAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
 
+		// Which rows apply to the mode that is selected.
+		//
+		// Same rule the components follow: a hidden field is hidden, never
+		// dropped, so toggling anti-aliasing cannot lose the sample count it
+		// was set to. Showing all three at once is what the panel used to do
+		// before it was registry-driven, and two of them did nothing.
+		bool UsesMsaa(const void* block)
+		{
+			return static_cast<const RenderSettings*>(block)->AA == AntiAliasing::MSAA;
+		}
+		bool UsesSsaa(const void* block)
+		{
+			return static_cast<const RenderSettings*>(block)->AA == AntiAliasing::SSAA;
+		}
+		bool UsesTaa(const void* block)
+		{
+			return static_cast<const RenderSettings*>(block)->AA == AntiAliasing::TAA;
+		}
+		bool CastsShadows(const void* block)
+		{
+			return static_cast<const RenderSettings*>(block)->ShadowsEnabled;
+		}
+
+		bool BloomOn(const void* block)
+		{
+			return static_cast<const PostSettings*>(block)->BloomEnabled;
+		}
+
+		bool SkyIsGradient(const void* block)
+		{
+			return static_cast<const SceneEnvironment*>(block)->Sky == SkyType::Gradient;
+		}
+		bool SkyIsCubemap(const void* block)
+		{
+			return static_cast<const SceneEnvironment*>(block)->Sky == SkyType::Cubemap;
+		}
+		bool SkyIsDrawn(const void* block)
+		{
+			return static_cast<const SceneEnvironment*>(block)->Sky != SkyType::Color;
+		}
+
 		std::vector<FieldDesc> BuildRenderSettings()
 		{
 			return {
-				Field<&SceneEnvironment::AA>("AntiAliasing",
-					Enum(kAntiAliasingNames,
+				Field<&RenderSettings::AA>("AntiAliasing",
+					Named("Anti-aliasing", Enum(kAntiAliasingNames,
 						 "FXAA guesses at an edge from one pixel's neighbourhood. "
 						 "SMAA reconstructs it and is about five times more accurate "
 						 "for three times the cost. SSAA and MSAA resolve in linear "
 						 "light, before the tone curve. TAA accumulates a jittered "
-						 "frame over time and beats all of them standing still, "
-						 "but has never been checked with anything moving -- the "
-						 "sky smears when the camera turns.")),
+						 "frame over time and beats all of them standing still; "
+						 "under motion it is roughly a wash, which is what the "
+						 "Feedback dial trades."))),
 
-				Field<&SceneEnvironment::MsaaSamples>("MsaaSamples",
-					Tip("Coverage samples per pixel under MSAA. Costs bandwidth "
-						"and a little rasterizer work rather than shading, so 4 "
-						"is an ordinary choice where supersampling at 4 is a "
-						"statement.")),
+				Field<&RenderSettings::MsaaSamples>("MsaaSamples",
+					Named("Samples", OnlyWhen(UsesMsaa,
+						Drag(0.05f, 1, 8,
+							"Coverage samples per pixel under MSAA. Costs bandwidth "
+							"and a little rasterizer work rather than shading, so 4 "
+							"is an ordinary choice where supersampling at 4 is a "
+							"statement.")))),
 
-				Field<&SceneEnvironment::SupersampleFactor>("SupersampleFactor",
-					Tip("How many times larger SSAA draws each axis. Cost is the "
-						"square of it: two is four times the pixels shaded, four "
-						"is sixteen.")),
+				Field<&RenderSettings::SupersampleFactor>("SupersampleFactor",
+					Named("Supersample", OnlyWhen(UsesSsaa,
+						Drag(0.05f, 1, 4,
+							"How many times larger SSAA draws each axis. Cost is the "
+							"square of it: two is four times the pixels shaded, four "
+							"is sixteen.")))),
 
-				Field<&SceneEnvironment::TemporalFeedback>("TemporalFeedback",
-					Tip("How much of TAA's accumulated image survives each frame. "
-						"This is the ghosting-versus-flicker dial and there is no "
-						"correct value: higher converges cleaner and holds stale "
-						"history longer, lower is sharper under motion and noisier "
-						"standing still.")),
+				Field<&RenderSettings::TemporalFeedback>("TemporalFeedback",
+					Named("Feedback", OnlyWhen(UsesTaa,
+						Drag(0.005f, 0.0f, 0.98f,
+							"How much of TAA's accumulated image survives each frame. "
+							"This is the ghosting-versus-flicker dial and there is no "
+							"correct value: higher converges cleaner and holds stale "
+							"history longer, lower is sharper under motion and noisier "
+							"standing still. Measured against a supersampled "
+							"reference, 0.6 is within a fraction of no filter under "
+							"motion and three times better than it standing still.")))),
 
-				Field<&SceneEnvironment::Exposure>("Exposure"),
+				Field<&RenderSettings::ShadowsEnabled>("ShadowsEnabled", Named("Shadows")),
 
-				Field<&SceneEnvironment::BloomEnabled>("BloomEnabled"),
-				Field<&SceneEnvironment::BloomThreshold>("BloomThreshold"),
-				Field<&SceneEnvironment::BloomKnee>("BloomKnee"),
-				Field<&SceneEnvironment::BloomIntensity>("BloomIntensity"),
-				Field<&SceneEnvironment::BloomClamp>("BloomClamp"),
+				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
+					Named("Distance", OnlyWhen(CastsShadows,
+						Drag(0.5f, 1.0f, 500.0f,
+							"How far from the camera shadows are drawn at all. Not "
+							"the far plane: past this distance the texels are so "
+							"large the shadow is worse than none.")))),
 
-				Field<&SceneEnvironment::AmbientColor>("AmbientColor", Color()),
-				Field<&SceneEnvironment::AmbientIntensity>("AmbientIntensity"),
+				Field<&RenderSettings::ShadowSplitLambda>("ShadowSplitLambda",
+					Named("Split lambda", OnlyWhen(CastsShadows,
+						Slider(0.0f, 1.0f,
+							"Blend between a logarithmic cascade split, which "
+							"distributes texels correctly and starves the far "
+							"cascades, and a uniform one, which does the reverse.")))),
 
-				Field<&SceneEnvironment::Sky>("Sky", Enum(kSkyNames)),
-				Field<&SceneEnvironment::SkyHorizon>("SkyHorizon", Color()),
-				Field<&SceneEnvironment::SkyZenith>("SkyZenith", Color()),
-				Field<&SceneEnvironment::SkyGround>("SkyGround", Color()),
-				Field<&SceneEnvironment::SkyIntensity>("SkyIntensity"),
-				Field<&SceneEnvironment::SkyRotation>("SkyRotation", Degrees()),
+				Field<&RenderSettings::ShadowNormalOffset>("ShadowNormalOffset",
+					Named("Normal offset", OnlyWhen(CastsShadows,
+						Drag(0.05f, 0.0f, 8.0f,
+							"How far along the surface normal a sample is pushed, in "
+							"shadow texels. Raising it removes acne and starts "
+							"detaching shadows from their casters; no value has "
+							"neither.")))),
 
-				Field<&SceneEnvironment::ShadowsEnabled>("ShadowsEnabled"),
-				Field<&SceneEnvironment::ShadowDistance>("ShadowDistance"),
-				Field<&SceneEnvironment::ShadowSplitLambda>("ShadowSplitLambda"),
-				Field<&SceneEnvironment::ShadowNormalOffset>("ShadowNormalOffset"),
+				// These reallocate render targets when they change, so they are
+				// absent from the script surface -- but they are in this list,
+				// because the list is also what writes the project file, and a
+				// setting the panel edits and nothing saves is the exact bug
+				// this registry exists to prevent.
+				Field<&RenderSettings::ShadowCascades>("ShadowCascades",
+					Named("Cascades", OnlyWhen(CastsShadows,
+						Drag(0.05f, 1, 4,
+							"More cascades means better texel density near the "
+							"camera and more scene renders.")))),
+
+				Field<&RenderSettings::ShadowResolution>("ShadowResolution",
+					Named("Resolution", OnlyWhen(CastsShadows,
+						Drag(8.0f, 256, 8192,
+							"Per cascade, square. The single biggest lever on both "
+							"quality and cost: four 2048 maps is 64 MB of depth.")))),
 			};
+		}
+
+		std::vector<FieldDesc> BuildPostSettings()
+		{
+			return {
+				Field<&PostSettings::Exposure>("Exposure",
+					Drag(0.01f, 0.01f, 16.0f,
+						"Applied before the tone curve, which is what makes this "
+						"an exposure control rather than a brightness one: it "
+						"slides the scene along the response curve instead of "
+						"scaling the result of it.")),
+
+				Field<&PostSettings::BloomEnabled>("BloomEnabled", Named("Bloom")),
+
+				Field<&PostSettings::BloomThreshold>("BloomThreshold",
+					Named("Threshold", OnlyWhen(BloomOn,
+						Drag(0.01f, 0.0f, 16.0f,
+							"Brightness at which a pixel starts to bleed. Above 1, "
+							"only things genuinely brighter than white glow.")))),
+
+				Field<&PostSettings::BloomKnee>("BloomKnee",
+					Named("Knee", OnlyWhen(BloomOn,
+						Drag(0.01f, 0.0f, 4.0f,
+							"Width of the ramp around the threshold. Zero is a hard "
+							"cut, which pops as something crosses it and reads as "
+							"flickering.")))),
+
+				Field<&PostSettings::BloomIntensity>("BloomIntensity",
+					Named("Intensity", OnlyWhen(BloomOn, Drag(0.002f, 0.0f, 2.0f)))),
+
+				Field<&PostSettings::BloomClamp>("BloomClamp",
+					Named("Clamp", OnlyWhen(BloomOn,
+						Drag(0.25f, 0.0f, 256.0f,
+							"Ceiling on what one pixel may contribute to bloom. "
+							"Without it, anything very bright and very small -- the "
+							"sun in curved metal -- survives as an isolated blob "
+							"floating near the surface that produced it.")))),
+			};
+		}
+
+		std::vector<FieldDesc> BuildSceneEnvironment()
+		{
+			return {
+				Field<&SceneEnvironment::AmbientColor>("AmbientColor", Named("Ambient colour", Color())),
+				Field<&SceneEnvironment::AmbientIntensity>("AmbientIntensity",
+					Drag(0.005f, 0.0f, 4.0f,
+						"A single colour arriving from every direction. It cannot "
+						"vary with view angle or roughness the way a real "
+						"environment does -- image-based lighting replaces it, and "
+						"falls back to it for scenes with no environment map. Set "
+						"it to 0 for pure direct lighting.")),
+
+				Field<&SceneEnvironment::Sky>("Sky",
+					Named("Background", Enum(kSkyNames,
+						 "Colour draws nothing and leaves the clear colour, which is "
+						 "what a 2D or UI-only scene wants. Gradient costs no asset. "
+						 "An environment map is a panorama -- .hdr for values "
+						 "brighter than white -- or one face of a six-file set."))),
+
+				Field<&SceneEnvironment::SkyHorizon>("SkyHorizon",
+					Named("Horizon", OnlyWhen(SkyIsGradient, Color()))),
+				Field<&SceneEnvironment::SkyZenith>("SkyZenith",
+					Named("Zenith", OnlyWhen(SkyIsGradient, Color()))),
+				Field<&SceneEnvironment::SkyGround>("SkyGround",
+					Named("Ground", OnlyWhen(SkyIsGradient, Color()))),
+
+				Field<&SceneEnvironment::SkyIntensity>("SkyIntensity",
+					Named("Intensity", OnlyWhen(SkyIsDrawn, Drag(0.01f, 0.0f, 16.0f)))),
+
+				Field<&SceneEnvironment::SkyRotation>("SkyRotation",
+					Named("Rotation", OnlyWhen(SkyIsCubemap,
+						Tip("A panorama points wherever it was shot, and the scene "
+							"was not built to match it.", Degrees())))),
+
+				// Registered, unlike before, so the scene's own writer is
+				// registry-driven all the way through rather than
+				// registry-driven except for the one field it wrote by hand.
+				// A script setting it by number would be setting a handle,
+				// which is why the interop layer refuses Asset fields rather
+				// than this list omitting it.
+				Field<&SceneEnvironment::SkyTexture>("SkyTexture",
+					Named("Environment map",
+						OnlyWhen(SkyIsCubemap, AssetRef(AssetType::Texture)))),
+			};
+		}
+
+		// Built on first use, so none of them depends on the order two
+		// translation units' globals happen to initialise in.
+		const FieldDesc* FindIn(const std::vector<FieldDesc>& fields, const std::string& name)
+		{
+			for (const auto& field : fields)
+			{
+				if (name == field.Name)
+					return &field;
+			}
+			return nullptr;
 		}
 	}
 
 	const std::vector<FieldDesc>& RenderSettingsRegistry::Fields()
 	{
-		// Function-local, so it is built on first use and cannot depend on the
-		// order two translation units' globals happen to initialise in.
 		static const std::vector<FieldDesc> fields = BuildRenderSettings();
 		return fields;
 	}
 
 	const FieldDesc* RenderSettingsRegistry::Find(const std::string& name)
 	{
-		for (const auto& field : Fields())
-		{
-			if (name == field.Name)
-				return &field;
-		}
-		return nullptr;
+		return FindIn(Fields(), name);
+	}
+
+	const std::vector<FieldDesc>& PostSettingsRegistry::Fields()
+	{
+		static const std::vector<FieldDesc> fields = BuildPostSettings();
+		return fields;
+	}
+
+	const FieldDesc* PostSettingsRegistry::Find(const std::string& name)
+	{
+		return FindIn(Fields(), name);
+	}
+
+	const std::vector<FieldDesc>& SceneEnvironmentRegistry::Fields()
+	{
+		static const std::vector<FieldDesc> fields = BuildSceneEnvironment();
+		return fields;
+	}
+
+	const FieldDesc* SceneEnvironmentRegistry::Find(const std::string& name)
+	{
+		return FindIn(Fields(), name);
+	}
+
+	SettingsLookup FindSetting(const std::string& name)
+	{
+		if (const FieldDesc* field = RenderSettingsRegistry::Find(name))
+			return { SettingsBlock::Render, field };
+		if (const FieldDesc* field = PostSettingsRegistry::Find(name))
+			return { SettingsBlock::Post, field };
+		if (const FieldDesc* field = SceneEnvironmentRegistry::Find(name))
+			return { SettingsBlock::SceneEnvironment, field };
+		return {};
 	}
 }

@@ -12,6 +12,7 @@
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Math/Math.h"
+#include "RageV/Project/Project.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/UI/Interaction.h"
@@ -786,24 +787,67 @@ namespace RageV::Managed
 			return 1;
 		}
 
-		// --- the scene's render settings ------------------------------------
+		// --- the render settings --------------------------------------------
 		//
 		// The same two functions the component bridge has, one level up: no
-		// entity, because these belong to the scene. `RenderSettingsRegistry`
-		// supplies the names and the accessors, and the text conversion above
-		// is reused verbatim -- a setting added to that list arrives here with
+		// entity, because none of these belongs to one. The registries supply
+		// the names and the accessors, and the text conversion above is reused
+		// verbatim -- a setting added to one of those lists arrives here with
 		// nothing written.
+		//
+		// **One flat namespace of names, three owners behind it.** A script
+		// asking for "Exposure" should not have to know that exposure moved
+		// from the scene to a profile asset in scene version 6, any more than
+		// it has to know the version number -- so `FindSetting` answers which
+		// block a name belongs to and this resolves the pointer.
+		// ENGINE-NOTES 7s.
+
+		// The block a name lives in, for this scene. Null when there is no
+		// such setting, or when the owner does not exist -- which for a post
+		// setting means the primary camera has no profile attached, and there
+		// is genuinely nothing to read or write.
+		void* SettingsBlockFor(SettingsBlock block)
+		{
+			switch (block)
+			{
+				case SettingsBlock::Render:
+					return &Project::Render();
+
+				case SettingsBlock::SceneEnvironment:
+					return s_Scene ? &s_Scene->GetEnvironment() : nullptr;
+
+				case SettingsBlock::Post:
+				{
+					if (!s_Scene)
+						return nullptr;
+
+					Entity camera = s_Scene->GetPrimaryCameraEntity();
+					if (!camera || !camera.HasComponent<CameraComponent>())
+						return nullptr;
+
+					// The cached copy, which is what the renderer reads, so a
+					// write lands on the next frame. Not written to disk: a
+					// game grading itself at runtime must not edit the asset.
+					return Assets::Manager::GetPostProfile(
+						camera.GetComponent<CameraComponent>().PostProfile);
+				}
+
+				default:
+					return nullptr;
+			}
+		}
 
 		int32_t __cdecl GetRenderSetting(const char* name, char* buffer, int32_t capacity)
 		{
 			if (!s_Scene || !name)
 				return -1;
 
-			const FieldDesc* field = RenderSettingsRegistry::Find(name);
-			if (!field)
+			const SettingsLookup found = FindSetting(name);
+			void* block = found ? SettingsBlockFor(found.Block) : nullptr;
+			if (!block)
 				return -1;
 
-			const std::string text = ComponentFieldToText(*field, &s_Scene->GetEnvironment());
+			const std::string text = ComponentFieldToText(*found.Field, block);
 			const int32_t length = (int32_t)text.size();
 			if (buffer && capacity > 0)
 			{
@@ -819,14 +863,15 @@ namespace RageV::Managed
 			if (!s_Scene || !name || !value)
 				return 0;
 
-			const FieldDesc* field = RenderSettingsRegistry::Find(name);
-			if (!field)
+			const SettingsLookup found = FindSetting(name);
+			void* block = found ? SettingsBlockFor(found.Block) : nullptr;
+			if (!block)
 				return 0;
 
 			// No OnChanged hook: nothing here caches derived state. The frame
-			// graph reads the environment fresh every frame, which is what
+			// graph reads all three blocks fresh every frame, which is what
 			// makes a write from OnTick visible in the same frame.
-			return ComponentFieldFromText(*field, &s_Scene->GetEnvironment(), value) ? 1 : 0;
+			return ComponentFieldFromText(*found.Field, block, value) ? 1 : 0;
 		}
 
 		NativeApi BuildApi()

@@ -3,6 +3,7 @@
 #include "Camera.h"
 #include "Light.h"
 #include "Environment.h"
+#include "RenderSettings.h"
 #include "Mesh.h"
 #include "Material.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
@@ -42,9 +43,14 @@ namespace RageV
 		// *surface* moved, and half a pixel of camera offset is not that. The
 		// default is the honest one -- a caller that did not jitter its camera
 		// must not have the correction applied to it either.
+		//
+		// Two settings blocks rather than one: `environment` is what the scene
+		// owns (ambient and sky) and `render` is what the project owns (the
+		// shadow normal offset, here). ENGINE-NOTES 7s.
 		static void BeginScene(const Camera& camera, const Mat4& cameraTransform,
 							   const LightList& lights = {},
 							   const SceneEnvironment& environment = {},
+							   const RenderSettings& render = {},
 							   const RHI::Ref<RHI::RHITexture>& environmentMap = nullptr,
 							   const RHI::Ref<RHI::RHITexture>& irradianceMap = nullptr,
 							   const Vec2& jitter = Vec2(0.0f, 0.0f));

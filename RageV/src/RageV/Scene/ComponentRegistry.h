@@ -292,29 +292,80 @@ namespace RageV
 		static const ComponentDesc* Find(const std::string& name);
 	};
 
-	// The scene's render settings, described the same way a component is.
+	// --- the three settings blocks ------------------------------------------
 	//
-	// `SceneEnvironment` is not a component -- it belongs to the scene rather
-	// than to any entity, which is why it has never had a registry entry and
-	// why the inspector and the serializer each write it out by hand. What it
-	// lacked was a way for a *script* to reach it: a C++ script can already
-	// say `GetScene().GetEnvironment().AA = ...`, and C# has no equivalent,
-	// because a struct cannot cross the interop boundary but a name and a
-	// piece of text can.
+	// None of these is a component -- none belongs to an entity -- but each is
+	// described exactly the way a component is, and for three separate
+	// payoffs that all come from the one list.
 	//
-	// So this is the same `FieldDesc` list, and the same text conversion the
-	// component bridge already uses reaches it unchanged. A setting added
-	// here is visible from C# without anyone touching a binding -- the
-	// property that made the component bridge worth building.
+	// **Serialization.** `RenderSettings` goes into the `.rvproject`,
+	// `PostSettings` into a `.rvpostprofile`, and `SceneEnvironment` into the
+	// `.rage`. All three are written and read by `FieldSerializer`, so none of
+	// them has a hand-written list that can drift from the struct. That
+	// drift is not hypothetical: `TemporalFeedback` was registered,
+	// inspectable, and in nobody's serializer, so it reset on every load and
+	// three scene files that set it produced identical pictures.
 	//
-	// **Not everything in the struct is here.** The sky's texture handle and
-	// the shadow map's resolution are absent: one is an asset reference that
-	// means nothing as a number to a script, and the other reallocates render
-	// targets, which is not a thing to do from a per-frame hook.
+	// **The inspector**, for the post profile -- which is drawn from its
+	// registry in two places at once, the camera that names it and the
+	// Properties panel when the asset itself is selected. One list, so those
+	// cannot disagree.
+	//
+	// **Scripts.** A C++ script can say `Project::Render().AA = ...`; C# has
+	// no equivalent, because a struct cannot cross the interop boundary but a
+	// name and a piece of text can. `FindSetting` below is what the bridge
+	// asks, and a setting added to any of these three lists reaches C# with
+	// no binding written. ENGINE-NOTES 7s.
+	//
+	// **Not everything in every struct is here.** The shadow map's resolution
+	// and cascade count are absent from the render list: they reallocate
+	// render targets, which is not a thing to do from a per-frame hook. They
+	// are edited in the panel and stored in the project by their own path.
+
+	// What the frame costs. Lives on the project.
 	class RenderSettingsRegistry
 	{
 	public:
 		static const std::vector<FieldDesc>& Fields();
 		static const FieldDesc* Find(const std::string& name);
 	};
+
+	// What the frame looks like. Lives on a `.rvpostprofile` asset that a
+	// camera points at, and is where every item in roadmap phase 9 lands.
+	class PostSettingsRegistry
+	{
+	public:
+		static const std::vector<FieldDesc>& Fields();
+		static const FieldDesc* Find(const std::string& name);
+	};
+
+	// Where the frame is. Lives on the scene.
+	class SceneEnvironmentRegistry
+	{
+	public:
+		static const std::vector<FieldDesc>& Fields();
+		static const FieldDesc* Find(const std::string& name);
+	};
+
+	// Which block owns a setting, for a caller that has a name and no idea
+	// where it went.
+	//
+	// The C# surface is one flat namespace of setting names and stays that
+	// way: a script asking for "Exposure" should not have to know that
+	// exposure moved from the scene to a profile asset, any more than it has
+	// to know the scene format's version number. The three registries share
+	// one namespace, and a check asserts they do not collide -- two blocks
+	// with the same key would make this function's answer depend on the order
+	// it happens to look.
+	enum class SettingsBlock { None, Render, Post, SceneEnvironment };
+
+	struct SettingsLookup
+	{
+		SettingsBlock Block = SettingsBlock::None;
+		const FieldDesc* Field = nullptr;
+
+		explicit operator bool() const { return Field != nullptr; }
+	};
+
+	SettingsLookup FindSetting(const std::string& name);
 }

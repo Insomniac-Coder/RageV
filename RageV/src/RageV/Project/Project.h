@@ -1,5 +1,6 @@
 #pragma once
 #include "RageV/Asset/Asset.h"
+#include "RageV/Renderer/RenderSettings.h"
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -23,6 +24,19 @@ namespace RageV
 		// changes how a game behaves, so it belongs with the game rather than
 		// with whoever happens to launch it.
 		uint32_t FixedHz = 60;
+
+		// What the frame costs: anti-aliasing and shadows.
+		//
+		// Here rather than on each scene, which is where they used to be. They
+		// are a judgement about the hardware, and that judgement does not
+		// change because a different level loaded -- while storing them per
+		// scene meant changing the shadow resolution forty times in a project
+		// with forty scenes. ENGINE-NOTES 7s.
+		//
+		// Read and written through `RenderSettingsRegistry`, not by a list in
+		// the project's serializer: a hand-written list is what let
+		// `TemporalFeedback` be registered, inspectable, and saved nowhere.
+		RenderSettings Render;
 	};
 
 	// A folder is a project.
@@ -85,6 +99,12 @@ namespace RageV
 		static std::filesystem::path AssetPath(const std::string& relative);
 
 		static ProjectConfig& Config();
+
+		// Shorthand for Config().Render, and the thing almost every caller
+		// actually wants. Without a project open this is a static default,
+		// which is what lets a headless tool build a frame.
+		static RenderSettings& Render();
+
 		static const std::filesystem::path& File();
 
 		// Absolute -> relative to the asset directory, with forward slashes.

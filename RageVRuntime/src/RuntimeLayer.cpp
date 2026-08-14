@@ -230,6 +230,8 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Width = m_Width;
 	frame.Height = m_Height;
 	frame.Environment = m_Scene->GetEnvironment();
+	frame.Render = Project::Render();
+	frame.Post = m_Scene->GetPostSettings();
 	frame.OutputFormat = device.GetSwapchainFormat();
 	// One frame chain, so one history. See TemporalHistory for why the graph
 	// cannot own this.

@@ -496,11 +496,17 @@ this renderer have measured as worth nothing.
 
 ### Phase 9 — Post processing *(the pass that already exists, extended)*
 
-The chain today is **bloom, ACES tonemap and a choice of FXAA or SMAA**, in
-`PostProcess`, running
-over the linear HDR target before it reaches the swapchain. Everything below
-hangs off that same pass, which is why this is a phase of small items rather
-than a rewrite: the target, the resolve and the tonemap ordering already exist.
+The chain today is **bloom, ACES tonemap and a choice of six anti-aliasing
+modes**, in `PostProcess`, running over the linear HDR target before it
+reaches the swapchain. Everything below hangs off that same pass, which is
+why this is a phase of small items rather than a rewrite: the target, the
+resolve and the tonemap ordering already exist.
+
+**Where a setting goes is settled (9.0, done).** Every item here adds fields
+to `PostSettings` and to `PostSettingsRegistry`, and nothing else needs
+touching: that pair is what puts a setting on disk in a `.rvpostprofile`, in
+the inspector under the camera that names it, and in front of a C# script.
+ENGINE-NOTES 7s.
 
 **Read this before picking one:** every effect here is cheap to add and easy
 to overuse. The demo scene already looked "dead" once for reasons that turned
@@ -509,6 +515,7 @@ effect that hides a lighting problem is worse than no effect.
 
 | # | Item | Size | Notes |
 |---|---|---|---|
+| 9.0 | **Render settings on the project, a post profile on the camera** | M | **Done 2026-08-14.** The home every item below stores its settings in |
 | 9.1 | Colour grading via a 3D LUT | S | The largest look-per-cost ratio here, and what artists actually reach for. Needs `.cube` loading and a **3D texture in the RHI, which does not exist yet** — the only item here with a prerequisite |
 | 9.2 | Auto exposure / eye adaptation | M | Log-average or histogram luminance via compute, which the engine already has. **Makes the tonemap frame-dependent**, so every screenshot comparison in the repo needs a way to pin it — the same trap `--frame-time` exists for |
 | 9.3 | Vignette, chromatic aberration, film grain | S | Three short additions to the tonemap pass. Cheap enough that the risk is taste, not time |
@@ -516,85 +523,94 @@ effect that hides a lighting problem is worse than no effect.
 | 9.5 | Motion blur | M | **Unblocked 2026-08-14: 7.10 added the motion vectors.** The scene target carries an RG16F velocity attachment, every instance carries its previous world transform, and the sky reports camera-rotation motion — that last one measures nothing under TAA, which has a neighbourhood clip, and exists precisely for this item, which does not. Read ENGINE-NOTES 7r before using the buffer: velocities are jitter-free by construction, and skinned meshes report the object's motion rather than the limb's, because bones are not double-buffered |
 | 9.6 | SSAO / GTAO | M | Contact shadows IBL cannot give. Read §7g first: occlusion maps are already sampled, so measure what this adds over them rather than assuming it is missing |
 | 9.7 | Screen-space reflections | L | Overlaps per-object probes (7.7), which already handle the general case. SSR earns its place on wet floors and little else; the honest version is a *fallback* to the probe, not a replacement |
-| 9.0 | **Render settings belong to the project, overridden by a render profile** | M | **Do this before 9.1–9.7**, because every one of them adds settings and each would otherwise be added to the wrong home. See the note below |
 
-### 9.0, and why it comes first
+### 9.0, done — and what the owner changed about it
 
-Requested 2026-08-14, after a session in which the same settings turned
-out to live in three places at once.
+Requested 2026-08-14, after a session in which the same settings turned out
+to live in three places at once. **Built the same day, to a revised design.**
 
-**Where they live today, and why that is wrong.** Exposure, bloom, shadows
-and anti-aliasing are fields on `SceneEnvironment`, serialized into every
-`.rage` — so they are **per scene**. The anti-aliasing *mode* is also
-written to `ragev.ini` as a machine-wide override, because a viewing
-preference should survive a restart without saving a scene asset. Neither
-is where they belong: a project's look is a property of the project, not of
-whichever scene happens to be open, and duplicating exposure across forty
-scenes means changing it forty times.
+**Where they lived, and why that was wrong.** Exposure, bloom, shadows and
+anti-aliasing were fields on `SceneEnvironment`, serialized into every
+`.rage` — so they were **per scene**. The anti-aliasing *mode* was also
+written to `ragev.ini` as a machine-wide override. Neither is where they
+belong: a project's look is a property of the project, not of whichever
+scene happens to be open, and duplicating exposure across forty scenes means
+changing it forty times.
 
-**The design wanted:**
+**The owner's revision, before any of it was built.** This section originally
+called for two *sparse* profile assets, `.rvrenderprofile` and
+`.rvpostprofile`, layered over project defaults:
 
-**Two profiles, not one, and that is the load-bearing decision.**
-`SceneEnvironment` currently mixes three unrelated kinds of setting, and
-separating them is most of the work:
+> Render setting should be per project basis (and no I am dropping the idea
+> of render profile) and post profile should be optional and it should be an
+> asset that can be attachable to camera component.
 
-- **`.rvrenderprofile`** — how the frame is *rendered*. Anti-aliasing and
-  its samples, shadow resolution, cascades and distance, probe
-  resolution. These are **cost** knobs: what this hardware can afford.
-- **`.rvpostprofile`** — how the rendered frame is *graded*. Exposure,
-  bloom, tone mapping, and everything 9.1–9.7 adds — LUT, vignette, DOF,
-  motion blur. These are **look** knobs: authored content.
-- **The scene keeps what is genuinely scene content** — ambient colour,
-  the sky and its rotation. Those describe the place, not the pipeline,
-  and belong where they are.
+Both changes remove work, and the second removes a class of bug. A sparse
+layer needs a per-field "is this set?" bit, a UI that renders "inherited"
+distinctly from "happens to equal the default", and a merge step — this
+section used to call that the part to design for. A profile *attached to a
+camera* needs none of it: there is nothing underneath to inherit from, so
+every field a profile holds is a value it means. Sparseness was only ever
+forced by the layering.
 
-They are separate because **they vary along different axes and layer
-differently.** A render profile is chosen per machine or per build — it is
-a quality preset, and the same game at Low and High should still look like
-itself. A post profile is chosen per scene, and eventually per volume — a
-cave and a courtyard want different grades at identical quality. Folding
-them into one asset forces every quality preset to restate the whole look,
-and every look to restate the whole quality, which is how a settings system
-becomes a copy-paste surface.
+**What was built.**
 
-So there are two resolution orders, both sparse and per-field:
+| Home | Holds | Read by |
+|---|---|---|
+| `.rvproject` → `RenderSettings` | AA and its three parameters, shadows | The frame graph, once per frame |
+| `.rvpostprofile` → `PostSettings` | Exposure, bloom, **and all of 9.1–9.7** | The camera that names it |
+| `.rage` → `SceneEnvironment` | Ambient, sky, sky rotation, sky texture | The scene pass |
 
-    render:  project → render profile → (machine: ragev.ini, --aa=)
-    post:    project → post profile   → scene → (eventually: volume)
+    render:  project        →  ragev.ini / --aa=
+    post:    engine default →  the camera's profile, if it has one
 
-The current `--aa=` flag and `ragev.ini` key become the last and narrowest
-render layer rather than a special case, which is what removes the "the ini
-overrides every scene" wart 7.10 introduced.
+The post chain has no project layer on purpose: "no profile" already means
+something definite — the struct's defaults, which is what every scene
+rendered with before — and a project-wide post block would be a second
+answer to the same question.
 
-**Profile rather than override file is also a decision, not a name.** A
-profile is a named asset, so a project can hold several and select between
-them, which is what presets are; an anonymous override file can only ever
-be *the* override. It also inherits what assets already have here — a
-handle, the content browser, the inspector — instead of a bespoke file-path
-setting.
+On the camera rather than the scene because a grade describes a *view* and a
+scene can hold several; the editor already renders two at once. It is also
+where a post **volume** would write when it blends one grade into another,
+which answers the open question this section used to carry about volumes by
+putting the field where a volume would reach it.
 
-The consequence to design for: **a profile is sparse and the UI has to show
-that.** A field the profile does not set must read as "inherited" rather
-than as a value that happens to match, or the first person to touch a
-slider silently pins every setting on that row.
+**The part that decided whether it was maintainable.** All three blocks are
+read and written through their registry, by one pair of functions in
+`Scene/FieldSerializer`. The four hand-written lists this replaced are where
+`TemporalFeedback` went missing — registered, inspectable, serialized
+nowhere, so it reset on every load. The checks enforce the shape rather than
+a list: set every registered field to a non-default value, round-trip,
+compare. A field the writer cannot carry fails that, whatever it is called.
 
-**The part that decides whether this is maintainable.**
-`RenderSettingsRegistry` already knows what every setting *is* — its name,
-type, range and help. Each of these layers must be **read and written
-through the registry**, not through a hand-written list per file format.
-Today the scene serializer is a hand-written list, and it drifted: a
-setting the registry described was never written, so it silently reset on
-every load and a scene file setting it was ignored (§7r). Three more
-hand-written lists is that bug three more times.
+**What happened to the scenes already on disk.** Scene version 6. A
+version-5 scene still carries the moved keys and the loader still reads them
+— but only to *report* them, naming each and where it went. Migrating would
+mean a scene load silently editing the project file or minting an asset;
+dropping is what `TemporalFeedback` did. Only keys whose value differs from
+the default are named, so the generated test scenes do not produce a warning
+that means nothing — and `Knockdown/Main.rage`, which stores the full block
+at its defaults, loads silently.
 
-**Open questions to settle when it is built**, rather than discovered:
-does a render profile ship with a packaged game (a player-facing quality
-menu) or is it a developer tool; does a profile apply to the editor's
-viewport, the game viewport, or both; whether the post profile eventually
-becomes a *volume* the camera blends between, since that is where this
-design leads and it is much cheaper to allow for now than to retrofit;
-and what happens to the settings already stored in existing `.rage` files
-— split into the two profiles on first open, or left as the scene layer.
+**One thing outside the engine had to change.** `make_aa_scene.py` and
+`make_motion_scene.py` write `BloomEnabled: false`, because bloom spreads a
+bright edge across exactly the pixels those checks measure. After the move
+that key was inert. Both generators now write a `.rvpostprofile` beside the
+scene, with its own `.meta` so the handle is fixed rather than minted on
+first scan, and point the camera at it — the same path a person uses,
+exercised on every run. `check_taa_motion.py` reproduces its recorded numbers
+to three decimal places through the new path, which is what says the move
+changed no pixels.
+
+**A stale threshold this surfaced, in a different check.** `check_smaa.py`
+required TAA to be 1.5x better than no filter on a static scene. That number
+was measured when the feedback default was 0.9; 7.10 moved it to 0.6 and
+re-calibrated `check_taa_motion.py` but not this one, so it has been failing
+at two of four angles ever since on a build working exactly as intended.
+Re-measured at 0.0, 0.6 and 0.9 and set to 1.25, which every angle clears at
+the shipped default and every angle fails with accumulation switched off.
+The same lesson §7r wrote down about itself: a threshold is only worth having
+at the setting it actually runs at.
 
 **Ordering, if it matters:** 9.3 then 9.1 gives most of the visible "graded"
 look for very little. 9.2 changes how everything else is judged, so it belongs

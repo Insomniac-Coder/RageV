@@ -249,12 +249,86 @@ Vec3 v = <span class="tok-call">GetLinearVelocity</span>();
 </code></pre></figure>
 <p>This is not ceremony. A script written against <code>&quot;Jump&quot;</code> keeps working when the player rebinds it, when a gamepad is added, and when the same action is bound to two things at once. A script written against a key code does none of that.</p>
 <p>Edges — <code>WasActionPressed</code> and <code>WasActionReleased</code> — are consumed by the first step that runs, and a frame with no steps carries them forward rather than losing them. So a press is never missed and never seen twice.</p>
+<h3 id="one-extra-line-once-there-is-a-ui">One extra line, once there is a UI<a class="anchor" href="#one-extra-line-once-there-is-a-ui" aria-label="Link to this section">#</a></h3>
+<p>The action map does not know a canvas exists. So a click on a pause button is also a click at the world behind it, and the bug shows up as <em>&quot;the gun fires when I open the menu&quot;</em> — a gameplay symptom, nowhere near the menu that caused it. The fix is a guard, and it belongs on every pointer action in the game:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">if</span> (!<span class="tok-call">IsPointerOverUI</span>() &amp;&amp; <span class="tok-call">WasActionPressed</span>(<span class="tok-string">&quot;Fire&quot;</span>))
+    <span class="tok-call">Fire</span>();
+</code></pre></figure>
+<p>Keyboard actions are unaffected. <code>IsPointerOverUI</code> is true while the pointer is over a button — or over a rectangle whose <code>BlocksPointer</code> is set, which is how a modal&#39;s backdrop stops the world behind it — and it stays true for the <em>whole</em> of a press that began on a button, even if the hand has since moved off it.</p>
+<h2 id="the-game-s-ui">The game&#39;s UI<a class="anchor" href="#the-game-s-ui" aria-label="Link to this section">#</a></h2>
+<p>A button is a <code>UIImageComponent</code> and a <code>UIButtonComponent</code> on one entity, with a label as a child. <strong>There are two ways to hear about a click</strong>, and they are the same click seen twice — use whichever fits, not both on one button.</p>
+<h3 id="the-button-calls-your-method">The button calls your method<a class="anchor" href="#the-button-calls-your-method" aria-label="Link to this section">#</a></h3>
+<p>Register the method, then pick it from the button&#39;s <strong>On Click</strong> in the inspector:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">class</span> Menu : <span class="tok-keyword">public</span> <span class="tok-type">ScriptableEntity</span>
+{
+<span class="tok-keyword">public</span>:
+    <span class="tok-keyword">void</span> <span class="tok-call">StartGame</span>() { <span class="tok-comment">/* ... */</span> }
+    <span class="tok-keyword">void</span> <span class="tok-call">Quit</span>()      { <span class="tok-comment">/* ... */</span> }
+};
+
+<span class="tok-call">RV_REGISTER_SCRIPT</span>(Menu)
+    .Method&lt;&amp;Menu::StartGame&gt;(<span class="tok-string">&quot;StartGame&quot;</span>)
+    .Method&lt;&amp;Menu::Quit&gt;(<span class="tok-string">&quot;Quit&quot;</span>);
+</code></pre></figure>
+<p>C++ has no reflection, so the engine cannot find <code>StartGame</code> on its own — the registration is how the name gets into the dropdown. (C# needs no equivalent; see the C# guide.) The method must be <strong>public</strong>, take no arguments and return <code>void</code>; anything else fails to compile at the registration line, naming the method.</p>
+<p>The button&#39;s <strong>Target</strong> is which entity&#39;s script to call. Leave it empty for the button&#39;s own entity, which is what a script sitting on the button wants.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>The name in the scene file has no compiler behind it.</strong> Rename <code>StartGame</code> in your code and the scene still says <code>&quot;StartGame&quot;</code> — the build succeeds and the button stops working. So a binding that resolves to nothing <strong>logs a warning on every click</strong>, naming the button, the target and the method. If a button does nothing, read the log before reading the code.</p>
+</aside>
+<h3 id="your-script-asks-the-button">Your script asks the button<a class="anchor" href="#your-script-asks-the-button" aria-label="Link to this section">#</a></h3>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">Timestep</span>) <span class="tok-keyword">override</span>
+{
+    <span class="tok-keyword">if</span> (<span class="tok-call">WasButtonClicked</span>())
+        m_Score++;
+}
+</code></pre></figure>
+<p>Reach for this when the script is on the button itself, or when one manager reads several buttons — <code>if (WasButtonClicked(m_Start))</code> and <code>if (WasButtonClicked(m_Quit))</code> in one place is often clearer than two bindings pointing back at it.</p>
+<p>On the fixed step, not the frame: a click is an event the game acts on, and acting on it twice because one frame ran two steps is exactly what the edge contract exists to prevent. It is the same contract <code>WasActionPressed</code> has — consumed by the first step that runs, carried forward by a frame with none. <strong>Both</strong> mechanisms honour it, so a bound method is also called exactly once per click.</p>
+<p>Text is written the same way it is read:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">SetText</span>(<span class="tok-call">FindEntityByName</span>(<span class="tok-string">&quot;Score&quot;</span>), <span class="tok-string">&quot;Score: &quot;</span> + <span class="tok-type">std</span>::<span class="tok-call">to_string</span>(m_Score));
+</code></pre></figure>
+<p>A press that slides off the button before the release is <strong>cancelled</strong>, not delivered — the same behaviour every desktop toolkit has, and the difference between a button and a tripwire. Coming back to it before letting go completes the click.</p>
+<p><code>ClickCounter</code> in <code>BuiltinScripts.cpp</code> is the whole of a working button in about a dozen lines.</p>
+<h2 id="render-settings">Render settings<a class="anchor" href="#render-settings" aria-label="Link to this section">#</a></h2>
+<p>Live, and there are <strong>three</strong> of them, because a setting has three owners.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Accessor</th><th style="text-align:left">Holds</th><th style="text-align:left">Stored in</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>GetRenderSettings()</code></td><td style="text-align:left">Anti-aliasing and its parameters, shadows</td><td style="text-align:left">The <code>.rvproject</code></td></tr>
+<tr><td style="text-align:left"><code>GetPostSettings()</code></td><td style="text-align:left">Exposure, bloom — the grade</td><td style="text-align:left">A <code>.rvpostprofile</code> the camera names</td></tr>
+<tr><td style="text-align:left"><code>GetEnvironment()</code></td><td style="text-align:left">Ambient light, the sky</td><td style="text-align:left">The <code>.rage</code></td></tr>
+</tbody></table></div>
+<p>All three are read when the frame is built, so a change made in <code>OnTick</code> or <code>OnFrame</code> is on screen that frame.</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">class</span> Flashbang : <span class="tok-keyword">public</span> RageV::<span class="tok-type">ScriptableEntity</span>
+{
+<span class="tok-keyword">public</span>:
+    <span class="tok-keyword">void</span> <span class="tok-call">Detonate</span>() { m_Remaining = <span class="tok-number">2.0f</span>; }
+
+    <span class="tok-keyword">void</span> <span class="tok-call">OnFrame</span>(RageV::<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
+    {
+        <span class="tok-keyword">if</span> (m_Remaining &lt;= <span class="tok-number">0.0f</span>)
+            <span class="tok-keyword">return</span>;
+
+        m_Remaining -= dt;
+
+        <span class="tok-comment">// Blown out, recovering over two seconds.</span>
+        <span class="tok-keyword">if</span> (RageV::PostSettings* post = <span class="tok-call">GetPostSettings</span>())
+            post-&gt;Exposure = <span class="tok-number">1.0f</span> + <span class="tok-number">4.0f</span> * <span class="tok-type">std</span>::<span class="tok-call">max</span>(m_Remaining, <span class="tok-number">0.0f</span>) / <span class="tok-number">2.0f</span>;
+    }
+
+<span class="tok-keyword">private</span>:
+    <span class="tok-type">float</span> m_Remaining = <span class="tok-number">0.0f</span>;
+};
+</code></pre></figure>
+<p><strong><code>GetPostSettings()</code> is null when the primary camera has no profile</strong>, which is the honest answer rather than a silent no-op: with no profile there is no grade to write to. Attach a <code>.rvpostprofile</code> in the inspector — the Post profile row on the camera has a <strong>New post profile…</strong> entry — and it stops being null.</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">GetRenderSettings</span>().AA = RageV::AntiAliasing::SMAA;
+<span class="tok-call">GetEnvironment</span>().AmbientIntensity = <span class="tok-number">0.0f</span>;
+</code></pre></figure>
+<p><strong>None of these is saved.</strong> They are a runtime override; a game dimming its own bloom should not quietly edit an asset. The editor drops its cached profiles when Play stops, so a grade a script changed is back to the file&#39;s by the time you are editing again.</p>
+<p>C# reaches all three through one flat namespace of names — <code>RenderSettings.Exposure</code> and friends, over a name and a piece of text rather than the struct, because a struct cannot cross that boundary. Which block a name belongs to is resolved on this side.</p>
 <h2 id="time">Time<a class="anchor" href="#time" aria-label="Link to this section">#</a></h2>
 <figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">const</span> <span class="tok-type">float</span> step = <span class="tok-call">GetFixedDeltaTime</span>();   <span class="tok-comment">// the same value dt carries</span>
 <span class="tok-keyword">const</span> <span class="tok-type">float</span> now  = <span class="tok-call">GetTime</span>();             <span class="tok-comment">// seconds since the process started</span>
 </code></pre></figure>
 <h2 id="the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples<a class="anchor" href="#the-engine-s-own-scripts-as-worked-examples" aria-label="Link to this section">#</a></h2>
-<p><code>RageV/src/RageV/Scripts/BuiltinScripts.cpp</code> contains six scripts that ship with the engine and are readable in about ten minutes:</p>
+<p><code>RageV/src/RageV/Scripts/BuiltinScripts.cpp</code> contains seven scripts that ship with the engine and are readable in about ten minutes:</p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Script</th><th style="text-align:left">What it demonstrates</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>Spinner</code></td><td style="text-align:left">The minimum: one override, rate multiplied by <code>dt</code></td></tr>
 <tr><td style="text-align:left"><code>Mover</code></td><td style="text-align:left">Input by action, movement relative to the entity&#39;s own axes</td></tr>
@@ -262,6 +336,7 @@ Vec3 v = <span class="tok-call">GetLinearVelocity</span>();
 <tr><td style="text-align:left"><code>ImpactFlash</code></td><td style="text-align:left">Collision events driving a material change</td></tr>
 <tr><td style="text-align:left"><code>ImpactSound</code></td><td style="text-align:left">Scaling a sound by <code>ImpactSpeed</code></td></tr>
 <tr><td style="text-align:left"><code>TriggerZone</code></td><td style="text-align:left">Trigger enter/exit bookkeeping, including the sleep caveat</td></tr>
+<tr><td style="text-align:left"><code>ClickCounter</code></td><td style="text-align:left">A working UI button: poll the click, write the label</td></tr>
 </tbody></table></div>
 <p>They exist partly so that pressing Play does something observable out of the box, and partly to be exactly this: the worked examples of what reads well.</p>
 <h2 id="common-mistakes">Common mistakes<a class="anchor" href="#common-mistakes" aria-label="Link to this section">#</a></h2>
@@ -277,7 +352,7 @@ Vec3 v = <span class="tok-call">GetLinearVelocity</span>();
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/index.html"><span class="pager-label">Previous</span><span class="pager-title">Scripting</span></a><a class="pager-link pager-next" href="../scripting/cpp-reference.html"><span class="pager-label">Next</span><span class="pager-title">C++ API reference</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#registering">Registering</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#two-rates-and-choosing-between-them">Two rates, and choosing between them</a><a class="toc-link toc-l3" href="#why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame</a><a class="toc-link toc-l3" href="#ordering-exactly">Ordering, exactly</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#finding-other-entities">Finding other entities</a><a class="toc-link toc-l2" href="#spawning-and-destroying">Spawning and destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l3" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l3" href="#pitch">Pitch</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#time">Time</a><a class="toc-link toc-l2" href="#the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#registering">Registering</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#two-rates-and-choosing-between-them">Two rates, and choosing between them</a><a class="toc-link toc-l3" href="#why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame</a><a class="toc-link toc-l3" href="#ordering-exactly">Ordering, exactly</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#finding-other-entities">Finding other entities</a><a class="toc-link toc-l2" href="#spawning-and-destroying">Spawning and destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l3" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l3" href="#pitch">Pitch</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l3" href="#one-extra-line-once-there-is-a-ui">One extra line, once there is a UI</a><a class="toc-link toc-l2" href="#the-game-s-ui">The game&#39;s UI</a><a class="toc-link toc-l3" href="#the-button-calls-your-method">The button calls your method</a><a class="toc-link toc-l3" href="#your-script-asks-the-button">Your script asks the button</a><a class="toc-link toc-l2" href="#render-settings">Render settings</a><a class="toc-link toc-l2" href="#time">Time</a><a class="toc-link toc-l2" href="#the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>

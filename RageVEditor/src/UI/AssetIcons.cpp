@@ -146,6 +146,21 @@ namespace RageV::UI
 			c.Disc(0.86f, 0.26f, 0.075f);
 		}
 
+		// A lens with a graded gradient across it: the frame, after something
+		// has been done to it. Deliberately not a slider or a stack of
+		// sliders -- half the icons in a settings UI are sliders, and the
+		// thing this names is the *look*, not the controls that produce it.
+		void PostProfile(const Canvas& c)
+		{
+			c.Circle(0.50f, 0.50f, 0.34f);
+
+			// Three chords across the lower half, shortening as they go: a
+			// ramp read at icon size, where a real gradient is a grey blob.
+			c.Line(0.22f, 0.62f, 0.78f, 0.62f);
+			c.Line(0.29f, 0.72f, 0.71f, 0.72f);
+			c.Line(0.40f, 0.80f, 0.60f, 0.80f);
+		}
+
 		// --- everything else in a project's folders ------------------------
 
 		// Angle brackets and a slash. The most universally read "this is code"
@@ -444,6 +459,7 @@ namespace RageV::UI
 			case AssetType::Scene:    return IconKind::Scene;
 			case AssetType::Audio:    return IconKind::Audio;
 			case AssetType::Curve:    return IconKind::Curve;
+			case AssetType::PostProfile: return IconKind::PostProfile;
 			default:                  return IconKind::Unknown;
 		}
 	}
@@ -521,6 +537,7 @@ namespace RageV::UI
 			case IconKind::Scene:    Scene(canvas);    break;
 			case IconKind::Audio:    Audio(canvas);    break;
 			case IconKind::Curve:    Curve(canvas);    break;
+			case IconKind::PostProfile: PostProfile(canvas); break;
 			case IconKind::Script:   Script(canvas);   break;
 			case IconKind::Shader:   Shader(canvas);   break;
 			case IconKind::Font:     Font(canvas);     break;

@@ -6,6 +6,7 @@
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Animation/Skeleton.h"
 #include "RageV/Renderer/Material.h"
+#include "RageV/Renderer/PostSettings.h"
 #include "MaterialSerializer.h"
 #include "Curve.h"
 #include "Font.h"
@@ -121,6 +122,52 @@ namespace RageV::Assets
 		// What the editor calls when somebody finishes dragging a point --
 		// without it, an edited curve keeps rendering as the old shape.
 		static void ReloadCurve(AssetHandle handle);
+
+		// How the camera naming this profile grades its frame.
+		//
+		// **By value, and it never fails.** An invalid handle, an unknown one
+		// and a file that will not parse all answer the neutral grade -- the
+		// same thing a camera with no profile renders. That is the one design
+		// decision in this function: a null return would put the "and what if
+		// there is no profile?" branch at every call site, where the editor's
+		// two viewports, the runtime and the probe capture would each have to
+		// keep their copy of it identical.
+		//
+		// No device needed. A grade is six numbers, so the suite can exercise
+		// profiles headlessly.
+		static PostSettings GetPostSettings(AssetHandle handle);
+
+		// The same profile, *writable*, or null when the handle names none.
+		//
+		// This is the cached copy the renderer reads, so a write lands on the
+		// next frame -- which is what a script dimming exposure for a flashbang
+		// wants, and what the inspector's live preview is. It is deliberately
+		// **not** written to disk: saving is a separate act, so a game altering
+		// its own grade at runtime does not silently edit the asset.
+		//
+		// The pointer is owned by the cache and stays valid until
+		// ReloadPostProfile or a project change -- long enough to write
+		// through, too short to store.
+		static PostSettings* GetPostProfile(AssetHandle handle);
+
+		// Writes a `.rvpostprofile` beside the other assets and returns its
+		// handle. What the camera's "New post profile..." does.
+		static AssetHandle CreatePostProfile(const PostSettings& settings,
+											 const std::filesystem::path& relativePath);
+
+		// Drops the cached copy so the next GetPostSettings reads the file.
+		// The inspector calls it after writing an edit through, which is what
+		// makes a grade change visible on the next frame rather than the next
+		// launch.
+		static void ReloadPostProfile(AssetHandle handle);
+
+		// Drops every cached profile.
+		//
+		// What the editor calls when play mode ends. A running game may have
+		// written to a profile through GetPostProfile, and those writes are
+		// runtime overrides -- the scene's own state is restored from the
+		// snapshot on stop, and this is the same promise for the grade.
+		static void ReloadAllPostProfiles();
 
 		// A baked font: the metrics table from a `.rvfont`. Null when the
 		// handle is unknown or the file will not load, and the failure is

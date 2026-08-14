@@ -12,6 +12,7 @@
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Project/Project.h"
+#include "UI/FieldEditor.h"
 #include "RageV/Managed/Interop.h"
 #include "RageV/Project/ModuleBuild.h"
 #include "RageV/Project/GameModule.h"
@@ -129,6 +130,12 @@ void EditorLayer::OnAttach()
 
 	m_ContentBrowser.SetActivateCallback(
 		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
+
+	// One click points the Properties panel at the file. Two opens it, which
+	// the callback above still handles -- a scene load is destructive enough
+	// that it must not happen because somebody looked at a file.
+	m_ContentBrowser.SetSelectCallback(
+		[this](AssetHandle handle, AssetType) { m_SceneHierarchyPanel.SetInspectedAsset(handle); });
 
 	// The scene itself is opened in OnLoad, on the boot worker. Everything
 	// above needs the device and is cheap; parsing a scene and pulling in its
@@ -405,6 +412,11 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Width = (uint32_t)m_ViewportSize.x;
 	scene.Height = (uint32_t)m_ViewportSize.y;
 	scene.Environment = m_Scene->GetEnvironment();
+	// Cost from the project, grade from the primary camera's profile. The
+	// viewport shows what the game shows, deliberately: a grade you cannot
+	// see while authoring is a grade you author blind. ENGINE-NOTES 7s.
+	scene.Render = Project::Render();
+	scene.Post = m_Scene->GetPostSettings();
 	scene.ClearColor = Vec4(m_ClearColor, 1.0f);
 	scene.OutputFormat = kViewportFormat;
 	scene.History = &m_SceneHistory;
@@ -483,6 +495,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Width = (uint32_t)m_GameViewportSize.x;
 		game.Height = (uint32_t)m_GameViewportSize.y;
 		game.Environment = m_Scene->GetEnvironment();
+		game.Render = Project::Render();
+		game.Post = m_Scene->GetPostSettings();
 		game.ClearColor = Vec4(m_ClearColor, 1.0f);
 		game.OutputFormat = kViewportFormat;
 		game.History = &m_GameHistory;
@@ -758,6 +772,13 @@ void EditorLayer::OnSceneStop()
 
 	m_SceneSnapshot.clear();
 	m_Commands.Clear();
+
+	// The same promise the snapshot above makes, for the one piece of state a
+	// snapshot cannot reach. A running game may have written to a post profile
+	// through GetPostSettings -- that is a runtime override and deliberately
+	// not saved -- so the cached copies go and the next frame reads the files.
+	Assets::Manager::ReloadAllPostProfiles();
+
 	RV_INFO("Stop");
 
 	// A C# build that finished mid-play parked its assembly here: the swap
@@ -801,6 +822,13 @@ void EditorLayer::OnImGuiRender()
 	ImGui::SetNextWindowPos(viewport->WorkPos);
 	ImGui::SetNextWindowSize(viewport->WorkSize);
 	ImGui::SetNextWindowViewport(viewport->ID);
+
+	// Remembered every frame so that SavePanelState can write it without
+	// touching the window -- it also runs from the destructor, by which point
+	// the application may have taken the window down. `Size`, not `WorkSize`:
+	// the frame, not the area inside the menu bar, because that is what
+	// --width/--height set on the way back in.
+	m_WindowSize = viewport->Size;
 
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -899,6 +927,12 @@ void EditorLayer::OnImGuiRender()
 			m_PendingContentFolder.clear();
 		}
 
+		// Kept in step in this direction as well, so selecting an entity --
+		// which drops the inspected asset -- also drops the browser's
+		// highlight. A cell that still looks current when the panel beside it
+		// is showing something else is the kind of small lie that costs a
+		// minute of confusion every time it happens.
+		m_ContentBrowser.SetSelected(m_SceneHierarchyPanel.GetInspectedAsset());
 		m_ContentBrowser.OnImGuiRender(&m_ShowContentBrowser);
 	}
 	if (m_ShowDemoWindow)      ImGui::ShowDemoWindow(&m_ShowDemoWindow);
@@ -1066,6 +1100,25 @@ void EditorLayer::SavePanelState()
 	file << "content-folder = "  << m_ContentBrowser.GetCurrentFolder() << "\n";
 	file << "layout-width = "    << (int)m_LastDockSize.x << "\n";
 	file << "layout-height = "   << (int)m_LastDockSize.y << "\n";
+
+	// The *window* size, which is a different thing from the two above -- those
+	// are the dock area the layout was last built for, and this is the frame
+	// around it.
+	//
+	// It goes to `ragev.ini` rather than here, beside vsync, the backend and
+	// the anti-aliasing preference: those are what `--width`/`--height` and
+	// their ini keys already read at startup, so writing them means the size
+	// is restored by machinery that already exists rather than by a second
+	// path that would have to be kept in step with it. panels.ini is per
+	// project; a window size is per machine.
+	//
+	// From the value sampled during the last frame rather than from the window
+	// itself, because this also runs from the layer's destructor -- and by
+	// then the application may already have taken the window down.
+	//
+	// SaveWindowSize refuses a zero, which is what a minimised window reports
+	// and is not a size anybody asked to come back to.
+	EngineConfig::SaveWindowSize((uint32_t)m_WindowSize.x, (uint32_t)m_WindowSize.y);
 }
 
 bool EditorLayer::LayoutVersionMatches()
@@ -1818,313 +1871,139 @@ void EditorLayer::DrawRenderSettingsPanel()
 
 	UI::RowColor3("Clear colour", Math::ValuePtr(m_ClearColor));
 
-	UI::SectionHeader("Environment");
+	// --- what the frame costs: the project ----------------------------------
+	UI::SectionHeader("Render settings");
 
-	// The ambient term used to be two constants inside pbr.rvshader with no way
-	// to reach them. It is still a flat approximation of IBL, but it is a value
-	// now, and it is stored with the scene rather than with the editor.
-	if (m_Scene)
+	if (!Project::GetActive())
 	{
-		SceneEnvironment& environment = m_Scene->GetEnvironment();
+		ImGui::TextDisabled("No project open.");
+	}
+	else
+	{
+		UI::TextCaption("Stored in %s -- shared by every scene in this project",
+						Project::File().filename().string().c_str());
 
-		// Captured when the widget takes focus and recorded when it lets go,
-		// so a drag across the slider is one undo step.
-		auto trackAmbient = [&](const char* label)
+		RenderSettings& render = Project::Render();
+
+		// The whole block, from the registry. The forty hand-written rows this
+		// replaced are where the drift lived: TemporalFeedback had a row here,
+		// a registry entry and no serializer, so it reset on every load.
+		// ENGINE-NOTES 7s.
+		const RenderSettings beforeRender = render;
+		const AntiAliasing modeBefore = render.AA;
+
+		if (!m_RenderEditDirty)
+			m_RenderBefore = render;
+
+		if (UI::DrawFields(RenderSettingsRegistry::Fields(), &render))
 		{
-			if (ImGui::IsItemActivated())
-				m_AmbientBefore = environment;
+			m_RenderEditDirty = true;
 
-			if (ImGui::IsItemDeactivatedAfterEdit())
+			// Anti-aliasing answers to two more places, and a change has to
+			// reach both or the panel and the picture disagree.
+			if (render.AA != modeBefore)
 			{
-				const SceneEnvironment before = m_AmbientBefore;
-				const SceneEnvironment after = environment;
-				std::weak_ptr<Scene> scene = m_Scene;
+				// The live override is what makes the choice visible on the
+				// next frame instead of the next launch.
+				EngineConfig::SetAntiAliasingOverride(render.AA);
 
-				m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
-					label,
-					[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
-					[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
+				// And ragev.ini is what makes it survive a restart. Which
+				// filter to run is partly a judgement about this machine, so
+				// it is remembered per machine as well as per project.
+				EngineConfig::SaveAntiAliasingPreference(render.AA);
 			}
-		};
-
-		UI::RowColor3("Ambient colour", Math::ValuePtr(environment.AmbientColor));
-		trackAmbient("Ambient colour");
-		UI::RowDragFloat("Ambient intensity",
-		&environment.AmbientIntensity,
-		0.005f,
-		0.0f,
-		4.0f,
-		"%.3f",
-		"A single colour arriving from every direction. It cannot vary with view "
-				   "angle or roughness the way a real environment does -- image-based lighting "
-				   "replaces it, and falls back to it for scenes with no environment map.\n\n"
-				   "Set the intensity to 0 for pure direct lighting.");
-		trackAmbient("Ambient intensity");
-
-		UI::SectionHeader("Sky");
-
-		const char* skyModes[] = { "Colour", "Gradient", "Environment map" };
-		int sky = (int)environment.Sky;
-		if (UI::RowCombo("Background",
-		&sky,
-		skyModes,
-		IM_ARRAYSIZE(skyModes),
-		"Colour draws nothing and leaves the clear colour, which is what a 2D or "
-				   "UI-only scene wants.\n\nGradient costs no asset.\n\nAn environment map is "
-				   "a panorama -- .hdr for values brighter than white -- or one face of a "
-				   "six-file set, in which case the other five come with it."))
-		{
-			const SceneEnvironment before = environment;
-			environment.Sky = (SkyType)sky;
-			const SceneEnvironment after = environment;
-			std::weak_ptr<Scene> scene = m_Scene;
-
-			// Pushed here rather than through trackAmbient: a combo commits on
-			// the click that closes it, so there is no activate/deactivate pair
-			// for a drag to sit between.
-			m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
-				"Background",
-				[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
-				[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
 		}
 
-		if (environment.Sky == SkyType::Gradient)
+		// One undo step per gesture rather than one per frame: the value is
+		// captured before the first change and recorded once nothing is being
+		// dragged any more.
+		if (m_RenderEditDirty && !ImGui::IsAnyItemActive())
 		{
-			UI::RowColor3("Horizon", Math::ValuePtr(environment.SkyHorizon));
-			trackAmbient("Sky horizon");
-			UI::RowColor3("Zenith", Math::ValuePtr(environment.SkyZenith));
-			trackAmbient("Sky zenith");
-			UI::RowColor3("Ground", Math::ValuePtr(environment.SkyGround));
-			trackAmbient("Sky ground");
-		}
+			m_RenderEditDirty = false;
 
-		if (environment.Sky == SkyType::Cubemap)
-		{
-			const std::string name = Assets::Manager::GetDisplayName(environment.SkyTexture);
-			ImGui::Button(name.c_str(), ImVec2(-1.0f, 0.0f));
-
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ASSET"))
-				{
-					const AssetHandle dropped = *(const AssetHandle*)payload->Data;
-
-					// Refused rather than stored, for the same reason the
-					// inspector's asset fields refuse: a handle of the wrong
-					// type resolves to nothing, and the field would present as
-					// simply not working.
-					if (Assets::Registry::GetMetadata(dropped).Type == AssetType::Texture)
-					{
-						const SceneEnvironment before = environment;
-						environment.SkyTexture = dropped;
-						const SceneEnvironment after = environment;
-						std::weak_ptr<Scene> scene = m_Scene;
-
-						m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
-							"Environment map",
-							[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
-							[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
-					}
-				}
-				ImGui::EndDragDropTarget();
-			}
-
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Drop a texture from the Content browser.");
-
-			float degrees = Math::Degrees(environment.SkyRotation);
-			if (UI::RowDragFloat("Sky rotation",
-		&degrees,
-		0.5f,
-		-360.0f,
-		360.0f,
-		"%.1f deg",
-		"A panorama points wherever it was shot, and the scene was not built "
-					   "to match it."))
-				environment.SkyRotation = Math::Radians(degrees);
-			trackAmbient("Sky rotation");
-		}
-
-		if (environment.Sky != SkyType::Color)
-		{
-			UI::RowDragFloat("Sky intensity", &environment.SkyIntensity, 0.01f, 0.0f, 16.0f);
-			trackAmbient("Sky intensity");
-		}
-
-		UI::SectionHeader("Post processing");
-
-		UI::RowDragFloat("Exposure",
-		&environment.Exposure,
-		0.01f,
-		0.01f,
-		16.0f,
-		"%.3f",
-		"Applied before the tone curve, which is what makes this an exposure "
-				   "control rather than a brightness one: it slides the scene along the "
-				   "response curve instead of scaling the result of it.");
-		trackAmbient("Exposure");
-
-		UI::RowCheckbox("Bloom", &environment.BloomEnabled);
-		trackAmbient("Bloom");
-
-		if (environment.BloomEnabled)
-		{
-			UI::RowDragFloat("Threshold",
-		&environment.BloomThreshold,
-		0.01f,
-		0.0f,
-		16.0f,
-		"%.3f",
-		"Brightness at which a pixel starts to bleed. Above 1, only things "
-					   "genuinely brighter than white glow.");
-			trackAmbient("Bloom threshold");
-
-			UI::RowDragFloat("Knee",
-		&environment.BloomKnee,
-		0.01f,
-		0.0f,
-		4.0f,
-		"%.3f",
-		"Width of the ramp around the threshold. Zero is a hard cut, which "
-					   "pops as something crosses it and reads as flickering.");
-			trackAmbient("Bloom knee");
-
-			UI::RowDragFloat("Intensity", &environment.BloomIntensity, 0.002f, 0.0f, 2.0f);
-			trackAmbient("Bloom intensity");
-		}
-
-		// A combo settles in one click rather than over a drag, so it records
-		// its edit immediately instead of on deactivation.
-		//
-		// **Recording it is what makes it persist**, and that is the whole
-		// reason this is not a bare assignment. An edit that pushes no command
-		// leaves the scene looking unmodified, so nothing prompts to save it
-		// and nothing saves it -- and the next launch reads the scene file,
-		// which still says FXAA. That looked like "the renderer forgets the
-		// setting" and was really "the editor never treated it as a change".
-		auto recordEnvironment = [&](const char* label, const SceneEnvironment& before)
-		{
-			const SceneEnvironment after = environment;
-			std::weak_ptr<Scene> scene = m_Scene;
+			const RenderSettings before = m_RenderBefore;
+			const RenderSettings after = render;
 
 			m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
-				label,
-				[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
-				[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
-		};
+				"Render settings",
+				[after]  { Project::Render() = after;  Project::Save(); },
+				[before] { Project::Render() = before; Project::Save(); }));
 
-		// Only the modes that exist. Offering TAA here and doing nothing would
-		// be worse than not offering it; the roadmap is where "not yet"
-		// belongs.
-		const char* aaModes[] = { "None", "FXAA", "SMAA", "SSAA", "MSAA", "TAA" };
+			// Written now as well as on undo, so there is no Ctrl+S to
+			// remember. A project file is four lines and a settings block.
+			Project::Save();
+		}
 
-		// The *effective* mode, not the scene's stored one. With a preference
-		// in ragev.ini -- or --aa on the command line -- the override is what
-		// actually renders, and a dropdown showing the other value would be a
-		// panel disagreeing with the picture beside it.
+		// Said rather than hidden. `--aa=` on the command line and the
+		// preference in ragev.ini both win over the value above, and a
+		// dropdown that silently showed the winner instead is how "the
+		// renderer forgets my setting" gets reported.
 		const EngineConfig& config = EngineConfig::Get();
-		int aa = (int)(config.HasAAOverride ? config.AAOverride : environment.AA);
-		const SceneEnvironment beforeAA = environment;
-		if (UI::RowCombo("Anti-aliasing",
-		&aa,
-		aaModes,
-		IM_ARRAYSIZE(aaModes),
-		"FXAA is one pass over the tone-mapped image: cheap, no prerequisites, "
-				   "and it softens the picture slightly.\n\n"
-				   "SMAA reconstructs the edge instead of guessing at it -- it finds the "
-				   "run of pixels an edge spans, works out which way the real line sloped, "
-				   "and computes the coverage from that. Three passes over two small "
-				   "intermediates, and sharper for it, including on diagonals.\n\n"
-				   "SSAA draws the whole scene larger and averages it down. It is the "
-				   "only one here that helps with specular sparkle and texture moire, "
-				   "because those are not edges -- they are detail the frame never "
-				   "sampled finely enough, and no filter on the finished image can "
-				   "invent it. Costs the square of the factor in fill.\n\n"
-				   "MSAA takes several coverage samples per pixel but shades once, so "
-				   "geometry edges get several levels of coverage for close to the price "
-				   "of one shaded pixel -- and shading aliasing gets nothing. It resolves "
-				   "before the tone curve, which is the correct place.\n\n"
-				   "TAA offsets the projection by a fraction of a pixel each frame and "
-				   "accumulates, which converges on a supersampled image for the cost of "
-				   "one sample. Standing still it beats every other mode here.\n\n"
-				   "NOT YET CHECKED IN MOTION, which is the only case it is bad at: the "
-				   "sky reports no motion of its own, so it smears when you turn the "
-				   "camera, and the reprojection's vertical direction is reasoned rather "
-				   "than measured. Feedback below trades ghosting against flicker."))
+		if (config.HasAAOverride && config.AAOverride != render.AA)
 		{
-			environment.AA = (AntiAliasing)aa;
-
-			// Three things, from one click, and each answers a different
-			// question about "where does this live".
-			//
-			// The scene edit is what a *packaged game* will use, and being a
-			// recorded edit is what makes it undoable and saveable.
-			recordEnvironment("Anti-aliasing", beforeAA);
-
-			// The live override is what makes the choice visible on the next
-			// frame instead of the next launch.
-			EngineConfig::SetAntiAliasingOverride(environment.AA);
-
-			// And ragev.ini is what makes it survive a restart without anybody
-			// pressing Ctrl+S -- the same place vsync and the backend picker
-			// already keep their answers. Which filter to run is a judgement
-			// about this machine, not about the scene.
-			EngineConfig::SaveAntiAliasingPreference(environment.AA);
-		}
-
-		if (environment.AA == AntiAliasing::MSAA)
-		{
-			UI::RowDragInt("Samples", &environment.MsaaSamples, 0.05f, 1, 8,
-				"Coverage samples per pixel. Costs bandwidth and a little rasterizer "
-					   "work rather than shading, so 4 is an ordinary choice.");
-			trackAmbient("MSAA samples");
-		}
-
-		if (environment.AA == AntiAliasing::SSAA)
-		{
-			UI::RowDragInt("Supersample", &environment.SupersampleFactor, 0.05f, 1, 4,
-				"How many times larger each axis is drawn. Cost is the square of it: "
-					   "2 is four times the pixels shaded, 4 is sixteen.");
-			trackAmbient("Supersample factor");
-		}
-
-		if (environment.AA == AntiAliasing::TAA)
-		{
-			// The format string is a parameter of its own, before the tooltip.
-			// Omitting it puts the help text where printf expects "%.3f", and
-			// a format with no conversion in it renders as itself -- so the
-			// row showed a paragraph of prose where the number belongs.
-			UI::RowDragFloat("Feedback", &environment.TemporalFeedback, 0.005f, 0.0f, 0.98f,
-				"%.3f",
-				"How much of the accumulated image survives each frame. This is the "
-					   "ghosting-versus-flicker dial and there is no correct value: higher "
-					   "converges on a cleaner image and holds onto history that has stopped "
-					   "being true for longer, lower is sharper under motion and noisier "
-					   "standing still. 0.9 halves a sample's influence in about seven frames.");
-			trackAmbient("Temporal feedback");
+			const char* const names[] = { "None", "FXAA", "SMAA", "SSAA", "MSAA", "TAA" };
+			ImGui::TextColored(EditorTheme::Colors().Warning,
+							   "Overridden: rendering with %s", names[(int)config.AAOverride]);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("--aa= on the command line, or the AntiAliasing key in\n"
+								  "ragev.ini. Changing the value above clears the "
+								  "disagreement.");
 		}
 	}
 
+	// --- where the frame is: the scene --------------------------------------
+	UI::SectionHeader("Environment");
+
+	if (!m_Scene)
+	{
+		ImGui::TextDisabled("No scene.");
+	}
+	else
+	{
+		UI::TextCaption("Stored in the scene -- ambient light and the sky");
+
+		SceneEnvironment& environment = m_Scene->GetEnvironment();
+
+		if (!m_EnvironmentEditDirty)
+			m_EnvironmentBefore = environment;
+
+		if (UI::DrawFields(SceneEnvironmentRegistry::Fields(), &environment))
+			m_EnvironmentEditDirty = true;
+
+		if (m_EnvironmentEditDirty && !ImGui::IsAnyItemActive())
+		{
+			m_EnvironmentEditDirty = false;
+
+			const SceneEnvironment before = m_EnvironmentBefore;
+			const SceneEnvironment after = environment;
+			std::weak_ptr<Scene> scene = m_Scene;
+
+			// **Recording it is what makes it persist.** An edit that pushes
+			// no command leaves the scene looking unmodified, so nothing
+			// prompts to save it and nothing saves it -- which looked like
+			// "the renderer forgets the setting" and was really "the editor
+			// never treated it as a change".
+			m_Commands.PushApplied(std::make_unique<ValueEditCommand>(
+				"Environment",
+				[scene, after]  { if (auto s = scene.lock()) s->GetEnvironment() = after; },
+				[scene, before] { if (auto s = scene.lock()) s->GetEnvironment() = before; }));
+		}
+	}
+
+	// **No post-processing section here, deliberately.** Exposure and bloom
+	// belong to a `.rvpostprofile`, and a profile is attached to a *camera* --
+	// so it is edited on the Camera component, where the thing that owns it
+	// is. A copy of those rows in this panel would be a second place to look
+	// and a second place to disagree.
+
 	UI::SectionHeader("Lighting");
 
-	// Shadows are not implemented. A toggle wired to nothing would be worse
-	// than no toggle, so it is present, disabled, and says why.
-	bool shadows = false;
-	ImGui::BeginDisabled();
-	UI::RowCheckbox("Shadows",
-		&shadows,
-		"Meshes use pbr.rvshader with the metallic-roughness parameterisation. "
-			   "Surfaces reflect the scene's environment, with roughness picking a mip "
-			   "rather than a real prefiltered convolution; the diffuse ambient is still "
-			   "the flat term above. The shader writes linear HDR and the tone curve is "
-			   "its own pass.");
-	ImGui::EndDisabled();
-	if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-		ImGui::SetTooltip("Not implemented yet.\n\nThe RHI already carries what shadows need -- depth-only\n"
-						  "render targets, comparison samplers, slope-scaled depth bias,\n"
-						  "cubemap and array textures -- but no shadow pass exists.");
-
-	ImGui::TextDisabled("Shading: Cook-Torrance PBR");
+	// This used to be a disabled "Shadows" checkbox saying shadows were not
+	// implemented, which stopped being true in 3.5 and stayed on screen
+	// anyway. They are implemented, cascaded, and their controls are in the
+	// project's render settings above; what is left here is what this section
+	// can honestly say, which is what the shading model is.
+	ImGui::TextDisabled("Shading: Cook-Torrance PBR, image-based ambient");
 
 	ImGui::End();
 }
@@ -2350,6 +2229,19 @@ void EditorLayer::DrawAboutPopup()
 		m_ShowAbout = false;
 	}
 
+	// Centred on the window, every frame it is open rather than only the frame
+	// it appears.
+	//
+	// `Appearing` is the usual condition and is wrong for a modal: ImGui then
+	// places it once and leaves it at those coordinates, so resizing the
+	// window afterwards leaves the dialog wherever the old centre used to be
+	// -- and on a large enough change, off the edge. A modal has two buttons
+	// and nothing to drag, so there is no user placement for `Always` to
+	// fight; the pivot is the middle of the dialog rather than its corner,
+	// which is what makes this the *centre* and not a top-left at the centre.
+	const ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(ImVec2(viewport->GetCenter()), ImGuiCond_Always,
+							ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Appearing);
 	if (!ImGui::BeginPopupModal("About RageV", nullptr, ImGuiWindowFlags_NoResize))
 		return;
@@ -2400,6 +2292,19 @@ void EditorLayer::DrawBackendRestartPopup()
 		m_BackendSaveAttempted = false;
 	}
 
+	// Centred on the window, every frame it is open rather than only the frame
+	// it appears.
+	//
+	// `Appearing` is the usual condition and is wrong for a modal: ImGui then
+	// places it once and leaves it at those coordinates, so resizing the
+	// window afterwards leaves the dialog wherever the old centre used to be
+	// -- and on a large enough change, off the edge. A modal has two buttons
+	// and nothing to drag, so there is no user placement for `Always` to
+	// fight; the pivot is the middle of the dialog rather than its corner,
+	// which is what makes this the *centre* and not a top-left at the centre.
+	const ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(ImVec2(viewport->GetCenter()), ImGuiCond_Always,
+							ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowSize(ImVec2(430.0f, 0.0f), ImGuiCond_Appearing);
 	if (!ImGui::BeginPopupModal("Restart required", nullptr, ImGuiWindowFlags_NoResize))
 		return;

@@ -6,6 +6,8 @@
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Managed/Interop.h"
+#include "RageV/Scene/ComponentRegistry.h"
+#include "RageV/Scene/FieldSerializer.h"
 #include "yaml-cpp/yaml.h"
 #include <algorithm>
 #include <fstream>
@@ -139,6 +141,13 @@ namespace RageV
 		// steppy and fast collisions tunnel, above 240 it burns CPU for nothing
 		// a display can show.
 		loaded->Config.FixedHz = std::clamp(ReadUInt(project, "FixedHz", 60u), 20u, 240u);
+
+		// Sparse and registry-driven: a project written before a setting
+		// existed keeps that setting's default rather than zeroing it, and a
+		// project written before render settings existed at all reads as the
+		// defaults, which is what it was rendering with.
+		ReadFields(project["RenderSettings"], RenderSettingsRegistry::Fields(),
+				   &loaded->Config.Render);
 
 		s_Active = std::move(loaded);
 
@@ -505,6 +514,15 @@ namespace RageV
 		out << YAML::Key << "AssetDirectory" << YAML::Value << s_Active->Config.AssetDirectory;
 		out << YAML::Key << "StartScene" << YAML::Value << s_Active->Config.StartScene;
 		out << YAML::Key << "FixedHz" << YAML::Value << s_Active->Config.FixedHz;
+
+		// Every registered render setting, and nothing enumerated here. The
+		// list this replaced is the shape of bug §7s exists to close: a field
+		// added to the struct and to the registry but not to a writer is a
+		// field that resets on every load.
+		out << YAML::Key << "RenderSettings" << YAML::Value << YAML::BeginMap;
+		WriteFields(out, RenderSettingsRegistry::Fields(), &s_Active->Config.Render);
+		out << YAML::EndMap;
+
 		out << YAML::EndMap;
 		out << YAML::EndMap;
 
@@ -552,6 +570,11 @@ namespace RageV
 	{
 		static ProjectConfig fallback;
 		return s_Active ? s_Active->Config : fallback;
+	}
+
+	RenderSettings& Project::Render()
+	{
+		return Config().Render;
 	}
 
 	const std::filesystem::path& Project::File()

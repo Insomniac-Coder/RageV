@@ -113,6 +113,21 @@ namespace RageV
 
 		bool fixedAspectRatio = false;
 
+		// How this camera's frame is graded: a `.rvpostprofile`, or nothing.
+		//
+		// **Optional, and invalid means the neutral grade** -- not "no post
+		// processing", which would be a different and much more surprising
+		// thing to have to opt out of. A camera with no profile tone maps and
+		// blooms exactly the way every scene did before profiles existed.
+		//
+		// On the camera rather than on the scene because a grade describes a
+		// *view*, and a scene can hold several: the editor already renders two
+		// of the same scene at once, and one grade between them cannot tell
+		// them apart. It is also where a post *volume* would write when it
+		// wants to blend one grade into another, which is the direction this
+		// goes next. ENGINE-NOTES 7s.
+		AssetHandle PostProfile = AssetHandle::Invalid();
+
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
 	};

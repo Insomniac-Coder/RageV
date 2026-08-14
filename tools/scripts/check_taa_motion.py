@@ -142,6 +142,7 @@ def main():
 
     sys.path.insert(0, str(root / "tools" / "scripts"))
     import make_motion_scene
+    import postprofile
 
     scenes = root / "SampleProject" / "assets" / "scenes"
     shots = root / "build" / "taa-motion"
@@ -149,7 +150,15 @@ def main():
 
     # Rewritten every run, like every other check here: one that depends on a
     # file somebody generated once is one that silently measures another scene.
-    (scenes / "motion_fall.rage").write_text(make_motion_scene.build_falling())
+    #
+    # The profile goes with it. Bloom off is what keeps the block's edges out
+    # of the pixels this measures, and since scene version 6 that lives on a
+    # `.rvpostprofile` the camera names rather than on a key in the scene --
+    # so writing the scene without it would measure a bloomed picture and say
+    # nothing about it. ENGINE-NOTES 7s.
+    scene = scenes / "motion_fall.rage"
+    profile = postprofile.write_beside(scene, { "BloomEnabled": False })
+    scene.write_text(make_motion_scene.build_falling(profile))
 
     failures = []
     measured = {}

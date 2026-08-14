@@ -33,6 +33,8 @@ import argparse
 import math
 import pathlib
 
+import postprofile
+
 PRIMITIVE_BASE = 0x7261676556000000
 CUBE, SPHERE, PLANE, CYLINDER, QUAD = range(5)
 
@@ -47,7 +49,7 @@ def vec(values):
     return "[" + ", ".join(f"{v:g}" for v in values) + "]"
 
 
-def build_fan(count=12):
+def build_fan(count, profile):
     """A fan of thin bars, which is the case a single long edge is not.
 
     A straight edge is the easy case for any of these filters: the runs are
@@ -68,7 +70,7 @@ def build_fan(count=12):
 
     lines = [
         "Scene: AA fan",
-        "Version: 5",
+        "Version: 6",
         "Environment:",
         "  AmbientColor: [0, 0, 0]",
         "  AmbientIntensity: 0",
@@ -78,10 +80,6 @@ def build_fan(count=12):
         "  SkyGround: [0.05, 0.05, 0.06]",
         "  SkyIntensity: 1",
         "  SkyRotation: 0",
-        "  Exposure: 1",
-        "  BloomEnabled: false",
-        "  ShadowsEnabled: false",
-        "  AntiAliasing: 0",
         "Entities:",
         f"  - EntityID: {next_id()}",
         "    TagComponent:",
@@ -100,6 +98,7 @@ def build_fan(count=12):
         "      OrthographicScale: 10",
         "      OrthographicNearClip: -1",
         "      OrthographicFarClip: 1",
+        f"      PostProfile: {profile}",
     ]
 
     # Spread across the half circle, offset so no bar lands on an axis or on
@@ -135,7 +134,7 @@ def build_fan(count=12):
     return chr(10).join(lines) + chr(10)
 
 
-def build(angle_degrees):
+def build(angle_degrees, profile):
     ids = iter(range(1, 1 << 62))
 
     def next_id():
@@ -151,7 +150,7 @@ def build(angle_degrees):
 
     out = []
     out.append(f"Scene: AA edge {angle_degrees:g} degrees\n")
-    out.append("Version: 5\n")
+    out.append("Version: 6\n")
     out.append("Environment:\n")
     # Ambient off and the three sky colours equal: a flat background, and
     # nothing reaching the slab that could vary across it.
@@ -163,12 +162,6 @@ def build(angle_degrees):
     out.append("  SkyGround: [0.05, 0.05, 0.06]\n")
     out.append("  SkyIntensity: 1\n")
     out.append("  SkyRotation: 0\n")
-    out.append("  Exposure: 1\n")
-    # Bloom would spread the bright side across the edge, which is precisely
-    # the signal being measured.
-    out.append("  BloomEnabled: false\n")
-    out.append("  ShadowsEnabled: false\n")
-    out.append("  AntiAliasing: 0\n")
     out.append("Entities:\n")
 
     out.append(f"  - EntityID: {next_id()}\n")
@@ -190,6 +183,7 @@ def build(angle_degrees):
         "      OrthographicScale: 10\n"
         "      OrthographicNearClip: -1\n"
         "      OrthographicFarClip: 1\n"
+        f"      PostProfile: {profile}\n"
     )
 
     # No light: the slab is emissive and the sky is flat, so shading would only
@@ -229,11 +223,17 @@ def main():
 
     path = pathlib.Path(args.output)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Bloom would spread the bright side across the edge, which is precisely
+    # the signal being measured -- and since version 6 that is a profile the
+    # camera names rather than a key in the scene. ENGINE-NOTES 7s.
+    profile = postprofile.write_beside(path, { "BloomEnabled": False })
+
     if args.fan:
-        path.write_text(build_fan(args.fan))
+        path.write_text(build_fan(args.fan, profile))
         print(f"{path}: a fan of {args.fan} bars")
     else:
-        path.write_text(build(args.angle))
+        path.write_text(build(args.angle, profile))
         print(f"{path}: one edge at {args.angle:g} degrees")
 
 

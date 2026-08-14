@@ -85,12 +85,33 @@ REQUIRED_GAIN = 2.5
 
 # The same kind of floor for TAA, against the linear-space ideal.
 #
-# A static scene converges over thirty frames on roughly what eight jittered
-# samples give, so this should be comfortably clear of it -- the floor is here
-# to catch the history being dropped, not to grade the filter. Set below what
-# SSAA at 2x manages, because a filter that merely matched four regular
-# samples would still be working.
-TAA_REQUIRED_GAIN = 1.5
+# The floor is here to catch the history being *dropped* -- not blended in, or
+# rejected everywhere -- rather than to grade the filter. So it belongs below
+# what the shipped settings actually reach and above what no accumulation at
+# all reaches, and both of those are measured rather than guessed.
+#
+# **1.5 was measured at a feedback the engine no longer ships.** It was set
+# when the default was 0.9; the default became 0.6 when TAA was finally
+# checked in motion, because 0.9 is worse than no filter at all on moving
+# content. Static quality is the other side of that trade, and this check --
+# which is entirely static -- was not re-run. It has been failing at two of
+# four angles ever since, on a build that is working exactly as intended.
+# That is the mistake ENGINE-NOTES 7r names in its own words: "a threshold is
+# only worth having at the setting it actually runs at."
+#
+# Re-measured on this scene, both backends, linear-light coverage error
+# against the 4x reference, as the ratio of no filter to TAA:
+#
+#              8 deg   43 deg   47 deg   77 deg
+#   f = 0.0     1.00     0.68     0.66     0.59      no accumulation at all
+#   f = 0.6     1.64     1.44     1.47     1.64      what ships
+#   f = 0.9      -        -        -       5.11      the old default
+#
+# 1.25 sits clear of both sides: every angle passes at the shipped default
+# with margin, and every angle fails with the accumulation switched off --
+# which is the defect this exists to catch, and the run that proves the guard
+# can still fail.
+TAA_REQUIRED_GAIN = 1.25
 
 # The two backends run different drivers and different rasterisers, so their
 # coverage will not be bit-identical everywhere in general. On this scene the
@@ -204,6 +225,7 @@ def main():
 
     sys.path.insert(0, str(root / "tools" / "scripts"))
     import make_aa_scene
+    import postprofile
 
     scenes = root / "SampleProject" / "assets" / "scenes"
     shots = root / "build" / "smaa-check"
@@ -215,7 +237,9 @@ def main():
     for angle in ANGLES:
         # Rewritten every run: a check that depends on a file somebody
         # generated once is a check that silently measures the wrong scene.
-        (scenes / f"aa_edge{angle}.rage").write_text(make_aa_scene.build(angle))
+        scene = scenes / f"aa_edge{angle}.rage"
+        profile = postprofile.write_beside(scene, { "BloomEnabled": False })
+        scene.write_text(make_aa_scene.build(angle, profile))
 
         for backend in BACKENDS:
             for mode in MODES:
@@ -387,7 +411,9 @@ def main():
     # produce. It resolves in linear light, so a post filter cannot reach it
     # exactly -- but every post filter is handicapped identically, so ranking
     # them against it is fair even though the absolute numbers are not.
-    (scenes / "aa_fan.rage").write_text(make_aa_scene.build_fan(12))
+    fan = scenes / "aa_fan.rage"
+    fan_profile = postprofile.write_beside(fan, { "BloomEnabled": False })
+    fan.write_text(make_aa_scene.build_fan(12, fan_profile))
 
     fan = {}
     run(exe, ["--rhi=vulkan", "--aa=ssaa", "--ssaa=4", "--scene=scenes/aa_fan.rage",
