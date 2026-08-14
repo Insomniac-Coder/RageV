@@ -2672,6 +2672,101 @@ was the stress.
 
 ---
 
+## 7r. TAA (7.10): design first, because it breaks the test suite
+
+The last item in Phase 7, and the only one that is not a function of the
+frame it runs in. FXAA, SMAA, SSAA and MSAA all take one frame's worth of
+information and make an image out of it. **TAA takes the last thirty.**
+
+That is where its quality comes from — a different sub-pixel offset every
+frame, accumulated, converges on a supersampled image for the cost of one
+sample — and it is also the source of every problem it has. Three of
+those problems are the implementation; the fourth is this repository.
+
+### The three prerequisites, and which of them is shared
+
+**1. Motion vectors.** Where each pixel was last frame, in screen space.
+Without them the history can only be sampled at the same pixel, which is
+correct for a static camera and smears everything else. This means every
+instance carrying its **previous** world transform and the scene writing
+a velocity attachment.
+
+That is the expensive prerequisite, and it is also **not TAA's alone**:
+9.5 motion blur wants exactly the same buffer, and so does any temporal
+upscaler. It should land, and be verified, on its own — before any
+temporal filter exists to hide whether it is right.
+
+**2. A jittered projection.** A sub-pixel offset per frame, from a low
+discrepancy sequence (Halton 2,3) so the samples spread evenly rather
+than clumping. Without jitter there is nothing new to accumulate and TAA
+is just a blur with extra steps.
+
+**3. A history buffer.** Last frame's resolved output, which the render
+graph cannot supply: its targets are pooled by shape and reused within a
+frame, so nothing in it has identity *across* frames. History has to be
+owned outside the graph and handed in, the way the editor's viewport
+image already is.
+
+### What rejects the history, which is the whole difficulty
+
+Reprojection alone ghosts. A pixel that was hidden last frame has no
+history to fetch, and fetching one anyway drags a smear behind every
+moving silhouette. The standard answer is **neighbourhood clamping**:
+build the colour AABB of the current pixel's 3×3 neighbours and clamp the
+reprojected history into it. History that cannot be explained by anything
+nearby is history that does not belong to this pixel.
+
+It is a heuristic and it is worth saying so. It trades ghosting for
+flicker, and where it is set is a taste decision that should be a number
+in the inspector rather than a constant somebody chose once.
+
+### The two things jitter must not reach
+
+**Shadow maps and reflection probes.** Both render the scene through
+their own projections, and both are *reused across frames* — a shadow
+cascade jittered per frame would shimmer along every shadow edge, and a
+probe captured over six frames would assemble six differently-offset
+faces into one cube.
+
+The engine already has the hook for this: probe capture and the shadow
+pass build their own cameras. The jitter belongs to the scene camera at
+the point the frame graph is built, and nowhere else. §7q learned the
+same lesson about sample counts one item ago — **global render state set
+for the scene pass leaks into every other pass that reuses the same
+renderers**, and the fix both times is to be explicit at the boundary.
+
+### And the thing that breaks
+
+**Every screenshot check in this repository assumes a frame is a pure
+function of the scene.** `--screenshot-frame=30` exists so the scene has
+settled; `--frame-time` exists so nothing depends on how fast this
+machine ran. Both assume frame 30 would be identical if you rendered it
+alone.
+
+TAA makes frame 30 depend on frames 1 to 29. That is fine — but only if
+the jitter sequence is indexed by **frame number**, not by elapsed time.
+Drive it from a clock and every check in `tools/scripts` becomes
+irreproducible, and the failure looks like noise rather than like a
+mistake. This is the single most important line in this section.
+
+The acceptance bar then has an honest gap. A static scene lets TAA
+accumulate thirty jittered samples and converge, so it should score
+*better than every other mode* on `check_smaa.py`'s angles — and that
+number will be close to meaningless, because it measures TAA's best case
+and the one nobody complains about. **Its only real failure mode is
+motion**, and seeing it needs a moving scene and a reference the moving
+scene can be compared against. That check does not exist yet and TAA is
+not finished until it does.
+
+### Order
+
+Motion vectors, verified alone. Then jitter, verified by the checks
+staying reproducible. Then history and rejection. Anything else is
+building three unverified things and finding out which is wrong by
+looking at ghosting.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
