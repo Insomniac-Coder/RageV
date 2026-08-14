@@ -218,6 +218,7 @@ namespace RageV
 		emitter << YAML::Key << "ShadowSplitLambda" << YAML::Value << environment.ShadowSplitLambda;
 		emitter << YAML::Key << "ShadowNormalOffset" << YAML::Value << environment.ShadowNormalOffset;
 		emitter << YAML::Key << "AntiAliasing" << YAML::Value << (uint32_t)environment.AA;
+		emitter << YAML::Key << "SupersampleFactor" << YAML::Value << environment.SupersampleFactor;
 		emitter << YAML::EndMap;
 
 		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
@@ -462,6 +463,8 @@ namespace RageV
 					target.ShadowNormalOffset = value.as<float>();
 				if (const YAML::Node value = environment["AntiAliasing"])
 					target.AA = (AntiAliasing)value.as<uint32_t>();
+				if (const YAML::Node value = environment["SupersampleFactor"])
+					target.SupersampleFactor = value.as<int>();
 			}
 		}
 

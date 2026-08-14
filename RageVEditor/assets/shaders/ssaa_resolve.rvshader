@@ -1,0 +1,84 @@
+// SSAA's second half: average the larger image down to the output size.
+//
+// A box filter, and deliberately nothing cleverer. Each output pixel covers
+// exactly N by N source pixels with no overlap and no gaps, so the mean of
+// them *is* the pixel's coverage-weighted colour -- which is the definition
+// of what supersampling was for. A Gaussian or a Mitchell kernel would reach
+// outside that footprint and trade correctness for a look.
+//
+// **This runs on the linear HDR scene, before tone mapping**, and that
+// ordering is the point rather than an implementation detail. Averaging is
+// only meaningful in a space where the numbers add up: two samples of 0.0 and
+// 1.0 describe a surface that reflected half the light, and half is what
+// linear averaging gives. Averaging after the tone curve instead would ask
+// what is halfway between two *display* values, which is a different and
+// wrong question -- and it is the same reason FXAA and SMAA have to run after
+// the curve and this has to run before it.
+//
+// It is also why SSAA is the only mode here that helps with specular sparkle
+// and texture moire. Those are not edges; they are a signal the frame never
+// sampled finely enough, and no filter working on the finished image can
+// invent what was never there.
+//
+// See docs/ENGINE-NOTES.md section 7o.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	// One source texel, so the taps land on source pixel centres rather than
+	// on output ones.
+	vec2  TexelSize;
+	// How many source pixels across one output pixel, per axis.
+	float Factor;
+	float Unused0;
+	float Unused1;
+	float FlipY;
+} u_Params;
+
+void main()
+{
+	// See PostProcess::Dispatch. The vertical direction does not matter here
+	// -- a box filter is symmetric, so sampling the footprint upside down
+	// visits the same texels -- but the flip itself still does.
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	int factor = int(u_Params.Factor + 0.5);
+	if (factor <= 1)
+	{
+		o_Color = texture(u_Source, uv);
+		return;
+	}
+
+	// The top-left source texel of this output pixel's footprint. `uv` is the
+	// centre of the output pixel, so stepping back half a footprint and
+	// forward half a source texel lands on the first source centre.
+	vec2 origin = uv - u_Params.TexelSize * (float(factor) * 0.5 - 0.5);
+
+	vec4 total = vec4(0.0);
+	for (int y = 0; y < factor; y++)
+	{
+		for (int x = 0; x < factor; x++)
+			total += texture(u_Source, origin + u_Params.TexelSize * vec2(x, y));
+	}
+
+	o_Color = total / float(factor * factor);
+}

@@ -21,11 +21,18 @@ namespace RageV
 	// and a history buffer. That is a renderer feature with its own
 	// prerequisites, not a post pass -- and the same motion vectors would then
 	// also buy motion blur and temporal upscaling.
+	//   SSAA renders the whole scene larger and averages it down. It is the
+	//   only one of the three that anti-aliases *shading* rather than
+	//   geometry: a specular highlight sparkling across a curved surface, or a
+	//   texture aliasing into moire, is a signal the frame never sampled
+	//   finely enough, and no filter working on the finished image can invent
+	//   what was missed. It costs the square of the factor in fill.
 	enum class AntiAliasing : uint32_t
 	{
 		None = 0,
 		FXAA = 1,
 		SMAA = 2,
+		SSAA = 3,
 	};
 
 	// What fills the pixels no geometry covers.
@@ -141,5 +148,17 @@ namespace RageV
 		float ShadowNormalOffset = 0.9f;
 
 		AntiAliasing AA = AntiAliasing::FXAA;
+
+		// How many times larger each axis is drawn when AA is SSAA. Ignored
+		// otherwise.
+		//
+		// **Cost is the square of this.** Two means four times the pixels
+		// shaded, four means sixteen -- which is why it is a number the person
+		// paying for it chooses rather than a fixed part of the mode.
+		//
+		// Clamped to something a texture can be: at 4 a 4K output would ask
+		// for a 16K target, which is past what a lot of hardware will allocate
+		// and all of what it would be sensible to.
+		int SupersampleFactor = 2;
 	};
 }

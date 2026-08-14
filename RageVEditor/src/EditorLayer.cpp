@@ -1984,7 +1984,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		// Only the modes that exist. Offering TAA here and doing nothing would
 		// be worse than not offering it; the roadmap is where "not yet"
 		// belongs.
-		const char* aaModes[] = { "None", "FXAA", "SMAA" };
+		const char* aaModes[] = { "None", "FXAA", "SMAA", "SSAA" };
 		int aa = (int)environment.AA;
 		if (UI::RowCombo("Anti-aliasing",
 		&aa,
@@ -1997,11 +1997,23 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "and computes the coverage from that. Three passes over two small "
 				   "intermediates, and sharper for it. It has no diagonal pass yet, so a "
 				   "45-degree edge is the one case FXAA can still win.\n\n"
+				   "SSAA draws the whole scene larger and averages it down. It is the "
+				   "only one here that helps with specular sparkle and texture moire, "
+				   "because those are not edges -- they are detail the frame never "
+				   "sampled finely enough, and no filter on the finished image can "
+				   "invent it. Costs the square of the factor in fill.\n\n"
 				   "TAA is better than either and needs motion vectors -- every mesh "
 				   "carrying its previous transform and the renderer writing a velocity "
 				   "target. That is a renderer feature with its own prerequisites, not a "
 				   "post pass."))
 			environment.AA = (AntiAliasing)aa;
+
+		if (environment.AA == AntiAliasing::SSAA)
+		{
+			UI::RowDragInt("Supersample", &environment.SupersampleFactor, 0.05f, 1, 4,
+				"How many times larger each axis is drawn. Cost is the square of it: "
+					   "2 is four times the pixels shaded, 4 is sixteen.");
+		}
 	}
 
 	UI::SectionHeader("Lighting");

@@ -2153,7 +2153,7 @@ Coverage error against the exact edge, RMS, lower better:
 | Edge | none | FXAA | SMAA |
 |---|---|---|---|
 | 8° | 0.1291 | 0.1072 | **0.0210** (6.1× none, 5.1× FXAA) |
-| 45° | 0.0790 | 0.0454 | **0.0082** (9.6× none, 5.5× FXAA) |
+| 43° | 0.1391 | 0.1127 | **0.0849** (1.6× none, 1.3× FXAA) |
 
 Vulkan and OpenGL agree to four decimal places on every one of those, and
 **0 of 1,427,200 pixels** away from the edge were touched.
@@ -2163,14 +2163,27 @@ each: 0.440 ms with no filter, 0.459 with FXAA, **0.498 with SMAA**. So
 SMAA costs 0.058 ms against FXAA's 0.019 — three passes for three times
 the price, which is the least surprising result here.
 
-**The 45° answer settles the open question.** The design above expected
-the orthogonal-only version to be weakest exactly where FXAA is
-strongest, and said the measurement would decide whether a diagonal pass
-was needed. It is not: on a straight 45° edge the run is one pixel long,
-both ends carry a crossing edge, and the two-triangle case in `Coverage`
-lands on the right answer. What the diagonal pass buys is *diagonal
-staircases on small features*, which this scene does not have — so it
-stays unwritten, and unclaimed.
+**The diagonal question, answered twice, and the first answer was
+wrong.** The design above expected the orthogonal-only version to be
+weakest exactly where FXAA is strongest, and said the measurement would
+decide whether a diagonal pass was needed. The first measurement, taken
+at exactly 45°, said it was not — 9.6×, better than the shallow case.
+
+That was an artifact of the angle. **At exactly 45° the edge advances one
+row per column**, so the staircase lands on a perfect line and the
+control reads 0.0000: a property of the angle, not of the renderer. Every
+supersample grid is symmetric about that diagonal too, so it is also the
+one angle at which supersampling can measure as buying nothing — which is
+how it was caught, when SSAA scored 1.0× there and 2.95× elsewhere.
+
+Re-measured at **43°**, which is near-diagonal without being degenerate:
+SMAA is **1.6×**, against 6.1× on a shallow edge. That is the original
+prediction, and it is the diagonal pass SMAA does not have. `ANGLES` in
+the check is 8 and 43 for this reason, with the reason written beside it.
+
+**A degenerate case is the worst possible thing to build an acceptance
+test on**, because it does not fail — it reports a number, and the number
+is flattering.
 
 **Corner detection is also absent.** Reference SMAA attenuates the weight
 near a sharp 90° corner so it does not get rounded off; without it, the
@@ -2217,6 +2230,86 @@ believing a null result; here it was that a feature which had shipped,
 been screenshotted on two backends, and been described in three
 documents had never once been asked to produce a number. **A default
 nobody has measured is a default nobody has tested.**
+
+---
+
+## 7o. SSAA (7.12), and the two definitions of correct
+
+Render the scene N times larger on each axis and average it down. There
+is no cleverness in it, and that is the appeal: no edge detection to get
+wrong, no direction to confuse, no pattern to misclassify. It is also the
+only mode here that anti-aliases **shading** rather than geometry — a
+specular highlight sparkling across a curved surface, or a texture
+folding into moire, is detail the frame never sampled finely enough, and
+no filter working on the finished image can invent what was never
+captured.
+
+The resolve is a box filter, deliberately. Each output pixel covers
+exactly N by N source pixels with no overlap and no gaps, so their mean
+*is* its coverage-weighted colour. A Gaussian would reach outside that
+footprint and trade correctness for a look.
+
+### Where it goes in the frame, which is the whole design
+
+**Before bloom and before tone mapping.** Two reasons, both of the kind
+that produce a subtly wrong image rather than an obviously broken one:
+
+- Averaging is only meaningful where the numbers add up. Two samples of
+  0.05 and 0.60 describe a pixel that received 0.325 of the light. After
+  the tone curve they describe two *display* values, and halfway between
+  those is a different and wrong number.
+- Bloom thresholding the supersampled image would let one bright
+  subsample light a whole output pixel — the firefly SSAA exists to
+  remove.
+
+So the frame is one pass *shorter* than either morphological filter: the
+resolve happens in linear HDR and tone mapping writes the output
+directly.
+
+### The finding: the scoreboard has two columns
+
+`check_smaa.py` originally measured every mode against coverage
+interpolated between two *display* values, and SSAA scored badly — 1.24×
+where theory said 2×. The tempting reading was a broken resolve.
+
+It was the yardstick. SSAA mixes in linear light and then tone maps;
+FXAA and SMAA mix after the curve, because they must — they threshold on
+perceived brightness, which does not exist before it. **Each was being
+graded on the other's exam.** The check now computes both ideals, judges
+each mode against the one it can actually reach, and prints the other so
+the gap stays visible:
+
+| 8° edge | none | FXAA | SMAA | SSAA 2× |
+|---|---|---|---|---|
+| mixed after the curve | 0.1291 | 0.1072 | **0.0210** | 0.1038 |
+| mixed in linear light | 0.1730 | 0.1555 | 0.1006 | **0.0707** |
+
+| 43° edge | none | FXAA | SMAA | SSAA 2× |
+|---|---|---|---|---|
+| mixed after the curve | 0.1391 | 0.1127 | **0.0849** | 0.1147 |
+| mixed in linear light | 0.1912 | 0.1688 | 0.1451 | **0.0648** |
+
+Read the row each mode belongs to and both are working. Read one row
+across and either can be made to look broken. And worth saying plainly:
+**the linear-space answer is the physically correct one**, and SSAA is
+the only mode that can produce it. SMAA is the best available answer to a
+strictly harder question.
+
+MSAA (7.13) lands in the linear row too, for the same reason — it
+resolves the scene target before the curve — so the second column is what
+to compare it against when it arrives.
+
+### What it costs, which is the entire objection to it
+
+Render graph GPU on the demo scene at 1600×900: **0.591 ms unfiltered,
+0.669 with SMAA, 1.706 with SSAA at 2×, 6.881 at 4×.** Almost exactly the
+square of the factor, which is what it has to be — 2× shades four times
+the pixels and 4× shades sixteen.
+
+That is not a default. It is the quality setting a person turns on
+knowing the price, which is why the factor sits in the inspector next to
+the mode rather than baked into it, and why it is clamped to 4: at a 4K
+output, 4× asks for a 16K scene target.
 
 ---
 

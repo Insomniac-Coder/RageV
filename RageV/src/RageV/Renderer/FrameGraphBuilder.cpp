@@ -24,12 +24,36 @@ namespace RageV
 		// Below this the chain would be sampling a handful of texels, and the
 		// filter stops meaning anything.
 		constexpr uint32_t kMinBloomSize = 8;
+
+		// The largest SSAA factor offered. Four means sixteen times the pixels
+		// shaded, and at a 4K output a 16K scene target -- past what a lot of
+		// hardware will allocate and all of what is sensible.
+		constexpr int kMaxSupersample = 4;
 	}
 
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc)
 	{
 		if (desc.Output == kRGInvalid || desc.Width == 0 || desc.Height == 0)
 			return;
+
+		// Which filter, resolved once. A scene file can name a mode from a
+		// later version, and the failure that causes is silent and total: tone
+		// mapping goes into an intermediate, nothing writes the real output,
+		// and the window is black with no error anywhere.
+		const EngineConfig& config = EngineConfig::Get();
+		const AntiAliasing requested = config.HasAAOverride ? config.AAOverride
+															: desc.Environment.AA;
+		const AntiAliasing aa = PostProcess::IsReady() ? requested : AntiAliasing::None;
+
+		// SSAA is decided here rather than with the other two, because it is
+		// the only one that changes the size of the scene target -- everything
+		// else in the frame reacts to something that has already been drawn.
+		const int requestedFactor = config.SupersampleOverride > 0
+			? config.SupersampleOverride
+			: desc.Environment.SupersampleFactor;
+		const int supersample = aa == AntiAliasing::SSAA
+			? Math::Clamp(requestedFactor, 1, kMaxSupersample)
+			: 1;
 
 		// --- the scene, in linear HDR -----------------------------------------
 		// RGBA16F rather than the 11-11-10 alternative: bloom reads this back
@@ -39,6 +63,10 @@ namespace RageV
 		sceneDesc.Name = "SceneHDR";
 		sceneDesc.Color = Format::R16G16B16A16_SFLOAT;
 		sceneDesc.Depth = Format::D32_SFLOAT;
+		// Larger for SSAA, which is the whole of what SSAA does on the way in.
+		// The camera's aspect is unchanged, so nothing downstream of the
+		// projection needs to know.
+		sceneDesc.Scale = (float)supersample;
 
 		// Accumulation and revealage live on the *scene's* target rather than
 		// one of their own, so the transparent pass depth-tests against the
@@ -124,6 +152,38 @@ namespace RageV
 				[draw = desc.DrawOverlay](RGPassContext& context) { draw(context); });
 		}
 
+		// --- SSAA resolve --------------------------------------------------------
+		//
+		// Before bloom and before tone mapping, both deliberately. Averaging is
+		// only meaningful where the numbers add up, and after the tone curve
+		// they no longer do; and bloom thresholding the *supersampled* image
+		// would let a single bright subsample light a whole output pixel, which
+		// is the firefly SSAA is supposed to remove.
+		RGResource shaded = sceneHDR;
+		if (supersample > 1)
+		{
+			RGTargetDesc resolvedDesc;
+			resolvedDesc.Name = "SceneResolved";
+			resolvedDesc.Color = Format::R16G16B16A16_SFLOAT;
+			resolvedDesc.Depth = Format::Undefined;
+			shaded = graph.CreateTarget(resolvedDesc);
+
+			graph.AddPass("SSAA resolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(shaded);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, supersample](RGPassContext& context)
+				{
+					PostProcess::SsaaResolve(context.Cmd, context.Color(sceneHDR),
+											 context.Width * supersample,
+											 context.Height * supersample,
+											 Format::R16G16B16A16_SFLOAT, supersample);
+				});
+		}
+
 		// --- bloom -------------------------------------------------------------
 		RGResource bloom = kRGInvalid;
 		const bool wantBloom = desc.Environment.BloomEnabled && PostProcess::IsReady();
@@ -160,11 +220,11 @@ namespace RageV
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(levels[0]);
-					builder.Sample(sceneHDR);
+					builder.Sample(shaded);
 				},
-				[sceneHDR, env](RGPassContext& context)
+				[shaded, env](RGPassContext& context)
 				{
-					PostProcess::Prefilter(context.Cmd, context.Color(sceneHDR),
+					PostProcess::Prefilter(context.Cmd, context.Color(shaded),
 										   context.Width * 2, context.Height * 2,
 										   Format::R16G16B16A16_SFLOAT,
 										   env.BloomThreshold, env.BloomKnee,
@@ -214,18 +274,12 @@ namespace RageV
 
 		// --- tone mapping -------------------------------------------------------
 		//
-		// Resolved to a mode this build actually has a pass for, rather than
-		// tested for "not None". A scene file can name a mode from a later
-		// version, and the failure that causes is silent and total: tone
-		// mapping goes into an intermediate, nothing writes the real output,
-		// and the window is black with no error anywhere.
-		const EngineConfig& config = EngineConfig::Get();
-		const AntiAliasing requested = config.HasAAOverride ? config.AAOverride
-															: desc.Environment.AA;
-		const AntiAliasing aa = PostProcess::IsReady() ? requested : AntiAliasing::None;
+		// SSAA is absent from this test on purpose: its work is already done by
+		// here, so tone mapping writes the output directly and the frame ends
+		// one pass shorter than either morphological filter.
 		const bool wantAA = aa == AntiAliasing::FXAA || aa == AntiAliasing::SMAA;
 
-		// With anti-aliasing on, tone mapping lands in an intermediate that the
+		// With a post filter on, tone mapping lands in an intermediate that the
 		// filter then reads. Both filters work on perceived brightness, so they
 		// have to run after the transfer function, not before.
 		RGResource tonemapped = desc.Output;
@@ -247,14 +301,14 @@ namespace RageV
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(tonemapped);
-					builder.Sample(sceneHDR);
+					builder.Sample(shaded);
 					if (bloomSource != kRGInvalid)
 						builder.Sample(bloomSource);
 					builder.DisableDepth();
 				},
-				[sceneHDR, bloomSource, env, format](RGPassContext& context)
+				[shaded, bloomSource, env, format](RGPassContext& context)
 				{
-					PostProcess::Tonemap(context.Cmd, context.Color(sceneHDR),
+					PostProcess::Tonemap(context.Cmd, context.Color(shaded),
 										 bloomSource != kRGInvalid ? context.Color(bloomSource)
 																   : nullptr,
 										 format, env.Exposure,

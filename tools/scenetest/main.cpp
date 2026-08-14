@@ -3038,7 +3038,7 @@ void main()
 		const FieldDesc* aa = RenderSettingsRegistry::Find("AntiAliasing");
 		Check(aa != nullptr, "and anti-aliasing is one of them");
 		Check(aa && aa->Type == FieldType::Enum, "described as a choice, not a number");
-		Check(aa && aa->Hint.EnumCount == 3, "with all three modes named");
+		Check(aa && aa->Hint.EnumCount == 4, "with all four modes named");
 		// An enum crossing as text is read back as int, so a mismatch here is
 		// a stack write past the member rather than a wrong value.
 		Check(aa && aa->Size == sizeof(int),
@@ -7263,6 +7263,22 @@ void main()
 		// output directly. Otherwise tone mapping lands in an intermediate
 		// nothing presents, and a scene saved by a later version opens as a
 		// black window with no error anywhere.
+		// SSAA draws the scene larger and resolves it down, so it adds a pass
+		// *before* bloom and skips the one after tone mapping entirely.
+		environment.AA = AntiAliasing::SSAA;
+		environment.SupersampleFactor = 2;
+		Check(build(1600, 900, environment), "with SSAA it compiles");
+		Check(hasPass("SSAA resolve"), "and resolves the larger scene down");
+		Check(!hasPass("FXAA") && !hasPass("SMAA"),
+			  "with no post filter, because its work is already done");
+
+		// A factor of one is SSAA that supersamples nothing, and a resolve
+		// pass that averages one sample is a blit with extra steps.
+		environment.SupersampleFactor = 1;
+		Check(build(1600, 900, environment), "SSAA at a factor of one compiles");
+		Check(!hasPass("SSAA resolve"), "and adds no resolve pass at all");
+
+		environment.SupersampleFactor = 2;
 		environment.AA = (AntiAliasing)99;
 		Check(build(1600, 900, environment), "an unknown anti-aliasing mode compiles");
 		Check(!hasPass("FXAA") && !hasPass("SMAA"), "running neither filter");

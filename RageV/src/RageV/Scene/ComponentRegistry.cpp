@@ -1172,7 +1172,7 @@ namespace
 	namespace
 	{
 		// The names a script writes, and the same order the enum declares.
-		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA" };
+		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
 
 		std::vector<FieldDesc> BuildRenderSettings()
@@ -1183,6 +1183,11 @@ namespace
 						 "FXAA guesses at an edge from one pixel's neighbourhood. "
 						 "SMAA reconstructs it and is about five times more accurate "
 						 "for three times the cost.")),
+
+				Field<&SceneEnvironment::SupersampleFactor>("SupersampleFactor",
+					Tip("How many times larger SSAA draws each axis. Cost is the "
+						"square of it: two is four times the pixels shaded, four "
+						"is sixteen.")),
 
 				Field<&SceneEnvironment::Exposure>("Exposure"),
 

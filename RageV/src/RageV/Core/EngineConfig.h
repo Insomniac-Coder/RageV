@@ -25,7 +25,8 @@
 //   --audio=on|off          open an output device at all
 //   --import-cache=on|off   read and write cooked assets (default on)
 //   --depth-sort=on|off     order opaque batches front to back (default on)
-//   --aa=none|fxaa|smaa     override the scene's anti-aliasing choice
+//   --aa=none|fxaa|smaa|ssaa  override the scene's anti-aliasing choice
+//   --ssaa=N                how many times larger SSAA draws each axis
 //   --project=<path>        the .rvproject to open, or a folder containing one
 //   --screenshot=<file>     write a PNG of one frame and exit
 //   --loading-screenshot=<file>  write a PNG of a frame drawn while loading
@@ -163,6 +164,11 @@ namespace RageV
 		// measured against.
 		bool         HasAAOverride = false;
 		AntiAliasing AAOverride = AntiAliasing::None;
+
+		// --ssaa=N. Zero leaves the scene's factor alone. Separate from the
+		// mode because the two questions are separate: whether to supersample
+		// is a look, and how far is a budget.
+		int          SupersampleOverride = 0;
 
 		// Whether opaque batches are ordered nearest-first before drawing.
 		//

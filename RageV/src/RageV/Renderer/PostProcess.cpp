@@ -39,7 +39,8 @@ namespace RageV
 				case 5: return "assets/shaders/blit.rvshader";
 				case 6: return "assets/shaders/smaa_edges.rvshader";
 				case 7: return "assets/shaders/smaa_weights.rvshader";
-				default: return "assets/shaders/smaa_blend.rvshader";
+				case 8: return "assets/shaders/smaa_blend.rvshader";
+				default: return "assets/shaders/ssaa_resolve.rvshader";
 			}
 		}
 
@@ -49,7 +50,7 @@ namespace RageV
 
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not.
-			std::array<Ref<RHIShader>, 9> Shaders;
+			std::array<Ref<RHIShader>, 10> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -132,7 +133,7 @@ namespace RageV
 		// and the errors above scroll past. Announcing readiness anyway is how
 		// a broken post chain looks like a working one that draws nothing.
 		if (ok)
-			RV_CORE_INFO("PostProcess ready (bloom, ACES tonemap, FXAA, SMAA)");
+			RV_CORE_INFO("PostProcess ready (bloom, ACES tonemap, FXAA, SMAA, SSAA)");
 		else
 			RV_CORE_ERROR("PostProcess unavailable; the frame will not be tone mapped");
 	}
@@ -347,6 +348,21 @@ namespace RageV
 		// weights beside it are read exactly.
 		Dispatch(cmd, Shader::SmaaBlend, outputFormat, source, weights, &params, sizeof(params),
 				 Sampling::Linear, Sampling::Point);
+	}
+
+	void PostProcess::SsaaResolve(RHICommandList& cmd, const Ref<RHITexture>& source,
+								  uint32_t sourceWidth, uint32_t sourceHeight,
+								  Format outputFormat, int factor)
+	{
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(sourceWidth, 1u),
+							 1.0f / (float)Math::Max(sourceHeight, 1u) };
+		params.A = (float)factor;
+		// Point, because every tap is aimed at a source pixel centre. A linear
+		// sampler would give the same answer for an even factor and quietly
+		// widen the footprint for an odd one.
+		Dispatch(cmd, Shader::SsaaResolve, outputFormat, source, nullptr, &params, sizeof(params),
+				 Sampling::Point);
 	}
 
 	void PostProcess::Blit(RHICommandList& cmd, const Ref<RHITexture>& source, Format outputFormat)

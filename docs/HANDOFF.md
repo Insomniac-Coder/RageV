@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1315 checks, `exit 0`. Then look at a frame:
+1320 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -81,7 +81,7 @@ python tools/scripts/check_oit.py --config Debug
 
 4/4, `exit 0`.
 
-**Six things that are easy to get wrong here, all learned the hard way:**
+**Seven things that are easy to get wrong here, all learned the hard way:**
 
 0. **A default nobody has measured is a default nobody has tested.** FXAA
    shipped as the default anti-aliasing for a whole roadmap phase with two
@@ -105,7 +105,14 @@ python tools/scripts/check_oit.py --config Debug
    Vulkan-only bloom flip survived a whole roadmap phase of clean runs, because
    nothing in the scene was bright enough for a mirrored contribution to show.
    `--screenshot` on both and look at them side by side.
-5. **`discard` costs a Vulkan device feature.** glslang targeting SPIR-V 1.6
+5. **Never measure anything at exactly 45 degrees.** An edge there advances
+   one row per column, so the staircase lands on a perfect line and reads
+   zero; every supersample grid is symmetric about it, so supersampling can
+   measure as buying nothing. It cost a wrong conclusion about SMAA's
+   diagonal pass, published in three places, because a degenerate case does
+   not fail -- it reports a flattering number. `check_smaa.py` uses 43.
+
+6. **`discard` costs a Vulkan device feature.** glslang targeting SPIR-V 1.6
    compiles it to `OpDemoteToHelperInvocation`, because `OpKill` is deprecated
    there, and that capability needs `shaderDemoteToHelperInvocation` which
    this engine does not enable. The symptom is one validation line per run,
@@ -113,7 +120,7 @@ python tools/scripts/check_oit.py --config Debug
    drawn with. Write the zero and return instead, unless the feature gets
    turned on deliberately.
 
-6. **The harness prints `FAIL` in capitals.** A case-insensitive search for
+7. **The harness prints `FAIL` in capitals.** A case-insensitive search for
    "fail" also matches the word *fails* inside the names of passing checks, and
    returns a count that looks like failures and is not. Match case, and read the
    `OK` line at the end.

@@ -788,6 +788,15 @@ public enum AntiAliasing
 	/// cost.
 	/// </summary>
 	Smaa = 2,
+
+	/// <summary>
+	/// Draws the whole scene larger and averages it down. The only one here
+	/// that helps with specular sparkle and texture moire — those are not
+	/// edges, they are detail the frame never sampled finely enough, and no
+	/// filter on the finished image can invent it. Costs the square of
+	/// <see cref="RenderSettings.SupersampleFactor"/> in fill.
+	/// </summary>
+	Ssaa = 3,
 }
 
 /// <summary>
@@ -868,6 +877,18 @@ public static unsafe class RenderSettings
 															   : AntiAliasing.None;
 		set => Set("AntiAliasing", ((int)value).ToString(
 			System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>
+	/// How many times larger each axis is drawn when
+	/// <see cref="AntiAliasing"/> is <see cref="RageV.AntiAliasing.Ssaa"/>.
+	/// Ignored otherwise, clamped to 1..4, and <b>the cost is its square</b>.
+	/// </summary>
+	public static int SupersampleFactor
+	{
+		get => int.TryParse(Get("SupersampleFactor"), out int value) ? value : 1;
+		set => Set("SupersampleFactor",
+				   value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 	}
 
 	/// <summary>Multiplies the scene before the tone curve. 1 is neutral.</summary>

@@ -65,6 +65,12 @@ namespace RageV
 							  const RHI::Ref<RHI::RHITexture>& weights,
 							  uint32_t width, uint32_t height, RHI::Format outputFormat);
 
+		// SSAA's resolve: average an N-times-larger image down to this one.
+		// On the linear HDR scene, before tone mapping -- see the shader.
+		static void SsaaResolve(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
+								uint32_t sourceWidth, uint32_t sourceHeight,
+								RHI::Format outputFormat, int factor);
+
 		// A straight copy, for when anti-aliasing is off but the chain still
 		// has to land in the target the caller wanted.
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
@@ -80,6 +86,7 @@ namespace RageV
 		{
 			Prefilter, Downsample, Upsample, Tonemap, FXAA, Blit,
 			SmaaEdges, SmaaWeights, SmaaBlend,
+			SsaaResolve,
 			Count
 		};
 
