@@ -516,6 +516,85 @@ effect that hides a lighting problem is worse than no effect.
 | 9.5 | Motion blur | M | **Blocked on motion vectors, which 7.10 (TAA) also needs** — whichever is done first should add them |
 | 9.6 | SSAO / GTAO | M | Contact shadows IBL cannot give. Read §7g first: occlusion maps are already sampled, so measure what this adds over them rather than assuming it is missing |
 | 9.7 | Screen-space reflections | L | Overlaps per-object probes (7.7), which already handle the general case. SSR earns its place on wet floors and little else; the honest version is a *fallback* to the probe, not a replacement |
+| 9.0 | **Render settings belong to the project, overridden by a render profile** | M | **Do this before 9.1–9.7**, because every one of them adds settings and each would otherwise be added to the wrong home. See the note below |
+
+### 9.0, and why it comes first
+
+Requested 2026-08-14, after a session in which the same settings turned
+out to live in three places at once.
+
+**Where they live today, and why that is wrong.** Exposure, bloom, shadows
+and anti-aliasing are fields on `SceneEnvironment`, serialized into every
+`.rage` — so they are **per scene**. The anti-aliasing *mode* is also
+written to `ragev.ini` as a machine-wide override, because a viewing
+preference should survive a restart without saving a scene asset. Neither
+is where they belong: a project's look is a property of the project, not of
+whichever scene happens to be open, and duplicating exposure across forty
+scenes means changing it forty times.
+
+**The design wanted:**
+
+**Two profiles, not one, and that is the load-bearing decision.**
+`SceneEnvironment` currently mixes three unrelated kinds of setting, and
+separating them is most of the work:
+
+- **`.rvrenderprofile`** — how the frame is *rendered*. Anti-aliasing and
+  its samples, shadow resolution, cascades and distance, probe
+  resolution. These are **cost** knobs: what this hardware can afford.
+- **`.rvpostprofile`** — how the rendered frame is *graded*. Exposure,
+  bloom, tone mapping, and everything 9.1–9.7 adds — LUT, vignette, DOF,
+  motion blur. These are **look** knobs: authored content.
+- **The scene keeps what is genuinely scene content** — ambient colour,
+  the sky and its rotation. Those describe the place, not the pipeline,
+  and belong where they are.
+
+They are separate because **they vary along different axes and layer
+differently.** A render profile is chosen per machine or per build — it is
+a quality preset, and the same game at Low and High should still look like
+itself. A post profile is chosen per scene, and eventually per volume — a
+cave and a courtyard want different grades at identical quality. Folding
+them into one asset forces every quality preset to restate the whole look,
+and every look to restate the whole quality, which is how a settings system
+becomes a copy-paste surface.
+
+So there are two resolution orders, both sparse and per-field:
+
+    render:  project → render profile → (machine: ragev.ini, --aa=)
+    post:    project → post profile   → scene → (eventually: volume)
+
+The current `--aa=` flag and `ragev.ini` key become the last and narrowest
+render layer rather than a special case, which is what removes the "the ini
+overrides every scene" wart 7.10 introduced.
+
+**Profile rather than override file is also a decision, not a name.** A
+profile is a named asset, so a project can hold several and select between
+them, which is what presets are; an anonymous override file can only ever
+be *the* override. It also inherits what assets already have here — a
+handle, the content browser, the inspector — instead of a bespoke file-path
+setting.
+
+The consequence to design for: **a profile is sparse and the UI has to show
+that.** A field the profile does not set must read as "inherited" rather
+than as a value that happens to match, or the first person to touch a
+slider silently pins every setting on that row.
+
+**The part that decides whether this is maintainable.**
+`RenderSettingsRegistry` already knows what every setting *is* — its name,
+type, range and help. Each of these layers must be **read and written
+through the registry**, not through a hand-written list per file format.
+Today the scene serializer is a hand-written list, and it drifted: a
+setting the registry described was never written, so it silently reset on
+every load and a scene file setting it was ignored (§7r). Three more
+hand-written lists is that bug three more times.
+
+**Open questions to settle when it is built**, rather than discovered:
+does a render profile ship with a packaged game (a player-facing quality
+menu) or is it a developer tool; does a profile apply to the editor's
+viewport, the game viewport, or both; whether the post profile eventually
+becomes a *volume* the camera blends between, since that is where this
+design leads and it is much cheaper to allow for now than to retrofit;
+and what happens to the settings already stored in existing `.rage` files
+— split into the two profiles on first open, or left as the scene layer.
 
 **Ordering, if it matters:** 9.3 then 9.1 gives most of the visible "graded"
 look for very little. 9.2 changes how everything else is judged, so it belongs

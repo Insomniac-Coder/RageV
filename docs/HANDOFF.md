@@ -214,6 +214,24 @@ has to be stated at layer init *as well as* in BuildFrame, and scenetest has
 its own two call sites that need it too. Grep for `R16G16_SFLOAT` to find all
 five places.
 
+**Asked for, not yet built: render settings belong to the project, with two
+profiles over them.** They are per *scene* today, and the anti-aliasing mode
+is additionally a machine-wide key in `ragev.ini` -- three homes for one kind
+of setting. Wanted instead: the project owns the defaults, and **two separate
+profile assets** layer over it, because they vary along different axes.
+`.rvrenderprofile` is cost -- anti-aliasing, shadows, probe resolution -- and
+is chosen per machine or build. `.rvpostprofile` is look -- exposure, bloom,
+and everything 9.1-9.7 adds -- and is chosen per scene, eventually per
+volume. The scene keeps only what is genuinely scene content: ambient, sky.
+Every layer is sparse and per-field.
+
+Roadmap 9.0 has both resolution orders, why the split is the load-bearing
+decision, why it should come *before* 9.1-9.7, and the open questions. The
+one non-negotiable is that every layer reads and writes through
+`RenderSettingsRegistry` rather than a hand-written list per format -- the
+scene serializer is such a list and it has already silently dropped a
+setting (ENGINE-NOTES 7r).
+
 **What to do next:** section 8 -- the per-project game module, which is what
 making the engine a DLL was for.
 
