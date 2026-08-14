@@ -1,2 +1,9 @@
 PostProfile: 1
+Exposure: 1
 BloomEnabled: false
+BloomThreshold: 1
+BloomKnee: 0.5
+BloomIntensity: 0.06
+ColorLut: 5920185463324807925
+ColorLutStrength: 1
+BloomClamp: 16
