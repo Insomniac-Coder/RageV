@@ -42,6 +42,20 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 ShadowParams;
 	mat4 SpotLookup[4];
 	int  LightCount;
+	int  _pad0;
+	int  _pad1;
+	int  _pad2;
+
+	// Not read in this stage. Declared anyway, because Jitter below has to
+	// land on the offset the CPU wrote it to -- a stage may declare a shorter
+	// view of a block, but not one whose members sit anywhere else. Leaving
+	// this out is a shader reading the wrong sixteen bytes and no error.
+	mat4 PreviousViewProjection;
+
+	// xy = this frame's sub-pixel offset in NDC, zw = last frame's. Taken
+	// back out of the motion vector at the top of main -- see there, and
+	// ENGINE-NOTES 7r.
+	vec4 Jitter;
 } u_Scene;
 
 // Every light in the scene, however many that is.
@@ -172,9 +186,17 @@ layout(location = 8) in vec4 v_PrevClipPos;
 layout(location = 0) out vec4 o_Color;
 
 // Screen-space motion, in UV units: where this pixel is now minus where the
-// same surface point was last frame. Zero for anything that did not move,
-// exactly, because PreviousModel equals Model there and the subtraction
-// cancels rather than nearly cancelling.
+// same surface point was last frame.
+//
+// Exactly zero for anything that did not move -- when the projection is not
+// jittered. PreviousModel equals Model there and the two projections are the
+// same expression, so the subtraction cancels rather than nearly cancelling.
+//
+// Under TAA the two projections differ by the frame's sub-pixel offset, which
+// main subtracts back out; that leaves a residual of the order of 1e-7 NDC,
+// from two matrices that agree mathematically being multiplied out
+// separately. In UV units that is a ten-thousandth of a pixel, below what a
+// half float can represent, so it stores as zero anyway.
 layout(location = 1) out vec2 o_Velocity;
 
 bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
@@ -197,18 +219,6 @@ uint ClusterIndexFor(vec3 worldPos)
 	// The fragment's own normalised device coordinate, from the interpolated
 	// clip position. Independent of the target's size and of which corner the
 	// backend calls the origin, both of which gl_FragCoord would drag in.
-	// Screen motion, in UV units. The halving turns an NDC difference into a
-	// texture-coordinate one, which is what a history fetch is addressed in.
-	//
-	// Exactly zero where nothing moved: PreviousModel equals Model there and
-	// the two projections are the same expression, so the subtraction cancels
-	// rather than nearly cancelling.
-	{
-		vec2 nowNDC  = v_ClipPos.xy     / max(abs(v_ClipPos.w), 1e-6)     * sign(v_ClipPos.w);
-		vec2 thenNDC = v_PrevClipPos.xy / max(abs(v_PrevClipPos.w), 1e-6) * sign(v_PrevClipPos.w);
-		o_Velocity = (nowNDC - thenNDC) * 0.5;
-	}
-
 	vec2 ndc = v_ClipPos.xy / max(abs(v_ClipPos.w), 1e-6) * sign(v_ClipPos.w);
 	vec2 unit = clamp(ndc * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
 
@@ -542,6 +552,27 @@ vec2 Parallax(vec2 uv, vec3 viewTS)
 
 void main()
 {
+	// Screen motion, in UV units: where this surface point is now, minus where
+	// it was last frame. The halving turns an NDC difference into a
+	// texture-coordinate one, which is what a history fetch is addressed in.
+	//
+	// The jitter comes back out of both terms. Each projection carried the
+	// sub-pixel offset of the frame that built it, and a motion vector is
+	// meant to say where the *surface* went -- a camera dithered by half a
+	// pixel has not moved anything, and leaving that in would send every
+	// history fetch half a pixel wrong on a scene standing perfectly still.
+	// Zero for every mode but TAA, where both terms are zero and this is the
+	// expression it always was.
+	//
+	// First in main, and unconditionally: a fragment that leaves the velocity
+	// attachment unwritten leaves whatever the target's memory held.
+	{
+		vec2 nowNDC  = v_ClipPos.xy     / max(abs(v_ClipPos.w), 1e-6)     * sign(v_ClipPos.w);
+		vec2 thenNDC = v_PrevClipPos.xy / max(abs(v_PrevClipPos.w), 1e-6) * sign(v_PrevClipPos.w);
+
+		o_Velocity = ((nowNDC - u_Scene.Jitter.xy) - (thenNDC - u_Scene.Jitter.zw)) * 0.5;
+	}
+
 	// The material's tiling, applied once. Every map has to use the same
 	// coordinate or the normals stop lining up with the colour they belong to,
 	// which reads as a lighting bug rather than as a UV one.

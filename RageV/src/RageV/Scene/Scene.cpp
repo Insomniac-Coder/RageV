@@ -17,6 +17,7 @@
 #include "RageV/Renderer/ProbeArray.h"
 #include "RageV/Renderer/UIRenderer.h"
 #include "RageV/Renderer/Frustum.h"
+#include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/ParticleRenderer.h"
 #include "RageV/Particles/ParticleSystem.h"
@@ -1727,10 +1728,37 @@ namespace RageV
 		}
 	}
 
-	void Scene::OnRender(const Camera& camera, const Mat4& cameraTransform,
+	void Scene::OnRender(const Camera& viewCamera, const Mat4& cameraTransform,
 						 const ViewportGridSettings* grid,
 						 const EditorIconSettings* icons)
 	{
+		// The sub-pixel offset this frame is drawn with, applied here and
+		// nowhere else.
+		//
+		// Here because this is where the one camera every part of the scene
+		// pass draws through is chosen -- meshes, sky, grid, world text, icons
+		// and particles all take it from this function, so offsetting it once
+		// moves them together. A renderer that jittered its own projection
+		// would have to be remembered by the next renderer somebody writes,
+		// and the symptom of forgetting is a half-pixel misregistration that
+		// reads as a soft filter rather than as a missing line of code.
+		//
+		// Zero during a probe capture, for two independent reasons: this test,
+		// and the fact that the graph only sets the jitter for the duration of
+		// its scene pass while a capture runs outside the graph entirely. Six
+		// faces of a cube drawn with six different offsets do not meet at the
+		// seams, and the cube is reused for many frames afterwards. Shadow
+		// cascades are safe by construction -- they never see this camera.
+		const Vec2 jitter = m_CapturingProbes ? Vec2(0.0f, 0.0f) : Renderer::GetJitter();
+		const bool jittered = jitter.x != 0.0f || jitter.y != 0.0f;
+
+		// Branched rather than always multiplied, so that every mode but TAA
+		// gets the identical matrix it got before this existed -- and the
+		// screenshot checks that compare against stored images stay exact
+		// rather than nearly exact.
+		const Camera camera(jittered ? JitterProjection(viewCamera.GetProjection(), jitter)
+									 : viewCamera.GetProjection());
+
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
 		LightList lights;
 
@@ -1796,7 +1824,13 @@ namespace RageV
 		// the pass, not to one kind of geometry -- keeping it in there is how
 		// the quads ended up being the one thing in the renderer that drew
 		// whatever the registry held.
-		const Frustum frustum(camera.GetProjection() * Math::Inverse(cameraTransform));
+		//
+		// Against the *unjittered* projection: whether an object is drawn
+		// should not depend on a sub-pixel offset, or something standing
+		// exactly on the screen edge would appear and disappear on alternate
+		// frames -- which is a flicker a temporal filter would then smear
+		// across the whole edge of the screen.
+		const Frustum frustum(viewCamera.GetProjection() * Math::Inverse(cameraTransform));
 
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
 		// of the alpha-blended quads means the quads blend against a complete
@@ -1804,8 +1838,14 @@ namespace RageV
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
 		{
+			// The jitter goes in as well as into the camera, because the
+			// velocity attachment has to come back out *without* it: a motion
+			// vector is where the surface moved, and half a pixel of camera
+			// offset is not the surface moving. Passed rather than read from
+			// the renderer, so a caller that did not jitter its camera cannot
+			// accidentally get the correction applied to it.
 			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment,
-								   environment, irradiance);
+								   environment, irradiance, jitter);
 
 			for (auto& item : meshView)
 			{

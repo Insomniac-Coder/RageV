@@ -15,12 +15,6 @@ namespace RageV
 	//   the coverage the rasterizer should have produced. Three passes over
 	//   two small intermediates, and sharper for it. ENGINE-NOTES 7n.
 	//
-	// TAA is named in the roadmap and absent here on purpose: it needs motion
-	// vectors, which means every mesh carrying its previous world transform
-	// and the renderer writing a velocity target, plus a jittered projection
-	// and a history buffer. That is a renderer feature with its own
-	// prerequisites, not a post pass -- and the same motion vectors would then
-	// also buy motion blur and temporal upscaling.
 	//   MSAA takes several coverage samples per pixel and keeps a depth for
 	//   each, but runs the fragment shader **once**. So geometry edges get
 	//   several levels of coverage for close to the price of one shaded
@@ -35,6 +29,20 @@ namespace RageV
 	//   texture aliasing into moire, is a signal the frame never sampled
 	//   finely enough, and no filter working on the finished image can invent
 	//   what was missed. It costs the square of the factor in fill.
+	//
+	//   TAA is the only one that is not a function of the frame it runs in.
+	//   It offsets the projection by a different fraction of a pixel every
+	//   frame and accumulates the results, which converges on a supersampled
+	//   image for the cost of one sample -- and puts every one of its costs
+	//   into the same place: what happens when the accumulation is wrong,
+	//   because something moved. ENGINE-NOTES 7r.
+	//
+	//   **TAA is incomplete.** The jitter and the motion vectors are in; the
+	//   history buffer and the rejection that makes it usable are not, so
+	//   selecting it today gets a scene that wobbles by half a pixel and no
+	//   filter to make anything of it. It is in the enum because the jitter
+	//   has to be switchable to be verified, and hiding an unfinished mode
+	//   behind a second flag would mean deleting that flag later.
 	enum class AntiAliasing : uint32_t
 	{
 		None = 0,
@@ -42,6 +50,7 @@ namespace RageV
 		SMAA = 2,
 		SSAA = 3,
 		MSAA = 4,
+		TAA  = 5,
 	};
 
 	// What fills the pixels no geometry covers.

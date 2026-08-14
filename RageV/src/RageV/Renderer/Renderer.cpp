@@ -19,6 +19,12 @@ namespace RageV
 	{
 		RHI::RHIDevice*      s_Device = nullptr;
 		RHI::RHICommandList* s_CommandList = nullptr;
+
+		// Frames drawn since the main loop started, and the sub-pixel offset
+		// the current one is being drawn with. See the header for why the
+		// count is not process-wide.
+		uint64_t s_FrameCount = 0;
+		Vec2     s_Jitter{ 0.0f, 0.0f };
 	}
 
 	void Renderer::Init(RHI::RHIDevice& device)
@@ -63,6 +69,12 @@ namespace RageV
 	void Renderer::BeginFrame(RHI::RHICommandList* commandList)
 	{
 		s_CommandList = commandList;
+		s_FrameCount++;
+
+		// Belt and braces: nothing outside a scene pass should ever read a
+		// non-zero jitter, and a frame that threw one away half-drawn would
+		// otherwise hand it to the next one's probe captures.
+		s_Jitter = Vec2(0.0f, 0.0f);
 
 		// Frees the per-frame buffer pools. Anything that draws a scene more
 		// than once per frame depends on this having run first.
@@ -82,6 +94,26 @@ namespace RageV
 	void Renderer::EndFrame()
 	{
 		s_CommandList = nullptr;
+	}
+
+	uint64_t Renderer::GetFrameCount()
+	{
+		return s_FrameCount;
+	}
+
+	void Renderer::ResetFrameCount()
+	{
+		s_FrameCount = 0;
+	}
+
+	void Renderer::SetJitter(const Vec2& ndcOffset)
+	{
+		s_Jitter = ndcOffset;
+	}
+
+	Vec2 Renderer::GetJitter()
+	{
+		return s_Jitter;
 	}
 
 	RHI::RHICommandList* Renderer::GetCommandList()

@@ -107,10 +107,12 @@ namespace RageV
 				config.AAOverride = AntiAliasing::SSAA;
 			else if (lowered == "msaa")
 				config.AAOverride = AntiAliasing::MSAA;
+			else if (lowered == "taa")
+				config.AAOverride = AntiAliasing::TAA;
 			else
 			{
 				RV_CORE_WARN("Unknown anti-aliasing mode '{0}'; expected 'none', 'fxaa', "
-							 "'smaa', 'ssaa' or 'msaa'",
+							 "'smaa', 'ssaa', 'msaa' or 'taa'",
 							 value);
 				return false;
 			}

@@ -3070,6 +3070,130 @@ void main()
 			  "a frame that moved nothing reports no motion at all");
 	}
 
+	// The temporal jitter, as arithmetic.
+	//
+	// The end-to-end properties -- reproducible, periodic, moves only edges --
+	// are measured by tools/scripts/check_taa_jitter.py, which needs a build
+	// and 26 launches of the runtime. These are the parts that can be checked
+	// in microseconds, and they are the parts where being wrong is silent: a
+	// transposed matrix index shears the frame instead of shifting it, and an
+	// offset in the wrong units is a jitter of half a *screen*.
+	void CheckTemporalJitter()
+	{
+		const uint32_t phase = TemporalJitterPhase();
+		Check(phase >= 4, "the jitter sequence is long enough to be worth having");
+
+		// Half a pixel either way, in NDC, at a known size.
+		const uint32_t width = 1600;
+		const uint32_t height = 900;
+		const float limitX = 1.0f / (float)width;
+		const float limitY = 1.0f / (float)height;
+
+		std::vector<Vec2> offsets;
+		bool inside = true;
+		for (uint32_t frame = 0; frame < phase; frame++)
+		{
+			const Vec2 offset = TemporalJitter(frame, width, height);
+			inside = inside && std::fabs(offset.x) <= limitX + 1e-9f
+							&& std::fabs(offset.y) <= limitY + 1e-9f;
+			offsets.push_back(offset);
+		}
+
+		Check(inside, "every offset lands inside the pixel it is offsetting");
+
+		// Distinct, which is the whole point of a low-discrepancy sequence and
+		// the thing an indexing mistake destroys without changing anything a
+		// person would notice.
+		bool distinct = true;
+		for (size_t a = 0; a < offsets.size(); a++)
+		{
+			for (size_t b = a + 1; b < offsets.size(); b++)
+			{
+				if (std::fabs(offsets[a].x - offsets[b].x) < 1e-9f &&
+					std::fabs(offsets[a].y - offsets[b].y) < 1e-9f)
+					distinct = false;
+			}
+		}
+		Check(distinct, "and no two frames in the sequence land on the same one");
+
+		// None of them is zero. Halton's first point is the origin, so an
+		// off-by-one here renders one frame in every eight through the
+		// unjittered projection -- which converges to a slightly different
+		// image and is invisible until somebody measures the convergence.
+		bool nonzero = true;
+		for (const Vec2& offset : offsets)
+			nonzero = nonzero && (offset.x != 0.0f || offset.y != 0.0f);
+		Check(nonzero, "and none of them is no offset at all");
+
+		// The period, which is what the screenshot checks rest on.
+		const Vec2 first = TemporalJitter(30, width, height);
+		const Vec2 wrapped = TemporalJitter(30 + phase, width, height);
+		Check(first.x == wrapped.x && first.y == wrapped.y,
+			  "a frame and the same frame one period later get the same offset");
+
+		const Vec2 next = TemporalJitter(31, width, height);
+		Check(first.x != next.x || first.y != next.y,
+			  "and the frame after it does not");
+
+		// A degenerate target is a divide by zero waiting to happen, and a
+		// zero-sized viewport is a panel somebody dragged shut.
+		const Vec2 degenerate = TemporalJitter(3, 0, 0);
+		Check(degenerate.x == 0.0f && degenerate.y == 0.0f,
+			  "a target with no pixels in it gets no offset rather than infinity");
+
+		// --- the projection, which is where a convention error hides --------
+		//
+		// The claim is that this shifts, and shifts by exactly the offset
+		// asked for. A transposed index would shear instead, and a sheared
+		// frame still looks like a frame.
+		const Mat4 projection = Math::Perspective(Math::Radians(60.0f),
+												  16.0f / 9.0f, 0.1f, 100.0f);
+		const Vec2 offset(0.013f, -0.021f);
+		const Mat4 jittered = JitterProjection(projection, offset);
+
+		bool shifted = true;
+		const Vec4 points[] = {
+			Vec4(0.0f, 0.0f, -1.0f, 1.0f),
+			Vec4(3.0f, -2.0f, -12.0f, 1.0f),
+			Vec4(-7.0f, 4.5f, -0.5f, 1.0f),
+		};
+
+		for (const Vec4& point : points)
+		{
+			const Vec4 plain = projection * point;
+			const Vec4 moved = jittered * point;
+
+			// Same depth and same w: this must not touch the perspective
+			// divide or the depth test, only where the pixel lands.
+			shifted = shifted && std::fabs(plain.z - moved.z) < 1e-5f
+							  && std::fabs(plain.w - moved.w) < 1e-5f;
+
+			const Vec2 before(plain.x / plain.w, plain.y / plain.w);
+			const Vec2 after(moved.x / moved.w, moved.y / moved.w);
+
+			shifted = shifted && std::fabs((after.x - before.x) - offset.x) < 1e-5f
+							  && std::fabs((after.y - before.y) - offset.y) < 1e-5f;
+		}
+
+		Check(shifted, "the jittered projection moves every point by exactly the "
+					   "offset, at every depth, and leaves z and w alone");
+
+		// Zero has to be free, because every mode but TAA passes zero and the
+		// stored screenshots those modes are compared against were rendered
+		// before any of this existed.
+		const Mat4 unmoved = JitterProjection(projection, Vec2(0.0f, 0.0f));
+		bool identical = true;
+		for (int column = 0; column < 4; column++)
+		{
+			identical = identical
+				&& unmoved[column].x == projection[column].x
+				&& unmoved[column].y == projection[column].y
+				&& unmoved[column].z == projection[column].z
+				&& unmoved[column].w == projection[column].w;
+		}
+		Check(identical, "and no offset at all leaves the projection bit-identical");
+	}
+
 	void CheckRenderSettings()
 	{
 		const auto& fields = RenderSettingsRegistry::Fields();
@@ -3078,7 +3202,7 @@ void main()
 		const FieldDesc* aa = RenderSettingsRegistry::Find("AntiAliasing");
 		Check(aa != nullptr, "and anti-aliasing is one of them");
 		Check(aa && aa->Type == FieldType::Enum, "described as a choice, not a number");
-		Check(aa && aa->Hint.EnumCount == 5, "with all five modes named");
+		Check(aa && aa->Hint.EnumCount == 6, "with all six modes named");
 		// An enum crossing as text is read back as int, so a mismatch here is
 		// a stack write past the member rather than a wrong value.
 		Check(aa && aa->Size == sizeof(int),
@@ -7330,6 +7454,17 @@ void main()
 		Check(build(1600, 900, environment), "SSAA at a factor of one compiles");
 		Check(!hasPass("SSAA resolve"), "and adds no resolve pass at all");
 
+		// TAA adds no pass either, and for a different reason from MSAA's: the
+		// filter that would read the jittered frames does not exist yet. What
+		// it must not do is leave tone mapping writing into an intermediate
+		// nothing presents, which is how an unhandled mode fails.
+		environment.SupersampleFactor = 2;
+		environment.AA = AntiAliasing::TAA;
+		Check(build(1600, 900, environment), "with TAA it compiles");
+		Check(!hasPass("FXAA") && !hasPass("SMAA") && !hasPass("SSAA resolve"),
+			  "and adds no resolve pass, because the history buffer is 7.10's next step");
+		Check(hasPass("Tonemap"), "with tone mapping writing the output directly");
+
 		environment.SupersampleFactor = 2;
 		environment.AA = (AntiAliasing)99;
 		Check(build(1600, 900, environment), "an unknown anti-aliasing mode compiles");
@@ -9064,6 +9199,7 @@ int RunTests(int argc, char** argv)
 	CheckRenderersReady();
 	CheckFieldLabels();
 	CheckMotionHistory();
+	CheckTemporalJitter();
 	CheckRenderSettings();
 	CheckShadowToggle();
 	CheckShadowCascades();

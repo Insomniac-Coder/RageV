@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1328 checks, `exit 0`. Then look at a frame:
+1340 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -148,25 +148,41 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**In progress: TAA (7.10).** Designed in ENGINE-NOTES 7r; motion vectors are
-**done**. The scene target carries an RG16F velocity attachment, the PBR
+**In progress: TAA (7.10).** Designed in ENGINE-NOTES 7r. **Two of the three
+prerequisites are done**: motion vectors and the jitter. The history buffer,
+which is the hard one, is not.
+
+Motion vectors: the scene target carries an RG16F velocity attachment, the PBR
 shaders write real screen-space motion, and everything else in the scene pass
 writes zero. Nothing reads it yet, which is deliberate -- 7r says why the
 prerequisite gets verified before the filter that would hide it.
 
-**The next three steps, in order** (7r has the reasoning for each):
+Jitter: a centred Halton(2,3) point, applied to the scene camera in
+`Scene::OnRender` and nowhere else, so meshes, sky, grid, world text, icons and
+particles all move together. `AntiAliasing::TAA` exists and selecting it gets
+the jitter and no accumulation, which is worse than None -- the inspector and
+the C# doc comment both say so. `tools/scripts/check_taa_jitter.py` measures
+the properties that matter (26 launches, ~2 min): same frame twice is
+byte-identical, frame 30 and 38 are byte-identical *to each other* while 30 and
+31 differ, all eight offsets distinct, and nothing more than 4 px from an edge
+moves. 353 pixels move per frame, the same number on both backends.
 
-1. **Jitter**, indexed by *frame number, not elapsed time*. This is the one
-   that breaks things if got wrong: every screenshot check in tools/scripts
-   assumes a frame is a pure function of the scene, and a clock-driven jitter
-   makes all of them irreproducible with a failure that looks like noise.
-   Must not reach shadow cascades or probe captures.
-2. **History and reprojection** -- persistent targets outside the graph pool,
+**The next two steps, in order** (7r has the reasoning for each):
+
+1. **History and reprojection** -- persistent targets outside the graph pool,
    since pooled targets have no identity across frames -- with a
    neighbourhood AABB clamp so disocclusion does not ghost.
-3. **A moving-scene check.** A static scene lets TAA converge and flatters it
+2. **A moving-scene check.** A static scene lets TAA converge and flatters it
    maximally; ghosting is its only real failure mode and no existing check
    can see it.
+
+**Before diffing two screenshots, prove they contain what you think.** An
+inertness check here reported OpenGL as 100% changed in all five modes; the
+reference images were the *loading screen*, caught at frame 30 by a cold
+driver shader cache on the day's first OpenGL run. `check_smaa.py` and
+`check_taa_jitter.py` are immune because they fit the edge and require the
+unfiltered staircase to measure 1/sqrt(12) -- a flat grey cannot. A by-hand
+comparison has no such control. ENGINE-NOTES 7r.
 
 **Two known gaps in the motion vectors themselves**, both recorded rather
 than forgotten: the **sky writes zero** (it needs camera-rotation velocity or

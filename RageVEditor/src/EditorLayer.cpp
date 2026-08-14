@@ -1994,7 +1994,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 		// Only the modes that exist. Offering TAA here and doing nothing would
 		// be worse than not offering it; the roadmap is where "not yet"
 		// belongs.
-		const char* aaModes[] = { "None", "FXAA", "SMAA", "SSAA", "MSAA" };
+		const char* aaModes[] = { "None", "FXAA", "SMAA", "SSAA", "MSAA", "TAA" };
 		int aa = (int)environment.AA;
 		if (UI::RowCombo("Anti-aliasing",
 		&aa,
@@ -2005,8 +2005,7 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "SMAA reconstructs the edge instead of guessing at it -- it finds the "
 				   "run of pixels an edge spans, works out which way the real line sloped, "
 				   "and computes the coverage from that. Three passes over two small "
-				   "intermediates, and sharper for it. It has no diagonal pass yet, so a "
-				   "45-degree edge is the one case FXAA can still win.\n\n"
+				   "intermediates, and sharper for it, including on diagonals.\n\n"
 				   "SSAA draws the whole scene larger and averages it down. It is the "
 				   "only one here that helps with specular sparkle and texture moire, "
 				   "because those are not edges -- they are detail the frame never "
@@ -2016,10 +2015,11 @@ void EditorLayer::DrawRenderSettingsPanel()
 				   "geometry edges get several levels of coverage for close to the price "
 				   "of one shaded pixel -- and shading aliasing gets nothing. It resolves "
 				   "before the tone curve, which is the correct place.\n\n"
-				   "TAA is better than either and needs motion vectors -- every mesh "
-				   "carrying its previous transform and the renderer writing a velocity "
-				   "target. That is a renderer feature with its own prerequisites, not a "
-				   "post pass."))
+				   "TAA offsets the projection by a fraction of a pixel each frame and "
+				   "accumulates, which converges on a supersampled image for the cost of "
+				   "one sample. IT IS UNFINISHED: the jitter and the motion vectors are "
+				   "in, the history buffer is not, so choosing it today gets a half-pixel "
+				   "wobble and nothing to accumulate it into."))
 			environment.AA = (AntiAliasing)aa;
 
 		if (environment.AA == AntiAliasing::MSAA)

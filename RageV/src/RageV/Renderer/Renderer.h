@@ -1,5 +1,6 @@
 #pragma once
 #include "RageV/Renderer/RHI/RHIDevice.h"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
@@ -15,6 +16,36 @@ namespace RageV
 
 		static void BeginFrame(RHI::RHICommandList* commandList);
 		static void EndFrame();
+
+		// How many frames have been drawn since the main loop started.
+		//
+		// **Not since the process started**, and the difference is the whole
+		// reason this is here. Loading draws frames too, and how many depends
+		// on whether the import cache was warm -- so anything indexed by a
+		// process-wide count would land on a different value between two runs
+		// of the same build. The temporal jitter is indexed by this, and a
+		// jitter that moves between runs makes every screenshot check in
+		// tools/scripts irreproducible with a failure that looks like noise.
+		// ENGINE-NOTES 7r.
+		static uint64_t GetFrameCount();
+
+		// Called once when the main loop begins, for the reason above. The
+		// same idea as the fixed step's Reset beside it: this is where the
+		// clock starts.
+		static void ResetFrameCount();
+
+		// The scene camera's sub-pixel offset for this frame, in NDC.
+		//
+		// Set around the passes that draw into the scene target and cleared
+		// after them, so it is zero everywhere else -- which is what keeps it
+		// out of the two places it must never reach: a shadow cascade, which
+		// is reused across frames and would shimmer along every edge, and a
+		// reflection probe, which assembles one cube out of six frames and
+		// would assemble six differently-offset faces.
+		//
+		// Zero for every mode but TAA.
+		static void SetJitter(const Vec2& ndcOffset);
+		static Vec2 GetJitter();
 
 		// Null outside a frame, and between BeginFrame returning nullptr and
 		// the next successful frame.

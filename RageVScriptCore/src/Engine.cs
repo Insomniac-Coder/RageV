@@ -806,6 +806,18 @@ public enum AntiAliasing
 	/// place. See <see cref="RenderSettings.MsaaSamples"/>.
 	/// </summary>
 	Msaa = 4,
+
+	/// <summary>
+	/// Offsets the projection by a different fraction of a pixel every frame
+	/// and accumulates the results, converging on a supersampled image for the
+	/// cost of one sample.
+	/// <para>
+	/// <b>Unfinished.</b> The jitter and the motion vectors are in; the history
+	/// buffer that would accumulate anything is not. Selecting it today gets a
+	/// scene that wobbles by half a pixel and no filter to make use of it.
+	/// </para>
+	/// </summary>
+	Taa = 5,
 }
 
 /// <summary>

@@ -25,7 +25,7 @@
 //   --audio=on|off          open an output device at all
 //   --import-cache=on|off   read and write cooked assets (default on)
 //   --depth-sort=on|off     order opaque batches front to back (default on)
-//   --aa=none|fxaa|smaa|ssaa  override the scene's anti-aliasing choice
+//   --aa=none|fxaa|smaa|ssaa|msaa|taa  override the scene's anti-aliasing choice
 //   --ssaa=N                how many times larger SSAA draws each axis
 //   --msaa=N                coverage samples per pixel for MSAA
 //   --project=<path>        the .rvproject to open, or a folder containing one

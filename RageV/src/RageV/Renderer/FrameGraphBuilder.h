@@ -67,4 +67,36 @@ namespace RageV
 	// Nothing is executed here -- the caller compiles and executes, so a failed
 	// compile is reported where the frame is owned.
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc);
+
+	// Which filter is actually running: the scene's choice unless --aa
+	// overrode it, and None if the post-process stack failed to come up.
+	//
+	// Public because more than the frame graph needs the answer, and two
+	// places deciding it independently is a bug this repository has already
+	// shipped once -- see the note on the definition.
+	AntiAliasing ResolveAntiAliasing(const SceneEnvironment& environment);
+
+	// This frame's sub-pixel offset for a target of this size, in NDC.
+	//
+	// A centred Halton(2,3) point, so successive frames land in the gaps the
+	// earlier ones left rather than wherever a random generator puts them.
+	// Indexed by the frame *number*, and the sequence repeats every
+	// TemporalJitterPhase() frames -- which is what makes "frame 30 and frame
+	// 38 are the same picture" something a check can assert, and a clock
+	// cannot accidentally satisfy. ENGINE-NOTES 7r.
+	//
+	// In NDC rather than pixels because the shader subtracts it back out of
+	// the motion vectors, and a quantity stated twice in two conventions is a
+	// quantity applied twice on one axis and never on the other.
+	Vec2 TemporalJitter(uint64_t frame, uint32_t width, uint32_t height);
+	uint32_t TemporalJitterPhase();
+
+	// The same projection, shifted by a sub-pixel offset in NDC.
+	//
+	// Applied to the camera once, where the scene is drawn, so that everything
+	// in the scene pass -- meshes, sky, grid, particles, world text -- moves
+	// together. Applying it per renderer would mean each new one has to
+	// remember, and the symptom of forgetting is a half-pixel misregistration
+	// that reads as "the temporal filter is soft on particles".
+	Mat4 JitterProjection(const Mat4& projection, const Vec2& ndcOffset);
 }

@@ -35,11 +35,19 @@ namespace RageV
 		// cube. Null means nothing is reflected, not that the term is
 		// undefined: the binding is filled with a neutral cube and the
 		// intensity set to zero.
+		//
+		// `jitter` is the sub-pixel offset already folded into `camera`, in
+		// NDC. It is passed as well as applied because the motion vectors have
+		// to be free of it: what the velocity attachment means is where the
+		// *surface* moved, and half a pixel of camera offset is not that. The
+		// default is the honest one -- a caller that did not jitter its camera
+		// must not have the correction applied to it either.
 		static void BeginScene(const Camera& camera, const Mat4& cameraTransform,
 							   const LightList& lights = {},
 							   const SceneEnvironment& environment = {},
 							   const RHI::Ref<RHI::RHITexture>& environmentMap = nullptr,
-							   const RHI::Ref<RHI::RHITexture>& irradianceMap = nullptr);
+							   const RHI::Ref<RHI::RHITexture>& irradianceMap = nullptr,
+							   const Vec2& jitter = Vec2(0.0f, 0.0f));
 		static void EndScene();
 
 		// Depth only, from a light. Wraps the same mesh binding the lit path

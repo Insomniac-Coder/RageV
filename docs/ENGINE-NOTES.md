@@ -2765,6 +2765,110 @@ staying reproducible. Then history and rejection. Anything else is
 building three unverified things and finding out which is wrong by
 looking at ghosting.
 
+### The jitter, as built
+
+**One camera, offset once.** The scene pass draws through meshes, sky,
+grid, world text, editor icons and particles, and every one of them takes
+its view-projection from the camera `Scene::OnRender` was handed. So the
+offset is applied there, to a local copy, and everything follows. The
+alternative — each renderer jittering its own projection — is a rule the
+next renderer somebody writes has to be told about, and the symptom of
+forgetting is a half-pixel misregistration that reads as *the temporal
+filter is soft on particles* rather than as a missing line.
+
+Particles are the case that makes this worth stating. They are *drawn*
+two passes later, in the transparent pass, but their view-projection is
+captured during the scene pass — so they jitter with the geometry
+without the transparent pass knowing the jitter exists.
+
+**Where it must not reach**, and how it is kept out. The offset lives on
+`Renderer` and is set only for the duration of the scene pass. Reflection
+probe captures run outside the graph entirely, earlier in the frame, so
+they see zero; `Scene::OnRender` also tests `m_CapturingProbes` directly,
+which is belt and braces, and is the version a reader looking at that
+function can see. Shadow cascades are safe by construction: they never
+see the scene camera at all, because a cascade's view-projection is
+folded into each caster's model matrix.
+
+**The count is not the process's.** Loading draws frames too — through
+`Renderer::BeginFrame`, deliberately, so there is only one way to get a
+picture onto the swapchain — and *how many* depends on whether the import
+cache was warm. Indexing the jitter by a process-wide count would
+therefore land on a different offset on a cold run, which is the same
+irreproducibility a clock would cause, arriving through a different door.
+So the main loop resets the count, and the screenshot's "frame 30" is
+read from the same counter: two counters meant to agree are one more
+thing that can drift.
+
+**Motion vectors have to come back out of it.** Both projections in the
+scene block carry the offset of the frame that built them, so the
+velocity attachment would otherwise report half a pixel of movement on a
+scene standing perfectly still — and half a pixel is precisely the error
+that ruins a history fetch. The block carries both offsets, this frame's
+and last frame's, and the fragment subtracts each from its own term.
+
+Which leaves a residual, and it is worth being exact about: two matrices
+that agree mathematically, multiplied out separately, differ by around
+1e-7 in NDC. That is a ten-thousandth of a pixel, below what the half
+float the velocity is stored in can represent, so it stores as zero. The
+*exactly zero* property the unjittered path has is not quite preserved;
+what is preserved is that nothing downstream can tell.
+
+**Eight offsets, and why not more.** A temporal filter that has to throw
+its history away — a cut, a silhouette moving — starts from nothing, and
+the shorter the phase the sooner it has covered the pixel evenly again.
+Longer sequences converge finer and recover slower. Eight is the usual
+answer, and it also bounds the index, which turns *frame 30 and frame 38
+are drawn with the same offset* into something a check can assert — and
+that assertion is the one a clock cannot accidentally pass, because a
+time-driven jitter can be reproducible under `--frame-time` and still
+have no period at all.
+
+### A near-miss worth more than the feature
+
+The way to prove a change is inert is to render the same frame with the
+binary from before it and diff. The Release binaries happened to predate
+the edit, so the reference could be taken for free — and it came back
+**0 of 21,600,000 subpixels different on Vulkan and 100% different on
+OpenGL, in all five modes, by up to 165.**
+
+That reads as a catastrophic backend regression. It was not one. The
+OpenGL reference images were 97% a single flat grey: `--screenshot-frame=30`
+had caught the **loading screen**, because that was the first OpenGL run
+of the day and a cold driver program cache had not finished compiling by
+frame 30. There was nothing in those files to compare against.
+
+The lesson is not "wait longer". It is that **a screenshot comparison has
+to prove it captured the thing it claims to compare.** `check_smaa.py`
+and `check_taa_jitter.py` are both safe, and not by luck: they fit the
+edge and require the unfiltered staircase to measure 1/sqrt(12), which a
+flat grey screen cannot do — the control that exists to validate the
+*metric* also happens to validate the *capture*. The by-hand comparison
+had no such control and would have reported a regression that was not
+there. Any future before/after diff should assert something about the
+content of the image before diffing it.
+
+For the record the OpenGL evidence was obtained another way, which is
+what it should have been from the start: `check_smaa.py`'s numbers are
+unchanged to four decimals from the ones recorded in 7n and 7p, on both
+backends, and those numbers are absolute — measured against computed
+coverage, not against a stored image.
+
+### And a defect this found
+
+The velocity write from 7.10's first step had landed **inside
+`ClusterIndexFor`**, the function that maps a fragment to its light
+cluster. It worked, because that function is called exactly once per
+fragment — and it would have gone on working until somebody added an
+early-out to it, at which point the velocity attachment would hold
+whatever the target's memory held, on some fragments, some frames.
+
+It got there because the edit was made by a script matching on a comment,
+and the comment it matched was in the wrong function; it also left that
+function's own comment spliced into the middle of the velocity one, which
+is the tell. Moved to the top of `main`, unconditionally, which is where
+an attachment every fragment must write belongs.
+
 ---
 
 ## 8. What this changes

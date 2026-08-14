@@ -420,7 +420,14 @@ namespace RageV {
 		m_FixedStep.Reset();
 
 		const EngineConfig& config = EngineConfig::Get();
-		uint64_t frameNumber = 0;
+
+		// Frame one is the first frame of the loop, not the first frame of the
+		// process. Loading drew some too, and how many depends on whether the
+		// import cache was warm -- so counting those would make
+		// --screenshot-frame=30 mean a different frame on a cold run, and
+		// would move the temporal jitter with it. The fixed step is reset
+		// beside this for the same reason: the clock starts here.
+		Renderer::ResetFrameCount();
 
 		// Warm-up, discarded: the first frames pay for shader compilation, the
 		// first environment prefilter and every first-touch allocation, and
@@ -505,7 +512,13 @@ namespace RageV {
 			Audio::Engine::Update();
 
 			// Armed before EndFrame, which is the call that consumes it.
-			if (!config.ScreenshotPath.empty() && ++frameNumber == config.ScreenshotFrame)
+			//
+			// Against the renderer's count rather than a local one, so "frame
+			// 30" means the same frame to the screenshot and to the temporal
+			// jitter. Two counters that were meant to agree would be one more
+			// thing that can drift.
+			const uint64_t frameNumber = Renderer::GetFrameCount();
+			if (!config.ScreenshotPath.empty() && frameNumber == config.ScreenshotFrame)
 			{
 				const std::string path = config.ScreenshotPath;
 				m_Device->RequestCapture([path](const uint8_t* rgba, uint32_t w, uint32_t h)

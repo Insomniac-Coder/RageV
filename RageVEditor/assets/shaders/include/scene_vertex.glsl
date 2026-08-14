@@ -61,6 +61,12 @@ layout(set = 0, binding = 0) uniform SceneData
 	// two disagreeing is a picture that is wrong rather than a build that
 	// fails. ENGINE-NOTES 7r.
 	mat4 PreviousViewProjection;
+
+	// xy = this frame's sub-pixel offset in NDC, zw = last frame's. Both
+	// matrices above already carry theirs, and the fragment takes them back
+	// out to get a motion vector that is the surface's movement rather than
+	// the camera's dither. Zero for every mode but TAA.
+	vec4 Jitter;
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.

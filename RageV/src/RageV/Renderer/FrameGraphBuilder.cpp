@@ -34,6 +34,93 @@ namespace RageV
 		// shaded, and at a 4K output a 16K scene target -- past what a lot of
 		// hardware will allocate and all of what is sensible.
 		constexpr int kMaxSupersample = 4;
+
+		// How many jitter offsets before the sequence repeats.
+		//
+		// Eight is the usual choice and the reason is not aesthetic: a
+		// temporal filter that has to reject its history -- because the camera
+		// cut, or a silhouette moved -- starts again from nothing, and the
+		// shorter the phase the sooner it has covered the pixel evenly again.
+		// Longer sequences converge on a finer image and take longer to
+		// recover, and past sixteen the difference is not visible while the
+		// recovery still costs.
+		//
+		// It also bounds the index, which makes "frame 30 and frame 38 are
+		// drawn with the same offset" a property a check can assert.
+		constexpr uint32_t kJitterPhase = 8;
+
+		// The radical-inverse sequence, which is what "low discrepancy" means
+		// in practice: successive points fall in the gaps the earlier ones
+		// left, rather than wherever a random generator puts them. Eight
+		// random offsets can easily leave a quarter of the pixel unsampled;
+		// eight Halton offsets cannot.
+		//
+		// One-based, because Halton's first point is 0 and an offset of zero
+		// contributes nothing -- it renders the frame the unjittered path
+		// would have rendered.
+		float Halton(uint32_t index, uint32_t base)
+		{
+			float result = 0.0f;
+			float fraction = 1.0f;
+
+			while (index > 0)
+			{
+				fraction /= (float)base;
+				result += fraction * (float)(index % base);
+				index /= base;
+			}
+
+			return result;
+		}
+	}
+
+	uint32_t TemporalJitterPhase()
+	{
+		return kJitterPhase;
+	}
+
+	Vec2 TemporalJitter(uint64_t frame, uint32_t width, uint32_t height)
+	{
+		if (width == 0 || height == 0)
+			return Vec2(0.0f, 0.0f);
+
+		const uint32_t index = (uint32_t)(frame % kJitterPhase) + 1;
+		const float x = Halton(index, 2) - 0.5f;
+		const float y = Halton(index, 3) - 0.5f;
+
+		return Vec2(2.0f * x / (float)width, 2.0f * y / (float)height);
+	}
+
+	Mat4 JitterProjection(const Mat4& projection, const Vec2& ndcOffset)
+	{
+		// A translation in *clip* space: clip.xy += offset * clip.w, which is
+		// a constant shift once the perspective divide has run. Applied as a
+		// matrix on the left rather than by editing two entries of the
+		// projection, because which two entries those are depends on whether
+		// the projection is perspective or orthographic -- and an editor
+		// camera can be either.
+		Mat4 shift(1.0f);
+		shift[3].x = ndcOffset.x;
+		shift[3].y = ndcOffset.y;
+
+		return shift * projection;
+	}
+
+	AntiAliasing ResolveAntiAliasing(const SceneEnvironment& environment)
+	{
+		// Resolved in one place, because the alternative has already cost a
+		// day: the SMAA passes branched on the scene's stored mode while the
+		// rest of the frame branched on the resolved one, so --aa=smaa built
+		// FXAA's chain and the two modes came out byte-identical. Anything
+		// that needs to know which filter is running asks here.
+		const EngineConfig& config = EngineConfig::Get();
+		const AntiAliasing requested = config.HasAAOverride ? config.AAOverride
+															: environment.AA;
+
+		// Every mode but None is a pass PostProcess owns. Without it the chain
+		// would tone map into an intermediate that nothing then reads, and the
+		// window would be black with no error anywhere.
+		return PostProcess::IsReady() ? requested : AntiAliasing::None;
 	}
 
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc)
@@ -41,14 +128,9 @@ namespace RageV
 		if (desc.Output == kRGInvalid || desc.Width == 0 || desc.Height == 0)
 			return;
 
-		// Which filter, resolved once. A scene file can name a mode from a
-		// later version, and the failure that causes is silent and total: tone
-		// mapping goes into an intermediate, nothing writes the real output,
-		// and the window is black with no error anywhere.
+		// Which filter, resolved once, by the function everything else asks.
 		const EngineConfig& config = EngineConfig::Get();
-		const AntiAliasing requested = config.HasAAOverride ? config.AAOverride
-															: desc.Environment.AA;
-		const AntiAliasing aa = PostProcess::IsReady() ? requested : AntiAliasing::None;
+		const AntiAliasing aa = ResolveAntiAliasing(desc.Environment);
 
 		// SSAA is decided here rather than with the other two, because it is
 		// the only one that changes the size of the scene target -- everything
@@ -122,6 +204,21 @@ namespace RageV
 
 		const RGResource sceneHDR = graph.CreateTarget(sceneDesc);
 
+		// The sub-pixel offset this frame is drawn with, in the scene target's
+		// own pixels -- which are the supersampled ones when SSAA is on, not
+		// the output's. Zero for every mode but TAA, so every other mode
+		// renders exactly the frame it rendered before this existed.
+		//
+		// Indexed by the frame *count*, never by elapsed time. A clock-driven
+		// sequence would make --screenshot-frame=30 produce a different image
+		// on every run, and the failure would look like noise rather than like
+		// a mistake. ENGINE-NOTES 7r.
+		const Vec2 jitter = aa == AntiAliasing::TAA
+			? TemporalJitter(Renderer::GetFrameCount(),
+							 desc.Width * (uint32_t)supersample,
+							 desc.Height * (uint32_t)supersample)
+			: Vec2(0.0f, 0.0f);
+
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
@@ -137,10 +234,26 @@ namespace RageV
 					  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
 				builder.SetClearColor(desc.ClearColor);
 			},
-			[draw = desc.DrawScene](RGPassContext& context)
+			[draw = desc.DrawScene, jitter](RGPassContext& context)
 			{
+				// Set here and cleared immediately after, so that the only
+				// code able to see a non-zero jitter is code drawing the
+				// scene. Reflection probe captures run *outside* the graph,
+				// earlier in the frame, and a cube assembled from six
+				// differently-offset faces would not close at the seams; a
+				// shadow cascade is reused across frames and would shimmer
+				// along every edge it casts.
+				//
+				// The scene pass is also where the particles' view-projection
+				// is captured, even though they are drawn two passes later --
+				// so they jitter with the geometry rather than sliding a
+				// half-pixel against it.
+				Renderer::SetJitter(jitter);
+
 				if (draw)
 					draw(context);
+
+				Renderer::SetJitter(Vec2(0.0f, 0.0f));
 			});
 
 		// The overlay goes into the HDR target rather than over the finished

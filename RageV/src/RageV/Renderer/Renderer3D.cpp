@@ -73,6 +73,14 @@ namespace RageV
 			// hand in include/scene_vertex.glsl, and the two disagreeing is a
 			// wrong picture rather than a failed build. ENGINE-NOTES 7r.
 			Mat4 PreviousViewProjection;
+
+			// xy = this frame's sub-pixel offset in NDC, zw = last frame's.
+			//
+			// Both, because both projections above carry one and the velocity
+			// is the difference of the two. Subtracting only the current one
+			// would leave last frame's offset in every motion vector, which is
+			// half a pixel of velocity on a scene where nothing moved.
+			Vec4 Jitter;
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -202,8 +210,12 @@ namespace RageV
 		// rasterizationSamples disagrees with the attachment it draws into is
 		// undefined behaviour rather than an error, so it travels with the
 		// formats and gets compared with them.
-			// What ViewProjection was the last time BeginScene ran.
+			// What ViewProjection was the last time BeginScene ran, and the
+			// jitter that was folded into it. Kept together and written
+			// together, because a matrix paired with the wrong offset is a
+			// velocity that is wrong by half a pixel everywhere.
 			Mat4 PreviousSceneViewProjection{ 1.0f };
+			Vec2 PreviousSceneJitter{ 0.0f, 0.0f };
 			uint32_t TargetSamples = 1;
 
 		// Where the scene writes its motion vectors, or Undefined for a pass
@@ -575,7 +587,8 @@ namespace RageV
 	void Renderer3D::BeginScene(const Camera& camera, const Mat4& cameraTransform,
 								const LightList& lights, const SceneEnvironment& environment,
 								const Ref<RHITexture>& environmentMap,
-								const Ref<RHITexture>& irradianceMap)
+								const Ref<RHITexture>& irradianceMap,
+								const Vec2& jitter)
 	{
 		if (!s_Data)
 			return;
@@ -591,9 +604,13 @@ namespace RageV
 		// pass wrote -- which is the property that makes this correct without
 		// tracking whose camera it was.
 		s_Data->Scene.PreviousViewProjection = s_Data->PreviousSceneViewProjection;
+		s_Data->Scene.Jitter = Vec4(jitter.x, jitter.y,
+									s_Data->PreviousSceneJitter.x,
+									s_Data->PreviousSceneJitter.y);
 
 		s_Data->Scene.ViewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
 		s_Data->PreviousSceneViewProjection = s_Data->Scene.ViewProjection;
+		s_Data->PreviousSceneJitter = jitter;
 		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
 		s_Data->Scene.Ambient = Vec4(environment.AmbientColor, environment.AmbientIntensity);
 

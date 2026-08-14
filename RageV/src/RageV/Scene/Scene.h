@@ -246,7 +246,10 @@ namespace RageV
 		uint32_t ProbeSlotFor(const Vec3& position) const;
 
 	private:
-		void OnRender(const Camera& camera, const Mat4& cameraTransform,
+		// `viewCamera` is the camera as the viewer set it. What the scene is
+		// actually drawn through is that projection plus this frame's temporal
+		// jitter, which is applied inside -- see the note there.
+		void OnRender(const Camera& viewCamera, const Mat4& cameraTransform,
 					  const ViewportGridSettings* grid = nullptr,
 					  const EditorIconSettings* icons = nullptr);
 

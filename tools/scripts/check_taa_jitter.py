@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""The temporal jitter, and the property the rest of the test suite rests on.
+
+TAA works by drawing every frame through a slightly different sub-pixel
+offset and accumulating the results. That breaks an assumption every other
+screenshot check in this repository makes without saying so: **that frame 30
+is a pure function of the scene**. `--screenshot-frame=30` exists so the scene
+has settled; `--frame-time` exists so nothing depends on how fast this machine
+ran. Both assume you could render frame 30 alone and get the same picture.
+
+With a temporal filter that is no longer true, and there is exactly one way to
+keep it useful: index the jitter by the **frame number**, never by elapsed
+time. Drive it from a clock and every check in this directory becomes
+irreproducible, and the failure looks like noise rather than like a mistake.
+
+So this measures that, and it is the whole point of the file:
+
+**1. Reproducible.** Two separate runs of the same build, same frame, must be
+byte-identical. A clock anywhere in the sequence fails here.
+
+**2. Periodic.** The sequence is eight offsets long, so frame 30 and frame 38
+must be byte-identical *to each other* while frame 30 and frame 31 differ.
+This is the check a clock cannot accidentally pass: a time-driven jitter can
+be reproducible run-to-run under `--frame-time` and still have no period.
+
+**3. Eight distinct offsets.** Frames 30 to 37 must all differ from each
+other. Halton is a low-discrepancy sequence -- the point of it is that
+successive samples fall in the gaps the earlier ones left -- and two frames
+landing on the same offset would mean an indexing mistake that no amount of
+looking at the image would reveal.
+
+**4. It only moves edges.** A half-pixel shift of a flat region is still the
+same flat region, so every pixel away from an edge must be bit-identical to
+`--aa=none`. This is what separates "the projection is offset" from "the
+image is wrong": a jitter applied to some renderers and not others, or in the
+wrong units, moves things that should not move.
+
+And the control, which comes first: with `--aa=none` the same scene at frames
+30, 31 and a second run must all be identical. If that fails, the scene is not
+static and nothing below it is evidence.
+
+Usage:
+    python tools/scripts/check_taa_jitter.py [--config Release]
+"""
+
+import argparse
+import pathlib
+import subprocess
+import sys
+
+import numpy as np
+from PIL import Image
+
+BACKENDS = ("vulkan", "opengl")
+
+# Must match kJitterPhase in FrameGraphBuilder.cpp. Stated rather than
+# imported because the point is to catch the two disagreeing.
+PHASE = 8
+
+# A shallow edge, so a horizontal sub-pixel offset moves a long run of pixels
+# and the difference is unmistakable. The angle does not otherwise matter --
+# this file measures reproducibility, not quality.
+ANGLE = 8
+
+# Pixels this far from the edge are not edge pixels, and a sub-pixel offset
+# must leave them exactly alone.
+FLAT_DISTANCE = 4.0
+
+
+def run(exe, args):
+    result = subprocess.run([str(exe), *args], cwd=exe.parent,
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"FAIL: {' '.join(args)} exited {result.returncode}")
+        print(result.stdout[-2000:], result.stderr[-2000:])
+        sys.exit(1)
+    return result.stdout + result.stderr
+
+
+def shoot(exe, backend, mode, frame, path):
+    run(exe, [f"--rhi={backend}", f"--aa={mode}",
+              f"--scene=scenes/aa_edge{ANGLE}.rage",
+              "--frame-time=0.0166", f"--screenshot-frame={frame}",
+              f"--screenshot={path}"])
+    return np.asarray(Image.open(path).convert("RGB")).astype(np.int16)
+
+
+def differing(a, b):
+    """How many subpixels differ, and by how much at worst."""
+    delta = np.abs(a - b)
+    return int((delta > 0).sum()), int(delta.max())
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="Release")
+    args = parser.parse_args()
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    exe = root / "build" / "bin" / args.config / "RageVRuntime" / "RageVRuntime.exe"
+    if not exe.exists():
+        print(f"FAIL: {exe} does not exist; build {args.config} first")
+        sys.exit(1)
+
+    sys.path.insert(0, str(root / "tools" / "scripts"))
+    import make_aa_scene
+
+    scenes = root / "SampleProject" / "assets" / "scenes"
+    shots = root / "build" / "taa-check"
+    shots.mkdir(parents=True, exist_ok=True)
+
+    # Rewritten every run, like check_smaa.py: a check that depends on a file
+    # somebody generated once is a check that silently measures another scene.
+    (scenes / f"aa_edge{ANGLE}.rage").write_text(make_aa_scene.build(ANGLE))
+
+    failures = []
+
+    for backend in BACKENDS:
+        print(f"--- {backend} " + "-" * 52)
+
+        # The control. Everything below is a claim about what the jitter
+        # changed, and a claim like that is worthless if the scene moves on
+        # its own.
+        flat30 = shoot(exe, backend, "none", 30, shots / f"{backend}-none-30.png")
+        flat30b = shoot(exe, backend, "none", 30, shots / f"{backend}-none-30b.png")
+        flat31 = shoot(exe, backend, "none", 31, shots / f"{backend}-none-31.png")
+
+        for label, other in (("a second run", flat30b), ("frame 31", flat31)):
+            count, worst = differing(flat30, other)
+            if count:
+                failures.append(
+                    f"{backend}: with no filter at all, frame 30 and {label} differ "
+                    f"in {count} subpixels (worst {worst}). The scene is not static, "
+                    f"so nothing this file measures about the jitter is evidence")
+            else:
+                print(f"  control: none@30 == none@{label:14s}  identical")
+
+        # Eight frames, one per offset in the sequence.
+        frames = {n: shoot(exe, backend, "taa", n, shots / f"{backend}-taa-{n}.png")
+                  for n in range(30, 30 + PHASE)}
+
+        # 1. Reproducible across processes.
+        again = shoot(exe, backend, "taa", 30, shots / f"{backend}-taa-30b.png")
+        count, worst = differing(frames[30], again)
+        if count:
+            failures.append(
+                f"{backend}: two runs of taa@30 differ in {count} subpixels "
+                f"(worst {worst}). The jitter is not a function of the frame "
+                f"number alone -- a clock has got into it, and every screenshot "
+                f"check in this directory is now irreproducible")
+        else:
+            print("  taa@30 == taa@30, run twice        identical")
+
+        # 2. Periodic, which a clock cannot fake.
+        wrapped = shoot(exe, backend, "taa", 30 + PHASE,
+                        shots / f"{backend}-taa-{30 + PHASE}.png")
+        count, worst = differing(frames[30], wrapped)
+        if count:
+            failures.append(
+                f"{backend}: taa@30 and taa@{30 + PHASE} differ in {count} subpixels "
+                f"(worst {worst}), and the sequence is {PHASE} long, so they are the "
+                f"same offset. Either the phase here disagrees with "
+                f"kJitterPhase, or the index is not the frame number")
+        else:
+            print(f"  taa@30 == taa@{30 + PHASE}                    identical (period {PHASE})")
+
+        # 3. Eight distinct offsets.
+        for a in range(30, 30 + PHASE):
+            for b in range(a + 1, 30 + PHASE):
+                count, _ = differing(frames[a], frames[b])
+                if count == 0:
+                    failures.append(
+                        f"{backend}: taa@{a} and taa@{b} are identical, so two of the "
+                        f"{PHASE} offsets landed on the same place. The sequence is "
+                        f"indexed wrongly")
+        print(f"  {PHASE} frames, {PHASE * (PHASE - 1) // 2} pairs        all distinct")
+
+        # 4. It moves edges and only edges.
+        #
+        # The edge is found from the unfiltered image the same way
+        # check_smaa.py finds it -- column sums are exact regardless of what
+        # filtered the image, because each is the number of covered rows.
+        import check_smaa
+
+        unfiltered = check_smaa.luma(shots / f"{backend}-none-30.png")
+        slope, intercept, staircase, _ = check_smaa.fit_edge(unfiltered)
+        if abs(staircase - check_smaa.QUANTISATION_RMS) > 0.01:
+            failures.append(
+                f"{backend}: the unfiltered staircase measured {staircase:.4f} px "
+                f"rather than {check_smaa.QUANTISATION_RMS:.4f}. The edge was not "
+                f"found, so the flat-region claim below is measuring nothing")
+
+        height, width = unfiltered.shape
+        rows, cols = np.mgrid[0:height, 0:width]
+        # Vertical distance to the edge, in pixels, scaled to a perpendicular
+        # one so a steep edge does not get a wider band than a shallow one.
+        vertical = rows - (slope * (cols + 0.5) + intercept)
+        distance = np.abs(vertical) / np.sqrt(1.0 + slope * slope)
+        flat = distance > FLAT_DISTANCE
+
+        moved = 0
+        for n, image in frames.items():
+            delta = np.abs(image - flat30)   # against no filter at all
+            count = int((delta.max(axis=2) > 0).sum())
+            leaked = int((delta.max(axis=2)[flat] > 0).sum())
+            moved += count
+            if leaked:
+                worst = int(delta.max(axis=2)[flat].max())
+                failures.append(
+                    f"{backend}: taa@{n} differs from no filter at all in {leaked} "
+                    f"pixels more than {FLAT_DISTANCE} px from the edge (worst "
+                    f"{worst}). A sub-pixel offset of a flat region is the same flat "
+                    f"region -- something is being moved that should not be, or is "
+                    f"being moved in the wrong units")
+
+        if moved == 0:
+            failures.append(
+                f"{backend}: taa is byte-identical to no filter at all on every one "
+                f"of the {PHASE} frames. The jitter is not reaching the projection")
+        else:
+            print(f"  jitter moves {moved // PHASE:6d} pixels/frame  none of them flat")
+
+    print()
+    if failures:
+        for failure in failures:
+            print(f"FAIL: {failure}")
+        sys.exit(1)
+
+    print(f"OK: the jitter is a function of the frame number, repeats every "
+          f"{PHASE} frames, and moves nothing but edges")
+
+
+if __name__ == "__main__":
+    main()
