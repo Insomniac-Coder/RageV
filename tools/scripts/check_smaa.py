@@ -54,7 +54,21 @@ from PIL import Image
 
 MODES = ("none", "fxaa", "smaa", "ssaa")
 BACKENDS = ("vulkan", "opengl")
-ANGLES = (8, 43)
+# Four regimes, and each one reaches code the others do not.
+#
+#   8   a shallow edge: long horizontal runs, the orthogonal path
+#   43  just under the diagonal: the north-edge diagonal search
+#   47  just over it: the same edge leaning the other way, which is where the
+#       *west*-edge diagonal runs, and is otherwise never exercised
+#   77  steep: long vertical runs, the orthogonal path transposed
+#
+# 45 itself is deliberately absent. An edge there advances exactly one row per
+# column, so the staircase lands on a perfect line and the control reads zero,
+# and every supersample grid is symmetric about it. A degenerate case is the
+# worst possible thing to build an acceptance test on: it does not fail, it
+# reports a flattering number -- which it did, and the wrong conclusion about
+# diagonals it produced survived into three documents.
+ANGLES = (8, 43, 47, 77)
 
 # Pixels this far from the edge are not edge pixels, and must come through
 # untouched.
@@ -62,12 +76,12 @@ FLAT_DISTANCE = 4.0
 
 # How much better than no filter at all SMAA has to be before this passes.
 #
-# A floor to catch the filter silently stopping, not a grade. It is 1.4 and
-# not higher because of what the 43 degree column says: SMAA is 6.1x on a
-# shallow edge and only 1.6x on a near-diagonal one, where its runs are a
-# pixel long and the orthogonal reconstruction has almost nothing to work
-# with. That gap is the diagonal pass it does not have.
-REQUIRED_GAIN = 1.4
+# A floor to catch the filter silently stopping, not a grade. It was 1.4 while
+# SMAA had no diagonal pass and managed only 1.6x on a near-diagonal edge; with
+# 7.14 the worst of the four angles is 3.4x, so the floor goes back up. Leaving
+# it at 1.4 would have let the diagonal pass regress all the way out again
+# without this failing.
+REQUIRED_GAIN = 2.5
 
 # The two backends run different drivers and different rasterisers, so their
 # coverage will not be bit-identical everywhere in general. On this scene it
@@ -213,7 +227,11 @@ def main():
                     f"{QUANTISATION_RMS:.4f}. The measurement is wrong, so nothing "
                     f"else here is evidence")
 
-            rows, cols = edge_band(unfiltered.shape, slope, intercept, band=2.0)
+            # Wide enough to hold the whole transition. A steep edge crosses
+            # several rows within one column, and a fixed band would measure
+            # the middle of the ramp and call the ends untouched.
+            band = 2.0 + 0.5 * abs(slope)
+            rows, cols = edge_band(unfiltered.shape, slope, intercept, band)
             want = ideal_coverage(rows, cols, slope, intercept)
 
             # The same coverage, resolved the way SSAA resolves it: mixed in
@@ -240,7 +258,7 @@ def main():
             height, width = unfiltered.shape
             centre = slope * (np.arange(width) + 0.5) + intercept
             distance = np.abs(np.arange(height)[:, None] + 0.5 - centre[None, :])
-            flat = distance > FLAT_DISTANCE
+            flat = distance > FLAT_DISTANCE * max(1.0, abs(slope))
             touched = int((np.abs(plain - filtered).max(axis=2)[flat] > 0).sum())
             if touched:
                 failures.append(
@@ -293,6 +311,54 @@ def main():
         if abs(a - b) > BACKEND_TOLERANCE:
             failures.append(
                 f"{angle} deg: SSAA measures {a:.4f} on Vulkan and {b:.4f} on OpenGL")
+
+    # --- the case a single straight edge is not ------------------------------
+    #
+    # Every measurement above is one long straight edge, which is the *easy*
+    # case: the runs are long and the pattern is unambiguous. What breaks a
+    # morphological filter is a silhouette that turns every few pixels, and
+    # there is no formula for the right answer to that.
+    #
+    # So the reference is rendered rather than computed: SSAA at 4x, which is
+    # sixteen samples a pixel and the most correct image this engine can
+    # produce. It resolves in linear light, so a post filter cannot reach it
+    # exactly -- but every post filter is handicapped identically, so ranking
+    # them against it is fair even though the absolute numbers are not.
+    (scenes / "aa_fan.rage").write_text(make_aa_scene.build_fan(12))
+
+    fan = {}
+    run(exe, ["--rhi=vulkan", "--aa=ssaa", "--ssaa=4", "--scene=scenes/aa_fan.rage",
+              "--frame-time=0.0166", f"--screenshot={shots / 'fan-reference.png'}"])
+    reference = np.asarray(Image.open(shots / "fan-reference.png").convert("RGB")
+                           ).astype(np.float64)
+
+    for mode in MODES:
+        shot = shots / f"fan-{mode}.png"
+        run(exe, ["--rhi=vulkan", f"--aa={mode}", "--scene=scenes/aa_fan.rage",
+                  "--frame-time=0.0166", f"--screenshot={shot}"])
+        got = np.asarray(Image.open(shot).convert("RGB")).astype(np.float64)
+        fan[mode] = np.sqrt(((got - reference) ** 2).mean())
+
+    print()
+    print("a fan of thin bars, against a 4x supersampled reference (RMS, /255)")
+    print("".join(f"{m:>10s}" for m in MODES))
+    print("".join(f"{fan[m]:10.3f}" for m in MODES))
+
+    # The claim this scene exists to test: on content that turns constantly,
+    # reconstructing the edge still beats guessing at it. Without the diagonal
+    # pass SMAA was *worse* than FXAA here, which is exactly the failure a
+    # single straight edge cannot show.
+    if fan["smaa"] >= fan["fxaa"]:
+        failures.append(
+            f"on small features SMAA scores {fan['smaa']:.3f} against FXAA's "
+            f"{fan['fxaa']:.3f}. Reconstructing an edge has to beat guessing at "
+            f"one even when the silhouette turns every few pixels -- that is what "
+            f"the diagonal pass is for")
+
+    if fan["smaa"] >= fan["none"]:
+        failures.append(
+            f"on small features SMAA scores {fan['smaa']:.3f} against {fan['none']:.3f} "
+            f"for no filter at all, so it is making this content worse")
 
     print()
     if failures:

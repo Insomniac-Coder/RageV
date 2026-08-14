@@ -2337,22 +2337,32 @@ carries depends on which way the diagonal leans, and the two cases need
 different searches.
 
 **Anti-diagonal, "/"** — light where `col + row > K`. The pixel at
-`col + row = K + 1` has a dark pixel to its north (`row − 1` gives
-`K`) *and* a dark pixel to its west (`col − 1` gives `K`). So:
+`col + row = K + 1` has a dark pixel to its north (`row − 1` gives `K`)
+*and* a dark pixel to its west (`col − 1` gives `K`), so **both flags
+land on one pixel**.
 
-> **both flags land on one pixel**, and stepping `(+1, −1)` keeps the sum
-> constant, so the whole run has both flags.
-
-**Main diagonal, "\"** — light where `row > col`. The pixel `(c, c+1)` is
+**Main diagonal** — light where `row > col`. The pixel `(c, c+1)` is
 light with a dark pixel above it, so it carries a north edge and no west
-edge. The pixel `(c, c)` is dark with a light pixel to its west, so it
-carries a west edge and no north edge. So:
+edge; `(c, c)` is dark with a light pixel to its west, so it carries a
+west edge and no north edge. **The flags alternate.**
 
-> **the flags alternate between two interleaved runs**, and stepping
-> `(+1, +1)` keeps whichever flag a pixel started with.
+### The correction only rasterizing found
 
-That is the whole reason the reference ships two diagonal searches rather
-than one, and it is the thing to get right before writing either.
+That is the ideal case, and the ideal case is **exactly 45° only**.
+Everything this feature exists for is not 45°.
+
+Rasterizing the 43° edge the check actually uses: **zero of its boundary
+pixels carry both flags.** Twenty-six carry a north edge alone. The row
+advances by one per column forty-five times and by zero three times — a
+diagonal run of about fifteen broken by a double step, exactly as the
+model says. But the "both flags" signature is gone, because at 43° the
+west neighbour is on the same side of the line.
+
+So there is one search rather than two special cases: **step diagonally
+and require the flag the pixel already had.** Both orientations, both
+diagonals, one test. The symmetry above is real and useless, and it was
+worth ten lines of Python to find that out before building a shader
+around it.
 
 ### What the run length tells you, and the one honest ambiguity
 
@@ -2409,11 +2419,78 @@ edges would trade one for the other, and that is the failure mode to
 watch for rather than a crash. Both backends must still agree, and flat
 regions must still be bit-identical to `--aa=none`.
 
-One thing the current check cannot see: this is aimed at *diagonal
-staircases on small features*, and the test scene is a single long
-straight edge. A shape whose silhouette turns every few pixels is where
-the difference is visible, and the check should grow one before this is
-called finished.
+### What it measured, and the rule the fan scene forced
+
+Coverage error against the exact edge, RMS, lower better. `--aa=smaa`
+before and after, everything else unchanged:
+
+| Edge | none | orthogonal only | with diagonals |
+|---|---|---|---|
+| 8° | 0.1291 | 0.0210 | **0.0210** |
+| 43° | 0.1391 | 0.0849 | **0.0403** |
+| 47° | 0.1318 | — | **0.0387** |
+| 77° | 0.2004 | — | **0.0342** |
+
+43° more than doubles, and **8° does not move at all** — which was the
+failure mode to watch for, since a diagonal search that fires on shallow
+edges buys one and sells the other. 47° is in the set because it is the
+same edge leaning the other way, where the *west*-edge diagonal runs;
+without it half the new code was never executed once.
+
+**Then the fan scene said the opposite.** Thin bars at a dozen angles,
+scored against a 4× supersampled render, is content that turns every few
+pixels — and with the bare "longest run wins" rule SMAA went from 3.933
+to **4.313**, worse than not having the pass at all. A single straight
+edge cannot show that, which is exactly why the design said to build the
+scene.
+
+The cause is that a short run is not information. A diagonal run of three
+resolves coverage to a third, and on content that turns constantly the
+rule fired on those everywhere, replacing a mediocre answer with a worse
+one. Requiring the diagonal to win **by a margin** says the necessary
+thing twice over, since the orthogonal run is never negative: the
+diagonal has to be long, *and* it has to be the longer of the two.
+
+| margin | fan vs 4× reference | 43° edge |
+|---|---|---|
+| pass off | 3.933 | 0.0849 |
+| 0 | 4.313 | 0.0414 |
+| 2 | 4.104 | 0.0414 |
+| 4 | 3.944 | 0.0414 |
+| **8** | **3.933** | **0.0403** |
+
+Eight is where the harm reaches exactly zero — the same score as
+switching the pass off — while the edge it exists for is untouched all
+the way up and marginally better at 8 than at 0. A measured constant, not
+a chosen one, and the sweep is in the shader comment beside it.
+
+On the finished fan, with two near-45° bars added so it tests the pass
+firing and not only declining: **none 6.469, FXAA 5.598, SMAA 4.092,
+SSAA 4× 2.268.**
+
+### The reference that made the fan measurable
+
+There is no formula for the correct image of a fan of bars, so the
+reference is *rendered*: SSAA at 4×, sixteen samples a pixel, the most
+correct image this engine can produce. It resolves in linear light
+(§7o), so no post filter can reach it exactly — but every post filter is
+handicapped identically, so ranking them against it is fair even where
+the absolute numbers are not.
+
+**This is the instrument MSAA gets judged with too**, and it is worth
+more than the feature that prompted it: it measures arbitrary content,
+where the analytic metric only ever measured a straight line.
+
+### Cost
+
+Render graph GPU, demo scene, 1600×900, all in one batch so the numbers
+are comparable: **0.605 ms no filter, 0.677 orthogonal only, 0.717 with
+diagonals.** The pass adds 0.040 ms — about half again on SMAA's own
+overhead, and still a tenth of what SSAA at 2× costs.
+
+Four extra searches per edge pixel and no extra passes, targets or
+bandwidth, which is why it is cheap: everything it needed was already in
+the edge map.
 
 ---
 

@@ -47,6 +47,94 @@ def vec(values):
     return "[" + ", ".join(f"{v:g}" for v in values) + "]"
 
 
+def build_fan(count=12):
+    """A fan of thin bars, which is the case a single long edge is not.
+
+    A straight edge is the easy case for any of these filters: the runs are
+    long, the pattern is unambiguous, and there is nothing to confuse. What
+    breaks a morphological filter is a silhouette that *turns* every few
+    pixels -- short runs, ends everywhere, and a diagonal search that can walk
+    straight past the feature it was meant to find.
+
+    So this is thin bars radiating from the centre, which puts every angle and
+    a great many run terminations into one frame. There is no analytic answer
+    for it, and that is the point: it gets measured against a supersampled
+    render instead of against a formula.
+    """
+    ids = iter(range(1, 1 << 62))
+
+    def next_id():
+        return (next(ids) * 0x9E3779B97F4A7C15) & 0xFFFFFFFFFFFFFFFF
+
+    lines = [
+        "Scene: AA fan",
+        "Version: 5",
+        "Environment:",
+        "  AmbientColor: [0, 0, 0]",
+        "  AmbientIntensity: 0",
+        "  Sky: 1",
+        "  SkyHorizon: [0.05, 0.05, 0.06]",
+        "  SkyZenith: [0.05, 0.05, 0.06]",
+        "  SkyGround: [0.05, 0.05, 0.06]",
+        "  SkyIntensity: 1",
+        "  SkyRotation: 0",
+        "  Exposure: 1",
+        "  BloomEnabled: false",
+        "  ShadowsEnabled: false",
+        "  AntiAliasing: 0",
+        "Entities:",
+        f"  - EntityID: {next_id()}",
+        "    TagComponent:",
+        "      Tag: Scene Camera",
+        "    TransformComponent:",
+        f"      Position: {vec([0, 0, CAMERA_Z])}",
+        "      Rotation: [0, 0, 0]",
+        "      Scale: [1, 1, 1]",
+        "    CameraComponent:",
+        "      ViewRank: 0",
+        "      FixedAspectRatio: false",
+        "      ProjectionType: Perspective",
+        "      PerspectiveFOV: 60",
+        "      PerspectiveNearClip: 0.05",
+        "      PerspectiveFarClip: 400",
+        "      OrthographicScale: 10",
+        "      OrthographicNearClip: -1",
+        "      OrthographicFarClip: 1",
+    ]
+
+    # Spread across the half circle, offset so no bar lands on an axis or on
+    # the exact diagonal -- those three orientations alias least, so a fan
+    # sitting on them would flatter every filter in it.
+    #
+    # Plus 43 and 47 explicitly. Without them the fan happens to contain
+    # nothing near enough to the diagonal for a diagonal run to get long, and
+    # then it only tests that the diagonal pass does not *misfire* -- which is
+    # worth testing, and is not the same as testing that it works.
+    angles = [math.pi * (i + 0.37) / count for i in range(count)]
+    angles += [math.radians(43.0), math.radians(47.0)]
+
+    for i, theta in enumerate(angles):
+        lines += [
+            f"  - EntityID: {next_id()}",
+            "    TagComponent:",
+            f"      Tag: Bar {i}",
+            "    TransformComponent:",
+            "      Position: [0, 0, 0]",
+            f"      Rotation: {vec([0, 0, theta])}",
+            "      Scale: [4.2, 0.06, 0.01]",
+            "    MeshComponent:",
+            f"      Mesh: {PRIMITIVE_BASE + CUBE}",
+            "      Material:",
+            "        BaseColor: [0, 0, 0, 1]",
+            "        Emissive: [0.6, 0.6, 0.6, 1]",
+            "        Metallic: 0",
+            "        Roughness: 1",
+            "        Occlusion: 1",
+        ]
+
+    return chr(10).join(lines) + chr(10)
+
+
 def build(angle_degrees):
     ids = iter(range(1, 1 << 62))
 
@@ -134,13 +222,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--angle", type=float, default=8.0,
                         help="degrees the edge is rotated from horizontal")
+    parser.add_argument("--fan", type=int, default=0,
+                        help="instead of one edge, this many thin bars in a fan")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     path = pathlib.Path(args.output)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build(args.angle))
-    print(f"{path}: one edge at {args.angle:g} degrees")
+    if args.fan:
+        path.write_text(build_fan(args.fan))
+        print(f"{path}: a fan of {args.fan} bars")
+    else:
+        path.write_text(build(args.angle))
+        print(f"{path}: one edge at {args.angle:g} degrees")
 
 
 if __name__ == "__main__":

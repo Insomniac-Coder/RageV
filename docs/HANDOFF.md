@@ -81,7 +81,7 @@ python tools/scripts/check_oit.py --config Debug
 
 4/4, `exit 0`.
 
-**Seven things that are easy to get wrong here, all learned the hard way:**
+**Eight things that are easy to get wrong here, all learned the hard way:**
 
 0. **A default nobody has measured is a default nobody has tested.** FXAA
    shipped as the default anti-aliasing for a whole roadmap phase with two
@@ -92,27 +92,35 @@ python tools/scripts/check_oit.py --config Debug
    ENGINE-NOTES §7n.
 
 1. **Run each tool from its own directory.** Assets are staged per target.
-2. **`--validation=on` for *every* verification run, editor included.**
+2. **A straight edge is the easy case; build the awkward one too.** SMAA's
+   diagonal pass measured as a clean 2x win on every straight-edge angle and
+   was quietly making *small features worse* -- short runs everywhere, and a
+   search firing on three pixels of evidence. What caught it is a fan of thin
+   bars scored against a 4x supersampled render, which is also the only
+   instrument here that measures arbitrary content rather than a line.
+   ENGINE-NOTES 7p.
+
+3. **`--validation=on` for *every* verification run, editor included.**
    Validation is off by default everywhere now -- it costs ~1.5 ms/frame and
    was making Vulkan read as slower than OpenGL -- so a run without the flag
    reports zero validation lines whether or not there were any. That already
    hid a black screen and a segfault once, back when only the runtime shipped
    with it off.
-3. **Verify by exiting, not by killing.** `exit 0` is part of the bar. A killed
+4. **Verify by exiting, not by killing.** `exit 0` is part of the bar. A killed
    process runs no destructors, which hid a leak of every scene and every
    render target for months.
-4. **Compare the two backends' frames, not just each on its own.** A
+5. **Compare the two backends' frames, not just each on its own.** A
    Vulkan-only bloom flip survived a whole roadmap phase of clean runs, because
    nothing in the scene was bright enough for a mirrored contribution to show.
    `--screenshot` on both and look at them side by side.
-5. **Never measure anything at exactly 45 degrees.** An edge there advances
+6. **Never measure anything at exactly 45 degrees.** An edge there advances
    one row per column, so the staircase lands on a perfect line and reads
    zero; every supersample grid is symmetric about it, so supersampling can
    measure as buying nothing. It cost a wrong conclusion about SMAA's
    diagonal pass, published in three places, because a degenerate case does
    not fail -- it reports a flattering number. `check_smaa.py` uses 43.
 
-6. **`discard` costs a Vulkan device feature.** glslang targeting SPIR-V 1.6
+7. **`discard` costs a Vulkan device feature.** glslang targeting SPIR-V 1.6
    compiles it to `OpDemoteToHelperInvocation`, because `OpKill` is deprecated
    there, and that capability needs `shaderDemoteToHelperInvocation` which
    this engine does not enable. The symptom is one validation line per run,
@@ -120,7 +128,7 @@ python tools/scripts/check_oit.py --config Debug
    drawn with. Write the zero and return instead, unless the feature gets
    turned on deliberately.
 
-7. **The harness prints `FAIL` in capitals.** A case-insensitive search for
+8. **The harness prints `FAIL` in capitals.** A case-insensitive search for
    "fail" also matches the word *fails* inside the names of passing checks, and
    returns a count that looks like failures and is not. Match case, and read the
    `OK` line at the end.

@@ -67,6 +67,22 @@ layout(push_constant) uniform Params
 // before it gets clever.
 const int kMaxSearchSteps = 16;
 
+// The diagonal search. A 43-degree edge breaks its staircase about every
+// fourteen pixels -- one over the departure from 45 -- so sixteen reaches the
+// break for anything from roughly 42 to 48 degrees and reports "centred",
+// which is the right answer, for everything nearer the diagonal than that.
+const int kMaxDiagonalSteps = 16;
+
+// How much longer a diagonal run has to be than the orthogonal one before it
+// is believed.
+//
+// Measured, not chosen. On a fan of thin bars, against a 4x supersampled
+// reference: 4.313 with no margin, 4.104 at 2, 3.944 at 4, and 3.933 at 8 --
+// which is exactly the score with the diagonal pass switched off entirely, so
+// at 8 it has stopped doing harm. The 43 degree edge it exists for is
+// unaffected all the way up, and marginally better at 8 than at 0.
+const float kDiagonalMargin = 8.0;
+
 // Where the line leaves this end of the run, in pixels either side of the
 // boundary it is crossing.
 //
@@ -122,6 +138,90 @@ vec2 Coverage(float d1, float d2, float yStart, float yEnd)
 	return y0 >= 0.0 ? vec2(first, -second) : vec2(second, -first);
 }
 
+// --- the diagonal case ------------------------------------------------------
+//
+// On a near-45-degree edge every orthogonal run is *one pixel long*, so the
+// reconstruction above degenerates: both ends carry a crossing edge, the line
+// goes through the pixel's middle, and every pixel on the edge gets two
+// eighths regardless of where the real line sits. The pattern it reads is
+// identical for every sub-pixel offset, so there is nothing left to recover.
+//
+// The information is along the other axis. Walk diagonally and the run is
+// long again. ENGINE-NOTES 7p.
+
+// Integral of clamp(t, 0, 1) from zero, which is all a line crossing a pixel
+// needs. Exact rather than sampled, and checked against numeric integration
+// across the whole range before it was written down.
+float ClampIntegral(float t)
+{
+	if (t <= 0.0) return 0.0;
+	if (t >= 1.0) return t - 0.5;
+	return 0.5 * t * t;
+}
+
+// How much of the unit square lies above a line that enters at height `k` and
+// leaves one pixel later at `k + slope`.
+//
+// Checks out at the three cases anyone can verify by eye: a line corner to
+// corner gives a half, one entering half a pixel down gives an eighth, and
+// the mirror of that gives seven eighths.
+float LineArea(float k, float slope)
+{
+	float entry = k;
+	float exit  = k + slope;
+	return ClampIntegral(max(entry, exit)) - ClampIntegral(min(entry, exit));
+}
+
+float FlagAt(vec2 uv, vec2 mask)
+{
+	return dot(texture(u_Edges, uv).rg, mask);
+}
+
+// How many consecutive pixels carry this flag, stepping by `stride`.
+float Walk(vec2 uv, vec2 stride, vec2 mask, int limit)
+{
+	float count = 0.0;
+	for (int i = 1; i <= limit; i++)
+	{
+		if (FlagAt(uv + float(i) * stride, mask) <= 0.5)
+			break;
+		count += 1.0;
+	}
+	return count;
+}
+
+// Coverage from a diagonal run, the same shape of argument as Coverage above:
+// walk the run, read the end, integrate a clamped line.
+//
+// Returns (this pixel, the pixel across the edge), same as Coverage.
+vec2 DiagonalCoverage(vec2 uv, vec2 mask, vec2 stride, vec2 alongOrtho,
+					  float slope, float behind, float ahead)
+{
+	float len = behind + ahead + 1.0;
+
+	// Which way the line drifts across the run. A diagonal run ends where the
+	// staircase takes a double step, and which way it doubles is the slope's
+	// departure from exactly 45 degrees: along the orthogonal axis means
+	// shallower, across it means steeper.
+	vec2 last = uv + ahead * stride;
+	float shallower = FlagAt(last + alongOrtho, mask);
+	float steeper   = FlagAt(last + (stride - alongOrtho), mask);
+
+	// A half is not a fallback. At exactly 45 degrees every sub-pixel offset
+	// produces the identical staircase, so there is genuinely nothing to
+	// recover and a centred line is the honest answer -- and that is also what
+	// a run truncated by the search limit reports, which is the same statement
+	// about the same missing information.
+	float t = 0.5;
+	if (shallower > 0.5 && steeper <= 0.5)
+		t = (behind + 0.5) / len;
+	else if (steeper > 0.5 && shallower <= 0.5)
+		t = 1.0 - (behind + 0.5) / len;
+
+	float k = slope < 0.0 ? t : t - 1.0;
+	return vec2(LineArea(k, slope), 1.0 - LineArea(k + 1.0, slope));
+}
+
 void main()
 {
 	// See PostProcess::Dispatch for the flip, and ENGINE-NOTES 7n for why this
@@ -135,12 +235,59 @@ void main()
 	vec2 up    = vec2(0.0, texel.y * (flip ? -1.0 : 1.0));
 	vec2 right = vec2(texel.x, 0.0);
 
+	vec2 down = -up;
+
+	// Which flag each half of this shader is following.
+	const vec2 maskNorth = vec2(0.0, 1.0);
+	const vec2 maskWest  = vec2(1.0, 0.0);
+
 	vec2 edges = texture(u_Edges, uv).rg;
 	vec4 weights = vec4(0.0);
 
 	// --- the north edge: a horizontal run --------------------------------
 	if (edges.y > 0.5)
 	{
+		// Three runs through this pixel, and the longest wins -- but only by
+		// a clear margin, and that margin is the whole of what a fan of thin
+		// bars taught this pass.
+		//
+		// Reconstruct along whichever axis still has information: a shallow
+		// edge has a long horizontal run and diagonal runs of one or two, a
+		// near-diagonal edge has exactly the reverse, and nothing here needs a
+		// threshold on the angle, which is good, because the angle is the
+		// thing being measured.
+		//
+		// **But a short run is not information.** A run of three resolves
+		// coverage to a third, and on content that turns every few pixels the
+		// bare "longest wins" rule fires on those constantly -- measurably
+		// replacing a mediocre answer with a worse one. Requiring the diagonal
+		// to win by kDiagonalMargin says the same thing twice over, since the
+		// orthogonal run is never negative: the diagonal has to be long, *and*
+		// it has to be the longer of the two.
+		vec2 upRight   = right + up;
+		vec2 downRight = right + down;
+
+		float upBehind   = Walk(uv, -upRight,   maskNorth, kMaxDiagonalSteps);
+		float upAhead    = Walk(uv,  upRight,   maskNorth, kMaxDiagonalSteps);
+		float downBehind = Walk(uv, -downRight, maskNorth, kMaxDiagonalSteps);
+		float downAhead  = Walk(uv,  downRight, maskNorth, kMaxDiagonalSteps);
+
+		float straight = Walk(uv, -right, maskNorth, kMaxSearchSteps)
+					   + Walk(uv,  right, maskNorth, kMaxSearchSteps);
+
+		if (max(upBehind + upAhead, downBehind + downAhead) > straight + kDiagonalMargin)
+		{
+			// The line runs up-right or down-right; in this pixel's own frame
+			// that is a slope of -1 or +1.
+			if (upBehind + upAhead >= downBehind + downAhead)
+				weights.rg = DiagonalCoverage(uv, maskNorth, upRight, right,
+											  -1.0, upBehind, upAhead);
+			else
+				weights.rg = DiagonalCoverage(uv, maskNorth, downRight, right,
+											  1.0, downBehind, downAhead);
+		}
+		else
+		{
 		float behind = 0.0;
 		for (int i = 1; i <= kMaxSearchSteps; i++)
 		{
@@ -169,11 +316,36 @@ void main()
 								 texture(u_Edges, eastEnd).r);
 
 		weights.rg = Coverage(behind, ahead, yStart, yEnd);
+		}
 	}
 
 	// --- the west edge: a vertical run, the same thing rotated ------------
 	if (edges.x > 0.5)
 	{
+		// And the diagonal case rotated with it. The frame is transposed, so
+		// the run axis is vertical and "shallower" means nearer vertical.
+		vec2 downRight = down + right;
+		vec2 downLeft  = down - right;
+
+		float rightBehind = Walk(uv, -downRight, maskWest, kMaxDiagonalSteps);
+		float rightAhead  = Walk(uv,  downRight, maskWest, kMaxDiagonalSteps);
+		float leftBehind  = Walk(uv, -downLeft,  maskWest, kMaxDiagonalSteps);
+		float leftAhead   = Walk(uv,  downLeft,  maskWest, kMaxDiagonalSteps);
+
+		float straight = Walk(uv,  up,   maskWest, kMaxSearchSteps)
+					   + Walk(uv,  down, maskWest, kMaxSearchSteps);
+
+		if (max(rightBehind + rightAhead, leftBehind + leftAhead) > straight + kDiagonalMargin)
+		{
+			if (rightBehind + rightAhead >= leftBehind + leftAhead)
+				weights.ba = DiagonalCoverage(uv, maskWest, downRight, down,
+											  1.0, rightBehind, rightAhead);
+			else
+				weights.ba = DiagonalCoverage(uv, maskWest, downLeft, down,
+											  -1.0, leftBehind, leftAhead);
+		}
+		else
+		{
 		float behind = 0.0;
 		for (int i = 1; i <= kMaxSearchSteps; i++)
 		{
@@ -199,6 +371,7 @@ void main()
 								 texture(u_Edges, southEnd).g);
 
 		weights.ba = Coverage(behind, ahead, yStart, yEnd);
+		}
 	}
 
 	o_Weights = weights;
