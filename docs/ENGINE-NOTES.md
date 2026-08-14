@@ -2979,6 +2979,51 @@ kernel — and both were wrong about *this* symptom. The one that was
 right came from a sweep rather than a theory. The static scene had made
 every one of these invisible for three steps of work.
 
+### The sky's velocity, and a premise that was wrong
+
+The sky reported no motion. It has none of its own — it is infinitely
+far away — but it sweeps across the screen when the camera turns, so the
+stated consequence was that a temporal filter reprojects it onto itself
+and smears it.
+
+Fixing it needed the previous rotation-only view-projection, which does
+not fit: the sky's push-constant block is 112 bytes of the guaranteed
+128 and a mat4 is 64 more. So it came from a small uniform buffer
+alongside — 80 bytes, the matrix and the jitter pair — rather than by
+moving the whole block, since the existing fields were fine where they
+were.
+
+**And then it measured nothing.** On a yawing camera with a cubemap sky,
+against a supersampled reference: computing the velocity and forcing it
+to zero produce **byte-identical frames**. So does forcing it to a wild
+constant seventy-five pixels long. Not "nearly": zero subpixels differ,
+on both backends.
+
+The reason is the neighbourhood clip, for the third time in this
+section. A sky is smooth from one pixel to the next, so the 3×3 box
+around any sky pixel is nearly a point, and `ClipToBox` collapses
+history fetched from *anywhere* back onto the current value. **The
+defence was already preventing the smear the fix was written for.** The
+premise — that the sky visibly smears under TAA — was never tested
+before it was written down as a known gap, and it appears to be false
+for any sky smooth at pixel scale.
+
+Kept rather than reverted, and the distinction from the Catmull-Rom
+revert is worth being explicit about. That one was nine times the fetch
+cost for no measurable gain. This is one matrix multiply and an 80-byte
+buffer, and it is *correct*: the attachment now says what it means. It
+earns its place on **9.5 motion blur**, which reads the same velocities
+and has no neighbourhood clip to save it — a sky reporting no motion is
+a sky that stays sharp while everything else blurs, and that is not
+subtle. Better a velocity that is right and unused than one that is
+wrong and waiting.
+
+Three times now, the same lesson in three costumes: **the neighbourhood
+clip hides reprojection errors wherever the neighbourhood is locally
+uniform.** A flat block hid the sign. A smooth sky hid the sky. Only
+content with per-pixel detail can show either, which is why the falling
+patch is textured and why any future check here has to be.
+
 ### The defect none of this caught, and why
 
 Everything above was measured, on both backends, against computed ideals.

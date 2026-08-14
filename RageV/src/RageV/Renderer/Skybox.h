@@ -36,9 +36,16 @@ namespace RageV
 		//
 		// `cubemap` may be null; the shader declares the binding whether or not
 		// the scene uses it, so a neutral cube is bound in its place.
+		//
+		// `jitter` is the sub-pixel offset already folded into `camera`, in
+		// NDC, and is passed for the same reason Renderer3D::BeginScene takes
+		// it: the sky writes motion vectors too, and they have to be free of
+		// the camera's dither. Defaulted to none, so a caller that did not
+		// jitter its camera does not get the correction either.
 		static void Draw(const Camera& camera, const Mat4& cameraTransform,
 						 const SceneEnvironment& environment,
-						 const RHI::Ref<RHI::RHITexture>& cubemap);
+						 const RHI::Ref<RHI::RHITexture>& cubemap,
+						 const Vec2& jitter = Vec2(0.0f, 0.0f));
 
 		// What the scene's surfaces reflect.
 		//

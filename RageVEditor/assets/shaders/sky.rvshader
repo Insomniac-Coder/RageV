@@ -34,19 +34,16 @@ const float SKY_CUBEMAP  = 2.0;
 
 layout(location = 0) in vec2 v_NDC;
 layout(location = 0) out vec4 o_Color;
-// Zero, which is truthful for a still camera and a lie for a turning one.
+// Where this piece of sky was last frame, in the same units everything else
+// writes.
 //
 // The sky is infinitely far away, so it has no motion of its own -- but it
-// does move across the screen when the camera rotates, and a temporal filter
-// told otherwise reprojects it onto itself and smears it. Visible on a
-// detailed cubemap sky, close to invisible on the gradient, and invisible in
-// every check here because they all hold the camera still.
-//
-// Fixing it needs the *previous* rotation-only view-projection, and that does
-// not fit: this block is 112 bytes of the 128 every implementation
-// guarantees, and a mat4 is 64 more. So the fix is a uniform buffer for the
-// sky's parameters rather than a line of shader -- which is why it is not
-// here yet. ENGINE-NOTES 7r.
+// sweeps across the screen when the camera turns, and a temporal filter told
+// otherwise reprojects it onto itself and smears it. It reported zero for as
+// long as it did because the fix does not fit here: the push-constant block
+// below is 112 bytes of the 128 every implementation guarantees, and a
+// previous view-projection is 64 more. It comes from a uniform buffer
+// instead. ENGINE-NOTES 7r.
 layout(location = 1) out vec2 o_Velocity;
 
 
@@ -63,12 +60,63 @@ layout(push_constant) uniform SkyParams
 	vec4 Ground;    // rgb
 } u_Params;
 
+layout(set = 0, binding = 1) uniform SkyMotion
+{
+	// Direction to clip, last frame, rotation only.
+	mat4 PreviousViewRotationProjection;
+	// xy = this frame's sub-pixel offset in NDC, zw = last frame's.
+	vec4 Jitter;
+} u_Motion;
+
 void main()
 {
-	o_Velocity = vec2(0.0);
-
 	vec4 farPoint = u_Params.InvViewRotationProjection * vec4(v_NDC, 1.0, 1.0);
 	vec3 direction = normalize(farPoint.xyz / farPoint.w);
+
+	// This pixel's motion: where the direction it shows sat on screen last
+	// frame, differenced against where it sits now.
+	//
+	// A direction rather than a point, so w = 0 -- which is exactly what a
+	// point at infinity is, and is why the matrix needs no translation. The
+	// normalize above does not matter here either: scaling a direction scales
+	// the whole clip vector, and the perspective divide cancels it.
+	//
+	// Both terms have a jitter folded in -- this frame's into the matrix that
+	// produced `direction`, last frame's into the matrix below -- and both
+	// come back out, because a camera dithered by half a pixel has not moved
+	// the sky. Same expression as the one in pbr_fragment.glsl, deliberately:
+	// the sky and the geometry in front of it have to agree about what a
+	// velocity means or the filter sees a discontinuity at every silhouette.
+	// **TAA cannot currently see this, and it is here anyway.** Measured on a
+	// yawing camera against a supersampled reference: computing this velocity
+	// and forcing it to zero produce *byte-identical* frames, and so does
+	// forcing it to a wild constant seventy-five pixels long. The reason is
+	// the resolve's neighbourhood clip -- a sky is smooth from one pixel to
+	// the next, so the 3x3 box around any sky pixel is nearly a point, and
+	// history fetched from anywhere at all gets collapsed back onto the
+	// current value. The defence was already preventing the smear this was
+	// written to fix.
+	//
+	// It earns its place on 9.5 rather than on 7.10: motion blur reads this
+	// same attachment and has **no** neighbourhood clip to save it. A sky
+	// reporting no motion is a sky that stays sharp while everything else
+	// blurs, which is not subtle. Better a velocity that is right and unused
+	// than one that is wrong and waiting.
+	vec4 previousClip = u_Motion.PreviousViewRotationProjection * vec4(direction, 0.0);
+
+	if (previousClip.w > 1e-6)
+	{
+		vec2 previousNDC = previousClip.xy / previousClip.w;
+		o_Velocity = ((v_NDC - u_Motion.Jitter.xy)
+					- (previousNDC - u_Motion.Jitter.zw)) * 0.5;
+	}
+	else
+	{
+		// Behind the camera last frame, so it had no position on screen and
+		// there is no history to point at. Zero says "do not reproject",
+		// which is what the resolve does with it.
+		o_Velocity = vec2(0.0);
+	}
 
 	vec3 colour;
 

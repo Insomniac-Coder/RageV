@@ -174,23 +174,20 @@ neighbourhood clip plus a 1/(1+luma) weighted mean; `TemporalFeedback` is the
 ghosting-versus-flicker dial in the inspector. On a static scene it is the best
 of all six modes at three of four angles on the linear yardstick.
 
-**What is left, and both are honest gaps rather than polish:**
+**Both of the gaps that were open here are now closed**, and the moving
+check that closed them is `tools/scripts/check_taa_motion.py` (~1 min, both
+backends). The reprojection's vertical sign is measured, not argued: 19.8 RMS
+as shipped against 29.9 inverted. The sky reports real motion now, from a
+small uniform buffer, because its push-constant block had no room.
 
-1. **The reprojection's vertical sign is reasoned, not measured.** Velocity is
-   a difference of clip coordinates, whose y runs the same way on both
-   backends, while the resolve's v does not -- so it is negated on the backend
-   that flips, like every other fullscreen pass. **This is unobservable on a
-   static scene**, because velocity is zero everywhere, so no check here has
-   tested it.
-2. **The sky writes zero velocity**, so it smears when the camera turns.
-   Visible on a detailed cubemap sky, near-invisible on the gradient. The fix
-   is *not* a line of shader: the sky's push-constant block is 112 bytes of the
-   128 every Vulkan implementation guarantees and a previous view-projection is
-   64 more, so it needs a uniform buffer for the sky's parameters.
-
-**Both are what the next step is for:** a moving-scene check. A static scene
-lets TAA converge and flatters it maximally; ghosting under motion is its only
-real failure mode, and it is also the only thing that can see either gap above.
+**The one thing to know before touching any of this again:** the resolve's
+neighbourhood clip hides reprojection errors wherever the neighbourhood is
+locally uniform, and it hid three separate things during 7.10. A flat bright
+block showed no ghosting with the sign *inverted*. A smooth sky is
+byte-identical whether its velocity is right, zero, or a wild constant --
+which is why the sky fix measures nothing and is kept for 9.5 motion blur,
+which has no clip to save it. **Only content with per-pixel detail can show a
+reprojection error**, so any scene added to check one has to be textured.
 
 **Before diffing two screenshots, prove they contain what you think.** An
 inertness check here reported OpenGL as 100% changed in all five modes; the

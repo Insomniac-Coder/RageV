@@ -239,16 +239,22 @@ def build_panning(speed=0.6):
     next_id = _ids()
     lines = _header("Motion panning camera", sky_rgb=(0.02, 0.02, 0.025))
 
-    # A sky with structure, which the flat one deliberately lacks. Horizon
-    # and zenith far apart puts a strong vertical gradient in every column,
-    # so a horizontal smear of the sky is visible as the gradient shearing.
+    # A **cubemap** sky, and it has to be one.
+    #
+    # The obvious choice is the gradient, and it cannot work: the gradient is
+    # a function of the direction's y alone, so it is rotationally symmetric
+    # about the axis `Rotator` turns. Yawing the camera through a gradient sky
+    # changes nothing on screen, so there is no sky motion to smear and no
+    # measurement to make -- the first version of this scene measured 0.08 RMS
+    # against 0.14 and neither number meant anything.
+    #
+    # The sample project's panorama has structure in every direction, so a
+    # yaw moves real detail across the frame.
     for i, line in enumerate(lines):
-        if line.startswith("  SkyZenith"):
-            lines[i] = "  SkyZenith: [0.05, 0.09, 0.28]"
-        elif line.startswith("  SkyHorizon"):
-            lines[i] = "  SkyHorizon: [0.55, 0.42, 0.30]"
-        elif line.startswith("  SkyGround"):
-            lines[i] = "  SkyGround: [0.02, 0.02, 0.025]"
+        if line.startswith("  Sky:"):
+            lines[i] = "  Sky: 2"
+    lines.insert(lines.index("Entities:"),
+                 "  SkyTexture: 17858281879166177050")
 
     lines += _camera(next_id, (0, 0, 0), script="Rotator", speed=speed)
 

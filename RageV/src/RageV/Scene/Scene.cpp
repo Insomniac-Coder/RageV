@@ -1931,7 +1931,7 @@ namespace RageV
 		// it still has a sky, and an empty scene showing the clear colour is
 		// how this looked before.
 		if (Renderer::HasDevice() && m_Environment.Sky != SkyType::Color)
-			Skybox::Draw(camera, cameraTransform, m_Environment, sky);
+			Skybox::Draw(camera, cameraTransform, m_Environment, sky, jitter);
 
 		// After the sky and before the particles, and neither half of that is
 		// interchangeable. After the sky, because the sky is drawn at the far

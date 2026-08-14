@@ -23,6 +23,30 @@ namespace RageV
 		// keeping in mind before adding a field: the next one does not fit.
 		static_assert(sizeof(SkyParams) == 112, "Sky push constants must stay under 128 bytes");
 
+		// What the sky needs for motion vectors, and the reason it is a
+		// uniform buffer rather than four more push constants.
+		//
+		// The block above is 112 of the guaranteed 128 bytes. A previous
+		// view-projection is 64 more and the jitter pair 16, so there is
+		// nowhere to put them -- which is why the sky reported no motion for
+		// as long as it did. Small and separate rather than moving the whole
+		// of SkyParams: the existing fields are fine where they are, and the
+		// smaller change is the one whose effect on everything else is
+		// obviously nothing.
+		struct SkyMotion
+		{
+			// Direction to clip, last frame, rotation only. A sky is
+			// infinitely far away, so a direction is all it has -- and
+			// projecting one with w = 0 gives the same answer whether or not
+			// the matrix carries a translation.
+			Mat4 PreviousViewRotationProjection{ 1.0f };
+
+			// xy = this frame's sub-pixel offset in NDC, zw = last frame's,
+			// exactly as the scene block carries them. Both projections above
+			// have one folded in and the velocity is meant to be free of it.
+			Vec4 Jitter{ 0.0f };
+		};
+
 		struct SkyboxData
 		{
 			RHIDevice* Device = nullptr;
@@ -55,6 +79,27 @@ namespace RageV
 			// viewport.
 			std::vector<std::vector<Ref<RHIResourceSet>>> Sets;
 			uint32_t SetCursor = 0;
+
+			// One motion buffer per set, allocated alongside them, because a
+			// draw reads its uniform block when the GPU runs it rather than
+			// when it was recorded -- two viewports sharing one buffer would
+			// have the second overwrite what the first is about to use. The
+			// same reason Renderer3D keeps a scene block per scene.
+			std::vector<std::vector<Ref<RHIBuffer>>> MotionBuffers;
+
+			// Direction-to-clip as the last Draw left it, and the jitter that
+			// was folded into it.
+			//
+			// From the previous *Draw*, not the previous frame: a probe
+			// capture draws the sky six times with six different cameras, and
+			// differencing against one of those is the motion between two
+			// faces of a cube rather than between two frames. The scene pass
+			// is the last caller in a frame, so what the scene pass reads is
+			// what the scene pass wrote -- the same property Renderer3D
+			// relies on, and the same one that breaks if anything starts
+			// drawing a sky after the scene.
+			Mat4 PreviousDirectionToClip{ 1.0f };
+			Vec2 PreviousJitter{ 0.0f, 0.0f };
 
 			// The gradient, baked into a cube so it can be reflected. Rebuilt
 			// only when one of the three colours changes, which in the editor
@@ -115,6 +160,7 @@ namespace RageV
 		s_Data->Sampler = device.CreateSampler(sampler);
 
 		s_Data->Sets.resize(device.GetFramesInFlight());
+		s_Data->MotionBuffers.resize(device.GetFramesInFlight());
 		s_Data->Ready = s_Data->Shader != nullptr;
 
 		if (s_Data->Ready)
@@ -279,8 +325,29 @@ namespace RageV
 		return spin * Math::Inverse(projection * view);
 	}
 
+	namespace
+	{
+		// The other direction: a world direction to clip space.
+		//
+		// The exact inverse of BuildDirectionMatrix, built forwards rather
+		// than inverted, because inverting a matrix to undo an inversion
+		// accumulates error for no reason. Undoing the spin rather than
+		// applying it is the sign that makes these two a pair -- see the note
+		// in BuildDirectionMatrix about which of the sky and the camera each
+		// rotation belongs to.
+		Mat4 BuildClipMatrix(const Mat4& projection, const Mat4& cameraTransform,
+							 float rotation)
+		{
+			const Mat4 view = Mat4(Mat3(Math::Inverse(cameraTransform)));
+			const Mat4 unspin = Math::Rotate(Mat4(1.0f), -rotation, Vec3(0.0f, 1.0f, 0.0f));
+
+			return (projection * view) * unspin;
+		}
+	}
+
 	void Skybox::Draw(const Camera& camera, const Mat4& cameraTransform,
-					  const SceneEnvironment& environment, const Ref<RHITexture>& cubemap)
+					  const SceneEnvironment& environment, const Ref<RHITexture>& cubemap,
+					  const Vec2& jitter)
 	{
 		if (!s_Data || !s_Data->Ready || environment.Sky == SkyType::Color)
 			return;
@@ -330,13 +397,29 @@ namespace RageV
 
 		const uint32_t frame = s_Data->Device->GetFrameIndex();
 		auto& sets = s_Data->Sets[frame];
+		auto& buffers = s_Data->MotionBuffers[frame];
 
 		while (s_Data->SetCursor >= sets.size())
 			sets.push_back(s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0));
+		while (s_Data->SetCursor >= buffers.size())
+		{
+			BufferDesc desc;
+			desc.Size = sizeof(SkyMotion);
+			desc.Usage = BufferUsage::Uniform;
+			desc.Memory = MemoryDomain::HostVisible;
+			desc.DebugName = "Skybox.motion";
+			buffers.push_back(s_Data->Device->CreateBuffer(desc));
+		}
 
-		Ref<RHIResourceSet>& set = sets[s_Data->SetCursor++];
+		const uint32_t slot = s_Data->SetCursor++;
+
+		Ref<RHIResourceSet>& set = sets[slot];
 		if (!set)
 			set = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+
+		const Ref<RHIBuffer>& motionBuffer = buffers[slot];
+		if (!motionBuffer)
+			return;
 
 		// Always written, even in gradient mode: the shader declares the cube
 		// sampler unconditionally, and a binding the layout has but the set does
@@ -347,7 +430,24 @@ namespace RageV
 		if (!bound)
 			return;
 
+		// Where the sky was last time this ran, before this frame's overwrites
+		// it. The sky has no motion of its own -- it is infinitely far away --
+		// but it sweeps across the screen when the camera turns, and a
+		// temporal filter told otherwise reprojects it onto itself and smears
+		// it. ENGINE-NOTES 7r.
+		SkyMotion motion;
+		motion.PreviousViewRotationProjection = s_Data->PreviousDirectionToClip;
+		motion.Jitter = Vec4(jitter.x, jitter.y,
+							 s_Data->PreviousJitter.x, s_Data->PreviousJitter.y);
+
+		s_Data->PreviousDirectionToClip =
+			BuildClipMatrix(camera.GetProjection(), cameraTransform, environment.SkyRotation);
+		s_Data->PreviousJitter = jitter;
+
+		motionBuffer->Upload(&motion, sizeof(motion));
+
 		set->SetTexture(0, bound, s_Data->Sampler);
+		set->SetUniformBuffer(1, motionBuffer, 0, sizeof(SkyMotion));
 		set->Commit();
 
 		SkyParams params;

@@ -1,0 +1,158 @@
+Scene: Motion panning camera
+Version: 5
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 2
+  SkyHorizon: [0.02, 0.02, 0.025]
+  SkyZenith: [0.02, 0.02, 0.025]
+  SkyGround: [0.02, 0.02, 0.025]
+  SkyIntensity: 1
+  SkyRotation: 0
+  Exposure: 1
+  BloomEnabled: false
+  ShadowsEnabled: false
+  AntiAliasing: 0
+  SkyTexture: 17858281879166177050
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+    NativeScriptComponent:
+      Script: Rotator
+      Fields:
+        Speed: 0.6
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Post 0
+    TransformComponent:
+      Position: [0, 0, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 1.6, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.8, 0.8, 0.8, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Post 1
+    TransformComponent:
+      Position: [3.53553, 0, -3.53553]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 1.6, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.8, 0.8, 0.8, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Post 2
+    TransformComponent:
+      Position: [5, 0, -3.06162e-16]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 1.6, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.8, 0.8, 0.8, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 1663341875487337577
+    TagComponent:
+      Tag: Post 3
+    TransformComponent:
+      Position: [3.53553, 0, 3.53553]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 1.6, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.8, 0.8, 0.8, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 13064056694810536062
+    TagComponent:
+      Tag: Post 4
+    TransformComponent:
+      Position: [6.12323e-16, 0, 5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 1.6, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.8, 0.8, 0.8, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 6018027440424182931
+    TagComponent:
+      Tag: Post 5
+    TransformComponent:
+      Position: [-3.53553, 0, 3.53553]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 1.6, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.8, 0.8, 0.8, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 17418742259747381416
+    TagComponent:
+      Tag: Post 6
+    TransformComponent:
+      Position: [-5, 0, 9.18485e-16]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 1.6, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.8, 0.8, 0.8, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 10372713005361028285
+    TagComponent:
+      Tag: Post 7
+    TransformComponent:
+      Position: [-3.53553, 0, -3.53553]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 1.6, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.8, 0.8, 0.8, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
