@@ -22,7 +22,8 @@ namespace RageV
 		// state, which is easier to diagnose from here than from the picture.
 		static bool IsReady();
 
-		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
+		static void SetTargetFormats(RHI::Format color, RHI::Format depth,
+									 uint32_t samples = 1);
 		static void SetWireframe(bool enabled);
 
 		// Resets the per-frame scene-slot pool. Called by Renderer::BeginFrame.

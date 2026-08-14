@@ -1,4 +1,5 @@
 #include <rvpch.h>
+#include <map>
 #include "UIRenderer.h"
 #include "Renderer.h"
 #include "RageV/UI/TextLayout.h"
@@ -54,7 +55,25 @@ namespace RageV
 			Ref<RHIPipeline> WorldPipeline;
 			Format WorldColor = Format::R16G16B16A16_SFLOAT;
 			Format WorldDepth = Format::D32_SFLOAT;
+			// The world layer draws *inside the scene pass*, so it takes the
+			// scene's sample count -- while the screen-space layer above stays
+			// at one, because it draws into the finished image. Two layers,
+			// two pipelines, two counts, and conflating them is what made a
+			// four-sample scene bind a one-sample pipeline and crash.
+			uint32_t WorldSamples = 1;
 			bool   WorldPipelineDirty = true;
+
+			// One world pipeline per sample count, rather than one rebuilt
+			// whenever the count changes.
+			//
+			// The scene target is multisampled under MSAA and a probe face is
+			// never multisampled, so a frame that captures a probe asks for
+			// both -- and rebuilding flushes the batch buffers, which is fine
+			// once at startup and catastrophic in the middle of a frame that
+			// has already recorded into them. That is not a hypothetical: it
+			// was an out-of-range subscript on the first frame of any scene
+			// containing world text and a reflection probe. ENGINE-NOTES 7q.
+			std::map<uint32_t, Ref<RHIPipeline>> WorldPipelines;
 
 			// One set of storage per batch, for the reason Renderer2D documents:
 			// a draw is recorded against the buffer it was bound to, so anything
@@ -167,8 +186,18 @@ namespace RageV
 
 		void EnsureWorldPipeline()
 		{
-			if (!s_Data->WorldPipelineDirty || !s_Data->Shader)
+			if (!s_Data->Shader)
 				return;
+
+			// Already built for this sample count: nothing to do, and in
+			// particular nothing to clear.
+			const auto cached = s_Data->WorldPipelines.find(s_Data->WorldSamples);
+			if (cached != s_Data->WorldPipelines.end())
+			{
+				s_Data->WorldPipeline = cached->second;
+				s_Data->WorldPipelineDirty = false;
+				return;
+			}
 
 			GraphicsPipelineDesc desc;
 			desc.Name = "UIRenderer (world text)";
@@ -190,9 +219,11 @@ namespace RageV
 			desc.DepthStencil.DepthWriteEnable = false;
 
 			desc.ColorFormats = { s_Data->WorldColor };
+			desc.Samples = s_Data->WorldSamples;
 			desc.DepthFormat = s_Data->WorldDepth;
 
 			s_Data->WorldPipeline = s_Data->Device->CreatePipeline(desc);
+			s_Data->WorldPipelines[s_Data->WorldSamples] = s_Data->WorldPipeline;
 			s_Data->WorldPipelineDirty = false;
 
 			for (auto& frame : s_Data->Batches)
@@ -552,15 +583,25 @@ namespace RageV
 		s_Data->WorldLayer = true;
 	}
 
-	void UIRenderer::SetWorldTargetFormats(Format color, Format depth)
+	void UIRenderer::SetWorldTargetFormats(Format color, Format depth, uint32_t samples)
 	{
 		if (!s_Data)
 			return;
 
+		// A format change invalidates every cached pipeline. A *sample count*
+		// change does not -- it selects among them, which is the whole point
+		// of the cache.
 		if (s_Data->WorldColor != color || s_Data->WorldDepth != depth)
 		{
 			s_Data->WorldColor = color;
 			s_Data->WorldDepth = depth;
+			s_Data->WorldPipelines.clear();
+			s_Data->WorldPipelineDirty = true;
+		}
+
+		if (s_Data->WorldSamples != samples)
+		{
+			s_Data->WorldSamples = samples;
 			s_Data->WorldPipelineDirty = true;
 		}
 	}

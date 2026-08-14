@@ -14,9 +14,13 @@ namespace RageV
 			// the right first attachment and the wrong number of them -- which
 			// fails at the point the second attachment is bound, nowhere near
 			// the mismatch.
+			// Samples included for the same reason: handing back a
+			// single-sampled target to a pass whose pipelines were built for
+			// four is undefined behaviour, and switching anti-aliasing mode
+			// at runtime is exactly when it would happen.
 			return a.Color == b.Color && a.Depth == b.Depth &&
 				   a.SampleDepth == b.SampleDepth && a.Layers == b.Layers &&
-				   a.ExtraColors == b.ExtraColors;
+				   a.Samples == b.Samples && a.ExtraColors == b.ExtraColors;
 		}
 	}
 
@@ -273,6 +277,7 @@ namespace RageV
 		target.Width = width;
 		target.Height = height;
 		target.Layers = desc.Layers;
+		target.Samples = desc.Samples;
 		target.DebugName = "rg." + desc.Name;
 
 		if (desc.Color != Format::Undefined)

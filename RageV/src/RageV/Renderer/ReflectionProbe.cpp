@@ -63,6 +63,18 @@ namespace RageV
 		scratch.ColorAttachments = { { Format::R16G16B16A16_SFLOAT } };
 		scratch.HasDepth = true;
 		scratch.DepthAttachment.Format = Format::D32_SFLOAT;
+		// The same sample count the scene is being drawn at.
+		//
+		// Not because a reflection needs anti-aliasing -- at this resolution
+		// it barely shows -- but because the renderers' pipelines are built
+		// once, for one count, and a pipeline bound into a pass whose
+		// attachments disagree is undefined behaviour. The alternative is to
+		// switch the count around every probe capture, which rebuilds every
+		// pipeline in every renderer twice a frame and flushes the batch
+		// buffers they were recording into. That was measured, in the form of
+		// a segfault. ENGINE-NOTES 7q.
+		m_Samples = Renderer::GetTargetSamples();
+		scratch.Samples = m_Samples;
 		scratch.DebugName = "probe.face";
 
 		m_Scratch = device.CreateRenderTarget(scratch);

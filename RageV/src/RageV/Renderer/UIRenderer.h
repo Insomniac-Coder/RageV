@@ -109,7 +109,8 @@ namespace RageV
 		// screen layer writes the finished LDR image, this one writes the scene
 		// before tone mapping, so a glowing label is possible here and not
 		// there.
-		static void SetWorldTargetFormats(RHI::Format color, RHI::Format depth);
+		static void SetWorldTargetFormats(RHI::Format color, RHI::Format depth,
+										  uint32_t samples = 1);
 
 		// Opens a world-space layer. Quads are depth-*tested* against the scene
 		// and do not write depth, so geometry occludes the text and the glyphs

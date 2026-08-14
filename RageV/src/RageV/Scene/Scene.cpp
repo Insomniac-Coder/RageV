@@ -15,6 +15,7 @@
 #include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/ProbeArray.h"
+#include "RageV/Renderer/UIRenderer.h"
 #include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/ParticleRenderer.h"
@@ -1471,7 +1472,8 @@ namespace RageV
 				continue;
 
 			const uint32_t resolution = (uint32_t)Math::Clamp(probe.Resolution, 16, 1024);
-			if (!probe.Probe || probe.Probe->GetFaceSize() != resolution)
+			if (!probe.Probe || probe.Probe->GetFaceSize() != resolution ||
+				probe.Probe->GetSamples() != Renderer::GetTargetSamples())
 			{
 				probe.Probe = std::make_shared<ReflectionProbe>(Renderer::GetDevice(), resolution);
 				probe.NextFace = 0;

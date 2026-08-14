@@ -81,6 +81,14 @@ namespace RageV
 		uint32_t Width = 0;
 		uint32_t Height = 0;
 
+		// Coverage samples per pixel. One is an ordinary target.
+		//
+		// A multisampled target's attachments cannot be sampled directly, so
+		// the RHI keeps a single-sampled twin per colour attachment, resolves
+		// into it when a pass ends, and hands *that* out -- which is why
+		// nothing else in this file has to know. ENGINE-NOTES 7q.
+		uint32_t Samples = 1;
+
 		// Whether a later pass samples the depth. Colour is always sampleable;
 		// depth costs an extra usage flag and is usually not read.
 		bool SampleDepth = false;

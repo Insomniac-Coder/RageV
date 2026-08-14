@@ -1172,6 +1172,9 @@ namespace
 	namespace
 	{
 		// The names a script writes, and the same order the enum declares.
+		// MSAA is deliberately absent while FrameGraphBuilder refuses it. A name
+		// here is a mode a script can select and an inspector can show, and one
+		// that quietly does nothing is worse than one that is not offered.
 		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
 

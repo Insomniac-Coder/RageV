@@ -52,7 +52,8 @@ namespace RageV
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
 
-		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
+		static void SetTargetFormats(RHI::Format color, RHI::Format depth,
+									 uint32_t samples = 1);
 
 		static bool IsReady();
 

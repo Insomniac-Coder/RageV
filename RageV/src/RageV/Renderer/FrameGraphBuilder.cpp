@@ -25,6 +25,11 @@ namespace RageV
 		// filter stops meaning anything.
 		constexpr uint32_t kMinBloomSize = 8;
 
+		// The most coverage samples offered. Four is the point where the
+		// quality curve flattens on every measurement anyone publishes, and
+		// eight doubles the target's memory for the difference.
+		constexpr int kMaxMsaaSamples = 8;
+
 		// The largest SSAA factor offered. Four means sixteen times the pixels
 		// shaded, and at a 4K output a 16K scene target -- past what a lot of
 		// hardware will allocate and all of what is sensible.
@@ -67,6 +72,44 @@ namespace RageV
 		// The camera's aspect is unchanged, so nothing downstream of the
 		// projection needs to know.
 		sceneDesc.Scale = (float)supersample;
+
+		// And multisampled for MSAA, which is the whole of what *that* does.
+		// The RHI resolves each attachment when a pass ends and hands out the
+		// resolve, so nothing below this line can tell either -- see
+		// ENGINE-NOTES 7q. What cannot be hidden is the pipeline state: a
+		// pipeline's sample count has to equal the attachment's, so the
+		// renderers are told before anything is recorded.
+		// **MSAA is groundwork, not a mode yet.** The RHI below it is complete
+		// and verified -- multisampled targets, hardware resolve, both
+		// backends, zero validation lines -- and it is switched off here
+		// because of one unresolved crash rather than shipped half-working.
+		//
+		// The repro is six entities: a camera, a light, a reflection probe and
+		// a particle emitter. Both backends, `vector subscript out of range`
+		// on the first frame, validation silent. Remove either the probe or
+		// the emitter and it runs; SSAA and SMAA on the same scene are fine.
+		//
+		// The shape of it is clear even though the line is not: probe capture
+		// re-renders the whole scene into a target that is not the scene
+		// target, and every renderer holds *one* pipeline set built for *one*
+		// target shape. MSAA is simply the first thing that ever made those
+		// two shapes differ. The fix is a pipeline cache keyed on target shape
+		// -- what PostProcess already does, and what UIRenderer's world layer
+		// now does -- rather than the single slot each renderer keeps.
+		// ENGINE-NOTES 7q.
+		constexpr bool kMsaaEnabled = false;
+
+		const int msaa = (kMsaaEnabled && aa == AntiAliasing::MSAA)
+			? Math::Clamp(config.MsaaOverride > 0 ? config.MsaaOverride
+												  : desc.Environment.MsaaSamples, 1, kMaxMsaaSamples)
+			: 1;
+		sceneDesc.Samples = (uint32_t)msaa;
+		Renderer::SetTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa);
+		// The UI renderer's *world* layer draws inside the scene pass -- world
+		// text, and the editor's light and camera marks -- so it takes the
+		// scene's sample count. Its screen-space layer is set separately, down
+		// with the UI pass, and stays at one.
+		UIRenderer::SetWorldTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa);
 
 		// Accumulation and revealage live on the *scene's* target rather than
 		// one of their own, so the transparent pass depth-tests against the

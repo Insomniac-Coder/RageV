@@ -27,7 +27,8 @@ namespace RageV
 		// False when the shader did not compile.
 		static bool IsReady();
 
-		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
+		static void SetTargetFormats(RHI::Format color, RHI::Format depth,
+									 uint32_t samples = 1);
 
 		// Resets the per-frame batch pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();

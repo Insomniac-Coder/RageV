@@ -117,13 +117,25 @@ namespace RageV
 		return Renderer2D::IsWireframe();
 	}
 
-	void Renderer::SetTargetFormats(RHI::Format color, RHI::Format depth)
+	namespace
 	{
-		Renderer2D::SetTargetFormats(color, depth);
-		Renderer3D::SetTargetFormats(color, depth);
-		DebugRenderer::SetTargetFormats(color, depth);
-		ParticleRenderer::SetTargetFormats(color, depth);
-		Skybox::SetTargetFormats(color, depth);
-		ViewportGrid::SetTargetFormats(color, depth);
+		uint32_t s_TargetSamples = 1;
+	}
+
+	uint32_t Renderer::GetTargetSamples()
+	{
+		return s_TargetSamples;
+	}
+
+	void Renderer::SetTargetFormats(RHI::Format color, RHI::Format depth, uint32_t samples)
+	{
+		s_TargetSamples = samples;
+
+		Renderer2D::SetTargetFormats(color, depth, samples);
+		Renderer3D::SetTargetFormats(color, depth, samples);
+		DebugRenderer::SetTargetFormats(color, depth, samples);
+		ParticleRenderer::SetTargetFormats(color, depth, samples);
+		Skybox::SetTargetFormats(color, depth, samples);
+		ViewportGrid::SetTargetFormats(color, depth, samples);
 	}
 }

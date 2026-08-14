@@ -208,12 +208,21 @@ namespace RageV::GL
 		uint32_t GetFramebuffer() const { return m_Framebuffer; }
 		uint32_t GetColorCount() const { return (uint32_t)m_Color.size(); }
 
+		// Blit every colour attachment down to its single-sampled twin. Called
+		// when a pass that wrote this target ends; a no-op when it is not
+		// multisampled.
+		void ResolveIfNeeded();
+
+		bool IsMultisampled() const { return m_ResolveFramebuffer != 0; }
+
 	private:
 		void Build();
 		void Destroy();
 
 		OpenGLDevice& m_Device;
 		uint32_t m_Framebuffer = 0;
+		uint32_t m_ResolveFramebuffer = 0;
+		std::vector<Ref<OpenGLTextureRHI>> m_Resolve;
 		std::vector<Ref<OpenGLTextureRHI>> m_Color;
 		Ref<OpenGLTextureRHI> m_Depth;
 	};
@@ -262,6 +271,9 @@ namespace RageV::GL
 		// does not care; Vulkan rejects it, and the assert is here so the two
 		// backends fail in the same place.
 		bool m_InRenderPass = false;
+		// Which target the open pass writes, so its multisampled attachments
+		// can be resolved when the pass ends.
+		OpenGLRenderTargetRHI* m_BoundTarget = nullptr;
 		uint32_t m_IndexType = 0;
 		uint64_t m_IndexOffset = 0;
 

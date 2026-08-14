@@ -26,7 +26,11 @@ namespace RageV
 		ReflectionProbe(RHI::RHIDevice& device, uint32_t faceSize);
 
 		uint32_t GetFaceSize() const { return m_FaceSize; }
-		const RHI::Ref<RHI::RHITexture>& GetCube() const { return m_Cube; }
+		// The sample count its scratch face was built with. A probe outlives a
+		// change of anti-aliasing mode, and the renderers' pipelines do not --
+		// so the capture compares this and rebuilds, exactly as it does for a
+		// change of resolution.
+		uint32_t GetSamples() const { return m_Samples; }		const RHI::Ref<RHI::RHITexture>& GetCube() const { return m_Cube; }
 
 		// False until all six faces have been rendered at least once. Binding a
 		// half-captured probe would show black where the scene has not been
@@ -71,6 +75,7 @@ namespace RageV
 
 	private:
 		RHI::RHIDevice& m_Device;
+		uint32_t m_Samples = 1;
 		uint32_t m_FaceSize = 0;
 
 		RHI::Ref<RHI::RHITexture> m_Cube;

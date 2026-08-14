@@ -82,6 +82,12 @@ namespace RageV
 		if (key == "depth-sort" || key == "depthsort")
 			return ParseBool(value, config.DepthSortOpaque);
 
+		if (key == "msaa" || key == "samples")
+		{
+			config.MsaaOverride = std::atoi(value.c_str());
+			return config.MsaaOverride > 0;
+		}
+
 		if (key == "ssaa" || key == "supersample")
 		{
 			config.SupersampleOverride = std::atoi(value.c_str());
@@ -99,10 +105,12 @@ namespace RageV
 				config.AAOverride = AntiAliasing::SMAA;
 			else if (lowered == "ssaa")
 				config.AAOverride = AntiAliasing::SSAA;
+			else if (lowered == "msaa")
+				config.AAOverride = AntiAliasing::MSAA;
 			else
 			{
 				RV_CORE_WARN("Unknown anti-aliasing mode '{0}'; expected 'none', 'fxaa', "
-							 "'smaa' or 'ssaa'",
+							 "'smaa', 'ssaa' or 'msaa'",
 							 value);
 				return false;
 			}

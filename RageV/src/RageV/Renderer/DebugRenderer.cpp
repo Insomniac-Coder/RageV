@@ -42,6 +42,11 @@ namespace RageV
 			Ref<RHIPipeline> Pipeline;
 			Format TargetColor = Format::B8G8R8A8_UNORM;
 			Format TargetDepth = Format::D24_UNORM_S8_UINT;
+		// Sample count, which has to equal the target's. A pipeline whose
+		// rasterizationSamples disagrees with the attachment it draws into is
+		// undefined behaviour rather than an error, so it travels with the
+		// formats and gets compared with them.
+			uint32_t TargetSamples = 1;
 			bool   PipelineDirty = true;
 
 			// Per batch, not per frame, for the reason recorded on Renderer2D:
@@ -193,14 +198,16 @@ namespace RageV
 		s_Data.reset();
 	}
 
-	void DebugRenderer::SetTargetFormats(Format color, Format depth)
+	void DebugRenderer::SetTargetFormats(Format color, Format depth, uint32_t samples)
 	{
 		if (!s_Data)
 			return;
-		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth && s_Data->Pipeline)
+		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth &&
+			s_Data->TargetSamples == samples && s_Data->Pipeline)
 			return;
 
 		s_Data->TargetColor = color;
+		s_Data->TargetSamples = samples;
 		s_Data->TargetDepth = depth;
 		s_Data->PipelineDirty = true;
 	}
@@ -234,6 +241,7 @@ namespace RageV
 		desc.DepthStencil.DepthWriteEnable = false;
 
 		desc.ColorFormats = { s_Data->TargetColor };
+		desc.Samples = s_Data->TargetSamples;
 		desc.DepthFormat = s_Data->TargetDepth;
 
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);

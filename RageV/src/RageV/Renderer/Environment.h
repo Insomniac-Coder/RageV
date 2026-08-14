@@ -21,6 +21,19 @@ namespace RageV
 	// and a history buffer. That is a renderer feature with its own
 	// prerequisites, not a post pass -- and the same motion vectors would then
 	// also buy motion blur and temporal upscaling.
+	//   MSAA is **not selectable yet** -- the value exists and the RHI under
+	//   it is complete, and FrameGraphBuilder refuses it while one crash is
+	//   outstanding. See the note there and ENGINE-NOTES 7q; do not offer it
+	//   in a UI until that flips.
+	//
+	//   MSAA takes several coverage samples per pixel and keeps a depth for
+	//   each, but runs the fragment shader **once**. So geometry edges get
+	//   several levels of coverage for close to the price of one shaded
+	//   pixel -- and shading aliasing gets nothing at all, because a specular
+	//   highlight is one shaded sample either way. It resolves in linear
+	//   light, before the tone curve, which is the correct place and a visible
+	//   difference on high-contrast edges. ENGINE-NOTES 7q.
+	//
 	//   SSAA renders the whole scene larger and averages it down. It is the
 	//   only one of the three that anti-aliases *shading* rather than
 	//   geometry: a specular highlight sparkling across a curved surface, or a
@@ -33,6 +46,7 @@ namespace RageV
 		FXAA = 1,
 		SMAA = 2,
 		SSAA = 3,
+		MSAA = 4,
 	};
 
 	// What fills the pixels no geometry covers.
@@ -160,5 +174,13 @@ namespace RageV
 		// for a 16K target, which is past what a lot of hardware will allocate
 		// and all of what it would be sensible to.
 		int SupersampleFactor = 2;
+
+		// How many coverage samples per pixel when AA is MSAA. Ignored
+		// otherwise, and clamped to what the hardware actually offers.
+		//
+		// **Not the square of anything.** Unlike SupersampleFactor above, this
+		// costs bandwidth and a little rasterizer work rather than shading, so
+		// 4 is an ordinary choice where supersampling at 4 is a statement.
+		int MsaaSamples = 4;
 	};
 }

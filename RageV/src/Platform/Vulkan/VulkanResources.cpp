@@ -596,7 +596,16 @@ namespace RageV::Vk
 	void VulkanRenderTarget::Build()
 	{
 		m_Color.clear();
+		m_Resolve.clear();
 		m_Depth.reset();
+
+		// A multisampled image cannot be read by an ordinary sampler2D, so a
+		// multisampled target carries a single-sampled twin per colour
+		// attachment and the hardware resolves into it when the pass ends.
+		// GetColorTexture hands that twin out, which is what keeps every
+		// consumer of this target -- bloom, tone mapping, the transparency
+		// composite, ImGui -- from needing to know MSAA exists.
+		const bool multisampled = m_Desc.Samples > 1;
 
 		for (size_t i = 0; i < m_Desc.ColorAttachments.size(); i++)
 		{
@@ -613,6 +622,14 @@ namespace RageV::Vk
 			textureDesc.DebugName = m_Desc.DebugName + ".color" + std::to_string(i);
 
 			m_Color.push_back(std::make_shared<VulkanTexture>(m_Device, textureDesc));
+
+			if (multisampled)
+			{
+				RHI::TextureDesc resolveDesc = textureDesc;
+				resolveDesc.Samples = 1;
+				resolveDesc.DebugName = m_Desc.DebugName + ".resolve" + std::to_string(i);
+				m_Resolve.push_back(std::make_shared<VulkanTexture>(m_Device, resolveDesc));
+			}
 		}
 
 		if (m_Desc.HasDepth)
@@ -655,6 +672,11 @@ namespace RageV::Vk
 
 	RHI::Ref<RHI::RHITexture> VulkanRenderTarget::GetColorTexture(uint32_t index) const
 	{
+		// The resolve, when there is one: a caller asking for "the colour" of
+		// this target wants something it can sample.
+		if (index < m_Resolve.size())
+			return m_Resolve[index];
+
 		if (index >= m_Color.size())
 			return nullptr;
 		return m_Color[index];

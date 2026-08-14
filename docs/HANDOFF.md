@@ -140,6 +140,13 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
+**Half-finished on purpose:** MSAA's RHI is complete and its *mode* is
+switched off in `FrameGraphBuilder`, because six entities -- camera, light,
+reflection probe, particle emitter -- segfault on the first frame with
+validation silent. Everything else about it works and measures. The next
+step is written down in ENGINE-NOTES 7q and it is a pipeline cache keyed on
+target shape, not another guess.
+
 **What to do next:** section 8 -- the per-project game module, which is what
 making the engine a DLL was for.
 

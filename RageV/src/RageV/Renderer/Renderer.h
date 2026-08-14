@@ -30,6 +30,12 @@ namespace RageV
 		static bool IsWireframe();
 
 		// Formats of whatever both renderers are currently drawing into.
-		static void SetTargetFormats(RHI::Format color, RHI::Format depth);
+		static void SetTargetFormats(RHI::Format color, RHI::Format depth,
+									 uint32_t samples = 1);
+
+		// What the last SetTargetFormats said. Anything that renders the scene
+		// into a target of its own -- a reflection probe face -- has to match
+		// it, because the pipelines are built once for one count.
+		static uint32_t GetTargetSamples();
 	};
 }

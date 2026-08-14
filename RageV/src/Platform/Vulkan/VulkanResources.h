@@ -108,11 +108,21 @@ namespace RageV::Vk
 		const std::vector<RHI::Ref<VulkanTexture>>& GetColorTextures() const { return m_Color; }
 		VulkanTexture* GetDepth() const { return m_Depth.get(); }
 
+		// The single-sampled copy the hardware resolves each attachment into,
+		// or null when the target is not multisampled. Only the command list
+		// wants these: everyone else asks GetColorTexture and is handed the
+		// resolve without knowing there was one.
+		VulkanTexture* GetResolve(uint32_t index) const
+		{
+			return index < m_Resolve.size() ? m_Resolve[index].get() : nullptr;
+		}
+
 	private:
 		void Build();
 
 		VulkanDevice& m_Device;
 		std::vector<RHI::Ref<VulkanTexture>> m_Color;
+		std::vector<RHI::Ref<VulkanTexture>> m_Resolve;
 		RHI::Ref<VulkanTexture> m_Depth;
 	};
 }

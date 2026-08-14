@@ -121,6 +121,20 @@ namespace RageV::Vk
 				attachment.loadOp = info.ClearColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 				attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 				memcpy(attachment.clearValue.color.float32, binding.Clear, sizeof(float) * 4);
+
+				// Multisampled: name the single-sampled twin and let the pass
+				// resolve into it on the way out. Dynamic rendering carries
+				// this on the attachment, so there is no second pass and no
+				// shader -- AVERAGE is the box filter §7o had to write by hand
+				// for SSAA, done by the hardware.
+				if (VulkanTexture* resolve = target->GetResolve(binding.Index))
+				{
+					resolve->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+					attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+					attachment.resolveImageView = resolve->GetView();
+					attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				}
+
 				colorAttachments.push_back(attachment);
 			}
 
@@ -238,6 +252,17 @@ namespace RageV::Vk
 		{
 			for (const auto& texture : m_ActiveTarget->GetColorTextures())
 				texture->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+			// And the resolve twins, which are what GetColorTexture actually
+			// hands out. Transitioning only the multisampled originals leaves
+			// the image every later pass samples sitting in
+			// COLOR_ATTACHMENT_OPTIMAL -- which the validation layers say
+			// plainly and nothing else would.
+			for (uint32_t i = 0; i < (uint32_t)m_ActiveTarget->GetColorTextures().size(); i++)
+			{
+				if (VulkanTexture* resolve = m_ActiveTarget->GetResolve(i))
+					resolve->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			}
 
 			if (VulkanTexture* depth = m_ActiveTarget->GetDepth())
 			{

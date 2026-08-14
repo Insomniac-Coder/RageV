@@ -284,8 +284,25 @@ namespace RageV::GL
 		if (m_Desc.MipLevels == 0)
 			m_Desc.MipLevels = 1 + (uint32_t)std::floor(std::log2(std::max(m_Desc.Width, m_Desc.Height)));
 
-		const GLenum target = ToGLTarget(m_Desc.Type);
 		const GLFormat format = ToGLFormat(m_Desc.Format);
+
+		// A multisampled texture is a different target with different storage
+		// and no mip chain -- it is a set of coverage samples, not an image
+		// anything can filter. Nothing samples one directly here: the render
+		// target resolves it into an ordinary texture before anyone asks.
+		if (m_Desc.Samples > 1)
+		{
+			m_Desc.MipLevels = 1;
+			glCreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &m_Handle);
+			glTextureStorage2DMultisample(m_Handle, (GLsizei)m_Desc.Samples, format.Internal,
+										  (GLsizei)m_Desc.Width, (GLsizei)m_Desc.Height,
+										  GL_TRUE);
+			if (!m_Desc.DebugName.empty())
+				glObjectLabel(GL_TEXTURE, m_Handle, -1, m_Desc.DebugName.c_str());
+			return;
+		}
+
+		const GLenum target = ToGLTarget(m_Desc.Type);
 
 		glCreateTextures(target, 1, &m_Handle);
 
@@ -883,13 +900,28 @@ namespace RageV::GL
 			glDeleteFramebuffers(1, &m_Framebuffer);
 			m_Framebuffer = 0;
 		}
+		if (m_ResolveFramebuffer)
+		{
+			glDeleteFramebuffers(1, &m_ResolveFramebuffer);
+			m_ResolveFramebuffer = 0;
+		}
 		m_Color.clear();
+		m_Resolve.clear();
 		m_Depth.reset();
 	}
 
 	void OpenGLRenderTargetRHI::Build()
 	{
 		glCreateFramebuffers(1, &m_Framebuffer);
+
+		// A multisampled target carries a single-sampled twin per colour
+		// attachment, in a framebuffer of its own, and blits into it when the
+		// pass ends. GetColorTexture hands that twin out -- see the Vulkan
+		// side and ENGINE-NOTES 7q; the mechanism differs, the contract does
+		// not.
+		const bool multisampled = m_Desc.Samples > 1;
+		if (multisampled)
+			glCreateFramebuffers(1, &m_ResolveFramebuffer);
 
 		std::vector<GLenum> drawBuffers;
 		for (size_t i = 0; i < m_Desc.ColorAttachments.size(); i++)
@@ -901,12 +933,25 @@ namespace RageV::GL
 			textureDesc.Layers = m_Desc.Layers;
 			textureDesc.Type = m_Desc.Layers > 1 ? TextureType::Texture2DArray : TextureType::Texture2D;
 			textureDesc.Usage = TextureUsage::ColorAttachment | TextureUsage::Sampled;
+			textureDesc.Samples = m_Desc.Samples;
 			textureDesc.DebugName = m_Desc.DebugName + ".color" + std::to_string(i);
 
 			auto texture = std::make_shared<OpenGLTextureRHI>(m_Device, textureDesc);
 			glNamedFramebufferTexture(m_Framebuffer, GL_COLOR_ATTACHMENT0 + (GLenum)i, texture->GetHandle(), 0);
 			drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + (GLenum)i);
 			m_Color.push_back(std::move(texture));
+
+			if (multisampled)
+			{
+				TextureDesc resolveDesc = textureDesc;
+				resolveDesc.Samples = 1;
+				resolveDesc.DebugName = m_Desc.DebugName + ".resolve" + std::to_string(i);
+
+				auto resolve = std::make_shared<OpenGLTextureRHI>(m_Device, resolveDesc);
+				glNamedFramebufferTexture(m_ResolveFramebuffer,
+										  GL_COLOR_ATTACHMENT0 + (GLenum)i, resolve->GetHandle(), 0);
+				m_Resolve.push_back(std::move(resolve));
+			}
 		}
 
 		if (drawBuffers.empty())
@@ -919,6 +964,9 @@ namespace RageV::GL
 		else
 		{
 			glNamedFramebufferDrawBuffers(m_Framebuffer, (GLsizei)drawBuffers.size(), drawBuffers.data());
+			if (multisampled)
+				glNamedFramebufferDrawBuffers(m_ResolveFramebuffer,
+											  (GLsizei)drawBuffers.size(), drawBuffers.data());
 		}
 
 		if (m_Desc.HasDepth)
@@ -932,6 +980,10 @@ namespace RageV::GL
 			depthDesc.Layers = m_Desc.Layers;
 			depthDesc.Type = m_Desc.Layers > 1 ? TextureType::Texture2DArray : TextureType::Texture2D;
 			depthDesc.Usage = TextureUsage::DepthAttachment;
+			// Depth has to match the colour's sample count or the framebuffer
+			// is incomplete. It is never resolved: nothing downstream of the
+			// scene pass reads it.
+			depthDesc.Samples = m_Desc.Samples;
 			if (m_Desc.DepthSampled)
 				depthDesc.Usage = depthDesc.Usage | TextureUsage::Sampled;
 			depthDesc.DebugName = m_Desc.DebugName + ".depth";
@@ -961,8 +1013,48 @@ namespace RageV::GL
 		Build();
 	}
 
+	void OpenGLRenderTargetRHI::ResolveIfNeeded()
+	{
+		if (!m_ResolveFramebuffer)
+			return;
+
+		// One blit per attachment rather than one for all of them: the read
+		// buffer selects which colour attachment is the source, and a blit
+		// reads exactly one. glBlitNamedFramebuffer with different sample
+		// counts *is* the resolve -- there is no shader and no second pass.
+		for (uint32_t i = 0; i < (uint32_t)m_Resolve.size(); i++)
+		{
+			glNamedFramebufferReadBuffer(m_Framebuffer, GL_COLOR_ATTACHMENT0 + i);
+			glNamedFramebufferDrawBuffer(m_ResolveFramebuffer, GL_COLOR_ATTACHMENT0 + i);
+			glBlitNamedFramebuffer(m_Framebuffer, m_ResolveFramebuffer,
+								   0, 0, (GLint)m_Desc.Width, (GLint)m_Desc.Height,
+								   0, 0, (GLint)m_Desc.Width, (GLint)m_Desc.Height,
+								   GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		}
+
+		// Put the draw buffers back: the next pass binds this framebuffer and
+		// expects to write every attachment, and the loop above left it
+		// naming one.
+		std::vector<GLenum> drawBuffers;
+		for (uint32_t i = 0; i < (uint32_t)m_Color.size(); i++)
+			drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
+		if (!drawBuffers.empty())
+		{
+			glNamedFramebufferDrawBuffers(m_Framebuffer,
+										  (GLsizei)drawBuffers.size(), drawBuffers.data());
+			glNamedFramebufferDrawBuffers(m_ResolveFramebuffer,
+										  (GLsizei)drawBuffers.size(), drawBuffers.data());
+		}
+	}
+
 	Ref<RHITexture> OpenGLRenderTargetRHI::GetColorTexture(uint32_t index) const
 	{
+		// The resolve, when there is one: a caller asking for "the colour" of
+		// this target wants something it can sample, and a multisampled
+		// texture is not that.
+		if (index < m_Resolve.size())
+			return m_Resolve[index];
+
 		if (index >= m_Color.size())
 			return nullptr;
 		return m_Color[index];
@@ -989,6 +1081,10 @@ namespace RageV::GL
 			glBindFramebuffer(GL_FRAMEBUFFER, target->GetFramebuffer());
 			width = target->GetWidth();
 			height = target->GetHeight();
+			// Remembered so EndRenderPass can resolve it. The pass info is
+			// gone by then, and a target that is never resolved reads back as
+			// whatever the twin held last frame.
+			m_BoundTarget = target;
 		}
 		else
 		{
@@ -1062,6 +1158,15 @@ namespace RageV::GL
 
 	void OpenGLCommandListRHI::EndRenderPass()
 	{
+		// Resolve before unbinding, and on *every* pass that wrote the target
+		// rather than once at the end of the frame. Wasteful when a target is
+		// written four times and read once -- and correct without the graph
+		// having to know which of those writes was the last, which it does not
+		// currently track. ENGINE-NOTES 7q.
+		if (m_BoundTarget)
+			m_BoundTarget->ResolveIfNeeded();
+		m_BoundTarget = nullptr;
+
 		m_InRenderPass = false;
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
