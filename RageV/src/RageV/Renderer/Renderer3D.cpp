@@ -210,12 +210,10 @@ namespace RageV
 		// rasterizationSamples disagrees with the attachment it draws into is
 		// undefined behaviour rather than an error, so it travels with the
 		// formats and gets compared with them.
-			// What ViewProjection was the last time BeginScene ran, and the
-			// jitter that was folded into it. Kept together and written
-			// together, because a matrix paired with the wrong offset is a
-			// velocity that is wrong by half a pixel everywhere.
-			Mat4 PreviousSceneViewProjection{ 1.0f };
-			Vec2 PreviousSceneJitter{ 0.0f, 0.0f };
+			// The previous view-projection and its jitter used to live here,
+			// one pair for the process. They are per frame chain and now live
+			// with the history they reproject into -- CameraMotion, reached
+			// through Renderer::GetCameraMotion(). See BeginScene.
 			uint32_t TargetSamples = 1;
 
 		// Where the scene writes its motion vectors, or Undefined for a pass
@@ -595,23 +593,43 @@ namespace RageV
 			return;
 
 		s_Data->Scene = {};
-		// Last frame's, before this frame's overwrites it.
-		//
-		// From the previous *BeginScene*, not the previous frame: a probe
-		// capture calls this six times with six different cameras, and a
-		// velocity differenced against one of those would be the motion of the
-		// camera between two faces of a cube. The scene pass is the last
-		// caller in a frame, so what the scene pass reads is what the scene
-		// pass wrote -- which is the property that makes this correct without
-		// tracking whose camera it was.
-		s_Data->Scene.PreviousViewProjection = s_Data->PreviousSceneViewProjection;
-		s_Data->Scene.Jitter = Vec4(jitter.x, jitter.y,
-									s_Data->PreviousSceneJitter.x,
-									s_Data->PreviousSceneJitter.y);
 
-		s_Data->Scene.ViewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
-		s_Data->PreviousSceneViewProjection = s_Data->Scene.ViewProjection;
-		s_Data->PreviousSceneJitter = jitter;
+		const Mat4 viewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
+
+		// What *this frame chain* drew with last time, which is the only camera
+		// a velocity here can mean anything against: the history about to be
+		// reprojected is that camera's image.
+		//
+		// **This used to be one matrix for the whole process**, written by
+		// every BeginScene and read by the next, justified by "the scene pass
+		// is the last caller in a frame". That is true of the runtime and false
+		// of the editor, which draws the viewport and the game view in one
+		// frame from two cameras: the game view then differenced itself against
+		// the *editor* camera and TAA fetched its history from wherever that
+		// gap pointed. The result was a faint second copy of the whole scene
+		// over the game view that slid about as the editor camera moved -- an
+		// image answering to an input that has nothing to do with it.
+		// ENGINE-NOTES 7u.
+		//
+		// Null for anything with no history to reproject: a probe capture's six
+		// faces, a shadow cascade, a chain with temporal filtering off. Those
+		// difference against themselves, which is zero velocity -- the same
+		// value the velocity attachment is cleared to.
+		CameraMotion* motion = Renderer::GetCameraMotion();
+
+		s_Data->Scene.PreviousViewProjection = motion ? motion->ViewProjection : viewProjection;
+		const Vec2 previousJitter = motion ? motion->Jitter : jitter;
+		s_Data->Scene.Jitter = Vec4(jitter.x, jitter.y, previousJitter.x, previousJitter.y);
+
+		s_Data->Scene.ViewProjection = viewProjection;
+
+		// Recorded after reading, and only for a real chain. What this frame
+		// draws with is what the next frame of *this* chain reprojects from.
+		if (motion)
+		{
+			motion->ViewProjection = viewProjection;
+			motion->Jitter = jitter;
+		}
 		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
 		s_Data->Scene.Ambient = Vec4(environment.AmbientColor, environment.AmbientIntensity);
 

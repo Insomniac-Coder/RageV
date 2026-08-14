@@ -1515,7 +1515,53 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: BUG 2, the ghost over the Game view
+### START HERE: finish verifying the BUG 2 fix (paused mid-verification)
+
+**BUG 2 is diagnosed and fixed in the working tree. The verification bar is
+half-run.** The owner supplied the clue that cracked it: *the ghost is only
+visible with TAA*.
+
+`Renderer3D` kept **one** previous view-projection for the whole process,
+written by every `BeginScene` and read by the next, on the argument that "the
+scene pass is the last caller in a frame". True of the runtime; false of the
+editor, which draws the viewport and the game view in one frame from two
+cameras. The game chain differenced itself against the **editor** camera, so
+every pixel carried the velocity of the gap between them and TAA fetched its
+history from there -- a faint second copy of the whole scene, sliding as the
+editor camera moved. That is also why it answered to the scroll wheel, which
+the owner rightly said makes no sense.
+
+Fixed by giving the previous view-projection the scope the history already
+has: `CameraMotion`, owned by `TemporalHistory`, handed to the scene draw by
+the frame graph exactly as the jitter is, null for probe captures and shadow
+cascades (zero velocity).
+
+Done so far:
+- Release builds clean.
+- **The decisive measurement.** Two editor runs differing only in the
+  Viewport's size -- which changes the editor camera's projection and nothing
+  else -- and the Game panel is now **byte-identical**: 0 differing subpixels
+  of 267,575. The same experiment before the fix: max 87/255 over 7,534
+  pixels. The Game view no longer answers to the editor camera at all.
+- `check_taa_motion.py` passes on both backends: still 3.1x better than no
+  filter, moving 1.01-1.02x -- the runtime's single-chain behaviour is
+  unchanged, as it must be.
+
+Still to do, in order:
+1. `check_taa_jitter.py`, `check_smaa.py`, `check_color_grading.py`.
+2. `scenetest --validation=on`, both backends, case-sensitive `FAIL`, exit 0.
+3. Editor and runtime on both backends with `--validation=on`, grep
+   `[Vulkan]`.
+4. Rebuild Debug and Dist.
+5. Write it up as ENGINE-NOTES **7u** -- the code comments already point at
+   that section and it does not exist yet -- and note in 7r that the
+   moving-scene check could not have caught this, because a single frame
+   chain cannot express the failure.
+6. Consider a check that can: two chains in one frame, one of which moves.
+
+---
+
+### The original BUG 2 report, and what was ruled out getting here
 
 **BUG 1 is fixed (2026-08-14).** Kept below because the lead recorded for it
 was *wrong*, and the correction is the useful part.

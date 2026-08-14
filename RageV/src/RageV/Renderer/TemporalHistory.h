@@ -1,8 +1,30 @@
 #pragma once
 #include "RageV/Renderer/RHI/RHIDevice.h"
+#include "RageV/Math/Math.h"
 
 namespace RageV
 {
+	// What the image in TemporalHistory::Previous() was drawn with.
+	//
+	// Reprojection asks "where was this pixel last frame", and *last frame*
+	// means this chain's last frame. So the matrix that answers it has exactly
+	// the scope the history does, and lives with it.
+	//
+	// **This was one value for the whole process, and that was the ghost.**
+	// It was written by every BeginScene and read by the next, on the argument
+	// that the scene pass is the last caller in a frame -- true of the runtime,
+	// and false of the editor, which draws the viewport and the game view in
+	// one frame from two different cameras. The game view then differenced its
+	// camera against the *editor* camera, so every pixel carried the velocity
+	// of the gap between them, and TAA dutifully fetched its history from
+	// there: a second copy of the whole scene, faint at feedback 0.6, sliding
+	// as the editor camera moved. ENGINE-NOTES 7u.
+	struct CameraMotion
+	{
+		Mat4 ViewProjection{ 1.0f };
+		Vec2 Jitter{ 0.0f, 0.0f };
+	};
+
 	// Somewhere for a temporal filter to keep last frame's result.
 	//
 	// **Owned by whoever builds the frame, not by the render graph**, and that
@@ -55,7 +77,14 @@ namespace RageV
 		// Frees both targets. The editor does this when a viewport closes.
 		void Release();
 
+		// The camera that drew the history, for the pass that reprojects it.
+		// Handed to the scene draw by the frame graph and updated by BeginScene,
+		// the same way the jitter is.
+		CameraMotion& Motion() { return m_Motion; }
+
 	private:
+		CameraMotion m_Motion;
+
 		RHI::Ref<RHI::RHIRenderTarget> m_Targets[2];
 		uint32_t m_Cursor = 0;
 		uint32_t m_Width = 0;

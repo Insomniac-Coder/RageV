@@ -25,6 +25,10 @@ namespace RageV
 		// count is not process-wide.
 		uint64_t s_FrameCount = 0;
 		Vec2     s_Jitter{ 0.0f, 0.0f };
+
+		// Whose history the scene being drawn will be reprojected into. Null
+		// outside a scene pass, which is most of the frame.
+		CameraMotion* s_CameraMotion = nullptr;
 	}
 
 	void Renderer::Init(RHI::RHIDevice& device)
@@ -75,6 +79,7 @@ namespace RageV
 		// non-zero jitter, and a frame that threw one away half-drawn would
 		// otherwise hand it to the next one's probe captures.
 		s_Jitter = Vec2(0.0f, 0.0f);
+		s_CameraMotion = nullptr;
 
 		// Frees the per-frame buffer pools. Anything that draws a scene more
 		// than once per frame depends on this having run first.
@@ -114,6 +119,16 @@ namespace RageV
 	Vec2 Renderer::GetJitter()
 	{
 		return s_Jitter;
+	}
+
+	void Renderer::SetCameraMotion(CameraMotion* motion)
+	{
+		s_CameraMotion = motion;
+	}
+
+	CameraMotion* Renderer::GetCameraMotion()
+	{
+		return s_CameraMotion;
 	}
 
 	RHI::RHICommandList* Renderer::GetCommandList()

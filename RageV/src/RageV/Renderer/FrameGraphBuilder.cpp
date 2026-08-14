@@ -253,7 +253,8 @@ namespace RageV
 					  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
 				builder.SetClearColor(desc.ClearColor);
 			},
-			[draw = desc.DrawScene, jitter](RGPassContext& context)
+			[draw = desc.DrawScene, jitter,
+			 motion = desc.History ? &desc.History->Motion() : nullptr](RGPassContext& context)
 			{
 				// Set here and cleared immediately after, so that the only
 				// code able to see a non-zero jitter is code drawing the
@@ -269,9 +270,24 @@ namespace RageV
 				// half-pixel against it.
 				Renderer::SetJitter(jitter);
 
+				// Set and cleared on the same edges, and for the same reason:
+				// the only code that may difference a camera against last
+				// frame's is the code drawing this chain's scene. A probe
+				// capture or a shadow cascade reaching this would be a velocity
+				// measured between two things that were never consecutive
+				// frames of anything.
+				//
+				// Keyed on the history rather than on whether TAA is on this
+				// frame: the chain's identity does not come and go with the
+				// anti-aliasing mode, and keeping the record current means
+				// switching *to* TAA starts from last frame rather than from
+				// whenever it was last enabled.
+				Renderer::SetCameraMotion(motion);
+
 				if (draw)
 					draw(context);
 
+				Renderer::SetCameraMotion(nullptr);
 				Renderer::SetJitter(Vec2(0.0f, 0.0f));
 			});
 

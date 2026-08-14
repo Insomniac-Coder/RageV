@@ -1,6 +1,7 @@
 #pragma once
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Math/Math.h"
+#include "RageV/Renderer/TemporalHistory.h"
 
 namespace RageV
 {
@@ -46,6 +47,20 @@ namespace RageV
 		// Zero for every mode but TAA.
 		static void SetJitter(const Vec2& ndcOffset);
 		static Vec2 GetJitter();
+
+		// Which frame chain is being drawn, for the one thing that has to know:
+		// motion vectors, which are the difference between this camera and the
+		// camera that drew the history this chain is about to reproject into.
+		//
+		// Set and cleared around the scene draw exactly as the jitter is, and
+		// null everywhere else. Null means "no chain", which BeginScene renders
+		// as zero velocity -- correct for a shadow cascade, for the six faces
+		// of a probe capture, and for any pass with no history to reproject.
+		//
+		// A pointer rather than a value because BeginScene *updates* it: what
+		// this frame draws with is what the next frame reprojects from.
+		static void SetCameraMotion(CameraMotion* motion);
+		static CameraMotion* GetCameraMotion();
 
 		// Null outside a frame, and between BeginFrame returning nullptr and
 		// the next successful frame.
