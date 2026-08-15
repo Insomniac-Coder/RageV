@@ -66,6 +66,7 @@ namespace RageV
 
 		const char* kPhaseNames[(int)FramePhase::Count] =
 		{
+			"wait (gpu/vsync)",
 			"environment prefilter",
 			"shadow maps",
 			"reflection probes",
@@ -419,12 +420,30 @@ namespace RageV
 		{
 			RV_CORE_INFO("[benchmark]   {0:<22} {1:>9.3f} ms of GPU work in a {2:.3f} ms frame",
 						 "whole frame (GPU)", gpuFrame, mean);
+
+			// The wait row is real time but not real *work* -- counting it
+			// toward "CPU bound" would call a vsync-limited frame CPU bound,
+			// which is the exact misreading the row exists to end.
+			const float waiting = MeanPhaseMs(FramePhase::Wait);
+			const float working = accounted - waiting;
+
+			// No verdict under vsync at all. The wait row catches Vulkan's
+			// block, but OpenGL's driver throttles inside whatever call
+			// overfills its queue -- ImGui's submission, usually -- so its
+			// vsync wait masquerades as a fat *working* phase and any verdict
+			// computed from these numbers repeats the lie.
 			RV_CORE_INFO("[benchmark]   verdict: {0}",
-						 gpuFrame > mean * 0.85f
-						   ? "GPU bound -- the frame is about as long as the GPU work in it"
-						   : (accounted > mean * 0.85f
-								? "CPU bound -- the phases account for the frame"
-								: "neither dominates; the gap is present or vsync"));
+						 config.VSync
+						   ? "at the display's refresh (vsync ON); the phase split "
+							 "includes the driver's throttle wherever it blocks"
+						   : (gpuFrame > mean * 0.85f
+								? "GPU bound -- the frame is about as long as the GPU work in it"
+								: (working > mean * 0.85f
+									 ? "CPU bound -- the phases account for the frame"
+									 : (waiting > mean * 0.5f
+										  ? "waiting -- most of the frame is the display's "
+											"refresh or the GPU being waited on"
+										  : "neither dominates; the gap is present or vsync"))));
 		}
 		else
 		{

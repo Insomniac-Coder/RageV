@@ -23,12 +23,22 @@ namespace RageV
 	// alone has been misread here before.
 	enum class FramePhase
 	{
+		Wait,					// device BeginFrame: the in-flight fence and the
+								// swapchain acquire. On Vulkan this is where the
+								// vsync wait actually blocks, and before it had a
+								// row it sat in "unaccounted" -- 3 ms of nothing
+								// with a name on one backend and not the other,
+								// which read as Vulkan being slow when it was
+								// being honest. (OpenGL's driver throttles inside
+								// whatever call overfills its queue instead --
+								// usually ImGui's submission -- so this row reads
+								// near zero there and that phase reads fat.)
 		EnvironmentPrefilter,	// GGX roughness levels, once per environment
 		Shadows,				// cascades, spot maps, point cubes
 		Probes,					// reflection probe faces
 		Graph,					// BuildFrame, record and execute
 		ImGui,					// the editor's own UI
-		Present,				// device EndFrame, which is where a vsync wait lands
+		Present,				// device EndFrame: the submit and the queue present
 
 		Count
 	};

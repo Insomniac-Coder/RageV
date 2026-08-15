@@ -490,7 +490,16 @@ namespace RageV {
 
 			// Null means the frame must be skipped -- a resized or minimised
 			// window. EndFrame must not be called in that case.
-			RHI::RHICommandList* cmd = m_Device->BeginFrame();
+			//
+			// Wrapped as its own phase because this is where Vulkan blocks
+			// under vsync -- the in-flight fence and the swapchain acquire --
+			// and unattributed it was three milliseconds of "unaccounted"
+			// that made one backend look mysteriously slower than the other.
+			RHI::RHICommandList* cmd = nullptr;
+			{
+				RV_PROFILE_PHASE(FramePhase::Wait);
+				cmd = m_Device->BeginFrame();
+			}
 			if (!cmd)
 				continue;
 

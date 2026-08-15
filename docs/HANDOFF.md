@@ -1407,6 +1407,44 @@ at 640x360 against 7.17 ms at 1600x900 — so it was submission, not fill.
 Instancing then took OpenGL from 7.17 ms to 1.59 ms and Vulkan from 1.96 ms to
 1.88 ms. **Vulkan was never submission-bound at this scale.**
 
+### The "Vulkan waits so much" question, measured (2026-08-15)
+
+Asked because the panel made Vulkan look worse than OpenGL. The benchmark
+says the opposite -- demo scene, Release, vsync off:
+
+| app | Vulkan | OpenGL |
+|---|---|---|
+| runtime | **1.771 ms (565 FPS)** | 2.067 ms (484 FPS) |
+| editor | **2.308 ms (433 FPS)** | 2.867 ms (349 FPS) |
+
+**Vulkan is faster in both applications.** What the user was seeing is an
+attribution artifact, and it is now fixed rather than explained away: with
+vsync on, both backends sit at exactly the display's refresh, and the wait
+has to land somewhere. On Vulkan it lands in `vkWaitForFences` +
+`vkAcquireNextImageKHR` inside device BeginFrame -- which no phase wrapped,
+so the editor's panel showed ~3 ms of anonymous dead time (and early
+capture-heavy frames inflated the phase columns). On OpenGL the driver
+throttles *inside whatever call overfills its queue* -- ImGui's submission,
+3.5 ms of "imgui" that is really the display -- so its wait wears a work
+phase's name and looks innocent.
+
+Two changes, so the next person reads the truth off the panel:
+
+- **`wait (gpu/vsync)` is a phase now**, wrapping device BeginFrame. Vulkan
+  vsync-on: unaccounted fell from 3.2 ms to 0.04, the wait says 2.96, and
+  the verdict line says "waiting". Vsync off it reads GPU backpressure,
+  which is what "GPU bound" looks like from the CPU.
+- **No verdict is computed under vsync.** The wait row catches Vulkan's
+  block, but OpenGL's hides inside a working phase and any verdict computed
+  from those numbers repeats the lie -- the line now says "at the display's
+  refresh" and points at the phase-split caveat.
+
+One real cost surfaced on the way, left open: the demo's **reflection probe
+reads 0.67 ms GPU on Vulkan against 0.18 on OpenGL** every frame. Same
+scene, same slots. Either the probe is set Realtime where Baked would do
+(check `make_demo_scene.py`), or the two backends' capture paths genuinely
+differ in cost -- worth one look, not urgent at 433 FPS.
+
 ### And where Vulkan's remaining time actually went
 
 *Measured 2026-08-12. The note above said this was "unattributed and the next
