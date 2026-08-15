@@ -1,0 +1,40 @@
+Scene: SSAO brick wall at a graze
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.6, 0.6, 0.6]
+  SkyZenith: [0.6, 0.6, 0.6]
+  SkyGround: [0.6, 0.6, 0.6]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 1.5, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 6893694327841297297
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Wall
+    TransformComponent:
+      Position: [-1.9, 1.5, -9]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 3, 24]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 1366338840295594633

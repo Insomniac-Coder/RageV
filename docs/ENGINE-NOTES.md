@@ -4485,24 +4485,51 @@ derivation is skipped, the measurement has to be chosen to break the
 symmetry the code might have, and nobody knows what symmetry that is until
 the derivation is done.
 
-### SSAO's switch
+### SSAO's switch, and the rule it needed the same day
 
 SSAO reads the attachment (point sampled, like the trace) and takes its
-normal where the texel is a surface and the normal faces the camera in the
-reconstruction frame; the chosen-neighbour reconstruction from 7ac stays as
-the fallback for both other cases. Empty texels -- sky, the editor grid,
-particles, text -- keep the reconstruction because the grid, in the editor,
-receives contact shadows from the objects standing on it and should go on
-doing so. A written normal that leans *away* from the camera -- a normal
-map does not know where the viewer is, and at a grazing angle the shading
-normal can cross the horizon -- would put the whole hemisphere behind the
-surface and find the surface in front of every tap; the geometric normal
-cannot lean, so it takes over there. On the box-on-a-floor fixture the
-change is small and in one direction: the seam darkens 13.6 levels on both
-backends where the reconstruction gave 12.1 on Vulkan and 13.3 on OpenGL --
-the reconstructed normal wobbled differently with each backend's depth
-quantisation, and the written one does not wobble. The open floor holds at
-zero drift as before.
+normal **where the texel is a surface and the written normal agrees with
+the geometric one** -- within 16 degrees, a few times the reconstruction's
+wobble on a distant floor and under any normal map worth authoring; the
+chosen-neighbour reconstruction from 7ac stays as the answer everywhere
+else. Empty texels -- sky, the editor grid, particles, text -- keep the
+reconstruction because the grid, in the editor, receives contact shadows
+from the objects standing on it and should go on doing so.
+
+The agreement condition was not the first version. The first took the
+written normal wherever it faced the camera, on the argument that AO
+should "follow the mortar and not a flat plane" -- and the owner, looking
+at the demo the same day, said the walls looked off. They did, and the
+argument was wrong: **the occluders in a screen-space kernel are the depth
+buffer, which knows geometry and nothing else.** A texel whose normal map
+tilts it thirty degrees off a flat wall is still a flat wall to every
+depth sample around it; a hemisphere tilted thirty degrees dips its lower
+taps into that wall, and the wall occludes itself along every mortar line.
+Where the shading normal disagrees with the depth buffer's own slope, the
+disagreement is a bump the depth buffer does not have, and occlusion by
+that buffer has to be measured against the normal that buffer implies.
+Curved surfaces -- where the reconstruction is noisy and the written normal
+is smooth, which was the point of the switch -- agree, and take the written
+one. The same test refuses a shading normal that leans away from the camera
+at a grazing angle, since it cannot agree with a geometric one that faces
+it.
+
+Measured on a fixture built for it -- the courtyard's brick material on a
+wall seen along its length, nothing near it, lit by a flat sky, the AO
+*factor* (on over off, because a difference scales with the bricks) over
+the open wall: the geometric normal holds 1.000 with a worst texel of
+0.984; the written normal wherever it faces the camera 0.997 with a worst
+of 0.954, in the brick pattern; the agreement rule 1.000 and 0.984, both
+backends. `check_ssao.py` has the wall now, with the bound between those
+two. On the box-on-a-floor fixture the switch's original measurement
+stands: the seam darkens 13.6 levels on both backends where the
+reconstruction gave 12.1 on Vulkan and 13.3 on OpenGL, because the box
+faces agree and take the written normal, which does not wobble with each
+backend's depth quantisation. The open floor holds at zero drift as before.
+
+The lesson sits beside 7ae's other one. "Follows the mortar" sounded like
+fidelity; it was a category error about what the kernel measures, and the
+demo showed it before the fixture did.
 
 ### The sentinel
 

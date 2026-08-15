@@ -1,14 +1,14 @@
 // SSAO, pass 1 of 4: occlusion at half resolution.
 //
 // View-space position is reconstructed from the depth buffer and the
-// projection's two diagonal scales. The normal is the *real* one wherever
-// the scene wrote it -- the surface attachment SSR added carries the shading
-// normal, after the normal map, so a hemisphere oriented by it follows the
-// mortar and not a flat plane -- and reconstructed from chosen depth
-// neighbours where nothing wrote one: sky, the editor grid, anything the PBR
-// shaders did not draw. A hemisphere of taps oriented by that normal then
-// asks, per tap, whether something in the depth buffer sits in front of
-// where the tap landed. ENGINE-NOTES 7ac and 7ae.
+// projection's two diagonal scales. The normal is the scene's own -- the
+// surface attachment SSR added -- wherever it agrees with the depth
+// buffer's slope, and reconstructed from chosen depth neighbours where it
+// does not, or where nothing wrote one: sky, the editor grid, anything the
+// PBR shaders did not draw. See main() for why "agrees" is the condition
+// and not "exists". A hemisphere of taps oriented by that normal then asks,
+// per tap, whether something in the depth buffer sits in front of where the
+// tap landed. ENGINE-NOTES 7ac and 7ae.
 
 #type vertex
 #version 450 core
@@ -127,12 +127,37 @@ void main()
 	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
 	const vec3 centre = ViewPositionAt(uv);
 
-	// The normal. The scene's own where it wrote one and it faces the
-	// camera; reconstructed otherwise. A shading normal can lean away from
-	// the viewer at a grazing angle -- a normal map does not know where the
-	// camera is -- and a hemisphere on the far side of the surface finds the
-	// surface itself in front of every tap. The reconstruction is the
-	// geometric normal, which cannot lean.
+	// The normal. The scene's own where it wrote one *and it agrees with the
+	// depth buffer's own slope*; reconstructed otherwise.
+	//
+	// The written normal is the shading normal, after the normal map. The
+	// occluders here are the depth buffer, which knows geometry and nothing
+	// else: a texel whose normal map tilts it thirty degrees off a flat wall
+	// is still a flat wall to every depth sample around it, and a hemisphere
+	// tilted thirty degrees dips its lower taps into that wall -- so the wall
+	// reads as occluding itself along every mortar line. The first version
+	// of this pass took the written normal wherever it faced the camera, and
+	// the owner saw the demo's brick walls mottle; on the fixture that
+	// isolates it -- a brick wall seen along its length with nothing near it
+	// -- that rule darkened open texels by up to 4.6 %, where the geometric
+	// normal holds the wall at 1.000 to three places. So the written normal
+	// is taken only where it is within the reconstruction's own accuracy of
+	// the geometric one; a larger disagreement is a bump the depth buffer
+	// does not have, and occlusion by that depth buffer has to be measured
+	// against the normal that buffer implies. Curved surfaces, where the
+	// reconstruction is noisy and the written normal is smooth, agree and
+	// take the written one -- which is what the switch was for.
+	//
+	// The same test also refuses a shading normal that leans away from the
+	// camera at a grazing angle: it cannot agree with a geometric normal
+	// that faces it.
+	//
+	// The tolerance is a few times the reconstruction's wobble on a distant
+	// floor and well under any normal map worth authoring; with the kernel's
+	// lift of 0.4, a tilt this size still keeps every tap above the
+	// geometric plane, so nothing self-occludes on either side of the line.
+	const float kAgreement = 0.96;   // cos of about 16 degrees
+
 	const vec4 surface = texture(u_Surface, uv);
 	vec3 normal = ReconstructedNormal(uv, centre, texel);
 	if (!SurfaceIsEmpty(surface))
@@ -141,7 +166,7 @@ void main()
 												 u_Params.ViewRow0.xyz,
 												 u_Params.ViewRow1.xyz,
 												 u_Params.ViewRow2.xyz, flip);
-		if (written.z < 0.0)
+		if (dot(written, normal) > kAgreement)
 			normal = written;
 	}
 

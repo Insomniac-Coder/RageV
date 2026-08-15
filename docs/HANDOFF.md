@@ -1651,12 +1651,18 @@ mixed black into every metal.
 ### Done - 9.8, SSAO reads the real normal, and the transform it exposed (2026-08-15)
 
 ENGINE-NOTES 7ae. SSAO's compute pass now binds the surface attachment and
-takes its normal wherever the scene wrote one and it faces the camera; the
-7ac reconstruction is the fallback for the sky, the editor grid, and a
-shading normal leaning past the horizon. On the box fixture the seam
-darkens 13.6 levels on both backends where the reconstruction gave 12.1
-(Vulkan) and 13.3 (OpenGL) -- the written normal does not wobble with each
-backend's depth quantisation. Open floor still 0.000.
+takes its normal wherever the scene wrote one **and it agrees with the
+geometric normal within 16 degrees** (9.8b, same day); the 7ac
+reconstruction is the answer everywhere else. The first cut took the
+written normal wherever it faced the camera and the owner saw the demo's
+brick walls go off: a normal-map bump is not in the depth buffer, and a
+hemisphere tilted by it dips into the flat wall the depth buffer *does*
+have. `check_ssao.py` now has a brick wall seen along its length: AO
+factor over the open wall 1.000 / worst 0.984 under the rule, 0.997 /
+0.954 in the brick pattern without it. On the box fixture the seam darkens
+13.6 levels on both backends where the reconstruction gave 12.1 (Vulkan)
+and 13.3 (OpenGL) -- box faces agree, take the written normal, and it does
+not wobble with each backend's depth quantisation. Open floor still 0.000.
 
 **What the swap found.** Writing the "world normal into the reconstruction
 frame" transform once for both passes meant deriving it, and the derivation

@@ -17,6 +17,15 @@ On the box-on-a-floor fixture, both backends:
 5. **A frame reproduces** -- the kernel rotation is seeded by pixel, never
    by frame. ENGINE-NOTES 7ac.
 
+And on a normal-mapped brick wall seen along its length with nothing near
+it (9.8b):
+
+6. **A bump the depth buffer does not have must not occlude.** The wall's
+   shading normal tilts along every mortar line; its depth is flat. The AO
+   factor over the open wall must hold at one -- which the geometric normal
+   does and the shading normal, taken wherever it faces the camera, does
+   not (0.954 at worst on this fixture). ENGINE-NOTES 7ae.
+
 Usage:
     python tools/scripts/check_ssao.py [--config Release]
 """
@@ -38,6 +47,11 @@ FRAME = 30
 # entire reason to exist.
 MIN_SEAM_DARKENING = 3.0
 MAX_OPEN_DRIFT = 1.0
+# The AO factor (on / off) over the open brick wall: its tenth percentile
+# and its worst texel. The geometric normal gives 1.000 and 0.984; the
+# shading normal, taken wherever it faces the camera, 0.992 and 0.954.
+MIN_WALL_P10 = 0.995
+MIN_WALL_FLOOR = 0.97
 
 
 def run(exe, args):
@@ -49,8 +63,8 @@ def run(exe, args):
         sys.exit(1)
 
 
-def shoot(exe, backend, path):
-    run(exe, [f"--rhi={backend}", "--scene=scenes/ssao_box.rage",
+def shoot(exe, backend, path, scene="scenes/ssao_box.rage"):
+    run(exe, [f"--rhi={backend}", f"--scene={scene}",
               "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
               f"--screenshot={path}", "--aa=none"])
     if not pathlib.Path(path).exists():
@@ -151,6 +165,37 @@ def main():
             failures.append(f"{backend}: the same frame rendered differently twice "
                             f"(max {repeat})")
 
+    # --- the brick wall: a normal map over flat depth ------------------------
+    wall = scenes / "ssao_wall.rage"
+    material = make_ssao_scene.wall_material_handle(root)
+
+    def wall_profile(settings):
+        handle = postprofile.write_beside(wall, { "BloomEnabled": False, **settings })
+        wall.write_text(make_ssao_scene.build_wall(handle, material))
+
+    for backend in BACKENDS:
+        wall_profile({ "AmbientOcclusion": False })
+        off = shoot(exe, backend, shots / f"{backend}-wall-off.png",
+                    scene="scenes/ssao_wall.rage")
+        wall_profile({ "AmbientOcclusion": True, "AoIntensity": 1.0 })
+        on = shoot(exe, backend, shots / f"{backend}-wall-on.png",
+                   scene="scenes/ssao_wall.rage")
+
+        # The AO factor, not the difference: the wall is textured, and a
+        # difference scales with the bricks. Well inside the wall's wedge.
+        height, width = off.shape
+        region = (slice(int(height * 0.28), int(height * 0.72)),
+                  slice(int(width * 0.02), int(width * 0.25)))
+        factor = on[region] / np.maximum(off[region], 1.0)
+        p10 = float(np.percentile(factor, 10))
+        floor = float(factor.min())
+        print(f"{backend}: open brick wall AO factor mean {factor.mean():.3f}, "
+              f"p10 {p10:.3f}, worst {floor:.3f}")
+        if p10 < MIN_WALL_P10 or floor < MIN_WALL_FLOOR:
+            failures.append(f"{backend}: the open brick wall occludes itself "
+                            f"(AO factor p10 {p10:.3f}, worst {floor:.3f}) -- "
+                            "a normal-map bump the depth buffer does not have")
+
     print()
     if failures:
         for failure in failures:
@@ -158,7 +203,8 @@ def main():
         sys.exit(1)
 
     print("OK: off is off to the byte, the seam darkens and deepens with "
-          "intensity, the open floor holds still, and a frame reproduces")
+          "intensity, the open floor holds still, a frame reproduces, and a "
+          "normal-mapped wall does not occlude itself")
 
 
 if __name__ == "__main__":

@@ -40,11 +40,58 @@ def build(profile):
     return "\n".join(lines) + "\n"
 
 
+# The courtyard's brick wall material: a normal map and a height map over
+# flat geometry. Read from its .meta so the fixture follows the asset.
+def wall_material_handle(root):
+    meta = root / "SampleProject" / "assets" / "materials" / "courtyard_wall.rmat.meta"
+    for line in meta.read_text().splitlines():
+        if line.startswith("Handle:"):
+            return int(line.split(":", 1)[1])
+    raise RuntimeError(f"no Handle in {meta}")
+
+
+def build_wall(profile, material):
+    """A normal-mapped brick wall seen along its length, nothing near it (9.8b).
+
+    The occluders in a screen-space kernel are the depth buffer, which is
+    flat here; the *shading* normal is not, because the bricks are a normal
+    map over that flat depth. A hemisphere oriented by the shading normal
+    dips its lower taps into the wall along every mortar line and the wall
+    darkens itself into mottling -- which is what the demo's left wall did
+    the day SSAO started reading the attachment. Seen at a grazing angle,
+    which is also where the depth reconstruction is at its worst, so the
+    fixture asks the hard question of both normals at once. Lit by a flat
+    sky so the only thing that varies with AO on is AO. ENGINE-NOTES 7ae.
+    """
+    next_id = base._ids()
+    lines = base._header("SSAO brick wall at a graze", sky_rgb=(0.6, 0.6, 0.6))
+    # Looking down the wall from beside it: the wall fills the left of the
+    # frame in a wedge, its normal 60-70 degrees from the view direction.
+    lines += base._camera(next_id, (0, 1.5, 2.0), rotation=(0, 0, 0), profile=profile)
+    lines += [
+        f"  - EntityID: {next_id()}",
+        "    TagComponent:",
+        "      Tag: Wall",
+        "    TransformComponent:",
+        "      Position: [-1.9, 1.5, -9]",
+        "      Rotation: [0, 0, 0]",
+        "      Scale: [0.4, 3, 24]",
+        "    MeshComponent:",
+        f"      Mesh: {base.PRIMITIVE_BASE + base.CUBE}",
+        f"      Material: {material}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def main():
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[2]
-    out = root / "SampleProject" / "assets" / "scenes" / "ssao_box.rage"
+    scenes = root / "SampleProject" / "assets" / "scenes"
+    out = scenes / "ssao_box.rage"
     out.write_text(build(None))
+    print(f"wrote {out}")
+    out = scenes / "ssao_wall.rage"
+    out.write_text(build_wall(None, wall_material_handle(root)))
     print(f"wrote {out}")
 
 
