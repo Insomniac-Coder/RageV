@@ -303,6 +303,29 @@ void EditorLayer::OnUpdate(Timestep ts)
 	if (!m_RenderNotice.empty())
 		m_RenderNoticeAge += ts;
 
+	// The focus-click guard. See m_FocusGrace.
+	//
+	// Long enough to cover the press that arrives with the focus change --
+	// which is a frame or two later, not the same frame -- and short enough
+	// that somebody who meant to click the moment they came back barely
+	// notices. It does not tick down while a button is held, so a sweep that
+	// began inside the window stays suppressed until it is let go rather than
+	// becoming live halfway through.
+	{
+		constexpr float kFocusGraceSeconds = 0.4f;
+
+		const bool focused = Application::Get().GetWindow().IsFocused();
+		if (focused && !m_WasFocused)
+			m_FocusGrace = kFocusGraceSeconds;
+		m_WasFocused = focused;
+
+		const bool held = ImGui::IsMouseDown(ImGuiMouseButton_Left)
+					   || ImGui::IsMouseDown(ImGuiMouseButton_Right);
+
+		if (m_FocusGrace > 0.0f && !held)
+			m_FocusGrace = Math::Max(m_FocusGrace - ts, 0.0f);
+	}
+
 	// Averaged over a fixed slice of *time*, not a fixed number of frames.
 	//
 	// Ten frames is a quarter of a second at 40 FPS and a twenty-fourth of one
@@ -1954,7 +1977,23 @@ void EditorLayer::DrawRenderSettingsPanel()
 		if (!m_RenderEditDirty)
 			m_RenderBefore = render;
 
-		if (UI::DrawFields(RenderSettingsRegistry::Fields(), &render))
+		// Inside the focus grace the rows are drawn against a throwaway copy,
+		// so a click-through moves a slider on screen for a few frames and
+		// changes nothing. Drawn rather than disabled: greying the panel out
+		// for half a second after every alt-tab would be a worse thing to
+		// look at than the problem it prevents, and a disabled row still
+		// answers "why can I not touch this" with nothing. See m_FocusGrace.
+		//
+		// Only this block. The scene's environment beneath it and the entity
+		// inspector are undoable *and* announce themselves -- an accident
+		// there lights the unsaved mark and waits for Ctrl+S, which is a
+		// recoverable state. This block writes the project file, which is
+		// not.
+		RenderSettings discarded = render;
+		const bool guarded = m_FocusGrace > 0.0f;
+
+		if (UI::DrawFields(RenderSettingsRegistry::Fields(),
+						   guarded ? &discarded : &render) && !guarded)
 		{
 			m_RenderEditDirty = true;
 

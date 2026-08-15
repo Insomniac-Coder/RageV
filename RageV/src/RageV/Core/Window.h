@@ -46,6 +46,15 @@ namespace RageV {
 		// first thing anyone sees is the loading screen. Idempotent.
 		virtual void Show() = 0;
 
+		// Whether this window currently has the keyboard focus.
+		//
+		// Polled rather than delivered as an event, because the one caller
+		// wants the *state* on the frame it is drawing rather than a
+		// notification: an editor guarding against the click that gave it
+		// focus has to know "was I focused last frame", which a poll answers
+		// and an event would only let it reconstruct.
+		virtual bool IsFocused() const = 0;
+
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
 		virtual void SetVsync(bool enabled) = 0;
 		virtual bool IsVSync() const = 0;

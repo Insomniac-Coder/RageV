@@ -241,6 +241,27 @@ private:
 	std::string m_RenderNotice;
 	float m_RenderNoticeAge = 0.0f;
 
+	// The click that gives the window focus does not get to edit anything.
+	//
+	// **This is the accident itself, not a guess at it.** A window taking
+	// focus under a moving cursor delivers that press to whatever it lands
+	// on; the panel's controls span the full width of their rows, and one of
+	// them writes the project file the moment the drag ends. Every value ever
+	// found wrong this way was sitting exactly on a slider's end stop, which
+	// is what a press-and-sweep leaves behind.
+	//
+	// macOS swallows the focus click for exactly this reason. GLFW does not,
+	// so the editor does it: for a short window after focus is regained, and
+	// for as long as a button stays down within it, edits to the settings
+	// that persist themselves are drawn and discarded.
+	// False rather than true, so the *first* focus the editor ever sees arms
+	// the guard. The window is created hidden and shown once it can draw, so
+	// that first transition is a window appearing under whatever the cursor
+	// was already doing -- the riskiest moment there is, and the one both
+	// recorded accidents happened in.
+	bool m_WasFocused = false;
+	float m_FocusGrace = 0.0f;
+
 	RageV::RenderSettings m_RenderBefore;
 	bool m_RenderEditDirty = false;
 	RageV::SceneEnvironment m_EnvironmentBefore;

@@ -65,6 +65,14 @@ bool RageV::WindowsWindow::IsVSync() const
 	return m_Data.VSync;
 }
 
+bool RageV::WindowsWindow::IsFocused() const
+{
+	// Asked of GLFW rather than tracked from the focus callback, because a
+	// tracked copy is one more thing that can be wrong -- and a hidden window
+	// during boot has never had a focus event at all.
+	return m_Window && glfwGetWindowAttrib(m_Window, GLFW_FOCUSED) == GLFW_TRUE;
+}
+
 void RageV::WindowsWindow::Init(const WindowProps& props)
 {
 	m_Data.Title = props.Title;

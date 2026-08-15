@@ -20,6 +20,7 @@ namespace RageV
 		void SetEventCallback(const EventCallbackFn& callback) override { m_Data.EventCallback = callback; }
 		void SetVsync(bool enabled) override;
 		bool IsVSync() const override;
+		bool IsFocused() const override;
 		inline void* GetNativeWindow() const override { return m_Window; }
 		virtual GraphicsInfo GetGraphicsInfo() const override { return m_GraphicsInfo; }
 

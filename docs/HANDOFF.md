@@ -1556,10 +1556,25 @@ mark, for six seconds and fading over the last one -- *"Feedback 0.600000 ->
 0.980000"* -- with a tooltip that says it is already saved and that Ctrl+Z
 puts it back. Every field it writes also goes to the log by name and value.
 
-Still worth doing, if this recurs or annoys: nothing yet *prevents* the
-accident. A confirm-on-large-jump, or requiring a modifier to drag a
-project-level slider, are both options; neither was built, because a notice
-that makes the change discoverable is the smaller answer and might be enough.
+**And the accident itself is now prevented, by removing its cause rather
+than adding friction.** The press that gives a window focus should not also
+operate whatever it lands on -- macOS swallows it for exactly this reason,
+GLFW does not. So `Window::IsFocused()` was added to the platform layer, and
+for 0.4 s after focus is regained the Render Settings rows are drawn against
+a throwaway copy: a click-through moves a slider on screen and changes
+nothing. The grace does not tick down while a button is held, so a sweep that
+began in that window stays suppressed until it is released rather than going
+live halfway through.
+
+Scoped to that block deliberately. The scene's environment beneath it and the
+entity inspector are undoable *and* announce themselves -- an accident there
+lights the unsaved mark and waits for Ctrl+S, which is recoverable. This
+block writes the project file, which is not.
+
+Two things it does not cover, both judged acceptable: a deliberate click in
+the first 0.4 s does nothing (that is the point, and it is the same trade
+every OS makes), and an accidental drag by somebody already working in the
+window is still possible -- the notice is the net for that one.
 
 ---
 
