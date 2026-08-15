@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1528 checks, `exit 0`. Then look at a frame:
+1531 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -212,22 +212,26 @@ has to be stated at layer init *as well as* in BuildFrame, and scenetest has
 its own two call sites that need it too. Grep for `R16G16_SFLOAT` to find all
 five places.
 
-**Where phase 9 stands: 9.0 through 9.6 are built** -- settings live on the
-project with the two profile assets over them (9.0), colour grading (9.1),
-auto exposure (9.2), the Perlin-era grain rework (9.3), depth of field
-(9.4), motion blur (9.5) and SSAO (9.6) all landed, each with its check
-script and each **exactly off by default**, which is what keeps every
-recorded threshold valid. Every effect is a field on the `.rvpostprofile`,
-edited live in the inspector and written through to the asset the instant
-it changes. C++ script fields moved to declaration-site markers
-(`RVShowInEditor`, ENGINE-NOTES 7aa) on 2026-08-15, and the same day
-closed a first-frame descriptor-set hazard, themed the loading screen,
-named the frame profiler's wait, gave realtime probes a refresh-rate
-dropdown, and stopped the scene view wearing the game camera's lens.
+**Phase 9 is complete (2026-08-15): 9.0 through 9.7 are built** -- settings
+live on the project with the two profile assets over them (9.0), colour
+grading (9.1), auto exposure (9.2), the Perlin-era grain rework (9.3),
+depth of field (9.4), motion blur (9.5), SSAO (9.6) and SSR (9.7) all
+landed, each with its check script and each **exactly off by default**,
+which is what keeps every recorded threshold valid. Every effect is a
+field on the `.rvpostprofile`, edited live in the inspector and written
+through to the asset the instant it changes. **SSR forced the scene
+target's first new attachment since velocity** (normal + roughness +
+metallic); ENGINE-NOTES 7ad records every place its shape must be stated,
+and that list is what the next attachment needs. C++ script fields moved
+to declaration-site markers (`RVShowInEditor`, ENGINE-NOTES 7aa) the same
+day, which also closed a first-frame descriptor-set hazard, themed the
+loading screen, named the frame profiler's wait, gave realtime probes a
+refresh-rate dropdown, and stopped the scene view wearing the game
+camera's lens.
 
-**What to do next: roadmap 9.7, SSR** -- the last item in phase 9. See
-START HERE in the log below; the design question that decides its shape
-(a normal+roughness attachment) is written there.
+**What to do next: the owner decides.** No roadmap item is queued. See
+START HERE in the log below for the candidates -- the small 9.x
+follow-ups, phase 8's large items, or the two open non-blockers.
 
 Roadmap **phase 8 is open work, not excluded** -- GI, bindless, GPU-driven
 rendering, terrain, navmesh, networking, other platforms, XR, FBX, visual
@@ -1765,12 +1769,14 @@ What to know before touching it:
 
 ---
 
-### After that: the rest of phase 9
+### Phase 9 in one paragraph, and the velocity-buffer warning
 
-Phase 9 is **9.0 through 9.5 done**, plus the `.rvlut` recipe and TAA's two
-extra dials.
-
-**Next is 9.6 SSAO**, then 9.7 SSR.
+Phase 9 is **9.0 through 9.7 done** -- all of it -- plus the `.rvlut`
+recipe and TAA's two extra dials. The order the items were built in is the
+order their ENGINE-NOTES sections run: 7s (settings), 7t/7v (LUT and
+recipe), 7y (auto exposure), 7x (grain), 7z (DoF), 7ab (motion blur), 7ac
+(SSAO), 7ad (SSR). Each later one says which decisions the earlier ones
+deferred to it, so read them in that order if touching the post chain.
 
 **Read 7r before touching the velocity buffer** (which motion blur and TAA
 now both read). Velocities are jitter-free by construction, and skinned
