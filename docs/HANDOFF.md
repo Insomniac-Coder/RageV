@@ -1515,7 +1515,72 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 9.5, motion blur
+### START HERE: declaration-site script fields
+
+**Asked for on 2026-08-15, and it comes before 9.5.**
+
+C++ script fields are registered in a trailing block, one line per field:
+
+```cpp
+RV_REGISTER_SCRIPT(Bell)
+    .Field<&Bell::Swing>("Swing")
+    .Field<&Bell::Decay>("Decay")
+    .Method<&Bell::Ring>("Ring");
+```
+
+The wanted shape is a marker at the **declaration**, with nothing at the end
+of the file:
+
+```cpp
+RVShowInEditor
+float Swing = 0.34f;
+```
+
+**Why this is not just a macro.** C++ has no reflection, so a marker sitting
+in a class body has no way to register anything: it does not know the class
+it is in, and a static registrar declared there would need the enclosing
+type's name, which the preprocessor cannot see. The three real routes:
+
+1. **A code generator**, the Unreal approach. `RVShowInEditor` expands to
+   nothing; a tool scans `Source/*.h` and `*.cpp` before the compile and
+   emits a `.generated.cpp` of registrations. Gives exactly the requested
+   syntax. Costs a build step that can fail, and a parser that has to be
+   good enough not to trip on templates, comments and macros.
+2. **A macro that owns the declaration**, `RV_FIELD(float, Swing, 0.34f)` --
+   expands to the member *and* its registrar entry, no build step and no
+   parser. Not the syntax asked for, and it puts a comma-separated list where
+   a declaration should be.
+3. **C++26 static reflection.** The right answer eventually and not available
+   now.
+
+Route 1 is what was asked for. Questions to settle before writing any of it:
+
+- **Which classes to scan.** A marker on the class as well (`RVScript`), or
+  scan everything deriving from `ScriptableEntity`? The first is cheap to
+  detect; the second means understanding inheritance.
+- **Methods too.** `.Method<>` is what lets a button name a handler in the
+  scene file, so a marker for it (`RVCallable`) is part of the same job or
+  the boilerplate only half goes away.
+- **Where generated code lands**, and how the module's `CMakeLists.txt`
+  picks it up -- it globs `*.cpp` in `Source/`, so a generated file dropped
+  there would be swept up but also seen by a person as source they did not
+  write. A `generated/` subfolder and an explicit add is probably better.
+- **Both build paths.** The editor's Build Scripts *and* a plain CMake
+  configure of `SampleProject/bin/module` have to run the generator, or one
+  of them silently compiles a module with no fields registered.
+- **Failure behaviour.** A generator that cannot parse a file must fail the
+  build loudly. Silently emitting nothing gives a script whose fields vanish
+  from the inspector with no error, which is the worst outcome available.
+- **Migration.** `RV_REGISTER_SCRIPT` should keep working, so `Rotator`,
+  `Bell` and `Anvil` do not have to move on the same commit.
+
+The check that matters: a field marked and never mentioned again appears in
+the inspector, round-trips through the `.rage`, and survives a rename of the
+*script* -- and a method marked the same way can be named by a button.
+
+---
+
+### After that: 9.5, motion blur
 
 Phase 9 is **9.0, 9.1, 9.2, 9.3 and 9.4 done**, plus the `.rvlut` recipe and
 TAA's two extra dials. Nothing is broken and nothing is half-finished.
