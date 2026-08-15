@@ -225,6 +225,22 @@ private:
 	std::filesystem::path m_PendingScenePath;
 	bool m_ShowUnsavedPrompt = false;
 
+	// What the Render Settings panel last wrote to the project, and how long
+	// ago, for the notice in the menu bar.
+	//
+	// **The panel writes the project file the moment a drag ends** -- no
+	// Ctrl+S, which is right for a preference and dangerous for an accident.
+	// A render setting was twice found sitting exactly on the end stop of its
+	// slider, which is what an overshooting drag leaves behind; twenty
+	// unattended runs of the editor wrote nothing, so it takes a real gesture
+	// and the gesture was not a deliberate one. Nothing said so: the scene's
+	// unsaved dot deliberately ignores project edits, and the Build Log panel
+	// carries module builds rather than the engine log.
+	//
+	// So the write announces itself for a few seconds, and names the undo.
+	std::string m_RenderNotice;
+	float m_RenderNoticeAge = 0.0f;
+
 	RageV::RenderSettings m_RenderBefore;
 	bool m_RenderEditDirty = false;
 	RageV::SceneEnvironment m_EnvironmentBefore;

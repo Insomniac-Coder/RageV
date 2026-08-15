@@ -297,6 +297,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// on this thread, before anything else reads them.
 	FinishBuild();
 
+	// In seconds rather than frames, for the reason the statistics window
+	// below is: the same notice would linger four seconds on a slow machine
+	// and flash past on a quick one.
+	if (!m_RenderNotice.empty())
+		m_RenderNoticeAge += ts;
+
 	// Averaged over a fixed slice of *time*, not a fixed number of frames.
 	//
 	// Ten frames is a quarter of a second at 40 FPS and a twenty-fourth of one
@@ -1445,6 +1451,44 @@ void EditorLayer::DrawMenuBar()
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Unsaved changes since the last save.");
 		}
+
+		// What the Render Settings panel just wrote to the project.
+		//
+		// Beside the scene's mark rather than instead of it, because it is a
+		// different statement: the scene has changes *not* on disk, and this
+		// one is already there. Which is exactly why it needs saying -- a
+		// write that has already happened is the one nothing else will
+		// mention. See m_RenderNotice.
+		constexpr float kNoticeSeconds = 6.0f;
+		if (!m_RenderNotice.empty())
+		{
+			if (m_RenderNoticeAge >= kNoticeSeconds)
+			{
+				m_RenderNotice.clear();
+			}
+			else
+			{
+				ImGui::SameLine(0.0f, EditorTheme::Space::Roomy);
+
+				// Faded over the last second rather than vanishing, so a
+				// glance away and back still catches that something changed.
+				const float fade = Math::Clamp(kNoticeSeconds - m_RenderNoticeAge, 0.0f, 1.0f);
+				ImVec4 colour = EditorTheme::Colors().Accent;
+				colour.w *= fade;
+
+				ImGui::PushStyleColor(ImGuiCol_Text, colour);
+				UI::TextCaption("%s", m_RenderNotice.c_str());
+				ImGui::PopStyleColor();
+
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::SetTooltip("Written to %s already -- render settings save\n"
+									  "themselves rather than waiting for Ctrl+S.\n\n"
+									  "Ctrl+Z puts it back.",
+									  Project::File().filename().string().c_str());
+				}
+			}
+		}
 	}
 
 	// Right-aligned backend picker.
@@ -1990,12 +2034,28 @@ void EditorLayer::DrawRenderSettingsPanel()
 				}
 			};
 
+			std::string notice;
 			for (const FieldDesc& field : RenderSettingsRegistry::Fields())
 			{
 				const std::string was = text(field, &before);
 				const std::string now = text(field, &after);
-				if (was != now)
-					RV_INFO("Render setting {0}: {1} -> {2}", field.Name, was, now);
+				if (was == now)
+					continue;
+
+				RV_INFO("Render setting {0}: {1} -> {2}", field.Name, was, now);
+
+				if (!notice.empty())
+					notice += ", ";
+				notice += field.DisplayName + " " + was + " -> " + now;
+			}
+
+			// Shown in the menu bar for a few seconds. Only when something
+			// actually moved -- a notice that appears for a save that changed
+			// nothing is a notice people learn to ignore.
+			if (!notice.empty())
+			{
+				m_RenderNotice = notice;
+				m_RenderNoticeAge = 0.0f;
 			}
 		}
 

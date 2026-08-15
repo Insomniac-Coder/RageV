@@ -1515,64 +1515,51 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: an unexplained write of TemporalFeedback: 0
+### START HERE: phase 9.2, and a papercut left open
 
 Both bugs from 9.0/9.1 are **fixed and verified**. What is left open is
 something the verification turned up on the way past.
 
 ---
 
-**Open: `SampleProject.rvproject` acquired `TemporalFeedback: 0`, and nothing
-found writes it.**
+**Closed: the render setting that changed itself. It was an accidental drag,
+and the bug was that nothing said so.**
 
-Found in the working tree on 2026-08-15 and restored to 0.6. **Every commit
-has 0.6** -- it was never committed, so the write landed in the working tree
-some time during that session and nothing captured when.
+Twice a field in `SampleProject.rvproject` was found on a value nobody typed:
+`TemporalFeedback: 0` once, `0.98` the next time. Both are *exact clamp
+bounds* of that field's slider -- the minimum and the maximum -- which is
+what an overshooting drag leaves behind and not what a random value looks
+like.
 
-Why it matters more than a stray number: feedback 0 means TAA blends in none
-of its history, so the filter jitters and accumulates nothing. The picture
-looks *fine* -- which is how the owner put it, "the scene seems normal" --
-and `check_smaa.py` reported "TAA is only 1.0x better than no filter, either
-the history is not being blended in or it is being rejected everywhere". That
-reads as a broken renderer and is not. The four measured numbers were the
-**f = 0.0 row of the table in that check's own source**, to two decimals.
+**Twenty unattended editor runs wrote nothing at all.** So the panel does not
+write on its own; it takes a real gesture, and the two gestures were not
+deliberate ones. Both writes happened while editor windows were being opened
+and closed repeatedly in front of a person -- a window taking focus under a
+moving cursor is all it takes, and the control spans the full width of its
+row.
 
-**Not reproduced.** Ten attempts, all leaving the file byte-identical: a
-plain editor run; `--aa=none`; `--aa=taa`; `--width=1920 --height=1080`;
-`check_taa_jitter.py` alone; `check_smaa.py` alone; and both of those
-concurrently, which is how they were being run when it was first noticed.
-Nothing in `tools/` writes a `.rvproject` at all, and the only `Project::Save`
-call sites in the engine are the editor's Render Settings panel, Set Start
-Scene, and project creation.
+The damage was not the drag. It was that **the write was instant, permanent
+and completely invisible**:
 
-**The strongest clue, from the second occurrence.** It happened again while
-the jitter settings were being added, and the value written was
-`TemporalFeedback: 0.98` -- *exactly the maximum of that field's drag range*,
-as the earlier 0 was exactly the minimum. Twice, on different days, the field
-has been left sitting precisely on a clamp bound. That is not a value anybody
-types and not one the engine computes; it is what a drag widget writes when
-it is driven hard into its end stop. So the suspect is now specifically **a
-DragFloat in the Render Settings panel reporting a change nobody made**, with
-the panel's auto-save faithfully committing it. Replaying the exact command
-that produced it did not reproduce it, so it is intermittent within one
-command rather than a property of the flags.
+- The Render Settings panel saves the `.rvproject` the moment a drag ends --
+  correct for a preference, and there is no Ctrl+S to reconsider during.
+- The scene's unsaved dot deliberately ignores project edits, because they
+  are already on disk and marking them "unsaved" would be a lie.
+- The Build Log panel carries module builds, not the engine log, so
+  `RV_INFO` reaches the console and nothing a person is looking at.
 
-The panel now logs every field it writes -- `Render setting <name>: <was> ->
-<now>` -- so the next occurrence names the field and both values in the build
-log, instead of surfacing days later as "TAA looks wrong".
+Three correct decisions that together mean a project file can change under
+you with no trace. What was missing was the one that says so.
 
-Where to look when it recurs:
-- The Render Settings panel auto-saves the project the moment `DrawFields`
-  reports a change and nothing is active. Something making a DragFloat report
-  a change without input would do exactly this, silently, with no undo entry
-  a person would notice. Suspect a widget whose width collapses, or a clamp.
-- The scripting surface (SC.1/SC.2) can set render settings. Nothing in the
-  sample project's scripts does, but the path exists.
+So the panel now names what it wrote, in the menu bar beside the scene's
+mark, for six seconds and fading over the last one -- *"Feedback 0.600000 ->
+0.980000"* -- with a tooltip that says it is already saved and that Ctrl+Z
+puts it back. Every field it writes also goes to the log by name and value.
 
-Guard already in place: `check_smaa.py` now reads the project's feedback,
-prints it, and refuses to run when it is not the 0.6 the 1.25x threshold was
-calibrated at. Falsified by flipping the value: the check exits 1 before
-rendering anything.
+Still worth doing, if this recurs or annoys: nothing yet *prevents* the
+accident. A confirm-on-large-jump, or requiring a modifier to drag a
+project-level slider, are both options; neither was built, because a notice
+that makes the change discoverable is the smaller answer and might be enough.
 
 ---
 
