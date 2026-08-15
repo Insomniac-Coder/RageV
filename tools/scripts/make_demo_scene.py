@@ -314,11 +314,15 @@ def build(profile_handle, mat):
     s.script("Spinner")
 
     # Realtime, because the brazier flickers and a baked cube would hold a
-    # still flame in the reflection while the real one moved.
+    # still flame in the reflection while the real one moved. At 15 Hz, not
+    # per frame: through the sphere's curve the lag is invisible, and the
+    # measured difference is 0.7 ms of GPU a frame plus every frame-time
+    # spike the per-frame capture was causing.
     s.entity("Courtyard Probe", position=(0, 1.62, -2.6))
     s.block("ReflectionProbeComponent", [
         ("Update", "Realtime"), ("Resolution", 128), ("Influence", 26),
-        ("NearClip", 0.05), ("FarClip", 60), ("FacesPerFrame", 1),
+        ("NearClip", 0.05), ("FarClip", 60), ("Rate", "15Hz"),
+        ("FacesPerFrame", 1),
     ])
 
     # The plaque, which is what world-space text is *for* -- a label that

@@ -209,6 +209,7 @@ Entities:
       Influence: 26
       NearClip: 0.05
       FarClip: 60
+      Rate: 15Hz
       FacesPerFrame: 1
   - EntityID: 11411440244087572418
     TagComponent:

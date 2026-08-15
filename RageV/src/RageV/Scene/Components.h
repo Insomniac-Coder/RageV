@@ -154,6 +154,21 @@ namespace RageV
 		Realtime = 1,
 	};
 
+	// How often a *realtime* probe takes its next capture step. A reflection
+	// is seen through a rough or curved surface, so it can lag the scene by a
+	// few frames without anyone noticing -- which is why the demo's probe at
+	// 15 Hz looks identical to per-frame and costs a quarter as much. The
+	// values are what the dropdown shows, in its order; PerFrame is last and
+	// is the default because it is what every scene did before this existed.
+	enum class ProbeRate : uint32_t
+	{
+		Hz15 = 0,
+		Hz30 = 1,
+		Hz45 = 2,
+		Hz60 = 3,
+		PerFrame = 4,
+	};
+
 	// Captures the scene into a cube map from one point, for surfaces near it
 	// to reflect.
 	//
@@ -188,11 +203,18 @@ namespace RageV
 		// reflection.
 		int FacesPerFrame = 1;
 
+		// Realtime only: how often the next capture step is taken. PerFrame is
+		// the old behaviour; a Hz rate skips frames between steps, which is
+		// where a realtime probe's cost actually goes.
+		ProbeRate Rate = ProbeRate::PerFrame;
+
 		// Runtime state. Not serialized: a capture is derived from the scene,
 		// like a shadow map, and writing one into a text file would be storing
 		// a render in a scene description.
 		std::shared_ptr<ReflectionProbe> Probe;
 		uint32_t NextFace = 0;
+		// Seconds since the last capture step, against Rate's interval.
+		float RateAccumulator = 0.0f;
 		// Set when the probe has never been captured, or when something that
 		// invalidates the capture changed. A baked probe watches this; a
 		// realtime one ignores it and re-captures regardless.

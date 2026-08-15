@@ -327,6 +327,12 @@ namespace RageV
 		// a probe would capture itself.
 		bool m_CapturingProbes = false;
 
+		// This frame's delta, remembered by whichever update ran, for the
+		// probe rate clock -- the capture happens outside the update calls
+		// and has no Timestep of its own. The loop's frame time, so it stays
+		// a function of frame number under --frame-time (ENGINE-NOTES 7y).
+		float m_FrameDelta = 0.0f;
+
 		// Said once per scene, not once per frame. A light that asks to cast
 		// and silently does not is the kind of thing someone spends an evening
 		// on.

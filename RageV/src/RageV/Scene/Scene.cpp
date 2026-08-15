@@ -522,6 +522,7 @@ namespace RageV
 
 	void Scene::OnUpdateEditor(Timestep ts)
 	{
+		m_FrameDelta = ts.GetSeconds();
 		AdvanceMotionHistory();
 
 		// Animated only where an animator asked to be. Scripts and physics
@@ -537,6 +538,7 @@ namespace RageV
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		m_FrameDelta = ts.GetSeconds();
 		AdvanceMotionHistory();
 
 		// A paused frame derives and places, but advances nothing.
@@ -1513,6 +1515,31 @@ namespace RageV
 
 			if (!realtime && captured && !probe.Dirty)
 				continue;
+
+			// A realtime probe at a Hz rate takes its next capture step only
+			// when the interval has elapsed. Gated only once the probe is
+			// complete -- the first capture is always immediate, because an
+			// incomplete cube is not usable at any rate -- and the skipped
+			// frames are the saving: a reflection seen through a rough or
+			// curved surface can lag the scene by a few frames without anyone
+			// noticing, and per-frame capture is where a realtime probe's cost
+			// and its frame spikes both come from.
+			if (realtime && captured && probe.Rate != ProbeRate::PerFrame)
+			{
+				static constexpr float kIntervals[] = {
+					1.0f / 15.0f, 1.0f / 30.0f, 1.0f / 45.0f, 1.0f / 60.0f,
+				};
+				const uint32_t rate = Math::Min((uint32_t)probe.Rate, 3u);
+				const float interval = kIntervals[rate];
+
+				probe.RateAccumulator += m_FrameDelta;
+				if (probe.RateAccumulator < interval)
+					continue;
+
+				// fmod rather than -= interval: a long hitch owes one step,
+				// not a burst of catch-up captures.
+				probe.RateAccumulator = std::fmod(probe.RateAccumulator, interval);
+			}
 
 			const uint32_t resolution = (uint32_t)Math::Clamp(probe.Resolution, 16, 1024);
 			if (!probe.Probe || probe.Probe->GetFaceSize() != resolution ||

@@ -81,6 +81,7 @@ namespace
 
 		const char* kLightTypeNames[] = { "Directional", "Point", "Spot" };
 		const char* kProbeUpdateNames[] = { "Baked", "Realtime" };
+		const char* kProbeRateNames[] = { "15Hz", "30Hz", "45Hz", "60Hz", "PerFrame" };
 		const char* kProjectionNames[] = { "Perspective", "Orthographic" };
 		const char* kBodyTypeNames[] = { "Static", "Kinematic", "Dynamic" };
 		const char* kColliderShapeNames[] = { "Box", "Sphere", "Capsule" };
@@ -562,6 +563,14 @@ namespace
 					Named("Near clip", Drag(0.01f, 0.001f, 10.0f))),
 				Field<&ReflectionProbeComponent::FarClip>("FarClip",
 					Named("Far clip", Drag(1.0f, 0.1f, 10000.0f))),
+				Field<&ReflectionProbeComponent::Rate>("Rate",
+					OnlyWhen(IsRealtimeProbe,
+						Enum(kProbeRateNames,
+							 "How often the probe takes its next capture step. A "
+							 "reflection is seen through a rough or curved surface, "
+							 "so 15 Hz usually looks identical to per-frame and "
+							 "costs a fraction -- per-frame capture is also where "
+							 "a realtime probe's frame spikes come from."))),
 				Field<&ReflectionProbeComponent::FacesPerFrame>("FacesPerFrame",
 					OnlyWhen(IsRealtimeProbe,
 						Drag(1.0f, 1.0f, 6.0f, "Six in one frame is a visible hitch; one "

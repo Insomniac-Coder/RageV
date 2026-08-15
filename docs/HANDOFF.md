@@ -1446,9 +1446,13 @@ with it, 2.7 baked. The machinery is right (one face per frame, convolve
 every sixth); the cost is that each face is a scene render and the
 convolution is 36 small passes whose *barriers serialize on Vulkan* --
 which is also why the probes phase reads 0.70 ms on Vulkan against 0.18
-on OpenGL: bubbles, not work. Two candidate fixes recorded, neither done:
-a probe refresh-interval dial (15 Hz looks identical and is ~6x cheaper),
-or merging the convolution's barriers. The rest of the sweep: DoF 0.28,
+on OpenGL: bubbles, not work. **The refresh-rate dial is built** (same
+day): `ReflectionProbeComponent::Rate`, a dropdown -- 15/30/45/60 Hz or
+PerFrame -- gating the capture step on an accumulated frame-time clock,
+default PerFrame so no existing scene changes. The demo probe runs at
+15 Hz: 1440p mean 2.94 to 2.28 ms, probes GPU 0.70 to 0.03, p95 6.6 to
+2.6 -- the spikes were the per-frame capture. Merging the convolution's
+serialized barriers remains the deeper unbuilt fix. The rest of the sweep: DoF 0.28,
 lens trio 0.18, auto exposure 0.14, bloom 0.09, TAA-over-none 0.19,
 LUT ~0, SSAA doubles the frame. Nothing misbehaving -- the demo profile
 simply orders everything on the menu at native resolution.
