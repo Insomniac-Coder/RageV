@@ -4327,6 +4327,108 @@ at restraint.
 
 ---
 
+## 7ad. SSR (9.7): the first new attachment since velocity, and a march
+
+The probes answer "what does this surface reflect" from one point in the
+room; SSR answers it from the surface's own point of view for anything
+already on screen. Both are needed: SSR alone has nothing to say about what
+is behind the camera or off the edge, and probes alone put the plinth's view
+of the courtyard on the floor under a crate. So the shape is **trace, and
+fall back to the probe wherever the trace has no answer** -- one blend, not
+two systems.
+
+### The attachment, finally
+
+7ac deferred this and said SSR would force it. It does. A reflection needs
+the surface's real normal -- normal-mapped, per pixel, which the depth
+reconstruction cannot know -- and its roughness, or every floor is a mirror.
+Neither is in the scene target, so the target grows a fourth colour
+attachment: **RGBA8, octahedral-encoded normal in RG, roughness in B,
+metallic in A.** Eight bits per octahedral component is ~1 degree of
+precision, ample for a reflection direction; the packing is what lets one
+cheap attachment carry the whole surface description.
+
+It costs the 7q ceremony in full, and this section is the record of the
+sweep so the next attachment does not rediscover the list. The format is
+stated in `Renderer::SetTargetFormats` and fans out to every renderer that
+draws into the scene target -- Renderer2D, Renderer3D, DebugRenderer,
+ParticleRenderer, Skybox, ViewportGrid, and the UI world layer through its
+own setter -- each of which declares it in its pipeline `ColorFormats`
+after the velocity, exactly as they declare the velocity. It is stated
+again at layer init in the editor and the runtime, and in scenetest's two
+call sites, and in `ReflectionProbe`'s face target, because a probe captures
+the scene before the graph is built (Cold start's "bit three times in a
+row"). The scene pass writes it with a clear of zero, which decodes to a
+degenerate normal and roughness 0 -- and the resolve treats "no surface" as
+"no reflection", so anything that never writes the attachment (sky, grid,
+particles, text) simply does not reflect. Only the PBR shaders write real
+values.
+
+SSAO could now read the real normal instead of reconstructing one. It
+does not, yet: the reconstruction is measured to hold a flat floor at zero
+drift, and swapping a working input for a different working input on the
+same day as the attachment lands is two changes in one commit. It is the
+first follow-up.
+
+### The trace
+
+Half resolution, like every gather since bloom. Per pixel: reconstruct the
+view position (7ac's arithmetic), decode the normal, reflect the view ray,
+and **march the reflected ray in view space against the depth buffer** --
+a fixed number of linear steps, then a binary refinement between the last
+miss and the first hit. Linear rather than hierarchical: hi-Z is a real
+optimisation and it is a later one; at 24 steps over a bounded distance the
+linear march costs less than the DoF gather and finds everything a demo
+courtyard has to find. A step counts as a hit only if the scene depth is in
+front of the ray *by less than a thickness*: without the thickness bound a
+ray passing behind a thin railing hits the wall behind it, and with an
+unbounded one it hits the railing from a metre away.
+
+The trace writes **hit uv + confidence**, not colour. Confidence folds in
+the edge fade (a hit near the screen edge fades toward the probe, so a ray
+leaving the screen produces no seam), the ray-length fade, and a facing
+fade for rays reflecting back toward the camera, whose hits are what is
+*behind* the surface in the depth buffer and are always wrong. Writing the
+uv rather than the colour is what lets the resolve pass sample the lit
+image at full resolution and blur it by roughness -- a rough surface's
+reflection is the mirror hit blurred, and blurring the *hit colour* over a
+disc sized by roughness is a defensible approximation of the GGX lobe that
+a single mirror ray cannot express. Multiple jittered rays would be more
+correct and are the follow-up after hi-Z.
+
+### The blend, and where
+
+The trace should *replace* the probe's contribution where it is confident,
+not add a second reflection on top of the one the PBR shader already
+composited. Doing that exactly means reproducing the PBR shader's probe
+term -- `prefiltered(slot, lod) * (F0 * envBRDF.x + envBRDF.y) * occlusion`
+-- which needs the per-instance probe slot, the material occlusion and F0,
+none of which the attachment carries. So v1 approximates: the resolve
+computes the specular weight `F0 * envBRDF.x + envBRDF.y` from the
+attachment's metallic (F0 = mix(0.04, ~albedo, metallic), with the albedo
+taken as the lit pixel itself -- wrong for a lit dielectric, right for a
+metal, and only ever a *weight*), scales it by confidence and by
+`(1 - roughness)`, and writes `lit * (1 - w) + hit * w`. The subtraction is
+"dim the pixel by the reflection's share", which is what removing the
+probe term does to first order; the addition is the traced hit. It is an
+approximation and it is written down as one. Exact replacement is the
+follow-up that lands with per-pixel probe slot in the attachment.
+
+After the resolve, before SSAO. A reflection is lighting; occlusion should
+darken it in a crease like everything else, and DoF and motion blur should
+defocus and smear it. Off is exact: no pass, and the attachment is written
+either way -- its presence is a *shape* decision, not a setting.
+
+### The check
+
+A box on a mirror floor. The floor region below the box's base must gain
+the box's colour with SSR on; a rough floor must gain less of it; off is
+off to the byte; a frame reproduces (the resolve's roughness disc is a
+fixed pattern, no dither at all in v1); and both backends agree, which is
+where a wrong Y convention in the reflected uv would show first.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

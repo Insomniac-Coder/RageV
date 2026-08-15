@@ -1382,6 +1382,11 @@ namespace
 			return ((const PostSettings*)block)->AmbientOcclusion;
 		}
 
+		bool ScreenSpaceReflectionsOn(const void* block)
+		{
+			return ((const PostSettings*)block)->ScreenSpaceReflections;
+		}
+
 		std::vector<FieldDesc> BuildPostSettings()
 		{
 			return {
@@ -1533,6 +1538,35 @@ namespace
 							"Ceiling on the blur radius in pixels. Let it grow "
 							"without bound and the disc of samples thins into "
 							"a ring of separate dots.")))),
+
+				// --- SSR. ENGINE-NOTES 7ad ------------------------------------
+				Field<&PostSettings::ScreenSpaceReflections>("ScreenSpaceReflections",
+					Named("Screen-space reflections", FieldHint{ .Tooltip =
+						"Reflections traced through what is already on screen, "
+						"so a floor shows the crate standing on it -- which a "
+						"probe, photographed from one point, cannot. Where the "
+						"trace has no answer (off screen, behind the camera) the "
+						"probe stays. Follows the normal map; rough surfaces get "
+						"a blurred reflection or none." })),
+
+				Field<&PostSettings::SsrMaxDistance>("SsrMaxDistance",
+					Named("SSR distance", OnlyWhen(ScreenSpaceReflectionsOn,
+						Drag(0.1f, 1.0f, 200.0f,
+							"How far a reflected ray travels before giving up, "
+							"in metres. Longer finds more and costs more.")))),
+
+				Field<&PostSettings::SsrThickness>("SsrThickness",
+					Named("SSR thickness", OnlyWhen(ScreenSpaceReflectionsOn,
+						Drag(0.01f, 0.02f, 5.0f,
+							"How far behind a surface a ray may land and still "
+							"count as hitting it. Small for thin railings; too "
+							"large and rays hit walls through them.")))),
+
+				Field<&PostSettings::SsrIntensity>("SsrIntensity",
+					Named("SSR intensity", OnlyWhen(ScreenSpaceReflectionsOn,
+						Slider(0.0f, 2.0f,
+							"A scale on the traced reflection's share of the "
+							"pixel; 1 is what the material implies.")))),
 
 				// --- SSAO. ENGINE-NOTES 7ac -----------------------------------
 				Field<&PostSettings::AmbientOcclusion>("AmbientOcclusion",

@@ -199,6 +199,22 @@ layout(location = 0) out vec4 o_Color;
 // half float can represent, so it stores as zero anyway.
 layout(location = 1) out vec2 o_Velocity;
 
+// The surface description SSR reads (ENGINE-NOTES 7ad): the shading normal in
+// *world* space, octahedral-encoded into RG, roughness in B, metallic in A.
+// World rather than view space because this stage has no view matrix -- only
+// the composed ViewProjection -- and the one pass that reads this has both.
+layout(location = 2) out vec4 o_Surface;
+
+// Octahedral encoding, unit vector to [0,1]^2. Two 8-bit channels give about a
+// degree of direction, which a reflection ray does not notice.
+vec2 OctEncode(vec3 n)
+{
+	n /= (abs(n.x) + abs(n.y) + abs(n.z));
+	vec2 e = n.z >= 0.0 ? n.xy : (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0,
+															 n.y >= 0.0 ? 1.0 : -1.0);
+	return e * 0.5 + 0.5;
+}
+
 bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
 
 // Which cell of the grid this fragment falls in.
@@ -613,6 +629,13 @@ void main()
 	vec3 N = Ngeo;
 	if (HasMap(MAP_NORMAL))
 		N = PerturbNormal(TBN, uv);
+
+	// The surface as SSR will see it: the *shading* normal, after the normal
+	// map, so a reflection off the brick floor follows the mortar and not a
+	// flat plane. Written here, as soon as all three are final, and
+	// unconditionally -- an unwritten attachment holds whatever the target
+	// last held.
+	o_Surface = vec4(OctEncode(N), roughness, metallic);
 
 	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
 	// the reflectance and have no diffuse response at all.

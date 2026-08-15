@@ -72,7 +72,9 @@ namespace RageV
 				case 17: return "assets/shaders/motionblur_gather.rvshader";
 				case 18: return "assets/shaders/ssao_compute.rvshader";
 				case 19: return "assets/shaders/ssao_blur.rvshader";
-				default: return "assets/shaders/ssao_apply.rvshader";
+				case 20: return "assets/shaders/ssao_apply.rvshader";
+				case 21: return "assets/shaders/ssr_trace.rvshader";
+				default: return "assets/shaders/ssr_resolve.rvshader";
 			}
 		}
 
@@ -92,7 +94,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 21> Shaders;
+			std::array<Ref<RHIShader>, 23> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -152,7 +154,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 21,
+		static_assert((int)Shader::Count <= 23,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -759,6 +761,82 @@ namespace RageV
 		// upsample. See the shader for why that is enough.
 		Dispatch(cmd, Shader::SsaoApply, outputFormat, scene, occlusion,
 				 &params, sizeof(params), Sampling::Linear, Sampling::Linear);
+	}
+
+	// --- SSR (9.7) -- ENGINE-NOTES 7ad ---------------------------------------
+
+	namespace
+	{
+		struct SsrTraceParams
+		{
+			PostParams Base;
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvP0 = 1.0f;
+			float InvP1 = 1.0f;
+			float MaxDistance = 20.0f;
+			float Thickness = 0.5f;
+			// The push-constant block is std430-ish: vec4s land on 16-byte
+			// boundaries. Base is 24 bytes and the six floats above bring the
+			// offset to 48, which is aligned -- and the static_assert below is
+			// what keeps that true when somebody adds a seventh.
+			Vec4 ViewRow0{ 1.0f, 0.0f, 0.0f, 0.0f };
+			Vec4 ViewRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
+			Vec4 ViewRow2{ 0.0f, 0.0f, 1.0f, 0.0f };
+		};
+		static_assert(offsetof(SsrTraceParams, ViewRow0) % 16 == 0,
+					  "ViewRow0 must sit on a 16-byte boundary for the shader's vec4");
+	}
+
+	void PostProcess::SsrTrace(RHICommandList& cmd, const Ref<RHITexture>& depth,
+							   const Ref<RHITexture>& surface,
+							   uint32_t width, uint32_t height,
+							   const SsrParams& ssr, Format outputFormat)
+	{
+		if (!s_Data || !depth || !surface)
+			return;
+
+		SsrTraceParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+								  1.0f / (float)Math::Max(height, 1u) };
+		params.NearClip = ssr.NearClip;
+		params.FarClip = ssr.FarClip;
+		params.InvP0 = ssr.InvProjection0;
+		params.InvP1 = ssr.InvProjection1;
+		params.MaxDistance = Math::Max(ssr.MaxDistance, 0.1f);
+		params.Thickness = Math::Max(ssr.Thickness, 0.01f);
+
+		// Rows of the view matrix, which is column-major storage: row i is
+		// element [c][i] across columns c. Only the rotation, so w is zero.
+		const Mat4& v = ssr.View;
+		params.ViewRow0 = Vec4(v[0][0], v[1][0], v[2][0], 0.0f);
+		params.ViewRow1 = Vec4(v[0][1], v[1][1], v[2][1], 0.0f);
+		params.ViewRow2 = Vec4(v[0][2], v[1][2], v[2][2], 0.0f);
+
+		// Both point sampled: a filtered depth is a surface that does not
+		// exist, and a filtered normal is a direction nothing faces.
+		Dispatch(cmd, Shader::SsrTrace, outputFormat, depth, surface,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point);
+	}
+
+	void PostProcess::SsrResolve(RHICommandList& cmd, const Ref<RHITexture>& scene,
+								 const Ref<RHITexture>& trace, const Ref<RHITexture>& surface,
+								 uint32_t width, uint32_t height,
+								 float intensity, Format outputFormat)
+	{
+		if (!s_Data || !scene || !trace || !surface)
+			return;
+
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+							 1.0f / (float)Math::Max(height, 1u) };
+		params.A = Math::Max(intensity, 0.0f);
+
+		// The trace is half resolution and filtered up; the surface is full
+		// resolution and point sampled for the same reason as in the trace.
+		Dispatch(cmd, Shader::SsrResolve, outputFormat, scene, trace,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Linear,
+				 surface, Sampling::Point);
 	}
 
 	void PostProcess::FXAA(RHICommandList& cmd, const Ref<RHITexture>& source,

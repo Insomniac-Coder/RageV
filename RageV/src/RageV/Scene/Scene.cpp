@@ -388,6 +388,14 @@ namespace RageV
 					1.0f / Math::Max(Math::Abs(projection[1][1]), 1.0e-4f));
 	}
 
+	Mat4 Scene::GetCameraView()
+	{
+		Entity camera = GetPrimaryCameraEntity();
+		if (!camera || !camera.HasComponent<TransformComponent>())
+			return Mat4(1.0f);
+		return Math::Inverse(camera.GetComponent<TransformComponent>().World);
+	}
+
 	void Scene::OnViewportResize(float width, float height)
 	{
 		auto view = m_Registry.view<CameraComponent>();

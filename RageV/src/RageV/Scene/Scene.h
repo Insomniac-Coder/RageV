@@ -257,6 +257,10 @@ namespace RageV
 		// chain's position reconstruction. (1, 1) when there is no camera.
 		Vec2 GetCameraProjectionInverse();
 
+		// The primary camera's view matrix -- the inverse of its world transform.
+		// Identity when there is no camera. SSR needs its rotation.
+		Mat4 GetCameraView();
+
 		// For tools and tests that need to iterate arbitrary component sets.
 		// The editor panels reach it through friendship instead; this exists so
 		// that code outside the engine does not have to.

@@ -152,6 +152,26 @@ namespace RageV
 		// broken effect rather than as a shallow one.
 		float MaxBokehRadius = 24.0f;
 
+		// --- SSR (9.7). ENGINE-NOTES 7ad ------------------------------------
+		//
+		// Reflections traced through the depth buffer for anything already
+		// on screen, blended over the probe's answer where the trace is
+		// confident and left to the probe where it is not. Off adds no pass
+		// and is exact.
+		bool ScreenSpaceReflections = false;
+
+		// How far a reflected ray may travel before it gives up, in metres.
+		float SsrMaxDistance = 20.0f;
+
+		// How far behind the depth surface a ray step may land and still
+		// count as a hit, in metres. Thin objects want it small; a large
+		// value lets rays hit walls through railings.
+		float SsrThickness = 0.5f;
+
+		// A scale on the traced reflection's share of the pixel. 1 is the
+		// weight the material implies.
+		float SsrIntensity = 1.0f;
+
 		// --- SSAO (9.6). ENGINE-NOTES 7ac -----------------------------------
 		//
 		// Occlusion from depth alone, applied as a multiply on the lit image

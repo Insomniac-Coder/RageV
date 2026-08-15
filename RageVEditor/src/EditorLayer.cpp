@@ -118,11 +118,12 @@ void EditorLayer::OnAttach()
 	// target's shape only from BuildFrame are bound into a probe face that
 	// already has the extra attachment. ENGINE-NOTES 7r.
 	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT,
-							   1, RHI::Format::R16G16_SFLOAT);
+							   1, RHI::Format::R16G16_SFLOAT, RHI::Format::R8G8B8A8_UNORM);
 	// The UI's world layer draws in the scene pass too, and learns the shape
 	// from the same two places for the same reason.
 	UIRenderer::SetWorldTargetFormats(RHI::Format::R16G16B16A16_SFLOAT,
-									  RHI::Format::D32_SFLOAT, 1, RHI::Format::R16G16_SFLOAT);
+									  RHI::Format::D32_SFLOAT, 1, RHI::Format::R16G16_SFLOAT,
+									  RHI::Format::R8G8B8A8_UNORM);
 
 	auto& graphDevice = Renderer::GetDevice();
 	m_Graph = std::make_unique<RenderGraph>(graphDevice);
@@ -455,6 +456,10 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// the Game panel, and this viewport when switched to the scene camera,
 	// always keep everything. Bloom, exposure, the grade and the AA stay:
 	// they describe the scene, not one camera's lens.
+	// SSR is deliberately *not* stripped: it follows the camera you are
+	// looking through, so it is correct from any viewpoint, and seeing a
+	// reflection while placing the object it reflects is authoring, not
+	// cinema.
 	if (m_UseEditorCamera && !m_PreviewPost)
 	{
 		scene.Post.DepthOfField = false;
@@ -476,6 +481,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		const Mat4& projection = m_EditorCamera.GetProjection();
 		scene.InvProjection0 = 1.0f / Math::Max(Math::Abs(projection[0][0]), 1.0e-4f);
 		scene.InvProjection1 = 1.0f / Math::Max(Math::Abs(projection[1][1]), 1.0e-4f);
+		scene.View = m_EditorCamera.GetView();
 	}
 	else
 	{
@@ -486,6 +492,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		const RageV::Vec2 inverse = m_Scene->GetCameraProjectionInverse();
 		scene.InvProjection0 = inverse.x;
 		scene.InvProjection1 = inverse.y;
+		scene.View = m_Scene->GetCameraView();
 	}
 	scene.History = &m_SceneHistory;
 	scene.Exposure = &m_SceneExposure;
@@ -578,6 +585,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 			const RageV::Vec2 inverse = m_Scene->GetCameraProjectionInverse();
 			game.InvProjection0 = inverse.x;
 			game.InvProjection1 = inverse.y;
+			game.View = m_Scene->GetCameraView();
 		}
 		game.History = &m_GameHistory;
 		game.Exposure = &m_GameExposure;

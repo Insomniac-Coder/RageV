@@ -122,6 +122,13 @@ namespace RageV
 		float InvProjection0 = 1.0f;
 		float InvProjection1 = 1.0f;
 
+		// The camera's view matrix. SSR needs its rotation to bring the
+		// world-space normal the scene wrote into the view space its ray
+		// marches in. Identity when nobody sets it, which makes an unset
+		// caller's reflections point along world axes -- visibly wrong and
+		// never a crash, and only tests are such callers. ENGINE-NOTES 7ad.
+		Mat4 View{ 1.0f };
+
 		Vec4 ClearColor{ 0.05f, 0.05f, 0.06f, 1.0f };
 
 		// The format the output expects. The chain's last pass writes it.

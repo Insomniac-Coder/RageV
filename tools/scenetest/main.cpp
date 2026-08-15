@@ -6542,7 +6542,8 @@ void main()
 			// only the validation layer objects to.
 			Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT,
 									   RHI::Format::D32_SFLOAT,
-									   1, RHI::Format::R16G16_SFLOAT);
+									   1, RHI::Format::R16G16_SFLOAT,
+									   RHI::Format::R8G8B8A8_UNORM);
 
 			Renderer::BeginFrame(cmd);
 			scene->CaptureReflectionProbes();
@@ -6662,7 +6663,7 @@ void main()
 		// As above: the pipelines have to expect the format a probe captures
 		// into before anything draws into one.
 		Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT,
-								   1, RHI::Format::R16G16_SFLOAT);
+								   1, RHI::Format::R16G16_SFLOAT, RHI::Format::R8G8B8A8_UNORM);
 
 		Renderer::BeginFrame(cmd);
 		scene->CaptureReflectionProbes();
@@ -8542,6 +8543,15 @@ void main()
 		post.AmbientOcclusion = false;
 		Check(build(1600, 900, render, post) && !hasPass("SSAO"),
 			  "off again adds none of them");
+
+		// --- SSR (9.7) ----------------------------------------------------------
+		post.ScreenSpaceReflections = true;
+		Check(build(1600, 900, render, post), "with SSR on the frame compiles");
+		Check(hasPass("SSR trace") && hasPass("SSR resolve"),
+			  "and both SSR stages are in it");
+		post.ScreenSpaceReflections = false;
+		Check(build(1600, 900, render, post) && !hasPass("SSR"),
+			  "off again adds neither");
 
 		// --- anti-aliasing off ---------------------------------------------------
 		post.BloomEnabled = true;

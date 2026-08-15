@@ -178,7 +178,12 @@ Entities:
       Scale: [1.78, 0.12, 1.78]
     MeshComponent:
       Mesh: 8241982477996916736
-      Material: 13042967132365226213
+      Material:
+        BaseColor: [0.22, 0.22, 0.24, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.08
+        Occlusion: 1
   - EntityID: 1181715498154858230
     TagComponent:
       Tag: The Piece

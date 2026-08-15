@@ -1,0 +1,100 @@
+// SSR, pass 2 of 2: sample the hit, blur it by roughness, blend it in.
+//
+// Full resolution over the lit image. The trace wrote where each pixel's
+// reflection landed and how much to trust it; this reads the lit colour
+// there -- over a small disc whose radius follows the surface's roughness,
+// which is the v1 stand-in for a GGX lobe a single mirror ray cannot express
+// -- and blends it in with a weight that stands in for the probe term it is
+// replacing. ENGINE-NOTES 7ad records exactly which approximation that is.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+// Half resolution: RG hit uv, B confidence. Filtered, so the half-res
+// answer upsamples smoothly rather than in blocks.
+layout(set = 0, binding = 1) uniform sampler2D u_Trace;
+// Full resolution: the surface description, for roughness and metallic.
+layout(set = 0, binding = 2) uniform sampler2D u_Surface;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header: the full frame's texel
+	float TexelY;
+	float Intensity;     // A: a scale on the whole effect, 1 is physical-ish
+	float B;
+	float C;
+	float FlipY;
+} u_Params;
+
+// A small fixed disc for the roughness blur -- fixed, no dither, so a
+// frame reproduces. Radius in pixels at roughness 1.
+const int kTaps = 8;
+const float kGoldenAngle = 2.39996323;
+const float kMaxBlurPixels = 12.0;
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec4 scene = texture(u_Scene, uv);
+	const vec4 trace = texture(u_Trace, uv);
+	const float confidence = trace.b;
+
+	if (confidence <= 0.001)
+	{
+		o_Color = scene;
+		return;
+	}
+
+	const vec4 surface = texture(u_Surface, uv);
+	const float roughness = surface.b;
+	const float metallic = surface.a;
+	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+
+	// The hit colour, blurred by roughness. Sampled from the lit image at
+	// the hit's uv -- the trace and this pass share sampling space, so the
+	// uv is used as written.
+	const float radius = roughness * roughness * kMaxBlurPixels;
+	vec3 hit = vec3(0.0);
+	float weight = 0.0;
+	for (int i = 0; i < kTaps; i++)
+	{
+		const float t = (float(i) + 0.5) / float(kTaps);
+		const float r = sqrt(t) * radius;
+		const float theta = float(i) * kGoldenAngle;
+		const vec2 offset = vec2(cos(theta), sin(theta)) * r * texel;
+		hit += texture(u_Scene, trace.rg + offset).rgb;
+		weight += 1.0;
+	}
+	hit /= weight;
+
+	// The reflection's share of the pixel: the PBR shader's specular
+	// weight, F0 * envBRDF.x + envBRDF.y, at normal-ish incidence with a
+	// flat envBRDF stand-in -- see 7ad for why v1 approximates here rather
+	// than reproducing the term exactly. F0 from metallic; the albedo half
+	// is the lit pixel itself, wrong for a lit dielectric and right for a
+	// metal, and only ever a weight.
+	const vec3 F0 = mix(vec3(0.04), scene.rgb, metallic);
+	const vec3 specular = F0 * (1.0 - roughness) + vec3(0.02);
+	const vec3 share = clamp(specular * confidence * u_Params.Intensity, 0.0, 1.0);
+
+	// "Dim by the reflection's share, add the traced hit" -- what removing
+	// the probe term and adding the trace does to first order.
+	o_Color = vec4(scene.rgb * (1.0 - share) + hit * share, scene.a);
+}

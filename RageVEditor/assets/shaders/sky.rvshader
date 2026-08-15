@@ -45,6 +45,10 @@ layout(location = 0) out vec4 o_Color;
 // previous view-projection is 64 more. It comes from a uniform buffer
 // instead. ENGINE-NOTES 7r.
 layout(location = 1) out vec2 o_Velocity;
+// The surface-description attachment SSR reads. Zero decodes to "no
+// surface", which the resolve reads as "no reflection" -- so this never
+// reflects, which is right for what it draws. ENGINE-NOTES 7ad.
+layout(location = 2) out vec4 o_Surface;
 
 
 layout(set = 0, binding = 0) uniform samplerCube u_Sky;
@@ -70,6 +74,10 @@ layout(set = 0, binding = 1) uniform SkyMotion
 
 void main()
 {
+	// The sky is not a surface. First and unconditionally, for the reason
+	// the PBR fragment writes its velocity first.
+	o_Surface = vec4(0.0);
+
 	vec4 farPoint = u_Params.InvViewRotationProjection * vec4(v_NDC, 1.0, 1.0);
 	vec3 direction = normalize(farPoint.xyz / farPoint.w);
 

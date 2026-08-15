@@ -218,6 +218,37 @@ namespace RageV
 							  const RHI::Ref<RHI::RHITexture>& occlusion,
 							  float intensity, RHI::Format outputFormat);
 
+		// SSR (9.7), two passes. ENGINE-NOTES 7ad.
+		//
+		// The camera's view matrix is what takes the world normal the scene
+		// wrote into the view space the ray marches in; only its rotation is
+		// used.
+		struct SsrParams
+		{
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvProjection0 = 1.0f;
+			float InvProjection1 = 1.0f;
+			float MaxDistance = 20.0f;   // metres
+			float Thickness = 0.5f;      // metres
+			Mat4 View{ 1.0f };
+		};
+
+		// 1: the march, at half resolution. Writes hit uv + confidence.
+		static void SsrTrace(RHI::RHICommandList& cmd,
+							 const RHI::Ref<RHI::RHITexture>& depth,
+							 const RHI::Ref<RHI::RHITexture>& surface,
+							 uint32_t width, uint32_t height,
+							 const SsrParams& params, RHI::Format outputFormat);
+
+		// 2: sample the hit, blur by roughness, blend into the lit image.
+		static void SsrResolve(RHI::RHICommandList& cmd,
+							   const RHI::Ref<RHI::RHITexture>& scene,
+							   const RHI::Ref<RHI::RHITexture>& trace,
+							   const RHI::Ref<RHI::RHITexture>& surface,
+							   uint32_t width, uint32_t height,
+							   float intensity, RHI::Format outputFormat);
+
 		// A straight copy, for when anti-aliasing is off but the chain still
 		// has to land in the target the caller wanted.
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
@@ -238,6 +269,7 @@ namespace RageV
 			DofPrepass, DofGather, DofComposite,
 			MotionBlurPack, MotionBlurTileMax, MotionBlurNeighborMax, MotionBlurGather,
 			SsaoCompute, SsaoBlur, SsaoApply,
+			SsrTrace, SsrResolve,
 			Count
 		};
 

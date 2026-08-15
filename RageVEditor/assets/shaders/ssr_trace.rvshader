@@ -1,0 +1,241 @@
+// SSR, pass 1 of 2: the ray march, at half resolution.
+//
+// Per pixel: reconstruct the view position from depth, decode the surface's
+// normal from the attachment the scene pass wrote, reflect the view ray, and
+// march the reflection through the depth buffer in view space -- linear steps
+// to find the first crossing, then a binary refinement between the last miss
+// and the first hit. Writes where the ray landed and how much to trust it,
+// not a colour; the resolve pass samples the lit image there at full
+// resolution and blurs it by roughness. ENGINE-NOTES 7ad.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+// RG: hit uv in the *sampling* space of this pass. B: confidence, 0..1.
+// A: unused. Confidence 0 means "no answer -- keep the probe".
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+// The surface description: octahedral world normal in RG, roughness B,
+// metallic A. Point sampled: a normal halfway between two surfaces is a
+// direction nothing faces.
+layout(set = 0, binding = 1) uniform sampler2D u_Surface;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+
+	float NearClip;
+	float FarClip;
+	float InvP0;
+	float InvP1;
+	// How far a ray may travel, in metres, before it gives up.
+	float MaxDistance;
+	// How far *behind* the depth surface a ray step may land and still count
+	// as hitting it, in metres. Without this bound a ray passing behind a
+	// thin railing hits the wall behind it; with an unbounded one it hits
+	// the railing from a metre away.
+	float Thickness;
+
+	// The view matrix's rotation, as three rows -- what takes the world
+	// normal the attachment stores into the view space the march runs in.
+	// Rows rather than a mat4 because push constants are tight and only the
+	// rotation is needed.
+	vec4 ViewRow0;
+	vec4 ViewRow1;
+	vec4 ViewRow2;
+} u_Params;
+
+// 48 linear steps and 6 refinements. Fewer steps bands: a ray grazing a
+// floor crosses the depth surface in stripes a step long, and 24 steps over
+// 20 m is most of a metre each. The refinement is cheap; the steps are what
+// the pass costs, and half resolution is what makes 48 affordable.
+const int kSteps = 48;
+const int kRefine = 6;
+
+float LinearDepth(float depth)
+{
+	const float n = u_Params.NearClip;
+	const float f = u_Params.FarClip;
+	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+}
+
+vec3 ViewPosition(vec2 uv)
+{
+	const float z = LinearDepth(texture(u_Depth, uv).r);
+	const vec2 ndc = uv * 2.0 - 1.0;
+	return vec3(ndc * vec2(u_Params.InvP0, u_Params.InvP1) * z, z);
+}
+
+// The exact inverse of ViewPosition, so a march step lands where the depth
+// it will be compared with was read from.
+vec2 ViewToUv(vec3 p)
+{
+	const vec2 ndc = p.xy / (vec2(u_Params.InvP0, u_Params.InvP1) * max(p.z, 1.0e-4));
+	return ndc * 0.5 + 0.5;
+}
+
+vec3 OctDecode(vec2 e)
+{
+	e = e * 2.0 - 1.0;
+	vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+	if (n.z < 0.0)
+		n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+	return normalize(n);
+}
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec4 surface = texture(u_Surface, uv);
+
+	// A cleared attachment -- sky, grid, particles, text -- decodes to a
+	// degenerate normal. Nothing to reflect off; the probe (or nothing)
+	// stays.
+	if (dot(surface.rg, surface.rg) < 1.0e-6)
+	{
+		o_Color = vec4(0.0);
+		return;
+	}
+
+	// A fully rough surface's "reflection" is the diffuse term the PBR
+	// shader already computed; a mirror ray from it is noise nobody sees.
+	// Fade the trace out toward roughness 1 rather than gating it, so the
+	// transition is not an edge.
+	const float roughness = surface.b;
+	const float roughFade = 1.0 - smoothstep(0.55, 0.9, roughness);
+	if (roughFade <= 0.0)
+	{
+		o_Color = vec4(0.0);
+		return;
+	}
+
+	const vec3 position = ViewPosition(uv);
+
+	// World normal to view space: only the rotation, because a normal is a
+	// direction. The rows are the view matrix's, so this is M * n.
+	const vec3 worldN = OctDecode(surface.rg);
+	vec3 normal = normalize(vec3(dot(u_Params.ViewRow0.xyz, worldN),
+								 dot(u_Params.ViewRow1.xyz, worldN),
+								 dot(u_Params.ViewRow2.xyz, worldN)));
+
+	// The two frames have to agree. ViewPosition builds its frame from the
+	// *sampling-space* uv -- v downward, the way a render target is read
+	// after every post pass's FlipY -- while the view matrix's y is up. On
+	// the backend that flips (Vulkan) the two land pointing the same way;
+	// on the one that does not (OpenGL) they point opposite, the reflection
+	// ray leaves the surface backwards, and every march finds nothing.
+	//
+	// **Measured, not argued**, the way taa_resolve's velocity sign was:
+	// with the correction on the flipped backend, Vulkan lost its
+	// reflection and OpenGL never gained one; on the unflipped backend,
+	// both reflect and land within a row of each other. A still scene
+	// cannot tell -- a symmetric normal reflects the same either way.
+	if (!flip)
+		normal.y = -normal.y;
+
+	// The camera looks down +z in this reconstruction (positive linear
+	// depth is in front). The view ray from the camera to the surface is
+	// the position itself; the reflection bounces it about the normal.
+	const vec3 viewDir = normalize(position);
+	const vec3 reflected = reflect(viewDir, normal);
+
+	// A ray reflected back toward the camera can only find what is *behind*
+	// the surface in the depth buffer, and every such hit is wrong. Fade
+	// rather than cut, over the last few degrees before it turns.
+	const float facing = smoothstep(-0.05, 0.15, reflected.z);
+	if (facing <= 0.0)
+	{
+		o_Color = vec4(0.0);
+		return;
+	}
+
+	// The march. Start one step out so the first sample is not the surface
+	// itself, which trivially "hits".
+	const float stepLength = u_Params.MaxDistance / float(kSteps);
+	vec3 previous = position;
+	vec3 current = position;
+	bool hit = false;
+
+	for (int i = 1; i <= kSteps; i++)
+	{
+		current = position + reflected * (stepLength * float(i));
+
+		// Behind the camera, or past the far plane: the ray has left the
+		// volume the depth buffer describes.
+		if (current.z <= u_Params.NearClip)
+			break;
+
+		const vec2 sampleUv = ViewToUv(current);
+		if (any(lessThan(sampleUv, vec2(0.0))) || any(greaterThan(sampleUv, vec2(1.0))))
+			break;
+
+		const float sceneZ = LinearDepth(texture(u_Depth, sampleUv).r);
+		const float behind = current.z - sceneZ;
+
+		// Crossed the surface, and by less than a thickness.
+		if (behind > 0.0 && behind < u_Params.Thickness)
+		{
+			hit = true;
+			break;
+		}
+
+		previous = current;
+	}
+
+	if (!hit)
+	{
+		o_Color = vec4(0.0);
+		return;
+	}
+
+	// Binary refinement between the last miss and the hit, so the landing
+	// point is accurate to a fraction of a step rather than to a step.
+	vec3 lo = previous;
+	vec3 hi = current;
+	for (int i = 0; i < kRefine; i++)
+	{
+		const vec3 mid = (lo + hi) * 0.5;
+		const float sceneZ = LinearDepth(texture(u_Depth, ViewToUv(mid)).r);
+		if (mid.z > sceneZ)
+			hi = mid;
+		else
+			lo = mid;
+	}
+
+	const vec2 hitUv = ViewToUv(hi);
+
+	// Confidence folds every reason to trust this hit less:
+	//   * the edge fade -- a hit near the screen border blends toward the
+	//     probe, so a ray leaving the screen produces no seam;
+	//   * the length fade -- a long ray has crossed more it could not see;
+	//   * the facing and roughness fades from above.
+	const vec2 border = smoothstep(vec2(0.0), vec2(0.1), hitUv)
+					  * (1.0 - smoothstep(vec2(0.9), vec2(1.0), hitUv));
+	const float edgeFade = border.x * border.y;
+	const float lengthFade = 1.0 - smoothstep(0.7, 1.0,
+											  length(hi - position) / u_Params.MaxDistance);
+
+	const float confidence = edgeFade * lengthFade * facing * roughFade;
+
+	o_Color = vec4(hitUv, confidence, 0.0);
+}

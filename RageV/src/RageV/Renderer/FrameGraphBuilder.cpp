@@ -18,6 +18,11 @@ namespace RageV
 		// small enough to shimmer.
 		constexpr int kBloomLevels = 5;
 
+		// The surface-description attachment: octahedral normal, roughness,
+		// metallic. Eight bits per octahedral component is about a degree,
+		// which is ample for a reflection direction. ENGINE-NOTES 7ad.
+		constexpr Format kNormalFormat = Format::R8G8B8A8_UNORM;
+
 		// Radius of the tent filter on the way back up, in texels of the level
 		// being read. Wider is smoother and starts to look like a box.
 		constexpr float kUpsampleRadius = 1.0f;
@@ -192,13 +197,13 @@ namespace RageV
 		// record of how that goes. ENGINE-NOTES 7z.
 		sceneDesc.SampleDepth = true;
 		Renderer::SetTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
-								   Format::R16G16_SFLOAT);
+								   Format::R16G16_SFLOAT, kNormalFormat);
 		// The UI renderer's *world* layer draws inside the scene pass -- world
 		// text, and the editor's light and camera marks -- so it takes the
 		// scene's sample count. Its screen-space layer is set separately, down
 		// with the UI pass, and stays at one.
 		UIRenderer::SetWorldTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
-										  Format::R16G16_SFLOAT);
+										  Format::R16G16_SFLOAT, kNormalFormat);
 
 		// Accumulation and revealage live on the *scene's* target rather than
 		// one of their own, so the transparent pass depth-tests against the
@@ -226,6 +231,15 @@ namespace RageV
 		// and 7q is the record of how that goes.
 		const uint32_t velocityIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
 		sceneDesc.ExtraColors.push_back(Format::R16G16_SFLOAT);
+
+		// The surface description SSR reads: octahedral normal in RG, roughness
+		// in B, metallic in A. Appended after velocity, so velocity keeps its
+		// number. Always present for the same shape-not-setting reason as the
+		// velocity; only the PBR shaders write real values, and a clear of zero
+		// decodes to "no surface", which the resolve reads as "no reflection".
+		// ENGINE-NOTES 7ad records the sweep this attachment cost.
+		const uint32_t normalIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
+		sceneDesc.ExtraColors.push_back(kNormalFormat);
 
 		const RGResource sceneHDR = graph.CreateTarget(sceneDesc);
 
@@ -263,16 +277,20 @@ namespace RageV
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
-				// Colour and velocity. Not the transparency attachments:
-				// a pipeline's declared colour formats have to match what
-				// the pass binds, and the pass that accumulates transparency
-				// binds a different pair -- which is what WriteAttachments is
-				// for. Every pipeline drawing here declares both of these.
+				// Colour, velocity and the surface description. Not the
+				// transparency attachments: a pipeline's declared colour
+				// formats have to match what the pass binds, and the pass
+				// that accumulates transparency binds a different pair --
+				// which is what WriteAttachments is for. Every pipeline
+				// drawing here declares all three of these.
 				builder.WriteAttachments(sceneHDR,
 					{ { 0, desc.ClearColor },
 					  // Zero is "did not move", which is what anything that
 					  // never writes velocity should read back as.
-					  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
+					  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+					  // And zero here decodes to "no surface": SSR reads it as
+					  // "no reflection", so sky, grid and text never reflect.
+					  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
 				builder.SetClearColor(desc.ClearColor);
 			},
 			[draw = desc.DrawScene, jitter,
@@ -360,13 +378,14 @@ namespace RageV
 			graph.AddPass("Overlay",
 				[&](RGPassBuilder& builder)
 				{
-					// Preserve: the scene is already in there. Velocity is
-					// bound too, because the debug renderer's pipeline is
-					// built for the scene target's shape and this is the
-					// scene target.
+					// Preserve: the scene is already in there. Velocity and
+					// the surface description are bound too, because the
+					// debug renderer's pipeline is built for the scene
+					// target's shape and this is the scene target.
 					builder.WriteAttachments(sceneHDR,
 						{ { 0, desc.ClearColor },
-						  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } },
+						  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+						  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } },
 						RGLoad::Preserve);
 				},
 				[draw = desc.DrawOverlay](RGPassContext& context) { draw(context); });
@@ -464,6 +483,80 @@ namespace RageV
 				// spends a session reading the target it is writing.
 				history.Advance();
 			}
+		}
+
+		// --- SSR ---------------------------------------------------------------
+		//
+		// After the resolve, before SSAO: a reflection is lighting, so the
+		// occlusion should darken it in a crease like everything else, and DoF
+		// and motion blur should defocus and smear it. Trace at half
+		// resolution, resolve at full. ENGINE-NOTES 7ad.
+		if (desc.Post.ScreenSpaceReflections && PostProcess::IsReady())
+		{
+			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);
+			const uint32_t halfHeight = Math::Max(desc.Height / 2u, 1u);
+
+			RGTargetDesc traceDesc;
+			traceDesc.Name = "SsrTrace";
+			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
+			traceDesc.Depth = Format::Undefined;
+			traceDesc.Scale = 0.5f;
+			const RGResource trace = graph.CreateTarget(traceDesc);
+
+			RGTargetDesc reflectedDesc;
+			reflectedDesc.Name = "SsrResolved";
+			reflectedDesc.Color = Format::R16G16B16A16_SFLOAT;
+			reflectedDesc.Depth = Format::Undefined;
+			const RGResource reflected = graph.CreateTarget(reflectedDesc);
+
+			PostProcess::SsrParams ssr;
+			ssr.NearClip = desc.NearClip;
+			ssr.FarClip = desc.FarClip;
+			ssr.InvProjection0 = desc.InvProjection0;
+			ssr.InvProjection1 = desc.InvProjection1;
+			ssr.MaxDistance = desc.Post.SsrMaxDistance;
+			ssr.Thickness = desc.Post.SsrThickness;
+			ssr.View = desc.View;
+
+			const RGResource lit = shaded;
+			const uint32_t width = desc.Width;
+			const uint32_t height = desc.Height;
+			const float intensity = desc.Post.SsrIntensity;
+
+			graph.AddPass("SSR trace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(trace);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, halfWidth, halfHeight, ssr](RGPassContext& context)
+				{
+					PostProcess::SsrTrace(context.Cmd, context.Depth(sceneHDR),
+										  context.Color(sceneHDR, normalIndex),
+										  halfWidth, halfHeight, ssr,
+										  Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("SSR resolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(reflected);
+					builder.Sample(lit);
+					builder.Sample(trace);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[lit, trace, sceneHDR, normalIndex, width, height, intensity](RGPassContext& context)
+				{
+					PostProcess::SsrResolve(context.Cmd, context.Color(lit),
+											context.Color(trace),
+											context.Color(sceneHDR, normalIndex),
+											width, height, intensity,
+											Format::R16G16B16A16_SFLOAT);
+				});
+
+			shaded = reflected;
 		}
 
 		// --- SSAO --------------------------------------------------------------

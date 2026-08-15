@@ -304,8 +304,12 @@ def build(profile_handle, mat):
     s.mesh(CUBE, mat["plinth"])
     s.static_body("Box", half=(0.5, 0.5, 0.5))
 
+    # Polished dark steel, not the rusted texture the rest of the ironwork
+    # wears: the cap is what shows screen-space reflection doing something a
+    # probe cannot -- the sphere on it, seen from the cap's own point of
+    # view, rather than the plinth's view of the courtyard.
     s.entity("Plinth Cap", position=(0, 1.05, -2.6), scale=(1.78, 0.12, 1.78))
-    s.mesh(CUBE, MAT_STEEL)
+    s.mesh_inline(CUBE, (0.22, 0.22, 0.24, 1), metallic=1, roughness=0.08)
 
     # Polished, so it is the object in the scene that shows the reflection
     # probe doing anything. A rough sphere here would prove nothing.
@@ -779,6 +783,13 @@ def main():
         "AmbientOcclusion": True,
         "AoRadius": 0.5,
         "AoIntensity": 0.8,
+
+        # The floor and the polished sphere show what stands near them, from
+        # where they are -- which the probe, photographed at the plinth,
+        # cannot. Where a ray leaves the screen the probe stays.
+        "ScreenSpaceReflections": True,
+        "SsrMaxDistance": 24.0,
+        "SsrThickness": 0.4,
 
         # Small numbers on all three. These are the effects that look like
         # settings the moment they are obvious.

@@ -1568,11 +1568,58 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 9.7, SSR
+### START HERE: phase 9 is complete -- pick the next phase
 
-Phase 9 is **9.0 through 9.6 done** -- SSR is the last item. Read
-ENGINE-NOTES 7ac (SSAO) and 7ab (motion blur) first: SSR is built from
-the same parts, and both sections say which decisions were deferred to it.
+**9.0 through 9.7 are all built** (2026-08-15). There is no next roadmap
+item inside phase 9. The candidates, each already argued somewhere:
+
+- **The 9.x follow-ups**, small and well-defined: SSAO reads the real
+  normal attachment (7ac said it would; 7ad's attachment now exists);
+  SSR's exact probe replacement (7ad names the approximation); the probe
+  convolution's serialized barriers on Vulkan (V.3); hi-Z for the SSR
+  march.
+- **Phase 8**, reopened at the owner's direction and priced in the
+  roadmap: every item is L or XL. 8.2 bindless is a *decision about the
+  engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
+  equivalent -- and wants deciding before anything that would build on it.
+- **The two open non-blockers** below (focus-click guard, orphaned LUT).
+
+Ask before choosing; this is the owner's call, not the roadmap's.
+
+---
+
+### Done - 9.7, SSR (2026-08-15)
+
+ENGINE-NOTES 7ad. **The scene target grew its first new attachment since
+velocity**: RGBA8, octahedral world normal + roughness + metallic, written
+by the PBR shaders and zeroed by everything else. The record of every place
+its shape had to be stated is in 7ad, and it is the list the next
+attachment will need. Then a half-resolution linear march with binary
+refinement (48 steps, 6 refinements -- fewer bands), writing hit uv +
+confidence, and a full-resolution resolve that blurs the hit by roughness
+and blends it in with a stated approximation of the probe term it replaces.
+After the resolve, before SSAO. `ScreenSpaceReflections` /
+`SsrMaxDistance` / `SsrThickness` / `SsrIntensity` on the profile; the
+demo's plinth cap became polished steel so the effect has something to
+show -- the sphere seen from the cap's own viewpoint. **Not** stripped from
+the editor scene view: it follows whichever camera you look through.
+
+**One measured sign, in the family of taa_resolve's**: the reconstructed
+view-space frame reads sampling-space uv (v downward after FlipY) while
+the view matrix's y is up; on the *unflipped* backend they disagree and
+every march missed. The correction sits on `!flip`, and it was measured
+both ways -- on `flip` it took Vulkan's reflection away and gave OpenGL
+nothing. `check_ssr.py` (~1 min, both backends): off is off to the byte,
+the mirror floor gains 23 levels under the block, a roughness-0.7 floor
+gains 9, empty floor drifts 0.000, a frame reproduces, and the two
+backends land the reflection 0.1 rows apart. ~0.45 ms GPU at 1440p.
+
+---
+
+### Read before touching SSR: what 7ac and 7ab deferred to it
+
+ENGINE-NOTES 7ac (SSAO) and 7ab (motion blur) each say which decisions
+were deferred to SSR; 7ad records how each landed.
 
 **What it reuses, all in place:** the sampleable scene depth (7z), the
 projection's inverse scales on `FrameDesc` (7ac), the view-space

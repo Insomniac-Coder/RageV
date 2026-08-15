@@ -93,6 +93,10 @@ layout(location = 0) out vec4 o_Color;
 // answer for a background, a gizmo or a particle, and leaving it unwritten
 // would be whatever the clear happened to be. ENGINE-NOTES 7r.
 layout(location = 1) out vec2 o_Velocity;
+// The surface-description attachment SSR reads. Zero decodes to "no
+// surface", which the resolve reads as "no reflection" -- so this never
+// reflects, which is right for what it draws. ENGINE-NOTES 7ad.
+layout(location = 2) out vec4 o_Surface;
 
 
 const float kModeDistanceField = 0.5;   // anything above is a field
@@ -105,6 +109,7 @@ float Median(float a, float b, float c)
 void main()
 {
 	o_Velocity = vec2(0.0);
+	o_Surface = vec4(0.0);
 
 	// Taken before the branch, never inside it.
 	//

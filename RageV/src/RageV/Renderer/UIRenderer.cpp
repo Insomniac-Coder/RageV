@@ -62,6 +62,7 @@ namespace RageV
 			// four-sample scene bind a one-sample pipeline and crash.
 			uint32_t WorldSamples = 1;
 			Format WorldVelocity = Format::Undefined;
+			Format WorldNormal = Format::Undefined;
 			Ref<RHIShader> WorldShader;
 			bool   WorldPipelineDirty = true;
 
@@ -223,6 +224,8 @@ namespace RageV
 			desc.ColorFormats = { s_Data->WorldColor };
 			if (s_Data->WorldVelocity != Format::Undefined)
 				desc.ColorFormats.push_back(s_Data->WorldVelocity);
+			if (s_Data->WorldNormal != Format::Undefined)
+				desc.ColorFormats.push_back(s_Data->WorldNormal);
 			desc.Samples = s_Data->WorldSamples;
 			desc.DepthFormat = s_Data->WorldDepth;
 
@@ -594,7 +597,7 @@ namespace RageV
 	}
 
 	void UIRenderer::SetWorldTargetFormats(Format color, Format depth, uint32_t samples,
-										   Format velocity)
+										   Format velocity, Format normal)
 	{
 		if (!s_Data)
 			return;
@@ -603,11 +606,13 @@ namespace RageV
 		// change does not -- it selects among them, which is the whole point
 		// of the cache.
 		if (s_Data->WorldColor != color || s_Data->WorldDepth != depth ||
-			s_Data->WorldVelocity != velocity)
+			s_Data->WorldVelocity != velocity ||
+			s_Data->WorldNormal != normal)
 		{
 			s_Data->WorldColor = color;
 			s_Data->WorldDepth = depth;
 			s_Data->WorldVelocity = velocity;
+			s_Data->WorldNormal = normal;
 			s_Data->WorldPipelines.clear();
 			s_Data->WorldPipelineDirty = true;
 		}

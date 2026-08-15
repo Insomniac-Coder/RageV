@@ -93,6 +93,7 @@ namespace RageV
 		// alternative: pipelines built for one target shape being bound into a
 		// pass with another is undefined behaviour rather than an error.
 			Format TargetVelocity = Format::Undefined;
+			Format TargetNormal = Format::Undefined;
 			bool PipelineDirty = true;
 
 			// Per batch, not per frame: one batch is one draw's buffers, and
@@ -234,19 +235,20 @@ namespace RageV
 	}
 
 	void ParticleRenderer::SetTargetFormats(Format color, Format depth, uint32_t samples,
-									   Format velocity)
+									   Format velocity, Format normal)
 	{
 		if (!s_Data)
 			return;
 		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth &&
 			s_Data->TargetSamples == samples &&
-			s_Data->TargetVelocity == velocity
+			s_Data->TargetVelocity == velocity && s_Data->TargetNormal == normal
 			&& s_Data->AlphaPipeline)
 			return;
 
 		s_Data->TargetColor = color;
 		s_Data->TargetSamples = samples;
 		s_Data->TargetVelocity = velocity;
+		s_Data->TargetNormal = normal;
 		s_Data->TargetDepth = depth;
 		s_Data->PipelineDirty = true;
 	}
@@ -276,6 +278,8 @@ namespace RageV
 		desc.Samples = s_Data->TargetSamples;
 		if (s_Data->TargetVelocity != Format::Undefined)
 			desc.ColorFormats.push_back(s_Data->TargetVelocity);
+		if (s_Data->TargetNormal != Format::Undefined)
+			desc.ColorFormats.push_back(s_Data->TargetNormal);
 		desc.DepthFormat = s_Data->TargetDepth;
 
 		s_Data->AlphaPipeline = s_Data->Device->CreatePipeline(desc);
