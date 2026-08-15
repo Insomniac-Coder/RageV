@@ -101,6 +101,16 @@ namespace RageV
 		RenderSettings Render;
 		PostSettings Post;
 
+		// The camera's clip planes, which is what turns a depth buffer value
+		// back into metres. Only depth of field reads them today, and it needs
+		// real distances rather than the non-linear 0..1 the buffer holds.
+		//
+		// Passed rather than derived: the graph never sees the projection, and
+		// recovering the planes from a matrix it does not have would be
+		// inventing a dependency to avoid two floats. ENGINE-NOTES 7z.
+		float NearClip = 0.05f;
+		float FarClip = 1000.0f;
+
 		Vec4 ClearColor{ 0.05f, 0.05f, 0.06f, 1.0f };
 
 		// The format the output expects. The chain's last pass writes it.

@@ -179,6 +179,18 @@ namespace RageV
 												  : desc.Render.MsaaSamples, 1, kMaxMsaaSamples)
 			: 1;
 		sceneDesc.Samples = (uint32_t)msaa;
+
+		// Depth of field reads this. Colour is always sampleable; depth costs
+		// an extra usage flag and, on some hardware, a compression mode -- so
+		// it was off until something wanted it.
+		//
+		// **On unconditionally**, not only when depth of field is enabled, for
+		// the reason the velocity attachment gives a few lines down: a target
+		// whose *shape* depends on a setting is a target every pipeline and
+		// every reflection probe has to agree with about that setting too, and
+		// the pool would reallocate it every time a checkbox moved. 7q is the
+		// record of how that goes. ENGINE-NOTES 7z.
+		sceneDesc.SampleDepth = true;
 		Renderer::SetTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
 								   Format::R16G16_SFLOAT);
 		// The UI renderer's *world* layer draws inside the scene pass -- world
@@ -452,6 +464,104 @@ namespace RageV
 				// spends a session reading the target it is writing.
 				history.Advance();
 			}
+		}
+
+		// --- depth of field ----------------------------------------------------
+		//
+		// **After the resolve and before bloom**, and both halves matter.
+		//
+		// After, because reprojecting a temporal filter over an already
+		// defocused image asks its neighbourhood clamp to reconcile a blur
+		// with a history blurred differently -- the motion vectors describe
+		// where the *sharp* geometry went.
+		//
+		// Before, because a bright out-of-focus highlight should glow as the
+		// disc it has become rather than as the point it was.
+		//
+		// Depth comes from the scene target, which after an SSAA resolve is a
+		// different size than `shaded`. Sampled with normalised coordinates,
+		// so the mismatch does not need handling. ENGINE-NOTES 7z.
+		if (desc.Post.DepthOfField && PostProcess::IsReady())
+		{
+			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);
+			const uint32_t halfHeight = Math::Max(desc.Height / 2u, 1u);
+
+			RGTargetDesc cocDesc;
+			cocDesc.Name = "DofCoC";
+			cocDesc.Color = Format::R16G16B16A16_SFLOAT;
+			cocDesc.Depth = Format::Undefined;
+			cocDesc.Scale = 0.5f;
+			const RGResource coc = graph.CreateTarget(cocDesc);
+
+			RGTargetDesc blurDesc = cocDesc;
+			blurDesc.Name = "DofBlurred";
+			const RGResource blurred = graph.CreateTarget(blurDesc);
+
+			RGTargetDesc focusedDesc;
+			focusedDesc.Name = "DofComposited";
+			focusedDesc.Color = Format::R16G16B16A16_SFLOAT;
+			focusedDesc.Depth = Format::Undefined;
+			const RGResource focused = graph.CreateTarget(focusedDesc);
+
+			PostProcess::FocusParams focus;
+			focus.FocusDistance = desc.Post.FocusDistance;
+			// Millimetres in the inspector, because that is how lenses are
+			// sold; metres here, because that is what the scene is in.
+			focus.FocalLength = desc.Post.FocalLength * 0.001f;
+			focus.FNumber = desc.Post.Aperture;
+			focus.MaxRadius = desc.Post.MaxBokehRadius;
+			focus.NearClip = desc.NearClip;
+			focus.FarClip = desc.FarClip;
+
+			const RGResource sharp = shaded;
+			const uint32_t frameHeight = desc.Height;
+
+			graph.AddPass("DoF circle of confusion",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(coc);
+					builder.Sample(sharp);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sharp, sceneHDR, focus, frameHeight](RGPassContext& context)
+				{
+					PostProcess::DofPrepass(context.Cmd, context.Color(sharp),
+											context.Depth(sceneHDR), frameHeight,
+											Format::R16G16B16A16_SFLOAT, focus);
+				});
+
+			const float maxRadius = desc.Post.MaxBokehRadius;
+			graph.AddPass("DoF gather",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(blurred);
+					builder.Sample(coc);
+					builder.DisableDepth();
+				},
+				[coc, halfWidth, halfHeight, maxRadius](RGPassContext& context)
+				{
+					PostProcess::DofGather(context.Cmd, context.Color(coc),
+										   halfWidth, halfHeight,
+										   Format::R16G16B16A16_SFLOAT, maxRadius);
+				});
+
+			graph.AddPass("DoF composite",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(focused);
+					builder.Sample(sharp);
+					builder.Sample(blurred);
+					builder.DisableDepth();
+				},
+				[sharp, blurred](RGPassContext& context)
+				{
+					PostProcess::DofComposite(context.Cmd, context.Color(sharp),
+											  context.Color(blurred),
+											  Format::R16G16B16A16_SFLOAT);
+				});
+
+			shaded = focused;
 		}
 
 		// --- bloom -------------------------------------------------------------

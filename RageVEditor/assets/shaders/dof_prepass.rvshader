@@ -1,0 +1,106 @@
+// Depth of field, pass 1 of 3: colour and circle of confusion, at half size.
+//
+// Half resolution because a blur is a low-frequency thing and paying full rate
+// for it buys detail the blur then removes -- the same trade the bloom chain
+// makes. The composite that follows is full resolution, so what is *in* focus
+// never goes through here at all. ENGINE-NOTES 7z.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+
+// The scene target's depth, which is **not** necessarily the same size as the
+// colour above: under SSAA the depth is supersampled and the resolved colour is
+// not. Sampled with normalised coordinates for exactly that reason -- a texel
+// index would need to know which of the two it was indexing.
+layout(set = 0, binding = 1) uniform sampler2D u_Depth;
+
+layout(push_constant) uniform Params
+{
+	float Exposure;      // unused here; PostParams' shared header
+	float BloomIntensity;
+	float A;
+	float B;
+	float Unused2;
+	float FlipY;
+
+	// The lens, in the units a photographer already has. ENGINE-NOTES 7z.
+	float FocusDistance;  // metres
+	float FocalLength;    // metres
+	float FNumber;
+	// Height of the frame in pixels, and the projection's near and far, which
+	// are what turn a depth buffer value back into metres.
+	float FrameHeight;
+	float NearClip;
+	float FarClip;
+	// Ceiling on the radius, in pixels. The gather's tap count is chosen for
+	// this, so an unbounded CoC would thin the disc into a ring of dots.
+	float MaxRadius;
+} u_Params;
+
+// Sensor height, fixed rather than exposed. Full-frame 35 mm is 24 mm tall,
+// and it is the number the focal lengths people know are quoted against -- a
+// 50 mm lens is "normal" only on this sensor. Making it a setting would mean
+// every other control changed meaning when it moved.
+const float kSensorHeight = 0.024;
+
+// Depth buffer value back to metres along the view axis.
+//
+// Standard 0..1 depth, not reversed: the projection puts the near plane at 0
+// and the far plane at 1, and the mapping between them is not linear, which is
+// the entire reason this function exists.
+float LinearDepth(float depth)
+{
+	const float n = u_Params.NearClip;
+	const float f = u_Params.FarClip;
+	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+}
+
+// Signed circle of confusion in pixels. Negative in front of the focus plane,
+// positive behind it -- the sign is what lets the gather treat foreground and
+// background differently, which it must, because they are not symmetric.
+float CircleOfConfusion(float z)
+{
+	const float d = u_Params.FocusDistance;
+	const float f = u_Params.FocalLength;
+
+	// The thin-lens equation. The subtraction in the denominator is why the
+	// focus distance is clamped away from the focal length by the caller: at
+	// d == f the lens is focused at infinity and the expression diverges.
+	const float coc = ((z - d) / max(z, 1.0e-4))
+					* (f * f) / max(u_Params.FNumber * (d - f), 1.0e-6);
+
+	// Metres on the sensor to pixels on the screen.
+	const float pixels = coc / kSensorHeight * u_Params.FrameHeight;
+	return clamp(pixels, -u_Params.MaxRadius, u_Params.MaxRadius);
+}
+
+void main()
+{
+	vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
+
+	// One tap of each. The half-resolution target means this is already an
+	// average of four full-resolution pixels for colour -- but *not* for
+	// depth, which must never be filtered: the average of a near depth and a
+	// far one is a distance nothing in the scene is at, and the circle of
+	// confusion computed from it is a halo around every silhouette.
+	vec3 color = texture(u_Scene, uv).rgb;
+	float coc = CircleOfConfusion(LinearDepth(texture(u_Depth, uv).r));
+
+	o_Color = vec4(color, coc);
+}

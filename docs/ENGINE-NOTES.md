@@ -3994,6 +3994,107 @@ in a panel is allowed to be a frame behind and the render is not.
 
 ---
 
+## 7z. Depth of field (9.4): where it sits, and what it is allowed to read
+
+The roadmap calls this "a circle of confusion from depth, then a separable
+bokeh blur" and adds that "the depth buffer is already a graph resource". Two
+of those three claims needed revising before any code.
+
+### The depth buffer was a graph resource nobody could read
+
+`RGTargetDesc` has a `SampleDepth` flag and the scene target has never set it,
+so the depth attachment is written and then unreachable. Colour is always
+sampleable; depth costs an extra usage flag and until now nothing wanted it.
+
+It is now **on unconditionally**, rather than only when depth of field is
+enabled, and that follows the rule the velocity attachment already established
+one item earlier: *a target whose shape depends on a setting is a target every
+pipeline and every reflection probe has to agree with about that setting too*,
+and 7q is the record of how that goes. The cost is one usage flag and, on some
+hardware, giving up a depth compression mode. The alternative is a target that
+reallocates when a checkbox moves.
+
+### It runs after the anti-aliasing resolve, not before
+
+The tempting place is immediately after the scene pass, where the colour and
+the depth are the same target at the same size. It is the wrong place, and the
+reason is TAA: reprojection follows motion vectors that describe where the
+*sharp geometry* went, and running it over an already-defocused image asks the
+neighbourhood clamp to reconcile a blur with a history that was blurred
+differently. Blurring after the accumulation is what every temporal pipeline
+does, and for this reason.
+
+So depth of field sits between the resolve and bloom — which also means bloom
+blooms the defocused image, which is the right way round: a bright out-of-focus
+highlight should glow as the disc it has become, not as the point it was.
+
+That leaves it reading depth from a target it is no longer the same size as.
+Under SSAA the depth is supersampled and the colour is not; under TAA the depth
+carries the frame's sub-pixel jitter. Both are handled by sampling depth with
+**normalised coordinates** rather than texel indices — the resolution mismatch
+disappears, and half a pixel of jitter is half a pixel of error in a radius
+measured in whole ones.
+
+### A real lens, because the controls are the ones people already know
+
+The circle of confusion comes from the thin-lens equation rather than from a
+`FocusRange` slider somebody tunes by eye:
+
+```
+CoC = |z - d| / z  *  f² / (N * (d - f))
+```
+
+with `z` the linear depth of the pixel, `d` the focus distance, `f` the focal
+length and `N` the f-number — then divided by the sensor height and multiplied
+by the frame's height to land in pixels.
+
+The argument for the physical form is the same one the vignette made in 7w:
+the controls become the ones a photographer already has, f/1.4 does what f/1.4
+does, and the relationship between them is not something anybody has to
+rediscover per scene. The argument against — that it is four numbers where two
+would do — is real, and is why the sensor height is a constant rather than a
+fifth.
+
+### The artefact to design against is bleeding, not cost
+
+The failure that makes depth of field look like a filter rather than a lens is
+a blurred *background* leaking over a sharp foreground edge: a gather at an
+in-focus pixel reaches out, finds defocused pixels behind, and averages them
+in, so the subject grows a halo of the wall behind it.
+
+The fix is that a tap contributes only if its **own** circle of confusion is
+large enough to have reached the pixel doing the gathering. That is the
+physical statement — light spreads from where it landed, not to where it is
+wanted — and it costs one comparison per tap.
+
+Foreground over background is the opposite case and is *supposed* to bleed: an
+out-of-focus object in front genuinely does spread over what is behind it. The
+two are not symmetric and a gather that treats them the same is wrong in one
+direction or the other.
+
+### Half resolution, and a fixed pattern
+
+The gather runs at half resolution — the same trade the bloom chain already
+makes, and for the same reason: a blur is a low-frequency thing and paying full
+rate for it buys detail that the blur then removes. The composite is full
+resolution, so sharp regions stay sharp.
+
+The sample pattern is a **fixed golden-angle spiral**, not a random or
+frame-varying one. Worth stating explicitly after 9.2 and 9.3: **depth of field
+introduces no new determinism hazard.** Grain had to be seeded from the frame
+number and auto exposure had to be driven by the loop's frame time; this one is
+a pure function of the image and the settings, so `--screenshot-frame` needs
+nothing new from it.
+
+### Off is exactly off
+
+`DepthOfField` defaults to false, no pass is added, and the chain is the one
+that ran before it existed — the same guarantee 7w and 7y rest on, and the
+third time it has been what keeps every recorded threshold in the repository
+valid across a phase-9 item.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

@@ -107,6 +107,29 @@ where it is used. The same settings appear in the Inspector when the
 `.rvpostprofile` is clicked in the Content browser — one drawer, so the two
 cannot disagree.
 
+### Depth of field
+
+**Depth of field** is on the profile and **off by default**. It is a real
+lens rather than a blur slider: the circle of confusion comes from the
+thin-lens equation, so the controls are the ones a photographer already has.
+
+| Control | What it does |
+|---|---|
+| **Focus distance** | Where the plane of sharp focus is, in metres |
+| **Focal length** | In millimetres. 50 is normal; longer is narrower *and* shallower |
+| **Aperture (f)** | f/1.4 throws a background away, f/16 keeps most of a scene sharp |
+| **Max blur** | Ceiling on the radius, in pixels |
+
+It runs after anti-aliasing and before bloom, so a bright out-of-focus
+highlight glows as the disc it has become rather than as the point it was.
+
+> [!TRAP]
+> A short focal length at a wide aperture is a *very* shallow field — 85 mm at
+> f/1.4 focused at 5 m keeps about ten centimetres sharp, so a subject a step
+> either side of the focus distance is soft. That is what those numbers mean
+> on a real camera too. If nothing looks sharp, the focus distance is wrong
+> before the effect is.
+
 ### Auto exposure
 
 **Auto exposure** is on the same profile and is **off by default**. On, the

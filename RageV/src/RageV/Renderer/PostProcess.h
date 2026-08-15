@@ -121,6 +121,42 @@ namespace RageV
 									RHI::Format outputFormat,
 									float feedback, bool hasHistory);
 
+		// Depth of field, in the three passes it takes. On the linear HDR
+		// scene, after the anti-aliasing resolve and before bloom -- see
+		// ENGINE-NOTES 7z for why both halves of that matter.
+		struct FocusParams
+		{
+			float FocusDistance = 5.0f;   // metres
+			float FocalLength = 0.05f;    // metres
+			float FNumber = 2.8f;
+			float MaxRadius = 24.0f;      // pixels of the output
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+		};
+
+		// 1: colour and the signed circle of confusion, at half size.
+		// `depth` is the scene target's depth attachment, which is *not*
+		// necessarily the same size as `scene` -- under SSAA it is larger.
+		// Sampled with normalised coordinates for exactly that reason.
+		static void DofPrepass(RHI::RHICommandList& cmd,
+							   const RHI::Ref<RHI::RHITexture>& scene,
+							   const RHI::Ref<RHI::RHITexture>& depth,
+							   uint32_t frameHeight, RHI::Format outputFormat,
+							   const FocusParams& focus);
+
+		// 2: the gather, weighted so a tap contributes only where its own
+		// circle of confusion reaches the pixel being written.
+		static void DofGather(RHI::RHICommandList& cmd,
+							  const RHI::Ref<RHI::RHITexture>& source,
+							  uint32_t width, uint32_t height,
+							  RHI::Format outputFormat, float maxRadius);
+
+		// 3: the blur back over the sharp frame, at full resolution.
+		static void DofComposite(RHI::RHICommandList& cmd,
+								 const RHI::Ref<RHI::RHITexture>& scene,
+								 const RHI::Ref<RHI::RHITexture>& blurred,
+								 RHI::Format outputFormat);
+
 		// A straight copy, for when anti-aliasing is off but the chain still
 		// has to land in the target the caller wanted.
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
@@ -138,6 +174,7 @@ namespace RageV
 			SmaaEdges, SmaaWeights, SmaaBlend,
 			SsaaResolve,
 			TaaResolve,
+			DofPrepass, DofGather, DofComposite,
 			Count
 		};
 

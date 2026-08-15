@@ -1515,33 +1515,73 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 9.4, depth of field
+### START HERE: 9.5, motion blur
 
-Phase 9 is **9.0, 9.1, 9.2 and 9.3 done**, plus the `.rvlut` recipe and TAA's
-two extra dials. Nothing is broken and nothing is half-finished.
+Phase 9 is **9.0, 9.1, 9.2, 9.3 and 9.4 done**, plus the `.rvlut` recipe and
+TAA's two extra dials. Nothing is broken and nothing is half-finished.
 
-**Next is 9.4 depth of field**, then 9.5 motion blur (unblocked -- 7.10 left
-the velocity attachment and the sky's camera-rotation motion in place for it),
-9.6 SSAO and 9.7 SSR.
+**Next is 9.5 motion blur**, then 9.6 SSAO and 9.7 SSR.
 
-**All three now have their prerequisite.** 9.2 taught the render graph
-`AddComputePass`: a pass that declares `Sample`, writes no target and does not
-begin a render pass, because a dispatch inside one is illegal on Vulkan and the
-thing a compute pass wants to read is usually a target the graph owns and
-pools. That was the expensive half of 9.2 and it is done once for all of them.
+**9.5 is the best-prepared item in the phase.** 7.10 left the velocity
+attachment, every instance's previous world transform, and the sky's
+camera-rotation motion in place specifically for it -- that last one measures
+nothing under TAA, which has a neighbourhood clip, and exists precisely for
+this. 9.2 left the graph able to run compute passes. 9.4 left the scene depth
+sampleable and a working example of a gather that respects depth ordering,
+which is most of what a good motion blur needs too.
+
+**Read 7r before touching the velocity buffer.** Velocities are jitter-free by
+construction, and skinned meshes report the *object's* motion rather than the
+limb's, because bones are not double-buffered. Both will look like bugs.
 
 ### Two things left open, neither blocking
 
-**The focus-click guard has never been confirmed against a real click.** It is
-verified to arm exactly once when the window appears, but what it does to an
-actual click-through needs a person: alt-tab into the editor with the cursor
-over a Render Settings slider and press -- the value must not move. Thirty
-seconds, and it closes the one thing that could not be tested here.
+**The focus-click guard has never been confirmed against a real click.** Alt-tab
+into the editor with the cursor over a Render Settings slider and press -- the
+value must not move. Thirty seconds, and it closes the one thing that could not
+be tested here.
 
-**An orphaned LUT is not warned about.** A post profile no camera uses now says
-so in the inspector. The equivalent for a `.rvlut` that no *profile* names was
-deliberately not built: it means scanning every profile asset in the project
-rather than walking the scene's cameras. Worth doing if it recurs.
+**An orphaned LUT is not warned about**, the way an orphaned post profile now
+is. It means scanning every profile asset rather than walking the scene's
+cameras. Worth doing if it recurs.
+
+---
+
+**Done: 9.4, depth of field (2026-08-15).** ENGINE-NOTES 7z. A thin-lens circle
+of confusion -- focus distance, focal length, f-number -- then a
+half-resolution golden-angle gather and a full-resolution composite. Off by
+default and off exactly, so nothing else moved.
+
+**Two of the three claims in the roadmap's own entry needed revising.** The
+depth buffer was "already a graph resource" and was one *nobody could read*:
+`RGTargetDesc::SampleDepth` had never been set. And it is not a separable
+blur, because a disc is not separable.
+
+**The two bugs it shipped with both came from the same misconception**, which
+is the part worth carrying forward: *a gather cannot be sized by the pixel
+doing the gathering.*
+
+- A defocused **foreground** never arrived. The sharp gaps between the bars had
+  a small circle of confusion of their own, so they gathered a radius of about
+  a pixel and never reached the bars that were supposed to be spreading over
+  them -- and the bars, gathering only each other, averaged a uniform colour
+  and came out *identical to no blur at all*. Fixed by gathering at the largest
+  radius the settings allow and letting the per-tap test decide.
+- A blurred **background** bled over sharp foreground. "Does this tap's circle
+  of confusion reach here" is the right question in front and the wrong one
+  behind: a blurred background does reach a sharp foreground, and is then
+  **occluded** by it. Fixed by capping a tap that is behind the centre at the
+  *centre's* radius, so a sharp pixel admits nothing from behind it and a
+  blurred one admits everything, with no special case in between.
+
+An earlier attempt at the second had a blanket "anything in front always
+contributes" rule, which fired for taps in front by a hair and perfectly
+sharp -- it softened exactly what was supposed to be crisp. **A special case
+that fires on the sign of a value will fire on the noise in it.**
+
+Unlike 9.2 and 9.3 this adds **no determinism hazard**: the sample pattern is
+a fixed golden-angle spiral, so the pass is a pure function of the image and
+the settings and `--screenshot-frame` needs nothing new from it.
 
 ---
 

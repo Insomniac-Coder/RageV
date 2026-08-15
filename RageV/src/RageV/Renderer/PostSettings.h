@@ -117,6 +117,41 @@ namespace RageV
 		// of 10 ms land where one step of 100 ms does.
 		float AutoExposureSpeed = 3.0f;
 
+		// --- depth of field (9.4). ENGINE-NOTES 7z --------------------------
+		//
+		// **Off by default, and off exactly**: no passes are added at all, so
+		// the chain is the one that ran before the feature existed.
+		//
+		// Runs after the anti-aliasing resolve and before bloom. After the
+		// resolve because reprojecting a temporal filter over an
+		// already-defocused image asks it to reconcile a blur with a history
+		// blurred differently; before bloom because a bright out-of-focus
+		// highlight should glow as the disc it has become.
+		bool DepthOfField = false;
+
+		// The lens, in the units a photographer already has. The circle of
+		// confusion comes from the thin-lens equation rather than from a blur
+		// slider, so f/1.4 does what f/1.4 does and the relationship between
+		// the three is not something to rediscover per scene.
+		//
+		// Where the plane of sharp focus is, in metres.
+		float FocusDistance = 5.0f;
+
+		// In millimetres, the way lenses are sold. 50 is normal on the 35 mm
+		// sensor these are measured against; longer is both narrower and
+		// shallower.
+		float FocalLength = 50.0f;
+
+		// The f-number. Small is a wide aperture and a shallow field: f/1.4
+		// throws a background away, f/16 keeps most of a scene sharp.
+		float Aperture = 2.8f;
+
+		// Ceiling on the blur radius, in pixels of the output. The gather's
+		// tap count is chosen against this: let the radius grow without bound
+		// and the disc thins into a ring of separate dots, which reads as a
+		// broken effect rather than as a shallow one.
+		float MaxBokehRadius = 24.0f;
+
 		// **All three default to off, and off is exact.** The shader branches
 		// past each rather than computing a no-op, so a profile that has not
 		// touched them renders the same bytes as a build without them -- which

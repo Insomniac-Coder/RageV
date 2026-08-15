@@ -1,0 +1,148 @@
+// Depth of field, pass 2 of 3: the gather.
+//
+// A disc of taps around each pixel, weighted so that a tap contributes only if
+// its **own** circle of confusion is large enough to have reached here. That is
+// the physical statement -- light spreads from where it landed, not to where it
+// is wanted -- and it is what stops a blurred background leaking over a sharp
+// foreground edge, which is the artefact that makes depth of field read as a
+// filter rather than as a lens. ENGINE-NOTES 7z.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// RGB colour, A the signed circle of confusion in *full-resolution* pixels.
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	float Exposure;
+	float BloomIntensity;
+	float A;
+	float B;
+	float Unused2;
+	float FlipY;
+
+	// Half-resolution texel size, and the ceiling on the radius in the same
+	// half-resolution pixels the taps are placed in.
+	float TexelX;
+	float TexelY;
+	float MaxRadius;
+} u_Params;
+
+// A golden-angle spiral: 48 taps that fill a disc evenly at any radius, with
+// no direction preferred and no lattice for a repeating scene to beat against.
+//
+// **Fixed, not random and not frame-varying.** Worth stating after 9.2 and
+// 9.3: this pass introduces no new determinism hazard. Grain had to be seeded
+// from the frame number and auto exposure from the loop's frame time; a fixed
+// pattern is a pure function of the image, so --screenshot-frame needs nothing
+// from it.
+const int kTaps = 48;
+const float kGoldenAngle = 2.39996323;
+
+void main()
+{
+	vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
+	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+
+	const vec4 centre = texture(u_Source, uv);
+	const float centreCoC = centre.a;
+
+	// Everything is accumulated, including the centre, so a pixel with no
+	// blur at all comes out as itself rather than as a special case.
+	vec3 sum = centre.rgb;
+	float weight = 1.0;
+
+	// How blurred this pixel ends up, which is **not** the same question as
+	// how blurred it is in its own right. A sharp gap that a defocused
+	// foreground has spread across is sharp by its own depth and blurred in
+	// the image, and the composite has to use the second one or it will throw
+	// the spread away and take the sharp pixel back.
+	float reach = abs(centreCoC) * 0.5;
+
+	// How defocused this pixel is in its own right, which is the ceiling on
+	// what anything behind it may blur in. See the occlusion rule below.
+	const float centreRadius = min(abs(centreCoC) * 0.5, u_Params.MaxRadius);
+
+	// The radius this pixel gathers over: **the largest the settings allow**,
+	// not this pixel's own.
+	//
+	// Sizing it by the destination is the obvious thing and it is wrong in one
+	// direction that matters. A gap of sharp background between two defocused
+	// foreground bars has a small circle of confusion of its own, so it would
+	// gather a radius of about a pixel and never reach the bars that are
+	// supposed to be spreading over it -- and the bars, gathering only each
+	// other, would average a uniform colour and come out unchanged. A
+	// defocused foreground would render *identically to no blur at all*.
+	//
+	// So the disc is fixed and the per-tap test below decides what is in it.
+	// An entirely in-focus frame pays for taps that all weigh zero, which is
+	// the cost of being able to see a foreground arrive; it is bounded by the
+	// max-blur setting, which is why that setting exists. ENGINE-NOTES 7z.
+	const float radius = u_Params.MaxRadius;
+
+	for (int i = 0; i < kTaps; i++)
+	{
+		// sqrt of the index spaces the taps by *area* rather than by index,
+		// which is what makes the disc uniformly dense instead of crowded at
+		// the middle.
+		const float t = (float(i) + 0.5) / float(kTaps);
+		const float r = sqrt(t) * radius;
+		const float theta = float(i) * kGoldenAngle;
+
+		const vec2 offset = vec2(cos(theta), sin(theta)) * r;
+		const vec4 tap = texture(u_Source, uv + offset * texel);
+
+		// The tap's own radius, in the same units as `r`.
+		const float tapRadius = abs(tap.a) * 0.5;
+
+		// How far this tap is allowed to have spread, which is **not** simply
+		// its own radius -- it depends on which side of the centre it is.
+		//
+		// "Does its circle of confusion reach here" is the right question for
+		// a tap in *front*: a defocused foreground genuinely spreads over what
+		// is behind it. It is the wrong question for a tap behind, because a
+		// blurred background reaches a sharp foreground geometrically and is
+		// then **occluded** by it -- the light never lands there. Asking only
+		// about reach is what puts a halo of the far wall around the subject,
+		// which is the single artefact that makes depth of field read as a
+		// filter rather than as a lens.
+		//
+		// So a tap behind the centre is capped at the *centre's* radius: it
+		// can only blur in as far as this pixel is itself defocused. A sharp
+		// pixel therefore admits nothing from behind it, and a blurred one
+		// admits everything, with no special case between them.
+		const float capped = tap.a < centreCoC
+						   ? tapRadius
+						   : min(tapRadius, centreRadius);
+
+		// Smoothed over one pixel rather than a hard test, because a binary
+		// comparison at a silhouette produces a stair-stepped edge to the
+		// bokeh -- an artefact of the test rather than of the lens.
+		const float contributes = clamp(capped - r + 1.0, 0.0, 1.0);
+
+		sum += tap.rgb * contributes;
+		weight += contributes;
+
+		reach = max(reach, tapRadius * contributes);
+	}
+
+	// The blurred image, and in alpha how much of it the composite should
+	// take -- back in full-resolution pixels, so the threshold there is
+	// stated in the units somebody reading it would assume.
+	o_Color = vec4(sum / max(weight, 1.0e-4), reach * 2.0);
+}

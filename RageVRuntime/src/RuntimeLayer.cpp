@@ -233,6 +233,11 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Render = Project::Render();
 	frame.Post = m_Scene->GetPostSettings();
 	frame.OutputFormat = device.GetSwapchainFormat();
+	{
+		const RageV::Vec2 clips = m_Scene->GetCameraClipPlanes();
+		frame.NearClip = clips.x;
+		frame.FarClip = clips.y;
+	}
 	// One frame chain, so one history and one adapted exposure. See
 	// TemporalHistory for why the graph cannot own either.
 	frame.History = &m_History;

@@ -448,6 +448,19 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Post = m_Scene->GetPostSettings();
 	scene.ClearColor = Vec4(m_ClearColor, 1.0f);
 	scene.OutputFormat = kViewportFormat;
+	// The viewport draws through the editor camera unless it has been switched
+	// to the scene's, so the planes follow whichever is actually projecting.
+	if (m_UseEditorCamera)
+	{
+		scene.NearClip = m_EditorCamera.GetNearClip();
+		scene.FarClip = m_EditorCamera.GetFarClip();
+	}
+	else
+	{
+		const RageV::Vec2 clips = m_Scene->GetCameraClipPlanes();
+		scene.NearClip = clips.x;
+		scene.FarClip = clips.y;
+	}
 	scene.History = &m_SceneHistory;
 	scene.Exposure = &m_SceneExposure;
 	// The loop's frame time, not a clock read here. ENGINE-NOTES 7y.
@@ -531,6 +544,11 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Post = m_Scene->GetPostSettings();
 		game.ClearColor = Vec4(m_ClearColor, 1.0f);
 		game.OutputFormat = kViewportFormat;
+		{
+			const RageV::Vec2 clips = m_Scene->GetCameraClipPlanes();
+			game.NearClip = clips.x;
+			game.FarClip = clips.y;
+		}
 		game.History = &m_GameHistory;
 		game.Exposure = &m_GameExposure;
 		game.DeltaSeconds = ts.GetSeconds();

@@ -244,6 +244,15 @@ namespace RageV
 		// existed. ENGINE-NOTES 7s.
 		PostSettings GetPostSettings();
 
+		// The primary camera's near and far planes, as (near, far).
+		//
+		// Resolved the same way the post settings are, and for the same
+		// caller: the frame graph needs real distances to turn a depth buffer
+		// value back into metres, and the buffer holds a non-linear 0..1.
+		// Falls back to a sane pair when the scene names no camera, because a
+		// scene without one still renders through the editor's. ENGINE-NOTES 7z.
+		Vec2 GetCameraClipPlanes();
+
 		// For tools and tests that need to iterate arbitrary component sets.
 		// The editor panels reach it through friendship instead; this exists so
 		// that code outside the engine does not have to.

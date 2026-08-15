@@ -1358,6 +1358,11 @@ namespace
 			return ((const PostSettings*)block)->AutoExposure;
 		}
 
+		bool DepthOfFieldOn(const void* block)
+		{
+			return ((const PostSettings*)block)->DepthOfField;
+		}
+
 		std::vector<FieldDesc> BuildPostSettings()
 		{
 			return {
@@ -1474,6 +1479,41 @@ namespace
 							"Without it, anything very bright and very small -- the "
 							"sun in curved metal -- survives as an isolated blob "
 							"floating near the surface that produced it.")))),
+
+				// --- depth of field. ENGINE-NOTES 7z ---------------------------
+				Field<&PostSettings::DepthOfField>("DepthOfField",
+					Named("Depth of field", FieldHint{ .Tooltip =
+						"A real lens rather than a blur slider: the circle of "
+						"confusion comes from the thin-lens equation, so f/1.4 "
+						"does what f/1.4 does. Runs after anti-aliasing and "
+						"before bloom, so an out-of-focus highlight glows as "
+						"the disc it has become." })),
+
+				Field<&PostSettings::FocusDistance>("FocusDistance",
+					Named("Focus distance", OnlyWhen(DepthOfFieldOn,
+						Drag(0.05f, 0.05f, 500.0f,
+							"Where the plane of sharp focus is, in metres.")))),
+
+				Field<&PostSettings::FocalLength>("FocalLength",
+					Named("Focal length", OnlyWhen(DepthOfFieldOn,
+						Drag(0.5f, 8.0f, 400.0f,
+							"In millimetres, the way lenses are sold. 50 is "
+							"normal on a 35 mm sensor; longer is both narrower "
+							"and shallower.")))),
+
+				Field<&PostSettings::Aperture>("Aperture",
+					Named("Aperture (f)", OnlyWhen(DepthOfFieldOn,
+						Drag(0.02f, 0.7f, 32.0f,
+							"The f-number. Small is a wide aperture and a "
+							"shallow field: f/1.4 throws a background away, "
+							"f/16 keeps most of a scene sharp.")))),
+
+				Field<&PostSettings::MaxBokehRadius>("MaxBokehRadius",
+					Named("Max blur", OnlyWhen(DepthOfFieldOn,
+						Drag(0.25f, 2.0f, 64.0f,
+							"Ceiling on the blur radius in pixels. Let it grow "
+							"without bound and the disc of samples thins into "
+							"a ring of separate dots.")))),
 
 				// --- lens and film, in the order they run ---------------------
 				Field<&PostSettings::ChromaticAberration>("ChromaticAberration",

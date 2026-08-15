@@ -355,6 +355,23 @@ namespace RageV
 			camera.GetComponent<CameraComponent>().PostProfile);
 	}
 
+	Vec2 Scene::GetCameraClipPlanes()
+	{
+		Entity camera = GetPrimaryCameraEntity();
+		if (!camera || !camera.HasComponent<CameraComponent>())
+			return Vec2(0.05f, 1000.0f);
+
+		const SceneCamera& cam = camera.GetComponent<CameraComponent>().Camera;
+
+		// Orthographic near and far are signed distances either side of the
+		// camera rather than distances in front of it, so the perspective pair
+		// is the only one a depth linearisation means anything for.
+		if (cam.Projection != SceneCamera::ProjectionType::Perspective)
+			return Vec2(0.05f, 1000.0f);
+
+		return Vec2(cam.PerspectiveNear, cam.PerspectiveFar);
+	}
+
 	void Scene::OnViewportResize(float width, float height)
 	{
 		auto view = m_Registry.view<CameraComponent>();

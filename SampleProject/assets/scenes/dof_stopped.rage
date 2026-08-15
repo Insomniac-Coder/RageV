@@ -1,0 +1,270 @@
+Scene: Depth of field
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.02, 0.02, 0.025]
+  SkyZenith: [0.02, 0.02, 0.025]
+  SkyGround: [0.02, 0.02, 0.025]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 13501714567403959417
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Bar 0-0
+    TransformComponent:
+      Position: [-1.66, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.05, 3, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Bar 0-1
+    TransformComponent:
+      Position: [-1.5, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.05, 3, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Bar 0-2
+    TransformComponent:
+      Position: [-1.34, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.05, 3, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 1663341875487337577
+    TagComponent:
+      Tag: Bar 0-3
+    TransformComponent:
+      Position: [-1.18, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.05, 3, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 13064056694810536062
+    TagComponent:
+      Tag: Bar 0-4
+    TransformComponent:
+      Position: [-1.02, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.05, 3, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 6018027440424182931
+    TagComponent:
+      Tag: Bar 0-5
+    TransformComponent:
+      Position: [-0.86, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.05, 3, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 17418742259747381416
+    TagComponent:
+      Tag: Bar 0-6
+    TransformComponent:
+      Position: [-0.7, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.05, 3, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 10372713005361028285
+    TagComponent:
+      Tag: Bar 0-7
+    TransformComponent:
+      Position: [-0.54, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.05, 3, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 3326683750974675154
+    TagComponent:
+      Tag: Bar 1-0
+    TransformComponent:
+      Position: [4.05, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [0.375, 22.5, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 14727398570297873639
+    TagComponent:
+      Tag: Bar 1-1
+    TransformComponent:
+      Position: [5.25, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [0.375, 22.5, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 7681369315911520508
+    TagComponent:
+      Tag: Bar 1-2
+    TransformComponent:
+      Position: [6.45, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [0.375, 22.5, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 635340061525167377
+    TagComponent:
+      Tag: Bar 1-3
+    TransformComponent:
+      Position: [7.65, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [0.375, 22.5, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 12036054880848365862
+    TagComponent:
+      Tag: Bar 1-4
+    TransformComponent:
+      Position: [8.85, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [0.375, 22.5, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 4990025626462012731
+    TagComponent:
+      Tag: Bar 1-5
+    TransformComponent:
+      Position: [10.05, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [0.375, 22.5, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 16390740445785211216
+    TagComponent:
+      Tag: Bar 1-6
+    TransformComponent:
+      Position: [11.25, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [0.375, 22.5, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 9344711191398858085
+    TagComponent:
+      Tag: Bar 1-7
+    TransformComponent:
+      Position: [12.45, 0, -26]
+      Rotation: [0, 0, 0]
+      Scale: [0.375, 22.5, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.7, 0.7, 0.7, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1

@@ -1,0 +1,72 @@
+// Depth of field, pass 3 of 3: put the blur back over the sharp image.
+//
+// Full resolution, so anything in focus is the frame that was rendered rather
+// than a half-resolution copy of it -- that is the whole reason the blur was
+// allowed to be cheap. ENGINE-NOTES 7z.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// The sharp frame, at full resolution.
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+
+// The gathered one, at half. RGB blurred, A the circle of confusion.
+layout(set = 0, binding = 1) uniform sampler2D u_Blurred;
+
+layout(push_constant) uniform Params
+{
+	float Exposure;
+	float BloomIntensity;
+	float A;
+	float B;
+	float Unused2;
+	float FlipY;
+
+	// Below this many pixels of circle of confusion a pixel is simply sharp.
+	// One pixel is the honest threshold: a blur smaller than the thing it is
+	// blurring is not visible, and taking the half-resolution image for it
+	// would be trading a sharp pixel for a soft one and calling it a lens.
+	float SharpBelow;
+} u_Params;
+
+void main()
+{
+	vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec3 sharp = texture(u_Scene, uv).rgb;
+	const vec4 blurred = texture(u_Blurred, uv);
+
+	// How blurred the gather decided this pixel ends up -- **not** its own
+	// circle of confusion. A sharp pixel that a defocused foreground has
+	// spread across is sharp by its own depth and blurred in the image, and
+	// blending by depth would take the sharp version back and throw the
+	// spread away.
+	//
+	// Read through a bilinear fetch, deliberately: the transition between
+	// sharp and blurred is then smooth across a silhouette rather than
+	// switching on the half-resolution grid, which would be a staircase along
+	// every defocused edge.
+	const float radius = blurred.a;
+
+	// Linear over one pixel, from "not blurred at all" to "entirely the
+	// gathered image". Anything above the threshold is fully the blur, because
+	// at that point the sharp image no longer contains information the blur
+	// has not already averaged in.
+	const float mixed = clamp(radius - u_Params.SharpBelow, 0.0, 1.0);
+
+	o_Color = vec4(mix(sharp, blurred.rgb, mixed), 1.0);
+}

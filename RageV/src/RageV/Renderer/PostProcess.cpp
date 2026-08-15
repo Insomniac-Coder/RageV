@@ -62,7 +62,10 @@ namespace RageV
 				case 7: return "assets/shaders/smaa_weights.rvshader";
 				case 8: return "assets/shaders/smaa_blend.rvshader";
 				case 9: return "assets/shaders/ssaa_resolve.rvshader";
-				default: return "assets/shaders/taa_resolve.rvshader";
+				case 10: return "assets/shaders/taa_resolve.rvshader";
+				case 11: return "assets/shaders/dof_prepass.rvshader";
+				case 12: return "assets/shaders/dof_gather.rvshader";
+				default: return "assets/shaders/dof_composite.rvshader";
 			}
 		}
 
@@ -80,8 +83,9 @@ namespace RageV
 			RHIDevice* Device = nullptr;
 
 			// One per Shader::Count. Not spelled with the enum because that is
-			// private to PostProcess and this struct is not.
-			std::array<Ref<RHIShader>, 11> Shaders;
+			// private to PostProcess and this struct is not -- so the number is
+			// asserted against it in Init instead, where the enum is in scope.
+			std::array<Ref<RHIShader>, 14> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -140,6 +144,9 @@ namespace RageV
 		s_Data->Device = &device;
 
 		ShaderCompiler::Init();
+
+		static_assert((int)Shader::Count <= 14,
+					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
 		for (int i = 0; i < (int)Shader::Count; i++)
@@ -481,6 +488,98 @@ namespace RageV
 				 Sampling::Linear, Sampling::Linear,
 				 grading ? lut : s_Data->IdentityLut, Sampling::Linear,
 				 lens.Exposure ? lens.Exposure : s_Data->UnitExposure);
+	}
+
+	// --- depth of field. ENGINE-NOTES 7z ------------------------------------
+
+	namespace
+	{
+		// PostParams followed by the lens, the same way TonemapParams extends
+		// it -- so Dispatch still finds FlipY where it has always been.
+		struct DofPrepassParams
+		{
+			PostParams Base;
+			float FocusDistance = 5.0f;
+			float FocalLength = 0.05f;
+			float FNumber = 2.8f;
+			float FrameHeight = 1080.0f;
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float MaxRadius = 24.0f;
+		};
+
+		struct DofGatherParams
+		{
+			PostParams Base;
+			float TexelX = 0.0f;
+			float TexelY = 0.0f;
+			float MaxRadius = 24.0f;
+		};
+
+		struct DofCompositeParams
+		{
+			PostParams Base;
+			float SharpBelow = 1.0f;
+		};
+	}
+
+	void PostProcess::DofPrepass(RHICommandList& cmd, const Ref<RHITexture>& scene,
+								 const Ref<RHITexture>& depth, uint32_t frameHeight,
+								 Format outputFormat, const FocusParams& focus)
+	{
+		if (!s_Data || !scene || !depth)
+			return;
+
+		DofPrepassParams params;
+		// Clamped off the focal length, because the thin-lens denominator is
+		// `d - f`: focusing *at* the focal length is focusing at infinity, and
+		// the expression diverges rather than doing something interesting.
+		params.FocusDistance = Math::Max(focus.FocusDistance, focus.FocalLength * 1.01f);
+		params.FocalLength = focus.FocalLength;
+		params.FNumber = Math::Max(focus.FNumber, 0.5f);
+		params.FrameHeight = (float)frameHeight;
+		params.NearClip = focus.NearClip;
+		params.FarClip = focus.FarClip;
+		params.MaxRadius = focus.MaxRadius;
+
+		// Depth is read with the point sampler. Filtering it would average a
+		// near distance with a far one and produce a distance nothing in the
+		// scene is at -- which reads as a halo around every silhouette.
+		Dispatch(cmd, Shader::DofPrepass, outputFormat, scene, depth,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point);
+	}
+
+	void PostProcess::DofGather(RHICommandList& cmd, const Ref<RHITexture>& source,
+								uint32_t width, uint32_t height,
+								Format outputFormat, float maxRadius)
+	{
+		if (!s_Data || !source || width == 0 || height == 0)
+			return;
+
+		DofGatherParams params;
+		params.TexelX = 1.0f / (float)width;
+		params.TexelY = 1.0f / (float)height;
+		// In the half-resolution pixels the taps are placed in.
+		params.MaxRadius = maxRadius * 0.5f;
+
+		Dispatch(cmd, Shader::DofGather, outputFormat, source, nullptr,
+				 &params, sizeof(params));
+	}
+
+	void PostProcess::DofComposite(RHICommandList& cmd, const Ref<RHITexture>& scene,
+								   const Ref<RHITexture>& blurred, Format outputFormat)
+	{
+		if (!s_Data || !scene || !blurred)
+			return;
+
+		DofCompositeParams params;
+		// One pixel. A blur smaller than the thing it is blurring is not
+		// visible, and taking the half-resolution image for it would be
+		// trading a sharp pixel for a soft one and calling it a lens.
+		params.SharpBelow = 1.0f;
+
+		Dispatch(cmd, Shader::DofComposite, outputFormat, scene, blurred,
+				 &params, sizeof(params));
 	}
 
 	void PostProcess::FXAA(RHICommandList& cmd, const Ref<RHITexture>& source,
