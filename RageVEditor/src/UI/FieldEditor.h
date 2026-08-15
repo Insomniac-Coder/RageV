@@ -76,6 +76,16 @@ namespace RageV::UI
 	// that reason.
 	void DrawPostProfile(AssetHandle handle);
 
+	// The rows under a Colour LUT slot, and the same drawer the content
+	// browser uses when a LUT is clicked.
+	//
+	// What it shows depends on which kind of LUT it is, because they are
+	// genuinely different things: a `.rvlut` gets its knobs, editable and
+	// saved on the spot; a `.cube` gets a sentence saying it is baked data
+	// and cannot be edited. Pretending a `.cube` has knobs would mean
+	// inventing values that are not in the file. ENGINE-NOTES 7v.
+	void DrawColorLut(AssetHandle handle);
+
 	// Every field in a list, honouring each one's VisibleIf. Returns true if
 	// any of them changed.
 	//

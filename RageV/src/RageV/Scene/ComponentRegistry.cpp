@@ -5,6 +5,7 @@
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/RenderSettings.h"
 #include "RageV/Renderer/PostSettings.h"
+#include "RageV/Asset/LutRecipe.h"
 #include "ScriptRegistry.h"
 
 namespace RageV
@@ -1393,6 +1394,65 @@ namespace
 			};
 		}
 
+		// The knobs, in the order they are applied. The inspector draws a
+		// registry in order, so the panel reads as the pipeline runs --
+		// somebody chasing an unexpected result can follow the rows downward.
+		// ENGINE-NOTES 7v.
+		std::vector<FieldDesc> BuildLutRecipe()
+		{
+			return {
+				Field<&Assets::LutRecipe::Temperature>("Temperature",
+					Drag(0.005f, -1.0f, 1.0f,
+						"Warm above zero, cool below. A look tweak on already "
+						"displayed colours rather than a white balance on sensor "
+						"data, so the range is deliberately gentle.")),
+
+				Field<&Assets::LutRecipe::Tint>("Tint",
+					Drag(0.005f, -1.0f, 1.0f,
+						"Magenta above zero, green below. The other axis of white "
+						"balance, and the one that rescues a grade that has gone "
+						"subtly sickly rather than subtly wrong.")),
+
+				Field<&Assets::LutRecipe::Lift>("Lift",
+					Named("Lift", Drag(0.005f, -1.0f, 1.0f,
+						"Moves the black end without touching white: at full white "
+						"the term is zero on every channel. Raising it is what "
+						"gives a grade the washed, filmic shadow."))),
+
+				Field<&Assets::LutRecipe::Gamma>("Gamma",
+					Named("Gamma", Drag(0.01f, 0.05f, 4.0f,
+						"Bends everything between black and white, leaving both "
+						"ends where they are. Per channel, so it is also the "
+						"finest control over a colour cast in the midtones."))),
+
+				Field<&Assets::LutRecipe::Gain>("Gain",
+					Named("Gain", Drag(0.01f, 0.0f, 4.0f,
+						"Scales the highlights. Per channel, and the one to reach "
+						"for when the whites are the wrong colour."))),
+
+				Field<&Assets::LutRecipe::Contrast>("Contrast",
+					Drag(0.005f, 0.0f, 4.0f,
+						"About a 0.5 pivot, which is mid-grey in the encoded values "
+						"this operates on. Applied after gain and before "
+						"saturation -- that order is what makes these behave the "
+						"way a colourist expects.")),
+
+				Field<&Assets::LutRecipe::Saturation>("Saturation",
+					Drag(0.005f, 0.0f, 4.0f,
+						"Toward Rec.709 luma: 0 is monochrome, 1 untouched. The "
+						"same weights the tone curve uses, so a desaturated colour "
+						"does not shift hue on its way to grey.")),
+
+				Field<&Assets::LutRecipe::Size>("Size",
+					Named("Table size", Drag(0.2f, 2, 64,
+						"Entries per axis in the baked table. 33 is what grading "
+						"tools emit most often and is odd, so the middle of the "
+						"range lands on an entry rather than between two. Larger "
+						"is a bigger texture for a difference nobody has "
+						"measured."))),
+			};
+		}
+
 		std::vector<FieldDesc> BuildSceneEnvironment()
 		{
 			return {
@@ -1470,6 +1530,17 @@ namespace
 	}
 
 	const FieldDesc* PostSettingsRegistry::Find(const std::string& name)
+	{
+		return FindIn(Fields(), name);
+	}
+
+	const std::vector<FieldDesc>& LutRecipeRegistry::Fields()
+	{
+		static const std::vector<FieldDesc> fields = BuildLutRecipe();
+		return fields;
+	}
+
+	const FieldDesc* LutRecipeRegistry::Find(const std::string& name)
 	{
 		return FindIn(Fields(), name);
 	}

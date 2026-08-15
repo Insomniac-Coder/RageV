@@ -1,0 +1,9 @@
+LutRecipe: 1
+Temperature: 0
+Tint: 0
+Lift: [0, 0, 0]
+Gamma: [1, 1, 1]
+Gain: [1, 1, 1]
+Contrast: 1
+Saturation: 1
+Size: 33

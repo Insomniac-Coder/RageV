@@ -76,6 +76,23 @@ one of them is winning.
 cameras should be able to share, and because sharing one is the difference
 between changing a look once and changing it everywhere it was pasted.
 
+### Everything persists
+
+**There is no setting in this engine that only exists while it is running.**
+Every control you can move has a file it goes back to, and the table above is
+about *which* file, never *whether*:
+
+| What | Written to | When |
+|---|---|---|
+| Render settings, including TAA's three dials | The `.rvproject` | The moment they change |
+| Post profiles, LUT recipes, materials, curves | Their own asset file | On edit |
+| Entities, components, the environment | The `.rage` scene | On **Ctrl+S** — and you are asked before anything discards it |
+| Panel layout, theme, window size, backend, vsync | `ragev.ini` and `panels.ini` | On exit |
+
+The scene is the only one that waits, because a scene is work in progress and
+autosaving one would take away the freedom to try something. Everything else
+saves itself, and the menu bar names any render setting it writes.
+
 ### The post profile
 
 A `.rvpostprofile` is attached to a **camera**, on the Post profile row of its
@@ -90,12 +107,28 @@ where it is used. The same settings appear in the Inspector when the
 `.rvpostprofile` is clicked in the Content browser — one drawer, so the two
 cannot disagree.
 
-**Colour grading** is a `.cube` lookup table dropped on the profile's Colour
-LUT row — the format every grading tool exports. It is applied *after* the
-tone curve, on display-referred values, which is what a LUT was authored
-against: one exported from Resolve or Photoshop does here what it did there.
-The trade, stated: a LUT at that point cannot recover highlight detail the
-tone curve has already compressed.
+**Colour grading** hangs off the profile's Colour LUT row, and there are two
+kinds of thing that can go in it:
+
+| | What it is | Editable |
+|---|---|---|
+| `.cube` | A baked table, exported by Resolve, Photoshop or any other grading tool | No — it is data |
+| `.rvlut` | A **recipe**: temperature, tint, lift, gamma, gain, contrast, saturation | Yes, and that is its purpose |
+
+Drop a `.cube` in to use a look somebody authored elsewhere. Pick **New
+colour LUT…** to author one here: the knobs appear directly under the row,
+edit live, and save themselves. **Export .cube…** takes the result back out
+to any other tool. A fresh recipe is the identity — attaching one changes
+nothing until a knob moves.
+
+Clicking either in the Content browser opens the same rows in the Inspector.
+A `.cube` says, correctly, that a baked table has nothing to edit: the grade
+that produced its entries is not in the file.
+
+Grading is applied *after* the tone curve, on display-referred values, which
+is what a LUT was authored against: one exported from Resolve does here what
+it did there. The trade, stated: a LUT at that point cannot recover highlight
+detail the tone curve has already compressed.
 
 **Editing one edits the asset.** Two cameras pointed at the same profile are
 two cameras that will always agree, which is usually what is wanted and is

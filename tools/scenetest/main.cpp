@@ -30,6 +30,7 @@
 #include "RageV/Asset/CurveSerializer.h"
 #include "RageV/Asset/PostProfileSerializer.h"
 #include "RageV/Asset/CubeLut.h"
+#include "RageV/Asset/LutRecipe.h"
 #include "RageV/Scene/FieldSerializer.h"
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Scene/SceneSerializer.h"
@@ -9739,6 +9740,173 @@ void main()
 		Check(!stack.CanRedo(), "a new edit clears the redo branch");
 	}
 
+	// The property that makes a LUT recipe safe to attach: at its defaults it
+	// bakes the identity table, **exactly**.
+	//
+	// Not nearly. A fresh `.rvlut` on a camera has to change nothing at all
+	// until a knob moves, and "nothing at all" is a claim about bits -- 7t
+	// already established that a sampling error of half a texel is invisible
+	// in any image, so a baking error of the same size would be too.
+	//
+	// It is not automatic. `pow(x, 1.0f)`, `(x - 0.5f) * 1.0f + 0.5f` and
+	// `luma + (x - luma) * 1.0f` are all mathematically the identity and none
+	// is bit-exact for every float, which is why each stage skips itself at
+	// its default rather than computing a no-op. This asserts the outcome of
+	// that decision, so removing the skips fails here rather than in a grade
+	// nobody can see. ENGINE-NOTES 7v.
+	void CheckLutRecipe()
+	{
+		using namespace RageV::Assets;
+
+		// **At more than one size, and that is not thoroughness for its own
+		// sake.** At the default 33 the step is 1/32, so every coordinate is
+		// a dyadic rational and `(x - 0.5f) * 1.0f + 0.5f` happens to come
+		// back bit-exact -- the check passes at 33 whether the skip is there
+		// or not, and would have been decoration. At 20 the step is 1/19 and
+		// two of its twenty coordinates do not survive the round trip; at 64,
+		// eleven do not. So the sizes below include one the arithmetic can
+		// actually fail at, which is the difference between a check and a
+		// reassurance. ENGINE-NOTES 7v.
+		const int sizes[] = { 33, 20, 64 };
+
+		for (int size : sizes)
+		{
+			LutRecipe neutral;
+			neutral.Size = size;
+
+			const ColorLut baked = BakeRecipe(neutral);
+			const ColorLut identity = IdentityLut((uint32_t)size);
+			const std::string at = " (size " + std::to_string(size) + ")";
+
+			Check(baked.IsValid(), "a default recipe bakes a valid table" + at);
+			Check(baked.Size == identity.Size, "of the size it asked for" + at);
+
+			size_t differing = 0;
+			if (baked.Values.size() == identity.Values.size())
+			{
+				for (size_t i = 0; i < baked.Values.size(); i++)
+				{
+					const Vec4& a = baked.Values[i];
+					const Vec4& b = identity.Values[i];
+					if (a.x != b.x || a.y != b.y || a.z != b.z)
+						differing++;
+				}
+			}
+			else
+			{
+				differing = 1;   // a size mismatch is every entry wrong
+			}
+
+			Check(differing == 0,
+				  "a default recipe is the identity table to the bit" + at);
+		}
+
+		const LutRecipe neutral;
+		const ColorLut identity = IdentityLut((uint32_t)neutral.Size);
+
+		// Each knob has to *do* something on its own, or a recipe would be a
+		// row of controls that quietly did nothing -- which is the failure the
+		// skip-at-default optimisation could introduce by skipping too eagerly.
+		const auto changes = [&](const LutRecipe& recipe, const char* what)
+		{
+			const ColorLut table = BakeRecipe(recipe);
+			bool moved = false;
+			for (size_t i = 0; i < table.Values.size() && !moved; i++)
+			{
+				const Vec4& a = table.Values[i];
+				const Vec4& b = identity.Values[i];
+				moved = a.x != b.x || a.y != b.y || a.z != b.z;
+			}
+			Check(moved, std::string(what) + " changes the table");
+		};
+
+		{ LutRecipe r; r.Temperature = 0.5f;      changes(r, "temperature"); }
+		{ LutRecipe r; r.Tint = 0.5f;             changes(r, "tint"); }
+		{ LutRecipe r; r.Lift = Vec3(0.1f);       changes(r, "lift"); }
+		{ LutRecipe r; r.Gamma = Vec3(1.5f);      changes(r, "gamma"); }
+		{ LutRecipe r; r.Gain = Vec3(0.8f);       changes(r, "gain"); }
+		{ LutRecipe r; r.Contrast = 1.4f;         changes(r, "contrast"); }
+		{ LutRecipe r; r.Saturation = 0.0f;       changes(r, "saturation"); }
+
+		// Saturation at zero is the one knob with an answer that can be
+		// checked rather than merely observed to differ: every entry has to
+		// come out grey.
+		{
+			LutRecipe r;
+			r.Saturation = 0.0f;
+			const ColorLut mono = BakeRecipe(r);
+			bool grey = true;
+			for (const Vec4& entry : mono.Values)
+				grey = grey && entry.x == entry.y && entry.y == entry.z;
+			Check(grey, "saturation 0 makes every entry grey, on all three channels");
+		}
+
+		// Nothing may leave the unit cube: this is a display-referred table,
+		// and a value above 1 wraps rather than clips on its way to 8 bits.
+		{
+			LutRecipe r;
+			r.Gain = Vec3(4.0f);
+			r.Lift = Vec3(-1.0f);
+			r.Contrast = 4.0f;
+			const ColorLut extreme = BakeRecipe(r);
+			bool bounded = true;
+			for (const Vec4& entry : extreme.Values)
+			{
+				bounded = bounded && entry.x >= 0.0f && entry.x <= 1.0f
+								  && entry.y >= 0.0f && entry.y <= 1.0f
+								  && entry.z >= 0.0f && entry.z <= 1.0f;
+			}
+			Check(bounded, "even an absurd recipe stays inside the unit cube");
+		}
+
+		// And the file round-trips, which is what "persistent" means for it.
+		{
+			const std::filesystem::path dir = ScratchDir("lutrecipe");
+			std::error_code error;
+			std::filesystem::create_directories(dir, error);
+			const std::filesystem::path file = dir / "look.rvlut";
+
+			LutRecipe written;
+			written.Temperature = 0.25f;
+			written.Tint = -0.125f;
+			written.Lift = Vec3(0.01f, 0.02f, 0.03f);
+			written.Gamma = Vec3(1.1f, 0.9f, 1.2f);
+			written.Gain = Vec3(0.95f, 1.05f, 1.0f);
+			written.Contrast = 1.15f;
+			written.Saturation = 0.85f;
+			written.Size = 17;
+
+			Check(LutRecipeSerializer::Save(written, file), "a recipe writes");
+
+			LutRecipe read;
+			Check(LutRecipeSerializer::Load(read, file), "and reads back");
+
+			Check(read.Temperature == written.Temperature &&
+				  read.Tint == written.Tint &&
+				  read.Lift.x == written.Lift.x && read.Lift.y == written.Lift.y &&
+				  read.Lift.z == written.Lift.z &&
+				  read.Gamma.x == written.Gamma.x && read.Gamma.y == written.Gamma.y &&
+				  read.Gamma.z == written.Gamma.z &&
+				  read.Gain.x == written.Gain.x && read.Gain.y == written.Gain.y &&
+				  read.Gain.z == written.Gain.z &&
+				  read.Contrast == written.Contrast &&
+				  read.Saturation == written.Saturation &&
+				  read.Size == written.Size,
+				  "with every knob exactly as it was written");
+
+			// A file that is not a recipe is refused rather than loaded as
+			// defaults -- which would grade nothing and look like a working
+			// neutral LUT.
+			const std::filesystem::path impostor = dir / "not-a-recipe.rvlut";
+			std::ofstream(impostor) << "SomethingElse: 1\nTemperature: 0.5\n";
+			LutRecipe rejected;
+			Check(!LutRecipeSerializer::Load(rejected, impostor),
+				  "a file without the LutRecipe key is refused, not read as defaults");
+
+			std::filesystem::remove_all(dir, error);
+		}
+	}
+
 	// What the editor's unsaved-changes mark and its closing prompt both ask.
 	//
 	// The mark used to be `CanUndo()`, which says "something has been edited
@@ -9964,6 +10132,7 @@ int RunTests(int argc, char** argv)
 	CheckAntiAliasingSwitch();
 	CheckRenderSettings();
 	CheckPostProfileOnCamera();
+	CheckLutRecipe();
 	CheckCubeLut();
 	CheckShadowToggle();
 	CheckShadowCascades();

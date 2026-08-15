@@ -280,6 +280,13 @@ void RageV::SceneHierarchyPanel::DrawAssetProperties()
 			UI::DrawPostProfile(m_InspectedAsset);
 			break;
 
+		case AssetType::ColorLut:
+			// Likewise, and the drawer decides what a LUT has to show: a
+			// `.rvlut` its knobs, a `.cube` a sentence explaining that a baked
+			// table has none. ENGINE-NOTES 7v.
+			UI::DrawColorLut(m_InspectedAsset);
+			break;
+
 		default:
 			// Everything else is a reference to something with its own editor
 			// or no editor at all. Saying so is better than an empty panel

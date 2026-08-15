@@ -93,10 +93,30 @@ def main():
     identity = make_lut.write(assets / "luts" / "identity.cube", "identity")
     swap = make_lut.write(assets / "luts" / "swap.cube", "swap")
 
+    # A recipe, written the same way. Neutral, because the property being
+    # tested is the one a `.cube` cannot express: a `.rvlut` at its defaults
+    # bakes the identity table, so attaching one has to change nothing at all
+    # -- through the bake, the upload and the sampler, not merely in the table
+    # `CheckLutRecipe` compares on the CPU. ENGINE-NOTES 7v.
+    recipe = assets / "luts" / "neutral.rvlut"
+    recipe.parent.mkdir(parents=True, exist_ok=True)
+    recipe.write_text(
+        "LutRecipe: 1\nTemperature: 0\nTint: 0\nLift: [0, 0, 0]\n"
+        "Gamma: [1, 1, 1]\nGain: [1, 1, 1]\nContrast: 1\nSaturation: 1\n"
+        "Size: 33\n", encoding="utf-8")
+
+    recipe_handle = postprofile.profile_handle(recipe.name)
+    recipe.with_name(recipe.name + ".meta").write_text(
+        f"Handle: {recipe_handle}\nType: ColorLut\nSourceHash: 0\n", encoding="utf-8")
+
     profiles = {
         "none": postprofile.write_named(
             assets / "post" / "grade_none.rvpostprofile",
             {"BloomEnabled": False}),
+        "recipe": postprofile.write_named(
+            assets / "post" / "grade_recipe.rvpostprofile",
+            {"BloomEnabled": False, "ColorLut": recipe_handle,
+             "ColorLutStrength": 1.0}),
         "identity": postprofile.write_named(
             assets / "post" / "grade_identity.rvpostprofile",
             {"BloomEnabled": False, "ColorLut": identity, "ColorLutStrength": 1.0}),
@@ -133,6 +153,24 @@ def main():
                 f"{identity_diff}/255. It must change nothing at all -- the "
                 f"sampling scale is wrong, which grades every colour slightly "
                 f"and looks like nothing")
+
+        # --- 1b. a neutral recipe is a no-op too ----------------------------
+        # The same bar as the identity `.cube`, and a different claim: that
+        # one tests the *sampling*, this one tests the *bake*. A recipe whose
+        # knobs are all at their defaults has to produce a table that grades
+        # nothing, so that picking "New colour LUT..." never changes the
+        # picture until somebody moves a knob.
+        recipe_diff = int(np.abs(frames["recipe"] - plain).max())
+        recipe_changed = int((np.abs(frames["recipe"] - plain) > 0).sum())
+        print(f"  neutral recipe vs no LUT   max {recipe_diff:3d}   "
+              f"{recipe_changed} differing subpixels")
+
+        if recipe_diff > IDENTITY_MAX_DIFF:
+            failures.append(
+                f"{backend}: a .rvlut with every knob at its default changed the "
+                f"frame by up to {recipe_diff}/255. A neutral recipe must bake "
+                f"the identity table exactly -- something in the bake is not the "
+                f"no-op it is supposed to be at its default value")
 
         # --- 2. the swap lands ---------------------------------------------
         # Expected: the ungraded frame with R and B exchanged. The LUT is

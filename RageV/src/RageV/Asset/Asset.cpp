@@ -71,7 +71,12 @@ namespace RageV
 		if (lower == ".rcurve")  return AssetType::Curve;
 		if (lower == ".rvfont")  return AssetType::Font;
 		if (lower == ".rvpostprofile") return AssetType::PostProfile;
-		if (lower == ".cube")    return AssetType::ColorLut;
+		// Both are colour lookups, and the *thing* a camera's profile points
+		// at is "a lookup" -- whether it arrived baked or is baked on the way
+		// in is not the profile's business. One picker lists both, one field
+		// holds either. ENGINE-NOTES 7v.
+		if (lower == ".cube")    return AssetType::ColorLut;  // baked, read-only
+		if (lower == ".rvlut")   return AssetType::ColorLut;  // a recipe, editable
 
 		// A `.ttf` is deliberately absent. It is the *input* to tools/rvfont
 		// and nothing at runtime can read one, so importing it would hand out

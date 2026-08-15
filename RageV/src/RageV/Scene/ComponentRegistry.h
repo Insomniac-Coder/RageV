@@ -339,6 +339,22 @@ namespace RageV
 		static const FieldDesc* Find(const std::string& name);
 	};
 
+	// How a look is *made*. Lives on a `.rvlut` asset, which a post profile's
+	// Colour LUT row points at.
+	//
+	// Registered for the same three reasons the blocks above are -- one list
+	// drives the inspector, the file and the script bridge -- but deliberately
+	// **not** part of `FindSetting`. Those three are reachable from "the scene
+	// and its primary camera", which is what a script has; a LUT recipe is
+	// reachable only by handle, and offering it under a flat name would mean
+	// answering "which one" with a guess.
+	class LutRecipeRegistry
+	{
+	public:
+		static const std::vector<FieldDesc>& Fields();
+		static const FieldDesc* Find(const std::string& name);
+	};
+
 	// Where the frame is. Lives on the scene.
 	class SceneEnvironmentRegistry
 	{

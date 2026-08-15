@@ -10,6 +10,7 @@
 #include "MaterialSerializer.h"
 #include "Curve.h"
 #include "Font.h"
+#include "LutRecipe.h"
 
 // Declared in the enclosing namespace on purpose. Inside
 // `namespace RageV::Assets` these would declare new types that nothing ever
@@ -162,7 +163,25 @@ namespace RageV::Assets
 		// must not reopen the file sixty times a second. A null LUT grades
 		// nothing, which is the same picture as no LUT at all: a malformed file
 		// costs its look rather than the frame. ENGINE-NOTES 7t.
+		// The 3D texture the tonemap samples. A `.cube` is parsed; a `.rvlut`
+		// is baked from its recipe. Callers cannot tell, deliberately.
 		static RHI::Ref<RHI::RHITexture> GetColorLut(AssetHandle handle);
+
+		// The recipe behind a `.rvlut`, mutable and cached, for the inspector
+		// to edit in place -- the same shape as GetPostProfile.
+		//
+		// **Null for a `.cube`**, which is not a failure: a baked table has no
+		// recipe and the inspector shows what it can instead of pretending.
+		static LutRecipe* GetLutRecipe(AssetHandle handle);
+
+		// Writes a `.rvlut` and returns its handle, minted by the registry
+		// after the file exists.
+		static AssetHandle CreateLutRecipe(const LutRecipe& recipe,
+										   const std::filesystem::path& relativePath);
+
+		// Drops both the recipe and the baked texture, so the next frame
+		// rebuilds from the file.
+		static void ReloadColorLut(AssetHandle handle);
 
 		// Drops the cached copy so the next GetPostSettings reads the file.
 		// The inspector calls it after writing an edit through, which is what

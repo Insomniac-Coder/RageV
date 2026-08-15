@@ -3588,6 +3588,99 @@ it next, the check announces it instead of reporting a broken renderer.
 
 ---
 
+## 7v. Authoring a look: the `.rvlut` recipe, and why a `.cube` stays read-only
+
+9.1 could *use* a grade and not make one. Reported as "there is no way to make
+a new LUT or even edit it", which is exactly right: the only route to a look
+was to author it in another program and import the file.
+
+### Why a `.cube` cannot simply be made editable
+
+A `.cube` is a **baked table** — 33³ = 35,937 RGB triples, one per cell of the
+colour space. There is nothing to put in an inspector. "Editing" one means
+editing the *transform that produced it*, and that transform is not in the
+file: it left the building when the table was baked.
+
+So the two things are separated, because they genuinely are two things:
+
+| | `.cube` | `.rvlut` |
+|---|---|---|
+| Is | a baked table somebody authored elsewhere | a recipe: the knobs and their values |
+| Editable | no — read-only imported data | yes, and that is its whole purpose |
+| Becomes a texture by | being parsed | being **baked**, at load |
+
+Both are `AssetType::ColorLut`, deliberately. The *thing* a camera's profile
+points at is "a colour lookup", and whether it arrived baked or is baked on
+the way in is not the profile's business. One picker lists both, one field
+holds either, and `GetColorLut` dispatches on the extension. The alternative —
+two asset types — would push that distinction into every place that names a
+LUT, to no benefit.
+
+### The order of operations, and why it is stated
+
+The recipe is applied **display-referred**, after the tone curve, because that
+is where the LUT is sampled (7t). So the operations are the ones that mean
+something on encoded values in [0, 1], in this order:
+
+1. **White balance** — temperature and tint, as a per-channel multiply.
+2. **Lift, gamma, gain** — per channel, the standard three-band form.
+3. **Contrast** — about a 0.5 pivot.
+4. **Saturation** — toward Rec.709 luma.
+
+Order matters and is not a matter of taste: contrast before saturation and
+after gain is what makes the knobs behave the way a colourist expects, and
+swapping any pair produces a different look from the same numbers. Written
+down here because the next person to add a knob has to know where it goes.
+
+### The property that makes it checkable
+
+**A recipe at its defaults must bake the identity table, exactly.** Not
+nearly: byte-for-byte, so that attaching a fresh `.rvlut` to a camera changes
+nothing at all until a knob is moved.
+
+That is not automatic. `pow(x, 1.0f)`, `(x - 0.5f) * 1.0f + 0.5f` and
+`mix(luma, x, 1.0f)` are all *mathematically* the identity and none is
+guaranteed to return `x` bit-exactly. So each stage **early-outs at its
+default value** rather than computing a no-op, and the identity holds by
+construction instead of by hoping the rounding goes the right way.
+
+**And the table size decides whether that matters — which nearly made the
+check worthless.** Written first at the default size of 33, it passed with the
+early-out removed. At 33 the step is 1/32, so every coordinate is a dyadic
+rational and the contrast arithmetic *is* exact by luck. Measured across
+sizes:
+
+| size | step | coordinates that fail the round trip |
+|---|---|---|
+| 33 | 1/32 | 0 of 33 |
+| 17 | 1/16 | 0 of 17 |
+| 20 | 1/19 | 2 of 20 |
+| 25 | 1/24 | 3 of 25 |
+| 64 | 1/63 | 11 of 64 |
+
+So `CheckLutRecipe` bakes at 33, 20 **and** 64. With the early-out removed it
+now passes at 33 and fails at the other two — which is the difference between
+a check and a reassurance, and the same lesson as 7r's threshold and 7t's
+half-texel: a property has to be tested where it can break, not where it
+happens to hold.
+
+### Every setting persists, and that is a rule now
+
+See 7s for *where* each one lives. What 7s did not say, and what this item
+made worth saying, is that **there is no such thing as a setting that only
+exists at runtime**:
+
+- render settings → the `.rvproject`, written the moment they change;
+- post profiles and LUT recipes → their own asset files, written on edit;
+- environment → the `.rage`, on Ctrl+S, with the prompt that 7s describes;
+- panel layout, theme, window size, backend, vsync → `ragev.ini` and
+  `panels.ini`, on exit.
+
+A control that a person can move and the engine then forgets is a bug, not a
+design choice. If a new knob has no home in that list, it is not finished.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

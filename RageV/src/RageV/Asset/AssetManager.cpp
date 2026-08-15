@@ -73,6 +73,11 @@ namespace RageV::Assets
 		// other GPU resource here.
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_ColorLuts;
 
+		// And the recipes behind the `.rvlut` ones, by value like post
+		// profiles: eleven numbers, edited in the inspector and baked into the
+		// texture above. A `.cube` never appears here -- it has no recipe.
+		std::unordered_map<AssetHandle, LutRecipe> s_LutRecipes;
+
 		// Fonts cache by value like curves -- a metrics table is a few thousand
 		// numbers. A failure caches as an *absent* entry marked in s_FontFailed
 		// rather than as an empty font, because "no glyphs" and "no font" want
@@ -942,7 +947,30 @@ namespace RageV::Assets
 
 		ColorLut lut;
 		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
-		if (path.empty() || !LoadCubeLut(lut, path) || !lut.IsValid())
+
+		// One asset type, two files behind it: a `.cube` is a baked table and
+		// a `.rvlut` is the recipe that bakes one. Dispatched here so that
+		// nothing above this line -- the profile, the picker, the shader --
+		// has to know which it got. ENGINE-NOTES 7v.
+		bool loaded = false;
+		if (!path.empty())
+		{
+			if (IsLutRecipePath(path))
+			{
+				LutRecipe recipe;
+				if (LutRecipeSerializer::Load(recipe, path))
+				{
+					lut = BakeRecipe(recipe);
+					loaded = true;
+				}
+			}
+			else
+			{
+				loaded = LoadCubeLut(lut, path);
+			}
+		}
+
+		if (!loaded || !lut.IsValid())
 		{
 			s_ColorLuts[handle] = nullptr;
 			return nullptr;
@@ -979,6 +1007,58 @@ namespace RageV::Assets
 	void Manager::ReloadAllPostProfiles()
 	{
 		s_PostProfiles.clear();
+	}
+
+	LutRecipe* Manager::GetLutRecipe(AssetHandle handle)
+	{
+		if (!handle.IsValid())
+			return nullptr;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+		if (path.empty() || !IsLutRecipePath(path))
+			return nullptr;   // a `.cube` has no recipe, and never will
+
+		const auto cached = s_LutRecipes.find(handle);
+		if (cached != s_LutRecipes.end())
+			return &cached->second;
+
+		// Cached even when the load failed, so a broken file is not reopened
+		// every frame the inspector draws it. Defaults bake the identity, so
+		// the failure shows as "this grades nothing" rather than as a crash.
+		LutRecipe recipe;
+		LutRecipeSerializer::Load(recipe, path);
+		s_LutRecipes[handle] = recipe;
+		return &s_LutRecipes[handle];
+	}
+
+	AssetHandle Manager::CreateLutRecipe(const LutRecipe& recipe,
+										 const std::filesystem::path& relativePath)
+	{
+		if (!Registry::IsInitialised())
+			return AssetHandle::Invalid();
+
+		const std::filesystem::path absolute = Registry::Root() / relativePath;
+		if (!LutRecipeSerializer::Save(recipe, absolute))
+			return AssetHandle::Invalid();
+
+		// After writing, so the file exists by the time the registry hashes it
+		// and mints its sidecar. Same order as CreatePostProfile.
+		Registry::Refresh();
+
+		const AssetHandle handle = Registry::GetHandle(relativePath.generic_string());
+		if (handle.IsValid())
+			s_LutRecipes[handle] = recipe;
+
+		return handle;
+	}
+
+	void Manager::ReloadColorLut(AssetHandle handle)
+	{
+		// Both caches: the recipe is what the inspector edits and the texture
+		// is what the shader samples, and a knob moved without dropping the
+		// second is a grade that changed everywhere except on screen.
+		s_LutRecipes.erase(handle);
+		s_ColorLuts.erase(handle);
 	}
 
 	RHI::Ref<RHI::RHITexture> Manager::GetCubemap(AssetHandle handle)

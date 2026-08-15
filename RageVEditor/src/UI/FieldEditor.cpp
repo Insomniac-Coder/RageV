@@ -7,7 +7,9 @@
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Asset/CurveSerializer.h"
 #include "RageV/Asset/PostProfileSerializer.h"
+#include "RageV/Asset/LutRecipe.h"
 #include "RageV/Core/Log.h"
+#include "RageV/Utils/PlatformUtils.h"
 #include "RageV/Managed/Interop.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
@@ -543,6 +545,13 @@ namespace RageV::UI
 				if (hint.Accepts == AssetType::PostProfile && handle.IsValid())
 					DrawPostProfile(handle);
 
+				// And a LUT under its own slot, for the same reason: the
+				// moment you want to change a grade is the moment you are
+				// looking at the profile that uses it. One drawer, shared with
+				// the content browser, so the two cannot disagree.
+				if (hint.Accepts == AssetType::ColorLut && handle.IsValid())
+					DrawColorLut(handle);
+
 				// A curve is edited where it is used. Everything else here is a
 				// reference to something with its own home -- a mesh, a texture
 				// -- but a ramp only means anything beside the emitter it
@@ -795,6 +804,38 @@ namespace RageV::UI
 				ImGui::Separator();
 			}
 
+			// The same door for LUTs, and the only way to author a look
+			// without leaving the engine. A `.cube` cannot be created here
+			// because a `.cube` is somebody else's baked output; what this
+			// makes is a `.rvlut` recipe. ENGINE-NOTES 7v.
+			if (accepts == AssetType::ColorLut && Assets::Registry::IsInitialised())
+			{
+				ImGui::Separator();
+				if (ImGui::Selectable("New colour LUT..."))
+				{
+					const std::string path =
+						UnusedAssetPath("luts", "Untitled", ".rvlut");
+
+					// Defaults, which bake the identity table exactly -- so a
+					// profile that has just been given a LUT looks precisely
+					// as it did a moment ago, and every change from here is a
+					// change somebody made.
+					const AssetHandle created =
+						Assets::Manager::CreateLutRecipe(Assets::LutRecipe{}, path);
+
+					if (created.IsValid())
+					{
+						handle = created;
+						changed = true;
+					}
+					else
+					{
+						RV_ERROR("Could not create a LUT recipe at {0}", path);
+					}
+				}
+				ImGui::Separator();
+			}
+
 			for (const auto& [path, metadata] : Assets::Registry::All())
 			{
 				if (accepts != AssetType::None && metadata.Type != accepts)
@@ -844,6 +885,75 @@ namespace RageV::UI
 			const std::filesystem::path file = Assets::Registry::GetAbsolutePath(handle);
 			if (!file.empty())
 				Assets::PostProfileSerializer::Save(*profile, file);
+		}
+
+		ImGui::Unindent();
+	}
+
+	void DrawColorLut(AssetHandle handle)
+	{
+		if (!handle.IsValid())
+			return;
+
+		const std::filesystem::path file = Assets::Registry::GetAbsolutePath(handle);
+		const std::string& path = Assets::Registry::GetMetadata(handle).Path;
+
+		ImGui::Indent();
+
+		Assets::LutRecipe* recipe = Assets::Manager::GetLutRecipe(handle);
+
+		if (!recipe)
+		{
+			// A `.cube`. Said plainly rather than shown as a row of greyed-out
+			// knobs, because the knobs do not exist: the transform that made
+			// this table left when the table was baked.
+			UI::TextCaption("%s -- a baked table, imported",
+							path.empty() ? "This LUT" : path.c_str());
+			UI::TextCaption("Its entries are data. The grade that produced them is not "
+							"in the file, so there is nothing here to edit.\n"
+							"New colour LUT... makes a .rvlut, which is a look you "
+							"can author.");
+			ImGui::Unindent();
+			return;
+		}
+
+		UI::TextCaption("Editing %s -- shared by every profile using it",
+						path.empty() ? "this LUT" : path.c_str());
+
+		// Edited in place and written through, exactly as a post profile is,
+		// and for the same reason: the frame graph reads the baked texture
+		// when it builds, so writing through is what makes the preview live.
+		if (DrawFields(LutRecipeRegistry::Fields(), recipe))
+		{
+			if (!file.empty())
+				Assets::LutRecipeSerializer::Save(*recipe, file);
+
+			// The texture is stale the instant a knob moves. Dropped rather
+			// than rebaked here: the next frame that wants it rebakes, which
+			// keeps one path from the file to the sampler.
+			Assets::Manager::ReloadColorLut(handle);
+		}
+
+		ImGui::Spacing();
+
+		// The way out. A recipe that could not leave the engine would make
+		// this a worse place to author a look than the tool it replaced.
+		if (ImGui::Button("Export .cube..."))
+		{
+			const std::string target = FileDialogs::SaveFile("Cube LUT (*.cube)\0*.cube\0");
+			if (!target.empty())
+			{
+				if (Assets::ExportCube(Assets::BakeRecipe(*recipe), target))
+					RV_INFO("Exported {0}", target);
+				else
+					RV_ERROR("Could not export {0}", target);
+			}
+		}
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Bakes the table these knobs describe and writes it as a\n"
+							  ".cube, which Resolve, Photoshop and every other grading\n"
+							  "tool reads.");
 		}
 
 		ImGui::Unindent();
