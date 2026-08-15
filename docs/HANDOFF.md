@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1365 checks, `exit 0`. Then look at a frame:
+1528 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -148,14 +148,13 @@ was a real bug, and most fail silently rather than obviously.
 caveat worth knowing, and what is not built. §9 for defects, §10 for what has
 already gone wrong here and what caught it.
 
-**In progress: TAA (7.10).** Designed in ENGINE-NOTES 7r. **Two of the three
-prerequisites are done**: motion vectors and the jitter. The history buffer,
-which is the hard one, is not.
+**TAA (7.10) is done**, and it left the pieces phase 9 was built on. Designed
+in ENGINE-NOTES 7r; the record below is kept because every trap in it is
+still live.
 
 Motion vectors: the scene target carries an RG16F velocity attachment, the PBR
 shaders write real screen-space motion, and everything else in the scene pass
-writes zero. Nothing reads it yet, which is deliberate -- 7r says why the
-prerequisite gets verified before the filter that would hide it.
+writes zero. TAA and 9.5 motion blur both read it now.
 
 Jitter: a centred Halton(2,3) point, applied to the scene camera in
 `Scene::OnRender` and nowhere else, so meshes, sky, grid, world text, icons and
@@ -197,11 +196,13 @@ driver shader cache on the day's first OpenGL run. `check_smaa.py` and
 unfiltered staircase to measure 1/sqrt(12) -- a flat grey cannot. A by-hand
 comparison has no such control. ENGINE-NOTES 7r.
 
-**Two known gaps in the motion vectors themselves**, both recorded rather
-than forgotten: the **sky writes zero** (it needs camera-rotation velocity or
-it smears when you turn -- fix it in step 2, where it becomes observable),
-and **skinned meshes report only the object's motion, not the limb's**, because
-the bones are not double-buffered. That is a memory decision, not an oversight.
+**One known gap in the motion vectors themselves**, recorded rather than
+forgotten: **skinned meshes report only the object's motion, not the limb's**,
+because the bones are not double-buffered. That is a memory decision, not an
+oversight, and it is why a running fox's legs smear less than its body under
+motion blur. (The sky used to write zero; it reports the camera's rotation
+now, from a small uniform buffer -- fixed for 9.5, which has no clip to hide
+the error.)
 
 **The pattern that bit three times in a row today**, and will again: a
 renderer learns the scene target's *shape* from BuildFrame, but a reflection
@@ -211,14 +212,22 @@ has to be stated at layer init *as well as* in BuildFrame, and scenetest has
 its own two call sites that need it too. Grep for `R16G16_SFLOAT` to find all
 five places.
 
-**Where phase 9 stands: 9.0 through 9.4 are built** -- settings live on the
+**Where phase 9 stands: 9.0 through 9.6 are built** -- settings live on the
 project with the two profile assets over them (9.0), colour grading (9.1),
-auto exposure (9.2), the Perlin-era grain rework (9.3) and depth of field
-(9.4) all landed, each with its check script. C++ script fields moved to
-declaration-site markers (`RVShowInEditor`, ENGINE-NOTES 7aa) on 2026-08-15.
+auto exposure (9.2), the Perlin-era grain rework (9.3), depth of field
+(9.4), motion blur (9.5) and SSAO (9.6) all landed, each with its check
+script and each **exactly off by default**, which is what keeps every
+recorded threshold valid. Every effect is a field on the `.rvpostprofile`,
+edited live in the inspector and written through to the asset the instant
+it changes. C++ script fields moved to declaration-site markers
+(`RVShowInEditor`, ENGINE-NOTES 7aa) on 2026-08-15, and the same day
+closed a first-frame descriptor-set hazard, themed the loading screen,
+named the frame profiler's wait, gave realtime probes a refresh-rate
+dropdown, and stopped the scene view wearing the game camera's lens.
 
-**What to do next: roadmap 9.5, motion blur** -- see START HERE in the log
-below, and the open validation defect recorded beside it.
+**What to do next: roadmap 9.7, SSR** -- the last item in phase 9. See
+START HERE in the log below; the design question that decides its shape
+(a normal+roughness attachment) is written there.
 
 Roadmap **phase 8 is open work, not excluded** -- GI, bindless, GPU-driven
 rendering, terrain, navmesh, networking, other platforms, XR, FBX, visual
@@ -1561,17 +1570,63 @@ not, which is the same mistake as the culling number, caught this time.
 
 ### START HERE: 9.7, SSR
 
-Phase 9 is **9.0 through 9.6 done** -- SSR is the last item. It wants
-everything SSAO used (sampleable depth, the FrameDesc projection scales,
-view-space reconstruction) plus two things SSAO deliberately went without:
-**real normals** -- normal-mapped, which no depth reconstruction can produce
--- and **roughness**, to know how blurred a reflection should be. That
-almost certainly means the scene target's first new attachment since
-velocity (a G-buffer-lite: packed normal + roughness), and 7q applies in
-full: every scene pipeline, the transparency pass, scenetest's call sites
-and both probe capture paths have to agree about the shape. 7ac recorded
-that SSAO would switch to reading that attachment in the same commit it
-lands.
+Phase 9 is **9.0 through 9.6 done** -- SSR is the last item. Read
+ENGINE-NOTES 7ac (SSAO) and 7ab (motion blur) first: SSR is built from
+the same parts, and both sections say which decisions were deferred to it.
+
+**What it reuses, all in place:** the sampleable scene depth (7z), the
+projection's inverse scales on `FrameDesc` (7ac), the view-space
+reconstruction in `ssao_compute.rvshader`, the half-res compute + blur +
+apply pass shape, the pixel-seeded dither rule, and the DoF gather's
+depth-ordered tap test. The reflection probes are the fallback where a ray
+leaves the screen or hits nothing -- `ProbeArray` slot selection already
+happens per object in the PBR shader (7.7), so the *same* probe answer is
+what SSR should blend toward.
+
+**The design question that decides everything: SSR needs two things SSAO
+deliberately went without.** Real normals -- normal-mapped, per pixel,
+which no depth reconstruction can produce -- and roughness, to know how
+blurred (or whether) a reflection should be. Neither is in the scene
+target. Two routes:
+
+1. **A G-buffer-lite attachment on the scene target**: octahedral-packed
+   normal + roughness (+ metallic) in one RGBA8 or RG16F+R8. The honest
+   route. It is also the full 7q ceremony: `FrameGraphBuilder`'s scene
+   target desc, `Renderer::SetTargetFormats`, every scene pipeline's
+   `ColorFormats` (PBR, skinned PBR, sky, grid, particles, world text,
+   icons, debug), the transparency pass's `WriteAttachments`, scenetest's
+   two call sites, and **both** probe capture paths -- the pattern that
+   "bit three times in a row" when the velocity attachment landed. Grep
+   `R16G16_SFLOAT` for every place the velocity attachment had to be
+   stated; the new one needs the same list. 7ac recorded that SSAO switches
+   to reading this attachment in the same commit it lands.
+2. **Reconstructed normals + no roughness**: reflect everything as a
+   mirror, only on surfaces whose depth-normal is smooth. Cheap, wrong on
+   any normal-mapped surface, and cannot express a rough floor's blurred
+   reflection. Not recommended -- the demo's brick floor is normal-mapped
+   and would look like glass.
+
+Route 1 is the one to build. Then: a hi-Z or linear ray march in view
+space against the depth buffer (linear with a fixed step count and a
+binary refinement is enough at this scale; hi-Z is a later optimisation),
+edge fade so rays leaving the screen blend to the probe rather than
+cutting, roughness-driven blur of the hit (or fewer, jittered rays --
+pick one, record why), a temporal component is **not** in scope for the
+first version, and the result blends into the lit image *before* SSAO
+applies (a reflection is lighting; occlusion darkens it like everything
+else). Placement: after the resolve, before SSAO. Off must be exact.
+
+**Checks that would prove it:** a mirror floor under a bright block shows
+the block below the horizon line; a rough floor shows a *blurred* version;
+a ray leaving the screen produces no seam against the probe fallback; a
+normal-mapped surface reflects along the mapped normal (the brick floor,
+not a flat plane); off is off to the byte; a frame reproduces. Reuse
+`make_ssao_scene.py`'s box-on-a-floor and give the floor metallic 1 /
+roughness 0 for the mirror case.
+
+**Cost expectation:** the attachment costs every scene pipeline a
+fragment output and the target ~4 bytes/pixel; the march is the expensive
+half and should be measured half-res first.
 
 ---
 
@@ -1695,24 +1750,19 @@ exposure meant a courtyard with a shaded side and a sunlit one. Adding
 something with no reason to be there means writing that argument out loud and
 finding it does not hold.
 
-### Open defect: 74 validation lines on the editor's first frame
+### Closed defect: the 74 first-frame validation lines (2026-08-15)
 
-**Found 2026-08-15, and it predates that day's change** -- verified by
-stashing the declaration-site work, rebuilding at `e4fa72d`, and getting the
-identical 74 lines. It is the first standing violation of the zero-
-`[Vulkan]`-lines bar, so it should be the next fix after (or before) 9.5.
-
-The shape: immediately after "Probe arrays ready" on the demo scene's first
-rendered frame, `VkDescriptorSet ... was destroyed or updated without
-UPDATE_AFTER_BIND` invalidates the frame's command buffer, and every
-subsequent record call on it errors -- 74 lines, deterministic, same count
-every run, Vulkan only. Something updates or destroys a bound descriptor set
-mid-recording during or right after the first reflection-probe capture.
-Start from the ENGINE-NOTES entries that already describe this family: the
-pooled-grow `while` (7q), the per-frame descriptor cursor, and the
-"probe captures the scene before the graph is built" pattern in Cold start.
-The editor still draws correctly on both backends, which is why nothing
-visible caught it.
+Auto exposure kept one descriptor set and one params buffer per pipeline;
+the editor meters two frame chains per frame and records both before the
+GPU runs either, so the second chain rewrote sets the command buffer already
+held. Fixed by pooling per dispatch (`5b2ca2f`). **A permanent tripwire came
+out of it**: under validation, `VulkanDevice` tracks every descriptor set
+bound into the current recording and `VulkanResourceSet::Commit` names the
+pipeline and bindings when it is about to rewrite one -- the layer only ever
+reports the anonymous consequence. Its lifetime is one recording, cleared at
+frame begin and after immediate submits; a present-cycle lifetime flagged
+safe reuse in scenetest's AA-switch loop, whose no-warnings assertion caught
+that too. Zero `[Vulkan]` lines is the bar again, and it holds.
 
 ### Two things left open, neither blocking
 
