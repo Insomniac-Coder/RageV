@@ -55,6 +55,10 @@ private:
 	// with the same scope. ENGINE-NOTES 7y.
 	RageV::ExposureState m_Exposure;
 
+	// And last frame's screen-space reflection trace, for this frame's
+	// lighting. ENGINE-NOTES 7af.
+	RageV::TemporalHistory m_Reflections;
+
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 
 	uint32_t m_Width = 0;

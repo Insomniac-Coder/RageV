@@ -274,6 +274,54 @@ namespace RageV
 		if (!wantTemporal && desc.History)
 			desc.History->Invalidate();
 
+		// --- SSR: what this frame's lighting reads --------------------------------
+		//
+		// Screen-space reflections are traced at the end of a frame and read
+		// by the *next* frame's lighting, inside the PBR shader, where the
+		// probe's reflected radiance is swapped for the traced one under the
+		// exact weight the probe would have had. So the scene pass samples
+		// last frame's trace, and the SSR passes below write this frame's
+		// into the other half of the pair. Only when there is somewhere to
+		// keep it: a caller with no Reflections history gets the probe alone,
+		// the same shape as TAA with no History. ENGINE-NOTES 7af.
+		const bool wantReflections = desc.Post.ScreenSpaceReflections
+								  && desc.Reflections != nullptr
+								  && PostProcess::IsReady();
+
+		Renderer::ScreenReflections reflectionsForScene;
+		RGResource previousReflections = kRGInvalid;
+		RGResource currentReflections = kRGInvalid;
+
+		if (wantReflections)
+		{
+			TemporalHistory& reflections = *desc.Reflections;
+			reflections.Prepare(Renderer::GetDevice(), desc.Width, desc.Height,
+								Format::R16G16B16A16_SFLOAT, "ScreenReflections");
+
+			if (reflections.Current() && reflections.Previous())
+			{
+				previousReflections = graph.Import(reflections.Previous(), "ReflectionsPrevious");
+				currentReflections = graph.Import(reflections.Current(), "ReflectionsCurrent");
+
+				// Nothing to read on the first frame of a chain, or after a
+				// resize: the pair holds whatever the driver left in it, and a
+				// confidence read out of that would mix somebody else's memory
+				// into every metal. The scene draws with the probe alone and
+				// the trace below starts the history.
+				if (reflections.HasHistory())
+				{
+					reflectionsForScene.Texture = reflections.Previous()->GetColorTexture(0);
+					reflectionsForScene.Intensity = Math::Max(desc.Post.SsrIntensity, 0.0f);
+				}
+			}
+		}
+		else if (desc.Reflections)
+		{
+			// Off, or nowhere to run: a trace left over from before must not
+			// be resumed from when the feature comes back.
+			desc.Reflections->Invalidate();
+		}
+
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
@@ -292,10 +340,24 @@ namespace RageV
 					  // "no reflection", so sky, grid and text never reflect.
 					  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
 				builder.SetClearColor(desc.ClearColor);
+
+				// Declared here even though the PBR shader binds it through
+				// the scene set rather than through the graph: the graph is
+				// what moves the imported target into a readable layout
+				// before this pass, and it can only do that for a read it
+				// knows about.
+				if (previousReflections != kRGInvalid)
+					builder.Sample(previousReflections);
 			},
-			[draw = desc.DrawScene, jitter,
+			[draw = desc.DrawScene, jitter, reflectionsForScene,
 			 motion = desc.History ? &desc.History->Motion() : nullptr](RGPassContext& context)
 			{
+				// Last frame's reflection trace, for the lighting. Set and
+				// cleared on the same edges as the two below and for the
+				// same reason: a probe face or a shadow caster reaching this
+				// would light itself from a trace made for another camera.
+				Renderer::SetScreenReflections(&reflectionsForScene);
+
 				// Set here and cleared immediately after, so that the only
 				// code able to see a non-zero jitter is code drawing the
 				// scene. Reflection probe captures run *outside* the graph,
@@ -329,6 +391,7 @@ namespace RageV
 
 				Renderer::SetCameraMotion(nullptr);
 				Renderer::SetJitter(Vec2(0.0f, 0.0f));
+				Renderer::SetScreenReflections(nullptr);
 			});
 
 		// The overlay goes into the HDR target rather than over the finished
@@ -496,76 +559,6 @@ namespace RageV
 		reconstruction.InvProjection1 = desc.InvProjection1;
 		reconstruction.View = desc.View;
 
-		// --- SSR ---------------------------------------------------------------
-		//
-		// After the resolve, before SSAO: a reflection is lighting, so the
-		// occlusion should darken it in a crease like everything else, and DoF
-		// and motion blur should defocus and smear it. Trace at half
-		// resolution, resolve at full. ENGINE-NOTES 7ad.
-		if (desc.Post.ScreenSpaceReflections && PostProcess::IsReady())
-		{
-			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);
-			const uint32_t halfHeight = Math::Max(desc.Height / 2u, 1u);
-
-			RGTargetDesc traceDesc;
-			traceDesc.Name = "SsrTrace";
-			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
-			traceDesc.Depth = Format::Undefined;
-			traceDesc.Scale = 0.5f;
-			const RGResource trace = graph.CreateTarget(traceDesc);
-
-			RGTargetDesc reflectedDesc;
-			reflectedDesc.Name = "SsrResolved";
-			reflectedDesc.Color = Format::R16G16B16A16_SFLOAT;
-			reflectedDesc.Depth = Format::Undefined;
-			const RGResource reflected = graph.CreateTarget(reflectedDesc);
-
-			PostProcess::SsrParams ssr;
-			ssr.View = reconstruction;
-			ssr.MaxDistance = desc.Post.SsrMaxDistance;
-			ssr.Thickness = desc.Post.SsrThickness;
-
-			const RGResource lit = shaded;
-			const uint32_t width = desc.Width;
-			const uint32_t height = desc.Height;
-			const float intensity = desc.Post.SsrIntensity;
-
-			graph.AddPass("SSR trace",
-				[&](RGPassBuilder& builder)
-				{
-					builder.Write(trace);
-					builder.Sample(sceneHDR);
-					builder.DisableDepth();
-				},
-				[sceneHDR, normalIndex, halfWidth, halfHeight, ssr](RGPassContext& context)
-				{
-					PostProcess::SsrTrace(context.Cmd, context.Depth(sceneHDR),
-										  context.Color(sceneHDR, normalIndex),
-										  halfWidth, halfHeight, ssr,
-										  Format::R16G16B16A16_SFLOAT);
-				});
-
-			graph.AddPass("SSR resolve",
-				[&](RGPassBuilder& builder)
-				{
-					builder.Write(reflected);
-					builder.Sample(lit);
-					builder.Sample(trace);
-					builder.Sample(sceneHDR);
-					builder.DisableDepth();
-				},
-				[lit, trace, sceneHDR, normalIndex, width, height, intensity](RGPassContext& context)
-				{
-					PostProcess::SsrResolve(context.Cmd, context.Color(lit),
-											context.Color(trace),
-											context.Color(sceneHDR, normalIndex),
-											width, height, intensity,
-											Format::R16G16B16A16_SFLOAT);
-				});
-
-			shaded = reflected;
-		}
-
 		// --- SSAO --------------------------------------------------------------
 		//
 		// First after the resolve, before depth of field and motion blur:
@@ -665,6 +658,78 @@ namespace RageV
 				});
 
 			shaded = occluded;
+		}
+
+		// --- SSR: this frame's trace, for next frame's lighting -----------------
+		//
+		// After SSAO and before depth of field: the radiance a ray finds
+		// should carry the occlusion of the corner it landed in, and should
+		// not carry a defocus that belongs to the reflector's own depth, not
+		// the reflected surface's. Trace at half resolution against this
+		// frame's depth and surface, resolve at full into the other half of
+		// the reflections pair -- which the *next* frame's scene pass reads
+		// inside the lighting. Nothing here touches `shaded`: this is a side
+		// chain whose output is a frame late by design. ENGINE-NOTES 7ad for
+		// the march, 7af for why the blend is not here any more.
+		if (wantReflections && currentReflections != kRGInvalid)
+		{
+			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);
+			const uint32_t halfHeight = Math::Max(desc.Height / 2u, 1u);
+
+			RGTargetDesc traceDesc;
+			traceDesc.Name = "SsrTrace";
+			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
+			traceDesc.Depth = Format::Undefined;
+			traceDesc.Scale = 0.5f;
+			const RGResource trace = graph.CreateTarget(traceDesc);
+
+			PostProcess::SsrParams ssr;
+			ssr.View = reconstruction;
+			ssr.MaxDistance = desc.Post.SsrMaxDistance;
+			ssr.Thickness = desc.Post.SsrThickness;
+
+			const RGResource lit = shaded;
+			const uint32_t width = desc.Width;
+			const uint32_t height = desc.Height;
+
+			graph.AddPass("SSR trace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(trace);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, halfWidth, halfHeight, ssr](RGPassContext& context)
+				{
+					PostProcess::SsrTrace(context.Cmd, context.Depth(sceneHDR),
+										  context.Color(sceneHDR, normalIndex),
+										  halfWidth, halfHeight, ssr,
+										  Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("SSR resolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(currentReflections);
+					builder.Sample(lit);
+					builder.Sample(trace);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[lit, trace, sceneHDR, normalIndex, width, height](RGPassContext& context)
+				{
+					PostProcess::SsrResolve(context.Cmd, context.Color(lit),
+											context.Color(trace),
+											context.Color(sceneHDR, normalIndex),
+											width, height,
+											Format::R16G16B16A16_SFLOAT);
+				});
+
+			// Swapped here rather than by the caller, for the reason the TAA
+			// history is: what was written this frame is what the next frame
+			// reads, and a ping-pong somebody has to remember to advance is
+			// one that spends a session reading the target it is writing.
+			desc.Reflections->Advance();
 		}
 
 		// --- depth of field ----------------------------------------------------

@@ -30,6 +30,10 @@ namespace RageV
 		// Whose history the scene being drawn will be reprojected into. Null
 		// outside a scene pass, which is most of the frame.
 		CameraMotion* s_CameraMotion = nullptr;
+
+		// Last frame's reflection trace for the scene being drawn. Null
+		// outside a scene pass, like the two above.
+		const Renderer::ScreenReflections* s_ScreenReflections = nullptr;
 	}
 
 	void Renderer::Init(RHI::RHIDevice& device)
@@ -83,6 +87,7 @@ namespace RageV
 		// otherwise hand it to the next one's probe captures.
 		s_Jitter = Vec2(0.0f, 0.0f);
 		s_CameraMotion = nullptr;
+		s_ScreenReflections = nullptr;
 
 		// Frees the per-frame buffer pools. Anything that draws a scene more
 		// than once per frame depends on this having run first.
@@ -133,6 +138,16 @@ namespace RageV
 	CameraMotion* Renderer::GetCameraMotion()
 	{
 		return s_CameraMotion;
+	}
+
+	void Renderer::SetScreenReflections(const ScreenReflections* reflections)
+	{
+		s_ScreenReflections = reflections;
+	}
+
+	const Renderer::ScreenReflections* Renderer::GetScreenReflections()
+	{
+		return s_ScreenReflections;
 	}
 
 	RHI::RHICommandList* Renderer::GetCommandList()

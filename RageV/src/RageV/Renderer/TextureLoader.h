@@ -71,6 +71,10 @@ namespace RageV
 		// Cached 1x1 defaults, created on first use.
 		static RHI::Ref<RHI::RHITexture> White(RHI::RHIDevice& device);
 		static RHI::Ref<RHI::RHITexture> Black(RHI::RHIDevice& device);
+		// Zero in every channel, alpha included -- Black is opaque. Bound
+		// where a shader reads alpha as a weight and "nothing" has to weigh
+		// nothing: last frame's reflection trace before there is one.
+		static RHI::Ref<RHI::RHITexture> TransparentBlack(RHI::RHIDevice& device);
 		// (0.5, 0.5, 1.0) -- a normal pointing straight out of the surface.
 		static RHI::Ref<RHI::RHITexture> FlatNormal(RHI::RHIDevice& device);
 

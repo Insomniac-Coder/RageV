@@ -6,7 +6,7 @@ namespace RageV
 	using namespace RageV::RHI;
 
 	void TemporalHistory::Prepare(RHIDevice& device, uint32_t width, uint32_t height,
-								  Format format)
+								  Format format, const char* name)
 	{
 		if (width == 0 || height == 0)
 		{
@@ -29,9 +29,9 @@ namespace RageV
 		// to declare a matching depth format.
 		desc.HasDepth = false;
 
-		desc.DebugName = "TemporalHistoryA";
+		desc.DebugName = std::string(name) + "A";
 		m_Targets[0] = device.CreateRenderTarget(desc);
-		desc.DebugName = "TemporalHistoryB";
+		desc.DebugName = std::string(name) + "B";
 		m_Targets[1] = device.CreateRenderTarget(desc);
 
 		m_Width = width;

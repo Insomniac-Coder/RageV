@@ -86,6 +86,40 @@ def sphere_screen_radius_fraction():
     return math.tan(angular) / half_height / 2.0
 
 
+BLOCK_EMISSIVE = (2.4, 1.6, 0.4)
+
+
+def build_exact(profile, sky_rgb):
+    """The exactness fixture (9.9): the mirror-floor scene under a *uniform*
+    sky, so the probe's reflected radiance is one known colour everywhere.
+
+    A metal floor's lighting is its specular term alone -- no diffuse to
+    change with the sky -- and that term is `prefiltered * weight`, where
+    SSR replaces `prefiltered` where it is confident. So a floor pixel that
+    reflects the block with SSR on, under any sky, must equal the same
+    pixel with SSR off under a sky the colour of the block: same weight,
+    same occlusion, same F0, only the reflected radiance swapped. That
+    equality is what "exact replacement" means, and what the check
+    measures. ENGINE-NOTES 7af.
+
+    The block is a black metal, so its lit colour is its emissive and
+    nothing else: F0 is zero, so it reflects nothing, and a metal has no
+    diffuse -- the sky cannot leak into the colour the floor is asked to
+    reproduce.
+    """
+    next_id = base._ids()
+    lines = base._header("SSR exactness", sky_rgb=sky_rgb)
+    lines += base._camera(next_id, (0, 1.2, 6.0), rotation=(-0.12, 0, 0),
+                          profile=profile)
+    # A brighter metal than the mirror fixture's, so the weight -- and any
+    # error in it -- is large enough to see.
+    lines += _material_block(next_id, "Floor", (0, -0.1, 0), (30, 0.2, 30),
+                             (0.5, 0.5, 0.5), (0, 0, 0), 1.0, 0.0)
+    lines += _material_block(next_id, "Block", (0, 1.0, 0), (1.6, 2.0, 1.6),
+                             (0, 0, 0), BLOCK_EMISSIVE, 1.0, 1.0)
+    return "\n".join(lines) + "\n"
+
+
 def build_sphere(profile):
     next_id = base._ids()
     lines = base._header("SSR sphere beside a slab")

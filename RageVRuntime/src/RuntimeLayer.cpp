@@ -248,6 +248,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	// TemporalHistory for why the graph cannot own either.
 	frame.History = &m_History;
 	frame.Exposure = &m_Exposure;
+	frame.Reflections = &m_Reflections;
 
 	// The loop's frame time, straight through. Not a clock read here: this is
 	// the number --frame-time pins, and driving the adaptation from it is the

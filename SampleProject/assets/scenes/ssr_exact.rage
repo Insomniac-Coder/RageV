@@ -1,0 +1,60 @@
+Scene: SSR exactness
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [2.4, 1.6, 0.4]
+  SkyZenith: [2.4, 1.6, 0.4]
+  SkyGround: [2.4, 1.6, 0.4]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 1.2, 6]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 6307683407403600282
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, -0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 0.2, 30]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.5, 0.5, 0.5, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0
+        Occlusion: 1
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Block
+    TransformComponent:
+      Position: [0, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.6, 2, 1.6]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [2.4, 1.6, 0.4, 1]
+        Metallic: 1
+        Roughness: 1
+        Occlusion: 1

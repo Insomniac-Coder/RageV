@@ -1,11 +1,14 @@
-// SSR, pass 2 of 2: sample the hit, blur it by roughness, blend it in.
+// SSR, pass 2 of 2: sample the hit, blur it by roughness, and hand it on.
 //
-// Full resolution over the lit image. The trace wrote where each pixel's
+// Full resolution. The trace wrote, at half resolution, where each pixel's
 // reflection landed and how much to trust it; this reads the lit colour
 // there -- over a small disc whose radius follows the surface's roughness,
-// which is the v1 stand-in for a GGX lobe a single mirror ray cannot express
-// -- and blends it in with a weight that stands in for the probe term it is
-// replacing. ENGINE-NOTES 7ad records exactly which approximation that is.
+// the v1 stand-in for a GGX lobe a single mirror ray cannot express -- and
+// writes the radiance with the confidence in alpha. It does **not** blend
+// anything into the lit image: that happens next frame, inside the
+// lighting, where the PBR shader swaps the probe's reflected radiance for
+// this one under the exact weight the probe would have had. ENGINE-NOTES
+// 7ad for the trace, 7af for why the blend moved and for the upsample below.
 
 #type vertex
 #version 450 core
@@ -22,20 +25,24 @@ void main()
 #version 450 core
 
 layout(location = 0) in vec2 v_UV;
+// RGB: the traced radiance, blurred by roughness. A: confidence, 0..1;
+// zero means "no answer -- keep the probe", and the lighting reads it so.
 layout(location = 0) out vec4 o_Color;
 
 layout(set = 0, binding = 0) uniform sampler2D u_Scene;
-// Half resolution: RG hit uv, B confidence. Filtered, so the half-res
-// answer upsamples smoothly rather than in blocks.
+// Half resolution: RG hit uv, B confidence. **Point sampled**, and the
+// upsample is done by hand below -- see there for why a filtered read of
+// this texture is wrong.
 layout(set = 0, binding = 1) uniform sampler2D u_Trace;
-// Full resolution: the surface description, for roughness and metallic.
+// Full resolution: the surface description, for the roughness that sizes
+// the blur.
 layout(set = 0, binding = 2) uniform sampler2D u_Surface;
 
 layout(push_constant) uniform Params
 {
 	float TexelX;        // PostParams' shared header: the full frame's texel
 	float TexelY;
-	float Intensity;     // A: a scale on the whole effect, 1 is physical-ish
+	float A;
 	float B;
 	float C;
 	float FlipY;
@@ -47,54 +54,82 @@ const int kTaps = 8;
 const float kGoldenAngle = 2.39996323;
 const float kMaxBlurPixels = 12.0;
 
-void main()
+// The lit image around one hit, over the roughness disc.
+vec3 HitRadiance(vec2 hitUv, float radius, vec2 texel)
 {
-	const bool flip = u_Params.FlipY > 0.5;
-	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
-
-	const vec4 scene = texture(u_Scene, uv);
-	const vec4 trace = texture(u_Trace, uv);
-	const float confidence = trace.b;
-
-	if (confidence <= 0.001)
-	{
-		o_Color = scene;
-		return;
-	}
-
-	const vec4 surface = texture(u_Surface, uv);
-	const float roughness = surface.b;
-	const float metallic = surface.a;
-	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
-
-	// The hit colour, blurred by roughness. Sampled from the lit image at
-	// the hit's uv -- the trace and this pass share sampling space, so the
-	// uv is used as written.
-	const float radius = roughness * roughness * kMaxBlurPixels;
-	vec3 hit = vec3(0.0);
-	float weight = 0.0;
+	vec3 sum = vec3(0.0);
 	for (int i = 0; i < kTaps; i++)
 	{
 		const float t = (float(i) + 0.5) / float(kTaps);
 		const float r = sqrt(t) * radius;
 		const float theta = float(i) * kGoldenAngle;
 		const vec2 offset = vec2(cos(theta), sin(theta)) * r * texel;
-		hit += texture(u_Scene, trace.rg + offset).rgb;
-		weight += 1.0;
+		sum += texture(u_Scene, hitUv + offset).rgb;
 	}
-	hit /= weight;
+	return sum / float(kTaps);
+}
 
-	// The reflection's share of the pixel: the PBR shader's specular
-	// weight, F0 * envBRDF.x + envBRDF.y, at normal-ish incidence with a
-	// flat envBRDF stand-in -- see 7ad for why v1 approximates here rather
-	// than reproducing the term exactly. F0 from metallic; the albedo half
-	// is the lit pixel itself, wrong for a lit dielectric and right for a
-	// metal, and only ever a weight.
-	const vec3 F0 = mix(vec3(0.04), scene.rgb, metallic);
-	const vec3 specular = F0 * (1.0 - roughness) + vec3(0.02);
-	const vec3 share = clamp(specular * confidence * u_Params.Intensity, 0.0, 1.0);
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
 
-	// "Dim by the reflection's share, add the traced hit" -- what removing
-	// the probe term and adding the trace does to first order.
-	o_Color = vec4(scene.rgb * (1.0 - share) + hit * share, scene.a);
+	const float roughness = texture(u_Surface, uv).b;
+	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+	const float radius = roughness * roughness * kMaxBlurPixels;
+
+	// The half-resolution trace, upsampled by hand: the four nearest trace
+	// texels, each resolved to a radiance at *its own* hit, then blended by
+	// the bilinear weights and by confidence.
+	//
+	// **Not** a filtered read of the trace. A hit uv is a coordinate, and
+	// the average of two coordinates is a third place that neither ray went:
+	// where a texel with a hit borders one without, a bilinear read of the
+	// pair returns three quarters of the hit's uv, which lands wherever
+	// three quarters of the way to the corner happens to be -- and if that
+	// is something bright, the border pixel gets its colour at a quarter of
+	// the confidence. The first version of this pass read the trace
+	// filtered, and that is exactly what it did along every reflection's
+	// silhouette and at the horizon of a grazing floor: a dash of the
+	// block's yellow on the far floor, on one backend only, because the two
+	// backends straddle the half-resolution texels at different phases.
+	// ENGINE-NOTES 7af. Radiance can be averaged; a place cannot.
+	const vec2 traceSize = vec2(textureSize(u_Trace, 0));
+	const vec2 tracePixel = uv * traceSize - 0.5;
+	const vec2 base = floor(tracePixel);
+	const vec2 f = tracePixel - base;
+
+	vec3 radiance = vec3(0.0);
+	float weight = 0.0;
+
+	for (int y = 0; y < 2; y++)
+	{
+		for (int x = 0; x < 2; x++)
+		{
+			const ivec2 texelIndex = ivec2(clamp(base + vec2(x, y), vec2(0.0), traceSize - 1.0));
+			const vec4 trace = texelFetch(u_Trace, texelIndex, 0);
+			const float confidence = trace.b;
+			if (confidence <= 0.001)
+				continue;
+
+			const float w = (x == 0 ? 1.0 - f.x : f.x) * (y == 0 ? 1.0 - f.y : f.y) * confidence;
+			if (w <= 0.0)
+				continue;
+
+			radiance += HitRadiance(trace.rg, radius, texel) * w;
+			weight += w;
+		}
+	}
+
+	if (weight <= 0.0)
+	{
+		o_Color = vec4(0.0);
+		return;
+	}
+
+	// The radiance is the confidence-weighted mean of what the rays found;
+	// the confidence is the bilinear mean of theirs -- a border pixel whose
+	// neighbours half found something is half trusted, and the probe fills
+	// the rest.
+	o_Color = vec4(radiance / weight, weight);
 }

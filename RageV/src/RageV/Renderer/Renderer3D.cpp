@@ -81,6 +81,13 @@ namespace RageV
 			// would leave last frame's offset in every motion vector, which is
 			// half a pixel of velocity on a scene where nothing moved.
 			Vec4 Jitter;
+
+			// Screen-space reflections, read from last frame's trace inside
+			// the lighting. x = intensity, zero when there is nothing to read;
+			// y = the sign that takes an NDC y-offset into the trace texture's
+			// row direction (-1 on the backend whose row 0 is the top). zw
+			// unused. ENGINE-NOTES 7af.
+			Vec4 ScreenReflections;
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -634,6 +641,20 @@ namespace RageV
 			motion->ViewProjection = viewProjection;
 			motion->Jitter = jitter;
 		}
+
+		// Last frame's reflection trace, if this chain has one and the
+		// feature is on. Null for everything else -- probe faces, shadow
+		// casters, chains with SSR off, the first frame of a chain -- and
+		// null binds an empty texture at intensity zero, which the shader
+		// treats as "the probe answers". The row sign is the same fact
+		// taa_resolve's FlipY states: an NDC y-offset runs *down* the rows of
+		// a target whose row 0 is the top. ENGINE-NOTES 7af.
+		const Renderer::ScreenReflections* reflections = Renderer::GetScreenReflections();
+		const bool haveReflections = reflections && reflections->Texture
+								  && reflections->Intensity > 0.0f;
+		const float rowSign = s_Data->Device->GetBackend() == Backend::Vulkan ? -1.0f : 1.0f;
+		s_Data->Scene.ScreenReflections = Vec4(haveReflections ? reflections->Intensity : 0.0f,
+											   rowSign, 0.0f, 0.0f);
 		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
 		s_Data->Scene.Ambient = Vec4(environment.AmbientColor, environment.AmbientIntensity);
 
@@ -888,6 +909,14 @@ namespace RageV
 		else
 			sceneSet->SetTexture(6, TextureLoader::White(*s_Data->Device),
 								 s_Data->EnvironmentSampler);
+
+		// Last frame's reflection trace, or a 1x1 zero whose alpha -- the
+		// confidence -- is zero, so the shader mixes nothing in even if the
+		// intensity branch were somehow taken. Filtered, clamped: the same
+		// sampler the environment uses.
+		sceneSet->SetTexture(12, haveReflections ? reflections->Texture
+												 : TextureLoader::TransparentBlack(*s_Data->Device),
+							 s_Data->EnvironmentSampler);
 
 		// All four, always. A comparison sampler the layout declares and the
 		// set does not fill is a validation error; a 1x1 depth of 1.0 is the

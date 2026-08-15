@@ -67,6 +67,11 @@ layout(set = 0, binding = 0) uniform SceneData
 	// out to get a motion vector that is the surface's movement rather than
 	// the camera's dither. Zero for every mode but TAA.
 	vec4 Jitter;
+
+	// Screen-space reflections, read by the fragment stage from last frame's
+	// trace. x = intensity (zero: nothing to read), y = the sign that takes
+	// an NDC y-offset into the trace's row direction. ENGINE-NOTES 7af.
+	vec4 ScreenReflections;
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.

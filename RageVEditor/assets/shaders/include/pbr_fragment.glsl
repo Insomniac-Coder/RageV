@@ -56,6 +56,13 @@ layout(set = 0, binding = 0) uniform SceneData
 	// back out of the motion vector at the top of main -- see there, and
 	// ENGINE-NOTES 7r.
 	vec4 Jitter;
+
+	// Screen-space reflections. x = intensity, zero when there is no trace
+	// to read -- the feature is off, this is a probe face or a shadow
+	// caster, or the chain has not drawn a frame yet. y = the sign that
+	// takes an NDC y-offset into the trace texture's row direction: -1 on
+	// the backend whose row 0 is the top. ENGINE-NOTES 7af.
+	vec4 ScreenReflections;
 } u_Scene;
 
 // Every light in the scene, however many that is.
@@ -114,6 +121,18 @@ layout(std430, set = 0, binding = 10) readonly buffer CellIndexBlock
 layout(set = 0, binding = 1) uniform samplerCubeArray u_Environment;
 layout(set = 0, binding = 5) uniform samplerCubeArray u_Irradiance;
 layout(set = 0, binding = 6) uniform sampler2D u_BRDF;
+
+// Last frame's screen-space reflection trace: RGB the radiance the ray found
+// in this surface's reflected direction, A how far to trust it (zero: it
+// found nothing, or nothing was traced). Read where the probe's reflected
+// radiance is read, and mixed with it there, so the traced answer goes
+// through exactly the weight the probe's does. ENGINE-NOTES 7af.
+//
+// Binding 12, not 11: this file is included by the skinned variant too, and
+// its vertex stage keeps the bone buffer at set 0 binding 11. One set, one
+// binding, two descriptor types is a pipeline that will not build -- and on
+// the first attempt it did not, as a device loss the moment the fox drew.
+layout(set = 0, binding = 12) uniform sampler2D u_ScreenReflections;
 
 // Comparison samplers: the hardware compares against the reference and filters
 // the answers, which is a 2x2 percentage-closer filter for one fetch. Four
@@ -582,9 +601,13 @@ void main()
 	//
 	// First in main, and unconditionally: a fragment that leaves the velocity
 	// attachment unwritten leaves whatever the target's memory held.
+	//
+	// `thenNDC` outlives the block: where this surface point was last frame
+	// is also where last frame's reflection trace has its answer for it.
+	vec2 thenNDC;
 	{
-		vec2 nowNDC  = v_ClipPos.xy     / max(abs(v_ClipPos.w), 1e-6)     * sign(v_ClipPos.w);
-		vec2 thenNDC = v_PrevClipPos.xy / max(abs(v_PrevClipPos.w), 1e-6) * sign(v_PrevClipPos.w);
+		vec2 nowNDC = v_ClipPos.xy     / max(abs(v_ClipPos.w), 1e-6)     * sign(v_ClipPos.w);
+		thenNDC     = v_PrevClipPos.xy / max(abs(v_PrevClipPos.w), 1e-6) * sign(v_PrevClipPos.w);
 
 		o_Velocity = ((nowNDC - u_Scene.Jitter.xy) - (thenNDC - u_Scene.Jitter.zw)) * 0.5;
 	}
@@ -805,6 +828,40 @@ void main()
 
 	vec3 prefiltered = textureLod(u_Environment, vec4(reflection, v_Probe), lod).rgb *
 					   u_Scene.Environment.x;
+
+	// Screen-space reflections replace the probe *here* -- the radiance the
+	// probe says is in the reflected direction, swapped for what last
+	// frame's trace found there, wherever it found something. Everything
+	// after this line -- the split-sum weight, the occlusion -- applies to
+	// both alike, which is what makes the replacement exact instead of a
+	// post-pass guess at how much of the pixel the probe was.
+	//
+	// Last frame's, and read at where this surface point *was* last frame,
+	// through the same previous clip position the motion vector is built
+	// from. The trace is written at the end of a frame from that frame's
+	// depth and image; the lighting that reads it is the next frame's. One
+	// frame late, reprojected. ENGINE-NOTES 7af says what that costs and
+	// why it is the honest place.
+	//
+	// The row sign: thenNDC's y is up the picture, the trace's rows run up
+	// on one backend and down on the other -- the same fact taa_resolve
+	// states for the velocity, carried in as a uniform rather than
+	// re-derived per shader.
+	if (u_Scene.ScreenReflections.x > 0.0)
+	{
+		vec2 previousNDC = thenNDC - u_Scene.Jitter.zw;
+		vec2 traceUV = vec2(previousNDC.x, previousNDC.y * u_Scene.ScreenReflections.y) * 0.5 + 0.5;
+
+		// Off the edge last frame means nothing was traced for this point;
+		// the probe answers, and clamp-to-edge would have answered with a
+		// neighbour's reflection instead.
+		if (all(greaterThanEqual(traceUV, vec2(0.0))) && all(lessThanEqual(traceUV, vec2(1.0))))
+		{
+			vec4 traced = texture(u_ScreenReflections, traceUV);
+			float share = clamp(traced.a * u_Scene.ScreenReflections.x, 0.0, 1.0);
+			prefiltered = mix(prefiltered, traced.rgb, share);
+		}
+	}
 
 	vec2 envBRDF = EnvBRDF(NdotV, roughness);
 	ambient += prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;

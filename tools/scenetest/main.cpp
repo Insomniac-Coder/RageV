@@ -8544,14 +8544,67 @@ void main()
 		Check(build(1600, 900, render, post) && !hasPass("SSAO"),
 			  "off again adds none of them");
 
-		// --- SSR (9.7) ----------------------------------------------------------
+		// --- SSR (9.7, 9.9) -----------------------------------------------------
+		//
+		// The trace is written at the end of one frame and read by the next
+		// frame's lighting, so it needs somewhere to live between them --
+		// a caller with no Reflections history gets the probe alone and no
+		// SSR passes, the same shape as TAA with no History. ENGINE-NOTES 7af.
 		post.ScreenSpaceReflections = true;
-		Check(build(1600, 900, render, post), "with SSR on the frame compiles");
-		Check(hasPass("SSR trace") && hasPass("SSR resolve"),
-			  "and both SSR stages are in it");
-		post.ScreenSpaceReflections = false;
-		Check(build(1600, 900, render, post) && !hasPass("SSR"),
-			  "off again adds neither");
+		Check(build(1600, 900, render, post), "with SSR on and nowhere to keep the trace, the frame compiles");
+		Check(!hasPass("SSR"), "and adds no SSR pass, because next frame could not read it");
+		{
+			TemporalHistory reflections;
+
+			auto buildReflecting = [&]()
+			{
+				graph.Begin(1600, 900);
+
+				FrameDesc frame;
+				frame.Output = graph.Backbuffer();
+				frame.Width = 1600;
+				frame.Height = 900;
+				frame.Render = render;
+				frame.Post = post;
+				frame.OutputFormat = RHI::Format::R8G8B8A8_UNORM;
+				frame.DrawScene = [](RGPassContext&) {};
+				frame.Reflections = &reflections;
+
+				BuildFrame(graph, frame);
+				return graph.Compile();
+			};
+
+			Check(buildReflecting(), "with SSR on and a reflections history the frame compiles");
+			Check(hasPass("SSR trace") && hasPass("SSR resolve"),
+				  "and both SSR stages are in it");
+			// The pair is advanced by BuildFrame, exactly as TAA's is: after
+			// one frame there is a trace for the next frame to read.
+			Check(reflections.HasHistory(),
+				  "and one frame later there is a trace for the next frame's lighting");
+			Check(reflections.Current() && reflections.Previous()
+				  && reflections.Current() != reflections.Previous(),
+				  "kept in a pair, so the lighting never reads the target the resolve is writing");
+
+			// SSR passes sit after SSAO now: a ray's radiance should carry
+			// the occlusion of the corner it landed in.
+			post.AmbientOcclusion = true;
+			Check(buildReflecting(), "with SSAO on as well it compiles");
+			{
+				size_t ssao = graph.GetPassCount(), ssr = 0;
+				for (size_t i = 0; i < graph.GetPassCount(); i++)
+				{
+					if (graph.GetPassName(i) == "SSAO apply") ssao = i;
+					if (graph.GetPassName(i) == "SSR trace") ssr = i;
+				}
+				Check(ssr > ssao, "and the trace runs after the occlusion is applied");
+			}
+			post.AmbientOcclusion = false;
+
+			post.ScreenSpaceReflections = false;
+			Check(buildReflecting() && !hasPass("SSR"), "off again adds neither");
+			Check(!reflections.HasHistory(),
+				  "and forgets the trace, so switching back on does not resume from a stale one");
+		}
 
 		// --- anti-aliasing off ---------------------------------------------------
 		post.BloomEnabled = true;

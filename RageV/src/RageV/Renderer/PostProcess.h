@@ -246,13 +246,16 @@ namespace RageV
 							 uint32_t width, uint32_t height,
 							 const SsrParams& params, RHI::Format outputFormat);
 
-		// 2: sample the hit, blur by roughness, blend into the lit image.
+		// 2: sample the hit, blur by roughness, and write radiance + confidence
+		// for *next* frame's lighting to read. It blends nothing itself: the
+		// PBR shader swaps the probe's reflected radiance for this under the
+		// exact weight the probe would have had. ENGINE-NOTES 7af.
 		static void SsrResolve(RHI::RHICommandList& cmd,
 							   const RHI::Ref<RHI::RHITexture>& scene,
 							   const RHI::Ref<RHI::RHITexture>& trace,
 							   const RHI::Ref<RHI::RHITexture>& surface,
 							   uint32_t width, uint32_t height,
-							   float intensity, RHI::Format outputFormat);
+							   RHI::Format outputFormat);
 
 		// A straight copy, for when anti-aliasing is off but the chain still
 		// has to land in the target the caller wanted.

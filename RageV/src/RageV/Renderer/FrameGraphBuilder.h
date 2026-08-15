@@ -84,6 +84,19 @@ namespace RageV
 		// have to know it exists.
 		ExposureState* Exposure = nullptr;
 
+		// Where screen-space reflections keep last frame's trace for this
+		// frame's lighting to read. One per frame chain, ping-ponged, exactly
+		// as History is and for the same reasons; the two chains of the editor
+		// are different sizes showing different cameras, and a trace made for
+		// one is nonsense to the other. ENGINE-NOTES 7af.
+		//
+		// Null means the feature cannot run for this caller -- there is
+		// nowhere to keep the trace -- and the frame renders with the probe
+		// alone, which is what a probe capture and scenetest want. A caller
+		// that has asked for SSR on its profile and passes null gets no
+		// reflections and no error, the same shape as TAA with no History.
+		TemporalHistory* Reflections = nullptr;
+
 		// **The frame time the loop handed down**, and the reason it is passed
 		// rather than measured: an adaptation driven by this is a function of
 		// the frame *number* under --frame-time, which is what keeps every

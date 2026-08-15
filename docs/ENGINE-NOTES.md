@@ -4399,28 +4399,29 @@ disc sized by roughness is a defensible approximation of the GGX lobe that
 a single mirror ray cannot express. Multiple jittered rays would be more
 correct and are the follow-up after hi-Z.
 
-### The blend, and where
+### The blend, and where -- as it was, superseded by 7af
 
 The trace should *replace* the probe's contribution where it is confident,
 not add a second reflection on top of the one the PBR shader already
 composited. Doing that exactly means reproducing the PBR shader's probe
 term -- `prefiltered(slot, lod) * (F0 * envBRDF.x + envBRDF.y) * occlusion`
 -- which needs the per-instance probe slot, the material occlusion and F0,
-none of which the attachment carries. So v1 approximates: the resolve
-computes the specular weight `F0 * envBRDF.x + envBRDF.y` from the
-attachment's metallic (F0 = mix(0.04, ~albedo, metallic), with the albedo
-taken as the lit pixel itself -- wrong for a lit dielectric, right for a
-metal, and only ever a *weight*), scales it by confidence and by
-`(1 - roughness)`, and writes `lit * (1 - w) + hit * w`. The subtraction is
-"dim the pixel by the reflection's share", which is what removing the
-probe term does to first order; the addition is the traced hit. It is an
-approximation and it is written down as one. Exact replacement is the
-follow-up that lands with per-pixel probe slot in the attachment.
+none of which the attachment carries. So v1 approximated: the resolve
+computed the specular weight from the attachment's metallic (F0 =
+mix(0.04, ~albedo, metallic), with the albedo taken as the lit pixel
+itself), scaled it by confidence and by `(1 - roughness)`, and wrote
+`lit * (1 - w) + hit * w`. It was written down as an approximation, and it
+was one: on the mirror-floor fixture its weight was off by a factor of
+three and a half at grazing incidence, and on a metal sphere reflecting a
+dark scene it took the sphere's albedo from the sphere's darkness. **9.9
+(7af) removed the approximation by moving the blend out of the post chain
+and into the lighting** -- the PBR shader now swaps `prefiltered` for the
+traced radiance under the exact weight, one frame late, reprojected. This
+section stays as the record of the first design and of why it could not be
+exact from where it stood.
 
-After the resolve, before SSAO. A reflection is lighting; occlusion should
-darken it in a crease like everything else, and DoF and motion blur should
-defocus and smear it. Off is exact: no pass, and the attachment is written
-either way -- its presence is a *shape* decision, not a setting.
+Off is exact: no pass, and the attachment is written either way -- its
+presence is a *shape* decision, not a setting.
 
 ### The check
 
@@ -4513,6 +4514,149 @@ a wall facing that way would flicker between surface and nothing a texel at
 a time. The PBR shader clamps roughness to 0.045 before writing it, so a
 real surface never stores a zero in the roughness channel and the clear
 always does. `SurfaceIsEmpty` tests that channel, and both passes call it.
+
+---
+
+## 7af. SSR replaces the probe exactly (9.9): the blend moves into the lighting, one frame late
+
+7ad's resolve blended a guessed weight over the lit pixel because the
+exact weight -- `(F0 * envBRDF.x + envBRDF.y) * occlusion`, times the
+probe's radiance -- lives inside the PBR shader and nowhere else. The
+9.x list said the fix was "one more channel in the attachment". It is not:
+the weight is three channels of F0, an occlusion and the probe's radiance
+in the reflected direction, six numbers, and the attachment has one free
+8-bit slot. Two more attachments would carry them (7q's ceremony twice,
+twelve bytes a pixel on every scene draw whether the feature is on or off,
+and five colour attachments where the Vulkan floor is four). So the
+question was turned around: **not "how does the post pass learn the
+weight" but "how does the lighting learn the trace".**
+
+### The shape
+
+The trace is written at the end of a frame -- from that frame's depth,
+surface attachment and lit image, after SSAO -- into one half of a
+per-chain `TemporalHistory` pair, RGBA16F: RGB the radiance the ray found,
+blurred by roughness, A the confidence. The *next* frame's scene pass binds
+the other half at set 0 binding 12 and the PBR shader, at the one line where
+it reads the probe's `prefiltered`, does
+
+```
+prefiltered = mix(prefiltered, traced.rgb, traced.a * intensity);
+```
+
+before the split-sum weight and the occlusion apply. Same weight, same
+occlusion, same F0, same everything: the traced radiance goes through
+exactly the arithmetic the probe's did. The post chain no longer touches
+`shaded` for SSR at all; the resolve pass writes the pair and nothing else.
+`Renderer::SetScreenReflections` hands the texture and intensity to the
+scene pass and clears them after it, on the same edges as the jitter and
+the camera motion and for the same reason -- a probe face or a shadow
+caster reaching this would light itself from a trace made for another
+camera. `FrameDesc::Reflections` is the pair, one per chain like `History`
+and `Exposure`; a caller with none gets the probe alone and no SSR passes,
+the same shape as TAA with no history.
+
+The lookup is where the surface *was*: `v_PrevClipPos`, the same previous
+clip position the motion vector is built from, less last frame's jitter,
+mapped into the trace's row space by a per-backend sign the scene block
+carries (`ScreenReflections.y`, -1 where row 0 is the top -- the fact
+taa_resolve states as FlipY). Off the edge last frame means nothing was
+traced for the point and the probe answers; clamp-to-edge would have
+answered with a neighbour's reflection.
+
+### What it costs, stated
+
+**One frame of latency.** The reflection a surface shows is the trace of
+the previous frame's image, reprojected through the surface's own motion.
+For the reflector that is invisible: the reflection stays attached to the
+floor as the camera pans. For the *reflected* content it is one frame
+stale -- a ball rolling across a mirror at 1 m/s at 60 Hz reflects from
+1.6 cm behind itself. Every shipping SSR traces last frame's colour or
+reprojects a temporal accumulation; this is the smaller of the two debts.
+Newly disoccluded pixels sample the trace made for whatever was there a
+frame ago and are wrong for one frame; nothing rejects that yet, and if it
+ever shows, the confidence channel is where a depth test would go.
+
+**Multi-bounce, for free.** The trace samples the lit image, which already
+contains last frame's reflections; a mirror facing a mirror shows the
+mirror's reflection. Each bounce carries another factor of the weight, so
+it converges.
+
+**Nothing on the scene target.** The scene draws no more attachments than
+before, and off costs one uniform branch. The trace and resolve are where
+they were, minus a blend: SSR at 1440p on the demo is 0.46 ms on Vulkan
+and 0.39 on OpenGL, unchanged from 7ad within the noise.
+
+**Determinism holds.** A frame's SSR is the previous frame's trace, which
+in a still scene is the same trace; `--screenshot-frame=30` reproduces to
+the byte, and off is off to the byte because the shader's branch is on the
+intensity and the texture bound when it is zero has zero alpha anyway.
+
+### The check is a law, not a vibe
+
+A metal's lighting is its specular term alone, and that term is the
+reflected radiance times the weight. So a metal floor reflecting the block
+under any sky, with SSR on, must equal the same floor with SSR *off* under
+a uniform sky the colour of the block -- the weight is identical and only
+the radiance was swapped. `check_ssr.py` renders both under a uniform sky
+(the mirror fixture's procedural gradient with all three colours equal)
+and takes the mean absolute difference over the interior of the block's
+reflection: **0.00 levels on both backends**, at 208 of 255. 7ad's blend
+could not have passed this at any tolerance; the mirror region that gained
+23 levels under it gains 80 under the exact weight, and the sphere's limb
+15 became 84. Those are not "more reflection" -- they are the amount a
+dark metal at grazing incidence actually reflects, which the guess had
+under by the Fresnel term it did not know.
+
+### Two things the exact weight made visible, and what was done about them
+
+With the reflection three times brighter, two artefacts of 7ad's resolve
+that had been faint became plain.
+
+**Filtering hit coordinates.** The resolve read the half-resolution trace
+with a bilinear sampler and then sampled the lit image at the result. A
+hit uv is a *place*; the average of a texel that hit and a texel that did
+not is three quarters of the way to the corner, which is somewhere no ray
+went -- and along every reflection's silhouette, and at the horizon of a
+grazing floor, that somewhere was the block, at a quarter confidence: a
+yellow dash on the far floor, on Vulkan only, because the two backends
+straddle the half-resolution texels at different phases. The resolve now
+point-samples the four nearest trace texels, resolves each at its own hit,
+and blends the *radiances* by bilinear weight times confidence. Radiance
+can be averaged; a place cannot. The dash is gone and the silhouettes are
+clean; the cost did not move.
+
+**Grazing self-hits.** At the far edge of a floor seen nearly edge-on, a
+texel of depth spans a quarter of a metre, and a ray rising three
+centimetres a step from a point sample of it reads as "behind the surface"
+for its first few steps -- a hit on the floor it left, at the floor's own
+dark colour, a two-row band a few levels off at the horizon on one
+backend. This is the linear march comparing a ray position against a
+point-sampled depth at a slightly different position; the fix is a march
+that compares at texel centres, which is what a screen-space DDA does and
+what hi-Z (9.10) is anyway. Written down here as the thing 9.10 must
+remove; not patched with a bias that would trade thin-object hits for it.
+
+### The binding
+
+`u_ScreenReflections` is set 0 binding **12**, not 11. `pbr_fragment.glsl`
+is included by the skinned variant, whose vertex stage keeps the bone
+buffer at set 0 binding 11; one set, one binding, two descriptor types is a
+pipeline that does not build, and the first attempt found that as a device
+loss the moment the fox drew -- under validation, one line naming the
+binding; without it, `VK_ERROR_DEVICE_LOST` from a fence wait three seconds
+in. Both are in HANDOFF's verification bar for a reason.
+
+### What 7ac deferred, this makes possible
+
+7ac put SSAO on the lit image because "a single forward pass cannot have
+it inside the lighting: the occlusion is computed from the depth that pass
+writes." That sentence is now false in the same way it was for
+reflections: the occlusion of frame N, reprojected through
+`v_PrevClipPos`, could attenuate frame N+1's ambient and image-based
+light *only*, which is the honest place 7ac named and could not reach.
+Not built; noted, because the mechanism now exists and the section that
+said it could not should say so.
 
 ---
 

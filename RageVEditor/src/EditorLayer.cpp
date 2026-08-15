@@ -496,6 +496,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	}
 	scene.History = &m_SceneHistory;
 	scene.Exposure = &m_SceneExposure;
+	scene.Reflections = &m_SceneReflections;
 	// The loop's frame time, not a clock read here. ENGINE-NOTES 7y.
 	scene.DeltaSeconds = ts.GetSeconds();
 	scene.DrawScene = [this](RGPassContext&)
@@ -589,6 +590,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		}
 		game.History = &m_GameHistory;
 		game.Exposure = &m_GameExposure;
+		game.Reflections = &m_GameReflections;
 		game.DeltaSeconds = ts.GetSeconds();
 		game.DrawScene = [this](RGPassContext&)
 		{

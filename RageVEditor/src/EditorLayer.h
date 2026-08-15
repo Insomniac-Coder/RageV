@@ -297,6 +297,12 @@ private:
 	RageV::ExposureState m_SceneExposure;
 	RageV::ExposureState m_GameExposure;
 
+	// And where each keeps last frame's screen-space reflection trace for
+	// this frame's lighting to read. Same shape as the TAA history, same
+	// reason there are two. ENGINE-NOTES 7af.
+	RageV::TemporalHistory m_SceneReflections;
+	RageV::TemporalHistory m_GameReflections;
+
 	// What both viewport textures are, and what the post chain's last pass
 	// writes. ImGui samples them, so they are LDR.
 	static constexpr RageV::RHI::Format kViewportFormat = RageV::RHI::Format::R8G8B8A8_UNORM;

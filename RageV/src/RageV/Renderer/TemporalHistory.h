@@ -44,15 +44,23 @@ namespace RageV
 	// two frames from the same scene, its viewport and the game's, and they
 	// are different sizes showing different cameras; a shared history would
 	// have each dragging the other's image behind it.
+	//
+	// TAA was the first user. Screen-space reflections are the second: the
+	// trace written at the end of one frame is what the next frame's lighting
+	// reads (ENGINE-NOTES 7af), and "last frame's result, one per chain, a
+	// pair so nothing reads what it writes" is exactly this class. The
+	// Motion() below is TAA's alone; SSR does not touch it.
 	class TemporalHistory
 	{
 	public:
 		// Makes sure two targets of this size exist, allocating or resizing if
 		// not. A size change throws the history away -- reprojecting into an
 		// image of another size is meaningless, and stretching it would smear
-		// a whole frame every time somebody drags a panel edge.
+		// a whole frame every time somebody drags a panel edge. `name` is the
+		// debug name the pair is created under, so a capture can tell one
+		// history from another.
 		void Prepare(RHI::RHIDevice& device, uint32_t width, uint32_t height,
-					 RHI::Format format);
+					 RHI::Format format, const char* name = "TemporalHistory");
 
 		// This frame's output, and last frame's. Null before Prepare.
 		const RHI::Ref<RHI::RHIRenderTarget>& Current() const  { return m_Targets[m_Cursor]; }

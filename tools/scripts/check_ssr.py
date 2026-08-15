@@ -26,6 +26,17 @@ And on a mirror sphere with a bright slab standing to its left (9.8):
    were negations of each other exactly when x was zero. This is the
    measurement 7ad should have had. ENGINE-NOTES 7ae.
 
+And on the mirror floor under a *uniform* sky (9.9):
+
+7. **The replacement is exact.** A metal floor's colour is its specular
+   term alone: the reflected radiance times a weight that depends on F0,
+   roughness, view angle and occlusion. Under a uniform sky K with SSR on,
+   the floor where it reflects the block must equal the same floor with
+   SSR *off* under a uniform sky the colour of the block -- same weight,
+   only the radiance swapped. 7ad's resolve blended a guessed weight over
+   the lit pixel and could not pass this; the lighting now does the swap
+   itself. ENGINE-NOTES 7af.
+
 Usage:
     python tools/scripts/check_ssr.py [--config Release]
 """
@@ -51,6 +62,11 @@ BACKEND_ROW_TOLERANCE = 3
 # reflects back at it, which the trace correctly refuses -- so the band is
 # narrow and the bound is modest; what matters is the side.
 MIN_LIMB_CONTRAST = 4.0
+# How far the reflected floor may differ, in mean 8-bit levels, from the
+# same floor lit by a sky the colour of what it reflects. Two levels: the
+# block's own colour carries a trace of the sky it stands under, and the
+# tone curve quantises.
+MAX_EXACTNESS_ERROR = 2.0
 
 
 def run(exe, args):
@@ -144,6 +160,7 @@ def main():
 
     failures = []
     centroids = {}
+    bases = {}
 
     for backend in BACKENDS:
         stage({}, 0.0)
@@ -158,6 +175,7 @@ def main():
                             f"image (max {delta})")
 
         reflection, empty = regions(off)
+        bases[backend] = block_base(off)
 
         stage({ "ScreenSpaceReflections": True }, 0.0)
         mirror = shoot(exe, backend, shots / f"{backend}-mirror.png")
@@ -219,6 +237,43 @@ def main():
             failures.append(f"{backend}: the slab to the sphere's left reflected "
                             f"{left_gain:.2f} on its left limb and {right_gain:.2f} "
                             "on its right -- the normal transform mirrors x")
+
+    # --- exactness: SSR on under one sky equals SSR off under another --------
+    exact = scenes / "ssr_exact.rage"
+
+    def stage_exact(settings, sky_rgb):
+        handle = postprofile.write_beside(exact, { "BloomEnabled": False, **settings })
+        exact.write_text(make_ssr_scene.build_exact(handle, sky_rgb))
+
+    # Any sky that is not the block's colour will do for the traced frame;
+    # dim and blue, so a leak of it into the answer would show.
+    other_sky = (0.1, 0.1, 0.35)
+
+    for backend in BACKENDS:
+        stage_exact({ "ScreenSpaceReflections": True }, other_sky)
+        traced = shoot(exe, backend, shots / f"{backend}-exact-traced.png",
+                       scene="scenes/ssr_exact.rage")
+        stage_exact({ "ScreenSpaceReflections": False }, make_ssr_scene.BLOCK_EMISSIVE)
+        reference = shoot(exe, backend, shots / f"{backend}-exact-reference.png",
+                          scene="scenes/ssr_exact.rage")
+
+        # The interior of the block's reflection: below its base, inside its
+        # columns, clear of the silhouette where the half-resolution trace
+        # is allowed its edge.
+        height, width = traced.shape
+        # The block's base row, from the mirror fixture's off frame: same
+        # camera, same block, and in *these* two frames the block is not the
+        # only bright thing.
+        base = bases[backend]
+        interior = (slice(base + 12, base + int(height * 0.14)),
+                    slice(int(width * 0.45), int(width * 0.55)))
+        error = float(np.abs(traced[interior] - reference[interior]).mean())
+        print(f"{backend}: reflected floor vs a sky of the block's colour: "
+              f"mean |diff| {error:.2f} levels "
+              f"(traced {traced[interior].mean():.1f}, reference {reference[interior].mean():.1f})")
+        if error > MAX_EXACTNESS_ERROR:
+            failures.append(f"{backend}: the reflection replaces the probe inexactly "
+                            f"({error:.2f} levels off a sky of the same colour)")
 
     if len(centroids) == 2:
         rows = abs(centroids["vulkan"] - centroids["opengl"])

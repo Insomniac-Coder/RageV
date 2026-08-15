@@ -842,8 +842,7 @@ namespace RageV
 
 	void PostProcess::SsrResolve(RHICommandList& cmd, const Ref<RHITexture>& scene,
 								 const Ref<RHITexture>& trace, const Ref<RHITexture>& surface,
-								 uint32_t width, uint32_t height,
-								 float intensity, Format outputFormat)
+								 uint32_t width, uint32_t height, Format outputFormat)
 	{
 		if (!s_Data || !scene || !trace || !surface)
 			return;
@@ -851,12 +850,15 @@ namespace RageV
 		PostParams params;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 							 1.0f / (float)Math::Max(height, 1u) };
-		params.A = Math::Max(intensity, 0.0f);
 
-		// The trace is half resolution and filtered up; the surface is full
-		// resolution and point sampled for the same reason as in the trace.
+		// The trace is half resolution and *point* sampled: the shader
+		// upsamples it by hand, resolving each of the four nearest texels at
+		// its own hit and blending the radiances -- a filtered read of hit
+		// coordinates lands somewhere no ray went (see the shader, and
+		// ENGINE-NOTES 7af). The surface is point sampled for the same reason
+		// as in the trace.
 		Dispatch(cmd, Shader::SsrResolve, outputFormat, scene, trace,
-				 &params, sizeof(params), Sampling::Linear, Sampling::Linear,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
 				 surface, Sampling::Point);
 	}
 

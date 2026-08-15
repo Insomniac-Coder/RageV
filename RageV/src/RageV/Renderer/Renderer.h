@@ -62,6 +62,30 @@ namespace RageV
 		static void SetCameraMotion(CameraMotion* motion);
 		static CameraMotion* GetCameraMotion();
 
+		// Last frame's screen-space reflection trace, for the lighting that
+		// draws this frame: RGB the traced radiance, A how far to trust it,
+		// full resolution in the chain's output space. ENGINE-NOTES 7af.
+		//
+		// The PBR shader mixes it into the probe's reflected radiance *inside*
+		// the lighting integral -- the same weight, the same occlusion, the
+		// same F0 the probe term gets -- which is what makes the replacement
+		// exact rather than a post-pass guess at what the probe contributed.
+		// The price is one frame of latency, which the reprojection through
+		// each surface's own motion vector hides.
+		//
+		// Set and cleared around the scene draw exactly as the jitter is, and
+		// null everywhere else: null means "no reflections", which BeginScene
+		// binds as an empty texture at intensity zero. Correct for a shadow
+		// cascade, a probe capture, a chain with the feature off, and the
+		// first frame of a chain that has not traced anything yet.
+		struct ScreenReflections
+		{
+			RHI::Ref<RHI::RHITexture> Texture;
+			float Intensity = 0.0f;
+		};
+		static void SetScreenReflections(const ScreenReflections* reflections);
+		static const ScreenReflections* GetScreenReflections();
+
 		// Null outside a frame, and between BeginFrame returning nullptr and
 		// the next successful frame.
 		static RHI::RHICommandList* GetCommandList();

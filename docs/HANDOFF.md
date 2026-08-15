@@ -233,8 +233,10 @@ camera's lens.
 8.** 9.8 (SSAO reads the real normal -- and the derivation of the
 reconstruction frame it forced, ENGINE-NOTES 7ae, which found and fixed a
 transform in the SSR trace that was right only for sideways-free normals)
-is done; 9.9 exact probe replacement, 9.10 hi-Z, 9.11 probe barriers
-follow. See START HERE in the log below.
+and 9.9 (SSR replaces the probe exactly: the blend moved into the
+lighting, one frame late, ENGINE-NOTES 7af; the check measures 0.00 levels
+against the law) are done; 9.10 hi-Z and 9.11 probe barriers follow. See
+START HERE in the log below.
 
 Roadmap **phase 8 is open work, not excluded** -- GI, bindless, GPU-driven
 rendering, terrain, navmesh, networking, other platforms, XR, FBX, visual
@@ -1581,10 +1583,12 @@ not, which is the same mistake as the culling number, caught this time.
 four small follow-ups before phase 8, in this order:
 
 1. **9.8 SSAO reads the real normal** -- done (below).
-2. **9.9 SSR's exact probe replacement** -- next. 7ad names the
-   approximation; read 7ae first, because the resolve's inputs changed
-   shape under it.
-3. **9.10 Hi-Z for the SSR march.**
+2. **9.9 SSR's exact probe replacement** -- done (below). The blend moved
+   into the lighting, one frame late; ENGINE-NOTES 7af.
+3. **9.10 Hi-Z for the SSR march** -- next. Read 7af's "grazing
+   self-hits" first: the march has to become a screen-space DDA that
+   compares at texel centres, and hi-Z is the pyramid over that. The
+   horizon band on the mirror fixture is the measurement it must clear.
 4. **9.11 The probe convolution's serialized barriers on Vulkan** (V.3).
 
 Then **phase 8**, reopened at the owner's direction and priced in the
@@ -1593,6 +1597,54 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 9.9, SSR replaces the probe exactly (2026-08-15)
+
+ENGINE-NOTES 7af. The follow-up said "one more channel"; the exact weight
+is six numbers the post pass can never see, so instead **the blend moved
+into the lighting**: the trace is written at the end of a frame into a
+per-chain `TemporalHistory` pair (`FrameDesc::Reflections`, one each in
+the editor's two chains and the runtime), and the next frame's PBR shader
+swaps the probe's `prefiltered` for the traced radiance at the one line
+where the split-sum weight and occlusion have not applied yet. Same
+weight, same occlusion, same F0. One frame late, reprojected through
+`v_PrevClipPos`; nothing new on the scene target; off is a uniform branch.
+`Renderer::SetScreenReflections` hands the texture to the scene pass on
+the jitter's edges. The resolve writes radiance + confidence and blends
+nothing. SSR passes now sit *after* SSAO (a ray's radiance should carry
+the crease it landed in) and are a side chain -- `shaded` is untouched.
+
+**The law**: a metal floor with SSR on under a uniform sky K equals the
+same floor with SSR off under a uniform sky the colour of the block it
+reflects. `check_ssr.py` measures it: **0.00 levels** difference on both
+backends. The mirror region's gain went 23 -> 80 levels and the sphere
+limb 15 -> 84 -- the amount a dark metal at grazing incidence really
+reflects, which the guess had under by the Fresnel term. Cost unchanged:
+0.46 ms Vulkan / 0.39 OpenGL at 1440p on the demo.
+
+**Two artefacts the correct weight exposed.** (1) The resolve read the
+half-res trace *filtered* -- averaging hit uvs, which are places -- and
+sampled the lit image at the average: a yellow dash of the block on the
+far floor at the horizon, Vulkan only. It now point-samples the four
+nearest trace texels, resolves each at its own hit and blends radiances;
+gone. (2) Grazing self-hits at a far floor's horizon: a two-row band a few
+levels off on one backend, inherent to a linear march compared against
+point-sampled depth. **Not patched -- 9.10's screen-space DDA is the fix,
+and this band is its measurement.** (3) Not an artefact but a trap:
+`u_ScreenReflections` is binding **12**, because 11 is the skinned
+pipeline's bone buffer and the first build was a device loss when the fox
+drew. Validation named it in one line.
+
+Verified: 1538 scenetest checks both backends under validation (seven new:
+no history means no SSR passes; a history means both, advanced, paired,
+after SSAO apply; off forgets the trace), zero `[Vulkan]` lines, editor
+demo both backends, all three configs, `check_ssr.py` (now with the
+exactness case) and `check_ssao.py`, `--benchmark` on both backends,
+`rvdoc --check`. `TextureLoader::TransparentBlack` exists now because
+`Black` is opaque and a confidence of one from a stand-in would have
+mixed black into every metal.
 
 ---
 

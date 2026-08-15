@@ -41,6 +41,7 @@ namespace RageV
 		std::unordered_map<std::string, Ref<RHITexture>> s_IrradianceCache;
 		Ref<RHITexture> s_White;
 		Ref<RHITexture> s_Black;
+		Ref<RHITexture> s_TransparentBlack;
 		Ref<RHITexture> s_FlatNormal;
 		Ref<RHITexture> s_BlackCube;
 		Ref<RHITexture> s_BlackCubeArray;
@@ -438,6 +439,13 @@ namespace RageV
 		return s_Black;
 	}
 
+	Ref<RHITexture> TextureLoader::TransparentBlack(RHIDevice& device)
+	{
+		if (!s_TransparentBlack)
+			s_TransparentBlack = MakeSolid(device, 0x00000000, "default.transparent");
+		return s_TransparentBlack;
+	}
+
 	Ref<RHITexture> TextureLoader::FlatNormal(RHIDevice& device)
 	{
 		if (!s_FlatNormal)
@@ -456,6 +464,7 @@ namespace RageV
 		s_IrradianceCache.clear();
 		s_White.reset();
 		s_Black.reset();
+		s_TransparentBlack.reset();
 		s_FlatNormal.reset();
 		s_BlackCube.reset();
 		s_BlackCubeArray.reset();
