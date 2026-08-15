@@ -1515,12 +1515,82 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: phase 9.2, and a papercut left open
+### START HERE: 9.2, auto exposure
 
-Both bugs from 9.0/9.1 are **fixed and verified**. What is left open is
-something the verification turned up on the way past.
+Phase 9 is **9.0, 9.1 and 9.3 done**, plus the `.rvlut` recipe and TAA's two
+extra dials. Nothing is broken and nothing is half-finished; the section below
+this one records the four bugs that were closed getting here, and they are
+worth skimming because three of them were the *same rule* biting from
+different directions.
+
+**Next is 9.2, and the ordering is the roadmap's own:** *"9.2 changes how
+everything else is judged, so it belongs before the expensive items rather
+than after."* 9.4 depth of field, 9.5 motion blur (unblocked -- 7.10 left the
+velocity attachment and the sky's camera-rotation motion in place precisely
+for it), 9.6 SSAO and 9.7 SSR all follow.
+
+**Read 7w before starting it.** Auto exposure has exactly the hazard film
+grain just had, one size larger: it makes the tone curve depend on the
+*content* of previous frames, so every screenshot comparison in this
+repository -- `check_smaa`, `check_color_grading`, `check_taa_*`,
+`check_lens_effects` -- becomes a measurement of whatever the adaptation
+happened to be doing. Grain solved its version by seeding from the frame
+number (7w); this one cannot, because the adaptation is a feedback loop over
+real pixels rather than a pattern.
+
+So the design question to settle *first*, before any code:
+
+- a way to pin it -- a `--exposure=fixed` flag, or a project setting the
+  checks set, or an adaptation that is a pure function of the frame number
+  and the histogram rather than of elapsed time;
+- and which of the existing checks have to opt into it, which is probably all
+  of them, which is an argument for the pin being the *default* in a headless
+  run rather than something each check remembers.
+
+The compute path already exists (6.7a), so the histogram itself is the easy
+half.
+
+### Two things left open, neither blocking
+
+**The focus-click guard has never been confirmed against a real click.** It
+is verified to arm exactly once when the window appears (by logging it,
+running, and removing the log), but what it does to an actual click-through
+needs a person: alt-tab into the editor with the cursor over a Render
+Settings slider and press -- the value must not move. Thirty seconds, and it
+closes the one thing that could not be tested here.
+
+**An orphaned LUT is not warned about.** A post profile that no camera uses
+now says so in the inspector, because that shape of confusion cost time three
+times. The equivalent for a `.rvlut` that no *profile* names was deliberately
+not built: it means scanning every profile asset in the project rather than
+walking the scene's cameras. Worth doing if it recurs; not worth guessing at
+now.
 
 ---
+
+**Done: 9.3, lens and film (2026-08-15).** Vignette, chromatic aberration and
+film grain, all five knobs on the `.rvpostprofile`, all three off by default
+and off *exactly* -- the shader branches past each rather than computing a
+no-op, so every recorded threshold in the repository stays valid.
+`check_lens_effects.py` asserts four properties and both interesting ones were
+confirmed able to fail. ENGINE-NOTES 7w.
+
+Worth carrying forward: the first attempt to falsify the grain-determinism
+check used `rand()` without `srand()`, which is identical across runs and so
+*passed*. A determinism check sabotaged with a deterministic mistake looks
+green. Use a clock.
+
+**Done: the `.rvlut` recipe (2026-08-15).** A look can now be authored in the
+editor rather than only imported. `.cube` stays read-only baked data, `.rvlut`
+is a recipe that bakes into a table at load, both are `AssetType::ColorLut`.
+ENGINE-NOTES 7v.
+
+Worth carrying forward: the identity check for it *nearly did not work*. At
+the default table size 33 the step is 1/32, every coordinate is dyadic, and
+the arithmetic is bit-exact by luck -- it passed with the guarantee removed.
+It fails at 20 and 64. The same lesson as 7r's threshold and 7t's half-texel,
+now three times over: **test a property where it can break, not where it
+happens to hold.**
 
 **Closed: the render setting that changed itself. It was an accidental drag,
 and the bug was that nothing said so.**
