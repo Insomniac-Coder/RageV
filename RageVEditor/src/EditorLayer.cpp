@@ -2599,7 +2599,16 @@ void EditorLayer::DrawBackendRestartPopup()
 // -----------------------------------------------------------------------------
 void EditorLayer::OnEvent(Event& e)
 {
-	m_EditorCamera.OnEvent(e);
+	// The wheel is positional: it belongs to whatever the pointer is over,
+	// not to whatever is focused. The camera is active on hover *or* focus --
+	// right for flying, wrong for zoom, because after clicking an object the
+	// viewport keeps focus while the pointer wanders to the inspector, and a
+	// scroll there was zooming the scene behind the panel being scrolled.
+	const bool scrollOutsideViewport =
+		e.GetEventType() == EventType::MouseScrolled && !m_IsViewportHovered;
+
+	if (!scrollOutsideViewport)
+		m_EditorCamera.OnEvent(e);
 
 	EventDispatcher dispatcher(e);
 	dispatcher.Dispatch<KeyPressedEvent>(RV_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
