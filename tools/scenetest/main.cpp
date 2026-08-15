@@ -3148,6 +3148,76 @@ void main()
 		Check(degenerate.x == 0.0f && degenerate.y == 0.0f,
 			  "a target with no pixels in it gets no offset rather than infinity");
 
+		// --- the two settings, which are the filter's shape -----------------
+		//
+		// Width first. It scales the offset about the *pixel's centre*, and
+		// that is the whole of the implementation risk: scaling a point that
+		// had not been centred first shrinks the offsets towards the corner
+		// rather than the middle, which is a filter biased half a pixel down
+		// and to the left, everywhere, with nothing to see. So this asserts
+		// the centring survives, by checking that halving the width halves
+		// the offset rather than moving it somewhere else.
+		bool halves = true;
+		bool wider = true;
+		for (uint32_t frame = 0; frame < phase; frame++)
+		{
+			const Vec2 full = TemporalJitter(frame, width, height, 1.0f);
+			const Vec2 half = TemporalJitter(frame, width, height, 0.5f);
+			const Vec2 twice = TemporalJitter(frame, width, height, 2.0f);
+
+			halves = halves && std::fabs(half.x - full.x * 0.5f) < 1e-9f
+							&& std::fabs(half.y - full.y * 0.5f) < 1e-9f;
+			wider = wider && std::fabs(twice.x - full.x * 2.0f) < 1e-9f
+						  && std::fabs(twice.y - full.y * 2.0f) < 1e-9f;
+		}
+		Check(halves, "half the jitter width is half the offset, about the pixel centre");
+		Check(wider, "and twice the width is twice the offset, on both axes");
+
+		// Zero has to be exactly zero rather than nearly: it is the setting
+		// that says "accumulate without jittering", and an offset of 1e-8
+		// there is a filter that still converges somewhere else.
+		bool silent = true;
+		for (uint32_t frame = 0; frame < phase; frame++)
+		{
+			const Vec2 none = TemporalJitter(frame, width, height, 0.0f);
+			silent = silent && none.x == 0.0f && none.y == 0.0f;
+		}
+		Check(silent, "a jitter width of zero is exactly no offset, every frame");
+
+		// Then the sequence length. The property every screenshot check rests
+		// on is "frame N and frame N + phase are the same picture", and it has
+		// to hold at whatever phase the project asks for -- not only at 8.
+		bool repeats = true;
+		bool differs = true;
+		for (int setting = 1; setting <= 16; setting++)
+		{
+			const uint32_t period = TemporalJitterPhase(setting);
+			Check(period == (uint32_t)setting || setting < 1 || setting > 16,
+				  "the period in range is the period asked for");
+
+			const Vec2 here = TemporalJitter(30, width, height, 1.0f, setting);
+			const Vec2 later = TemporalJitter(30 + period, width, height, 1.0f, setting);
+			repeats = repeats && here.x == later.x && here.y == later.y;
+
+			// A phase of one repeats every frame by definition, so it is the
+			// one setting for which "the next frame differs" is false -- and
+			// saying so is what stops this asserting something untrue rather
+			// than excluding the case quietly.
+			if (period > 1)
+			{
+				const Vec2 next = TemporalJitter(31, width, height, 1.0f, setting);
+				differs = differs && (here.x != next.x || here.y != next.y);
+			}
+		}
+		Check(repeats, "every phase from 1 to 16 repeats after exactly that many frames");
+		Check(differs, "and no phase above 1 repeats sooner");
+
+		// Out of range is clamped rather than obeyed: a phase of 0 is a modulo
+		// by zero, and a project file is something a person can type into.
+		Check(TemporalJitterPhase(0) == 1, "a phase of zero clamps to one rather than dividing by it");
+		Check(TemporalJitterPhase(-4) == 1, "and a negative one does too");
+		Check(TemporalJitterPhase(999) == 16, "an absurd phase clamps to the useful maximum");
+
 		// --- the projection, which is where a convention error hides --------
 		//
 		// The claim is that this shifts, and shifts by exactly the offset

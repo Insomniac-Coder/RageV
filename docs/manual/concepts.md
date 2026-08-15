@@ -60,7 +60,7 @@ slider.
 
 | Kind | Setting | Home | Edited in |
 |---|---|---|---|
-| **Cost** | Anti-aliasing and its parameters, shadow cascades, resolution, distance | The `.rvproject` | Render Settings → Render settings |
+| **Cost** | Anti-aliasing and its dials — TAA's feedback, jitter width and jitter samples — shadow cascades, resolution, distance | The `.rvproject` | Render Settings → Render settings |
 | **Look** | Exposure, bloom, the colour-grading LUT — and everything phase 9 adds | A `.rvpostprofile` asset | The camera that names it, or the asset itself |
 | **Place** | Ambient light, the sky and its rotation | The `.rage` scene | Render Settings → Environment |
 

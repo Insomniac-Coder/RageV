@@ -2824,6 +2824,51 @@ that assertion is the one a clock cannot accidentally pass, because a
 time-driven jitter can be reproducible under `--frame-time` and still
 have no period at all.
 
+### The jitter as two settings, not two constants
+
+Both of the numbers above were constants until somebody looked at a
+corrected frame and said *it is less blurry than the characteristic TAA
+and I am not sure it is even on*. It was on; what had gone was the ghost
+7u describes, and the softness that came with it. But the question
+underneath is a real one — **there was no dial for how soft the filter
+is** — and feedback is not that dial. Feedback decides how much of the
+past survives. How far apart the samples being averaged were taken is a
+different quantity, and it is the one that sets the width of the
+reconstruction filter.
+
+So `TemporalJitterScale` and `TemporalJitterPhase` join `TemporalFeedback`
+on the project, under the rule 7s sets: cost and quality belong to the
+project, because they are a judgement about the machine.
+
+| | what it changes | wider / longer | narrower / shorter |
+|---|---|---|---|
+| `TemporalFeedback` | how much history survives | cleaner still, more ghosting | sharper moving, noisier still |
+| `TemporalJitterScale` | how wide the filter is | more of the pixel covered, softer | sharper, more left unsampled |
+| `TemporalJitterPhase` | how long the sequence runs | converges finer | recovers sooner from a cut |
+
+1.0 is the pixel's own area, which is what makes the accumulation converge
+on the supersampled image the mode is aiming at, and it stays the default:
+this exposes the knob, it does not move the setting. Above 1 samples
+outside the pixel, which is a deliberate blur and the reason the range
+does not stop there.
+
+**The implementation risk is one line, and it is invisible.** The offset
+is centred and *then* scaled. Scaling a point that had not been centred
+first shrinks the offsets towards the pixel's corner rather than its
+middle — a filter biased half a pixel down and to the left, everywhere,
+in an image that still looks like a correctly anti-aliased image. So the
+check asserts the property rather than the values: halving the width
+halves the offset, doubling doubles it, and a width of zero is *exactly*
+zero on both axes. Scaling before centring fails all three, which is how
+it was confirmed the check can fail.
+
+The phase has the same shape of hazard at the bottom of its range rather
+than in its arithmetic: zero is a modulo by zero, and a `.rvproject` is a
+file a person can type into. It is clamped in `TemporalJitterPhase`, one
+place, and the check walks 1 to 16 asserting each repeats after exactly
+that many frames — so *frame N and frame N + phase are the same picture*
+holds at whatever the project asks for, not only at 8.
+
 ### The history, and the three things that reject it
 
 **Where it lives.** Outside the graph, handed in. The graph pools its

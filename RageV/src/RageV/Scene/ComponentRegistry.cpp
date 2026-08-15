@@ -1276,6 +1276,26 @@ namespace
 							"reference, 0.6 is within a fraction of no filter under "
 							"motion and three times better than it standing still.")))),
 
+				Field<&RenderSettings::TemporalJitterScale>("TemporalJitterScale",
+					Named("Jitter width", OnlyWhen(UsesTaa,
+						Drag(0.01f, 0.0f, 2.0f,
+							"How far TAA's per-frame offset reaches, in pixels. This "
+							"is the filter's width, not how much history it keeps: "
+							"wider covers more of the pixel and softens, narrower is "
+							"sharper and leaves more of the pixel unsampled. 1 is the "
+							"pixel's own area, which is what converges on the "
+							"supersampled image; 0 stops jittering, which leaves the "
+							"accumulation averaging the same sample forever.")))),
+
+				Field<&RenderSettings::TemporalJitterPhase>("TemporalJitterPhase",
+					Named("Jitter samples", OnlyWhen(UsesTaa,
+						Drag(0.1f, 1, 16,
+							"How many frames the offset sequence runs before it "
+							"repeats. More converges on a finer image and takes "
+							"longer to recover after a cut; past sixteen the "
+							"difference stops being visible while the recovery still "
+							"costs.")))),
+
 				Field<&RenderSettings::ShadowsEnabled>("ShadowsEnabled", Named("Shadows")),
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",

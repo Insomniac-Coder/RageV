@@ -812,13 +812,15 @@ public enum AntiAliasing
 	/// and accumulates the results, converging on a supersampled image for the
 	/// cost of one sample.
 	/// <para>
-	/// <b>Works, and not finished.</b> On a static scene it measures better
-	/// than every other mode here. What is missing is the check for the case
-	/// it is bad at: nothing has yet rendered it with anything moving, so the
-	/// sky smears when the camera turns (it reports no motion of its own) and
-	/// the reprojection's vertical direction is reasoned rather than measured.
-	/// See <see cref="RenderSettings.TemporalFeedback"/> for the dial between
-	/// ghosting and flicker.
+	/// <b>Finished, and measured in motion.</b> A scene with one textured
+	/// patch falling sixteen pixels a frame beside an identical still one,
+	/// judged against a supersampled render of the same instant, settled the
+	/// two claims that used to rest on argument: the reprojection's vertical
+	/// sign is right, and the default feedback was not. Three dials:
+	/// <see cref="RenderSettings.TemporalFeedback"/> for ghosting against
+	/// flicker, <see cref="RenderSettings.TemporalJitterScale"/> for the
+	/// filter's width, and <see cref="RenderSettings.TemporalJitterPhase"/>
+	/// for how long the sample sequence runs.
 	/// </para>
 	/// </summary>
 	Taa = 5,
@@ -943,6 +945,44 @@ public static unsafe class RenderSettings
 	{
 		get => GetFloat("TemporalFeedback");
 		set => SetFloat("TemporalFeedback", value);
+	}
+
+	/// <summary>
+	/// How far TAA's per-frame offset reaches, as a fraction of a pixel, when
+	/// <see cref="AntiAliasing"/> is <see cref="RageV.AntiAliasing.Taa"/>.
+	/// Ignored otherwise, clamped to 0..2.
+	/// <para>
+	/// <b>The filter's width, which is a different dial from
+	/// <see cref="TemporalFeedback"/>.</b> Feedback decides how much of the
+	/// past is kept; this decides how far apart the samples being accumulated
+	/// were taken. 1 is the pixel's own area, which is what converges on the
+	/// supersampled image. Under 1 trades coverage for sharpness; over 1
+	/// samples outside the pixel, which is a deliberate blur. 0 stops the
+	/// offset, leaving the accumulation averaging one sample forever.
+	/// </para>
+	/// </summary>
+	public static float TemporalJitterScale
+	{
+		get => GetFloat("TemporalJitterScale");
+		set => SetFloat("TemporalJitterScale", value);
+	}
+
+	/// <summary>
+	/// How many frames TAA's offset sequence runs before repeating, when
+	/// <see cref="AntiAliasing"/> is <see cref="RageV.AntiAliasing.Taa"/>.
+	/// Ignored otherwise, clamped to 1..16.
+	/// <para>
+	/// The sequence is Halton, so successive points fall in the gaps the
+	/// earlier ones left. Longer converges on a finer image and takes longer
+	/// to recover from a cut; past sixteen the difference stops being visible
+	/// while the recovery still costs.
+	/// </para>
+	/// </summary>
+	public static int TemporalJitterPhase
+	{
+		get => int.TryParse(Get("TemporalJitterPhase"), out int value) ? value : 8;
+		set => Set("TemporalJitterPhase",
+				   value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 	}
 
 	/// <summary>Multiplies the scene before the tone curve. 1 is neutral.</summary>

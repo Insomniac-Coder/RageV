@@ -1951,6 +1951,52 @@ void EditorLayer::DrawRenderSettingsPanel()
 			// Written now as well as on undo, so there is no Ctrl+S to
 			// remember. A project file is four lines and a settings block.
 			Project::Save();
+
+			// And *said*, naming every field that moved.
+			//
+			// This panel writes the project file on its own, with no Ctrl+S
+			// and nothing in the title bar to notice, which is the right
+			// behaviour for a preference and a bad one for a mistake. A
+			// project was twice found with a render setting sitting on exactly
+			// the end of its slider range -- TemporalFeedback at 0 once and at
+			// 0.98 the other time, both of them clamp bounds, neither of them
+			// typed by anybody. Ten attempts to reproduce it failed.
+			//
+			// A line in the log does not fix that. It does mean the next
+			// occurrence says which field, from what, to what, instead of
+			// being discovered days later as "TAA looks wrong". HANDOFF has
+			// the open item.
+			// Formatted here rather than through the scripting layer's
+			// ComponentFieldToText: that one is a protocol, with rules about
+			// handles and entity ids that a log line does not need, and it
+			// lives behind the managed boundary. This block holds bools, ints,
+			// enums and floats and nothing else.
+			const auto text = [](const FieldDesc& field, const void* block)
+			{
+				const void* value = field.Access(const_cast<void*>(block));
+				switch (field.Type)
+				{
+					case FieldType::Bool:  return std::string(*(const bool*)value ? "true" : "false");
+					case FieldType::Int:   return std::to_string(*(const int*)value);
+					case FieldType::Enum:
+					{
+						const int index = *(const int*)value;
+						if (field.Hint.EnumNames && index >= 0 && index < field.Hint.EnumCount)
+							return std::string(field.Hint.EnumNames[index]);
+						return std::to_string(index);
+					}
+					case FieldType::Float: return std::to_string(*(const float*)value);
+					default:               return std::string("?");
+				}
+			};
+
+			for (const FieldDesc& field : RenderSettingsRegistry::Fields())
+			{
+				const std::string was = text(field, &before);
+				const std::string now = text(field, &after);
+				if (was != now)
+					RV_INFO("Render setting {0}: {1} -> {2}", field.Name, was, now);
+			}
 		}
 
 		// Said rather than hidden. `--aa=` on the command line and the

@@ -124,6 +124,45 @@ namespace RageV
 		// and not a constant. ENGINE-NOTES 7r.
 		float TemporalFeedback = 0.6f;
 
+		// How far the per-frame sub-pixel offset reaches, as a fraction of a
+		// pixel. Ignored by every other mode.
+		//
+		// **This is the reconstruction filter's width, and it is a different
+		// dial from feedback.** Feedback decides how much of the past is kept;
+		// this decides how far apart the samples being accumulated were taken.
+		// Widening it covers more of the pixel's footprint -- fewer edges left
+		// unsampled, and a softer result, because the average is taken over a
+		// larger area than the pixel. Narrowing it keeps the samples near the
+		// centre: sharper, and closer to no jitter at all, which is to say
+		// closer to no anti-aliasing at all.
+		//
+		// 1.0 is the whole pixel, which is what a box filter over the pixel's
+		// own area means and what makes the accumulation converge on the
+		// supersampled image the mode is aiming at. Values under 1 trade
+		// coverage for sharpness; over 1 samples outside the pixel, which is
+		// a deliberate blur and the reason the range does not stop at 1.
+		//
+		// 0 disables the offset entirely. That is not "TAA off": the history
+		// still accumulates, it just accumulates the same sample every frame,
+		// which converges on the unjittered image and buys nothing. It exists
+		// because being able to switch one half of the mode off is how the
+		// checks tell the two halves apart.
+		float TemporalJitterScale = 1.0f;
+
+		// How many frames the offset sequence runs before repeating.
+		//
+		// The sequence is Halton, so successive points fall in the gaps the
+		// earlier ones left rather than wherever a random generator puts them
+		// -- eight random offsets can easily leave a quarter of the pixel
+		// unsampled, eight Halton offsets cannot. Longer converges on a finer
+		// image and takes longer to recover from a cut; past sixteen the
+		// difference stops being visible while the recovery still costs.
+		//
+		// It also bounds the index, which is what makes "frame 30 and frame 38
+		// are drawn with the same offset" a property a check can assert --
+		// see check_taa_jitter.py, which reads this rather than assuming 8.
+		int TemporalJitterPhase = 8;
+
 		// --- shadows -----------------------------------------------------------
 		bool ShadowsEnabled = true;
 

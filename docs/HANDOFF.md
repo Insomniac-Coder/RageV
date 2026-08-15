@@ -1545,6 +1545,22 @@ Nothing in `tools/` writes a `.rvproject` at all, and the only `Project::Save`
 call sites in the engine are the editor's Render Settings panel, Set Start
 Scene, and project creation.
 
+**The strongest clue, from the second occurrence.** It happened again while
+the jitter settings were being added, and the value written was
+`TemporalFeedback: 0.98` -- *exactly the maximum of that field's drag range*,
+as the earlier 0 was exactly the minimum. Twice, on different days, the field
+has been left sitting precisely on a clamp bound. That is not a value anybody
+types and not one the engine computes; it is what a drag widget writes when
+it is driven hard into its end stop. So the suspect is now specifically **a
+DragFloat in the Render Settings panel reporting a change nobody made**, with
+the panel's auto-save faithfully committing it. Replaying the exact command
+that produced it did not reproduce it, so it is intermittent within one
+command rather than a property of the flags.
+
+The panel now logs every field it writes -- `Render setting <name>: <was> ->
+<now>` -- so the next occurrence names the field and both values in the build
+log, instead of surfacing days later as "TAA looks wrong".
+
 Where to look when it recurs:
 - The Render Settings panel auto-saves the project the moment `DrawFields`
   reports a change and nothing is active. Something making a DragFloat report

@@ -8,6 +8,8 @@ Project:
     MsaaSamples: 4
     SupersampleFactor: 2
     TemporalFeedback: 0.6
+    TemporalJitterScale: 1
+    TemporalJitterPhase: 8
     ShadowsEnabled: true
     ShadowDistance: 40
     ShadowSplitLambda: 0.85

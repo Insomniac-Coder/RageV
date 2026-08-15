@@ -105,16 +105,28 @@ namespace RageV
 	//
 	// A centred Halton(2,3) point, so successive frames land in the gaps the
 	// earlier ones left rather than wherever a random generator puts them.
-	// Indexed by the frame *number*, and the sequence repeats every
-	// TemporalJitterPhase() frames -- which is what makes "frame 30 and frame
-	// 38 are the same picture" something a check can assert, and a clock
-	// cannot accidentally satisfy. ENGINE-NOTES 7r.
+	// Indexed by the frame *number*, and the sequence repeats every `phase`
+	// frames -- which is what makes "frame 30 and frame 38 are the same
+	// picture" something a check can assert, and a clock cannot accidentally
+	// satisfy. ENGINE-NOTES 7r.
+	//
+	// `scale` is the offset's reach as a fraction of a pixel and `phase` is
+	// the sequence length; both come from RenderSettings, and both are
+	// clamped here rather than at the call site so that a hand-edited project
+	// file cannot ask for a phase of zero and divide by it. Defaulted to what
+	// they were when they were constants, so the checks that call this
+	// directly say what they are testing and nothing else has to.
 	//
 	// In NDC rather than pixels because the shader subtracts it back out of
 	// the motion vectors, and a quantity stated twice in two conventions is a
 	// quantity applied twice on one axis and never on the other.
-	Vec2 TemporalJitter(uint64_t frame, uint32_t width, uint32_t height);
-	uint32_t TemporalJitterPhase();
+	Vec2 TemporalJitter(uint64_t frame, uint32_t width, uint32_t height,
+						float scale = 1.0f, int phase = 8);
+
+	// The sequence length actually used for a given setting: the clamp above,
+	// exposed, so a check can ask "which frame repeats this one" instead of
+	// reproducing the clamp and drifting from it.
+	uint32_t TemporalJitterPhase(int phase = 8);
 
 	// The same projection, shifted by a sub-pixel offset in NDC.
 	//

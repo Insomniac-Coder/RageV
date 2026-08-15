@@ -36,19 +36,19 @@ namespace RageV
 		// hardware will allocate and all of what is sensible.
 		constexpr int kMaxSupersample = 4;
 
-		// How many jitter offsets before the sequence repeats.
+		// The bounds on the jitter sequence's length, now that it is a setting
+		// rather than a constant.
 		//
-		// Eight is the usual choice and the reason is not aesthetic: a
-		// temporal filter that has to reject its history -- because the camera
-		// cut, or a silhouette moved -- starts again from nothing, and the
-		// shorter the phase the sooner it has covered the pixel evenly again.
-		// Longer sequences converge on a finer image and take longer to
-		// recover, and past sixteen the difference is not visible while the
-		// recovery still costs.
-		//
-		// It also bounds the index, which makes "frame 30 and frame 38 are
-		// drawn with the same offset" a property a check can assert.
-		constexpr uint32_t kJitterPhase = 8;
+		// One at the bottom because a phase of zero is a modulo by zero, and a
+		// project file is a text file somebody can type into. Sixteen at the
+		// top for the reason the default is eight: a temporal filter that has
+		// to reject its history -- because the camera cut, or a silhouette
+		// moved -- starts again from nothing, and the shorter the phase the
+		// sooner it has covered the pixel evenly again. Longer converges on a
+		// finer image and recovers more slowly, and past sixteen the finer
+		// image stops being visible while the slower recovery does not.
+		constexpr int kMinJitterPhase = 1;
+		constexpr int kMaxJitterPhase = 16;
 
 		// The radical-inverse sequence, which is what "low discrepancy" means
 		// in practice: successive points fall in the gaps the earlier ones
@@ -75,19 +75,27 @@ namespace RageV
 		}
 	}
 
-	uint32_t TemporalJitterPhase()
+	uint32_t TemporalJitterPhase(int phase)
 	{
-		return kJitterPhase;
+		return (uint32_t)Math::Clamp(phase, kMinJitterPhase, kMaxJitterPhase);
 	}
 
-	Vec2 TemporalJitter(uint64_t frame, uint32_t width, uint32_t height)
+	Vec2 TemporalJitter(uint64_t frame, uint32_t width, uint32_t height,
+						float scale, int phase)
 	{
 		if (width == 0 || height == 0)
 			return Vec2(0.0f, 0.0f);
 
-		const uint32_t index = (uint32_t)(frame % kJitterPhase) + 1;
-		const float x = Halton(index, 2) - 0.5f;
-		const float y = Halton(index, 3) - 0.5f;
+		const uint32_t index = (uint32_t)(frame % TemporalJitterPhase(phase)) + 1;
+
+		// Centred on the pixel, then scaled: a width of 0 has to give exactly
+		// zero on both axes, and it does only because the centring happens
+		// first. Scaling a point that had not been centred would shrink the
+		// offsets towards the pixel's corner rather than towards its middle,
+		// which is a filter biased down and to the left -- an image that
+		// converges half a pixel off, everywhere, with nothing to see.
+		const float x = (Halton(index, 2) - 0.5f) * scale;
+		const float y = (Halton(index, 3) - 0.5f) * scale;
 
 		return Vec2(2.0f * x / (float)width, 2.0f * y / (float)height);
 	}
@@ -229,7 +237,9 @@ namespace RageV
 		const Vec2 jitter = wantTemporal
 			? TemporalJitter(Renderer::GetFrameCount(),
 							 desc.Width * (uint32_t)supersample,
-							 desc.Height * (uint32_t)supersample)
+							 desc.Height * (uint32_t)supersample,
+							 desc.Render.TemporalJitterScale,
+							 desc.Render.TemporalJitterPhase)
 			: Vec2(0.0f, 0.0f);
 
 		// A history left over from before the mode changed describes a frame
