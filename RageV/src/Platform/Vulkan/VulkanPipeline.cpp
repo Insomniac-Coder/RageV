@@ -89,6 +89,7 @@ namespace RageV::Vk
 		  VulkanPipelineCommon(device, VK_PIPELINE_BIND_POINT_COMPUTE,
 							   desc.Shader->GetReflection())
 	{
+		m_DebugName = desc.Name;
 		CreateLayouts();
 
 		auto shader = std::static_pointer_cast<VulkanShader>(m_Desc.Shader);
@@ -344,6 +345,7 @@ namespace RageV::Vk
 
 		VK_CHECK(vkCreateGraphicsPipelines(m_Device.GetDevice(), VK_NULL_HANDLE, 1, &createInfo, nullptr, &m_Pipeline));
 
+		m_DebugName = m_Desc.Name;
 		if (!m_Desc.Name.empty())
 			m_Device.SetDebugName((uint64_t)m_Pipeline, VK_OBJECT_TYPE_PIPELINE, m_Desc.Name.c_str());
 	}
@@ -491,6 +493,23 @@ namespace RageV::Vk
 			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			write.pImageInfo = &image.Info;
 			writes.push_back(write);
+		}
+
+		// The rewrite-after-bind tripwire. The validation layer will report
+		// the consequence -- the command buffer invalidated -- but names
+		// neither who owned the set nor who rewrote it. This names both.
+		if (m_Device.WasSetBoundThisFrame(m_Sets[frame]))
+		{
+			std::string bindings;
+			for (const auto& buffer : buffers)
+				bindings += (bindings.empty() ? "" : ",") + std::to_string(buffer.Binding);
+			for (const auto& image : images)
+				bindings += (bindings.empty() ? "" : ",") + std::to_string(image.Binding);
+
+			RV_CORE_ERROR("[Vulkan] descriptor set for pipeline '{0}' (binding(s) {1}) "
+						  "rewritten after being bound in this frame's command "
+						  "buffer -- the earlier bind is now invalid",
+						  m_Pipeline ? m_Pipeline->GetDebugName() : "?", bindings);
 		}
 
 		vkUpdateDescriptorSets(m_Device.GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);

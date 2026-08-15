@@ -97,6 +97,7 @@ namespace RageV
 		ShadowMap::Invalidate();
 		EnvironmentIBL::BeginFrame();
 		PostProcess::BeginFrame();
+		AutoExposure::BeginFrame();
 	}
 
 	void Renderer::EndFrame()

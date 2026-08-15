@@ -1108,6 +1108,12 @@ namespace RageV::Vk
 		VK_CHECK(vkResetCommandPool(m_Device, frame.CommandPool, 0));
 		m_CommandList->Begin(frame.CommandBuffer);
 
+		// The bound-set tracker's lifetime is one command buffer *recording*,
+		// which starts here -- not a present cycle. A set bound in a previous
+		// recording is fair game to rewrite once its fence has been waited on,
+		// and that wait is exactly what precedes this line.
+		m_BoundThisFrame.clear();
+
 		// After Begin, because resetting a query pool is a recorded command.
 		RecycleTimestampPool(frame.CommandBuffer);
 
@@ -1163,6 +1169,17 @@ namespace RageV::Vk
 
 		m_FrameIndex = (m_FrameIndex + 1) % m_FramesInFlight;
 		m_Deletion->FrameIndex = m_FrameIndex;
+	}
+
+	void VulkanDevice::NoteSetBound(VkDescriptorSet set)
+	{
+		if (m_ValidationEnabled)
+			m_BoundThisFrame.insert(set);
+	}
+
+	bool VulkanDevice::WasSetBoundThisFrame(VkDescriptorSet set) const
+	{
+		return m_ValidationEnabled && m_BoundThisFrame.count(set) != 0;
 	}
 
 	void VulkanDevice::WaitIdle()
@@ -1326,6 +1343,13 @@ namespace RageV::Vk
 			list.Adopt(buffer);
 			record(list);
 		});
+
+		// ImmediateSubmit has waited for completion, so every bind this
+		// recording noted is finished with. Clearing wholesale also forgets
+		// any frame-command-buffer binds when this runs mid-frame -- the
+		// tripwire goes quiet for the rest of that frame rather than crying
+		// wolf, which is the right way for a diagnostic to be imperfect.
+		m_BoundThisFrame.clear();
 	}
 
 	void VulkanDevice::DeferDestruction(std::function<void()> deleter)

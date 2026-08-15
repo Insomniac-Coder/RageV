@@ -328,6 +328,11 @@ namespace RageV::Vk
 		// reads whatever the last graphics draw left there.
 		vkCmdBindDescriptorSets(m_CommandBuffer, m_BoundPipeline->GetBindPoint(),
 								m_BoundPipeline->GetLayout(), set, 1, &handle, 0, nullptr);
+
+		// Under validation only: lets a later Commit on this same set name
+		// the rewrite-after-bind hazard instead of leaving the layer's
+		// anonymous "invalidated" message as the whole story.
+		m_Device.NoteSetBound(handle);
 	}
 
 	void VulkanCommandList::BindVertexBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer, uint64_t offset)

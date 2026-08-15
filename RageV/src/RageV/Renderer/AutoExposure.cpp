@@ -37,6 +37,28 @@ namespace RageV
 			float Window[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		};
 
+		// One dispatch's transient bindings: both sets and both params
+		// buffers, together, because they share one lifetime -- the recording
+		// of one metering pass.
+		//
+		// Pooled per frame in flight with a cursor BeginFrame resets, exactly
+		// like PostProcess's sets, and for the reason this file learned the
+		// hard way: the editor meters *two* chains per frame, and both are
+		// recorded before the GPU runs either. A set shared between them is
+		// rewritten while the command buffer still holds the first chain's
+		// bind -- which invalidates the whole buffer (HANDOFF §5) -- and a
+		// shared params buffer is the same bug without the validation error:
+		// the second upload lands before the first is read, so chain one is
+		// metered with chain two's range. "One dispatch at a time" was true
+		// and irrelevant; recording is not execution.
+		struct Slot
+		{
+			Ref<RHIResourceSet> HistogramSet;
+			Ref<RHIResourceSet> AverageSet;
+			Ref<RHIBuffer> HistogramParams;
+			Ref<RHIBuffer> AverageParams;
+		};
+
 		struct Data
 		{
 			RHIDevice* Device = nullptr;
@@ -48,14 +70,9 @@ namespace RageV
 
 			Ref<RHISampler> Sampler;
 
-			// One set and one params buffer per pipeline, rebound each call.
-			// There is exactly one auto-exposure dispatch per frame chain and
-			// the chains are drawn one after another on one command list, so a
-			// set per chain would be a set nobody was using.
-			Ref<RHIResourceSet> HistogramSet;
-			Ref<RHIResourceSet> AverageSet;
-			Ref<RHIBuffer> HistogramParamsBuffer;
-			Ref<RHIBuffer> AverageParamsBuffer;
+			// Outer index: frame in flight. Inner: dispatch within the frame.
+			std::vector<std::vector<Slot>> Slots;
+			uint32_t Cursor = 0;
 
 			bool Ready = false;
 		};
@@ -172,26 +189,12 @@ namespace RageV
 		sampler.MaxLod = 0.0f;
 		s_Data->Sampler = device.CreateSampler(sampler);
 
-		BufferDesc histogramParams;
-		histogramParams.Size = sizeof(HistogramParams);
-		histogramParams.Usage = BufferUsage::Uniform;
-		histogramParams.Memory = MemoryDomain::HostVisible;
-		histogramParams.DebugName = "AutoExposure.histogramparams";
-		s_Data->HistogramParamsBuffer = device.CreateBuffer(histogramParams);
+		// Slots are made on demand in Dispatch; only the outer per-frame
+		// vector is sized here, because the frames-in-flight count is fixed
+		// for the device's lifetime.
+		s_Data->Slots.resize(device.GetFramesInFlight());
 
-		BufferDesc averageParams;
-		averageParams.Size = sizeof(AverageParams);
-		averageParams.Usage = BufferUsage::Uniform;
-		averageParams.Memory = MemoryDomain::HostVisible;
-		averageParams.DebugName = "AutoExposure.averageparams";
-		s_Data->AverageParamsBuffer = device.CreateBuffer(averageParams);
-
-		s_Data->HistogramSet = device.CreateResourceSet(s_Data->HistogramPipeline, 0);
-		s_Data->AverageSet = device.CreateResourceSet(s_Data->AveragePipeline, 0);
-
-		s_Data->Ready = s_Data->HistogramSet && s_Data->AverageSet
-					 && s_Data->HistogramParamsBuffer && s_Data->AverageParamsBuffer
-					 && s_Data->Sampler;
+		s_Data->Ready = s_Data->Sampler != nullptr;
 
 		if (s_Data->Ready)
 			RV_CORE_INFO("Auto exposure ready ({0} bins)", kBins);
@@ -200,6 +203,12 @@ namespace RageV
 	void AutoExposure::Shutdown()
 	{
 		s_Data.reset();
+	}
+
+	void AutoExposure::BeginFrame()
+	{
+		if (s_Data)
+			s_Data->Cursor = 0;
 	}
 
 	bool AutoExposure::IsReady()
@@ -236,6 +245,42 @@ namespace RageV
 		if (!state.Histogram() || !state.Exposure())
 			return;
 
+		// This dispatch's slot: fresh sets, fresh params buffers. `while`,
+		// not `if` -- HANDOFF's pooled-grow rule -- and everything in the
+		// slot is created on first use, then reused on that frame index
+		// forever after.
+		auto& slots = s_Data->Slots[s_Data->Device->GetFrameIndex()];
+		while (s_Data->Cursor >= slots.size())
+			slots.push_back({});
+		Slot& slot = slots[s_Data->Cursor++];
+
+		if (!slot.HistogramParams)
+		{
+			BufferDesc desc;
+			desc.Size = sizeof(HistogramParams);
+			desc.Usage = BufferUsage::Uniform;
+			desc.Memory = MemoryDomain::HostVisible;
+			desc.DebugName = "AutoExposure.histogramparams";
+			slot.HistogramParams = s_Data->Device->CreateBuffer(desc);
+		}
+		if (!slot.AverageParams)
+		{
+			BufferDesc desc;
+			desc.Size = sizeof(AverageParams);
+			desc.Usage = BufferUsage::Uniform;
+			desc.Memory = MemoryDomain::HostVisible;
+			desc.DebugName = "AutoExposure.averageparams";
+			slot.AverageParams = s_Data->Device->CreateBuffer(desc);
+		}
+		if (!slot.HistogramSet)
+			slot.HistogramSet = s_Data->Device->CreateResourceSet(s_Data->HistogramPipeline, 0);
+		if (!slot.AverageSet)
+			slot.AverageSet = s_Data->Device->CreateResourceSet(s_Data->AveragePipeline, 0);
+
+		if (!slot.HistogramParams || !slot.AverageParams
+			|| !slot.HistogramSet || !slot.AverageSet)
+			return;
+
 		const float minLog = params.MinLogLuminance;
 		const float range = params.MaxLogLuminance > params.MinLogLuminance
 						  ? params.MaxLogLuminance - params.MinLogLuminance
@@ -248,15 +293,15 @@ namespace RageV
 			uniforms.Range[1] = 1.0f / range;
 			uniforms.Range[2] = (float)width;
 			uniforms.Range[3] = (float)height;
-			s_Data->HistogramParamsBuffer->Upload(&uniforms, sizeof(uniforms));
+			slot.HistogramParams->Upload(&uniforms, sizeof(uniforms));
 
-			s_Data->HistogramSet->SetTexture(0, scene, s_Data->Sampler);
-			s_Data->HistogramSet->SetStorageBuffer(1, state.Histogram());
-			s_Data->HistogramSet->SetUniformBuffer(2, s_Data->HistogramParamsBuffer);
-			s_Data->HistogramSet->Commit();
+			slot.HistogramSet->SetTexture(0, scene, s_Data->Sampler);
+			slot.HistogramSet->SetStorageBuffer(1, state.Histogram());
+			slot.HistogramSet->SetUniformBuffer(2, slot.HistogramParams);
+			slot.HistogramSet->Commit();
 
 			cmd.BindComputePipeline(s_Data->HistogramPipeline);
-			cmd.BindResourceSet(0, s_Data->HistogramSet);
+			cmd.BindResourceSet(0, slot.HistogramSet);
 
 			// 16x16 per group, rounded up. The shader bounds-checks its tail,
 			// because the grid is in whole groups and the image rarely is.
@@ -287,15 +332,15 @@ namespace RageV
 			uniforms.Window[1] = params.HighPercentile;
 			uniforms.Window[2] = params.MinExposure;
 			uniforms.Window[3] = params.MaxExposure;
-			s_Data->AverageParamsBuffer->Upload(&uniforms, sizeof(uniforms));
+			slot.AverageParams->Upload(&uniforms, sizeof(uniforms));
 
-			s_Data->AverageSet->SetStorageBuffer(0, state.Histogram());
-			s_Data->AverageSet->SetStorageBuffer(1, state.Exposure());
-			s_Data->AverageSet->SetUniformBuffer(2, s_Data->AverageParamsBuffer);
-			s_Data->AverageSet->Commit();
+			slot.AverageSet->SetStorageBuffer(0, state.Histogram());
+			slot.AverageSet->SetStorageBuffer(1, state.Exposure());
+			slot.AverageSet->SetUniformBuffer(2, slot.AverageParams);
+			slot.AverageSet->Commit();
 
 			cmd.BindComputePipeline(s_Data->AveragePipeline);
-			cmd.BindResourceSet(0, s_Data->AverageSet);
+			cmd.BindResourceSet(0, slot.AverageSet);
 			cmd.Dispatch(1);
 
 			state.MarkAdapted();

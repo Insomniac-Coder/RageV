@@ -119,6 +119,13 @@ namespace RageV
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
 
+		// Resets the dispatch-slot cursor. Called by Renderer::BeginFrame with
+		// the other pooled renderers: each dispatch takes fresh sets and fresh
+		// params buffers, because the editor meters two chains in one frame
+		// and both are *recorded* before either runs -- a set (or a buffer)
+		// reused across them is rewritten under the first chain's bind.
+		static void BeginFrame();
+
 		// Whether the pipelines compiled. False on a device with no compute,
 		// and the caller then falls back to the manual exposure rather than
 		// refusing to draw.

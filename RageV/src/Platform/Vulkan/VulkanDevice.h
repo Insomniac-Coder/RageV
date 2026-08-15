@@ -6,6 +6,7 @@
 #include <vk_mem_alloc.h>
 #include <deque>
 #include <functional>
+#include <unordered_set>
 
 struct GLFWwindow;
 
@@ -116,6 +117,14 @@ namespace RageV::Vk
 		void DeferDestruction(std::function<void()> deleter);
 
 		void SetDebugName(uint64_t handle, VkObjectType type, const char* name);
+
+		// Bound-set tracking, active only under validation. The layer reports
+		// a set rewritten while a command buffer holds it as "invalidated",
+		// but names neither the set's owner nor the writer -- these two are
+		// what let VulkanResourceSet::Commit name both. See HANDOFF §5: "a
+		// descriptor set that is already bound must not be rewritten".
+		void NoteSetBound(VkDescriptorSet set);
+		bool WasSetBoundThisFrame(VkDescriptorSet set) const;
 
 	private:
 		void CreateInstance(bool enableValidation);
@@ -231,5 +240,9 @@ namespace RageV::Vk
 		bool m_FrameActive = false;
 		bool m_ValidationEnabled = false;
 		bool m_HasDebugUtils = false;
+
+		// Sets bound into this frame's command buffer so far; cleared when the
+		// frame index advances. Empty (and untouched) unless validation is on.
+		std::unordered_set<VkDescriptorSet> m_BoundThisFrame;
 	};
 }

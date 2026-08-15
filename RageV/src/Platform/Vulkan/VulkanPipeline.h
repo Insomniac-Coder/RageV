@@ -55,6 +55,11 @@ namespace RageV::Vk
 		// stage mask to what the shader declared without knowing the kind.
 		const RHI::ShaderReflection& GetCommonReflection() const { return *m_Reflection; }
 
+		// For diagnostics: the same name the VkPipeline carries in the
+		// validation layer, so an engine-side message and a layer message
+		// about one pipeline read as one story.
+		const std::string& GetDebugName() const { return m_DebugName; }
+
 	protected:
 		VulkanPipelineCommon(VulkanDevice& device, VkPipelineBindPoint bindPoint,
 							 const RHI::ShaderReflection& reflection);
@@ -67,6 +72,7 @@ namespace RageV::Vk
 		VkPipelineBindPoint m_BindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		VkPipeline       m_Pipeline = VK_NULL_HANDLE;
 		VkPipelineLayout m_Layout   = VK_NULL_HANDLE;
+		std::string      m_DebugName;
 		// Indexed by set number; gaps are VK_NULL_HANDLE.
 		std::vector<VkDescriptorSetLayout> m_SetLayouts;
 	};
