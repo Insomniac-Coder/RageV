@@ -108,14 +108,22 @@ namespace RageV
 		// noise, so grain changes character with the look instead of sitting
 		// on top of it.
 		//
+		// Built from two octaves of value noise rather than a hash per pixel,
+		// so it is round clumps of varying size instead of a grid of squares,
+		// and it is strongest in the *midtones* -- film has no variation left
+		// to show once nothing is exposed or everything is. ENGINE-NOTES 7x.
+		//
 		// Animated, and seeded from the *frame number* rather than a clock, so
 		// that rendering frame 30 twice produces the same bytes. That is the
 		// rule TAA's jitter already follows and for the same reason -- see 7r.
 		float FilmGrain = 0.0f;
 
-		// How coarse the grain is, in pixels per speck. Larger reads as a
-		// faster film stock; at 1 it is per-pixel noise, which reads as
-		// digital sensor noise instead.
-		float FilmGrainSize = 1.0f;
+		// How coarse the grain is, in pixels per speck -- the period of the
+		// noise lattice. Larger reads as a faster stock.
+		//
+		// Two rather than one, because one puts the finest of the three
+		// octaves past what the pixel grid can resolve: it sharpens into noise
+		// instead of showing specks, which is the look this stopped being.
+		float FilmGrainSize = 2.0f;
 	};
 }

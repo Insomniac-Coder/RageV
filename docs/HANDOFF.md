@@ -1568,12 +1568,50 @@ now.
 
 ---
 
+**Done: the grain rewrite (2026-08-15).** Reported as "a bit unnatural, maybe
+Perlin noise would help". The instinct was right about the biggest of **three**
+defects, only one of which was the noise function:
+
+| | Was | Is |
+|---|---|---|
+| Shape | `hash(floor(coord / size))` — a grid of squares | two octaves of value noise |
+| Response | `1.0 - luma * 0.5` — **loudest at black** | `sqrt(4L(1-L))`, peaking in the midtones |
+| Colour | one value for all three channels | finest octave per channel |
+
+The response curve is the one to remember. Its comment said it kept the
+shadows clean and the arithmetic did the opposite, and noisy shadows are
+exactly what makes noise read as a broken sensor. **Nothing in the suite could
+have caught it:** every screenshot check builds on the AA scene, which is two
+flat levels on purpose, and two levels cannot show that an effect varies with
+brightness. The fix was a scene with a real tone ramp — eight emissive slabs
+whose rendered luma spans 0.05 to 1.00, emissive values chosen by inverting
+ACES rather than spaced evenly, because evenly spaced emitters all land in the
+top half.
+
+Not gradient (Perlin) noise, deliberately: it is exactly zero at every lattice
+point, so a field of it carries a regular grid of grain-free dots — the same
+artefact, rotated 45 degrees. ENGINE-NOTES 7x.
+
+Two things that cost time and were not the feature: **`shared` and `common`
+are both reserved words in GLSL**, and glslang names the line *after* the
+offending one. And **a tonemap that fails to compile makes "off is off to the
+byte" pass** — every variant is equally broken. What caught it was the other
+half of that pair, "each effect does something", which is the third instance
+of the same pattern now:
+
+| Pair | What passes one half alone |
+|---|---|
+| off is exact / each effect lands | a shader that does not compile |
+| animates / reproduces | a clock; a constant pattern |
+| adjacent pixels differ / neighbours correlate | white noise; a blur |
+
 **Done: 9.3, lens and film (2026-08-15).** Vignette, chromatic aberration and
 film grain, all five knobs on the `.rvpostprofile`, all three off by default
 and off *exactly* -- the shader branches past each rather than computing a
 no-op, so every recorded threshold in the repository stays valid.
-`check_lens_effects.py` asserts four properties and both interesting ones were
-confirmed able to fail. ENGINE-NOTES 7w.
+`check_lens_effects.py` asserts six properties (four here, two added by the
+grain rewrite above) and every interesting one was confirmed able to fail.
+ENGINE-NOTES 7w.
 
 Worth carrying forward: the first attempt to falsify the grain-determinism
 check used `rand()` without `srand()`, which is identical across runs and so

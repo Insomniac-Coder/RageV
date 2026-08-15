@@ -137,6 +137,13 @@ different — aberration and the vignette are the lens, so they happen in
 linear light before the tone curve, and grain is the film stock, so it lands
 last, after everything including the LUT.
 
+Grain is built from two octaves of value noise, so it is round clumps of
+varying size rather than a grid of squares, and it is strongest in the
+**midtones** — film has no variation left to show once nothing is exposed or
+everything is. **Grain size** is the size of a speck in pixels; below about 2
+the finest detail is past what the pixel grid can resolve and it sharpens into
+noise.
+
 > [!NOTE]
 > Grain animates, and it is seeded from the **frame number** rather than a
 > clock. So a screenshot of frame 30 is the same picture every time, which is

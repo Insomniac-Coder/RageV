@@ -3751,6 +3751,115 @@ existing screenshot check stays valid unchanged.
 
 ---
 
+## 7x. The grain again: what "unnatural" turned out to be
+
+9.3 shipped grain that was correct in every way the checks could see and
+looked wrong anyway. The report was one sentence — *"a bit unnatural, maybe
+Perlin noise would help"* — and the instinct was right about the biggest of
+**three** separate defects, only one of which was about the noise function.
+
+| | Was | Is |
+|---|---|---|
+| Shape | `hash(floor(coord / size))` | two octaves of value noise |
+| Response | `1.0 - luma * 0.5` | `sqrt(4L(1-L))` |
+| Colour | one value for all three channels | finest octave per channel |
+
+### The response curve was upside down
+
+`1.0 - luma * 0.5` is **1.0 at black** and 0.5 at white, under a comment
+saying it existed "so the darkest parts of the frame stay clean". The comment
+described the intent and the arithmetic did the opposite, and the result —
+loud shadows, quiet highlights — is precisely the signature of digital sensor
+noise rather than film.
+
+Film grain peaks in the midtones and vanishes at both ends, because there is
+no variation left to show once nothing is exposed or everything is. The square
+root of the parabola rather than the parabola itself: `4L(1-L)` alone is too
+narrow and leaves a visibly clean band either side of mid grey.
+
+**Nothing in the suite could have caught this**, and that is the part worth
+keeping. Every screenshot check builds on the AA scene, which is deliberately
+two flat levels — that is what makes an edge measurable. Two levels cannot
+show that an effect varies with brightness, so an inverted response looks
+completely normal on it. The fix was a scene with an actual tone ramp in it:
+eight emissive slabs whose *rendered* luma spans 0.05 to 1.00, with the
+emissive values chosen by inverting ACES rather than by spacing them evenly,
+because evenly spaced emitters all land in the top half.
+
+### Value noise, and specifically not Perlin
+
+Gradient noise is the obvious reading of "use Perlin" and is the wrong choice
+here for a concrete reason: **Perlin noise is exactly zero at every lattice
+point**, so a field of it carries a regular grid of grain-free dots — the
+artefact being replaced, rotated 45 degrees. Value noise interpolates *between*
+lattice values and has no such structure.
+
+Two octaves at a frequency ratio of 2.17 rather than 2, so the two lattices
+never line up and hand the grid back. A film stock is a distribution of
+crystal sizes, not one size, and that is the whole reason for a second octave.
+
+The finest octave is **per channel** and the clumping is shared. Colour
+negative has three emulsions that do not grain together, but they do not clump
+independently either — and doing all three octaves per channel would have
+tripled the cost of the pass for something that measures as a channel
+correlation of 0.95 either way.
+
+### An integer hash, because two backends have to agree
+
+`fract(sin(x) * 43758.5453)` is the usual one-liner and it is not
+reproducible: the precision of `sin` is implementation-defined, the arguments
+are large, and the answer lives entirely in the low bits. lowbias32 is
+integer multiplies and shifts, which wrap identically everywhere. The lattice
+value is taken from the top 24 bits so that the conversion to float is exact
+rather than rounded — hashing in integers and then throwing away exactness on
+the last line would waste the previous six.
+
+### The amplitude had to be measured, not guessed
+
+Interpolating between lattice points narrows the distribution and stacking
+octaves narrows it again, so the field's standard deviation is **0.1392**, not
+the 0.2887 of the uniform hash it replaced. That number came out of a numpy
+replica of the exact construction before any shader was written, and it is
+what the normalising constant divides by.
+
+The amplitude was then set *lower* than the old field's on purpose. Noise with
+structure reads as considerably stronger than noise without at the same RMS,
+because the eye is far more sensitive at the size of a clump than at the size
+of a pixel.
+
+`FilmGrainSize` changed meaning slightly and its default moved from 1 to 2. It
+is now the lattice period rather than a quantisation step, so fractional
+values work where they previously rounded; and at 1 the finest octave is past
+what the pixel grid can resolve, so it sharpens into noise instead of showing
+specks — which is the look this item existed to leave behind.
+
+### Two things this cost that were not the feature
+
+**Both `shared` and `common` are reserved words in GLSL**, and glslang reports
+the error on the line *after* the offending one. Two rebuilds.
+
+**A tonemap that fails to compile makes "off is off to the byte" pass.** Every
+variant is equally broken, so they are equally identical. The suite caught it
+regardless — through the "each effect does something" half, which exists as
+the mirror of the byte-identity claim for exactly this reason. It is the same
+pairing as animates/reproduces and, now, clumps/decorrelates: **each of these
+claims is passable alone by a specific failure, and only the pair is not.**
+
+| Pair | What passes one alone |
+|---|---|
+| off is exact / each effect lands | a shader that does not compile |
+| animates / reproduces | a clock; a constant pattern |
+| adjacent pixels differ / neighbours correlate | white noise; a blur |
+
+The third pair is new, and the second half of it does not do the work: a
+2-pixel block grid correlates **+0.49** at one pixel, indistinguishable from
+value noise's +0.51. What separates them is that a block field is piecewise
+constant — 51% of horizontally adjacent pixels are *exactly* equal, against
+5.7% for value noise. Both halves were verified by putting the old grain back
+and watching the new assertions fail.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

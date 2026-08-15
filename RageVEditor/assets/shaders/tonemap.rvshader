@@ -59,13 +59,116 @@ layout(push_constant) uniform Params
 	float Frame;
 } u_Params;
 
-// A hash, not a texture. One less binding to fill and no sampling state to
-// get wrong, and the pattern only has to be *unstructured* rather than
-// well-distributed -- grain that repeats visibly is the failure, and this
-// does not at any size worth using.
-float Hash(vec3 v)
+// --- film grain -------------------------------------------------------------
+//
+// Value noise, not a hash per pixel -- and not gradient (Perlin) noise either.
+// Three properties, and each is the reason for one of the lines below:
+//
+//   * **Clumps, not squares.** A hash of `floor(coord / size)` is a grid of
+//     axis-aligned blocks. Grain is round specks in random positions, and
+//     interpolating between lattice points is what removes every straight
+//     edge from the field.
+//   * **Clumps of more than one size**, because a film stock is a
+//     distribution of crystal sizes rather than a single one. Two octaves, at
+//     a frequency ratio that is deliberately not a whole number so the two
+//     lattices never line up and hand the grid back.
+//   * **Three layers, slightly independent**, because colour negative has
+//     three emulsions and they do not grain together. Only the *finest*
+//     octave is per channel: the clumping itself is shared, which is both
+//     cheaper and closer to what the stock does.
+//
+// Gradient noise is the obvious alternative and is worse here for one
+// specific reason: it is exactly zero at every lattice point, so a field of
+// it carries a regular grid of grain-free dots -- the artefact this is
+// replacing, rotated 45 degrees. ENGINE-NOTES 7x.
+
+// An integer hash, not `fract(sin(x) * 43758.5453)`.
+//
+// The sine version is the common one and it is not *reproducible*: the
+// precision of `sin` is implementation-defined, the arguments it is fed are
+// large, and the answer lives entirely in the low bits that the two backends
+// are least likely to agree on. Integer multiplies and shifts are exact and
+// wrap identically everywhere, which is what makes a grain pattern something
+// a Vulkan and an OpenGL screenshot can be compared on at all.
+//
+// lowbias32 (Wellons), chosen over the usual Wang hash because its avalanche
+// is good enough that consecutive integers do not need a second round to stop
+// looking consecutive -- and consecutive integers is exactly what a lattice
+// feeds it.
+uint HashU(uint x)
 {
-	return fract(sin(dot(v, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+	x ^= x >> 16;
+	x *= 0x7feb352du;
+	x ^= x >> 15;
+	x *= 0x846ca68bu;
+	x ^= x >> 16;
+	return x;
+}
+
+// One lattice point's value, in 0..1.
+float Lattice(ivec2 cell, uint seed)
+{
+	uint h = HashU(uint(cell.x) ^ HashU(uint(cell.y) ^ HashU(seed)));
+
+	// 24 bits, so the conversion to float is exact rather than rounded.
+	// Exactness is the entire reason for hashing in integers; throwing it away
+	// on the last line would be a waste of the previous six.
+	return float(h >> 8) * (1.0 / 16777216.0);
+}
+
+// Value noise: the lattice, interpolated with a smoothstep fade so the field
+// has no visible seams where the cells meet.
+float ValueNoise(vec2 p, uint seed)
+{
+	vec2 base = floor(p);
+	vec2 f = p - base;
+	vec2 w = f * f * (3.0 - 2.0 * f);
+
+	ivec2 c = ivec2(base);
+	float a = Lattice(c + ivec2(0, 0), seed);
+	float b = Lattice(c + ivec2(1, 0), seed);
+	float d = Lattice(c + ivec2(0, 1), seed);
+	float e = Lattice(c + ivec2(1, 1), seed);
+
+	return mix(mix(a, b, w.x), mix(d, e, w.x), w.y);
+}
+
+// The field above has a standard deviation of 0.1392 -- measured, not assumed.
+// Interpolating between lattice points narrows the distribution, and stacking
+// octaves narrows it again, so it is nowhere near the 0.2887 of the uniform
+// hash this replaces. 7.19 makes it 1.0, and the amplitude below is then in
+// display levels directly.
+const float kGrainNormalise = 7.19;
+
+// About 11 levels of 255 at full strength: a stock, not a dusting. Lower than
+// the 0.072 the old white-noise field used, deliberately -- noise with
+// structure reads as considerably stronger than noise without at the same
+// RMS, because the eye is far more sensitive at the size of a clump than at
+// the size of a pixel.
+const float kGrainAmplitude = 0.045;
+
+// Signed grain per channel, normalised to unit standard deviation.
+vec3 GrainField(vec2 p, uint frame)
+{
+	// Two octaves of clumping, shared across the channels.
+	float clump = ValueNoise(p, frame) - 0.5;
+	float mid = ValueNoise(p * 2.17 + vec2(19.0, 7.0), frame ^ 0x9e3779b9u) - 0.5;
+
+	// Neither `shared` nor `common`: GLSL reserves both, along with a long
+	// list of words it has no use for but has kept anyway. The error names
+	// the line *after* the offending one, which is worth knowing before
+	// spending a rebuild on it.
+	float clumping = 0.55 * clump + 0.30 * mid;
+
+	// And the finest octave per channel, at 15% of the amplitude -- which
+	// measures as a channel correlation of 0.95. Enough to break up the flat
+	// grey of a single monochrome overlay, not enough to read as colour noise.
+	vec3 fine = vec3(
+		ValueNoise(p * 4.63 + vec2(0.0),  frame ^ 0x85ebca6bu),
+		ValueNoise(p * 4.63 + vec2(31.7), frame ^ 0xc2b2ae35u),
+		ValueNoise(p * 4.63 + vec2(63.1), frame ^ 0x27d4eb2fu)) - vec3(0.5);
+
+	return (vec3(clumping) + 0.15 * fine) * kGrainNormalise;
 }
 
 // ACES filmic approximation (Narkowicz). Without tone mapping anything above
@@ -169,17 +272,30 @@ void main()
 	// of sitting on top of it. ENGINE-NOTES 7w.
 	if (u_Params.Grain > 0.0)
 	{
-		// Quantised to the grain size so a speck covers several pixels at
-		// larger settings, and seeded with the frame number so it animates and
-		// still reproduces.
-		vec2 cell = floor(gl_FragCoord.xy / max(u_Params.GrainSize, 1.0));
-		float noise = Hash(vec3(cell, u_Params.Frame)) - 0.5;
+		// The grain size is the lattice period in pixels, so a speck covers
+		// several pixels at larger settings. Seeded with the frame number, so
+		// it animates and still reproduces.
+		vec3 grain = GrainField(gl_FragCoord.xy / max(u_Params.GrainSize, 1.0),
+								uint(u_Params.Frame));
 
-		// Scaled by luma so the darkest parts of the frame stay clean. Film
-		// grain lives in the midtones; noise of equal amplitude in the blacks
-		// reads as a broken sensor rather than as stock.
+		// Where grain lives on the tone scale, and this is the half that was
+		// wrong rather than merely coarse.
+		//
+		// Film grain peaks in the **midtones** and disappears at both ends:
+		// nothing is exposed in the blacks and everything is exposed in the
+		// highlights, so neither end has any variation left to show. The curve
+		// here used to be `1.0 - luma * 0.5`, which is *largest at black* --
+		// the comment above it said it kept the shadows clean and the
+		// arithmetic did the opposite, which is most of why this read as
+		// sensor noise rather than as stock.
+		//
+		// The square root of the parabola rather than the parabola, which on
+		// its own is too narrow: it leaves grain in a band around mid grey
+		// with a visibly clean zone either side.
 		float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-		color = clamp(color + noise * u_Params.Grain * 0.25 * (1.0 - luma * 0.5),
+		float response = sqrt(max(4.0 * luma * (1.0 - luma), 0.0));
+
+		color = clamp(color + grain * (u_Params.Grain * kGrainAmplitude * response),
 					  0.0, 1.0);
 	}
 

@@ -1430,16 +1430,21 @@ namespace
 					Named("Film grain", Slider(0.0f, 1.0f,
 						"Applied last, after the tone curve and after the LUT: "
 						"grain is the texture of the recording medium, not a "
-						"colour anybody graded. Animated, and seeded from the "
-						"frame number rather than a clock, so a screenshot of "
-						"frame 30 is the same picture every time."))),
+						"colour anybody graded. Two octaves of value noise, so "
+						"it is round clumps rather than a grid of squares, and "
+						"it peaks in the midtones the way a stock does. "
+						"Animated, and seeded from the frame number rather "
+						"than a clock, so a screenshot of frame 30 is the same "
+						"picture every time."))),
 
 				Field<&PostSettings::FilmGrainSize>("FilmGrainSize",
 					Named("Grain size", OnlyWhen(GrainOn,
 						Drag(0.02f, 1.0f, 8.0f,
-							"Pixels per speck. Larger reads as a faster film "
-							"stock; at 1 it is per-pixel noise, which reads as "
-							"digital sensor noise instead.")))),
+							"Pixels per speck -- the period of the noise "
+							"lattice. Larger reads as a faster stock. Below "
+							"about 2 the finest octave is past what the pixel "
+							"grid can resolve, so it sharpens into noise "
+							"instead of showing specks.")))),
 			};
 		}
 
