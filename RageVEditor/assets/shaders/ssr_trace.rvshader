@@ -6,7 +6,8 @@
 // to find the first crossing, then a binary refinement between the last miss
 // and the first hit. Writes where the ray landed and how much to trust it,
 // not a colour; the resolve pass samples the lit image there at full
-// resolution and blurs it by roughness. ENGINE-NOTES 7ad.
+// resolution and blurs it by roughness. ENGINE-NOTES 7ad; the frame the
+// march runs in, and how the normal enters it, is 7ae.
 
 #type vertex
 #version 450 core
@@ -63,6 +64,8 @@ layout(push_constant) uniform Params
 	vec4 ViewRow2;
 } u_Params;
 
+#include "include/view_reconstruction.glsl"
+
 // 48 linear steps and 6 refinements. Fewer steps bands: a ray grazing a
 // floor crosses the depth surface in stripes a step long, and 24 steps over
 // 20 m is most of a metre each. The refinement is cheap; the steps are what
@@ -70,35 +73,16 @@ layout(push_constant) uniform Params
 const int kSteps = 48;
 const int kRefine = 6;
 
-float LinearDepth(float depth)
+vec2 InvProjection() { return vec2(u_Params.InvP0, u_Params.InvP1); }
+
+float LinearDepthAt(vec2 uv)
 {
-	const float n = u_Params.NearClip;
-	const float f = u_Params.FarClip;
-	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+	return LinearDepth(texture(u_Depth, uv).r, u_Params.NearClip, u_Params.FarClip);
 }
 
-vec3 ViewPosition(vec2 uv)
+vec3 ViewPositionAt(vec2 uv)
 {
-	const float z = LinearDepth(texture(u_Depth, uv).r);
-	const vec2 ndc = uv * 2.0 - 1.0;
-	return vec3(ndc * vec2(u_Params.InvP0, u_Params.InvP1) * z, z);
-}
-
-// The exact inverse of ViewPosition, so a march step lands where the depth
-// it will be compared with was read from.
-vec2 ViewToUv(vec3 p)
-{
-	const vec2 ndc = p.xy / (vec2(u_Params.InvP0, u_Params.InvP1) * max(p.z, 1.0e-4));
-	return ndc * 0.5 + 0.5;
-}
-
-vec3 OctDecode(vec2 e)
-{
-	e = e * 2.0 - 1.0;
-	vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
-	if (n.z < 0.0)
-		n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-	return normalize(n);
+	return ViewPosition(uv, LinearDepthAt(uv), InvProjection());
 }
 
 void main()
@@ -108,10 +92,9 @@ void main()
 
 	const vec4 surface = texture(u_Surface, uv);
 
-	// A cleared attachment -- sky, grid, particles, text -- decodes to a
-	// degenerate normal. Nothing to reflect off; the probe (or nothing)
-	// stays.
-	if (dot(surface.rg, surface.rg) < 1.0e-6)
+	// A cleared attachment -- sky, grid, particles, text. Nothing to reflect
+	// off; the probe (or nothing) stays.
+	if (SurfaceIsEmpty(surface))
 	{
 		o_Color = vec4(0.0);
 		return;
@@ -129,29 +112,17 @@ void main()
 		return;
 	}
 
-	const vec3 position = ViewPosition(uv);
+	const vec3 position = ViewPositionAt(uv);
 
-	// World normal to view space: only the rotation, because a normal is a
-	// direction. The rows are the view matrix's, so this is M * n.
-	const vec3 worldN = OctDecode(surface.rg);
-	vec3 normal = normalize(vec3(dot(u_Params.ViewRow0.xyz, worldN),
-								 dot(u_Params.ViewRow1.xyz, worldN),
-								 dot(u_Params.ViewRow2.xyz, worldN)));
-
-	// The two frames have to agree. ViewPosition builds its frame from the
-	// *sampling-space* uv -- v downward, the way a render target is read
-	// after every post pass's FlipY -- while the view matrix's y is up. On
-	// the backend that flips (Vulkan) the two land pointing the same way;
-	// on the one that does not (OpenGL) they point opposite, the reflection
-	// ray leaves the surface backwards, and every march finds nothing.
-	//
-	// **Measured, not argued**, the way taa_resolve's velocity sign was:
-	// with the correction on the flipped backend, Vulkan lost its
-	// reflection and OpenGL never gained one; on the unflipped backend,
-	// both reflect and land within a row of each other. A still scene
-	// cannot tell -- a symmetric normal reflects the same either way.
-	if (!flip)
-		normal.y = -normal.y;
+	// The world normal into the frame the march runs in: the view rotation,
+	// then the frame's own z and y conventions -- one function, shared with
+	// SSAO, stated in view_reconstruction.glsl and measured on a mirror
+	// sphere. The first version of this pass did it inline, and did it
+	// right only for normals with no x-component; 7ae has the story.
+	const vec3 normal = ReconstructionNormal(OctDecode(surface.rg),
+											 u_Params.ViewRow0.xyz,
+											 u_Params.ViewRow1.xyz,
+											 u_Params.ViewRow2.xyz, flip);
 
 	// The camera looks down +z in this reconstruction (positive linear
 	// depth is in front). The view ray from the camera to the surface is
@@ -185,11 +156,11 @@ void main()
 		if (current.z <= u_Params.NearClip)
 			break;
 
-		const vec2 sampleUv = ViewToUv(current);
+		const vec2 sampleUv = ViewToUv(current, InvProjection());
 		if (any(lessThan(sampleUv, vec2(0.0))) || any(greaterThan(sampleUv, vec2(1.0))))
 			break;
 
-		const float sceneZ = LinearDepth(texture(u_Depth, sampleUv).r);
+		const float sceneZ = LinearDepthAt(sampleUv);
 		const float behind = current.z - sceneZ;
 
 		// Crossed the surface, and by less than a thickness.
@@ -215,14 +186,14 @@ void main()
 	for (int i = 0; i < kRefine; i++)
 	{
 		const vec3 mid = (lo + hi) * 0.5;
-		const float sceneZ = LinearDepth(texture(u_Depth, ViewToUv(mid)).r);
+		const float sceneZ = LinearDepthAt(ViewToUv(mid, InvProjection()));
 		if (mid.z > sceneZ)
 			hi = mid;
 		else
 			lo = mid;
 	}
 
-	const vec2 hitUv = ViewToUv(hi);
+	const vec2 hitUv = ViewToUv(hi, InvProjection());
 
 	// Confidence folds every reason to trust this hit less:
 	//   * the edge fade -- a hit near the screen border blends toward the

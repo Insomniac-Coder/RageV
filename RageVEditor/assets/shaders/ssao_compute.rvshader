@@ -1,13 +1,14 @@
-// SSAO, pass 1 of 4: occlusion from depth alone, at half resolution.
+// SSAO, pass 1 of 4: occlusion at half resolution.
 //
 // View-space position is reconstructed from the depth buffer and the
-// projection's two diagonal scales; the normal is reconstructed from
-// *chosen* neighbours -- each axis differences toward whichever side is
-// closer in depth, so a silhouette pixel takes its slope from its own
-// surface rather than inventing the 45-degree normal a naive derivative
-// cross produces along every edge. A hemisphere of taps oriented by that
-// normal then asks, per tap, whether something in the depth buffer sits in
-// front of where the tap landed. ENGINE-NOTES 7ac.
+// projection's two diagonal scales. The normal is the *real* one wherever
+// the scene wrote it -- the surface attachment SSR added carries the shading
+// normal, after the normal map, so a hemisphere oriented by it follows the
+// mortar and not a flat plane -- and reconstructed from chosen depth
+// neighbours where nothing wrote one: sky, the editor grid, anything the PBR
+// shaders did not draw. A hemisphere of taps oriented by that normal then
+// asks, per tap, whether something in the depth buffer sits in front of
+// where the tap landed. ENGINE-NOTES 7ac and 7ae.
 
 #type vertex
 #version 450 core
@@ -30,6 +31,10 @@ layout(location = 0) out vec4 o_Color;
 // half resolution always -- normalised coordinates make that nobody's
 // problem, the same way every other post pass reads it.
 layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+// The surface description: octahedral world normal in RG, roughness B,
+// metallic A. Point sampled: a normal halfway between two surfaces is a
+// direction nothing faces.
+layout(set = 0, binding = 1) uniform sampler2D u_Surface;
 
 layout(push_constant) uniform Params
 {
@@ -49,7 +54,18 @@ layout(push_constant) uniform Params
 	float InvP1;
 	// World metres the hemisphere reaches.
 	float Radius;
+	float _pad0;
+
+	// The view matrix's rotation, as three rows -- what takes the world
+	// normal the attachment stores into the frame the kernel is built in.
+	// Rows rather than a mat4 because push constants are tight and only the
+	// rotation is needed. The same three rows SSR's trace carries.
+	vec4 ViewRow0;
+	vec4 ViewRow1;
+	vec4 ViewRow2;
 } u_Params;
+
+#include "include/view_reconstruction.glsl"
 
 const int kTaps = 12;
 const float kGoldenAngle = 2.39996323;
@@ -58,25 +74,41 @@ const float kGoldenAngle = 2.39996323;
 // to grow with distance: a floor seen at a grazing angle has neighbouring
 // texels whole steps apart in depth, the reconstructed normal wobbles with
 // them, and a fixed bias that is honest up close lets the far floor occlude
-// itself into visible mottling.
+// itself into visible mottling. The real normal does not wobble, but the
+// depth the taps are compared against still quantises, so the term stays.
 const float kBias = 0.02;
 const float kBiasPerMetre = 0.012;
 
-float LinearDepth(float depth)
+vec2 InvProjection() { return vec2(u_Params.InvP0, u_Params.InvP1); }
+
+vec3 ViewPositionAt(vec2 uv)
 {
-	const float n = u_Params.NearClip;
-	const float f = u_Params.FarClip;
-	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+	const float z = LinearDepth(texture(u_Depth, uv).r, u_Params.NearClip, u_Params.FarClip);
+	return ViewPosition(uv, z, InvProjection());
 }
 
-// Sampling-space uv to view space. Only *relative* positions matter to
-// occlusion, so the backend's NDC y-direction needs no reconciliation here
-// beyond the sampling flip the pass already did.
-vec3 ViewPosition(vec2 uv)
+// The chosen-neighbour normal, from depth alone. Four candidate positions,
+// and each axis keeps the difference whose *depth* is nearer the centre's
+// -- the one on this pixel's own surface -- so a silhouette pixel takes its
+// slope from its own surface rather than inventing the 45-degree normal a
+// naive derivative cross produces along every edge. The fallback, and what
+// every pixel used before the attachment existed.
+vec3 ReconstructedNormal(vec2 uv, vec3 centre, vec2 texel)
 {
-	const float z = LinearDepth(texture(u_Depth, uv).r);
-	const vec2 ndc = uv * 2.0 - 1.0;
-	return vec3(ndc * vec2(u_Params.InvP0, u_Params.InvP1) * z, z);
+	const vec3 right = ViewPositionAt(uv + vec2(texel.x, 0.0));
+	const vec3 left  = ViewPositionAt(uv - vec2(texel.x, 0.0));
+	const vec3 up    = ViewPositionAt(uv + vec2(0.0, texel.y));
+	const vec3 down  = ViewPositionAt(uv - vec2(0.0, texel.y));
+
+	const vec3 dx = abs(right.z - centre.z) < abs(centre.z - left.z)
+				  ? right - centre : centre - left;
+	const vec3 dy = abs(up.z - centre.z) < abs(centre.z - down.z)
+				  ? up - centre : centre - down;
+
+	vec3 normal = normalize(cross(dy, dx));
+	// Toward the camera, whichever winding the cross came out with: a
+	// surface the camera can see cannot face away from it.
+	return normal.z > 0.0 ? -normal : normal;
 }
 
 uint Hash(uint x)
@@ -93,25 +125,25 @@ void main()
 	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
 
 	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
-	const vec3 centre = ViewPosition(uv);
+	const vec3 centre = ViewPositionAt(uv);
 
-	// The chosen-neighbour normal. Four candidate positions, and each axis
-	// keeps the difference whose *depth* is nearer the centre's -- the one
-	// on this pixel's own surface.
-	const vec3 right = ViewPosition(uv + vec2(texel.x, 0.0));
-	const vec3 left  = ViewPosition(uv - vec2(texel.x, 0.0));
-	const vec3 up    = ViewPosition(uv + vec2(0.0, texel.y));
-	const vec3 down  = ViewPosition(uv - vec2(0.0, texel.y));
-
-	const vec3 dx = abs(right.z - centre.z) < abs(centre.z - left.z)
-				  ? right - centre : centre - left;
-	const vec3 dy = abs(up.z - centre.z) < abs(centre.z - down.z)
-				  ? up - centre : centre - down;
-
-	vec3 normal = normalize(cross(dy, dx));
-	// Toward the camera, whichever winding the cross came out with: a
-	// surface the camera can see cannot face away from it.
-	normal = normal.z > 0.0 ? -normal : normal;
+	// The normal. The scene's own where it wrote one and it faces the
+	// camera; reconstructed otherwise. A shading normal can lean away from
+	// the viewer at a grazing angle -- a normal map does not know where the
+	// camera is -- and a hemisphere on the far side of the surface finds the
+	// surface itself in front of every tap. The reconstruction is the
+	// geometric normal, which cannot lean.
+	const vec4 surface = texture(u_Surface, uv);
+	vec3 normal = ReconstructedNormal(uv, centre, texel);
+	if (!SurfaceIsEmpty(surface))
+	{
+		const vec3 written = ReconstructionNormal(OctDecode(surface.rg),
+												 u_Params.ViewRow0.xyz,
+												 u_Params.ViewRow1.xyz,
+												 u_Params.ViewRow2.xyz, flip);
+		if (written.z < 0.0)
+			normal = written;
+	}
 
 	// An orthonormal frame around it, from whichever axis is less parallel.
 	const vec3 axis = abs(normal.x) < 0.7 ? vec3(1, 0, 0) : vec3(0, 1, 0);
@@ -143,14 +175,13 @@ void main()
 
 		// Back to uv -- the exact inverse of ViewPosition, so the two agree
 		// by construction rather than by convention.
-		const vec2 sampleNdc = sample_.xy / (vec2(u_Params.InvP0, u_Params.InvP1)
-											 * max(sample_.z, 1.0e-4));
-		const vec2 sampleUv = sampleNdc * 0.5 + 0.5;
+		const vec2 sampleUv = ViewToUv(sample_, InvProjection());
 
 		if (any(lessThan(sampleUv, vec2(0.0))) || any(greaterThan(sampleUv, vec2(1.0))))
 			continue;
 
-		const float sceneZ = LinearDepth(texture(u_Depth, sampleUv).r);
+		const float sceneZ = LinearDepth(texture(u_Depth, sampleUv).r,
+										 u_Params.NearClip, u_Params.FarClip);
 
 		// Occluded where the scene is in front of where the tap landed --
 		// and only within the radius, or a distant foreground silhouette

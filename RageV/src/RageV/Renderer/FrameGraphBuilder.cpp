@@ -485,6 +485,17 @@ namespace RageV
 			}
 		}
 
+		// What SSR and SSAO both reconstruct view space from: the clip planes,
+		// the projection's inverse diagonal, and the view rotation that
+		// brings the scene's world normal into that reconstruction. One
+		// value, so the two passes cannot disagree about it. ENGINE-NOTES 7ae.
+		PostProcess::ViewReconstruction reconstruction;
+		reconstruction.NearClip = desc.NearClip;
+		reconstruction.FarClip = desc.FarClip;
+		reconstruction.InvProjection0 = desc.InvProjection0;
+		reconstruction.InvProjection1 = desc.InvProjection1;
+		reconstruction.View = desc.View;
+
 		// --- SSR ---------------------------------------------------------------
 		//
 		// After the resolve, before SSAO: a reflection is lighting, so the
@@ -510,13 +521,9 @@ namespace RageV
 			const RGResource reflected = graph.CreateTarget(reflectedDesc);
 
 			PostProcess::SsrParams ssr;
-			ssr.NearClip = desc.NearClip;
-			ssr.FarClip = desc.FarClip;
-			ssr.InvProjection0 = desc.InvProjection0;
-			ssr.InvProjection1 = desc.InvProjection1;
+			ssr.View = reconstruction;
 			ssr.MaxDistance = desc.Post.SsrMaxDistance;
 			ssr.Thickness = desc.Post.SsrThickness;
-			ssr.View = desc.View;
 
 			const RGResource lit = shaded;
 			const uint32_t width = desc.Width;
@@ -593,10 +600,6 @@ namespace RageV
 			const RGResource occluded = graph.CreateTarget(shadedDesc);
 
 			const RGResource lit = shaded;
-			const float nearClip = desc.NearClip;
-			const float farClip = desc.FarClip;
-			const float invP0 = desc.InvProjection0;
-			const float invP1 = desc.InvProjection1;
 			const float radius = desc.Post.AoRadius;
 			const float intensity = desc.Post.AoIntensity;
 
@@ -607,13 +610,15 @@ namespace RageV
 					builder.Sample(sceneHDR);
 					builder.DisableDepth();
 				},
-				[sceneHDR, halfWidth, halfHeight, nearClip, farClip, invP0, invP1,
+				[sceneHDR, normalIndex, halfWidth, halfHeight, reconstruction,
 				 radius](RGPassContext& context)
 				{
+					// Depth and the surface attachment: the real normal where
+					// the scene wrote one, reconstruction where it did not.
 					PostProcess::SsaoCompute(context.Cmd, context.Depth(sceneHDR),
-											 halfWidth, halfHeight, nearClip, farClip,
-											 invP0, invP1, radius,
-											 Format::R16G16B16A16_SFLOAT);
+											 context.Color(sceneHDR, normalIndex),
+											 halfWidth, halfHeight, reconstruction,
+											 radius, Format::R16G16B16A16_SFLOAT);
 				});
 
 			graph.AddPass("SSAO blur x",

@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""A bright block on a mirror floor, for measuring SSR.
+"""Two fixtures for measuring SSR.
 
-The floor is a metal at roughness `roughness` -- 0 is a mirror -- and *dark*
-(black base colour, no emissive), so anything that appears on it below the
-block's base line got there by reflection. The block is emissive and bright,
-which gives the reflection something unmistakable to carry. The camera is
-low and looking along the floor so the reflected block lands well inside the
-frame. ENGINE-NOTES 7ad.
+`build`: a bright block on a mirror floor. The floor is a metal at roughness
+`roughness` -- 0 is a mirror -- and *dark* (black base colour, no emissive),
+so anything that appears on it below the block's base line got there by
+reflection. The block is emissive and bright, which gives the reflection
+something unmistakable to carry. The camera is low and looking along the
+floor so the reflected block lands well inside the frame. ENGINE-NOTES 7ad.
+
+`build_sphere`: a mirror sphere with a bright slab standing to its *left*.
+A floor's normal has no sideways component in view space, and it turns out
+that is the one case where a wrong normal transform is invisible: reflect()
+cannot tell a normal from its negation, and the wrong map and the right one
+differed by exactly a negation whenever x was zero. A sphere's normals point
+every way. The slab's reflection has to land on the sphere's *left* limb --
+a transform that mirrors x puts it on the right. ENGINE-NOTES 7ae.
 
     python tools/scripts/make_ssr_scene.py
 """
@@ -15,7 +23,9 @@ import make_motion_scene as base
 
 
 def _material_block(next_id, tag, position, scale, base_rgb, emissive_rgb,
-                    metallic, roughness):
+                    metallic, roughness, primitive=None):
+    if primitive is None:
+        primitive = base.CUBE
     return [
         f"  - EntityID: {next_id()}",
         "    TagComponent:",
@@ -25,7 +35,7 @@ def _material_block(next_id, tag, position, scale, base_rgb, emissive_rgb,
         "      Rotation: [0, 0, 0]",
         f"      Scale: {base.vec(scale)}",
         "    MeshComponent:",
-        f"      Mesh: {base.PRIMITIVE_BASE + base.CUBE}",
+        f"      Mesh: {base.PRIMITIVE_BASE + primitive}",
         "      Material:",
         f"        BaseColor: {base.vec(list(base_rgb) + [1])}",
         f"        Emissive: {base.vec(list(emissive_rgb) + [1])}",
@@ -56,11 +66,60 @@ def build(profile, roughness=0.0):
     return "\n".join(lines) + "\n"
 
 
+# The sphere fixture's geometry, shared with the check that measures it. The
+# camera sits level with the sphere's centre and looks straight at it, so
+# the sphere is a disc at the centre of the frame whose radius follows from
+# the distance and the vertical field of view alone: asin(r / d) against
+# tan(fov / 2). Stated here so the check does not have to find the sphere in
+# a picture where, with reflections off, it is as dark as the sky.
+SPHERE_RADIUS = 1.0
+SPHERE_DISTANCE = 6.0
+SPHERE_CENTRE_Y = 1.0
+CAMERA_FOV_DEGREES = 60.0
+
+
+def sphere_screen_radius_fraction():
+    """The sphere's on-screen radius as a fraction of the frame height."""
+    import math
+    angular = math.asin(SPHERE_RADIUS / SPHERE_DISTANCE)
+    half_height = math.tan(math.radians(CAMERA_FOV_DEGREES) / 2.0)
+    return math.tan(angular) / half_height / 2.0
+
+
+def build_sphere(profile):
+    next_id = base._ids()
+    lines = base._header("SSR sphere beside a slab")
+
+    lines += base._camera(next_id, (0, SPHERE_CENTRE_Y, SPHERE_DISTANCE),
+                          rotation=(0, 0, 0), profile=profile)
+
+    # A bright mirror -- light metal, so the reflection carries most of what
+    # it sees -- and nothing else lit anywhere: no lights, black ambient, a
+    # near-black sky. Roughness 0 is clamped by the shader to its floor.
+    lines += _material_block(next_id, "Sphere", (0, SPHERE_CENTRE_Y, 0),
+                             (2 * SPHERE_RADIUS,) * 3,
+                             (0.9, 0.9, 0.9), (0, 0, 0), 1.0, 0.0,
+                             primitive=base.SPHERE)
+
+    # The slab: emissive, tall, and long along z so a ray leaving the
+    # sphere's left limb at any angle between "sideways" and "straight
+    # back" still meets it. Its face toward the sphere is what reflects.
+    lines += _material_block(next_id, "Slab", (-3.0, SPHERE_CENTRE_Y, -1.0),
+                             (1.0, 3.0, 6.0), (0, 0, 0), (2.4, 1.6, 0.4),
+                             0.0, 1.0)
+
+    return "\n".join(lines) + "\n"
+
+
 def main():
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[2]
-    out = root / "SampleProject" / "assets" / "scenes" / "ssr_mirror.rage"
+    scenes = root / "SampleProject" / "assets" / "scenes"
+    out = scenes / "ssr_mirror.rage"
     out.write_text(build(None))
+    print(f"wrote {out}")
+    out = scenes / "ssr_sphere.rage"
+    out.write_text(build_sphere(None))
     print(f"wrote {out}")
 
 

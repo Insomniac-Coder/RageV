@@ -229,9 +229,12 @@ loading screen, named the frame profiler's wait, gave realtime probes a
 refresh-rate dropdown, and stopped the scene view wearing the game
 camera's lens.
 
-**What to do next: the owner decides.** No roadmap item is queued. See
-START HERE in the log below for the candidates -- the small 9.x
-follow-ups, phase 8's large items, or the two open non-blockers.
+**What to do next: the 9.x follow-ups, in the owner's order, then phase
+8.** 9.8 (SSAO reads the real normal -- and the derivation of the
+reconstruction frame it forced, ENGINE-NOTES 7ae, which found and fixed a
+transform in the SSR trace that was right only for sideways-free normals)
+is done; 9.9 exact probe replacement, 9.10 hi-Z, 9.11 probe barriers
+follow. See START HERE in the log below.
 
 Roadmap **phase 8 is open work, not excluded** -- GI, bindless, GPU-driven
 rendering, terrain, navmesh, networking, other platforms, XR, FBX, visual
@@ -1572,23 +1575,61 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: phase 9 is complete -- pick the next phase
+### START HERE: the 9.x follow-ups, in the owner's order, then phase 8
 
-**9.0 through 9.7 are all built** (2026-08-15). There is no next roadmap
-item inside phase 9. The candidates, each already argued somewhere:
+**9.0 through 9.7 are all built** (2026-08-15), and the owner chose the
+four small follow-ups before phase 8, in this order:
 
-- **The 9.x follow-ups**, small and well-defined: SSAO reads the real
-  normal attachment (7ac said it would; 7ad's attachment now exists);
-  SSR's exact probe replacement (7ad names the approximation); the probe
-  convolution's serialized barriers on Vulkan (V.3); hi-Z for the SSR
-  march.
-- **Phase 8**, reopened at the owner's direction and priced in the
-  roadmap: every item is L or XL. 8.2 bindless is a *decision about the
-  engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
-  equivalent -- and wants deciding before anything that would build on it.
-- **The two open non-blockers** below (focus-click guard, orphaned LUT).
+1. **9.8 SSAO reads the real normal** -- done (below).
+2. **9.9 SSR's exact probe replacement** -- next. 7ad names the
+   approximation; read 7ae first, because the resolve's inputs changed
+   shape under it.
+3. **9.10 Hi-Z for the SSR march.**
+4. **9.11 The probe convolution's serialized barriers on Vulkan** (V.3).
 
-Ask before choosing; this is the owner's call, not the roadmap's.
+Then **phase 8**, reopened at the owner's direction and priced in the
+roadmap: every item is L or XL. 8.2 bindless is a *decision about the
+engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
+equivalent -- and wants deciding before anything that would build on it.
+The two open non-blockers below (focus-click guard, orphaned LUT) are
+still open.
+
+---
+
+### Done - 9.8, SSAO reads the real normal, and the transform it exposed (2026-08-15)
+
+ENGINE-NOTES 7ae. SSAO's compute pass now binds the surface attachment and
+takes its normal wherever the scene wrote one and it faces the camera; the
+7ac reconstruction is the fallback for the sky, the editor grid, and a
+shading normal leaning past the horizon. On the box fixture the seam
+darkens 13.6 levels on both backends where the reconstruction gave 12.1
+(Vulkan) and 13.3 (OpenGL) -- the written normal does not wobble with each
+backend's depth quantisation. Open floor still 0.000.
+
+**What the swap found.** Writing the "world normal into the reconstruction
+frame" transform once for both passes meant deriving it, and the derivation
+disagreed with 7ad's trace. The frame is view space under `diag(1,1,-1)`
+on OpenGL and `diag(1,-1,-1)` on Vulkan (z is the depth; y follows texel
+rows); the trace had negated y on the unflipped backend and nothing on the
+flipped one, which is the correct map's *negation* exactly when the
+view-space normal has no x-component -- and `reflect()` cannot tell a
+normal from its negation, so a floor, a facing wall and a sideways wall all
+reflected right, and every fixture and the demo courtyard was made of
+those. A mirror sphere told them apart: its left limb reflected a slab
+standing to its left on the *right*. `check_ssr.py` now has that sphere
+(left 15.4, right 0.0 levels; the old transform scores 0.9 / 1.7 and
+fails), and the floor case is unchanged to the second decimal -- it could
+never have told. `include/view_reconstruction.glsl` is the one statement
+of the frame, the map and the "is this texel a surface" sentinel (which
+moved from the normal channels to the roughness channel; 7ae says why the
+normal could lie). SSAO and the SSR trace both include it.
+
+`PostProcess::ViewReconstruction` carries near/far, the inverse projection
+scales and the view matrix for both passes; `SsrParams` nests it;
+`SsaoCompute` takes the surface texture and one of these instead of five
+loose floats. Verified: 1531 scenetest checks on both backends under
+validation, zero `[Vulkan]` lines, editor demo both backends, all three
+configs, `check_ssao.py` and `check_ssr.py` green, `rvdoc --check`.
 
 ---
 
@@ -1608,15 +1649,17 @@ demo's plinth cap became polished steel so the effect has something to
 show -- the sphere seen from the cap's own viewpoint. **Not** stripped from
 the editor scene view: it follows whichever camera you look through.
 
-**One measured sign, in the family of taa_resolve's**: the reconstructed
-view-space frame reads sampling-space uv (v downward after FlipY) while
-the view matrix's y is up; on the *unflipped* backend they disagree and
-every march missed. The correction sits on `!flip`, and it was measured
-both ways -- on `flip` it took Vulkan's reflection away and gave OpenGL
-nothing. `check_ssr.py` (~1 min, both backends): off is off to the byte,
-the mirror floor gains 23 levels under the block, a roughness-0.7 floor
-gains 9, empty floor drifts 0.000, a frame reproduces, and the two
-backends land the reflection 0.1 rows apart. ~0.45 ms GPU at 1440p.
+**One measured sign, in the family of taa_resolve's** -- and, it turned
+out, measured on the one fixture that could not tell it from a wrong one.
+The transform this entry originally described (negate y on the unflipped
+backend) was correct only for normals with no x-component in view space;
+9.8 derived the frame properly, replaced it, and put a mirror sphere in
+the check. The 9.8 entry above and ENGINE-NOTES 7ae have the account.
+`check_ssr.py` (~1.5 min, both backends): off is off to the byte, the
+mirror floor gains 23 levels under the block, a roughness-0.7 floor gains
+9, empty floor drifts 0.000, a frame reproduces, the two backends land
+the reflection 0.1 rows apart, and the sphere reflects the slab on the
+slab's side. ~0.45 ms GPU at 1440p.
 
 ---
 

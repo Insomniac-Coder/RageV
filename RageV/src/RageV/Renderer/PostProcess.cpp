@@ -692,6 +692,21 @@ namespace RageV
 				 tiles, Sampling::Point);
 	}
 
+	// --- the view reconstruction both SSAO and SSR carry -- ENGINE-NOTES 7ae -
+
+	namespace
+	{
+		// The rows of the view matrix's rotation, as the shaders take them.
+		// Column-major storage: row i is element [c][i] across columns c.
+		// Only the rotation, so w is zero.
+		void ViewRows(const Mat4& v, Vec4& row0, Vec4& row1, Vec4& row2)
+		{
+			row0 = Vec4(v[0][0], v[1][0], v[2][0], 0.0f);
+			row1 = Vec4(v[0][1], v[1][1], v[2][1], 0.0f);
+			row2 = Vec4(v[0][2], v[1][2], v[2][2], 0.0f);
+		}
+	}
+
 	// --- SSAO (9.6) -- ENGINE-NOTES 7ac --------------------------------------
 
 	namespace
@@ -704,30 +719,42 @@ namespace RageV
 			float InvP0 = 1.0f;
 			float InvP1 = 1.0f;
 			float Radius = 0.5f;
+			// The push-constant block is std430-ish: vec4s land on 16-byte
+			// boundaries. Base is 24 bytes and the five floats above bring the
+			// offset to 44; the shader pads to 48 and so must this, or the rows
+			// land four bytes early and the normal rotates by garbage.
+			float _pad0 = 0.0f;
+			Vec4 ViewRow0{ 1.0f, 0.0f, 0.0f, 0.0f };
+			Vec4 ViewRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
+			Vec4 ViewRow2{ 0.0f, 0.0f, 1.0f, 0.0f };
 		};
+		static_assert(offsetof(SsaoComputeParams, ViewRow0) == 48,
+					  "ViewRow0 must sit at the 16-byte boundary the shader pads to");
 	}
 
 	void PostProcess::SsaoCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,
+								  const Ref<RHITexture>& surface,
 								  uint32_t width, uint32_t height,
-								  float nearClip, float farClip,
-								  float invProjection0, float invProjection1,
-								  float radius, Format outputFormat)
+								  const ViewReconstruction& view, float radius,
+								  Format outputFormat)
 	{
-		if (!s_Data || !depth)
+		if (!s_Data || !depth || !surface)
 			return;
 
 		SsaoComputeParams params;
 		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 								  1.0f / (float)Math::Max(height, 1u) };
-		params.NearClip = nearClip;
-		params.FarClip = farClip;
-		params.InvP0 = invProjection0;
-		params.InvP1 = invProjection1;
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
 		params.Radius = Math::Max(radius, 0.01f);
+		ViewRows(view.View, params.ViewRow0, params.ViewRow1, params.ViewRow2);
 
-		// Point: a filtered depth is a surface that does not exist.
-		Dispatch(cmd, Shader::SsaoCompute, outputFormat, depth, nullptr,
-				 &params, sizeof(params), Sampling::Point);
+		// Both point sampled: a filtered depth is a surface that does not
+		// exist, and a filtered normal is a direction nothing faces.
+		Dispatch(cmd, Shader::SsaoCompute, outputFormat, depth, surface,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point);
 	}
 
 	void PostProcess::SsaoBlur(RHICommandList& cmd, const Ref<RHITexture>& source,
@@ -799,19 +826,13 @@ namespace RageV
 		SsrTraceParams params;
 		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 								  1.0f / (float)Math::Max(height, 1u) };
-		params.NearClip = ssr.NearClip;
-		params.FarClip = ssr.FarClip;
-		params.InvP0 = ssr.InvProjection0;
-		params.InvP1 = ssr.InvProjection1;
+		params.NearClip = ssr.View.NearClip;
+		params.FarClip = ssr.View.FarClip;
+		params.InvP0 = ssr.View.InvProjection0;
+		params.InvP1 = ssr.View.InvProjection1;
 		params.MaxDistance = Math::Max(ssr.MaxDistance, 0.1f);
 		params.Thickness = Math::Max(ssr.Thickness, 0.01f);
-
-		// Rows of the view matrix, which is column-major storage: row i is
-		// element [c][i] across columns c. Only the rotation, so w is zero.
-		const Mat4& v = ssr.View;
-		params.ViewRow0 = Vec4(v[0][0], v[1][0], v[2][0], 0.0f);
-		params.ViewRow1 = Vec4(v[0][1], v[1][1], v[2][1], 0.0f);
-		params.ViewRow2 = Vec4(v[0][2], v[1][2], v[2][2], 0.0f);
+		ViewRows(ssr.View.View, params.ViewRow0, params.ViewRow1, params.ViewRow2);
 
 		// Both point sampled: a filtered depth is a surface that does not
 		// exist, and a filtered normal is a direction nothing faces.

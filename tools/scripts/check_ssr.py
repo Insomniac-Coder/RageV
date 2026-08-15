@@ -17,6 +17,15 @@ Both backends:
    position to within a couple of rows -- which is where a wrong Y
    convention in the reflected uv shows first. ENGINE-NOTES 7ad.
 
+And on a mirror sphere with a bright slab standing to its left (9.8):
+
+6. **The slab reflects on the sphere's left limb, not its right.** A
+   floor's normal has no sideways component in view space, and that is the
+   one case where a wrong normal transform is invisible -- reflect() cannot
+   tell a normal from its negation, and the wrong map and the right one
+   were negations of each other exactly when x was zero. This is the
+   measurement 7ad should have had. ENGINE-NOTES 7ae.
+
 Usage:
     python tools/scripts/check_ssr.py [--config Release]
 """
@@ -37,6 +46,11 @@ FRAME = 30
 MIN_MIRROR_GAIN = 6.0
 MAX_EMPTY_DRIFT = 1.0
 BACKEND_ROW_TOLERANCE = 3
+# The sphere's left limb must gain this much more than its right. Only the
+# outer band of a sphere reflects *away* from the camera -- the middle
+# reflects back at it, which the trace correctly refuses -- so the band is
+# narrow and the bound is modest; what matters is the side.
+MIN_LIMB_CONTRAST = 4.0
 
 
 def run(exe, args):
@@ -48,14 +62,30 @@ def run(exe, args):
         sys.exit(1)
 
 
-def shoot(exe, backend, path):
-    run(exe, [f"--rhi={backend}", "--scene=scenes/ssr_mirror.rage",
+def shoot(exe, backend, path, scene="scenes/ssr_mirror.rage"):
+    run(exe, [f"--rhi={backend}", f"--scene={scene}",
               "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
               f"--screenshot={path}", "--aa=none"])
     if not pathlib.Path(path).exists():
         print(f"FAIL: {path} was never written -- the scene probably did not load")
         sys.exit(1)
     return np.asarray(Image.open(path).convert("RGB")).astype(float).mean(axis=2)
+
+
+def limb_regions(image, radius_fraction):
+    """The sphere's left and right limb bands, from the fixture's geometry.
+
+    The sphere is a disc at the centre of the frame; its radius follows from
+    the camera distance and field of view (make_ssr_scene states both). The
+    bands are the outer part of the disc on each side, half the disc tall.
+    """
+    height, width = image.shape
+    radius = radius_fraction * height
+    cx, cy = width / 2.0, height / 2.0
+    rows = slice(int(cy - 0.5 * radius), int(cy + 0.5 * radius))
+    left = (rows, slice(int(cx - radius), int(cx - 0.55 * radius)))
+    right = (rows, slice(int(cx + 0.55 * radius), int(cx + radius)))
+    return left, right
 
 
 def block_base(image):
@@ -162,6 +192,34 @@ def main():
 
         centroids[backend] = reflection_centroid_row(mirror - off, reflection)
 
+    # --- the sphere: a general normal ---------------------------------------
+    sphere = scenes / "ssr_sphere.rage"
+
+    def stage_sphere(settings):
+        handle = postprofile.write_beside(sphere, { "BloomEnabled": False, **settings })
+        sphere.write_text(make_ssr_scene.build_sphere(handle))
+
+    radius_fraction = make_ssr_scene.sphere_screen_radius_fraction()
+
+    for backend in BACKENDS:
+        stage_sphere({ "ScreenSpaceReflections": False })
+        off = shoot(exe, backend, shots / f"{backend}-sphere-off.png",
+                    scene="scenes/ssr_sphere.rage")
+        stage_sphere({ "ScreenSpaceReflections": True })
+        on = shoot(exe, backend, shots / f"{backend}-sphere-on.png",
+                   scene="scenes/ssr_sphere.rage")
+
+        left, right = limb_regions(off, radius_fraction)
+        left_gain = on[left].mean() - off[left].mean()
+        right_gain = on[right].mean() - off[right].mean()
+        print(f"{backend}: sphere limbs gain {left_gain:.2f} (left, toward the slab), "
+              f"{right_gain:.2f} (right)")
+
+        if left_gain - right_gain < MIN_LIMB_CONTRAST:
+            failures.append(f"{backend}: the slab to the sphere's left reflected "
+                            f"{left_gain:.2f} on its left limb and {right_gain:.2f} "
+                            "on its right -- the normal transform mirrors x")
+
     if len(centroids) == 2:
         rows = abs(centroids["vulkan"] - centroids["opengl"])
         print(f"reflection centroid row: vulkan {centroids['vulkan']:.1f}, "
@@ -176,8 +234,9 @@ def main():
         sys.exit(1)
 
     print("OK: off is off to the byte, the mirror shows the block, a rough floor "
-          "shows less, empty floor stays dark, a frame reproduces, and both "
-          "backends agree where the reflection lands")
+          "shows less, empty floor stays dark, a frame reproduces, both "
+          "backends agree where the reflection lands, and the sphere reflects "
+          "the slab on the slab's side")
 
 
 if __name__ == "__main__":

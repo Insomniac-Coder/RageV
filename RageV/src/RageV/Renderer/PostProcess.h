@@ -192,18 +192,31 @@ namespace RageV
 									 float shutter, float maxRadius,
 									 RHI::Format outputFormat);
 
+		// What every pass that reconstructs view space from depth needs: the
+		// clip planes, the projection's two inverse diagonal scales, and the
+		// view matrix whose rotation brings the scene's world-space normal
+		// into the frame it reconstructs. SSAO and SSR both carry one, and
+		// carry the same one. ENGINE-NOTES 7ae.
+		struct ViewReconstruction
+		{
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvProjection0 = 1.0f;
+			float InvProjection1 = 1.0f;
+			Mat4 View{ 1.0f };
+		};
+
 		// SSAO (9.6), four passes -- the blur runs twice. ENGINE-NOTES 7ac.
 		//
-		// 1: occlusion from depth at half resolution, normals reconstructed
-		// from chosen neighbours. The two inverse scales are the projection's
-		// [0][0] and [1][1], which is what turns an NDC coordinate back into
-		// a view-space one.
+		// 1: occlusion at half resolution. The normal is the surface
+		// attachment's where the scene wrote one, reconstructed from chosen
+		// depth neighbours where it did not (7ae).
 		static void SsaoCompute(RHI::RHICommandList& cmd,
 								const RHI::Ref<RHI::RHITexture>& depth,
+								const RHI::Ref<RHI::RHITexture>& surface,
 								uint32_t width, uint32_t height,
-								float nearClip, float farClip,
-								float invProjection0, float invProjection1,
-								float radius, RHI::Format outputFormat);
+								const ViewReconstruction& view, float radius,
+								RHI::Format outputFormat);
 
 		// 2 and 3: the separable depth-aware blur, one axis per call.
 		static void SsaoBlur(RHI::RHICommandList& cmd,
@@ -219,19 +232,11 @@ namespace RageV
 							  float intensity, RHI::Format outputFormat);
 
 		// SSR (9.7), two passes. ENGINE-NOTES 7ad.
-		//
-		// The camera's view matrix is what takes the world normal the scene
-		// wrote into the view space the ray marches in; only its rotation is
-		// used.
 		struct SsrParams
 		{
-			float NearClip = 0.05f;
-			float FarClip = 1000.0f;
-			float InvProjection0 = 1.0f;
-			float InvProjection1 = 1.0f;
+			ViewReconstruction View;
 			float MaxDistance = 20.0f;   // metres
 			float Thickness = 0.5f;      // metres
-			Mat4 View{ 1.0f };
 		};
 
 		// 1: the march, at half resolution. Writes hit uv + confidence.

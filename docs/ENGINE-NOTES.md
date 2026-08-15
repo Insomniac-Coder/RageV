@@ -4281,7 +4281,9 @@ are worth recording because 9.7 may reverse the answer for itself:
 SSR (9.7) wants normal-mapped normals and roughness, which no reconstruction
 can produce; if it adds a G-buffer-lite attachment, SSAO can switch to
 reading it in the same commit. Until something needs that attachment for
-real, nothing pays for it.
+real, nothing pays for it. (7ad added it; 7ae made the switch, and the
+reconstruction described here is now the fallback for texels the scene did
+not write.)
 
 ### Applied as a multiply on the lit image, which is a stated compromise
 
@@ -4365,10 +4367,11 @@ particles, text) simply does not reflect. Only the PBR shaders write real
 values.
 
 SSAO could now read the real normal instead of reconstructing one. It
-does not, yet: the reconstruction is measured to hold a flat floor at zero
-drift, and swapping a working input for a different working input on the
-same day as the attachment lands is two changes in one commit. It is the
-first follow-up.
+did not, that day: the reconstruction was measured to hold a flat floor at
+zero drift, and swapping a working input for a different working input on
+the same day as the attachment lands is two changes in one commit. It was
+the first follow-up, and it is 7ae -- which also records what the swap
+found in this section's own normal transform.
 
 ### The trace
 
@@ -4426,6 +4429,90 @@ the box's colour with SSR on; a rough floor must gain less of it; off is
 off to the byte; a frame reproduces (the resolve's roughness disc is a
 fixed pattern, no dither at all in v1); and both backends agree, which is
 where a wrong Y convention in the reflected uv would show first.
+
+---
+
+## 7ae. The reconstruction frame, stated once (9.8): SSAO's real normal, and the transform it exposed
+
+The first 9.x follow-up: SSAO stops reconstructing its normal from depth
+and reads the one the scene wrote into 7ad's attachment. Small on paper.
+Doing it meant SSAO needed the same "world normal into the frame the pass
+reconstructs" transform the SSR trace already had, and writing that
+transform down *once* for both passes meant deriving it rather than copying
+it -- and the derivation did not match the copy.
+
+### The frame
+
+Every depth-reading post pass turns a sampling-space uv and a depth back
+into a point: `(ndc.xy * InvProjection * z, z)`. That is not the camera's
+view space. Its x is the camera's; its **y runs along increasing texel
+rows**, because the uv is the one the depth was sampled with -- up the
+picture on the backend whose row 0 is the bottom (OpenGL), down it on the
+one whose row 0 is the top (Vulkan), the same fact every post pass's FlipY
+exists for; and its **z is the linear depth, positive in front**, where view
+space looks down -z. So the frame is view space under a fixed orthogonal
+map per backend: `diag(1, 1, -1)` on OpenGL, `diag(1, -1, -1)` on Vulkan.
+Positions and directions computed inside it agree with each other by
+construction -- ViewToUv is the exact inverse of ViewPosition. The one thing
+that arrives from outside is the normal, in world space, and it has to come
+in through the same map: view rotation, then negate z, then negate y on the
+flipped backend. `include/view_reconstruction.glsl` is that map, and SSAO
+and the SSR trace both include it; neither carries a private copy.
+
+### What the copy had been
+
+7ad's trace negated y on the *unflipped* backend and nothing on the flipped
+one, and had "measured, not argued" that on a mirror floor. The
+measurement was honest and the transform was wrong, and both are true
+because of one property of `reflect()`: it cannot tell a normal from its
+negation. Compare the code's `(x, -y, z)` with the correct `(x, y, -z)` on
+OpenGL: they are negations of each other exactly when `x = 0`. A floor seen
+without roll, a wall facing the camera, a wall facing sideways -- every
+surface in every fixture and in the demo courtyard -- has a view-space
+normal with no x-component, and reflected identically under both. A mirror
+sphere does not: its normals point every way, and under the old transform
+the slab standing to its left reflected on its *right* limb. That sphere is
+now in `check_ssr.py`, and the old transform fails it on both backends
+(left 0.9, right 1.7 levels) where the new one passes (left 15.4, right
+0.0). The floor case is unchanged to the second decimal, which is the
+whole point: the floor could never have told.
+
+The lesson is not "measure more". It is that a transform between two
+frames is a *derivation* -- state both frames, write the map -- and a
+measurement confirms a derivation rather than replacing one. Where the
+derivation is skipped, the measurement has to be chosen to break the
+symmetry the code might have, and nobody knows what symmetry that is until
+the derivation is done.
+
+### SSAO's switch
+
+SSAO reads the attachment (point sampled, like the trace) and takes its
+normal where the texel is a surface and the normal faces the camera in the
+reconstruction frame; the chosen-neighbour reconstruction from 7ac stays as
+the fallback for both other cases. Empty texels -- sky, the editor grid,
+particles, text -- keep the reconstruction because the grid, in the editor,
+receives contact shadows from the objects standing on it and should go on
+doing so. A written normal that leans *away* from the camera -- a normal
+map does not know where the viewer is, and at a grazing angle the shading
+normal can cross the horizon -- would put the whole hemisphere behind the
+surface and find the surface in front of every tap; the geometric normal
+cannot lean, so it takes over there. On the box-on-a-floor fixture the
+change is small and in one direction: the seam darkens 13.6 levels on both
+backends where the reconstruction gave 12.1 on Vulkan and 13.3 on OpenGL --
+the reconstructed normal wobbled differently with each backend's depth
+quantisation, and the written one does not wobble. The open floor holds at
+zero drift as before.
+
+### The sentinel
+
+"Is this texel a surface" was tested on the octahedral normal being
+`(0, 0)`. That test is not safe: the four corners of the octahedral square
+all decode to -z, and a normal pointing almost exactly along -z with the
+faintest negative x and y quantises to the same `(0, 0)` the clear holds --
+a wall facing that way would flicker between surface and nothing a texel at
+a time. The PBR shader clamps roughness to 0.045 before writing it, so a
+real surface never stores a zero in the roughness channel and the clear
+always does. `SurfaceIsEmpty` tests that channel, and both passes call it.
 
 ---
 
