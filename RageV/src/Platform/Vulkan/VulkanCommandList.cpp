@@ -571,6 +571,64 @@ namespace RageV::Vk
 		dst->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
 
+	void VulkanCommandList::CopyStripToTextureLayers(const RHI::Ref<RHI::RHITexture>& source,
+													 const RHI::Ref<RHI::RHITexture>& destination,
+													 uint32_t baseLayer, uint32_t layerCount,
+													 uint32_t mip)
+	{
+		RV_CORE_ASSERT(!m_InRenderPass, "CopyStripToTextureLayers inside a render pass");
+
+		if (!source || !destination || layerCount == 0)
+			return;
+
+		auto* src = static_cast<VulkanTexture*>(source.get());
+		auto* dst = static_cast<VulkanTexture*>(destination.get());
+
+		// One pair of transitions for every slice, which is the point.
+		src->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		dst->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+		const int32_t sliceWidth = (int32_t)(source->GetWidth() / layerCount);
+		const int32_t height = (int32_t)source->GetHeight();
+		const int32_t dstWidth  = (int32_t)std::max(destination->GetWidth() >> mip, 1u);
+		const int32_t dstHeight = (int32_t)std::max(destination->GetHeight() >> mip, 1u);
+
+		const bool depth = RHI::IsDepthFormat(source->GetFormat());
+		const VkImageAspectFlags aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT
+												: VK_IMAGE_ASPECT_COLOR_BIT;
+		const bool rescaling = dstWidth != sliceWidth || dstHeight != height;
+		const VkFilter filter = (depth || !rescaling) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+
+		// Each slice read bottom-to-top and written top-to-bottom, exactly as
+		// CopyToTextureLayer does for one face and for the same reason.
+		std::vector<VkImageBlit> regions(layerCount);
+		for (uint32_t i = 0; i < layerCount; i++)
+		{
+			VkImageBlit& region = regions[i];
+			region = {};
+			region.srcSubresource.aspectMask = aspect;
+			region.srcSubresource.layerCount = 1;
+			region.srcOffsets[0] = { (int32_t)i * sliceWidth, height, 0 };
+			region.srcOffsets[1] = { (int32_t)(i + 1) * sliceWidth, 0, 1 };
+			region.dstSubresource.aspectMask = aspect;
+			region.dstSubresource.mipLevel = mip;
+			region.dstSubresource.baseArrayLayer = baseLayer + i;
+			region.dstSubresource.layerCount = 1;
+			region.dstOffsets[0] = { 0, 0, 0 };
+			region.dstOffsets[1] = { dstWidth, dstHeight, 1 };
+		}
+
+		vkCmdBlitImage(m_CommandBuffer,
+					   src->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					   dst->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					   layerCount, regions.data(), filter);
+
+		src->TransitionTo(m_CommandBuffer, depth
+										 ? VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
+										 : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		dst->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	}
+
 	void VulkanCommandList::PushDebugGroup(const char* name)
 	{
 		if (!vkCmdBeginDebugUtilsLabelEXT)

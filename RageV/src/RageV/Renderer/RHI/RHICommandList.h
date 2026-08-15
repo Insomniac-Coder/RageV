@@ -135,6 +135,17 @@ namespace RageV::RHI
 										const Ref<RHITexture>& destination,
 										uint32_t layer, uint32_t mip = 0) = 0;
 
+		// The same, for a *strip*: `source` is `layerCount` equal images side
+		// by side, and slice i lands in layer `baseLayer + i` of `destination`
+		// at `mip`. One call, one pair of layout transitions and one blit on
+		// Vulkan, where the per-face copies it replaces were each a pair of
+		// full-image barriers on a cube array -- which is where a probe's
+		// convolution spent most of its time. ENGINE-NOTES 7ah.
+		virtual void CopyStripToTextureLayers(const Ref<RHITexture>& source,
+											  const Ref<RHITexture>& destination,
+											  uint32_t baseLayer, uint32_t layerCount,
+											  uint32_t mip = 0) = 0;
+
 		// Debug-marker scopes; show up in RenderDoc and Nsight.
 		virtual void PushDebugGroup(const char* name) = 0;
 		virtual void PopDebugGroup() = 0;

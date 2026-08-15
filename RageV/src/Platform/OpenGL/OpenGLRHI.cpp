@@ -1428,6 +1428,61 @@ namespace RageV::GL
 		glEnable(GL_SCISSOR_TEST);
 	}
 
+	void OpenGLCommandListRHI::CopyStripToTextureLayers(const Ref<RHITexture>& source,
+														const Ref<RHITexture>& destination,
+														uint32_t baseLayer, uint32_t layerCount,
+														uint32_t mip)
+	{
+		if (!source || !destination || layerCount == 0)
+			return;
+
+		const uint32_t sliceWidth = source->GetWidth() / layerCount;
+		const uint32_t height = source->GetHeight();
+		const uint32_t dstWidth  = std::max(destination->GetWidth() >> mip, 1u);
+		const uint32_t dstHeight = std::max(destination->GetHeight() >> mip, 1u);
+
+		if (!m_CopyRead) glCreateFramebuffers(1, &m_CopyRead);
+		if (!m_CopyDraw) glCreateFramebuffers(1, &m_CopyDraw);
+
+		const uint32_t src = std::static_pointer_cast<OpenGLTextureRHI>(source)->GetHandle();
+		const uint32_t dst = std::static_pointer_cast<OpenGLTextureRHI>(destination)->GetHandle();
+
+		const bool depth = IsDepthFormat(source->GetFormat());
+		const GLenum attachment = depth ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0;
+		const GLbitfield mask = depth ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT;
+
+		// Same detach-everything discipline as CopyToTextureLayer, for the same
+		// reason: a stale attachment of another size makes the blit a corner.
+		glNamedFramebufferTexture(m_CopyRead, GL_COLOR_ATTACHMENT0, 0, 0);
+		glNamedFramebufferTexture(m_CopyRead, GL_DEPTH_ATTACHMENT, 0, 0);
+		glNamedFramebufferTexture(m_CopyDraw, GL_COLOR_ATTACHMENT0, 0, 0);
+		glNamedFramebufferTexture(m_CopyDraw, GL_DEPTH_ATTACHMENT, 0, 0);
+		glNamedFramebufferTexture(m_CopyRead, attachment, src, 0);
+		glNamedFramebufferReadBuffer(m_CopyRead, depth ? GL_NONE : GL_COLOR_ATTACHMENT0);
+		glNamedFramebufferDrawBuffer(m_CopyDraw, depth ? GL_NONE : GL_COLOR_ATTACHMENT0);
+
+		glDisable(GL_SCISSOR_TEST);
+
+		const bool rescaling = dstWidth != sliceWidth || dstHeight != height;
+		const GLenum filter = (depth || !rescaling) ? GL_NEAREST : GL_LINEAR;
+
+		// One blit per slice; the source stays attached and only the
+		// destination layer moves. Straight through, no flip -- see
+		// CopyToTextureLayer for why this backend needs none.
+		for (uint32_t i = 0; i < layerCount; i++)
+		{
+			glNamedFramebufferTextureLayer(m_CopyDraw, attachment, dst, (GLint)mip,
+										   (GLint)(baseLayer + i));
+			glBlitNamedFramebuffer(m_CopyRead, m_CopyDraw,
+								   (GLint)(i * sliceWidth), 0,
+								   (GLint)((i + 1) * sliceWidth), (GLint)height,
+								   0, 0, (GLint)dstWidth, (GLint)dstHeight,
+								   mask, filter);
+		}
+
+		glEnable(GL_SCISSOR_TEST);
+	}
+
 	void OpenGLCommandListRHI::PushDebugGroup(const char* name)
 	{
 		glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, name);

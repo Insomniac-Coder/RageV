@@ -4797,6 +4797,42 @@ after this one, and both would want the walk exactly as it is.
 
 ---
 
+## 7ah. The probe convolution in six passes, not thirty-six (9.11)
+
+V.3 measured the reflection-probes phase at 0.70 ms on Vulkan against 0.18
+on OpenGL for the same work, and named the shape: the prefilter rendered
+each of a probe's six faces at each of its levels into its own square
+scratch target and copied it into the cube array on its own -- thirty-six
+render passes and thirty-six copies per probe, every copy a pair of
+full-image layout transitions on a cube *array*, and on Vulkan a small
+pass between two barriers is a GPU idling for the pass's length. The
+15 Hz probe dial hid it; this is the fix underneath.
+
+**One pass per level, six faces across.** The scratch is a strip six faces
+wide; the six faces are six viewports in one render pass, one resource set
+between them, and the fullscreen triangle covers whatever the viewport is.
+On Vulkan the viewport has to carry the negative height the pass's own
+default viewport carries, or that backend's faces come out upside down
+while the other's do not -- the same fact stated for the copy in 7g, met
+from the render side. **One copy per level**:
+`RHICommandList::CopyStripToTextureLayers` takes the strip and lands slice
+i in layer `base + i` at the mip -- one pair of transitions and one blit
+with six regions on Vulkan, six framebuffer blits on OpenGL, the same
+per-slice flip the single-face copy does. Same shading, same rows: the
+demo frame on Vulkan is byte-identical before and after.
+
+**Measured**, probe updating every frame, 1440p, demo: Vulkan probes
+phase 0.77 -> 0.59 ms; OpenGL 0.24 -> 0.23. A quarter off the Vulkan
+cost, and Vulkan still two and a half times OpenGL -- what remains is the
+six scene captures, which are six real render passes with their own six
+single-face copies and a mip generation, and the strip copies' transitions
+still being *whole-array* transitions. The next cut, if the phase ever
+matters again at the 15 Hz rate, is the captures copying as a strip and
+the transitions narrowing to the slice they touch; neither is small, and
+the dial has made both optional.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

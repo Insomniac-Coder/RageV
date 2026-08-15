@@ -255,6 +255,10 @@ namespace RageV::GL
 		void CopyToTextureLayer(const Ref<RHITexture>& source,
 								const Ref<RHITexture>& destination,
 								uint32_t layer, uint32_t mip = 0) override;
+		void CopyStripToTextureLayers(const Ref<RHITexture>& source,
+									  const Ref<RHITexture>& destination,
+									  uint32_t baseLayer, uint32_t layerCount,
+									  uint32_t mip = 0) override;
 
 		void PushDebugGroup(const char* name) override;
 		void PopDebugGroup() override;

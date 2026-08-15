@@ -112,15 +112,27 @@ namespace RageV
 			return cached != nullptr;
 		}
 
-		// Six faces per level, rendered one at a time into a scratch target of
-		// that level's size and copied into the destination.
+		// Six faces per level, rendered side by side into one strip-shaped
+		// scratch target -- six viewports in one render pass -- and copied
+		// into the destination in one call.
 		//
 		// The destination is a cube *or* a slice of a cube array, which is the
 		// whole reason this is a function rather than the body of Prefilter:
-		// filling probe slot k is the same thirty-six renders with baseLayer set
-		// to 6k. Nothing here reads the destination's identity beyond its size,
-		// so the two callers cannot drift in the part that is hard to get right
-		// -- the face basis and the row order.
+		// filling probe slot k is the same renders with baseLayer set to 6k.
+		// Nothing here reads the destination's identity beyond its size, so the
+		// two callers cannot drift in the part that is hard to get right -- the
+		// face basis and the row order.
+		//
+		// **One pass and one copy per level, not one of each per face.** The
+		// first version rendered each face into its own square scratch and
+		// copied it on its own: thirty-six render passes and thirty-six copies
+		// for a six-level probe, each copy a pair of full-image layout
+		// transitions on a cube *array* -- and on Vulkan a small pass between
+		// two barriers is a GPU idling for the pass's length. The probes phase
+		// read 0.77 ms against OpenGL's 0.24 for the same work. Six faces
+		// across one target is the same shading in one pass, and a strip copy
+		// is one blit with six regions between one pair of transitions.
+		// ENGINE-NOTES 7ah.
 		//
 		// Sizes come from the destination, not the source. They used to be the
 		// same number because a cube was always filtered into a cube of its own
@@ -143,7 +155,7 @@ namespace RageV
 				if (!scratch)
 				{
 					RenderTargetDesc target;
-					target.Width = size;
+					target.Width = size * CubeFaces::kFaceCount;
 					target.Height = size;
 					target.ColorAttachments = { { Format::R16G16B16A16_SFLOAT } };
 					target.HasDepth = false;
@@ -160,28 +172,55 @@ namespace RageV
 				const float roughness = levels > 1 ? (float)level / (float)(levels - 1) : 0.0f;
 				const Ref<RHITexture> rendered = scratch->GetColorTexture(0);
 
+				RenderPassBeginInfo begin;
+				begin.Target = scratch.get();
+				begin.ClearColor = true;
+				begin.UseDepth = false;
+
+				cmd.BeginRenderPass(begin);
+
+				// One set for the six faces: they read the same source. The
+				// cursor is per frame, not per call -- resetting it here meant a
+				// second environment filtered in the same frame rewrote sets the
+				// command buffer had already bound.
+				while (s_Data->SetCursor >= s_Data->Sets.size())
+					s_Data->Sets.push_back(s_Data->Device->CreateResourceSet(pipeline, 0));
+
+				Ref<RHIResourceSet>& set = s_Data->Sets[s_Data->SetCursor++];
+				if (!set)
+					set = s_Data->Device->CreateResourceSet(pipeline, 0);
+
+				set->SetTexture(0, source, s_Data->Sampler);
+				set->Commit();
+
+				cmd.BindPipeline(pipeline);
+				cmd.BindResourceSet(0, set);
+
+				// The Vulkan backend renders through a negative-height viewport
+				// so its picture comes out the same way up as OpenGL's; the
+				// pass's own default viewport does that for the whole target,
+				// and a viewport set by hand has to do it too or this backend's
+				// faces come out upside down while the other's do not.
+				const bool flipped = s_Data->Device->GetBackend() == Backend::Vulkan;
+
 				for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
 				{
-					RenderPassBeginInfo begin;
-					begin.Target = scratch.get();
-					begin.ClearColor = true;
-					begin.UseDepth = false;
+					// This face's column of the strip. The fullscreen triangle
+					// covers whatever the viewport is, and the scissor keeps its
+					// clear-and-draw inside the column.
+					Viewport viewport;
+					viewport.X = (float)(face * size);
+					viewport.Y = flipped ? (float)size : 0.0f;
+					viewport.Width = (float)size;
+					viewport.Height = flipped ? -(float)size : (float)size;
+					cmd.SetViewport(viewport);
 
-					cmd.BeginRenderPass(begin);
-
-					// The cursor is per frame, not per call. Resetting it here meant a
-					// second environment filtered in the same frame -- a probe after
-					// the sky -- rewrote descriptor sets the command buffer had
-					// already bound, which invalidates it.
-					while (s_Data->SetCursor >= s_Data->Sets.size())
-						s_Data->Sets.push_back(s_Data->Device->CreateResourceSet(pipeline, 0));
-
-					Ref<RHIResourceSet>& set = s_Data->Sets[s_Data->SetCursor++];
-					if (!set)
-						set = s_Data->Device->CreateResourceSet(pipeline, 0);
-
-					set->SetTexture(0, source, s_Data->Sampler);
-					set->Commit();
+					Rect2D scissor;
+					scissor.X = (int32_t)(face * size);
+					scissor.Y = 0;
+					scissor.Width = size;
+					scissor.Height = size;
+					cmd.SetScissor(scissor);
 
 					PrefilterParams params;
 					params.Axis = Vec4(kBasis[face].Axis, 0.0f);
@@ -193,18 +232,18 @@ namespace RageV
 					params.Settings = { roughness, (float)source->GetWidth(),
 										(float)EnvironmentIBL::kPrefilterSamples, 0.0f };
 
-					cmd.BindPipeline(pipeline);
-					cmd.BindResourceSet(0, set);
 					cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
 					cmd.Draw(3);
-
-					cmd.EndRenderPass();
-
-					// Into this level's mip of the destination. The copy is where
-					// the two backends' row order is reconciled, exactly as it is
-					// for a reflection probe's faces.
-					cmd.CopyToTextureLayer(rendered, destination, baseLayer + face, level);
 				}
+
+				cmd.EndRenderPass();
+
+				// The six columns into this level's mip of the destination's six
+				// faces, in one copy. The copy is where the two backends' row
+				// order is reconciled, exactly as it is for a reflection probe's
+				// faces.
+				cmd.CopyStripToTextureLayers(rendered, destination, baseLayer,
+											 CubeFaces::kFaceCount, level);
 			}
 		}
 

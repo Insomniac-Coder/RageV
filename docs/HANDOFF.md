@@ -238,8 +238,10 @@ lighting, one frame late, ENGINE-NOTES 7af; the check measures 0.00 levels
 against the law) and 9.10 (the SSR march is a screen-space walk with a
 crossing test and a min/max pyramid, ENGINE-NOTES 7ag; correct on every
 fixture, and honest that the pyramid does not pay on the demo's grazing
-rays) are done; 9.11 probe barriers is next. See START HERE in the log
-below.
+rays) and 9.11 (the probe convolution in six passes and six copies, not
+thirty-six of each, ENGINE-NOTES 7ah; Vulkan probes 0.77 -> 0.59 ms) are
+done. **Phase 8 is next, and it is the owner's call which item.** See
+START HERE in the log below.
 
 Roadmap **phase 8 is open work, not excluded** -- GI, bindless, GPU-driven
 rendering, terrain, navmesh, networking, other platforms, XR, FBX, visual
@@ -1580,10 +1582,10 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: the 9.x follow-ups, in the owner's order, then phase 8
+### START HERE: the 9.x follow-ups are done -- phase 8 is next
 
 **9.0 through 9.7 are all built** (2026-08-15), and the owner chose the
-four small follow-ups before phase 8, in this order:
+four small follow-ups before phase 8; all four are done, in this order:
 
 1. **9.8 SSAO reads the real normal** -- done (below).
 2. **9.9 SSR's exact probe replacement** -- done (below). The blend moved
@@ -1593,7 +1595,9 @@ four small follow-ups before phase 8, in this order:
    sphere is smooth and the horizon clean, and 7ag says plainly that the
    pyramid does not pay on the demo's grazing rays.
 4. **9.11 The probe convolution's serialized barriers on Vulkan** (V.3)
-   -- next.
+   -- done (below). Six passes and six copies per probe instead of
+   thirty-six of each; Vulkan probes 0.77 -> 0.59 ms with the probe
+   updating every frame, byte-identical frame.
 
 Then **phase 8**, reopened at the owner's direction and priced in the
 roadmap: every item is L or XL. 8.2 bindless is a *decision about the
@@ -1601,6 +1605,25 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 9.11, the probe convolution in six passes (2026-08-15)
+
+ENGINE-NOTES 7ah. `EnvironmentIBL::Convolve` renders a level's six faces
+as six viewports into one strip-shaped scratch in one render pass, and
+copies them with the new `RHICommandList::CopyStripToTextureLayers` --
+one transition pair and one six-region blit on Vulkan, six framebuffer
+blits on OpenGL -- instead of thirty-six passes and thirty-six full-image
+copies. The Vulkan viewport carries the negative height by hand, because
+a viewport set inside a pass does not inherit the pass's flip. Probe
+updating every frame at 1440p: Vulkan probes 0.77 -> 0.59 ms, OpenGL 0.24
+-> 0.23; the demo frame on Vulkan is byte-identical before and after.
+What remains of the gap is the six scene captures and their single-face
+copies, and whole-array transitions -- named in 7ah, optional under the
+15 Hz dial. Verified: 1538 scenetest checks both backends under
+validation, zero `[Vulkan]` lines, editor demo both backends, all three
+configs.
 
 ---
 
