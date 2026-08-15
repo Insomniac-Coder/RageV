@@ -2324,6 +2324,119 @@ void main()
 	// A pass reading a target nothing produced is a black screen otherwise,
 	// and a black screen is the single most expensive thing to diagnose in a
 	// renderer.
+	// The demo scene's own buttons, clicked.
+	//
+	// Every mechanism underneath this is already checked -- hit testing,
+	// capture, the click edge, the binding -- and all of it passes while the
+	// buttons in the shipped scene do nothing. That is the gap this closes:
+	// the parts work and the *assembly* is what nobody was testing, and the
+	// demo scene is the one assembly a person judges the engine by.
+	//
+	// It loads the real file rather than building an equivalent, because an
+	// equivalent is a second thing that can be right while the shipped one is
+	// wrong.
+	void CheckDemoButtons()
+	{
+		auto scene = std::make_shared<Scene>();
+		SceneSerializer serializer(scene);
+
+		// Through the project, not a relative path: scenetest runs from its own
+		// staged asset folder, where "assets/scenes/demo.rage" is a different
+		// file that happens to exist.
+		if (!serializer.Deserialize(Project::AssetPath("scenes/demo.rage").string()))
+		{
+			Check(false, "the demo scene loads");
+			return;
+		}
+
+		Entity bell = scene->FindEntityByName("Bell Button");
+		Entity anvilButton = scene->FindEntityByName("Anvil Button");
+		Entity anvilTally = scene->FindEntityByName("Anvil Tally");
+		Entity bellLabel = scene->FindEntityByName("Bell Label");
+		Entity tallyLabel = scene->FindEntityByName("Anvil Tally Label");
+
+		Check(bell && anvilButton && anvilTally && bellLabel && tallyLabel,
+			  "the demo scene still has both buttons and their labels");
+		if (!bell || !anvilButton || !anvilTally || !bellLabel || !tallyLabel)
+			return;
+
+		// The size the runtime opens at, so the layout under test is the one a
+		// person sees rather than one chosen to make the sums easy.
+		const float width = 1600.0f;
+		const float height = 900.0f;
+
+		scene->OnRuntimeStart();
+
+		const auto centreOf = [&](Entity target) -> std::pair<float, float>
+		{
+			for (const UI::ResolvedElement& element :
+				 UI::ResolveScene(*scene, width, height))
+			{
+				if (element.Entity == (uint64_t)target.GetUUID())
+					// **Times Scale.** A resolved rect is in canvas units and
+					// the pointer is in screen pixels; the element carries the
+					// factor between them. Reading the rect raw put the click
+					// at y = 990 on a 900-pixel screen, which is a miss that
+					// looks exactly like a broken button.
+					return { (element.Rect.X + element.Rect.Width * 0.5f) * element.Scale,
+							 (element.Rect.Y + element.Rect.Height * 0.5f) * element.Scale };
+			}
+			return { -1.0f, -1.0f };
+		};
+
+		UI::ResetPointer(*scene);
+
+		const auto clickAt = [&](float x, float y)
+		{
+			UI::PointerInput pointer;
+			pointer.X = x;
+			pointer.Y = y;
+			pointer.Inside = true;
+
+			pointer.Down = false;
+			UI::UpdatePointer(*scene, width, height, pointer);
+			pointer.Down = true;
+			UI::UpdatePointer(*scene, width, height, pointer);
+			pointer.Down = false;
+			UI::UpdatePointer(*scene, width, height, pointer);
+
+			// Whether the click landed at all, separated from whether anything
+			// reacted to it -- the two failures look identical from the label
+			// and have nothing to do with each other.
+			bool anyClicked = false;
+			auto view = scene->GetRegistry().view<UIButtonComponent>();
+			for (auto handle : view)
+				anyClicked = anyClicked || view.get<UIButtonComponent>(handle).Clicked;
+			Check(anyClicked, "the click reaches a button in the demo scene");
+
+			// The step the scripts see it in. EndFixedStep consumes the edge
+			// at the end of this, which is why the click has to be delivered
+			// before it rather than after.
+			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+		};
+
+		const std::string bellBefore = bellLabel.GetComponent<UITextComponent>().Text;
+		const std::string tallyBefore = tallyLabel.GetComponent<UITextComponent>().Text;
+
+		const auto [bellX, bellY] = centreOf(bell);
+		Check(bellX >= 0.0f, "the bell button resolves to somewhere on screen");
+
+		clickAt(bellX, bellY);
+
+		Check(bellLabel.GetComponent<UITextComponent>().Text != bellBefore,
+			  "clicking the bell button changes its label -- the polling path");
+
+		const auto [anvilX, anvilY] = centreOf(anvilButton);
+		Check(anvilX >= 0.0f, "the anvil button resolves to somewhere on screen");
+		clickAt(anvilX, anvilY);
+
+		Check(tallyLabel.GetComponent<UITextComponent>().Text != tallyBefore,
+			  "and clicking the anvil button changes the *tally's* label -- the "
+			  "bound path, where the handler is not on the button");
+
+		scene->OnRuntimeStop();
+	}
+
 	void CheckRenderGraph()
 	{
 		if (!Renderer::HasDevice())
@@ -10248,6 +10361,7 @@ int RunTests(int argc, char** argv)
 	CheckLiveScriptChanges();
 
 	// --- physics -------------------------------------------------------------
+	CheckDemoButtons();
 	CheckRenderGraph();
 	CheckPrimitiveWinding();
 	CheckCubemap();
