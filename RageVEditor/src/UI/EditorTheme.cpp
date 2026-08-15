@@ -1,4 +1,5 @@
 #include "EditorTheme.h"
+#include "RageV/ImGui/LoadingScreen.h"
 #include <cstring>
 
 namespace RageV::EditorTheme
@@ -228,5 +229,29 @@ namespace RageV::EditorTheme
 
 		// A disabled control should read as unavailable, not as absent.
 		style.DisabledAlpha = 0.45f;
+
+		// The loading screen draws before any panel exists and lives in the
+		// engine, where this palette is not reachable -- so every Apply pushes
+		// the handful of colours it needs. This is the only place a theme
+		// changes, which is what keeps the two permanently in step: a
+		// light-theme editor must not open on a dark flash.
+		const auto packed = [](const ImVec4& colour)
+		{
+			return ((uint32_t)(colour.x * 255.0f + 0.5f) << 16)
+				 | ((uint32_t)(colour.y * 255.0f + 0.5f) << 8)
+				 |  (uint32_t)(colour.z * 255.0f + 0.5f);
+		};
+
+		LoadingScreen::Palette loading;
+		loading.Background = packed(c.BgBase);
+		loading.Title      = packed(c.TextPrimary);
+		loading.Phase      = packed(c.TextSecondary);
+		loading.Detail     = packed(c.TextDisabled);
+		// BgActive, not BgHover: on the light palette BgHover is six levels
+		// off the background, and a track nobody can see makes the bar read
+		// as a floating red sliver with no destination.
+		loading.Track      = packed(c.BgActive);
+		loading.Fill       = packed(c.Accent);
+		LoadingScreen::SetPalette(loading);
 	}
 }

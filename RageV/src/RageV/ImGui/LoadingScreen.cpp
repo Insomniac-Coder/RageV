@@ -10,14 +10,14 @@ namespace RageV
 {
 	namespace
 	{
-		// Near-black with a red accent: the editor's look, restated here
-		// because the theme it comes from is not reachable from the engine.
-		constexpr ImU32 kBackground = IM_COL32(18, 18, 20, 255);
-		constexpr ImU32 kTitle      = IM_COL32(236, 236, 240, 255);
-		constexpr ImU32 kPhase      = IM_COL32(176, 176, 184, 255);
-		constexpr ImU32 kDetail     = IM_COL32(120, 120, 128, 255);
-		constexpr ImU32 kTrack      = IM_COL32(44, 44, 50, 255);
-		constexpr ImU32 kFill       = IM_COL32(226, 74, 74, 255);
+		// The defaults in the header are the dark look; the editor replaces
+		// them with its theme's colours through SetPalette.
+		LoadingScreen::Palette s_Palette;
+
+		ImU32 ToImColor(uint32_t rgb)
+		{
+			return IM_COL32((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, 255);
+		}
 
 		// The bar is a fixed fraction of the window rather than a fixed pixel
 		// width, so it looks deliberate at 1280x720 and at 4K alike, and
@@ -69,8 +69,20 @@ namespace RageV
 		}
 	}
 
+	void LoadingScreen::SetPalette(const Palette& palette)
+	{
+		s_Palette = palette;
+	}
+
 	void LoadingScreen::Draw(const std::string& title, const Boot::Status& status)
 	{
+		const ImU32 kBackground = ToImColor(s_Palette.Background);
+		const ImU32 kTitle      = ToImColor(s_Palette.Title);
+		const ImU32 kPhase      = ToImColor(s_Palette.Phase);
+		const ImU32 kDetail     = ToImColor(s_Palette.Detail);
+		const ImU32 kTrack      = ToImColor(s_Palette.Track);
+		const ImU32 kFill       = ToImColor(s_Palette.Fill);
+
 		const ImGuiViewport* viewport = ImGui::GetMainViewport();
 		const ImVec2 origin = viewport->Pos;
 		const ImVec2 size = viewport->Size;
