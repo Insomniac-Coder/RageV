@@ -43,7 +43,30 @@ layout(push_constant) uniform Params
 	float LutStrength;
 	float Unused2;
 	float FlipY;
+
+	// --- lens and film. ENGINE-NOTES 7w -------------------------------------
+	// Each is zero when off, and each is branched past rather than computed
+	// as a no-op: `mix(1.0, v, 0.0)` and `uv + vec2(0.0)` are mathematically
+	// nothing and not guaranteed to be bit-exactly nothing on every compiler.
+	float Aberration;
+	float Vignette;
+	float VignetteSmoothness;
+	float Grain;
+	float GrainSize;
+	// The frame number, not a clock: grain has to animate *and* reproduce, so
+	// that a screenshot of frame 30 is the same picture every time. Same rule
+	// the TAA jitter follows, 7r.
+	float Frame;
 } u_Params;
+
+// A hash, not a texture. One less binding to fill and no sampling state to
+// get wrong, and the pattern only has to be *unstructured* rather than
+// well-distributed -- grain that repeats visibly is the failure, and this
+// does not at any size worth using.
+float Hash(vec3 v)
+{
+	return fract(sin(dot(v, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
 
 // ACES filmic approximation (Narkowicz). Without tone mapping anything above
 // 1.0 clips to white, and the specular highlights that make PBR read as PBR
@@ -61,13 +84,54 @@ void main()
 	// PostProcess::Dispatch.
 	vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
 
-	vec3 color = texture(u_Scene, uv).rgb;
+	// Chromatic aberration first, on the linear sample, because a lens
+	// disperses before the sensor sees anything. Three taps radially offset
+	// from the centre: dispersion grows towards the edge of the frame and is
+	// zero in the middle, which is what a real lens does and what stops the
+	// effect reading as a colour fringe on everything.
+	vec3 color;
+	if (u_Params.Aberration > 0.0)
+	{
+		vec2 toCentre = uv - vec2(0.5);
+		vec2 offset = toCentre * u_Params.Aberration;
+
+		color = vec3(texture(u_Scene, uv + offset).r,
+					 texture(u_Scene, uv).g,
+					 texture(u_Scene, uv - offset).b);
+	}
+	else
+	{
+		color = texture(u_Scene, uv).rgb;
+	}
+
+	// The bloom is added undispersed. It is blurred far wider than any sane
+	// offset, so three taps of it would shift something nobody could see had
+	// moved.
 	color += texture(u_Bloom, uv).rgb * u_Params.BloomIntensity;
 
 	// Exposure before the curve, which is what makes it an exposure control
 	// rather than a brightness one: it slides the scene along the response
 	// curve instead of scaling the result of it.
 	color *= u_Params.Exposure;
+
+	// And the vignette before the curve too, for the same reason exposure is:
+	// it is *less light arriving*, so it should roll off through the response
+	// curve like everything else. After the curve it multiplies display
+	// values and reads as a shadow painted on the result. ENGINE-NOTES 7w.
+	if (u_Params.Vignette > 0.0)
+	{
+		// Distance from the centre, in units where the corner is 1. Not
+		// aspect-corrected on purpose: a vignette that is a circle on a
+		// 21:9 frame leaves the middle of the top edge darker than the
+		// middle of the sides, which is not what a lens does.
+		float d = length(uv - vec2(0.5)) * 1.41421356;
+
+		// smoothstep rather than a power: the falloff has a start and an end
+		// that a person can reason about, and at smoothness 1 it begins at
+		// the centre rather than never quite arriving.
+		float falloff = smoothstep(1.0 - u_Params.VignetteSmoothness, 1.0, d);
+		color *= mix(1.0, 1.0 - u_Params.Vignette, falloff);
+	}
 
 	color = TonemapACES(color);
 
@@ -94,6 +158,29 @@ void main()
 
 		vec3 graded = texture(u_ColorLut, coord).rgb;
 		color = mix(color, graded, clamp(u_Params.LutStrength, 0.0, 1.0));
+	}
+
+	// Grain last: after the curve *and* after the LUT.
+	//
+	// Grain is the texture of the recording medium, not a colour anybody
+	// graded. Before the LUT, the grade re-maps the noise -- amplifying it
+	// wherever the look stretches the range and crushing it wherever the look
+	// compresses -- so the grain would change character with the grade instead
+	// of sitting on top of it. ENGINE-NOTES 7w.
+	if (u_Params.Grain > 0.0)
+	{
+		// Quantised to the grain size so a speck covers several pixels at
+		// larger settings, and seeded with the frame number so it animates and
+		// still reproduces.
+		vec2 cell = floor(gl_FragCoord.xy / max(u_Params.GrainSize, 1.0));
+		float noise = Hash(vec3(cell, u_Params.Frame)) - 0.5;
+
+		// Scaled by luma so the darkest parts of the frame stay clean. Film
+		// grain lives in the midtones; noise of equal amplitude in the blacks
+		// reads as a broken sensor rather than as stock.
+		float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+		color = clamp(color + noise * u_Params.Grain * 0.25 * (1.0 - luma * 0.5),
+					  0.0, 1.0);
 	}
 
 	o_Color = vec4(color, 1.0);

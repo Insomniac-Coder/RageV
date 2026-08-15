@@ -587,12 +587,19 @@ namespace RageV
 				},
 				[shaded, bloomSource, post, format, lut, lutSize](RGPassContext& context)
 				{
+					PostProcess::LensParams lens;
+					lens.Aberration = post.ChromaticAberration;
+					lens.Vignette = post.VignetteIntensity;
+					lens.VignetteSmoothness = post.VignetteSmoothness;
+					lens.Grain = post.FilmGrain;
+					lens.GrainSize = post.FilmGrainSize;
+
 					PostProcess::Tonemap(context.Cmd, context.Color(shaded),
 										 bloomSource != kRGInvalid ? context.Color(bloomSource)
 																   : nullptr,
 										 format, post.Exposure,
 										 bloomSource != kRGInvalid ? post.BloomIntensity : 0.0f,
-										 lut, lutSize, post.ColorLutStrength);
+										 lut, lutSize, post.ColorLutStrength, lens);
 				});
 		}
 

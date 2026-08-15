@@ -27,6 +27,23 @@ namespace RageV
 			float FlipY = 0.0f;
 		};
 
+		// The tonemap wants more than the shared block carries, and it is the
+		// only pass that does. Laid out as PostParams *followed by* its own
+		// fields rather than as a separate struct, so Dispatch can still find
+		// FlipY where it has always been and nothing else has to change.
+		// ENGINE-NOTES 7w.
+		struct TonemapParams
+		{
+			PostParams Base;
+
+			float Aberration = 0.0f;
+			float Vignette = 0.0f;
+			float VignetteSmoothness = 0.5f;
+			float Grain = 0.0f;
+			float GrainSize = 1.0f;
+			float Frame = 0.0f;
+		};
+
 		const char* ShaderPath(int shader)
 		{
 			switch (shader)
@@ -317,12 +334,24 @@ namespace RageV
 		// contribution was being added upside down -- visible only once
 		// something in the scene was bright enough to bleed, as a set of blobs
 		// mirrored about the middle of the image.
-		PostParams local{};
+		// The whole blob is forwarded, not just the shared header: the tonemap
+		// passes a longer one. FlipY is patched where PostParams puts it,
+		// which is why anything larger has to *begin* with a PostParams.
+		//
+		// 128 bytes because that is the push-constant size Vulkan guarantees;
+		// a pass wanting more than that needs a uniform buffer rather than a
+		// bigger array here, and clamping says so at the point it would break.
+		alignas(16) uint8_t local[128];
 		if (params && paramSize >= sizeof(PostParams))
 		{
-			memcpy(&local, params, sizeof(PostParams));
-			local.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
-			cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(PostParams), &local);
+			const uint32_t size = paramSize < sizeof(local) ? paramSize
+															: (uint32_t)sizeof(local);
+			memcpy(local, params, size);
+
+			const float flip = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+			memcpy(local + offsetof(PostParams, FlipY), &flip, sizeof(float));
+
+			cmd.PushConstants(ShaderStage::Fragment, 0, size, local);
 		}
 		else if (params && paramSize > 0)
 		{
@@ -370,7 +399,7 @@ namespace RageV
 							  const Ref<RHITexture>& bloom, Format outputFormat,
 							  float exposure, float bloomIntensity,
 							  const Ref<RHITexture>& lut, uint32_t lutSize,
-							  float lutStrength)
+							  float lutStrength, const LensParams& lens)
 	{
 		if (!s_Data)
 			return;
@@ -382,10 +411,22 @@ namespace RageV
 		// the shader sampling it.
 		const bool grading = lut && lutSize >= 2;
 
-		PostParams params;
-		params.TexelSize = { exposure, bloomIntensity };
-		params.A = grading ? (float)lutSize : 0.0f;
-		params.B = lutStrength;
+		TonemapParams params;
+		params.Base.TexelSize = { exposure, bloomIntensity };
+		params.Base.A = grading ? (float)lutSize : 0.0f;
+		params.Base.B = lutStrength;
+
+		params.Aberration = lens.Aberration;
+		params.Vignette = lens.Vignette;
+		params.VignetteSmoothness = lens.VignetteSmoothness;
+		params.Grain = lens.Grain;
+		params.GrainSize = lens.GrainSize;
+
+		// The frame number as a float, and it stays exact: a float carries
+		// integers to 2^24, which at 60 Hz is seventy-seven hours before the
+		// grain pattern would start repeating a neighbouring frame's. Well
+		// past the point where anything else about a session is still true.
+		params.Frame = (float)(Renderer::GetFrameCount() & 0xFFFFFFu);
 
 		// Never null: the shader declares both extra bindings whether or not
 		// bloom ran and whether or not anything is being graded.

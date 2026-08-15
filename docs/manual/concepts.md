@@ -130,6 +130,18 @@ is what a LUT was authored against: one exported from Resolve does here what
 it did there. The trade, stated: a LUT at that point cannot recover highlight
 detail the tone curve has already compressed.
 
+**Lens and film** are on the same profile, below the grading rows, and all
+three are off by default: **Aberration**, **Vignette** and **Film grain**.
+Each runs at a different point in the chain because each models something
+different — aberration and the vignette are the lens, so they happen in
+linear light before the tone curve, and grain is the film stock, so it lands
+last, after everything including the LUT.
+
+> [!NOTE]
+> Grain animates, and it is seeded from the **frame number** rather than a
+> clock. So a screenshot of frame 30 is the same picture every time, which is
+> what keeps it usable in a comparison.
+
 **Editing one edits the asset.** Two cameras pointed at the same profile are
 two cameras that will always agree, which is usually what is wanted and is
 occasionally a surprise; the inspector names the file it is writing to for

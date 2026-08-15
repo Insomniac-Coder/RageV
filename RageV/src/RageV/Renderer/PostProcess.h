@@ -43,11 +43,30 @@ namespace RageV
 		// picture as no LUT at all. `lutSize` is its entries per axis, and the
 		// shader needs it because a LUT is sampled at texel centres rather
 		// than at the colour itself. ENGINE-NOTES 7t.
+		// What the camera adds on top of what the scene is, all of it optional
+		// and all of it off by default. Three effects at three points in this
+		// one pass, because each models something different about a lens or a
+		// film stock. ENGINE-NOTES 7w.
+		struct LensParams
+		{
+			// Before anything: three taps of the scene, radially offset.
+			float Aberration = 0.0f;
+			// Still before the tone curve, because it is less light arriving.
+			float Vignette = 0.0f;
+			float VignetteSmoothness = 0.5f;
+			// After the curve and after the LUT, because it is not a colour
+			// anybody graded. Seeded from the frame number so that it animates
+			// and still reproduces.
+			float Grain = 0.0f;
+			float GrainSize = 1.0f;
+		};
+
 		static void Tonemap(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& scene,
 							const RHI::Ref<RHI::RHITexture>& bloom, RHI::Format outputFormat,
 							float exposure, float bloomIntensity,
 							const RHI::Ref<RHI::RHITexture>& lut = nullptr,
-							uint32_t lutSize = 0, float lutStrength = 1.0f);
+							uint32_t lutSize = 0, float lutStrength = 1.0f,
+							const LensParams& lens = {});
 
 		// Anti-aliasing, on the tone-mapped image.
 		static void FXAA(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,

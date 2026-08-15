@@ -3681,6 +3681,76 @@ design choice. If a new knob has no home in that list, it is not finished.
 
 ---
 
+## 7w. Lens and film (9.3): three effects, and the one that breaks the checks
+
+Vignette, chromatic aberration and film grain. The roadmap calls this small
+and says "the risk is taste, not time", which is true of two of them.
+
+### Where each one goes, and why it is not a matter of taste
+
+They are three different things pretending to be one item, and each belongs at
+a different point in the chain:
+
+| | Models | Runs |
+|---|---|---|
+| Chromatic aberration | a lens dispersing wavelengths *before* the sensor | first, on the linear HDR sample |
+| Vignette | less light reaching the corner of the frame | still linear, before the tone curve |
+| Film grain | the texture of the recording medium | last, after the curve **and** after the LUT |
+
+**Vignette before the curve** is the one worth arguing. Applied afterwards it
+multiplies display values and reads as a painted-on shadow; applied before, it
+is less light arriving, which is what a vignette *is* — so the corner rolls
+off through the same response curve the rest of the frame does, and darkens
+the way a real underexposure darkens.
+
+**Grain after the LUT**, because grain is not a colour anybody graded. Put it
+before and the LUT re-maps the noise: a heavy grade then amplifies it in the
+range it stretches and crushes it in the range it compresses, so the grain
+changes character with the look rather than sitting on top of it.
+
+**Chromatic aberration does not disperse the bloom.** It needs three taps of
+the scene at three offsets, and bloom is a separate texture; dispersing it too
+would cost two more taps to shift something already blurred wider than the
+offset. Stated because "why is bloom not aberrated" is a reasonable question
+with a boring answer.
+
+### The one that breaks the test suite
+
+Grain is **animated noise**, which makes the frame a function of *when* it was
+drawn. That is the same hazard 7r hit with TAA's jitter and 9.2 will hit with
+auto exposure: every screenshot comparison in this repository assumes that
+rendering frame 30 of a scene twice produces the same bytes.
+
+So grain is seeded from the **frame number**, exactly as the jitter is, and
+for exactly the same reason — a clock is reproducible under `--frame-time`
+right up until the machine is busy, and then it is not. `Renderer::GetFrameCount()`
+is already reset by the main loop so the count does not depend on how many
+frames loading took.
+
+Two consequences worth writing down:
+
+- Frame 30 and frame 30 are the same picture; frame 30 and frame 31 are not.
+  Both are asserted, because only the pair together says "animated *and*
+  deterministic".
+- Grain lands after the tone curve, and TAA resolves before it, so the
+  accumulation never sees the noise. That is the right order — grain averaged
+  over eight frames is grain nobody can see — and it is a property of where
+  the passes sit rather than a decision this item made.
+
+### Defaults are exactly off
+
+All three default to zero and each **branches out** rather than computing a
+no-op — `mix(1.0, v, 0.0)`, `uv + vec2(0.0)` and `+ 0.0 * noise` are all
+mathematically nothing and none is a guaranteed bit-exact nothing on every
+compiler and both backends.
+
+That keeps the property 7t and 7v already rest on: a profile with these three
+untouched renders the same bytes as a build without them, so
+`check_lens_effects.py` can assert byte-identity against `--aa=none` and every
+existing screenshot check stays valid unchanged.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

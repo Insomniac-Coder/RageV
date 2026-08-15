@@ -71,5 +71,51 @@ namespace RageV
 		// A look is rarely wanted at full strength on the first try, and a
 		// dial is the difference between grading and re-exporting.
 		float ColorLutStrength = 1.0f;
+
+		// --- lens and film ------------------------------------------------------
+		// Three effects that model the camera rather than the scene, and each
+		// runs at a different point in the chain because each is a different
+		// physical thing. ENGINE-NOTES 7w.
+		//
+		// **All three default to off, and off is exact.** The shader branches
+		// past each rather than computing a no-op, so a profile that has not
+		// touched them renders the same bytes as a build without them -- which
+		// is what keeps every existing screenshot check valid.
+
+		// How dark the corners go. Runs in linear light, *before* the tone
+		// curve: a vignette is less light reaching the corner, so it should
+		// roll off through the same response curve the rest of the frame does.
+		// Applied afterwards it multiplies display values and reads as a
+		// shadow somebody painted on.
+		float VignetteIntensity = 0.0f;
+
+		// How gradually it arrives. Low is a hard circle, high is a slow
+		// darkening that reaches most of the frame.
+		float VignetteSmoothness = 0.5f;
+
+		// Lateral dispersion, in fractions of the frame's width. Three taps of
+		// the scene at three offsets, on the linear sample, because a lens
+		// disperses before the sensor sees anything.
+		//
+		// The bloom is deliberately not dispersed: it is already blurred wider
+		// than any sane offset, so two more taps would shift something nobody
+		// could see had moved.
+		float ChromaticAberration = 0.0f;
+
+		// Film grain, applied last -- after the tone curve **and** after the
+		// LUT. Grain is the texture of the recording medium, not a colour
+		// anybody graded: run it before the LUT and the grade re-maps the
+		// noise, so grain changes character with the look instead of sitting
+		// on top of it.
+		//
+		// Animated, and seeded from the *frame number* rather than a clock, so
+		// that rendering frame 30 twice produces the same bytes. That is the
+		// rule TAA's jitter already follows and for the same reason -- see 7r.
+		float FilmGrain = 0.0f;
+
+		// How coarse the grain is, in pixels per speck. Larger reads as a
+		// faster film stock; at 1 it is per-pixel noise, which reads as
+		// digital sensor noise instead.
+		float FilmGrainSize = 1.0f;
 	};
 }

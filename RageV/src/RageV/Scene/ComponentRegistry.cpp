@@ -1340,6 +1340,19 @@ namespace
 			};
 		}
 
+		// True when the vignette is doing anything, so its falloff row is
+		// hidden while it is not. Same rule the AA parameters follow: a
+		// control that cannot change the picture is worse than an absent one.
+		bool VignetteOn(const void* block)
+		{
+			return ((const PostSettings*)block)->VignetteIntensity > 0.0f;
+		}
+
+		bool GrainOn(const void* block)
+		{
+			return ((const PostSettings*)block)->FilmGrain > 0.0f;
+		}
+
 		std::vector<FieldDesc> BuildPostSettings()
 		{
 			return {
@@ -1391,6 +1404,42 @@ namespace
 							"Without it, anything very bright and very small -- the "
 							"sun in curved metal -- survives as an isolated blob "
 							"floating near the surface that produced it.")))),
+
+				// --- lens and film, in the order they run ---------------------
+				Field<&PostSettings::ChromaticAberration>("ChromaticAberration",
+					Named("Aberration", Drag(0.0002f, 0.0f, 0.05f,
+						"Lateral dispersion, as a fraction of the frame's width. "
+						"Three taps of the scene at three offsets, on linear "
+						"light, because a lens disperses before the sensor sees "
+						"anything. The bloom is deliberately not dispersed -- it "
+						"is blurred wider than any sane offset."))),
+
+				Field<&PostSettings::VignetteIntensity>("VignetteIntensity",
+					Named("Vignette", Slider(0.0f, 1.0f,
+						"How dark the corners go. Applied *before* the tone "
+						"curve, so it behaves like less light reaching the "
+						"corner rather than a shadow painted over the result."))),
+
+				Field<&PostSettings::VignetteSmoothness>("VignetteSmoothness",
+					Named("Vignette falloff", OnlyWhen(VignetteOn,
+						Slider(0.05f, 1.0f,
+							"How gradually it arrives. Low is a hard circle; high "
+							"is a slow darkening that reaches most of the frame.")))),
+
+				Field<&PostSettings::FilmGrain>("FilmGrain",
+					Named("Film grain", Slider(0.0f, 1.0f,
+						"Applied last, after the tone curve and after the LUT: "
+						"grain is the texture of the recording medium, not a "
+						"colour anybody graded. Animated, and seeded from the "
+						"frame number rather than a clock, so a screenshot of "
+						"frame 30 is the same picture every time."))),
+
+				Field<&PostSettings::FilmGrainSize>("FilmGrainSize",
+					Named("Grain size", OnlyWhen(GrainOn,
+						Drag(0.02f, 1.0f, 8.0f,
+							"Pixels per speck. Larger reads as a faster film "
+							"stock; at 1 it is per-pixel noise, which reads as "
+							"digital sensor noise instead.")))),
 			};
 		}
 

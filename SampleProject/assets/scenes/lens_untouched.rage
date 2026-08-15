@@ -1,0 +1,45 @@
+Scene: AA edge 8 degrees
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.05, 0.05, 0.06]
+  SkyZenith: [0.05, 0.05, 0.06]
+  SkyGround: [0.05, 0.05, 0.06]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 12506613875585156452
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Edge
+    TransformComponent:
+      Position: [2.78346, -19.8054, 0]
+      Rotation: [0, 0, 0.139626]
+      Scale: [80, 40, 0.01]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0, 0, 0, 1]
+        Emissive: [0.6, 0.6, 0.6, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
