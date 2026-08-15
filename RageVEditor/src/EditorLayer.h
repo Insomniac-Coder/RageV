@@ -382,6 +382,14 @@ private:
 	// so this is closer to the floor than to a diagnostic.
 	bool m_ShowIcons = true;
 
+	// Whether the scene view applies the camera's *cinematic* post -- depth
+	// of field, grain, vignette, chromatic aberration. Off by default: those
+	// belong to the lens they were authored for, and through the editor
+	// camera DoF focus-blurs a distance set for a different viewpoint. The
+	// Game panel always shows everything; so does this viewport when it is
+	// switched to the scene camera.
+	bool m_PreviewPost = false;
+
 	// Built per frame like the grid's, and for the same reason -- the selected
 	// entity and the theme both move underneath it.
 	RageV::EditorIconSettings IconSettings() const;

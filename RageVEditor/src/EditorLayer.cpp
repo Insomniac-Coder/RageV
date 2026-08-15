@@ -446,6 +446,22 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// see while authoring is a grade you author blind. ENGINE-NOTES 7s.
 	scene.Render = Project::Render();
 	scene.Post = m_Scene->GetPostSettings();
+
+	// Except the *cinematic* half. Depth of field, grain, vignette and
+	// chromatic aberration belong to the lens they were authored for --
+	// through the editor camera, DoF focus-blurs a distance the author set
+	// for a different viewpoint, which reads as a broken viewport rather
+	// than as an effect. Stripped unless View > Preview Post says otherwise;
+	// the Game panel, and this viewport when switched to the scene camera,
+	// always keep everything. Bloom, exposure, the grade and the AA stay:
+	// they describe the scene, not one camera's lens.
+	if (m_UseEditorCamera && !m_PreviewPost)
+	{
+		scene.Post.DepthOfField = false;
+		scene.Post.FilmGrain = 0.0f;
+		scene.Post.VignetteIntensity = 0.0f;
+		scene.Post.ChromaticAberration = 0.0f;
+	}
 	scene.ClearColor = Vec4(m_ClearColor, 1.0f);
 	scene.OutputFormat = kViewportFormat;
 	// The viewport draws through the editor camera unless it has been switched
@@ -1063,6 +1079,7 @@ void EditorLayer::LoadPanelState()
 		else if (key == "build-log")       m_ShowScriptBuild = value;
 		else if (key == "colliders")       m_ShowColliders = value;
 		else if (key == "grid")            m_ShowGrid = value;
+		else if (key == "preview-post")    m_PreviewPost = value;
 		// Not a bool like the rest, so it reads the raw text rather than `value`.
 		else if (key == "theme")           m_Theme = EditorTheme::Parse(trim(line.substr(equals + 1)).c_str());
 		else if (key == "content-folder")   m_PendingContentFolder = trim(line.substr(equals + 1));
@@ -1149,6 +1166,7 @@ void EditorLayer::SavePanelState()
 	file << "build-log = "       << (m_ShowScriptBuild ? 1 : 0) << "\n";
 	file << "colliders = "       << (m_ShowColliders ? 1 : 0) << "\n";
 	file << "grid = "            << (m_ShowGrid ? 1 : 0) << "\n";
+	file << "preview-post = "    << (m_PreviewPost ? 1 : 0) << "\n";
 	file << "theme = "           << EditorTheme::Name(m_Theme) << "\n";
 	file << "content-folder = "  << m_ContentBrowser.GetCurrentFolder() << "\n";
 	file << "layout-width = "    << (int)m_LastDockSize.x << "\n";
@@ -1417,6 +1435,16 @@ void EditorLayer::DrawMenuBar()
 							  "Green is static, bright green dynamic, blue kinematic,\n"
 							  "amber a trigger. While playing, a body the simulation\n"
 							  "has put to sleep is drawn dimmed.");
+		}
+
+		ImGui::MenuItem("Preview Post", nullptr, &m_PreviewPost);
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Apply the camera's cinematic effects -- depth of field,\n"
+							  "film grain, vignette, chromatic aberration -- in the\n"
+							  "scene view too. Off, they only show through the scene\n"
+							  "camera: the Game panel, or this viewport on Scene Cam.\n"
+							  "Bloom, exposure and the grade always show.");
 		}
 
 		ImGui::Separator();

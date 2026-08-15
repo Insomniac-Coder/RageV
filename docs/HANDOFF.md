@@ -1439,11 +1439,27 @@ Two changes, so the next person reads the truth off the panel:
   from those numbers repeats the lie -- the line now says "at the display's
   refresh" and points at the phase-split caveat.
 
-One real cost surfaced on the way, left open: the demo's **reflection probe
-reads 0.67 ms GPU on Vulkan against 0.18 on OpenGL** every frame. Same
-scene, same slots. Either the probe is set Realtime where Baked would do
-(check `make_demo_scene.py`), or the two backends' capture paths genuinely
-differ in cost -- worth one look, not urgent at 433 FPS.
+One real cost surfaced on the way, then measured properly (subtraction
+sweep, runtime, 2560x1440, vsync off): the demo's **Realtime reflection
+probe costs 0.73 ms mean and owns the frame-time spikes** -- p95 6.6 ms
+with it, 2.7 baked. The machinery is right (one face per frame, convolve
+every sixth); the cost is that each face is a scene render and the
+convolution is 36 small passes whose *barriers serialize on Vulkan* --
+which is also why the probes phase reads 0.70 ms on Vulkan against 0.18
+on OpenGL: bubbles, not work. Two candidate fixes recorded, neither done:
+a probe refresh-interval dial (15 Hz looks identical and is ~6x cheaper),
+or merging the convolution's barriers. The rest of the sweep: DoF 0.28,
+lens trio 0.18, auto exposure 0.14, bloom 0.09, TAA-over-none 0.19,
+LUT ~0, SSAA doubles the frame. Nothing misbehaving -- the demo profile
+simply orders everything on the menu at native resolution.
+
+**The editor's scene view no longer applies cinematic post** (2026-08-15):
+depth of field, grain, vignette and chromatic aberration are stripped from
+the scene chain unless **View > Preview Post** is on -- through the editor
+camera, DoF focus-blurs a distance authored for a different lens, which
+read as a broken viewport. The Game panel, and the viewport when switched
+to the scene camera, always keep everything; bloom, exposure, the grade
+and the AA stay everywhere. The toggle persists in panels.ini.
 
 ### And where Vulkan's remaining time actually went
 
