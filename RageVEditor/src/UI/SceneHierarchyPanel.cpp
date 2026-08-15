@@ -277,7 +277,7 @@ void RageV::SceneHierarchyPanel::DrawAssetProperties()
 			// names it are the same rows in the same order with the same
 			// tooltips. Two implementations of this would have diverged the
 			// first time either was improved.
-			UI::DrawPostProfile(m_InspectedAsset);
+			UI::DrawPostProfile(m_InspectedAsset, m_SceneRef.get());
 			break;
 
 		case AssetType::ColorLut:

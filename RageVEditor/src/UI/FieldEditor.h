@@ -74,7 +74,14 @@ namespace RageV::UI
 	// **This edits a shared asset**, so every camera pointing at the profile
 	// changes with it. The drawer says which file it is writing to for exactly
 	// that reason.
-	void DrawPostProfile(AssetHandle handle);
+	// `scene`, when given, is used for one thing: counting the cameras that
+	// actually name this profile.
+	//
+	// **A profile no camera uses is a panel of controls that do nothing**, and
+	// nothing about it looks wrong -- the sliders move, the file saves, the
+	// picture does not change. That has now cost real time twice, so the
+	// drawer says so rather than leaving it to be worked out. ENGINE-NOTES 7s.
+	void DrawPostProfile(AssetHandle handle, Scene* scene = nullptr);
 
 	// The rows under a Colour LUT slot, and the same drawer the content
 	// browser uses when a LUT is clicked.

@@ -543,7 +543,7 @@ namespace RageV::UI
 				// between cameras and wanting to open the asset itself is
 				// ordinary. One drawer serves both, so the two cannot disagree.
 				if (hint.Accepts == AssetType::PostProfile && handle.IsValid())
-					DrawPostProfile(handle);
+					DrawPostProfile(handle, scene);
 
 				// And a LUT under its own slot, for the same reason: the
 				// moment you want to change a grade is the moment you are
@@ -859,13 +859,38 @@ namespace RageV::UI
 		return changed;
 	}
 
-	void DrawPostProfile(AssetHandle handle)
+	void DrawPostProfile(AssetHandle handle, Scene* scene)
 	{
 		PostSettings* profile = Assets::Manager::GetPostProfile(handle);
 		if (!profile)
 			return;
 
 		ImGui::Indent();
+
+		// Who is looking through it. Nothing in this panel reaches the picture
+		// unless a camera names this profile, and a scene's camera names none
+		// until somebody picks one -- so a fresh project plus a freshly graded
+		// profile is a screenful of controls with no effect and no complaint.
+		if (scene)
+		{
+			int users = 0;
+			auto view = scene->GetRegistry().view<CameraComponent>();
+			for (auto entity : view)
+			{
+				if (view.get<CameraComponent>(entity).PostProfile == handle)
+					users++;
+			}
+
+			if (users == 0)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Warning);
+				ImGui::TextWrapped("No camera in this scene uses this profile, so nothing "
+								   "below changes what you see. Pick it on a camera's "
+								   "Post profile row first.");
+				ImGui::PopStyleColor();
+				ImGui::Spacing();
+			}
+		}
 
 		// Which file is being written, said plainly. A profile is an asset and
 		// an asset is shared: editing one from a camera's inspector looks
