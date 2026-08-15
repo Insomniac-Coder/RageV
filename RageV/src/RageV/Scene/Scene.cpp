@@ -372,6 +372,22 @@ namespace RageV
 		return Vec2(cam.PerspectiveNear, cam.PerspectiveFar);
 	}
 
+	Vec2 Scene::GetCameraProjectionInverse()
+	{
+		Entity camera = GetPrimaryCameraEntity();
+		if (!camera || !camera.HasComponent<CameraComponent>())
+			return Vec2(1.0f, 1.0f);
+
+		// The inverses of the projection's two diagonal scales -- what turns
+		// an NDC coordinate back into a view-space one, which is how SSAO
+		// reconstructs positions from depth. ENGINE-NOTES 7ac.
+		const Mat4& projection =
+			camera.GetComponent<CameraComponent>().Camera.GetProjection();
+
+		return Vec2(1.0f / Math::Max(Math::Abs(projection[0][0]), 1.0e-4f),
+					1.0f / Math::Max(Math::Abs(projection[1][1]), 1.0e-4f));
+	}
+
 	void Scene::OnViewportResize(float width, float height)
 	{
 		auto view = m_Registry.view<CameraComponent>();

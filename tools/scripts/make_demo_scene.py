@@ -771,6 +771,15 @@ def main():
         "MotionBlur": True,
         "MotionBlurShutter": 0.5,
 
+        # Contact shadowing: the crates seat onto the ground, the anvil onto
+        # its block, the walls meet the floor in a line instead of a butt
+        # joint. Restrained, because it multiplies the lit image (7ac's
+        # stated compromise) and a heavy AO in a sunlit courtyard reads as
+        # dirt.
+        "AmbientOcclusion": True,
+        "AoRadius": 0.5,
+        "AoIntensity": 0.8,
+
         # Small numbers on all three. These are the effects that look like
         # settings the moment they are obvious.
         "ChromaticAberration": 0.0016,

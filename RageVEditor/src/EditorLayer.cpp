@@ -466,17 +466,26 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.ClearColor = Vec4(m_ClearColor, 1.0f);
 	scene.OutputFormat = kViewportFormat;
 	// The viewport draws through the editor camera unless it has been switched
-	// to the scene's, so the planes follow whichever is actually projecting.
+	// to the scene's, so the planes -- and the projection scales SSAO
+	// reconstructs positions with -- follow whichever is actually projecting.
 	if (m_UseEditorCamera)
 	{
 		scene.NearClip = m_EditorCamera.GetNearClip();
 		scene.FarClip = m_EditorCamera.GetFarClip();
+
+		const Mat4& projection = m_EditorCamera.GetProjection();
+		scene.InvProjection0 = 1.0f / Math::Max(Math::Abs(projection[0][0]), 1.0e-4f);
+		scene.InvProjection1 = 1.0f / Math::Max(Math::Abs(projection[1][1]), 1.0e-4f);
 	}
 	else
 	{
 		const RageV::Vec2 clips = m_Scene->GetCameraClipPlanes();
 		scene.NearClip = clips.x;
 		scene.FarClip = clips.y;
+
+		const RageV::Vec2 inverse = m_Scene->GetCameraProjectionInverse();
+		scene.InvProjection0 = inverse.x;
+		scene.InvProjection1 = inverse.y;
 	}
 	scene.History = &m_SceneHistory;
 	scene.Exposure = &m_SceneExposure;
@@ -565,6 +574,10 @@ void EditorLayer::OnUpdate(Timestep ts)
 			const RageV::Vec2 clips = m_Scene->GetCameraClipPlanes();
 			game.NearClip = clips.x;
 			game.FarClip = clips.y;
+
+			const RageV::Vec2 inverse = m_Scene->GetCameraProjectionInverse();
+			game.InvProjection0 = inverse.x;
+			game.InvProjection1 = inverse.y;
 		}
 		game.History = &m_GameHistory;
 		game.Exposure = &m_GameExposure;

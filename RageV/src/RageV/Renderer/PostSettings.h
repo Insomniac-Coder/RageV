@@ -152,6 +152,22 @@ namespace RageV
 		// broken effect rather than as a shallow one.
 		float MaxBokehRadius = 24.0f;
 
+		// --- SSAO (9.6). ENGINE-NOTES 7ac -----------------------------------
+		//
+		// Occlusion from depth alone, applied as a multiply on the lit image
+		// -- which darkens direct light too, the stated compromise of every
+		// forward-plus-post AO. Treat it as contact shadowing and keep the
+		// intensity restrained. Off adds no pass and is exact.
+		bool AmbientOcclusion = false;
+
+		// World metres the hemisphere reaches. Small is contact darkening in
+		// creases; large is soft room-scale shading and costs cache misses.
+		float AoRadius = 0.5f;
+
+		// An exponent on the occlusion, so an open surface (occlusion 1) is
+		// untouched at any setting and only the dark end deepens.
+		float AoIntensity = 1.0f;
+
 		// --- motion blur (9.5). ENGINE-NOTES 7ab ----------------------------
 		//
 		// A reconstruction gather along the motion vectors the scene already

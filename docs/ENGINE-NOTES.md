@@ -4256,6 +4256,77 @@ phase-9 item in a row to rest on that guarantee.
 
 ---
 
+## 7ac. SSAO (9.6): occlusion from depth alone, and what "alone" costs
+
+Two design questions, both settled before code.
+
+### Normals: reconstructed from depth, no new attachment
+
+Ambient occlusion needs a surface normal to orient its hemisphere. The scene
+target does not carry normals, so either it grows an attachment or the pass
+reconstructs them from depth. **Reconstruction wins here**, and the reasons
+are worth recording because 9.7 may reverse the answer for itself:
+
+- A new attachment is the full 7q ceremony: every scene pipeline, the
+  transparency pass, scenetest's own call sites and *both* probe capture
+  paths have to agree about the target's shape, and the record of how that
+  goes is a pattern that "bit three times in a row" in one day.
+- AO is low frequency and half resolution; reconstruction artefacts live at
+  depth discontinuities, exactly where the blur is already depth-aware.
+- The reconstruction is not the naive cross of derivatives, which invents a
+  45-degree normal along every silhouette. Each axis differences toward
+  whichever neighbour is *closer in depth* -- four taps, pick two -- so an
+  edge pixel takes its slope from its own surface rather than from the gap.
+
+SSR (9.7) wants normal-mapped normals and roughness, which no reconstruction
+can produce; if it adds a G-buffer-lite attachment, SSAO can switch to
+reading it in the same commit. Until something needs that attachment for
+real, nothing pays for it.
+
+### Applied as a multiply on the lit image, which is a stated compromise
+
+The honest place for AO is inside the lighting integral, attenuating ambient
+and image-based light only. A single forward pass cannot have it there: the
+occlusion is computed *from* the depth that pass writes. So it applies as a
+multiply on the linear HDR image after the resolve -- which darkens direct
+light too, the compromise every forward-plus-post AO ships. It is kept
+honest by the intensity dial defaulting low and by the design treating AO as
+contact shadowing rather than as global illumination. Before DoF and motion
+blur, because occlusion is lighting and belongs on the sharp image the
+temporal filter resolved, not smeared over afterwards.
+
+### The passes, and the two floats FrameDesc grows
+
+Half-resolution compute, two depth-aware separable blur passes, and a
+full-resolution apply -- the same half-res economics as bloom and DoF, for
+the same reason. The compute reconstructs view-space position as
+`(ndc.xy * InvProjection, 1) * linearDepth`, which needs the projection's
+two diagonal scales; `FrameDesc` carries their inverses, filled by every
+caller that owns a camera. Only *relative* positions matter to occlusion, so
+the backend's NDC y-direction needs no reconciliation beyond the sampling
+FlipY every post pass already owes. Perspective is assumed: an orthographic
+camera gets a slightly wrong radius falloff and no crash, and the day a 2D
+project cares is the day this grows a branch.
+
+The kernel is the DoF gather's golden-angle spiral bent into a hemisphere,
+rotated per pixel by the grain's integer hash of the **pixel coordinate
+alone** -- the same determinism sentence as 7ab, and it will stay in every
+one of these sections: seeded per frame it sparkles under TAA and costs
+--screenshot-frame its meaning.
+
+### The check is about restraint, not darkness
+
+Any SSAO darkens a corner. The failure that ships is the other half:
+darkening what is *open* -- self-occlusion speckle across flat floors, halos
+around silhouettes. So the fixture is a box on a floor and the check
+measures both regions: the contact seam must darken, the open floor must
+not (within a tolerance that a biased kernel fails), intensity must scale
+the first monotonically while leaving the second alone, off is off to the
+byte, and a frame reproduces. ENGINE-NOTES 7ab's fixture pattern, pointed
+at restraint.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

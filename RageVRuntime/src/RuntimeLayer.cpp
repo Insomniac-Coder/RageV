@@ -237,6 +237,10 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 		const RageV::Vec2 clips = m_Scene->GetCameraClipPlanes();
 		frame.NearClip = clips.x;
 		frame.FarClip = clips.y;
+
+		const RageV::Vec2 inverse = m_Scene->GetCameraProjectionInverse();
+		frame.InvProjection0 = inverse.x;
+		frame.InvProjection1 = inverse.y;
 	}
 	// One frame chain, so one history and one adapted exposure. See
 	// TemporalHistory for why the graph cannot own either.

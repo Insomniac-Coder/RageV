@@ -253,6 +253,10 @@ namespace RageV
 		// scene without one still renders through the editor's. ENGINE-NOTES 7z.
 		Vec2 GetCameraClipPlanes();
 
+		// Inverses of the primary camera's projection diagonal, for the frame
+		// chain's position reconstruction. (1, 1) when there is no camera.
+		Vec2 GetCameraProjectionInverse();
+
 		// For tools and tests that need to iterate arbitrary component sets.
 		// The editor panels reach it through friendship instead; this exists so
 		// that code outside the engine does not have to.

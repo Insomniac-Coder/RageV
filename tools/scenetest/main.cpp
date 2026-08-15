@@ -8533,6 +8533,16 @@ void main()
 		Check(build(1600, 900, render, post) && !hasPass("Motion"),
 			  "off again adds none of them");
 
+		// --- SSAO (9.6) ---------------------------------------------------------
+		post.AmbientOcclusion = true;
+		Check(build(1600, 900, render, post), "with SSAO on the frame compiles");
+		Check(hasPass("SSAO compute") && hasPass("SSAO blur x")
+			  && hasPass("SSAO blur y") && hasPass("SSAO apply"),
+			  "and all four SSAO stages are in it");
+		post.AmbientOcclusion = false;
+		Check(build(1600, 900, render, post) && !hasPass("SSAO"),
+			  "off again adds none of them");
+
 		// --- anti-aliasing off ---------------------------------------------------
 		post.BloomEnabled = true;
 		render.AA = AntiAliasing::None;

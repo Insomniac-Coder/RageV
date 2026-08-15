@@ -466,6 +466,109 @@ namespace RageV
 			}
 		}
 
+		// --- SSAO --------------------------------------------------------------
+		//
+		// First after the resolve, before depth of field and motion blur:
+		// occlusion is lighting, and it belongs on the sharp image the
+		// temporal filter produced -- a corner's darkness should then defocus
+		// and smear like darkness rather than being painted over the finished
+		// frame. Depth from the scene target, same normalised-coordinate
+		// arrangement as everything since 7z. ENGINE-NOTES 7ac.
+		if (desc.Post.AmbientOcclusion && PostProcess::IsReady())
+		{
+			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);
+			const uint32_t halfHeight = Math::Max(desc.Height / 2u, 1u);
+
+			RGTargetDesc aoDesc;
+			aoDesc.Name = "SsaoRaw";
+			aoDesc.Color = Format::R16G16B16A16_SFLOAT;
+			aoDesc.Depth = Format::Undefined;
+			aoDesc.Scale = 0.5f;
+			const RGResource raw = graph.CreateTarget(aoDesc);
+
+			RGTargetDesc blurredDesc = aoDesc;
+			blurredDesc.Name = "SsaoBlurX";
+			const RGResource blurredX = graph.CreateTarget(blurredDesc);
+
+			blurredDesc.Name = "SsaoBlurred";
+			const RGResource blurred = graph.CreateTarget(blurredDesc);
+
+			RGTargetDesc shadedDesc;
+			shadedDesc.Name = "SsaoApplied";
+			shadedDesc.Color = Format::R16G16B16A16_SFLOAT;
+			shadedDesc.Depth = Format::Undefined;
+			const RGResource occluded = graph.CreateTarget(shadedDesc);
+
+			const RGResource lit = shaded;
+			const float nearClip = desc.NearClip;
+			const float farClip = desc.FarClip;
+			const float invP0 = desc.InvProjection0;
+			const float invP1 = desc.InvProjection1;
+			const float radius = desc.Post.AoRadius;
+			const float intensity = desc.Post.AoIntensity;
+
+			graph.AddPass("SSAO compute",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(raw);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, halfWidth, halfHeight, nearClip, farClip, invP0, invP1,
+				 radius](RGPassContext& context)
+				{
+					PostProcess::SsaoCompute(context.Cmd, context.Depth(sceneHDR),
+											 halfWidth, halfHeight, nearClip, farClip,
+											 invP0, invP1, radius,
+											 Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("SSAO blur x",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(blurredX);
+					builder.Sample(raw);
+					builder.DisableDepth();
+				},
+				[raw, halfWidth, halfHeight](RGPassContext& context)
+				{
+					PostProcess::SsaoBlur(context.Cmd, context.Color(raw),
+										  halfWidth, halfHeight, 1.0f, 0.0f,
+										  Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("SSAO blur y",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(blurred);
+					builder.Sample(blurredX);
+					builder.DisableDepth();
+				},
+				[blurredX, halfWidth, halfHeight](RGPassContext& context)
+				{
+					PostProcess::SsaoBlur(context.Cmd, context.Color(blurredX),
+										  halfWidth, halfHeight, 0.0f, 1.0f,
+										  Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("SSAO apply",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(occluded);
+					builder.Sample(lit);
+					builder.Sample(blurred);
+					builder.DisableDepth();
+				},
+				[lit, blurred, intensity](RGPassContext& context)
+				{
+					PostProcess::SsaoApply(context.Cmd, context.Color(lit),
+										   context.Color(blurred), intensity,
+										   Format::R16G16B16A16_SFLOAT);
+				});
+
+			shaded = occluded;
+		}
+
 		// --- depth of field ----------------------------------------------------
 		//
 		// **After the resolve and before bloom**, and both halves matter.

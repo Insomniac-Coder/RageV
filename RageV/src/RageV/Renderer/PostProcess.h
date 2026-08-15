@@ -192,6 +192,32 @@ namespace RageV
 									 float shutter, float maxRadius,
 									 RHI::Format outputFormat);
 
+		// SSAO (9.6), four passes -- the blur runs twice. ENGINE-NOTES 7ac.
+		//
+		// 1: occlusion from depth at half resolution, normals reconstructed
+		// from chosen neighbours. The two inverse scales are the projection's
+		// [0][0] and [1][1], which is what turns an NDC coordinate back into
+		// a view-space one.
+		static void SsaoCompute(RHI::RHICommandList& cmd,
+								const RHI::Ref<RHI::RHITexture>& depth,
+								uint32_t width, uint32_t height,
+								float nearClip, float farClip,
+								float invProjection0, float invProjection1,
+								float radius, RHI::Format outputFormat);
+
+		// 2 and 3: the separable depth-aware blur, one axis per call.
+		static void SsaoBlur(RHI::RHICommandList& cmd,
+							 const RHI::Ref<RHI::RHITexture>& source,
+							 uint32_t width, uint32_t height,
+							 float directionX, float directionY,
+							 RHI::Format outputFormat);
+
+		// 4: the multiply onto the linear HDR image.
+		static void SsaoApply(RHI::RHICommandList& cmd,
+							  const RHI::Ref<RHI::RHITexture>& scene,
+							  const RHI::Ref<RHI::RHITexture>& occlusion,
+							  float intensity, RHI::Format outputFormat);
+
 		// A straight copy, for when anti-aliasing is off but the chain still
 		// has to land in the target the caller wanted.
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
@@ -211,6 +237,7 @@ namespace RageV
 			TaaResolve,
 			DofPrepass, DofGather, DofComposite,
 			MotionBlurPack, MotionBlurTileMax, MotionBlurNeighborMax, MotionBlurGather,
+			SsaoCompute, SsaoBlur, SsaoApply,
 			Count
 		};
 

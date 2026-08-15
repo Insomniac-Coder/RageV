@@ -102,14 +102,25 @@ namespace RageV
 		PostSettings Post;
 
 		// The camera's clip planes, which is what turns a depth buffer value
-		// back into metres. Only depth of field reads them today, and it needs
-		// real distances rather than the non-linear 0..1 the buffer holds.
+		// back into metres. Depth of field, motion blur and SSAO all read
+		// them, and they need real distances rather than the non-linear 0..1
+		// the buffer holds.
 		//
 		// Passed rather than derived: the graph never sees the projection, and
 		// recovering the planes from a matrix it does not have would be
 		// inventing a dependency to avoid two floats. ENGINE-NOTES 7z.
 		float NearClip = 0.05f;
 		float FarClip = 1000.0f;
+
+		// Inverses of the projection's [0][0] and [1][1] -- what turns an NDC
+		// coordinate back into a view-space one, which is how SSAO
+		// reconstructs positions from depth. Same passed-not-derived argument
+		// as the planes above. The defaults are a 90-degree square frustum:
+		// wrong for almost any real camera, but a caller that never sets them
+		// gets occlusion with a skewed radius rather than a crash, and the
+		// only such callers are tests that never look. ENGINE-NOTES 7ac.
+		float InvProjection0 = 1.0f;
+		float InvProjection1 = 1.0f;
 
 		Vec4 ClearColor{ 0.05f, 0.05f, 0.06f, 1.0f };
 

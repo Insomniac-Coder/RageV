@@ -1377,6 +1377,11 @@ namespace
 			return ((const PostSettings*)block)->MotionBlur;
 		}
 
+		bool AmbientOcclusionOn(const void* block)
+		{
+			return ((const PostSettings*)block)->AmbientOcclusion;
+		}
+
 		std::vector<FieldDesc> BuildPostSettings()
 		{
 			return {
@@ -1528,6 +1533,29 @@ namespace
 							"Ceiling on the blur radius in pixels. Let it grow "
 							"without bound and the disc of samples thins into "
 							"a ring of separate dots.")))),
+
+				// --- SSAO. ENGINE-NOTES 7ac -----------------------------------
+				Field<&PostSettings::AmbientOcclusion>("AmbientOcclusion",
+					Named("Ambient occlusion", FieldHint{ .Tooltip =
+						"Contact shadowing from the depth buffer: creases, "
+						"corners and the seam where things meet the ground "
+						"darken. Applied over the lit image, so treat it as "
+						"shadowing and keep the intensity restrained rather "
+						"than expecting global illumination." })),
+
+				Field<&PostSettings::AoRadius>("AoRadius",
+					Named("AO radius", OnlyWhen(AmbientOcclusionOn,
+						Drag(0.02f, 0.05f, 4.0f,
+							"World metres the occlusion hemisphere reaches. "
+							"Small is crease darkening; large is soft "
+							"room-scale shading.")))),
+
+				Field<&PostSettings::AoIntensity>("AoIntensity",
+					Named("AO intensity", OnlyWhen(AmbientOcclusionOn,
+						Slider(0.0f, 4.0f,
+							"An exponent on the occlusion: open surfaces stay "
+							"untouched at any setting, and only how dark the "
+							"dark end goes changes.")))),
 
 				// --- motion blur. ENGINE-NOTES 7ab ----------------------------
 				Field<&PostSettings::MotionBlur>("MotionBlur",

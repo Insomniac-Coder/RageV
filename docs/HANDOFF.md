@@ -1559,14 +1559,41 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 9.6, SSAO
+### START HERE: 9.7, SSR
 
-Phase 9 is **9.0 through 9.5 done**. SSAO wants the sampleable scene depth
-9.4 left on unconditionally, and probably normals -- which the scene target
-does not carry yet, so the first design question is depth-reconstructed
-normals versus a new attachment (7q applies in full to a new attachment:
-every pipeline and both probe call sites have to agree about the shape).
-Then 9.7 SSR, which wants everything SSAO wants plus the colour.
+Phase 9 is **9.0 through 9.6 done** -- SSR is the last item. It wants
+everything SSAO used (sampleable depth, the FrameDesc projection scales,
+view-space reconstruction) plus two things SSAO deliberately went without:
+**real normals** -- normal-mapped, which no depth reconstruction can produce
+-- and **roughness**, to know how blurred a reflection should be. That
+almost certainly means the scene target's first new attachment since
+velocity (a G-buffer-lite: packed normal + roughness), and 7q applies in
+full: every scene pipeline, the transparency pass, scenetest's call sites
+and both probe capture paths have to agree about the shape. 7ac recorded
+that SSAO would switch to reading that attachment in the same commit it
+lands.
+
+---
+
+### Done - 9.6, SSAO (2026-08-15)
+
+ENGINE-NOTES 7ac. Occlusion from depth alone: view position from the
+projection scales FrameDesc now carries, normals from chosen-neighbour
+differences (each axis differences toward whichever side is closer in
+depth, so silhouettes keep their own surface's slope), a golden-angle
+hemisphere at half resolution, two depth-aware blur passes, and a multiply
+on the linear HDR image before DoF -- the stated forward-renderer
+compromise, kept honest by restraint. The bias grows per metre, which is
+what holds a grazing-angle floor at *zero* self-occlusion; the fixed bias
+alone mottled it. `AmbientOcclusion` / `AoRadius` / `AoIntensity` on the
+post profile; the demo runs 0.5 m at 0.8.
+
+`check_ssao.py` (~1 min, both backends) on a box-on-a-floor fixture
+measures restraint as much as darkness: off is off to the byte, the
+contact seam darkens (12-13 levels) and deepens monotonically with
+intensity, **the open floor holds at 0.000 levels of drift**, and a frame
+reproduces -- the kernel rotation is seeded per pixel, never per frame.
+~0.25 ms GPU at 1440p on the demo.
 
 ---
 

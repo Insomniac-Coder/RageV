@@ -1,0 +1,58 @@
+// SSAO, pass 4 of 4: the multiply.
+//
+// On the linear HDR image, before DoF, motion blur and bloom: occlusion is
+// lighting, and it belongs on the sharp image the resolve produced -- a
+// corner's darkness should defocus and smear like darkness, not be painted
+// over the top of the finished frame.
+//
+// This is also where the design's stated compromise lives (ENGINE-NOTES
+// 7ac): a forward renderer computes occlusion *from* the depth its one pass
+// wrote, so the multiply lands on direct light too, not only on the ambient
+// term it physically belongs to. The intensity dial is the restraint.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+// Half resolution, blurred. Sampled with the linear filter as its upsample:
+// occlusion is low frequency by construction, and a bilateral upsample here
+// would be sharpening something the kernel cannot resolve anyway.
+layout(set = 0, binding = 1) uniform sampler2D u_Occlusion;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header
+	float TexelY;
+	float Intensity;     // the header's A
+	float B;
+	float C;
+	float FlipY;
+} u_Params;
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec4 scene = texture(u_Scene, uv);
+	const float ao = texture(u_Occlusion, uv).r;
+
+	// pow rather than a lerp: intensity reshapes how dark the dark end goes
+	// while an occlusion of 1 stays exactly 1, so open surfaces are
+	// untouched at any setting -- which is the property the check measures.
+	o_Color = vec4(scene.rgb * pow(clamp(ao, 0.0, 1.0), u_Params.Intensity), scene.a);
+}

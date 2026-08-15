@@ -69,7 +69,10 @@ namespace RageV
 				case 14: return "assets/shaders/motionblur_pack.rvshader";
 				case 15: return "assets/shaders/motionblur_tilemax.rvshader";
 				case 16: return "assets/shaders/motionblur_neighbormax.rvshader";
-				default: return "assets/shaders/motionblur_gather.rvshader";
+				case 17: return "assets/shaders/motionblur_gather.rvshader";
+				case 18: return "assets/shaders/ssao_compute.rvshader";
+				case 19: return "assets/shaders/ssao_blur.rvshader";
+				default: return "assets/shaders/ssao_apply.rvshader";
 			}
 		}
 
@@ -89,7 +92,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 18> Shaders;
+			std::array<Ref<RHIShader>, 21> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -149,7 +152,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 18,
+		static_assert((int)Shader::Count <= 21,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -685,6 +688,77 @@ namespace RageV
 		Dispatch(cmd, Shader::MotionBlurGather, outputFormat, scene, packed,
 				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
 				 tiles, Sampling::Point);
+	}
+
+	// --- SSAO (9.6) -- ENGINE-NOTES 7ac --------------------------------------
+
+	namespace
+	{
+		struct SsaoComputeParams
+		{
+			PostParams Base;
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvP0 = 1.0f;
+			float InvP1 = 1.0f;
+			float Radius = 0.5f;
+		};
+	}
+
+	void PostProcess::SsaoCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,
+								  uint32_t width, uint32_t height,
+								  float nearClip, float farClip,
+								  float invProjection0, float invProjection1,
+								  float radius, Format outputFormat)
+	{
+		if (!s_Data || !depth)
+			return;
+
+		SsaoComputeParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+								  1.0f / (float)Math::Max(height, 1u) };
+		params.NearClip = nearClip;
+		params.FarClip = farClip;
+		params.InvP0 = invProjection0;
+		params.InvP1 = invProjection1;
+		params.Radius = Math::Max(radius, 0.01f);
+
+		// Point: a filtered depth is a surface that does not exist.
+		Dispatch(cmd, Shader::SsaoCompute, outputFormat, depth, nullptr,
+				 &params, sizeof(params), Sampling::Point);
+	}
+
+	void PostProcess::SsaoBlur(RHICommandList& cmd, const Ref<RHITexture>& source,
+							   uint32_t width, uint32_t height,
+							   float directionX, float directionY, Format outputFormat)
+	{
+		if (!s_Data || !source)
+			return;
+
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+							 1.0f / (float)Math::Max(height, 1u) };
+		params.A = directionX;
+		params.B = directionY;
+
+		Dispatch(cmd, Shader::SsaoBlur, outputFormat, source, nullptr,
+				 &params, sizeof(params), Sampling::Point);
+	}
+
+	void PostProcess::SsaoApply(RHICommandList& cmd, const Ref<RHITexture>& scene,
+								const Ref<RHITexture>& occlusion,
+								float intensity, Format outputFormat)
+	{
+		if (!s_Data || !scene || !occlusion)
+			return;
+
+		PostParams params;
+		params.A = Math::Max(intensity, 0.0f);
+
+		// The occlusion is half resolution; the linear filter is its
+		// upsample. See the shader for why that is enough.
+		Dispatch(cmd, Shader::SsaoApply, outputFormat, scene, occlusion,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Linear);
 	}
 
 	void PostProcess::FXAA(RHICommandList& cmd, const Ref<RHITexture>& source,
