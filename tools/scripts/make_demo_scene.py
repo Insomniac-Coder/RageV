@@ -763,6 +763,14 @@ def main():
         "Aperture": 2.2,
         "MaxBokehRadius": 14.0,
 
+        # The 180-degree default. What it is for here: the bell's swing, the
+        # anvil's spark burst and the crates falling in play mode -- and it
+        # costs nothing while nothing moves, because a still tile's gather is
+        # a copy. The editor's scene view strips it with the rest of the
+        # cinematic stack.
+        "MotionBlur": True,
+        "MotionBlurShutter": 0.5,
+
         # Small numbers on all three. These are the effects that look like
         # settings the moment they are obvious.
         "ChromaticAberration": 0.0016,

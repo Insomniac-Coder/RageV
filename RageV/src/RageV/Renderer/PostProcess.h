@@ -157,6 +157,41 @@ namespace RageV
 								 const RHI::Ref<RHI::RHITexture>& blurred,
 								 RHI::Format outputFormat);
 
+		// Motion blur (9.5), four passes. ENGINE-NOTES 7ab.
+		//
+		// 1: velocity and depth packed into one image, which is where the
+		// velocity's vertical convention and the depth's non-linearity are
+		// both settled -- once, so the passes after never think about either.
+		static void MotionBlurPack(RHI::RHICommandList& cmd,
+								   const RHI::Ref<RHI::RHITexture>& velocity,
+								   const RHI::Ref<RHI::RHITexture>& depth,
+								   uint32_t width, uint32_t height,
+								   float nearClip, float farClip,
+								   RHI::Format outputFormat);
+
+		// 2: the dominant velocity per tile of `tileSize` source pixels.
+		static void MotionBlurTileMax(RHI::RHICommandList& cmd,
+									  const RHI::Ref<RHI::RHITexture>& packed,
+									  uint32_t sourceWidth, uint32_t sourceHeight,
+									  float tileSize, RHI::Format outputFormat);
+
+		// 3: each tile takes the largest of its 3x3 neighbours, so a fast
+		// object one tile over is known here too.
+		static void MotionBlurNeighborMax(RHI::RHICommandList& cmd,
+										  const RHI::Ref<RHI::RHITexture>& tiles,
+										  uint32_t tileWidth, uint32_t tileHeight,
+										  RHI::Format outputFormat);
+
+		// 4: the reconstruction gather along the neighbourhood's dominant
+		// velocity, weighted by depth per tap.
+		static void MotionBlurGather(RHI::RHICommandList& cmd,
+									 const RHI::Ref<RHI::RHITexture>& scene,
+									 const RHI::Ref<RHI::RHITexture>& packed,
+									 const RHI::Ref<RHI::RHITexture>& tiles,
+									 uint32_t width, uint32_t height,
+									 float shutter, float maxRadius,
+									 RHI::Format outputFormat);
+
 		// A straight copy, for when anti-aliasing is off but the chain still
 		// has to land in the target the caller wanted.
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
@@ -175,6 +210,7 @@ namespace RageV
 			SsaaResolve,
 			TaaResolve,
 			DofPrepass, DofGather, DofComposite,
+			MotionBlurPack, MotionBlurTileMax, MotionBlurNeighborMax, MotionBlurGather,
 			Count
 		};
 

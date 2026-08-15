@@ -65,7 +65,11 @@ namespace RageV
 				case 10: return "assets/shaders/taa_resolve.rvshader";
 				case 11: return "assets/shaders/dof_prepass.rvshader";
 				case 12: return "assets/shaders/dof_gather.rvshader";
-				default: return "assets/shaders/dof_composite.rvshader";
+				case 13: return "assets/shaders/dof_composite.rvshader";
+				case 14: return "assets/shaders/motionblur_pack.rvshader";
+				case 15: return "assets/shaders/motionblur_tilemax.rvshader";
+				case 16: return "assets/shaders/motionblur_neighbormax.rvshader";
+				default: return "assets/shaders/motionblur_gather.rvshader";
 			}
 		}
 
@@ -85,7 +89,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 14> Shaders;
+			std::array<Ref<RHIShader>, 18> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -145,7 +149,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 14,
+		static_assert((int)Shader::Count <= 18,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -580,6 +584,107 @@ namespace RageV
 
 		Dispatch(cmd, Shader::DofComposite, outputFormat, scene, blurred,
 				 &params, sizeof(params));
+	}
+
+	// --- motion blur (9.5) -- ENGINE-NOTES 7ab -------------------------------
+
+	namespace
+	{
+		struct MotionBlurPackParams
+		{
+			PostParams Base;
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+		};
+
+		struct MotionBlurTileParams
+		{
+			PostParams Base;
+			float TileSize = 20.0f;
+		};
+
+		struct MotionBlurGatherParams
+		{
+			PostParams Base;
+			float Shutter = 0.5f;
+			float MaxRadius = 20.0f;
+		};
+	}
+
+	void PostProcess::MotionBlurPack(RHICommandList& cmd, const Ref<RHITexture>& velocity,
+									 const Ref<RHITexture>& depth,
+									 uint32_t width, uint32_t height,
+									 float nearClip, float farClip, Format outputFormat)
+	{
+		if (!s_Data || !velocity || !depth)
+			return;
+
+		MotionBlurPackParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+								  1.0f / (float)Math::Max(height, 1u) };
+		params.NearClip = nearClip;
+		params.FarClip = farClip;
+
+		// Point sampling on both: a velocity halfway between two surfaces
+		// moving apart is a direction nothing travelled in, and a filtered
+		// depth is a surface that does not exist.
+		Dispatch(cmd, Shader::MotionBlurPack, outputFormat, velocity, depth,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point);
+	}
+
+	void PostProcess::MotionBlurTileMax(RHICommandList& cmd, const Ref<RHITexture>& packed,
+										uint32_t sourceWidth, uint32_t sourceHeight,
+										float tileSize, Format outputFormat)
+	{
+		if (!s_Data || !packed)
+			return;
+
+		MotionBlurTileParams params;
+		// The *source's* texel: the shader walks source pixels around each
+		// tile's centre.
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(sourceWidth, 1u),
+								  1.0f / (float)Math::Max(sourceHeight, 1u) };
+		params.TileSize = tileSize;
+
+		Dispatch(cmd, Shader::MotionBlurTileMax, outputFormat, packed, nullptr,
+				 &params, sizeof(params), Sampling::Point);
+	}
+
+	void PostProcess::MotionBlurNeighborMax(RHICommandList& cmd, const Ref<RHITexture>& tiles,
+											uint32_t tileWidth, uint32_t tileHeight,
+											Format outputFormat)
+	{
+		if (!s_Data || !tiles)
+			return;
+
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(tileWidth, 1u),
+							 1.0f / (float)Math::Max(tileHeight, 1u) };
+
+		Dispatch(cmd, Shader::MotionBlurNeighborMax, outputFormat, tiles, nullptr,
+				 &params, sizeof(params), Sampling::Point);
+	}
+
+	void PostProcess::MotionBlurGather(RHICommandList& cmd, const Ref<RHITexture>& scene,
+									   const Ref<RHITexture>& packed, const Ref<RHITexture>& tiles,
+									   uint32_t width, uint32_t height,
+									   float shutter, float maxRadius, Format outputFormat)
+	{
+		if (!s_Data || !scene || !packed || !tiles)
+			return;
+
+		MotionBlurGatherParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+								  1.0f / (float)Math::Max(height, 1u) };
+		params.Shutter = Math::Clamp(shutter, 0.0f, 1.0f);
+		params.MaxRadius = Math::Max(maxRadius, 1.0f);
+
+		// The scene is filtered -- its taps land between texels on purpose --
+		// while velocity and the tile maxima are classifications, point
+		// sampled for SMAA's reason.
+		Dispatch(cmd, Shader::MotionBlurGather, outputFormat, scene, packed,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
+				 tiles, Sampling::Point);
 	}
 
 	void PostProcess::FXAA(RHICommandList& cmd, const Ref<RHITexture>& source,

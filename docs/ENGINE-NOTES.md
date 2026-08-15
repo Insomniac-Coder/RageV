@@ -4164,6 +4164,98 @@ its own, because the hook lives in the file that is stale.
 
 ---
 
+## 7ab. Motion blur (9.5): a gather along a velocity nobody has to invent
+
+Everything hard about this pass was built by other items, on purpose. 7.10
+left an RG16F velocity attachment carrying real screen-space motion in UV
+units per frame, jitter-free by construction; the sky reports the camera's
+rotation (kept in 7r explicitly "for 9.5, which has no clip to save it");
+9.4 left the scene depth sampleable and a worked example of a gather that
+respects depth ordering. What 9.5 adds is the reconstruction filter.
+
+### The naive version fails outward, not inward
+
+Blurring each pixel along its *own* velocity blurs the inside of a moving
+object and stops dead at its silhouette: the background pixel one texel
+outside has zero velocity, gathers nothing, and the object tears past a
+razor edge instead of smearing over it. The blur has to happen where the
+motion *lands*, not where it started -- the same physical statement as
+7z's bleeding rule, pointed the other way.
+
+The standard answer (McGuire's reconstruction filter) is three passes:
+
+1. **Tile max.** The velocity image downsampled to tiles the size of the
+   largest blur allowed, keeping each tile's largest velocity.
+2. **Neighbour max.** Each tile takes the largest of its 3x3 neighbours,
+   so a fast object one tile over is known here too -- this is what lets
+   a stationary pixel receive the smear of something passing it.
+3. **Gather**, full resolution. Each pixel walks taps along the
+   neighbourhood's dominant velocity, both directions, and weights each
+   tap by whether it *could* be here: a moving tap spreads over a static
+   centre (the object smears outward), a static tap holds against a
+   moving centre only if it is in front (depth decides), and the centre's
+   own motion blurs it over whatever it crosses.
+
+A tile whose neighbourhood max is under half a pixel takes none of that:
+the gather early-outs into a plain copy, which is what makes **zero
+velocity a no-op to the byte** -- an RGBA16F copy of an RGBA16F image is
+exact, and the check asserts it rather than trusting the reasoning.
+
+### Where in the chain
+
+**After depth of field, before bloom.** After the temporal resolve for
+7z's reason -- the motion vectors describe where the *sharp* geometry
+went, and a temporal filter must not run over an already-smeared image.
+After DoF because both model the same exposure and the order has to be
+picked: the defocused disc smearing along the motion is nearer the truth
+than a smear being defocused, and it is also the cheap order, since DoF's
+composite hands over a full-resolution image this reads directly. Before
+bloom so a bright streak glows as the streak it became.
+
+Velocity and depth both come from the scene target, which by this point
+is a different size under SSAA and carries the frame's jitter under TAA
+-- handled the way 7z handled depth: normalised coordinates, and the
+jitter residual is below what the half-float velocity stores. The
+velocity's vertical convention is the one taa_resolve documents; every
+shader here that steps UVs by a velocity flips its Y with the pass's
+FlipY, because these are exactly the passes that sample render targets
+and write others.
+
+### Shutter, in fractions of a frame
+
+`MotionBlurShutter` scales the smear: 0.5 means the virtual shutter was
+open half the frame, which is the 180-degree default every camera
+defaults to for the same reason. The velocity buffer is *per frame*, so
+the scaling is one multiply and stays honest at any frame rate -- a
+slower frame has longer per-frame velocities and gets the longer smear a
+slower shutter really produces. `MotionBlurMaxRadius` bounds the walk in
+pixels and is also the tile size, because a blur that can reach further
+than its tiles can see is a blur that tears at tile boundaries.
+
+### No new determinism hazard, and the one place that tempts one
+
+The gather offsets its taps per pixel to trade banding for noise, and
+the dither is the grain's integer hash of the **pixel coordinate alone**
+-- never the frame number. Seeded per frame it would sparkle under TAA
+and cost `--screenshot-frame` its meaning; seeded per pixel the pass
+stays what DoF is, a pure function of the image and the settings, and
+every screenshot comparison in the repository keeps working unchanged.
+
+What the blur shows is only as true as the velocity underneath, so 7r's
+two recorded gaps surface here undamped by any clip: **skinned meshes
+smear by the object's motion, not the limb's** (bones are not
+double-buffered -- a memory decision), and particles and UI write zero
+velocity and never smear. Both are documented behaviour, not bugs to
+chase when a running fox's legs look crisper than its body.
+
+### Off is exactly off
+
+`MotionBlur` defaults to false, no pass is added, and the chain is
+byte-identical to the one that ran before this existed -- the fourth
+phase-9 item in a row to rest on that guarantee.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

@@ -17,6 +17,8 @@ FocusDistance: 7.5
 FocalLength: 50
 Aperture: 2.2
 MaxBokehRadius: 14
+MotionBlur: true
+MotionBlurShutter: 0.5
 ChromaticAberration: 0.0016
 VignetteIntensity: 0.34
 VignetteSmoothness: 0.55

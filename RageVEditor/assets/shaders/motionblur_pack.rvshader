@@ -1,0 +1,75 @@
+// Motion blur, pass 1 of 4: pack velocity and depth into one image.
+//
+// Not a copy for convenience -- this is where two conventions are settled so
+// the three passes after it never think about either again. The velocity
+// attachment stores a difference of *clip* coordinates, whose y axis runs the
+// same way on both backends, while a post pass's v runs downward on one and
+// upward on the other; the conversion happens here, once, exactly as
+// taa_resolve does it. And the depth buffer's non-linear value becomes metres
+// here, so the gather's foreground test is a comparison instead of a
+// reconstruction. ENGINE-NOTES 7ab.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// The scene target's velocity attachment. Under SSAA it is a different size
+// than this pass's output; normalised coordinates make that nobody's problem,
+// the same way dof_prepass reads its depth.
+layout(set = 0, binding = 0) uniform sampler2D u_Velocity;
+layout(set = 0, binding = 1) uniform sampler2D u_Depth;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+
+	// What turns a depth buffer value back into metres.
+	float NearClip;
+	float FarClip;
+} u_Params;
+
+// Depth buffer value back to metres along the view axis. The same function
+// dof_prepass uses, restated rather than shared because a .rvshader has no
+// include mechanism for fragments across files.
+float LinearDepth(float depth)
+{
+	const float n = u_Params.NearClip;
+	const float f = u_Params.FarClip;
+	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+}
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	// UV units per frame, jitter-free -- the scene's fragment shader already
+	// subtracted the temporal offset back out (ENGINE-NOTES 7r).
+	vec2 velocity = texture(u_Velocity, uv).xy;
+
+	// The direction conversion. Measured for taa_resolve rather than argued
+	// -- 19.8 RMS against 29.9 inverted -- and inherited here as settled.
+	velocity.y = flip ? -velocity.y : velocity.y;
+
+	const float depth = LinearDepth(texture(u_Depth, uv).r);
+
+	o_Color = vec4(velocity, depth, 0.0);
+}

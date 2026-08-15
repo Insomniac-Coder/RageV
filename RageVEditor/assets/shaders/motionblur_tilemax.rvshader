@@ -1,0 +1,84 @@
+// Motion blur, pass 2 of 4: the largest velocity in each tile.
+//
+// The naive blur fails at silhouettes: a background pixel one texel outside a
+// moving object has zero velocity of its own, gathers nothing, and the object
+// tears past a razor edge instead of smearing over it. The fix is to know,
+// at every pixel, the fastest thing *near* it -- which starts by reducing the
+// velocity image to tiles the size of the largest blur allowed, each keeping
+// its dominant velocity. ENGINE-NOTES 7ab.
+//
+// Max by magnitude, not a component-wise max: two opposing motions must
+// resolve to one of them, not to a diagonal nobody moved along.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// The packed velocity/depth image, full resolution.
+layout(set = 0, binding = 0) uniform sampler2D u_Packed;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header: the *source's* texel
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+
+	// Source pixels per tile. Also the blur's radius ceiling -- a blur that
+	// can reach further than its tiles can see tears at tile boundaries.
+	float TileSize;
+} u_Params;
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	// The centre of this tile, in the source's sampling space. The block is
+	// walked symmetrically around it, so the grid needs no origin agreement
+	// between the two backends' row orders.
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+	const int tile = int(u_Params.TileSize + 0.5);
+	const float half_ = u_Params.TileSize * 0.5;
+
+	vec2 best = vec2(0.0);
+	float bestLength = 0.0;
+
+	for (int j = 0; j < tile; j++)
+	{
+		for (int i = 0; i < tile; i++)
+		{
+			const vec2 offset = (vec2(float(i), float(j)) + 0.5) - half_;
+			const vec2 velocity = texture(u_Packed, uv + offset * texel).xy;
+
+			// Compared in *pixels*, not uv units. The two axes' uv units
+			// differ by the aspect ratio, so a uv-space magnitude would call
+			// a vertical motion faster than the identical horizontal one on
+			// any screen wider than tall.
+			const vec2 pixels = velocity / texel;
+			const float length_ = dot(pixels, pixels);
+			if (length_ > bestLength)
+			{
+				bestLength = length_;
+				best = velocity;
+			}
+		}
+	}
+
+	o_Color = vec4(best, 0.0, 0.0);
+}

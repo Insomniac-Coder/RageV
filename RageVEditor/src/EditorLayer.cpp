@@ -458,6 +458,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	if (m_UseEditorCamera && !m_PreviewPost)
 	{
 		scene.Post.DepthOfField = false;
+		scene.Post.MotionBlur = false;
 		scene.Post.FilmGrain = 0.0f;
 		scene.Post.VignetteIntensity = 0.0f;
 		scene.Post.ChromaticAberration = 0.0f;

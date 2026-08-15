@@ -564,6 +564,121 @@ namespace RageV
 			shaded = focused;
 		}
 
+		// --- motion blur -------------------------------------------------------
+		//
+		// After depth of field -- the defocused disc smearing along the motion
+		// is nearer the truth than a smear being defocused -- and before bloom,
+		// so a bright streak glows as the streak it became. Velocity and depth
+		// both come from the scene target, a different size under SSAA and
+		// jittered under TAA; normalised coordinates handle the first and the
+		// half-float velocity stores the second as zero. ENGINE-NOTES 7ab.
+		if (desc.Post.MotionBlur && PostProcess::IsReady())
+		{
+			const float tileSize = Math::Clamp(desc.Post.MotionBlurMaxRadius, 4.0f, 64.0f);
+			// Rounded *up*: a floor would leave the last partial row and
+			// column of the frame outside every tile, and a fast object
+			// there would not smear at all.
+			const uint32_t tilesX = Math::Max((desc.Width + (uint32_t)tileSize - 1u)
+											  / (uint32_t)tileSize, 1u);
+			const uint32_t tilesY = Math::Max((desc.Height + (uint32_t)tileSize - 1u)
+											  / (uint32_t)tileSize, 1u);
+
+			RGTargetDesc packDesc;
+			packDesc.Name = "MotionPack";
+			packDesc.Color = Format::R16G16B16A16_SFLOAT;
+			packDesc.Depth = Format::Undefined;
+			const RGResource packed = graph.CreateTarget(packDesc);
+
+			RGTargetDesc tileDesc;
+			tileDesc.Name = "MotionTileMax";
+			tileDesc.Color = Format::R16G16B16A16_SFLOAT;
+			tileDesc.Depth = Format::Undefined;
+			tileDesc.Width = tilesX;
+			tileDesc.Height = tilesY;
+			const RGResource tiles = graph.CreateTarget(tileDesc);
+
+			RGTargetDesc dilatedDesc = tileDesc;
+			dilatedDesc.Name = "MotionNeighborMax";
+			const RGResource dilated = graph.CreateTarget(dilatedDesc);
+
+			RGTargetDesc blurredDesc;
+			blurredDesc.Name = "MotionBlurred";
+			blurredDesc.Color = Format::R16G16B16A16_SFLOAT;
+			blurredDesc.Depth = Format::Undefined;
+			const RGResource smeared = graph.CreateTarget(blurredDesc);
+
+			const RGResource sharp = shaded;
+			const uint32_t width = desc.Width;
+			const uint32_t height = desc.Height;
+			const float nearClip = desc.NearClip;
+			const float farClip = desc.FarClip;
+			const float shutter = desc.Post.MotionBlurShutter;
+			const float maxRadius = desc.Post.MotionBlurMaxRadius;
+
+			graph.AddPass("Motion pack",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(packed);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, velocityIndex, width, height, nearClip, farClip](RGPassContext& context)
+				{
+					PostProcess::MotionBlurPack(context.Cmd,
+												context.Color(sceneHDR, velocityIndex),
+												context.Depth(sceneHDR),
+												width, height, nearClip, farClip,
+												Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("Motion tile max",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(tiles);
+					builder.Sample(packed);
+					builder.DisableDepth();
+				},
+				[packed, width, height, tileSize](RGPassContext& context)
+				{
+					PostProcess::MotionBlurTileMax(context.Cmd, context.Color(packed),
+												   width, height, tileSize,
+												   Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("Motion neighbor max",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(dilated);
+					builder.Sample(tiles);
+					builder.DisableDepth();
+				},
+				[tiles, tilesX, tilesY](RGPassContext& context)
+				{
+					PostProcess::MotionBlurNeighborMax(context.Cmd, context.Color(tiles),
+													   tilesX, tilesY,
+													   Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("Motion gather",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(smeared);
+					builder.Sample(sharp);
+					builder.Sample(packed);
+					builder.Sample(dilated);
+					builder.DisableDepth();
+				},
+				[sharp, packed, dilated, width, height, shutter, maxRadius](RGPassContext& context)
+				{
+					PostProcess::MotionBlurGather(context.Cmd, context.Color(sharp),
+												  context.Color(packed), context.Color(dilated),
+												  width, height, shutter, maxRadius,
+												  Format::R16G16B16A16_SFLOAT);
+				});
+
+			shaded = smeared;
+		}
+
 		// --- bloom -------------------------------------------------------------
 		RGResource bloom = kRGInvalid;
 		const bool wantBloom = desc.Post.BloomEnabled && PostProcess::IsReady();

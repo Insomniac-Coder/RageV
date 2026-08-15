@@ -1,0 +1,165 @@
+// Motion blur, pass 4 of 4: the reconstruction gather.
+//
+// Each pixel walks taps along its neighbourhood's dominant velocity -- not
+// its own, which is the whole point: the blur has to happen where the motion
+// *lands*, and a stationary pixel beside a fast object has no motion of its
+// own to walk. Three cases per tap, weighted rather than branched:
+//
+//   * a moving tap in front spreads over this pixel (the object smears out),
+//   * a tap behind shows through only as far as this pixel itself moves
+//     (the background is revealed, not dragged),
+//   * two pixels moving together blur into each other symmetrically.
+//
+// The same asymmetry depth of field has, decided the same way: by depth,
+// per tap, smoothly. ENGINE-NOTES 7ab, after McGuire's reconstruction filter.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+// RG velocity in sampling-space uv per frame, B linear depth in metres.
+layout(set = 0, binding = 1) uniform sampler2D u_Packed;
+// The dilated tile maxima, one texel per tile.
+layout(set = 0, binding = 2) uniform sampler2D u_NeighborMax;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header: the full frame's texel
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+
+	// Fraction of the frame the virtual shutter was open. 0.5 is the
+	// 180-degree default every real camera also defaults to.
+	float Shutter;
+	// Ceiling on the smear, in pixels of reach from the pixel's centre.
+	float MaxRadius;
+} u_Params;
+
+// 9 each side of the centre. Chosen against the default 20 px radius: about
+// one tap per pixel of reach, before the dither fills the gaps between.
+const int kTaps = 9;
+
+// How far apart two depths must be before one clearly occludes the other,
+// in metres. A taste constant, not physics: smaller separates crisply and
+// shimmers where surfaces nearly touch; larger blends generously.
+const float kSoftZ = 0.5;
+
+// The grain's integer hash (lowbias32), seeded by the pixel coordinate
+// *alone* -- never the frame number. Per-frame seeding would sparkle under
+// TAA and cost --screenshot-frame its meaning; per-pixel keeps this pass a
+// pure function of the image and the settings. ENGINE-NOTES 7ab.
+uint Hash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+
+// A tap's smear covers distance `d` if its own half-length reaches it.
+float Cone(float d, float halfLength)
+{
+	return clamp(1.0 - d / max(halfLength, 1.0e-3), 0.0, 1.0);
+}
+
+// Softened membership test for "these two are part of the same smear".
+float Cylinder(float d, float halfLength)
+{
+	return 1.0 - smoothstep(0.95 * halfLength, 1.05 * halfLength, d);
+}
+
+// Soft "is a in front of b", over the kSoftZ transition.
+float InFront(float za, float zb)
+{
+	return clamp(1.0 - (za - zb) / kSoftZ, 0.0, 1.0);
+}
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+	const vec4 centre = texture(u_Scene, uv);
+
+	// The dominant motion here, shutter-scaled, in pixels -- the axis the
+	// taps walk. Under half a pixel of reach nothing can change, and the
+	// early-out is also the guarantee the check leans on: an RGBA16F copy
+	// of an RGBA16F image is exact, so zero velocity is a no-op to the byte.
+	const vec2 dominantUV = texture(u_NeighborMax, uv).xy * u_Params.Shutter;
+	const vec2 dominantPx = dominantUV / texel;
+	const float reach = min(length(dominantPx) * 0.5, u_Params.MaxRadius);
+	if (reach < 0.5)
+	{
+		o_Color = centre;
+		return;
+	}
+
+	const vec4 packedC = texture(u_Packed, uv);
+	const float depthC = packedC.b;
+	// This pixel's own smear half-length, in pixels, against the same
+	// ceiling as the walk.
+	const float halfC = min(length(packedC.xy / texel) * u_Params.Shutter * 0.5,
+							u_Params.MaxRadius);
+
+	// One uv step per pixel of distance along the dominant axis.
+	const vec2 stepUV = dominantUV / max(length(dominantPx), 1.0e-3);
+
+	// A slow centre keeps most of itself; a fast one is just another tap
+	// along its own smear. McGuire's shape for the centre weight.
+	float totalWeight = float(kTaps) / max(halfC * 2.0, 1.0);
+	vec3 sum = centre.rgb * totalWeight;
+
+	// The dither: one offset per pixel, applied to every tap the same way,
+	// trading the banding of a fixed ladder for noise the eye forgives.
+	const uvec2 pixel = uvec2(uv / texel);
+	const float jitter = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y)) / 4294967296.0 - 0.5;
+
+	for (int i = -kTaps; i <= kTaps; i++)
+	{
+		if (i == 0)
+			continue;
+
+		// Taps spaced evenly over the reach, jittered by up to one spacing.
+		const float t = (float(i) + jitter) / float(kTaps);
+		const float d = abs(t) * reach;
+
+		const vec2 tapUV = uv + stepUV * (t * reach);
+		const vec4 packedT = texture(u_Packed, tapUV);
+		const float depthT = packedT.b;
+		const float halfT = min(length(packedT.xy / texel) * u_Params.Shutter * 0.5,
+								u_Params.MaxRadius);
+
+		const float front = InFront(depthT, depthC);   // tap nearer the camera
+		const float behind = InFront(depthC, depthT);  // tap further away
+
+		// The three cases. Weighted, never branched: a hard test at a
+		// silhouette is a stair-stepped smear, the same artefact the DoF
+		// gather smooths away with its one-pixel ramp.
+		const float weight = front * Cone(d, halfT)
+						   + behind * Cone(d, halfC)
+						   + 2.0 * Cylinder(d, halfT) * Cylinder(d, halfC);
+
+		sum += texture(u_Scene, tapUV).rgb * weight;
+		totalWeight += weight;
+	}
+
+	o_Color = vec4(sum / max(totalWeight, 1.0e-4), centre.a);
+}

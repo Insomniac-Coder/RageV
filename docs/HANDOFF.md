@@ -1559,12 +1559,36 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 9.5, motion blur
+### START HERE: 9.6, SSAO
 
-Phase 9 is **9.0-9.4 done**, plus declaration-site script fields (below).
-**9.5 is the best-prepared item in the phase** -- see "After that" below for
-what 7.10, 9.2 and 9.4 each left in place for it, and read 7r before
-touching the velocity buffer.
+Phase 9 is **9.0 through 9.5 done**. SSAO wants the sampleable scene depth
+9.4 left on unconditionally, and probably normals -- which the scene target
+does not carry yet, so the first design question is depth-reconstructed
+normals versus a new attachment (7q applies in full to a new attachment:
+every pipeline and both probe call sites have to agree about the shape).
+Then 9.7 SSR, which wants everything SSAO wants plus the colour.
+
+---
+
+### Done - 9.5, motion blur (2026-08-15)
+
+ENGINE-NOTES 7ab. McGuire-style reconstruction on the TAA velocity buffer:
+pack (velocity convention + linear depth settled once), tile max, 3x3
+neighbour max, then a full-resolution gather along the neighbourhood's
+dominant motion with depth-weighted taps -- the blur happens where motion
+*lands*, so objects smear over what they pass. After DoF, before bloom.
+`MotionBlur` / `MotionBlurShutter` / `MotionBlurMaxRadius` on the post
+profile; the demo runs a 0.5 shutter; the editor's scene view strips it
+with the rest of the cinematic stack.
+
+`check_motion_blur.py` (~1 min, both backends) on the falling-block
+fixture: off is off to the byte, a still region under the blur is
+untouched to the byte (the gather early-outs into an exact RGBA16F copy),
+the smear is on-axis and scales 2.33x when the shutter doubles, and a
+frame reproduces -- the dither is seeded per pixel, never per frame.
+Costs ~0.24 ms GPU at 1440p on the demo. Known and documented, not bugs:
+skinned meshes smear by the object's motion, not the limb's, and
+particles and UI write zero velocity and never smear.
 
 ---
 
@@ -1614,22 +1638,15 @@ What to know before touching it:
 
 ### After that: the rest of phase 9
 
-Phase 9 is **9.0, 9.1, 9.2, 9.3 and 9.4 done**, plus the `.rvlut` recipe and
-TAA's two extra dials.
+Phase 9 is **9.0 through 9.5 done**, plus the `.rvlut` recipe and TAA's two
+extra dials.
 
-**Next is 9.5 motion blur**, then 9.6 SSAO and 9.7 SSR.
+**Next is 9.6 SSAO**, then 9.7 SSR.
 
-**9.5 is the best-prepared item in the phase.** 7.10 left the velocity
-attachment, every instance's previous world transform, and the sky's
-camera-rotation motion in place specifically for it -- that last one measures
-nothing under TAA, which has a neighbourhood clip, and exists precisely for
-this. 9.2 left the graph able to run compute passes. 9.4 left the scene depth
-sampleable and a working example of a gather that respects depth ordering,
-which is most of what a good motion blur needs too.
-
-**Read 7r before touching the velocity buffer.** Velocities are jitter-free by
-construction, and skinned meshes report the *object's* motion rather than the
-limb's, because bones are not double-buffered. Both will look like bugs.
+**Read 7r before touching the velocity buffer** (which motion blur and TAA
+now both read). Velocities are jitter-free by construction, and skinned
+meshes report the *object's* motion rather than the limb's, because bones
+are not double-buffered. Both will look like bugs.
 
 ### The demo scene has a rule now
 

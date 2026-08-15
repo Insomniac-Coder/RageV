@@ -8517,6 +8517,22 @@ void main()
 		Check(hasPass("Tonemap"), "but still tone maps, because that is not optional");
 		Check(graph.GetPassCount() < withEverything, "so the frame is shorter");
 
+		// --- motion blur (9.5) --------------------------------------------------
+		//
+		// Off is the default and adds nothing -- the standard-frame assertions
+		// above already ran without a motion pass, which is the off-is-off
+		// half. This is the each-effect-lands half: on adds all four stages,
+		// because a chain missing its neighbour max would still blur and only
+		// tear at tile boundaries, which no screenshot of a slow scene shows.
+		post.MotionBlur = true;
+		Check(build(1600, 900, render, post), "with motion blur on the frame compiles");
+		Check(hasPass("Motion pack") && hasPass("Motion tile max")
+			  && hasPass("Motion neighbor max") && hasPass("Motion gather"),
+			  "and all four motion stages are in it");
+		post.MotionBlur = false;
+		Check(build(1600, 900, render, post) && !hasPass("Motion"),
+			  "off again adds none of them");
+
 		// --- anti-aliasing off ---------------------------------------------------
 		post.BloomEnabled = true;
 		render.AA = AntiAliasing::None;

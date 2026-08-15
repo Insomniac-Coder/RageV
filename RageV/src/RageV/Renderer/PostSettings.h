@@ -152,6 +152,24 @@ namespace RageV
 		// broken effect rather than as a shallow one.
 		float MaxBokehRadius = 24.0f;
 
+		// --- motion blur (9.5). ENGINE-NOTES 7ab ----------------------------
+		//
+		// A reconstruction gather along the motion vectors the scene already
+		// writes for TAA -- the blur happens where the motion lands, so an
+		// object smears over what it passes rather than stopping at its own
+		// silhouette. Off adds no pass and is exact.
+		bool MotionBlur = false;
+
+		// Fraction of the frame the virtual shutter is open. 0.5 is the
+		// 180-degree shutter every film camera defaults to. Scales the
+		// per-frame velocity directly, so it stays honest at any frame rate.
+		float MotionBlurShutter = 0.5f;
+
+		// Ceiling on the smear in pixels, and also the tile size the dominant
+		// motion is tracked at: a blur that can reach further than its tiles
+		// can see tears at tile boundaries.
+		float MotionBlurMaxRadius = 20.0f;
+
 		// **All three default to off, and off is exact.** The shader branches
 		// past each rather than computing a no-op, so a profile that has not
 		// touched them renders the same bytes as a build without them -- which

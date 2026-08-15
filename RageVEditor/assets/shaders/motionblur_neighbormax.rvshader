@@ -1,0 +1,70 @@
+// Motion blur, pass 3 of 4: each tile takes the largest of its 3x3 neighbours.
+//
+// This is the line that lets a *stationary* pixel receive the smear of
+// something passing it: the fast object one tile over is now known here too,
+// and the gather at a pixel it will cross can walk along the object's motion
+// and find it. Without the dilation, the blur stops at tile boundaries and a
+// fast object drags a grid of seams behind it. ENGINE-NOTES 7ab.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_TileMax;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header: the tile image's texel
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+} u_Params;
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+
+	vec2 best = vec2(0.0);
+	float bestLength = -1.0;
+
+	// A max is symmetric, so the two backends' row orders cannot disagree
+	// about it -- no direction handling needed beyond the sampling flip.
+	for (int j = -1; j <= 1; j++)
+	{
+		for (int i = -1; i <= 1; i++)
+		{
+			const vec2 velocity = texture(u_TileMax, uv + vec2(float(i), float(j)) * texel).xy;
+
+			// Pixels, for the same aspect-ratio reason as the tile pass. The
+			// tile texel is not the full image's, but it is proportional to
+			// it, which is all a comparison needs.
+			const vec2 pixels = velocity / texel;
+			const float length_ = dot(pixels, pixels);
+			if (length_ > bestLength)
+			{
+				bestLength = length_;
+				best = velocity;
+			}
+		}
+	}
+
+	o_Color = vec4(best, 0.0, 0.0);
+}

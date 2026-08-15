@@ -1372,6 +1372,11 @@ namespace
 			return ((const PostSettings*)block)->DepthOfField;
 		}
 
+		bool MotionBlurOn(const void* block)
+		{
+			return ((const PostSettings*)block)->MotionBlur;
+		}
+
 		std::vector<FieldDesc> BuildPostSettings()
 		{
 			return {
@@ -1523,6 +1528,32 @@ namespace
 							"Ceiling on the blur radius in pixels. Let it grow "
 							"without bound and the disc of samples thins into "
 							"a ring of separate dots.")))),
+
+				// --- motion blur. ENGINE-NOTES 7ab ----------------------------
+				Field<&PostSettings::MotionBlur>("MotionBlur",
+					Named("Motion blur", FieldHint{ .Tooltip =
+						"Smears along the motion vectors the scene already "
+						"writes for TAA. Objects smear over what they pass -- "
+						"the blur happens where the motion lands, not only "
+						"inside the mover -- and the camera's own turn smears "
+						"the sky. Skinned meshes smear by the object's motion, "
+						"not the limb's." })),
+
+				Field<&PostSettings::MotionBlurShutter>("MotionBlurShutter",
+					Named("Shutter", OnlyWhen(MotionBlurOn,
+						Slider(0.0f, 1.0f,
+							"Fraction of the frame the virtual shutter is open. "
+							"0.5 is the 180-degree default every film camera "
+							"also defaults to; 1.0 smears each frame into the "
+							"next with nothing crisp between.")))),
+
+				Field<&PostSettings::MotionBlurMaxRadius>("MotionBlurMaxRadius",
+					Named("Max smear", OnlyWhen(MotionBlurOn,
+						Drag(0.25f, 4.0f, 64.0f,
+							"Ceiling on the smear in pixels, and also the tile "
+							"size the dominant motion is tracked at -- a blur "
+							"that reaches further than its tiles can see tears "
+							"at their boundaries.")))),
 
 				// --- lens and film, in the order they run ---------------------
 				Field<&PostSettings::ChromaticAberration>("ChromaticAberration",
