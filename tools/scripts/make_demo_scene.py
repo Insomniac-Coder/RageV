@@ -107,6 +107,19 @@ GRADIENT_EMBER = 14237806248374965933
 RED = "[0.9, 0.29, 0.32, 1]"
 INK = "[0.04, 0.04, 0.06, 0.62]"
 
+# A button's colour is **not** INK, and the reason is a trap worth naming.
+#
+# A button has no look of its own: it *multiplies* the image under it by its
+# state tint (Canvas.cpp). Normal 0.82 against hover 1.0 on a panel of 0.04 is
+# a difference of two levels out of 255 -- so the first version of these
+# buttons had working hover feedback that was mathematically invisible, and
+# read as a button that does not respond.
+#
+# So the panel is bright enough for the multiply to have somewhere to go, and
+# the tints below are spread far enough apart to be seen. The non-interactive
+# tally keeps INK, which now also reads correctly: it is visibly not a button.
+BUTTON = "[0.22, 0.07, 0.09, 0.9]"
+
 
 def handle_for(name):
     """A stable 64-bit id from a name. FNV-1a, same as postprofile's."""
@@ -530,10 +543,10 @@ def build(profile_handle, mat):
 
     rect("Bell Button", "HUD", (0, 1), (0, 1), (52, -128), (356, -52),
          order=1, blocks=True)
-    s.block("UIImageComponent", [("Texture", 0), ("Color", INK)])
+    s.block("UIImageComponent", [("Texture", 0), ("Color", BUTTON)])
     s.block("UIButtonComponent", [
-        ("Interactable", "true"), ("NormalColor", "[0.82, 0.82, 0.86, 1]"),
-        ("HoverColor", "[1, 1, 1, 1]"), ("PressedColor", "[0.55, 0.55, 0.6, 1]"),
+        ("Interactable", "true"), ("NormalColor", "[0.75, 0.75, 0.78, 1]"),
+        ("HoverColor", "[1, 1, 1, 1]"), ("PressedColor", "[0.45, 0.45, 0.5, 1]"),
     ])
     # Polls its own button, so it must not also be bound -- one click seen
     # twice is arithmetic rather than a bug, and it is confusing either way.
@@ -551,10 +564,10 @@ def build(profile_handle, mat):
 
     rect("Anvil Button", "HUD", (0, 1), (0, 1), (700, -128), (1004, -52),
          order=1, blocks=True)
-    s.block("UIImageComponent", [("Texture", 0), ("Color", INK)])
+    s.block("UIImageComponent", [("Texture", 0), ("Color", BUTTON)])
     s.block("UIButtonComponent", [
-        ("Interactable", "true"), ("NormalColor", "[0.82, 0.82, 0.86, 1]"),
-        ("HoverColor", "[1, 1, 1, 1]"), ("PressedColor", "[0.55, 0.55, 0.6, 1]"),
+        ("Interactable", "true"), ("NormalColor", "[0.75, 0.75, 0.78, 1]"),
+        ("HoverColor", "[1, 1, 1, 1]"), ("PressedColor", "[0.45, 0.45, 0.5, 1]"),
         ("OnClickTarget", handle_for("Anvil Tally")),
         ("OnClickMethod", "Count"),
     ])

@@ -2434,6 +2434,38 @@ void main()
 			  "and clicking the anvil button changes the *tally's* label -- the "
 			  "bound path, where the handler is not on the button");
 
+		// --- and the feedback is visible ---------------------------------------
+		//
+		// A button has no look of its own: it *multiplies* the image under it
+		// by its state tint. So a dark panel is a button whose hover works
+		// perfectly and cannot be seen -- the first version of this scene used
+		// 0.04 grey, where normal 0.82 against hover 1.0 is a difference of two
+		// levels out of 255.
+		//
+		// That is the worst kind of UI bug, because every mechanism passes and
+		// the thing still reads as broken. Asserted in levels, which is the
+		// unit an eye works in.
+		for (Entity button : { bell, anvilButton })
+		{
+			const Vec4 base = button.GetComponent<UIImageComponent>().Color;
+			const UIButtonComponent& state = button.GetComponent<UIButtonComponent>();
+
+			const auto level = [&](const Vec4& tint)
+			{
+				const Vec4 c = base * tint;
+				return 255.0f * (0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b);
+			};
+
+			const float rest = level(state.NormalColor);
+			const float hover = level(state.HoverColor);
+			const float press = level(state.PressedColor);
+
+			Check(hover - rest >= 6.0f,
+				  "hovering the button changes it by enough levels to see");
+			Check(rest - press >= 6.0f,
+				  "and pressing it does too, in the other direction");
+		}
+
 		scene->OnRuntimeStop();
 	}
 

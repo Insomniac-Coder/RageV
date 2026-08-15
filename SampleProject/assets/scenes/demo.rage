@@ -681,12 +681,12 @@ Entities:
       BlocksPointer: true
     UIImageComponent:
       Texture: 0
-      Color: [0.04, 0.04, 0.06, 0.62]
+      Color: [0.22, 0.07, 0.09, 0.9]
     UIButtonComponent:
       Interactable: true
-      NormalColor: [0.82, 0.82, 0.86, 1]
+      NormalColor: [0.75, 0.75, 0.78, 1]
       HoverColor: [1, 1, 1, 1]
-      PressedColor: [0.55, 0.55, 0.6, 1]
+      PressedColor: [0.45, 0.45, 0.5, 1]
     NativeScriptComponent:
       Script: ClickCounter
       Fields:
@@ -770,12 +770,12 @@ Entities:
       BlocksPointer: true
     UIImageComponent:
       Texture: 0
-      Color: [0.04, 0.04, 0.06, 0.62]
+      Color: [0.22, 0.07, 0.09, 0.9]
     UIButtonComponent:
       Interactable: true
-      NormalColor: [0.82, 0.82, 0.86, 1]
+      NormalColor: [0.75, 0.75, 0.78, 1]
       HoverColor: [1, 1, 1, 1]
-      PressedColor: [0.55, 0.55, 0.6, 1]
+      PressedColor: [0.45, 0.45, 0.5, 1]
       OnClickTarget: 11626863984903934835
       OnClickMethod: Count
   - EntityID: 10707009537871225111
