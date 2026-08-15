@@ -8575,8 +8575,10 @@ void main()
 			};
 
 			Check(buildReflecting(), "with SSR on and a reflections history the frame compiles");
-			Check(hasPass("SSR trace") && hasPass("SSR resolve"),
-				  "and both SSR stages are in it");
+			Check(hasPass("SSR hi-Z fine") && hasPass("SSR hi-Z coarse")
+				  && hasPass("SSR trace") && hasPass("SSR resolve"),
+				  "and all four SSR stages are in it: the two halves of the pyramid, "
+				  "the walk, the resolve");
 			// The pair is advanced by BuildFrame, exactly as TAA's is: after
 			// one frame there is a trace for the next frame to read.
 			Check(reflections.HasHistory(),

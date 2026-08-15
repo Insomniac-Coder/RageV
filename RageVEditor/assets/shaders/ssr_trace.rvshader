@@ -1,13 +1,21 @@
-// SSR, pass 1 of 2: the ray march, at half resolution.
+// SSR, pass 1 of 3: the ray march, at half resolution, through the hi-Z
+// atlas.
 //
 // Per pixel: reconstruct the view position from depth, decode the surface's
 // normal from the attachment the scene pass wrote, reflect the view ray, and
-// march the reflection through the depth buffer in view space -- linear steps
-// to find the first crossing, then a binary refinement between the last miss
-// and the first hit. Writes where the ray landed and how much to trust it,
-// not a colour; the resolve pass samples the lit image there at full
-// resolution and blurs it by roughness. ENGINE-NOTES 7ad; the frame the
-// march runs in, and how the normal enters it, is 7ae.
+// walk the reflection **in screen space** through a min-depth pyramid: at
+// each step the ray is tested against one cell of one level -- if it stays
+// in front of everything in that cell it jumps to the cell's far edge and
+// tries a coarser level next; if it does not, it drops a level and looks
+// again; at level 0 it either crosses a surface, which is a hit, or it is
+// behind something and creeps forward a texel at a time until it comes out.
+// The ray's depth is interpolated perspective-correctly along its projected
+// line, so what the ray carries and what the buffer stores are compared at
+// the same place. Writes where the ray landed and how much to trust it, not
+// a colour; the resolve pass samples the lit image there at full
+// resolution. ENGINE-NOTES 7ad for the first version, 7ae for the frame and
+// the normal, 7ag for why the march is a walk through a pyramid now and
+// what "a hit" means.
 
 #type vertex
 #version 450 core
@@ -28,18 +36,24 @@ layout(location = 0) in vec2 v_UV;
 // A: unused. Confidence 0 means "no answer -- keep the probe".
 layout(location = 0) out vec4 o_Color;
 
-layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+// The hi-Z atlases: linear depth, level 0 at this pass's resolution, coarser
+// levels each holding the *nearest* depth of the block beneath. Fetched by
+// texel; the layout is include/hiz_atlas.glsl. Two of them, the fine levels
+// in one and the coarse in the other, because building six levels in one
+// pass was slower than the walk (see ssr_hiz.rvshader).
+layout(set = 0, binding = 0) uniform sampler2D u_HiZFine;
 // The surface description: octahedral world normal in RG, roughness B,
 // metallic A. Point sampled: a normal halfway between two surfaces is a
 // direction nothing faces.
 layout(set = 0, binding = 1) uniform sampler2D u_Surface;
+layout(set = 0, binding = 2) uniform sampler2D u_HiZCoarse;
 
 layout(push_constant) uniform Params
 {
-	float TexelX;        // PostParams' shared header
+	float TexelX;        // PostParams' shared header: this pass's texel
 	float TexelY;
-	float A;
-	float B;
+	float Levels;        // A: how many levels the atlases hold between them
+	float FineLevels;    // B: how many of them the fine atlas holds
 	float C;
 	float FlipY;
 
@@ -49,40 +63,82 @@ layout(push_constant) uniform Params
 	float InvP1;
 	// How far a ray may travel, in metres, before it gives up.
 	float MaxDistance;
-	// How far *behind* the depth surface a ray step may land and still count
-	// as hitting it, in metres. Without this bound a ray passing behind a
-	// thin railing hits the wall behind it; with an unbounded one it hits
-	// the railing from a metre away.
+	// How far behind a surface the ray may already be, on entering the
+	// texel where it meets that surface, and still count as hitting it. A
+	// hit is a crossing -- in front of the depth buffer, then not -- and on
+	// a real surface the ray arrives at it from in front, so this is zero
+	// or nearly. A ray that went *past* a thin thing arrives at the thing's
+	// silhouette texel already far behind it: it was in front of the wall
+	// beyond, and the railing is a metre nearer. That is what this rejects.
 	float Thickness;
 
 	// The view matrix's rotation, as three rows -- what takes the world
-	// normal the attachment stores into the view space the march runs in.
-	// Rows rather than a mat4 because push constants are tight and only the
-	// rotation is needed.
+	// normal the attachment stores into the frame the march runs in.
 	vec4 ViewRow0;
 	vec4 ViewRow1;
 	vec4 ViewRow2;
 } u_Params;
 
 #include "include/view_reconstruction.glsl"
+#include "include/hiz_atlas.glsl"
 
-// 48 linear steps and 6 refinements. Fewer steps bands: a ray grazing a
-// floor crosses the depth surface in stripes a step long, and 24 steps over
-// 20 m is most of a metre each. The refinement is cheap; the steps are what
-// the pass costs, and half resolution is what makes 48 affordable.
-const int kSteps = 48;
-const int kRefine = 6;
+// The walk. Each iteration tests one cell of one level. A ray that crosses
+// empty space climbs the pyramid and covers it in a few large cells; a ray
+// hugging the surface it left -- a floor reflecting its own horizon, which
+// is most of the rays a floor casts -- never gets clear of that surface's
+// depth range and cannot use a coarse cell at all, so at level 0 it steps a
+// stride of texels at a time and compares the ray's depth at the texel with
+// the texel's, which is what a screen-space DDA does. The pyramid is for the
+// rays that leave; the stride is for the rays that stay. The budget bounds
+// both.
+const int kMaxIterations = 160;
+const float kStride = 3.0;
+// The level-0 stride grows a little every step: a ray still hugging its
+// surface after fifty strides is reflecting something far along it at a
+// graze, which the roughness blur and the length fade are already
+// smearing, and the precision of a three-texel stride is wasted on it.
+// The crossing is still solved between the two samples that bracket it, so
+// a longer stride costs precision only where the surface curves between
+// them. Two percent a step: three texels at the start, twenty by the
+// hundredth.
+const float kStrideGrowth = 1.02;
+// How clear of the surface a level-0 sample has to be, in multiples of the
+// depth the ray moves per stride, before the walk tries a coarser cell. A
+// ray hugging its floor stays under this and never pays for a coarse cell
+// it would only have to come back down from.
+const float kClearance = 4.0;
+
+// Depth comparisons carry a small relative tolerance: a ray leaving a
+// surface starts *on* it, and "on" must read as neither in front nor
+// behind, or the ray's own origin is its first crossing.
+const float kDepthTolerance = 0.002;
 
 vec2 InvProjection() { return vec2(u_Params.InvP0, u_Params.InvP1); }
 
-float LinearDepthAt(vec2 uv)
+ivec2 BaseSize() { return ivec2(round(1.0 / vec2(u_Params.TexelX, u_Params.TexelY))); }
+
+// The nearest (x) and farthest (y) depth in cell `cell` of level `level`.
+vec2 HiZ(int level, ivec2 cell)
 {
-	return LinearDepth(texture(u_Depth, uv).r, u_Params.NearClip, u_Params.FarClip);
+	const ivec2 base = BaseSize();
+	const ivec2 clamped = clamp(cell, ivec2(0), HiZLevelSize(base, level) - 1);
+	const ivec2 texel = HiZLevelOrigin(base, level) + clamped;
+	return level < int(u_Params.FineLevels) ? texelFetch(u_HiZFine, texel, 0).rg
+											: texelFetch(u_HiZCoarse, texel, 0).rg;
 }
 
 vec3 ViewPositionAt(vec2 uv)
 {
-	return ViewPosition(uv, LinearDepthAt(uv), InvProjection());
+	const ivec2 texel = ivec2(uv * vec2(BaseSize()));
+	return ViewPosition(uv, HiZ(0, texel).x, InvProjection());
+}
+
+uint Hash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
 }
 
 void main()
@@ -117,8 +173,7 @@ void main()
 	// The world normal into the frame the march runs in: the view rotation,
 	// then the frame's own z and y conventions -- one function, shared with
 	// SSAO, stated in view_reconstruction.glsl and measured on a mirror
-	// sphere. The first version of this pass did it inline, and did it
-	// right only for normals with no x-component; 7ae has the story.
+	// sphere (7ae).
 	const vec3 normal = ReconstructionNormal(OctDecode(surface.rg),
 											 u_Params.ViewRow0.xyz,
 											 u_Params.ViewRow1.xyz,
@@ -140,37 +195,174 @@ void main()
 		return;
 	}
 
-	// The march. Start one step out so the first sample is not the surface
-	// itself, which trivially "hits".
-	const float stepLength = u_Params.MaxDistance / float(kSteps);
-	vec3 previous = position;
-	vec3 current = position;
+	// The far end of the ray, clipped so it never crosses the near plane:
+	// a point behind the camera has no projection.
+	float rayLength = u_Params.MaxDistance;
+	if (reflected.z < 0.0)
+		rayLength = min(rayLength, (position.z - u_Params.NearClip * 1.01) / -reflected.z);
+	const vec3 endPoint = position + reflected * rayLength;
+
+	// Both ends in level-0 texels, and 1/z at both -- depth is not linear
+	// along a projected line, but its reciprocal is, so the ray's depth at
+	// any point along the way is 1 / mix(1/z0, 1/z1, t) with t linear in
+	// screen space. This is what lets the walk happen in screen space and
+	// still compare depths honestly.
+	const ivec2 base = BaseSize();
+	const vec2 baseSize = vec2(base);
+	const vec2 P0 = ViewToUv(position, InvProjection()) * baseSize;
+	vec2 P1 = ViewToUv(endPoint, InvProjection()) * baseSize;
+	const float K0 = 1.0 / position.z;
+	const float K1 = 1.0 / endPoint.z;
+
+	// A ray that projects to almost nothing -- straight away from the
+	// camera -- still has to be walked, so give it a texel of length.
+	if (dot(P1 - P0, P1 - P0) < 1.0e-4)
+		P1 += vec2(0.01, 0.01);
+
+	const vec2 D = P1 - P0;
+	// A step past a cell boundary, in t, so the next iteration lands in the
+	// next cell rather than on the line between them; and one stride of
+	// texels along the ray's major axis, in t.
+	const float tPerTexel = 1.0 / max(abs(D.x), abs(D.y));
+	const float tNudge = 0.05 * tPerTexel;
+	const float tStride = kStride * tPerTexel;
+
+	// Start a jittered fraction of a texel in, from the pixel coordinate
+	// alone -- never the frame. Breaks the banding a fixed start would leave
+	// along every crossing, and keeps --screenshot-frame's meaning.
+	const uvec2 pixel = uvec2(uv * baseSize);
+	const float jitter = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y)) / 4294967296.0;
+
+	const int maxLevel = int(u_Params.Levels) - 1;
+	int level = 0;
+	float t = jitter * tPerTexel;
+	float stride = tStride;
+
+	// A rough surface's reflection is a blur the trace only has to place,
+	// not resolve, and the fade to the probe past its budget is invisible
+	// under that blur; give it fewer steps. Roughness 0.55 and below keeps
+	// the whole budget, and it falls with the same curve the confidence
+	// does.
+	const int budget = int(mix(float(kMaxIterations) * 0.3, float(kMaxIterations), roughFade));
+
+	// The origin is *on* its surface: neither in front nor behind, so a
+	// crossing needs the ray to have been in front of something first. This
+	// is what stops a ray leaving a sphere's limb from "hitting" the sphere's
+	// own bulge, which is nearer than the limb at every texel the ray
+	// crosses on its way behind it: never in front, so never a crossing --
+	// it skips behind the sphere as fast as it skips in front of anything,
+	// because the cells it is behind are cells it is farther than everything
+	// in, and comes out the other side.
+	bool wasInFront = false;
+	float tPrevious = t;
+	float zPrevious = position.z;
+
 	bool hit = false;
+	ivec2 hitCell = ivec2(0);
+	float hitZ = 0.0;
 
-	for (int i = 1; i <= kSteps; i++)
+	for (int i = 0; i < kMaxIterations; i++)
 	{
-		current = position + reflected * (stepLength * float(i));
-
-		// Behind the camera, or past the far plane: the ray has left the
-		// volume the depth buffer describes.
-		if (current.z <= u_Params.NearClip)
+		if (t >= 1.0 || i >= budget)
 			break;
 
-		const vec2 sampleUv = ViewToUv(current, InvProjection());
-		if (any(lessThan(sampleUv, vec2(0.0))) || any(greaterThan(sampleUv, vec2(1.0))))
+		const vec2 P = P0 + D * t;
+		if (any(lessThan(P, vec2(0.0))) || any(greaterThanEqual(P, baseSize)))
 			break;
 
-		const float sceneZ = LinearDepthAt(sampleUv);
-		const float behind = current.z - sceneZ;
-
-		// Crossed the surface, and by less than a thickness.
-		if (behind > 0.0 && behind < u_Params.Thickness)
+		if (level == 0)
 		{
-			hit = true;
-			break;
+			// The texel under the ray, and the ray's depth *here* against the
+			// texel's -- one place, one comparison. In front sets the front
+			// the crossing test needs; not in front after in front is the
+			// crossing, if the ray arrived at most a thickness behind.
+			const ivec2 texel = ivec2(floor(P));
+			const float zTexel = HiZ(0, texel).x;
+			const float zRay = 1.0 / mix(K0, K1, t);
+			const bool inFront = zRay < zTexel * (1.0 - kDepthTolerance);
+
+			// The thickness is asked of the *previous* sample: how far behind
+			// this texel's surface the ray already was before the stride that
+			// brought it here. A real crossing arrives from in front, so that
+			// is negative; a ray that went past a thin thing was in front of
+			// the wall beyond and is now a metre behind the railing. Asking it
+			// of *this* sample would reject every steep ray, whose depth moves
+			// more than a thickness in one stride.
+			if (wasInFront && !inFront && zPrevious - zTexel <= u_Params.Thickness)
+			{
+				// Where along the ray its depth equals the surface's: exact
+				// for a planar depth, clamped between the last sample and
+				// this one.
+				const float kCross = 1.0 / zTexel;
+				const float tCross = (K1 != K0)
+					? clamp((kCross - K0) / (K1 - K0), tPrevious, t) : t;
+				hit = true;
+				hitCell = ivec2(floor(P0 + D * tCross));
+				hitZ = zTexel;
+				break;
+			}
+
+			// One stride on. Then, if the ray is well clear of the surface it
+			// is passing over -- in front by several strides' worth of its
+			// own depth change -- try a coarser cell next; a ray hugging its
+			// floor never is, and stays here.
+			const float depthPerStride = abs(zRay - zPrevious);
+			wasInFront = inFront;
+			tPrevious = t;
+			zPrevious = zRay;
+			t += stride;
+			stride *= kStrideGrowth;
+			if (inFront && zTexel - zRay > kClearance * max(depthPerStride, 1.0e-4))
+				level = min(1, maxLevel);
+			continue;
 		}
 
-		previous = current;
+		// A coarse cell: where the ray leaves it, and the ray's depth range
+		// across it, against the cell's nearest and farthest.
+		const float span = float(1 << level);
+		const ivec2 cell = ivec2(floor(P / span));
+		const vec2 boundary = (vec2(cell) + step(vec2(0.0), D)) * span;
+		const vec2 tBoundary = mix(vec2(1.0e9), (boundary - P0) / D, notEqual(D, vec2(0.0)));
+		const float tExit = min(min(tBoundary.x, tBoundary.y), 1.0);
+
+		const vec2 zCell = HiZ(level, cell);
+		const float zEntry = 1.0 / mix(K0, K1, t);
+		const float zExit = 1.0 / mix(K0, K1, tExit);
+		const float rayNear = min(zEntry, zExit);
+		const float rayFar = max(zEntry, zExit);
+
+		// Nearer than everything in the cell: skip it, remember the ray was
+		// in front, and try a coarser cell next.
+		if (rayFar < zCell.x * (1.0 - kDepthTolerance))
+		{
+			wasInFront = true;
+			tPrevious = tExit;
+			zPrevious = zExit;
+			t = tExit + tNudge;
+			level = min(level + 1, maxLevel);
+			continue;
+		}
+
+		// Farther than everything in the cell, and not just arrived there
+		// from in front: nothing in it can be crossed, so skip it the same
+		// way. But a ray that *was* in front and is now behind everything has
+		// crossed something at this cell's edge -- the surface stepped
+		// nearer between one texel and the next, which a face seen at a
+		// graze does every texel -- and skipping would carry it past the
+		// crossing; that case looks closer instead.
+		if (rayNear > zCell.y * (1.0 + kDepthTolerance) && !wasInFront)
+		{
+			tPrevious = tExit;
+			zPrevious = zExit;
+			t = tExit + tNudge;
+			level = min(level + 1, maxLevel);
+			continue;
+		}
+
+		// The ray's depth range overlaps the cell's, or the ray has just
+		// gone behind it. A coarser cell says nothing about *where* in it;
+		// look closer.
+		level--;
 	}
 
 	if (!hit)
@@ -179,21 +371,7 @@ void main()
 		return;
 	}
 
-	// Binary refinement between the last miss and the hit, so the landing
-	// point is accurate to a fraction of a step rather than to a step.
-	vec3 lo = previous;
-	vec3 hi = current;
-	for (int i = 0; i < kRefine; i++)
-	{
-		const vec3 mid = (lo + hi) * 0.5;
-		const float sceneZ = LinearDepthAt(ViewToUv(mid, InvProjection()));
-		if (mid.z > sceneZ)
-			hi = mid;
-		else
-			lo = mid;
-	}
-
-	const vec2 hitUv = ViewToUv(hi, InvProjection());
+	const vec2 hitUv = (vec2(hitCell) + 0.5) / baseSize;
 
 	// Confidence folds every reason to trust this hit less:
 	//   * the edge fade -- a hit near the screen border blends toward the
@@ -203,8 +381,8 @@ void main()
 	const vec2 border = smoothstep(vec2(0.0), vec2(0.1), hitUv)
 					  * (1.0 - smoothstep(vec2(0.9), vec2(1.0), hitUv));
 	const float edgeFade = border.x * border.y;
-	const float lengthFade = 1.0 - smoothstep(0.7, 1.0,
-											  length(hi - position) / u_Params.MaxDistance);
+	const float travelled = length(ViewPosition(hitUv, hitZ, InvProjection()) - position);
+	const float lengthFade = 1.0 - smoothstep(0.7, 1.0, travelled / u_Params.MaxDistance);
 
 	const float confidence = edgeFade * lengthFade * facing * roughFade;
 

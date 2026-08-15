@@ -74,7 +74,8 @@ namespace RageV
 				case 19: return "assets/shaders/ssao_blur.rvshader";
 				case 20: return "assets/shaders/ssao_apply.rvshader";
 				case 21: return "assets/shaders/ssr_trace.rvshader";
-				default: return "assets/shaders/ssr_resolve.rvshader";
+				case 22: return "assets/shaders/ssr_resolve.rvshader";
+				default: return "assets/shaders/ssr_hiz.rvshader";
 			}
 		}
 
@@ -94,7 +95,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 23> Shaders;
+			std::array<Ref<RHIShader>, 24> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -154,7 +155,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 23,
+		static_assert((int)Shader::Count <= 24,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -815,17 +816,92 @@ namespace RageV
 					  "ViewRow0 must sit on a 16-byte boundary for the shader's vec4");
 	}
 
-	void PostProcess::SsrTrace(RHICommandList& cmd, const Ref<RHITexture>& depth,
+	namespace
+	{
+		struct SsrHiZParams
+		{
+			PostParams Base;   // A = level 0 width, B = level 0 height, C = levels
+			float FirstLevel = 0.0f;
+			float LastLevel = 0.0f;
+			float SourceLevel = -1.0f;
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+		};
+
+		SsrHiZParams HiZParams(uint32_t traceWidth, uint32_t traceHeight,
+							   float nearClip, float farClip)
+		{
+			uint32_t atlasWidth = 1, atlasHeight = 1;
+			PostProcess::SsrHiZSize(traceWidth, traceHeight, atlasWidth, atlasHeight);
+
+			SsrHiZParams params;
+			params.Base.TexelSize = { 1.0f / (float)Math::Max(atlasWidth, 1u),
+									  1.0f / (float)Math::Max(atlasHeight, 1u) };
+			params.Base.A = (float)traceWidth;
+			params.Base.B = (float)traceHeight;
+			params.Base.C = (float)PostProcess::kSsrHiZLevels;
+			params.NearClip = nearClip;
+			params.FarClip = farClip;
+			return params;
+		}
+	}
+
+	void PostProcess::SsrHiZSize(uint32_t traceWidth, uint32_t traceHeight,
+								 uint32_t& atlasWidth, uint32_t& atlasHeight)
+	{
+		// Mirrors HiZAtlasSize in include/hiz_atlas.glsl: level 0 plus a
+		// half-width column for every level after it.
+		atlasWidth = traceWidth + (traceWidth >> 1);
+		atlasHeight = traceHeight;
+	}
+
+	void PostProcess::SsrHiZFine(RHICommandList& cmd, const Ref<RHITexture>& depth,
+								 uint32_t traceWidth, uint32_t traceHeight,
+								 float nearClip, float farClip, Format outputFormat)
+	{
+		if (!s_Data || !depth)
+			return;
+
+		SsrHiZParams params = HiZParams(traceWidth, traceHeight, nearClip, farClip);
+		params.FirstLevel = 0.0f;
+		params.LastLevel = (float)(kSsrHiZFineLevels - 1);
+		params.SourceLevel = -1.0f;
+
+		// Point: a filtered depth is a surface that does not exist.
+		Dispatch(cmd, Shader::SsrHiZ, outputFormat, depth, nullptr,
+				 &params, sizeof(params), Sampling::Point);
+	}
+
+	void PostProcess::SsrHiZCoarse(RHICommandList& cmd, const Ref<RHITexture>& fine,
+								   uint32_t traceWidth, uint32_t traceHeight,
+								   float farClip, Format outputFormat)
+	{
+		if (!s_Data || !fine)
+			return;
+
+		SsrHiZParams params = HiZParams(traceWidth, traceHeight, 0.05f, farClip);
+		params.FirstLevel = (float)kSsrHiZFineLevels;
+		params.LastLevel = (float)(kSsrHiZLevels - 1);
+		params.SourceLevel = (float)(kSsrHiZFineLevels - 1);
+
+		Dispatch(cmd, Shader::SsrHiZ, outputFormat, fine, nullptr,
+				 &params, sizeof(params), Sampling::Point);
+	}
+
+	void PostProcess::SsrTrace(RHICommandList& cmd, const Ref<RHITexture>& hiZFine,
+							   const Ref<RHITexture>& hiZCoarse,
 							   const Ref<RHITexture>& surface,
 							   uint32_t width, uint32_t height,
 							   const SsrParams& ssr, Format outputFormat)
 	{
-		if (!s_Data || !depth || !surface)
+		if (!s_Data || !hiZFine || !hiZCoarse || !surface)
 			return;
 
 		SsrTraceParams params;
 		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 								  1.0f / (float)Math::Max(height, 1u) };
+		params.Base.A = (float)kSsrHiZLevels;
+		params.Base.B = (float)kSsrHiZFineLevels;
 		params.NearClip = ssr.View.NearClip;
 		params.FarClip = ssr.View.FarClip;
 		params.InvP0 = ssr.View.InvProjection0;
@@ -834,10 +910,11 @@ namespace RageV
 		params.Thickness = Math::Max(ssr.Thickness, 0.01f);
 		ViewRows(ssr.View.View, params.ViewRow0, params.ViewRow1, params.ViewRow2);
 
-		// Both point sampled: a filtered depth is a surface that does not
-		// exist, and a filtered normal is a direction nothing faces.
-		Dispatch(cmd, Shader::SsrTrace, outputFormat, depth, surface,
-				 &params, sizeof(params), Sampling::Point, Sampling::Point);
+		// All point sampled: the atlases are fetched by texel, and a filtered
+		// normal is a direction nothing faces.
+		Dispatch(cmd, Shader::SsrTrace, outputFormat, hiZFine, surface,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point,
+				 hiZCoarse, Sampling::Point);
 	}
 
 	void PostProcess::SsrResolve(RHICommandList& cmd, const Ref<RHITexture>& scene,

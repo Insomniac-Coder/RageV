@@ -231,7 +231,7 @@ namespace RageV
 							  const RHI::Ref<RHI::RHITexture>& occlusion,
 							  float intensity, RHI::Format outputFormat);
 
-		// SSR (9.7), two passes. ENGINE-NOTES 7ad.
+		// SSR (9.7, 9.10), three passes. ENGINE-NOTES 7ad, 7ag.
 		struct SsrParams
 		{
 			ViewReconstruction View;
@@ -239,9 +239,34 @@ namespace RageV
 			float Thickness = 0.5f;      // metres
 		};
 
-		// 1: the march, at half resolution. Writes hit uv + confidence.
+		// How many levels the hi-Z pyramid holds, how many of them the fine
+		// atlas holds (the coarse atlas has the rest), and the atlases' size
+		// for a trace of `width` x `height`. The layout is
+		// include/hiz_atlas.glsl; this is the C++ that has to agree with it
+		// about the outer size and the split.
+		static constexpr uint32_t kSsrHiZLevels = 6;
+		static constexpr uint32_t kSsrHiZFineLevels = 3;
+		static void SsrHiZSize(uint32_t traceWidth, uint32_t traceHeight,
+							   uint32_t& atlasWidth, uint32_t& atlasHeight);
+
+		// 0a: the fine levels of the min-depth pyramid, from the scene depth.
+		// `traceWidth`/`traceHeight` are level 0's size.
+		static void SsrHiZFine(RHI::RHICommandList& cmd,
+							   const RHI::Ref<RHI::RHITexture>& depth,
+							   uint32_t traceWidth, uint32_t traceHeight,
+							   float nearClip, float farClip, RHI::Format outputFormat);
+
+		// 0b: the coarse levels, from the fine atlas's last level.
+		static void SsrHiZCoarse(RHI::RHICommandList& cmd,
+								 const RHI::Ref<RHI::RHITexture>& fine,
+								 uint32_t traceWidth, uint32_t traceHeight,
+								 float farClip, RHI::Format outputFormat);
+
+		// 1: the walk through the atlases, at half resolution. Writes hit uv
+		// + confidence.
 		static void SsrTrace(RHI::RHICommandList& cmd,
-							 const RHI::Ref<RHI::RHITexture>& depth,
+							 const RHI::Ref<RHI::RHITexture>& hiZFine,
+							 const RHI::Ref<RHI::RHITexture>& hiZCoarse,
 							 const RHI::Ref<RHI::RHITexture>& surface,
 							 uint32_t width, uint32_t height,
 							 const SsrParams& params, RHI::Format outputFormat);
@@ -278,6 +303,7 @@ namespace RageV
 			MotionBlurPack, MotionBlurTileMax, MotionBlurNeighborMax, MotionBlurGather,
 			SsaoCompute, SsaoBlur, SsaoApply,
 			SsrTrace, SsrResolve,
+			SsrHiZ,
 			Count
 		};
 

@@ -4687,6 +4687,116 @@ said it could not should say so.
 
 ---
 
+## 7ag. The SSR march becomes a walk (9.10): screen space, a crossing, and a pyramid that helps less than it should
+
+The 9.x list called this "hi-Z for the SSR march" and priced it as a
+performance item. It turned into a correctness item first, because the
+owner looked at the demo's brass sphere under 9.9's correct weight and saw
+what 7ad's march did to a curved surface: orange flecks where a smooth
+reflection should be. The march had three faults, all of them one fault --
+**it compared the ray's depth against a depth sampled somewhere else.**
+
+### What the linear march got wrong
+
+7ad stepped a fixed distance in view space, projected each step to a uv,
+and read the depth there. The read lands on a texel whose centre is up to
+a texel away from where the ray is; on a floor seen at a graze a texel of
+depth spans a quarter of a metre, and a ray rising three centimetres a
+step reads as behind the floor it just left -- the two-row band at the
+horizon 7af recorded. On a sphere the step was half a metre and the
+thickness half a metre, so a ray leaving the limb passed behind the
+sphere's own bulge within the thickness and hit it: the sphere reflected
+itself, in flecks, because whether a given ray did depended on where its
+steps happened to fall. And a hit was "behind by less than a thickness",
+which couples the thickness to the step -- a thin object needs a large
+thickness to be found and a large thickness finds things that are not
+there.
+
+### The walk
+
+The march is in screen space now. Both ends of the ray project to the
+trace's pixels; the ray's depth along the projected line is
+`1 / mix(1/z0, 1/z1, t)`, exact under perspective, so at any pixel the
+walk knows the ray's depth *at that pixel* and compares it with the depth
+stored *for that pixel*. A hit is a **crossing**: in front of the depth
+buffer at one sample, not in front at the next. That single rule removes
+every self-hit -- the ray's own origin is on its surface, neither in front
+nor behind, and a ray leaving a sphere's limb toward its bulge is behind
+from the first sample, so it never crosses -- and it decouples the
+thickness from the step. The thickness now asks one question, of the
+sample *before* the crossing: how far behind the surface it is about to
+meet was the ray already? A real surface is met from in front, so zero or
+less; a railing the ray went past is met from a metre behind, having been
+in front of the wall beyond, and is rejected. (Asked of the sample after
+the crossing it rejects every steep ray, whose depth moves more than a
+thickness in one stride; that was a bug on the way here.) The landing
+point is solved analytically between the two samples that bracket it, so
+a coarse stride costs precision only where the surface curves between
+them.
+
+The first version of the walk required "behind" at the crossing rather
+than "not in front"; a ray that arrived at a wall without overshooting
+read as *on* it, that reset the front, and half the block's reflection was
+holes. Recorded because it is the kind of off-by-one a crossing test
+invites.
+
+### The pyramid, and what it is for
+
+Above the level-0 walk sits a **min/max depth pyramid** -- six levels over
+the trace's pixels, each cell holding the nearest and farthest depth
+beneath it -- and the walk uses it the way hi-Z is meant to be used: a
+ray whose depth range across a cell is nearer than everything in it skips
+the cell and tries a coarser one; farther than everything in it, likewise
+(if it was not just in front -- a ray that was in front and is now behind
+everything crossed something at the cell's edge, and looks closer
+instead); overlapping, it descends. The pyramid is two atlases built by
+two passes, because the RHI has no per-mip render targets and reading a
+target while writing it is a hazard on both backends: fine levels straight
+from the scene depth, coarse levels from the fine atlas's last level.
+Two passes rather than one because the first version built all six levels
+in one pass and the *smallest* level's few hundred texels, each taking the
+minimum of a thousand fetches in a loop the compiler cannot unroll, made
+that pass cost 0.4 ms -- more than the march it existed to accelerate.
+Two passes cap the block at 64 fetches and the build at 0.08 ms.
+`include/hiz_atlas.glsl` is the layout, and both the builder and the walk
+include it.
+
+Now the honest part. **On the demo the pyramid does not pay.** The
+courtyard's reflections come off a floor and three walls seen at a graze,
+and a ray leaving a surface at a graze hugs it: its depth range across any
+cell overlaps the cell's, at every level, so it can never use a coarse
+cell and walks level 0 -- which is what the pyramid cannot help, and what
+a screen-space DDA does at a stride. So level 0 *is* a DDA: a stride of
+three texels, growing two percent a step, comparing at the texel; the
+pyramid takes over only when a level-0 sample finds the ray clear of its
+surface by several strides' worth of depth. Rays that leave -- toward the
+sky, off a sphere, off a wall seen head-on -- climb and cross the frame in
+a dozen iterations; rays that stay pay the DDA. Measured at 1440p on the
+demo, the SSR total: 7ad's linear march 0.46 ms (wrong); the DDA alone
+0.67; the walk with the pyramid 0.75, of which 0.13 is fixed and 0.08 the
+pyramid. Iteration counts, imaged: the walls and floor at a graze run past
+a hundred, everything else under forty. The pyramid earns its place on the
+scenes where reflections leave their surfaces, and this section says
+plainly that the demo is not one. A rough surface's budget scales down
+with its roughness fade, since its reflection is a blur the trace only
+has to place.
+
+### What the check saw
+
+`check_ssr.py`, unchanged in what it asks: mirror gain 79.6, rough 14.9,
+exactness 0.00 levels, both backends 0.1 rows apart, off byte-exact, a
+frame reproduces. The sphere's limb went from 84 to 104 levels -- more of
+the limb resolves -- and its crescent, imaged, is solid where 7ad's was
+ragged with a hole. The horizon band is gone: zero pixels differ between
+on and off outside the block's reflection, on either backend. On the demo
+the brass sphere reflects the wall and the flame as a continuous band.
+
+What 9.10 does not do: multiple rays for a roughness lobe (the resolve's
+disc still stands in), and any temporal reuse. Both are the follow-ups
+after this one, and both would want the walk exactly as it is.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

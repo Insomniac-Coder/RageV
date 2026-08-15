@@ -1,0 +1,150 @@
+// SSR, pass 0 of 3: the hi-Z atlas -- a min/max depth pyramid over the
+// trace's pixels, built in two passes.
+//
+// Every atlas texel works out which level it belongs to from where it sits
+// (include/hiz_atlas.glsl), then takes the *closest* and the *farthest*
+// depth over the block of source texels it covers. Both, because the walk
+// skips a cell in either of two cases -- the ray is nearer than everything
+// in it, or farther than everything in it -- and only looks closer when its
+// depth range overlaps the cell's. A min alone would leave a ray behind an
+// occluder creeping out a texel at a time. The first pass builds the fine levels straight
+// from the scene depth into one atlas; the second builds the coarse levels
+// from the finest level the first one wrote, into a second atlas of the
+// same layout. Two passes and two atlases rather than one of each because
+// a level's block grows four-fold per level, and a texel that has to take
+// the minimum of a thousand fetches in a loop the compiler cannot unroll
+// waits for each before issuing the next: the first version did all six
+// levels in one pass and the *smallest* level's few hundred texels made
+// the pass cost more than the march it was there to speed up. Two passes
+// cap the block at 64 fetches. ENGINE-NOTES 7ag.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+// Linear depth, in metres: the nearest (R) and farthest (G) surface in
+// this texel's block.
+layout(location = 0) out vec2 o_Depth;
+
+// The source. In the first pass the scene's depth, point sampled at the
+// trace's pixel centres -- level 0 is that read, made once. In the second,
+// the first pass's atlas, fetched by texel at its finest built level.
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header: the atlas's texel
+	float TexelY;
+	float BaseWidth;     // A: level 0's size, in texels
+	float BaseHeight;    // B
+	float Levels;        // C: how many levels the atlas holds in all
+	float FlipY;
+
+	float FirstLevel;    // the levels this pass writes, inclusive
+	float LastLevel;
+	// The level of the atlas the source *is*, or -1 when the source is the
+	// scene depth (which is level 0 sampled at pixel centres).
+	float SourceLevel;
+	float NearClip;
+	float FarClip;
+} u_Params;
+
+#include "include/hiz_atlas.glsl"
+
+float LinearDepth(float depth)
+{
+	const float n = u_Params.NearClip;
+	const float f = u_Params.FarClip;
+	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+}
+
+void main()
+{
+	// Framebuffer coordinates are texel coordinates on both backends -- row
+	// zero is row zero -- and the trace fetches this atlas by texel, so
+	// nothing here needs the flip.
+	const ivec2 atlasTexel = ivec2(gl_FragCoord.xy);
+	const ivec2 base = ivec2(int(u_Params.BaseWidth), int(u_Params.BaseHeight));
+	const int first = int(u_Params.FirstLevel);
+	const int last = int(u_Params.LastLevel);
+	const int sourceLevel = int(u_Params.SourceLevel);
+
+	// Which level this texel is in, and where in it.
+	int level = -1;
+	ivec2 local = ivec2(0);
+	for (int k = first; k <= last; k++)
+	{
+		const ivec2 origin = HiZLevelOrigin(base, k);
+		const ivec2 size = HiZLevelSize(base, k);
+		const ivec2 offset = atlasTexel - origin;
+		if (all(greaterThanEqual(offset, ivec2(0))) && all(lessThan(offset, size)))
+		{
+			level = k;
+			local = offset;
+			break;
+		}
+	}
+
+	// Not one of this pass's levels: the other pass's, or the gap between
+	// stacked levels, which belongs to nobody. Far, so a walk that somehow
+	// reads one sees nothing in front of it.
+	if (level < 0)
+	{
+		o_Depth = vec2(u_Params.FarClip);
+		return;
+	}
+
+	float nearest = u_Params.FarClip;
+	float farthest = 0.0;
+
+	if (sourceLevel < 0)
+	{
+		// From the scene depth: the block of level-0 texels under this one,
+		// each read where the trace would read it.
+		const int span = 1 << level;
+		const ivec2 start = local * span;
+		for (int y = 0; y < span; y++)
+		{
+			for (int x = 0; x < span; x++)
+			{
+				const ivec2 texel = min(start + ivec2(x, y), base - 1);
+				const vec2 uv = (vec2(texel) + 0.5) / vec2(base);
+				const float z = LinearDepth(texture(u_Source, uv).r);
+				nearest = min(nearest, z);
+				farthest = max(farthest, z);
+			}
+		}
+	}
+	else
+	{
+		// From an already-built level of the other atlas: the block of its
+		// texels under this one.
+		const int span = 1 << (level - sourceLevel);
+		const ivec2 sourceOrigin = HiZLevelOrigin(base, sourceLevel);
+		const ivec2 sourceSize = HiZLevelSize(base, sourceLevel);
+		const ivec2 start = local * span;
+		for (int y = 0; y < span; y++)
+		{
+			for (int x = 0; x < span; x++)
+			{
+				const ivec2 texel = min(start + ivec2(x, y), sourceSize - 1);
+				const vec2 range = texelFetch(u_Source, sourceOrigin + texel, 0).rg;
+				nearest = min(nearest, range.r);
+				farthest = max(farthest, range.g);
+			}
+		}
+	}
+
+	o_Depth = vec2(nearest, farthest);
+}

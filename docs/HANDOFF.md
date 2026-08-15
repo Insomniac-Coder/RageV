@@ -235,8 +235,11 @@ reconstruction frame it forced, ENGINE-NOTES 7ae, which found and fixed a
 transform in the SSR trace that was right only for sideways-free normals)
 and 9.9 (SSR replaces the probe exactly: the blend moved into the
 lighting, one frame late, ENGINE-NOTES 7af; the check measures 0.00 levels
-against the law) are done; 9.10 hi-Z and 9.11 probe barriers follow. See
-START HERE in the log below.
+against the law) and 9.10 (the SSR march is a screen-space walk with a
+crossing test and a min/max pyramid, ENGINE-NOTES 7ag; correct on every
+fixture, and honest that the pyramid does not pay on the demo's grazing
+rays) are done; 9.11 probe barriers is next. See START HERE in the log
+below.
 
 Roadmap **phase 8 is open work, not excluded** -- GI, bindless, GPU-driven
 rendering, terrain, navmesh, networking, other platforms, XR, FBX, visual
@@ -1585,11 +1588,12 @@ four small follow-ups before phase 8, in this order:
 1. **9.8 SSAO reads the real normal** -- done (below).
 2. **9.9 SSR's exact probe replacement** -- done (below). The blend moved
    into the lighting, one frame late; ENGINE-NOTES 7af.
-3. **9.10 Hi-Z for the SSR march** -- next. Read 7af's "grazing
-   self-hits" first: the march has to become a screen-space DDA that
-   compares at texel centres, and hi-Z is the pyramid over that. The
-   horizon band on the mirror fixture is the measurement it must clear.
-4. **9.11 The probe convolution's serialized barriers on Vulkan** (V.3).
+3. **9.10 Hi-Z for the SSR march** -- done (below). The march is a
+   screen-space walk with a crossing test and a min/max pyramid; the
+   sphere is smooth and the horizon clean, and 7ag says plainly that the
+   pyramid does not pay on the demo's grazing rays.
+4. **9.11 The probe convolution's serialized barriers on Vulkan** (V.3)
+   -- next.
 
 Then **phase 8**, reopened at the owner's direction and priced in the
 roadmap: every item is L or XL. 8.2 bindless is a *decision about the
@@ -1597,6 +1601,44 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 9.10, the SSR march is a screen-space walk with a pyramid (2026-08-15)
+
+ENGINE-NOTES 7ag. Priced as performance, it was correctness first: the
+owner looked at the demo's brass sphere under 9.9's correct weight and saw
+7ad's march -- fixed view-space steps compared against depths sampled a
+texel away -- as orange flecks and self-hits. The march now walks in
+screen space with the ray's depth interpolated perspective-correctly to
+each texel it visits, a hit is a *crossing* (in front, then not), the
+thickness asks how far behind the ray already was at the sample *before*
+the crossing (asked of the sample after, it drops every steep ray -- a bug
+on the way), and the landing is solved between the bracketing samples.
+Above that, a min/max pyramid (two atlases, two passes, R32G32F, six
+levels; `include/hiz_atlas.glsl` is the one layout both shaders use) lets
+rays that leave their surface cross the frame in a dozen iterations. Rays
+that hug their surface cannot use it at any level, and the demo's floor
+and walls at a graze are all such rays -- so level 0 is a three-texel
+stride growing 2 % a step, and the pyramid takes over only when a sample
+finds the ray clear of its surface.
+
+**Numbers, 1440p, demo, SSR total:** 7ad linear 0.46 ms (wrong), DDA
+alone 0.67, walk + pyramid 0.75 (0.13 fixed, 0.08 pyramid). Written down
+as it is: the pyramid does not pay on this scene. It pays where reflections
+leave their surfaces. **Quality:** the fixture sphere's crescent is solid
+where it was ragged with a hole (limb 84 -> 104 levels); the horizon band
+is gone on both backends (zero pixels differ outside the block's
+reflection); exactness still 0.00; the demo sphere reflects the wall and
+flame as a continuous band. All checks green, both backends 0.1 rows apart.
+The single-pass pyramid was tried first and cost 0.4 ms by itself -- a
+thousand serial fetches per texel of the smallest level; two passes cap
+the block at 64.
+
+Verified: 1538 scenetest checks both backends under validation (the SSR
+graph check names all four stages now), zero `[Vulkan]` lines, editor
+demo both backends, all three configs, `check_ssr.py`, `check_ssao.py`,
+`rvdoc --check`.
 
 ---
 

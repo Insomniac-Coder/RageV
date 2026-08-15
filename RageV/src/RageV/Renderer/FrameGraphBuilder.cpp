@@ -676,6 +676,23 @@ namespace RageV
 			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);
 			const uint32_t halfHeight = Math::Max(desc.Height / 2u, 1u);
 
+			// The hi-Z atlas: a min-depth pyramid over the trace's pixels, one
+			// target sized by hand because its shape is level 0 plus a
+			// half-width column of the levels after it, which is not a
+			// fraction of the frame. ENGINE-NOTES 7ag.
+			uint32_t atlasWidth = 1, atlasHeight = 1;
+			PostProcess::SsrHiZSize(halfWidth, halfHeight, atlasWidth, atlasHeight);
+
+			RGTargetDesc hiZDesc;
+			hiZDesc.Name = "SsrHiZFine";
+			hiZDesc.Color = Format::R32G32_SFLOAT;
+			hiZDesc.Depth = Format::Undefined;
+			hiZDesc.Width = atlasWidth;
+			hiZDesc.Height = atlasHeight;
+			const RGResource hiZFine = graph.CreateTarget(hiZDesc);
+			hiZDesc.Name = "SsrHiZCoarse";
+			const RGResource hiZCoarse = graph.CreateTarget(hiZDesc);
+
 			RGTargetDesc traceDesc;
 			traceDesc.Name = "SsrTrace";
 			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
@@ -691,17 +708,51 @@ namespace RageV
 			const RGResource lit = shaded;
 			const uint32_t width = desc.Width;
 			const uint32_t height = desc.Height;
+			const float nearClip = desc.NearClip;
+			const float farClip = desc.FarClip;
+
+			graph.AddPass("SSR hi-Z fine",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(hiZFine);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, halfWidth, halfHeight, nearClip, farClip](RGPassContext& context)
+				{
+					PostProcess::SsrHiZFine(context.Cmd, context.Depth(sceneHDR),
+											halfWidth, halfHeight, nearClip, farClip,
+											Format::R32G32_SFLOAT);
+				});
+
+			graph.AddPass("SSR hi-Z coarse",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(hiZCoarse);
+					builder.Sample(hiZFine);
+					builder.DisableDepth();
+				},
+				[hiZFine, halfWidth, halfHeight, farClip](RGPassContext& context)
+				{
+					PostProcess::SsrHiZCoarse(context.Cmd, context.Color(hiZFine),
+											  halfWidth, halfHeight, farClip,
+											  Format::R32G32_SFLOAT);
+				});
 
 			graph.AddPass("SSR trace",
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(trace);
+					builder.Sample(hiZFine);
+					builder.Sample(hiZCoarse);
 					builder.Sample(sceneHDR);
 					builder.DisableDepth();
 				},
-				[sceneHDR, normalIndex, halfWidth, halfHeight, ssr](RGPassContext& context)
+				[hiZFine, hiZCoarse, sceneHDR, normalIndex, halfWidth, halfHeight,
+				 ssr](RGPassContext& context)
 				{
-					PostProcess::SsrTrace(context.Cmd, context.Depth(sceneHDR),
+					PostProcess::SsrTrace(context.Cmd, context.Color(hiZFine),
+										  context.Color(hiZCoarse),
 										  context.Color(sceneHDR, normalIndex),
 										  halfWidth, halfHeight, ssr,
 										  Format::R16G16B16A16_SFLOAT);
