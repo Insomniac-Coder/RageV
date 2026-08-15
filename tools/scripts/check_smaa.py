@@ -46,6 +46,7 @@ Usage:
 
 import argparse
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -112,6 +113,22 @@ REQUIRED_GAIN = 2.5
 # which is the defect this exists to catch, and the run that proves the guard
 # can still fail.
 TAA_REQUIRED_GAIN = 1.25
+
+# And the feedback that table was measured at, asserted rather than assumed.
+#
+# The value lives in the *project*, not in this script and not on the command
+# line -- there is no `--feedback=`, so the check measures whatever the
+# `.rvproject` happens to say. It was found at 0.0 once, after an editing
+# session, and the four failures that produced read exactly like a broken
+# renderer: "TAA is only 1.0x better than no filter". It was not. It was TAA
+# with the accumulation turned off, which is the f = 0.0 row of the table
+# above, reproduced to two decimal places.
+#
+# So the check states the setting it is measuring at and stops if the project
+# disagrees. The alternative is a check that quietly changes what it measures
+# whenever somebody drags a slider, which is the same failure as 7r's and
+# costs an hour of looking at the wrong code.
+TAA_CALIBRATED_FEEDBACK = 0.6
 
 # The two backends run different drivers and different rasterisers, so their
 # coverage will not be bit-identical everywhere in general. On this scene the
@@ -230,6 +247,24 @@ def main():
     scenes = root / "SampleProject" / "assets" / "scenes"
     shots = root / "build" / "smaa-check"
     shots.mkdir(parents=True, exist_ok=True)
+
+    # Before rendering anything, because a run at the wrong feedback measures
+    # a different filter and reports it as a broken one. See the constant.
+    project = (root / "SampleProject" / "SampleProject.rvproject").read_text()
+    match = re.search(r"^\s*TemporalFeedback:\s*([0-9.]+)\s*$", project, re.M)
+    feedback = float(match.group(1)) if match else None
+
+    if feedback is None or abs(feedback - TAA_CALIBRATED_FEEDBACK) > 1e-6:
+        print(f"FAIL: SampleProject.rvproject has TemporalFeedback "
+              f"{'(absent)' if feedback is None else feedback}, and the TAA "
+              f"threshold below was calibrated at {TAA_CALIBRATED_FEEDBACK}. "
+              f"Measuring at another feedback measures a different filter -- "
+              f"at 0.0 it measures no accumulation at all and reports that as "
+              f"a renderer fault. Restore the value or re-measure the table.")
+        sys.exit(1)
+
+    print(f"TAA feedback {feedback} (the value the {TAA_REQUIRED_GAIN}x "
+          f"threshold was measured at)")
 
     failures = []
     results = {}

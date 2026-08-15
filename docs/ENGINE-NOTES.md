@@ -3434,6 +3434,115 @@ OpenGL is mostly free: `GL_TEXTURE_2D_ARRAY` already goes through
 
 ---
 
+## 7u. One process, two frame chains: the ghost over the Game view
+
+Reported as *"a faint second copy of the whole scene over the game view, and
+I can zoom it with the scroll wheel"*, and cracked by the owner's next
+observation: **it only happens with TAA**.
+
+### What it was
+
+`Renderer3D` kept **one** previous view-projection for the whole process,
+written at the end of every `BeginScene` and read at the start of the next.
+The comment defending that said, in its own words:
+
+> The scene pass is the last caller in a frame, so what the scene pass reads
+> is what the scene pass wrote — which is the property that makes this
+> correct without tracking whose camera it was.
+
+That property is true of the runtime, which draws one scene per frame. It is
+false of the editor, which draws the **viewport** and the **game view** in
+one frame from two different cameras. The order is viewport first, game
+second, so:
+
+| | reads as "last frame" | should have read |
+|---|---|---|
+| Viewport chain | the game camera, last frame | itself, last frame |
+| Game chain | **the editor camera, this frame** | itself, last frame |
+
+Every pixel of the game view therefore carried a velocity equal to the *gap
+between the two cameras*, and the TAA resolve did exactly what it is told to
+do: fetch the history from where the velocity points. A whole frame,
+displaced, blended in at feedback 0.6. Faint, complete, and sliding about
+whenever the editor camera moved — which is why it answered to the scroll
+wheel. Nothing in the game view should answer to that input, and that alone
+was enough to say the picture was being built from the wrong camera.
+
+### The rule it broke
+
+`TemporalHistory` already carries the argument, written when it was built:
+
+> One of these per *frame chain*, not one per process. The editor builds two
+> frames from the same scene, its viewport and the game's, and they are
+> different sizes showing different cameras; a shared history would have each
+> dragging the other's image behind it.
+
+The matrix that **reprojects into** that history has exactly the same scope.
+Splitting the image per chain and leaving the matrix global is half a fix,
+and the half that was missing is invisible in every still frame — the ghost
+only separates from the picture once the two cameras differ.
+
+So `CameraMotion` (view-projection + jitter) moved into `TemporalHistory`,
+and the frame graph hands it to the scene draw on the same edges it already
+sets the jitter on, for the same reason: only the code drawing *this* chain's
+scene may difference a camera against last frame's. Anything else gets null
+— a probe capture's six faces, a shadow cascade, a chain with temporal
+filtering off — which differences against itself and yields the zero velocity
+the attachment is already cleared to. That also retires the fragile ordering
+property the old comment leaned on: nothing now depends on who called last.
+
+### Why no check caught it
+
+`check_taa_motion.py` renders a moving scene in the **runtime**, and the
+runtime has one frame chain. A single chain cannot express this failure —
+the same shape of blind spot 7r describes for a static scene and the
+reprojection sign, one level up: there, one frame could not show it; here,
+one *chain* cannot.
+
+The measurement that does show it needs two chains and two cameras, and it is
+a strong one because it is exact: render the editor twice, changing **only
+the Viewport panel's size** — which changes the editor camera's projection
+and nothing else in the frame — and compare the Game panel.
+
+    before   max 87/255 over 7,534 subpixels
+    after    0 differing subpixels of 267,575
+
+Byte-identical is the right bar. The game view is a different camera looking
+at the same scene; no amount of editor-side layout may perturb one pixel of
+it. A tolerance here would accept exactly the leak this exists to catch.
+
+### The other thing this turned up
+
+The first run of `check_smaa.py` after the fix reported TAA at 1.0x, 0.7x,
+0.7x, 0.6x — "either the history is not being blended in, or it is being
+rejected everywhere". It was neither. `SampleProject.rvproject` had
+`TemporalFeedback: 0` in it, and those four numbers are the **f = 0.0 row of
+the table in that check's own source**, reproduced to two decimals.
+
+Which is to say the check was right, its diagnosis was right, and it was
+describing the configuration rather than the code. The feedback lives in the
+project, there is no `--feedback=`, and so the check measures whatever the
+`.rvproject` happens to say on the day. It now reads that value, prints it,
+and refuses to run if it is not the one the 1.25x threshold was calibrated
+at. 7r's rule — "a threshold is only worth having at the setting it actually
+runs at" — applies to the setting as much as to the threshold.
+
+**How the zero got there is not known, and the guessing is worth resisting.**
+Every commit has 0.6, so it was written into the working tree and never
+committed. Ten attempts to reproduce it all left the file byte-identical: a
+plain editor run, `--aa=none`, `--aa=taa`, a run at a smaller window size,
+each of the two AA checks alone, and both of them concurrently. The only code
+that writes a `.rvproject` at all is the editor's Render Settings panel,
+which saves the moment `DrawFields` reports a change — so the shape of the
+suspect is "something made a widget report a change that nobody made", and
+that is as far as the evidence goes. Recorded in HANDOFF as open rather than
+written up here as understood.
+
+The guard above is the part that does not depend on knowing: whatever writes
+it next, the check announces it instead of reporting a broken renderer.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

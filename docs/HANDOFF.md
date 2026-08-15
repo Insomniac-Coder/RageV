@@ -1515,49 +1515,75 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: finish verifying the BUG 2 fix (paused mid-verification)
+### START HERE: an unexplained write of TemporalFeedback: 0
 
-**BUG 2 is diagnosed and fixed in the working tree. The verification bar is
-half-run.** The owner supplied the clue that cracked it: *the ghost is only
-visible with TAA*.
+Both bugs from 9.0/9.1 are **fixed and verified**. What is left open is
+something the verification turned up on the way past.
 
-`Renderer3D` kept **one** previous view-projection for the whole process,
-written by every `BeginScene` and read by the next, on the argument that "the
-scene pass is the last caller in a frame". True of the runtime; false of the
-editor, which draws the viewport and the game view in one frame from two
-cameras. The game chain differenced itself against the **editor** camera, so
-every pixel carried the velocity of the gap between them and TAA fetched its
-history from there -- a faint second copy of the whole scene, sliding as the
-editor camera moved. That is also why it answered to the scroll wheel, which
-the owner rightly said makes no sense.
+---
 
-Fixed by giving the previous view-projection the scope the history already
-has: `CameraMotion`, owned by `TemporalHistory`, handed to the scene draw by
-the frame graph exactly as the jitter is, null for probe captures and shadow
-cascades (zero velocity).
+**Open: `SampleProject.rvproject` acquired `TemporalFeedback: 0`, and nothing
+found writes it.**
 
-Done so far:
-- Release builds clean.
-- **The decisive measurement.** Two editor runs differing only in the
-  Viewport's size -- which changes the editor camera's projection and nothing
-  else -- and the Game panel is now **byte-identical**: 0 differing subpixels
-  of 267,575. The same experiment before the fix: max 87/255 over 7,534
-  pixels. The Game view no longer answers to the editor camera at all.
-- `check_taa_motion.py` passes on both backends: still 3.1x better than no
-  filter, moving 1.01-1.02x -- the runtime's single-chain behaviour is
-  unchanged, as it must be.
+Found in the working tree on 2026-08-15 and restored to 0.6. **Every commit
+has 0.6** -- it was never committed, so the write landed in the working tree
+some time during that session and nothing captured when.
 
-Still to do, in order:
-1. `check_taa_jitter.py`, `check_smaa.py`, `check_color_grading.py`.
-2. `scenetest --validation=on`, both backends, case-sensitive `FAIL`, exit 0.
-3. Editor and runtime on both backends with `--validation=on`, grep
-   `[Vulkan]`.
-4. Rebuild Debug and Dist.
-5. Write it up as ENGINE-NOTES **7u** -- the code comments already point at
-   that section and it does not exist yet -- and note in 7r that the
-   moving-scene check could not have caught this, because a single frame
-   chain cannot express the failure.
-6. Consider a check that can: two chains in one frame, one of which moves.
+Why it matters more than a stray number: feedback 0 means TAA blends in none
+of its history, so the filter jitters and accumulates nothing. The picture
+looks *fine* -- which is how the owner put it, "the scene seems normal" --
+and `check_smaa.py` reported "TAA is only 1.0x better than no filter, either
+the history is not being blended in or it is being rejected everywhere". That
+reads as a broken renderer and is not. The four measured numbers were the
+**f = 0.0 row of the table in that check's own source**, to two decimals.
+
+**Not reproduced.** Ten attempts, all leaving the file byte-identical: a
+plain editor run; `--aa=none`; `--aa=taa`; `--width=1920 --height=1080`;
+`check_taa_jitter.py` alone; `check_smaa.py` alone; and both of those
+concurrently, which is how they were being run when it was first noticed.
+Nothing in `tools/` writes a `.rvproject` at all, and the only `Project::Save`
+call sites in the engine are the editor's Render Settings panel, Set Start
+Scene, and project creation.
+
+Where to look when it recurs:
+- The Render Settings panel auto-saves the project the moment `DrawFields`
+  reports a change and nothing is active. Something making a DragFloat report
+  a change without input would do exactly this, silently, with no undo entry
+  a person would notice. Suspect a widget whose width collapses, or a clamp.
+- The scripting surface (SC.1/SC.2) can set render settings. Nothing in the
+  sample project's scripts does, but the path exists.
+
+Guard already in place: `check_smaa.py` now reads the project's feedback,
+prints it, and refuses to run when it is not the 0.6 the 1.25x threshold was
+calibrated at. Falsified by flipping the value: the check exits 1 before
+rendering anything.
+
+---
+
+**Done: BUG 2, the ghost over the Game view (2026-08-15).** `Renderer3D` kept
+one previous view-projection for the whole process, so the editor's game
+chain -- drawn second -- differenced itself against the *editor* camera and
+TAA fetched its history from that gap. Fixed by giving the matrix the scope
+the history already has: `CameraMotion`, owned by `TemporalHistory`. Design,
+the measurement, and why no existing check could catch it: ENGINE-NOTES 7u.
+
+Verified:
+- Two editor runs differing only in the Viewport's size, which changes the
+  editor camera's projection and nothing else: the Game panel is now
+  **byte-identical**, 0 differing subpixels of 267,575, against max 87/255
+  over 7,534 before. The game view no longer answers to the editor camera.
+- `check_smaa.py`: TAA gains 1.64 / 1.44 / 1.47 / 1.64 at 8/43/47/77 deg --
+  **the same figures recorded before the change**, so the single-chain
+  behaviour is preserved to the digit.
+- `check_taa_motion.py`: still 3.1x better than no filter, moving 1.01-1.02x,
+  both backends. `check_taa_jitter.py`, `check_color_grading.py` pass.
+- `scenetest --validation=on`: 1415 pass, 0 `FAIL`, exit 0, no `[Vulkan]`
+  lines. Editor and runtime on both backends, same. Debug, Release and Dist
+  all build.
+
+**Done: BUG 1, the post profile and LUT lost on restart (2026-08-15).** One
+gesture on two persistence schedules, with nothing saying so. See the commit
+and ENGINE-NOTES 7s.
 
 ---
 
