@@ -309,24 +309,169 @@ Entities:
       Range: 14
       InnerCone: 20
       OuterCone: 30
-  - EntityID: 1026110743018560728
-    TagComponent:
-      Tag: Brazier Hum
-    TransformComponent:
-      Position: [-2.6, 1.1, -1.5]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
     AudioSourceComponent:
-      Clip: 11706423746662484290
+      Clip: 5810587725358736489
       Bus: Sfx
-      Volume: 0.3
+      Volume: 0.42
       Pitch: 1
       Loop: true
       PlayOnAwake: true
       Stream: false
       Spatial: true
-      MinDistance: 1.5
-      MaxDistance: 16
+      MinDistance: 1.2
+      MaxDistance: 14
+  - EntityID: 9074571009234480418
+    TagComponent:
+      Tag: Bell Post
+    TransformComponent:
+      Position: [-4.15, 1.05, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 2.1, 0.12]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 6516436489381164834
+    TagComponent:
+      Tag: Bell Arm
+    TransformComponent:
+      Position: [-3.9, 2, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.09, 0.09]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 13042967132365226213
+  - EntityID: 11572621186384756824
+    TagComponent:
+      Tag: Bell
+    TransformComponent:
+      Position: [-3.65, 1.78, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 0.34, 0.3]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.82, 0.66, 0.34, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.28
+        Occlusion: 1
+    NativeScriptComponent:
+      Script: Bell
+      Fields:
+        Swing: 0.34
+        Decay: 1.9
+        Rate: 7.0
+    AudioSourceComponent:
+      Clip: 4876371458843502635
+      Bus: Sfx
+      Volume: 0.7
+      Pitch: 1
+      Loop: false
+      PlayOnAwake: false
+      Stream: false
+      Spatial: true
+      MinDistance: 2
+      MaxDistance: 26
+  - EntityID: 1278083623830713696
+    TagComponent:
+      Tag: Anvil Block
+    TransformComponent:
+      Position: [-2.6, 0.3, -0.35]
+      Rotation: [0, 0, 0]
+      Scale: [0.42, 0.6, 0.42]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 15967261621143603029
+    TagComponent:
+      Tag: Anvil
+    TransformComponent:
+      Position: [-2.6, 0.72, -0.35]
+      Rotation: [0, 0, 0]
+      Scale: [0.78, 0.24, 0.34]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 13042967132365226213
+    NativeScriptComponent:
+      Script: Anvil
+    AudioSourceComponent:
+      Clip: 7622274306199633311
+      Bus: Sfx
+      Volume: 0.85
+      Pitch: 1.35
+      Loop: false
+      PlayOnAwake: false
+      Stream: false
+      Spatial: true
+      MinDistance: 2
+      MaxDistance: 24
+  - EntityID: 3530306110927451293
+    TagComponent:
+      Tag: Anvil Sparks
+    TransformComponent:
+      Position: [0, 0.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 15967261621143603029
+    ParticleEmitterComponent:
+      Emit: false
+      Rate: 0
+      Burst: 0
+      Lifetime: 0.55
+      LifetimeJitter: 0.4
+      Direction: [0, 1, 0]
+      Spread: 62
+      Speed: 2.6
+      SpeedJitter: 0.7
+      Gravity: [0, -4.5, 0]
+      Drag: 0.8
+      SizeStart: 0.05
+      SizeEnd: 0.012
+      ColorStart: [1, 0.94, 0.62, 1]
+      ColorEnd: [1, 0.36, 0.06, 0]
+      Spin: 0
+      Facing: Billboard
+      Blend: Additive
+      Space: World
+      Texture: 14156592944927634151
+      MaxParticles: 128
+      SimulateOnGpu: false
+      SizeCurve: 0
+      ColorGradient: 0
+      AlphaCurve: 11461028735333202510
   - EntityID: 3537863533945826643
     TagComponent:
       Tag: Crate A
@@ -687,11 +832,8 @@ Entities:
       NormalColor: [0.75, 0.75, 0.78, 1]
       HoverColor: [1, 1, 1, 1]
       PressedColor: [0.45, 0.45, 0.5, 1]
-    NativeScriptComponent:
-      Script: ClickCounter
-      Fields:
-        Caption: ring the bell
-        PollOwnButton: true
+      OnClickTarget: 11572621186384756824
+      OnClickMethod: Ring
   - EntityID: 17023910194610238134
     TagComponent:
       Tag: Bell Label
@@ -713,48 +855,6 @@ Entities:
       Align: Center
       Wrap: false
       LineSpacing: 1
-  - EntityID: 11626863984903934835
-    TagComponent:
-      Tag: Anvil Tally
-    RelationshipComponent:
-      Parent: 5299056818474671526
-    UIRectComponent:
-      AnchorMin: [0, 1]
-      AnchorMax: [0, 1]
-      OffsetMin: [376, -128]
-      OffsetMax: [680, -52]
-      SortOrder: 1
-      Visible: true
-      BlocksPointer: false
-    UIImageComponent:
-      Texture: 0
-      Color: [0.04, 0.04, 0.06, 0.62]
-    NativeScriptComponent:
-      Script: ClickCounter
-      Fields:
-        Caption: struck
-        PollOwnButton: false
-  - EntityID: 576316239890954401
-    TagComponent:
-      Tag: Anvil Tally Label
-    RelationshipComponent:
-      Parent: 11626863984903934835
-    UIRectComponent:
-      AnchorMin: [0, 0]
-      AnchorMax: [1, 1]
-      OffsetMin: [14, 12]
-      OffsetMax: [-14, -12]
-      SortOrder: 2
-      Visible: true
-      BlocksPointer: false
-    UITextComponent:
-      Text: struck
-      Font: 12355000851502047045
-      Size: 24
-      Color: [0.76, 0.76, 0.8, 1]
-      Align: Center
-      Wrap: false
-      LineSpacing: 1
   - EntityID: 11830581832271630367
     TagComponent:
       Tag: Anvil Button
@@ -763,8 +863,8 @@ Entities:
     UIRectComponent:
       AnchorMin: [0, 1]
       AnchorMax: [0, 1]
-      OffsetMin: [700, -128]
-      OffsetMax: [1004, -52]
+      OffsetMin: [376, -128]
+      OffsetMax: [680, -52]
       SortOrder: 1
       Visible: true
       BlocksPointer: true
@@ -776,8 +876,8 @@ Entities:
       NormalColor: [0.75, 0.75, 0.78, 1]
       HoverColor: [1, 1, 1, 1]
       PressedColor: [0.45, 0.45, 0.5, 1]
-      OnClickTarget: 11626863984903934835
-      OnClickMethod: Count
+      OnClickTarget: 15967261621143603029
+      OnClickMethod: Strike
   - EntityID: 10707009537871225111
     TagComponent:
       Tag: Anvil Label

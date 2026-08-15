@@ -2349,19 +2349,21 @@ void main()
 			return;
 		}
 
-		Entity bell = scene->FindEntityByName("Bell Button");
+		Entity bellButton = scene->FindEntityByName("Bell Button");
 		Entity anvilButton = scene->FindEntityByName("Anvil Button");
-		Entity anvilTally = scene->FindEntityByName("Anvil Tally");
-		Entity bellLabel = scene->FindEntityByName("Bell Label");
-		Entity tallyLabel = scene->FindEntityByName("Anvil Tally Label");
+		Entity bell = scene->FindEntityByName("Bell");
+		Entity anvil = scene->FindEntityByName("Anvil");
+		Entity sparks = scene->FindEntityByName("Anvil Sparks");
 
-		Check(bell && anvilButton && anvilTally && bellLabel && tallyLabel,
-			  "the demo scene still has both buttons and their labels");
-		if (!bell || !anvilButton || !anvilTally || !bellLabel || !tallyLabel)
+		Check(bellButton && anvilButton && bell && anvil && sparks,
+			  "the demo scene still has both buttons and the props they act on");
+		if (!bellButton || !anvilButton || !bell || !anvil || !sparks)
 			return;
 
-		// The size the runtime opens at, so the layout under test is the one a
-		// person sees rather than one chosen to make the sums easy.
+		// **The buttons act on the world, not on a counter.** That is the point
+		// of them: a control labelled "ring the bell" beside a courtyard with no
+		// bell in it demonstrates a click and nothing else. So what is asserted
+		// is that the bell moves and the anvil throws sparks.
 		const float width = 1600.0f;
 		const float height = 900.0f;
 
@@ -2373,6 +2375,7 @@ void main()
 				 UI::ResolveScene(*scene, width, height))
 			{
 				if (element.Entity == (uint64_t)target.GetUUID())
+				{
 					// **Times Scale.** A resolved rect is in canvas units and
 					// the pointer is in screen pixels; the element carries the
 					// factor between them. Reading the rect raw put the click
@@ -2380,6 +2383,7 @@ void main()
 					// looks exactly like a broken button.
 					return { (element.Rect.X + element.Rect.Width * 0.5f) * element.Scale,
 							 (element.Rect.Y + element.Rect.Height * 0.5f) * element.Scale };
+				}
 			}
 			return { -1.0f, -1.0f };
 		};
@@ -2401,38 +2405,54 @@ void main()
 			UI::UpdatePointer(*scene, width, height, pointer);
 
 			// Whether the click landed at all, separated from whether anything
-			// reacted to it -- the two failures look identical from the label
-			// and have nothing to do with each other.
+			// reacted to it -- the two failures look identical from outside and
+			// have nothing to do with each other.
 			bool anyClicked = false;
 			auto view = scene->GetRegistry().view<UIButtonComponent>();
 			for (auto handle : view)
 				anyClicked = anyClicked || view.get<UIButtonComponent>(handle).Clicked;
 			Check(anyClicked, "the click reaches a button in the demo scene");
 
-			// The step the scripts see it in. EndFixedStep consumes the edge
-			// at the end of this, which is why the click has to be delivered
-			// before it rather than after.
+			// The step the handlers run in. EndFixedStep consumes the edge at
+			// the end of it, which is why the click is delivered before.
 			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
 		};
 
-		const std::string bellBefore = bellLabel.GetComponent<UITextComponent>().Text;
-		const std::string tallyBefore = tallyLabel.GetComponent<UITextComponent>().Text;
+		// --- the bell swings ---------------------------------------------------
+		const float bellRest = bell.GetComponent<TransformComponent>().Rotation.z;
 
-		const auto [bellX, bellY] = centreOf(bell);
+		const auto [bellX, bellY] = centreOf(bellButton);
 		Check(bellX >= 0.0f, "the bell button resolves to somewhere on screen");
-
 		clickAt(bellX, bellY);
 
-		Check(bellLabel.GetComponent<UITextComponent>().Text != bellBefore,
-			  "clicking the bell button changes its label -- the polling path");
+		// A few more steps, because the first one is at the top of the swing
+		// where the sine is still near zero.
+		for (int i = 0; i < 6; i++)
+			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+
+		Check(Math::Abs(bell.GetComponent<TransformComponent>().Rotation.z - bellRest) > 0.01f,
+			  "ringing the bell swings it -- the handler lives on the bell, not "
+			  "on the button that asked");
+
+		// And it comes back. A prop that drifts a little every time it is used
+		// is visibly crooked after a minute of somebody playing with it.
+		for (int i = 0; i < 400; i++)
+			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
+
+		Check(Math::Abs(bell.GetComponent<TransformComponent>().Rotation.z - bellRest) < 0.0005f,
+			  "and it settles back to exactly where it hung");
+
+		// --- the anvil throws sparks -------------------------------------------
+		auto& emitter = sparks.GetComponent<ParticleEmitterComponent>();
+		Check(!emitter.Emit && emitter.Burst == 0,
+			  "the anvil's sparks are off until it is struck");
 
 		const auto [anvilX, anvilY] = centreOf(anvilButton);
 		Check(anvilX >= 0.0f, "the anvil button resolves to somewhere on screen");
 		clickAt(anvilX, anvilY);
 
-		Check(tallyLabel.GetComponent<UITextComponent>().Text != tallyBefore,
-			  "and clicking the anvil button changes the *tally's* label -- the "
-			  "bound path, where the handler is not on the button");
+		Check(sparks.GetComponent<ParticleEmitterComponent>().Burst > 0,
+			  "striking the anvil asks its sparks for a burst");
 
 		// --- and the feedback is visible ---------------------------------------
 		//
@@ -2445,7 +2465,7 @@ void main()
 		// That is the worst kind of UI bug, because every mechanism passes and
 		// the thing still reads as broken. Asserted in levels, which is the
 		// unit an eye works in.
-		for (Entity button : { bell, anvilButton })
+		for (Entity button : { bellButton, anvilButton })
 		{
 			const Vec4 base = button.GetComponent<UIImageComponent>().Color;
 			const UIButtonComponent& state = button.GetComponent<UIButtonComponent>();

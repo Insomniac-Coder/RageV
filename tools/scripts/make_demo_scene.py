@@ -95,7 +95,8 @@ TEX_FLAME = 14156592944927634151
 TEX_SKY = 17858281879166177050
 
 SFX_CHIME = 4876371458843502635
-SFX_HUM = 11706423746662484290
+# Synthesised by make_fire_sound.py, and a seamless loop by construction.
+SFX_FIRE = 5810587725358736489
 SFX_IMPACT = 7622274306199633311
 
 CURVE_FLAME_SIZE = 4167849381279018650
@@ -372,13 +373,82 @@ def build(profile_handle, mat):
         ("Range", 14), ("InnerCone", 20), ("OuterCone", 30),
     ])
 
-    s.entity("Brazier Hum", position=(-2.6, 1.1, -1.5))
+    # **On the flame itself**, not on a sibling. The thing making the noise
+    # and the thing making the light are the same object, so a script that
+    # moves one moves the other and they cannot drift apart.
     s.block("AudioSourceComponent", [
-        ("Clip", SFX_HUM), ("Bus", "Sfx"), ("Volume", 0.3), ("Pitch", 1),
+        ("Clip", SFX_FIRE), ("Bus", "Sfx"), ("Volume", 0.42), ("Pitch", 1),
         ("Loop", "true"), ("PlayOnAwake", "true"), ("Stream", "false"),
         # Spatial, so walking the camera past it is audibly a *place*. A
         # non-spatial fire is a menu sound.
-        ("Spatial", "true"), ("MinDistance", 1.5), ("MaxDistance", 16),
+        ("Spatial", "true"), ("MinDistance", 1.2), ("MaxDistance", 14),
+    ])
+
+    # --- the two things the buttons act on -----------------------------------
+    #
+    # A bell on a post by the gate, and an anvil beside the brazier. They are
+    # here because the buttons say "ring the bell" and "strike the anvil", and
+    # a label naming something the courtyard does not contain is the same
+    # emptiness the old scene had, moved into the UI.
+    #
+    # Both handlers live on the **prop**, not on the button, which is what the
+    # bound path is for: a bell knows how to ring, and the control that asks it
+    # to is not where that belongs. The demo has no polling example any more
+    # and that is deliberate -- the polling one it had was a counter, which
+    # demonstrated a click rather than doing anything.
+
+    s.entity("Bell Post", position=(-4.15, 1.05, -1.0), scale=(0.12, 2.1, 0.12))
+    s.mesh(CUBE, mat["crate"])
+    s.static_body("Box", half=(0.5, 0.5, 0.5))
+
+    s.entity("Bell Arm", position=(-3.9, 2.0, -1.0), scale=(0.55, 0.09, 0.09))
+    s.mesh(CUBE, MAT_STEEL)
+
+    # Rotated about Z by the script, so its pivot has to be where it hangs
+    # from rather than at its middle -- which a cone cannot express, so the
+    # bell is a scaled sphere with the visual centre below the origin.
+    s.entity("Bell", position=(-3.65, 1.78, -1.0), scale=(0.3, 0.34, 0.3))
+    s.mesh_inline(SPHERE, (0.82, 0.66, 0.34, 1), metallic=1, roughness=0.28)
+    s.script("Bell", Swing=0.34, Decay=1.9, Rate=7.0)
+    # The bell's voice, on the bell. PlayOnAwake false: it rings when rung.
+    # A script cannot hold an asset handle as a field -- bool, int, float,
+    # Vec3 and string are the whole list -- so the clip belongs on the
+    # component, which is where somebody would look for it anyway.
+    s.block("AudioSourceComponent", [
+        ("Clip", SFX_CHIME), ("Bus", "Sfx"), ("Volume", 0.7), ("Pitch", 1),
+        ("Loop", "false"), ("PlayOnAwake", "false"), ("Stream", "false"),
+        ("Spatial", "true"), ("MinDistance", 2), ("MaxDistance", 26),
+    ])
+
+    s.entity("Anvil Block", position=(-2.6, 0.3, -0.35), scale=(0.42, 0.6, 0.42))
+    s.mesh(CUBE, mat["crate"])
+    s.static_body("Box", half=(0.5, 0.5, 0.5))
+
+    # The rusted steel maps rather than a flat grey. An anvil in a forge
+    # courtyard is the one object in the scene that has obviously been *used*,
+    # and a smooth untextured metal says the opposite.
+    s.entity("Anvil", position=(-2.6, 0.72, -0.35), scale=(0.78, 0.24, 0.34))
+    s.mesh(CUBE, MAT_STEEL)
+    s.script("Anvil")
+    s.block("AudioSourceComponent", [
+        ("Clip", SFX_IMPACT), ("Bus", "Sfx"), ("Volume", 0.85), ("Pitch", 1.35),
+        ("Loop", "false"), ("PlayOnAwake", "false"), ("Stream", "false"),
+        ("Spatial", "true"), ("MinDistance", 2), ("MaxDistance", 24),
+    ])
+
+    # Off until struck. `Emit` false with a `Burst` count is the shape the
+    # emitter was built for -- one bang when a script asks, nothing between.
+    s.entity("Anvil Sparks", parent="Anvil", position=(0, 0.6, 0))
+    s.block("ParticleEmitterComponent", [
+        ("Emit", "false"), ("Rate", 0), ("Burst", 0), ("Lifetime", 0.55),
+        ("LifetimeJitter", 0.4), ("Direction", "[0, 1, 0]"), ("Spread", 62),
+        ("Speed", 2.6), ("SpeedJitter", 0.7), ("Gravity", "[0, -4.5, 0]"),
+        ("Drag", 0.8), ("SizeStart", 0.05), ("SizeEnd", 0.012),
+        ("ColorStart", "[1, 0.94, 0.62, 1]"), ("ColorEnd", "[1, 0.36, 0.06, 0]"),
+        ("Spin", 0), ("Facing", "Billboard"), ("Blend", "Additive"),
+        ("Space", "World"), ("Texture", TEX_FLAME), ("MaxParticles", 128),
+        ("SimulateOnGpu", "false"),
+        ("SizeCurve", 0), ("ColorGradient", 0), ("AlphaCurve", CURVE_FLAME_ALPHA),
     ])
 
     # --- the crates ---------------------------------------------------------
@@ -547,29 +617,20 @@ def build(profile_handle, mat):
     s.block("UIButtonComponent", [
         ("Interactable", "true"), ("NormalColor", "[0.75, 0.75, 0.78, 1]"),
         ("HoverColor", "[1, 1, 1, 1]"), ("PressedColor", "[0.45, 0.45, 0.5, 1]"),
+        ("OnClickTarget", handle_for("Bell")),
+        ("OnClickMethod", "Ring"),
     ])
-    # Polls its own button, so it must not also be bound -- one click seen
-    # twice is arithmetic rather than a bug, and it is confusing either way.
-    s.script("ClickCounter", Caption="ring the bell", PollOwnButton="true")
     label("Bell Label", "Bell Button", "ring the bell", 24, RED, inset=(14, 12),
           order=2)
 
-    # The tally the second button drives. A separate entity, which is the whole
-    # point of the bound path: the handler does not live on the button.
-    rect("Anvil Tally", "HUD", (0, 1), (0, 1), (376, -128), (680, -52), order=1)
-    s.block("UIImageComponent", [("Texture", 0), ("Color", INK)])
-    s.script("ClickCounter", Caption="struck", PollOwnButton="false")
-    label("Anvil Tally Label", "Anvil Tally", "struck", 24,
-          "[0.76, 0.76, 0.8, 1]", inset=(14, 12), order=2)
-
-    rect("Anvil Button", "HUD", (0, 1), (0, 1), (700, -128), (1004, -52),
+    rect("Anvil Button", "HUD", (0, 1), (0, 1), (376, -128), (680, -52),
          order=1, blocks=True)
     s.block("UIImageComponent", [("Texture", 0), ("Color", BUTTON)])
     s.block("UIButtonComponent", [
         ("Interactable", "true"), ("NormalColor", "[0.75, 0.75, 0.78, 1]"),
         ("HoverColor", "[1, 1, 1, 1]"), ("PressedColor", "[0.45, 0.45, 0.5, 1]"),
-        ("OnClickTarget", handle_for("Anvil Tally")),
-        ("OnClickMethod", "Count"),
+        ("OnClickTarget", handle_for("Anvil")),
+        ("OnClickMethod", "Strike"),
     ])
     label("Anvil Label", "Anvil Button", "strike the anvil", 24, RED,
           inset=(14, 12), order=2)
