@@ -1,210 +1,291 @@
-Scene: Untitled
-Version: 5
+Scene: The courtyard
+Version: 6
 Environment:
-  AmbientColor: [0.42, 0.47, 0.58]
-  AmbientIntensity: 0.12
-  Sky: 2
+  AmbientColor: [0.34, 0.4, 0.52]
+  AmbientIntensity: 0.16
+  Sky: Cubemap
   SkyHorizon: [0.52, 0.6, 0.72]
   SkyZenith: [0.18, 0.31, 0.62]
   SkyGround: [0.16, 0.15, 0.14]
   SkyIntensity: 1
-  SkyRotation: 0
+  SkyRotation: 2.4
   SkyTexture: 17858281879166177050
 Entities:
-  - EntityID: 11161551729011358508
+  - EntityID: 12755924738728792407
     TagComponent:
-      Tag: Scene Camera
+      Tag: Courtyard Camera
     TransformComponent:
-      Position: [0, 2.5, 8]
-      Rotation: [-0.20943952, 0, 0]
+      Position: [0.3, 1.62, 4.9]
+      Rotation: [-0.0698132, -0.0349066, 0]
       Scale: [1, 1, 1]
     CameraComponent:
       ViewRank: 0
       FixedAspectRatio: false
       ProjectionType: Perspective
-      PerspectiveFOV: 60
-      PerspectiveNearClip: 0.01
-      PerspectiveFarClip: 1000
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
       OrthographicScale: 10
       OrthographicNearClip: -1
       OrthographicFarClip: 1
-  - EntityID: 2116982370786357563
+      PostProfile: 4008402050054160753
+  - EntityID: 10092171703464882478
     TagComponent:
-      Tag: Ground
+      Tag: Courtyard Floor
     TransformComponent:
-      Position: [0, -1, 0]
+      Position: [0, 0, 0]
       Rotation: [0, 0, 0]
-      Scale: [20, 1, 20]
+      Scale: [30, 1, 30]
     MeshComponent:
       Mesh: 8241982477996916738
-      Material: 2253873544424874864
+      Material: 8446075114645115873
     RigidBodyComponent:
       Type: Static
       Mass: 1
-      Friction: 0.4
-      Restitution: 0.1
+      Friction: 0.6
+      Restitution: 0.05
       LinearDamping: 0.05
       AngularDamping: 0.05
       GravityFactor: 1
       FreezeRotation: false
     ColliderComponent:
       Shape: Box
-      HalfExtents: [10, 0.25, 10]
+      HalfExtents: [15, 0.05, 15]
       Radius: 0.5
-      Height: 1
-      Offset: [0, -0.25, 0]
+      Height: 1.0
+      Offset: [0, -0.05, 0]
       IsTrigger: false
-  - EntityID: 1625973782283264890
+  - EntityID: 8633964653113737398
     TagComponent:
-      Tag: Cube (dielectric)
+      Tag: Back Wall
     TransformComponent:
-      Position: [-3, 0, 0]
+      Position: [0, 1.35, -5.4]
       Rotation: [0, 0, 0]
-      Scale: [1.5, 1.5, 1.5]
+      Scale: [11, 2.7, 0.4]
     MeshComponent:
       Mesh: 8241982477996916736
-      Material: 12456084283590913901
-    NativeScriptComponent:
-      Script: Spinner
-  - EntityID: 13871191845555187975
-    TagComponent:
-      Tag: Sphere (gold)
-    TransformComponent:
-      Position: [0, 0.1, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1.8, 1.8, 1.8]
-    MeshComponent:
-      Mesh: 8241982477996916737
-      Material:
-        BaseColor: [0.94, 0.78, 0.38, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 1
-        Roughness: 0.2
-        Occlusion: 1
+      Material: 1366338840295594633
     RigidBodyComponent:
       Type: Static
       Mass: 1
-      Friction: 0.4
-      Restitution: 0.25
+      Friction: 0.6
+      Restitution: 0.05
       LinearDamping: 0.05
       AngularDamping: 0.05
       GravityFactor: 1
       FreezeRotation: false
     ColliderComponent:
-      Shape: Sphere
+      Shape: Box
       HalfExtents: [0.5, 0.5, 0.5]
       Radius: 0.5
-      Height: 1
+      Height: 1.0
       Offset: [0, 0, 0]
       IsTrigger: false
-  - EntityID: 17663757809894776477
+  - EntityID: 8365848312235483428
     TagComponent:
-      Tag: Cylinder (brushed metal)
+      Tag: Left Wall
     TransformComponent:
-      Position: [3, 0, 0]
+      Position: [-5.2, 1.35, -0.9]
+      Rotation: [0, 1.5708, 0]
+      Scale: [10.4, 2.7, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 1366338840295594633
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 6728750051535315419
+    TagComponent:
+      Tag: Right Wall
+    TransformComponent:
+      Position: [5.2, 1.35, -0.9]
+      Rotation: [0, 1.5708, 0]
+      Scale: [10.4, 2.7, 0.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 1366338840295594633
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 1674815221940622572
+    TagComponent:
+      Tag: Back Wall Coping
+    TransformComponent:
+      Position: [0, 2.78, -5.28]
       Rotation: [0, 0, 0]
-      Scale: [1.4, 1.4, 1.4]
+      Scale: [11.4, 0.22, 0.66]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 1366338840295594633
+  - EntityID: 9925120131269450246
+    TagComponent:
+      Tag: Plinth
+    TransformComponent:
+      Position: [0, 0.5, -2.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1, 1.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 12984190214459534548
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 4643061229078902562
+    TagComponent:
+      Tag: Plinth Cap
+    TransformComponent:
+      Position: [0, 1.05, -2.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.78, 0.12, 1.78]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 13042967132365226213
+  - EntityID: 1181715498154858230
+    TagComponent:
+      Tag: The Piece
+    TransformComponent:
+      Position: [0, 1.62, -2.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.06, 1.06, 1.06]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material:
+        BaseColor: [0.96, 0.82, 0.46, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.13
+        Occlusion: 1
+    NativeScriptComponent:
+      Script: Spinner
+  - EntityID: 16171326730175096258
+    TagComponent:
+      Tag: Courtyard Probe
+    TransformComponent:
+      Position: [0, 1.62, -2.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ReflectionProbeComponent:
+      Update: Realtime
+      Resolution: 128
+      Influence: 26
+      NearClip: 0.05
+      FarClip: 60
+      FacesPerFrame: 1
+  - EntityID: 11411440244087572418
+    TagComponent:
+      Tag: Plinth Plaque
+    TransformComponent:
+      Position: [0, 0.62, -1.82]
+      Rotation: [-0.174533, 0, 0]
+      Scale: [1, 1, 1]
+    WorldTextComponent:
+      Text: no. 41  --  brass, unfinished
+      Font: 12355000851502047045
+      Size: 0.1
+      Color: [0.86, 0.72, 0.5, 1]
+      Align: Center
+      WrapWidth: 0
+      LineSpacing: 1
+      Billboard: None
+  - EntityID: 4239563649543597202
+    TagComponent:
+      Tag: Brazier Stand
+    TransformComponent:
+      Position: [-2.6, 0.42, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.34, 0.85, 0.34]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 1058600798456825338
+    TagComponent:
+      Tag: Brazier Bowl
+    TransformComponent:
+      Position: [-2.6, 0.95, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.26, 0.62]
     MeshComponent:
       Mesh: 8241982477996916739
       Material: 13042967132365226213
-  - EntityID: 14105287064397593774
+  - EntityID: 10794260462904088274
     TagComponent:
-      Tag: Sphere (smooth)
+      Tag: Brazier Fire
     TransformComponent:
-      Position: [-1.6, -0.5, -3]
-      Rotation: [0, 0, 0]
-      Scale: [0.9, 0.9, 0.9]
-    MeshComponent:
-      Mesh: 8241982477996916737
-      Material:
-        BaseColor: [0.02, 0.025, 0.035, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.08
-        Occlusion: 1
-  - EntityID: 17132997578554225804
-    TagComponent:
-      Tag: Sphere (rough)
-    TransformComponent:
-      Position: [1.6, -0.5, -3.5]
-      Rotation: [0, 0, 0]
-      Scale: [0.9, 0.9, 0.9]
-    MeshComponent:
-      Mesh: 8241982477996916737
-      Material:
-        BaseColor: [0.8, 0.8, 0.82, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.95
-        Occlusion: 1
-  - EntityID: 6370971351885114703
-    TagComponent:
-      Tag: Pedestal
-    TransformComponent:
-      Position: [-6.5, -1, -1]
+      Position: [-2.6, 1.02, -1.5]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    AudioSourceComponent:
-      Clip: 11706423746662484290
-      Bus: Music
-      Volume: 0.35
-      Pitch: 1
-      Loop: true
-      PlayOnAwake: true
-      Stream: false
-      Spatial: true
-      MinDistance: 2
-      MaxDistance: 25
-  - EntityID: 15511314562919751621
-    RelationshipComponent:
-      Parent: 6370971351885114703
-    TagComponent:
-      Tag: Pedestal Base
-    TransformComponent:
-      Position: [0, 0.39999998, 0]
-      Rotation: [0, -0, 0]
-      Scale: [1.2, 0.6, 1.2]
-    MeshComponent:
-      Mesh: 8241982477996916739
-      Material: 17313890138267408253
-  - EntityID: 12080736543617860364
-    RelationshipComponent:
-      Parent: 6370971351885114703
-    TagComponent:
-      Tag: Pedestal Ornament
-    TransformComponent:
-      Position: [0, 1.2, 0]
-      Rotation: [0, -0, 0]
-      Scale: [0.55, 0.55, 0.55]
-    MeshComponent:
-      Mesh: 8241982477996916736
-      Material: 3187420511756770187
-  - EntityID: 7777000000000000030
-    RelationshipComponent:
-      Parent: 6370971351885114703
-    TagComponent:
-      Tag: Brazier Flame
-    TransformComponent:
-      Position: [0, 1.5, 0]
-      Rotation: [0, 0, 0]
-      Scale: [0.75, 0.75, 0.75]
     ParticleEmitterComponent:
       Emit: true
-      Rate: 70
+      Rate: 64
       Burst: 0
-      Lifetime: 1.1
-      LifetimeJitter: 0.25
+      Lifetime: 0.95
+      LifetimeJitter: 0.3
       Direction: [0, 1, 0]
-      Spread: 11
-      Speed: 1.5
-      SpeedJitter: 0.35
-      Gravity: [0, 1.3, 0]
-      Drag: 1.2
-      SizeStart: 0.5
-      SizeEnd: 0.15
-      ColorStart: [1, 0.92, 0.5, 1]
-      ColorEnd: [0.5, 0.1, 0.03, 0]
-      Spin: 35
+      Spread: 12
+      Speed: 0.95
+      SpeedJitter: 0.3
+      Gravity: [0, 0.85, 0]
+      Drag: 1.3
+      SizeStart: 0.19
+      SizeEnd: 0.05
+      ColorStart: [1, 0.9, 0.48, 1]
+      ColorEnd: [0.55, 0.11, 0.03, 0]
+      Spin: 40
       Facing: Billboard
       Blend: Additive
       Space: Local
@@ -214,480 +295,233 @@ Entities:
       SizeCurve: 4167849381279018650
       ColorGradient: 14237806248374965933
       AlphaCurve: 11461028735333202510
-  - EntityID: 4663895190268937246
+  - EntityID: 11564486284157875890
     TagComponent:
-      Tag: Key Light
+      Tag: Brazier Light
     TransformComponent:
-      Position: [4, 5, 4]
+      Position: [-2.6, 1.3, -1.5]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Point
-      Color: [1, 0.87, 0.72]
-      Intensity: 120
-      Range: 30
+      Color: [1, 0.68, 0.38]
+      Intensity: 18
+      Range: 14
       InnerCone: 20
       OuterCone: 30
-  - EntityID: 6830962756425660972
+  - EntityID: 1026110743018560728
     TagComponent:
-      Tag: Fill Light
+      Tag: Brazier Hum
     TransformComponent:
-      Position: [-5, 3, -2]
+      Position: [-2.6, 1.1, -1.5]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    LightComponent:
-      Type: Point
-      Color: [0.38, 0.5, 0.85]
-      Intensity: 60
-      Range: 30
-      InnerCone: 20
-      OuterCone: 30
-      CastShadows: false
-  - EntityID: 17106466824111096354
-    TagComponent:
-      Tag: Sun
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [-0.45, -0.7, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Type: Directional
-      Color: [1, 0.96, 0.88]
-      Intensity: 1.8
-      Range: 10
-      InnerCone: 20
-      OuterCone: 30
-  - EntityID: 6172839405162738491
-    TagComponent:
-      Tag: Reflection Probe
-    TransformComponent:
-      Position: [0, 0.1, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    ReflectionProbeComponent:
-      Update: Realtime
-      Resolution: 128
-      Influence: 40
-      NearClip: 0.05
-      FarClip: 100
-      FacesPerFrame: 1
-  - EntityID: 3590914368618080122
-    TagComponent:
-      Tag: testcube
-    TransformComponent:
-      Position: [6, 0, -1]
-      Rotation: [0, 0, 0]
-      Scale: [1.6, 1.6, 1.6]
-  - EntityID: 3978153096293703175
-    RelationshipComponent:
-      Parent: 3590914368618080122
-    TagComponent:
-      Tag: Pivot
-    TransformComponent:
-      Position: [2, 0.5, -1]
-      Rotation: [0, -0, 0]
-      Scale: [1, 1, 1]
-  - EntityID: 6275495337674643950
-    RelationshipComponent:
-      Parent: 3978153096293703175
-    TagComponent:
-      Tag: CubeNode
-    TransformComponent:
-      Position: [-2, -0.5, 1]
-      Rotation: [0, 0.78539807, 0]
-      Scale: [0.5, 0.5, 0.5]
-    MeshComponent:
-      Mesh: 7094569269084948827
-      Material:
-        BaseColor: [0.85, 0.17, 0.19, 1]
-        Emissive: [0.02, 0, 0, 1]
-        Metallic: 0.25
-        Roughness: 0.65
-        Occlusion: 1
-  - EntityID: 17560664727926947894
-    TagComponent:
-      Tag: Falling Box 1
-    TransformComponent:
-      Position: [-0.4, 4, 0.35]
-      Rotation: [0, 0, 0]
-      Scale: [0.7, 0.7, 0.7]
-    MeshComponent:
-      Mesh: 8241982477996916736
-      Material:
-        BaseColor: [0.3, 0.55, 0.85, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.4
-        Occlusion: 1
-    RigidBodyComponent:
-      Type: Dynamic
-      Mass: 1
-      Friction: 0.4
-      Restitution: 0.1
-      LinearDamping: 0.05
-      AngularDamping: 0.05
-      GravityFactor: 1
-      FreezeRotation: false
-    ColliderComponent:
-      Shape: Box
-      HalfExtents: [0.5, 0.5, 0.5]
-      Radius: 0.5
-      Height: 1
-      Offset: [0, 0, 0]
-      IsTrigger: false
-    NativeScriptComponent:
-      Script: ImpactFlash
-  - EntityID: 10061604235763643196
-    TagComponent:
-      Tag: Falling Box 2
-    TransformComponent:
-      Position: [-0.18, 5.6, 0.16999999]
-      Rotation: [0, 0, 0]
-      Scale: [0.7, 0.7, 0.7]
-    MeshComponent:
-      Mesh: 8241982477996916736
-      Material:
-        BaseColor: [0.3, 0.55, 0.85, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.4
-        Occlusion: 1
-    RigidBodyComponent:
-      Type: Dynamic
-      Mass: 1
-      Friction: 0.4
-      Restitution: 0.1
-      LinearDamping: 0.05
-      AngularDamping: 0.05
-      GravityFactor: 1
-      FreezeRotation: false
-    ColliderComponent:
-      Shape: Box
-      HalfExtents: [0.5, 0.5, 0.5]
-      Radius: 0.5
-      Height: 1
-      Offset: [0, 0, 0]
-      IsTrigger: false
     AudioSourceComponent:
-      Clip: 7622274306199633311
-      Bus: SFX
-      Volume: 1
+      Clip: 11706423746662484290
+      Bus: Sfx
+      Volume: 0.3
       Pitch: 1
-      Loop: false
-      PlayOnAwake: false
+      Loop: true
+      PlayOnAwake: true
       Stream: false
       Spatial: true
-      MinDistance: 1
-      MaxDistance: 40
-    NativeScriptComponent:
-      Script: ImpactSound
-  - EntityID: 586830120030577985
+      MinDistance: 1.5
+      MaxDistance: 16
+  - EntityID: 3537863533945826643
     TagComponent:
-      Tag: Falling Box 3
+      Tag: Crate A
     TransformComponent:
-      Position: [0.03999999, 7.2, -0.01000002]
-      Rotation: [0, 0, 0]
-      Scale: [0.7, 0.7, 0.7]
+      Position: [3.05, 0.45, -2.5]
+      Rotation: [0, 0.0523599, 0]
+      Scale: [0.9, 0.9, 0.9]
     MeshComponent:
       Mesh: 8241982477996916736
-      Material:
-        BaseColor: [0.3, 0.55, 0.85, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.4
-        Occlusion: 1
-    RigidBodyComponent:
-      Type: Dynamic
-      Mass: 1
-      Friction: 0.4
-      Restitution: 0.1
-      LinearDamping: 0.05
-      AngularDamping: 0.05
-      GravityFactor: 1
-      FreezeRotation: false
-    ColliderComponent:
-      Shape: Box
-      HalfExtents: [0.5, 0.5, 0.5]
-      Radius: 0.5
-      Height: 1
-      Offset: [0, 0, 0]
-      IsTrigger: false
-    NativeScriptComponent:
-      Script: ImpactFlash
-  - EntityID: 12068825542644745259
-    TagComponent:
-      Tag: Falling Box 4
-    TransformComponent:
-      Position: [0.25999996, 8.8, -0.19000003]
-      Rotation: [0, 0, 0]
-      Scale: [0.7, 0.7, 0.7]
-    MeshComponent:
-      Mesh: 8241982477996916736
-      Material:
-        BaseColor: [0.3, 0.55, 0.85, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.4
-        Occlusion: 1
-    RigidBodyComponent:
-      Type: Dynamic
-      Mass: 1
-      Friction: 0.4
-      Restitution: 0.1
-      LinearDamping: 0.05
-      AngularDamping: 0.05
-      GravityFactor: 1
-      FreezeRotation: false
-    ColliderComponent:
-      Shape: Box
-      HalfExtents: [0.5, 0.5, 0.5]
-      Radius: 0.5
-      Height: 1
-      Offset: [0, 0, 0]
-      IsTrigger: false
-    AudioSourceComponent:
-      Clip: 7622274306199633311
-      Bus: SFX
-      Volume: 1
-      Pitch: 1
-      Loop: false
-      PlayOnAwake: false
-      Stream: false
-      Spatial: true
-      MinDistance: 1
-      MaxDistance: 40
-    NativeScriptComponent:
-      Script: ImpactSound
-  - EntityID: 11741161845662677473
-    TagComponent:
-      Tag: Trigger Zone
-    TransformComponent:
-      Position: [0, 2.2, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
+      Material: 15660401741581916922
     RigidBodyComponent:
       Type: Static
       Mass: 1
-      Friction: 0.4
-      Restitution: 0.1
+      Friction: 0.6
+      Restitution: 0.05
       LinearDamping: 0.05
       AngularDamping: 0.05
       GravityFactor: 1
       FreezeRotation: false
     ColliderComponent:
       Shape: Box
-      HalfExtents: [3, 0.6, 3]
+      HalfExtents: [0.5, 0.5, 0.5]
       Radius: 0.5
-      Height: 1
+      Height: 1.0
       Offset: [0, 0, 0]
-      IsTrigger: true
-    AudioSourceComponent:
-      Clip: 4876371458843502635
-      Bus: SFX
-      Volume: 0.7
-      Pitch: 1
-      Loop: false
-      PlayOnAwake: false
-      Stream: false
-      Spatial: true
-      MinDistance: 1
-      MaxDistance: 50
-    NativeScriptComponent:
-      Script: TriggerZone
-  - EntityID: 7301884420193355001
+      IsTrigger: false
+  - EntityID: 3537864633457454854
     TagComponent:
-      Tag: HUD
-    UICanvasComponent:
-      ScaleMode: ScaleWithScreen
-      ReferenceResolution: [1920, 1080]
-      MatchWidthOrHeight: 0.5
-      SortOrder: 0
-  - EntityID: 7301884420193355004
-    RelationshipComponent:
-      Parent: 7301884420193355001
-    TagComponent:
-      Tag: Title Backdrop
-    UIRectComponent:
-      AnchorMin: [0.5, 0]
-      AnchorMax: [0.5, 0]
-      OffsetMin: [-420, 48]
-      OffsetMax: [420, 190]
-      SortOrder: 0
-      Visible: true
-    UIImageComponent:
-      Texture: 0
-      Color: [0.04, 0.04, 0.06, 0.55]
-  - EntityID: 7301884420193355002
-    RelationshipComponent:
-      Parent: 7301884420193355001
-    TagComponent:
-      Tag: Title
-    UIRectComponent:
-      AnchorMin: [0.5, 0]
-      AnchorMax: [0.5, 0]
-      OffsetMin: [-400, 60]
-      OffsetMax: [400, 140]
-      SortOrder: 1
-      Visible: true
-    UITextComponent:
-      Text: RageV
-      Font: 12355000851502047045
-      Size: 72
-      Color: [0.9, 0.29, 0.32, 1]
-      Align: Center
-      Wrap: true
-      LineSpacing: 1
-  - EntityID: 7301884420193355003
-    RelationshipComponent:
-      Parent: 7301884420193355001
-    TagComponent:
-      Tag: Subtitle
-    UIRectComponent:
-      AnchorMin: [0.5, 0]
-      AnchorMax: [0.5, 0]
-      OffsetMin: [-400, 138]
-      OffsetMax: [400, 182]
-      SortOrder: 1
-      Visible: true
-    UITextComponent:
-      Text: text, laid out by the engine and anchored to the canvas
-      Font: 12355000851502047045
-      Size: 26
-      Color: [0.82, 0.83, 0.88, 1]
-      Align: Center
-      Wrap: true
-      LineSpacing: 1
-  - EntityID: 7301884420193355005
-    RelationshipComponent:
-      Parent: 7301884420193355001
-    TagComponent:
-      Tag: Corner Readout
-    UIRectComponent:
-      AnchorMin: [1, 1]
-      AnchorMax: [1, 1]
-      OffsetMin: [-330, -70]
-      OffsetMax: [-24, -24]
-      SortOrder: 1
-      Visible: true
-    UITextComponent:
-      Text: pinned to the bottom right
-      Font: 12355000851502047045
-      Size: 24
-      Color: [0.65, 0.66, 0.72, 1]
-      Align: Right
-      Wrap: false
-      LineSpacing: 1
-  - EntityID: 7301884420193355006
-    RelationshipComponent:
-      Parent: 7301884420193355001
-    TagComponent:
-      Tag: Click Button
-    UIRectComponent:
-      AnchorMin: [0, 1]
-      AnchorMax: [0, 1]
-      OffsetMin: [40, -110]
-      OffsetMax: [320, -40]
-      SortOrder: 1
-      Visible: true
-      BlocksPointer: false
-    UIImageComponent:
-      Texture: 0
-      Color: [0.5, 0.13, 0.15, 0.92]
-    UIButtonComponent:
-      Interactable: true
-      NormalColor: [0.85, 0.85, 0.85, 1]
-      HoverColor: [1, 1, 1, 1]
-      PressedColor: [0.6, 0.6, 0.6, 1]
-    NativeScriptComponent:
-      Script: ClickCounter
-  - EntityID: 7301884420193355007
-    RelationshipComponent:
-      Parent: 7301884420193355006
-    TagComponent:
-      Tag: Click Button Label
-    UIRectComponent:
-      AnchorMin: [0, 0]
-      AnchorMax: [1, 1]
-      OffsetMin: [0, 18]
-      OffsetMax: [0, 0]
-      SortOrder: 2
-      Visible: true
-      BlocksPointer: false
-    UITextComponent:
-      Text: Click me
-      Font: 12355000851502047045
-      Size: 30
-      Color: [0.97, 0.95, 0.95, 1]
-      Align: Center
-      Wrap: false
-      LineSpacing: 1
-  - EntityID: 7301884420193355008
-    RelationshipComponent:
-      Parent: 7301884420193355001
-    TagComponent:
-      Tag: Bound Button
-    UIRectComponent:
-      AnchorMin: [0, 1]
-      AnchorMax: [0, 1]
-      OffsetMin: [340, -110]
-      OffsetMax: [620, -40]
-      SortOrder: 1
-      Visible: true
-      BlocksPointer: false
-    UIImageComponent:
-      Texture: 0
-      Color: [0.16, 0.3, 0.5, 0.92]
-    UIButtonComponent:
-      Interactable: true
-      NormalColor: [0.85, 0.85, 0.85, 1]
-      HoverColor: [1, 1, 1, 1]
-      PressedColor: [0.6, 0.6, 0.6, 1]
-      OnClickTarget: 7301884420193355006
-      OnClickMethod: Count
-  - EntityID: 7301884420193355009
-    RelationshipComponent:
-      Parent: 7301884420193355008
-    TagComponent:
-      Tag: Bound Button Label
-    UIRectComponent:
-      AnchorMin: [0, 0]
-      AnchorMax: [1, 1]
-      OffsetMin: [0, 18]
-      OffsetMax: [0, 0]
-      SortOrder: 2
-      Visible: true
-      BlocksPointer: false
-    UITextComponent:
-      Text: or click me
-      Font: 12355000851502047045
-      Size: 30
-      Color: [0.95, 0.96, 0.98, 1]
-      Align: Center
-      Wrap: false
-      LineSpacing: 1
-  - EntityID: 7301884420193355010
-    TagComponent:
-      Tag: Sphere Nameplate
+      Tag: Crate B
     TransformComponent:
-      Position: [0, 1.9, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    WorldTextComponent:
-      Text: gold sphere
-      Font: 12355000851502047045
-      Size: 0.32
-      Color: [1, 0.86, 0.4, 1]
-      Align: Center
-      WrapWidth: 0
-      LineSpacing: 1
-      Billboard: Upright
-  - EntityID: 7742000000000000010
+      Position: [3, 1.34, -2.46]
+      Rotation: [0, -0.10472, 0]
+      Scale: [0.9, 0.9, 0.9]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 3537865732969083065
+    TagComponent:
+      Tag: Crate C
+    TransformComponent:
+      Position: [3.9, 0.45, -1.7]
+      Rotation: [0, -0.314159, 0]
+      Scale: [0.9, 0.9, 0.9]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 3537867931992339487
+    TagComponent:
+      Tag: Crate E
+    TransformComponent:
+      Position: [-3.5, 0.4, -0.4]
+      Rotation: [0, 0.488692, 0]
+      Scale: [0.8, 0.8, 0.8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 3537866832480711276
+    TagComponent:
+      Tag: Crate D
+    TransformComponent:
+      Position: [2.72, 2.16, -2.42]
+      Rotation: [0, 0.279253, -0.15708]
+      Scale: [0.82, 0.82, 0.82]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 6.0
+      Friction: 0.55
+      Restitution: 0.12
+      LinearDamping: 0.05
+      AngularDamping: 0.08
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    NativeScriptComponent:
+      Script: ImpactSound
+  - EntityID: 4795360185485757448
+    TagComponent:
+      Tag: Falling Crate 1
+    TransformComponent:
+      Position: [4.05, 3.4, -0.5]
+      Rotation: [0.15708, 0, 0.10472]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 4.0
+      Friction: 0.55
+      Restitution: 0.12
+      LinearDamping: 0.05
+      AngularDamping: 0.08
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    NativeScriptComponent:
+      Script: ImpactSound
+  - EntityID: 4795363484020642081
+    TagComponent:
+      Tag: Falling Crate 2
+    TransformComponent:
+      Position: [5, 4.1, 0.2]
+      Rotation: [0.401426, 0.418879, 0.10472]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 15660401741581916922
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 4.0
+      Friction: 0.55
+      Restitution: 0.12
+      LinearDamping: 0.05
+      AngularDamping: 0.08
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+    NativeScriptComponent:
+      Script: ImpactFlash
+  - EntityID: 17490751808708212718
     TagComponent:
       Tag: Fox
     TransformComponent:
-      Position: [1.9, -1, 3.7]
-      Rotation: [0, -1.15, 0]
-      Scale: [0.022, 0.022, 0.022]
+      Position: [-1.5, 0, -0.15]
+      Rotation: [0, 0.907571, 0]
+      Scale: [0.0115, 0.0115, 0.0115]
     MeshComponent:
       Mesh: 11679010045657754579
       Material: 14845622431998451938
@@ -695,5 +529,273 @@ Entities:
       Clip: 2
       Playing: true
       Loop: true
-      Speed: 1
+      Speed: 0.8
       BlendTime: 0.35
+  - EntityID: 8364755303872036211
+    TagComponent:
+      Tag: Late Sun
+    TransformComponent:
+      Position: [4, 7.5, 7]
+      Rotation: [-0.471239, 0.488692, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.79, 0.58]
+      Intensity: 3.1
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 9034894771354364335
+    TagComponent:
+      Tag: Lantern
+    TransformComponent:
+      Position: [0, 2.3, -4.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 0.88, 0.72]
+      Intensity: 42
+      Range: 18
+      InnerCone: 18
+      OuterCone: 34
+  - EntityID: 16506985614832233903
+    TagComponent:
+      Tag: Courtyard Gate
+    TransformComponent:
+      Position: [0, 1.2, 2.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [4.6, 1.2, 0.4]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: true
+    NativeScriptComponent:
+      Script: TriggerZone
+  - EntityID: 6839532879447133962
+    TagComponent:
+      Tag: Gate Chime
+    RelationshipComponent:
+      Parent: 16506985614832233903
+    AudioSourceComponent:
+      Clip: 4876371458843502635
+      Bus: Sfx
+      Volume: 0.5
+      Pitch: 1
+      Loop: false
+      PlayOnAwake: false
+      Stream: false
+      Spatial: true
+      MinDistance: 2
+      MaxDistance: 22
+  - EntityID: 5299056818474671526
+    TagComponent:
+      Tag: HUD
+    UICanvasComponent:
+      ScaleMode: ScaleWithScreen
+      ReferenceResolution: [1920, 1080]
+      MatchWidthOrHeight: 0.5
+      SortOrder: 0
+  - EntityID: 63513746661606319
+    TagComponent:
+      Tag: Banner
+    RelationshipComponent:
+      Parent: 5299056818474671526
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [0, 0]
+      OffsetMax: [0, 104]
+      SortOrder: 0
+      Visible: true
+      BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0.04, 0.04, 0.06, 0.62]
+  - EntityID: 8344511681258289233
+    TagComponent:
+      Tag: Banner Title
+    RelationshipComponent:
+      Parent: 63513746661606319
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [52, 28]
+      OffsetMax: [-52, -28]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: RageV
+      Font: 12355000851502047045
+      Size: 44
+      Color: [0.9, 0.29, 0.32, 1]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 17419852750097771761
+    TagComponent:
+      Tag: Banner Subtitle
+    RelationshipComponent:
+      Parent: 63513746661606319
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [52, 34]
+      OffsetMax: [-52, -34]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: The courtyard  --  forge, dusk
+      Font: 12355000851502047045
+      Size: 22
+      Color: [0.76, 0.76, 0.8, 1]
+      Align: Right
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 10658505924121428188
+    TagComponent:
+      Tag: Bell Button
+    RelationshipComponent:
+      Parent: 5299056818474671526
+    UIRectComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      OffsetMin: [52, -128]
+      OffsetMax: [356, -52]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: true
+    UIImageComponent:
+      Texture: 0
+      Color: [0.04, 0.04, 0.06, 0.62]
+    UIButtonComponent:
+      Interactable: true
+      NormalColor: [0.82, 0.82, 0.86, 1]
+      HoverColor: [1, 1, 1, 1]
+      PressedColor: [0.55, 0.55, 0.6, 1]
+    NativeScriptComponent:
+      Script: ClickCounter
+      Fields:
+        Caption: ring the bell
+        PollOwnButton: true
+  - EntityID: 17023910194610238134
+    TagComponent:
+      Tag: Bell Label
+    RelationshipComponent:
+      Parent: 10658505924121428188
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [14, 12]
+      OffsetMax: [-14, -12]
+      SortOrder: 2
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: ring the bell
+      Font: 12355000851502047045
+      Size: 24
+      Color: [0.9, 0.29, 0.32, 1]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 11626863984903934835
+    TagComponent:
+      Tag: Anvil Tally
+    RelationshipComponent:
+      Parent: 5299056818474671526
+    UIRectComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      OffsetMin: [376, -128]
+      OffsetMax: [680, -52]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0.04, 0.04, 0.06, 0.62]
+    NativeScriptComponent:
+      Script: ClickCounter
+      Fields:
+        Caption: struck
+        PollOwnButton: false
+  - EntityID: 576316239890954401
+    TagComponent:
+      Tag: Anvil Tally Label
+    RelationshipComponent:
+      Parent: 11626863984903934835
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [14, 12]
+      OffsetMax: [-14, -12]
+      SortOrder: 2
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: struck
+      Font: 12355000851502047045
+      Size: 24
+      Color: [0.76, 0.76, 0.8, 1]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 11830581832271630367
+    TagComponent:
+      Tag: Anvil Button
+    RelationshipComponent:
+      Parent: 5299056818474671526
+    UIRectComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      OffsetMin: [700, -128]
+      OffsetMax: [1004, -52]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: true
+    UIImageComponent:
+      Texture: 0
+      Color: [0.04, 0.04, 0.06, 0.62]
+    UIButtonComponent:
+      Interactable: true
+      NormalColor: [0.82, 0.82, 0.86, 1]
+      HoverColor: [1, 1, 1, 1]
+      PressedColor: [0.55, 0.55, 0.6, 1]
+      OnClickTarget: 11626863984903934835
+      OnClickMethod: Count
+  - EntityID: 10707009537871225111
+    TagComponent:
+      Tag: Anvil Label
+    RelationshipComponent:
+      Parent: 11830581832271630367
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [14, 12]
+      OffsetMax: [-14, -12]
+      SortOrder: 2
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: strike the anvil
+      Font: 12355000851502047045
+      Size: 24
+      Color: [0.9, 0.29, 0.32, 1]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1

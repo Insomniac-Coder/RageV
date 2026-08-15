@@ -470,6 +470,24 @@ namespace RageV::Assets
 		s_FontFailed.clear();
 		s_FontAtlases.clear();
 
+		// The three phase-9 caches, which were added one at a time and each
+		// missed this function.
+		//
+		// `s_ColorLuts` is the one that shows: it holds a 3D texture, so a
+		// scene that graded anything ended the process with a live VkImage and
+		// Vulkan's validation layer said so at `vkDestroyDevice`. It had been
+		// true since 9.1 and nothing caught it, because a leak at shutdown
+		// costs nothing a user can see and the checks only look at exit codes.
+		// The demo scene is what surfaced it -- the first one to hold a grade
+		// at exit *and* be looked at.
+		//
+		// The other two carry no GPU memory, and are cleared for the reason
+		// the note below gives: a cache that survives a project switch hands
+		// the new project the old one's assets.
+		s_ColorLuts.clear();
+		s_LutRecipes.clear();
+		s_PostProfiles.clear();
+
 		// The loader and the filter hold the same textures by path and by
 		// pointer, and both used to be cleared only at shutdown -- so changing
 		// project kept every old project's environment maps alive, and the

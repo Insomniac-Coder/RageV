@@ -1,0 +1,17 @@
+Material: courtyard_plinth
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.025
+Tiling: [2.2, 1.6]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 5971349675159141683
+  Normal: 2037669606796660249
+  Occlusion: 6268745042894850009
+  Roughness: 8365816227942354050
+  Height: 997712195047113081

@@ -1534,6 +1534,26 @@ which is most of what a good motion blur needs too.
 construction, and skinned meshes report the *object's* motion rather than the
 limb's, because bones are not double-buffered. Both will look like bugs.
 
+### The demo scene has a rule now
+
+`SampleProject/assets/scenes/demo.rage` is **generated** by
+`tools/scripts/make_demo_scene.py`. Edit the generator and re-run it; the
+scene it emits is byte-identical to what the engine writes on load-and-save,
+so it round-trips and the editor can still open it normally.
+
+It is a generator because of what the old scene had become: thirty-four
+entities called things like "Sphere (gold)" and "Falling Box 3" on a grid --
+every feature present and none of them anywhere for a reason. A 700-line YAML
+is the shape that lets a checklist accumulate one entity at a time with nobody
+able to see it happening.
+
+**So: a feature goes into the demo when the place would have one.** It is a
+forge courtyard at dusk, and every section of the generator says what it is
+for. Adding depth of field meant focusing it on the plinth; adding auto
+exposure meant a courtyard with a shaded side and a sunlit one. Adding
+something with no reason to be there means writing that argument out loud and
+finding it does not hold.
+
 ### Two things left open, neither blocking
 
 **The focus-click guard has never been confirmed against a real click.** Alt-tab
