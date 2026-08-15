@@ -53,10 +53,11 @@ scene that used it — the same rule as C++, the same rule as Unity.
 ## Fields and the inspector
 
 Any field of a supported type shows up in the inspector — `bool`, `int`,
-`float`, `string`, `Vector3`. Private is fine: reflection can reach it, and
-requiring `public` would be telling people to write worse C# for the
-inspector's benefit. This is the opposite of the C++ rule, where a field must
-be public because the registration has to name it from outside the class.
+`float`, `string`, `Vector3`. No marker, no registration: reflection finds
+them. Private is fine too, and requiring `public` would be telling people to
+write worse C# for the inspector's benefit. Both are the opposite of the C++
+rule, where a field carries an `RVShowInEditor` marker and must be public,
+because the generated registration names it from outside the class.
 
 The value shown before anyone edits it is whatever the field initialiser says
 — `private float m_Speed = 1.2f;` shows 1.2. Only values somebody actually
@@ -310,9 +311,8 @@ public class Menu : Script
 }
 ```
 
-**No registration.** This is the one place C# is plainly less work than C++,
-where every bindable method has to be declared to the engine by hand: reflection
-finds these, so writing the method is the whole job. It must be **public**, take
+**No marker.** Where a C++ handler carries `RVCallable`, reflection finds
+these, so writing the method is the whole job. It must be **public**, take
 no arguments and return `void` — the dropdown offers nothing else.
 
 The button's **Target** is which entity's script to call. Leave it empty for the

@@ -26,13 +26,17 @@ namespace RageV
 	class Bell : public ScriptableEntity
 	{
 	public:
+		RVShowInEditor
 		float Swing = 0.34f;      // radians at the first pass
+		RVShowInEditor
 		float Decay = 1.9f;       // per second
+		RVShowInEditor
 		float Rate = 7.0f;        // radians per second of the oscillation
 
-		// Named by the button's OnClick. Public, registered below, and the
+		// Named by the button's OnClick, via the RVCallable marker -- and the
 		// whole point of the bound path: the handler lives on the thing being
 		// acted on rather than on the control.
+		RVCallable
 		void Ring()
 		{
 			m_Age = 0.0f;
@@ -92,6 +96,7 @@ namespace RageV
 	class Anvil : public ScriptableEntity
 	{
 	public:
+		RVCallable
 		void Strike()
 		{
 			PlaySource();
@@ -111,12 +116,9 @@ namespace RageV
 		}
 	};
 
-	RV_REGISTER_SCRIPT(Bell)
-		.Field<&Bell::Swing>("Swing")
-		.Field<&Bell::Decay>("Decay")
-		.Field<&Bell::Rate>("Rate")
-		.Method<&Bell::Ring>("Ring");
-
-	RV_REGISTER_SCRIPT(Anvil)
-		.Method<&Anvil::Strike>("Strike");
+	// No registration block: the RVShowInEditor / RVCallable markers above are
+	// the registration. rvgen reads them at build time and generates exactly
+	// the RV_REGISTER_SCRIPT chain that used to end this file. Rotator.cpp
+	// still uses the block, deliberately -- both styles work, so a project
+	// migrates one file at a time or not at all.
 }

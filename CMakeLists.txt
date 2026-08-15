@@ -65,6 +65,9 @@ endif()
 if(RAGEV_BUILD_TOOLS)
     add_subdirectory(tools/shaderinfo)
     add_subdirectory(tools/rhismoke)
+    # Before scenetest: its build runs rvgen over a fixture and compiles the
+    # result, which is how the generator is proven end to end in-tree.
+    add_subdirectory(tools/rvgen)
     add_subdirectory(tools/scenetest)
     add_subdirectory(tools/rvpack)
     add_subdirectory(tools/rvdoc)

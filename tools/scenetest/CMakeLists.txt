@@ -1,4 +1,21 @@
 add_executable(scenetest main.cpp)
+
+# The declaration-site marker fixture, run through the *real* rvgen at build
+# time and compiled into this executable. That is the end-to-end proof of the
+# generator -- marker to scan to wrapper TU to a registration that exists at
+# runtime -- without needing a game module build. TemplateProbe.cpp in the
+# engine is the other half of the pair: the same markers with no generator
+# must register nothing.
+set(RVGEN_FIXTURE "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/rvgen/MarkerProbe.cpp")
+set(RVGEN_FIXTURE_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/rvgen/MarkerProbe.cpp.rvgen.cpp")
+add_custom_command(
+    OUTPUT "${RVGEN_FIXTURE_WRAPPER}"
+    COMMAND $<TARGET_FILE:rvgen>
+        --source "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/rvgen"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/rvgen"
+    DEPENDS rvgen "${RVGEN_FIXTURE}"
+    COMMENT "rvgen over the scenetest fixture")
+target_sources(scenetest PRIVATE "${RVGEN_FIXTURE_WRAPPER}")
 # glm, only here. The engine does not link it; this suite checks RageV::Math
 # against it operation by operation, which is what makes owning that maths
 # defensible. See GlmBridge.h.

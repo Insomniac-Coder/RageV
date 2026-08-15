@@ -44,7 +44,55 @@ include("${RAGEV_ENGINE}/RageVTargets.cmake")
 # compiler-probe .cpp files.
 file(GLOB MODULE_SOURCES CONFIGURE_DEPENDS "*.cpp" "*.h")
 
-add_library(Sample SHARED ${MODULE_SOURCES})
+# Declaration-site script markers (RVShowInEditor / RVCallable / RVScript).
+#
+# rvgen scans Source/ and, for every file that marks something, writes a
+# wrapper TU that #includes the file and appends the registrations the
+# markers describe -- so a marked file compiles through its wrapper instead
+# of directly, and a script says `RVShowInEditor` above a field instead of
+# ending the file with an RV_REGISTER_SCRIPT block.
+#
+# It runs at *configure* time because the source list depends on its answer,
+# and only a configure can change the source list. The CONFIGURE_DEPENDS
+# loop below is the other half: editing any script re-runs the scan, so the
+# first marker added to a file cannot sit registering nothing until somebody
+# happens to reconfigure.
+foreach(script ${MODULE_SOURCES})
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${script}")
+endforeach()
+
+# Any config's rvgen: its output does not depend on how it was compiled.
+set(RVGEN_EXE "")
+foreach(config Release Debug Dist)
+    if(EXISTS "${RAGEV_ENGINE}/bin/${config}/rvgen/rvgen.exe")
+        set(RVGEN_EXE "${RAGEV_ENGINE}/bin/${config}/rvgen/rvgen.exe")
+        break()
+    endif()
+endforeach()
+if(NOT RVGEN_EXE)
+    message(FATAL_ERROR
+        "rvgen.exe was not found under ${RAGEV_ENGINE}/bin/<config>/rvgen. "
+        "It generates script registrations from RVShowInEditor markers; "
+        "build the engine once, then configure this module again.")
+endif()
+
+execute_process(
+    COMMAND "${RVGEN_EXE}" --source "${CMAKE_CURRENT_SOURCE_DIR}"
+                           --out "${CMAKE_CURRENT_BINARY_DIR}/rvgen"
+    RESULT_VARIABLE RVGEN_RESULT
+    ERROR_VARIABLE RVGEN_ERRORS)
+if(NOT RVGEN_RESULT EQUAL 0)
+    # The error lines are MSVC-shaped, so the editor's build panel parses
+    # them out of this message like any other compile error.
+    message(FATAL_ERROR "rvgen refused a marked declaration:\n${RVGEN_ERRORS}")
+endif()
+
+include("${CMAKE_CURRENT_BINARY_DIR}/rvgen/rvgen.manifest.cmake")
+if(RVGEN_WRAPPED_SOURCES)
+    list(REMOVE_ITEM MODULE_SOURCES ${RVGEN_WRAPPED_SOURCES})
+endif()
+
+add_library(Sample SHARED ${MODULE_SOURCES} ${RVGEN_GENERATED})
 target_link_libraries(Sample PRIVATE RageV::RageV)
 
 # The DLL lands beside the project's other build output, where the engine

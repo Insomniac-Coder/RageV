@@ -17,6 +17,11 @@ using namespace RageV;
 class Bobber : public ScriptableEntity
 {
 public:
+    // In the inspector, stored in the scene. The marker is the whole
+    // registration -- the build generates the rest.
+    RVShowInEditor
+    float Height = 0.5f;
+
     void OnCreate() override
     {
         m_Origin = GetPosition();
@@ -26,7 +31,7 @@ public:
     {
         m_Elapsed += dt.GetSeconds();
         Vec3 position = m_Origin;
-        position.y += std::sin(m_Elapsed * 2.0f) * 0.5f;
+        position.y += std::sin(m_Elapsed * 2.0f) * Height;
         GetPosition() = position;
     }
 
@@ -34,8 +39,6 @@ private:
     Vec3 m_Origin{ 0.0f };
     float     m_Elapsed = 0.0f;
 };
-
-RV_REGISTER_SCRIPT(Bobber);
 ```
 
 **File → Build Scripts** (Ctrl+B) compiles the module — in the background,
@@ -47,8 +50,8 @@ The **Name** row above the dropdown is a label for the component and nothing
 else — call it "Bobbing crate" if that helps you read the inspector. Which
 script runs is the dropdown's job.
 
-The name in the dropdown is the string `RV_REGISTER_SCRIPT` derived from the type
-name, and that string is what gets written into the scene file.
+The name in the dropdown is the class's own name, and that string is what gets
+written into the scene file.
 
 > [!NOTE]
 > A script you have written but not yet built appears in the dropdown marked
@@ -69,10 +72,32 @@ name, and that string is what gets written into the scene file.
 
 ## Registering
 
-`RV_REGISTER_SCRIPT` places a static registrar object at file scope. It runs
-when the game module loads — the engine loads the DLL when the project opens,
-the registrars fire, and the scripts exist. There is no manifest to maintain
-and no list to forget a script from.
+A script registers by being **marked**, at the declaration:
+
+| Marker | On | Meaning |
+|---|---|---|
+| `RVShowInEditor` | a public field | In the inspector, stored in the scene |
+| `RVCallable` | a public `void` method | Nameable by a UI button's **On Click** |
+| `RVScript` | the class | In the Script dropdown, nothing editable |
+
+One marked field or method registers the class too, so `RVScript` is only for
+a script with nothing else marked. C++ has no reflection, so this is not the
+language doing it: the markers compile to nothing, and the build scans the
+source and generates the registration code — which is why a marker the build
+cannot understand is a **build error naming the line**, never a field that
+quietly fails to appear.
+
+The explicit form still works, and both styles can live in one project (one
+per class — marking a class that also has a block is a build error):
+
+```cpp
+RV_REGISTER_SCRIPT(Bobber)
+    .Field<&Bobber::Height>("Height");
+```
+
+It places a static registrar object at file scope, which runs when the game
+module loads — and it is also exactly what the markers generate, so the two
+styles are one mechanism with two spellings.
 
 > [!TRAP]
 > That mechanism has one historical failure mode worth knowing even though the
@@ -81,6 +106,32 @@ and no list to forget a script from.
 > registration never runs, and there is no error anywhere. A DLL is linked
 > from its object files, so a game module never hits this — but a script
 > compiled into a static library of your own will, silently.
+
+## Editable fields
+
+Mark a field and it appears in the inspector, per entity, and is stored in the
+scene file:
+
+```cpp
+RVShowInEditor
+float Speed = 1.0f;
+
+RVShowInEditor
+Vec3 Offset = Vec3(0.0f, 1.0f, 0.0f);
+```
+
+The rules, each enforced with an error that names the field:
+
+- **Five kinds**: `bool`, `int`, `float`, `Vec3`, `std::string` — the same
+  five C# fields have, because one inspector and one scene format serve both
+  languages.
+- **Public**, because the generated registration names the member from
+  outside the class. (C# has the opposite rule — private fields are editable
+  there — because reflection can reach them.)
+- The **default** in the inspector is the initializer, taken from a freshly
+  constructed instance.
+- The field's name is what the scene file stores. Renaming it is the same
+  API break as renaming the script.
 
 ## The lifecycle
 
@@ -458,27 +509,26 @@ same click seen twice — use whichever fits, not both on one button.
 
 ### The button calls your method
 
-Register the method, then pick it from the button's **On Click** in the
+Mark the method, then pick it from the button's **On Click** in the
 inspector:
 
 ```cpp
 class Menu : public ScriptableEntity
 {
 public:
+    RVCallable
     void StartGame() { /* ... */ }
+
+    RVCallable
     void Quit()      { /* ... */ }
 };
-
-RV_REGISTER_SCRIPT(Menu)
-    .Method<&Menu::StartGame>("StartGame")
-    .Method<&Menu::Quit>("Quit");
 ```
 
 C++ has no reflection, so the engine cannot find `StartGame` on its own — the
-registration is how the name gets into the dropdown. (C# needs no equivalent;
-see the C# guide.) The method must be **public**, take no arguments and return
-`void`; anything else fails to compile at the registration line, naming the
-method.
+marker is how the name gets into the dropdown. (C# needs no equivalent; see
+the C# guide.) The method must be **public**, take no arguments and return
+`void`; anything else is a build error naming the method — a scene file has
+nowhere to store arguments and nowhere to put a return value.
 
 The button's **Target** is which entity's script to call. Leave it empty for the
 button's own entity, which is what a script sitting on the button wants.
@@ -613,6 +663,7 @@ and partly to be exactly this: the worked examples of what reads well.
 | Symptom | Cause |
 |---|---|
 | Script missing from the dropdown | Registered in a static library, object file dropped by the linker |
+| Marked field never appears | The project's `Source/CMakeLists.txt` predates the marker scan — the Build Log warns, with the fix |
 | Object vanishes and never returns | NaN in the transform, usually from normalising a zero vector |
 | Behaviour changes with `--fixed-hz` | A rate not multiplied by `dt` |
 | A jump barely twitches | `AddForce` where `AddImpulse` was meant |

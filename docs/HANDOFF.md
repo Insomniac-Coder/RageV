@@ -211,28 +211,14 @@ has to be stated at layer init *as well as* in BuildFrame, and scenetest has
 its own two call sites that need it too. Grep for `R16G16_SFLOAT` to find all
 five places.
 
-**Asked for, not yet built: render settings belong to the project, with two
-profiles over them.** They are per *scene* today, and the anti-aliasing mode
-is additionally a machine-wide key in `ragev.ini` -- three homes for one kind
-of setting. Wanted instead: the project owns the defaults, and **two separate
-profile assets** layer over it, because they vary along different axes.
-`.rvrenderprofile` is cost -- anti-aliasing, shadows, probe resolution -- and
-is chosen per machine or build. `.rvpostprofile` is look -- exposure, bloom,
-and everything 9.1-9.7 adds -- and is chosen per scene, eventually per
-volume. The scene keeps only what is genuinely scene content: ambient, sky.
-Every layer is sparse and per-field.
+**Where phase 9 stands: 9.0 through 9.4 are built** -- settings live on the
+project with the two profile assets over them (9.0), colour grading (9.1),
+auto exposure (9.2), the Perlin-era grain rework (9.3) and depth of field
+(9.4) all landed, each with its check script. C++ script fields moved to
+declaration-site markers (`RVShowInEditor`, ENGINE-NOTES 7aa) on 2026-08-15.
 
-Roadmap 9.0 has both resolution orders, why the split is the load-bearing
-decision, why it should come *before* 9.1-9.7, and the open questions. The
-one non-negotiable is that every layer reads and writes through
-`RenderSettingsRegistry` rather than a hand-written list per format -- the
-scene serializer is such a list and it has already silently dropped a
-setting (ENGINE-NOTES 7r).
-
-**What to do next: roadmap 9.0** -- render and post-processing settings become
-per-project, overridden by two profile assets. Specified 2026-08-14, not yet
-built, and ordered before 9.1-9.7 because each of those adds settings that
-would otherwise land in the wrong home.
+**What to do next: roadmap 9.5, motion blur** -- see START HERE in the log
+below, and the open validation defect recorded beside it.
 
 Roadmap **phase 8 is open work, not excluded** -- GI, bindless, GPU-driven
 rendering, terrain, navmesh, networking, other platforms, XR, FBX, visual
@@ -1515,75 +1501,63 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: declaration-site script fields
+### START HERE: 9.5, motion blur
 
-**Asked for on 2026-08-15, and it comes before 9.5.**
-
-C++ script fields are registered in a trailing block, one line per field:
-
-```cpp
-RV_REGISTER_SCRIPT(Bell)
-    .Field<&Bell::Swing>("Swing")
-    .Field<&Bell::Decay>("Decay")
-    .Method<&Bell::Ring>("Ring");
-```
-
-The wanted shape is a marker at the **declaration**, with nothing at the end
-of the file:
-
-```cpp
-RVShowInEditor
-float Swing = 0.34f;
-```
-
-**Why this is not just a macro.** C++ has no reflection, so a marker sitting
-in a class body has no way to register anything: it does not know the class
-it is in, and a static registrar declared there would need the enclosing
-type's name, which the preprocessor cannot see. The three real routes:
-
-1. **A code generator**, the Unreal approach. `RVShowInEditor` expands to
-   nothing; a tool scans `Source/*.h` and `*.cpp` before the compile and
-   emits a `.generated.cpp` of registrations. Gives exactly the requested
-   syntax. Costs a build step that can fail, and a parser that has to be
-   good enough not to trip on templates, comments and macros.
-2. **A macro that owns the declaration**, `RV_FIELD(float, Swing, 0.34f)` --
-   expands to the member *and* its registrar entry, no build step and no
-   parser. Not the syntax asked for, and it puts a comma-separated list where
-   a declaration should be.
-3. **C++26 static reflection.** The right answer eventually and not available
-   now.
-
-Route 1 is what was asked for. Questions to settle before writing any of it:
-
-- **Which classes to scan.** A marker on the class as well (`RVScript`), or
-  scan everything deriving from `ScriptableEntity`? The first is cheap to
-  detect; the second means understanding inheritance.
-- **Methods too.** `.Method<>` is what lets a button name a handler in the
-  scene file, so a marker for it (`RVCallable`) is part of the same job or
-  the boilerplate only half goes away.
-- **Where generated code lands**, and how the module's `CMakeLists.txt`
-  picks it up -- it globs `*.cpp` in `Source/`, so a generated file dropped
-  there would be swept up but also seen by a person as source they did not
-  write. A `generated/` subfolder and an explicit add is probably better.
-- **Both build paths.** The editor's Build Scripts *and* a plain CMake
-  configure of `SampleProject/bin/module` have to run the generator, or one
-  of them silently compiles a module with no fields registered.
-- **Failure behaviour.** A generator that cannot parse a file must fail the
-  build loudly. Silently emitting nothing gives a script whose fields vanish
-  from the inspector with no error, which is the worst outcome available.
-- **Migration.** `RV_REGISTER_SCRIPT` should keep working, so `Rotator`,
-  `Bell` and `Anvil` do not have to move on the same commit.
-
-The check that matters: a field marked and never mentioned again appears in
-the inspector, round-trips through the `.rage`, and survives a rename of the
-*script* -- and a method marked the same way can be named by a button.
+Phase 9 is **9.0-9.4 done**, plus declaration-site script fields (below).
+**9.5 is the best-prepared item in the phase** -- see "After that" below for
+what 7.10, 9.2 and 9.4 each left in place for it, and read 7r before
+touching the velocity buffer.
 
 ---
 
-### After that: 9.5, motion blur
+### Done - declaration-site script fields (2026-08-15)
+
+ENGINE-NOTES 7aa. A C++ script field is declared once, where it lives:
+
+```cpp
+RVShowInEditor
+float Swing = 0.34f;      // in the inspector, stored in the scene
+
+RVCallable
+void Ring();              // nameable by a button's OnClick
+
+RVScript                  // a class with nothing else marked
+class Rotator : ...
+```
+
+No trailing block. The markers are empty macros (ScriptableEntity.h); `rvgen`
+-- a thin CLI over `ScriptGen` in the engine, where scenetest tests it --
+scans `Source/` at **configure time** and emits one wrapper TU per marked
+file that `#include`s the file and appends the registrations, because a class
+defined in a .cpp can only be named by a TU that includes it. The module's
+CMakeLists excludes wrapped .cpps from the glob and adds
+`CMAKE_CONFIGURE_DEPENDS` on every script, so an edit re-runs the scan
+through *both* build paths (Build Scripts and a by-hand cmake) with one hook.
+
+What to know before touching it:
+
+- **Refusal is the contract.** Every marked declaration the scanner cannot
+  fully parse is a build error naming the line, MSVC-shaped so the build
+  panel parses it. Never make it guess; a field that silently fails to
+  appear is the failure this replaced.
+- **`RV_REGISTER_SCRIPT` still works** (Rotator still uses it); both styles
+  on one class is a build-time error, not the registry's first-wins.
+- **The pair:** TemplateProbe.cpp proves markers-without-generator register
+  *nothing*; scenetest's `fixtures/rvgen/MarkerProbe.cpp` goes through the
+  real rvgen at build time and proves the same shape registers everything.
+  Bell and Anvil are migrated, so `CheckDemoButtons` rides on generated
+  registrations.
+- **Old projects:** a `Source/CMakeLists.txt` that predates rvgen plus
+  markers in a script warns in the build panel (`ModuleBuild::Build` scans
+  before every build). Knockdown's CMakeLists is updated; third-party
+  projects get the warning.
+
+---
+
+### After that: the rest of phase 9
 
 Phase 9 is **9.0, 9.1, 9.2, 9.3 and 9.4 done**, plus the `.rvlut` recipe and
-TAA's two extra dials. Nothing is broken and nothing is half-finished.
+TAA's two extra dials.
 
 **Next is 9.5 motion blur**, then 9.6 SSAO and 9.7 SSR.
 
@@ -1618,6 +1592,25 @@ for. Adding depth of field meant focusing it on the plinth; adding auto
 exposure meant a courtyard with a shaded side and a sunlit one. Adding
 something with no reason to be there means writing that argument out loud and
 finding it does not hold.
+
+### Open defect: 74 validation lines on the editor's first frame
+
+**Found 2026-08-15, and it predates that day's change** -- verified by
+stashing the declaration-site work, rebuilding at `e4fa72d`, and getting the
+identical 74 lines. It is the first standing violation of the zero-
+`[Vulkan]`-lines bar, so it should be the next fix after (or before) 9.5.
+
+The shape: immediately after "Probe arrays ready" on the demo scene's first
+rendered frame, `VkDescriptorSet ... was destroyed or updated without
+UPDATE_AFTER_BIND` invalidates the frame's command buffer, and every
+subsequent record call on it errors -- 74 lines, deterministic, same count
+every run, Vulkan only. Something updates or destroys a bound descriptor set
+mid-recording during or right after the first reflection-probe capture.
+Start from the ENGINE-NOTES entries that already describe this family: the
+pooled-grow `while` (7q), the per-frame descriptor cursor, and the
+"probe captures the scene before the graph is built" pattern in Cold start.
+The editor still draws correctly on both backends, which is why nothing
+visible caught it.
 
 ### Two things left open, neither blocking
 

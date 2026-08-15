@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "ModuleBuild.h"
+#include "ScriptGen.h"
 #include "RageV/Core/Log.h"
 
 #include <chrono>
@@ -191,6 +192,49 @@ namespace RageV
 		{
 			result.Output = "No game module at " + source.string();
 			return result;
+		}
+
+		// A project whose CMakeLists predates rvgen compiles marked scripts
+		// perfectly and registers none of them -- the markers are empty
+		// macros, and the fields just never appear, with no error anywhere.
+		// That is the worst outcome available, so it is the one case worth a
+		// scan before every build: markers in Source/ plus a CMakeLists that
+		// never mentions rvgen is warned about, loudly, in the build panel.
+		{
+			const auto readAll = [](const std::filesystem::path& path)
+			{
+				std::ifstream in(path, std::ios::binary);
+				std::ostringstream text;
+				text << in.rdbuf();
+				return text.str();
+			};
+
+			if (readAll(source / "CMakeLists.txt").find("rvgen") == std::string::npos)
+			{
+				for (const auto& entry : std::filesystem::directory_iterator(source, ec))
+				{
+					const std::filesystem::path& path = entry.path();
+					const std::string extension = path.extension().string();
+					if (extension != ".cpp" && extension != ".h")
+						continue;
+					if (!ScriptGen::HasMarkers(readAll(path)))
+						continue;
+
+					Managed::BuildDiagnostic stale;
+					stale.File = (source / "CMakeLists.txt").string();
+					stale.Line = 1;
+					stale.Code = "RVGEN2";
+					stale.IsError = false;
+					stale.Message = path.filename().string()
+						+ " uses RVShowInEditor markers, but this CMakeLists.txt "
+						"predates rvgen -- the fields will silently not appear. "
+						"Copy the rvgen block from a newly created project's "
+						"Source/CMakeLists.txt.";
+					result.Diagnostics.push_back(stale);
+					result.Output += "warning RVGEN2: " + stale.Message + "\n";
+					break;   // one warning; the fix is the same for every file
+				}
+			}
 		}
 
 		const std::filesystem::path cmake = FindCMake();

@@ -89,6 +89,7 @@
 #include "RageV/Managed/Interop.h"
 #include "RageV/Managed/ScriptBuild.h"
 #include "RageV/Project/ModuleBuild.h"
+#include "RageV/Project/ScriptGen.h"
 #include "RageV/Project/GameModule.h"
 #include "RageV/Core/ChildProcess.h"
 #include "RageV/Math/Math.h"
@@ -3299,6 +3300,201 @@ void main()
 	// in microseconds, and they are the parts where being wrong is silent: a
 	// transposed matrix index shears the frame instead of shifting it, and an
 	// offset in the wrong units is a jitter of half a *screen*.
+	// The declaration-site scanner, on strings. The fixture (see the CMake
+	// custom command) proves the whole chain registers; these prove the
+	// *refusals* -- and the refusals are the design. A generator that guesses
+	// at a declaration it half-understands produces a field that silently
+	// never appears, so every case here that must error is a case where the
+	// alternative was silence.
+	void CheckScriptGen()
+	{
+		std::vector<ScriptGen::Error> errors;
+		auto scan = [&errors](const char* text)
+		{
+			errors.clear();
+			return ScriptGen::Scan("Probe.cpp", text, errors);
+		};
+		auto errorMentions = [&errors](const char* needle)
+		{
+			return errors.size() == 1
+				&& errors[0].Message.find(needle) != std::string::npos;
+		};
+
+		// The shape New Script writes, marked.
+		{
+			const ScriptGen::FileScan result = scan(R"cpp(
+				#include "RageV/Scene/ScriptRegistry.h"
+				namespace RageV
+				{
+					class Probe : public ScriptableEntity
+					{
+					public:
+						RVShowInEditor
+						float Speed = 1.0f;
+
+						RVShowInEditor
+						std::string Label = "hello";
+
+						RVCallable
+						void Go() {}
+					};
+				}
+			)cpp");
+
+			Check(errors.empty() && result.Scripts.size() == 1,
+				  "a marked class scans to one script");
+			if (result.Scripts.size() == 1)
+			{
+				const ScriptGen::Script& script = result.Scripts[0];
+				Check(script.Name == "Probe" && script.Qualified == "::RageV::Probe",
+					  "with its registered name and its qualified one");
+				Check(script.Fields.size() == 2 && script.Fields[0].Name == "Speed"
+					  && script.Fields[1].Name == "Label",
+					  "both fields, in declaration order");
+				Check(script.Methods.size() == 1 && script.Methods[0].Name == "Go",
+					  "and the callable");
+
+				const std::string emitted = ScriptGen::Emit(result);
+				Check(emitted.find("Make<::RageV::Probe>(\"Probe\")") != std::string::npos
+					  && emitted.find(".Field<&::RageV::Probe::Speed>(\"Speed\")") != std::string::npos
+					  && emitted.find(".Method<&::RageV::Probe::Go>(\"Go\")") != std::string::npos,
+					  "and the emitted wrapper registers exactly what a person would have");
+			}
+		}
+
+		// A marker is only a marker as a token in code. In a comment or a
+		// string it is prose, and registering from prose would make this
+		// file's own comments a source of scripts.
+		{
+			const ScriptGen::FileScan result = scan(R"cpp(
+				// RVShowInEditor is spelled here in a comment
+				/* and RVCallable in a block one */
+				namespace RageV
+				{
+					class Quiet : public ScriptableEntity
+					{
+					public:
+						const char* What = "RVShowInEditor";
+					};
+				}
+			)cpp");
+			Check(errors.empty() && result.Scripts.empty(),
+				  "markers in comments and strings register nothing");
+			Check(!ScriptGen::HasMarkers(
+					  "// RVShowInEditor\n/* RVCallable */\nconst char* s = \"RVScript\";"),
+				  "and HasMarkers agrees");
+			Check(ScriptGen::HasMarkers("RVShowInEditor\nfloat X = 1.0f;"),
+				  "while a real marker is seen");
+		}
+
+		// An anonymous namespace is fine: the wrapper TU includes the file,
+		// so internal linkage is no obstacle, and qualified lookup reaches
+		// through the unnamed namespace.
+		{
+			const ScriptGen::FileScan result = scan(R"cpp(
+				namespace
+				{
+					class Hidden : public ScriptableEntity
+					{
+					public:
+						RVShowInEditor
+						int Count = 3;
+					};
+				}
+			)cpp");
+			Check(errors.empty() && result.Scripts.size() == 1
+				  && result.Scripts[0].Qualified == "::Hidden",
+				  "an anonymous-namespace script scans, qualified from the enclosing scope");
+		}
+
+		// RVScript alone: in the dropdown with nothing editable.
+		{
+			const ScriptGen::FileScan result = scan(R"cpp(
+				namespace RageV
+				{
+					RVScript
+					class Bare : public ScriptableEntity
+					{
+					};
+				}
+			)cpp");
+			Check(errors.empty() && result.Scripts.size() == 1
+				  && result.Scripts[0].Fields.empty() && result.Scripts[0].Methods.empty(),
+				  "RVScript registers a class with no fields");
+		}
+
+		// --- the refusals ---------------------------------------------------
+
+		scan("class A : public ScriptableEntity { RVShowInEditor float X = 1.0f; };");
+		Check(errorMentions("public"),
+			  "a private marked field is refused, naming why public");
+
+		scan("class A : public ScriptableEntity { public: RVShowInEditor double X = 1.0; };");
+		Check(errorMentions("'double'"),
+			  "an uneditable type is refused, naming the type");
+
+		scan("class A : public ScriptableEntity { public: RVShowInEditor static float X; };");
+		Check(errorMentions("static"), "a static field is refused");
+
+		scan("class A : public ScriptableEntity { public: RVShowInEditor float X = 1.0f, Y = 2.0f; };");
+		Check(errorMentions("one member per"), "two declarators under one marker are refused");
+
+		scan("class A : public ScriptableEntity { public: RVCallable int Go(); };");
+		Check(errorMentions("void with no parameters"), "a non-void callable is refused");
+
+		scan("class A : public ScriptableEntity { public: RVCallable void Go(int x); };");
+		Check(errorMentions("void with no parameters"), "a callable with parameters is refused");
+
+		scan("class A : public ScriptableEntity { public: RVCallable void Go() const; };");
+		Check(errorMentions("const"), "a const callable is refused");
+
+		scan("class A : public ScriptableEntity { public: RVShowInEditor void Go(); };");
+		Check(errorMentions("RVCallable"),
+			  "a field marker on a method points at the right marker");
+
+		scan("RVShowInEditor float Loose = 1.0f;");
+		Check(errorMentions("inside a script class"), "a marker outside any class is refused");
+
+		scan("template<typename T> class A : public ScriptableEntity "
+			 "{ public: RVShowInEditor float X = 1.0f; };");
+		Check(errorMentions("template"), "a template script is refused");
+
+		scan("class Outer { public: class Inner : public ScriptableEntity "
+			 "{ public: RVShowInEditor float X = 1.0f; }; };");
+		Check(errorMentions("nested"), "a nested script is refused");
+
+		scan("RVScript\nfloat NotAClass = 1.0f;");
+		Check(errorMentions("class definition"), "RVScript on a non-class is refused");
+
+		// Both styles on one class is the registry's duplicate-name coin
+		// toss waiting to happen; the build refuses it with both lines.
+		scan(R"cpp(
+			class Both : public ScriptableEntity
+			{
+			public:
+				RVShowInEditor
+				float X = 1.0f;
+			};
+			RV_REGISTER_SCRIPT(Both).Field<&Both::X>("X");
+		)cpp");
+		Check(errorMentions("RV_REGISTER_SCRIPT"),
+			  "marking a class that also has a registration block is refused");
+
+		// The diagnostic shape is the contract with the build panel.
+		{
+			std::vector<ScriptGen::Error> one;
+			ScriptGen::Scan("C:\\p\\Bad.cpp",
+							"class A : public ScriptableEntity "
+							"{ public: RVShowInEditor double X = 1.0; };", one);
+			Managed::BuildDiagnostic diagnostic;
+			Check(one.size() == 1
+				  && ModuleBuild::ParseDiagnostic(one[0].Format(), diagnostic)
+				  && diagnostic.IsError && diagnostic.Code == "RVGEN1"
+				  && diagnostic.File == "C:\\p\\Bad.cpp",
+				  "a refusal formats as an MSVC diagnostic the build panel parses");
+		}
+	}
+
 	// The adaptation law, which is arithmetic and belongs here rather than in a
 	// screenshot. ENGINE-NOTES 7y.
 	//
@@ -10428,6 +10624,7 @@ int RunTests(int argc, char** argv)
 	CheckRenderersReady();
 	CheckFieldLabels();
 	CheckMotionHistory();
+	CheckScriptGen();
 	CheckAutoExposureLaw();
 	CheckTemporalJitter();
 	CheckTemporalHistory();
@@ -10607,19 +10804,52 @@ int RunTests(int argc, char** argv)
 	// --- the generated C++ script template -----------------------------------
 	//
 	// Scripts/TemplateProbe.cpp *is* what "New Script..." writes, kept in the
-	// tree so that the template is compiled and registered by every build. It
-	// caught a real defect the first time: a file whose only contents are a
-	// static registrar has no referenced symbol, so the linker discards the
-	// object file, and the script compiles, links, and never appears in the
-	// dropdown. The template anchors itself with an exported symbol and a
-	// /include: directive; this is what proves that still works.
+	// tree so the template's exact shape is compiled by every engine build.
+	// Since declaration-site markers it proves the *inert* half of a pair:
+	// the engine build runs no generator over its own sources, so the marked
+	// template must compile untouched and register **nothing**. The fixture
+	// below is the other half. Each alone is passable by a specific failure
+	// -- a marker macro that leaks code would fail here; a generator that
+	// emits nothing would fail there -- and only together do they pin "the
+	// marker is inert, the generator is the registration".
 	{
-		Check(ScriptRegistry::IsRegistered("TemplateProbe"),
-			  "the generated C++ script template registers itself");
+		Check(!ScriptRegistry::IsRegistered("TemplateProbe"),
+			  "markers without the generator register nothing");
+	}
 
-		const std::vector<ScriptField>& fields = ScriptRegistry::FieldsOf("TemplateProbe");
-		Check(fields.size() == 1 && fields[0].Name == "Speed",
-			  "and its example field reaches the inspector");
+	// --- the rvgen fixture ---------------------------------------------------
+	//
+	// fixtures/rvgen/MarkerProbe.cpp went through the *real* rvgen at build
+	// time (see this tool's CMakeLists) and the wrapper it emitted is
+	// compiled into this executable -- so these lines are the end of the
+	// whole chain: marker, scan, wrapper TU, static registrar, registry.
+	{
+		Check(ScriptRegistry::IsRegistered("MarkerProbe"),
+			  "a script registered by its markers alone exists at runtime");
+
+		const std::vector<ScriptField>& fields = ScriptRegistry::FieldsOf("MarkerProbe");
+		Check(fields.size() == 4, "with every marked field");
+		if (fields.size() == 4)
+		{
+			Check(fields[0].Name == "Speed" && fields[0].Kind == ScriptFieldKind::Float
+				  && fields[0].Default == "1.5",
+				  "a float, defaulted from the constructed instance");
+			Check(fields[1].Name == "Enabled" && fields[1].Kind == ScriptFieldKind::Bool,
+				  "a bool");
+			Check(fields[2].Name == "Direction" && fields[2].Kind == ScriptFieldKind::Vec3,
+				  "a Vec3");
+			Check(fields[3].Name == "Label" && fields[3].Kind == ScriptFieldKind::String
+				  && fields[3].Default == "probe",
+				  "and a string");
+		}
+
+		const std::vector<ScriptMethod>& methods = ScriptRegistry::MethodsOf("MarkerProbe");
+		Check(methods.size() == 1 && methods[0].Name == "Poke",
+			  "its callable is nameable by a button");
+
+		Check(ScriptRegistry::IsRegistered("MarkerProbeBare")
+			  && ScriptRegistry::FieldsOf("MarkerProbeBare").empty(),
+			  "and RVScript alone puts a fieldless script in the dropdown");
 	}
 
 	// --- C++ script fields ---------------------------------------------------

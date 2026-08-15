@@ -27,6 +27,7 @@ two. Where the two genuinely differ, the difference is called out.
 ## The shape of a script
 
 ```cpp
+RVScript
 class Spinner : public ScriptableEntity
 {
 public:
@@ -38,8 +39,6 @@ public:
 private:
     float m_Speed = 1.2f;
 };
-
-RV_REGISTER_SCRIPT(Spinner);
 ```
 
 That is a complete, working script. Attach it to an entity in the inspector,

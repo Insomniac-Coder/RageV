@@ -12,6 +12,24 @@
 #include <string>
 #include <vector>
 
+// Declaration-site script markers. To the compiler they are nothing -- the
+// build's generator (rvgen) reads the source text, and these are how a
+// declaration says "register me" without a trailing RV_REGISTER_SCRIPT block:
+//
+//     RVShowInEditor
+//     float Swing = 0.34f;      // in the inspector, stored in the scene
+//
+//     RVCallable
+//     void Ring();              // nameable by a UI button's OnClick
+//
+// `RVScript` before the class registers a script with no fields at all.
+// Marked members must be public: the generated code names them from outside
+// the class, exactly as a hand-written registration would. Defined here so
+// they compile away identically whether or not a generator ever runs.
+#define RVShowInEditor
+#define RVCallable
+#define RVScript
+
 namespace RageV
 {
 	class Scene;

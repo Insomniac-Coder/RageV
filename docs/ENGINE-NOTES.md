@@ -4095,6 +4095,75 @@ valid across a phase-9 item.
 
 ---
 
+## 7aa. Declaration-site script fields: the generator, and why the wrapper includes the .cpp
+
+Asked for 2026-08-15: a C++ script field should be declared once, where it
+lives, instead of a second time in a trailing registration block --
+
+```cpp
+RVShowInEditor
+float Swing = 0.34f;
+```
+
+C++ cannot do this in the language. A macro in a class body does not know its
+enclosing type and the preprocessor cannot find out, so `RVShowInEditor`
+expands to nothing and a **generator** (`rvgen`, over `ScriptGen` in the
+engine) reads the source text and writes the registration a person would
+have. Three markers: `RVShowInEditor` on a field, `RVCallable` on a method,
+`RVScript` on a class with nothing else marked. `RV_REGISTER_SCRIPT` still
+works; both on one class is a build error, because the registry's answer to a
+duplicate is first-wins over link order.
+
+**The generated code cannot live in a free-standing file.** `Bell` and
+`Anvil` are whole classes in a .cpp -- the normal shape of a script here --
+and no other translation unit can name the members of a class it cannot see.
+So the emitted TU *#includes the marked source file* and appends the
+registrations, and the build compiles the file only through its wrapper. One
+wrapper per marked file, so file-local statics stay file-local; anonymous
+namespaces work for the same reason. A marked *header* gets a wrapper too but
+stays in the glob -- listed, not compiled.
+
+**Generation runs at configure time, not build time.** Which files are
+wrapped changes the *source list*, and only a configure can change the source
+list. `CMAKE_CONFIGURE_DEPENDS` on every script is the other half: without
+it, the first marker added to a file registers nothing until somebody happens
+to reconfigure -- a silent nothing, the exact failure this design exists to
+refuse. The cost is a reconfigure per script edit, a few seconds on a module
+this size.
+
+**Refusal is the design.** The scanner tracks braces, namespaces, classes and
+access levels -- enough to attribute a marker -- and errors on every marked
+declaration it does not fully understand: wrong type, private, static, const,
+parameters, templates, nesting, two declarators under one marker. The errors
+are MSVC-shaped (`file(line): error RVGEN1:`), so `ModuleBuild`'s existing
+diagnostic parser lands them in the editor's build panel. A generator that
+guesses, or ships what it understood and skips the rest, produces an
+inspector with a field quietly missing -- the worst outcome available,
+because nothing anywhere says why.
+
+### The pair, again
+
+`TemplateProbe.cpp` (engine, no generator) proves the markers are **inert**:
+it must compile untouched and register nothing. scenetest's
+`fixtures/rvgen/MarkerProbe.cpp` goes through the real rvgen at build time
+and proves the same shape **registers**, fields, method and bare class alike.
+Each alone is passable by a specific failure -- a marker macro that leaked
+code would fail the first; a generator that emitted nothing would fail the
+second. The demo scene is the third leg: Bell and Anvil migrated to markers,
+so `CheckDemoButtons` passes only if generated registrations actually reach a
+button.
+
+### The stale-CMakeLists guard
+
+A project whose `Source/CMakeLists.txt` predates rvgen compiles marked
+scripts perfectly and registers none of them. `ModuleBuild::Build` scans for
+markers before every build and warns -- in the build panel, naming the file
+and the fix -- whenever markers exist and the CMakeLists never mentions
+rvgen. That is the one silent path the configure-time hook cannot close on
+its own, because the hook lives in the file that is stale.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

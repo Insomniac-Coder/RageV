@@ -1432,9 +1432,9 @@ bool RageV::SceneHierarchyPanel::IsIdentifier(const std::string& name)
 
 // The file a new C++ script starts as.
 //
-// A working script with one editable field, registered -- the same shape the
-// built-in scripts have, so the generated file and the worked examples teach the
-// same thing. A blank file would only move the "what does a script look like"
+// A working script with one editable field -- the same shape the built-in
+// scripts have, so the generated file and the worked examples teach the same
+// thing. A blank file would only move the "what does a script look like"
 // problem somewhere less convenient.
 bool RageV::SceneHierarchyPanel::WriteNewNativeScript(const std::filesystem::path& file,
 													  const std::string& name)
@@ -1451,12 +1451,15 @@ bool RageV::SceneHierarchyPanel::WriteNewNativeScript(const std::filesystem::pat
 	out << "#include \"RageV/Scene/Components.h\"\n\n";
 	out << "namespace RageV\n";
 	out << "{\n";
+	out << "\t// The class's name is what scene files store, so renaming it breaks\n";
+	out << "\t// every scene that used it.\n";
 	out << "\tclass " << name << " : public ScriptableEntity\n";
 	out << "\t{\n";
 	out << "\tpublic:\n";
-	out << "\t\t// Public so the registration below can name it. C++ has no\n";
-	out << "\t\t// reflection, so an editable field has to be declared explicitly --\n";
-	out << "\t\t// unlike C#, where the inspector finds private fields on its own.\n";
+	out << "\t\t// In the inspector and stored in the scene -- the marker is the\n";
+	out << "\t\t// whole registration; the build generates the rest. Public,\n";
+	out << "\t\t// because the generated code names it from outside the class.\n";
+	out << "\t\tRVShowInEditor\n";
 	out << "\t\tfloat Speed = 1.0f;\n\n";
 	out << "\t\tvoid OnCreate() override\n";
 	out << "\t\t{\n";
@@ -1477,18 +1480,15 @@ bool RageV::SceneHierarchyPanel::WriteNewNativeScript(const std::filesystem::pat
 	out << "\t\tvoid OnFrame(Timestep dt) override\n";
 	out << "\t\t{\n";
 	out << "\t\t}\n";
-	out << "\t};\n\n";
-	out << "\t// The name here is what scene files store, so renaming it breaks every\n";
-	out << "\t// scene that used it. Fields declared on the same line show up in the\n";
-	out << "\t// inspector.\n";
-	out << "\tRV_REGISTER_SCRIPT(" << name << ").Field<&" << name << "::Speed>(\"Speed\");\n";
+	out << "\t};\n";
 	out << "}\n";
 
-	// Nothing else is needed to make the registration survive. The file lands
-	// in the project's Source/, which builds into the game module -- a DLL,
-	// linked from its object files, so a translation unit whose only content
-	// is a static registrar is never discarded the way it would be from a
-	// static library. TemplateProbe.cpp in the engine proves the same shape
-	// still compiles and registers there.
+	// No registration block: RVShowInEditor above the field is the whole
+	// registration -- rvgen generates the rest when the module builds. The
+	// file lands in the project's Source/, which builds into the game module,
+	// a DLL linked from its object files, so the generated registrar is never
+	// discarded the way it would be from a static library. TemplateProbe.cpp
+	// in the engine proves this shape compiles untouched; scenetest's rvgen
+	// fixture proves the same shape actually registers.
 	return true;
 }

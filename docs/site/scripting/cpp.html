@@ -25,6 +25,11 @@
 <span class="tok-keyword">class</span> Bobber : <span class="tok-keyword">public</span> <span class="tok-type">ScriptableEntity</span>
 {
 <span class="tok-keyword">public</span>:
+    <span class="tok-comment">// In the inspector, stored in the scene. The marker is the whole</span>
+    <span class="tok-comment">// registration -- the build generates the rest.</span>
+    RVShowInEditor
+    <span class="tok-type">float</span> Height = <span class="tok-number">0.5f</span>;
+
     <span class="tok-keyword">void</span> <span class="tok-call">OnCreate</span>() <span class="tok-keyword">override</span>
     {
         m_Origin = <span class="tok-call">GetPosition</span>();
@@ -34,7 +39,7 @@
     {
         m_Elapsed += dt.<span class="tok-call">GetSeconds</span>();
         Vec3 position = m_Origin;
-        position.y += <span class="tok-type">std</span>::<span class="tok-call">sin</span>(m_Elapsed * <span class="tok-number">2.0f</span>) * <span class="tok-number">0.5f</span>;
+        position.y += <span class="tok-type">std</span>::<span class="tok-call">sin</span>(m_Elapsed * <span class="tok-number">2.0f</span>) * Height;
         <span class="tok-call">GetPosition</span>() = position;
     }
 
@@ -42,12 +47,10 @@
     Vec3 m_Origin{ <span class="tok-number">0.0f</span> };
     <span class="tok-type">float</span>     m_Elapsed = <span class="tok-number">0.0f</span>;
 };
-
-<span class="tok-call">RV_REGISTER_SCRIPT</span>(Bobber);
 </code></pre></figure>
 <p><strong>File → Build Scripts</strong> (Ctrl+B) compiles the module — in the background, with the compiler&#39;s output live in the Build Log panel — and reloads it when the build finishes. <code>Bobber</code> appears in the Script dropdown. Pick it, press Play. No engine rebuild, no restart.</p>
 <p>The <strong>Name</strong> row above the dropdown is a label for the component and nothing else — call it &quot;Bobbing crate&quot; if that helps you read the inspector. Which script runs is the dropdown&#39;s job.</p>
-<p>The name in the dropdown is the string <code>RV_REGISTER_SCRIPT</code> derived from the type name, and that string is what gets written into the scene file.</p>
+<p>The name in the dropdown is the class&#39;s own name, and that string is what gets written into the scene file.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>A script you have written but not yet built appears in the dropdown marked <strong>(not built)</strong>, and you can attach it now — it starts working the moment the build catches up.</p>
 </aside>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>Building while the scene is playing restarts it: live instances run code from the loaded DLL, so the editor stops the scene, swaps the module, and resumes Play on the new code. After a failed build it stays stopped with the errors in the Build Log rather than auto-playing the old code.</p>
@@ -55,9 +58,35 @@
 <aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Renaming a registered script breaks every scene that used it.</strong> The name is the durable reference, exactly as an asset handle is for assets — the same way renaming a C# class does in Unity. Registered names are API. Rename with the same care you would rename a public function.</p>
 </aside>
 <h2 id="registering">Registering<a class="anchor" href="#registering" aria-label="Link to this section">#</a></h2>
-<p><code>RV_REGISTER_SCRIPT</code> places a static registrar object at file scope. It runs when the game module loads — the engine loads the DLL when the project opens, the registrars fire, and the scripts exist. There is no manifest to maintain and no list to forget a script from.</p>
+<p>A script registers by being <strong>marked</strong>, at the declaration:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Marker</th><th style="text-align:left">On</th><th style="text-align:left">Meaning</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>RVShowInEditor</code></td><td style="text-align:left">a public field</td><td style="text-align:left">In the inspector, stored in the scene</td></tr>
+<tr><td style="text-align:left"><code>RVCallable</code></td><td style="text-align:left">a public <code>void</code> method</td><td style="text-align:left">Nameable by a UI button&#39;s <strong>On Click</strong></td></tr>
+<tr><td style="text-align:left"><code>RVScript</code></td><td style="text-align:left">the class</td><td style="text-align:left">In the Script dropdown, nothing editable</td></tr>
+</tbody></table></div>
+<p>One marked field or method registers the class too, so <code>RVScript</code> is only for a script with nothing else marked. C++ has no reflection, so this is not the language doing it: the markers compile to nothing, and the build scans the source and generates the registration code — which is why a marker the build cannot understand is a <strong>build error naming the line</strong>, never a field that quietly fails to appear.</p>
+<p>The explicit form still works, and both styles can live in one project (one per class — marking a class that also has a block is a build error):</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">RV_REGISTER_SCRIPT</span>(Bobber)
+    .Field&lt;&amp;Bobber::Height&gt;(<span class="tok-string">&quot;Height&quot;</span>);
+</code></pre></figure>
+<p>It places a static registrar object at file scope, which runs when the game module loads — and it is also exactly what the markers generate, so the two styles are one mechanism with two spellings.</p>
 <aside class="callout callout-trap"><p class="callout-label">Trap</p><p>That mechanism has one historical failure mode worth knowing even though the module is immune to it: a static registrar inside a <strong>static library</strong> whose object file contains nothing else referenced gets dropped by the linker, the registration never runs, and there is no error anywhere. A DLL is linked from its object files, so a game module never hits this — but a script compiled into a static library of your own will, silently.</p>
 </aside>
+<h2 id="editable-fields">Editable fields<a class="anchor" href="#editable-fields" aria-label="Link to this section">#</a></h2>
+<p>Mark a field and it appears in the inspector, per entity, and is stored in the scene file:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code>RVShowInEditor
+<span class="tok-type">float</span> Speed = <span class="tok-number">1.0f</span>;
+
+RVShowInEditor
+Vec3 Offset = <span class="tok-call">Vec3</span>(<span class="tok-number">0.0f</span>, <span class="tok-number">1.0f</span>, <span class="tok-number">0.0f</span>);
+</code></pre></figure>
+<p>The rules, each enforced with an error that names the field:</p>
+<ul>
+<li><strong>Five kinds</strong>: <code>bool</code>, <code>int</code>, <code>float</code>, <code>Vec3</code>, <code>std::string</code> — the same five C# fields have, because one inspector and one scene format serve both languages.</li>
+<li><strong>Public</strong>, because the generated registration names the member from outside the class. (C# has the opposite rule — private fields are editable there — because reflection can reach them.)</li>
+<li>The <strong>default</strong> in the inspector is the initializer, taken from a freshly constructed instance.</li>
+<li>The field&#39;s name is what the scene file stores. Renaming it is the same API break as renaming the script.</li>
+</ul>
 <h2 id="the-lifecycle">The lifecycle<a class="anchor" href="#the-lifecycle" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Callback</th><th style="text-align:left">When</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>OnCreate()</code></td><td style="text-align:left">Once, on the first simulation step after Play.</td></tr>
@@ -258,19 +287,18 @@ Vec3 v = <span class="tok-call">GetLinearVelocity</span>();
 <h2 id="the-game-s-ui">The game&#39;s UI<a class="anchor" href="#the-game-s-ui" aria-label="Link to this section">#</a></h2>
 <p>A button is a <code>UIImageComponent</code> and a <code>UIButtonComponent</code> on one entity, with a label as a child. <strong>There are two ways to hear about a click</strong>, and they are the same click seen twice — use whichever fits, not both on one button.</p>
 <h3 id="the-button-calls-your-method">The button calls your method<a class="anchor" href="#the-button-calls-your-method" aria-label="Link to this section">#</a></h3>
-<p>Register the method, then pick it from the button&#39;s <strong>On Click</strong> in the inspector:</p>
+<p>Mark the method, then pick it from the button&#39;s <strong>On Click</strong> in the inspector:</p>
 <figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">class</span> Menu : <span class="tok-keyword">public</span> <span class="tok-type">ScriptableEntity</span>
 {
 <span class="tok-keyword">public</span>:
+    RVCallable
     <span class="tok-keyword">void</span> <span class="tok-call">StartGame</span>() { <span class="tok-comment">/* ... */</span> }
+
+    RVCallable
     <span class="tok-keyword">void</span> <span class="tok-call">Quit</span>()      { <span class="tok-comment">/* ... */</span> }
 };
-
-<span class="tok-call">RV_REGISTER_SCRIPT</span>(Menu)
-    .Method&lt;&amp;Menu::StartGame&gt;(<span class="tok-string">&quot;StartGame&quot;</span>)
-    .Method&lt;&amp;Menu::Quit&gt;(<span class="tok-string">&quot;Quit&quot;</span>);
 </code></pre></figure>
-<p>C++ has no reflection, so the engine cannot find <code>StartGame</code> on its own — the registration is how the name gets into the dropdown. (C# needs no equivalent; see the C# guide.) The method must be <strong>public</strong>, take no arguments and return <code>void</code>; anything else fails to compile at the registration line, naming the method.</p>
+<p>C++ has no reflection, so the engine cannot find <code>StartGame</code> on its own — the marker is how the name gets into the dropdown. (C# needs no equivalent; see the C# guide.) The method must be <strong>public</strong>, take no arguments and return <code>void</code>; anything else is a build error naming the method — a scene file has nowhere to store arguments and nowhere to put a return value.</p>
 <p>The button&#39;s <strong>Target</strong> is which entity&#39;s script to call. Leave it empty for the button&#39;s own entity, which is what a script sitting on the button wants.</p>
 <aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>The name in the scene file has no compiler behind it.</strong> Rename <code>StartGame</code> in your code and the scene still says <code>&quot;StartGame&quot;</code> — the build succeeds and the button stops working. So a binding that resolves to nothing <strong>logs a warning on every click</strong>, naming the button, the target and the method. If a button does nothing, read the log before reading the code.</p>
 </aside>
@@ -342,6 +370,7 @@ Vec3 v = <span class="tok-call">GetLinearVelocity</span>();
 <h2 id="common-mistakes">Common mistakes<a class="anchor" href="#common-mistakes" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Symptom</th><th style="text-align:left">Cause</th></tr></thead><tbody>
 <tr><td style="text-align:left">Script missing from the dropdown</td><td style="text-align:left">Registered in a static library, object file dropped by the linker</td></tr>
+<tr><td style="text-align:left">Marked field never appears</td><td style="text-align:left">The project&#39;s <code>Source/CMakeLists.txt</code> predates the marker scan — the Build Log warns, with the fix</td></tr>
 <tr><td style="text-align:left">Object vanishes and never returns</td><td style="text-align:left">NaN in the transform, usually from normalising a zero vector</td></tr>
 <tr><td style="text-align:left">Behaviour changes with <code>--fixed-hz</code></td><td style="text-align:left">A rate not multiplied by <code>dt</code></td></tr>
 <tr><td style="text-align:left">A jump barely twitches</td><td style="text-align:left"><code>AddForce</code> where <code>AddImpulse</code> was meant</td></tr>
@@ -352,7 +381,7 @@ Vec3 v = <span class="tok-call">GetLinearVelocity</span>();
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/index.html"><span class="pager-label">Previous</span><span class="pager-title">Scripting</span></a><a class="pager-link pager-next" href="../scripting/cpp-reference.html"><span class="pager-label">Next</span><span class="pager-title">C++ API reference</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#registering">Registering</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#two-rates-and-choosing-between-them">Two rates, and choosing between them</a><a class="toc-link toc-l3" href="#why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame</a><a class="toc-link toc-l3" href="#ordering-exactly">Ordering, exactly</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#finding-other-entities">Finding other entities</a><a class="toc-link toc-l2" href="#spawning-and-destroying">Spawning and destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l3" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l3" href="#pitch">Pitch</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l3" href="#one-extra-line-once-there-is-a-ui">One extra line, once there is a UI</a><a class="toc-link toc-l2" href="#the-game-s-ui">The game&#39;s UI</a><a class="toc-link toc-l3" href="#the-button-calls-your-method">The button calls your method</a><a class="toc-link toc-l3" href="#your-script-asks-the-button">Your script asks the button</a><a class="toc-link toc-l2" href="#render-settings">Render settings</a><a class="toc-link toc-l2" href="#time">Time</a><a class="toc-link toc-l2" href="#the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#your-first-script">Your first script</a><a class="toc-link toc-l2" href="#registering">Registering</a><a class="toc-link toc-l2" href="#editable-fields">Editable fields</a><a class="toc-link toc-l2" href="#the-lifecycle">The lifecycle</a><a class="toc-link toc-l3" href="#two-rates-and-choosing-between-them">Two rates, and choosing between them</a><a class="toc-link toc-l3" href="#why-a-camera-belongs-in-onframe">Why a camera belongs in OnFrame</a><a class="toc-link toc-l3" href="#ordering-exactly">Ordering, exactly</a><a class="toc-link toc-l2" href="#reading-and-writing-the-transform">Reading and writing the transform</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#finding-other-entities">Finding other entities</a><a class="toc-link toc-l2" href="#spawning-and-destroying">Spawning and destroying</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l3" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#collisions-and-triggers">Collisions and triggers</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l3" href="#pitch">Pitch</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l3" href="#one-extra-line-once-there-is-a-ui">One extra line, once there is a UI</a><a class="toc-link toc-l2" href="#the-game-s-ui">The game&#39;s UI</a><a class="toc-link toc-l3" href="#the-button-calls-your-method">The button calls your method</a><a class="toc-link toc-l3" href="#your-script-asks-the-button">Your script asks the button</a><a class="toc-link toc-l2" href="#render-settings">Render settings</a><a class="toc-link toc-l2" href="#time">Time</a><a class="toc-link toc-l2" href="#the-engine-s-own-scripts-as-worked-examples">The engine&#39;s own scripts as worked examples</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>

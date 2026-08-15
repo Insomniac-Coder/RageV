@@ -27,7 +27,8 @@
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>The native surface was finished and frozen <em>before</em> C# work began. Every change to it afterwards costs a binding update, a marshalling update and a class-library update, so it was worth designing once. If you are writing C++ scripts today, what you learn transfers.</p>
 </aside>
 <h2 id="the-shape-of-a-script">The shape of a script<a class="anchor" href="#the-shape-of-a-script" aria-label="Link to this section">#</a></h2>
-<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">class</span> Spinner : <span class="tok-keyword">public</span> <span class="tok-type">ScriptableEntity</span>
+<figure class="code"><figcaption>cpp</figcaption><pre><code>RVScript
+<span class="tok-keyword">class</span> Spinner : <span class="tok-keyword">public</span> <span class="tok-type">ScriptableEntity</span>
 {
 <span class="tok-keyword">public</span>:
     <span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">Timestep</span> dt) <span class="tok-keyword">override</span>
@@ -38,8 +39,6 @@
 <span class="tok-keyword">private</span>:
     <span class="tok-type">float</span> m_Speed = <span class="tok-number">1.2f</span>;
 };
-
-<span class="tok-call">RV_REGISTER_SCRIPT</span>(Spinner);
 </code></pre></figure>
 <p>That is a complete, working script. Attach it to an entity in the inspector, press Play, and the entity turns.</p>
 <h2 id="what-a-script-can-reach">What a script can reach<a class="anchor" href="#what-a-script-can-reach" aria-label="Link to this section">#</a></h2>
