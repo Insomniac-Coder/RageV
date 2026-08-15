@@ -2,6 +2,7 @@
 #include <RageV.h>
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
+#include "RageV/Renderer/AutoExposure.h"
 
 // The game, with no editor around it.
 //
@@ -49,6 +50,11 @@ private:
 	// Where TAA accumulates. Owned here because the graph's targets are pooled
 	// by shape and have no identity across frames.
 	RageV::TemporalHistory m_History;
+
+	// And what auto exposure has adapted to, owned for the same reason and
+	// with the same scope. ENGINE-NOTES 7y.
+	RageV::ExposureState m_Exposure;
+
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 
 	uint32_t m_Width = 0;

@@ -1353,6 +1353,11 @@ namespace
 			return ((const PostSettings*)block)->FilmGrain > 0.0f;
 		}
 
+		bool AutoExposureOn(const void* block)
+		{
+			return ((const PostSettings*)block)->AutoExposure;
+		}
+
 		std::vector<FieldDesc> BuildPostSettings()
 		{
 			return {
@@ -1361,7 +1366,72 @@ namespace
 						"Applied before the tone curve, which is what makes this "
 						"an exposure control rather than a brightness one: it "
 						"slides the scene along the response curve instead of "
-						"scaling the result of it.")),
+						"scaling the result of it. With auto exposure on it "
+						"becomes exposure compensation -- a multiplier on what "
+						"the metering worked out.")),
+
+				// --- auto exposure. ENGINE-NOTES 7y ---------------------------
+				Field<&PostSettings::AutoExposure>("AutoExposure",
+					Named("Auto exposure", FieldHint{ .Tooltip =
+						"Meters the scene on the GPU and moves the exposure "
+						"toward it, the way an eye adjusts on stepping outside. "
+						"Off by default, and off exactly: no compute runs and "
+						"the exposure above is used unchanged." })),
+
+				Field<&PostSettings::AutoExposureKey>("AutoExposureKey",
+					Named("Target grey", OnlyWhen(AutoExposureOn,
+						Drag(0.002f, 0.01f, 1.0f,
+							"What the metered average is exposed to. 0.18 is "
+							"middle grey; higher is a brighter picture.")))),
+
+				Field<&PostSettings::AutoExposureSpeed>("AutoExposureSpeed",
+					Named("Adaptation speed", OnlyWhen(AutoExposureOn,
+						Drag(0.02f, 0.05f, 20.0f,
+							"How fast it moves, roughly in stops per second. "
+							"Framerate independent: ten frames of 10 ms land "
+							"where one of 100 ms does.")))),
+
+				Field<&PostSettings::AutoExposureLowPercent>("AutoExposureLowPercent",
+					Named("Ignore darkest", OnlyWhen(AutoExposureOn,
+						Slider(0.0f, 0.9f,
+							"The fraction of the darkest pixels to leave out of "
+							"the average. This is why a histogram is kept "
+							"rather than a plain average: shadow carries no "
+							"information about how the shot is exposed.")))),
+
+				Field<&PostSettings::AutoExposureHighPercent>("AutoExposureHighPercent",
+					Named("Keep up to", OnlyWhen(AutoExposureOn,
+						Slider(0.1f, 1.0f,
+							"Where the bright end of the window sits. Below 1 "
+							"the sun and the specular hits stop dragging the "
+							"exposure every time the camera turns past them.")))),
+
+				Field<&PostSettings::AutoExposureMin>("AutoExposureMin",
+					Named("Min exposure", OnlyWhen(AutoExposureOn,
+						Drag(0.005f, 0.001f, 4.0f,
+							"Floor on the result, for a scene with nothing in "
+							"it to meter.")))),
+
+				Field<&PostSettings::AutoExposureMax>("AutoExposureMax",
+					Named("Max exposure", OnlyWhen(AutoExposureOn,
+						Drag(0.05f, 0.1f, 128.0f,
+							"Ceiling on the result. A nearly black scene would "
+							"otherwise be lifted until its noise is the "
+							"picture.")))),
+
+				Field<&PostSettings::AutoExposureMinLog>("AutoExposureMinLog",
+					Named("Range low", OnlyWhen(AutoExposureOn,
+						Drag(0.05f, -16.0f, 0.0f,
+							"The darkest stop the histogram spans, as log2 "
+							"luminance. Anything below is discarded rather than "
+							"counted, so a night scene does not meter its own "
+							"blackness.")))),
+
+				Field<&PostSettings::AutoExposureMaxLog>("AutoExposureMaxLog",
+					Named("Range high", OnlyWhen(AutoExposureOn,
+						Drag(0.05f, 0.0f, 16.0f,
+							"The brightest stop it spans. Anything above lands "
+							"in the top bin.")))),
 
 				Field<&PostSettings::BloomEnabled>("BloomEnabled", Named("Bloom")),
 

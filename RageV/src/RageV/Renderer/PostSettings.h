@@ -77,6 +77,46 @@ namespace RageV
 		// runs at a different point in the chain because each is a different
 		// physical thing. ENGINE-NOTES 7w.
 		//
+		// --- auto exposure (9.2). ENGINE-NOTES 7y ---------------------------
+		//
+		// **Off by default, and off is exact**: no compute is dispatched and
+		// the tone mapping pass takes `Exposure` above unchanged. That is what
+		// keeps every existing screenshot check valid without a line of change
+		// in any of them, and it is the same guarantee the three lens effects
+		// below rest on.
+		//
+		// On, `Exposure` stops being the exposure and becomes exposure
+		// *compensation* -- it multiplies what the metering worked out. Taking
+		// the slider away would mean the only fix for a scene the metering
+		// reads wrong was switching the feature off.
+		bool AutoExposure = false;
+
+		// The stops the histogram spans. A pixel outside them lands in an end
+		// bin rather than being dropped -- except below the bottom, which is
+		// reserved and discarded, because a night scene is mostly pixels with
+		// no light in them and letting them vote meters the darkness.
+		float AutoExposureMinLog = -8.0f;
+		float AutoExposureMaxLog = 4.0f;
+
+		// The tails thrown away before averaging. This is the whole reason for
+		// keeping a histogram instead of a log average: the top few percent are
+		// the sun and the specular hits, and an average chases them every time
+		// the camera turns past something bright.
+		float AutoExposureLowPercent = 0.5f;
+		float AutoExposureHighPercent = 0.95f;
+
+		// What the metered average is exposed to. 0.18 is middle grey.
+		float AutoExposureKey = 0.18f;
+
+		// Bounds on the result, for a scene with nothing in it to meter.
+		float AutoExposureMin = 0.03f;
+		float AutoExposureMax = 32.0f;
+
+		// How fast it moves, in stops per second. Converted against the frame
+		// time with `1 - exp(-rate * dt)` rather than `rate * dt`, so ten steps
+		// of 10 ms land where one step of 100 ms does.
+		float AutoExposureSpeed = 3.0f;
+
 		// **All three default to off, and off is exact.** The shader branches
 		// past each rather than computing a no-op, so a profile that has not
 		// touched them renders the same bytes as a build without them -- which

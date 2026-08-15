@@ -233,9 +233,15 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Render = Project::Render();
 	frame.Post = m_Scene->GetPostSettings();
 	frame.OutputFormat = device.GetSwapchainFormat();
-	// One frame chain, so one history. See TemporalHistory for why the graph
-	// cannot own this.
+	// One frame chain, so one history and one adapted exposure. See
+	// TemporalHistory for why the graph cannot own either.
 	frame.History = &m_History;
+	frame.Exposure = &m_Exposure;
+
+	// The loop's frame time, straight through. Not a clock read here: this is
+	// the number --frame-time pins, and driving the adaptation from it is the
+	// whole of how auto exposure stays reproducible. ENGINE-NOTES 7y.
+	frame.DeltaSeconds = ts.GetSeconds();
 	frame.DrawScene = [this](RGPassContext& context)
 	{
 		m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);

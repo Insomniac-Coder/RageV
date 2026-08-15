@@ -57,7 +57,25 @@ layout(push_constant) uniform Params
 	// that a screenshot of frame 30 is the same picture every time. Same rule
 	// the TAA jitter follows, 7r.
 	float Frame;
+
+	// Whether to take the exposure from u_Exposure below. Zero uses Exposure
+	// above unchanged, which is what makes auto exposure off *exact* rather
+	// than arithmetically harmless. ENGINE-NOTES 7y.
+	float AutoExposure;
 } u_Params;
+
+// What auto exposure worked out, on the GPU, earlier this frame.
+//
+// Always bound -- with a unit buffer when the feature is off -- because a
+// declared binding with nothing bound is undefined behaviour rather than a
+// zero. Same rule as the identity LUT above.
+layout(std430, set = 0, binding = 3) readonly buffer ExposureState
+{
+	float AdaptedLog;
+	float Exposure;
+	float MeasuredLog;
+	float Pad;
+} u_Exposure;
 
 // --- film grain -------------------------------------------------------------
 //
@@ -215,7 +233,16 @@ void main()
 	// Exposure before the curve, which is what makes it an exposure control
 	// rather than a brightness one: it slides the scene along the response
 	// curve instead of scaling the result of it.
-	color *= u_Params.Exposure;
+	//
+	// With auto exposure on, the profile's own value stops being the exposure
+	// and becomes exposure *compensation* -- it multiplies what the metering
+	// worked out, the same control a camera has and for the same reason. The
+	// branch, rather than multiplying by a buffer that holds 1, is what keeps
+	// "off" exact. ENGINE-NOTES 7y.
+	if (u_Params.AutoExposure > 0.5)
+		color *= u_Params.Exposure * u_Exposure.Exposure;
+	else
+		color *= u_Params.Exposure;
 
 	// And the vignette before the curve too, for the same reason exposure is:
 	// it is *less light arriving*, so it should roll off through the response

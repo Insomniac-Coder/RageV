@@ -61,7 +61,7 @@ slider.
 | Kind | Setting | Home | Edited in |
 |---|---|---|---|
 | **Cost** | Anti-aliasing and its dials — TAA's feedback, jitter width and jitter samples — shadow cascades, resolution, distance | The `.rvproject` | Render Settings → Render settings |
-| **Look** | Exposure, bloom, the colour-grading LUT — and everything phase 9 adds | A `.rvpostprofile` asset | The camera that names it, or the asset itself |
+| **Look** | Exposure and auto exposure, bloom, the colour-grading LUT, the lens and film effects | A `.rvpostprofile` asset | The camera that names it, or the asset itself |
 | **Place** | Ambient light, the sky and its rotation | The `.rage` scene | Render Settings → Environment |
 
 **Cost belongs to the project** because it is a judgement about the hardware,
@@ -85,7 +85,7 @@ about *which* file, never *whether*:
 | What | Written to | When |
 |---|---|---|
 | Render settings, including TAA's three dials | The `.rvproject` | The moment they change |
-| Post profiles, LUT recipes, materials, curves | Their own asset file | On edit |
+| Post profiles including auto exposure, LUT recipes, materials, curves | Their own asset file | On edit |
 | Entities, components, the environment | The `.rage` scene | On **Ctrl+S** — and you are asked before anything discards it |
 | Panel layout, theme, window size, backend, vsync | `ragev.ini` and `panels.ini` | On exit |
 
@@ -106,6 +106,33 @@ selected, its own settings appear directly underneath, so a grade is edited
 where it is used. The same settings appear in the Inspector when the
 `.rvpostprofile` is clicked in the Content browser — one drawer, so the two
 cannot disagree.
+
+### Auto exposure
+
+**Auto exposure** is on the same profile and is **off by default**. On, the
+engine measures how bright the scene is and moves the exposure toward it, the
+way your eyes adjust on stepping outside.
+
+It meters with a **histogram** rather than an average, and the two controls
+that matter are the ones that throw the ends away: **Ignore darkest** and
+**Keep up to**. An average is dragged around by the sun, a specular highlight
+or one emissive sign, so the picture breathes every time the camera turns past
+something bright — discarding the tails is what stops that.
+
+> [!NOTE]
+> With auto exposure on, **Exposure** stops being the exposure and becomes
+> exposure *compensation*: it multiplies what the metering worked out, the
+> same control a camera has. A scene the metering consistently reads wrong is
+> pushed a stop rather than having the feature switched off.
+
+**Adaptation speed** is in stops per second and is frame-rate independent —
+ten frames of 10 ms land where one of 100 ms does. A scene opens already
+converged rather than fading in from the wrong exposure.
+
+> [!NOTE]
+> Off is off *exactly*: no compute runs and the exposure is used unchanged, so
+> a profile that has never touched auto exposure renders the same bytes as a
+> build without it.
 
 **Colour grading** hangs off the profile's Colour LUT row, and there are two
 kinds of thing that can go in it:

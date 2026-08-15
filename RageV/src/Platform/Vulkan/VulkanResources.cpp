@@ -64,8 +64,17 @@ namespace RageV::Vk
 					stage = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
 					access = VK_ACCESS_2_TRANSFER_READ_BIT;
 					break;
+				// Both shader stages, not only the fragment one. A target this
+				// engine transitions to shader-read is usually sampled by a
+				// fullscreen pass -- and since the render graph learned compute
+				// passes it may instead be read by a dispatch, which this
+				// barrier would then not cover, in either direction. A slightly
+				// wider dependency costs nothing measurable; the missing half
+				// is the kind of hazard that is a wrong answer on one driver
+				// and correct on another. ENGINE-NOTES 7y.
 				case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-					stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+					stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+						  | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 					access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 					break;
 				case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:

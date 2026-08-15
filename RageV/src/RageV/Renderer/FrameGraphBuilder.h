@@ -4,6 +4,7 @@
 #include "RageV/Renderer/PostSettings.h"
 #include "RageV/Renderer/RenderSettings.h"
 #include "RageV/Renderer/TemporalHistory.h"
+#include "RageV/Renderer/AutoExposure.h"
 #include <functional>
 
 namespace RageV
@@ -69,6 +70,26 @@ namespace RageV
 		// One per frame chain. The editor has two, because its viewport and
 		// the game's are different sizes showing different cameras.
 		TemporalHistory* History = nullptr;
+
+		// Where auto exposure keeps what it has adapted to.
+		//
+		// One per frame chain, for the same reason History is and with the
+		// same consequence for getting it wrong: two chains sharing one
+		// adapted value would each drag the other's exposure about, every
+		// frame. ENGINE-NOTES 7y and 7u.
+		//
+		// Null means the frame uses the profile's manual exposure, which is
+		// also what happens when the profile has not asked for auto exposure
+		// at all -- so a caller that does not care about the feature does not
+		// have to know it exists.
+		ExposureState* Exposure = nullptr;
+
+		// **The frame time the loop handed down**, and the reason it is passed
+		// rather than measured: an adaptation driven by this is a function of
+		// the frame *number* under --frame-time, which is what keeps every
+		// screenshot comparison in this repository valid with the feature on.
+		// ENGINE-NOTES 7y.
+		float DeltaSeconds = 0.0f;
 
 		// The three settings blocks the frame reads, from their three owners:
 		// the scene, the project, and the camera's profile. Copies rather than

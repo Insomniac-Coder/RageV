@@ -11,6 +11,7 @@
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/TemporalHistory.h"
+#include "RageV/Renderer/AutoExposure.h"
 #include "RageV/Renderer/EditorIcons.h"
 #include "RageV/UI/Interaction.h"
 // ImGuizmo.h does not include imgui.h itself and relies on it being included
@@ -288,6 +289,13 @@ private:
 	// see TemporalHistory.
 	RageV::TemporalHistory m_SceneHistory;
 	RageV::TemporalHistory m_GameHistory;
+
+	// And one adapted exposure each, for exactly the reason above. A shared
+	// one would have a bright game view darkening the viewport and the
+	// viewport brightening it back, every frame -- the ghost of 7u in another
+	// costume. ENGINE-NOTES 7y.
+	RageV::ExposureState m_SceneExposure;
+	RageV::ExposureState m_GameExposure;
 
 	// What both viewport textures are, and what the post chain's last pass
 	// writes. ImGui samples them, so they are LDR.

@@ -1,0 +1,144 @@
+// The histogram, reduced to one exposure, and moved toward it over time.
+//
+// Runs as a single work group of 256 -- one invocation per bin -- once per
+// frame per frame chain. The reduction itself is done by invocation 0 in a
+// plain loop rather than as a parallel scan: 256 elements once a frame is not
+// worth the complexity, and a loop is a great deal easier to be sure is right.
+//
+// ENGINE-NOTES 7y.
+
+#type compute
+#version 450 core
+
+const uint kBins = 256u;
+
+layout(local_size_x = 256) in;
+
+layout(std430, set = 0, binding = 0) buffer Histogram
+{
+	uint Bins[];
+} u_Histogram;
+
+// What the tone mapping pass reads, and what this frame's adaptation starts
+// from. Persisted across frames, and **owned per frame chain**: the editor
+// draws its viewport and the game view from two cameras in one frame, and a
+// shared value would have each dragging the other's exposure about. That is
+// the shape of the ghost in 7u, one layer up.
+layout(std430, set = 0, binding = 1) buffer ExposureState
+{
+	// Adapted, in log2 -- adaptation happens in log space so that its speed is
+	// uniform in *stops*, which is what "the eye takes a second to adjust"
+	// actually means. Smoothing the linear value instead makes a dark scene
+	// adapt visibly faster than a bright one.
+	float AdaptedLog;
+
+	// What the tone mapping pass multiplies by.
+	float Exposure;
+
+	// This frame's measurement before smoothing, for the editor to display.
+	// Nothing in the render path reads it.
+	float MeasuredLog;
+
+	float Pad;
+} u_State;
+
+layout(std140, set = 0, binding = 2) uniform AverageParams
+{
+	// x min log2 luminance, y max - min, z blend weight, w middle grey
+	vec4 Range;
+	// x low percentile, y high percentile, z min exposure, w max exposure
+	vec4 Window;
+} u_Params;
+
+shared uint s_Bins[kBins];
+
+void main()
+{
+	const uint local = gl_LocalInvocationIndex;
+
+	s_Bins[local] = u_Histogram.Bins[local];
+
+	// Explicit, for the reason the histogram pass gives: the spec says
+	// barrier() implies this in compute and not every driver has agreed.
+	memoryBarrierShared();
+	barrier();
+
+	if (local == 0u)
+	{
+		// Bin 0 is everything below the range and is dropped rather than
+		// counted as "very dark". A night scene is mostly pixels with no light
+		// in them at all, and letting them vote means metering the darkness
+		// instead of the picture.
+		uint counted = 0u;
+		for (uint i = 1u; i < kBins; i++)
+			counted += s_Bins[i];
+
+		float measuredLog = u_Params.Range.x;
+
+		if (counted > 0u)
+		{
+			// Discard the tails. This is the entire reason for keeping a
+			// histogram rather than an average: the brightest few percent are
+			// the sun and the specular hits, and the darkest few are shadow
+			// that carries no information about how the shot is exposed.
+			const float low = float(counted) * u_Params.Window.x;
+			const float high = float(counted) * u_Params.Window.y;
+
+			float weighted = 0.0;
+			float weight = 0.0;
+			float seen = 0.0;
+
+			for (uint i = 1u; i < kBins; i++)
+			{
+				const float count = float(s_Bins[i]);
+				if (count <= 0.0)
+					continue;
+
+				// How much of this bin lies inside the window. Fractional
+				// rather than in or out, because at 256 bins a whole bin is a
+				// visible step and the exposure would jump as a bin crossed
+				// the boundary.
+				const float from = max(seen, low);
+				const float to = min(seen + count, high);
+				seen += count;
+
+				const float inside = to - from;
+				if (inside <= 0.0)
+					continue;
+
+				// Bin i sits at (i - 1) / 254 through the range, which is the
+				// inverse of what the histogram pass did to get here.
+				const float t = float(i - 1u) / 254.0;
+				weighted += (u_Params.Range.x + t * u_Params.Range.y) * inside;
+				weight += inside;
+			}
+
+			if (weight > 0.0)
+				measuredLog = weighted / weight;
+		}
+
+		// Toward the measurement, at the rate the CPU worked out from this
+		// frame's delta. The weight is 1.0 on a chain's first frame, which
+		// makes that frame *adopt* the measurement rather than slide toward it
+		// from nothing -- a level that opens two stops wrong and drifts into
+		// place over a second is a bug everybody sees. It also means a
+		// screenshot is converged at any frame rather than only well past the
+		// time constant, which is what keeps the checks simple.
+		const float adapted = mix(u_State.AdaptedLog, measuredLog,
+								  clamp(u_Params.Range.z, 0.0, 1.0));
+
+		const float luminance = max(exp2(adapted), 0.0001);
+		const float exposure = clamp(u_Params.Range.w / luminance,
+									 u_Params.Window.z, u_Params.Window.w);
+
+		u_State.AdaptedLog = adapted;
+		u_State.MeasuredLog = measuredLog;
+		u_State.Exposure = exposure;
+	}
+
+	// Cleared here rather than by a third dispatch or a host-side fill: the
+	// bins have been read into shared memory above, and the barrier that
+	// follows the read is what makes this safe.
+	barrier();
+	u_Histogram.Bins[local] = 0u;
+}

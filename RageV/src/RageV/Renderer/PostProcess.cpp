@@ -42,6 +42,10 @@ namespace RageV
 			float Grain = 0.0f;
 			float GrainSize = 1.0f;
 			float Frame = 0.0f;
+
+			// Whether to take the exposure from the buffer at binding 3
+			// instead of from Base. Zero keeps the manual value exactly.
+			float AutoExposure = 0.0f;
 		};
 
 		const char* ShaderPath(int shader)
@@ -122,6 +126,7 @@ namespace RageV
 			// nothing, where sampling black would turn the frame black -- so
 			// the stand-in fails in the direction that stays debuggable.
 			Ref<RHITexture> IdentityLut;
+			Ref<RHIBuffer> UnitExposure;
 
 			bool Ready = false;
 		};
@@ -202,6 +207,31 @@ namespace RageV
 			s_Data->IdentityLut->UploadLayer(identity, sizeof(identity), 0);
 		}
 
+		// What fills the exposure binding when auto exposure is off, for the
+		// same reason the identity volume fills the LUT binding: the tonemap
+		// shader declares it unconditionally, and a declared binding with
+		// nothing bound is undefined behaviour rather than a helpful zero.
+		//
+		// It holds an exposure of 1, which the shader never reads -- it
+		// branches on the auto-exposure flag rather than multiplying by this,
+		// so that "off" stays exact rather than merely arithmetically
+		// harmless. The value is here so that a bug in that branch produces
+		// the unmodified picture instead of a black one.
+		{
+			struct { float AdaptedLog, Exposure, MeasuredLog, Pad; } unit
+				{ 0.0f, 1.0f, 0.0f, 0.0f };
+
+			BufferDesc desc;
+			desc.Size = sizeof(unit);
+			desc.Usage = BufferUsage::Storage | BufferUsage::TransferDst;
+			desc.Memory = MemoryDomain::DeviceLocal;
+			desc.DebugName = "PostProcess.unitexposure";
+			s_Data->UnitExposure = device.CreateBuffer(desc);
+
+			if (s_Data->UnitExposure)
+				s_Data->UnitExposure->Upload(&unit, sizeof(unit));
+		}
+
 		s_Data->Sets.resize(device.GetFramesInFlight());
 		s_Data->Ready = ok;
 
@@ -234,7 +264,8 @@ namespace RageV
 							   const Ref<RHITexture>& first, const Ref<RHITexture>& second,
 							   const void* params, uint32_t paramSize,
 							   Sampling firstSampling, Sampling secondSampling,
-							   const Ref<RHITexture>& third, Sampling thirdSampling)
+							   const Ref<RHITexture>& third, Sampling thirdSampling,
+							   const Ref<RHIBuffer>& storage)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -311,6 +342,13 @@ namespace RageV
 
 		if (third)
 			set->SetTexture(2, third, samplerFor(thirdSampling));
+
+		// Auto exposure's answer, and never null for a shader that declares it
+		// -- the caller passes a unit buffer when the feature is off, for the
+		// same reason the identity LUT fills binding 2: a declared binding with
+		// nothing bound is undefined behaviour, not a zero.
+		if (storage)
+			set->SetStorageBuffer(3, storage);
 
 		set->Commit();
 
@@ -428,12 +466,21 @@ namespace RageV
 		// past the point where anything else about a session is still true.
 		params.Frame = (float)(Renderer::GetFrameCount() & 0xFFFFFFu);
 
-		// Never null: the shader declares both extra bindings whether or not
-		// bloom ran and whether or not anything is being graded.
+		// A flag rather than a multiply by one. `x * 1.0f` happens to be exact
+		// in IEEE, but the rule this codebase follows is to branch past an
+		// effect that is off rather than to reason about whether computing it
+		// is harmless -- and here the branch is also what keeps the shader
+		// from reading a buffer that holds nothing meaningful. ENGINE-NOTES 7y.
+		params.AutoExposure = lens.Exposure ? 1.0f : 0.0f;
+
+		// Never null: the shader declares every extra binding whether or not
+		// bloom ran, whether or not anything is being graded, and whether or
+		// not the exposure was metered.
 		Dispatch(cmd, Shader::Tonemap, outputFormat, scene,
 				 bloom ? bloom : s_Data->Black, &params, sizeof(params),
 				 Sampling::Linear, Sampling::Linear,
-				 grading ? lut : s_Data->IdentityLut, Sampling::Linear);
+				 grading ? lut : s_Data->IdentityLut, Sampling::Linear,
+				 lens.Exposure ? lens.Exposure : s_Data->UnitExposure);
 	}
 
 	void PostProcess::FXAA(RHICommandList& cmd, const Ref<RHITexture>& source,

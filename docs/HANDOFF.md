@@ -1,6 +1,6 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-14.
+**Read this first.** Updated 2026-08-15.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
 finished with, and `main` is pushed.
@@ -1515,56 +1515,82 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 9.2, auto exposure
+### START HERE: 9.4, depth of field
 
-Phase 9 is **9.0, 9.1 and 9.3 done**, plus the `.rvlut` recipe and TAA's two
-extra dials. Nothing is broken and nothing is half-finished; the section below
-this one records the four bugs that were closed getting here, and they are
-worth skimming because three of them were the *same rule* biting from
-different directions.
+Phase 9 is **9.0, 9.1, 9.2 and 9.3 done**, plus the `.rvlut` recipe and TAA's
+two extra dials. Nothing is broken and nothing is half-finished.
 
-**Next is 9.2, and the ordering is the roadmap's own:** *"9.2 changes how
-everything else is judged, so it belongs before the expensive items rather
-than after."* 9.4 depth of field, 9.5 motion blur (unblocked -- 7.10 left the
-velocity attachment and the sky's camera-rotation motion in place precisely
-for it), 9.6 SSAO and 9.7 SSR all follow.
+**Next is 9.4 depth of field**, then 9.5 motion blur (unblocked -- 7.10 left
+the velocity attachment and the sky's camera-rotation motion in place for it),
+9.6 SSAO and 9.7 SSR.
 
-**Read 7w before starting it.** Auto exposure has exactly the hazard film
-grain just had, one size larger: it makes the tone curve depend on the
-*content* of previous frames, so every screenshot comparison in this
-repository -- `check_smaa`, `check_color_grading`, `check_taa_*`,
-`check_lens_effects` -- becomes a measurement of whatever the adaptation
-happened to be doing. Grain solved its version by seeding from the frame
-number (7w); this one cannot, because the adaptation is a feedback loop over
-real pixels rather than a pattern.
-
-So the design question to settle *first*, before any code:
-
-- a way to pin it -- a `--exposure=fixed` flag, or a project setting the
-  checks set, or an adaptation that is a pure function of the frame number
-  and the histogram rather than of elapsed time;
-- and which of the existing checks have to opt into it, which is probably all
-  of them, which is an argument for the pin being the *default* in a headless
-  run rather than something each check remembers.
-
-The compute path already exists (6.7a), so the histogram itself is the easy
-half.
+**All three now have their prerequisite.** 9.2 taught the render graph
+`AddComputePass`: a pass that declares `Sample`, writes no target and does not
+begin a render pass, because a dispatch inside one is illegal on Vulkan and the
+thing a compute pass wants to read is usually a target the graph owns and
+pools. That was the expensive half of 9.2 and it is done once for all of them.
 
 ### Two things left open, neither blocking
 
-**The focus-click guard has never been confirmed against a real click.** It
-is verified to arm exactly once when the window appears (by logging it,
-running, and removing the log), but what it does to an actual click-through
-needs a person: alt-tab into the editor with the cursor over a Render
-Settings slider and press -- the value must not move. Thirty seconds, and it
-closes the one thing that could not be tested here.
+**The focus-click guard has never been confirmed against a real click.** It is
+verified to arm exactly once when the window appears, but what it does to an
+actual click-through needs a person: alt-tab into the editor with the cursor
+over a Render Settings slider and press -- the value must not move. Thirty
+seconds, and it closes the one thing that could not be tested here.
 
-**An orphaned LUT is not warned about.** A post profile that no camera uses
-now says so in the inspector, because that shape of confusion cost time three
-times. The equivalent for a `.rvlut` that no *profile* names was deliberately
-not built: it means scanning every profile asset in the project rather than
-walking the scene's cameras. Worth doing if it recurs; not worth guessing at
-now.
+**An orphaned LUT is not warned about.** A post profile no camera uses now says
+so in the inspector. The equivalent for a `.rvlut` that no *profile* names was
+deliberately not built: it means scanning every profile asset in the project
+rather than walking the scene's cameras. Worth doing if it recurs.
+
+---
+
+**Done: 9.2, auto exposure (2026-08-15).** ENGINE-NOTES 7y. A 256-bin log2
+luminance histogram via compute, reduced over a percentile window, adapted in
+log space so the speed is uniform in stops.
+
+**The design question the previous handoff flagged had a better answer than any
+of the three it listed.** `--frame-time` already makes everything downstream a
+function of the frame number -- its own comment says so -- and every screenshot
+check already passes it. So the rule is one line about where a number comes
+from: *the adaptation reads the frame time the loop hands down, never a clock
+of its own.* A new `--exposure=fixed` flag would have been a second thing every
+check had to remember, to solve a problem the first flag already solved.
+
+And the real protection is that it is **off by default and off exactly**:
+`check_smaa`, `check_color_grading`, `check_taa_*` and `check_lens_effects` all
+kept their recorded thresholds with no change at all. `check_smaa` reports the
+same six numbers to three decimals as before the feature existed.
+
+State is **one per frame chain**, beside `TemporalHistory` -- 7u's ghost one
+layer up. Two chains sharing an adapted value would have a bright game view
+darkening the viewport and the viewport brightening it back, forever.
+
+**The bug worth carrying forward, because it is a shape rather than an
+incident.** Vulkan converged about four seconds slower than OpenGL. The
+histogram is zeroed once from the CPU when the buffer is created, and *that
+zeroing is not ordered against the first GPU read*: OpenGL landed it first,
+Vulkan did not, so frame 0 metered uninitialised memory, adopted it, and then
+smoothed away from it.
+
+Three things about it are worth remembering:
+
+- **It was reproducible**, so it read as a deliberately slow adaptation rather
+  than as a bug. Determinism is not correctness.
+- It only appeared on one backend, and *only because* the check compares both.
+  A single-backend suite would have shipped it.
+- What settled it was **forcing the smoothing off entirely**: both backends
+  then agreed exactly, which proved the metering, the histogram and the
+  barriers were all correct and localised the fault to what the first frame
+  trusted. Removing the variable is faster than reasoning about it.
+
+The fix is that a measurement is trusted on the *second* dispatch -- the first
+frame whose histogram a previous frame's reduce pass has cleaned up after.
+
+Also found by reading rather than by failing: `SHADER_READ_ONLY_OPTIMAL` mapped
+to the fragment stage only, so any compute read of a graph target would have
+been under-synchronised in both directions -- correct on one driver and wrong
+on another. Widened before it could bite.
 
 ---
 

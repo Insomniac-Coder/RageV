@@ -562,6 +562,74 @@ namespace RageV
 			tonemapped = graph.CreateTarget(ldr);
 		}
 
+		// --- auto exposure, measured from the linear image ----------------------
+		//
+		// Before tone mapping, because that is the only place the numbers mean
+		// anything: after the curve every scene is correctly exposed by
+		// construction, so metering there would measure the curve.
+		//
+		// A *compute* pass, which is why RenderGraph has them -- the thing it
+		// reads is a target the graph owns and pools, and a dispatch may not be
+		// recorded inside a render pass. ENGINE-NOTES 7y.
+		ExposureState* exposure = nullptr;
+		if (desc.Post.AutoExposure && desc.Exposure && AutoExposure::IsReady())
+		{
+			exposure = desc.Exposure;
+
+			// Allocated **here**, while the frame is being described, and not
+			// inside the pass.
+			//
+			// Creating these buffers seeds them from the CPU, and a seed issued
+			// from inside command-buffer recording is a staging copy with no
+			// ordering against the dispatch that reads it. On OpenGL that
+			// happened to be fine; on Vulkan the seed landed *after* the first
+			// dispatch and overwrote the value it had just adopted, so the
+			// exposure started from the buffer's initial state and crawled
+			// toward the right answer over about four seconds. It was
+			// reproducible, which is what made it look like a slow adaptation
+			// rather than a race. ENGINE-NOTES 7y.
+			desc.Exposure->Prepare(Renderer::GetDevice());
+
+			const PostSettings post = desc.Post;
+			const float delta = desc.DeltaSeconds;
+
+			graph.AddComputePass("Auto exposure",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Sample(shaded);
+				},
+				[shaded, exposure, post, delta](RGPassContext& context)
+				{
+					const RHI::Ref<RHI::RHITexture> scene = context.Color(shaded);
+					if (!scene)
+						return;
+
+					AutoExposure::Params params;
+					params.MinLogLuminance = post.AutoExposureMinLog;
+					params.MaxLogLuminance = post.AutoExposureMaxLog;
+					params.LowPercentile = post.AutoExposureLowPercent;
+					params.HighPercentile = post.AutoExposureHighPercent;
+					params.MiddleGrey = post.AutoExposureKey;
+					params.MinExposure = post.AutoExposureMin;
+					params.MaxExposure = post.AutoExposureMax;
+					params.SpeedUp = post.AutoExposureSpeed;
+					params.SpeedDown = post.AutoExposureSpeed;
+					params.DeltaSeconds = delta;
+
+					AutoExposure::Dispatch(context.Cmd, scene,
+										   scene->GetWidth(), scene->GetHeight(),
+										   *exposure, params);
+				});
+		}
+		else if (desc.Exposure)
+		{
+			// Off this frame, so what it adapted to is stale. Resuming from a
+			// ten-second-old exposure when the feature is switched back on is
+			// the mistake TemporalHistory::Invalidate exists to prevent, and it
+			// is the same mistake here.
+			desc.Exposure->Invalidate();
+		}
+
 		{
 			const PostSettings post = desc.Post;
 			const RGResource bloomSource = bloom;
@@ -585,7 +653,7 @@ namespace RageV
 						builder.Sample(bloomSource);
 					builder.DisableDepth();
 				},
-				[shaded, bloomSource, post, format, lut, lutSize](RGPassContext& context)
+				[shaded, bloomSource, post, format, lut, lutSize, exposure](RGPassContext& context)
 				{
 					PostProcess::LensParams lens;
 					lens.Aberration = post.ChromaticAberration;
@@ -593,6 +661,13 @@ namespace RageV
 					lens.VignetteSmoothness = post.VignetteSmoothness;
 					lens.Grain = post.FilmGrain;
 					lens.GrainSize = post.FilmGrainSize;
+
+					// Null unless the compute pass above ran, and the tone
+					// mapping pass then takes the profile's exposure whole.
+					// With it, the manual value becomes exposure *compensation*
+					// -- a multiplier on what the metering worked out, the same
+					// control a camera has and for the same reason. ENGINE-NOTES 7y.
+					lens.Exposure = exposure ? exposure->Exposure() : nullptr;
 
 					PostProcess::Tonemap(context.Cmd, context.Color(shaded),
 										 bloomSource != kRGInvalid ? context.Color(bloomSource)

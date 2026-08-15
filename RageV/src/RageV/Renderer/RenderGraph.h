@@ -104,6 +104,18 @@ namespace RageV
 
 	class RenderGraph;
 
+	// Whether a pass draws or computes.
+	//
+	// The distinction is not cosmetic: a compute dispatch inside a render pass
+	// is illegal on Vulkan, so a pass that computes must not begin one. That
+	// is the entire difference, and it is why this is a kind rather than a
+	// flag a graphics pass could also set.
+	enum class RGPassKind
+	{
+		Graphics,
+		Compute,
+	};
+
 	// What a pass declares about itself, during setup.
 	// One colour attachment a pass binds, and what it starts from.
 	struct RGAttachment
@@ -216,6 +228,23 @@ namespace RageV
 
 		void AddPass(const char* name, PassSetup setup, PassExecute execute);
 
+		// A pass that dispatches instead of drawing.
+		//
+		// It declares `Sample` for whatever it reads and writes no target, so
+		// it is the one kind of pass for which "writes nothing" is correct
+		// rather than a mistake -- its output is a buffer, which the graph does
+		// not pool and does not need to know about.
+		//
+		// It runs where it is declared, like every other pass, and it does
+		// **not** begin a render pass: a dispatch inside one is illegal on
+		// Vulkan. That is the whole of the difference.
+		//
+		// This exists because the alternative is worse. The thing a compute
+		// pass usually wants to read is a target the graph owns and pools, and
+		// reaching for one from outside the graph is exactly what the graph
+		// exists to stop. ENGINE-NOTES 7y.
+		void AddComputePass(const char* name, PassSetup setup, PassExecute execute);
+
 		// Validates and allocates. False means the frame is not runnable and
 		// Errors() says why. Nothing is recorded on failure -- a half-executed
 		// frame is harder to diagnose than one that refused.
@@ -261,6 +290,7 @@ namespace RageV
 			std::string Name;
 			PassSetup SetupFn;
 			PassExecute ExecuteFn;
+			RGPassKind Kind = RGPassKind::Graphics;
 
 			RGResource Output = kRGInvalid;
 			RGLoad Load = RGLoad::Clear;
@@ -274,6 +304,9 @@ namespace RageV
 			// Set by PreserveDepth: clear colour, keep depth.
 			bool KeepDepth = false;
 		};
+
+		void AddPassOfKind(const char* name, RGPassKind kind,
+						   PassSetup setup, PassExecute execute);
 
 		RHI::Ref<RHI::RHIRenderTarget> AcquireTarget(const RGTargetDesc& desc,
 													 uint32_t width, uint32_t height);

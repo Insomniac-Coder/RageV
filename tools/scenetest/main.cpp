@@ -2360,6 +2360,54 @@ void main()
 			  graph.Errors()[0].find("Unwritten") != std::string::npos,
 			  "and the error names the target");
 
+		// --- compute passes ---------------------------------------------------
+		//
+		// "Writes nothing" is the error for a graphics pass and the *contract*
+		// for a compute one, so the two halves are asserted against each other:
+		// the first case above proves a graphics pass still cannot get away
+		// with it, and this proves the exemption is not simply the check being
+		// switched off for everybody. ENGINE-NOTES 7y.
+		graph.Begin(1280, 720);
+		{
+			RGTargetDesc desc;
+			desc.Name = "Scene";
+			desc.Color = Format::R16G16B16A16_SFLOAT;
+			const RGResource scene = graph.CreateTarget(desc);
+
+			graph.AddPass("Scene",
+				[&](RGPassBuilder& builder) { builder.Write(scene); },
+				[](RGPassContext&) {});
+
+			graph.AddComputePass("Histogram",
+				[&](RGPassBuilder& builder) { builder.Sample(scene); },
+				[](RGPassContext&) {});
+
+			graph.AddPass("Present",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(graph.Backbuffer());
+					builder.Sample(scene);
+				},
+				[](RGPassContext&) {});
+		}
+		Check(graph.Compile(),
+			  "a compute pass that writes no target is allowed to");
+		Check(graph.GetPassCount() == 3,
+			  "and it takes its place in the frame like any other pass");
+
+		// A dispatch cannot write an attachment, so declaring one is a
+		// misunderstanding worth naming rather than a frame worth running.
+		graph.Begin(1280, 720);
+		{
+			graph.AddComputePass("Confused",
+				[&](RGPassBuilder& builder) { builder.Write(graph.Backbuffer()); },
+				[](RGPassContext&) {});
+		}
+		Check(!graph.Compile(), "a compute pass that draws into a target is refused");
+		Check(!graph.Errors().empty() &&
+			  graph.Errors()[0].find("Confused") != std::string::npos,
+			  "and that error names the pass");
+
 		// --- multi-attachment targets, and passes binding a subset ------------
 		//
 		// One target with several colours over one depth buffer is what lets
@@ -3086,6 +3134,93 @@ void main()
 	// in microseconds, and they are the parts where being wrong is silent: a
 	// transposed matrix index shears the frame instead of shifting it, and an
 	// offset in the wrong units is a jitter of half a *screen*.
+	// The adaptation law, which is arithmetic and belongs here rather than in a
+	// screenshot. ENGINE-NOTES 7y.
+	//
+	// `check_auto_exposure.py` proves the value reaches the shader and that
+	// metering closes a three-stop gap; only pixels can show that. What pixels
+	// are a terrible instrument for is `1 - exp(-rate * dt)`, and that is the
+	// half where being wrong is **silent**: the naive `rate * dt` looks
+	// identical at one frame rate and drifts at another, so the bug appears
+	// only when two machines are compared.
+	void CheckAutoExposureLaw()
+	{
+		const float rate = 3.0f;
+
+		// The assertion worth writing first. Ten steps of 10 ms must land where
+		// one step of 100 ms does -- the property `rate * dt` does not have.
+		{
+			float many = 0.0f;
+			for (int i = 0; i < 10; i++)
+				many += (1.0f - many) * AutoExposure::BlendWeight(rate, 0.01f);
+
+			const float one = AutoExposure::BlendWeight(rate, 0.1f);
+
+			Check(Math::Abs(many - one) < 0.0005f,
+				  "adaptation is framerate independent: ten short steps land "
+				  "where one long one does");
+
+			// And the control, so the above is not passing because both sides
+			// are the same constant. The linear form fails it by a wide margin,
+			// which is what the exponential is chosen over.
+			float naiveMany = 0.0f;
+			for (int i = 0; i < 10; i++)
+				naiveMany += (1.0f - naiveMany) * (rate * 0.01f);
+
+			Check(Math::Abs(naiveMany - rate * 0.1f) > 0.02f,
+				  "and the linear approximation genuinely would not have been");
+		}
+
+		// A step of the time constant closes 1 - 1/e of the gap, which is what
+		// makes the setting mean "stops per second" rather than an arbitrary
+		// number somebody tuned by eye.
+		Check(Math::Abs(AutoExposure::BlendWeight(1.0f, 1.0f) - 0.6321f) < 0.001f,
+			  "one time constant closes 63% of the distance");
+
+		// Monotone in both arguments: longer frames and faster settings both
+		// move further, never less.
+		Check(AutoExposure::BlendWeight(rate, 0.02f) > AutoExposure::BlendWeight(rate, 0.01f),
+			  "a longer frame adapts further");
+		Check(AutoExposure::BlendWeight(6.0f, 0.01f) > AutoExposure::BlendWeight(3.0f, 0.01f),
+			  "and a faster setting adapts further in the same frame");
+
+		// Bounded, because the weight is used as a mix factor and one outside
+		// 0..1 extrapolates -- which would overshoot the measurement and then
+		// oscillate rather than settle.
+		Check(AutoExposure::BlendWeight(rate, 100.0f) <= 1.0f,
+			  "an enormous frame time cannot push the weight past 1");
+
+		// The two ways of asking for "do not adapt", neither of which is a
+		// division by anything or a step backwards.
+		Check(AutoExposure::BlendWeight(rate, 0.0f) == 0.0f,
+			  "no time passing moves nothing");
+		Check(AutoExposure::BlendWeight(rate, -0.5f) == 0.0f,
+			  "and a negative frame time does not run the adaptation backwards");
+		Check(AutoExposure::BlendWeight(0.0f, 0.016f) == 0.0f,
+			  "a rate of zero holds the exposure where it is");
+
+		// The state's own rule: two dispatches before a measurement is trusted,
+		// because the first frame's histogram is the only one no reduce pass
+		// has cleared. This cost a session -- it presented as Vulkan adapting
+		// four seconds slower than OpenGL, reproducibly, which reads as a slow
+		// setting rather than as a bug.
+		{
+			ExposureState state;
+			Check(!state.HasAdapted(), "a fresh chain has not adapted");
+			state.MarkAdapted();
+			Check(!state.HasAdapted(),
+				  "and still has not after one dispatch, whose histogram nobody "
+				  "had cleared");
+			state.MarkAdapted();
+			Check(state.HasAdapted(), "the second dispatch is the one to trust");
+
+			state.Invalidate();
+			Check(!state.HasAdapted(),
+				  "and switching the feature off forgets it, rather than "
+				  "resuming later from a stale exposure");
+		}
+	}
+
 	void CheckTemporalJitter()
 	{
 		const uint32_t phase = TemporalJitterPhase();
@@ -10127,6 +10262,7 @@ int RunTests(int argc, char** argv)
 	CheckRenderersReady();
 	CheckFieldLabels();
 	CheckMotionHistory();
+	CheckAutoExposureLaw();
 	CheckTemporalJitter();
 	CheckTemporalHistory();
 	CheckAntiAliasingSwitch();

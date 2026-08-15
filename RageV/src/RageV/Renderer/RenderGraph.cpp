@@ -31,6 +31,16 @@ namespace RageV
 	{
 		RenderGraph::Pass& pass = m_Graph.m_Passes[m_Pass];
 
+		// Caught here rather than in Compile so the message arrives while the
+		// declaration that caused it is still the thing being looked at.
+		if (pass.Kind == RGPassKind::Compute)
+		{
+			m_Graph.m_Errors.push_back("compute pass '" + pass.Name + "' cannot "
+									   "write a target; a dispatch writes a "
+									   "buffer, not an attachment");
+			return;
+		}
+
 		if (pass.Output != kRGInvalid)
 		{
 			m_Graph.m_Errors.push_back("pass '" + pass.Name + "' writes more than one target");
@@ -235,8 +245,20 @@ namespace RageV
 
 	void RenderGraph::AddPass(const char* name, PassSetup setup, PassExecute execute)
 	{
+		AddPassOfKind(name, RGPassKind::Graphics, std::move(setup), std::move(execute));
+	}
+
+	void RenderGraph::AddComputePass(const char* name, PassSetup setup, PassExecute execute)
+	{
+		AddPassOfKind(name, RGPassKind::Compute, std::move(setup), std::move(execute));
+	}
+
+	void RenderGraph::AddPassOfKind(const char* name, RGPassKind kind,
+									PassSetup setup, PassExecute execute)
+	{
 		Pass pass;
 		pass.Name = name ? name : "pass";
+		pass.Kind = kind;
 		pass.SetupFn = std::move(setup);
 		pass.ExecuteFn = std::move(execute);
 
@@ -309,8 +331,19 @@ namespace RageV
 
 		for (const Pass& pass : m_Passes)
 		{
-			if (pass.Output == kRGInvalid)
+			// "Writes nothing" is the error for a graphics pass and the
+			// contract for a compute one, whose result is a buffer the graph
+			// neither owns nor pools.
+			if (pass.Kind == RGPassKind::Graphics && pass.Output == kRGInvalid)
 				m_Errors.push_back("pass '" + pass.Name + "' writes nothing");
+
+			if (pass.Kind == RGPassKind::Compute && pass.Output != kRGInvalid)
+			{
+				m_Errors.push_back("compute pass '" + pass.Name + "' declared a "
+								   "target to draw into. A dispatch cannot write "
+								   "an attachment; write a buffer, or make it a "
+								   "graphics pass");
+			}
 		}
 
 		// A target created and never drawn into is either a mistake or dead
@@ -360,6 +393,29 @@ namespace RageV
 		for (size_t i = 0; i < m_Passes.size(); i++)
 		{
 			Pass& pass = m_Passes[i];
+
+			// A compute pass has no attachment to begin, so it skips straight
+			// to its lambda -- a dispatch recorded inside a render pass is
+			// illegal on Vulkan, which is the reason this kind exists at all.
+			//
+			// Its context takes the frame's dimensions rather than a target's,
+			// because it has no target. A pass dispatching over something it
+			// sampled should ask that texture its size, not assume the frame's.
+			if (pass.Kind == RGPassKind::Compute)
+			{
+				RGPassContext context{ cmd };
+				context.Graph = this;
+				context.Pass = i;
+				context.Width = m_Width;
+				context.Height = m_Height;
+
+				cmd.PushDebugGroup(pass.Name.c_str());
+				if (pass.ExecuteFn)
+					pass.ExecuteFn(context);
+				cmd.PopDebugGroup();
+				continue;
+			}
+
 			Resource& output = m_Resources[pass.Output];
 
 			RenderPassBeginInfo begin;

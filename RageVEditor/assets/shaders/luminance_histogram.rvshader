@@ -1,0 +1,91 @@
+// How bright the scene is, as a histogram rather than as an average.
+//
+// An average luminance is one number and it is the wrong one: a sun in frame,
+// a specular highlight on wet metal or one emissive sign drags it, and the
+// image then breathes every time the camera turns past something bright. That
+// is the artefact people mean when they say auto exposure "pumps".
+//
+// A histogram keeps the distribution, so the pass that reduces it can throw
+// away the tails and answer a question about the *scene* instead of about its
+// brightest object. ENGINE-NOTES 7y.
+
+#type compute
+#version 450 core
+
+// 16x16 = 256 invocations, which is also the bin count -- so the group can
+// clear the shared bins and flush them with one invocation each and no loop.
+layout(local_size_x = 16, local_size_y = 16) in;
+
+const uint kBins = 256u;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+
+layout(std430, set = 0, binding = 1) buffer Histogram
+{
+	uint Bins[];
+} u_Histogram;
+
+layout(std140, set = 0, binding = 2) uniform HistogramParams
+{
+	// x min log2 luminance, y 1 / (max - min), z width, w height
+	vec4 Range;
+} u_Params;
+
+// Per group, then merged. Every invocation hitting the one global buffer with
+// an atomic would serialise the entire dispatch on 256 addresses; this way the
+// contention is inside a work group, where it is cheap, and the global buffer
+// takes one atomic per bin per group instead of one per pixel.
+shared uint s_Bins[kBins];
+
+// Which bin a luminance falls in.
+//
+// Bin 0 is reserved for "darker than the range" and is deliberately *not* a
+// real bucket: the reduce pass drops it. Without that, every black pixel in
+// a night scene votes for the darkest bin and the exposure chases the letterbox
+// bars rather than the picture.
+uint BinFor(float luminance)
+{
+	if (luminance < 0.0001)
+		return 0u;
+
+	// 0..1 across the configured stops, then 1..255 so bin 0 stays reserved.
+	float t = clamp((log2(luminance) - u_Params.Range.x) * u_Params.Range.y,
+					0.0, 1.0);
+	return uint(t * 254.0 + 1.0);
+}
+
+void main()
+{
+	const uint local = gl_LocalInvocationIndex;
+
+	s_Bins[local] = 0u;
+
+	// memoryBarrierShared before every barrier that guards shared memory.
+	// The spec says barrier() implies it in a compute shader; not every
+	// driver has always agreed, and the failure is a histogram that is subtly
+	// short on one vendor.
+	memoryBarrierShared();
+	barrier();
+
+	const uvec2 size = uvec2(u_Params.Range.zw);
+	const uvec2 pixel = gl_GlobalInvocationID.xy;
+
+	// The last group runs full and its tail addresses pixels that do not
+	// exist. Bounds-checking here rather than dispatching an exact grid,
+	// because the grid is in whole groups and the image rarely is.
+	if (pixel.x < size.x && pixel.y < size.y)
+	{
+		// Texel centres, so a pixel is sampled where it is rather than at its
+		// corner between four of them.
+		vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+		vec3 color = texture(u_Scene, uv).rgb;
+
+		float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+		atomicAdd(s_Bins[BinFor(luminance)], 1u);
+	}
+
+	memoryBarrierShared();
+	barrier();
+
+	atomicAdd(u_Histogram.Bins[local], s_Bins[local]);
+}

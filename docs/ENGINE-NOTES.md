@@ -3860,6 +3860,140 @@ and watching the new assertions fail.
 
 ---
 
+## 7y. Auto exposure (9.2): the design, before any of the code
+
+The roadmap says this one "makes the tonemap frame-dependent, so every
+screenshot comparison in the repo needs a way to pin it", and the handoff
+listed three candidate pins. **All three were answers to the wrong question.**
+
+### The pin already exists, and it is not a new flag
+
+`--frame-time` substitutes a fixed delta for the measured one, and its own
+comment states the consequence: *"Everything downstream of this — particles,
+OnFrame, the interpolation alpha — becomes a function of the frame number
+rather than of how busy this machine was."* An adaptation driven by **that**
+delta is already a function of the frame number. Every screenshot check in
+this repository passes `--frame-time=0.016666` today.
+
+So the rule is one line, and it is a rule about where the number comes from
+rather than a feature: **the adaptation reads the frame time the loop hands
+down, never a clock of its own and never real elapsed time.** A new
+`--exposure=fixed` flag would have been a second thing every check had to
+remember, to solve a problem the first flag already solves.
+
+The other two candidates were worse for concrete reasons. Adapting as a pure
+function of the *frame number* makes the adaptation twice as fast at 120 fps
+as at 60, which is wrong for a game and would have had to be undone later. A
+project setting the checks opt into is the `--exposure=fixed` flag with extra
+steps and a file to keep in sync.
+
+### And the real protection is that it is off
+
+`AutoExposure` defaults to **false**, and off is *exact*: no compute is
+dispatched, and the tonemap takes the manual exposure unchanged. That is the
+same guarantee 9.3 rests on (7w) and it is what keeps `check_smaa`,
+`check_color_grading`, `check_taa_*` and `check_lens_effects` valid without a
+line of change in any of them. The hazard in the roadmap entry is real and it
+is entirely confined to scenes that ask for the feature.
+
+### The state is per frame chain. This is 7u again
+
+The adapted luminance is **one value per frame chain**, living beside
+`TemporalHistory` and owned by whoever owns that.
+
+This is not a precaution, it is the same bug 7u already cost a day to: the
+editor draws the viewport and the game view in one frame from two different
+cameras. A process-wide adapted value would be written by whichever chain drew
+last and read by both, so a bright game view would darken the viewport and the
+viewport would brighten it back — the two panels pulling one number in
+opposite directions, every frame, forever. The ghost was that shape and so is
+this. **Anything in the renderer that remembers something about "last frame"
+belongs to a chain, not to the process.**
+
+### A histogram, not a log average
+
+A log-average luminance is one dot product and is dragged around by a handful
+of pixels: the sun in frame, a specular highlight on wet metal, one emissive
+sign. The image then breathes whenever the camera turns past something bright,
+which is the artefact people mean when they say auto exposure "pumps".
+
+So: 256 bins over a log2 luminance range, and the exposure comes from the
+average of the bins between a low and a high percentile. Discarding the tails
+is the whole point — it is what makes the measurement about the *scene*
+rather than about its brightest object. The bin count is a compromise nobody
+will notice either side of; the percentile window is a control worth exposing.
+
+### The manual slider becomes compensation
+
+`Exposure` does not become dead when auto is on — it **multiplies** the
+computed value, which turns it into exposure compensation, the same control a
+camera has for the same reason. A scene the metering gets consistently wrong
+is a scene somebody wants to push a stop, and taking the slider away would
+mean the only fix was switching the feature off.
+
+### Convergence starts converged
+
+The first frame of a chain, with nothing remembered, **adopts the measured
+luminance** rather than adapting toward it from a default. Two reasons, and
+the second is the one that matters here:
+
+- A level that opens two stops wrong and slides into place over a second is a
+  bug that every player sees and nobody asked for.
+- It makes a screenshot stable at *any* frame rather than only well past the
+  time constant, which is what keeps the check simple. Frame 30 is not
+  mid-transient; it is converged, because frame 0 was.
+
+Adaptation is then only visible when the scene changes, which is when it is
+supposed to be visible.
+
+### Where each claim gets tested
+
+The split follows what kind of thing each claim is, and it is the split this
+repository already uses everywhere else:
+
+| Claim | Tested in | Why there |
+|---|---|---|
+| The adaptation law: framerate independence, rate, clamps | `scenetest` | It is arithmetic. A pixel is a terrible way to measure `1 - exp(-dt * rate)` |
+| Off is byte-identical; a bright scene darkens; a dark one brightens; a shot reproduces | a check script | It is plumbing, and only pixels prove the value reached the shader |
+
+**Framerate independence is the assertion worth writing first**, because it
+is the one that fails silently: one step of 0.1 s and ten steps of 0.01 s must
+land on the same value, and a naive `lerp(current, target, rate * dt)` does
+not — it is a first-order approximation that diverges exactly when the frame
+rate does.
+
+### What it costs elsewhere: the graph learns compute
+
+The histogram reads the scene HDR target, which the render graph owns and
+pools, and **every graph pass today calls `BeginRenderPass` unconditionally**
+— so there is nowhere to put a dispatch. Compute inside a render pass is
+illegal on Vulkan, and reading a pooled graph target from outside the graph is
+the thing the graph exists to prevent.
+
+So the graph gets a pass kind with no attachments that skips the render pass.
+That is a prerequisite rather than a detour: **9.5 motion blur, 9.6 SSAO and
+9.7 SSR all want the same thing**, and the alternative — running the histogram
+against *last* frame's image from outside the graph — buys one frame of
+staleness and an image the graph is not allowed to pool, to avoid work that
+three later items would have to do anyway.
+
+The RHI half already exists from 6.7a and is proven on both backends by the
+GPU particle path, barriers included: `BufferBarrier` with
+`ComputeWrite -> ShaderRead` is exactly the edge this needs.
+
+### No readback in the render path
+
+The adapted value stays in a GPU buffer that the tonemap pass reads. Nothing
+is mapped back to the CPU to decide what to draw, because a readback is either
+a stall or a value whose age depends on how far ahead the GPU is — and the
+second one would put the frame's appearance back under the scheduler, which is
+the entire thing this section is about avoiding.
+
+The editor may read it back **for display**, one frame stale, because a number
+in a panel is allowed to be a frame behind and the render is not.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

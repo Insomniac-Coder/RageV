@@ -59,6 +59,16 @@ namespace RageV
 			// and still reproduces.
 			float Grain = 0.0f;
 			float GrainSize = 1.0f;
+
+			// Auto exposure's answer, or null when the camera did not ask for
+			// it. Read as a storage buffer rather than passed as a number,
+			// because the value is computed on the GPU and reading it back to
+			// hand it in would be either a stall or a value whose age depends
+			// on how far ahead the GPU is. ENGINE-NOTES 7y.
+			//
+			// Null takes the exposure argument whole; non-null multiplies the
+			// two, which is what makes the manual slider a compensation.
+			RHI::Ref<RHI::RHIBuffer> Exposure;
 		};
 
 		static void Tonemap(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& scene,
@@ -150,6 +160,9 @@ namespace RageV
 							 Sampling firstSampling = Sampling::Linear,
 							 Sampling secondSampling = Sampling::Linear,
 							 const RHI::Ref<RHI::RHITexture>& third = nullptr,
-							 Sampling thirdSampling = Sampling::Linear);
+							 Sampling thirdSampling = Sampling::Linear,
+							 // Bound at binding 3 when the shader declares it.
+							 // Only the tonemap does, for auto exposure.
+							 const RHI::Ref<RHI::RHIBuffer>& storage = nullptr);
 	};
 }

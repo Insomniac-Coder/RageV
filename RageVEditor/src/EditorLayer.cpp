@@ -449,6 +449,9 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.ClearColor = Vec4(m_ClearColor, 1.0f);
 	scene.OutputFormat = kViewportFormat;
 	scene.History = &m_SceneHistory;
+	scene.Exposure = &m_SceneExposure;
+	// The loop's frame time, not a clock read here. ENGINE-NOTES 7y.
+	scene.DeltaSeconds = ts.GetSeconds();
 	scene.DrawScene = [this](RGPassContext&)
 	{
 		if (m_UseEditorCamera)
@@ -529,6 +532,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.ClearColor = Vec4(m_ClearColor, 1.0f);
 		game.OutputFormat = kViewportFormat;
 		game.History = &m_GameHistory;
+		game.Exposure = &m_GameExposure;
+		game.DeltaSeconds = ts.GetSeconds();
 		game.DrawScene = [this](RGPassContext&)
 		{
 			m_Scene->OnRenderRuntime(m_GameViewportSize.x / m_GameViewportSize.y);

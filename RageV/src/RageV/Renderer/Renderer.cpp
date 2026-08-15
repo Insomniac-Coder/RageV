@@ -12,6 +12,7 @@
 #include "EnvironmentIBL.h"
 #include "ProbeArray.h"
 #include "PostProcess.h"
+#include "AutoExposure.h"
 
 namespace RageV
 {
@@ -50,10 +51,12 @@ namespace RageV
 		// asks it how many roughness levels a face size can carry.
 		ProbeArray::Init(device);
 		PostProcess::Init(device);
+		AutoExposure::Init(device);
 	}
 
 	void Renderer::Shutdown()
 	{
+		AutoExposure::Shutdown();
 		PostProcess::Shutdown();
 		ProbeArray::Shutdown();
 		EnvironmentIBL::Shutdown();
