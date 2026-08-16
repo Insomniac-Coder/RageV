@@ -30,6 +30,15 @@ foreground: the subject grows a halo of the wall behind it. So the in-focus
 group must stay within a few percent of the sharpness it has with the whole
 effect switched off.
 
+**6. And none of that depends on the anti-aliasing.** Claims 2 to 5 all read
+the scene's depth, and MSAA and SSAA are the two modes that change what the
+depth *is* -- multisampled for the first, larger than the frame for the
+second. For a whole roadmap phase this check ran only at `--aa=none`, and MSAA
+was meanwhile binding a 4x depth image to a `sampler2D`: every pixel came back
+as the near plane and the entire frame was blurred edge to edge. Nothing here
+noticed, because nothing here had ever rendered a frame with anti-aliasing on.
+ENGINE-NOTES 7ai.
+
 Usage:
     python tools/scripts/check_depth_of_field.py [--config Release]
 """
@@ -141,11 +150,12 @@ def build(focus_near, aperture, dof, profile):
     return chr(10).join(lines) + chr(10)
 
 
-def shoot(exe, backend, out, scene, frame=FRAME):
+def shoot(exe, backend, out, scene, frame=FRAME, aa="none"):
+    extra = ["--msaa=4"] if aa == "msaa" else []
     subprocess.run(
-        [str(exe), f"--backend={backend}", "--aa=none", "--validation=on",
+        [str(exe), f"--backend={backend}", f"--aa={aa}", "--validation=on",
          f"--scene={scene}", f"--screenshot={out}", f"--screenshot-frame={frame}",
-         "--frame-time=0.016666"],
+         "--frame-time=0.016666"] + extra,
         check=True, capture_output=True, cwd=exe.parent)
 
     if not pathlib.Path(out).exists():
@@ -211,11 +221,15 @@ def main():
     for backend in BACKENDS:
         print(f"--- {backend}")
 
-        def render(profile, tag):
-            scene = scenes / f"dof_{tag}.rage"
+        # The scene is named by the *profile* and the screenshot by the tag:
+        # the anti-aliasing runs below render the same two scenes again with a
+        # different flag, and a second copy of an identical fixture on disk
+        # would be two files to keep in step for no reason.
+        def render(profile, tag, aa="none"):
+            scene = scenes / f"dof_{profile}.rage"
             scene.write_text(build(True, 1.4, True, profiles[profile]))
             return shoot(exe, backend, shots / f"{backend}-{tag}.png",
-                         f"scenes/{scene.name}")
+                         f"scenes/{scene.name}", aa=aa)
 
         off = render("off", "off")
         untouched = render("untouched", "untouched")
@@ -300,6 +314,41 @@ def main():
                 f"aperture is not reaching the circle of confusion, so the "
                 f"thin-lens maths has a physical-sounding name and no physics")
 
+        # --- 6. and none of it depends on the anti-aliasing -------------------
+        #
+        # Each mode is measured against its *own* unblurred frame: MSAA and
+        # SSAA both change the detail of an undefocused edge, and comparing
+        # against the --aa=none baseline would be measuring the filter rather
+        # than the lens.
+        for aa in ("msaa", "ssaa"):
+            off_aa = render("off", f"off-{aa}", aa)
+            near_aa = render("near", f"near-{aa}", aa)
+
+            base_near = detail(off_aa, near_half)
+            base_far = detail(off_aa, far_half)
+
+            kept = detail(near_aa, near_half) / max(base_near, 1e-6)
+            lost = 1.0 - detail(near_aa, far_half) / max(base_far, 1e-6)
+            print(f"  --aa={aa:5s} focused near: near keeps {kept * 100:5.1f}%,"
+                  f"  far loses {lost * 100:5.1f}%")
+
+            if kept < MIN_SHARP_KEPT:
+                failures.append(
+                    f"{backend}: with --aa={aa} the in-focus group kept only "
+                    f"{kept * 100:.0f}% of its detail, against "
+                    f"{kept_near * 100:.0f}% with anti-aliasing off. The lens is "
+                    f"reading a depth that is not the scene's -- under MSAA that "
+                    f"is a multisampled attachment handed to a sampler2D, which "
+                    f"reads as the near plane everywhere and blurs the whole "
+                    f"frame")
+
+            if lost < MIN_BLUR_DROP:
+                failures.append(
+                    f"{backend}: with --aa={aa} the background kept "
+                    f"{(1 - lost) * 100:.0f}% of its detail with the focus on the "
+                    f"near group. The circle of confusion is coming out near zero, "
+                    f"so the depth this mode hands the lens is not a distance")
+
     print()
     if failures:
         for failure in failures:
@@ -307,8 +356,9 @@ def main():
         sys.exit(1)
 
     print("OK: off is off to the byte, the blur follows the focus distance "
-          "rather than the distance, the aperture changes it, and what is in "
-          "focus keeps its edges")
+          "rather than the distance, the aperture changes it, what is in "
+          "focus keeps its edges, and none of that moves when the "
+          "anti-aliasing does")
 
 
 if __name__ == "__main__":

@@ -1587,6 +1587,81 @@ namespace
 	// reaches the GPU, and the failure mode that matters -- a dispatch that
 	// silently does nothing -- looks exactly like success from every angle
 	// except the buffer's contents.
+	// What a multisampled target hands out when something asks it for the
+	// depth.
+	//
+	// **This is the check that was missing for a whole roadmap phase.** MSAA
+	// arrived when nothing downstream of the scene pass read depth, so the
+	// depth attachment was left multisampled and unresolved and a comment in
+	// both backends said, correctly at the time, that nothing reads it. Then
+	// depth of field, motion blur, SSAO and SSR each learned to reconstruct a
+	// position from it -- and each of them bound a 4x image to a sampler2D,
+	// which reads as undefined and came out as "everything is at the near
+	// plane". The frame was blurred edge to edge and the whole suite passed,
+	// because every check in it renders with --aa=none.
+	//
+	// So: the invariant, at the level it belongs, in a form that does not need
+	// a scene or a camera. A target you can sample the depth of hands out
+	// something a sampler can read, whatever its sample count.
+	void CheckMultisampledDepth()
+	{
+		RHI::RHIDevice& device = Renderer::GetDevice();
+
+		auto make = [&device](uint32_t samples, bool sampled)
+		{
+			RHI::RenderTargetDesc desc;
+			desc.Width = 64;
+			desc.Height = 64;
+			desc.Samples = samples;
+			desc.ColorAttachments.push_back({ RHI::Format::R16G16B16A16_SFLOAT });
+			desc.DepthAttachment = { RHI::Format::D32_SFLOAT };
+			desc.HasDepth = true;
+			desc.DepthSampled = sampled;
+			desc.DebugName = "scenetest.msaadepth";
+			return device.CreateRenderTarget(desc);
+		};
+
+		// One sample: the attachment itself, because there is nothing to
+		// resolve and a second image would be a frame-sized waste.
+		RHI::Ref<RHI::RHIRenderTarget> single = make(1, true);
+		Check(single != nullptr, "a single-sampled target with sampled depth is created");
+		if (single && single->GetDepthTexture())
+		{
+			Check(single->GetDepthTexture()->GetDesc().Samples == 1,
+				  "and its depth is single-sampled, being the attachment");
+		}
+
+		// Four: the attachment is multisampled, and what comes back is not.
+		RHI::Ref<RHI::RHIRenderTarget> multi = make(4, true);
+		Check(multi != nullptr, "a 4x target with sampled depth is created");
+		if (multi)
+		{
+			RHI::Ref<RHI::RHITexture> depth = multi->GetDepthTexture();
+			Check(depth != nullptr, "and hands out a depth texture");
+			if (depth)
+			{
+				Check(depth->GetDesc().Samples == 1,
+					  "which is single-sampled -- the resolve, not the 4x attachment");
+				Check(RHI::HasFlag(depth->GetDesc().Usage, RHI::TextureUsage::Sampled),
+					  "and is usable as a sampled texture");
+				Check(depth->GetDesc().Width == 64 && depth->GetDesc().Height == 64,
+					  "at the target's own size");
+			}
+		}
+
+		// And a target nothing samples does not pay for a twin. The colour
+		// attachments still resolve; only the depth is conditional, because
+		// depth is the one attachment the frame graph asks for by name.
+		RHI::Ref<RHI::RHIRenderTarget> unsampled = make(4, false);
+		Check(unsampled != nullptr, "a 4x target with unsampled depth is created");
+		if (unsampled && unsampled->GetDepthTexture())
+		{
+			Check(unsampled->GetDepthTexture()->GetDesc().Samples == 4,
+				  "and keeps its multisampled depth: nothing reads it, so nothing "
+				  "resolves it");
+		}
+	}
+
 	// The particle sort, against a buffer whose right answer is arithmetic.
 	//
 	// **This started as a pixel comparison and that was the wrong instrument.**
@@ -10747,6 +10822,7 @@ int RunTests(int argc, char** argv)
 	CheckProbeSelection();
 	CheckProbeArraySize();
 	CheckFrameGraph();
+	CheckMultisampledDepth();
 	CheckGameModule();
 	CheckProject();
 	CheckPackaging();

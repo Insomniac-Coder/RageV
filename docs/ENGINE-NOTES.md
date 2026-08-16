@@ -2547,6 +2547,13 @@ Two consequences worth stating rather than discovering:
 - The multisampled image keeps its contents between passes, so
   `RGLoad::Preserve` still means what it meant.
 
+> **The colour, and at the time only the colour.** The depth attachment
+> was deliberately left multisampled and unresolved, with a comment in
+> both backends saying nothing downstream of the scene pass reads it.
+> That was true when this was written and stopped being true four times
+> over — 9.4, 9.5, 9.6 and 9.7 each reconstruct a position from the scene
+> depth. **§7ai** is what closes it, and what the phase between cost.
+
 ### Transparency, which is the reason this is an L
 
 Weighted-blended OIT (§ phase 6) puts its accumulation and revealage
@@ -4830,6 +4837,92 @@ still being *whole-array* transitions. The next cut, if the phase ever
 matters again at the 15 Hz rate, is the captures copying as a strip and
 the transitions narrowing to the slice they touch; neither is small, and
 the dial has made both optional.
+
+---
+
+## 7ai. The depth a multisampled target hands out (M.1)
+
+**The symptom.** Choose MSAA in Render Settings and the whole frame goes
+soft — not the edges, everything, near and far alike, as though the lens
+had been left wide open on nothing. Every other anti-aliasing mode looked
+right.
+
+**The cause is one sentence in §7q that stopped being true.** MSAA gave
+each colour attachment a single-sampled twin and made `GetColorTexture`
+hand the twin out, so that nothing downstream had to know MSAA existed.
+The depth attachment got no twin, because when that was written nothing
+downstream read the depth — and both backends carry a comment saying so.
+
+Then depth of field (9.4), motion blur (9.5), SSAO (9.6) and SSR (9.7)
+each learned to reconstruct a view-space position from the scene depth,
+and each of them asked `context.Depth(sceneHDR)` for it. Under MSAA that
+call handed back the 4x attachment itself, and a multisampled image bound
+to a `sampler2D` reads as undefined. The layers say it plainly — ten
+lines of *"has VkImage created with VK_SAMPLE_COUNT_4_BIT, but OpTypeImage
+has marked it as single-sampled"*, naming `u_Depth` in four different
+passes — and the undefined it returned came out as "everything is at the
+near plane", so the circle of confusion pinned at maximum across the
+frame. The bokeh radius the demo profile asks for is 14 px, which is why
+it read as a blur rather than as a bug.
+
+**The fix is the twin the colours already had.** A target whose depth is
+both multisampled *and* sampled builds a single-sampled depth image
+alongside the attachment; the pass resolves into it on the way out;
+`GetDepthTexture` hands it out. Nothing above the RHI changed — the four
+passes, their shaders and the frame graph are untouched.
+
+Three things it is worth being specific about:
+
+- **Sample zero, not the average.** Vulkan asks by name
+  (`VK_RESOLVE_MODE_SAMPLE_ZERO_BIT`); OpenGL's `glBlitNamedFramebuffer`
+  of `GL_DEPTH_BUFFER_BIT` picks one sample and does the same thing. It
+  matters that it is not an average: a depth is a *position*, and the
+  mean of two positions either side of a silhouette is a place where
+  nothing is. Averaging would draw a one-texel rim of invented geometry
+  around every edge in the frame, and the occlusion and the reflections
+  would both believe it. Sample zero is somewhere that was really there.
+  It is also the only depth resolve mode Vulkan guarantees.
+- **Only when something samples it.** A shadow map is never multisampled
+  and nothing samples the probe faces' depth, so the twin is conditional
+  on `DepthSampled` — otherwise every shadow cascade would carry a second
+  full-size image nobody reads. And the flag moves: with a twin, the
+  multisampled attachment is created *without* `Sampled` usage, so binding
+  it to a sampler fails loudly instead of returning undefined.
+- **The barrier is not the one the layout implies.** Vulkan puts a render
+  pass resolve write in the colour attachment output stage whatever the
+  attachment's aspect is. The colour twins get that for free — it is
+  exactly what `COLOR_ATTACHMENT_OPTIMAL` implies — but a depth twin's
+  layout implies the two fragment-test stages, and a barrier naming only
+  those leaves the resolve unsynchronised against the transition before
+  it. Sync validation reports it as a write-after-write on the first
+  frame; `TransitionTo` takes an extra stage and access for exactly this
+  case.
+
+**What it costs.** One D32 image at frame size, only under MSAA: 14 MB at
+1440p, 8 MB at 1080p, per frame chain. No extra pass and no shader — the
+hardware resolves it with the colours. 1440p demo, Vulkan, 600 frames:
+3.92 ms at MSAA 4x against 3.86 for TAA and 3.67 with anti-aliasing off.
+
+**What still averages, deliberately.** The surface attachment SSR reads
+(octahedral normal, roughness, metallic) resolves by averaging like every
+other colour attachment, so a silhouette texel carries a normal blended
+between two surfaces. SSAO's agreement rule (§7ae) rejects exactly that
+and falls back to reconstruction; SSR traces a slightly wrong ray on a
+one-pixel rim. Both are visible only if looked for, and the alternative —
+a per-attachment resolve mode — is 7q's ceremony again for an artefact
+nobody has been able to see.
+
+**What let it survive a phase.** `check_depth_of_field.py` measures the
+exact thing that broke, in the exact scene for it, and passed the whole
+time: every render in this repository's checks was `--aa=none`. The suite
+had five claims about the lens and no claim that any of them survived a
+setting the user can change from a dropdown. It now renders claims 2–5
+again at `--aa=msaa` and `--aa=ssaa`; reverted, that reads 23% of the
+in-focus detail kept on Vulkan and 28% on OpenGL against 115% with the
+fix, which is not a threshold anyone has to tune. Underneath it,
+`scenetest` states the invariant where it belongs and without a scene: a
+4x target you can sample the depth of hands back a single-sampled image,
+at the target's size, usable as a texture.
 
 ---
 

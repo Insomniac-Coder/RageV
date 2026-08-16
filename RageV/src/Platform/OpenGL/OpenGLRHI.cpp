@@ -926,6 +926,7 @@ namespace RageV::GL
 		m_Color.clear();
 		m_Resolve.clear();
 		m_Depth.reset();
+		m_DepthResolve.reset();
 	}
 
 	void OpenGLRenderTargetRHI::Build()
@@ -999,10 +1000,13 @@ namespace RageV::GL
 			depthDesc.Type = m_Desc.Layers > 1 ? TextureType::Texture2DArray : TextureType::Texture2D;
 			depthDesc.Usage = TextureUsage::DepthAttachment;
 			// Depth has to match the colour's sample count or the framebuffer
-			// is incomplete. It is never resolved: nothing downstream of the
-			// scene pass reads it.
+			// is incomplete -- and a multisampled texture cannot be read by an
+			// ordinary sampler2D, so where something samples the depth it gets
+			// the same single-sampled twin the colours get. The flag goes on
+			// the twin rather than here, which is what makes binding the
+			// attachment itself fail loudly instead of quietly.
 			depthDesc.Samples = m_Desc.Samples;
-			if (m_Desc.DepthSampled)
+			if (m_Desc.DepthSampled && !multisampled)
 				depthDesc.Usage = depthDesc.Usage | TextureUsage::Sampled;
 			depthDesc.DebugName = m_Desc.DebugName + ".depth";
 
@@ -1011,11 +1015,38 @@ namespace RageV::GL
 			const GLenum attachment = IsStencilFormat(depthDesc.Format) ? GL_DEPTH_STENCIL_ATTACHMENT
 																		: GL_DEPTH_ATTACHMENT;
 			glNamedFramebufferTexture(m_Framebuffer, attachment, m_Depth->GetHandle(), 0);
+
+			// Only when something samples it: an MSAA shadow map does not
+			// exist, and a twin nobody reads is a full-size image per frame
+			// chain. ENGINE-NOTES 7ai.
+			if (multisampled && m_Desc.DepthSampled)
+			{
+				TextureDesc resolveDesc = depthDesc;
+				resolveDesc.Samples = 1;
+				resolveDesc.Usage = resolveDesc.Usage | TextureUsage::Sampled;
+				resolveDesc.DebugName = m_Desc.DebugName + ".depth.resolve";
+
+				m_DepthResolve = std::make_shared<OpenGLTextureRHI>(m_Device, resolveDesc);
+				glNamedFramebufferTexture(m_ResolveFramebuffer, attachment,
+										  m_DepthResolve->GetHandle(), 0);
+			}
 		}
 
 		const GLenum status = glCheckNamedFramebufferStatus(m_Framebuffer, GL_FRAMEBUFFER);
 		if (status != GL_FRAMEBUFFER_COMPLETE)
 			RV_CORE_ERROR("Framebuffer '{0}' incomplete: 0x{1:x}", m_Desc.DebugName, (uint32_t)status);
+
+		// The resolve framebuffer is checked too. A blit into an incomplete
+		// one is silently dropped, and the symptom is a depth buffer that
+		// reads as whatever the allocation happened to contain.
+		if (m_ResolveFramebuffer)
+		{
+			const GLenum resolveStatus = glCheckNamedFramebufferStatus(m_ResolveFramebuffer,
+																	   GL_FRAMEBUFFER);
+			if (resolveStatus != GL_FRAMEBUFFER_COMPLETE)
+				RV_CORE_ERROR("Resolve framebuffer '{0}' incomplete: 0x{1:x}",
+							  m_Desc.DebugName, (uint32_t)resolveStatus);
+		}
 	}
 
 	void OpenGLRenderTargetRHI::Resize(uint32_t width, uint32_t height)
@@ -1048,6 +1079,20 @@ namespace RageV::GL
 								   0, 0, (GLint)m_Desc.Width, (GLint)m_Desc.Height,
 								   0, 0, (GLint)m_Desc.Width, (GLint)m_Desc.Height,
 								   GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		}
+
+		// And the depth, in its own blit: the bit has to be separate because a
+		// combined COLOR|DEPTH blit would carry whichever colour attachment the
+		// read buffer happens to name, and the loop above names each in turn.
+		// GL_NEAREST is required for depth, and a multisample source resolves
+		// by taking one sample rather than averaging -- which is what is
+		// wanted, and what the Vulkan side asks for by name. ENGINE-NOTES 7ai.
+		if (m_DepthResolve)
+		{
+			glBlitNamedFramebuffer(m_Framebuffer, m_ResolveFramebuffer,
+								   0, 0, (GLint)m_Desc.Width, (GLint)m_Desc.Height,
+								   0, 0, (GLint)m_Desc.Width, (GLint)m_Desc.Height,
+								   GL_DEPTH_BUFFER_BIT, GL_NEAREST);
 		}
 
 		// Put the draw buffers back: the next pass binds this framebuffer and

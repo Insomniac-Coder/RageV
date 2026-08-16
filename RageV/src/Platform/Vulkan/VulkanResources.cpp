@@ -337,7 +337,9 @@ namespace RageV::Vk
 		});
 	}
 
-	void VulkanTexture::TransitionTo(VkCommandBuffer cmd, VkImageLayout newLayout)
+	void VulkanTexture::TransitionTo(VkCommandBuffer cmd, VkImageLayout newLayout,
+									 VkPipelineStageFlags2 extraStages,
+									 VkAccessFlags2 extraAccess)
 	{
 		if (m_Layout == newLayout)
 			return;
@@ -346,6 +348,14 @@ namespace RageV::Vk
 		VkAccessFlags2 srcAccess, dstAccess;
 		AccessForLayout(m_Layout, srcStage, srcAccess);
 		AccessForLayout(newLayout, dstStage, dstAccess);
+
+		// Both halves: the caller's extra access is something that both
+		// happened before this barrier and can happen after it -- a resolve
+		// target is written once per pass, pass after pass.
+		srcStage |= extraStages;
+		srcAccess |= extraAccess;
+		dstStage |= extraStages;
+		dstAccess |= extraAccess;
 
 		VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 		barrier.srcStageMask = srcStage;
@@ -621,6 +631,7 @@ namespace RageV::Vk
 		m_Color.clear();
 		m_Resolve.clear();
 		m_Depth.reset();
+		m_DepthResolve.reset();
 
 		// A multisampled image cannot be read by an ordinary sampler2D, so a
 		// multisampled target carries a single-sampled twin per colour
@@ -670,12 +681,31 @@ namespace RageV::Vk
 			// something eventually wants to copy what was rendered. A point
 			// light's shadow is six of these blitted into a depth cube.
 			depthDesc.Usage = RHI::TextureUsage::DepthAttachment | RHI::TextureUsage::TransferSrc;
-			// Shadow maps are sampled after being rendered.
-			if (m_Desc.DepthSampled)
+			// Shadow maps are sampled after being rendered -- but a
+			// *multisampled* depth image cannot be, so there the flag belongs
+			// on the twin below rather than here. Leaving it off the attachment
+			// is what makes the mistake loud: bind this image to a sampler2D
+			// and the layers say so on the first draw.
+			if (m_Desc.DepthSampled && !multisampled)
 				depthDesc.Usage = depthDesc.Usage | RHI::TextureUsage::Sampled;
 			depthDesc.DebugName = m_Desc.DebugName + ".depth";
 
 			m_Depth = std::make_shared<VulkanTexture>(m_Device, depthDesc);
+
+			// Depth gets a single-sampled twin on the same terms the colours
+			// do, and for the same reason -- everything downstream of the scene
+			// pass that reconstructs a position reads depth through an ordinary
+			// sampler. Only when something actually samples it: an MSAA shadow
+			// map does not exist, and a twin nobody reads is a full-size image
+			// per frame chain. ENGINE-NOTES 7ai.
+			if (multisampled && m_Desc.DepthSampled)
+			{
+				RHI::TextureDesc resolveDesc = depthDesc;
+				resolveDesc.Samples = 1;
+				resolveDesc.Usage = resolveDesc.Usage | RHI::TextureUsage::Sampled;
+				resolveDesc.DebugName = m_Desc.DebugName + ".depth.resolve";
+				m_DepthResolve = std::make_shared<VulkanTexture>(m_Device, resolveDesc);
+			}
 		}
 	}
 

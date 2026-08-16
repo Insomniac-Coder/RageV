@@ -203,14 +203,20 @@ namespace RageV::GL
 
 		void Resize(uint32_t width, uint32_t height) override;
 		Ref<RHITexture> GetColorTexture(uint32_t index = 0) const override;
-		Ref<RHITexture> GetDepthTexture() const override { return m_Depth; }
+		// The depth resolve where there is one, for the same reason
+		// GetColorTexture hands out the colour resolve: a caller asking a
+		// target for "the depth" wants something a sampler2D can read.
+		Ref<RHITexture> GetDepthTexture() const override
+		{
+			return m_DepthResolve ? m_DepthResolve : m_Depth;
+		}
 
 		uint32_t GetFramebuffer() const { return m_Framebuffer; }
 		uint32_t GetColorCount() const { return (uint32_t)m_Color.size(); }
 
-		// Blit every colour attachment down to its single-sampled twin. Called
-		// when a pass that wrote this target ends; a no-op when it is not
-		// multisampled.
+		// Blit every colour attachment -- and the depth, when something samples
+		// it -- down to its single-sampled twin. Called when a pass that wrote
+		// this target ends; a no-op when it is not multisampled.
 		void ResolveIfNeeded();
 
 		bool IsMultisampled() const { return m_ResolveFramebuffer != 0; }
@@ -225,6 +231,7 @@ namespace RageV::GL
 		std::vector<Ref<OpenGLTextureRHI>> m_Resolve;
 		std::vector<Ref<OpenGLTextureRHI>> m_Color;
 		Ref<OpenGLTextureRHI> m_Depth;
+		Ref<OpenGLTextureRHI> m_DepthResolve;
 	};
 
 	class OpenGLCommandListRHI final : public RHICommandList

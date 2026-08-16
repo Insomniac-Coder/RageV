@@ -4,6 +4,23 @@
 
 namespace RageV::Vk
 {
+	namespace
+	{
+		// What a multisample resolve write is, for barrier purposes. The
+		// colour twins get this for free -- it is exactly the access their
+		// COLOR_ATTACHMENT_OPTIMAL layout implies -- but a *depth* twin's
+		// layout implies the depth stages, and the resolve does not run
+		// there: the spec puts every render pass resolve, whatever the
+		// attachment's aspect, in the colour attachment output stage. A
+		// barrier naming only the depth stages leaves the resolve write
+		// unsynchronised against the layout transition that precedes it, and
+		// that is a write-after-write the layers report on the first frame.
+		constexpr VkPipelineStageFlags2 kResolveWriteStages =
+			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+		constexpr VkAccessFlags2 kResolveWriteAccess =
+			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	}
+
 	VulkanCommandList::VulkanCommandList(VulkanDevice& device)
 		: m_Device(device)
 	{
@@ -149,6 +166,26 @@ namespace RageV::Vk
 				// Shadow maps are sampled afterwards, so depth must be kept.
 				depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 				depthAttachment.clearValue.depthStencil = { info.Clear.Depth, info.Clear.Stencil };
+
+				// The depth's single-sampled twin, resolved the same way the
+				// colours are -- except by SAMPLE_ZERO rather than AVERAGE. A
+				// depth is a position, and the average of two positions either
+				// side of a silhouette is a place where nothing is: it would
+				// put a one-texel rim of invented geometry around every edge
+				// in the frame, which the occlusion and the reflections would
+				// then both believe. Sample zero is a place that was really
+				// there, and it is the only mode Vulkan guarantees. It is also
+				// what OpenGL's resolve blit does, which keeps the two backends
+				// reconstructing the same view space. ENGINE-NOTES 7ai.
+				if (VulkanTexture* resolve = target->GetDepthResolve())
+				{
+					resolve->TransitionTo(m_CommandBuffer, depthLayout,
+										  kResolveWriteStages, kResolveWriteAccess);
+					depthAttachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+					depthAttachment.resolveImageView = resolve->GetView();
+					depthAttachment.resolveImageLayout = depthLayout;
+				}
+
 				hasDepth = true;
 			}
 		}
@@ -269,6 +306,14 @@ namespace RageV::Vk
 				if (RHI::HasFlag(depth->GetDesc().Usage, RHI::TextureUsage::Sampled))
 					depth->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			}
+
+			// And the depth's twin, which is what GetDepthTexture hands out
+			// when there is one -- the same trap the colour resolves were,
+			// one attachment further down.
+			if (VulkanTexture* depthResolve = m_ActiveTarget->GetDepthResolve())
+				depthResolve->TransitionTo(m_CommandBuffer,
+										   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+										   kResolveWriteStages, kResolveWriteAccess);
 		}
 
 		m_ActiveTarget = nullptr;

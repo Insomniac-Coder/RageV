@@ -1,6 +1,6 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-15.
+**Read this first.** Updated 2026-08-16.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
 finished with, and `main` is pushed.
@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1531 checks, `exit 0`. Then look at a frame:
+1547 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -81,7 +81,7 @@ python tools/scripts/check_oit.py --config Debug
 
 4/4, `exit 0`.
 
-**Nine things that are easy to get wrong here, all learned the hard way:**
+**Ten things that are easy to get wrong here, all learned the hard way:**
 
 0. **A default nobody has measured is a default nobody has tested.** FXAA
    shipped as the default anti-aliasing for a whole roadmap phase with two
@@ -140,6 +140,15 @@ python tools/scripts/check_oit.py --config Debug
    "fail" also matches the word *fails* inside the names of passing checks, and
    returns a count that looks like failures and is not. Match case, and read the
    `OK` line at the end.
+
+10. **Every check here renders with `--aa=none`, and a setting the user can
+    change is a setting nothing is testing.** MSAA left the scene depth
+    multisampled and unresolved; four post passes then bound it to a
+    `sampler2D` and the entire frame came back blurred. It survived a whole
+    roadmap phase, including `check_depth_of_field.py` — the check whose only
+    subject is the effect that broke, in a scene built for it, passing every
+    run. When something reads a *target*, run the claim again in every mode
+    that changes that target's shape. ENGINE-NOTES 7ai.
 
 **What to read before changing something:** §5 of this document. Every entry
 was a real bug, and most fail silently rather than obviously.
@@ -1582,7 +1591,18 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: the 9.x follow-ups are done -- phase 8 is next
+### START HERE: MSAA reads the depth again -- phase 8 is next
+
+**M.1 (2026-08-16), reported by the owner from the editor**: choosing MSAA
+in Render Settings blurred the whole frame. The scene target's depth was
+the one attachment MSAA never resolved -- true when MSAA was written,
+false since 9.4 -- so depth of field, motion blur, SSAO and SSR were each
+handed a 4x image for a `sampler2D`. Fixed in the RHI, both backends;
+ENGINE-NOTES 7ai. **The lesson worth carrying**: every check in this
+repository rendered with `--aa=none`, including the one whose whole
+subject is the effect that broke. `check_depth_of_field.py` now runs its
+claims at `--aa=msaa` and `--aa=ssaa` too, and `scenetest` states the
+invariant without a scene.
 
 **9.0 through 9.7 are all built** (2026-08-15), and the owner chose the
 four small follow-ups before phase 8; all four are done, in this order:
@@ -1605,6 +1625,36 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - M.1, the depth a multisampled target hands out (2026-08-16)
+
+ENGINE-NOTES 7ai. A target whose depth is both multisampled and sampled
+now carries a single-sampled depth twin, resolved by the pass that wrote
+it -- `VK_RESOLVE_MODE_SAMPLE_ZERO_BIT` on Vulkan, a `GL_DEPTH_BUFFER_BIT`
+blit on OpenGL -- and `GetDepthTexture` hands the twin out, exactly as
+`GetColorTexture` has handed out the colour twins since MSAA existed.
+Sample zero rather than an average, because averaging two depths across a
+silhouette invents a surface between them. The twin exists only where
+`DepthSampled` is set, and the multisampled attachment loses its `Sampled`
+usage so the mistake cannot be made quietly again. One extra barrier
+subtlety, written up in 7ai: a depth resolve is a *colour-attachment-output*
+write, so the twin's transitions name that stage as well or sync validation
+reports a write-after-write on the first frame.
+
+Nothing above the RHI changed: the four passes that read depth, their
+shaders and the frame graph are untouched, and no other AA mode moves.
+**Cost**: one D32 image at frame size under MSAA only (14 MB at 1440p);
+1440p demo on Vulkan, 3.92 ms at MSAA 4x against 3.86 TAA and 3.67 with AA
+off. **Checks**: `check_depth_of_field.py` re-runs its lens claims at
+`--aa=msaa` and `--aa=ssaa` (reverted, that is 23 % of the in-focus detail
+kept on Vulkan, 28 % on OpenGL, against 115 % fixed), and
+`CheckMultisampledDepth` in scenetest states the RHI invariant directly.
+Verified: 1547 scenetest checks both backends under validation, zero
+`[Vulkan]` lines, runtime at all six AA modes and the editor at MSAA on
+both backends, all three configs, `check_ssao` / `check_ssr` /
+`check_motion_blur` / `check_oit` / `rvdoc --check`.
 
 ---
 

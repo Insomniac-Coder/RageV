@@ -67,7 +67,16 @@ namespace RageV::Vk
 		void SetLayout(VkImageLayout layout) { m_Layout = layout; }
 
 		// Records a layout transition covering every mip and layer.
-		void TransitionTo(VkCommandBuffer cmd, VkImageLayout newLayout);
+		//
+		// The stage and access are implied by the two layouts, which is enough
+		// for everything the backend does with an image it draws into or
+		// samples. `extraStages`/`extraAccess` widen both halves of the
+		// dependency for the one case that is not implied by a layout: a
+		// multisample resolve target, whose write the spec puts in the colour
+		// attachment output stage whatever the attachment's own aspect is.
+		void TransitionTo(VkCommandBuffer cmd, VkImageLayout newLayout,
+						  VkPipelineStageFlags2 extraStages = 0,
+						  VkAccessFlags2 extraAccess = 0);
 
 	private:
 		void CreateImage();
@@ -103,7 +112,13 @@ namespace RageV::Vk
 
 		void Resize(uint32_t width, uint32_t height) override;
 		RHI::Ref<RHI::RHITexture> GetColorTexture(uint32_t index = 0) const override;
-		RHI::Ref<RHI::RHITexture> GetDepthTexture() const override { return m_Depth; }
+		// The depth resolve where there is one, for the same reason
+		// GetColorTexture hands out the colour resolve: a caller asking a
+		// target for "the depth" wants something a sampler2D can read.
+		RHI::Ref<RHI::RHITexture> GetDepthTexture() const override
+		{
+			return m_DepthResolve ? m_DepthResolve : m_Depth;
+		}
 
 		const std::vector<RHI::Ref<VulkanTexture>>& GetColorTextures() const { return m_Color; }
 		VulkanTexture* GetDepth() const { return m_Depth.get(); }
@@ -117,6 +132,10 @@ namespace RageV::Vk
 			return index < m_Resolve.size() ? m_Resolve[index].get() : nullptr;
 		}
 
+		// And the depth's, which exists only when the depth is both
+		// multisampled and sampled by something.
+		VulkanTexture* GetDepthResolve() const { return m_DepthResolve.get(); }
+
 	private:
 		void Build();
 
@@ -124,5 +143,6 @@ namespace RageV::Vk
 		std::vector<RHI::Ref<VulkanTexture>> m_Color;
 		std::vector<RHI::Ref<VulkanTexture>> m_Resolve;
 		RHI::Ref<VulkanTexture> m_Depth;
+		RHI::Ref<VulkanTexture> m_DepthResolve;
 	};
 }
