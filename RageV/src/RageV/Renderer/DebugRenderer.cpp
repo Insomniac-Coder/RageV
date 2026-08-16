@@ -149,7 +149,7 @@ namespace RageV
 			for (int i = 1; i <= kCircleSegments; i++)
 			{
 				const float angle = (float)i / (float)kCircleSegments * Math::TwoPi;
-				const Vec3 point = centre + (u * std::cos(angle) + v * std::sin(angle)) * radius;
+				const Vec3 point = centre + (u * Math::Cos(angle) + v * Math::Sin(angle)) * radius;
 
 				DebugRenderer::DrawLine(previous, point, color);
 				previous = point;
@@ -166,7 +166,7 @@ namespace RageV
 			for (int i = 1; i <= segments; i++)
 			{
 				const float angle = (float)i / (float)segments * Math::Pi;
-				const Vec3 point = centre + (u * std::cos(angle) + v * std::sin(angle)) * radius;
+				const Vec3 point = centre + (u * Math::Cos(angle) + v * Math::Sin(angle)) * radius;
 
 				DebugRenderer::DrawLine(previous, point, color);
 				previous = point;
@@ -381,9 +381,9 @@ namespace RageV
 		// The sphere that contains the box however it is turned. Scale is not
 		// assumed to be absent from the matrix even though these callers do not
 		// put it there -- the longest basis vector covers it either way.
-		const float scale = std::max({ Math::Length(Vec3(transform[0])),
-									   Math::Length(Vec3(transform[1])),
-									   Math::Length(Vec3(transform[2])) });
+		const float scale = Math::Max(Math::Length(Vec3(transform[0])),
+									  Math::Length(Vec3(transform[1])),
+									  Math::Length(Vec3(transform[2])));
 
 		if (!Visible(Vec3(transform[3]), Math::Length(halfExtents) * scale))
 			return;
@@ -457,7 +457,7 @@ namespace RageV
 		for (int i = 0; i < 4; i++)
 		{
 			const float angle = (float)i / 4.0f * Math::TwoPi;
-			const Vec3 offset = (right * std::cos(angle) + forward * std::sin(angle)) * radius;
+			const Vec3 offset = (right * Math::Cos(angle) + forward * Math::Sin(angle)) * radius;
 			DrawLine(bottom + offset, top + offset, color);
 		}
 

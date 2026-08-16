@@ -124,8 +124,8 @@ namespace RageV
 		// shows a different sky from the one behind it.
 		Vec3 GradientAt(const Vec3& direction, const SceneEnvironment& environment)
 		{
-			const float height = Math::Clamp(std::fabs(direction.y), 0.0f, 1.0f);
-			const float t = std::pow(height, 0.45f);
+			const float height = Math::Clamp(Math::Abs(direction.y), 0.0f, 1.0f);
+			const float t = Math::Pow(height, 0.45f);
 
 			return direction.y >= 0.0f
 				 ? Math::Mix(environment.SkyHorizon, environment.SkyZenith, t)

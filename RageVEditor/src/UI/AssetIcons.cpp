@@ -1,8 +1,8 @@
 #include "AssetIcons.h"
 #include "EditorTheme.h"
+#include "RageV/Math/Math.h"
 #include <algorithm>
 #include <cctype>
-#include <cmath>
 #include <string>
 
 namespace RageV::UI
@@ -27,7 +27,7 @@ namespace RageV::UI
 			// stops being a line and starts being a grey smear.
 			float Stroke() const
 			{
-				return std::max(1.0f, Size * 0.055f);
+				return Math::Max(1.0f, Size * 0.055f);
 			}
 
 			void Line(float x1, float y1, float x2, float y2) const
@@ -320,10 +320,10 @@ namespace RageV::UI
 			c.Draw->PathArcTo(c.At(0.50f, 0.50f), radius * c.Size, begin, end, 0);
 			c.Draw->PathStroke(c.Color, ImDrawFlags_None, c.Stroke());
 
-			const float ex = 0.50f + radius * std::cos(end);
-			const float ey = 0.50f + radius * std::sin(end);
-			const float tx = -std::sin(end), ty = std::cos(end);   // along the sweep
-			const float nx = std::cos(end),  ny = std::sin(end);   // outward
+			const float ex = 0.50f + radius * Math::Cos(end);
+			const float ey = 0.50f + radius * Math::Sin(end);
+			const float tx = -Math::Sin(end), ty = Math::Cos(end);   // along the sweep
+			const float nx = Math::Cos(end),  ny = Math::Sin(end);   // outward
 
 			c.Draw->AddTriangleFilled(c.At(ex + nx * 0.115f, ey + ny * 0.115f),
 									  c.At(ex + tx * 0.190f, ey + ty * 0.190f),
@@ -519,11 +519,11 @@ namespace RageV::UI
 		//
 		// Even, not merely integral, because 0.5 of an odd width is a half
 		// pixel -- which is the same bug one level down.
-		const float snapped = std::max(2.0f, std::floor(size * 0.5f) * 2.0f);
+		const float snapped = Math::Max(2.0f, Math::Floor(size * 0.5f) * 2.0f);
 		const float slack = (size - snapped) * 0.5f;
 
-		topLeft.x = std::floor(topLeft.x + slack + 0.5f);
-		topLeft.y = std::floor(topLeft.y + slack + 0.5f);
+		topLeft.x = Math::Floor(topLeft.x + slack + 0.5f);
+		topLeft.y = Math::Floor(topLeft.y + slack + 0.5f);
 
 		const Canvas canvas{ drawList, topLeft, snapped, color };
 

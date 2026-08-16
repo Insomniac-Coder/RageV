@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1547 checks, `exit 0`. Then look at a frame:
+1567 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -1591,7 +1591,20 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: MSAA reads the depth again -- phase 8 is next
+### START HERE: the engine has its own <cmath> -- phase 8 is next
+
+**X.1 (2026-08-16), at the owner's direction**: `RageV::Math` now carries the
+whole of `<cmath>` the engine uses, and `RageV.Mathf` mirrors it in C#. A call
+site says `Math::Sin` / `Mathf.Sin`, never `std::sin` or `MathF.Sin` -- 402
+sites moved, one `std::` survives in scenetest's glm oracle and is commented.
+Four functions deliberately differ from the standard library and one of those
+differences is cross-language: **.NET rounds a half to even and C rounds it
+away from zero**, so `Mathf.Round` names the mode. ENGINE-NOTES 7aj; the
+complete list of both surfaces is a new manual page, `scripting/math.md`.
+
+---
+
+### The MSAA depth resolve -- M.1
 
 **M.1 (2026-08-16), reported by the owner from the editor**: choosing MSAA
 in Render Settings blurred the whole frame. The scene target's depth was
@@ -1625,6 +1638,43 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - X.1, the engine's own <cmath> (2026-08-16)
+
+ENGINE-NOTES 7aj, manual page `scripting/math.md`. `RageV::Math` gained the
+trigonometry, exponentials, rounding, interpolation and queries the engine had
+been reaching into `std::` for; `RageV.Mathf` is the C# mirror, named with the
+`f` because a `RageV.Math` collides with `System.Math` under the two usings
+every script carries. **Four deliberate differences from the standard
+library**: `Acos`/`Asin` clamp their argument (the same NaN that `Normalize`
+has guarded since 5.0c, met from the other side), `Mod` takes the sign of the
+divisor while `FMod` takes the dividend's, `Fract` is always positive, and
+`SafeSqrt` sits beside `Sqrt` rather than replacing it.
+
+**Two things it fixed rather than renamed.** `Min`/`Max`/`Clamp` were
+float-only, so `Max(width / 2u, 1u)` compared two unsigned values *as floats*
+-- exact only below 2^24, and every such call site is a pixel count or a
+buffer size. They are templates now, and mixing an int with an unsigned is a
+compile error rather than a silent pick. And `Round(float)` moved into the
+header with the other one-line forwards.
+
+**Checks**: `CheckMathFunctions` in scenetest holds the wrappers against
+`<cmath>` on awkward values and states each deliberate difference as its own
+claim, including `Max(16777217u, 16777216u)` -- two numbers that are the same
+float. Across the boundary, `Interop.EvaluateMath` walks 39 functions × 10
+inputs and requires the two languages to agree; reverting the rounding mode
+makes it say `Round(0.500000): C# 0.000000 vs C++ 1.000000`. 1567 checks.
+
+**A neighbouring check turned out to be luck, and is not a regression from
+this** (proved by stashing the work and watching the same failure):
+`check_oit.py` demanded two renders' silhouettes match *to the pixel*, and
+they differ by 36/0/76/0/0 at frames 10/20/30/45/60 out of ~152,000 covered.
+It also rendered without `--frame-time`, so which frame it got was a
+stopwatch. Time is pinned and the claim is now 0.5 % of the covered area --
+ten times the worst fringe, forty-five times smaller than the upside-down
+render it exists to catch (34,304 pixels).
 
 ---
 

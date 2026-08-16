@@ -96,7 +96,7 @@ namespace RageV
 
 		// Distance at which a sphere of `radius` fills most of the vertical FOV.
 		const float safeRadius = Math::Max(radius, 0.1f);
-		m_Distance = Math::Max(safeRadius / std::tan(Math::Radians(m_FOV) * 0.5f) * 1.4f, 0.5f);
+		m_Distance = Math::Max(safeRadius / Math::Tan(Math::Radians(m_FOV) * 0.5f) * 1.4f, 0.5f);
 
 		RecalculateView();
 	}

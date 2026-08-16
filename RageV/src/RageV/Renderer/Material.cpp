@@ -134,7 +134,7 @@ namespace RageV
 	{
 		// Every frame's copy, not just the current one: each frame in flight
 		// has its own buffer and set, and a change has to reach all of them.
-		m_FrameDirty.assign(std::max<size_t>(m_FrameDirty.size(), m_ParamBuffers.size()), true);
+		m_FrameDirty.assign(Math::Max<size_t>(m_FrameDirty.size(), m_ParamBuffers.size()), true);
 	}
 
 	void Material::Bind(RHICommandList& commandList, const Ref<RHIPipeline>& pipeline, uint32_t set)

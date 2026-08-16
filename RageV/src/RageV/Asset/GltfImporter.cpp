@@ -436,7 +436,7 @@ namespace RageV::Assets
 				if (!input || !output)
 					continue;
 
-				const cgltf_size keys = std::min(input->count, output->count);
+				const cgltf_size keys = Math::Min(input->count, output->count);
 				BoneTrack& track = out.Tracks[bone];
 
 				// STEP and CUBICSPLINE are read as if they were linear rather

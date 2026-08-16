@@ -23,7 +23,7 @@ public class Bobber : Script
     public override void OnTick(float deltaTime)
     {
         m_Elapsed += deltaTime;
-        Position = m_Origin + new Vector3(0.0f, MathF.Sin(m_Elapsed * 2.0f) * m_Height, 0.0f);
+        Position = m_Origin + new Vector3(0.0f, Mathf.Sin(m_Elapsed * 2.0f) * m_Height, 0.0f);
     }
 }
 ```
@@ -129,7 +129,7 @@ public override void OnFrame(float deltaTime)
 
     // Framerate-independent smoothing: a plain lerp by a constant factor
     // converges at a rate that depends on the step size.
-    float t = 1.0f - System.MathF.Exp(-m_Sharpness * deltaTime);
+    float t = 1.0f - Mathf.Exp(-m_Sharpness * deltaTime);
     Position = here + (goal - here) * t;
 }
 ```

@@ -140,7 +140,7 @@ namespace RageV
 		// Same bounds the flag enforces: below 20 the simulation is visibly
 		// steppy and fast collisions tunnel, above 240 it burns CPU for nothing
 		// a display can show.
-		loaded->Config.FixedHz = std::clamp(ReadUInt(project, "FixedHz", 60u), 20u, 240u);
+		loaded->Config.FixedHz = Math::Clamp(ReadUInt(project, "FixedHz", 60u), 20u, 240u);
 
 		// Sparse and registry-driven: a project written before a setting
 		// existed keeps that setting's default rather than zeroing it, and a

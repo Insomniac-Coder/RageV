@@ -310,7 +310,7 @@ namespace RageV
 
 		std::sort(totals.begin(), totals.end());
 
-		const size_t index = (size_t)std::clamp(
+		const size_t index = (size_t)Math::Clamp(
 			(double)fraction * (double)(totals.size() - 1), 0.0, (double)(totals.size() - 1));
 		return totals[index];
 	}
@@ -324,7 +324,7 @@ namespace RageV
 
 		float smallest = s_Frames.front().Total;
 		for (const FrameRecord& frame : s_Frames)
-			smallest = std::min(smallest, frame.Total);
+			smallest = Math::Min(smallest, frame.Total);
 		return smallest;
 	}
 
@@ -335,7 +335,7 @@ namespace RageV
 
 		float largest = s_Frames.front().Total;
 		for (const FrameRecord& frame : s_Frames)
-			largest = std::max(largest, frame.Total);
+			largest = Math::Max(largest, frame.Total);
 		return largest;
 	}
 

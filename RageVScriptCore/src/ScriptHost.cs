@@ -336,7 +336,7 @@ public static unsafe class ScriptHost
 
 			if (buffer is not null && capacity > 0)
 			{
-				int copied = Math.Min(bytes.Length, capacity - 1);
+				int copied = Mathf.Min(bytes.Length, capacity - 1);
 				Marshal.Copy(bytes, 0, (IntPtr)buffer, copied);
 				buffer[copied] = 0;
 			}
@@ -410,7 +410,7 @@ public static unsafe class ScriptHost
 
 			if (buffer is not null && capacity > 0)
 			{
-				int copied = Math.Min(bytes.Length, capacity - 1);
+				int copied = Mathf.Min(bytes.Length, capacity - 1);
 				Marshal.Copy(bytes, 0, (IntPtr)buffer, copied);
 				buffer[copied] = 0;
 			}

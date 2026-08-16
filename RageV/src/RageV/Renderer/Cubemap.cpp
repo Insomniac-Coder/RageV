@@ -17,8 +17,8 @@ namespace RageV
 			const float x = u * (float)width - 0.5f;
 			const float y = v * (float)height - 0.5f;
 
-			const int x0 = (int)std::floor(x);
-			const int y0 = (int)std::floor(y);
+			const int x0 = (int)Math::Floor(x);
+			const int y0 = (int)Math::Floor(y);
 			const float fx = x - (float)x0;
 			const float fy = y - (float)y0;
 
@@ -30,7 +30,7 @@ namespace RageV
 			};
 			auto clampY = [height](int value)
 			{
-				return std::clamp(value, 0, (int)height - 1);
+				return Math::Clamp(value, 0, (int)height - 1);
 			};
 
 			const int xs[2] = { wrapX(x0), wrapX(x0 + 1) };
@@ -96,9 +96,9 @@ namespace RageV
 		// from.
 		Vec3 SampleCube(const CubeFaces& cube, const Vec3& direction)
 		{
-			const float ax = std::fabs(direction.x);
-			const float ay = std::fabs(direction.y);
-			const float az = std::fabs(direction.z);
+			const float ax = Math::Abs(direction.x);
+			const float ay = Math::Abs(direction.y);
+			const float az = Math::Abs(direction.z);
 
 			uint32_t face;
 			float sc, tc, ma;
@@ -168,7 +168,7 @@ namespace RageV
 					// A frame around the normal. Any tangent will do -- the
 					// integral is rotationally symmetric about the normal --
 					// as long as it is not parallel to it.
-					Vec3 up = std::fabs(normal.y) > 0.99f ? Vec3(0.0f, 0.0f, 1.0f)
+					Vec3 up = Math::Abs(normal.y) > 0.99f ? Vec3(0.0f, 0.0f, 1.0f)
 															   : Vec3(0.0f, 1.0f, 0.0f);
 					const Vec3 right = Math::Normalize(Math::Cross(up, normal));
 					up = Math::Cross(normal, right);
@@ -184,11 +184,11 @@ namespace RageV
 					{
 						for (float theta = 0.0f; theta < Math::HalfPi; theta += deltaTheta)
 						{
-							const float sinTheta = std::sin(theta);
-							const float cosTheta = std::cos(theta);
+							const float sinTheta = Math::Sin(theta);
+							const float cosTheta = Math::Cos(theta);
 
-							const Vec3 tangentSample(sinTheta * std::cos(phi),
-														  sinTheta * std::sin(phi),
+							const Vec3 tangentSample(sinTheta * Math::Cos(phi),
+														  sinTheta * Math::Sin(phi),
 														  cosTheta);
 
 							const Vec3 direction = right * tangentSample.x +
@@ -242,11 +242,11 @@ namespace RageV
 			const float a = roughness * roughness;
 
 			const float phi = Math::TwoPi * random.x;
-			const float cosTheta = std::sqrt((1.0f - random.y) /
+			const float cosTheta = Math::Sqrt((1.0f - random.y) /
 											 (1.0f + (a * a - 1.0f) * random.y));
-			const float sinTheta = std::sqrt(Math::Max(1.0f - cosTheta * cosTheta, 0.0f));
+			const float sinTheta = Math::Sqrt(Math::Max(1.0f - cosTheta * cosTheta, 0.0f));
 
-			return { std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta };
+			return { Math::Cos(phi) * sinTheta, Math::Sin(phi) * sinTheta, cosTheta };
 		}
 
 		// Smith's geometry term with the IBL remapping of k. Direct lighting
@@ -281,7 +281,7 @@ namespace RageV
 
 				// The view direction in tangent space. Only its angle to the
 				// normal matters, so it can lie in the xz plane.
-				const Vec3 view(std::sqrt(1.0f - NdotV * NdotV), 0.0f, NdotV);
+				const Vec3 view(Math::Sqrt(1.0f - NdotV * NdotV), 0.0f, NdotV);
 
 				float scale = 0.0f;
 				float bias = 0.0f;
@@ -305,7 +305,7 @@ namespace RageV
 					// Fresnel split into the two terms F0 multiplies and adds.
 					// That split is the whole point: it takes F0 out of the
 					// integral, so one table serves every material.
-					const float fresnel = std::pow(1.0f - VdotH, 5.0f);
+					const float fresnel = Math::Pow(1.0f - VdotH, 5.0f);
 
 					scale += (1.0f - fresnel) * visibility;
 					bias += fresnel * visibility;
@@ -351,8 +351,8 @@ namespace RageV
 					// its default orientation and the seam -- the one place a
 					// bilinear filter cannot help -- directly behind it.
 					// Latitude runs from the top.
-					const float longitude = std::atan2(direction.x, -direction.z);
-					const float latitude = std::acos(std::clamp(direction.y, -1.0f, 1.0f));
+					const float longitude = Math::Atan2(direction.x, -direction.z);
+					const float latitude = Math::Acos(Math::Clamp(direction.y, -1.0f, 1.0f));
 
 					const float u = longitude / Math::TwoPi + 0.5f;
 					const float v = latitude / Math::Pi;

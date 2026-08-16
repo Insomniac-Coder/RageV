@@ -126,7 +126,7 @@ namespace RageV::Vk
 		// header names no GLFW type. This is the boundary where it becomes one
 		// again, and the only place that assumes GLFW is the windowing library.
 		: m_Window(static_cast<GLFWwindow*>(desc.Window))
-		, m_FramesInFlight(std::max(1u, desc.FramesInFlight))
+		, m_FramesInFlight(Math::Max(1u, desc.FramesInFlight))
 		, m_VSync(desc.VSync)
 		, m_ValidationEnabled(desc.EnableValidation)
 	{
@@ -528,7 +528,7 @@ namespace RageV::Vk
 		m_Caps.APIName = "Vulkan " + std::to_string(VK_API_VERSION_MAJOR(properties.apiVersion)) + "." +
 								     std::to_string(VK_API_VERSION_MINOR(properties.apiVersion)) + "." +
 								     std::to_string(VK_API_VERSION_PATCH(properties.apiVersion));
-		m_Caps.MaxTextureSlots = std::min(32u, properties.limits.maxPerStageDescriptorSampledImages);
+		m_Caps.MaxTextureSlots = Math::Min(32u, properties.limits.maxPerStageDescriptorSampledImages);
 		m_Caps.MaxTextureSize = properties.limits.maxImageDimension2D;
 		m_Caps.MaxPushConstantSize = properties.limits.maxPushConstantsSize;
 		m_Caps.UniformBufferAlignment = (uint32_t)properties.limits.minUniformBufferOffsetAlignment;
@@ -837,9 +837,9 @@ namespace RageV::Vk
 			glfwGetFramebufferSize(m_Window, &width, &height);
 			// The original clamped width against maxImageExtent.height and
 			// height against maxImageExtent.width.
-			m_SwapchainExtent.width = std::clamp((uint32_t)width,
+			m_SwapchainExtent.width = Math::Clamp((uint32_t)width,
 				capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-			m_SwapchainExtent.height = std::clamp((uint32_t)height,
+			m_SwapchainExtent.height = Math::Clamp((uint32_t)height,
 				capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
 		}
 

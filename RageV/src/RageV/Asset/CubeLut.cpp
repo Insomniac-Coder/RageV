@@ -155,7 +155,7 @@ namespace RageV::Assets
 			// Clamped to what binary16 can say. 65504 is its largest finite
 			// value; a LUT entry outside 0..1 is already unusual and one
 			// outside this is not a colour.
-			value = std::clamp(value, -65504.0f, 65504.0f);
+			value = Math::Clamp(value, -65504.0f, 65504.0f);
 
 			uint32_t bits = 0;
 			std::memcpy(&bits, &value, sizeof(bits));

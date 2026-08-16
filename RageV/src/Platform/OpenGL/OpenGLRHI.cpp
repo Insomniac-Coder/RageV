@@ -283,7 +283,7 @@ namespace RageV::GL
 		: RHITexture(desc)
 	{
 		if (m_Desc.MipLevels == 0)
-			m_Desc.MipLevels = 1 + (uint32_t)std::floor(std::log2(std::max(m_Desc.Width, m_Desc.Height)));
+			m_Desc.MipLevels = 1 + (uint32_t)Math::Floor(Math::Log2((float)Math::Max(m_Desc.Width, m_Desc.Height)));
 
 		const GLFormat format = ToGLFormat(m_Desc.Format);
 
@@ -417,8 +417,8 @@ namespace RageV::GL
 			return;
 		}
 
-		const uint32_t width = std::max(m_Desc.Width >> mip, 1u);
-		const uint32_t height = std::max(m_Desc.Height >> mip, 1u);
+		const uint32_t width = Math::Max(m_Desc.Width >> mip, 1u);
+		const uint32_t height = Math::Max(m_Desc.Height >> mip, 1u);
 		const uint64_t expected = TextureDataSize(m_Desc.Format, width, height);
 
 		// Exact, matching the Vulkan path: a short buffer reads out of
@@ -514,7 +514,7 @@ namespace RageV::GL
 			{
 				GLint length = 0;
 				glGetShaderiv(handle, GL_INFO_LOG_LENGTH, &length);
-				std::string log((size_t)std::max(length, 1), '\0');
+				std::string log((size_t)Math::Max(length, 1), '\0');
 				glGetShaderInfoLog(handle, length, &length, log.data());
 				RV_CORE_ERROR("GLSL compilation failed for {0}:{1}\n{2}\n--- generated source ---\n{3}",
 							  compiled.Name, ShaderStageName(stage.Stage), log, *source);
@@ -534,7 +534,7 @@ namespace RageV::GL
 		{
 			GLint length = 0;
 			glGetProgramiv(m_Program, GL_INFO_LOG_LENGTH, &length);
-			std::string log((size_t)std::max(length, 1), '\0');
+			std::string log((size_t)Math::Max(length, 1), '\0');
 			glGetProgramInfoLog(m_Program, length, &length, log.data());
 			RV_CORE_ERROR("GLSL link failed for {0}\n{1}", compiled.Name, log);
 		}
@@ -707,7 +707,7 @@ namespace RageV::GL
 		// 4.6, and using them unconditionally would be correct but would also
 		// rewrite state for attachments that do not exist -- so the single
 		// case stays on the plain calls it always used.
-		const size_t attachments = std::max<size_t>(1, m_Desc.ColorFormats.size());
+		const size_t attachments = Math::Max<size_t>(1, m_Desc.ColorFormats.size());
 
 		if (m_Desc.BlendPerAttachment.empty())
 		{
@@ -1240,7 +1240,7 @@ namespace RageV::GL
 		// GL is already bottom-left, so normalise back to a positive rect.
 		const float y = viewport.Height < 0.0f ? viewport.Y + viewport.Height : viewport.Y;
 		glViewport((GLint)viewport.X, (GLint)y,
-				   (GLsizei)viewport.Width, (GLsizei)std::abs(viewport.Height));
+				   (GLsizei)viewport.Width, (GLsizei)Math::Abs(viewport.Height));
 		glDepthRange(viewport.MinDepth, viewport.MaxDepth);
 	}
 
@@ -1414,8 +1414,8 @@ namespace RageV::GL
 		// two agree, and a resampling copy -- a bigger probe filtered into a
 		// smaller array slice -- would otherwise fill a corner and leave the
 		// rest of the slice untouched.
-		const uint32_t dstWidth  = std::max(destination->GetWidth() >> mip, 1u);
-		const uint32_t dstHeight = std::max(destination->GetHeight() >> mip, 1u);
+		const uint32_t dstWidth  = Math::Max(destination->GetWidth() >> mip, 1u);
+		const uint32_t dstHeight = Math::Max(destination->GetHeight() >> mip, 1u);
 
 		if (!m_CopyRead) glCreateFramebuffers(1, &m_CopyRead);
 		if (!m_CopyDraw) glCreateFramebuffers(1, &m_CopyDraw);
@@ -1483,8 +1483,8 @@ namespace RageV::GL
 
 		const uint32_t sliceWidth = source->GetWidth() / layerCount;
 		const uint32_t height = source->GetHeight();
-		const uint32_t dstWidth  = std::max(destination->GetWidth() >> mip, 1u);
-		const uint32_t dstHeight = std::max(destination->GetHeight() >> mip, 1u);
+		const uint32_t dstWidth  = Math::Max(destination->GetWidth() >> mip, 1u);
+		const uint32_t dstHeight = Math::Max(destination->GetHeight() >> mip, 1u);
 
 		if (!m_CopyRead) glCreateFramebuffers(1, &m_CopyRead);
 		if (!m_CopyDraw) glCreateFramebuffers(1, &m_CopyDraw);
@@ -1547,7 +1547,7 @@ namespace RageV::GL
 		// again, and the only place that assumes GLFW is the windowing library.
 		: m_Window(static_cast<GLFWwindow*>(desc.Window)),
 		  m_Width(desc.Width), m_Height(desc.Height), m_VSync(desc.VSync),
-		  m_FramesInFlight(std::clamp(desc.FramesInFlight, 1u, 3u))
+		  m_FramesInFlight(Math::Clamp(desc.FramesInFlight, 1u, 3u))
 	{
 		glfwMakeContextCurrent(m_Window);
 

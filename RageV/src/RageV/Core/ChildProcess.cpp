@@ -116,7 +116,7 @@ namespace RageV
 				   && available > 0)
 			{
 				DWORD read = 0;
-				const DWORD want = std::min<DWORD>(available, sizeof(chunk));
+				const DWORD want = Math::Min<DWORD>(available, sizeof(chunk));
 				if (!ReadFile(readEnd, chunk, want, &read, nullptr) || read == 0)
 					break;
 				result.Output.append(chunk, read);

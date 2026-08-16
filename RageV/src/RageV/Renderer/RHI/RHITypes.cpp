@@ -99,7 +99,7 @@ namespace RageV::RHI
 	{
 		const bool isCube = desc.Type == TextureType::TextureCube ||
 							desc.Type == TextureType::TextureCubeArray;
-		return isCube ? std::max(6u, desc.Layers) : std::max(1u, desc.Layers);
+		return isCube ? Math::Max(6u, desc.Layers) : Math::Max(1u, desc.Layers);
 	}
 
 	const char* ShaderStageName(ShaderStage stage)

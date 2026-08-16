@@ -249,7 +249,7 @@ namespace RageV
 
 		uint16_t ToHalf(float value)
 		{
-			value = std::clamp(value, -65504.0f, 65504.0f);
+			value = Math::Clamp(value, -65504.0f, 65504.0f);
 
 			uint32_t bits = 0;
 			memcpy(&bits, &value, sizeof(bits));

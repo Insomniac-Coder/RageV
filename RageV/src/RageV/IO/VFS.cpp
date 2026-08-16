@@ -114,7 +114,7 @@ namespace RageV::IO
 				m_File.clear();
 				m_File.seekg((std::streamoff)m_Cursor);
 				m_File.read((char*)out,
-							(std::streamsize)std::min<uint64_t>(bytes, m_Size - m_Cursor));
+							(std::streamsize)Math::Min<uint64_t>(bytes, m_Size - m_Cursor));
 
 				const size_t got = (size_t)m_File.gcount();
 				m_Cursor += got;

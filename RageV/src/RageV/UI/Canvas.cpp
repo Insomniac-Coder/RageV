@@ -30,7 +30,7 @@ namespace RageV::UI
 		// one. That is what makes the halfway setting behave symmetrically: a
 		// window twice as wide and a window half as wide should scale by
 		// reciprocal amounts, and averaging the ratios directly does not.
-		return std::exp(std::log(byWidth) * (1.0f - match) + std::log(byHeight) * match);
+		return Math::Exp(Math::Log(byWidth) * (1.0f - match) + Math::Log(byHeight) * match);
 	}
 
 	UIRect CanvasRect(const UICanvasComponent& canvas, float screenWidth, float screenHeight)

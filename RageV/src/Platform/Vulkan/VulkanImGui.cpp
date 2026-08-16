@@ -36,7 +36,7 @@ namespace RageV::Vk
 		info.Queue = vulkan->GetGraphicsQueue();
 		info.DescriptorPool = vulkan->GetImGuiDescriptorPool();
 		info.MinImageCount = 2;
-		info.ImageCount = std::max(2u, device.GetFramesInFlight() + 1);
+		info.ImageCount = Math::Max(2u, device.GetFramesInFlight() + 1);
 		info.CheckVkResultFn = CheckResult;
 
 		// The engine renders with dynamic rendering, so ImGui must too --

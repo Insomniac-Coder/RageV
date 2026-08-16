@@ -211,8 +211,8 @@ namespace RageV
 			vertices.clear();
 			indices.clear();
 
-			segments = std::max(3u, segments);
-			rings = std::max(2u, rings);
+			segments = Math::Max(3u, segments);
+			rings = Math::Max(2u, rings);
 
 			// UV sphere. The seam is duplicated (segments + 1 columns) so the
 			// texture coordinate can reach 1.0 without wrapping back to 0.
@@ -227,9 +227,9 @@ namespace RageV
 					const float theta = u * Math::TwoPi;
 
 					Vec3 position{
-						std::sin(phi) * std::cos(theta),
-						std::cos(phi),
-						std::sin(phi) * std::sin(theta)
+						Math::Sin(phi) * Math::Cos(theta),
+						Math::Cos(phi),
+						Math::Sin(phi) * Math::Sin(theta)
 					};
 
 					// Unit sphere centred on the origin, so the position is the
@@ -270,7 +270,7 @@ namespace RageV
 			vertices.clear();
 			indices.clear();
 
-			segments = std::max(3u, segments);
+			segments = Math::Max(3u, segments);
 			const float halfHeight = 0.5f;
 			const float radius = 0.5f;
 
@@ -280,7 +280,7 @@ namespace RageV
 			{
 				const float u = (float)i / (float)segments;
 				const float theta = u * Math::TwoPi;
-				const Vec3 normal{ std::cos(theta), 0.0f, std::sin(theta) };
+				const Vec3 normal{ Math::Cos(theta), 0.0f, Math::Sin(theta) };
 
 				vertices.push_back({ { normal.x * radius, -halfHeight, normal.z * radius }, normal, { u, 0.0f } });
 				vertices.push_back({ { normal.x * radius,  halfHeight, normal.z * radius }, normal, { u, 1.0f } });
@@ -301,8 +301,8 @@ namespace RageV
 				for (uint32_t i = 0; i <= segments; i++)
 				{
 					const float theta = (float)i / (float)segments * Math::TwoPi;
-					const float x = std::cos(theta);
-					const float z = std::sin(theta);
+					const float x = Math::Cos(theta);
+					const float z = Math::Sin(theta);
 					vertices.push_back({ { x * radius, y, z * radius }, normal,
 										 { x * 0.5f + 0.5f, z * 0.5f + 0.5f } });
 				}

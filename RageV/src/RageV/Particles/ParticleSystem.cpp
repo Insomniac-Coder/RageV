@@ -35,20 +35,20 @@ namespace RageV::Particles
 		// the cone's centre and reads as a jet inside a jet.
 		Vec3 RandomInCone(uint32_t& state, const Vec3& axis, float spreadRadians)
 		{
-			const float cosSpread = std::cos(Math::Clamp(spreadRadians, 0.0f, Math::Pi));
+			const float cosSpread = Math::Cos(Math::Clamp(spreadRadians, 0.0f, Math::Pi));
 			const float cosTheta = 1.0f - RandomFloat(state) * (1.0f - cosSpread);
-			const float sinTheta = std::sqrt(Math::Max(0.0f, 1.0f - cosTheta * cosTheta));
+			const float sinTheta = Math::Sqrt(Math::Max(0.0f, 1.0f - cosTheta * cosTheta));
 			const float phi = RandomFloat(state) * Math::TwoPi;
 
 			// An orthonormal frame around the axis. The reference axis just
 			// has to not be parallel; Y fails only when the axis is Y.
-			const Vec3 reference = std::fabs(axis.y) < 0.99f ? Vec3(0.0f, 1.0f, 0.0f)
+			const Vec3 reference = Math::Abs(axis.y) < 0.99f ? Vec3(0.0f, 1.0f, 0.0f)
 															 : Vec3(1.0f, 0.0f, 0.0f);
 			const Vec3 tangent = Math::Normalize(Math::Cross(reference, axis));
 			const Vec3 bitangent = Math::Cross(axis, tangent);
 
 			return axis * cosTheta +
-				   (tangent * std::cos(phi) + bitangent * std::sin(phi)) * sinTheta;
+				   (tangent * Math::Cos(phi) + bitangent * Math::Sin(phi)) * sinTheta;
 		}
 	}
 

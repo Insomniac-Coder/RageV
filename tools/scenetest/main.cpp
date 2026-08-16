@@ -243,7 +243,7 @@ namespace
 		bool equal = true;
 		for (int column = 0; column < 4; column++)
 			for (int row = 0; row < 4; row++)
-				equal = equal && std::fabs(expected[column][row] - actual[column][row]) < 1e-4f;
+				equal = equal && Math::Abs(expected[column][row] - actual[column][row]) < 1e-4f;
 
 		Check(equal, "Grandchild's world transform composes through two parents");
 	}
@@ -299,19 +299,19 @@ namespace
 		bool positionsInRange = true;
 		for (const MeshVertex& vertex : primitive.Vertices)
 		{
-			normalsUnit = normalsUnit && std::fabs(Math::Length(vertex.Normal) - 1.0f) < 1e-3f;
+			normalsUnit = normalsUnit && Math::Abs(Math::Length(vertex.Normal) - 1.0f) < 1e-3f;
 			positionsInRange = positionsInRange &&
-							   std::fabs(vertex.Position.x) <= 1.001f &&
-							   std::fabs(vertex.Position.y) <= 1.001f &&
-							   std::fabs(vertex.Position.z) <= 1.001f;
+							   Math::Abs(vertex.Position.x) <= 1.001f &&
+							   Math::Abs(vertex.Position.y) <= 1.001f &&
+							   Math::Abs(vertex.Position.z) <= 1.001f;
 		}
 		Check(normalsUnit, "every normal is unit length");
 		Check(positionsInRange, "positions decode to the cube's bounds");
 
 		const MaterialParams& params = model.Materials[0].Params;
-		Check(std::fabs(params.BaseColor.r - 0.85f) < 1e-3f &&
-			  std::fabs(params.Metallic - 0.25f) < 1e-3f &&
-			  std::fabs(params.Roughness - 0.65f) < 1e-3f,
+		Check(Math::Abs(params.BaseColor.r - 0.85f) < 1e-3f &&
+			  Math::Abs(params.Metallic - 0.25f) < 1e-3f &&
+			  Math::Abs(params.Roughness - 0.65f) < 1e-3f,
 			  "material factors decode");
 		Check(model.Materials[0].Name == "TestRed", "material name survives");
 
@@ -322,16 +322,16 @@ namespace
 		Check(model.Nodes[0].Name == "Pivot" && model.Nodes[1].Name == "CubeNode",
 			  "node names survive");
 
-		Check(std::fabs(model.Nodes[0].Position.x - 2.0f) < 1e-4f &&
-			  std::fabs(model.Nodes[0].Position.z + 1.0f) < 1e-4f,
+		Check(Math::Abs(model.Nodes[0].Position.x - 2.0f) < 1e-4f &&
+			  Math::Abs(model.Nodes[0].Position.z + 1.0f) < 1e-4f,
 			  "node translation decodes");
 
 		// The fixture stores a 45-degree turn about Y as a quaternion. glTF is
 		// xyzw and glm's constructor is wxyz; swapping them is silent and
 		// produces a rotation that merely looks wrong.
-		Check(std::fabs(model.Nodes[1].Rotation.y - Math::Radians(45.0f)) < 1e-3f,
+		Check(Math::Abs(model.Nodes[1].Rotation.y - Math::Radians(45.0f)) < 1e-3f,
 			  "quaternion rotation converts to the right euler angles");
-		Check(std::fabs(model.Nodes[1].Scale.x - 0.5f) < 1e-4f, "node scale decodes");
+		Check(Math::Abs(model.Nodes[1].Scale.x - 0.5f) < 1e-4f, "node scale decodes");
 	}
 
 	void CheckModelInstantiation()
@@ -511,7 +511,7 @@ namespace
 			  "an instance records which prefab it came from");
 
 		// Local transforms come across verbatim rather than being re-derived.
-		Check(std::fabs(first.GetComponent<TransformComponent>().Position.x - 3.0f) < 1e-4f,
+		Check(Math::Abs(first.GetComponent<TransformComponent>().Position.x - 3.0f) < 1e-4f,
 			  "the instance keeps the prefab's transform");
 	}
 
@@ -558,7 +558,7 @@ namespace
 
 		const float simulated = total * step.Timestep;
 		const float real = kFrames * kFrameTime;
-		Check(std::fabs(simulated - real) < step.Timestep,
+		Check(Math::Abs(simulated - real) < step.Timestep,
 			  "simulated time tracks real time over a long run");
 
 		// Reset must not leave time behind, or restoring a minimised window
@@ -729,7 +729,7 @@ namespace
 		scene->OnFixedUpdateRuntime(1.0f / 60.0f);
 		Check(ProbeScript::Created == 1, "OnCreate runs once on the first step");
 		Check(ProbeScript::Updated == 1, "OnTick runs on the same step as OnCreate");
-		Check(std::fabs(ProbeScript::LastDelta - 1.0f / 60.0f) < 1e-6f,
+		Check(Math::Abs(ProbeScript::LastDelta - 1.0f / 60.0f) < 1e-6f,
 			  "the script is handed the fixed timestep");
 		Check(ProbeScript::SeenName == "Actor", "a script can read its own entity");
 		Check(ProbeScript::FoundOther, "a script can find another entity by name");
@@ -738,7 +738,7 @@ namespace
 		Check(ProbeScript::Created == 1, "OnCreate does not run again");
 		Check(ProbeScript::Updated == 2, "OnTick runs every step");
 
-		Check(std::fabs(actor.GetComponent<TransformComponent>().Position.x - 2.0f) < 1e-4f,
+		Check(Math::Abs(actor.GetComponent<TransformComponent>().Position.x - 2.0f) < 1e-4f,
 			  "transform helpers write through to the component");
 
 		// Destroying the entity has to run OnDestroy exactly once.
@@ -831,7 +831,7 @@ namespace
 		Check(ProbeScript::Framed == 1, "OnFrame runs once per frame");
 		Check(ProbeScript::Updated == 1, "a frame is not a step");
 		Check(!ProbeScript::FrameBeforeCreate, "OnFrame never precedes OnCreate");
-		Check(std::fabs(ProbeScript::LastFrameDelta - 1.0f / 90.0f) < 1e-6f,
+		Check(Math::Abs(ProbeScript::LastFrameDelta - 1.0f / 90.0f) < 1e-6f,
 			  "OnFrame is handed the frame's own delta, not the fixed one");
 
 		// Four steps to one frame: what a 15 Hz display against a 60 Hz
@@ -851,7 +851,7 @@ namespace
 		// -- would see the move until a step happened to run.
 		ProbeScript::FrameNudge = 3.5f;
 		scene->OnUpdateRuntime(1.0f / 60.0f);
-		Check(std::fabs(actor.GetComponent<TransformComponent>().World[3][1] - 3.5f) < 1e-4f,
+		Check(Math::Abs(actor.GetComponent<TransformComponent>().World[3][1] - 3.5f) < 1e-4f,
 			  "a transform written in OnFrame reaches the world matrix the same frame");
 		ProbeScript::FrameNudge = 0.0f;
 
@@ -987,7 +987,7 @@ namespace
 
 		// Runtime control.
 		physics->SetLinearVelocity(box.GetUUID(), { 5.0f, 0.0f, 0.0f });
-		Check(std::fabs(physics->GetLinearVelocity(box.GetUUID()).x - 5.0f) < 0.01f,
+		Check(Math::Abs(physics->GetLinearVelocity(box.GetUUID()).x - 5.0f) < 0.01f,
 			  "velocity can be set from code");
 
 		// A body removed mid-run must stop being simulated.
@@ -1024,7 +1024,7 @@ namespace
 	void CheckCurves()
 	{
 		const float epsilon = 1e-5f;
-		auto approx = [epsilon](float a, float b) { return std::fabs(a - b) < epsilon; };
+		auto approx = [epsilon](float a, float b) { return Math::Abs(a - b) < epsilon; };
 
 		// An empty curve answers its stated fallback rather than reading off
 		// the end of an empty vector.
@@ -1177,7 +1177,7 @@ namespace
 
 		// Sampling is what the file is *for*, so check the curve behaves rather
 		// than only that the numbers survived.
-		Check(std::fabs(read.Evaluate(0.25f).x - written.Evaluate(0.25f).x) < 1e-5f,
+		Check(Math::Abs(read.Evaluate(0.25f).x - written.Evaluate(0.25f).x) < 1e-5f,
 			  "and evaluates identically to the original");
 
 		// A missing file must fail rather than half-load, and must leave the
@@ -1185,7 +1185,7 @@ namespace
 		Curve untouched = Curve::Constant(Vec4(7.0f, 0.0f, 0.0f, 0.0f), 1);
 		Check(!Assets::CurveSerializer::Load(untouched, path.parent_path() / "no_such.rcurve"),
 			  "a missing curve file fails to load");
-		Check(std::fabs(untouched.EvaluateScalar(0.5f) - 7.0f) < 1e-5f,
+		Check(Math::Abs(untouched.EvaluateScalar(0.5f) - 7.0f) < 1e-5f,
 			  "and leaves the curve it was given untouched");
 
 		// Garbage must be reported, not parsed into something plausible.
@@ -1232,7 +1232,7 @@ namespace
 			const Curve* absent = Assets::Manager::GetCurve(missing);
 			Check(absent != nullptr && absent->IsEmpty(),
 				  "a handle naming no file answers an empty curve rather than null");
-			Check(absent && std::fabs(absent->EvaluateScalar(0.5f)) < 1e-5f,
+			Check(absent && Math::Abs(absent->EvaluateScalar(0.5f)) < 1e-5f,
 				  "which is safe to sample without a branch at every call site");
 
 			// Reload is what the editor will call after a drag; without it the
@@ -1249,7 +1249,7 @@ namespace
 	void CheckParticleCurves()
 	{
 		const float epsilon = 1e-4f;
-		auto approx = [epsilon](float a, float b) { return std::fabs(a - b) < epsilon; };
+		auto approx = [epsilon](float a, float b) { return Math::Abs(a - b) < epsilon; };
 
 		ParticleEmitterComponent emitter;
 		emitter.SizeStart = 1.0f;
@@ -1503,7 +1503,7 @@ namespace
 			const auto& back = restored.GetComponent<ParticleEmitterComponent>();
 			Check(back.Blend == ParticleBlend::Additive
 				  && back.Facing == ParticleFacing::Flat
-				  && std::fabs(back.Rate - 42.5f) < 1e-6f,
+				  && Math::Abs(back.Rate - 42.5f) < 1e-6f,
 				  "and every authored value it carried");
 			Check(back.Pool.empty(), "and no particles, which belong to a run");
 		}
@@ -1587,6 +1587,103 @@ namespace
 	// reaches the GPU, and the failure mode that matters -- a dispatch that
 	// silently does nothing -- looks exactly like success from every angle
 	// except the buffer's contents.
+	// The engine's <cmath>, against <cmath>.
+	//
+	// Most of RageV::Math's scalars are one-line forwards, and a check that a
+	// forward forwards is worth very little -- so this is mostly about the ones
+	// that are *not*, and about the two things the wrappers changed underneath
+	// call sites that had been correct with std::.
+	//
+	// The awkward values are the point, the same way they are for the glm
+	// oracle above: a negative, a zero, a half, an exact power of two, and a
+	// value one past where float stops being able to count integers.
+	void CheckMathFunctions()
+	{
+		const float kTolerance = 1.0e-6f;
+		const auto close = [&](float a, float b)
+		{
+			return std::fabs(a - b) <= kTolerance * Math::Max(1.0f, std::fabs(b));
+		};
+
+		// --- the forwards, on values chosen to be inconvenient ----------------
+		bool forwardsAgree = true;
+		for (float v : { -3.75f, -1.0f, -0.5f, 0.0f, 0.5f, 1.0f, 2.5f, 7.125f })
+		{
+			forwardsAgree &= close(Math::Sin(v), std::sin(v));
+			forwardsAgree &= close(Math::Cos(v), std::cos(v));
+			forwardsAgree &= close(Math::Tan(v), std::tan(v));
+			forwardsAgree &= close(Math::Atan(v), std::atan(v));
+			forwardsAgree &= close(Math::Floor(v), std::floor(v));
+			forwardsAgree &= close(Math::Ceil(v), std::ceil(v));
+			forwardsAgree &= close(Math::Trunc(v), std::trunc(v));
+			forwardsAgree &= close(Math::Round(v), std::round(v));
+			forwardsAgree &= close(Math::Abs(v), std::fabs(v));
+			if (v > 0.0f)
+			{
+				forwardsAgree &= close(Math::Sqrt(v), std::sqrt(v));
+				forwardsAgree &= close(Math::Log(v), std::log(v));
+				forwardsAgree &= close(Math::Log2(v), std::log2(v));
+			}
+		}
+		Check(forwardsAgree, "the <cmath> wrappers answer what <cmath> answers");
+
+		// --- and the three that deliberately do not ---------------------------
+		//
+		// Acos and Asin clamp first. std::acos(1.0000001) is a NaN, and a NaN
+		// angle becomes a NaN rotation and then an object nobody can find.
+		Check(!Math::IsNaN(Math::Acos(1.0f + 1e-7f)) && Math::Acos(1.0f + 1e-7f) == 0.0f,
+			  "Acos of a dot product a hair past 1 is zero, not a NaN");
+		Check(!Math::IsNaN(Math::Asin(-1.0f - 1e-7f)),
+			  "and Asin of one a hair past -1 is an angle");
+		Check(std::isnan(std::acos(1.0f + 1e-7f)),
+			  "which std::acos is not, or the guard would be decoration");
+
+		// Mod wraps, FMod is C's. They differ only for negative inputs, which
+		// is exactly when picking the wrong one is invisible.
+		Check(close(Math::Mod(-1.0f, 3.0f), 2.0f),
+			  "Mod takes the sign of the divisor: -1 mod 3 is 2");
+		Check(close(Math::FMod(-1.0f, 3.0f), -1.0f),
+			  "FMod takes the sign of the dividend: -1 fmod 3 is -1");
+
+		// Fract is the wrapping one too, for the same reason: a texture
+		// coordinate of -0.25 is three quarters into the tile.
+		Check(close(Math::Fract(-0.25f), 0.75f), "Fract of -0.25 is 0.75");
+		Check(Math::Sign(0.0f) == 0.0f, "the sign of zero is zero, not one");
+
+		// --- what the templates changed underneath existing call sites --------
+		//
+		// **This is the one that was a real defect.** Min and Max were declared
+		// only for float, so `Max(width, height)` on two uint32_t converted both
+		// to float, compared them there, and converted back -- exact only below
+		// 2^24. Every such call site in this engine is a pixel count, a buffer
+		// size or a mip count, and 16777217 is a plausible byte count.
+		{
+			constexpr uint32_t big = 16777217u;   // 2^24 + 1, the first integer
+			constexpr uint32_t less = 16777216u;  // float cannot represent
+			Check(Math::Max(big, less) == big,
+				  "Max of two large unsigned values does not round-trip through float");
+			Check(Math::Min(big, less) == less, "and neither does Min");
+			Check((float)big == (float)less,
+				  "-- which matters because as floats those two are the same number");
+		}
+
+		Check(Math::Max(1, 2, 3) == 3 && Math::Min(4, 3, 5, 2) == 2,
+			  "Min and Max take three or more");
+		Check(Math::Clamp(5, 0, 3) == 3 && Math::Clamp(-5, 0, 3) == 0,
+			  "and Clamp is not float-only either");
+
+		// Saturate, Step and SmoothStep, which have no <cmath> to check against.
+		Check(Math::Saturate(1.5f) == 1.0f && Math::Saturate(-0.5f) == 0.0f,
+			  "Saturate clamps to the unit range");
+		Check(Math::SmoothStep(0.0f, 1.0f, 0.5f) == 0.5f
+			  && Math::SmoothStep(0.0f, 1.0f, -1.0f) == 0.0f
+			  && Math::SmoothStep(0.0f, 1.0f, 2.0f) == 1.0f,
+			  "SmoothStep is a half at the middle and flat outside the edges");
+		Check(Math::Step(0.5f, 0.4f) == 0.0f && Math::Step(0.5f, 0.5f) == 1.0f,
+			  "Step turns on at its edge");
+		Check(Math::SafeSqrt(-1.0f) == 0.0f, "SafeSqrt of a negative is zero");
+	}
+
 	// What a multisampled target hands out when something asks it for the
 	// depth.
 	//
@@ -1845,7 +1942,7 @@ namespace
 		for (uint32_t i = 0; i < kCount; i++)
 		{
 			// Colour.r was set to the same depth the position encodes.
-			if (std::fabs(result[i].Color.x - (-result[i].PositionSize.z)) > 1e-3f)
+			if (Math::Abs(result[i].Color.x - (-result[i].PositionSize.z)) > 1e-3f)
 				intact = false;
 		}
 
@@ -1865,7 +1962,7 @@ namespace
 							  RHI::BufferSync::ShaderRead);
 		});
 
-		Check(std::fabs(result[0].Params.x - input[0].Params.x) < 1e-3f,
+		Check(Math::Abs(result[0].Params.x - input[0].Params.x) < 1e-3f,
 			  "a single-particle emitter sorts to itself rather than reading past its "
 			  "own end");
 	}
@@ -2258,7 +2355,7 @@ void main()
 				scene->OnFixedUpdateRuntime(1.0f / 60.0f);
 
 			const float turned = host.GetComponent<TransformComponent>().Rotation.y;
-			Check(std::fabs(turned - (2.0f * 30.0f / 60.0f)) < 1e-4f,
+			Check(Math::Abs(turned - (2.0f * 30.0f / 60.0f)) < 1e-4f,
 				  "and an entity runs it, at the overridden speed");
 
 			// Before the unload below: an instance outliving its module is the
@@ -2888,7 +2985,7 @@ void main()
 			Vec3 centroid(0.0f);
 			for (const Vec3& position : positions)
 				centroid += position;
-			centroid /= (float)std::max<size_t>(positions.size(), 1);
+			centroid /= (float)Math::Max<size_t>(positions.size(), 1);
 
 			size_t inward = 0;
 			size_t degenerate = 0;
@@ -2952,7 +3049,7 @@ void main()
 			for (float v = 0.05f; v < 1.0f; v += 0.3f)
 			{
 				for (float u = 0.05f; u < 1.0f; u += 0.3f)
-					allUnit = allUnit && std::fabs(Math::Length(CubeFaceDirection(face, u, v)) - 1.0f) < 1e-5f;
+					allUnit = allUnit && Math::Abs(Math::Length(CubeFaceDirection(face, u, v)) - 1.0f) < 1e-5f;
 			}
 		}
 
@@ -3009,14 +3106,14 @@ void main()
 		// The +Z face is the seam and is left out on purpose: it is the one
 		// place a bilinear filter reads across the join, and the ramp in this
 		// test image is discontinuous there in a way a real sky is not.
-		Check(std::fabs(centreTexel(5).r - 0.50f) < 0.02f, "the image centre lands straight ahead");
-		Check(std::fabs(centreTexel(0).r - 0.75f) < 0.02f, "a quarter turn right of it lands at +X");
-		Check(std::fabs(centreTexel(1).r - 0.25f) < 0.02f, "and a quarter turn left at -X");
+		Check(Math::Abs(centreTexel(5).r - 0.50f) < 0.02f, "the image centre lands straight ahead");
+		Check(Math::Abs(centreTexel(0).r - 0.75f) < 0.02f, "a quarter turn right of it lands at +X");
+		Check(Math::Abs(centreTexel(1).r - 0.25f) < 0.02f, "and a quarter turn left at -X");
 
 		// Latitude. Row 0 is the top of the image and the top of the world.
 		Check(centreTexel(2).g < 0.05f, "the top row of the image is straight up");
 		Check(centreTexel(3).g > 0.95f, "and the bottom row straight down");
-		Check(std::fabs(centreTexel(5).g - 0.50f) < 0.02f, "with the horizon halfway between");
+		Check(Math::Abs(centreTexel(5).g - 0.50f) < 0.02f, "with the horizon halfway between");
 
 		// A tilted read of the same image: halfway up the -Z face is halfway
 		// between the horizon and the zenith, not a quarter of the way. The
@@ -3341,29 +3438,29 @@ void main()
 		scene->OnUpdateEditor(0.016f);
 		scene->UpdateWorldTransforms();
 
-		Check(std::fabs(transform.World[3].x - 1.0f) < 1e-5f, "a moved entity is where it was put");
+		Check(Math::Abs(transform.World[3].x - 1.0f) < 1e-5f, "a moved entity is where it was put");
 
 		// Second frame: the history is last frame's world matrix.
 		transform.Position = { 4.0f, 0.0f, 0.0f };
 		scene->OnUpdateEditor(0.016f);
 		scene->UpdateWorldTransforms();
 
-		Check(std::fabs(transform.World[3].x - 4.0f) < 1e-5f, "and moves when it is moved");
-		Check(std::fabs(transform.PreviousWorld[3].x - 1.0f) < 1e-5f,
+		Check(Math::Abs(transform.World[3].x - 4.0f) < 1e-5f, "and moves when it is moved");
+		Check(Math::Abs(transform.PreviousWorld[3].x - 1.0f) < 1e-5f,
 			  "with the previous frame's position still available to difference against");
 
 		// Recomputing within the same frame must not consume the history --
 		// that is the whole reason it is advanced separately.
 		scene->UpdateWorldTransforms();
 		scene->UpdateWorldTransforms();
-		Check(std::fabs(transform.PreviousWorld[3].x - 1.0f) < 1e-5f,
+		Check(Math::Abs(transform.PreviousWorld[3].x - 1.0f) < 1e-5f,
 			  "and recomputing transforms again in the same frame does not flatten it to zero motion");
 
 		// A frame in which nothing moved has to report no motion, or every
 		// static object in the scene smears.
 		scene->OnUpdateEditor(0.016f);
 		scene->UpdateWorldTransforms();
-		Check(std::fabs(transform.PreviousWorld[3].x - 4.0f) < 1e-5f,
+		Check(Math::Abs(transform.PreviousWorld[3].x - 4.0f) < 1e-5f,
 			  "a frame that moved nothing reports no motion at all");
 	}
 
@@ -3673,8 +3770,8 @@ void main()
 		for (uint32_t frame = 0; frame < phase; frame++)
 		{
 			const Vec2 offset = TemporalJitter(frame, width, height);
-			inside = inside && std::fabs(offset.x) <= limitX + 1e-9f
-							&& std::fabs(offset.y) <= limitY + 1e-9f;
+			inside = inside && Math::Abs(offset.x) <= limitX + 1e-9f
+							&& Math::Abs(offset.y) <= limitY + 1e-9f;
 			offsets.push_back(offset);
 		}
 
@@ -3688,8 +3785,8 @@ void main()
 		{
 			for (size_t b = a + 1; b < offsets.size(); b++)
 			{
-				if (std::fabs(offsets[a].x - offsets[b].x) < 1e-9f &&
-					std::fabs(offsets[a].y - offsets[b].y) < 1e-9f)
+				if (Math::Abs(offsets[a].x - offsets[b].x) < 1e-9f &&
+					Math::Abs(offsets[a].y - offsets[b].y) < 1e-9f)
 					distinct = false;
 			}
 		}
@@ -3737,10 +3834,10 @@ void main()
 			const Vec2 half = TemporalJitter(frame, width, height, 0.5f);
 			const Vec2 twice = TemporalJitter(frame, width, height, 2.0f);
 
-			halves = halves && std::fabs(half.x - full.x * 0.5f) < 1e-9f
-							&& std::fabs(half.y - full.y * 0.5f) < 1e-9f;
-			wider = wider && std::fabs(twice.x - full.x * 2.0f) < 1e-9f
-						  && std::fabs(twice.y - full.y * 2.0f) < 1e-9f;
+			halves = halves && Math::Abs(half.x - full.x * 0.5f) < 1e-9f
+							&& Math::Abs(half.y - full.y * 0.5f) < 1e-9f;
+			wider = wider && Math::Abs(twice.x - full.x * 2.0f) < 1e-9f
+						  && Math::Abs(twice.y - full.y * 2.0f) < 1e-9f;
 		}
 		Check(halves, "half the jitter width is half the offset, about the pixel centre");
 		Check(wider, "and twice the width is twice the offset, on both axes");
@@ -3814,14 +3911,14 @@ void main()
 
 			// Same depth and same w: this must not touch the perspective
 			// divide or the depth test, only where the pixel lands.
-			shifted = shifted && std::fabs(plain.z - moved.z) < 1e-5f
-							  && std::fabs(plain.w - moved.w) < 1e-5f;
+			shifted = shifted && Math::Abs(plain.z - moved.z) < 1e-5f
+							  && Math::Abs(plain.w - moved.w) < 1e-5f;
 
 			const Vec2 before(plain.x / plain.w, plain.y / plain.w);
 			const Vec2 after(moved.x / moved.w, moved.y / moved.w);
 
-			shifted = shifted && std::fabs((after.x - before.x) - offset.x) < 1e-5f
-							  && std::fabs((after.y - before.y) - offset.y) < 1e-5f;
+			shifted = shifted && Math::Abs((after.x - before.x) - offset.x) < 1e-5f
+							  && Math::Abs((after.y - before.y) - offset.y) < 1e-5f;
 		}
 
 		Check(shifted, "the jittered projection moves every point by exactly the "
@@ -4087,7 +4184,7 @@ void main()
 				default: continue;
 			}
 
-			if (std::fabs(got - expected) > 1e-4)
+			if (Math::Abs(got - expected) > 1e-4)
 			{
 				lost += (lost.empty() ? "" : ", ") + name + " (" +
 						std::to_string(expected) + " -> " + std::to_string(got) + ")";
@@ -4227,7 +4324,7 @@ void main()
 			untouched.Exposure = 3.0f;
 			Check(!Assets::PostProfileSerializer::Load(untouched, path),
 				  "while a file that is not a profile is refused");
-			Check(std::fabs(untouched.Exposure - 3.0f) < 1e-5f,
+			Check(Math::Abs(untouched.Exposure - 3.0f) < 1e-5f,
 				  "and a refused load leaves the caller's settings alone");
 
 			std::error_code error;
@@ -4270,7 +4367,7 @@ void main()
 			const RenderSettings fresh;
 			ReadFields(YAML::Load("{}"), RenderSettingsRegistry::Fields(), &sparse);
 			Check(sparse.AA == fresh.AA &&
-				  std::fabs(sparse.TemporalFeedback - fresh.TemporalFeedback) < 1e-6f,
+				  Math::Abs(sparse.TemporalFeedback - fresh.TemporalFeedback) < 1e-6f,
 				  "while an empty block leaves every default alone, so an older "
 				  "project gains a setting rather than being zeroed by one");
 
@@ -4303,11 +4400,11 @@ void main()
 			// step along. Reversing the order swaps exactly these two, which is
 			// why they are the ones asserted -- a table read backwards grades
 			// plausibly and wrongly, and nothing else here would notice.
-			Check(std::fabs(identity.Values[1].x - 1.0f / 3.0f) < 1e-5f &&
+			Check(Math::Abs(identity.Values[1].x - 1.0f / 3.0f) < 1e-5f &&
 				  identity.Values[1].y == 0.0f,
 				  "and red changing fastest, which is the format's order");
 			Check(identity.Values[4].x == 0.0f &&
-				  std::fabs(identity.Values[4].y - 1.0f / 3.0f) < 1e-5f,
+				  Math::Abs(identity.Values[4].y - 1.0f / 3.0f) < 1e-5f,
 				  "green next");
 			Check(identity.Values[16].z > 0.0f && identity.Values[16].x == 0.0f,
 				  "and blue slowest");
@@ -4323,7 +4420,7 @@ void main()
 			Assets::ColorLut lut;
 			Check(Assets::LoadCubeLut(lut, path), "a well-formed .cube loads");
 			Check(lut.Size == 2 && lut.Values.size() == 8, "with its 8 entries");
-			Check(std::fabs(lut.Values[3].y - 0.5f) < 1e-5f, "and their values");
+			Check(Math::Abs(lut.Values[3].y - 0.5f) < 1e-5f, "and their values");
 		}
 
 		// --- what has to be refused ------------------------------------------
@@ -4394,7 +4491,7 @@ void main()
 		// project moved -- must degrade to the neutral grade rather than to a
 		// black frame, because a profile of zeroes is not neutral.
 		camera.GetComponent<CameraComponent>().PostProfile = AssetHandle(0x9E3779B97F4A7C15ull);
-		Check(std::fabs(scene->GetPostSettings().Exposure - neutral.Exposure) < 1e-5f,
+		Check(Math::Abs(scene->GetPostSettings().Exposure - neutral.Exposure) < 1e-5f,
 			  "and a profile handle that resolves to nothing does too");
 
 		// The handle itself is a serialized field on the camera, so a scene
@@ -4502,7 +4599,7 @@ void main()
 				increasing = increasing && level[i].SplitDepth > level[i - 1].SplitDepth;
 
 			Check(increasing, "cascade splits increase with distance");
-			Check(std::fabs(level[kCount - 1].SplitDepth - distance) < 0.01f,
+			Check(Math::Abs(level[kCount - 1].SplitDepth - distance) < 0.01f,
 				  "and the last one ends exactly at the shadow distance");
 			Check(level[0].TexelWorldSize < level[kCount - 1].TexelWorldSize,
 				  "so the near cascade's texels are the smaller ones");
@@ -4517,7 +4614,7 @@ void main()
 			for (int step = 1; step < 24; step++)
 			{
 				const float yaw = Math::TwoPi * (float)step / 24.0f;
-				const float pitch = Math::Radians(-35.0f) * std::sin(yaw * 3.0f);
+				const float pitch = Math::Radians(-35.0f) * Math::Sin(yaw * 3.0f);
 
 				Mat4 turned = Math::Rotate(Mat4(1.0f), yaw, Vec3(0, 1, 0));
 				turned = Math::Rotate(turned, pitch, Vec3(1, 0, 0));
@@ -4527,7 +4624,7 @@ void main()
 
 				for (uint32_t i = 0; i < kCount; i++)
 				{
-					stable = stable && std::fabs(rotated[i].TexelWorldSize -
+					stable = stable && Math::Abs(rotated[i].TexelWorldSize -
 												 level[i].TexelWorldSize) < 1e-6f;
 				}
 			}
@@ -4558,8 +4655,8 @@ void main()
 					const Vec2 texels = Vec2(origin) * ((float)kResolution * 0.5f);
 
 					snapped = snapped &&
-							  std::fabs(texels.x - std::round(texels.x)) < 1e-3f &&
-							  std::fabs(texels.y - std::round(texels.y)) < 1e-3f;
+							  Math::Abs(texels.x - Math::Round(texels.x)) < 1e-3f &&
+							  Math::Abs(texels.y - Math::Round(texels.y)) < 1e-3f;
 				}
 			}
 
@@ -4589,9 +4686,9 @@ void main()
 			const Vec4 other = flipped[0].LookupMatrix * Vec4(inside, 1.0f);
 			const Vec3 mirrored = Vec3(other) / other.w;
 
-			Check(std::fabs(mirrored.x - coordinate.x) < 1e-5f &&
-				  std::fabs(mirrored.z - coordinate.z) < 1e-5f &&
-				  std::fabs(mirrored.y - (1.0f - coordinate.y)) < 1e-5f,
+			Check(Math::Abs(mirrored.x - coordinate.x) < 1e-5f &&
+				  Math::Abs(mirrored.z - coordinate.z) < 1e-5f &&
+				  Math::Abs(mirrored.y - (1.0f - coordinate.y)) < 1e-5f,
 				  "and asking for the flip mirrors v and nothing else");
 		}
 
@@ -4613,8 +4710,8 @@ void main()
 			const Vec4 lookup =
 				overhead[0].LookupMatrix * Vec4(0.0f, 0.0f, -5.0f, 1.0f);
 			const Vec3 coordinate = Vec3(lookup) / lookup.w;
-			Check(std::isfinite(coordinate.x) && std::isfinite(coordinate.y) &&
-				  std::isfinite(coordinate.z),
+			Check(Math::IsFinite(coordinate.x) && Math::IsFinite(coordinate.y) &&
+				  Math::IsFinite(coordinate.z),
 				  "and a light pointing straight down still produces a usable matrix");
 		}
 	}
@@ -4853,7 +4950,7 @@ void main()
 				for (int r = 0; r < 4; r++)
 				{
 					const float expected = c == r ? 1.0f : 0.0f;
-					if (std::fabs(m[c][r] - expected) > 1e-4f)
+					if (Math::Abs(m[c][r] - expected) > 1e-4f)
 						return false;
 				}
 			}
@@ -4913,7 +5010,7 @@ void main()
 		}
 		clip.RecomputeDuration();
 
-		Check(std::fabs(clip.Duration - 2.0f) < 1e-5f,
+		Check(Math::Abs(clip.Duration - 2.0f) < 1e-5f,
 			  "a clip's duration comes from its last key rather than from an author");
 
 		auto tipAt = [&](float time, bool loop)
@@ -4936,7 +5033,7 @@ void main()
 		// than on the chord between the two ends. That difference is the whole
 		// reason the sampler slerps.
 		{
-			const float leg = std::sqrt(0.5f);
+			const float leg = Math::Sqrt(0.5f);
 			Check(Math::Length(tipAt(1.0f, false) - Vec3(-leg, 1.0f + leg, 0.0f)) < 1e-3f,
 				  "halfway through, the tip is on the arc and not on the chord");
 		}
@@ -4993,12 +5090,12 @@ void main()
 				  "a blend of zero is the first pose");
 
 			BlendPoses(a, b, 1.0f, mixed);
-			Check(std::fabs(Math::Dot(mixed[1].Rotation, b[1].Rotation)) > 0.9999f,
+			Check(Math::Abs(Math::Dot(mixed[1].Rotation, b[1].Rotation)) > 0.9999f,
 				  "and a blend of one is the second");
 
 			BlendPoses(a, b, 0.5f, mixed);
 			const float angle = Math::Degrees(Math::Angle(Math::Normalize(mixed[1].Rotation)));
-			Check(std::fabs(angle - 45.0f) < 0.5f, "and halfway is halfway round the arc");
+			Check(Math::Abs(angle - 45.0f) < 0.5f, "and halfway is halfway round the arc");
 		}
 
 		// Nothing at all, which is what a scene with no skeleton hands in.
@@ -5057,7 +5154,7 @@ void main()
 			// keeps the box its vertices gave it, give or take the padding.
 			Vec3 restMin, restMax;
 			Anim::SkinnedBounds(arm, {}, positions, joints, weights, restMin, restMax);
-			Check(std::fabs(restMax.x - 1.0f) < 0.05f && restMax.y < 0.05f,
+			Check(Math::Abs(restMax.x - 1.0f) < 0.05f && restMax.y < 0.05f,
 				  "with no clips the bounds are the bind pose's");
 
 			// A skeleton with no weights this can read falls back to the raw
@@ -5065,7 +5162,7 @@ void main()
 			// everywhere.
 			Vec3 rawMin, rawMax;
 			Anim::SkinnedBounds(arm, { swing }, positions, {}, {}, rawMin, rawMax);
-			Check(std::fabs(rawMax.x - 1.0f) < 1e-4f,
+			Check(Math::Abs(rawMax.x - 1.0f) < 1e-4f,
 				  "unreadable weights fall back to the vertices, not to nothing");
 		}
 	}
@@ -5131,7 +5228,7 @@ void main()
 					for (int r = 0; r < 4 && identity; r++)
 					{
 						const float expected = c == r ? 1.0f : 0.0f;
-						identity = std::fabs(m[c][r] - expected) < 1e-4f;
+						identity = Math::Abs(m[c][r] - expected) < 1e-4f;
 					}
 				}
 			}
@@ -5159,7 +5256,7 @@ void main()
 			for (size_t i = 0; i < primitive.Weights.size(); i++)
 			{
 				const Vec4& w = primitive.Weights[i];
-				normalised = normalised && std::fabs(w.x + w.y + w.z + w.w - 1.0f) < 1e-4f;
+				normalised = normalised && Math::Abs(w.x + w.y + w.z + w.w - 1.0f) < 1e-4f;
 
 				for (int c = 0; c < 4; c++)
 					inRange = inRange && primitive.Joints[i][c] < imported.Skeleton.Size();
@@ -5326,7 +5423,7 @@ void main()
 			for (int i = 0; i <= 200; i++)
 			{
 				const float t = (float)i / 200.0f;
-				const float depth = nearPlane * std::pow(farPlane / nearPlane, t);
+				const float depth = nearPlane * Math::Pow(farPlane / nearPlane, t);
 				const uint32_t slice = LightGrid::SliceForDepth(depth, nearPlane, farPlane);
 
 				rising = rising && slice >= previous;
@@ -5351,10 +5448,10 @@ void main()
 			for (int i = 1; i <= 200; i++)
 			{
 				const float t = (float)i / 200.0f;
-				const float depth = nearPlane * std::pow(farPlane / nearPlane, t);
+				const float depth = nearPlane * Math::Pow(farPlane / nearPlane, t);
 
-				const uint32_t fromShader = (uint32_t)std::clamp(
-					(int)(std::log(depth) * scale + bias), 0, (int)LightGrid::kSlices - 1);
+				const uint32_t fromShader = (uint32_t)Math::Clamp(
+					(int)(Math::Log(depth) * scale + bias), 0, (int)LightGrid::kSlices - 1);
 
 				agrees = agrees && fromShader == LightGrid::SliceForDepth(depth, nearPlane, farPlane);
 			}
@@ -5371,7 +5468,7 @@ void main()
 			float derivedNear = 0.0f, derivedFar = 0.0f;
 			LightGrid::DepthRangeOf(projection, derivedNear, derivedFar);
 
-			Check(std::fabs(derivedNear - nearPlane) < 1e-4f,
+			Check(Math::Abs(derivedNear - nearPlane) < 1e-4f,
 				  "the near plane comes back out of the projection matrix exactly");
 
 			// The far plane does not, and cannot.
@@ -5386,7 +5483,7 @@ void main()
 			// derived value, so the two sides agree with each other exactly
 			// whatever the arithmetic did. Nothing compares it against the
 			// number the camera was built with.
-			Check(std::fabs(derivedFar - farPlane) / farPlane < 0.01f,
+			Check(Math::Abs(derivedFar - farPlane) / farPlane < 0.01f,
 				  "and the far plane to within a fraction of a percent");
 
 			LightGrid grid;
@@ -5510,7 +5607,7 @@ void main()
 
 			Vec3 centre, extents;
 			Frustum::TransformBounds(box, Mat4(1.0f), centre, extents);
-			Check(Math::Length(centre) < 1e-5f && std::fabs(extents.x - 0.5f) < 1e-5f,
+			Check(Math::Length(centre) < 1e-5f && Math::Abs(extents.x - 0.5f) < 1e-5f,
 				  "an untransformed box keeps its own bounds");
 
 			const Mat4 turned = Math::Rotate(Mat4(1.0f), Math::Radians(45.0f),
@@ -5521,12 +5618,12 @@ void main()
 
 			const Mat4 moved = Math::Translate(Mat4(1.0f), Vec3(3.0f, 0.0f, 0.0f));
 			Frustum::TransformBounds(box, moved, centre, extents);
-			Check(std::fabs(centre.x - 3.0f) < 1e-5f && std::fabs(extents.x - 0.5f) < 1e-5f,
+			Check(Math::Abs(centre.x - 3.0f) < 1e-5f && Math::Abs(extents.x - 0.5f) < 1e-5f,
 				  "moving a box moves its bounds and does not grow them");
 
 			const Mat4 scaled = Math::Scale(Mat4(1.0f), Vec3(4.0f));
 			Frustum::TransformBounds(box, scaled, centre, extents);
-			Check(std::fabs(extents.x - 2.0f) < 1e-5f, "and scaling scales them");
+			Check(Math::Abs(extents.x - 2.0f) < 1e-5f, "and scaling scales them");
 		}
 	}
 
@@ -5554,7 +5651,7 @@ void main()
 		// wrong.
 		{
 			const Vec2 mirror = at(kSize - 1, 0);
-			Check(std::fabs(mirror.x - 1.0f) < 0.02f && mirror.y < 0.02f,
+			Check(Math::Abs(mirror.x - 1.0f) < 0.02f && mirror.y < 0.02f,
 				  "a smooth surface seen head on reflects its F0 and nothing more");
 		}
 
@@ -5655,8 +5752,8 @@ void main()
 		{
 			const Mat4 projection = ReflectionProbe::FaceProjection(0.1f, 50.0f);
 			const Vec4 corner = projection * Vec4(1.0f, 1.0f, -1.0f, 1.0f);
-			Check(std::fabs(corner.x / corner.w - 1.0f) < 1e-4f &&
-				  std::fabs(corner.y / corner.w - 1.0f) < 1e-4f,
+			Check(Math::Abs(corner.x / corner.w - 1.0f) < 1e-4f &&
+				  Math::Abs(corner.y / corner.w - 1.0f) < 1e-4f,
 				  "the face frustum is exactly 90 degrees and square");
 		}
 
@@ -5729,7 +5826,7 @@ void main()
 		{
 			for (uint32_t mip = 0; mip < 4; mip++)
 			{
-				const uint32_t side = std::max(8u >> mip, 1u);
+				const uint32_t side = Math::Max(8u >> mip, 1u);
 				std::vector<uint8_t> blocks(
 					(size_t)TextureDataSize(Format::BC5_UNORM, side, side), 0x3C);
 				texture->UploadMip(blocks.data(), blocks.size(), mip, 0);
@@ -5981,11 +6078,11 @@ void main()
 		// either fires or fails to.
 		for (int b = 0; b < 256; b++)
 		{
-			const float centre = std::pow(((float)b / 255.0f + 0.055f) / 1.055f, 2.4f);
+			const float centre = Math::Pow(((float)b / 255.0f + 0.055f) / 1.055f, 2.4f);
 			for (int step = -3; step <= 3; step++)
 			{
 				float v = centre;
-				for (int n = 0; n < std::abs(step); n++)
+				for (int n = 0; n < Math::Abs(step); n++)
 					v = std::nextafter(v, step < 0 ? 0.0f : 1.0f);
 				compare(v);
 			}
@@ -6026,7 +6123,7 @@ void main()
 
 		progress.BeginPhase("Opening", 0.0f, 0.2f);
 		progress.Advance(0.5f);
-		Check(std::abs(progress.Get().Fraction - 0.1f) < 0.001f,
+		Check(Math::Abs(progress.Get().Fraction - 0.1f) < 0.001f,
 			  "a phase's progress maps into the slice of the bar it owns");
 
 		progress.SetDetail("scenes/demo.rage");
@@ -6039,7 +6136,7 @@ void main()
 		// is legitimate: a phase that turns out to be empty, an Advance called
 		// with a stale fraction, a later phase beginning at a lower mark.
 		progress.Advance(0.1f);
-		Check(std::abs(progress.Get().Fraction - 0.1f) < 0.001f,
+		Check(Math::Abs(progress.Get().Fraction - 0.1f) < 0.001f,
 			  "advancing backwards inside a phase does not rewind the bar");
 
 		progress.BeginPhase("Loading", 0.05f, 0.9f);
@@ -6846,21 +6943,21 @@ void main()
 		{
 			UICanvasComponent canvas;   // 1920x1080, match 0.5
 
-			Check(std::fabs(UI::CanvasScale(canvas, 1920.0f, 1080.0f) - 1.0f) < 1e-4f,
+			Check(Math::Abs(UI::CanvasScale(canvas, 1920.0f, 1080.0f) - 1.0f) < 1e-4f,
 				  "a canvas at its reference resolution scales by one");
 
 			// Half the reference in both directions is half the scale, whatever
 			// the match is set to -- there is no disagreement between the axes
 			// to resolve.
-			Check(std::fabs(UI::CanvasScale(canvas, 960.0f, 540.0f) - 0.5f) < 1e-4f,
+			Check(Math::Abs(UI::CanvasScale(canvas, 960.0f, 540.0f) - 0.5f) < 1e-4f,
 				  "and by half at half the size");
 
 			canvas.MatchWidthOrHeight = 0.0f;
-			Check(std::fabs(UI::CanvasScale(canvas, 3840.0f, 1080.0f) - 2.0f) < 1e-4f,
+			Check(Math::Abs(UI::CanvasScale(canvas, 3840.0f, 1080.0f) - 2.0f) < 1e-4f,
 				  "matching the width follows the width alone");
 
 			canvas.MatchWidthOrHeight = 1.0f;
-			Check(std::fabs(UI::CanvasScale(canvas, 3840.0f, 1080.0f) - 1.0f) < 1e-4f,
+			Check(Math::Abs(UI::CanvasScale(canvas, 3840.0f, 1080.0f) - 1.0f) < 1e-4f,
 				  "and matching the height ignores it");
 
 			// The geometric mean, not the arithmetic one. It is what makes the
@@ -6869,11 +6966,11 @@ void main()
 			// does not do that.
 			canvas.MatchWidthOrHeight = 0.5f;
 			const float wide = UI::CanvasScale(canvas, 3840.0f, 1080.0f);
-			Check(std::fabs(wide - std::sqrt(2.0f)) < 1e-3f,
+			Check(Math::Abs(wide - Math::Sqrt(2.0f)) < 1e-3f,
 				  "halfway is the geometric mean of the two, not the average");
 
 			const float narrow = UI::CanvasScale(canvas, 960.0f, 1080.0f);
-			Check(std::fabs(wide * narrow - 1.0f) < 1e-3f,
+			Check(Math::Abs(wide * narrow - 1.0f) < 1e-3f,
 				  "so twice as wide and half as wide are reciprocal");
 
 			canvas.ScaleMode = CanvasScaleMode::ConstantPixels;
@@ -6894,12 +6991,12 @@ void main()
 			point.OffsetMax = Vec2(120.0f, 70.0f);
 
 			const UIRect a = UI::ResolveRect(point, parent);
-			Check(std::fabs(a.X - 20.0f) < 1e-4f && std::fabs(a.Y - 30.0f) < 1e-4f &&
-				  std::fabs(a.Width - 100.0f) < 1e-4f && std::fabs(a.Height - 40.0f) < 1e-4f,
+			Check(Math::Abs(a.X - 20.0f) < 1e-4f && Math::Abs(a.Y - 30.0f) < 1e-4f &&
+				  Math::Abs(a.Width - 100.0f) < 1e-4f && Math::Abs(a.Height - 40.0f) < 1e-4f,
 				  "a point anchor turns the offsets into a position and a size");
 
 			const UIRect b = UI::ResolveRect(point, UIRect{ 0.0f, 0.0f, 4000.0f, 4000.0f });
-			Check(std::fabs(a.Width - b.Width) < 1e-4f && std::fabs(a.X - b.X) < 1e-4f,
+			Check(Math::Abs(a.Width - b.Width) < 1e-4f && Math::Abs(a.X - b.X) < 1e-4f,
 				  "and a bigger parent does not change either");
 
 			// A stretch anchor: the same two numbers are margins now, and the
@@ -6911,11 +7008,11 @@ void main()
 			stretch.OffsetMax = Vec2(-10.0f, -10.0f);
 
 			const UIRect s = UI::ResolveRect(stretch, parent);
-			Check(std::fabs(s.Width - 980.0f) < 1e-4f && std::fabs(s.Height - 580.0f) < 1e-4f,
+			Check(Math::Abs(s.Width - 980.0f) < 1e-4f && Math::Abs(s.Height - 580.0f) < 1e-4f,
 				  "a stretch anchor turns the same offsets into margins");
 
 			const UIRect s2 = UI::ResolveRect(stretch, UIRect{ 0.0f, 0.0f, 2000.0f, 600.0f });
-			Check(std::fabs(s2.Width - 1980.0f) < 1e-4f,
+			Check(Math::Abs(s2.Width - 1980.0f) < 1e-4f,
 				  "and the size follows the parent");
 		}
 
@@ -6944,9 +7041,9 @@ void main()
 
 				// The gap to the right edge, and the size, are the same every
 				// time -- including on the portrait and ultrawide shapes.
-				pinned = pinned && std::fabs((canvasRect.Width - r.Right()) - 20.0f) < 1e-3f;
-				pinned = pinned && std::fabs(r.Width - 200.0f) < 1e-3f;
-				pinned = pinned && std::fabs(r.Y - 20.0f) < 1e-3f;
+				pinned = pinned && Math::Abs((canvasRect.Width - r.Right()) - 20.0f) < 1e-3f;
+				pinned = pinned && Math::Abs(r.Width - 200.0f) < 1e-3f;
+				pinned = pinned && Math::Abs(r.Y - 20.0f) < 1e-3f;
 			}
 			Check(pinned, "a corner-pinned element keeps its distance from that corner "
 						  "at every resolution, including portrait and ultrawide");
@@ -6988,13 +7085,13 @@ void main()
 			{
 				// The canvas entity is the space, not an element: the panel is
 				// laid out against the screen directly.
-				Check(std::fabs(resolved[0].Rect.X - 100.0f) < 1e-3f &&
-					  std::fabs(resolved[0].Rect.Width - 800.0f) < 1e-3f,
+				Check(Math::Abs(resolved[0].Rect.X - 100.0f) < 1e-3f &&
+					  Math::Abs(resolved[0].Rect.Width - 800.0f) < 1e-3f,
 					  "the first is inset from the screen, not from a canvas element");
 
 				// Nesting composes: 100 + 10.
-				Check(std::fabs(resolved[1].Rect.X - 110.0f) < 1e-3f &&
-					  std::fabs(resolved[1].Rect.Width - 780.0f) < 1e-3f,
+				Check(Math::Abs(resolved[1].Rect.X - 110.0f) < 1e-3f &&
+					  Math::Abs(resolved[1].Rect.Width - 780.0f) < 1e-3f,
 					  "and a child is laid out against its parent's rectangle");
 			}
 
@@ -7021,7 +7118,7 @@ void main()
 
 			bool childStillPlaced = false;
 			for (const UI::ResolvedElement& element : resolved)
-				childStillPlaced = childStillPlaced || std::fabs(element.Rect.X - 110.0f) < 1e-3f;
+				childStillPlaced = childStillPlaced || Math::Abs(element.Rect.X - 110.0f) < 1e-3f;
 			Check(childStillPlaced, "and its children stay exactly where they were");
 		}
 
@@ -7060,18 +7157,18 @@ void main()
 			Vec3 right, up;
 			UI::BillboardAxes(TextBillboard::Full, cameraTransform, Mat4(1.0f), right, up);
 
-			Check(std::fabs(Math::Length(right) - 1.0f) < 1e-4f &&
-				  std::fabs(Math::Length(up) - 1.0f) < 1e-4f,
+			Check(Math::Abs(Math::Length(right) - 1.0f) < 1e-4f &&
+				  Math::Abs(Math::Length(up) - 1.0f) < 1e-4f,
 				  "a full billboard's axes are unit length");
 
-			Check(std::fabs(Math::Dot(right, up)) < 1e-4f,
+			Check(Math::Abs(Math::Dot(right, up)) < 1e-4f,
 				  "and perpendicular to each other");
 
 			// Square to the camera means the quad's normal is the camera's
 			// forward -- which is the definition, tested rather than assumed.
 			const Vec3 normal = Math::Cross(right, up);
 			const Vec3 forward = Math::Normalize(Vec3(cameraTransform[2]));
-			Check(std::fabs(std::fabs(Math::Dot(normal, forward)) - 1.0f) < 1e-4f,
+			Check(Math::Abs(Math::Abs(Math::Dot(normal, forward)) - 1.0f) < 1e-4f,
 				  "and face square to the camera");
 		}
 
@@ -7086,8 +7183,8 @@ void main()
 			Vec3 right, up;
 			UI::BillboardAxes(TextBillboard::Full, scaled, Mat4(1.0f), right, up);
 
-			Check(std::fabs(Math::Length(right) - 1.0f) < 1e-4f &&
-				  std::fabs(Math::Length(up) - 1.0f) < 1e-4f,
+			Check(Math::Abs(Math::Length(right) - 1.0f) < 1e-4f &&
+				  Math::Abs(Math::Length(up) - 1.0f) < 1e-4f,
 				  "scaling the camera does not change the size of a billboarded label");
 		}
 
@@ -7099,10 +7196,10 @@ void main()
 			Check(Math::Length(up - worldUp) < 1e-4f,
 				  "an upright billboard's up axis is world up exactly");
 
-			Check(std::fabs(Math::Dot(right, worldUp)) < 1e-4f,
+			Check(Math::Abs(Math::Dot(right, worldUp)) < 1e-4f,
 				  "and its horizontal axis is level, whatever the camera's pitch");
 
-			Check(std::fabs(Math::Length(right) - 1.0f) < 1e-4f,
+			Check(Math::Abs(Math::Length(right) - 1.0f) < 1e-4f,
 				  "and unit length");
 
 			// It still turns to the viewer: the label's normal has to point
@@ -7112,7 +7209,7 @@ void main()
 			const Vec3 flatNormal = Math::Normalize(Vec3{ normal.x, 0.0f, normal.z });
 			const Vec3 flatForward = Math::Normalize(Vec3{ forward.x, 0.0f, forward.z });
 
-			Check(std::fabs(std::fabs(Math::Dot(flatNormal, flatForward)) - 1.0f) < 1e-3f,
+			Check(Math::Abs(Math::Abs(Math::Dot(flatNormal, flatForward)) - 1.0f) < 1e-3f,
 				  "while still turning to face the viewer horizontally");
 		}
 
@@ -7143,10 +7240,10 @@ void main()
 			Vec3 right, up;
 			UI::BillboardAxes(TextBillboard::None, cameraTransform, entity, right, up);
 
-			Check(std::fabs(Math::Length(right) - 2.0f) < 1e-4f,
+			Check(Math::Abs(Math::Length(right) - 2.0f) < 1e-4f,
 				  "text in the entity's own plane takes the entity's scale with it");
 
-			Check(std::fabs(right.x - 2.0f) < 1e-4f && std::fabs(up.y - 2.0f) < 1e-4f,
+			Check(Math::Abs(right.x - 2.0f) < 1e-4f && Math::Abs(up.y - 2.0f) < 1e-4f,
 				  "and its axes are the entity's, not the camera's");
 		}
 	}
@@ -7923,7 +8020,7 @@ void main()
 				const float measured = UI::MeasureLine("AV", font, size);
 				const float kerning = font.Kerning('A', 'V') * size;
 
-				Check(std::fabs(measured - (unkerned + kerning)) < 1e-3f,
+				Check(Math::Abs(measured - (unkerned + kerning)) < 1e-3f,
 					  "a line's width is its advances plus its kerning, exactly");
 				Check(measured < unkerned,
 					  "and AV really is drawn tighter than the advances alone");
@@ -7933,7 +8030,7 @@ void main()
 			// every size.
 			const float single = UI::MeasureLine("Hamburgefonstiv", font, 16.0f);
 			const float doubled = UI::MeasureLine("Hamburgefonstiv", font, 32.0f);
-			Check(std::fabs(doubled - single * 2.0f) < 1e-2f,
+			Check(Math::Abs(doubled - single * 2.0f) < 1e-2f,
 				  "and doubling the size doubles the width");
 
 			Check(UI::MeasureLine("", font, size) == 0.0f, "an empty string is zero wide");
@@ -7950,7 +8047,7 @@ void main()
 
 			const UI::TextLayout three = UI::Build("a\nb\nc", font, style);
 			Check(three.LineCount == 3, "explicit newlines start new lines");
-			Check(std::fabs(three.Height - font.LineHeight * style.Size * 3.0f) < 1e-3f,
+			Check(Math::Abs(three.Height - font.LineHeight * style.Size * 3.0f) < 1e-3f,
 				  "and the height is three line boxes, not the height of the ink");
 
 			// The second line sits exactly one line box below the first.
@@ -7965,15 +8062,15 @@ void main()
 			if (stack.Glyphs.size() == 3)
 			{
 				const float step = stack.Glyphs[1].Y - stack.Glyphs[0].Y;
-				Check(std::fabs(step - font.LineHeight * style.Size) < 1e-3f,
+				Check(Math::Abs(step - font.LineHeight * style.Size) < 1e-3f,
 					  "spaced by exactly one line box");
-				Check(std::fabs(stack.Glyphs[2].Y - stack.Glyphs[1].Y - step) < 1e-3f,
+				Check(Math::Abs(stack.Glyphs[2].Y - stack.Glyphs[1].Y - step) < 1e-3f,
 					  "and every line by the same step");
 			}
 
 			style.LineSpacing = 2.0f;
 			const UI::TextLayout loose = UI::Build("a\nb", font, style);
-			Check(std::fabs(loose.Height - font.LineHeight * style.Size * 4.0f) < 1e-3f,
+			Check(Math::Abs(loose.Height - font.LineHeight * style.Size * 4.0f) < 1e-3f,
 				  "and line spacing multiplies it");
 		}
 
@@ -8021,7 +8118,7 @@ void main()
 					if (glyph.Y > lineY + 1e-3f)
 					{
 						lineY = glyph.Y;
-						flush = flush && std::fabs(glyph.X - expected) < 1e-2f;
+						flush = flush && Math::Abs(glyph.X - expected) < 1e-2f;
 					}
 				}
 				Check(flush, "and no line begins with the space it broke at");
@@ -8071,13 +8168,13 @@ void main()
 			// pixel out is invisible in one label and obvious in a column.
 			const float shortWidth = UI::MeasureLine("i", font, style.Size);
 			const float slack = left.Width - shortWidth;
-			Check(std::fabs((centre.Glyphs[last].X - left.Glyphs[last].X) - slack * 0.5f) < 1e-2f,
+			Check(Math::Abs((centre.Glyphs[last].X - left.Glyphs[last].X) - slack * 0.5f) < 1e-2f,
 				  "centring offsets by exactly half the slack");
-			Check(std::fabs((right.Glyphs[last].X - left.Glyphs[last].X) - slack) < 1e-2f,
+			Check(Math::Abs((right.Glyphs[last].X - left.Glyphs[last].X) - slack) < 1e-2f,
 				  "and right alignment by all of it");
 
 			// The long line is the widest, so it does not move at all.
-			Check(std::fabs(left.Glyphs[0].X - right.Glyphs[0].X) < 1e-3f,
+			Check(Math::Abs(left.Glyphs[0].X - right.Glyphs[0].X) < 1e-3f,
 				  "while the widest line stays where it is under every alignment");
 		}
 
@@ -8090,7 +8187,7 @@ void main()
 
 			const UI::TextLayout bare = UI::Build("ab", font, style);
 			const UI::TextLayout trailing = UI::Build("ab   ", font, style);
-			Check(std::fabs(bare.Width - trailing.Width) < 1e-3f,
+			Check(Math::Abs(bare.Width - trailing.Width) < 1e-3f,
 				  "trailing spaces do not count towards a line's width");
 		}
 
@@ -8100,7 +8197,7 @@ void main()
 			style.Size = 24.0f;
 
 			const UI::TextLayout layout = UI::Build("Hxy", font, style);
-			Check(std::fabs(layout.FirstBaseline - font.Ascent * style.Size) < 1e-3f,
+			Check(Math::Abs(layout.FirstBaseline - font.Ascent * style.Size) < 1e-3f,
 				  "the first baseline sits an ascent below the top of the block");
 
 			// Nothing may sit above the block, or text in a box would ride up
@@ -8160,14 +8257,14 @@ void main()
 			const Vec4 topLeft = projection * Vec4(0.0f, 0.0f, 0.0f, 1.0f);
 			const Vec4 bottomRight = projection * Vec4(800.0f, 600.0f, 0.0f, 1.0f);
 
-			Check(std::fabs(topLeft.x + 1.0f) < 1e-4f && std::fabs(bottomRight.x - 1.0f) < 1e-4f,
+			Check(Math::Abs(topLeft.x + 1.0f) < 1e-4f && Math::Abs(bottomRight.x - 1.0f) < 1e-4f,
 				  "UI x runs left to right across the viewport");
 
 			// The whole point: y = 0 is the *top* of what the viewer sees, and
 			// clip +1 is the top, on every backend.
-			Check(std::fabs(topLeft.y - 1.0f) < 1e-4f,
+			Check(Math::Abs(topLeft.y - 1.0f) < 1e-4f,
 				  "UI y = 0 is the top of the image, not the bottom");
-			Check(std::fabs(bottomRight.y + 1.0f) < 1e-4f,
+			Check(Math::Abs(bottomRight.y + 1.0f) < 1e-4f,
 				  "and y = height is the bottom");
 
 			// Inside the depth range even though the pass has no depth buffer:
@@ -8182,7 +8279,7 @@ void main()
 		{
 			const Mat4 projection = UIRenderer::BuildProjection(0, 0);
 			const Vec4 point = projection * Vec4(0.0f, 0.0f, 0.0f, 1.0f);
-			Check(std::isfinite(point.x) && std::isfinite(point.y),
+			Check(Math::IsFinite(point.x) && Math::IsFinite(point.y),
 				  "a zero-sized viewport still produces a finite projection");
 		}
 
@@ -8271,7 +8368,7 @@ void main()
 		// --- the number that decides whether it looks right ------------------
 		// screenPxRange >= 2, rearranged. 48 px per em over a 6 px range is
 		// 16 px, and the tool prints the same figure when it bakes.
-		Check(std::fabs(font.SmallestSharpSize() - 2.0f * font.EmSize / font.PxRange) < 1e-4f,
+		Check(Math::Abs(font.SmallestSharpSize() - 2.0f * font.EmSize / font.PxRange) < 1e-4f,
 			  "the smallest sharp size is derived from the atlas, not stored beside it");
 		Check(font.SmallestSharpSize() > 4.0f && font.SmallestSharpSize() < 64.0f,
 			  "and lands somewhere a person would actually draw text");
@@ -8393,13 +8490,13 @@ void main()
 					break;
 				}
 
-				agreed = agreed && std::fabs(depth - ndc.z) < 1e-4f;
+				agreed = agreed && Math::Abs(depth - ndc.z) < 1e-4f;
 
 				// And the point it reconstructs is back where it started --
 				// which is what the shader goes on to take derivatives of.
 				const Vec4 hit = inverse * Vec4(ndc.x, ndc.y, depth, 1.0f);
 				const Vec3 back = Vec3(hit) / hit.w;
-				onPlane = onPlane && std::fabs(back.y) < 1e-3f &&
+				onPlane = onPlane && Math::Abs(back.y) < 1e-3f &&
 						  Math::Length(back - world) < 1e-2f;
 			}
 
@@ -8440,7 +8537,7 @@ void main()
 			float depth = -1.0f;
 			const bool hit = ViewportGrid::PlaneDepthAt(inverse, ndc.x, ndc.y, depth);
 			Check(hit, "a piece of the plane beyond the far clip is still drawn");
-			Check(hit && std::fabs(depth - 1.0f) < 1e-5f,
+			Check(hit && Math::Abs(depth - 1.0f) < 1e-5f,
 				  "and is pinned to the far plane, behind everything that could occlude it");
 		}
 
@@ -8486,7 +8583,7 @@ void main()
 
 			float depth = -1.0f;
 			const bool hit = ViewportGrid::PlaneDepthAt(under, ndc.x, ndc.y, depth);
-			Check(hit && std::fabs(depth - ndc.z) < 1e-4f,
+			Check(hit && Math::Abs(depth - ndc.z) < 1e-4f,
 				  "a camera under the plane sees it from below, at the same depth");
 		}
 
@@ -9149,7 +9246,7 @@ void main()
 				for (int column = 0; column < 4; column++)
 					for (int row = 0; row < 4; row++)
 						worst = Math::Max(worst,
-							std::fabs(m[column][row] - (column == row ? 1.0f : 0.0f)));
+							Math::Abs(m[column][row] - (column == row ? 1.0f : 0.0f)));
 			}
 			return worst;
 		};
@@ -9189,7 +9286,7 @@ void main()
 			for (size_t i = 0; i < count; i++)
 				for (int column = 0; column < 4; column++)
 					for (int row = 0; row < 4; row++)
-						worst = Math::Max(worst, std::fabs(a[i][column][row] - b[i][column][row]));
+						worst = Math::Max(worst, Math::Abs(a[i][column][row] - b[i][column][row]));
 			return worst;
 		};
 
@@ -9375,7 +9472,7 @@ void main()
 		const Vec3 eye{ 0.0f, 0.0f, 10.0f };
 		const float atTen = EditorIcons::Radius({ 0.0f, 0.0f, 0.0f }, eye);
 		const float atTwenty = EditorIcons::Radius({ 0.0f, 0.0f, -10.0f }, eye);
-		Check(std::fabs(atTwenty - atTen * 2.0f) < 1e-4f,
+		Check(Math::Abs(atTwenty - atTen * 2.0f) < 1e-4f,
 			  "a mark's world radius grows with distance, so its screen size does not");
 
 		// --- the point of the feature ------------------------------------------
@@ -9452,7 +9549,7 @@ void main()
 
 			float distance = 0.0f;
 			Check(RayIntersectsBox(ray, { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f }, distance) &&
-				  std::fabs(distance - 9.0f) < 1e-3f,
+				  Math::Abs(distance - 9.0f) < 1e-3f,
 				  "a ray hits a box at its near face");
 
 			// Behind the ray is a miss, not a hit at a negative distance.
@@ -9531,7 +9628,7 @@ void main()
 		// The hit point is on the surface, which is what a future "place at
 		// cursor" would be built on.
 		hit = PickEntity(*scene, down);
-		Check(std::fabs(hit.Point.z - 2.5f) < 0.05f, "the hit lands on the surface it struck");
+		Check(Math::Abs(hit.Point.z - 2.5f) < 0.05f, "the hit lands on the surface it struck");
 	}
 
 	// The collider overlay.
@@ -9632,16 +9729,16 @@ void main()
 			ColliderComponent box;
 			box.HalfExtents = { 0.5f, 0.5f, 0.5f };
 			const ScaledCollider sized = Physics::ScaleCollider(box, { 2.0f, 3.0f, 4.0f });
-			Check(std::fabs(sized.HalfExtents.x - 1.0f) < 1e-5f &&
-				  std::fabs(sized.HalfExtents.y - 1.5f) < 1e-5f &&
-				  std::fabs(sized.HalfExtents.z - 2.0f) < 1e-5f,
+			Check(Math::Abs(sized.HalfExtents.x - 1.0f) < 1e-5f &&
+				  Math::Abs(sized.HalfExtents.y - 1.5f) < 1e-5f &&
+				  Math::Abs(sized.HalfExtents.z - 2.0f) < 1e-5f,
 				  "a box collider takes the entity's scale per axis");
 
 			ColliderComponent sphere(ColliderShape::Sphere);
 			sphere.Radius = 1.0f;
 			// A sphere has one radius, so the largest axis wins -- enclosing
 			// the mesh rather than cutting into it.
-			Check(std::fabs(Physics::ScaleCollider(sphere, { 2.0f, 3.0f, 1.0f }).Radius - 3.0f) < 1e-5f,
+			Check(Math::Abs(Physics::ScaleCollider(sphere, { 2.0f, 3.0f, 1.0f }).Radius - 3.0f) < 1e-5f,
 				  "a sphere takes the largest axis, so it encloses rather than clips");
 
 			// A mirrored entity has a size, not a negative size.
@@ -9672,9 +9769,9 @@ void main()
 
 		// --- bus volumes ------------------------------------------------------
 		Audio::Engine::SetBusVolume(AudioBus::Music, 0.25f);
-		Check(std::fabs(Audio::Engine::GetBusVolume(AudioBus::Music) - 0.25f) < 1e-4f,
+		Check(Math::Abs(Audio::Engine::GetBusVolume(AudioBus::Music) - 0.25f) < 1e-4f,
 			  "a bus volume reads back as it was set");
-		Check(std::fabs(Audio::Engine::GetBusVolume(AudioBus::SFX) - 1.0f) < 1e-4f,
+		Check(Math::Abs(Audio::Engine::GetBusVolume(AudioBus::SFX) - 1.0f) < 1e-4f,
 			  "and does not affect the other buses");
 		Audio::Engine::SetBusVolume(AudioBus::Music, 1.0f);
 
@@ -9984,8 +10081,8 @@ void main()
 				right += (double)buffer[i * channels + 1] * buffer[i * channels + 1];
 			}
 
-			leftRms = got ? (float)std::sqrt(left / (double)got) : 0.0f;
-			rightRms = got ? (float)std::sqrt(right / (double)got) : 0.0f;
+			leftRms = got ? (float)Math::Sqrt(left / (double)got) : 0.0f;
+			rightRms = got ? (float)Math::Sqrt(right / (double)got) : 0.0f;
 		};
 
 		float left = 0.0f, right = 0.0f;
@@ -10004,7 +10101,7 @@ void main()
 		const float loudLevel = Math::Max(left, right);
 
 		Check(loudLevel > 0.01f, "playing a clip renders audible samples");
-		Check(std::fabs(left - right) < 1e-5f, "and an unpositioned sound is centred");
+		Check(Math::Abs(left - right) < 1e-5f, "and an unpositioned sound is centred");
 		Audio::Engine::Stop(loud);
 
 		// --- volume scales it ------------------------------------------------
@@ -10124,12 +10221,12 @@ void main()
 
 		Check(back.Clip == source.Clip, "the clip is stored by handle");
 		Check(back.Bus == AudioBus::Music, "the bus survives");
-		Check(std::fabs(back.Volume - 0.42f) < 1e-4f &&
-			  std::fabs(back.Pitch - 1.35f) < 1e-4f, "volume and pitch survive");
+		Check(Math::Abs(back.Volume - 0.42f) < 1e-4f &&
+			  Math::Abs(back.Pitch - 1.35f) < 1e-4f, "volume and pitch survive");
 		Check(back.Loop && !back.PlayOnAwake && !back.Spatial && back.Stream,
 			  "and every flag survives");
-		Check(std::fabs(back.MinDistance - 2.5f) < 1e-4f &&
-			  std::fabs(back.MaxDistance - 88.0f) < 1e-4f, "as do the distances");
+		Check(Math::Abs(back.MinDistance - 2.5f) < 1e-4f &&
+			  Math::Abs(back.MaxDistance - 88.0f) < 1e-4f, "as do the distances");
 		Check(back.Voice == 0, "the playing voice does not, because it belongs to one run");
 
 		Check(restored.HasComponent<AudioListenerComponent>() &&
@@ -10217,7 +10314,7 @@ void main()
 
 		scene->SetPaused(false);
 		scene->OnUpdateRuntime(1.0f / 60.0f);
-		Check(std::fabs(box.GetComponent<TransformComponent>().Position.y - atPause.y) < 1e-4f,
+		Check(Math::Abs(box.GetComponent<TransformComponent>().Position.y - atPause.y) < 1e-4f,
 			  "half a second of paused fixed steps moved nothing");
 
 		for (int i = 0; i < 10; i++)
@@ -10257,7 +10354,7 @@ void main()
 		InputMap::OnScroll(3.0f);
 		InputMap::BindMouseAxis("Gameplay", "Zoom", MouseAxis::Wheel);
 		InputMap::Update();
-		Check(std::fabs(InputMap::GetAxis("Zoom") - 3.0f) < 1e-4f, "the wheel reaches its axis");
+		Check(Math::Abs(InputMap::GetAxis("Zoom") - 3.0f) < 1e-4f, "the wheel reaches its axis");
 
 		// It has to be consumed, or it would read as scrolling forever.
 		InputMap::Update();
@@ -10822,6 +10919,7 @@ int RunTests(int argc, char** argv)
 	CheckProbeSelection();
 	CheckProbeArraySize();
 	CheckFrameGraph();
+	CheckMathFunctions();
 	CheckMultisampledDepth();
 	CheckGameModule();
 	CheckProject();
@@ -10908,15 +11006,15 @@ int RunTests(int argc, char** argv)
 		CheckUniqueIDs(scene);
 
 		const SceneEnvironment& environment = scene->GetEnvironment();
-		Check(std::fabs(environment.AmbientColor.b - 0.44f) < 1e-4f &&
-			  std::fabs(environment.AmbientIntensity - 0.37f) < 1e-4f,
+		Check(Math::Abs(environment.AmbientColor.b - 0.44f) < 1e-4f &&
+			  Math::Abs(environment.AmbientIntensity - 0.37f) < 1e-4f,
 			  "scene ambient survives the round trip");
 
 		Check(environment.Sky == SkyType::Cubemap &&
-			  std::fabs(environment.SkyZenith.g - 0.55f) < 1e-4f &&
-			  std::fabs(environment.SkyGround.r - 0.77f) < 1e-4f &&
-			  std::fabs(environment.SkyIntensity - 1.75f) < 1e-4f &&
-			  std::fabs(environment.SkyRotation - 0.9f) < 1e-4f &&
+			  Math::Abs(environment.SkyZenith.g - 0.55f) < 1e-4f &&
+			  Math::Abs(environment.SkyGround.r - 0.77f) < 1e-4f &&
+			  Math::Abs(environment.SkyIntensity - 1.75f) < 1e-4f &&
+			  Math::Abs(environment.SkyRotation - 0.9f) < 1e-4f &&
 			  (uint64_t)environment.SkyTexture == 0x5ceec0de1234ull,
 			  "and so does the sky, handle included");
 
@@ -11107,7 +11205,7 @@ int RunTests(int argc, char** argv)
 			reloaded->OnFixedUpdateRuntime(1.0f / 60.0f);
 
 		const float turned = spun.GetComponent<TransformComponent>().Rotation.y;
-		Check(std::fabs(turned - (2.5f * 10.0f / 60.0f)) < 1e-4f,
+		Check(Math::Abs(turned - (2.5f * 10.0f / 60.0f)) < 1e-4f,
 			  "and the scene steps it at the overridden speed, not the default");
 
 		reloaded->OnRuntimeStop();
@@ -11258,6 +11356,10 @@ int RunTests(int argc, char** argv)
 	{
 		using namespace RageV::Math;
 
+		// `std::fabs`, and the only surviving one in the repository. Everything
+		// else says Math::Abs -- but this block compares the engine's math
+		// against glm, and its tolerance arithmetic has to come from neither.
+		// A comparison built out of the thing it is comparing passes forever.
 		const auto closeF = [](float a, float b) { return std::fabs(a - b) < 1e-4f; };
 		const auto closeV3 = [&](const Vec3& a, const glm::vec3& b)
 		{
@@ -11461,6 +11563,128 @@ int RunTests(int argc, char** argv)
 			Check(DotNetHost::GetFunctionPointer(assembly, "RageV.Interop, RageV.ScriptCore",
 												 "NoSuchMethod") == nullptr,
 				  "and so does binding a method that does not exist");
+
+			// --- the two languages' math is one function per name -------------
+			//
+			// `Mathf.Sin` and `Math::Sin` being *spelled* the same is a naming
+			// convention; being the same function is a claim, and it is not free
+			// on three of them. .NET rounds a half to even and C rounds it away
+			// from zero, so Round(0.5) is 0 in one language and 1 in the other
+			// unless somebody says otherwise. A script that positions a tile by
+			// rounding would then land somewhere the C++ version does not, on
+			// one value in two.
+			using EvaluateFn = float(__cdecl*)(int, float, float);
+			const auto evaluate = (EvaluateFn)DotNetHost::GetFunctionPointer(
+				assembly, "RageV.Interop, RageV.ScriptCore", "EvaluateMath");
+
+			Check(evaluate != nullptr, "the managed math probe binds");
+
+			if (evaluate)
+			{
+				// Opcodes are Interop.EvaluateMath's switch, in its order.
+				struct Case { int Op; const char* Name; float (*Native)(float, float); };
+				static const Case cases[] = {
+					{ 0,  "Sin",       [](float a, float)  { return Math::Sin(a); } },
+					{ 1,  "Cos",       [](float a, float)  { return Math::Cos(a); } },
+					{ 2,  "Tan",       [](float a, float)  { return Math::Tan(a); } },
+					{ 3,  "Asin",      [](float a, float)  { return Math::Asin(a); } },
+					{ 4,  "Acos",      [](float a, float)  { return Math::Acos(a); } },
+					{ 5,  "Atan",      [](float a, float)  { return Math::Atan(a); } },
+					{ 6,  "Atan2",     [](float a, float b){ return Math::Atan2(a, b); } },
+					{ 7,  "Sqrt",      [](float a, float)  { return Math::Sqrt(a); } },
+					{ 8,  "Pow",       [](float a, float b){ return Math::Pow(a, b); } },
+					{ 9,  "Exp",       [](float a, float)  { return Math::Exp(a); } },
+					{ 10, "Log",       [](float a, float)  { return Math::Log(a); } },
+					{ 11, "Log2",      [](float a, float)  { return Math::Log2(a); } },
+					{ 12, "Floor",     [](float a, float)  { return Math::Floor(a); } },
+					{ 13, "Ceil",      [](float a, float)  { return Math::Ceil(a); } },
+					{ 14, "Trunc",     [](float a, float)  { return Math::Trunc(a); } },
+					{ 15, "Round",     [](float a, float)  { return Math::Round(a); } },
+					{ 16, "Fract",     [](float a, float)  { return Math::Fract(a); } },
+					{ 17, "Abs",       [](float a, float)  { return Math::Abs(a); } },
+					{ 18, "Sign",      [](float a, float)  { return Math::Sign(a); } },
+					{ 19, "Min",       [](float a, float b){ return Math::Min(a, b); } },
+					{ 20, "Max",       [](float a, float b){ return Math::Max(a, b); } },
+					{ 21, "Clamp",     [](float a, float)  { return Math::Clamp(a, 0.0f, 1.0f); } },
+					{ 22, "Saturate",  [](float a, float)  { return Math::Saturate(a); } },
+					{ 23, "Lerp",      [](float a, float b){ return Math::Lerp(a, b, 0.25f); } },
+					{ 24, "SmoothStep",[](float a, float)  { return Math::SmoothStep(0.0f, 1.0f, a); } },
+					{ 25, "Step",      [](float a, float)  { return Math::Step(0.5f, a); } },
+					{ 26, "Mod",       [](float a, float b){ return Math::Mod(a, b); } },
+					{ 27, "FMod",      [](float a, float b){ return Math::FMod(a, b); } },
+					{ 28, "Radians",   [](float a, float)  { return Math::Radians(a); } },
+					{ 29, "Degrees",   [](float a, float)  { return Math::Degrees(a); } },
+					{ 30, "SafeSqrt",  [](float a, float)  { return Math::SafeSqrt(a); } },
+					{ 31, "Hypot",     [](float a, float b){ return Math::Hypot(a, b); } },
+					{ 32, "CopySign",  [](float a, float b){ return Math::CopySign(a, b); } },
+					{ 33, "Sinh",      [](float a, float)  { return Math::Sinh(a); } },
+					{ 34, "Cosh",      [](float a, float)  { return Math::Cosh(a); } },
+					{ 35, "Tanh",      [](float a, float)  { return Math::Tanh(a); } },
+					{ 36, "Exp2",      [](float a, float)  { return Math::Exp2(a); } },
+					{ 37, "Log10",     [](float a, float)  { return Math::Log10(a); } },
+					{ 38, "Pi",        [](float, float)    { return Math::Pi; } },
+				};
+
+				// The halves are what catch the rounding rule; the negatives are
+				// what catch a remainder taking the wrong operand's sign -- and
+				// they take Sqrt and Log outside their domain, which is wanted:
+				// both sides have to be a NaN there rather than one of them
+				// quietly guarding. Neither lambda below clamps its input.
+				static const float inputs[][2] = {
+					{ 0.5f, 3.0f }, { 1.5f, 3.0f }, { -0.5f, 3.0f }, { -1.5f, 3.0f },
+					{ -1.0f, 3.0f }, { 0.0f, 1.0f }, { 0.25f, 0.75f }, { 2.5f, -1.0f },
+					{ -3.75f, 2.0f }, { 1.0f, 1.0f },
+				};
+
+				int mismatches = 0;
+				std::string firstMismatch;
+				for (const Case& c : cases)
+				{
+					for (const auto& input : inputs)
+					{
+						const float managedAnswer = evaluate(c.Op, input[0], input[1]);
+						const float nativeAnswer = c.Native(input[0], input[1]);
+
+						// Both NaN counts as agreement: Sqrt of a negative and
+						// Mod by zero are allowed to be a NaN, as long as they
+						// are one on both sides.
+						if (Math::IsNaN(managedAnswer) && Math::IsNaN(nativeAnswer))
+							continue;
+
+						// And so does bit equality, which is the only thing that
+						// works for an infinity: Log(0) is -inf on both sides,
+						// and the difference of two infinities is a NaN that
+						// fails every tolerance ever written.
+						if (managedAnswer == nativeAnswer)
+							continue;
+
+						const float tolerance = 1.0e-5f * Math::Max(1.0f, Math::Abs(nativeAnswer));
+						if (Math::Abs(managedAnswer - nativeAnswer) <= tolerance)
+							continue;
+
+						if (firstMismatch.empty())
+						{
+							firstMismatch = std::string(c.Name) + "(" + std::to_string(input[0])
+										  + ", " + std::to_string(input[1]) + "): C# "
+										  + std::to_string(managedAnswer) + " vs C++ "
+										  + std::to_string(nativeAnswer);
+						}
+						mismatches++;
+					}
+				}
+
+				if (mismatches > 0)
+					RV_CORE_ERROR("  first math mismatch: {0}", firstMismatch);
+
+				Check(mismatches == 0,
+					  "Mathf and RageV::Math answer the same on every function, "
+					  "including the halves and the negatives");
+
+				// And the probe itself has to be able to fail, or the loop above
+				// is checking that two unreachable things agree.
+				Check(Math::IsNaN(evaluate(9999, 1.0f, 1.0f)),
+					  "an opcode neither side knows is a NaN rather than a zero");
+			}
 		}
 
 		// --- the interop table, against a real scene -------------------------
@@ -11529,9 +11753,9 @@ int RunTests(int argc, char** argv)
 
 				// The managed self-test moved it, and the value has to have
 				// landed in the actual component rather than in a copy.
-				Check(std::fabs(position.x - 1.5f) < 1e-5f &&
-					  std::fabs(position.y + 2.25f) < 1e-5f &&
-					  std::fabs(position.z - 0.75f) < 1e-5f,
+				Check(Math::Abs(position.x - 1.5f) < 1e-5f &&
+					  Math::Abs(position.y + 2.25f) < 1e-5f &&
+					  Math::Abs(position.z - 0.75f) < 1e-5f,
 					  "a transform written from C# is the transform the engine reads");
 
 				Check(api.EntityExists(0) == 0, "entity zero is the invalid entity");
@@ -11576,12 +11800,12 @@ int RunTests(int argc, char** argv)
 					// the engine makes it for every live script every frame,
 					// and most scripts will never override it.
 					managed.InvokeFrame(handle, 1.0f / 60.0f);
-					Check(std::fabs(spun.GetComponent<TransformComponent>().Rotation.y
+					Check(Math::Abs(spun.GetComponent<TransformComponent>().Rotation.y
 									- (1.2f * 10.0f / 60.0f)) < 1e-4f,
 						  "a frame on a script with no OnFrame changes nothing");
 
 					const Vec3 rotation = spun.GetComponent<TransformComponent>().Rotation;
-					Check(std::fabs(rotation.y - (1.2f * 10.0f / 60.0f)) < 1e-4f,
+					Check(Math::Abs(rotation.y - (1.2f * 10.0f / 60.0f)) < 1e-4f,
 						  "a C# OnTick moves the entity it is attached to, by the amount it should");
 					Check(rotation.x == 0.0f && rotation.z == 0.0f,
 						  "and leaves the other axes alone");
@@ -11630,7 +11854,7 @@ int RunTests(int argc, char** argv)
 						for (int tick = 0; tick < 60; tick++)
 							managed.InvokeTick(eye, 1.0f / 60.0f);
 
-						Check(std::fabs(camera.GetComponent<TransformComponent>().Position.y) < 1e-6f,
+						Check(Math::Abs(camera.GetComponent<TransformComponent>().Position.y) < 1e-6f,
 							  "a tick does not drive a script whose work is in OnFrame");
 
 						for (int frame = 0; frame < 60; frame++)
@@ -12036,7 +12260,7 @@ int RunTests(int argc, char** argv)
 						reloaded->OnFixedUpdateRuntime(1.0f / 60.0f);
 
 					const float turned = spun.GetComponent<TransformComponent>().Rotation.y;
-					Check(std::fabs(turned - (2.5f * 10.0f / 60.0f)) < 1e-4f,
+					Check(Math::Abs(turned - (2.5f * 10.0f / 60.0f)) < 1e-4f,
 						  "and the scene steps it at the overridden speed, not the default");
 
 					reloaded->OnRuntimeStop();
@@ -12179,13 +12403,13 @@ int RunTests(int argc, char** argv)
 
 					Vec3 forward{};
 					api.GetForward(id, &forward);
-					Check(std::fabs(forward.x - 1.0f) < 1e-3f,
+					Check(Math::Abs(forward.x - 1.0f) < 1e-3f,
 						  "LookAt turns the entity's forward onto the target");
 
 					// Aiming at yourself is a no-op, not a NaN in the transform.
 					Vec3 self(0.0f, 0.0f, 0.0f);
 					api.LookAt(id, &self, &up);
-					Check(std::isfinite(named.GetComponent<TransformComponent>().Rotation.x),
+					Check(Math::IsFinite(named.GetComponent<TransformComponent>().Rotation.x),
 						  "and aiming at your own position changes nothing rather than NaN-ing");
 				}
 
@@ -12206,7 +12430,7 @@ int RunTests(int argc, char** argv)
 					const int32_t rayHit = api.Raycast(&origin, &down, &hit);
 					Check(rayHit == 1 && hit.Entity == (uint64_t)floor.GetUUID(),
 						  "and one with a floor under it names the floor");
-					Check(std::fabs(hit.Position.y - 0.0f) < 0.05f && hit.Normal.y > 0.9f,
+					Check(Math::Abs(hit.Position.y - 0.0f) < 0.05f && hit.Normal.y > 0.9f,
 						  "at the surface, with the normal pointing back up the ray");
 					scene->OnRuntimeStop();
 

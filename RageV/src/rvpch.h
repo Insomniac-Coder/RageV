@@ -15,6 +15,12 @@
 #include <unordered_set>
 #include <vector>
 #include "RageV/Core/Log.h"
+// The engine's math, everywhere the engine is. Not because every file wants a
+// matrix, but because `Math::Max` and `Math::Sqrt` replaced the <cmath> the
+// backends and the loaders used to reach for directly, and a vocabulary that
+// half the translation units have to include by hand is one half of them will
+// keep spelling `std::`.
+#include "RageV/Math/Math.h"
 
 #ifdef RV_PLATFORM_WINDOWS
 #include <Windows.h>

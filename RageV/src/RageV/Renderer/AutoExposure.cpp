@@ -231,7 +231,7 @@ namespace RageV
 		// The exponential form, not `rate * dt`. Ten steps of 10 ms land where
 		// one step of 100 ms does, which the linear approximation does not --
 		// and that failure is invisible until somebody compares two machines.
-		return 1.0f - std::exp(-rate * deltaSeconds);
+		return 1.0f - Math::Exp(-rate * deltaSeconds);
 	}
 
 	void AutoExposure::Dispatch(RHICommandList& cmd, const Ref<RHITexture>& scene,

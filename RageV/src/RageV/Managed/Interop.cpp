@@ -85,7 +85,7 @@ namespace RageV::Managed
 			// a clipped name it has no way to notice.
 			if (buffer && capacity > 0)
 			{
-				const int32_t copied = std::min(length, capacity - 1);
+				const int32_t copied = Math::Min(length, capacity - 1);
 				std::memcpy(buffer, name.data(), (size_t)copied);
 				buffer[copied] = '\0';
 			}
@@ -297,7 +297,7 @@ namespace RageV::Managed
 			const int32_t count = (int32_t)ids.size();
 			if (buffer && capacity > 0)
 			{
-				const int32_t copied = std::min(count, capacity);
+				const int32_t copied = Math::Min(count, capacity);
 				for (int32_t i = 0; i < copied; i++)
 					buffer[i] = (uint64_t)ids[(size_t)i];
 			}
@@ -565,7 +565,7 @@ namespace RageV::Managed
 
 			if (buffer && capacity > 0)
 			{
-				const int32_t copied = std::min(length, capacity - 1);
+				const int32_t copied = Math::Min(length, capacity - 1);
 				std::memcpy(buffer, text.data(), (size_t)copied);
 				buffer[copied] = '\0';
 			}
@@ -758,7 +758,7 @@ namespace RageV::Managed
 
 			if (buffer && capacity > 0)
 			{
-				const int32_t copied = std::min(length, capacity - 1);
+				const int32_t copied = Math::Min(length, capacity - 1);
 				std::memcpy(buffer, text.data(), (size_t)copied);
 				buffer[copied] = '\0';
 			}
@@ -851,7 +851,7 @@ namespace RageV::Managed
 			const int32_t length = (int32_t)text.size();
 			if (buffer && capacity > 0)
 			{
-				const int32_t copied = std::min(length, capacity - 1);
+				const int32_t copied = Math::Min(length, capacity - 1);
 				std::memcpy(buffer, text.data(), (size_t)copied);
 				buffer[copied] = '\0';
 			}

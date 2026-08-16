@@ -17,7 +17,7 @@ namespace RageV
 		// does not apply. Nothing clusters an orthographic view today; giving
 		// it a plausible range keeps it from producing a division by zero if
 		// something ever does.
-		if (std::fabs(projection[3][3] - 1.0f) < 1e-6f || std::fabs(m22) < 1e-9f)
+		if (Math::Abs(projection[3][3] - 1.0f) < 1e-6f || Math::Abs(m22) < 1e-9f)
 		{
 			nearPlane = 0.1f;
 			farPlane = 1000.0f;
@@ -26,7 +26,7 @@ namespace RageV
 
 		nearPlane = m32 / m22;
 		const float denominator = m22 + 1.0f;
-		farPlane = std::fabs(denominator) < 1e-9f ? nearPlane * 1000.0f : m32 / denominator;
+		farPlane = Math::Abs(denominator) < 1e-9f ? nearPlane * 1000.0f : m32 / denominator;
 
 		nearPlane = Math::Max(nearPlane, 0.0001f);
 		farPlane = Math::Max(farPlane, nearPlane * 1.001f);
@@ -38,12 +38,12 @@ namespace RageV
 		//     slice = kSlices * log(z / near) / log(far / near)
 		// which factors into log(z) * scale + bias with these two.
 		const float ratio = Math::Max(farPlane / Math::Max(nearPlane, 0.0001f), 1.0001f);
-		return (float)kSlices / std::log(ratio);
+		return (float)kSlices / Math::Log(ratio);
 	}
 
 	float LightGrid::SliceBias(float nearPlane, float farPlane)
 	{
-		return -SliceScale(nearPlane, farPlane) * std::log(Math::Max(nearPlane, 0.0001f));
+		return -SliceScale(nearPlane, farPlane) * Math::Log(Math::Max(nearPlane, 0.0001f));
 	}
 
 	uint32_t LightGrid::SliceForDepth(float viewDepth, float nearPlane, float farPlane)
@@ -54,7 +54,7 @@ namespace RageV
 		if (viewDepth <= nearPlane)
 			return 0;
 
-		const float slice = std::log(viewDepth) * SliceScale(nearPlane, farPlane) +
+		const float slice = Math::Log(viewDepth) * SliceScale(nearPlane, farPlane) +
 							SliceBias(nearPlane, farPlane);
 
 		return (uint32_t)Math::Clamp((int)slice, 0, (int)kSlices - 1);

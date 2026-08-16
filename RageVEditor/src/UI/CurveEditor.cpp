@@ -27,8 +27,8 @@ namespace RageV::UI
 
 			for (const Curve::Key& key : curve.GetKeys())
 			{
-				low = std::min(low, key.Value[0]);
-				high = std::max(high, key.Value[0]);
+				low = Math::Min(low, key.Value[0]);
+				high = Math::Max(high, key.Value[0]);
 			}
 
 			if (high - low < 1e-3f)
@@ -65,7 +65,7 @@ namespace RageV::UI
 
 		const bool gradient = curve.GetChannels() >= 3;
 		const float height = GetHeight(curve);
-		const float width = std::max(120.0f, ImGui::GetContentRegionAvail().x);
+		const float width = Math::Max(120.0f, ImGui::GetContentRegionAvail().x);
 
 		const ImVec2 origin = ImGui::GetCursorScreenPos();
 		const ImVec2 size(width, height);
@@ -107,7 +107,7 @@ namespace RageV::UI
 			// rectangles rather than a gradient primitive because the curve is
 			// piecewise linear over an arbitrary number of stops, which no
 			// two-colour gradient call can express.
-			const int steps = (int)std::min(size.x, 256.0f);
+			const int steps = (int)Math::Min(size.x, 256.0f);
 			for (int i = 0; i < steps; i++)
 			{
 				const float t0 = (float)i / (float)steps;
@@ -135,7 +135,7 @@ namespace RageV::UI
 			// The curve, sampled rather than drawn key to key: what is shown
 			// has to be what Evaluate answers, including its clamped ends,
 			// or the picture and the particle disagree.
-			const int steps = (int)std::min(size.x, 192.0f);
+			const int steps = (int)Math::Min(size.x, 192.0f);
 			ImVec2 previous = toScreen(0.0f, curve.EvaluateScalar(0.0f));
 			for (int i = 1; i <= steps; i++)
 			{

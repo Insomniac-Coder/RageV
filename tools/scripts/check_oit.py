@@ -38,10 +38,16 @@ BACKGROUND = np.array([62, 62, 70])
 
 
 def render(runtime_dir, project, scene, backend, out):
+    # Time pinned, like every other check in this directory since 7.2e. This
+    # one was written before that and never caught up: without --frame-time the
+    # simulation advances by real elapsed time, so two runs reach the
+    # screenshot with plumes of different ages and every threshold here is
+    # partly a stopwatch.
     result = subprocess.run(
         [os.path.join(runtime_dir, "RageVRuntime.exe"),
          "--project=" + project, "--scene=scenes/" + scene, "--rhi=" + backend,
-         "--validation=on", "--screenshot=" + out],
+         "--validation=on", "--screenshot=" + out,
+         "--frame-time=0.016666", "--screenshot-frame=30"],
         cwd=runtime_dir, capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(f"FAIL: {scene} on {backend} exited {result.returncode}\n"
@@ -88,16 +94,35 @@ def main():
             mask_ref, mask_weighted = coverage(reference), coverage(weighted)
 
             # 1. Same pixels covered, the same way up.
+            #
+            # **Not to the pixel, and asking for that was luck rather than
+            # rigour.** The two renders resolve the same particles by different
+            # arithmetic, so the faintest ring of the plume lands either side of
+            # this threshold depending on the frame: measured at frames 10, 20,
+            # 30, 45 and 60 the difference is 36, 0, 76, 0 and 0 out of ~152,000
+            # covered pixels. The check passed for a year because the frame it
+            # happened to render was one of the zeroes.
+            #
+            # What it is *for* is orientation and placement, and both of those
+            # are enormous: rendering the silhouette upside down differs by
+            # 34,304 pixels, 450 times the worst fringe seen here. So the claim
+            # is a fraction of the covered area -- ten times the observed
+            # fringe, and still forty-five times smaller than a flip.
+            covered = int(mask_ref.sum())
             wrong = int((mask_ref ^ mask_weighted).sum())
             flipped = int((mask_ref ^ mask_weighted[::-1]).sum())
+            allowed = max(int(covered * 0.005), 1)
             checks += 1
-            if wrong != 0:
+            if wrong > allowed:
                 failures += 1
-                how = "vertically flipped" if flipped == 0 else "misplaced"
+                how = "vertically flipped" if flipped < wrong else "misplaced"
                 print(f"FAIL [{backend}] weighted transparency is {how}: "
-                      f"{wrong} pixels differ from the sorted render")
+                      f"{wrong} pixels differ from the sorted render "
+                      f"(at most {allowed} of {covered} may)")
             else:
-                print(f"OK   [{backend}] weighted silhouette matches the sorted render")
+                print(f"OK   [{backend}] weighted silhouette matches the sorted "
+                      f"render ({wrong} of {covered} differ, {allowed} allowed; "
+                      f"flipped would be {flipped})")
 
             # 2. Near beats far. Red sits at 2 units, green at 20, blue at 200,
             #    so a weight that still discriminates puts them in that order.

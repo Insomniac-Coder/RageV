@@ -167,7 +167,7 @@ namespace RageV::Anim
 		{
 			if (loop)
 			{
-				t = std::fmod(time, clip.Duration);
+				t = Math::FMod(time, clip.Duration);
 				// fmod keeps the sign of the numerator, so a negative time --
 				// which a blend running backwards produces -- would land
 				// outside the clip.

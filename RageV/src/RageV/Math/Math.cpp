@@ -28,16 +28,15 @@ namespace RageV::Math
 {
 	// --- scalars -------------------------------------------------------------
 
-	float Round(float v)       { return std::round(v); }
-	Vec3  Round(const Vec3& v) { return { std::round(v.x), std::round(v.y), std::round(v.z) }; }
-	Vec4  Round(const Vec4& v) { return { std::round(v.x), std::round(v.y), std::round(v.z), std::round(v.w) }; }
+	Vec3  Round(const Vec3& v) { return { Round(v.x), Round(v.y), Round(v.z) }; }
+	Vec4  Round(const Vec4& v) { return { Round(v.x), Round(v.y), Round(v.z), Round(v.w) }; }
 
 	float Mod(float value, float divisor)
 	{
 		// The remainder with the sign of the *divisor*. std::fmod takes the sign
 		// of the dividend and hands back a negative angle for a negative input --
 		// correct, and not what wrapping an angle means.
-		return value - divisor * std::floor(value / divisor);
+		return value - divisor * Floor(value / divisor);
 	}
 
 	// --- matrices ------------------------------------------------------------
@@ -161,8 +160,8 @@ namespace RageV::Math
 		// passes either a literal like {0,1,0} or a direction it has not
 		// renormalised, and an unnormalised axis silently scales as well as
 		// rotates.
-		const float c = std::cos(radians);
-		const float s = std::sin(radians);
+		const float c = Cos(radians);
+		const float s = Sin(radians);
 		const Vec3 a = Normalize(axis);
 		const Vec3 t = a * (1.0f - c);
 
@@ -184,7 +183,7 @@ namespace RageV::Math
 		// Right-handed, depth in [0, 1]. The [-1, 1] form in most textbooks
 		// differs in [2].z and [3].z, and against a Vulkan-style clip volume it
 		// throws away half the depth range while still producing a picture.
-		const float tanHalfFov = std::tan(verticalFovRadians * 0.5f);
+		const float tanHalfFov = Tan(verticalFovRadians * 0.5f);
 
 		Mat4 result(0.0f);
 		result[0].x = 1.0f / (aspect * tanHalfFov);
@@ -274,7 +273,7 @@ namespace RageV::Math
 	// --- rotations -----------------------------------------------------------
 
 	float Dot(const Quat& a, const Quat& b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
-	float Length(const Quat& q)             { return std::sqrt(Dot(q, q)); }
+	float Length(const Quat& q)             { return Sqrt(Dot(q, q)); }
 
 	Quat Normalize(const Quat& q)
 	{
@@ -320,8 +319,8 @@ namespace RageV::Math
 	Quat AngleAxis(float radians, const Vec3& axis)
 	{
 		const float half = radians * 0.5f;
-		const float s = std::sin(half);
-		return { std::cos(half), axis.x * s, axis.y * s, axis.z * s };
+		const float s = Sin(half);
+		return { Cos(half), axis.x * s, axis.y * s, axis.z * s };
 	}
 
 	float Angle(const Quat& q)
@@ -331,18 +330,18 @@ namespace RageV::Math
 		// threshold is cos(0.5), where the two are equally good.
 		if (Abs(q.w) > 0.877582561890372716f)
 		{
-			const float sine = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z);
-			return 2.0f * std::atan2(sine, Abs(q.w));
+			const float sine = Sqrt(q.x * q.x + q.y * q.y + q.z * q.z);
+			return 2.0f * Atan2(sine, Abs(q.w));
 		}
-		return 2.0f * std::acos(Clamp(q.w, -1.0f, 1.0f));
+		return 2.0f * Acos(Clamp(q.w, -1.0f, 1.0f));
 	}
 
 	Quat FromEuler(const Vec3& radians)
 	{
 		const Vec3 half = radians * 0.5f;
-		const float cx = std::cos(half.x), sx = std::sin(half.x);
-		const float cy = std::cos(half.y), sy = std::sin(half.y);
-		const float cz = std::cos(half.z), sz = std::sin(half.z);
+		const float cx = Cos(half.x), sx = Sin(half.x);
+		const float cy = Cos(half.y), sy = Sin(half.y);
+		const float cz = Cos(half.z), sz = Sin(half.z);
 
 		return {
 			cx * cy * cz + sx * sy * sz,
@@ -360,9 +359,9 @@ namespace RageV::Math
 		// unit length -- which any accumulated rotation eventually is -- would
 		// otherwise produce a NaN at exactly the poles, and a NaN in a rotation
 		// takes the object and every child with it.
-		const float pitch = std::atan2(2.0f * (q.y * q.z + q.w * q.x), ww - xx - yy + zz);
-		const float yaw   = std::asin(Clamp(-2.0f * (q.x * q.z - q.w * q.y), -1.0f, 1.0f));
-		const float roll  = std::atan2(2.0f * (q.x * q.y + q.w * q.z), ww + xx - yy - zz);
+		const float pitch = Atan2(2.0f * (q.y * q.z + q.w * q.x), ww - xx - yy + zz);
+		const float yaw   = Asin(Clamp(-2.0f * (q.x * q.z - q.w * q.y), -1.0f, 1.0f));
+		const float roll  = Atan2(2.0f * (q.x * q.y + q.w * q.z), ww + xx - yy - zz);
 		return { pitch, yaw, roll };
 	}
 
@@ -404,7 +403,7 @@ namespace RageV::Math
 		if (fourYSquaredMinus1 > biggestSquaredMinus1) { biggestSquaredMinus1 = fourYSquaredMinus1; biggestIndex = 2; }
 		if (fourZSquaredMinus1 > biggestSquaredMinus1) { biggestSquaredMinus1 = fourZSquaredMinus1; biggestIndex = 3; }
 
-		const float biggest = std::sqrt(biggestSquaredMinus1 + 1.0f) * 0.5f;
+		const float biggest = Sqrt(biggestSquaredMinus1 + 1.0f) * 0.5f;
 		const float mult = 0.25f / biggest;
 
 		switch (biggestIndex)
@@ -456,10 +455,10 @@ namespace RageV::Math
 			};
 		}
 
-		const float angle = std::acos(Clamp(cosTheta, -1.0f, 1.0f));
-		const float sinAngle = std::sin(angle);
-		const float scaleFrom = std::sin((1.0f - t) * angle) / sinAngle;
-		const float scaleTo = std::sin(t * angle) / sinAngle;
+		const float angle = Acos(Clamp(cosTheta, -1.0f, 1.0f));
+		const float sinAngle = Sin(angle);
+		const float scaleFrom = Sin((1.0f - t) * angle) / sinAngle;
+		const float scaleTo = Sin(t * angle) / sinAngle;
 
 		return {
 			scaleFrom * from.w + scaleTo * b.w,

@@ -34,12 +34,12 @@ namespace RageV::IO
 		// nobody can prove.
 		float SrgbToLinear(float v)
 		{
-			return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
+			return v <= 0.04045f ? v / 12.92f : Math::Pow((v + 0.055f) / 1.055f, 2.4f);
 		}
 
 		float LinearToSrgb(float v)
 		{
-			return v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+			return v <= 0.0031308f ? v * 12.92f : 1.055f * Math::Pow(v, 1.0f / 2.4f) - 0.055f;
 		}
 
 		// --- the same transfers, without the transcendentals ------------------
@@ -102,7 +102,7 @@ namespace RageV::IO
 		uint8_t ReferenceSrgbByte(float v)
 		{
 			return (uint8_t)std::lround(
-				std::clamp(LinearToSrgb(v), 0.0f, 1.0f) * 255.0f);
+				Math::Clamp(LinearToSrgb(v), 0.0f, 1.0f) * 255.0f);
 		}
 
 		// Going back is the interesting direction, because the input is a
@@ -200,7 +200,7 @@ namespace RageV::IO
 
 		uint8_t LinearToSrgbByte(float v)
 		{
-			const float clamped = std::clamp(v, 0.0f, 1.0f);
+			const float clamped = Math::Clamp(v, 0.0f, 1.0f);
 			const uint32_t index = (uint32_t)(clamped * (float)(kCandidateCount - 1));
 
 			const uint8_t candidate = SrgbCandidates()[index];
@@ -215,7 +215,7 @@ namespace RageV::IO
 		// call into the CRT that honours the current rounding mode.
 		uint8_t UnitToByte(float v)
 		{
-			return (uint8_t)(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+			return (uint8_t)(Math::Clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
 		}
 
 		bool NameSaysNormal(std::string_view name)
@@ -301,18 +301,18 @@ namespace RageV::IO
 		FloatImage Downsample(const FloatImage& source)
 		{
 			FloatImage mip;
-			mip.Width = std::max(source.Width / 2, 1u);
-			mip.Height = std::max(source.Height / 2, 1u);
+			mip.Width = Math::Max(source.Width / 2, 1u);
+			mip.Height = Math::Max(source.Height / 2, 1u);
 			mip.Pixels.resize((size_t)mip.Width * mip.Height * 4);
 
 			for (uint32_t y = 0; y < mip.Height; y++)
 			{
 				for (uint32_t x = 0; x < mip.Width; x++)
 				{
-					const uint32_t x0 = std::min(x * 2, source.Width - 1);
-					const uint32_t x1 = std::min(x * 2 + 1, source.Width - 1);
-					const uint32_t y0 = std::min(y * 2, source.Height - 1);
-					const uint32_t y1 = std::min(y * 2 + 1, source.Height - 1);
+					const uint32_t x0 = Math::Min(x * 2, source.Width - 1);
+					const uint32_t x1 = Math::Min(x * 2 + 1, source.Width - 1);
+					const uint32_t y0 = Math::Min(y * 2, source.Height - 1);
+					const uint32_t y1 = Math::Min(y * 2 + 1, source.Height - 1);
 
 					float* out = mip.At(x, y);
 					for (int c = 0; c < 4; c++)
@@ -335,9 +335,9 @@ namespace RageV::IO
 				float x = image.Pixels[i * 4 + 0] * 2.0f - 1.0f;
 				float y = image.Pixels[i * 4 + 1] * 2.0f - 1.0f;
 				const float zSquared = 1.0f - x * x - y * y;
-				float z = std::sqrt(std::max(zSquared, 0.0f));
+				float z = Math::Sqrt(Math::Max(zSquared, 0.0f));
 
-				const float length = std::sqrt(x * x + y * y + z * z);
+				const float length = Math::Sqrt(x * x + y * y + z * z);
 				if (length > 1e-6f)
 				{
 					x /= length;
@@ -365,8 +365,8 @@ namespace RageV::IO
 			{
 				for (uint32_t x = 0; x < 4; x++)
 				{
-					const uint32_t sx = std::min(blockX * 4 + x, width - 1);
-					const uint32_t sy = std::min(blockY * 4 + y, height - 1);
+					const uint32_t sx = Math::Min(blockX * 4 + x, width - 1);
+					const uint32_t sy = Math::Min(blockY * 4 + y, height - 1);
 					std::memcpy(&out[(y * 4 + x) * 4], &rgba[((size_t)sy * width + sx) * 4], 4);
 				}
 			}

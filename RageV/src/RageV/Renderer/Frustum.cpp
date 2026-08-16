@@ -46,9 +46,9 @@ namespace RageV
 			// The box's extent along this plane's normal. Using absolute values
 			// gives the half-width of its projection, whichever way the normal
 			// points.
-			const float reach = extents.x * std::fabs(normal.x) +
-								extents.y * std::fabs(normal.y) +
-								extents.z * std::fabs(normal.z);
+			const float reach = extents.x * Math::Abs(normal.x) +
+								extents.y * Math::Abs(normal.y) +
+								extents.z * Math::Abs(normal.z);
 
 			if (Math::Dot(normal, centre) + plane.w + reach < 0.0f)
 				return false;   // wholly behind this plane
@@ -70,11 +70,11 @@ namespace RageV
 		// transforming eight corners and identical in result.
 		const Mat3 basis(transform);
 		extents = Vec3(
-			std::fabs(basis[0][0]) * localExtents.x + std::fabs(basis[1][0]) * localExtents.y +
-				std::fabs(basis[2][0]) * localExtents.z,
-			std::fabs(basis[0][1]) * localExtents.x + std::fabs(basis[1][1]) * localExtents.y +
-				std::fabs(basis[2][1]) * localExtents.z,
-			std::fabs(basis[0][2]) * localExtents.x + std::fabs(basis[1][2]) * localExtents.y +
-				std::fabs(basis[2][2]) * localExtents.z);
+			Math::Abs(basis[0][0]) * localExtents.x + Math::Abs(basis[1][0]) * localExtents.y +
+				Math::Abs(basis[2][0]) * localExtents.z,
+			Math::Abs(basis[0][1]) * localExtents.x + Math::Abs(basis[1][1]) * localExtents.y +
+				Math::Abs(basis[2][1]) * localExtents.z,
+			Math::Abs(basis[0][2]) * localExtents.x + Math::Abs(basis[1][2]) * localExtents.y +
+				Math::Abs(basis[2][2]) * localExtents.z);
 	}
 }

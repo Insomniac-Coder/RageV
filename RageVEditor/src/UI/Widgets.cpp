@@ -16,7 +16,7 @@ namespace RageV::UI
 
 	bool BeginProperties(const char* id, float labelFraction, bool resizable)
 	{
-		labelFraction = std::clamp(labelFraction, 0.15f, 0.75f);
+		labelFraction = Math::Clamp(labelFraction, 0.15f, 0.75f);
 
 		// NoBordersInBody because a grid drawn around every property is noise:
 		// the alignment already does the grouping that lines would do, and
@@ -170,7 +170,7 @@ namespace RageV::UI
 		// same label column, a 0.75 was rendering as "0.7", and a value that
 		// silently drops a digit is worse than one that is slightly cramped.
 		// Just over half the height is all one glyph needs.
-		const ImVec2 buttonSize = { std::max(frameHeight * 0.54f, 15.0f), frameHeight };
+		const ImVec2 buttonSize = { Math::Max(frameHeight * 0.54f, 15.0f), frameHeight };
 
 		// One pixel between a badge and its field so they read as one control,
 		// and a real gap between the three so they read as three.
@@ -187,7 +187,7 @@ namespace RageV::UI
 		// column starving CalcItemWidth(), not from this subtraction. Keep the
 		// clamp because a negative width is an assert rather than a glitch;
 		// do not mistake it for the reason the panel works.
-		const float fieldWidth = std::max((available - furniture) / 3.0f, kMinControlWidth);
+		const float fieldWidth = Math::Max((available - furniture) / 3.0f, kMinControlWidth);
 
 		const ImVec4 axisColors[3] = { colors.AxisX, colors.AxisY, colors.AxisZ };
 		const char* axisLabels[3] = { "X", "Y", "Z" };
@@ -447,7 +447,7 @@ namespace RageV::UI
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 1.0f, 0.0f });
 
 		const float available = ImGui::GetContentRegionAvail().x;
-		const float each = std::max((available - (count - 1)) / (float)count, kMinControlWidth);
+		const float each = Math::Max((available - (count - 1)) / (float)count, kMinControlWidth);
 
 		for (int i = 0; i < count; i++)
 		{

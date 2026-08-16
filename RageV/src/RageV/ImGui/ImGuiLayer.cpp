@@ -74,15 +74,15 @@ namespace RageV
 				glfwGetMonitorContentScale(monitor, &x, &y);
 				// The larger axis: a non-square scale is possible and the text
 				// has to stay legible on both.
-				dpiScale = std::max({ x, y, 1.0f });
+				dpiScale = Math::Max(x, y, 1.0f);
 			}
 		}
 
 		// Beyond 3x the atlas grows faster than it is worth.
-		dpiScale = std::clamp(dpiScale, 0.5f, 3.0f);
+		dpiScale = Math::Clamp(dpiScale, 0.5f, 3.0f);
 		m_DpiScale = dpiScale;
 
-		const float fontSize = std::round(18.0f * dpiScale);
+		const float fontSize = Math::Round(18.0f * dpiScale);
 		io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/Fonts/RobotoFlex-Regular.ttf", fontSize);
 		if (!io.FontDefault)
 			RV_CORE_WARN("Editor font missing; ImGui will use its built-in one");

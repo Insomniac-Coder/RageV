@@ -299,7 +299,7 @@ namespace RageV::IO
 			return 0;
 
 		const uint64_t available = m_Size - m_Cursor;
-		const size_t toRead = (size_t)std::min<uint64_t>(bytes, available);
+		const size_t toRead = (size_t)Math::Min<uint64_t>(bytes, available);
 
 		// Reads never cross the entry's end: the bytes after it belong to the
 		// next asset, and a decoder that over-reads would decode them.

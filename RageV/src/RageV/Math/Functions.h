@@ -149,15 +149,173 @@ namespace RageV::Math
 	inline float* ValuePtr(Vec4& v) { return &v.x; }
 
 	// --- scalars -------------------------------------------------------------
+	//
+	// **The whole of <cmath> that this engine uses, under the engine's own
+	// names.** A call site says `Math::Sin`, never `std::sin`, for the reason
+	// Types.h gives for the vectors: RageV should read as one engine rather
+	// than as a thin coat over the standard library, and a game script that has
+	// to know which of `std::`, `glm::` and `Math::` a function lives in is
+	// being asked to learn the engine's history. The wrappers are `inline` and
+	// forward directly, so this costs nothing at any optimisation level.
+	//
+	// Float and double are spelled separately rather than templated. A template
+	// deduces `Sin(1)` as `int` and truncates the answer to zero; two overloads
+	// make that call ambiguous instead, which is the failure worth having.
 
 	constexpr float Radians(float degrees) { return degrees * (Pi / 180.0f); }
 	constexpr float Degrees(float radians) { return radians * (180.0f / Pi); }
 
-	constexpr float Min(float a, float b) { return a < b ? a : b; }
-	constexpr float Max(float a, float b) { return a > b ? a : b; }
-	constexpr float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+	// Templates rather than the float-only pair these used to be. `Max(width /
+	// 2u, 1u)` against a `float Max(float, float)` converted both arguments to
+	// float, compared them there and converted back -- which is exact only
+	// below 2^24, and every one of those call sites is a pixel count or a
+	// buffer size that could exceed it. Deducing one type also *rejects*
+	// `Max(anInt, aUint)` instead of quietly picking one, which is the same
+	// argument one level up.
+	template<typename T> constexpr T Min(T a, T b) { return a < b ? a : b; }
+	template<typename T> constexpr T Max(T a, T b) { return a > b ? a : b; }
+	template<typename T> constexpr T Clamp(T v, T lo, T hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+	// Three or more, so a widest-of-three reads as one call rather than as a
+	// nest. Spelled to require the third argument: an empty pack here would
+	// make every two-argument call ambiguous with the pair above.
+	template<typename T, typename... Rest>
+	constexpr T Min(T a, T b, T c, Rest... rest)
+	{
+		T best = Min(Min(a, b), c);
+		((best = Min(best, rest)), ...);
+		return best;
+	}
+	template<typename T, typename... Rest>
+	constexpr T Max(T a, T b, T c, Rest... rest)
+	{
+		T best = Max(Max(a, b), c);
+		((best = Max(best, rest)), ...);
+		return best;
+	}
+
 	constexpr float Mix(float a, float b, float t) { return a + (b - a) * t; }
-	inline    float Abs(float v) { return std::fabs(v); }
+	// The name the shading languages and every other engine use for Mix. Both
+	// are here because the GLSL half of this codebase says `mix` and the script
+	// half says `Lerp`, and neither should have to translate.
+	constexpr float Lerp(float a, float b, float t) { return Mix(a, b, t); }
+
+	// Clamped to [0, 1] -- the shading language's `saturate`, which is what a
+	// weight or a colour channel almost always wants.
+	constexpr float Saturate(float v) { return Clamp(v, 0.0f, 1.0f); }
+
+	// Zero for zero, rather than the +1 a `v < 0 ? -1 : 1` gives it, and
+	// nothing like std::copysign's sign-of-a-zero behaviour.
+	constexpr float Sign(float v) { return v > 0.0f ? 1.0f : (v < 0.0f ? -1.0f : 0.0f); }
+
+	inline float  Abs(float v)  { return std::fabs(v); }
+	inline double Abs(double v) { return std::fabs(v); }
+	// Integral, where fabs would round-trip through a float. Signed only: the
+	// absolute value of an unsigned is itself, and asking for it is usually a
+	// sign the type is wrong.
+	constexpr int      Abs(int v)      { return v < 0 ? -v : v; }
+	constexpr long     Abs(long v)     { return v < 0 ? -v : v; }
+	constexpr long long Abs(long long v) { return v < 0 ? -v : v; }
+
+	// --- trigonometry --------------------------------------------------------
+	//
+	// Radians, like every other angle in this engine. `Radians()` above is the
+	// converter, and the inspector is the only place degrees exist.
+
+	inline float  Sin(float v)   { return std::sin(v); }
+	inline double Sin(double v)  { return std::sin(v); }
+	inline float  Cos(float v)   { return std::cos(v); }
+	inline double Cos(double v)  { return std::cos(v); }
+	inline float  Tan(float v)   { return std::tan(v); }
+	inline double Tan(double v)  { return std::tan(v); }
+
+	// Clamped before the call, which is the one place these deliberately differ
+	// from <cmath>. A dot product of two unit vectors is analytically in
+	// [-1, 1] and numerically is not: a rounding error of one ulp past the end
+	// makes std::acos return NaN, and a NaN angle becomes a NaN rotation and
+	// then a vanished object. That is the same failure Normalize guards, met
+	// from the other side.
+	inline float  Asin(float v)  { return std::asin(Clamp(v, -1.0f, 1.0f)); }
+	inline double Asin(double v) { return std::asin(Clamp(v, -1.0, 1.0)); }
+	inline float  Acos(float v)  { return std::acos(Clamp(v, -1.0f, 1.0f)); }
+	inline double Acos(double v) { return std::acos(Clamp(v, -1.0, 1.0)); }
+
+	inline float  Atan(float v)  { return std::atan(v); }
+	inline double Atan(double v) { return std::atan(v); }
+	// y first, as everywhere else -- it is the opposite side over the adjacent.
+	inline float  Atan2(float y, float x)   { return std::atan2(y, x); }
+	inline double Atan2(double y, double x) { return std::atan2(y, x); }
+
+	inline float  Sinh(float v)  { return std::sinh(v); }
+	inline double Sinh(double v) { return std::sinh(v); }
+	inline float  Cosh(float v)  { return std::cosh(v); }
+	inline double Cosh(double v) { return std::cosh(v); }
+	inline float  Tanh(float v)  { return std::tanh(v); }
+	inline double Tanh(double v) { return std::tanh(v); }
+
+	// --- exponential ---------------------------------------------------------
+
+	inline float  Sqrt(float v)  { return std::sqrt(v); }
+	inline double Sqrt(double v) { return std::sqrt(v); }
+
+	// Guarded, for the reason Normalize is: a negative under the root is a
+	// silent NaN that travels. Callers who know the sign use Sqrt.
+	inline float  SafeSqrt(float v)  { return v > 0.0f ? std::sqrt(v) : 0.0f; }
+
+	inline float  Pow(float base, float exponent)    { return std::pow(base, exponent); }
+	inline double Pow(double base, double exponent)  { return std::pow(base, exponent); }
+	inline float  Exp(float v)   { return std::exp(v); }
+	inline double Exp(double v)  { return std::exp(v); }
+	inline float  Exp2(float v)  { return std::exp2(v); }
+	inline double Exp2(double v) { return std::exp2(v); }
+	inline float  Log(float v)   { return std::log(v); }
+	inline double Log(double v)  { return std::log(v); }
+	inline float  Log2(float v)  { return std::log2(v); }
+	inline double Log2(double v) { return std::log2(v); }
+	inline float  Log10(float v)  { return std::log10(v); }
+	inline double Log10(double v) { return std::log10(v); }
+
+	// --- rounding ------------------------------------------------------------
+
+	inline float  Floor(float v)  { return std::floor(v); }
+	inline double Floor(double v) { return std::floor(v); }
+	inline float  Ceil(float v)   { return std::ceil(v); }
+	inline double Ceil(double v)  { return std::ceil(v); }
+	inline float  Trunc(float v)  { return std::trunc(v); }
+	inline double Trunc(double v) { return std::trunc(v); }
+	inline float  Round(float v)  { return std::round(v); }
+	inline double Round(double v) { return std::round(v); }
+
+	// The part after the point, always positive -- `Fract(-0.25) == 0.75`,
+	// which is what tiling a texture or wrapping a curve means. Trunc is the
+	// one that cuts towards zero.
+	inline float Fract(float v) { return v - std::floor(v); }
+
+	// C's remainder, with the sign of the *dividend*. `Mod` below is the other
+	// one -- sign of the divisor, which is what wrapping an angle or a clip
+	// time means. They differ only for negative inputs, which is exactly when
+	// picking the wrong one is hard to see: `FMod(-1, 3)` is -1 and
+	// `Mod(-1, 3)` is 2. Both are here so a call site has to say which.
+	inline float  FMod(float value, float divisor)   { return std::fmod(value, divisor); }
+	inline double FMod(double value, double divisor) { return std::fmod(value, divisor); }
+
+	// --- interpolation and queries -------------------------------------------
+
+	// Zero below the edge, one above it, and the smooth Hermite curve between.
+	// The GLSL function of the same name, and the same clamp.
+	constexpr float SmoothStep(float edge0, float edge1, float v)
+	{
+		const float t = Clamp((v - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+		return t * t * (3.0f - 2.0f * t);
+	}
+	constexpr float Step(float edge, float v) { return v < edge ? 0.0f : 1.0f; }
+
+	inline bool IsNaN(float v)    { return std::isnan(v); }
+	inline bool IsInf(float v)    { return std::isinf(v); }
+	inline bool IsFinite(float v) { return std::isfinite(v); }
+
+	inline float  Hypot(float a, float b) { return std::hypot(a, b); }
+	inline float  CopySign(float magnitude, float sign) { return std::copysign(magnitude, sign); }
 
 	// --- component-wise ------------------------------------------------------
 
@@ -245,7 +403,8 @@ namespace RageV::Math
 	// else. Math.cpp is also where the handedness and depth-range conventions
 	// they depend on are written down.
 
-	float Round(float v);
+	// The scalar Round is up with the other <cmath> wrappers; these two are
+	// here because a component-wise loop is not a one-line forward.
 	Vec3  Round(const Vec3& v);
 	Vec4  Round(const Vec4& v);
 

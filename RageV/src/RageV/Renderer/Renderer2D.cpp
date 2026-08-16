@@ -343,7 +343,7 @@ namespace RageV
 		s_Data->Scene.ViewProjection = camera.GetProjection() * Math::Inverse(transform);
 		s_Data->Scene.CameraPosition = Vec4(Vec3(transform[3]), 1.0f);
 
-		const int lightCount = (int)std::min<size_t>(lights.size(), kMaxLights);
+		const int lightCount = (int)Math::Min<size_t>(lights.size(), kMaxLights);
 		for (int i = 0; i < lightCount; i++)
 		{
 			// The quad shader has no attenuation model, so intensity is folded

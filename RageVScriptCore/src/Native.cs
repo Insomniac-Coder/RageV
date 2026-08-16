@@ -153,7 +153,7 @@ public struct Vector3
 	public static Vector3 operator *(Vector3 v, float s) => new Vector3(v.X * s, v.Y * s, v.Z * s);
 	public static Vector3 operator *(float s, Vector3 v) => v * s;
 
-	public float Length() => MathF.Sqrt(X * X + Y * Y + Z * Z);
+	public float Length() => Mathf.Sqrt(X * X + Y * Y + Z * Z);
 	public float LengthSquared() => X * X + Y * Y + Z * Z;
 
 	/// <summary>Unit length, and zero stays zero.</summary>

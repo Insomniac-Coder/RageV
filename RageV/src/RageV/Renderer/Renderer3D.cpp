@@ -704,11 +704,11 @@ namespace RageV
 			// Cones are compared as cosines in the shader, so convert once here
 			// rather than per fragment. Equal angles disable the cone test.
 			const float inner = light.Type == Light::LightType::Spot
-							  ? std::cos(Math::Radians(light.InnerCone)) : 1.0f;
+							  ? Math::Cos(Math::Radians(light.InnerCone)) : 1.0f;
 			const float outer = light.Type == Light::LightType::Spot
-							  ? std::cos(Math::Radians(light.OuterCone)) : 1.0f;
+							  ? Math::Cos(Math::Radians(light.OuterCone)) : 1.0f;
 
-			entry.Params = { std::max(light.Range, 0.0001f), inner, outer, 0.0f };
+			entry.Params = { Math::Max(light.Range, 0.0001f), inner, outer, 0.0f };
 			entry.Shadow = Vec4(0.0f);
 
 			s_Data->LightScratch.push_back(entry);
@@ -722,8 +722,8 @@ namespace RageV
 		s_Data->Scene.Environment = {
 			environmentMap ? environment.SkyIntensity : 0.0f,
 			Math::Max(mips - 1.0f, 0.0f),
-			std::cos(environment.SkyRotation),
-			std::sin(environment.SkyRotation),
+			Math::Cos(environment.SkyRotation),
+			Math::Sin(environment.SkyRotation),
 		};
 
 		// Sent, not derived. A prefiltered cube stops at its roughness levels,
@@ -816,7 +816,7 @@ namespace RageV
 		// The light buffer. Always at least one element: a zero-length storage
 		// buffer is not a binding, and a scene with no lights at all still has
 		// to bind something the layout is happy with.
-		const uint32_t lightSlots = std::max<uint32_t>((uint32_t)s_Data->LightScratch.size(), 1u);
+		const uint32_t lightSlots = Math::Max<uint32_t>((uint32_t)s_Data->LightScratch.size(), 1u);
 		if (!EnsureInstanceBuffer(slot.Lights, slot.LightCapacity, lightSlots,
 								  sizeof(GpuLight), "Renderer3D.lights"))
 		{
@@ -836,7 +836,7 @@ namespace RageV
 
 		const auto& cells = s_Data->Grid.Cells();
 		const auto& cellIndices = s_Data->Grid.Indices();
-		const uint32_t indexSlots = std::max<uint32_t>((uint32_t)cellIndices.size(), 1u);
+		const uint32_t indexSlots = Math::Max<uint32_t>((uint32_t)cellIndices.size(), 1u);
 
 		if (!EnsureInstanceBuffer(slot.Cells, slot.CellCapacity, (uint32_t)cells.size(),
 								  sizeof(LightGrid::Cell), "Renderer3D.cells") ||

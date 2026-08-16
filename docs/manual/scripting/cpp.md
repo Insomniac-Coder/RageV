@@ -31,7 +31,7 @@ public:
     {
         m_Elapsed += dt.GetSeconds();
         Vec3 position = m_Origin;
-        position.y += std::sin(m_Elapsed * 2.0f) * Height;
+        position.y += Math::Sin(m_Elapsed * 2.0f) * Height;
         GetPosition() = position;
     }
 

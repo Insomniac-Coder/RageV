@@ -64,7 +64,7 @@ public class Follow : Script
 		// converges at a rate that depends on the step size — which on a frame,
 		// where deltaTime varies, would mean the camera lagged further behind
 		// whenever the frame rate dipped.
-		float t = 1.0f - System.MathF.Exp(-m_Sharpness * deltaTime);
+		float t = 1.0f - Mathf.Exp(-m_Sharpness * deltaTime);
 		Position = here + (goal - here) * t;
 	}
 }
@@ -85,7 +85,7 @@ public class ContactCounter : Script
 	public override void OnCollisionEnter(Collision collision)
 	{
 		m_Entered++;
-		m_HardestHit = System.MathF.Max(m_HardestHit, collision.ImpactSpeed);
+		m_HardestHit = Mathf.Max(m_HardestHit, collision.ImpactSpeed);
 	}
 
 	public override void OnCollisionExit(Collision collision) => m_Exited++;
@@ -138,7 +138,7 @@ public class Mover : Script
 		if (lengthSquared <= 0.0f)
 			return;
 
-		float length = (float)System.Math.Sqrt(lengthSquared);
+		float length = Mathf.Sqrt(lengthSquared);
 		float speed = Input.IsActionDown("Sprint") ? m_Speed * 3.0f : m_Speed;
 
 		Translate(direction * (speed * deltaTime / length));

@@ -98,7 +98,7 @@ namespace RageV
 							kBackground);
 
 		const float centreX = origin.x + size.x * 0.5f;
-		const float barWidth = std::clamp(size.x * kBarWidthFraction,
+		const float barWidth = Math::Clamp(size.x * kBarWidthFraction,
 										  kBarMinWidth, kBarMaxWidth);
 		const float barLeft = centreX - barWidth * 0.5f;
 		// Slightly above centre. Text hung under a bar that sits dead centre
@@ -112,7 +112,7 @@ namespace RageV
 							ImVec2(barLeft + barWidth, barTop + barHeight),
 							kTrack, barHeight * 0.5f);
 
-		const float filled = barWidth * std::clamp(status.Fraction, 0.0f, 1.0f);
+		const float filled = barWidth * Math::Clamp(status.Fraction, 0.0f, 1.0f);
 		if (filled > 0.0f)
 		{
 			draw->AddRectFilled(ImVec2(barLeft, barTop),

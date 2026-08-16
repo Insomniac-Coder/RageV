@@ -4926,6 +4926,94 @@ at the target's size, usable as a texture.
 
 ---
 
+## 7aj. The engine's own <cmath> (X.1)
+
+5.0c replaced glm with the engine's own vectors and matrices, for the reason
+Types.h gives: RageV should read as one engine rather than as an assembly of
+libraries, and an alias hides nothing because every compiler error still names
+the library. The scalars were left behind. A call site said `Math::Clamp` on
+one line and `std::sin` on the next, and a game script had to know which of
+three namespaces a function lived in — which is being asked to learn the
+engine's history rather than its API.
+
+`RageV::Math` now carries the whole of `<cmath>` this engine uses, and
+`RageV.Mathf` mirrors it in C#. 402 call sites moved across the engine, the
+editor, the tools and the sample scripts. **One `std::` survives, in
+scenetest's glm oracle**, and it is commented: a comparison built out of the
+thing it compares passes forever.
+
+### The wrappers are not all forwards
+
+Four differ from the standard library, and each difference is one this engine
+already believed in somewhere else:
+
+- **`Acos` and `Asin` clamp first.** A dot product of two unit vectors is
+  analytically in [-1, 1] and numerically is not, and `std::acos` of one ulp
+  past the end is a NaN. That is the same failure `Normalize` has guarded
+  since 5.0c — a NaN angle becomes a NaN rotation and then an object nobody
+  can find — met from the other side. Math.cpp had been writing
+  `std::acos(Clamp(...))` by hand at three call sites; now it cannot be
+  forgotten at a fourth.
+- **`Mod` takes the sign of the divisor, `FMod` the dividend.** Both are
+  provided, so a call site has to say which it means. They differ only for
+  negative inputs, which is exactly when picking the wrong one is invisible.
+- **`Fract` is always positive**, for the same reason: a texture coordinate of
+  -0.25 is three quarters into the tile.
+- **`SafeSqrt`** exists beside `Sqrt` rather than replacing it.
+
+### Two things the templates changed underneath existing code
+
+`Min`, `Max` and `Clamp` were declared **only for float**. So
+`Math::Max(width / 2u, 1u)` converted both arguments to float, compared them
+there and converted back — exact only below 2^24, and every one of those call
+sites is a pixel count, a buffer size or a mip count. They are templates now,
+which also *rejects* `Max(anInt, aUint)` instead of quietly picking one. The
+scenetest case is `Max(16777217u, 16777216u)`, two numbers that are the same
+float and different unsigned.
+
+`Round(float)` moved from Math.cpp into the header with the other forwards.
+`Functions.h` says out-of-line means "long enough to belong in a .cpp", and a
+one-line forward to `std::round` is not that; it sat there only because it was
+the odd one out before the rest of `<cmath>` had names.
+
+### The C# side is a claim, not a convention
+
+Naming both sides `Sin` is a convention. Being the *same function* is a claim,
+and on three of them it is not free:
+
+- **.NET rounds a half to even and C rounds it away from zero.** `Round(0.5)`
+  is 0 in one language and 1 in the other, out of the box. A script placing a
+  tile by rounding would land in a different square depending on which
+  language placed it, on one value in two.
+- `MathF.Acos` does not clamp, and `%` is `fmod` rather than the wrapping
+  remainder.
+
+So `Interop.EvaluateMath` takes an opcode and two floats, and scenetest walks
+39 functions × 10 awkward inputs against the native ones. Reverting the
+rounding mode makes it say `Round(0.500000): C# 0.000000 vs C++ 1.000000` —
+which is the check being able to fail, demonstrated rather than assumed.
+
+**Named `Mathf` rather than `Math`**, because a `RageV.Math` would be
+ambiguous with `System.Math` in every script carrying both usings — CS0104,
+reported at the call site rather than at the cause. The shipped scripts and
+the New Script template both carry both usings.
+
+### And one thing this found in a neighbouring check
+
+`check_oit.py` compares a weighted-transparency render against a sorted one
+and required their silhouettes to match **to the pixel**. They do not: the
+faintest ring of the plume lands either side of the coverage threshold
+depending on the frame — 36, 0, 76, 0 and 0 differing pixels at frames 10, 20,
+30, 45 and 60, out of ~152,000 covered. The check had been passing on the
+frames that happened to be zeroes, and it renders without `--frame-time`, so
+which frame it got was a stopwatch. Time is pinned now and the claim is a
+fraction of the covered area: ten times the worst fringe observed, and still
+forty-five times smaller than the thing it hunts, since rendering the
+silhouette upside down differs by 34,304 pixels. **Not a regression from this
+work** — proved by stashing it and watching the same 76 pixels.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

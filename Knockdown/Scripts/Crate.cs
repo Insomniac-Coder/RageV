@@ -38,7 +38,7 @@ public class Crate : Script
 
 		// One number drives both the sound and the dust, so a light tap looks
 		// as light as it sounds.
-		float strength = MathF.Min(collision.ImpactSpeed / m_FullVolumeSpeed, 1.0f);
+		float strength = Mathf.Min(collision.ImpactSpeed / m_FullVolumeSpeed, 1.0f);
 
 		PlayOneShot("audio/impact.wav", strength);
 		Puff(collision.Point, strength);

@@ -60,7 +60,7 @@ namespace RageV
 
 			m_Age += dt.GetSeconds();
 
-			const float amplitude = Swing * std::exp(-Decay * m_Age);
+			const float amplitude = Swing * Math::Exp(-Decay * m_Age);
 			if (amplitude < 0.002f)
 			{
 				// Put it back exactly rather than leaving it wherever the
@@ -73,7 +73,7 @@ namespace RageV
 			}
 
 			GetComponent<TransformComponent>().Rotation.z =
-				m_Rest + amplitude * std::sin(Rate * m_Age);
+				m_Rest + amplitude * Math::Sin(Rate * m_Age);
 		}
 
 		void OnCreate() override

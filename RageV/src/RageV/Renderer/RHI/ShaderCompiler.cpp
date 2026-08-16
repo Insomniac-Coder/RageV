@@ -112,8 +112,8 @@ namespace RageV::RHI
 				if (existing.Binding == binding.Binding)
 				{
 					existing.Stages = existing.Stages | binding.Stages;
-					existing.Count = std::max(existing.Count, binding.Count);
-					existing.BlockSize = std::max(existing.BlockSize, binding.BlockSize);
+					existing.Count = Math::Max(existing.Count, binding.Count);
+					existing.BlockSize = Math::Max(existing.BlockSize, binding.BlockSize);
 					return;
 				}
 			}
@@ -594,7 +594,7 @@ namespace RageV::RHI
 					case ResourceType::StorageImage:
 						map.Textures[key] = nextTextureUnit;
 						// An array consumes one unit per element.
-						nextTextureUnit += std::max(1u, binding->Count);
+						nextTextureUnit += Math::Max(1u, binding->Count);
 						break;
 				}
 			}
@@ -606,7 +606,7 @@ namespace RageV::RHI
 		{
 			map.PushConstantBinding = nextUniformBuffer++;
 			for (const auto& range : reflection.PushConstants)
-				map.PushConstantSize = std::max(map.PushConstantSize, range.Offset + range.Size);
+				map.PushConstantSize = Math::Max(map.PushConstantSize, range.Offset + range.Size);
 		}
 
 		map.TextureUnitCount = nextTextureUnit;

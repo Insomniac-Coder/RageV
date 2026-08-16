@@ -62,7 +62,7 @@ namespace RageV
 			// Clamped rather than left to overflow to infinity. An infinity in
 			// the scene target survives the bloom chain -- every filter tap that
 			// touches it produces another one -- and turns a whole mip white.
-			value = std::clamp(value, -65504.0f, 65504.0f);
+			value = Math::Clamp(value, -65504.0f, 65504.0f);
 
 			uint32_t bits = 0;
 			memcpy(&bits, &value, sizeof(bits));

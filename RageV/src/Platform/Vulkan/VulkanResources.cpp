@@ -212,7 +212,7 @@ namespace RageV::Vk
 		if (caps.SupportsAnisotropy && desc.MaxAnisotropy > 1.0f)
 		{
 			createInfo.anisotropyEnable = VK_TRUE;
-			createInfo.maxAnisotropy = std::min(desc.MaxAnisotropy, caps.MaxAnisotropy);
+			createInfo.maxAnisotropy = Math::Min(desc.MaxAnisotropy, caps.MaxAnisotropy);
 		}
 
 		VK_CHECK(vkCreateSampler(m_Device.GetDevice(), &createInfo, nullptr, &m_Sampler));
@@ -247,7 +247,7 @@ namespace RageV::Vk
 	{
 		if (m_Desc.MipLevels == 0)
 		{
-			m_Desc.MipLevels = 1 + (uint32_t)std::floor(std::log2(std::max(m_Desc.Width, m_Desc.Height)));
+			m_Desc.MipLevels = 1 + (uint32_t)Math::Floor(Math::Log2((float)Math::Max(m_Desc.Width, m_Desc.Height)));
 			// Generating the chain needs both ends of a blit.
 			m_Desc.Usage = m_Desc.Usage | RHI::TextureUsage::TransferSrc | RHI::TextureUsage::TransferDst;
 		}
@@ -426,8 +426,8 @@ namespace RageV::Vk
 			return;
 		}
 
-		const uint32_t width = std::max(m_Desc.Width >> mip, 1u);
-		const uint32_t height = std::max(m_Desc.Height >> mip, 1u);
+		const uint32_t width = Math::Max(m_Desc.Width >> mip, 1u);
+		const uint32_t height = Math::Max(m_Desc.Height >> mip, 1u);
 		const uint64_t expected = TextureDataSize(m_Desc.Format, width, height);
 
 		// Exact, not "at least": a short buffer reads out of bounds, and a
@@ -478,9 +478,9 @@ namespace RageV::Vk
 			region.imageSubresource.mipLevel = mip;
 			region.imageSubresource.baseArrayLayer = isVolume ? 0 : layer;
 			region.imageSubresource.layerCount = 1;
-			region.imageExtent = { std::max(m_Desc.Width >> mip, 1u),
-								   std::max(m_Desc.Height >> mip, 1u),
-								   isVolume ? std::max(m_Desc.Depth >> mip, 1u) : 1 };
+			region.imageExtent = { Math::Max(m_Desc.Width >> mip, 1u),
+								   Math::Max(m_Desc.Height >> mip, 1u),
+								   isVolume ? Math::Max(m_Desc.Depth >> mip, 1u) : 1 };
 
 			vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
@@ -574,8 +574,8 @@ namespace RageV::Vk
 				blit.srcSubresource.layerCount = layers;
 				blit.srcOffsets[1] = { width, height, 1 };
 
-				width  = std::max(1, width / 2);
-				height = std::max(1, height / 2);
+				width  = Math::Max(1, width / 2);
+				height = Math::Max(1, height / 2);
 
 				blit.dstSubresource.aspectMask = m_Aspect;
 				blit.dstSubresource.mipLevel = level;

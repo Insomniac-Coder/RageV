@@ -563,8 +563,8 @@ namespace RageV::Vk
 		// fills a corner and leaves the rest of the slice holding whatever it
 		// had. That is the same class of bug the OpenGL path's stale-attachment
 		// comment below is about, arriving from the other side.
-		const int32_t dstWidth  = (int32_t)std::max(destination->GetWidth() >> mip, 1u);
-		const int32_t dstHeight = (int32_t)std::max(destination->GetHeight() >> mip, 1u);
+		const int32_t dstWidth  = (int32_t)Math::Max(destination->GetWidth() >> mip, 1u);
+		const int32_t dstHeight = (int32_t)Math::Max(destination->GetHeight() >> mip, 1u);
 
 		// Read bottom-to-top, write top-to-bottom.
 		//
@@ -635,8 +635,8 @@ namespace RageV::Vk
 
 		const int32_t sliceWidth = (int32_t)(source->GetWidth() / layerCount);
 		const int32_t height = (int32_t)source->GetHeight();
-		const int32_t dstWidth  = (int32_t)std::max(destination->GetWidth() >> mip, 1u);
-		const int32_t dstHeight = (int32_t)std::max(destination->GetHeight() >> mip, 1u);
+		const int32_t dstWidth  = (int32_t)Math::Max(destination->GetWidth() >> mip, 1u);
+		const int32_t dstHeight = (int32_t)Math::Max(destination->GetHeight() >> mip, 1u);
 
 		const bool depth = RHI::IsDepthFormat(source->GetFormat());
 		const VkImageAspectFlags aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT

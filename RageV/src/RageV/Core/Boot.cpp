@@ -11,13 +11,13 @@ namespace RageV::Boot
 
 		m_Phase = std::move(name);
 		m_Detail.clear();
-		m_Begin = std::clamp(begin, 0.0f, 1.0f);
-		m_End = std::clamp(end, m_Begin, 1.0f);
+		m_Begin = Math::Clamp(begin, 0.0f, 1.0f);
+		m_End = Math::Clamp(end, m_Begin, 1.0f);
 
 		// Entering a phase moves the bar to that phase's start, but only
 		// forwards: a phase that turns out to be a no-op must not rewind what
 		// the last one showed.
-		m_Fraction = std::max(m_Fraction, m_Begin);
+		m_Fraction = Math::Max(m_Fraction, m_Begin);
 	}
 
 	void Progress::SetDetail(std::string detail)
@@ -30,8 +30,8 @@ namespace RageV::Boot
 	{
 		std::lock_guard<std::mutex> lock(m_Mutex);
 
-		const float t = std::clamp(withinPhase, 0.0f, 1.0f);
-		m_Fraction = std::max(m_Fraction, m_Begin + (m_End - m_Begin) * t);
+		const float t = Math::Clamp(withinPhase, 0.0f, 1.0f);
+		m_Fraction = Math::Max(m_Fraction, m_Begin + (m_End - m_Begin) * t);
 	}
 
 	void Progress::Finish()

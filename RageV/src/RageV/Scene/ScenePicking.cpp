@@ -28,7 +28,7 @@ namespace RageV
 
 			// Near zero means the ray is parallel to the triangle's plane. Not
 			// culled by sign, which is what would make this single-sided.
-			if (std::fabs(determinant) < kEpsilon)
+			if (Math::Abs(determinant) < kEpsilon)
 				return false;
 
 			const float inverse = 1.0f / determinant;
@@ -141,7 +141,7 @@ namespace RageV
 		Vec4 nearPoint = inverseViewProjection * Vec4(ndc.x, ndc.y, 0.0f, 1.0f);
 		Vec4 farPoint = inverseViewProjection * Vec4(ndc.x, ndc.y, 1.0f, 1.0f);
 
-		if (std::fabs(nearPoint.w) < 1e-9f || std::fabs(farPoint.w) < 1e-9f)
+		if (Math::Abs(nearPoint.w) < 1e-9f || Math::Abs(farPoint.w) < 1e-9f)
 			return {};
 
 		nearPoint /= nearPoint.w;

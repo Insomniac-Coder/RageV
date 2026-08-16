@@ -447,7 +447,7 @@ namespace RageV {
 		// of the run, and never fewer than ten frames.
 		const uint32_t benchmarkFrames = config.BenchmarkFrames;
 		const uint32_t benchmarkWarmup = benchmarkFrames > 0
-			? std::max(10u, benchmarkFrames / 5u) : 0u;
+			? Math::Max(10u, benchmarkFrames / 5u) : 0u;
 
 		while (m_Running) {
 			const float time = (float)GetTime();

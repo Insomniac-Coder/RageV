@@ -53,7 +53,7 @@ namespace RageV
 		void SliceCorners(const Mat4& cameraTransform, float fovYRadians, float aspect,
 						  float nearDistance, float farDistance, Vec3* out)
 		{
-			const float tanHalf = std::tan(fovYRadians * 0.5f);
+			const float tanHalf = Math::Tan(fovYRadians * 0.5f);
 
 			const Vec3 forward = Math::Normalize(Vec3(cameraTransform * Vec4(0, 0, -1, 0)));
 			const Vec3 up = Math::Normalize(Vec3(cameraTransform * Vec4(0, 1, 0, 0)));
@@ -409,7 +409,7 @@ namespace RageV
 			// texels correctly and puts almost nothing in the far cascades; the
 			// uniform one does the reverse. Every engine blends them.
 			const float fraction = (float)(i + 1) / (float)count;
-			const float logarithmic = start * std::pow(ratio, fraction);
+			const float logarithmic = start * Math::Pow(ratio, fraction);
 			const float uniform = start + (end - start) * fraction;
 			const float split = lambda * logarithmic + (1.0f - lambda) * uniform;
 
@@ -435,7 +435,7 @@ namespace RageV
 
 			// Rounded up, so a sub-texel change in the frustum cannot change
 			// the radius and rescale the whole projection.
-			radius = std::ceil(radius * 16.0f) / 16.0f;
+			radius = Math::Ceil(radius * 16.0f) / 16.0f;
 
 			const float texelWorldSize = (2.0f * radius) / (float)resolution;
 
@@ -447,7 +447,7 @@ namespace RageV
 			const Vec3 eye = centre - direction * (radius + margin);
 			// Any up vector not parallel to the light does; a directional light
 			// has no roll worth preserving.
-			const Vec3 up = std::fabs(direction.y) > 0.99f
+			const Vec3 up = Math::Abs(direction.y) > 0.99f
 							   ? Vec3(0.0f, 0.0f, 1.0f)
 							   : Vec3(0.0f, 1.0f, 0.0f);
 

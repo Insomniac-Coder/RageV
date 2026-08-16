@@ -50,7 +50,7 @@ namespace RageV
 			const UUID id = entity.GetUUID();
 
 			siblings.erase(std::remove(siblings.begin(), siblings.end(), id), siblings.end());
-			siblings.insert(siblings.begin() + std::min((size_t)index, siblings.size()), id);
+			siblings.insert(siblings.begin() + Math::Min((size_t)index, siblings.size()), id);
 		}
 	}
 

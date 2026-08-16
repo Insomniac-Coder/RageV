@@ -88,6 +88,76 @@ public static unsafe class Interop
 	}
 
 	/// <summary>
+	/// Evaluates one <see cref="Mathf"/> function, so the native side can check
+	/// that the two languages' math agrees.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// Not a test of <c>MathF</c> — the platform's transcendentals are not this
+	/// engine's problem. It is a test that <c>Mathf</c> and <c>RageV::Math</c>
+	/// are the <em>same</em> functions, which is a claim neither side can make
+	/// alone and which two of them quietly are not by default: .NET rounds half
+	/// to even and C rounds half away from zero, and both languages have a
+	/// remainder whose sign follows the wrong operand.
+	/// </para>
+	/// <para>
+	/// One entry point taking an opcode rather than one export per function:
+	/// the alternative is thirty exports to bind and thirty places to forget
+	/// one. `scenetest` owns the table of opcodes and the values to feed them.
+	/// </para>
+	/// </remarks>
+	[UnmanagedCallersOnly]
+	public static float EvaluateMath(int op, float a, float b)
+	{
+		return op switch
+		{
+			0 => Mathf.Sin(a),
+			1 => Mathf.Cos(a),
+			2 => Mathf.Tan(a),
+			3 => Mathf.Asin(a),
+			4 => Mathf.Acos(a),
+			5 => Mathf.Atan(a),
+			6 => Mathf.Atan2(a, b),
+			7 => Mathf.Sqrt(a),
+			8 => Mathf.Pow(a, b),
+			9 => Mathf.Exp(a),
+			10 => Mathf.Log(a),
+			11 => Mathf.Log2(a),
+			12 => Mathf.Floor(a),
+			13 => Mathf.Ceil(a),
+			14 => Mathf.Trunc(a),
+			15 => Mathf.Round(a),
+			16 => Mathf.Fract(a),
+			17 => Mathf.Abs(a),
+			18 => Mathf.Sign(a),
+			19 => Mathf.Min(a, b),
+			20 => Mathf.Max(a, b),
+			21 => Mathf.Clamp(a, 0.0f, 1.0f),
+			22 => Mathf.Saturate(a),
+			23 => Mathf.Lerp(a, b, 0.25f),
+			24 => Mathf.SmoothStep(0.0f, 1.0f, a),
+			25 => Mathf.Step(0.5f, a),
+			26 => Mathf.Mod(a, b),
+			27 => Mathf.FMod(a, b),
+			28 => Mathf.Radians(a),
+			29 => Mathf.Degrees(a),
+			30 => Mathf.SafeSqrt(a),
+			31 => Mathf.Hypot(a, b),
+			32 => Mathf.CopySign(a, b),
+			33 => Mathf.Sinh(a),
+			34 => Mathf.Cosh(a),
+			35 => Mathf.Tanh(a),
+			36 => Mathf.Exp2(a),
+			37 => Mathf.Log10(a),
+			38 => Mathf.Pi,
+			// An opcode this side does not know is not a zero: zero is a
+			// plausible answer for half the functions above, and a check
+			// comparing against it would pass.
+			_ => float.NaN,
+		};
+	}
+
+	/// <summary>
 	/// Exercises every shape that crosses the boundary, against a real entity,
 	/// and reports which ones worked as a bit mask.
 	/// </summary>

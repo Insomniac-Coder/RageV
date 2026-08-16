@@ -683,7 +683,7 @@ void EditorLayer::HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2&
 		ImGui::GetMouseDragDelta(ImGuiMouseButton_Left).y != 0.0f)
 	{
 		const ImVec2 drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
-		if (std::sqrt(drag.x * drag.x + drag.y * drag.y) > kClickSlop)
+		if (Math::Sqrt(drag.x * drag.x + drag.y * drag.y) > kClickSlop)
 			return;
 	}
 
@@ -965,8 +965,8 @@ void EditorLayer::OnImGuiRender()
 		// applies across runs: a layout saved maximised opens sensibly in a
 		// small window, which the pixel sizes in imgui.ini alone cannot do.
 		if (m_LastDockSize.x > 0.0f && m_LastDockSize.y > 0.0f &&
-			(std::fabs(m_LastDockSize.x - viewport->WorkSize.x) > 0.5f ||
-			 std::fabs(m_LastDockSize.y - viewport->WorkSize.y) > 0.5f))
+			(Math::Abs(m_LastDockSize.x - viewport->WorkSize.x) > 0.5f ||
+			 Math::Abs(m_LastDockSize.y - viewport->WorkSize.y) > 0.5f))
 		{
 			const ImVec2 scale(viewport->WorkSize.x / m_LastDockSize.x,
 							   viewport->WorkSize.y / m_LastDockSize.y);

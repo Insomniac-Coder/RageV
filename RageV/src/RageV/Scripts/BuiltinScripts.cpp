@@ -93,7 +93,7 @@ namespace RageV
 			// factor converges at a rate that depends on the step size -- which
 			// on a frame, where dt varies, would mean the camera lagged further
 			// behind whenever the frame rate dipped.
-			const float t = 1.0f - std::exp(-m_Sharpness * dt.GetSeconds());
+			const float t = 1.0f - Math::Exp(-m_Sharpness * dt.GetSeconds());
 			GetPosition() += (goal - GetPosition()) * t;
 		}
 

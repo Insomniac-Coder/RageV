@@ -62,12 +62,12 @@ namespace RageV
 		// enormous icons, which is the worst of both -- and the panel is narrow
 		// exactly when space is scarce.
 		float cellSize = m_Thumbnail + m_Padding;
-		int columns = std::max(1, (int)(width / cellSize));
+		int columns = Math::Max(1, (int)(width / cellSize));
 
 		if (columns < kMinColumns && width > 0.0f)
 		{
-			columns = std::max(1, std::min(kMinColumns, (int)(width / (kMinCell + m_Padding))));
-			cellSize = std::max(kMinCell, width / (float)columns - m_Padding);
+			columns = Math::Max(1, Math::Min(kMinColumns, (int)(width / (kMinCell + m_Padding))));
+			cellSize = Math::Max(kMinCell, width / (float)columns - m_Padding);
 		}
 
 		ImGui::BeginChild("##entries");

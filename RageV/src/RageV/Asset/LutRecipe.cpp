@@ -118,9 +118,9 @@ namespace RageV::Assets
 						// Clamped before the power: a negative value from a
 						// hard lift would come back NaN, and one NaN entry is
 						// a black hole in the middle of a grade.
-						colour.x = std::pow(Math::Max(colour.x, 0.0f), 1.0f / Math::Max(recipe.Gamma.x, 1e-3f));
-						colour.y = std::pow(Math::Max(colour.y, 0.0f), 1.0f / Math::Max(recipe.Gamma.y, 1e-3f));
-						colour.z = std::pow(Math::Max(colour.z, 0.0f), 1.0f / Math::Max(recipe.Gamma.z, 1e-3f));
+						colour.x = Math::Pow(Math::Max(colour.x, 0.0f), 1.0f / Math::Max(recipe.Gamma.x, 1e-3f));
+						colour.y = Math::Pow(Math::Max(colour.y, 0.0f), 1.0f / Math::Max(recipe.Gamma.y, 1e-3f));
+						colour.z = Math::Pow(Math::Max(colour.z, 0.0f), 1.0f / Math::Max(recipe.Gamma.z, 1e-3f));
 					}
 
 					if (contrast)

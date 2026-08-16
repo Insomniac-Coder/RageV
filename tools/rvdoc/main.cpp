@@ -625,7 +625,7 @@ namespace
 				else
 					result.Headings.push_back({ level, PlainText(text), anchor });
 
-				const std::string tag = "h" + std::to_string(std::min(level, 6));
+				const std::string tag = "h" + std::to_string(RageV::Math::Min(level, 6));
 				out += "<" + tag + " id=\"" + Escape(anchor) + "\">" + RenderInline(text);
 				// A heading is the thing people link to, so every one carries a
 				// link to itself rather than only the ones somebody remembered.

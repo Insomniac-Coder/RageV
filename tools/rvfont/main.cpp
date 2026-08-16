@@ -39,6 +39,7 @@
 // support. A soft-looking build with no explanation is the failure this avoids.
 
 #include "RageV/Core/Log.h"
+#include "RageV/Math/Math.h"
 
 #include "stb_truetype.h"
 #include "msdfgen.h"
@@ -335,12 +336,12 @@ int main(int argc, char** argv)
 	if (options.Em < 16 || options.Em > 256)
 	{
 		RV_CORE_WARN("rvfont: --em={0} is outside 16..256; clamping", options.Em);
-		options.Em = std::clamp(options.Em, 16, 256);
+		options.Em = RageV::Math::Clamp(options.Em, 16, 256);
 	}
 	if (options.Range < 2 || options.Range > 32)
 	{
 		RV_CORE_WARN("rvfont: --range={0} is outside 2..32; clamping", options.Range);
-		options.Range = std::clamp(options.Range, 2, 32);
+		options.Range = RageV::Math::Clamp(options.Range, 2, 32);
 	}
 
 	// --- the font file ------------------------------------------------
@@ -451,8 +452,8 @@ int main(int argc, char** argv)
 		glyph.Right  = bounds.r + marginEm;
 		glyph.Top    = bounds.t + marginEm;
 
-		glyph.W = (int)std::ceil((glyph.Right - glyph.Left) * emSize);
-		glyph.H = (int)std::ceil((glyph.Top - glyph.Bottom) * emSize);
+		glyph.W = (int)RageV::Math::Ceil((glyph.Right - glyph.Left) * emSize);
+		glyph.H = (int)RageV::Math::Ceil((glyph.Top - glyph.Bottom) * emSize);
 
 		if (glyph.W <= 0 || glyph.H <= 0)
 		{
@@ -537,7 +538,7 @@ int main(int argc, char** argv)
 			glyph->Y = penY;
 
 			penX += glyph->W + kPadding;
-			shelf = std::max(shelf, glyph->H);
+			shelf = RageV::Math::Max(shelf, glyph->H);
 		}
 
 		atlasHeight = penY + shelf + kPadding;
@@ -576,7 +577,7 @@ int main(int argc, char** argv)
 									+ ((size_t)destY * atlasWidth + (glyph->X + x)) * 4;
 
 				for (int c = 0; c < 4; c++)
-					dest[c] = (unsigned char)std::clamp((int)(source[c] * 255.0f + 0.5f), 0, 255);
+					dest[c] = (unsigned char)RageV::Math::Clamp((int)(source[c] * 255.0f + 0.5f), 0, 255);
 			}
 		}
 	}

@@ -129,7 +129,7 @@ namespace RageV::Vk
 		// cannot silently disagree with hand-written binding declarations.
 		uint32_t maxSet = 0;
 		for (const auto& set : reflection.Sets)
-			maxSet = std::max(maxSet, set.Set);
+			maxSet = Math::Max(maxSet, set.Set);
 
 		m_SetLayouts.assign(reflection.Sets.empty() ? 0 : maxSet + 1, VK_NULL_HANDLE);
 
@@ -258,7 +258,7 @@ namespace RageV::Vk
 		rasterizer.depthBiasClamp = m_Desc.Rasterizer.DepthBiasClamp;
 
 		VkPipelineMultisampleStateCreateInfo multisample{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-		multisample.rasterizationSamples = (VkSampleCountFlagBits)std::max(1u, m_Desc.Samples);
+		multisample.rasterizationSamples = (VkSampleCountFlagBits)Math::Max(1u, m_Desc.Samples);
 
 		VkPipelineDepthStencilStateCreateInfo depthStencil{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
 		depthStencil.depthTestEnable = m_Desc.DepthStencil.DepthTestEnable ? VK_TRUE : VK_FALSE;
@@ -267,7 +267,7 @@ namespace RageV::Vk
 		depthStencil.maxDepthBounds = 1.0f;
 
 		std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(
-			std::max<size_t>(1, m_Desc.ColorFormats.size()));
+			Math::Max<size_t>(1, m_Desc.ColorFormats.size()));
 		// Attachments may only differ from one another where the device allows
 		// it. Without independentBlend, Vulkan requires every attachment to
 		// match the first, so honouring the request would be a validation

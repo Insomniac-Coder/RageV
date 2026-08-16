@@ -1423,7 +1423,7 @@ namespace RageV
 						Math::Clamp(light.Light.OuterCone * 2.2f, 10.0f, 170.0f));
 					const float reach = Math::Max(light.Light.Range, 0.5f);
 
-					const Vec3 up = std::fabs(forward.y) > 0.99f
+					const Vec3 up = Math::Abs(forward.y) > 0.99f
 									   ? Vec3(0.0f, 0.0f, 1.0f)
 									   : Vec3(0.0f, 1.0f, 0.0f);
 
@@ -1436,7 +1436,7 @@ namespace RageV
 					assigned.Slot = (int)spotSlot;
 					assigned.LookupMatrix = bias * projection * view;
 					assigned.FarClip = reach;
-					assigned.TexelScale = 2.0f * std::tan(fov * 0.5f) / (float)localResolution;
+					assigned.TexelScale = 2.0f * Math::Tan(fov * 0.5f) / (float)localResolution;
 
 					ShadowMap::Assign((uint32_t)lightIndex, assigned);
 					ShadowMap::RenderSpot(*cmd, spotSlot, localResolution,
@@ -1488,7 +1488,7 @@ namespace RageV
 		// passed alongside it: an editor camera and a scene camera describe
 		// theirs differently and the matrix is what actually gets used.
 		const Mat4& projection = camera.GetProjection();
-		const float fovY = 2.0f * std::atan(1.0f / Math::Max(projection[1][1], 1e-4f));
+		const float fovY = 2.0f * Math::Atan(1.0f / Math::Max(projection[1][1], 1e-4f));
 		const float aspect = Math::Max(projection[1][1] / Math::Max(projection[0][0], 1e-4f), 1e-4f);
 
 		ShadowCascade cascades[ShadowMap::kMaxCascades];
@@ -1562,7 +1562,7 @@ namespace RageV
 
 				// fmod rather than -= interval: a long hitch owes one step,
 				// not a burst of catch-up captures.
-				probe.RateAccumulator = std::fmod(probe.RateAccumulator, interval);
+				probe.RateAccumulator = Math::FMod(probe.RateAccumulator, interval);
 			}
 
 			const uint32_t resolution = (uint32_t)Math::Clamp(probe.Resolution, 16, 1024);

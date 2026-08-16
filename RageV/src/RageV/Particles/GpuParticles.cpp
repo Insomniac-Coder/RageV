@@ -478,7 +478,7 @@ namespace RageV::Particles
 			params.GravityDrag = Vec4(emitter.Gravity, emitter.Drag);
 			params.OriginDelta = Vec4(origin, dt);
 			params.AxisCosSpread =
-				Vec4(axis, std::cos(Math::Radians(Math::Clamp(emitter.Spread, 0.0f, 180.0f))));
+				Vec4(axis, Math::Cos(Math::Radians(Math::Clamp(emitter.Spread, 0.0f, 180.0f))));
 			params.ColorStart = emitter.ColorStart;
 			params.ColorEnd = emitter.ColorEnd;
 			params.SpeedLife = Vec4(emitter.Speed, emitter.SpeedJitter,

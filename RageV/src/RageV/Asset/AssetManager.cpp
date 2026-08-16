@@ -328,8 +328,8 @@ namespace RageV::Assets
 		// Warm boots do none of this work -- every Fetch is a file read --
 		// so the threads cost a spawn and nothing else.
 		const unsigned hardware = std::thread::hardware_concurrency();
-		const size_t workers = std::min<size_t>(
-			pending.size(), std::max(1u, std::min(hardware ? hardware : 1u, 4u)));
+		const size_t workers = Math::Min<size_t>(
+			pending.size(), Math::Max(1u, Math::Min(hardware ? hardware : 1u, 4u)));
 
 		std::atomic<size_t> next{ 0 };
 		std::atomic<uint64_t> done{ 0 };

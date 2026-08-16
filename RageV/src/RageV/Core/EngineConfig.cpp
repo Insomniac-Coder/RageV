@@ -148,7 +148,7 @@ namespace RageV
 
 			try
 			{
-				config.UIScale = std::clamp(std::stof(value), 0.5f, 4.0f);
+				config.UIScale = Math::Clamp(std::stof(value), 0.5f, 4.0f);
 				return true;
 			}
 			catch (const std::exception&)
@@ -231,7 +231,7 @@ namespace RageV
 		{
 			try
 			{
-				config.ScreenshotFrame = (uint32_t)std::max(std::stoi(value), 1);
+				config.ScreenshotFrame = (uint32_t)Math::Max(std::stoi(value), 1);
 				return true;
 			}
 			catch (const std::exception&)
@@ -245,7 +245,7 @@ namespace RageV
 		{
 			try
 			{
-				config.BenchmarkFrames = (uint32_t)std::max(std::stoi(value), 1);
+				config.BenchmarkFrames = (uint32_t)Math::Max(std::stoi(value), 1);
 				return true;
 			}
 			catch (const std::exception&)
@@ -261,7 +261,7 @@ namespace RageV
 			{
 				const int parsed = std::stoi(value);
 				// More than 3 adds latency without adding throughput.
-				config.FramesInFlight = (uint32_t)std::clamp(parsed, 1, 3);
+				config.FramesInFlight = (uint32_t)Math::Clamp(parsed, 1, 3);
 				return true;
 			}
 			catch (const std::exception&)
@@ -275,7 +275,7 @@ namespace RageV
 		{
 			try
 			{
-				const int parsed = std::clamp(std::stoi(value), 640, 16384);
+				const int parsed = Math::Clamp(std::stoi(value), 640, 16384);
 				(key == "width" ? config.WindowWidth : config.WindowHeight) = (uint32_t)parsed;
 				return true;
 			}
@@ -309,7 +309,7 @@ namespace RageV
 				// Below 20 the simulation is visibly steppy and fast collisions
 				// tunnel through thin geometry; above 240 it burns CPU for
 				// nothing a display can show.
-				config.FixedHz = (uint32_t)std::clamp(parsed, 20, 240);
+				config.FixedHz = (uint32_t)Math::Clamp(parsed, 20, 240);
 				config.FixedHzExplicit = true;
 				return true;
 			}
