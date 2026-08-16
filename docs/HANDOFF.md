@@ -1624,9 +1624,8 @@ was behind 8.2 and is unblocked; it still has no OpenGL path and needs an RTX
 or RDNA2-class GPU. 8.4 and 8.9 are ordinary features. The rest are each
 larger than everything built so far.
 
-**Still unconfirmed from the assistant's side**: the Ctrl+S fix (E.1) could
-not be driven end to end from a terminal. Open the editor, change something
-in the Inspector, press Ctrl+S.
+**E.1 (Ctrl+S) is confirmed by the owner, by pressing it** -- the one check
+this session could not run from a terminal.
 
 ---
 
