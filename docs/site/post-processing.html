@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post processing — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link is-current" href="post-processing.html" aria-current="page">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="post-processing">Post processing<a class="anchor" href="#post-processing" aria-label="Link to this section">#</a></h1>
+<p>Everything on a <code>.rvpostprofile</code>: <strong>thirty-six settings across nine effects</strong>, each listed here with its default, its range and what it costs.</p>
+<p>A profile is attached to a <strong>camera</strong>, on the Post profile row of its Camera component, and it is <strong>optional</strong> — a camera with no profile renders with exactly the defaults below. There is no &quot;is this set?&quot; bit beside each value, because there is nothing underneath a profile to inherit from: every field it holds is a value it means.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Six of the nine effects are off by default, and off is exact.</strong> No pass is added and the shader branches past it rather than computing a no-op, so a profile that has never touched an effect renders the same bytes as a build without it. That is what keeps every screenshot check in the repository valid.</p>
+</aside>
+<p>For where profiles live, how they are shared and when they save, see <a href="concepts.html#the-post-profile">Core concepts</a>. For anti-aliasing and shadows, which are <strong>not</strong> here because they belong to the project, see <a href="rendering.html">Rendering</a>.</p>
+<h2 id="exposure">Exposure<a class="anchor" href="#exposure" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Exposure</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">&gt; 0</td><td style="text-align:left">Applied <strong>before</strong> the tone curve</td></tr>
+</tbody></table></div>
+<p>That placement is what makes it an exposure control rather than a brightness one: it slides the scene along the response curve instead of scaling the result of it.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>With auto exposure on, this stops being the exposure and becomes exposure <strong>compensation</strong> — it multiplies what the metering worked out, the same control a camera has.</p>
+</aside>
+<h2 id="bloom-on-by-default">Bloom — on by default<a class="anchor" href="#bloom-on-by-default" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>BloomEnabled</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">—</td><td style="text-align:left">The one effect that is on out of the box</td></tr>
+<tr><td style="text-align:left"><code>BloomThreshold</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">≥ 0</td><td style="text-align:left">Brightness at which a pixel starts to bleed. Above 1, only genuinely over-bright things glow</td></tr>
+<tr><td style="text-align:left"><code>BloomKnee</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">≥ 0</td><td style="text-align:left">Width of the ramp around the threshold. <strong>Zero is a hard cut</strong>, which pops as something crosses it and reads as flickering</td></tr>
+<tr><td style="text-align:left"><code>BloomIntensity</code></td><td style="text-align:left"><code>0.06</code></td><td style="text-align:left">≥ 0</td><td style="text-align:left">How much of the blurred result is added back</td></tr>
+<tr><td style="text-align:left"><code>BloomClamp</code></td><td style="text-align:left"><code>16.0</code></td><td style="text-align:left">&gt; 0</td><td style="text-align:left">Ceiling on what a <em>single pixel</em> may contribute</td></tr>
+</tbody></table></div>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><code>BloomClamp</code> exists for one specific artefact: the sun reflected in curved metal — a few hundred nits across less than a texel of the mip being read — survives the whole chain as an isolated blob floating in the air near the surface that produced it. The clamp bounds the <em>contribution</em>, not the pixel: the scene keeps its real values, and only what bleeds out of them is limited.</p>
+</aside>
+<h2 id="colour-grading">Colour grading<a class="anchor" href="#colour-grading" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ColorLut</code></td><td style="text-align:left">none</td><td style="text-align:left">a <code>.cube</code> or <code>.rvlut</code> asset</td><td style="text-align:left">The lookup table applied after tone mapping</td></tr>
+<tr><td style="text-align:left"><code>ColorLutStrength</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">0 to 1</td><td style="text-align:left">How much of the graded result is used against the ungraded one</td></tr>
+</tbody></table></div>
+<p>Two kinds of thing go in the LUT row:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left">What it is</th><th style="text-align:left">Editable</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>.cube</code></td><td style="text-align:left">A baked table, exported by Resolve, Photoshop or any grading tool</td><td style="text-align:left">No — it is data</td></tr>
+<tr><td style="text-align:left"><code>.rvlut</code></td><td style="text-align:left">A <strong>recipe</strong>: temperature, tint, lift, gamma, gain, contrast, saturation</td><td style="text-align:left">Yes, and that is its purpose</td></tr>
+</tbody></table></div>
+<p>Grading is applied <strong>after</strong> the tone curve, on display-referred values, which is what a LUT was authored against — one exported from Resolve does here what it did there. The trade, stated rather than hidden: a LUT at that point cannot recover highlight detail the tone curve has already compressed.</p>
+<h2 id="auto-exposure-off-by-default">Auto exposure — off by default<a class="anchor" href="#auto-exposure-off-by-default" aria-label="Link to this section">#</a></h2>
+<p>Metering with a <strong>histogram</strong> rather than an average, and moving the exposure toward it the way your eyes adjust on stepping outside.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>AutoExposure</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">—</td><td style="text-align:left">On dispatches two compute passes</td></tr>
+<tr><td style="text-align:left"><code>AutoExposureMinLog</code></td><td style="text-align:left"><code>-8.0</code></td><td style="text-align:left">stops</td><td style="text-align:left">Bottom of the histogram&#39;s span</td></tr>
+<tr><td style="text-align:left"><code>AutoExposureMaxLog</code></td><td style="text-align:left"><code>4.0</code></td><td style="text-align:left">stops</td><td style="text-align:left">Top of it</td></tr>
+<tr><td style="text-align:left"><code>AutoExposureLowPercent</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">0 to 1</td><td style="text-align:left">Fraction of the darkest pixels thrown away before averaging</td></tr>
+<tr><td style="text-align:left"><code>AutoExposureHighPercent</code></td><td style="text-align:left"><code>0.95</code></td><td style="text-align:left">0 to 1</td><td style="text-align:left">Fraction kept from the bright end</td></tr>
+<tr><td style="text-align:left"><code>AutoExposureKey</code></td><td style="text-align:left"><code>0.18</code></td><td style="text-align:left">&gt; 0</td><td style="text-align:left">What the metered average is exposed to. <strong>0.18 is middle grey</strong></td></tr>
+<tr><td style="text-align:left"><code>AutoExposureMin</code></td><td style="text-align:left"><code>0.03</code></td><td style="text-align:left">&gt; 0</td><td style="text-align:left">Floor on the result</td></tr>
+<tr><td style="text-align:left"><code>AutoExposureMax</code></td><td style="text-align:left"><code>32.0</code></td><td style="text-align:left">&gt; 0</td><td style="text-align:left">Ceiling on it</td></tr>
+<tr><td style="text-align:left"><code>AutoExposureSpeed</code></td><td style="text-align:left"><code>3.0</code></td><td style="text-align:left">stops/second</td><td style="text-align:left">How fast it moves</td></tr>
+</tbody></table></div>
+<p><strong>Discarding the tails is the whole reason for a histogram.</strong> The top few percent are the sun and the specular hits, and an average chases them every time the camera turns past something bright — the picture breathes. The low and high percentages are what stop that.</p>
+<p>A pixel outside the log range lands in an end bin rather than being dropped — except below the bottom, which is reserved and discarded, because a night scene is mostly pixels with no light in them and letting them vote meters the darkness.</p>
+<p><code>AutoExposureSpeed</code> is frame-rate independent: converted with <code>1 - exp(-rate · dt)</code> rather than <code>rate · dt</code>, so ten steps of 10 ms land where one step of 100 ms does. The min and max bound the result for a scene with nothing in it to meter.</p>
+<h2 id="depth-of-field-off-by-default">Depth of field — off by default<a class="anchor" href="#depth-of-field-off-by-default" aria-label="Link to this section">#</a></h2>
+<p>A real lens rather than a blur slider: the circle of confusion comes from the thin-lens equation, so the controls are the ones a photographer already has and the relationship between them is not something to rediscover per scene.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>DepthOfField</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">—</td><td style="text-align:left">On adds three passes</td></tr>
+<tr><td style="text-align:left"><code>FocusDistance</code></td><td style="text-align:left"><code>5.0</code></td><td style="text-align:left">metres</td><td style="text-align:left">Where the plane of sharp focus is</td></tr>
+<tr><td style="text-align:left"><code>FocalLength</code></td><td style="text-align:left"><code>50.0</code></td><td style="text-align:left">millimetres</td><td style="text-align:left">50 is normal on the 35 mm sensor these are measured against; longer is both narrower and shallower</td></tr>
+<tr><td style="text-align:left"><code>Aperture</code></td><td style="text-align:left"><code>2.8</code></td><td style="text-align:left">f-number</td><td style="text-align:left">f/1.4 throws a background away; f/16 keeps most of a scene sharp</td></tr>
+<tr><td style="text-align:left"><code>MaxBokehRadius</code></td><td style="text-align:left"><code>24.0</code></td><td style="text-align:left">pixels of output</td><td style="text-align:left">Ceiling on the blur radius</td></tr>
+</tbody></table></div>
+<p>Runs after the anti-aliasing resolve and before bloom, so a bright out-of-focus highlight glows as the disc it has become rather than as the point it was.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>A long focal length at a wide aperture is a <em>very</em> shallow field — 85 mm at f/1.4 focused at 5 m keeps about ten centimetres sharp. That is what those numbers mean on a real camera too. <strong>If nothing looks sharp, the focus distance is wrong before the effect is.</strong></p>
+</aside>
+<p><code>MaxBokehRadius</code> is not cosmetic: the gather&#39;s tap count is chosen against it. Let the radius grow without bound and the disc thins into a ring of separate dots, which reads as a broken effect rather than a shallow one.</p>
+<h2 id="screen-space-reflections-off-by-default">Screen-space reflections — off by default<a class="anchor" href="#screen-space-reflections-off-by-default" aria-label="Link to this section">#</a></h2>
+<p>Reflections traced through the depth buffer for anything already on screen, swapped in for the reflection probe&#39;s answer where the trace is confident and left to the probe where it is not.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ScreenSpaceReflections</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">—</td><td style="text-align:left">On adds four passes</td></tr>
+<tr><td style="text-align:left"><code>SsrMaxDistance</code></td><td style="text-align:left"><code>20.0</code></td><td style="text-align:left">metres</td><td style="text-align:left">How far a ray may travel before giving up</td></tr>
+<tr><td style="text-align:left"><code>SsrThickness</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">metres</td><td style="text-align:left">How far behind the depth surface a step may land and still count as a hit</td></tr>
+<tr><td style="text-align:left"><code>SsrIntensity</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">≥ 0</td><td style="text-align:left">Scale on the traced reflection&#39;s share. 1 is the weight the material implies</td></tr>
+</tbody></table></div>
+<p><code>SsrThickness</code> is the one to reach for when reflections look wrong: <strong>thin objects want it small</strong>, and a large value lets rays hit walls through railings.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Screen-space means screen-space.</strong> Anything off screen, behind the camera or hidden behind something nearer has no depth to trace against and cannot be reflected — the probe answers there instead. The trace is also one frame late by design. Neither is a bug to report.</p>
+</aside>
+<h2 id="ambient-occlusion-off-by-default">Ambient occlusion — off by default<a class="anchor" href="#ambient-occlusion-off-by-default" aria-label="Link to this section">#</a></h2>
+<p>Occlusion from depth alone, applied as a multiply on the lit image.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>AmbientOcclusion</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">—</td><td style="text-align:left">On adds four passes at half resolution</td></tr>
+<tr><td style="text-align:left"><code>AoRadius</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">world metres</td><td style="text-align:left">How far the hemisphere reaches</td></tr>
+<tr><td style="text-align:left"><code>AoIntensity</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">≥ 0</td><td style="text-align:left">An exponent on the occlusion</td></tr>
+</tbody></table></div>
+<p>Small radii give contact darkening in creases; large ones give soft room-scale shading and cost cache misses.</p>
+<p>Because <code>AoIntensity</code> is an exponent, an open surface — occlusion 1 — is untouched at any setting, and only the dark end deepens.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Applying occlusion as a post multiply darkens <strong>direct</strong> light too, which is the stated compromise of every forward-plus-post AO. Treat it as contact shadowing and keep the intensity restrained.</p>
+</aside>
+<h2 id="motion-blur-off-by-default">Motion blur — off by default<a class="anchor" href="#motion-blur-off-by-default" aria-label="Link to this section">#</a></h2>
+<p>A reconstruction gather along the motion vectors the scene already writes for TAA, so an object smears over what it passes rather than stopping at its own silhouette.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>MotionBlur</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">—</td><td style="text-align:left">On adds four passes</td></tr>
+<tr><td style="text-align:left"><code>MotionBlurShutter</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">0 to 1</td><td style="text-align:left">Fraction of the frame the virtual shutter is open</td></tr>
+<tr><td style="text-align:left"><code>MotionBlurMaxRadius</code></td><td style="text-align:left"><code>20.0</code></td><td style="text-align:left">pixels</td><td style="text-align:left">Ceiling on the smear, <strong>and</strong> the tile size the dominant motion is tracked at</td></tr>
+</tbody></table></div>
+<p>0.5 is the 180-degree shutter every film camera defaults to. It scales the per-frame velocity directly, so it stays honest at any frame rate.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><code>MotionBlurMaxRadius</code> is two things at once. A blur that can reach further than its tiles can see tears at tile boundaries, which is why one number controls both.</p>
+</aside>
+<h2 id="lens-and-film-all-three-off-by-default">Lens and film — all three off by default<a class="anchor" href="#lens-and-film-all-three-off-by-default" aria-label="Link to this section">#</a></h2>
+<p>Each runs at a different point in the chain because each models a different physical thing.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">Runs</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>VignetteIntensity</code></td><td style="text-align:left"><code>0.0</code></td><td style="text-align:left">0 to 1</td><td style="text-align:left">Before the tone curve</td><td style="text-align:left">How dark the corners go</td></tr>
+<tr><td style="text-align:left"><code>VignetteSmoothness</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">0 to 1</td><td style="text-align:left">—</td><td style="text-align:left">How gradually it arrives. Low is a hard circle; high is a slow darkening reaching most of the frame</td></tr>
+<tr><td style="text-align:left"><code>ChromaticAberration</code></td><td style="text-align:left"><code>0.0</code></td><td style="text-align:left">fractions of frame width</td><td style="text-align:left">Before the tone curve</td><td style="text-align:left">Lateral dispersion — three taps of the scene at three offsets</td></tr>
+<tr><td style="text-align:left"><code>FilmGrain</code></td><td style="text-align:left"><code>0.0</code></td><td style="text-align:left">≥ 0</td><td style="text-align:left"><strong>Last</strong>, after the LUT</td><td style="text-align:left">Grain strength</td></tr>
+<tr><td style="text-align:left"><code>FilmGrainSize</code></td><td style="text-align:left"><code>2.0</code></td><td style="text-align:left">pixels per speck</td><td style="text-align:left">—</td><td style="text-align:left">The period of the noise lattice. Larger reads as a faster stock</td></tr>
+</tbody></table></div>
+<p>The vignette runs in <strong>linear light, before the tone curve</strong>, because a vignette is less light reaching the corner — so it should roll off through the same response curve the rest of the frame does. Applied afterwards it multiplies display values and reads as a shadow somebody painted on.</p>
+<p>Aberration is a lens effect too, and a lens disperses before the sensor sees anything. The bloom is deliberately <strong>not</strong> dispersed: it is already blurred wider than any sane offset, so two more taps would shift something nobody could see had moved.</p>
+<p>Grain lands after the tone curve <strong>and</strong> after the LUT, because grain is the texture of the recording medium rather than a colour anybody graded — run it before the LUT and the grade re-maps the noise, so grain changes character with the look instead of sitting on top of it. It is built from two octaves of value noise rather than a hash per pixel, so it is round clumps of varying size instead of a grid of squares, and it is strongest in the <strong>midtones</strong>: film has no variation left to show once nothing is exposed or everything is.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Below about 2, <code>FilmGrainSize</code> puts the finest of the octaves past what the pixel grid can resolve — it sharpens into noise instead of showing specks.</p>
+</aside>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Grain animates, and it is seeded from the <strong>frame number</strong> rather than a clock, so rendering frame 30 twice produces the same bytes. That is the rule TAA&#39;s jitter follows, for the same reason.</p>
+</aside>
+<h2 id="reading-a-profile-from-a-script">Reading a profile from a script<a class="anchor" href="#reading-a-profile-from-a-script" aria-label="Link to this section">#</a></h2>
+<p>Every field above is reachable by name through the render-settings bridge, in both languages — see <a href="scripting/index.html">Scripting</a>.</p>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="rendering.html">Rendering</a> — anti-aliasing, shadows, and the frame&#39;s pass order</li>
+<li><a href="concepts.html#the-post-profile">Core concepts</a> — how profiles are attached, shared and saved</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="rendering.html"><span class="pager-label">Previous</span><span class="pager-title">Rendering</span></a><a class="pager-link pager-next" href="particles.html"><span class="pager-label">Next</span><span class="pager-title">Particles</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#exposure">Exposure</a><a class="toc-link toc-l2" href="#bloom-on-by-default">Bloom — on by default</a><a class="toc-link toc-l2" href="#colour-grading">Colour grading</a><a class="toc-link toc-l2" href="#auto-exposure-off-by-default">Auto exposure — off by default</a><a class="toc-link toc-l2" href="#depth-of-field-off-by-default">Depth of field — off by default</a><a class="toc-link toc-l2" href="#screen-space-reflections-off-by-default">Screen-space reflections — off by default</a><a class="toc-link toc-l2" href="#ambient-occlusion-off-by-default">Ambient occlusion — off by default</a><a class="toc-link toc-l2" href="#motion-blur-off-by-default">Motion blur — off by default</a><a class="toc-link toc-l2" href="#lens-and-film-all-three-off-by-default">Lens and film — all three off by default</a><a class="toc-link toc-l2" href="#reading-a-profile-from-a-script">Reading a profile from a script</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

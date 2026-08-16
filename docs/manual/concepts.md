@@ -60,8 +60,8 @@ slider.
 
 | Kind | Setting | Home | Edited in |
 |---|---|---|---|
-| **Cost** | Anti-aliasing and its dials — TAA's feedback, jitter width and jitter samples — shadow cascades, resolution, distance | The `.rvproject` | Render Settings → Render settings |
-| **Look** | Exposure and auto exposure, bloom, the colour-grading LUT, the lens and film effects | A `.rvpostprofile` asset | The camera that names it, or the asset itself |
+| **Cost** | Anti-aliasing and its dials, shadow cascades, resolution and distance — all of them in **[Rendering](rendering.md)** | The `.rvproject` | Render Settings → Render settings |
+| **Look** | Exposure and auto exposure, bloom, grading, depth of field, reflections, occlusion, motion blur, the lens and film effects — all of them in **[Post processing](post-processing.md)** | A `.rvpostprofile` asset | The camera that names it, or the asset itself |
 | **Place** | Ambient light, the sky and its rotation | The `.rage` scene | Render Settings → Environment |
 
 **Cost belongs to the project** because it is a judgement about the hardware,
@@ -107,97 +107,27 @@ where it is used. The same settings appear in the Inspector when the
 `.rvpostprofile` is clicked in the Content browser — one drawer, so the two
 cannot disagree.
 
-### Depth of field
+### What is on a profile
 
-**Depth of field** is on the profile and **off by default**. It is a real
-lens rather than a blur slider: the circle of confusion comes from the
-thin-lens equation, so the controls are the ones a photographer already has.
+Nine effects and thirty-six settings, every one of them listed with its
+default, its range and its cost in **[Post processing](post-processing.md)**.
+The short version of what you get and what it costs:
 
-| Control | What it does |
-|---|---|
-| **Focus distance** | Where the plane of sharp focus is, in metres |
-| **Focal length** | In millimetres. 50 is normal; longer is narrower *and* shallower |
-| **Aperture (f)** | f/1.4 throws a background away, f/16 keeps most of a scene sharp |
-| **Max blur** | Ceiling on the radius, in pixels |
-
-It runs after anti-aliasing and before bloom, so a bright out-of-focus
-highlight glows as the disc it has become rather than as the point it was.
-
-> [!TRAP]
-> A short focal length at a wide aperture is a *very* shallow field — 85 mm at
-> f/1.4 focused at 5 m keeps about ten centimetres sharp, so a subject a step
-> either side of the focus distance is soft. That is what those numbers mean
-> on a real camera too. If nothing looks sharp, the focus distance is wrong
-> before the effect is.
-
-### Auto exposure
-
-**Auto exposure** is on the same profile and is **off by default**. On, the
-engine measures how bright the scene is and moves the exposure toward it, the
-way your eyes adjust on stepping outside.
-
-It meters with a **histogram** rather than an average, and the two controls
-that matter are the ones that throw the ends away: **Ignore darkest** and
-**Keep up to**. An average is dragged around by the sun, a specular highlight
-or one emissive sign, so the picture breathes every time the camera turns past
-something bright — discarding the tails is what stops that.
-
-> [!NOTE]
-> With auto exposure on, **Exposure** stops being the exposure and becomes
-> exposure *compensation*: it multiplies what the metering worked out, the
-> same control a camera has. A scene the metering consistently reads wrong is
-> pushed a stop rather than having the feature switched off.
-
-**Adaptation speed** is in stops per second and is frame-rate independent —
-ten frames of 10 ms land where one of 100 ms does. A scene opens already
-converged rather than fading in from the wrong exposure.
-
-> [!NOTE]
-> Off is off *exactly*: no compute runs and the exposure is used unchanged, so
-> a profile that has never touched auto exposure renders the same bytes as a
-> build without it.
-
-**Colour grading** hangs off the profile's Colour LUT row, and there are two
-kinds of thing that can go in it:
-
-| | What it is | Editable |
+| Effect | Default | Reach for it when |
 |---|---|---|
-| `.cube` | A baked table, exported by Resolve, Photoshop or any other grading tool | No — it is data |
-| `.rvlut` | A **recipe**: temperature, tint, lift, gamma, gain, contrast, saturation | Yes, and that is its purpose |
+| **Exposure** | on, 1.0 | The scene is uniformly too dark or too bright |
+| **Bloom** | **on** | Bright things should bleed |
+| **Colour grading** | off | You have a look, as a `.cube` or an editable `.rvlut` recipe |
+| **Auto exposure** | off | The camera moves between very different light |
+| **Depth of field** | off | You want a lens, not a blur — the controls are f-numbers and millimetres |
+| **Screen-space reflections** | off | Wet floors and polished metal, for what is on screen |
+| **Ambient occlusion** | off | Contact shadowing in creases |
+| **Motion blur** | off | Fast motion should smear |
+| **Vignette, aberration, grain** | off | You are modelling the camera rather than the scene |
 
-Drop a `.cube` in to use a look somebody authored elsewhere. Pick **New
-colour LUT…** to author one here: the knobs appear directly under the row,
-edit live, and save themselves. **Export .cube…** takes the result back out
-to any other tool. A fresh recipe is the identity — attaching one changes
-nothing until a knob moves.
-
-Clicking either in the Content browser opens the same rows in the Inspector.
-A `.cube` says, correctly, that a baked table has nothing to edit: the grade
-that produced its entries is not in the file.
-
-Grading is applied *after* the tone curve, on display-referred values, which
-is what a LUT was authored against: one exported from Resolve does here what
-it did there. The trade, stated: a LUT at that point cannot recover highlight
-detail the tone curve has already compressed.
-
-**Lens and film** are on the same profile, below the grading rows, and all
-three are off by default: **Aberration**, **Vignette** and **Film grain**.
-Each runs at a different point in the chain because each models something
-different — aberration and the vignette are the lens, so they happen in
-linear light before the tone curve, and grain is the film stock, so it lands
-last, after everything including the LUT.
-
-Grain is built from two octaves of value noise, so it is round clumps of
-varying size rather than a grid of squares, and it is strongest in the
-**midtones** — film has no variation left to show once nothing is exposed or
-everything is. **Grain size** is the size of a speck in pixels; below about 2
-the finest detail is past what the pixel grid can resolve and it sharpens into
-noise.
-
-> [!NOTE]
-> Grain animates, and it is seeded from the **frame number** rather than a
-> clock. So a screenshot of frame 30 is the same picture every time, which is
-> what keeps it usable in a comparison.
+**Everything except bloom is off by default, and off is exact** — no pass is
+added, so a profile that has never touched an effect renders the same bytes as
+a build without it.
 
 **Editing one edits the asset.** Two cameras pointed at the same profile are
 two cameras that will always agree, which is usually what is wanted and is

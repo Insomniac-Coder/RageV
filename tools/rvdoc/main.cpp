@@ -1597,13 +1597,24 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 			if (fieldsInstead)
 			{
 				// `Entity Other;`, `float ImpactSpeed = 0.0f;`, `Vec3 Point{ 0.0f };`
-				if (line.empty() || line.find('(') != std::string::npos)
+				if (line.empty())
 					continue;
 				const size_t stop = line.find_first_of(";={");
 				if (stop == std::string::npos)
 					continue;
 
 				std::string head = Trim(line.substr(0, stop));
+
+				// A parenthesis in the *declaration* means this is a function.
+				// One after it is an initialiser calling something, which is
+				// still a field: `UUID ColorLut = UUID::Invalid();`.
+				//
+				// Testing the whole line was the older rule, and it silently
+				// dropped every field whose default is a call -- so such a
+				// field could never be reported as undocumented, which is the
+				// one thing this parser exists to do.
+				if (head.find('(') != std::string::npos)
+					continue;
 				const size_t space = head.find_last_of(" \t&*>");
 				if (space == std::string::npos)
 					continue;
@@ -1670,6 +1681,15 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 		static const ReferenceCheck checks[] = {
 			{ "RageV/src/RageV/Scene/ScriptableEntity.h", "ScriptableEntity", false, "scripting/cpp-reference.md" },
 			{ "RageV/src/RageV/Scene/ScriptableEntity.h", "Collision",        true,  "scripting/cpp-reference.md" },
+			// The settings, both halves. These are the pages a reader goes to
+			// when they want to know what a dial does, and the pages most
+			// likely to rot: adding a field to either struct is a one-line
+			// change that silently makes the manual wrong. It has already
+			// happened -- the manual named anti-aliasing without ever listing
+			// its modes, and every post-processing effect after depth of field
+			// arrived undocumented.
+			{ "RageV/src/RageV/Renderer/RenderSettings.h", "RenderSettings", true, "rendering.md" },
+			{ "RageV/src/RageV/Renderer/PostSettings.h",   "PostSettings",   true, "post-processing.md" },
 		};
 
 		int problems = 0;

@@ -1652,6 +1652,43 @@ still open.
 
 ---
 
+### Done - D.5a, the manual states the settings (2026-08-16)
+
+The owner's criticism, and it was right: the manual explained a few things
+thoroughly and assumed the rest. The example given was anti-aliasing -- named
+in a table, with its five modes, `MsaaSamples` and `SupersampleFactor` never
+listed anywhere. The audit behind it: **36 post-processing settings of which
+about 6 were documented, 12 render settings of which none were**, plus twelve
+whole systems with no page at all.
+
+Two new pages, `rendering.md` and `post-processing.md`, each stating every
+setting with its default, its range and what it costs -- including the measured
+TAA feedback curve, which was in a header comment and nowhere a user could
+reach. The per-effect detail moved *out* of `concepts.md`, which now carries
+the concepts and a nine-row summary pointing at the reference; two places to
+keep in step is how this rots.
+
+**The part that makes it hold: both pages are drift-checked.** `rvdoc --check`
+already compared `ScriptableEntity` against the C++ reference, and its table
+said in a comment that the point of being a table was for more headers to join
+it. `RenderSettings` and `PostSettings` are now two more rows, so adding a
+field to either struct fails the check by name until it is documented.
+Verified by adding one: exit 1, `PostSettings::TemporaryUndocumented exists but
+post-processing.md does not document it`.
+
+**And extending it found a hole in the checker.** The field parser skipped any
+line containing a parenthesis, to avoid matching functions -- which also
+skipped every field whose default is a call, so `UUID ColorLut =
+UUID::Invalid();` was invisible and could never have been reported as
+undocumented. It now tests the declaration rather than the whole line, and the
+count went from 36 to 37.
+
+**Still open**: this covered the settings. The missing *pages* -- materials,
+lighting, cameras, physics, audio, animation, UI, prefabs, the asset pipeline,
+the editor's panels -- are not written.
+
+---
+
 ### Done - E.1, Ctrl+S saves from anywhere (2026-08-16)
 
 ENGINE-NOTES 7ak. Two paths to one symptom, both fixed.

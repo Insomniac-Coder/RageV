@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rendering — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link is-current" href="rendering.html" aria-current="page">Rendering</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="rendering">Rendering<a class="anchor" href="#rendering" aria-label="Link to this section">#</a></h1>
+<p>What the frame costs, as opposed to what it looks like. Anti-aliasing, shadows, and the order everything happens in.</p>
+<p>These live in the <strong>project</strong>, edited in <strong>Render Settings → Render settings</strong>, and written to the <code>.rvproject</code> the moment they change. They are a judgement about the hardware, and that judgement does not change because a different level loaded — see <a href="concepts.html#where-a-setting-lives">Core concepts</a> for why.</p>
+<p>The other half — exposure, bloom, grading, the lens effects — belongs to a camera&#39;s post profile and is documented in <a href="post-processing.html">Post processing</a>.</p>
+<h2 id="anti-aliasing">Anti-aliasing<a class="anchor" href="#anti-aliasing" aria-label="Link to this section">#</a></h2>
+<p>Six modes. They are not a quality ladder: three of them fix different problems, and the right one depends on whether your aliasing is geometry, shading or motion.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Mode</th><th style="text-align:left">What it does</th><th style="text-align:left">Fixes shading aliasing</th><th style="text-align:left">Cost</th><th style="text-align:left">Its dials</th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>None</strong></td><td style="text-align:left">Nothing.</td><td style="text-align:left">—</td><td style="text-align:left">none</td><td style="text-align:left">—</td></tr>
+<tr><td style="text-align:left"><strong>FXAA</strong></td><td style="text-align:left">Looks at one pixel&#39;s neighbourhood and guesses where the edge was.</td><td style="text-align:left">No</td><td style="text-align:left">one pass, cheapest</td><td style="text-align:left">none</td></tr>
+<tr><td style="text-align:left"><strong>SMAA</strong></td><td style="text-align:left">Reconstructs the silhouette: finds the run of pixels an edge spans, works out the slope, computes the coverage the rasterizer should have produced.</td><td style="text-align:left">No</td><td style="text-align:left">three passes over two small intermediates</td><td style="text-align:left">none</td></tr>
+<tr><td style="text-align:left"><strong>MSAA</strong></td><td style="text-align:left">Several coverage samples per pixel, one shading sample.</td><td style="text-align:left"><strong>No</strong></td><td style="text-align:left">bandwidth, not shading</td><td style="text-align:left"><code>MsaaSamples</code></td></tr>
+<tr><td style="text-align:left"><strong>SSAA</strong></td><td style="text-align:left">Renders the whole scene larger and averages down.</td><td style="text-align:left"><strong>Yes</strong></td><td style="text-align:left">the <em>square</em> of the factor</td><td style="text-align:left"><code>SupersampleFactor</code></td></tr>
+<tr><td style="text-align:left"><strong>TAA</strong></td><td style="text-align:left">Jitters the projection each frame and accumulates, converging on a supersampled image for one sample&#39;s cost.</td><td style="text-align:left"><strong>Yes</strong></td><td style="text-align:left">one extra pass, plus a history buffer</td><td style="text-align:left"><code>TemporalFeedback</code>, <code>TemporalJitterScale</code>, <code>TemporalJitterPhase</code></td></tr>
+</tbody></table></div>
+<p><strong>Default: FXAA.</strong></p>
+<h3 id="every-render-setting-at-a-glance">Every render setting, at a glance<a class="anchor" href="#every-render-setting-at-a-glance" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">Range</th><th style="text-align:left">Applies to</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>AA</code></td><td style="text-align:left"><code>FXAA</code></td><td style="text-align:left">None, FXAA, SMAA, SSAA, MSAA, TAA</td><td style="text-align:left">always</td></tr>
+<tr><td style="text-align:left"><code>MsaaSamples</code></td><td style="text-align:left"><code>4</code></td><td style="text-align:left">1 to 8, and what the hardware offers</td><td style="text-align:left">MSAA</td></tr>
+<tr><td style="text-align:left"><code>SupersampleFactor</code></td><td style="text-align:left"><code>2</code></td><td style="text-align:left">1 to 4</td><td style="text-align:left">SSAA</td></tr>
+<tr><td style="text-align:left"><code>TemporalFeedback</code></td><td style="text-align:left"><code>0.6</code></td><td style="text-align:left">0 to 1</td><td style="text-align:left">TAA</td></tr>
+<tr><td style="text-align:left"><code>TemporalJitterScale</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">0 upward; over 1 is legal</td><td style="text-align:left">TAA</td></tr>
+<tr><td style="text-align:left"><code>TemporalJitterPhase</code></td><td style="text-align:left"><code>8</code></td><td style="text-align:left">any positive count</td><td style="text-align:left">TAA</td></tr>
+<tr><td style="text-align:left"><code>ShadowsEnabled</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">—</td><td style="text-align:left">always</td></tr>
+<tr><td style="text-align:left"><code>ShadowCascades</code></td><td style="text-align:left"><code>4</code></td><td style="text-align:left">1 to 4</td><td style="text-align:left">shadows</td></tr>
+<tr><td style="text-align:left"><code>ShadowResolution</code></td><td style="text-align:left"><code>2048</code></td><td style="text-align:left">powers of two</td><td style="text-align:left">shadows</td></tr>
+<tr><td style="text-align:left"><code>ShadowDistance</code></td><td style="text-align:left"><code>40.0</code></td><td style="text-align:left">metres</td><td style="text-align:left">shadows</td></tr>
+<tr><td style="text-align:left"><code>ShadowSplitLambda</code></td><td style="text-align:left"><code>0.85</code></td><td style="text-align:left">0 to 1</td><td style="text-align:left">shadows</td></tr>
+<tr><td style="text-align:left"><code>ShadowNormalOffset</code></td><td style="text-align:left"><code>0.9</code></td><td style="text-align:left">shadow texels</td><td style="text-align:left">shadows</td></tr>
+</tbody></table></div>
+<p>Each dial is ignored by every mode but its own, so a project can leave them all set. The sections below say what each one is for.</p>
+<p>The column that decides most choices is the third one. A specular highlight sparkling across curved metal, or a texture shimmering into moiré, is a signal the frame never sampled finely enough — no filter working on the finished image can invent what was missed. FXAA, SMAA and MSAA all work on geometry edges and do nothing for it. Only SSAA and TAA sample more.</p>
+<p>MSAA is the one people expect to fix everything and does not: it takes several <em>coverage</em> samples but runs the fragment shader <strong>once</strong>, so edges get several levels of coverage for close to the price of one shaded pixel, and shading gets nothing at all.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>MSAA resolves in <strong>linear light, before the tone curve</strong>, which is the correct place and a visible difference on high-contrast edges.</p>
+</aside>
+<h3 id="the-dials-in-detail">The dials in detail<a class="anchor" href="#the-dials-in-detail" aria-label="Link to this section">#</a></h3>
+<h4 id="msaasamples-msaa-only"><code>MsaaSamples</code> — MSAA only<a class="anchor" href="#msaasamples-msaa-only" aria-label="Link to this section">#</a></h4>
+<p>Costs bandwidth and a little rasterizer work -- <strong>not</strong> the square of anything. 4 is an ordinary choice, where supersampling at 4 would be a statement.</p>
+<h4 id="supersamplefactor-ssaa-only"><code>SupersampleFactor</code> — SSAA only<a class="anchor" href="#supersamplefactor-ssaa-only" aria-label="Link to this section">#</a></h4>
+<p><strong>Cost is the square</strong>: 2 is four times the pixels shaded, 4 is sixteen. Capped at 4 because a 4K output would then ask for a 16K target, which is past what much hardware will allocate and all of what would be sensible.</p>
+<h4 id="temporalfeedback-taa-only"><code>TemporalFeedback</code> — TAA only<a class="anchor" href="#temporalfeedback-taa-only" aria-label="Link to this section">#</a></h4>
+<p>How much of the accumulated image survives each frame. Costs nothing -- it is a blend weight.</p>
+<p><strong>This is the ghosting-versus-sharpness dial, and there is no correct value.</strong> There is a measured curve, against a 4× supersampled render of the same frame, on a scene with one textured patch falling 16 px a frame beside an identical one standing still — RMS error, lower is better:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Feedback</th><th style="text-align:left">Moving</th><th style="text-align:left">Still</th></tr></thead><tbody>
+<tr><td style="text-align:left">no filter</td><td style="text-align:left">16.08</td><td style="text-align:left">16.73</td></tr>
+<tr><td style="text-align:left">0.0</td><td style="text-align:left">17.15</td><td style="text-align:left">17.95</td></tr>
+<tr><td style="text-align:left"><strong>0.3</strong></td><td style="text-align:left"><strong>15.38</strong></td><td style="text-align:left">10.14</td></tr>
+<tr><td style="text-align:left"><strong>0.6</strong> (default)</td><td style="text-align:left">16.32</td><td style="text-align:left">5.39</td></tr>
+<tr><td style="text-align:left">0.9</td><td style="text-align:left">19.83</td><td style="text-align:left"><strong>3.82</strong></td></tr>
+</tbody></table></div>
+<p>Still content improves all the way up. Moving content bottoms out near 0.3 and is <em>worse than no filter at all</em> by 0.9. 0.6 sits within a quarter of a unit of no filter under motion while still being three times better standing still.</p>
+<p><strong>Raise it for a mostly-still project; lower it for a mostly-moving one.</strong> That is the whole reason it is a number rather than a constant.</p>
+<h4 id="temporaljitterscale-taa-only"><code>TemporalJitterScale</code> — TAA only<a class="anchor" href="#temporaljitterscale-taa-only" aria-label="Link to this section">#</a></h4>
+<p>How far the per-frame sub-pixel offset reaches, as a fraction of a pixel.</p>
+<p>A different dial from feedback: feedback decides how much of the past is kept, this decides how far apart the accumulated samples were taken. 1.0 is the whole pixel, which is what makes the accumulation converge on the supersampled image the mode aims at. Under 1 trades coverage for sharpness. Over 1 samples outside the pixel — a deliberate blur, and why the range does not stop at 1.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>0 is not &quot;TAA off&quot;.</strong> The history still accumulates; it just accumulates the same sample every frame, which converges on the unjittered image and buys nothing.</p>
+</aside>
+<h4 id="temporaljitterphase-taa-only"><code>TemporalJitterPhase</code> — TAA only<a class="anchor" href="#temporaljitterphase-taa-only" aria-label="Link to this section">#</a></h4>
+<p>How many frames the offset sequence runs before repeating.</p>
+<p>The sequence is <strong>Halton</strong>, so successive points fall in the gaps earlier ones left. Eight random offsets can easily leave a quarter of the pixel unsampled; eight Halton offsets cannot.</p>
+<h3 id="overriding-the-mode">Overriding the mode<a class="anchor" href="#overriding-the-mode" aria-label="Link to this section">#</a></h3>
+<p>Three layers, narrowest last:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Where</th><th style="text-align:left">Scope</th><th style="text-align:left">Use</th></tr></thead><tbody>
+<tr><td style="text-align:left">The <code>.rvproject</code></td><td style="text-align:left">The project, for everyone</td><td style="text-align:left">The real setting</td></tr>
+<tr><td style="text-align:left">The <code>AntiAliasing</code> key in <code>ragev.ini</code></td><td style="text-align:left">This machine</td><td style="text-align:left">A viewing preference that survives a restart without editing a project file</td></tr>
+<tr><td style="text-align:left"><code>--aa=none\|fxaa\|smaa\|ssaa\|msaa\|taa</code></td><td style="text-align:left">This run</td><td style="text-align:left">Checks, and comparing two modes back to back</td></tr>
+</tbody></table></div>
+<p><code>--msaa=N</code> and <code>--supersample=N</code> override their dials the same way. The Render Settings panel says so when one of the narrower layers is winning.</p>
+<h2 id="shadows">Shadows<a class="anchor" href="#shadows" aria-label="Link to this section">#</a></h2>
+<p>One directional light casts cascaded shadow maps; spot and point lights have their own. These six settings are the directional cascades.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th><th style="text-align:left">Cost</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ShadowsEnabled</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Off skips the shadow passes entirely</td><td style="text-align:left">—</td></tr>
+<tr><td style="text-align:left"><code>ShadowCascades</code></td><td style="text-align:left"><code>4</code></td><td style="text-align:left">More cascades, better texel density near the camera</td><td style="text-align:left">One scene render each. 4 is the usual answer and the most supported</td></tr>
+<tr><td style="text-align:left"><code>ShadowResolution</code></td><td style="text-align:left"><code>2048</code></td><td style="text-align:left">Per cascade, square</td><td style="text-align:left"><strong>The single biggest lever on both quality and cost</strong> — four 2048 maps is 64 MB of depth</td></tr>
+<tr><td style="text-align:left"><code>ShadowDistance</code></td><td style="text-align:left"><code>40.0</code></td><td style="text-align:left">How far from the camera shadows are drawn at all, in metres</td><td style="text-align:left">Shorter is sharper everywhere it reaches</td></tr>
+<tr><td style="text-align:left"><code>ShadowSplitLambda</code></td><td style="text-align:left"><code>0.85</code></td><td style="text-align:left">Blend between a logarithmic split (correct texel distribution, starves the far cascades) and a uniform one (the reverse). 1 is fully logarithmic</td><td style="text-align:left">none</td></tr>
+<tr><td style="text-align:left"><code>ShadowNormalOffset</code></td><td style="text-align:left"><code>0.9</code></td><td style="text-align:left">How far along the surface normal a sample is pushed, in shadow texels</td><td style="text-align:left">none</td></tr>
+</tbody></table></div>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><code>ShadowDistance</code> is <strong>not</strong> the camera&#39;s far plane, which is usually a kilometre. Past this distance the shadow texels are so large that the shadow is worse than no shadow, which is why it is a separate and much smaller number.</p>
+</aside>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Raising <code>ShadowNormalOffset</code> removes acne and starts detaching shadows from their casters. <strong>There is no value that has neither</strong> — which is why the shadow pass also writes back faces.</p>
+</aside>
+<h2 id="the-order-of-a-frame">The order of a frame<a class="anchor" href="#the-order-of-a-frame" aria-label="Link to this section">#</a></h2>
+<p>Useful when a setting seems not to apply, because most of those turn out to be questions about what ran first.</p>
+<ol>
+<li><strong>Scene</strong> — opaque geometry, writing colour, velocity and the surface description SSR reads</li>
+<li><strong>Transparent</strong> and <strong>ResolveTransparent</strong> — weighted-blended, sharing the scene&#39;s depth</li>
+<li><strong>Overlay</strong> — the debug draw, inside the HDR target so it depth-tests</li>
+<li><strong>SSAA resolve</strong> <em>or</em> <strong>TAA resolve</strong> — mutually exclusive, and both before bloom, because averaging is only meaningful in linear light</li>
+<li><strong>SSAO</strong> — occlusion is lighting, so it lands on the sharp image</li>
+<li><strong>SSR</strong> — a side chain: traced now, read by the <em>next</em> frame&#39;s lighting</li>
+<li><strong>Depth of field</strong> — after the resolve, before bloom</li>
+<li><strong>Motion blur</strong></li>
+<li><strong>Bloom</strong></li>
+<li><strong>Tone map</strong>, then the colour LUT, then film grain</li>
+<li><strong>FXAA</strong> <em>or</em> <strong>SMAA</strong> — these work on the finished image, which is what makes them post filters rather than sampling strategies</li>
+<li><strong>UI</strong></li>
+</ol>
+<p>MSAA does not appear in that list because it is not a pass: it changes what the scene target <em>is</em>, and the hardware resolves it when the pass ends.</p>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="post-processing.html">Post processing</a> — the other half of the settings, on the camera&#39;s profile</li>
+<li><a href="concepts.html#where-a-setting-lives">Core concepts</a> — which file a setting lives in, and why</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="concepts.html"><span class="pager-label">Previous</span><span class="pager-title">Core concepts</span></a><a class="pager-link pager-next" href="post-processing.html"><span class="pager-label">Next</span><span class="pager-title">Post processing</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#anti-aliasing">Anti-aliasing</a><a class="toc-link toc-l3" href="#every-render-setting-at-a-glance">Every render setting, at a glance</a><a class="toc-link toc-l3" href="#the-dials-in-detail">The dials in detail</a><a class="toc-link toc-l3" href="#overriding-the-mode">Overriding the mode</a><a class="toc-link toc-l2" href="#shadows">Shadows</a><a class="toc-link toc-l2" href="#the-order-of-a-frame">The order of a frame</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

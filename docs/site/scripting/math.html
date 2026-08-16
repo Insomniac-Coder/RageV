@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Math — RageV manual</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="../index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link" href="../rendering.html">Rendering</a></li><li><a class="nav-link" href="../post-processing.html">Post processing</a></li><li><a class="nav-link" href="../particles.html">Particles</a></li><li><a class="nav-link" href="../scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="../scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link is-current" href="../scripting/math.html" aria-current="page">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="math">Math<a class="anchor" href="#math" aria-label="Link to this section">#</a></h1>
+<p>Every mathematical function the engine offers, in both languages, in one place. <strong>This is the complete list</strong> — if a function is not here, RageV does not have it and you should reach for your language&#39;s standard library knowing you are stepping outside the engine.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Language</th><th style="text-align:left">Where it lives</th><th style="text-align:left">How you write it</th></tr></thead><tbody>
+<tr><td style="text-align:left">C++</td><td style="text-align:left"><code>RageV::Math</code>, from <code>RageV/Math/Math.h</code></td><td style="text-align:left"><code>Math::Sin(x)</code></td></tr>
+<tr><td style="text-align:left">C#</td><td style="text-align:left"><code>RageV.Mathf</code>, from <code>using RageV;</code></td><td style="text-align:left"><code>Mathf.Sin(x)</code></td></tr>
+</tbody></table></div>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>The C# class is <code>Mathf</code>, not <code>Math</code>, and the <code>f</code> is not decoration. A class called <code>Math</code> in the <code>RageV</code> namespace would be ambiguous with <code>System.Math</code> in every script that writes <code>using System;</code> beside <code>using RageV;</code> — the compiler reports that as error CS0104 on whichever line uses it, which is a long way from the cause. Every function name inside is the same as the native one.</p>
+</aside>
+<h2 id="why-not-std-sin-and-mathf-sin">Why not <code>std::sin</code> and <code>MathF.Sin</code><a class="anchor" href="#why-not-std-sin-and-mathf-sin" aria-label="Link to this section">#</a></h2>
+<p>Because an engine that spells half its arithmetic one way and half another is asking you to learn its history. <code>Math::Sin</code> and <code>Mathf.Sin</code> are the same function with the same guarantees in both languages, and a check in <code>scenetest</code> calls every one of them on both sides and requires the answers to agree — including the awkward values, where two standard libraries genuinely disagree by default.</p>
+<p>The wrappers cost nothing: they are <code>inline</code> forwards in C++ and one-line expression bodies in C#.</p>
+<h2 id="four-places-these-deliberately-differ-from-the-standard-library">Four places these deliberately differ from the standard library<a class="anchor" href="#four-places-these-deliberately-differ-from-the-standard-library" aria-label="Link to this section">#</a></h2>
+<p>These are the only four. Everything else forwards untouched.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Function</th><th style="text-align:left">Standard behaviour</th><th style="text-align:left">What RageV does</th><th style="text-align:left">Why</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Acos</code>, <code>Asin</code></td><td style="text-align:left">NaN for an argument outside [-1, 1]</td><td style="text-align:left">Clamps first, so the answer is an angle</td><td style="text-align:left">A dot product of two unit vectors is analytically in [-1, 1] and numerically is not. One bit past the end is a NaN angle, then a NaN rotation, then an object nobody can find.</td></tr>
+<tr><td style="text-align:left"><code>Round</code></td><td style="text-align:left">C rounds half away from zero; .NET rounds half to <strong>even</strong></td><td style="text-align:left">Half away from zero, in both languages</td><td style="text-align:left">Otherwise <code>Round(0.5)</code> is 1 in a C++ script and 0 in a C# one, and a tile placed by rounding lands in a different square depending on which language placed it.</td></tr>
+<tr><td style="text-align:left"><code>Normalize</code></td><td style="text-align:left">NaN for a zero-length vector</td><td style="text-align:left">Returns zero</td><td style="text-align:left">Same reason as <code>Acos</code>: a NaN in a transform spreads to every transform derived from it, and the object and all its children vanish silently.</td></tr>
+<tr><td style="text-align:left"><code>Mod</code></td><td style="text-align:left"><code>fmod</code> takes the sign of the dividend</td><td style="text-align:left">Takes the sign of the <strong>divisor</strong></td><td style="text-align:left">That is what wrapping an angle or a clip time means. <code>FMod</code> is the C one, and both are provided so a call site has to say which it means.</td></tr>
+</tbody></table></div>
+<h2 id="constants">Constants<a class="anchor" href="#constants" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Name</th><th style="text-align:left">Value</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Pi</code></td><td style="text-align:left">3.14159265358979323846</td></tr>
+<tr><td style="text-align:left"><code>HalfPi</code></td><td style="text-align:left">π / 2</td></tr>
+<tr><td style="text-align:left"><code>TwoPi</code></td><td style="text-align:left">2π</td></tr>
+<tr><td style="text-align:left"><code>Epsilon</code></td><td style="text-align:left">1e-6 — what the engine treats as near enough to zero</td></tr>
+<tr><td style="text-align:left"><code>Infinity</code></td><td style="text-align:left">C# only. C++ uses <code>std::numeric_limits&lt;float&gt;::infinity()</code>.</td></tr>
+</tbody></table></div>
+<h2 id="angles">Angles<a class="anchor" href="#angles" aria-label="Link to this section">#</a></h2>
+<p><strong>Every angle the engine takes is in radians.</strong> Degrees exist in the inspector and nowhere else.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Function</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Radians(degrees)</code></td><td style="text-align:left">Degrees to radians. Also takes a <code>Vec3</code> in C++.</td></tr>
+<tr><td style="text-align:left"><code>Degrees(radians)</code></td><td style="text-align:left">Radians to degrees, for showing a number to a person. Also takes a <code>Vec3</code> in C++.</td></tr>
+</tbody></table></div>
+<h2 id="comparison-and-clamping">Comparison and clamping<a class="anchor" href="#comparison-and-clamping" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Function</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Min(a, b)</code>, <code>Max(a, b)</code></td><td style="text-align:left">The smaller, the larger. Both arguments must be the <strong>same type</strong> — mixing an <code>int</code> and an unsigned is a compile error rather than a silent conversion.</td></tr>
+<tr><td style="text-align:left"><code>Min(a, b, c, …)</code>, <code>Max(a, b, c, …)</code></td><td style="text-align:left">Three or more, so a widest-of-three reads as one call. C++ takes any number; C# takes three.</td></tr>
+<tr><td style="text-align:left"><code>Clamp(v, lo, hi)</code></td><td style="text-align:left"><code>v</code>, held between the two. Works on integers as well as floats.</td></tr>
+<tr><td style="text-align:left"><code>Saturate(v)</code></td><td style="text-align:left"><code>Clamp(v, 0, 1)</code>. The shading language&#39;s name for it, and what a weight or a colour channel almost always wants.</td></tr>
+<tr><td style="text-align:left"><code>Sign(v)</code></td><td style="text-align:left">-1, 0 or +1. <strong>Zero for zero</strong> — not the +1 that a two-way test gives it.</td></tr>
+<tr><td style="text-align:left"><code>Abs(v)</code></td><td style="text-align:left">Absolute value. Overloaded for floats and signed integers.</td></tr>
+</tbody></table></div>
+<h2 id="trigonometry">Trigonometry<a class="anchor" href="#trigonometry" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Function</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Sin(v)</code>, <code>Cos(v)</code>, <code>Tan(v)</code></td><td style="text-align:left">The three, in radians.</td></tr>
+<tr><td style="text-align:left"><code>Asin(v)</code>, <code>Acos(v)</code></td><td style="text-align:left">Inverse sine and cosine. <strong>Clamped</strong> — see the table above.</td></tr>
+<tr><td style="text-align:left"><code>Atan(v)</code></td><td style="text-align:left">Inverse tangent, in (-π/2, π/2).</td></tr>
+<tr><td style="text-align:left"><code>Atan2(y, x)</code></td><td style="text-align:left">The angle of the vector (x, y), over the full circle. <strong>y first</strong> — it is the opposite side over the adjacent. This is the one to use for &quot;which way is this pointing&quot;.</td></tr>
+<tr><td style="text-align:left"><code>Sinh(v)</code>, <code>Cosh(v)</code>, <code>Tanh(v)</code></td><td style="text-align:left">Hyperbolic. <code>Tanh</code> is the useful one: a soft clamp to (-1, 1).</td></tr>
+</tbody></table></div>
+<h2 id="exponential-and-roots">Exponential and roots<a class="anchor" href="#exponential-and-roots" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Function</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Sqrt(v)</code></td><td style="text-align:left">Square root. NaN for a negative, like the standard library.</td></tr>
+<tr><td style="text-align:left"><code>SafeSqrt(v)</code></td><td style="text-align:left">Zero for a negative instead. Use it when a rounding error could push a value you know is non-negative below zero.</td></tr>
+<tr><td style="text-align:left"><code>Pow(base, exponent)</code></td><td style="text-align:left">Base raised to the exponent.</td></tr>
+<tr><td style="text-align:left"><code>Exp(v)</code>, <code>Exp2(v)</code></td><td style="text-align:left">e^v and 2^v. <code>Exp</code> is what framerate-independent smoothing is built from — see the example below.</td></tr>
+<tr><td style="text-align:left"><code>Log(v)</code>, <code>Log2(v)</code>, <code>Log10(v)</code></td><td style="text-align:left">Natural, base 2 and base 10.</td></tr>
+</tbody></table></div>
+<h2 id="rounding">Rounding<a class="anchor" href="#rounding" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Function</th><th style="text-align:left">What it does</th><th style="text-align:left"><code>-2.5</code> becomes</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Floor(v)</code></td><td style="text-align:left">Towards negative infinity</td><td style="text-align:left">-3</td></tr>
+<tr><td style="text-align:left"><code>Ceil(v)</code></td><td style="text-align:left">Towards positive infinity</td><td style="text-align:left">-2</td></tr>
+<tr><td style="text-align:left"><code>Trunc(v)</code></td><td style="text-align:left">Towards zero</td><td style="text-align:left">-2</td></tr>
+<tr><td style="text-align:left"><code>Round(v)</code></td><td style="text-align:left">To nearest, <strong>half away from zero</strong></td><td style="text-align:left">-3</td></tr>
+<tr><td style="text-align:left"><code>Fract(v)</code></td><td style="text-align:left">The part after the point, <strong>always positive</strong>: <code>Fract(-0.25)</code> is 0.75</td><td style="text-align:left">0.5</td></tr>
+<tr><td style="text-align:left"><code>Mod(v, d)</code></td><td style="text-align:left">Remainder with the sign of the divisor: <code>Mod(-1, 3)</code> is 2</td><td style="text-align:left">—</td></tr>
+<tr><td style="text-align:left"><code>FMod(v, d)</code></td><td style="text-align:left">C&#39;s remainder, sign of the dividend: <code>FMod(-1, 3)</code> is -1</td><td style="text-align:left">—</td></tr>
+</tbody></table></div>
+<h2 id="interpolation">Interpolation<a class="anchor" href="#interpolation" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Function</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Lerp(a, b, t)</code></td><td style="text-align:left">Linear blend. <strong><code>t</code> is not clamped</strong> — pass 1.5 and you get an extrapolation, which is sometimes what you want and is never an accident the engine corrects for you.</td></tr>
+<tr><td style="text-align:left"><code>Mix(a, b, t)</code></td><td style="text-align:left">The same function under the name the shading languages use.</td></tr>
+<tr><td style="text-align:left"><code>SmoothStep(edge0, edge1, v)</code></td><td style="text-align:left">0 below <code>edge0</code>, 1 above <code>edge1</code>, and the smooth Hermite curve between. Clamped at both ends.</td></tr>
+<tr><td style="text-align:left"><code>Step(edge, v)</code></td><td style="text-align:left">0 below the edge, 1 at or above it.</td></tr>
+</tbody></table></div>
+<h2 id="queries">Queries<a class="anchor" href="#queries" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Function</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>IsNaN(v)</code>, <code>IsInf(v)</code>, <code>IsFinite(v)</code></td><td style="text-align:left">What kind of number this is. Worth a guard around anything that came from a division.</td></tr>
+<tr><td style="text-align:left"><code>Hypot(a, b)</code></td><td style="text-align:left">The length of (a, b), i.e. √(a² + b²).</td></tr>
+<tr><td style="text-align:left"><code>CopySign(magnitude, sign)</code></td><td style="text-align:left">The magnitude of the first with the sign of the second.</td></tr>
+</tbody></table></div>
+<h2 id="vectors">Vectors<a class="anchor" href="#vectors" aria-label="Link to this section">#</a></h2>
+<p>Vector arithmetic is on the vector types themselves, not here. In C++, <code>Vec2</code>, <code>Vec3</code> and <code>Vec4</code> have operators plus <code>Math::Dot</code>, <code>Math::Cross</code>, <code>Math::Length</code>, <code>Math::Distance</code>, <code>Math::Normalize</code>, and component-wise <code>Min</code>, <code>Max</code>, <code>Clamp</code>, <code>Mix</code>, <code>Abs</code> and <code>Round</code>. In C#, <code>Vector3</code> has <code>Length()</code>, <code>LengthSquared()</code>, <code>Normalized()</code>, and the static <code>Dot</code>, <code>Cross</code>, <code>Distance</code> and <code>Lerp</code>.</p>
+<h2 id="two-worked-examples">Two worked examples<a class="anchor" href="#two-worked-examples" aria-label="Link to this section">#</a></h2>
+<p><strong>Framerate-independent smoothing.</strong> A plain lerp by a constant factor converges at a rate that depends on the step size, so a camera written that way lags further behind whenever the frame rate dips. The exponential form does not:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-comment">// C++, in OnFrame</span>
+<span class="tok-keyword">const</span> <span class="tok-type">float</span> t = <span class="tok-number">1.0f</span> - Math::<span class="tok-call">Exp</span>(-m_Sharpness * deltaTime);
+<span class="tok-call">SetPosition</span>(Math::<span class="tok-call">Mix</span>(<span class="tok-call">GetPosition</span>(), goal, t));
+</code></pre></figure>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-comment">// C#, in OnFrame</span>
+<span class="tok-type">float</span> t = <span class="tok-number">1.0f</span> - Mathf.<span class="tok-call">Exp</span>(-m_Sharpness * deltaTime);
+Position = <span class="tok-type">Vector3</span>.<span class="tok-call">Lerp</span>(Position, goal, t);
+</code></pre></figure>
+<p><strong>An angle that wraps.</strong> <code>Mod</code> rather than <code>FMod</code>, because a negative angle should come back positive:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-keyword">const</span> <span class="tok-type">float</span> wrapped = Math::<span class="tok-call">Mod</span>(angle, Math::TwoPi);   <span class="tok-comment">// always in [0, 2π)</span>
+</code></pre></figure>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-type">float</span> wrapped = Mathf.<span class="tok-call">Mod</span>(angle, Mathf.TwoPi);         <span class="tok-comment">// always in [0, 2π)</span>
+</code></pre></figure>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="../scripting/csharp.html"><span class="pager-label">Previous</span><span class="pager-title">Writing a script in C#</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#why-not-std-sin-and-mathf-sin">Why not std::sin and MathF.Sin</a><a class="toc-link toc-l2" href="#four-places-these-deliberately-differ-from-the-standard-library">Four places these deliberately differ from the standard library</a><a class="toc-link toc-l2" href="#constants">Constants</a><a class="toc-link toc-l2" href="#angles">Angles</a><a class="toc-link toc-l2" href="#comparison-and-clamping">Comparison and clamping</a><a class="toc-link toc-l2" href="#trigonometry">Trigonometry</a><a class="toc-link toc-l2" href="#exponential-and-roots">Exponential and roots</a><a class="toc-link toc-l2" href="#rounding">Rounding</a><a class="toc-link toc-l2" href="#interpolation">Interpolation</a><a class="toc-link toc-l2" href="#queries">Queries</a><a class="toc-link toc-l2" href="#vectors">Vectors</a><a class="toc-link toc-l2" href="#two-worked-examples">Two worked examples</a></nav></aside>
+</div>
+<script src="../search-index.js"></script>
+<script src="../manual.js"></script>
+</body>
+</html>
