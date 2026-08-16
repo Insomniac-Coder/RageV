@@ -1,6 +1,7 @@
 #pragma once
 #include "RageV/Core/Core.h"
 #include "imgui.h"
+#include "imgui_internal.h" // ImTextInitClassifiers
 
 // One ImGui context across a DLL boundary.
 //
@@ -15,6 +16,20 @@
 // to happen in the consumer, which is why Bind() is inline here rather than a
 // function in the engine: it must run against the *caller's* copy of the ImGui
 // globals to have any effect.
+//
+// The context and the allocators are not the only globals, and the third one is
+// the one that bit. Since 1.92.6 the word-wrapper decides where a word ends by
+// looking a character up in a static table in imgui_draw.cpp, and ImGui fills
+// that table exactly once, when the atlas is first built -- which happens in
+// the engine, inside NewFrame. The executable's copy of the table stays zero,
+// and zero happens to be ImWcharClass_Blank, so from this module every
+// character reads as a space: the wrapper never finds a word to keep whole and
+// cuts the line at whichever character overflows it -- "one i" / "n the
+// viewport". Only wrapped text is affected, and only text drawn from here;
+// the same call from the engine wraps correctly, which is why the callers
+// looked innocent. So Bind() fills this module's table too. The call is
+// idempotent, and if a later ImGui initialises the table itself it costs
+// nothing.
 //
 // Call it once, before any other ImGui call -- OnAttach is the natural place.
 namespace RageV::ImGuiBinding
@@ -39,5 +54,8 @@ namespace RageV::ImGuiBinding
 			ImGui::SetAllocatorFunctions(alloc, free, userData);
 
 		ImGui::SetCurrentContext(Context());
+
+		// This module's word-wrap character table. See above.
+		ImTextInitClassifiers();
 	}
 }
