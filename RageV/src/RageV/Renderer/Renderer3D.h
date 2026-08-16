@@ -140,6 +140,14 @@ namespace RageV
 		static void SetRayTracedShadows(bool enabled);
 		static bool IsRayTracedShadows();
 
+		// Ray-traced reflections (ENGINE-NOTES 7ao): the lit shaders compiled
+		// with RV_RAY_REFLECTIONS trace the mirror ray from every glossy
+		// pixel and shade the hit through the ray-instance table this
+		// renderer writes at set 0 binding 15. Only ever on with the shadows
+		// on and the heap available -- Scene::RenderShadows resolves that.
+		static void SetRayTracedReflections(bool enabled);
+		static bool IsRayTracedReflections();
+
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and
 		// --bindless did not say no. Reported rather than assumed, because a

@@ -179,6 +179,18 @@ namespace RageV
 		// same structures and the same hardware question.
 		bool RayTracing = false;
 
+		// The two screen-space effects' traced twins (ENGINE-NOTES 7ao), each
+		// only while RayTracing is on and each off by default. Reflections:
+		// a mirror ray from every glossy pixel, shaded at the hit through the
+		// material heap -- needs bindless as well as ray queries -- in place
+		// of the SSR walk; the profile's ScreenSpaceReflections is then not
+		// consulted. Ambient occlusion: SSAO's taps cast as short rays into
+		// the scene in place of the depth-buffer probe; the profile's
+		// AmbientOcclusion toggle is then not consulted, its radius and
+		// intensity still are.
+		bool RayTracedReflections = false;
+		bool RayTracedAmbientOcclusion = false;
+
 		// More cascades means better texel density near the camera and more
 		// scene renders. Four is the usual answer and the most this supports.
 		int ShadowCascades = 4;

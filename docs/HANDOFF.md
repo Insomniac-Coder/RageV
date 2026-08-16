@@ -1591,7 +1591,65 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: every light traces and the fox's shadow runs -- 8.12 stage 2 is in, stage 3 is the open work
+### START HERE: 8.12 stage 3 is BUILT AND MOSTLY VERIFIED, committed as work in progress -- finish it first
+
+**Committed 2026-08-16 (late) as a WIP commit at the owner's request to halt
+for context.** Read ENGINE-NOTES 7ao (the design, written first) and then
+this list; everything below builds (Debug) and runs under validation with
+zero `[Vulkan]` lines on the demo with all three ray options on.
+
+**What is in**: `RenderSettings::RayTracedReflections` and
+`RayTracedAmbientOcclusion` (both off, shown only while `RayTracing` is
+ticked), `--rt-reflections=on|off` / `--rt-ao=on|off`, the C# mirror,
+`ResolveRayTracedReflections` / `ResolveRayTracedAmbientOcclusion`;
+`RHIBuffer::GetDeviceAddress`; `RayShadows` keeps a `RayCaster` per TLAS
+instance (mesh, material, params, posed buffer) and `Renderer3D::EndScene`
+writes the ray-instance table (`GpuRayInstance`, set 0 binding 15) with
+material records shared with the draws; `pbr_fragment.glsl` under
+`RV_RAY_REFLECTIONS` (buffer references, `TraceReflection`, the mix at the
+line SSR's radiance enters, roughness weight 0.25-0.6); `TraceShadowFrom`
+(shadow ray from an arbitrary point/normal); `rtao_compute.rvshader` +
+`PostProcess::RtaoCompute` (Dispatch gained an acceleration-structure
+binding at 4; the shader is compiled only where ray queries exist); the
+graph runs no SSR passes and swaps the SSAO first pass when the traced form
+is on; `Scene::RenderShadows` builds the TLAS whenever ray tracing is on;
+`FieldHint::DisabledIf/DisabledNote` + `DisabledWhen(...)` and
+`FieldEditor::DrawFields` greying the profile's SSR rows and the SSAO
+toggle with a note (the AO dials show while either form runs).
+
+**Verified**: `check_ssr.py` (Debug) -- traced reflection exact to 0.01
+levels against a sky of the block's colour; the off-screen block reflects
++109.85 traced vs -0.10 screen-space (row derived from the geometry, 788).
+`check_ssao.py` (Debug) -- traced occlusion darkens the seam 15.25, floor
+0.000, jitter drift 0.05.
+
+**ONE FAILING CLAIM, cause known, fix not applied**: under RTAO the open
+brick wall's AO factor p10 is 0.972 (bar 0.995): `rtao_compute` takes the
+*written* normal wherever there is one, and the brick normal map tilts it
+along the mortar so rays dip into the wall -- exactly 9.8b's finding for
+SSAO. Fix: apply SSAO's agreement rule -- reconstruct the geometric normal
+(the pass already has `ReconstructedWorldNormal`, with 7an's ray-facing
+sign and texel snap) and take the written one only within
+`dot > 0.96`. Then rerun `check_ssao.py`; falsify the RTAO claims by
+setting the ray tMax to 0 and the reflection claims by tracing along
+`-direction`.
+
+**Still to do before this is "done"**: (1) the wall fix above; (2) eyeball
+the greyed rows: `RageVEditor.exe --raytracing=on --rt-ao=on
+--rt-reflections=on --select=<camera entity> --screenshot=...` and look at
+the Properties panel; (3) Release/Dist rebuild, scenetest both backends
+under validation, runtime+editor both backends with the flags on, the
+other check scripts on Release; (4) ROADMAP 8.12 row to "done" (stage 3),
+7ao's "numbers at landing" paragraph, this file's Done entry, memory; (5)
+restore `demo.rage(.meta)` / `courtyard.rvpostprofile(.meta)` before
+committing. Stated limits to carry into 7ao's closing: hit shading is
+Lambert + emissive with a sun shadow ray only; rough surfaces keep the
+probe; no penumbra; RTAO is 12 rays, blurred by SSAO's blur, no temporal
+accumulation.
+
+---
+
+### Stage 2 -- every light traces and the fox's shadow runs
 
 **8.12 stage 2 (2026-08-16, ENGINE-NOTES 7an) is done and verified**, on top
 of stage 1 the same day. Ray-traced shadows now cover **every casting light

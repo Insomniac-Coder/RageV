@@ -51,6 +51,8 @@ namespace RageV
 			Ref<RHIAccelerationStructure> Empty;
 
 			std::vector<AccelerationInstance> Instances;
+			// Parallel to Instances: what each one is, for shading a hit (7ao).
+			std::vector<RayCaster> Records;
 			bool Active = false;
 			bool BuiltThisFrame = false;
 
@@ -244,12 +246,14 @@ namespace RageV
 		if (!s_Data)
 			return;
 		s_Data->Instances.clear();
+		s_Data->Records.clear();
 		s_Data->Skins.clear();
 		s_Data->BoneScratch.clear();
 		s_Data->CasterCursor = 0;
 	}
 
-	void RayShadows::AddInstance(const Ref<Mesh>& mesh, const Mat4& world, const std::vector<Mat4>* bones)
+	void RayShadows::AddInstance(const Ref<Mesh>& mesh, const Mat4& world, const std::vector<Mat4>* bones,
+								 const Ref<Material>& material, const MaterialParams& params)
 	{
 		if (!s_Data || !s_Data->Available || !mesh)
 			return;
@@ -257,6 +261,11 @@ namespace RageV
 		AccelerationInstance instance;
 		memcpy(instance.Transform, &world[0][0], sizeof(instance.Transform));
 		instance.CustomIndex = (uint32_t)s_Data->Instances.size();
+
+		RayCaster record;
+		record.MeshRef = mesh;
+		record.MaterialRef = material;
+		record.Params = params;
 
 		// A posed skinned caster: this frame's structure for a caster slot,
 		// refit in Build from the vertices the compute pass writes. Falls
@@ -281,7 +290,9 @@ namespace RageV
 				s_Data->Skins.push_back(std::move(skin));
 
 				instance.Blas = caster.Structures[frame];
+				record.Posed = caster.Posed[frame];
 				s_Data->Instances.push_back(std::move(instance));
+				s_Data->Records.push_back(std::move(record));
 				return;
 			}
 		}
@@ -294,6 +305,13 @@ namespace RageV
 
 		instance.Blas = blas;
 		s_Data->Instances.push_back(std::move(instance));
+		s_Data->Records.push_back(std::move(record));
+	}
+
+	const std::vector<RayCaster>& RayShadows::GetCasters()
+	{
+		static const std::vector<RayCaster> none;
+		return s_Data ? s_Data->Records : none;
 	}
 
 	void RayShadows::Build(RHICommandList& cmd)

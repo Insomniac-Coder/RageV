@@ -159,6 +159,44 @@ const float POINT_SHADOW_NEAR = 0.05;
 layout(set = 0, binding = 14) uniform accelerationStructureEXT u_SceneAS;
 #endif
 
+// Ray-traced reflections (ENGINE-NOTES 7ao): a hit is shaded, so the hit's
+// mesh and material have to be reachable from a shader that never bound
+// them. The mesh by *address* -- buffer references over the vertex and index
+// buffers the structures were built from -- and the material through the
+// heap, by the record index the instance table names. One row per structure
+// instance in build order; the hit's custom index is the row. Mirrored by
+// hand in Renderer3D.cpp (GpuRayInstance), std430.
+#ifdef RV_RAY_REFLECTIONS
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer RayWords  { uint  Words[]; };
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer RayFloats { float Floats[]; };
+
+struct RayInstance
+{
+	uvec2 PositionAddress;    // the mesh's vertices, or a posed caster's compute-written positions
+	uvec2 AttributeAddress;   // the mesh's vertices: normal and uv live here either way
+	uvec2 IndexAddress;
+	uint  PositionStrideWords;
+	uint  AttributeStrideWords;
+	uint  MaterialIndex;      // row of u_Materials
+	uint  Flags;              // bit 0: positions are posed, take the flat normal
+	uint  _pad0;
+	uint  _pad1;
+	vec4  BaseColor;
+	vec4  EmissiveColor;
+	vec4  Surface;            // metallic, roughness, occlusion, normal scale
+};
+const uint RAY_INSTANCE_POSED = 1u;
+
+layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
+{
+	RayInstance Instances[];
+} u_RayInstances;
+#endif
+
 // The material: two front doors, one shading (ENGINE-NOTES 7al).
 //
 // Everything below this block -- every texture(u_BaseColorMap, uv), every
@@ -414,12 +452,11 @@ float CascadeFactor(int cascade, vec3 worldPos, vec3 N, vec3 L)
 // frame, zero when not (a probe capture, a frame before the first
 // RenderShadows), and zero means lit -- the same reading the maps give a
 // count of zero cascades.
-float TraceShadow(vec3 worldPos, vec3 L, float tMax)
+float TraceShadowFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax)
 {
 	if (u_Scene.ShadowParams.x <= 0.0)
 		return 1.0;
 
-	vec3 Ng = normalize(v_Normal);
 	float NgdotL = clamp(dot(Ng, L), 0.0, 1.0);
 	float slope = sqrt(1.0 - NgdotL * NgdotL) / max(NgdotL, 0.15);
 	float offset = 0.002 * (1.0 + min(slope, 4.0));
@@ -431,6 +468,12 @@ float TraceShadow(vec3 worldPos, vec3 L, float tMax)
 	while (rayQueryProceedEXT(q)) {}
 	return rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT
 		 ? 1.0 : 0.0;
+}
+
+// The surface being shaded: its own geometric normal.
+float TraceShadow(vec3 worldPos, vec3 L, float tMax)
+{
+	return TraceShadowFrom(worldPos, normalize(v_Normal), L, tMax);
 }
 #else
 float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
@@ -550,6 +593,150 @@ vec3 RotateIntoSky(vec3 v)
 	float s = u_Scene.Environment.w;
 	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
 }
+
+#ifdef RV_RAY_REFLECTIONS
+// The radiance the mirror ray from `origin` along `direction` finds
+// (ENGINE-NOTES 7ao): the sky where it misses, and a *simplified* shade of
+// the surface where it hits -- base colour and emissive through the hit's
+// material and the heap, the interpolated vertex normal (flat for a posed
+// caster, whose normals were not posed), every light in the buffer
+// unclustered with one shadow ray toward the sun, and the sky's irradiance
+// for ambient. No normal map, no parallax, no local-light shadows, no
+// occlusion: a mirror of a brick wall shows the wall's colour and lighting,
+// not its mortar's bump. Exact for emissive geometry, which is what the
+// check that judges it is made of.
+vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction)
+{
+	// Off the surface along its geometric normal, the shadow ray's offset,
+	// for the shadow ray's reason.
+	float NgdotD = clamp(dot(Ng, direction), 0.0, 1.0);
+	float slope = sqrt(1.0 - NgdotD * NgdotD) / max(NgdotD, 0.15);
+	float offset = 0.002 * (1.0 + min(slope, 4.0));
+
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsOpaqueEXT, 0xFFu,
+						  origin + Ng * offset, 0.0, direction, 1.0e4);
+	while (rayQueryProceedEXT(q)) {}
+
+	if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT)
+	{
+		// The sky, unfiltered: a mirror ray sees the sky at full sharpness.
+		return textureLod(u_Environment, vec4(RotateIntoSky(direction), 0.0), 0.0).rgb *
+			   u_Scene.Environment.x;
+	}
+
+	// What was hit, and where on it.
+	uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true));
+	uint primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
+	vec2 bary = rayQueryGetIntersectionBarycentricsEXT(q, true);
+	float w0 = 1.0 - bary.x - bary.y;
+	mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(q, true);
+	mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(q, true);
+
+	RayInstance hit = u_RayInstances.Instances[instance];
+	RayWords indices = RayWords(hit.IndexAddress);
+	RayFloats positions = RayFloats(hit.PositionAddress);
+	RayFloats attributes = RayFloats(hit.AttributeAddress);
+
+	uint i0 = indices.Words[primitive * 3u + 0u];
+	uint i1 = indices.Words[primitive * 3u + 1u];
+	uint i2 = indices.Words[primitive * 3u + 2u];
+
+	// Position and normal at the first three floats of a vertex, texture
+	// coordinate at the next two: MeshVertex and SkinnedVertex agree on that
+	// much, and the strides say the rest.
+	uint ps = hit.PositionStrideWords;
+	uint as_ = hit.AttributeStrideWords;
+	vec3 p0 = vec3(positions.Floats[i0 * ps + 0u], positions.Floats[i0 * ps + 1u], positions.Floats[i0 * ps + 2u]);
+	vec3 p1 = vec3(positions.Floats[i1 * ps + 0u], positions.Floats[i1 * ps + 1u], positions.Floats[i1 * ps + 2u]);
+	vec3 p2 = vec3(positions.Floats[i2 * ps + 0u], positions.Floats[i2 * ps + 1u], positions.Floats[i2 * ps + 2u]);
+	vec2 uv0 = vec2(attributes.Floats[i0 * as_ + 6u], attributes.Floats[i0 * as_ + 7u]);
+	vec2 uv1 = vec2(attributes.Floats[i1 * as_ + 6u], attributes.Floats[i1 * as_ + 7u]);
+	vec2 uv2 = vec2(attributes.Floats[i2 * as_ + 6u], attributes.Floats[i2 * as_ + 7u]);
+
+	vec3 objectPosition = p0 * w0 + p1 * bary.x + p2 * bary.y;
+	vec3 hitPosition = objectToWorld * vec4(objectPosition, 1.0);
+	vec2 hitUv = uv0 * w0 + uv1 * bary.x + uv2 * bary.y;
+
+	vec3 objectNormal;
+	if ((hit.Flags & RAY_INSTANCE_POSED) != 0u)
+	{
+		// Posed positions, unposed normals: the triangle's own plane is the
+		// honest normal.
+		objectNormal = cross(p1 - p0, p2 - p0);
+	}
+	else
+	{
+		vec3 n0 = vec3(attributes.Floats[i0 * as_ + 3u], attributes.Floats[i0 * as_ + 4u], attributes.Floats[i0 * as_ + 5u]);
+		vec3 n1 = vec3(attributes.Floats[i1 * as_ + 3u], attributes.Floats[i1 * as_ + 4u], attributes.Floats[i1 * as_ + 5u]);
+		vec3 n2 = vec3(attributes.Floats[i2 * as_ + 3u], attributes.Floats[i2 * as_ + 4u], attributes.Floats[i2 * as_ + 5u]);
+		objectNormal = n0 * w0 + n1 * bary.x + n2 * bary.y;
+	}
+	// A normal transforms by the inverse transpose: the world-to-object
+	// matrix's rotation, transposed, which is applying its rows as columns.
+	vec3 hitNormal = normalize(vec3(dot(worldToObject[0].xyz, objectNormal),
+									dot(worldToObject[1].xyz, objectNormal),
+									dot(worldToObject[2].xyz, objectNormal)));
+	// Toward the ray, whichever face was hit.
+	if (dot(hitNormal, direction) > 0.0)
+		hitNormal = -hitNormal;
+
+	// The material: the record, then the maps through the heap.
+	GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
+	vec2 uv = hitUv * material.UvTransform.xy + material.UvTransform.zw;
+
+	vec3 albedo = hit.BaseColor.rgb;
+	if ((material.MapFlags & MAP_BASE_COLOR) != 0)
+		albedo *= textureLod(u_Textures[nonuniformEXT(material.Maps0.x)], uv, 0.0).rgb;
+	vec3 emissive = hit.EmissiveColor.rgb;
+	if ((material.MapFlags & MAP_EMISSIVE) != 0)
+		emissive *= textureLod(u_Textures[nonuniformEXT(material.Maps0.w)], uv, 0.0).rgb;
+	float metallic = hit.Surface.x;
+	if ((material.MapFlags & MAP_METALLIC) != 0)
+		metallic *= textureLod(u_Textures[nonuniformEXT(material.Maps1.y)], uv, 0.0).r;
+
+	// Lambert only, every light, no clustering -- a hit is not on screen and
+	// has no cluster -- and a shadow ray for the sun alone.
+	vec3 diffuse = albedo * (1.0 - metallic);
+	vec3 lit = vec3(0.0);
+	for (int i = 0; i < u_Scene.LightCount; ++i)
+	{
+		GpuLight light = u_Lights.Lights[i];
+		vec3 lightColor = light.Color.rgb * light.Color.a;
+		vec3 L;
+		float attenuation = 1.0;
+		float shadow = 1.0;
+		if (light.Position.w == 0.0)
+		{
+			L = normalize(-light.Direction.xyz);
+			if (int(light.Shadow.x) != 0)
+				shadow = TraceShadowFrom(hitPosition, hitNormal, L, 1.0e4);
+		}
+		else
+		{
+			vec3 toLight = light.Position.xyz - hitPosition;
+			float distance = length(toLight);
+			L = toLight / max(distance, 0.0001);
+			float range = max(light.Params.x, 0.0001);
+			float ratio = clamp(1.0 - pow(distance / range, 4.0), 0.0, 1.0);
+			attenuation = (ratio * ratio) / max(distance * distance, 0.0001);
+			float cosInner = light.Params.y;
+			float cosOuter = light.Params.z;
+			if (cosOuter < cosInner)
+			{
+				float theta = dot(L, normalize(-light.Direction.xyz));
+				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+			}
+		}
+		lit += diffuse / PI * lightColor * attenuation * max(dot(hitNormal, L), 0.0) * shadow;
+	}
+
+	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
+	vec3 irradiance = textureLod(u_Irradiance, vec4(RotateIntoSky(hitNormal), v_Probe), 0.0).rgb *
+					  u_Scene.Environment.x;
+	return lit + diffuse * (ambientLight + irradiance) + emissive;
+}
+#endif
 
 // The split-sum environment BRDF, read from the table.
 //
@@ -975,6 +1162,21 @@ void main()
 	// on one backend and down on the other -- the same fact taa_resolve
 	// states for the velocity, carried in as a uniform rather than
 	// re-derived per shader.
+#ifdef RV_RAY_REFLECTIONS
+	// The traced form (7ao): the mirror ray from this surface, this frame,
+	// weighted in where the surface is glossy enough for a mirror ray to be
+	// the answer and out where the probe's blur is what many jittered rays
+	// would converge to. The SSR passes do not run when this is compiled
+	// in, so the block below is dead by its own gate.
+	{
+		float mirror = 1.0 - smoothstep(0.25, 0.6, roughness);
+		if (mirror > 0.0)
+		{
+			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N));
+			prefiltered = mix(prefiltered, traced, mirror);
+		}
+	}
+#endif
 	if (u_Scene.ScreenReflections.x > 0.0)
 	{
 		vec2 previousNDC = thenNDC - u_Scene.Jitter.zw;

@@ -998,7 +998,25 @@ namespace RageV::UI
 			if (field.Hint.VisibleIf && !field.Hint.VisibleIf(block))
 				continue;
 
+			// Taken over rather than inapplicable (ENGINE-NOTES 7ao): the row
+			// stays where it is, greyed, and says who has it. The value is
+			// untouched, so turning the other thing off hands it back.
+			const bool disabled = field.Hint.DisabledIf && field.Hint.DisabledIf(block);
+			if (disabled)
+				ImGui::BeginDisabled();
+
 			changed |= DrawField(field, block);
+
+			if (disabled)
+			{
+				ImGui::EndDisabled();
+				if (field.Hint.DisabledNote)
+				{
+					ImGui::PushTextWrapPos(0.0f);
+					ImGui::TextDisabled("%s", field.Hint.DisabledNote);
+					ImGui::PopTextWrapPos();
+				}
+			}
 		}
 
 		return changed;

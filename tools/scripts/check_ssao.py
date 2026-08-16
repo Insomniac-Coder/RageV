@@ -35,6 +35,18 @@ it (9.8b):
    that z was noise, the noise turned with the jitter, and the wall went a
    third darker every eighth frame. ENGINE-NOTES 7an.
 
+And with ray tracing on (8.12 stage 3, Vulkan only; ENGINE-NOTES 7ao),
+the same claims of the traced form, `--rt-ao=on`, with the profile's own
+AmbientOcclusion left *off* -- the render setting alone drives it:
+
+8. **The seam darkens** under ray-traced occlusion, at least as much as the
+   restrained bound asks of SSAO.
+9. **The open floor holds still**, and **the brick wall holds at one** --
+   a ray has no reconstruction to wobble and no normal map to be misled by.
+10. **And it holds under the temporal jitter** across the eight-frame phase.
+
+Falsified by giving the rays no length (tMax zero): nothing darkens.
+
 Usage:
     python tools/scripts/check_ssao.py [--config Release]
 """
@@ -78,24 +90,27 @@ def run(exe, args):
         sys.exit(1)
 
 
-def shoot(exe, backend, path, scene="scenes/ssao_box.rage"):
+RAY_FLAGS = ("--raytracing=on", "--rt-ao=on")
+
+
+def shoot(exe, backend, path, scene="scenes/ssao_box.rage", extra=()):
     run(exe, [f"--rhi={backend}", f"--scene={scene}",
               "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
-              f"--screenshot={path}", "--aa=none"])
+              f"--screenshot={path}", "--aa=none", *extra])
     if not pathlib.Path(path).exists():
         print(f"FAIL: {path} was never written -- the scene probably did not load")
         sys.exit(1)
     return np.asarray(Image.open(path).convert("RGB")).astype(float).mean(axis=2)
 
 
-def shoot_sequence(exe, backend, path, scene, count):
+def shoot_sequence(exe, backend, path, scene, count, extra=()):
     """`count` consecutive frames from FRAME under TAA, in one run: separate
     runs are separate clocks and would not be consecutive. Returns them in
     frame order."""
     path = pathlib.Path(path)
     run(exe, [f"--rhi={backend}", f"--scene={scene}",
               "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
-              f"--screenshot-count={count}", f"--screenshot={path}", "--aa=taa"])
+              f"--screenshot-count={count}", f"--screenshot={path}", "--aa=taa", *extra])
     frames = []
     for frame in range(FRAME, FRAME + count):
         numbered = path.with_name(f"{path.stem}_{frame}{path.suffix}")
@@ -254,6 +269,60 @@ def main():
             failures.append(f"{backend}: under TAA the open brick wall's brightness moves "
                             f"{drift:.2f} levels across the jitter phase -- it flickers")
 
+    # --- ray-traced occlusion (7ao), where the device can ---------------------
+    probe_run = subprocess.run([str(exe), "--rhi=vulkan", "--scene=scenes/ssao_box.rage",
+                                "--frame-time=0.0166", "--screenshot-frame=2",
+                                f"--screenshot={shots / 'vulkan-rt-probe.png'}", "--aa=none",
+                                *RAY_FLAGS], cwd=exe.parent, capture_output=True, text=True)
+    can_trace = "shadows traced" in (probe_run.stdout + probe_run.stderr)
+    if not can_trace:
+        print("vulkan: this device does not trace; the ray-traced occlusion claims are skipped")
+    else:
+        # The profile says off throughout: the render setting is what turns
+        # the traced form on, and the profile's toggle is not consulted.
+        profile({ "AmbientOcclusion": False, "AoIntensity": 1.0 })
+        off = shoot(exe, "vulkan", shots / "vulkan-rt-off.png")
+        rt_on = shoot(exe, "vulkan", shots / "vulkan-rt-on.png", extra=RAY_FLAGS)
+        seam, open_ = regions(off)
+        rt_seam = off[seam].mean() - rt_on[seam].mean()
+        rt_open = abs(rt_on[open_].mean() - off[open_].mean())
+        print(f"vulkan: ray-traced occlusion darkens the seam by {rt_seam:.2f}, "
+              f"open floor drifts {rt_open:.3f}")
+        if rt_seam < MIN_SEAM_DARKENING:
+            failures.append(f"vulkan: ray-traced occlusion darkened the seam by only {rt_seam:.2f}")
+        if rt_open > MAX_OPEN_DRIFT:
+            failures.append(f"vulkan: ray-traced occlusion moved the open floor by {rt_open:.3f}")
+
+        wall_profile({ "AmbientOcclusion": False, "AoIntensity": 1.0 })
+        wall_off = shoot(exe, "vulkan", shots / "vulkan-wall-rt-off.png",
+                         scene="scenes/ssao_wall.rage")
+        wall_on = shoot(exe, "vulkan", shots / "vulkan-wall-rt-on.png",
+                        scene="scenes/ssao_wall.rage", extra=RAY_FLAGS)
+        height, width = wall_off.shape
+        region = (slice(int(height * 0.28), int(height * 0.72)),
+                  slice(int(width * 0.02), int(width * 0.25)))
+        factor = wall_on[region] / np.maximum(wall_off[region], 1.0)
+        p10 = float(np.percentile(factor, 10))
+        print(f"vulkan: ray-traced occlusion on the open brick wall: AO factor mean {factor.mean():.3f}, "
+              f"p10 {p10:.3f}, worst {float(factor.min()):.3f}")
+        if p10 < MIN_WALL_P10:
+            failures.append(f"vulkan: under ray-traced occlusion the open brick wall occludes "
+                            f"itself (AO factor p10 {p10:.3f})")
+
+        off_frames = shoot_sequence(exe, "vulkan", shots / "vulkan-wall-rt-taa-off.png",
+                                    "scenes/ssao_wall.rage", JITTER_PHASE)
+        on_frames = shoot_sequence(exe, "vulkan", shots / "vulkan-wall-rt-taa-on.png",
+                                   "scenes/ssao_wall.rage", JITTER_PHASE, extra=RAY_FLAGS)
+        means = [float(on_frame[region].mean()) for on_frame in on_frames]
+        p10s = [float(np.percentile(on_frame[region] / np.maximum(off_frame[region], 1.0), 10))
+                for off_frame, on_frame in zip(off_frames, on_frames)]
+        drift = max(means) - min(means)
+        print(f"vulkan: ray-traced occlusion under TAA across {JITTER_PHASE} frames: wall AO p10 "
+              f"{min(p10s):.3f} at worst, brightness drifts {drift:.2f} levels")
+        if min(p10s) < MIN_WALL_P10 or drift > MAX_WALL_JITTER_DRIFT:
+            failures.append(f"vulkan: ray-traced occlusion on the wall is not steady across the "
+                            f"jitter phase (p10 {min(p10s):.3f}, drift {drift:.2f})")
+
     print()
     if failures:
         for failure in failures:
@@ -262,7 +331,8 @@ def main():
 
     print("OK: off is off to the byte, the seam darkens and deepens with "
           "intensity, the open floor holds still, a frame reproduces, and a "
-          "normal-mapped wall does not occlude itself -- on any jitter offset")
+          "normal-mapped wall does not occlude itself -- on any jitter offset, "
+          "and under ray-traced occlusion too")
 
 
 if __name__ == "__main__":

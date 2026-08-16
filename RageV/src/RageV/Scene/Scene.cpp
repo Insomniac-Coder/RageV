@@ -1284,6 +1284,9 @@ namespace RageV
 		// always were.
 		const bool traced = ResolveRayTracing(Project::Render());
 		Renderer3D::SetRayTracedShadows(traced);
+		// And whether the same structure answers reflections (7ao); resolved
+		// after the shadows because it rides on them.
+		Renderer3D::SetRayTracedReflections(ResolveRayTracedReflections(Project::Render()));
 
 		// Nothing to shadow, and a shadow pass over an empty scene is a render
 		// pass that clears and stops.
@@ -1505,11 +1508,6 @@ namespace RageV
 
 		if (traced)
 		{
-			// Nothing casts, so nothing is built and the lit pass binds the
-			// empty structure: every ray misses, every surface is lit.
-			if (!anyCaster)
-				return;
-
 			// The whole scene, once, into this frame's acceleration structure:
 			// every mesh with its world transform, and a skinned one with its
 			// pose when it has one -- RayShadows poses it in compute and
@@ -1519,6 +1517,15 @@ namespace RageV
 			// have a frustum. Building is not permitted inside a render pass,
 			// and this runs before the graph, so it is recorded here rather
 			// than in the scene pass that reads it.
+			//
+			// Built whether or not any light casts (7ao): reflections and
+			// occlusion trace into the same structure, and a scene lit by
+			// nothing that casts a shadow can still be reflected in.
+			// The material and the entity's scalars ride beside each
+			// instance so a reflected hit can be shaded (7ao); the same
+			// resolution the lit pass makes, so a hit and a draw of one
+			// surface cannot disagree.
+			(void)anyCaster;
 			RayShadows::ClearInstances();
 			for (auto& item : meshView)
 			{
@@ -1534,7 +1541,14 @@ namespace RageV
 					if (animator && !animator->Skinning.empty())
 						bones = &animator->Skinning;
 				}
-				RayShadows::AddInstance(resolved, transform.World, bones);
+
+				RHI::Ref<Material> material = Assets::Manager::GetMaterial(mesh.Material);
+				if (!material)
+					material = Renderer3D::GetDefaultMaterial();
+				const MaterialParams params =
+					mesh.ResolveParams(material ? material->GetParams() : MaterialParams{});
+
+				RayShadows::AddInstance(resolved, transform.World, bones, material, params);
 			}
 			RayShadows::Build(*cmd);
 			return;

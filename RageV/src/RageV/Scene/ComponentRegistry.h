@@ -58,6 +58,14 @@ namespace RageV
 		// The serializer deliberately ignores this: hiding a field must not
 		// drop it from disk, or toggling a light's type would lose its cone.
 		FieldVisibility VisibleIf = nullptr;
+		// For fields something else has taken over -- the post profile's
+		// screen-space reflections while the ray-traced ones run (ENGINE-NOTES
+		// 7ao). Shown, greyed, with the note beneath: hidden means "does not
+		// apply in this mode", disabled means "applies, and is being answered
+		// elsewhere". The value is kept either way; the serializer ignores
+		// this as it ignores VisibleIf.
+		FieldVisibility DisabledIf = nullptr;
+		const char* DisabledNote = nullptr;
 
 		// Marks a String field as naming a *method*, on the entity referenced by
 		// the sibling Entity field with this key.

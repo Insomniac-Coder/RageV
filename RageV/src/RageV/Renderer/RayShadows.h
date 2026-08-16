@@ -26,6 +26,7 @@
 // reason the TLAS has one.
 
 #include "RageV/Renderer/RHI/RHIDevice.h"
+#include "RageV/Renderer/Material.h"
 #include "RageV/Math/Math.h"
 
 #include <vector>
@@ -33,6 +34,20 @@
 namespace RageV
 {
 	class Mesh;
+
+	// What a ray's hit needs to know about the instance it hit (ENGINE-NOTES
+	// 7ao), kept beside each TLAS instance in build order so the instance's
+	// custom index is the row. Renderer3D turns these into the ray-instance
+	// table the lit shader reads.
+	struct RayCaster
+	{
+		RHI::Ref<Mesh>     MeshRef;
+		RHI::Ref<Material> MaterialRef;
+		MaterialParams     Params;
+		// The compute-posed positions of a skinned caster; null for a static
+		// one, whose positions are the mesh's own.
+		RHI::Ref<RHI::RHIBuffer> Posed;
+	};
 
 	class RayShadows
 	{
@@ -64,8 +79,14 @@ namespace RageV
 		// structure the mesh caches.
 		static void ClearInstances();
 		static void AddInstance(const RHI::Ref<Mesh>& mesh, const Mat4& world,
-								const std::vector<Mat4>* bones = nullptr);
+								const std::vector<Mat4>* bones = nullptr,
+								const RHI::Ref<Material>& material = nullptr,
+								const MaterialParams& params = MaterialParams{});
 		static void Build(RHI::RHICommandList& cmd);
+
+		// This frame's casters, one per instance the structure was built
+		// from, in the order it was built -- what a hit's custom index names.
+		static const std::vector<RayCaster>& GetCasters();
 
 		// True after Build ran this frame.
 		static bool IsActive();

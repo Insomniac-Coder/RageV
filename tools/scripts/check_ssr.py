@@ -37,6 +37,21 @@ And on the mirror floor under a *uniform* sky (9.9):
    the lit pixel and could not pass this; the lighting now does the swap
    itself. ENGINE-NOTES 7af.
 
+And with ray tracing on (8.12 stage 3, Vulkan only; ENGINE-NOTES 7ao):
+
+8. **The traced reflection is exact too.** With `--rt-reflections=on` the
+   mirror floor where it reflects the emissive block equals the SSR-off
+   floor under a sky of the block's colour, to the same bound as claim 7 --
+   the hit is shaded through the material, and for emissive geometry that
+   shade is exact.
+9. **It reflects what is not on screen.** The block moved above the top
+   edge of the frame, its reflection still on the floor inside it: the
+   traced frame's reflection region gains against the empty floor, and the
+   screen-space frame's does not, because there is nothing on screen to
+   walk to. This is the whole reason the traced form exists.
+
+Falsified by tracing the reflection along -direction: both fail.
+
 Usage:
     python tools/scripts/check_ssr.py [--config Release]
 """
@@ -78,14 +93,39 @@ def run(exe, args):
         sys.exit(1)
 
 
-def shoot(exe, backend, path, scene="scenes/ssr_mirror.rage"):
+def shoot(exe, backend, path, scene="scenes/ssr_mirror.rage", extra=()):
     run(exe, [f"--rhi={backend}", f"--scene={scene}",
               "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
-              f"--screenshot={path}", "--aa=none"])
+              f"--screenshot={path}", "--aa=none", *extra])
     if not pathlib.Path(path).exists():
         print(f"FAIL: {path} was never written -- the scene probably did not load")
         sys.exit(1)
     return np.asarray(Image.open(path).convert("RGB")).astype(float).mean(axis=2)
+
+
+RAY_FLAGS = ("--raytracing=on", "--rt-reflections=on")
+
+
+def mirror_image_row(camera, pitch, point, height, fov_degrees=60.0):
+    """The frame row where the floor (y = 0) reflection of a world point
+    lands, from the fixture's stated camera: the ray from the eye to the
+    point's mirror image below the floor, projected. Derived, not found, so
+    the claim cannot be circular."""
+    import math
+    cx, cy, cz = camera
+    px, py, pz = point
+    mirror = (px, -py, pz)
+    d = (mirror[0] - cx, mirror[1] - cy, mirror[2] - cz)
+    length = math.sqrt(sum(v * v for v in d))
+    d = tuple(v / length for v in d)
+    # The camera's forward and up for a pitch about x, yaw zero: the same
+    # convention the fixture's sun uses (make_ray_shadow_scene).
+    forward = (0.0, math.sin(pitch), -math.cos(pitch))
+    up = (0.0, math.cos(pitch), math.sin(pitch))
+    depth = sum(a * b for a, b in zip(d, forward))
+    rise = sum(a * b for a, b in zip(d, up))
+    ndc_y = (rise / depth) / math.tan(math.radians(fov_degrees) * 0.5)
+    return int(round((1.0 - ndc_y) * 0.5 * height))
 
 
 def limb_regions(image, radius_fraction):
@@ -275,6 +315,68 @@ def main():
             failures.append(f"{backend}: the reflection replaces the probe inexactly "
                             f"({error:.2f} levels off a sky of the same colour)")
 
+    # --- ray-traced reflections (7ao), where the device can -----------------
+    # The reference frame is claim 7's: SSR off under a sky of the block's
+    # colour, which the traced floor must equal as well.
+    rt_log_probe = subprocess.run([str(exe), "--rhi=vulkan", "--scene=scenes/ssr_exact.rage",
+                                   "--frame-time=0.0166", "--screenshot-frame=2",
+                                   f"--screenshot={shots / 'vulkan-rt-probe.png'}", "--aa=none",
+                                   *RAY_FLAGS], cwd=exe.parent, capture_output=True, text=True)
+    can_trace = "reflections traced" in (rt_log_probe.stdout + rt_log_probe.stderr)
+    if not can_trace:
+        print("vulkan: this device does not trace; the ray-traced claims are skipped "
+              "(and the log said so)")
+    else:
+        stage_exact({ "ScreenSpaceReflections": True }, other_sky)
+        traced_rt = shoot(exe, "vulkan", shots / "vulkan-exact-rt.png",
+                          scene="scenes/ssr_exact.rage", extra=RAY_FLAGS)
+        stage_exact({ "ScreenSpaceReflections": False }, make_ssr_scene.BLOCK_EMISSIVE)
+        reference = shoot(exe, "vulkan", shots / "vulkan-exact-reference-rt.png",
+                          scene="scenes/ssr_exact.rage")
+        height, width = traced_rt.shape
+        base = bases["vulkan"]
+        interior = (slice(base + 12, base + int(height * 0.14)),
+                    slice(int(width * 0.45), int(width * 0.55)))
+        error = float(np.abs(traced_rt[interior] - reference[interior]).mean())
+        print(f"vulkan: ray-traced reflected floor vs a sky of the block's colour: "
+              f"mean |diff| {error:.2f} levels "
+              f"(traced {traced_rt[interior].mean():.1f}, reference {reference[interior].mean():.1f})")
+        if error > MAX_EXACTNESS_ERROR:
+            failures.append(f"vulkan: the ray-traced reflection replaces the probe inexactly "
+                            f"({error:.2f} levels off a sky of the same colour)")
+
+        # The block off the top of the frame, its reflection inside it.
+        def stage_offscreen(settings, sky_rgb):
+            handle = postprofile.write_beside(exact, { "BloomEnabled": False, **settings })
+            exact.write_text(make_ssr_scene.build_exact(
+                handle, sky_rgb, make_ssr_scene.OFFSCREEN_BLOCK_CENTRE,
+                make_ssr_scene.OFFSCREEN_BLOCK_SCALE))
+
+        stage_offscreen({ "ScreenSpaceReflections": True }, other_sky)
+        ssr_far = shoot(exe, "vulkan", shots / "vulkan-offscreen-ssr.png",
+                        scene="scenes/ssr_exact.rage")
+        rt_far = shoot(exe, "vulkan", shots / "vulkan-offscreen-rt.png",
+                       scene="scenes/ssr_exact.rage", extra=RAY_FLAGS)
+
+        # Where the reflection of the block's centre lands, from the geometry;
+        # a band around it, and a control band beside it on empty floor.
+        row = mirror_image_row(make_ssr_scene.EXACT_CAMERA_POSITION, make_ssr_scene.EXACT_CAMERA_PITCH,
+                               make_ssr_scene.OFFSCREEN_BLOCK_CENTRE, height)
+        spot = (slice(max(row - 14, 0), min(row + 14, height)),
+                slice(int(width * 0.485), int(width * 0.515)))
+        beside = (slice(max(row - 14, 0), min(row + 14, height)),
+                  slice(int(width * 0.30), int(width * 0.40)))
+        rt_gain = float(rt_far[spot].mean() - rt_far[beside].mean())
+        ssr_gain = float(ssr_far[spot].mean() - ssr_far[beside].mean())
+        print(f"vulkan: off-screen block, reflection spot vs empty floor: "
+              f"traced +{rt_gain:.2f}, screen-space +{ssr_gain:.2f} (row {row})")
+        if rt_gain < MIN_MIRROR_GAIN:
+            failures.append(f"vulkan: the traced reflection did not show the off-screen "
+                            f"block (gain {rt_gain:.2f})")
+        if ssr_gain > MAX_EMPTY_DRIFT:
+            failures.append(f"vulkan: screen-space reflections showed an off-screen block "
+                            f"(gain {ssr_gain:.2f}) -- which cannot be, so the region is wrong")
+
     if len(centroids) == 2:
         rows = abs(centroids["vulkan"] - centroids["opengl"])
         print(f"reflection centroid row: vulkan {centroids['vulkan']:.1f}, "
@@ -290,8 +392,9 @@ def main():
 
     print("OK: off is off to the byte, the mirror shows the block, a rough floor "
           "shows less, empty floor stays dark, a frame reproduces, both "
-          "backends agree where the reflection lands, and the sphere reflects "
-          "the slab on the slab's side")
+          "backends agree where the reflection lands, the sphere reflects "
+          "the slab on the slab's side, and the traced reflection is exact and "
+          "sees off screen")
 
 
 if __name__ == "__main__":

@@ -35,6 +35,9 @@
 //   --raytracing=on|off     override the project's ray tracing checkbox (on
 //                           falls back to shadow maps on a device without ray
 //                           queries)
+//   --rt-reflections=on|off override the ray-traced reflections option (needs
+//                           ray tracing on and bindless materials)
+//   --rt-ao=on|off          override the ray-traced ambient occlusion option
 //   --ssaa=N                how many times larger SSAA draws each axis
 //   --msaa=N                coverage samples per pixel for MSAA
 //   --project=<path>        the .rvproject to open, or a folder containing one
@@ -197,6 +200,12 @@ namespace RageV
 		// to off -- shadow maps -- and the log says so (ENGINE-NOTES 7am, 7an).
 		bool         HasRayTracingOverride = false;
 		bool         RayTracingOverride = false;
+		// --rt-reflections=on|off and --rt-ao=on|off (ENGINE-NOTES 7ao), for
+		// the checks that render one scene both ways.
+		bool         HasRayReflectionsOverride = false;
+		bool         RayReflectionsOverride = false;
+		bool         HasRayAoOverride = false;
+		bool         RayAoOverride = false;
 
 		// --msaa=N. Zero leaves the scene's count alone.
 		int          MsaaOverride = 0;

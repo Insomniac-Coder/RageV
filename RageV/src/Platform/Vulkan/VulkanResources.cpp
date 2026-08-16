@@ -145,7 +145,7 @@ namespace RageV::Vk
 			m_Device.SetDebugName((uint64_t)m_Buffer, VK_OBJECT_TYPE_BUFFER, desc.DebugName.c_str());
 	}
 
-	VkDeviceAddress VulkanBuffer::GetDeviceAddress() const
+	uint64_t VulkanBuffer::GetDeviceAddress() const
 	{
 		if (!m_HasAddress || m_Buffer == VK_NULL_HANDLE)
 			return 0;

@@ -1,0 +1,192 @@
+// Ambient occlusion, ray-traced: SSAO's first pass with the taps cast as rays.
+//
+// The same shape as ssao_compute.rvshader -- half resolution, the depth and
+// surface attachments, one position reconstructed per pixel, twelve taps in
+// a golden-angle spiral rotated per pixel by a hash so the frame is
+// deterministic -- and one difference: each tap is a short ray into the
+// scene's acceleration structure rather than a probe of the depth buffer.
+// Occluded is a hit. So there is no reconstructed normal to wobble (the
+// written world normal is taken wherever there is one), no depth slope to
+// misjudge, no halo from a silhouette in front, and an occluder off-screen
+// counts. The blur and the apply after this are SSAO's own, unchanged.
+// ENGINE-NOTES 7ao.
+//
+// 460 and the ray-query extension: compiled only where the device can trace,
+// which PostProcess::Init decides; the SSAO twin is what runs elsewhere.
+
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+#extension GL_EXT_ray_query : require
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+// Octahedral world normal in RG, roughness B, metallic A. Point sampled.
+layout(set = 0, binding = 1) uniform sampler2D u_Surface;
+// The frame's structure, built before the graph (7am).
+layout(set = 0, binding = 4) uniform accelerationStructureEXT u_SceneAS;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+
+	float NearClip;
+	float FarClip;
+	float InvP0;
+	float InvP1;
+	// World metres a ray reaches: the profile's AoRadius.
+	float Radius;
+	float _pad0;
+
+	// The camera-to-world rotation, as three rows, and the camera's position:
+	// what carries a reconstructed point out into the world the rays are
+	// cast in. The inverse of what SSAO carries in.
+	vec4 CameraRow0;
+	vec4 CameraRow1;
+	vec4 CameraRow2;
+	vec4 CameraPosition;
+} u_Params;
+
+#include "include/view_reconstruction.glsl"
+
+const int kTaps = 12;
+const float kGoldenAngle = 2.39996323;
+// The origin's lift off the surface along its normal, in metres, scaled by
+// distance the way every ray this engine casts is: the same self-intersection
+// the shadow ray avoids, at the same size.
+const float kLift = 0.004;
+const float kLiftPerMetre = 0.0004;
+
+vec2 InvProjection() { return vec2(u_Params.InvP0, u_Params.InvP1); }
+
+vec3 ViewPositionAt(vec2 uv)
+{
+	// Snapped to the depth texel's centre, as SSAO's is (7an): the point the
+	// depth actually describes.
+	const vec2 depthSize = vec2(textureSize(u_Depth, 0));
+	const vec2 snapped = (floor(uv * depthSize) + 0.5) / depthSize;
+	const float z = LinearDepth(texture(u_Depth, snapped).r, u_Params.NearClip, u_Params.FarClip);
+	return ViewPosition(snapped, z, InvProjection());
+}
+
+// The reconstruction frame's point, out to the world: the frame is view
+// space with y along texel rows and z as depth, so it becomes view space by
+// undoing those two, and view space becomes world through the camera.
+vec3 WorldPositionOf(vec3 p, bool flip)
+{
+	const vec3 view = vec3(p.x, flip ? -p.y : p.y, -p.z);
+	return u_Params.CameraPosition.xyz + vec3(dot(u_Params.CameraRow0.xyz, view),
+											  dot(u_Params.CameraRow1.xyz, view),
+											  dot(u_Params.CameraRow2.xyz, view));
+}
+
+// The depth buffer's own slope where the scene wrote no normal (sky, the
+// grid, particles): the same chosen-neighbour reconstruction SSAO uses,
+// carried into the world. Rare -- those things mostly get no occlusion at
+// all -- but a pixel has to have some normal to hang a hemisphere on.
+vec3 ReconstructedWorldNormal(vec2 uv, vec3 centre, vec2 texel, bool flip)
+{
+	const vec3 right = ViewPositionAt(uv + vec2(texel.x, 0.0));
+	const vec3 left  = ViewPositionAt(uv - vec2(texel.x, 0.0));
+	const vec3 up    = ViewPositionAt(uv + vec2(0.0, texel.y));
+	const vec3 down  = ViewPositionAt(uv - vec2(0.0, texel.y));
+
+	const vec3 dx = abs(right.z - centre.z) < abs(centre.z - left.z) ? right - centre : centre - left;
+	const vec3 dy = abs(up.z - centre.z) < abs(centre.z - down.z) ? up - centre : centre - down;
+
+	vec3 normal = normalize(cross(dy, dx));
+	// Against the ray to the point (7an), never the view axis.
+	normal = dot(normal, centre) > 0.0 ? -normal : normal;
+
+	// A direction, not a point: no translation.
+	const vec3 view = vec3(normal.x, flip ? -normal.y : normal.y, -normal.z);
+	return normalize(vec3(dot(u_Params.CameraRow0.xyz, view),
+						  dot(u_Params.CameraRow1.xyz, view),
+						  dot(u_Params.CameraRow2.xyz, view)));
+}
+
+uint Hash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+	const vec3 centre = ViewPositionAt(uv);
+
+	// Nothing to occlude on the far plane: the sky, or nothing at all.
+	if (centre.z >= u_Params.FarClip * 0.999)
+	{
+		o_Color = vec4(1.0, centre.z, 0.0, 0.0);
+		return;
+	}
+
+	// The written world normal wherever there is one -- a ray does not care
+	// whether it agrees with the depth's slope, which is the whole of what
+	// SSAO's agreement test was for -- and the reconstruction elsewhere.
+	const vec4 surface = texture(u_Surface, uv);
+	const vec3 normal = SurfaceIsEmpty(surface)
+					  ? ReconstructedWorldNormal(uv, centre, texel, flip)
+					  : OctDecode(surface.rg);
+
+	const vec3 world = WorldPositionOf(centre, flip);
+	const vec3 origin = world + normal * (kLift + kLiftPerMetre * centre.z);
+
+	const vec3 axis = abs(normal.x) < 0.7 ? vec3(1, 0, 0) : vec3(0, 1, 0);
+	const vec3 tangent = normalize(cross(axis, normal));
+	const vec3 bitangent = cross(normal, tangent);
+
+	const uvec2 pixel = uvec2(uv / texel);
+	const float rotation = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y)) / 4294967296.0 * 6.2831853;
+
+	float occlusion = 0.0;
+	for (int i = 0; i < kTaps; i++)
+	{
+		// The same spiral SSAO bends into its hemisphere; here the disc is
+		// lifted onto the hemisphere cosine-weighted, which is what ambient
+		// occlusion integrates against.
+		const float t = (float(i) + 0.5) / float(kTaps);
+		const float r = sqrt(t);
+		const float theta = float(i) * kGoldenAngle + rotation;
+		const vec3 direction = tangent * (cos(theta) * r) + bitangent * (sin(theta) * r)
+							 + normal * sqrt(max(1.0 - t, 0.0));
+
+		rayQueryEXT q;
+		rayQueryInitializeEXT(q, u_SceneAS,
+							  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+							  0xFFu, origin, 0.0, direction, u_Params.Radius);
+		while (rayQueryProceedEXT(q)) {}
+		if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+			occlusion += 1.0;
+	}
+
+	const float ao = 1.0 - occlusion / float(kTaps);
+
+	// Occlusion in R, linear depth in G for the blur's edge test -- the same
+	// contract as ssao_compute, because the same blur reads it.
+	o_Color = vec4(ao, centre.z, 0.0, 0.0);
+}

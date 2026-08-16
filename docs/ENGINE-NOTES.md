@@ -5771,12 +5771,130 @@ a temporal effect" is worth, and why the new claim spans the phase.
 ### What stays stated
 
 The edge is still hard, for every light kind: a real penumbra is several
-rays and a filter across frames, and that is not this section. Skinned
+rays and a filter across frames, and that is not this section (§7ao took
+reflections and occlusion, and left the penumbra where it was). Skinned
 casters are posed by a second copy of the skinning arithmetic, in compute;
 if the vertex shader's skinning changes shape (a fifth influence, dual
 quaternions) this pass changes with it or the shadow stops matching the
 mesh -- stated because the two are in different files. Hit shading and the
-SSR fallback are stage 3, unchanged.
+SSR fallback are stage 3: §7ao.
+
+---
+
+## 7ao. Ray tracing, stage 3 (8.12): a hit is shaded, and the two screen-space stand-ins get their traced twins
+
+Stages 1 and 2 could ask a ray *whether* it hit. This stage asks *what*,
+and with that answer two effects that were approximations of light
+transport in screen space -- reflections (SSR, 7ad-7af) and ambient
+occlusion (SSAO, 7ac-7ae) -- get ray-traced variants. The owner asked for
+both, off by default, as options under the Ray tracing checkbox, with the
+post profile's own SSR and SSAO rows greyed and a note when the traced
+form is what runs.
+
+### Hit shading: an instance table, and buffers by address
+
+A ray query returns an instance custom index, a primitive index and
+barycentrics. Turning that into a colour needs the mesh's vertices and
+indices and the surface's material, none of which is bound. So:
+
+- **A ray-instance table** at set 0 binding 15, one record per TLAS
+  instance in the order the structure was built (the custom index *is* the
+  row): the vertex buffer's and index buffer's device addresses, the
+  vertex stride in words, a flag for a posed (skinned) caster whose
+  positions live in the compute-written buffer while its normals and UVs
+  stay in the mesh's, the material record index (7al's `GpuMaterial`, so
+  the heap answers the textures), and the instance's own scalars -- base
+  colour, emissive, metallic, roughness -- which ride the draw instance and
+  are nowhere else. `RayShadows` remembers mesh, material and params
+  beside each instance it adds; `Renderer3D::EndScene` writes the records
+  through the same material index the draws use, so a material seen only
+  in a reflection still gets a record this frame.
+- **`GL_EXT_buffer_reference`** in the shader: `layout(buffer_reference)
+  buffer` types over `float[]` and `uint[]`, constructed from the
+  addresses. The RHI grows one method, `RHIBuffer::GetDeviceAddress()`
+  (Vulkan real, OpenGL zero) -- the buffers already carry the address bit
+  because the structures build from them.
+- **Bindless is required**: without the heap a hit cannot sample its
+  material, so `RayTracedReflections` resolves to off on the bound path
+  (`--bindless=off`) and says so once. Nothing new is forked for it.
+
+Shading a hit is a *simplified* copy of the lit pass, and stated as such:
+base colour and emissive through the material and heap, the interpolated
+vertex normal (flat for a posed caster -- its normals were not posed),
+every light in the buffer unclustered (a hit is not on screen, so it has no
+cluster) with one shadow ray toward the sun, sky irradiance for ambient,
+and no normal map, no parallax, no local-light shadows, no occlusion. A
+mirror of a brick wall shows the wall's colour and lighting; it does not
+show the mortar's bump. That is the trade every real-time engine makes
+here, and the fixture that judges it uses emissive geometry, where the
+simplified shade *is* the exact one.
+
+### Ray-traced reflections: in the lit shader, where SSR's answer already enters
+
+7af moved the SSR blend *into* the PBR shader so the traced radiance goes
+through the split-sum weight exactly as the probe's does. The ray goes in
+at the same line: under `RV_RAY_REFLECTIONS`, a glossy pixel traces the
+mirror direction from its surface, shades the hit as above (miss: the sky
+cube at level 0), and replaces `prefiltered` by a weight that falls from
+one at roughness 0.25 to zero at 0.6 -- a mirror ray answers a mirror, and
+a rough surface's blurred probe is what several dozen jittered rays would
+converge to at many times the cost. This is not the SSR *fallback* the
+roadmap once phrased -- SSR first, trace on a miss -- because with a ray
+per glossy pixel already paid for, a screen walk in front of it is only
+another way to be wrong on-screen; the SSR passes simply do not run when
+the traced form is on, and its previous-frame reprojection is not needed
+either: the ray is this frame's. Cost: one query plus a hit shade per
+glossy pixel, so a scene of rough surfaces pays almost nothing.
+
+### RTAO: the SSAO chain with a different first pass
+
+SSAO is four passes: occlusion at half resolution, two blurs, apply. RTAO
+replaces only the first: `rtao_compute.rvshader` reads the same depth and
+surface attachment, reconstructs the same position, takes the *written*
+normal wherever there is one (a ray does not care about depth-slope
+agreement, which is what 7an's flicker was about), and casts the taps as
+short rays into the TLAS -- `tMax` the profile's `AoRadius`, one per tap,
+the same golden-angle spiral and per-pixel hash rotation as SSAO's so the
+frame is deterministic. Occluded is a hit. The blur and the apply are the
+SSAO ones, unchanged, so the profile's radius and intensity dials drive
+both forms and only the *toggle* changes hands. `PostProcess::Dispatch`
+gains an optional acceleration structure at binding 4; the shader is
+compiled only where ray queries exist, because SPIRV-Cross cannot say
+`accelerationStructureEXT` in GLSL and a compile that fails on OpenGL would
+take the whole post stack down with it.
+
+### The switches, and the note in the profile
+
+`RenderSettings::RayTracedReflections` and
+`RenderSettings::RayTracedAmbientOcclusion`, both `false`, shown in Render
+Settings only while `RayTracing` is ticked (`OnlyWhen`), overridden per
+run by `--rt-reflections=on|off` and `--rt-ao=on|off`, mirrored in C#.
+They resolve through the same chain as the checkbox itself: on a device
+without ray queries they are off; reflections additionally need bindless.
+When one is on, the post profile's row for its screen-space twin --
+`AmbientOcclusion`, or `ScreenSpaceReflections` with `SsrMaxDistance` and
+`SsrThickness` -- draws disabled with a line beneath it saying the
+ray-traced equivalent is in use. That is a new registry hint,
+`DisabledWhen(predicate, note)`, beside `OnlyWhen`: hidden means "does not
+apply in this mode", disabled means "applies, and something else has
+taken it over" -- the profile keeps its value, and turning the ray option
+off hands it back. The predicate consults the *resolved* flags, so a
+profile authored on an RTX machine and opened on OpenGL shows its SSAO
+row live, which is what runs there.
+
+### The checks
+
+`check_ssr.py`: 7af's exactness law -- SSR on under sky K equals SSR off
+under a sky of the block's colour -- holds for the traced form to the same
+0.00 levels, because the block is emissive and the simplified hit shade is
+exact for emissive; and a second scene, the block moved just outside the
+frame, where SSR has nothing to walk to and shows the sky and the traced
+form shows the block. `check_ssao.py`: on the box fixture under RTAO the
+seam darkens, the open floor holds, the brick wall holds at one, and the
+jitter-phase claim from 7an holds -- a ray has no reconstruction to wobble.
+Falsified by tracing the reflection *from* the eye instead of the mirror
+direction (the law fails), and by giving the AO rays zero length (nothing
+darkens). Numbers at landing are in the section below once measured.
 
 ---
 

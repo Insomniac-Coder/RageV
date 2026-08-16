@@ -4,9 +4,9 @@ Environment:
   AmbientColor: [0, 0, 0]
   AmbientIntensity: 0
   Sky: 1
-  SkyHorizon: [2.4, 1.6, 0.4]
-  SkyZenith: [2.4, 1.6, 0.4]
-  SkyGround: [2.4, 1.6, 0.4]
+  SkyHorizon: [0.1, 0.1, 0.35]
+  SkyZenith: [0.1, 0.1, 0.35]
+  SkyGround: [0.1, 0.1, 0.35]
   SkyIntensity: 1
   SkyRotation: 0
 Entities:
@@ -34,7 +34,7 @@ Entities:
     TransformComponent:
       Position: [0, -0.1, 0]
       Rotation: [0, 0, 0]
-      Scale: [30, 0.2, 30]
+      Scale: [60, 0.2, 60]
     MeshComponent:
       Mesh: 8241982477996916736
       Material:
@@ -47,7 +47,7 @@ Entities:
     TagComponent:
       Tag: Block
     TransformComponent:
-      Position: [0, 1, 0]
+      Position: [0, 14, -20]
       Rotation: [0, 0, 0]
       Scale: [1.6, 2, 1.6]
     MeshComponent:

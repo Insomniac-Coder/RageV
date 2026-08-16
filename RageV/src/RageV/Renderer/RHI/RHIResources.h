@@ -24,6 +24,13 @@ namespace RageV::RHI
 		// this over Upload for per-frame streaming -- it avoids a memcpy.
 		virtual void* GetMappedPointer() = 0;
 
+		// The address a shader may read this buffer at through a buffer
+		// reference (ENGINE-NOTES 7ao) -- what lets a ray's hit fetch the
+		// vertices of a mesh nothing bound. Zero unless the buffer was created
+		// with a usage that carries the address (AccelerationStructureInput
+		// does), and always zero on a backend without addresses (OpenGL).
+		virtual uint64_t GetDeviceAddress() const { return 0; }
+
 	protected:
 		explicit RHIBuffer(const BufferDesc& desc) : m_Desc(desc) {}
 		BufferDesc m_Desc;

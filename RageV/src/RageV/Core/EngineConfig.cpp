@@ -103,6 +103,18 @@ namespace RageV
 			return ParseBool(value, config.RayTracingOverride);
 		}
 
+		if (key == "rt-reflections" || key == "rtreflections")
+		{
+			config.HasRayReflectionsOverride = true;
+			return ParseBool(value, config.RayReflectionsOverride);
+		}
+
+		if (key == "rt-ao" || key == "rtao")
+		{
+			config.HasRayAoOverride = true;
+			return ParseBool(value, config.RayAoOverride);
+		}
+
 		if (key == "msaa" || key == "samples")
 		{
 			config.MsaaOverride = std::atoi(value.c_str());

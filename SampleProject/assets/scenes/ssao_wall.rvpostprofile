@@ -1,4 +1,4 @@
 PostProfile: 1
 BloomEnabled: false
-AmbientOcclusion: true
+AmbientOcclusion: false
 AoIntensity: 1

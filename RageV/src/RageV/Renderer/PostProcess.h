@@ -218,6 +218,19 @@ namespace RageV
 								const ViewReconstruction& view, float radius,
 								RHI::Format outputFormat);
 
+		// 1, ray-traced (ENGINE-NOTES 7ao): the same occlusion pass with the
+		// taps cast as short rays into `structure` instead of probed in the
+		// depth buffer -- same output, same blur and apply after it. Skipped
+		// (nothing written) on a device that could not compile it, which is
+		// any without ray queries; the caller does not ask for it there.
+		static void RtaoCompute(RHI::RHICommandList& cmd,
+								const RHI::Ref<RHI::RHITexture>& depth,
+								const RHI::Ref<RHI::RHITexture>& surface,
+								const RHI::Ref<RHI::RHIAccelerationStructure>& structure,
+								uint32_t width, uint32_t height,
+								const ViewReconstruction& view, float radius,
+								RHI::Format outputFormat);
+
 		// 2 and 3: the separable depth-aware blur, one axis per call.
 		static void SsaoBlur(RHI::RHICommandList& cmd,
 							 const RHI::Ref<RHI::RHITexture>& source,
@@ -304,6 +317,7 @@ namespace RageV
 			SsaoCompute, SsaoBlur, SsaoApply,
 			SsrTrace, SsrResolve,
 			SsrHiZ,
+			RtaoCompute,
 			Count
 		};
 
@@ -329,6 +343,9 @@ namespace RageV
 							 Sampling thirdSampling = Sampling::Linear,
 							 // Bound at binding 3 when the shader declares it.
 							 // Only the tonemap does, for auto exposure.
-							 const RHI::Ref<RHI::RHIBuffer>& storage = nullptr);
+							 const RHI::Ref<RHI::RHIBuffer>& storage = nullptr,
+							 // Bound at binding 4 when the shader declares it.
+							 // Only the ray-traced occlusion pass does (7ao).
+							 const RHI::Ref<RHI::RHIAccelerationStructure>& structure = nullptr);
 	};
 }

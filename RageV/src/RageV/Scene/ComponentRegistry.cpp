@@ -5,6 +5,8 @@
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/RenderSettings.h"
 #include "RageV/Renderer/PostSettings.h"
+#include "RageV/Renderer/FrameGraphBuilder.h"
+#include "RageV/Project/Project.h"
 #include "RageV/Asset/LutRecipe.h"
 #include "ScriptRegistry.h"
 
@@ -181,6 +183,14 @@ namespace
 		FieldHint OnlyWhen(FieldVisibility visible, FieldHint hint = {})
 		{
 			hint.VisibleIf = visible;
+			return hint;
+		}
+
+		// Greyed with a note while `disabled` holds; see FieldHint::DisabledIf.
+		FieldHint DisabledWhen(FieldVisibility disabled, const char* note, FieldHint hint = {})
+		{
+			hint.DisabledIf = disabled;
+			hint.DisabledNote = note;
 			return hint;
 		}
 
@@ -1223,6 +1233,10 @@ namespace
 		{
 			return static_cast<const RenderSettings*>(block)->ShadowsEnabled;
 		}
+		bool RayTracingOn(const void* block)
+		{
+			return static_cast<const RenderSettings*>(block)->RayTracing;
+		}
 		// The cascade dials mean nothing to a traced shadow (7an): with ray
 		// tracing on, no map of any kind is rendered.
 		bool UsesCascades(const void* block)
@@ -1234,6 +1248,26 @@ namespace
 		bool HasColorLut(const void* block)
 		{
 			return static_cast<const PostSettings*>(block)->ColorLut.IsValid();
+		}
+
+		// Whether the ray-traced twin has taken a screen-space effect over
+		// (ENGINE-NOTES 7ao). Asked of the *resolved* state -- the project's
+		// checkboxes, the command line, and what this device can -- rather
+		// than of the profile block, because that is what actually runs: a
+		// profile authored beside an RTX and opened on OpenGL shows its SSAO
+		// row live, which is what runs there.
+		bool RayReflectionsTakeOver(const void*)
+		{
+			return ResolveRayTracedReflections(Project::Render());
+		}
+		bool RayOcclusionTakesOver(const void*)
+		{
+			return ResolveRayTracedAmbientOcclusion(Project::Render());
+		}
+		// The AO dials serve both forms, so they show while either runs.
+		bool AoDialsApply(const void* block)
+		{
+			return static_cast<const PostSettings*>(block)->AmbientOcclusion || RayOcclusionTakesOver(block);
 		}
 
 		bool BloomOn(const void* block)
@@ -1316,14 +1350,34 @@ namespace
 				Field<&RenderSettings::ShadowsEnabled>("ShadowsEnabled", Named("Shadows")),
 
 				Field<&RenderSettings::RayTracing>("RayTracing",
-					Named("Ray tracing", OnlyWhen(CastsShadows, Tip(
+					Named("Ray tracing", Tip(
 						"Trace rays instead of rendering shadow maps: one ray per "
 						"pixel toward every casting light, with no acne, no "
 						"detachment, no distance limit and no cap on how many "
 						"lights cast; skinned casters cast their pose. The edge is "
 						"hard. Needs a device with ray queries (Vulkan on hardware "
 						"that traces); without one the maps are used and the log "
-						"says so. Applies at once -- no restart.")))),
+						"says so. Applies at once -- no restart. The two options "
+						"below add ray-traced reflections and ambient occlusion on "
+						"the same structures."))),
+
+				Field<&RenderSettings::RayTracedReflections>("RayTracedReflections",
+					Named("Ray-traced reflections", OnlyWhen(RayTracingOn, Tip(
+						"Trace the mirror ray from every glossy surface and shade "
+						"what it hits, instead of walking the screen: reflections "
+						"of things off-screen and behind other things, correct "
+						"parallax. Rough surfaces keep the probe. Needs bindless "
+						"materials as well as ray queries. While on, the post "
+						"profile's Screen-space reflections are not used and its "
+						"rows say so.")))),
+
+				Field<&RenderSettings::RayTracedAmbientOcclusion>("RayTracedAmbientOcclusion",
+					Named("Ray-traced ambient occlusion", OnlyWhen(RayTracingOn, Tip(
+						"Cast SSAO's taps as short rays into the scene instead of "
+						"probing the depth buffer: no halos, off-screen occluders "
+						"count, and no reconstruction to wobble. Uses the post "
+						"profile's AO radius and intensity; while on, its Ambient "
+						"occlusion toggle is not used and its row says so.")))),
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,
@@ -1558,51 +1612,60 @@ namespace
 
 				// --- SSR. ENGINE-NOTES 7ad ------------------------------------
 				Field<&PostSettings::ScreenSpaceReflections>("ScreenSpaceReflections",
-					Named("Screen-space reflections", FieldHint{ .Tooltip =
+					Named("Screen-space reflections", DisabledWhen(RayReflectionsTakeOver,
+						"Ray-traced reflections are on in Render Settings and are used instead.",
+						Tip(
 						"Reflections traced through what is already on screen, "
 						"so a floor shows the crate standing on it -- which a "
 						"probe, photographed from one point, cannot. Where the "
 						"trace has no answer (off screen, behind the camera) the "
 						"probe stays. Follows the normal map; rough surfaces get "
-						"a blurred reflection or none." })),
+						"a blurred reflection or none.")))),
 
 				Field<&PostSettings::SsrMaxDistance>("SsrMaxDistance",
 					Named("SSR distance", OnlyWhen(ScreenSpaceReflectionsOn,
+						DisabledWhen(RayReflectionsTakeOver, nullptr,
 						Drag(0.1f, 1.0f, 200.0f,
 							"How far a reflected ray travels before giving up, "
-							"in metres. Longer finds more and costs more.")))),
+							"in metres. Longer finds more and costs more."))))),
 
 				Field<&PostSettings::SsrThickness>("SsrThickness",
 					Named("SSR thickness", OnlyWhen(ScreenSpaceReflectionsOn,
+						DisabledWhen(RayReflectionsTakeOver, nullptr,
 						Drag(0.01f, 0.02f, 5.0f,
 							"How far behind a surface a ray may land and still "
 							"count as hitting it. Small for thin railings; too "
-							"large and rays hit walls through them.")))),
+							"large and rays hit walls through them."))))),
 
 				Field<&PostSettings::SsrIntensity>("SsrIntensity",
 					Named("SSR intensity", OnlyWhen(ScreenSpaceReflectionsOn,
+						DisabledWhen(RayReflectionsTakeOver, nullptr,
 						Slider(0.0f, 2.0f,
 							"A scale on the traced reflection's share of the "
-							"pixel; 1 is what the material implies.")))),
+							"pixel; 1 is what the material implies."))))),
 
 				// --- SSAO. ENGINE-NOTES 7ac -----------------------------------
 				Field<&PostSettings::AmbientOcclusion>("AmbientOcclusion",
-					Named("Ambient occlusion", FieldHint{ .Tooltip =
+					Named("Ambient occlusion", DisabledWhen(RayOcclusionTakesOver,
+						"Ray-traced ambient occlusion is on in Render Settings and is used instead; "
+						"the radius and intensity below still apply.",
+						Tip(
 						"Contact shadowing from the depth buffer: creases, "
 						"corners and the seam where things meet the ground "
 						"darken. Applied over the lit image, so treat it as "
 						"shadowing and keep the intensity restrained rather "
-						"than expecting global illumination." })),
+						"than expecting global illumination.")))),
 
 				Field<&PostSettings::AoRadius>("AoRadius",
-					Named("AO radius", OnlyWhen(AmbientOcclusionOn,
+					Named("AO radius", OnlyWhen(AoDialsApply,
 						Drag(0.02f, 0.05f, 4.0f,
 							"World metres the occlusion hemisphere reaches. "
 							"Small is crease darkening; large is soft "
-							"room-scale shading.")))),
+							"room-scale shading. Under ray-traced occlusion, "
+							"how far each ray goes.")))),
 
 				Field<&PostSettings::AoIntensity>("AoIntensity",
-					Named("AO intensity", OnlyWhen(AmbientOcclusionOn,
+					Named("AO intensity", OnlyWhen(AoDialsApply,
 						Slider(0.0f, 4.0f,
 							"An exponent on the occlusion: open surfaces stay "
 							"untouched at any setting, and only how dark the "

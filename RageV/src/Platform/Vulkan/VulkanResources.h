@@ -20,7 +20,7 @@ namespace RageV::Vk
 		VkBuffer GetHandle() const { return m_Buffer; }
 		// The address a build or a shader reads this buffer at. Zero unless the
 		// buffer was created with a usage that carries the address bit.
-		VkDeviceAddress GetDeviceAddress() const;
+		uint64_t GetDeviceAddress() const override;
 
 	private:
 		VulkanDevice& m_Device;

@@ -89,7 +89,17 @@ def sphere_screen_radius_fraction():
 BLOCK_EMISSIVE = (2.4, 1.6, 0.4)
 
 
-def build_exact(profile, sky_rgb):
+# The exactness block moved out of the frame (7ao): high and far, so the
+# block itself is above the top edge while its reflection still lands on
+# the mirror floor inside the frame. Screen-space reflections have nothing
+# to walk to there and leave the sky; a traced ray finds it.
+OFFSCREEN_BLOCK_CENTRE = (0.0, 14.0, -20.0)
+OFFSCREEN_BLOCK_SCALE = (1.6, 2.0, 1.6)
+EXACT_CAMERA_POSITION = (0, 1.2, 6.0)
+EXACT_CAMERA_PITCH = -0.12
+
+
+def build_exact(profile, sky_rgb, block_centre=(0, 1.0, 0), block_scale=(1.6, 2.0, 1.6)):
     """The exactness fixture (9.9): the mirror-floor scene under a *uniform*
     sky, so the probe's reflected radiance is one known colour everywhere.
 
@@ -109,13 +119,13 @@ def build_exact(profile, sky_rgb):
     """
     next_id = base._ids()
     lines = base._header("SSR exactness", sky_rgb=sky_rgb)
-    lines += base._camera(next_id, (0, 1.2, 6.0), rotation=(-0.12, 0, 0),
+    lines += base._camera(next_id, EXACT_CAMERA_POSITION, rotation=(EXACT_CAMERA_PITCH, 0, 0),
                           profile=profile)
     # A brighter metal than the mirror fixture's, so the weight -- and any
     # error in it -- is large enough to see.
-    lines += _material_block(next_id, "Floor", (0, -0.1, 0), (30, 0.2, 30),
+    lines += _material_block(next_id, "Floor", (0, -0.1, 0), (60, 0.2, 60),
                              (0.5, 0.5, 0.5), (0, 0, 0), 1.0, 0.0)
-    lines += _material_block(next_id, "Block", (0, 1.0, 0), (1.6, 2.0, 1.6),
+    lines += _material_block(next_id, "Block", block_centre, block_scale,
                              (0, 0, 0), BLOCK_EMISSIVE, 1.0, 1.0)
     return "\n".join(lines) + "\n"
 

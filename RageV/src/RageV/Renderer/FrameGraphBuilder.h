@@ -169,6 +169,14 @@ namespace RageV
 	// needs to know whether the rays are running asks here.
 	bool ResolveRayTracing(const RenderSettings& render);
 
+	// The two traced twins (ENGINE-NOTES 7ao): the project's checkbox under
+	// ResolveRayTracing's answer, then --rt-reflections= / --rt-ao=, then
+	// what the device can. Reflections also need bindless materials to shade
+	// a hit, and say so once when they cannot. The post profile's SSR and
+	// SSAO rows ask these to know whether they have been taken over.
+	bool ResolveRayTracedReflections(const RenderSettings& render);
+	bool ResolveRayTracedAmbientOcclusion(const RenderSettings& render);
+
 	// This frame's sub-pixel offset for a target of this size, in NDC.
 	//
 	// A centred Halton(2,3) point, so successive frames land in the gaps the

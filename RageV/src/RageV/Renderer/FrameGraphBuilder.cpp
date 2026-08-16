@@ -3,6 +3,7 @@
 #include "PostProcess.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RayShadows.h"
+#include "Renderer3D.h"
 #include "RageV/Asset/AssetManager.h"
 #include "Renderer.h"
 #include "UIRenderer.h"
@@ -161,6 +162,35 @@ namespace RageV
 		return requested;
 	}
 
+	bool ResolveRayTracedReflections(const RenderSettings& render)
+	{
+		if (!ResolveRayTracing(render))
+			return false;
+		const EngineConfig& config = EngineConfig::Get();
+		const bool requested = config.HasRayReflectionsOverride ? config.RayReflectionsOverride
+																: render.RayTracedReflections;
+		if (requested && !Renderer3D::IsBindless())
+		{
+			static bool reported = false;
+			if (!reported)
+			{
+				RV_CORE_INFO("Ray-traced reflections requested but materials are not bindless "
+							 "on this device; a hit cannot be shaded, so screen-space reflections stay");
+				reported = true;
+			}
+			return false;
+		}
+		return requested;
+	}
+
+	bool ResolveRayTracedAmbientOcclusion(const RenderSettings& render)
+	{
+		if (!ResolveRayTracing(render))
+			return false;
+		const EngineConfig& config = EngineConfig::Get();
+		return config.HasRayAoOverride ? config.RayAoOverride : render.RayTracedAmbientOcclusion;
+	}
+
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc)
 	{
 		if (desc.Output == kRGInvalid || desc.Width == 0 || desc.Height == 0)
@@ -304,7 +334,14 @@ namespace RageV
 		// into the other half of the pair. Only when there is somewhere to
 		// keep it: a caller with no Reflections history gets the probe alone,
 		// the same shape as TAA with no History. ENGINE-NOTES 7af.
+		// And not at all when the traced form is on (ENGINE-NOTES 7ao): the
+		// lit shader then casts the mirror ray itself, this frame, and a
+		// screen walk in front of it would only be another way to be wrong
+		// on-screen. The profile's toggle is not consulted; its row says so.
+		const bool rayReflections = ResolveRayTracedReflections(desc.Render);
+		const bool rayOcclusion = ResolveRayTracedAmbientOcclusion(desc.Render);
 		const bool wantReflections = desc.Post.ScreenSpaceReflections
+								  && !rayReflections
 								  && desc.Reflections != nullptr
 								  && PostProcess::IsReady();
 
@@ -587,7 +624,12 @@ namespace RageV
 		// and smear like darkness rather than being painted over the finished
 		// frame. Depth from the scene target, same normalised-coordinate
 		// arrangement as everything since 7z. ENGINE-NOTES 7ac.
-		if (desc.Post.AmbientOcclusion && PostProcess::IsReady())
+		//
+		// The ray-traced form (7ao) is the same chain with a different first
+		// pass -- the taps cast as rays into the frame's structure -- and it
+		// runs on the render setting alone: the profile's AmbientOcclusion is
+		// then not consulted, its radius and intensity still are.
+		if ((desc.Post.AmbientOcclusion || rayOcclusion) && PostProcess::IsReady())
 		{
 			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);
 			const uint32_t halfHeight = Math::Max(desc.Height / 2u, 1u);
@@ -624,14 +666,25 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[sceneHDR, normalIndex, halfWidth, halfHeight, reconstruction,
-				 radius](RGPassContext& context)
+				 radius, rayOcclusion](RGPassContext& context)
 				{
 					// Depth and the surface attachment: the real normal where
 					// the scene wrote one, reconstruction where it did not.
-					PostProcess::SsaoCompute(context.Cmd, context.Depth(sceneHDR),
-											 context.Color(sceneHDR, normalIndex),
-											 halfWidth, halfHeight, reconstruction,
-											 radius, Format::R16G16B16A16_SFLOAT);
+					if (rayOcclusion)
+					{
+						PostProcess::RtaoCompute(context.Cmd, context.Depth(sceneHDR),
+												 context.Color(sceneHDR, normalIndex),
+												 RayShadows::GetStructure(),
+												 halfWidth, halfHeight, reconstruction,
+												 radius, Format::R16G16B16A16_SFLOAT);
+					}
+					else
+					{
+						PostProcess::SsaoCompute(context.Cmd, context.Depth(sceneHDR),
+												 context.Color(sceneHDR, normalIndex),
+												 halfWidth, halfHeight, reconstruction,
+												 radius, Format::R16G16B16A16_SFLOAT);
+					}
 				});
 
 			graph.AddPass("SSAO blur x",

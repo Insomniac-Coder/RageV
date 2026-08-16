@@ -75,7 +75,8 @@ namespace RageV
 				case 20: return "assets/shaders/ssao_apply.rvshader";
 				case 21: return "assets/shaders/ssr_trace.rvshader";
 				case 22: return "assets/shaders/ssr_resolve.rvshader";
-				default: return "assets/shaders/ssr_hiz.rvshader";
+				case 23: return "assets/shaders/ssr_hiz.rvshader";
+				default: return "assets/shaders/rtao_compute.rvshader";
 			}
 		}
 
@@ -95,7 +96,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 24> Shaders;
+			std::array<Ref<RHIShader>, 25> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -155,12 +156,19 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 24,
+		static_assert((int)Shader::Count <= 25,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
 		for (int i = 0; i < (int)Shader::Count; i++)
 		{
+			// The ray-traced occlusion pass declares an acceleration
+			// structure, which a backend without ray queries can neither
+			// cross-compile nor bind: left null there, and its entry point
+			// declines. Nothing asks for it on such a device.
+			if (i == (int)Shader::RtaoCompute && !device.GetCaps().SupportsRayQuery)
+				continue;
+
 			auto compiled = ShaderCompiler::CompileFromFile(ShaderPath(i));
 			if (!compiled)
 			{
@@ -282,9 +290,12 @@ namespace RageV
 							   const void* params, uint32_t paramSize,
 							   Sampling firstSampling, Sampling secondSampling,
 							   const Ref<RHITexture>& third, Sampling thirdSampling,
-							   const Ref<RHIBuffer>& storage)
+							   const Ref<RHIBuffer>& storage,
+							   const Ref<RHIAccelerationStructure>& structure)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
+			return;
+		if (!s_Data->Shaders[(int)shader])
 			return;
 
 		const int index = (int)shader;
@@ -366,6 +377,10 @@ namespace RageV
 		// nothing bound is undefined behaviour, not a zero.
 		if (storage)
 			set->SetStorageBuffer(3, storage);
+
+		// The frame's acceleration structure, for the one pass that traces.
+		if (structure)
+			set->SetAccelerationStructure(4, structure);
 
 		set->Commit();
 
@@ -731,6 +746,61 @@ namespace RageV
 		};
 		static_assert(offsetof(SsaoComputeParams, ViewRow0) == 48,
 					  "ViewRow0 must sit at the 16-byte boundary the shader pads to");
+
+		// The ray-traced twin's block (7ao): the same head, then the camera
+		// rather than the view -- a ray is cast in world space, so the pass
+		// carries the frame back out through the camera's rotation and
+		// position instead of bringing the normal in through the view's.
+		// 112 bytes: inside the 128 every device guarantees.
+		struct RtaoComputeParams
+		{
+			PostParams Base;
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvP0 = 1.0f;
+			float InvP1 = 1.0f;
+			float Radius = 0.5f;
+			float _pad0 = 0.0f;
+			Vec4 CameraRow0{ 1.0f, 0.0f, 0.0f, 0.0f };   // rows of the camera-to-world rotation
+			Vec4 CameraRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
+			Vec4 CameraRow2{ 0.0f, 0.0f, 1.0f, 0.0f };
+			Vec4 CameraPosition{ 0.0f, 0.0f, 0.0f, 0.0f };
+		};
+		static_assert(offsetof(RtaoComputeParams, CameraRow0) == 48 && sizeof(RtaoComputeParams) == 112,
+					  "RtaoComputeParams must match rtao_compute.rvshader");
+	}
+
+	void PostProcess::RtaoCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,
+								  const Ref<RHITexture>& surface,
+								  const Ref<RHIAccelerationStructure>& structure,
+								  uint32_t width, uint32_t height,
+								  const ViewReconstruction& view, float radius,
+								  Format outputFormat)
+	{
+		if (!s_Data || !depth || !surface || !structure)
+			return;
+
+		RtaoComputeParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+								  1.0f / (float)Math::Max(height, 1u) };
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
+		params.Radius = Math::Max(radius, 0.01f);
+
+		// The camera transform is the view's inverse; the rotation part of
+		// an inverse is the transpose, so the camera's rows are the view's
+		// columns, and the position falls out of the full inverse.
+		const Mat4 camera = Math::Inverse(view.View);
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		Dispatch(cmd, Shader::RtaoCompute, outputFormat, depth, surface,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point,
+				 nullptr, Sampling::Point, nullptr, structure);
 	}
 
 	void PostProcess::SsaoCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,

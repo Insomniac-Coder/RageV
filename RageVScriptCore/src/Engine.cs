@@ -1039,6 +1039,27 @@ public static unsafe class RenderSettings
 		set => SetBool("RayTracing", value);
 	}
 
+	/// <summary>
+	/// With <see cref="RayTracing"/> on: trace the mirror ray from every glossy
+	/// surface and shade the hit, in place of screen-space reflections. Off by
+	/// default; needs bindless materials as well as ray queries.
+	/// </summary>
+	public static bool RayTracedReflections
+	{
+		get => GetBool("RayTracedReflections");
+		set => SetBool("RayTracedReflections", value);
+	}
+
+	/// <summary>
+	/// With <see cref="RayTracing"/> on: cast the ambient-occlusion taps as short
+	/// rays into the scene, in place of the depth-buffer probe. Off by default.
+	/// </summary>
+	public static bool RayTracedAmbientOcclusion
+	{
+		get => GetBool("RayTracedAmbientOcclusion");
+		set => SetBool("RayTracedAmbientOcclusion", value);
+	}
+
 	/// <summary>How far from the camera shadows are still drawn, in world units.</summary>
 	public static float ShadowDistance
 	{

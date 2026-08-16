@@ -32,6 +32,31 @@ namespace RageV
 		};
 		static_assert(sizeof(GpuLight) == 80, "Must match GpuLight in pbr.rvshader");
 
+		// Mirrors RayInstance in pbr_fragment.glsl, std430 (ENGINE-NOTES 7ao):
+		// what a ray's hit needs to shade the instance it hit, one per TLAS
+		// instance in build order so the hit's custom index is the row.
+		// Addresses rather than bindings: the mesh nothing bound is reached
+		// through GL_EXT_buffer_reference.
+		struct GpuRayInstance
+		{
+			uint64_t PositionAddress;    // the mesh's vertices, or a posed caster's compute-written positions
+			uint64_t AttributeAddress;   // the mesh's vertices: normal and uv live here either way
+			uint64_t IndexAddress;
+			uint32_t PositionStrideWords;
+			uint32_t AttributeStrideWords;
+			uint32_t MaterialIndex;      // row of the GpuMaterial table at binding 13
+			uint32_t Flags;              // bit 0: positions are posed (take the flat normal)
+			uint32_t _pad0;
+			uint32_t _pad1;
+			Vec4 BaseColor;
+			Vec4 EmissiveColor;
+			Vec4 Surface;                // metallic, roughness, occlusion, normal scale
+		};
+		static_assert(sizeof(GpuRayInstance) == 96, "Must match RayInstance in pbr_fragment.glsl");
+		static_assert(offsetof(GpuRayInstance, BaseColor) == 48, "RayInstance vec4s begin at 48");
+		constexpr uint32_t kRayInstanceBinding = 15;
+		constexpr uint32_t kRayInstancePosed = 1u;
+
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
 		{
@@ -278,6 +303,9 @@ namespace RageV
 				// materials x 64 bytes, and it means no second free list.
 				Ref<RHIBuffer>      Materials;
 				uint32_t            MaterialCapacity = 0;
+				// The ray-instance table (7ao), written when reflections trace.
+				Ref<RHIBuffer>      RayInstances;
+				uint32_t            RayInstanceCapacity = 0;
 			};
 
 			// [frame in flight][scene within the frame]
@@ -350,6 +378,8 @@ namespace RageV
 			// the heap this changes at runtime -- it is a project setting -- so
 			// the shaders are recompiled and the pipelines rebuilt when it does.
 			bool RayShadowsOn = false;
+			bool RayReflectionsOn = false;
+			std::vector<GpuRayInstance> RayInstanceScratch;
 
 			// The depth-only pipeline. Its own shader and its own pipeline
 			// object: no colour attachment, so it cannot share the lit one.
@@ -544,6 +574,8 @@ namespace RageV
 			defines.push_back("RV_BINDLESS");
 		if (s_Data->RayShadowsOn)
 			defines.push_back("RV_RAY_SHADOWS");
+		if (s_Data->RayReflectionsOn)
+			defines.push_back("RV_RAY_REFLECTIONS");
 
 		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", defines);
 		if (!compiled)
@@ -571,6 +603,9 @@ namespace RageV
 			return;
 
 		s_Data->RayShadowsOn = enabled;
+		// Reflections ride on the shadows' structure; off with them.
+		if (!enabled)
+			s_Data->RayReflectionsOn = false;
 		RV_CORE_INFO("Renderer3D: shadows {0}", enabled ? "traced" : "from maps");
 
 		// New shaders, new pipelines, and every scene set with them: a set is
@@ -583,6 +618,28 @@ namespace RageV
 	bool Renderer3D::IsRayTracedShadows()
 	{
 		return s_Data && s_Data->RayShadowsOn;
+	}
+
+	void Renderer3D::SetRayTracedReflections(bool enabled)
+	{
+		if (!s_Data)
+			return;
+		// Rays into a structure the shadows build, shaded through the heap:
+		// neither absent is a mode this can run in.
+		if (enabled && (!s_Data->RayShadowsOn || !s_Data->Bindless))
+			enabled = false;
+		if (s_Data->RayReflectionsOn == enabled)
+			return;
+
+		s_Data->RayReflectionsOn = enabled;
+		RV_CORE_INFO("Renderer3D: reflections {0}", enabled ? "traced" : "screen-space or probe");
+		if (CompileLitShaders())
+			s_Data->PipelineDirty = true;
+	}
+
+	bool Renderer3D::IsRayTracedReflections()
+	{
+		return s_Data && s_Data->RayReflectionsOn;
 	}
 
 	Ref<Material> Renderer3D::GetDefaultMaterial()
@@ -1228,6 +1285,72 @@ namespace RageV
 				draw.Instance.Indices.z = (float)it->second;
 			}
 
+			// The ray-instance table (7ao): one row per structure instance, in
+			// build order, each naming its buffers by address and its material
+			// by the same record index the draws use -- so a material seen
+			// only in a reflection still gets a record this frame.
+			if (s_Data->RayReflectionsOn)
+			{
+				const std::vector<RayCaster>& casters = RayShadows::GetCasters();
+				s_Data->RayInstanceScratch.clear();
+				s_Data->RayInstanceScratch.reserve(casters.size());
+				for (const RayCaster& caster : casters)
+				{
+					const Material* key = caster.MaterialRef.get();
+					auto it = s_Data->MaterialIndex.find(key);
+					if (it == s_Data->MaterialIndex.end())
+					{
+						GpuMaterial record;
+						if (caster.MaterialRef)
+							caster.MaterialRef->WriteRecord(*s_Data->Heap, record);
+						it = s_Data->MaterialIndex.emplace(key, (uint32_t)s_Data->MaterialScratch.size()).first;
+						s_Data->MaterialScratch.push_back(record);
+					}
+
+					GpuRayInstance row{};
+					const Ref<RHIBuffer>& vertices = caster.MeshRef ? caster.MeshRef->GetVertexBuffer() : nullptr;
+					const Ref<RHIBuffer>& indices = caster.MeshRef ? caster.MeshRef->GetIndexBuffer() : nullptr;
+					row.AttributeAddress = vertices ? vertices->GetDeviceAddress() : 0;
+					row.IndexAddress = indices ? indices->GetDeviceAddress() : 0;
+					row.AttributeStrideWords = caster.MeshRef && caster.MeshRef->IsSkinned()
+											 ? (uint32_t)(sizeof(SkinnedVertex) / 4) : (uint32_t)(sizeof(MeshVertex) / 4);
+					if (caster.Posed)
+					{
+						row.PositionAddress = caster.Posed->GetDeviceAddress();
+						row.PositionStrideWords = (uint32_t)(sizeof(Vec4) / 4);
+						row.Flags = kRayInstancePosed;
+					}
+					else
+					{
+						row.PositionAddress = row.AttributeAddress;
+						row.PositionStrideWords = row.AttributeStrideWords;
+					}
+					row.MaterialIndex = it->second;
+					row.BaseColor = caster.Params.BaseColor;
+					row.EmissiveColor = caster.Params.EmissiveColor;
+					row.Surface = { caster.Params.Metallic, caster.Params.Roughness,
+									caster.Params.Occlusion, caster.Params.NormalScale };
+					s_Data->RayInstanceScratch.push_back(row);
+				}
+
+				const uint32_t rows = Math::Max((uint32_t)s_Data->RayInstanceScratch.size(), 1u);
+				if (!EnsureInstanceBuffer(slot.RayInstances, slot.RayInstanceCapacity, rows,
+										  sizeof(GpuRayInstance), "Renderer3D.rayinstances"))
+				{
+					return;
+				}
+				if (s_Data->RayInstanceScratch.empty())
+				{
+					const GpuRayInstance none{};
+					slot.RayInstances->Upload(&none, sizeof(none));
+				}
+				else
+				{
+					slot.RayInstances->Upload(s_Data->RayInstanceScratch.data(),
+											  (uint64_t)s_Data->RayInstanceScratch.size() * sizeof(GpuRayInstance));
+				}
+			}
+
 			const uint32_t records = (uint32_t)s_Data->MaterialScratch.size();
 			if (!EnsureInstanceBuffer(slot.Materials, slot.MaterialCapacity, records,
 									  sizeof(GpuMaterial), "Renderer3D.materials"))
@@ -1265,6 +1388,8 @@ namespace RageV
 		{
 			slot.Set->SetStorageBuffer(13, slot.Materials, 0,
 									   (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+			if (s_Data->RayReflectionsOn)
+				slot.Set->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 		}
 
 		// Always bound, even with nothing skinned in the scene: the layout
@@ -1301,6 +1426,8 @@ namespace RageV
 			{
 				slot.SkinnedSet->SetStorageBuffer(13, slot.Materials, 0,
 												  (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn)
+					slot.SkinnedSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
 			slot.SkinnedSet->Commit();
 		}
