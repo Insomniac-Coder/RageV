@@ -145,6 +145,13 @@ namespace RageV
 
 	bool ResolveRayTracing(const RenderSettings& render)
 	{
+		// The rays ride on the shadow pass: the structure they trace into is
+		// built in Scene::RenderShadows, and the lit shader declares it under
+		// RV_RAY_SHADOWS. Shadows off is rays off -- reflections and occlusion
+		// included, since they resolve through this -- and the panel hides
+		// the whole block accordingly.
+		if (!render.ShadowsEnabled)
+			return false;
 		const EngineConfig& config = EngineConfig::Get();
 		const bool requested = config.HasRayTracingOverride ? config.RayTracingOverride
 															: render.RayTracing;

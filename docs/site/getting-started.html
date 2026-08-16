@@ -74,6 +74,8 @@
 <tr><td style="text-align:left"><code>--validation=on\|off\|gpu</code></td><td style="text-align:left">Vulkan validation layers. <strong>Off by default, everywhere</strong> — see below. <code>gpu</code> adds GPU-assisted validation.</td></tr>
 <tr><td style="text-align:left"><code>--bindless=on\|off</code></td><td style="text-align:left">Read material textures through the bindless heap on a device that has one. Default on; no effect on OpenGL — see below.</td></tr>
 <tr><td style="text-align:left"><code>--raytracing=on\|off</code></td><td style="text-align:left">Override the project&#39;s Ray tracing checkbox for this run. <code>on</code> falls back to shadow maps on a device without ray queries and says so.</td></tr>
+<tr><td style="text-align:left"><code>--rt-reflections=on\|off</code></td><td style="text-align:left">Override the RT reflections option for this run. Needs ray tracing on and bindless materials; otherwise off and logged once.</td></tr>
+<tr><td style="text-align:left"><code>--rt-ao=on\|off</code></td><td style="text-align:left">Override the RT ambient occlusion option for this run. Needs ray tracing on.</td></tr>
 <tr><td style="text-align:left"><code>--fixed-hz=N</code></td><td style="text-align:left">Simulation rate, 20–240. Default 60.</td></tr>
 <tr><td style="text-align:left"><code>--width=N</code> <code>--height=N</code></td><td style="text-align:left">Window size.</td></tr>
 <tr><td style="text-align:left"><code>--audio=on\|off</code></td><td style="text-align:left">Whether to open an output device at all.</td></tr>

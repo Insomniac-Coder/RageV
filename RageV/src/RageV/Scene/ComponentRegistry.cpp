@@ -6,6 +6,8 @@
 #include "RageV/Renderer/RenderSettings.h"
 #include "RageV/Renderer/PostSettings.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
+#include "RageV/Renderer/RayShadows.h"
+#include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Asset/LutRecipe.h"
 #include "ScriptRegistry.h"
@@ -1233,16 +1235,34 @@ namespace
 		{
 			return static_cast<const RenderSettings*>(block)->ShadowsEnabled;
 		}
+		// The ray-tracing block (7am-7ao) is offered only where it can run:
+		// on a device with ray queries -- Vulkan on hardware that traces, never
+		// OpenGL -- and under Shadows, whose pass builds the structure the rays
+		// trace into. Elsewhere the rows are absent, not greyed: there is no
+		// "on" for them to be. The values are kept in the project either way,
+		// so a project authored beside an RTX and opened on OpenGL keeps its
+		// choices for the next time it is opened where they apply.
+		bool OffersRayTracing(const void* block)
+		{
+			return static_cast<const RenderSettings*>(block)->ShadowsEnabled && RayShadows::IsAvailable();
+		}
 		bool RayTracingOn(const void* block)
 		{
-			return static_cast<const RenderSettings*>(block)->RayTracing;
+			return OffersRayTracing(block) && static_cast<const RenderSettings*>(block)->RayTracing;
+		}
+		// Reflections shade a hit through the bindless heap, so they are
+		// offered only where materials are bindless as well.
+		bool OffersRayReflections(const void* block)
+		{
+			return RayTracingOn(block) && Renderer3D::IsBindless();
 		}
 		// The cascade dials mean nothing to a traced shadow (7an): with ray
-		// tracing on, no map of any kind is rendered.
+		// tracing on, no map of any kind is rendered. Asked of what runs, not
+		// of the checkbox alone: a ticked box on OpenGL renders maps.
 		bool UsesCascades(const void* block)
 		{
 			const auto* render = static_cast<const RenderSettings*>(block);
-			return render->ShadowsEnabled && !render->RayTracing;
+			return render->ShadowsEnabled && !RayTracingOn(block);
 		}
 
 		bool HasColorLut(const void* block)
@@ -1350,29 +1370,29 @@ namespace
 				Field<&RenderSettings::ShadowsEnabled>("ShadowsEnabled", Named("Shadows")),
 
 				Field<&RenderSettings::RayTracing>("RayTracing",
-					Named("Ray tracing", Tip(
+					Named("Ray tracing", OnlyWhen(OffersRayTracing, Tip(
 						"Trace rays instead of rendering shadow maps: one ray per "
 						"pixel toward every casting light, with no acne, no "
 						"detachment, no distance limit and no cap on how many "
 						"lights cast; skinned casters cast their pose. The edge is "
-						"hard. Needs a device with ray queries (Vulkan on hardware "
-						"that traces); without one the maps are used and the log "
-						"says so. Applies at once -- no restart. The two options "
-						"below add ray-traced reflections and ambient occlusion on "
-						"the same structures."))),
+						"hard. Offered only on a device with ray queries (Vulkan on "
+						"hardware that traces); elsewhere this row is absent and "
+						"the maps are used. Applies at once -- no restart. The two "
+						"options below add ray-traced reflections and ambient "
+						"occlusion on the same structures.")))),
 
 				Field<&RenderSettings::RayTracedReflections>("RayTracedReflections",
-					Named("Ray-traced reflections", OnlyWhen(RayTracingOn, Tip(
+					Named("RT reflections", OnlyWhen(OffersRayReflections, Tip(
 						"Trace the mirror ray from every glossy surface and shade "
 						"what it hits, instead of walking the screen: reflections "
 						"of things off-screen and behind other things, correct "
-						"parallax. Rough surfaces keep the probe. Needs bindless "
-						"materials as well as ray queries. While on, the post "
+						"parallax. Rough surfaces keep the probe. Offered only "
+						"where materials are bindless as well. While on, the post "
 						"profile's Screen-space reflections are not used and its "
 						"rows say so.")))),
 
 				Field<&RenderSettings::RayTracedAmbientOcclusion>("RayTracedAmbientOcclusion",
-					Named("Ray-traced ambient occlusion", OnlyWhen(RayTracingOn, Tip(
+					Named("RT ambient occlusion", OnlyWhen(RayTracingOn, Tip(
 						"Cast SSAO's taps as short rays into the scene instead of "
 						"probing the depth buffer: no halos, off-screen occluders "
 						"count, and no reconstruction to wobble. Uses the post "

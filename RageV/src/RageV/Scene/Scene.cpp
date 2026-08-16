@@ -1265,7 +1265,24 @@ namespace RageV
 		// A probe capture draws the scene, and the scene samples shadows. Doing
 		// this during one would fit cascades to a cube face's 90-degree frustum
 		// and then leave them there for the real camera.
-		if (m_CapturingProbes || !Project::Render().ShadowsEnabled || !Renderer::HasDevice())
+		if (m_CapturingProbes || !Renderer::HasDevice())
+			return;
+
+		// Maps or rays (ENGINE-NOTES 7am, 7an), resolved once here and told to
+		// the lit pass, which recompiles its shaders when the answer changes.
+		// Under rays every casting light of every kind traces and no map is
+		// rendered; under maps the cascades and the local maps are what they
+		// always were. Told *before* the shadows-off return below, so that
+		// switching shadows off while tracing takes the rays away with them:
+		// the resolve says no once shadows are off, and a lit pass left
+		// believing otherwise would trace into the empty structure.
+		const bool traced = ResolveRayTracing(Project::Render());
+		Renderer3D::SetRayTracedShadows(traced);
+		// And whether the same structure answers reflections (7ao); resolved
+		// after the shadows because it rides on them.
+		Renderer3D::SetRayTracedReflections(ResolveRayTracedReflections(Project::Render()));
+
+		if (!Project::Render().ShadowsEnabled)
 			return;
 
 		if (!ShadowMap::IsReady())
@@ -1276,17 +1293,6 @@ namespace RageV
 			return;
 
 		UpdateWorldTransforms();
-
-		// Maps or rays (ENGINE-NOTES 7am, 7an), resolved once here and told to
-		// the lit pass, which recompiles its shaders when the answer changes.
-		// Under rays every casting light of every kind traces and no map is
-		// rendered; under maps the cascades and the local maps are what they
-		// always were.
-		const bool traced = ResolveRayTracing(Project::Render());
-		Renderer3D::SetRayTracedShadows(traced);
-		// And whether the same structure answers reflections (7ao); resolved
-		// after the shadows because it rides on them.
-		Renderer3D::SetRayTracedReflections(ResolveRayTracedReflections(Project::Render()));
 
 		// Nothing to shadow, and a shadow pass over an empty scene is a render
 		// pass that clears and stops.

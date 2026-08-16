@@ -638,15 +638,21 @@ deleted. **None of these should be started because it sounds interesting.**
 | 8.9 | FBX / Collada import | L | glTF covers Blender, Maya, Substance and every online library. This is a second material translation with its own failure modes |
 | 8.10 | Visual scripting | XL | "Two scripting languages is already two" — and this would be the third |
 | 8.11 | Asset store / plugin ecosystem | XL | Needs a stable ABI, which nothing here has |
-| 8.12 | Ray tracing — acceleration structures, ray queries, reflections and shadows | XL | **Stages 1–2 done 2026-08-16 (ENGINE-NOTES 7am, 7an):** acceleration structures in the RHI, ray queries proven in scenetest, and ray-traced shadows for **every** light kind behind one `RenderSettings::RayTracing` checkbox — hard-edged, bias-free, one ray per light per pixel, no cap on how many lights cast, skinned casters posed in compute and their structures refit each frame; checked against the maps to IoU 0.94–0.98 for the sun, a spot, a point light and the running fox. Vulkan only; OpenGL falls back to maps and says so. **Stage 3 open:** hit shading — buffers by address, a mesh table indexed by the instance's custom index — and with it the SSR fallback, judged against 9.9's fixture. A penumbra (several rays, filtered across frames) is not planned in this item |
+| 8.12 | Ray tracing — acceleration structures, ray queries, reflections and shadows | XL | **Done 2026-08-16, three stages the same day (ENGINE-NOTES 7am, 7an, 7ao):** acceleration structures in the RHI, ray queries proven in scenetest, and ray-traced shadows for **every** light kind behind one `RenderSettings::RayTracing` checkbox — hard-edged, bias-free, one ray per light per pixel, no cap on how many lights cast, skinned casters posed in compute and their structures refit each frame; checked against the maps to IoU 0.94–0.98 for the sun, a spot, a point light and the running fox. Then hit shading — buffers by address, a ray-instance table indexed by the instance's custom index, materials through the bindless heap — and with it **ray-traced reflections** in the lit shader where SSR's radiance enters (exact to 0.01 levels on 9.9's fixture and reflecting a block off the top of the frame that SSR cannot) and **ray-traced ambient occlusion** as SSAO's first pass (seam 15.17, brick wall at 1.000), each behind its own option under the checkbox, off by default, with the post profile's SSR/SSAO rows greyed and noted while the traced form runs. The whole block is offered only on a device with ray queries and under Shadows; OpenGL never shows it and takes the maps. Stated limits: hit shading is Lambert + emissive with a sun shadow ray only; rough surfaces keep the probe; no penumbra; RTAO is twelve rays through SSAO's blur, no accumulation |
 
 **The honest ordering, if any of these happen:** 8.4 and 8.9 are ordinary
 features. 8.2 was a decision about the engine's identity, and it has been
 made: the seam is at the shader define and the material, the RHI stays one
-interface, and OpenGL is not dropped. 8.12 is unblocked. The rest are each
-larger than everything built so far.
+interface, and OpenGL is not dropped. 8.12 followed it and is done. The rest
+are each larger than everything built so far.
 
 ### 8.12 in more detail, because it is the one most likely to be started for the wrong reason
+
+*Kept as written before it was built; the plan below is what happened,
+with two amendments recorded in ENGINE-NOTES 7ao: the reflection is not
+"SSR with a traced fallback" but a traced mirror ray in the lit shader with
+the SSR passes off, and the checkbox is a Render Settings row rather than
+a mode enum.*
 
 **What it would buy, which is more than 8.1 would.** The limits it removes are
 already written down: ENGINE-NOTES 7af and 7ag record that screen-space
@@ -701,7 +707,9 @@ Two of them are worth repeating here because they are not merely large:
   OpenGL 4.5 has no equivalent to Vulkan's descriptor indexing; the engine
   keeps both by forking at the shader preprocessor and the material, never at
   the RHI (ENGINE-NOTES 7al). Everything else in this document is compatible
-  with both, and 8.12 is the first item that will not be.
+  with both, and 8.12 was the first item that is not: ray tracing is Vulkan
+  only, offered in the panel only where the device traces, and OpenGL keeps
+  the maps and the screen-space effects.
 - **Terrain (8.4) has a false start in the tree.** `experiments/terrain/Chunk`
   creates one entity per voxel face. It must be deleted before anything is
   built, not extended.

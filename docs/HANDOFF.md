@@ -1315,6 +1315,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | Reflection probes | Baked and realtime, one face per frame, captured into a cube (3.3) |
 | IBL | Irradiance convolution, GGX prefilter per roughness level, BRDF table (3.4) |
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
+| Ray tracing | Vulkan with ray queries only: one checkbox under Shadows traces every casting light; options under it trace reflections and ambient occlusion in place of SSR/SSAO. Absent from the panel on OpenGL (8.12) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
 | Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
@@ -1591,61 +1592,129 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 8.12 stage 3 is BUILT AND MOSTLY VERIFIED, committed as work in progress -- finish it first
+### START HERE: 8.12 is DONE -- all three stages; phase 8's remaining items are each their own decision
 
-**Committed 2026-08-16 (late) as a WIP commit at the owner's request to halt
-for context.** Read ENGINE-NOTES 7ao (the design, written first) and then
-this list; everything below builds (Debug) and runs under validation with
-zero `[Vulkan]` lines on the demo with all three ray options on.
+**8.12 stage 3 landed 2026-08-16 (late), on top of stages 1 and 2 the same
+day** -- see the stage 3 narrative below and the Done entry after it;
+ENGINE-NOTES 7ao is the design and carries the numbers. Ray tracing is one
+checkbox under Shadows with two options under it, offered only where the
+device traces (Vulkan on hardware with ray queries) -- **none of the
+ray-tracing rows appear on OpenGL**, at the owner's direction -- and the
+post profile's SSR and SSAO rows grey out with a note while the traced
+twin runs.
 
-**What is in**: `RenderSettings::RayTracedReflections` and
-`RayTracedAmbientOcclusion` (both off, shown only while `RayTracing` is
-ticked), `--rt-reflections=on|off` / `--rt-ao=on|off`, the C# mirror,
-`ResolveRayTracedReflections` / `ResolveRayTracedAmbientOcclusion`;
-`RHIBuffer::GetDeviceAddress`; `RayShadows` keeps a `RayCaster` per TLAS
-instance (mesh, material, params, posed buffer) and `Renderer3D::EndScene`
-writes the ray-instance table (`GpuRayInstance`, set 0 binding 15) with
-material records shared with the draws; `pbr_fragment.glsl` under
-`RV_RAY_REFLECTIONS` (buffer references, `TraceReflection`, the mix at the
-line SSR's radiance enters, roughness weight 0.25-0.6); `TraceShadowFrom`
-(shadow ray from an arbitrary point/normal); `rtao_compute.rvshader` +
-`PostProcess::RtaoCompute` (Dispatch gained an acceleration-structure
-binding at 4; the shader is compiled only where ray queries exist); the
-graph runs no SSR passes and swaps the SSAO first pass when the traced form
-is on; `Scene::RenderShadows` builds the TLAS whenever ray tracing is on;
-`FieldHint::DisabledIf/DisabledNote` + `DisabledWhen(...)` and
-`FieldEditor::DrawFields` greying the profile's SSR rows and the SSAO
-toggle with a note (the AO dials show while either form runs).
+**What is open, in the order it would be sensible to take:**
 
-**Verified**: `check_ssr.py` (Debug) -- traced reflection exact to 0.01
-levels against a sky of the block's colour; the off-screen block reflects
-+109.85 traced vs -0.10 screen-space (row derived from the geometry, 788).
-`check_ssao.py` (Debug) -- traced occlusion darkens the seam 15.25, floor
-0.000, jitter drift 0.05.
+1. **The two long-standing non-blockers** at the end of this section: the
+   focus-click guard has never been confirmed against a real click, and an
+   orphaned LUT is not warned about.
+2. **A vendored-ImGui papercut found while eyeballing the greyed rows**:
+   wrapped text breaks mid-word at the panel edge ("click one i / n the
+   viewport" in the empty Properties hint; "used instea / d;" in the new
+   disabled-row note). Both callers use `PushTextWrapPos(0)`; an explicit
+   wrap position made no difference, so it is the vendored ImGui's
+   word-wrap (`ImFontCalcWordWrapPositionEx`), not the callers. Cosmetic;
+   fix or upgrade ImGui when convenient.
+3. **Phase 8's other items** are priced in the roadmap and each is L or
+   XL; the roadmap says which are ordinary features (8.4 terrain -- delete
+   `experiments/terrain/Chunk` first -- and 8.9 FBX) and which are
+   engine-sized. None should be started because it sounds interesting.
+   Ray tracing's own stated limits (no penumbra, Lambert hit shading, no
+   RTAO accumulation) are recorded in 7ao and are *not* on this list: they
+   are trades, not debts.
 
-**ONE FAILING CLAIM, cause known, fix not applied**: under RTAO the open
-brick wall's AO factor p10 is 0.972 (bar 0.995): `rtao_compute` takes the
-*written* normal wherever there is one, and the brick normal map tilts it
-along the mortar so rays dip into the wall -- exactly 9.8b's finding for
-SSAO. Fix: apply SSAO's agreement rule -- reconstruct the geometric normal
-(the pass already has `ReconstructedWorldNormal`, with 7an's ray-facing
-sign and texel snap) and take the written one only within
-`dot > 0.96`. Then rerun `check_ssao.py`; falsify the RTAO claims by
-setting the ray tMax to 0 and the reflection claims by tracing along
-`-direction`.
+**Ten commits are unpushed** as of this writing; pushing is the owner's
+action.
 
-**Still to do before this is "done"**: (1) the wall fix above; (2) eyeball
-the greyed rows: `RageVEditor.exe --raytracing=on --rt-ao=on
---rt-reflections=on --select=<camera entity> --screenshot=...` and look at
-the Properties panel; (3) Release/Dist rebuild, scenetest both backends
-under validation, runtime+editor both backends with the flags on, the
-other check scripts on Release; (4) ROADMAP 8.12 row to "done" (stage 3),
-7ao's "numbers at landing" paragraph, this file's Done entry, memory; (5)
-restore `demo.rage(.meta)` / `courtyard.rvpostprofile(.meta)` before
-committing. Stated limits to carry into 7ao's closing: hit shading is
-Lambert + emissive with a sun shadow ray only; rough surfaces keep the
-probe; no penumbra; RTAO is 12 rays, blurred by SSAO's blur, no temporal
-accumulation.
+---
+
+### Stage 3 -- a hit is shaded, and SSR and SSAO get their traced twins
+
+**8.12 stage 3 (2026-08-16, ENGINE-NOTES 7ao) is done and verified**, on
+top of stages 1 and 2 the same day. A ray can now say *what* it hit:
+`RayShadows` keeps a `RayCaster` (mesh, material, params, posed buffer)
+per TLAS instance and `Renderer3D::EndScene` writes a **ray-instance
+table** (`GpuRayInstance`, set 0 binding 15: vertex/index/posed buffer
+device addresses, strides in words, the material record index shared with
+the draws, the instance's own scalars) that the lit shader reads through
+`GL_EXT_buffer_reference` under `RV_RAY_REFLECTIONS`. `RHIBuffer::
+GetDeviceAddress()` is the one RHI addition. Hit shading is a *simplified*
+copy of the lit pass -- base colour and emissive through the material and
+the bindless heap, the interpolated normal (flat for a posed caster),
+every light unclustered with one shadow ray toward the sun, sky irradiance
+-- exact for emissive geometry, which is what the check that judges it is
+made of.
+
+**Ray-traced reflections** go in at the line SSR's radiance already enters
+(7af): a glossy pixel traces its mirror direction and the result replaces
+`prefiltered` by a weight from one at roughness 0.25 to zero at 0.6; the
+SSR passes do not run when it is on. **RTAO** is SSAO's chain with a
+different first pass: `rtao_compute.rvshader` casts the twelve taps as
+short rays (`tMax` = `AoRadius`) into the frame's structure; the blur and
+apply are SSAO's own, so the profile's radius and intensity drive both
+forms. `PostProcess::Dispatch` gained an acceleration-structure binding at
+4; the shader is compiled only where ray queries exist.
+
+**The switches**: `RenderSettings::RayTracedReflections` and
+`RayTracedAmbientOcclusion` (both off), `--rt-reflections=on|off`,
+`--rt-ao=on|off`, C# mirror, `ResolveRayTracedReflections` /
+`ResolveRayTracedAmbientOcclusion` (through `ResolveRayTracing`, plus
+bindless for reflections). **The panel**: labelled "RT reflections" and
+"RT ambient occlusion" under the Ray tracing checkbox; the whole block
+`OnlyWhen(OffersRayTracing)` -- `RayShadows::IsAvailable()` and
+`ShadowsEnabled` -- so OpenGL never shows it, and `UsesCascades` asks what
+runs rather than what is ticked. **The profile**: a new registry hint
+`DisabledWhen(pred, note)` beside `OnlyWhen`; `FieldEditor::DrawFields`
+draws the row inside `BeginDisabled` with the note beneath. The SSR toggle
+and its three dials, and the AO toggle, grey with "Ray-traced ... on in
+Render Settings and ... used instead"; the AO radius/intensity stay live
+because RTAO uses them. The predicates read the *resolved* state, so the
+same profile on OpenGL shows every row live.
+
+**Two things the verification found and fixed**:
+
+- **RTAO's normal (9.8b's mistake, made a second time).** The first draft
+  took the written normal wherever there was one -- "a ray does not care
+  about depth-slope agreement". `check_ssao.py`'s brick-wall claim refuted
+  it: AO factor p10 0.972 (bar 0.995). The written normal is the shading
+  normal after the normal map; the rays go into the geometry, which is
+  flat where the map says it is not. Fixed with SSAO's agreement rule
+  (written only within 16 degrees of the reconstructed slope) plus one
+  guard SSAO's kernel does not need -- the cosine kernel's lowest ray is
+  12 degrees up, so a ray under the depth's slope is not cast. Wall p10
+  1.000; seam 15.17.
+- **Rays with shadows off.** `ResolveRayTracedAmbientOcclusion` said yes
+  with `ShadowsEnabled` off, but the structure is built in
+  `Scene::RenderShadows`, which returned before building it -- RTAO would
+  trace the empty structure and the lit pass keep believing it traced.
+  `ResolveRayTracing` now says no without shadows (the two options resolve
+  through it), and `RenderShadows` tells `Renderer3D` before its
+  shadows-off return, not after.
+
+**Checks**: `check_ssr.py` (+2 claims): traced reflection vs a sky of the
+block's colour 0.01 levels; the block moved above the top edge of the
+frame reflects +109.85 traced vs -0.10 screen-space, the row derived from
+the camera and the block's mirror image. `check_ssao.py` (+3): seam 15.17,
+floor 0.000, wall p10 1.000, jitter-phase drift 0.04. Falsified three
+ways: reflection along `-direction` (208 levels off, off-screen gain 0.00);
+AO rays at zero length (seam 0.00); normal rule back to "written wherever"
+(p10 0.972 -- the defect reproduced on demand).
+
+**Verified for this commit**: Debug/Release/Dist built; scenetest 1628 on
+Vulkan under validation with zero `[Vulkan]` lines, 1588 on OpenGL;
+runtime and editor exit 0 on both backends with all three ray flags on
+under validation; the editor eyeballed on both backends (Render Settings:
+Vulkan shows the checkbox and its two options and hides the cascade dials
+while ticked, OpenGL shows none of it; Properties: the greyed SSR/SSAO
+rows with their notes on Vulkan, live on OpenGL with the same project);
+`check_ssao`, `check_ssr`, `check_ray_shadows`, `check_bindless` on
+Release; `rvdoc --check` exit 0.
+
+**Stated limits** (7ao): hit shading is Lambert + emissive with a sun
+shadow ray only, no normal map or parallax in a reflection; rough surfaces
+keep the probe; no penumbra; RTAO is twelve rays through SSAO's blur, no
+temporal accumulation; the ray options ride on Shadows and are off with
+it, by design and by the panel.
 
 ---
 
@@ -1812,6 +1881,37 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 8.12 stage 3, hit shading, ray-traced reflections and RTAO; offered only where the device traces (2026-08-16)
+
+Design first (ENGINE-NOTES 7ao). **Hit shading**: `RayShadows::RayCaster`
+per instance; `Renderer3D` writes `GpuRayInstance` records (96 bytes, set
+0 binding 15) with the draws' material index; `pbr_fragment.glsl` under
+`RV_RAY_REFLECTIONS` -- buffer references over the vertex/index/posed
+buffers, `TraceReflection(origin, Ng, direction)`, `TraceShadowFrom` for a
+shadow ray from an arbitrary point. `RHIBuffer::GetDeviceAddress()`
+(Vulkan real, OpenGL zero). **Reflections** replace `prefiltered` at the
+SSR mix point by a roughness weight; the SSR passes are skipped when on.
+**RTAO**: `rtao_compute.rvshader` (460, ray query, structure at binding 4)
+as SSAO's first pass; `PostProcess::RtaoCompute`; SSAO's agreement rule
+for the normal plus a no-ray-under-the-slope guard.
+
+**Settings and panel**: `RayTracedReflections`, `RayTracedAmbientOcclusion`
+(off), `--rt-reflections`, `--rt-ao`, C#, resolve chain through
+`ResolveRayTracing` (which now also needs `ShadowsEnabled`); registry
+`OffersRayTracing` / `OffersRayReflections` gate the whole block on
+`RayShadows::IsAvailable()` (+ bindless for reflections) so OpenGL shows
+none of it; `FieldHint::DisabledIf/DisabledNote`, `DisabledWhen(...)`,
+`FieldEditor::DrawFields` greying with the note; manual rows.
+`Scene::RenderShadows` tells the lit pass before its shadows-off return.
+
+**Checks and findings**: `check_ssr.py` +2 (exact 0.01, off-screen block
++109.85 vs -0.10), `check_ssao.py` +3 (seam 15.17, wall p10 1.000, jitter
+0.04); falsified three ways; the RTAO written-normal defect (p10 0.972)
+found by the wall claim and fixed as 7ao records; the rays-with-shadows-off
+gap closed. Papercut noted: the vendored ImGui wraps text mid-word.
 
 ---
 

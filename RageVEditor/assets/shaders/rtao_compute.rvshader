@@ -5,11 +5,14 @@
 // a golden-angle spiral rotated per pixel by a hash so the frame is
 // deterministic -- and one difference: each tap is a short ray into the
 // scene's acceleration structure rather than a probe of the depth buffer.
-// Occluded is a hit. So there is no reconstructed normal to wobble (the
-// written world normal is taken wherever there is one), no depth slope to
-// misjudge, no halo from a silhouette in front, and an occluder off-screen
-// counts. The blur and the apply after this are SSAO's own, unchanged.
-// ENGINE-NOTES 7ao.
+// Occluded is a hit. So there is no depth slope to misjudge, no halo from a
+// silhouette in front, and an occluder off-screen counts. The blur and the
+// apply after this are SSAO's own, unchanged. ENGINE-NOTES 7ao.
+//
+// The normal the hemisphere hangs on is chosen by SSAO's rule (7ae): the
+// scene's written normal where it agrees with the depth buffer's own slope,
+// the slope otherwise -- see main() for why the rays need that rule as much
+// as the depth taps did, and the one guard they need beyond it.
 //
 // 460 and the ray-query extension: compiled only where the device can trace,
 // which PostProcess::Init decides; the SSAO twin is what runs elsewhere.
@@ -97,10 +100,10 @@ vec3 WorldPositionOf(vec3 p, bool flip)
 											  dot(u_Params.CameraRow2.xyz, view));
 }
 
-// The depth buffer's own slope where the scene wrote no normal (sky, the
-// grid, particles): the same chosen-neighbour reconstruction SSAO uses,
-// carried into the world. Rare -- those things mostly get no occlusion at
-// all -- but a pixel has to have some normal to hang a hemisphere on.
+// The depth buffer's own slope, carried into the world: the same
+// chosen-neighbour reconstruction SSAO uses (7ac, 7an). The geometry the
+// rays are cast into is exactly what this depth buffer describes, so this
+// is the normal that geometry implies.
 vec3 ReconstructedWorldNormal(vec2 uv, vec3 centre, vec2 texel, bool flip)
 {
 	const vec3 right = ViewPositionAt(uv + vec2(texel.x, 0.0));
@@ -145,13 +148,32 @@ void main()
 		return;
 	}
 
-	// The written world normal wherever there is one -- a ray does not care
-	// whether it agrees with the depth's slope, which is the whole of what
-	// SSAO's agreement test was for -- and the reconstruction elsewhere.
+	// The normal, by SSAO's rule (7ae): the depth buffer's slope, replaced by
+	// the scene's written normal only where the two agree within the
+	// reconstruction's own accuracy.
+	//
+	// The first draft of this pass took the written normal wherever there was
+	// one, on the reasoning that a ray does not care whether the normal
+	// agrees with the depth's slope. That was 9.8b's mistake made again: the
+	// written normal is the shading normal, after the normal map, and the
+	// rays are cast into the geometry -- which is flat where the normal map
+	// says it is not. On the fixture that isolates it, a brick wall seen
+	// along its length, the hemisphere hung on the map's tilt sent rays into
+	// the wall and darkened open texels to an AO factor of 0.972 at the tenth
+	// percentile, where the geometric normal holds them at one. So: the
+	// slope, unless the written normal is within about sixteen degrees of it,
+	// in which case it is the smoother estimate of the same thing.
+	const float kAgreement = 0.96;
+
 	const vec4 surface = texture(u_Surface, uv);
-	const vec3 normal = SurfaceIsEmpty(surface)
-					  ? ReconstructedWorldNormal(uv, centre, texel, flip)
-					  : OctDecode(surface.rg);
+	const vec3 geometric = ReconstructedWorldNormal(uv, centre, texel, flip);
+	vec3 normal = geometric;
+	if (!SurfaceIsEmpty(surface))
+	{
+		const vec3 written = OctDecode(surface.rg);
+		if (dot(written, geometric) > kAgreement)
+			normal = written;
+	}
 
 	const vec3 world = WorldPositionOf(centre, flip);
 	const vec3 origin = world + normal * (kLift + kLiftPerMetre * centre.z);
@@ -174,6 +196,17 @@ void main()
 		const float theta = float(i) * kGoldenAngle + rotation;
 		const vec3 direction = tangent * (cos(theta) * r) + bitangent * (sin(theta) * r)
 							 + normal * sqrt(max(1.0 - t, 0.0));
+
+		// The guard SSAO's kernel does not need: its lowest tap sits 24
+		// degrees above the plane, so a normal inside the tolerance keeps
+		// every tap above the geometry. This kernel is cosine-weighted and
+		// its lowest ray sits 12 degrees up, so a written normal tilted
+		// 12-16 degrees would still send that ray into the wall. A ray under
+		// the slope the depth buffer implies is not cast; it counts as open,
+		// which is what it would have found had the wall been the bump the
+		// map claims.
+		if (dot(direction, geometric) < 0.0)
+			continue;
 
 		rayQueryEXT q;
 		rayQueryInitializeEXT(q, u_SceneAS,

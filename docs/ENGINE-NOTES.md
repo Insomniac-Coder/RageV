@@ -5850,18 +5850,41 @@ glossy pixel, so a scene of rough surfaces pays almost nothing.
 
 SSAO is four passes: occlusion at half resolution, two blurs, apply. RTAO
 replaces only the first: `rtao_compute.rvshader` reads the same depth and
-surface attachment, reconstructs the same position, takes the *written*
-normal wherever there is one (a ray does not care about depth-slope
-agreement, which is what 7an's flicker was about), and casts the taps as
-short rays into the TLAS -- `tMax` the profile's `AoRadius`, one per tap,
-the same golden-angle spiral and per-pixel hash rotation as SSAO's so the
-frame is deterministic. Occluded is a hit. The blur and the apply are the
-SSAO ones, unchanged, so the profile's radius and intensity dials drive
-both forms and only the *toggle* changes hands. `PostProcess::Dispatch`
-gains an optional acceleration structure at binding 4; the shader is
-compiled only where ray queries exist, because SPIRV-Cross cannot say
-`accelerationStructureEXT` in GLSL and a compile that fails on OpenGL would
-take the whole post stack down with it.
+surface attachment, reconstructs the same position, chooses its normal by
+SSAO's rule (below), and casts the taps as short rays into the TLAS --
+`tMax` the profile's `AoRadius`, one per tap, the same golden-angle spiral
+and per-pixel hash rotation as SSAO's so the frame is deterministic, the
+disc lifted onto the hemisphere cosine-weighted. Occluded is a hit. The
+blur and the apply are the SSAO ones, unchanged, so the profile's radius
+and intensity dials drive both forms and only the *toggle* changes hands.
+`PostProcess::Dispatch` gains an optional acceleration structure at
+binding 4; the shader is compiled only where ray queries exist, because
+SPIRV-Cross cannot say `accelerationStructureEXT` in GLSL and a compile
+that fails on OpenGL would take the whole post stack down with it.
+
+**The normal, and 9.8b's mistake made a second time.** The first draft
+took the *written* normal wherever there was one, reasoning that a ray does
+not care whether the normal agrees with the depth's slope -- that
+agreement test (7ae) was about SSAO's depth taps, and a ray has no depth
+taps. `check_ssao.py`'s brick-wall claim refuted it: under RTAO the open
+wall's AO factor was 0.972 at the tenth percentile (bar 0.995), 0.910 at
+worst. The written normal is the shading normal, after the normal map, and
+the rays are cast into the *geometry* -- which is flat where the map says
+it is not; a hemisphere hung on the map's tilt sends its low rays into the
+wall. So the pass takes the depth buffer's slope (its own
+`ReconstructedWorldNormal`, with 7an's ray-facing sign and texel snap) and
+replaces it with the written normal only within 7ae's 16 degrees, where
+the written one is the smoother estimate of the same thing -- and one
+guard SSAO's kernel does not need: SSAO's lowest tap sits 24 degrees above
+the plane, so a normal inside the tolerance keeps every tap above the
+geometry, but the cosine kernel's lowest ray sits 12 degrees up and a
+written normal tilted 12-16 degrees would still send it into the wall. A
+ray under the depth's slope is not cast and counts as open. With both, the
+wall holds at 1.000 (p10) and the seam still darkens 15.17 (from 15.25
+under the wrong rule: the difference is the low rays that were hitting the
+wall the seam stands against, which they should). The general lesson is
+7ae's, restated for rays: occlusion by a body has to be measured against
+the normal that body implies, and the normal map is not the body.
 
 ### The switches, and the note in the profile
 
@@ -5871,6 +5894,24 @@ Settings only while `RayTracing` is ticked (`OnlyWhen`), overridden per
 run by `--rt-reflections=on|off` and `--rt-ao=on|off`, mirrored in C#.
 They resolve through the same chain as the checkbox itself: on a device
 without ray queries they are off; reflections additionally need bindless.
+
+**And the whole block is offered only where it can run** -- the owner's
+condition, stated at landing: none of the ray-tracing rows appear when the
+running API is OpenGL. `OffersRayTracing` gates the checkbox itself on
+`RayShadows::IsAvailable()` and on `ShadowsEnabled`; the two options gate
+on that and the checkbox (reflections on `Renderer3D::IsBindless()` too);
+the cascade dials return whenever the rows go, since a ticked box on a
+device that cannot trace renders maps. Absent, not greyed: greyed means
+"applies, taken over", and on OpenGL there is no "on" for these to be. The
+values are kept in the project either way, so a project authored beside an
+RTX and opened on OpenGL keeps its choices for the next time it is opened
+where they apply. Shadows is the parent because the rays ride on the
+shadow pass -- the structure is built in `Scene::RenderShadows` and the
+lit shader declares it under `RV_RAY_SHADOWS` -- so `ResolveRayTracing`
+says no when shadows are off, which takes reflections and occlusion with
+it (they resolve through it), and the lit pass is told before the
+shadows-off return rather than after: switching shadows off while tracing
+used to leave the pass believing it still traced, into the empty structure.
 When one is on, the post profile's row for its screen-space twin --
 `AmbientOcclusion`, or `ScreenSpaceReflections` with `SsrMaxDistance` and
 `SsrThickness` -- draws disabled with a line beneath it saying the
@@ -5886,15 +5927,36 @@ row live, which is what runs there.
 
 `check_ssr.py`: 7af's exactness law -- SSR on under sky K equals SSR off
 under a sky of the block's colour -- holds for the traced form to the same
-0.00 levels, because the block is emissive and the simplified hit shade is
-exact for emissive; and a second scene, the block moved just outside the
-frame, where SSR has nothing to walk to and shows the sky and the traced
-form shows the block. `check_ssao.py`: on the box fixture under RTAO the
-seam darkens, the open floor holds, the brick wall holds at one, and the
-jitter-phase claim from 7an holds -- a ray has no reconstruction to wobble.
-Falsified by tracing the reflection *from* the eye instead of the mirror
-direction (the law fails), and by giving the AO rays zero length (nothing
-darkens). Numbers at landing are in the section below once measured.
+bound, because the block is emissive and the simplified hit shade is exact
+for emissive; and a second scene, the block moved above the top edge of
+the frame with its reflection still on the floor inside it, where SSR has
+nothing to walk to and shows the sky and the traced form shows the block.
+The row the reflection lands on is *derived* from the fixture's camera and
+the block's mirror image, not found in the frame, so the claim cannot be
+circular. `check_ssao.py`: on the box fixture under RTAO the seam darkens,
+the open floor holds, the brick wall holds at one, and the jitter-phase
+claim from 7an holds across the eight frames.
+
+Numbers at landing (Release, RTX 5070 Ti Laptop): traced reflection vs a
+sky of the block's colour **0.01 levels**; off-screen block, reflection
+spot against empty floor **+109.85 traced, -0.10 screen-space** (row 788 of
+1080 derived); RTAO seam **15.17**, open floor 0.000, brick wall p10
+**1.000** (worst 0.987), jitter-phase p10 1.000 and 0.04 levels of drift.
+Falsified three ways: the reflection ray along `-direction` (208 levels off
+the law, off-screen gain 0.00); the AO rays at zero length (seam 0.00);
+and the normal rule back to "written wherever there is one" (wall p10
+0.972 -- the defect above, reproduced on demand).
+
+### What stays stated
+
+Hit shading is Lambert plus emissive, one shadow ray toward the sun and
+none toward local lights, no normal map, no parallax, no occlusion; a
+reflection of a lit brick wall shows the wall's colour and its shadow, not
+its bump. Rough surfaces keep the probe (the mirror weight is zero from
+roughness 0.6). No penumbra still. RTAO is twelve rays through SSAO's blur
+with no temporal accumulation, so a wide `AoRadius` on a fine occluder
+shows the twelve. And the two ray options ride on Shadows: with shadows
+off there is no structure and neither runs, by design and by the panel.
 
 ---
 

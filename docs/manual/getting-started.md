@@ -123,6 +123,8 @@ Every flag below can also go in a `ragev.ini` file next to the executable, as
 | `--validation=on\|off\|gpu` | Vulkan validation layers. **Off by default, everywhere** — see below. `gpu` adds GPU-assisted validation. |
 | `--bindless=on\|off` | Read material textures through the bindless heap on a device that has one. Default on; no effect on OpenGL — see below. |
 | `--raytracing=on\|off` | Override the project's Ray tracing checkbox for this run. `on` falls back to shadow maps on a device without ray queries and says so. |
+| `--rt-reflections=on\|off` | Override the RT reflections option for this run. Needs ray tracing on and bindless materials; otherwise off and logged once. |
+| `--rt-ao=on\|off` | Override the RT ambient occlusion option for this run. Needs ray tracing on. |
 | `--fixed-hz=N` | Simulation rate, 20–240. Default 60. |
 | `--width=N` `--height=N` | Window size. |
 | `--audio=on\|off` | Whether to open an output device at all. |
