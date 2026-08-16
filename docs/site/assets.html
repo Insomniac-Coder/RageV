@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assets — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="editor.html">The editor</a></li><li><a class="nav-link" href="components.html">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="materials.html">Materials</a></li><li><a class="nav-link" href="lighting.html">Lighting</a></li><li><a class="nav-link" href="cameras.html">Cameras</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="physics.html">Physics</a></li><li><a class="nav-link" href="audio.html">Audio</a></li><li><a class="nav-link" href="animation.html">Animation</a></li><li><a class="nav-link" href="ui.html">User interface</a></li><li><a class="nav-link" href="prefabs.html">Prefabs</a></li><li><a class="nav-link is-current" href="assets.html" aria-current="page">Assets</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="assets">Assets<a class="anchor" href="#assets" aria-label="Link to this section">#</a></h1>
+<p>Everything in a project&#39;s <code>assets/</code> folder that the engine can load, how it gets there, and what happens to it on the way to a shipped game.</p>
+<h2 id="handles-and-the-meta-beside-each-file">Handles, and the <code>.meta</code> beside each file<a class="anchor" href="#handles-and-the-meta-beside-each-file" aria-label="Link to this section">#</a></h2>
+<p><strong>Every asset has a UUID, and nothing refers to an asset by path.</strong> A scene stores handles; a material stores handles to its textures.</p>
+<p>The UUID lives in a <code>.meta</code> sidecar next to the file — <code>brick.png</code> has <code>brick.png.meta</code>. That is what makes renaming and moving an asset safe: the handle travels with the <code>.meta</code>, and every reference keeps resolving.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Keep the <code>.meta</code> with its file.</strong> Delete one and the asset is minted a new UUID on next import, which means every reference to it is now dangling. If you move assets with a file manager, move both.</p>
+</aside>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Assets dropped into the build output lose their handles on a clean build.</strong> The assets root is the folder beside the executable, which CMake copies from the source tree. Put new assets in the <em>source</em> tree.</p>
+</aside>
+<h2 id="the-asset-types">The asset types<a class="anchor" href="#the-asset-types" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Type</th><th style="text-align:left">Extension</th><th style="text-align:left">Where it comes from</th></tr></thead><tbody>
+<tr><td style="text-align:left">Mesh</td><td style="text-align:left"><code>.gltf</code>, <code>.glb</code>, or a built-in primitive</td><td style="text-align:left">glTF import</td></tr>
+<tr><td style="text-align:left">Texture</td><td style="text-align:left"><code>.png</code>, <code>.jpg</code>, <code>.hdr</code></td><td style="text-align:left">Dropped in</td></tr>
+<tr><td style="text-align:left">Material</td><td style="text-align:left"><code>.rvmaterial</code></td><td style="text-align:left">Created in the editor, or by a glTF import</td></tr>
+<tr><td style="text-align:left">Scene</td><td style="text-align:left"><code>.rage</code></td><td style="text-align:left">Created in the editor</td></tr>
+<tr><td style="text-align:left">Prefab</td><td style="text-align:left"><code>.rvprefab</code></td><td style="text-align:left">Created from an entity</td></tr>
+<tr><td style="text-align:left">Audio</td><td style="text-align:left"><code>.wav</code>, <code>.ogg</code>, <code>.mp3</code></td><td style="text-align:left">Dropped in</td></tr>
+<tr><td style="text-align:left">Curve</td><td style="text-align:left"><code>.rcurve</code></td><td style="text-align:left">Created in the editor</td></tr>
+<tr><td style="text-align:left">Font</td><td style="text-align:left"><code>.rvfont</code></td><td style="text-align:left">Baked from a <code>.ttf</code> by <code>rvfont</code></td></tr>
+<tr><td style="text-align:left">Post profile</td><td style="text-align:left"><code>.rvpostprofile</code></td><td style="text-align:left">Created in the editor</td></tr>
+<tr><td style="text-align:left">LUT</td><td style="text-align:left"><code>.cube</code> or <code>.rvlut</code></td><td style="text-align:left">Exported from a grading tool, or authored here</td></tr>
+</tbody></table></div>
+<p>The built-in mesh primitives — <strong>Cube, Sphere, Plane, Cylinder, Quad</strong> — are not files. They have reserved handles and are always available.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>A <code>.ttf</code> is <strong>not</strong> an asset. Nothing at runtime can read one, and treating it as an asset would offer a handle that never resolves. The <code>.rvfont</code> baked from it is the asset.</p>
+</aside>
+<h2 id="importing">Importing<a class="anchor" href="#importing" aria-label="Link to this section">#</a></h2>
+<p>Drop a file into <code>assets/</code> and the editor imports it on the next scan. glTF is the model format:</p>
+<ul>
+<li><strong>glTF covers Blender, Maya, Substance</strong> and every online library, and it is metallic-roughness at both ends — so materials transfer without a second translation.</li>
+<li><strong>FBX and Collada are not supported.</strong> That is a decision, not a gap: each is a second material translation with its own failure modes.</li>
+<li>Textures embedded in a <code>.glb</code> are extracted on import.</li>
+</ul>
+<h2 id="cooking-and-the-import-cache">Cooking, and the import cache<a class="anchor" href="#cooking-and-the-import-cache" aria-label="Link to this section">#</a></h2>
+<p>Source assets are not what the engine ultimately reads. A PNG has to be decoded and block-compressed; a glTF mesh has to be turned into vertex buffers. That is <strong>cooking</strong>, and it produces <code>.rvtex</code> and <code>.rvmesh</code>.</p>
+<p>Cooking happens <strong>on import, into <code>&lt;project&gt;/Cache</code></strong>, keyed on a hash of the source file. The hash is in the filename, so a lookup is a stat rather than a parse, and a stale entry is visibly stale.</p>
+<p>Before this existed, the editor re-decoded every texture on every launch: 3.2 seconds of PNG decoding on the first <em>draw</em>, which looked like slow project loading and was not. Warm launch went from 4.79 s to 2.31 s, and a first open from 17.2 s to 4.9 s.</p>
+<p><code>--import-cache=off</code> disables it, which is only useful when you suspect the cache itself.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong><code>Cache/</code> is git-ignored, and should stay that way.</strong> The hazard is not its size — it is that a cooked file arriving over a checkout carries another machine&#39;s hash and claims to be current for a source it never saw.</p>
+</aside>
+<p>The cache lives <em>outside</em> <code>assets/</code>, because the registry would otherwise index it as content.</p>
+<h2 id="packaging">Packaging<a class="anchor" href="#packaging" aria-label="Link to this section">#</a></h2>
+<p><strong>File → Package</strong> produces a folder that runs on a machine with no editor and no source assets:</p>
+<ul>
+<li>the runtime executable,</li>
+<li><code>content.pak</code> — every asset the project needs, cooked, in one file,</li>
+<li>the project&#39;s script assemblies.</li>
+</ul>
+<p>The packager cooks as it goes, so what ships is the cooked form. At runtime a <strong>virtual file system</strong> mounts the pak, and every content reader goes through it — so the same code path loads from a pak in a shipped game and from loose files in the editor.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>A font atlas is deliberately <strong>not</strong> cooked. Block-compressing and mip-chaining a distance field are exactly the two things that make text soft, and the packager knows to skip them.</p>
+</aside>
+<h2 id="where-things-live">Where things live<a class="anchor" href="#where-things-live" aria-label="Link to this section">#</a></h2>
+<figure class="code"><pre><code>MyProject/
+  MyProject.rvproject     the project file: start scene, render settings
+  assets/                 everything the engine loads
+    scenes/  models/  textures/  materials/  audio/  fonts/  post/  curves/
+  Source/                 C++ game module
+  Scripts/                C# scripts
+  Cache/                  cooked assets, git-ignored
+  bin/                    built game module and assemblies
+</code></pre></figure>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="materials.html">Materials</a> — what an imported material carries</li>
+<li><a href="getting-started.html">Getting started</a> — creating a project and packaging one</li>
+<li><a href="concepts.html#asset">Core concepts</a> — handles and the registry</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="prefabs.html"><span class="pager-label">Previous</span><span class="pager-title">Prefabs</span></a><a class="pager-link pager-next" href="scripting/index.html"><span class="pager-label">Next</span><span class="pager-title">Scripting</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#handles-and-the-meta-beside-each-file">Handles, and the .meta beside each file</a><a class="toc-link toc-l2" href="#the-asset-types">The asset types</a><a class="toc-link toc-l2" href="#importing">Importing</a><a class="toc-link toc-l2" href="#cooking-and-the-import-cache">Cooking, and the import cache</a><a class="toc-link toc-l2" href="#packaging">Packaging</a><a class="toc-link toc-l2" href="#where-things-live">Where things live</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

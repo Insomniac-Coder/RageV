@@ -1652,6 +1652,41 @@ still open.
 
 ---
 
+### Done - D.5c, the missing pages (2026-08-16)
+
+Ten pages, closing the half of the owner's criticism that D.5a and D.5b did
+not: **materials, lighting, cameras, physics, audio, animation, user
+interface, prefabs, assets, and the editor**. The manual went from 9 pages to
+**22**.
+
+These are prose rather than field tables -- how a thing fits together, which
+is what `components.md` deliberately does not say. So they are *not*
+drift-checked, and that is the honest limit of this slice: the numbers cannot
+rot because the reference owns them, but a paragraph describing behaviour can
+go stale and nothing will notice.
+
+What each page is for, briefly: `lighting.md` says why there is no light cap
+and what the sky is (a light, not a backdrop); `materials.md` says why tiling
+is on the material and the overrides are per entity; `physics.md` names the
+sleep rule that makes `OnCollisionExit` not fire; `ui.md` states the anchor
+model in one sentence -- *equal anchors mean the offsets are a size, different
+anchors mean they are a margin*; `assets.md` covers handles, `.meta` files,
+cooking, the import cache and packaging; `editor.md` lists every panel, every
+shortcut and both save schedules.
+
+**Three factual errors were caught while writing, two of them mine.**
+`CanvasScaleMode` is `ConstantPixels`, not `ConstantPixelSize`. `AudioBus` has
+four members, not three -- `UI` was missing. And the camera's projection
+default is genuinely ambiguous: the *type* defaults to orthographic, the
+editor sets perspective on every camera it creates, and the page now says
+both rather than picking one.
+
+**Still open**: nothing is checked in these ten. If a system's behaviour
+changes, the page describing it has to be updated by hand, and the only thing
+that catches a mistake is somebody reading it.
+
+---
+
 ### Done - D.5b, every component documented, and checked (2026-08-16)
 
 `components.md`: all **23 component structs and roughly 150 fields**, each with

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prefabs — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="editor.html">The editor</a></li><li><a class="nav-link" href="components.html">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="materials.html">Materials</a></li><li><a class="nav-link" href="lighting.html">Lighting</a></li><li><a class="nav-link" href="cameras.html">Cameras</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="physics.html">Physics</a></li><li><a class="nav-link" href="audio.html">Audio</a></li><li><a class="nav-link" href="animation.html">Animation</a></li><li><a class="nav-link" href="ui.html">User interface</a></li><li><a class="nav-link is-current" href="prefabs.html" aria-current="page">Prefabs</a></li><li><a class="nav-link" href="assets.html">Assets</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="prefabs">Prefabs<a class="anchor" href="#prefabs" aria-label="Link to this section">#</a></h1>
+<p>An entity, saved as an asset, so it can be placed many times.</p>
+<p>A prefab is a <code>.rvprefab</code> file holding an entity <strong>and its whole subtree</strong> — components, children, and the values you set. Dragging one into a scene creates a copy.</p>
+<h2 id="making-one">Making one<a class="anchor" href="#making-one" aria-label="Link to this section">#</a></h2>
+<p>Drag an entity from the Scene Hierarchy into the Content browser. The resulting <code>.rvprefab</code> captures that entity and everything under it.</p>
+<h2 id="placing-one">Placing one<a class="anchor" href="#placing-one" aria-label="Link to this section">#</a></h2>
+<p>Drag it from the Content browser into the scene, or into the Hierarchy to parent it under something.</p>
+<p>Each placement is an <strong>independent copy</strong> with its own entity UUIDs. The copy carries a <code>PrefabComponent</code> naming the asset it came from, which is how the editor tells an instance apart from an entity built by hand.</p>
+<h2 id="what-an-instance-is-and-is-not">What an instance is, and is not<a class="anchor" href="#what-an-instance-is-and-is-not" aria-label="Link to this section">#</a></h2>
+<p><strong>Editing an instance edits that instance only.</strong> Change its colour and no other copy moves.</p>
+<p><strong>Editing the prefab asset does not push changes to placed instances.</strong> They were copied when they were placed, and they stay as they were.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>This is the honest current state rather than a design claim. Prefab <em>variants</em> and pushing edits back to the asset are the two things a mature prefab system has and this one does not — an instance is a copy with a note saying where it came from.</p>
+</aside>
+<h2 id="spawning-from-a-script">Spawning from a script<a class="anchor" href="#spawning-from-a-script" aria-label="Link to this section">#</a></h2>
+<p>Both languages can instantiate a prefab at runtime, which is the usual way bullets, enemies and pickups arrive. The call takes a prefab handle and returns the new entity, so you can position it and set its fields immediately.</p>
+<p>See <a href="scripting/index.html">Scripting</a>.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Entities spawned during play are <strong>discarded on Stop</strong>, like every other change made while playing. That is snapshot semantics working correctly.</p>
+</aside>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="components.html#prefabcomponent">Component reference</a> — the one field</li>
+<li><a href="assets.html">Assets</a> — where prefabs live and how handles work</li>
+<li><a href="scripting/index.html">Scripting</a> — spawning and destroying at runtime</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="ui.html"><span class="pager-label">Previous</span><span class="pager-title">User interface</span></a><a class="pager-link pager-next" href="assets.html"><span class="pager-label">Next</span><span class="pager-title">Assets</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#making-one">Making one</a><a class="toc-link toc-l2" href="#placing-one">Placing one</a><a class="toc-link toc-l2" href="#what-an-instance-is-and-is-not">What an instance is, and is not</a><a class="toc-link toc-l2" href="#spawning-from-a-script">Spawning from a script</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

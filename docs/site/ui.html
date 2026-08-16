@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User interface — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="editor.html">The editor</a></li><li><a class="nav-link" href="components.html">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="materials.html">Materials</a></li><li><a class="nav-link" href="lighting.html">Lighting</a></li><li><a class="nav-link" href="cameras.html">Cameras</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="physics.html">Physics</a></li><li><a class="nav-link" href="audio.html">Audio</a></li><li><a class="nav-link" href="animation.html">Animation</a></li><li><a class="nav-link is-current" href="ui.html" aria-current="page">User interface</a></li><li><a class="nav-link" href="prefabs.html">Prefabs</a></li><li><a class="nav-link" href="assets.html">Assets</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="user-interface">User interface<a class="anchor" href="#user-interface" aria-label="Link to this section">#</a></h1>
+<p>The game&#39;s own UI — drawn by the engine, saved in the scene, and reachable from scripts. <strong>This is not the editor&#39;s ImGui</strong>, which is developer chrome and does not ship.</p>
+<p>Text is rendered from a <strong>multi-channel signed distance field</strong>, so it stays crisp at any size from one atlas.</p>
+<h2 id="the-shape-of-a-ui">The shape of a UI<a class="anchor" href="#the-shape-of-a-ui" aria-label="Link to this section">#</a></h2>
+<p>Four things, in a hierarchy:</p>
+<ol>
+<li>A <strong>canvas</strong> — an entity with a <code>UICanvasComponent</code>. It decides how the whole UI scales with the window.</li>
+<li><strong>Rects</strong> under it — entities with a <code>UIRectComponent</code>, which is the position-and-size of a UI element.</li>
+<li><strong>Content</strong> on a rect — a <code>UIImageComponent</code> or a <code>UITextComponent</code>.</li>
+<li><strong>Behaviour</strong> — a <code>UIButtonComponent</code> for something clickable.</li>
+</ol>
+<p>A rect with no content draws nothing and is a useful invisible container.</p>
+<h2 id="canvas-scaling">Canvas scaling<a class="anchor" href="#canvas-scaling" aria-label="Link to this section">#</a></h2>
+<p>The one decision that matters, and getting it wrong is the classic UI bug.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Mode</th><th style="text-align:left">What it means</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ConstantPixels</code></td><td style="text-align:left">One UI unit is one screen pixel</td></tr>
+<tr><td style="text-align:left"><code>ScaleWithScreen</code></td><td style="text-align:left">One UI unit is a fraction of the reference resolution</td></tr>
+</tbody></table></div>
+<p><strong><code>ScaleWithScreen</code> is the default and is almost always right.</strong> A HUD laid out in constant pixels is <em>half the size</em> on a display with twice the pixels — it was authored on one monitor and shipped for all of them.</p>
+<p>With <code>ScaleWithScreen</code>, set <code>ReferenceResolution</code> to the resolution you are authoring at (1920×1080 by default) and everything scales from there. <code>MatchWidthOrHeight</code> decides what happens when the aspect ratio differs: 0 matches width, 1 matches height, 0.5 splits the difference.</p>
+<h2 id="anchors-and-offsets">Anchors and offsets<a class="anchor" href="#anchors-and-offsets" aria-label="Link to this section">#</a></h2>
+<p>The same model every UI toolkit uses, and worth stating plainly because the combination is what makes it powerful.</p>
+<ul>
+<li><strong>Anchors</strong> are fractions of the parent: <code>0,0</code> is its lower-left corner, <code>1,1</code> its upper-right.</li>
+<li><strong>Offsets</strong> are pixels in from those anchors.</li>
+</ul>
+<p>The two together give every layout behaviour people usually want a special mode for:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Goal</th><th style="text-align:left">Anchors</th><th style="text-align:left">Offsets</th></tr></thead><tbody>
+<tr><td style="text-align:left">Fixed-size, top-left</td><td style="text-align:left">min <code>0,1</code> max <code>0,1</code></td><td style="text-align:left">the size, as offsets</td></tr>
+<tr><td style="text-align:left">Fixed-size, centred</td><td style="text-align:left">min <code>0.5,0.5</code> max <code>0.5,0.5</code></td><td style="text-align:left">half the size either way</td></tr>
+<tr><td style="text-align:left">Stretch to fill, with a margin</td><td style="text-align:left">min <code>0,0</code> max <code>1,1</code></td><td style="text-align:left">the margin on each side</td></tr>
+<tr><td style="text-align:left">Full-width bar at the top</td><td style="text-align:left">min <code>0,1</code> max <code>1,1</code></td><td style="text-align:left">height in the offsets</td></tr>
+</tbody></table></div>
+<p><strong>When the anchors are equal, the offsets are a size. When they differ, the offsets are a margin.</strong> That single sentence is the whole mental model.</p>
+<h2 id="pointer-handling">Pointer handling<a class="anchor" href="#pointer-handling" aria-label="Link to this section">#</a></h2>
+<p><code>BlocksPointer</code> on a rect swallows clicks that land on it, so the scene behind does not also get them. A full-screen panel with it off lets the player shoot through the menu.</p>
+<p><code>Visible</code> hides an element <strong>and its children</strong>.</p>
+<p>Scripts can ask <code>IsPointerOverUI()</code> before acting on a click, which is the other half of the same problem.</p>
+<h2 id="buttons">Buttons<a class="anchor" href="#buttons" aria-label="Link to this section">#</a></h2>
+<p>A <code>UIButtonComponent</code> tints its rect through three states — normal, hover, pressed — and calls a method when clicked.</p>
+<p><strong>The binding is authored, not coded</strong>: the component names a target entity and a method on that entity&#39;s script, both picked from dropdowns in the Inspector. The method list comes from the script itself, so it cannot name something that does not exist.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Bindings are <strong>validated at load and at package time</strong>. A button pointing at a method that was renamed is an error you see when the scene opens, not a click that silently does nothing.</p>
+</aside>
+<p>Scripts can also poll <code>Clicked</code> on the component, which is true for the frame a release happened over the button.</p>
+<h2 id="text">Text<a class="anchor" href="#text" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left"><code>UITextComponent</code></th><th style="text-align:left"><code>WorldTextComponent</code></th></tr></thead><tbody>
+<tr><td style="text-align:left">Lives on</td><td style="text-align:left">a canvas</td><td style="text-align:left">the scene</td></tr>
+<tr><td style="text-align:left"><code>Size</code> is in</td><td style="text-align:left">pixels</td><td style="text-align:left"><strong>world metres</strong></td></tr>
+<tr><td style="text-align:left">Wraps at</td><td style="text-align:left">the rect&#39;s width</td><td style="text-align:left"><code>WrapWidth</code> metres, 0 for never</td></tr>
+<tr><td style="text-align:left">Faces</td><td style="text-align:left">the screen</td><td style="text-align:left">per <code>Billboard</code></td></tr>
+</tbody></table></div>
+<p><code>WorldTextComponent</code> is for labels over objects, signs and damage numbers. Its <code>Billboard</code> field decides how it turns:</p>
+<ul>
+<li><strong><code>None</code></strong> — lies in the entity&#39;s own plane. A sign, or a number painted on the floor.</li>
+<li><strong><code>Upright</code></strong> — turns to face the camera about Y only, so it stays vertical. The usual choice for a name tag.</li>
+<li><strong><code>Full</code></strong> — always squarely faces the camera.</li>
+</ul>
+<h2 id="fonts">Fonts<a class="anchor" href="#fonts" aria-label="Link to this section">#</a></h2>
+<p>A font is a <code>.rvfont</code> asset: a metrics table beside a distance-field atlas, baked from a <code>.ttf</code> by the <code>rvfont</code> tool. The <code>.ttf</code> itself is <strong>not</strong> an asset — nothing at runtime can read one.</p>
+<p>Leaving the font unset uses the built-in.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>A font atlas is a distance field, not a picture. It must never be block-compressed or mip-chained — that is what makes the text soft. The engine guards this at both ends, but it is worth knowing if you ever bake one by hand.</p>
+</aside>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="components.html#user-interface">Component reference</a> — every field on all six components</li>
+<li><a href="scripting/index.html">Scripting</a> — reading text, handling clicks, pointer queries</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="animation.html"><span class="pager-label">Previous</span><span class="pager-title">Animation</span></a><a class="pager-link pager-next" href="prefabs.html"><span class="pager-label">Next</span><span class="pager-title">Prefabs</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-shape-of-a-ui">The shape of a UI</a><a class="toc-link toc-l2" href="#canvas-scaling">Canvas scaling</a><a class="toc-link toc-l2" href="#anchors-and-offsets">Anchors and offsets</a><a class="toc-link toc-l2" href="#pointer-handling">Pointer handling</a><a class="toc-link toc-l2" href="#buttons">Buttons</a><a class="toc-link toc-l2" href="#text">Text</a><a class="toc-link toc-l2" href="#fonts">Fonts</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

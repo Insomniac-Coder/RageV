@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="editor.html">The editor</a></li><li><a class="nav-link" href="components.html">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="materials.html">Materials</a></li><li><a class="nav-link" href="lighting.html">Lighting</a></li><li><a class="nav-link" href="cameras.html">Cameras</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="physics.html">Physics</a></li><li><a class="nav-link is-current" href="audio.html" aria-current="page">Audio</a></li><li><a class="nav-link" href="animation.html">Animation</a></li><li><a class="nav-link" href="ui.html">User interface</a></li><li><a class="nav-link" href="prefabs.html">Prefabs</a></li><li><a class="nav-link" href="assets.html">Assets</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="audio">Audio<a class="anchor" href="#audio" aria-label="Link to this section">#</a></h1>
+<p>Positional sound on <strong>miniaudio</strong>, with four mixing buses, streaming for long clips, and one-shots you can fire from a script without an entity.</p>
+<p>Two components: an <code>AudioSourceComponent</code> makes sound, an <code>AudioListenerComponent</code> hears it. A scene with sources and no listener is silent.</p>
+<h2 id="the-source">The source<a class="anchor" href="#the-source" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left">Clip</td><td style="text-align:left">none</td><td style="text-align:left">Which sound</td></tr>
+<tr><td style="text-align:left">Bus</td><td style="text-align:left"><code>SFX</code></td><td style="text-align:left"><code>Master</code>, <code>Music</code>, <code>SFX</code> or <code>UI</code></td></tr>
+<tr><td style="text-align:left">Volume</td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Linear gain</td></tr>
+<tr><td style="text-align:left">Pitch</td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Playback rate — also shifts the pitch, like a tape</td></tr>
+<tr><td style="text-align:left">Loop</td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Restart at the end</td></tr>
+<tr><td style="text-align:left">Play on awake</td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Start when the scene starts playing</td></tr>
+<tr><td style="text-align:left">Spatial</td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Positioned in 3D</td></tr>
+<tr><td style="text-align:left">Min distance</td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Within this, full volume</td></tr>
+<tr><td style="text-align:left">Max distance</td><td style="text-align:left"><code>50.0</code></td><td style="text-align:left">Beyond this, silent</td></tr>
+<tr><td style="text-align:left">Stream</td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Decode as it plays rather than loading whole</td></tr>
+</tbody></table></div>
+<h3 id="spatial-and-when-to-turn-it-off">Spatial, and when to turn it off<a class="anchor" href="#spatial-and-when-to-turn-it-off" aria-label="Link to this section">#</a></h3>
+<p><strong>On</strong>, the sound comes from the entity&#39;s position: it pans as the listener turns, and it attenuates between <code>MinDistance</code> and <code>MaxDistance</code>.</p>
+<p><strong>Off</strong>, it plays flat at full volume regardless of where anything is. That is what music and most UI sounds want — a menu click that gets quieter when you turn your head is a bug.</p>
+<h3 id="streaming">Streaming<a class="anchor" href="#streaming" aria-label="Link to this section">#</a></h3>
+<p><code>Stream</code> decodes the file as it plays instead of loading it into memory first.</p>
+<ul>
+<li><strong>On</strong> for music and long ambience: a three-minute track is tens of megabytes decoded, and you do not want that resident or the hitch of decoding it.</li>
+<li><strong>Off</strong> for everything short. A footstep that has to hit disk on the first play is a footstep that arrives late.</li>
+</ul>
+<h2 id="the-listener">The listener<a class="anchor" href="#the-listener" aria-label="Link to this section">#</a></h2>
+<p><code>AudioListenerComponent</code> marks what hears the scene — usually the camera, or the player&#39;s head.</p>
+<p><code>ListenerRank</code> picks between several the same way <code>ViewRank</code> picks a camera: <strong>lowest wins</strong>, ties broken by entity id so the answer is the same every run.</p>
+<h2 id="buses">Buses<a class="anchor" href="#buses" aria-label="Link to this section">#</a></h2>
+<p>Four, and every source names one:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Bus</th><th style="text-align:left">For</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Master</code></td><td style="text-align:left">Everything — the others feed into it</td></tr>
+<tr><td style="text-align:left"><code>Music</code></td><td style="text-align:left">The soundtrack</td></tr>
+<tr><td style="text-align:left"><code>SFX</code></td><td style="text-align:left">The world</td></tr>
+<tr><td style="text-align:left"><code>UI</code></td><td style="text-align:left">Menus and feedback</td></tr>
+</tbody></table></div>
+<p>Bus volumes are settable from a script, which is what an options menu&#39;s three sliders are wired to.</p>
+<h2 id="one-shots-from-a-script">One-shots from a script<a class="anchor" href="#one-shots-from-a-script" aria-label="Link to this section">#</a></h2>
+<p>For a sound with no entity of its own — an impact, a pickup, a click — both languages have:</p>
+<ul>
+<li><strong><code>PlayOneShot(clip, volume, pitch)</code></strong> — flat, no position</li>
+<li><strong><code>PlayOneShotAt(clip, position, volume, pitch)</code></strong> — positioned in 3D</li>
+</ul>
+<p>A one-shot needs no <code>AudioSourceComponent</code> and cleans itself up when it finishes. Randomising the pitch slightly per call is the cheapest way to stop repetition from sounding mechanical:</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-call">PlayOneShotAt</span>(m_ImpactClip, collision.Point, <span class="tok-number">1.0f</span>,
+              <span class="tok-number">0.9f</span> + Math::<span class="tok-call">Fract</span>(Time::<span class="tok-call">Now</span>() * <span class="tok-number">7919.0f</span>) * <span class="tok-number">0.2f</span>);
+</code></pre></figure>
+<h2 id="no-audio-device">No audio device<a class="anchor" href="#no-audio-device" aria-label="Link to this section">#</a></h2>
+<p><strong>The engine runs perfectly with no sound card, no driver and no speakers.</strong> A null backend takes over, every call succeeds, and nothing is played.</p>
+<p>That is the design rather than a fallback: it means a build machine, a container or a headless check runs the same code path as a player&#39;s machine, and &quot;it crashed on the server&quot; is not a category of audio bug here.</p>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="components.html#audio">Component reference</a> — every field on both components</li>
+<li><a href="scripting/index.html">Scripting</a> — one-shots, bus volumes and playback control</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="physics.html"><span class="pager-label">Previous</span><span class="pager-title">Physics</span></a><a class="pager-link pager-next" href="animation.html"><span class="pager-label">Next</span><span class="pager-title">Animation</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-source">The source</a><a class="toc-link toc-l3" href="#spatial-and-when-to-turn-it-off">Spatial, and when to turn it off</a><a class="toc-link toc-l3" href="#streaming">Streaming</a><a class="toc-link toc-l2" href="#the-listener">The listener</a><a class="toc-link toc-l2" href="#buses">Buses</a><a class="toc-link toc-l2" href="#one-shots-from-a-script">One-shots from a script</a><a class="toc-link toc-l2" href="#no-audio-device">No audio device</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

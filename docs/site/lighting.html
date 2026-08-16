@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lighting — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="editor.html">The editor</a></li><li><a class="nav-link" href="components.html">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="materials.html">Materials</a></li><li><a class="nav-link is-current" href="lighting.html" aria-current="page">Lighting</a></li><li><a class="nav-link" href="cameras.html">Cameras</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="physics.html">Physics</a></li><li><a class="nav-link" href="audio.html">Audio</a></li><li><a class="nav-link" href="animation.html">Animation</a></li><li><a class="nav-link" href="ui.html">User interface</a></li><li><a class="nav-link" href="prefabs.html">Prefabs</a></li><li><a class="nav-link" href="assets.html">Assets</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="lighting">Lighting<a class="anchor" href="#lighting" aria-label="Link to this section">#</a></h1>
+<p>Three light types, image-based lighting from the sky, reflection probes for what is nearby, and cascaded shadows. All of it is forward-rendered and clustered, which is why there is <strong>no cap on how many lights a scene may have</strong>.</p>
+<h2 id="the-lightcomponent">The LightComponent<a class="anchor" href="#the-lightcomponent" aria-label="Link to this section">#</a></h2>
+<p>Add <strong>Light</strong> to an entity. Its transform is the light: position for point and spot, orientation for directional and spot.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left">Type</td><td style="text-align:left"><code>Directional</code></td><td style="text-align:left"><code>Directional</code>, <code>Point</code> or <code>Spot</code></td></tr>
+<tr><td style="text-align:left">Colour</td><td style="text-align:left">white</td><td style="text-align:left">The light&#39;s colour</td></tr>
+<tr><td style="text-align:left">Intensity</td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Brightness multiplier</td></tr>
+<tr><td style="text-align:left">Range</td><td style="text-align:left"><code>10.0</code></td><td style="text-align:left">Metres. Point and spot only — beyond it the light contributes nothing</td></tr>
+<tr><td style="text-align:left">Inner cone</td><td style="text-align:left"><code>20.0</code></td><td style="text-align:left">Degrees. Spot only: the fully-lit cone</td></tr>
+<tr><td style="text-align:left">Outer cone</td><td style="text-align:left"><code>30.0</code></td><td style="text-align:left">Degrees. Spot only: where it has fallen to nothing. The gap between the two is the soft edge</td></tr>
+<tr><td style="text-align:left">Cast shadows</td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Off makes the light much cheaper and lets it shine through walls</td></tr>
+</tbody></table></div>
+<h3 id="the-three-types">The three types<a class="anchor" href="#the-three-types" aria-label="Link to this section">#</a></h3>
+<p><strong>Directional</strong> has a direction and no position — the sun. Its <code>Range</code> is ignored and it lights everything in the scene. It is the light that casts the cascaded shadows described below.</p>
+<p><strong>Point</strong> radiates from a position in all directions. <code>Range</code> bounds it, and that bound is what lets the clustering skip it for most of the screen.</p>
+<p><strong>Spot</strong> is a point light with a cone. <code>InnerCone</code> is fully lit, <code>OuterCone</code> is the edge, and between them the falloff is smooth. Setting them equal gives a hard-edged circle.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Range is not a soft suggestion — it is where the light stops.</strong> The clustering uses it to decide which lights touch which part of the screen, so a range far larger than the light&#39;s visible reach costs performance for nothing, and one too small clips the falloff visibly.</p>
+</aside>
+<h2 id="why-there-is-no-light-cap">Why there is no light cap<a class="anchor" href="#why-there-is-no-light-cap" aria-label="Link to this section">#</a></h2>
+<p>Lights are written into a storage buffer and the view frustum is divided into a grid of clusters, each holding the indices of the lights that touch it. A pixel looks up its own cluster and shades against those lights alone.</p>
+<p>The practical consequence: <strong>a hundred small lights in different rooms cost about what a hundred small lights should</strong>, because no pixel ever considers more than the handful that reach it. What is expensive is a hundred lights that all overlap the same pixels.</p>
+<p>The <code>--benchmark</code> report prints the busiest cluster&#39;s light count, which is the number that actually matters.</p>
+<h2 id="ambient-light-and-the-sky">Ambient light and the sky<a class="anchor" href="#ambient-light-and-the-sky" aria-label="Link to this section">#</a></h2>
+<p>Scene-wide lighting lives in <strong>Render Settings → Environment</strong>, because it describes the <em>place</em> rather than the cost or the look.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Setting</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left">Ambient colour</td><td style="text-align:left">A flat term added everywhere, for when there is no sky</td></tr>
+<tr><td style="text-align:left">Ambient intensity</td><td style="text-align:left">How much of it</td></tr>
+<tr><td style="text-align:left">Sky</td><td style="text-align:left">A procedural gradient or an HDR cube map</td></tr>
+<tr><td style="text-align:left">Sky horizon / zenith / ground</td><td style="text-align:left">The three colours of the procedural gradient</td></tr>
+<tr><td style="text-align:left">Sky intensity</td><td style="text-align:left">Brightness of the sky as a light source</td></tr>
+<tr><td style="text-align:left">Sky rotation</td><td style="text-align:left">Turns the sky, which turns where its light comes from</td></tr>
+</tbody></table></div>
+<p><strong>The sky is a light, not a backdrop.</strong> With a sky set, the engine builds image-based lighting from it: an irradiance cube for diffuse, a prefiltered roughness chain for specular, and a BRDF lookup table. A metal object with no lights at all still looks like metal, because the sky is lighting it.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p>Changing the sky re-runs that convolution. It is not free, and it is why the sky colour pickers feel heavier than the ambient ones.</p>
+</aside>
+<h2 id="reflection-probes">Reflection probes<a class="anchor" href="#reflection-probes" aria-label="Link to this section">#</a></h2>
+<p>The sky lights everything, but it does not know your room is red. A <strong>ReflectionProbeComponent</strong> captures the actual surroundings from one point into a cube map, and nearby surfaces reflect that instead.</p>
+<p>The scene picks <strong>one probe per render</strong>: the nearest whose <code>Influence</code> sphere contains the camera, falling back to the sky when none does.</p>
+<p>The fields are in the <a href="components.html#reflectionprobecomponent">component reference</a>; the two that decide the cost are:</p>
+<ul>
+<li><strong><code>Update</code></strong> — <code>Baked</code> captures once and costs nothing afterwards. <code>Realtime</code> re-captures forever.</li>
+<li><strong><code>Rate</code></strong> — realtime only, and <strong>this is where the cost actually is</strong>. The demo&#39;s probe at 15 Hz is indistinguishable from per-frame and costs a quarter as much.</li>
+</ul>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>A reflection is seen through a rough or curved surface, so it can lag the scene by a few frames without anyone noticing. That is the whole argument for the rate dial, and it holds for everything except a true mirror.</p>
+</aside>
+<h2 id="shadows">Shadows<a class="anchor" href="#shadows" aria-label="Link to this section">#</a></h2>
+<p>The directional light casts <strong>cascaded shadow maps</strong>: the view is split into several depth ranges, each with its own map, so texels stay small near the camera without needing one enormous map.</p>
+<p>Spot and point lights cast their own — a single map for a spot, a cube for a point.</p>
+<p>The settings are on the project, in <a href="rendering.html#shadows">Rendering</a>. The two that matter most:</p>
+<ul>
+<li><strong><code>ShadowResolution</code></strong> — the single biggest lever on both quality and cost. Four 2048 maps is 64 MB of depth.</li>
+<li><strong><code>ShadowDistance</code></strong> — how far shadows are drawn at all, and <strong>not</strong> the camera&#39;s far plane. Past it the texels are so large the shadow is worse than none.</li>
+</ul>
+<h3 id="acne-and-peter-panning">Acne and peter-panning<a class="anchor" href="#acne-and-peter-panning" aria-label="Link to this section">#</a></h3>
+<p>The two shadow artefacts, and they pull against each other:</p>
+<ul>
+<li><strong>Acne</strong> is a surface shadowing itself in stripes, because the shadow map&#39;s resolution cannot resolve its own slope.</li>
+<li><strong>Peter-panning</strong> is a shadow detaching from its caster, so an object appears to float.</li>
+</ul>
+<p><code>ShadowNormalOffset</code> pushes the sample along the surface normal. Raising it removes acne and starts causing peter-panning. <strong>There is no value that has neither</strong> — which is why the shadow pass also renders back faces, so the depth it compares against is the far side of the object rather than the near one.</p>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="components.html">Component reference</a> — every field on the light and probe</li>
+<li><a href="rendering.html">Rendering</a> — the shadow settings and the frame&#39;s pass order</li>
+<li><a href="materials.html">Materials</a> — how a surface responds to all of this</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="materials.html"><span class="pager-label">Previous</span><span class="pager-title">Materials</span></a><a class="pager-link pager-next" href="cameras.html"><span class="pager-label">Next</span><span class="pager-title">Cameras</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-lightcomponent">The LightComponent</a><a class="toc-link toc-l3" href="#the-three-types">The three types</a><a class="toc-link toc-l2" href="#why-there-is-no-light-cap">Why there is no light cap</a><a class="toc-link toc-l2" href="#ambient-light-and-the-sky">Ambient light and the sky</a><a class="toc-link toc-l2" href="#reflection-probes">Reflection probes</a><a class="toc-link toc-l2" href="#shadows">Shadows</a><a class="toc-link toc-l3" href="#acne-and-peter-panning">Acne and peter-panning</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

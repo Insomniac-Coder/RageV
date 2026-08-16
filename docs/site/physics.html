@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Physics — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="editor.html">The editor</a></li><li><a class="nav-link" href="components.html">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="materials.html">Materials</a></li><li><a class="nav-link" href="lighting.html">Lighting</a></li><li><a class="nav-link" href="cameras.html">Cameras</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link is-current" href="physics.html" aria-current="page">Physics</a></li><li><a class="nav-link" href="audio.html">Audio</a></li><li><a class="nav-link" href="animation.html">Animation</a></li><li><a class="nav-link" href="ui.html">User interface</a></li><li><a class="nav-link" href="prefabs.html">Prefabs</a></li><li><a class="nav-link" href="assets.html">Assets</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="physics">Physics<a class="anchor" href="#physics" aria-label="Link to this section">#</a></h1>
+<p>Rigid-body simulation on <strong>Jolt</strong>, stepping at a fixed rate, with collision and trigger callbacks delivered to scripts in both languages.</p>
+<p>Physics needs <strong>two</strong> components: a <code>RigidBodyComponent</code> says how the body behaves, a <code>ColliderComponent</code> says what shape it is. One without the other does nothing.</p>
+<h2 id="body-types">Body types<a class="anchor" href="#body-types" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Type</th><th style="text-align:left">Moved by</th><th style="text-align:left">Costs</th><th style="text-align:left">Use for</th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Static</strong></td><td style="text-align:left">nothing</td><td style="text-align:left">least — static bodies live in their own broad-phase tree that is never rebuilt</td><td style="text-align:left">Level geometry, walls, the ground</td></tr>
+<tr><td style="text-align:left"><strong>Kinematic</strong></td><td style="text-align:left">your code</td><td style="text-align:left">middling</td><td style="text-align:left">Platforms, doors, anything animated that should push things</td></tr>
+<tr><td style="text-align:left"><strong>Dynamic</strong></td><td style="text-align:left">the solver</td><td style="text-align:left">most</td><td style="text-align:left">Anything that falls, rolls or is thrown</td></tr>
+</tbody></table></div>
+<p><strong>Kinematic is the one people reach for too late.</strong> A moving platform made dynamic fights the solver; made kinematic it goes exactly where you put it and pushes dynamic bodies out of the way rather than being pushed.</p>
+<h2 id="body-settings">Body settings<a class="anchor" href="#body-settings" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left">Mass</td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Kilograms. Dynamic only</td></tr>
+<tr><td style="text-align:left">Friction</td><td style="text-align:left"><code>0.4</code></td><td style="text-align:left">0 slides like ice, 1 grips</td></tr>
+<tr><td style="text-align:left">Restitution</td><td style="text-align:left"><code>0.1</code></td><td style="text-align:left">Bounciness. 0 absorbs the impact, 1 returns it</td></tr>
+<tr><td style="text-align:left">Linear damping</td><td style="text-align:left"><code>0.05</code></td><td style="text-align:left">Velocity bled off per second — air resistance</td></tr>
+<tr><td style="text-align:left">Angular damping</td><td style="text-align:left"><code>0.05</code></td><td style="text-align:left">Spin bled off per second</td></tr>
+<tr><td style="text-align:left">Gravity factor</td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Multiplier on gravity. 0 floats, negative falls upward</td></tr>
+<tr><td style="text-align:left">Freeze rotation</td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Locks all rotation. <strong>What a character controller wants</strong> — otherwise a capsule tips over</td></tr>
+</tbody></table></div>
+<h2 id="collider-shapes">Collider shapes<a class="anchor" href="#collider-shapes" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Shape</th><th style="text-align:left">Fields</th><th style="text-align:left">Notes</th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Box</strong></td><td style="text-align:left">Half extents</td><td style="text-align:left">Half the size on each axis, so <code>0.5, 0.5, 0.5</code> is a one-metre cube</td></tr>
+<tr><td style="text-align:left"><strong>Sphere</strong></td><td style="text-align:left">Radius</td><td style="text-align:left">The cheapest shape to test</td></tr>
+<tr><td style="text-align:left"><strong>Capsule</strong></td><td style="text-align:left">Radius, Height</td><td style="text-align:left"><code>Height</code> is the cylindrical part, not the total</td></tr>
+</tbody></table></div>
+<p><code>Offset</code> shifts the shape relative to the entity&#39;s transform — for a collider that should sit at a character&#39;s feet rather than their centre.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong>Half extents, not size.</strong> A box collider with half extents of <code>1, 1, 1</code> is two metres on a side. This catches everyone once.</p>
+</aside>
+<h2 id="triggers">Triggers<a class="anchor" href="#triggers" aria-label="Link to this section">#</a></h2>
+<p>Set <code>IsTrigger</code> and the collider reports overlaps without resisting them. Things pass through, and your script gets <code>OnTriggerEnter</code> / <code>OnTriggerStay</code> / <code>OnTriggerExit</code> instead of the <code>OnCollision*</code> trio.</p>
+<p>That is the whole difference. A trigger is a collider that answers the question &quot;is something inside me?&quot; and does nothing else.</p>
+<h2 id="callbacks">Callbacks<a class="anchor" href="#callbacks" aria-label="Link to this section">#</a></h2>
+<p>Delivered after the simulation step that produced them. <strong>The same event reaches both entities</strong>, each with <code>Other</code> set to the one it is not.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Callback</th><th style="text-align:left">When</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>OnCollisionEnter</code></td><td style="text-align:left">A solid pair began touching. Once per pair</td></tr>
+<tr><td style="text-align:left"><code>OnCollisionStay</code></td><td style="text-align:left">Every step the pair remains in contact</td></tr>
+<tr><td style="text-align:left"><code>OnCollisionExit</code></td><td style="text-align:left">The pair separated. Once per pair</td></tr>
+<tr><td style="text-align:left"><code>OnTriggerEnter</code></td><td style="text-align:left">A body entered a trigger</td></tr>
+<tr><td style="text-align:left"><code>OnTriggerStay</code></td><td style="text-align:left">Every step it remains inside. Only while it is awake</td></tr>
+<tr><td style="text-align:left"><code>OnTriggerExit</code></td><td style="text-align:left">It left</td></tr>
+</tbody></table></div>
+<p>The <code>Collision</code> struct is documented in the <a href="scripting/cpp-reference.html#the-collision-struct">C++ reference</a>; the field worth knowing about is <strong><code>ImpactSpeed</code></strong>, the closing speed along the normal, never negative — scale an impact sound or a damage number by it and it is right for free.</p>
+<aside class="callout callout-trap"><p class="callout-label">Trap</p><p><strong><code>OnCollisionExit</code> does not fire when a pair falls asleep still touching.</strong> Jolt puts settled bodies to sleep to avoid simulating them, and a sleeping pair has not separated — it has stopped being interesting. Code that counts enters and exits to track &quot;am I standing on something&quot; has to handle this; code that asks the question directly does not.</p>
+</aside>
+<h2 id="the-fixed-step">The fixed step<a class="anchor" href="#the-fixed-step" aria-label="Link to this section">#</a></h2>
+<p>Physics runs on the <strong>fixed timestep</strong>, not the frame. <code>OnTick</code> is that step; <code>OnFrame</code> is the rendered frame. Gameplay that touches physics belongs in <code>OnTick</code>, where the step size is constant and the same on every machine.</p>
+<p>Between steps, transforms are interpolated for rendering, so a body simulated at 60 Hz still looks smooth at 144 fps. See <a href="concepts.html#the-fixed-step">Core concepts</a>.</p>
+<h2 id="raycasts">Raycasts<a class="anchor" href="#raycasts" aria-label="Link to this section">#</a></h2>
+<p>Available from both languages, returning the entity hit, the position, the normal and the distance. See <a href="scripting/index.html">Scripting</a>.</p>
+<h2 id="seeing-what-the-solver-sees">Seeing what the solver sees<a class="anchor" href="#seeing-what-the-solver-sees" aria-label="Link to this section">#</a></h2>
+<p>The editor draws collider wireframes with <strong>F3</strong>, or View → Colliders. This is the fastest way to find the two most common problems: a collider that does not match the mesh it is on, and a collider nobody remembered to add.</p>
+<h2 id="play-mode-and-physics">Play mode and physics<a class="anchor" href="#play-mode-and-physics" aria-label="Link to this section">#</a></h2>
+<p>Bodies are created when play starts and destroyed when it stops, and the scene is restored to exactly what it was. A cube knocked over during play stands back up on Stop — that is snapshot semantics, and it is deliberate.</p>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="components.html#physics">Component reference</a> — every field on both components</li>
+<li><a href="scripting/index.html">Scripting</a> — the callbacks and raycasts</li>
+<li><a href="concepts.html#the-fixed-step">Core concepts</a> — why there are two rates</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="particles.html"><span class="pager-label">Previous</span><span class="pager-title">Particles</span></a><a class="pager-link pager-next" href="audio.html"><span class="pager-label">Next</span><span class="pager-title">Audio</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#body-types">Body types</a><a class="toc-link toc-l2" href="#body-settings">Body settings</a><a class="toc-link toc-l2" href="#collider-shapes">Collider shapes</a><a class="toc-link toc-l2" href="#triggers">Triggers</a><a class="toc-link toc-l2" href="#callbacks">Callbacks</a><a class="toc-link toc-l2" href="#the-fixed-step">The fixed step</a><a class="toc-link toc-l2" href="#raycasts">Raycasts</a><a class="toc-link toc-l2" href="#seeing-what-the-solver-sees">Seeing what the solver sees</a><a class="toc-link toc-l2" href="#play-mode-and-physics">Play mode and physics</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

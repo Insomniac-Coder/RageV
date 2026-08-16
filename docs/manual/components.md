@@ -185,7 +185,7 @@ contains the camera, and the sky otherwise.
 | Field | Default | What it does |
 |---|---|---|
 | `Clip` | invalid | Which sound |
-| `Bus` | `SFX` | `Master`, `Music` or `SFX`, each with its own volume |
+| `Bus` | `SFX` | `Master`, `Music`, `SFX` or `UI`, each with its own volume |
 | `Volume` | `1.0` | Linear gain |
 | `Pitch` | `1.0` | Playback rate; also shifts the pitch |
 | `Loop` | `false` | Restart at the end |
@@ -288,7 +288,7 @@ and saved in the scene.
 
 | Field | Default | What it does |
 |---|---|---|
-| `ScaleMode` | `ScaleWithScreen` | `ConstantPixelSize` keeps pixels fixed; `ScaleWithScreen` scales against a reference resolution |
+| `ScaleMode` | `ScaleWithScreen` | `ConstantPixels` keeps one UI unit at one screen pixel; `ScaleWithScreen` scales against a reference resolution |
 | `ReferenceResolution` | `1920, 1080` | The resolution the layout was authored at |
 | `MatchWidthOrHeight` | `0.5` | 0 matches width, 1 matches height, 0.5 splits the difference |
 | `SortOrder` | `0` | Which canvas draws on top |

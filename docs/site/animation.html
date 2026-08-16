@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animation — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link" href="editor.html">The editor</a></li><li><a class="nav-link" href="components.html">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="materials.html">Materials</a></li><li><a class="nav-link" href="lighting.html">Lighting</a></li><li><a class="nav-link" href="cameras.html">Cameras</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="physics.html">Physics</a></li><li><a class="nav-link" href="audio.html">Audio</a></li><li><a class="nav-link is-current" href="animation.html" aria-current="page">Animation</a></li><li><a class="nav-link" href="ui.html">User interface</a></li><li><a class="nav-link" href="prefabs.html">Prefabs</a></li><li><a class="nav-link" href="assets.html">Assets</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="animation">Animation<a class="anchor" href="#animation" aria-label="Link to this section">#</a></h1>
+<p>Skeletal animation, skinned on the GPU, with cross-fading between clips driven by the component rather than by code.</p>
+<p>Add an <strong>Animator</strong> to an entity whose mesh has a skeleton — which means a glTF model that was rigged. The built-in primitives have no skeleton and nothing to animate.</p>
+<h2 id="the-component">The component<a class="anchor" href="#the-component" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left">Clip</td><td style="text-align:left"><code>0</code></td><td style="text-align:left">Which clip to play, picked <strong>by name</strong> from a searchable dropdown</td></tr>
+<tr><td style="text-align:left">Playing</td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Advancing, or held on the current pose</td></tr>
+<tr><td style="text-align:left">Loop</td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Restart at the end, or hold the last frame</td></tr>
+<tr><td style="text-align:left">Speed</td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Playback multiplier. Negative plays backwards</td></tr>
+<tr><td style="text-align:left">Run in editor</td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Animate without entering Play</td></tr>
+<tr><td style="text-align:left">Blend time</td><td style="text-align:left"><code>0.15</code></td><td style="text-align:left">Seconds to cross-fade when the clip changes. 0 cuts</td></tr>
+</tbody></table></div>
+<h2 id="cross-fading">Cross-fading<a class="anchor" href="#cross-fading" aria-label="Link to this section">#</a></h2>
+<p><strong>Changing <code>Clip</code> starts a cross-fade, not a cut.</strong> The outgoing clip keeps advancing while the incoming one blends in over <code>BlendTime</code>, so a character going from walk to run does not snap.</p>
+<p>That is why the fade is a property of the component rather than something a script drives: set the clip and the blend happens. A script that wants a cut sets <code>BlendTime</code> to 0.</p>
+<p>The state behind it — which clip is fading out, how far in the fade is — is runtime state, listed in the <a href="components.html#animatorcomponent">component reference</a>. It is not saved, and setting it directly is not how the fade is meant to be driven.</p>
+<h2 id="run-in-editor">Run in editor<a class="anchor" href="#run-in-editor" aria-label="Link to this section">#</a></h2>
+<p><strong>Off by default, deliberately.</strong> With it off, the editor shows the saved pose — what you see is what is in the file. With it on, the animation plays in the viewport without entering Play mode, which is what you want while tuning a clip and not what you want while placing objects.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>It is per animator rather than a global editor toggle, so one character can be previewing while the rest of the scene holds still.</p>
+</aside>
+<h2 id="bounds">Bounds<a class="anchor" href="#bounds" aria-label="Link to this section">#</a></h2>
+<p>A skinned mesh&#39;s bounding volume is computed to cover <strong>the whole animation</strong>, not just the bind pose. A character that reaches out during a clip does not get culled when the reach takes them outside their resting bounds.</p>
+<p>This matters more than it sounds: bounds from the bind pose alone make characters vanish at the screen edge exactly when they are most visible, and the bug looks like a culling bug rather than an animation one.</p>
+<h2 id="skinning">Skinning<a class="anchor" href="#skinning" aria-label="Link to this section">#</a></h2>
+<p>Bone matrices are computed on the CPU and uploaded per frame; the vertex shader does the skinning. The matrices are runtime state on the component (<code>Skinning</code>), readable but not meant to be written.</p>
+<h2 id="what-is-not-here">What is not here<a class="anchor" href="#what-is-not-here" aria-label="Link to this section">#</a></h2>
+<p>Animation is deliberately a small feature at this stage:</p>
+<ul>
+<li><strong>No blend trees or state machines.</strong> One clip plays, another can cross-fade in. Anything more structured is script logic choosing clips.</li>
+<li><strong>No root motion.</strong> A clip animates the skeleton; moving the entity is the transform&#39;s job.</li>
+<li><strong>No IK.</strong></li>
+<li><strong>No animation events.</strong> A script polling the animator&#39;s time is the current answer.</li>
+</ul>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="components.html#animatorcomponent">Component reference</a> — every field</li>
+<li><a href="assets.html">Assets</a> — importing a rigged glTF</li>
+<li><a href="scripting/index.html">Scripting</a> — choosing clips from code</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="audio.html"><span class="pager-label">Previous</span><span class="pager-title">Audio</span></a><a class="pager-link pager-next" href="ui.html"><span class="pager-label">Next</span><span class="pager-title">User interface</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-component">The component</a><a class="toc-link toc-l2" href="#cross-fading">Cross-fading</a><a class="toc-link toc-l2" href="#run-in-editor">Run in editor</a><a class="toc-link toc-l2" href="#bounds">Bounds</a><a class="toc-link toc-l2" href="#skinning">Skinning</a><a class="toc-link toc-l2" href="#what-is-not-here">What is not here</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

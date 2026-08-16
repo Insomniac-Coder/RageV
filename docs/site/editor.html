@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The editor — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link is-current" href="editor.html" aria-current="page">The editor</a></li><li><a class="nav-link" href="components.html">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="materials.html">Materials</a></li><li><a class="nav-link" href="lighting.html">Lighting</a></li><li><a class="nav-link" href="cameras.html">Cameras</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="physics.html">Physics</a></li><li><a class="nav-link" href="audio.html">Audio</a></li><li><a class="nav-link" href="animation.html">Animation</a></li><li><a class="nav-link" href="ui.html">User interface</a></li><li><a class="nav-link" href="prefabs.html">Prefabs</a></li><li><a class="nav-link" href="assets.html">Assets</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="the-editor">The editor<a class="anchor" href="#the-editor" aria-label="Link to this section">#</a></h1>
+<p>The panels, what each is for, and every keyboard shortcut.</p>
+<h2 id="panels">Panels<a class="anchor" href="#panels" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Panel</th><th style="text-align:left">What it is for</th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Viewport</strong></td><td style="text-align:left">The editing view, through the editor camera. Gizmos, selection, the grid</td></tr>
+<tr><td style="text-align:left"><strong>Game</strong></td><td style="text-align:left">What the primary scene camera sees, with the full post chain. Shares a dock node with the Viewport, so they are usually tabs</td></tr>
+<tr><td style="text-align:left"><strong>Scene Hierarchy</strong></td><td style="text-align:left">Every entity, as a tree. Drag to re-parent</td></tr>
+<tr><td style="text-align:left"><strong>Properties</strong></td><td style="text-align:left">The Inspector: components of whatever is selected, and their fields</td></tr>
+<tr><td style="text-align:left"><strong>Content</strong></td><td style="text-align:left">The project&#39;s assets, as a browsable folder tree with a size slider</td></tr>
+<tr><td style="text-align:left"><strong>Render Settings</strong></td><td style="text-align:left">The project&#39;s render settings, and the scene&#39;s environment</td></tr>
+<tr><td style="text-align:left"><strong>Statistics</strong></td><td style="text-align:left">Frame time, draw calls, triangles, culled counts</td></tr>
+<tr><td style="text-align:left"><strong>Build Log</strong></td><td style="text-align:left">Output from building the game module or the C# assembly</td></tr>
+</tbody></table></div>
+<p>Panels dock, tab and float — the layout is ImGui&#39;s, and it is saved to <code>panels.ini</code> on exit.</p>
+<p><strong>Window → Theme</strong> switches between dark and light. Both are checked against WCAG 2.2 AA contrast by a script, so neither is a guess.</p>
+<h2 id="shortcuts">Shortcuts<a class="anchor" href="#shortcuts" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Key</th><th style="text-align:left">Does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Ctrl+N</strong></td><td style="text-align:left">New scene</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+O</strong></td><td style="text-align:left">Open scene</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+S</strong></td><td style="text-align:left">Save scene</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+Shift+S</strong></td><td style="text-align:left">Save scene as</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+Shift+N</strong></td><td style="text-align:left">Create an empty entity</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+Z</strong></td><td style="text-align:left">Undo</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+Y</strong> / <strong>Ctrl+Shift+Z</strong></td><td style="text-align:left">Redo</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+P</strong></td><td style="text-align:left">Play, or stop if playing</td></tr>
+<tr><td style="text-align:left"><strong>W</strong></td><td style="text-align:left">Translate gizmo</td></tr>
+<tr><td style="text-align:left"><strong>E</strong></td><td style="text-align:left">Rotate gizmo</td></tr>
+<tr><td style="text-align:left"><strong>R</strong></td><td style="text-align:left">Scale gizmo</td></tr>
+<tr><td style="text-align:left"><strong>F</strong></td><td style="text-align:left">Frame the selection</td></tr>
+<tr><td style="text-align:left"><strong>F2</strong></td><td style="text-align:left">Toggle the grid</td></tr>
+<tr><td style="text-align:left"><strong>F3</strong></td><td style="text-align:left">Toggle collider wireframes</td></tr>
+<tr><td style="text-align:left"><strong>Delete</strong></td><td style="text-align:left">Delete the selection</td></tr>
+</tbody></table></div>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>The gizmo and view shortcuts are ignored while a text field has the caret, so typing a name does not switch tools.</p>
+</aside>
+<h2 id="the-viewport">The viewport<a class="anchor" href="#the-viewport" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Input</th><th style="text-align:left">Does</th></tr></thead><tbody>
+<tr><td style="text-align:left">Left-click</td><td style="text-align:left">Select. Clicking empty space deselects</td></tr>
+<tr><td style="text-align:left">Right-drag</td><td style="text-align:left">Look around</td></tr>
+<tr><td style="text-align:left">WASD while right-dragging</td><td style="text-align:left">Fly</td></tr>
+<tr><td style="text-align:left">Middle-drag</td><td style="text-align:left">Pan</td></tr>
+<tr><td style="text-align:left">Wheel</td><td style="text-align:left">Zoom</td></tr>
+</tbody></table></div>
+<p>The wheel is <strong>positional</strong> — it belongs to whatever the pointer is over, not to whatever has focus. Scrolling the Inspector after clicking an object does not zoom the scene behind it.</p>
+<p>Light and camera entities draw billboard icons so they can be found and clicked without being visible geometry.</p>
+<h2 id="play-mode">Play mode<a class="anchor" href="#play-mode" aria-label="Link to this section">#</a></h2>
+<p><strong>Play</strong> steps the scene: physics runs, scripts run, animations advance. <strong>Stop</strong> restores the scene exactly as it was.</p>
+<p>That restore is a <strong>snapshot</strong>, and it is complete: a cube knocked over during play stands back up. Two consequences worth knowing:</p>
+<ul>
+<li><strong>A script attached while playing is discarded on Stop.</strong> Correct snapshot semantics, surprising the first time.</li>
+<li>Anything you want to keep, change while stopped.</li>
+</ul>
+<p><strong>Pause</strong> holds the scene without restoring it, which is how you inspect a state that took a while to reach.</p>
+<h2 id="saving">Saving<a class="anchor" href="#saving" aria-label="Link to this section">#</a></h2>
+<p>Two schedules, and the split is deliberate:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">What</th><th style="text-align:left">When it saves</th></tr></thead><tbody>
+<tr><td style="text-align:left">The scene — entities, components, environment</td><td style="text-align:left"><strong>Ctrl+S</strong>, and you are asked before anything discards it</td></tr>
+<tr><td style="text-align:left">Render settings</td><td style="text-align:left">The moment they change</td></tr>
+<tr><td style="text-align:left">Post profiles, materials, curves, LUTs</td><td style="text-align:left">On edit</td></tr>
+<tr><td style="text-align:left">Panel layout, theme, window size, backend, vsync</td><td style="text-align:left">On exit</td></tr>
+</tbody></table></div>
+<p>The scene is the only one that waits, because a scene is work in progress and autosaving one takes away the freedom to try something. Everything else saves itself.</p>
+<p>The dot beside the scene name in the menu bar is lit whenever the scene has changes that are not on disk.</p>
+<h2 id="scripts-from-the-editor">Scripts from the editor<a class="anchor" href="#scripts-from-the-editor" aria-label="Link to this section">#</a></h2>
+<p><strong>Build Scripts</strong> unloads the game module, rebuilds it in the background with a live console, and reloads whatever links. One rule for both languages.</p>
+<p><strong>Building mid-play restarts the scene</strong> — live instances run the loaded code, so the editor stops, swaps both languages&#39; scripts, and resumes Play on the new code. After a failed build it stays stopped with the errors showing.</p>
+<p><strong>New Script</strong> writes a starter file into the project&#39;s <code>Source/</code> or <code>Scripts/</code>, already registered.</p>
+<h2 id="choosing-a-backend">Choosing a backend<a class="anchor" href="#choosing-a-backend" aria-label="Link to this section">#</a></h2>
+<p><strong>Vulkan or OpenGL</strong>, picked in the editor with a restart prompt, or with <code>--rhi=vulkan|opengl</code>. Both are fully supported and produce the same image — that equivalence is checked, and it is how several rendering bugs were caught.</p>
+<h2 id="command-line">Command line<a class="anchor" href="#command-line" aria-label="Link to this section">#</a></h2>
+<p>The flags worth knowing; the full list is in <a href="getting-started.html#command-line-flags">Getting started</a>.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Flag</th><th style="text-align:left">For</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>--rhi=vulkan\|opengl</code></td><td style="text-align:left">Which backend</td></tr>
+<tr><td style="text-align:left"><code>--validation=on</code></td><td style="text-align:left">GPU validation layers. <strong>Off by default</strong>, so a run without this reports no errors whether or not there were any</td></tr>
+<tr><td style="text-align:left"><code>--screenshot=&lt;file&gt;</code></td><td style="text-align:left">Render and write a frame</td></tr>
+<tr><td style="text-align:left"><code>--screenshot-frame=N</code></td><td style="text-align:left">Which frame to capture</td></tr>
+<tr><td style="text-align:left"><code>--frame-time=N</code></td><td style="text-align:left">Pin the timestep, so a capture is reproducible</td></tr>
+<tr><td style="text-align:left"><code>--camera=x,y,z,dist,yaw,pitch</code></td><td style="text-align:left">Place the editor camera</td></tr>
+<tr><td style="text-align:left"><code>--aa=&lt;mode&gt;</code></td><td style="text-align:left">Override anti-aliasing</td></tr>
+<tr><td style="text-align:left"><code>--scene=&lt;path&gt;</code></td><td style="text-align:left">Open a scene without changing the project&#39;s start scene</td></tr>
+<tr><td style="text-align:left"><code>--benchmark=N</code></td><td style="text-align:left">Measure N frames and print a breakdown</td></tr>
+</tbody></table></div>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="getting-started.html">Getting started</a> — building, running, and every flag</li>
+<li><a href="concepts.html">Core concepts</a> — what a project, scene and asset are</li>
+<li><a href="cameras.html">Cameras</a> — the editor camera against the scene cameras</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="concepts.html"><span class="pager-label">Previous</span><span class="pager-title">Core concepts</span></a><a class="pager-link pager-next" href="components.html"><span class="pager-label">Next</span><span class="pager-title">Component reference</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#panels">Panels</a><a class="toc-link toc-l2" href="#shortcuts">Shortcuts</a><a class="toc-link toc-l2" href="#the-viewport">The viewport</a><a class="toc-link toc-l2" href="#play-mode">Play mode</a><a class="toc-link toc-l2" href="#saving">Saving</a><a class="toc-link toc-l2" href="#scripts-from-the-editor">Scripts from the editor</a><a class="toc-link toc-l2" href="#choosing-a-backend">Choosing a backend</a><a class="toc-link toc-l2" href="#command-line">Command line</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>
