@@ -43,6 +43,7 @@ namespace RageV
 		Ref<RHITexture> s_Black;
 		Ref<RHITexture> s_TransparentBlack;
 		Ref<RHITexture> s_FlatNormal;
+		Ref<RHITexture> s_Magenta;
 		Ref<RHITexture> s_BlackCube;
 		Ref<RHITexture> s_BlackCubeArray;
 
@@ -456,6 +457,14 @@ namespace RageV
 		return s_FlatNormal;
 	}
 
+	Ref<RHITexture> TextureLoader::Magenta(RHIDevice& device)
+	{
+		// ABGR in memory: R=255, G=0, B=255, A=255.
+		if (!s_Magenta)
+			s_Magenta = MakeSolid(device, 0xffff00ff, "default.magenta");
+		return s_Magenta;
+	}
+
 	void TextureLoader::ClearCache()
 	{
 		// Must run before the device is destroyed; these hold GPU images.
@@ -466,6 +475,7 @@ namespace RageV
 		s_Black.reset();
 		s_TransparentBlack.reset();
 		s_FlatNormal.reset();
+		s_Magenta.reset();
 		s_BlackCube.reset();
 		s_BlackCubeArray.reset();
 	}

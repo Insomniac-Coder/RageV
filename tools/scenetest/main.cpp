@@ -83,6 +83,7 @@
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/GltfImporter.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
+#include "RageV/Renderer/TextureHeap.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Managed/DotNetHost.h"
@@ -1812,6 +1813,267 @@ namespace
 				  "and keeps its multisampled depth: nothing reads it, so nothing "
 				  "resolves it");
 		}
+	}
+
+	// The bindless texture heap (ENGINE-NOTES 7al), in three parts.
+	//
+	// The slot bookkeeping is common code and runs on both backends wherever
+	// the device has a heap; the GPU half -- a compute shader that indexes the
+	// heap and writes back what it sampled -- is the part that says the
+	// descriptors are really there. Both are skipped with a stated reason on a
+	// device without descriptor indexing, which OpenGL always is. The third
+	// part is a drift check that runs everywhere: the PBR shader compiled with
+	// RV_BINDLESS declares the heap at exactly the set the renderer binds it
+	// to, and the record buffer at exactly the binding Renderer3D writes.
+	//
+	// The end-to-end proof is not here. It is tools/scripts/check_bindless.py:
+	// the demo rendered with --bindless=on and =off on Vulkan must be
+	// pixel-identical, and on its first run it was not -- the bound path had
+	// been merging two materials that share maps and differ in tiling.
+	void CheckBindlessHeap()
+	{
+		RHI::RHIDevice& device = Renderer::GetDevice();
+		const RHI::DeviceCaps& caps = device.GetCaps();
+
+		// --- the convention the shader and the renderer share -----------------
+		{
+			auto bindless = RHI::ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader",
+																  { "RV_BINDLESS" });
+			Check(bindless.has_value(), "the PBR shader compiles with RV_BINDLESS");
+			if (bindless)
+			{
+				const RHI::ResourceSetLayoutDesc* heapSet = bindless->Reflection.FindSet(TextureHeap::kSet);
+				Check(heapSet != nullptr, "and declares a set at TextureHeap::kSet");
+				if (heapSet)
+				{
+					Check(heapSet->Bindings.size() == 1 && heapSet->Bindings[0].Binding == 0 &&
+						  heapSet->Bindings[0].Count == 0 &&
+						  heapSet->Bindings[0].Type == RHI::ResourceType::CombinedImageSampler,
+						  "which is one runtime-sized sampler array at binding 0, and nothing else");
+				}
+
+				const RHI::ResourceSetLayoutDesc* scene = bindless->Reflection.FindSet(0);
+				bool records = false;
+				if (scene)
+				{
+					for (const auto& binding : scene->Bindings)
+						records |= binding.Binding == 13 && binding.Type == RHI::ResourceType::StorageBuffer;
+				}
+				Check(records, "and the material records at set 0, binding 13, where Renderer3D writes them");
+				Check(bindless->Reflection.FindSet(1) == nullptr,
+					  "and no material set at 1: the bindless variant binds nothing per material");
+			}
+
+			auto bound = RHI::ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader");
+			Check(bound.has_value(), "the same source compiles without the define");
+			if (bound)
+			{
+				Check(bound->Reflection.FindSet(TextureHeap::kSet) == nullptr,
+					  "and the bound variant declares no heap");
+				const RHI::ResourceSetLayoutDesc* material = bound->Reflection.FindSet(1);
+				Check(material && material->Bindings.size() == 10,
+					  "and keeps its ten-binding material set");
+			}
+		}
+
+		if (!caps.SupportsDescriptorIndexing)
+		{
+			Check(TextureHeap::Create(device, 64) == nullptr,
+				  "no descriptor indexing on this device, and the heap says so by not existing");
+			Check(caps.MaxBindlessTextures == 0, "and the caps report zero slots");
+			Check(true, "the heap checks are skipped: this device takes the bound path");
+			return;
+		}
+
+		Check(caps.MaxBindlessTextures >= 256, "the heap holds at least the floor");
+
+		// --- slots, on the CPU ---------------------------------------------------
+		{
+			constexpr uint32_t kCapacity = 4;   // one error slot and three real ones
+			std::unique_ptr<TextureHeap> heap = TextureHeap::Create(device, kCapacity);
+			Check(heap != nullptr, "a four-slot heap is created");
+			if (!heap)
+				return;
+
+			Check(heap->GetFreeCount() == kCapacity - 1, "with three slots free: slot 0 is the error texture");
+
+			RHI::SamplerDesc samplerDesc;
+			RHI::Ref<RHI::RHISampler> samplerA = device.CreateSampler(samplerDesc);
+			samplerDesc.MinFilter = RHI::FilterMode::Nearest;
+			RHI::Ref<RHI::RHISampler> samplerB = device.CreateSampler(samplerDesc);
+
+			auto solid = [&](uint32_t rgba, const char* name)
+			{
+				RHI::TextureDesc desc;
+				desc.Width = 1;
+				desc.Height = 1;
+				desc.Format = RHI::Format::R8G8B8A8_UNORM;
+				desc.Usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferDst;
+				desc.DebugName = name;
+				RHI::Ref<RHI::RHITexture> texture = device.CreateTexture(desc);
+				texture->Upload(&rgba, sizeof(rgba));
+				return texture;
+			};
+
+			RHI::Ref<RHI::RHITexture> red = solid(0xff0000ffu, "scenetest.heap.red");
+			RHI::Ref<RHI::RHITexture> green = solid(0xff00ff00u, "scenetest.heap.green");
+
+			const uint32_t redSlot = heap->Slot(red, samplerA);
+			Check(redSlot != TextureHeap::kErrorSlot, "a texture gets a slot that is not the error slot");
+			Check(heap->Slot(red, samplerA) == redSlot, "asking again for the same pair gives the same slot");
+			const uint32_t redB = heap->Slot(red, samplerB);
+			Check(redB != redSlot && redB != TextureHeap::kErrorSlot,
+				  "the same texture under another sampler is another slot: an entry is a pair");
+			const uint32_t greenSlot = heap->Slot(green, samplerA);
+			Check(greenSlot != redSlot && greenSlot != redB, "a second texture is a third slot");
+			Check(heap->GetFreeCount() == 0 && heap->GetLiveCount() == 3, "and the heap is now full");
+
+			RHI::Ref<RHI::RHITexture> blue = solid(0xffff0000u, "scenetest.heap.blue");
+			Check(heap->Slot(blue, samplerA) == TextureHeap::kErrorSlot,
+				  "past capacity a texture reads as the error slot (the error line above is that)");
+
+			// Release, and the slot must not come back until every frame that
+			// could have named it is done -- then it must.
+			const uint32_t frames = device.GetFramesInFlight();
+			green.reset();
+			heap->BeginFrame(0);   // the sweep retires green's slot into frame 0's list
+			Check(heap->GetLiveCount() == 2, "a texture nobody holds is swept out");
+			Check(heap->GetFreeCount() == 0, "but its slot is not free yet: a frame in flight may still name it");
+			Check(heap->Slot(blue, samplerA) == TextureHeap::kErrorSlot,
+				  "so a new texture still gets the error slot");
+			for (uint32_t frame = 1; frame < frames; frame++)
+				heap->BeginFrame(frame);
+			Check(heap->GetFreeCount() == 0, "and still not, until frame 0 comes round again");
+			heap->BeginFrame(0);
+			Check(heap->GetFreeCount() == 1, "when frame 0 comes round the slot is recycled");
+			Check(heap->Slot(blue, samplerA) == greenSlot,
+				  "and the next texture gets exactly the slot that was freed");
+			heap->Commit();
+		}
+
+		// --- the descriptors, on the GPU -----------------------------------------
+		if (!caps.SupportsCompute)
+		{
+			Check(true, "no compute on this device; the heap's GPU half is skipped");
+			return;
+		}
+
+		RHI::ShaderDesc desc;
+		desc.Name = "scenetest.heapread";
+		desc.Stages.push_back({ RHI::ShaderStage::Compute, R"(
+#version 450 core
+#extension GL_EXT_nonuniform_qualifier : require
+layout(local_size_x = 8) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer Slots { uint Index[]; } u_Slots;
+layout(std430, set = 0, binding = 1) writeonly buffer Colours { vec4 Colour[]; } u_Colours;
+layout(set = 2, binding = 0) uniform sampler2D u_Textures[];
+
+layout(push_constant) uniform Params { uint Count; } u_Params;
+
+void main()
+{
+	uint i = gl_GlobalInvocationID.x;
+	if (i >= u_Params.Count)
+		return;
+	u_Colours.Colour[i] = textureLod(u_Textures[nonuniformEXT(u_Slots.Index[i])], vec2(0.5), 0.0);
+}
+)" });
+
+		auto compiled = RHI::ShaderCompiler::Compile(desc);
+		Check(compiled.has_value(), "a compute shader that indexes the heap compiles");
+		if (!compiled)
+			return;
+
+		RHI::Ref<RHI::RHIShader> shader = device.CreateShader(*compiled);
+		RHI::ComputePipelineDesc pipelineDesc;
+		pipelineDesc.Name = "scenetest.heapread";
+		pipelineDesc.Shader = shader;
+		RHI::Ref<RHI::RHIComputePipeline> pipeline = device.CreateComputePipeline(pipelineDesc);
+		Check(pipeline != nullptr, "and builds a pipeline whose set 2 borrows the device's heap layout");
+		if (!pipeline)
+			return;
+
+		std::unique_ptr<TextureHeap> heap = TextureHeap::Create(device, 16);
+		Check(heap != nullptr, "a sixteen-slot heap is created for the dispatch");
+		if (!heap)
+			return;
+
+		auto solid = [&](uint32_t rgba, const char* name)
+		{
+			RHI::TextureDesc textureDesc;
+			textureDesc.Width = 1;
+			textureDesc.Height = 1;
+			textureDesc.Format = RHI::Format::R8G8B8A8_UNORM;
+			textureDesc.Usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferDst;
+			textureDesc.DebugName = name;
+			RHI::Ref<RHI::RHITexture> texture = device.CreateTexture(textureDesc);
+			texture->Upload(&rgba, sizeof(rgba));
+			return texture;
+		};
+		RHI::Ref<RHI::RHISampler> sampler = device.CreateSampler(RHI::SamplerDesc{});
+		RHI::Ref<RHI::RHITexture> red = solid(0xff0000ffu, "scenetest.heap.red");
+		RHI::Ref<RHI::RHITexture> green = solid(0xff00ff00u, "scenetest.heap.green");
+		RHI::Ref<RHI::RHITexture> blue = solid(0xffff0000u, "scenetest.heap.blue");
+
+		// Out of order on purpose, and slot 0 among them: the shader has to
+		// fetch by the index it is given, not by the order things were added.
+		const uint32_t slots[] = {
+			heap->Slot(green, sampler),
+			TextureHeap::kErrorSlot,
+			heap->Slot(blue, sampler),
+			heap->Slot(red, sampler),
+			heap->Slot(green, sampler),
+		};
+		constexpr uint32_t kCount = (uint32_t)std::size(slots);
+		heap->Commit();
+
+		RHI::BufferDesc slotsDesc;
+		slotsDesc.Size = sizeof(slots);
+		slotsDesc.Usage = RHI::BufferUsage::Storage;
+		slotsDesc.Memory = RHI::MemoryDomain::HostVisible;
+		slotsDesc.DebugName = "scenetest.heap.slots";
+		RHI::Ref<RHI::RHIBuffer> slotsBuffer = device.CreateBuffer(slotsDesc);
+		slotsBuffer->Upload(slots, sizeof(slots));
+
+		RHI::BufferDesc coloursDesc;
+		coloursDesc.Size = kCount * sizeof(Vec4);
+		coloursDesc.Usage = RHI::BufferUsage::Storage;
+		coloursDesc.Memory = RHI::MemoryDomain::HostVisible;
+		coloursDesc.DebugName = "scenetest.heap.colours";
+		RHI::Ref<RHI::RHIBuffer> coloursBuffer = device.CreateBuffer(coloursDesc);
+
+		RHI::Ref<RHI::RHIResourceSet> set = device.CreateResourceSet(pipeline, 0);
+		set->SetStorageBuffer(0, slotsBuffer, 0, slotsDesc.Size);
+		set->SetStorageBuffer(1, coloursBuffer, 0, coloursDesc.Size);
+		set->Commit();
+
+		device.ExecuteImmediate([&](RHI::RHICommandList& cmd)
+		{
+			cmd.BindComputePipeline(pipeline);
+			cmd.BindResourceSet(0, set);
+			cmd.BindResourceSet(TextureHeap::kSet, heap->GetSet());
+			const uint32_t count = kCount;
+			cmd.PushConstants(RHI::ShaderStage::Compute, 0, sizeof(count), &count);
+			cmd.Dispatch(1);
+			cmd.BufferBarrier(coloursBuffer, RHI::BufferSync::ComputeWrite,
+							  RHI::BufferSync::ShaderRead);
+		});
+
+		const auto* colours = static_cast<const Vec4*>(coloursBuffer->GetMappedPointer());
+		Check(colours != nullptr, "the sampled colours read back");
+		if (!colours)
+			return;
+
+		auto sampled = [](const Vec4& a, float r, float g, float b)
+		{
+			return Math::Abs(a.x - r) < 0.02f && Math::Abs(a.y - g) < 0.02f && Math::Abs(a.z - b) < 0.02f;
+		};
+		Check(sampled(colours[0], 0.0f, 1.0f, 0.0f), "slot for green sampled green");
+		Check(sampled(colours[1], 1.0f, 0.0f, 1.0f), "slot 0 sampled the magenta error texture");
+		Check(sampled(colours[2], 0.0f, 0.0f, 1.0f), "slot for blue sampled blue");
+		Check(sampled(colours[3], 1.0f, 0.0f, 0.0f), "slot for red sampled red");
+		Check(sampled(colours[4], 0.0f, 1.0f, 0.0f), "and the same slot twice is the same texture");
 	}
 
 	// The particle sort, against a buffer whose right answer is arithmetic.
@@ -10977,6 +11239,7 @@ int RunTests(int argc, char** argv)
 	CheckShortcutOwnership();
 	CheckMathFunctions();
 	CheckMultisampledDepth();
+	CheckBindlessHeap();
 	CheckGameModule();
 	CheckProject();
 	CheckPackaging();

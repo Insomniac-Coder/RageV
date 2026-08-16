@@ -120,7 +120,8 @@ Every flag below can also go in a `ragev.ini` file next to the executable, as
 |---|---|
 | `--rhi=vulkan\|opengl` | Graphics backend. Restart-time by design. |
 | `--vsync=on\|off` | Present synchronised to the display. |
-| `--validation=on\|off` | Vulkan validation layers. **Off by default, everywhere** — see below. |
+| `--validation=on\|off\|gpu` | Vulkan validation layers. **Off by default, everywhere** — see below. `gpu` adds GPU-assisted validation. |
+| `--bindless=on\|off` | Read material textures through the bindless heap on a device that has one. Default on; no effect on OpenGL — see below. |
 | `--fixed-hz=N` | Simulation rate, 20–240. Default 60. |
 | `--width=N` `--height=N` | Window size. |
 | `--audio=on\|off` | Whether to open an output device at all. |
@@ -161,6 +162,31 @@ per frame** — enough to more than double an editor frame — and only Vulkan
 pays it, so leaving them on makes Vulkan look slower than OpenGL when it is
 measurably faster. `--benchmark` prints the validation state in its banner so
 a skewed measurement identifies itself.
+
+`--validation=gpu` goes further: the layers instrument every shader to check
+what it actually reads, which is the only way to catch an out-of-range index
+into a bindless texture array — ordinary validation cannot know which element
+a shader will touch, so it says nothing. It is slow, it turns synchronization
+validation off for the run, and the layer prints three "adjusting settings"
+advisories at startup that are its own and not yours.
+
+### Bindless materials
+
+On Vulkan, the lit pass reads material textures through one large array — the
+*bindless heap* — indexed per instance, rather than binding a descriptor set
+per material. It changes nothing about how a material is authored; what it
+changes is that objects sharing a mesh no longer split into separate draws
+when their materials differ. OpenGL 4.5 has no equivalent, so on that backend
+the engine binds per material as it always did, and says so in the log at
+startup (`Renderer3D: material textures ...`).
+
+`--bindless=off` forces the bound path on Vulkan too. It exists for one
+reason: rendering the same scene both ways and comparing the pixels is the
+check that the whole feature is right — the two must be identical, and
+`tools/scripts/check_bindless.py` insists that they are. A wrong texture index
+on the bindless path never crashes; it draws **magenta**, which is the colour
+of every unwritten slot in the heap, so a magenta object is a wrong index and
+not a look.
 
 ## Where things live
 

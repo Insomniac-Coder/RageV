@@ -131,6 +131,17 @@ namespace RageV
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetTriangleCount();
 
+		// Whether the lit pass reads material textures through the bindless
+		// heap this session (ENGINE-NOTES 7al): the device can, and
+		// --bindless did not say no. Reported rather than assumed, because a
+		// device that lacks the feature takes the bound path silently and a
+		// pixel comparison between the two needs to know which it got.
+		static bool IsBindless();
+		// How many heap slots are live and how many remain, for the stats
+		// panel; both zero on the bound path.
+		static unsigned int GetHeapLiveCount();
+		static unsigned int GetHeapFreeCount();
+
 	private:
 		static void EnsurePipeline();
 	};

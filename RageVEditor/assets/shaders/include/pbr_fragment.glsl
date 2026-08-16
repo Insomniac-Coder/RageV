@@ -148,6 +148,64 @@ layout(set = 0, binding = 4) uniform samplerCubeShadow u_PointShadows[4];
 // agree, or every comparison is against a depth from a different projection.
 const float POINT_SHADOW_NEAR = 0.05;
 
+// The material: two front doors, one shading (ENGINE-NOTES 7al).
+//
+// Everything below this block -- every texture(u_BaseColorMap, uv), every
+// u_Material.MapFlags -- compiles unchanged in both variants. That is the
+// point of forking at the preprocessor: the six hundred lines that could
+// drift do not exist twice.
+#ifdef RV_BINDLESS
+
+// The bindless heap: every texture the scene has registered, in one array
+// the shader indexes at runtime. Set 2 by convention, in every shader that
+// reads it (TextureHeap::kSet); set 1 is empty in this variant.
+#extension GL_EXT_nonuniform_qualifier : require
+layout(set = 2, binding = 0) uniform sampler2D u_Textures[];
+
+// What the material set used to say, minus the scalars -- those were already
+// per instance. One record per distinct material this frame, indexed by the
+// instance. Mirrored by hand in Material.h (GpuMaterial), std430.
+struct GpuMaterial
+{
+	// Heap slots: base colour, normal, occlusion, emissive.
+	uvec4 Maps0;
+	// Roughness, metallic, specular, height.
+	uvec4 Maps1;
+	// xy scale, zw offset. See MaterialParams::UvTransform.
+	vec4  UvTransform;
+	int   MapFlags;
+	float Specular;
+	float HeightScale;
+	int   _pad0;
+};
+
+layout(std430, set = 0, binding = 13) readonly buffer MaterialBlock
+{
+	GpuMaterial Materials[];
+} u_Materials;
+
+// Fetched once at the top of main from the instance's record index, then
+// read everywhere the bound variant reads its uniform block. A global so
+// the helpers below main can see it, and a #define so they need not know
+// which variant they are in.
+GpuMaterial g_Material;
+#define u_Material g_Material
+
+// nonuniformEXT on the *descriptor* index, and only there. Once runs merge
+// across materials the slot differs between the instances of one draw, and
+// indexing a descriptor array by a value that is not dynamically uniform
+// without saying so is undefined behaviour that works on most hardware.
+#define u_BaseColorMap u_Textures[nonuniformEXT(g_Material.Maps0.x)]
+#define u_NormalMap    u_Textures[nonuniformEXT(g_Material.Maps0.y)]
+#define u_OcclusionMap u_Textures[nonuniformEXT(g_Material.Maps0.z)]
+#define u_EmissiveMap  u_Textures[nonuniformEXT(g_Material.Maps0.w)]
+#define u_RoughnessMap u_Textures[nonuniformEXT(g_Material.Maps1.x)]
+#define u_MetallicMap  u_Textures[nonuniformEXT(g_Material.Maps1.y)]
+#define u_SpecularMap  u_Textures[nonuniformEXT(g_Material.Maps1.z)]
+#define u_HeightMap    u_Textures[nonuniformEXT(g_Material.Maps1.w)]
+
+#else
+
 layout(set = 1, binding = 0) uniform MaterialData
 {
 	vec4  BaseColor;
@@ -185,6 +243,8 @@ layout(set = 1, binding = 7) uniform sampler2D u_MetallicMap;
 layout(set = 1, binding = 8) uniform sampler2D u_SpecularMap;
 layout(set = 1, binding = 9) uniform sampler2D u_HeightMap;
 
+#endif
+
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
@@ -201,6 +261,9 @@ layout(location = 6) in vec4 v_ClipPos;
 // middle of a triangle between two probes.
 layout(location = 7) flat in float v_Probe;
 layout(location = 8) in vec4 v_PrevClipPos;
+// Which record in u_Materials this instance's material is. Read only by the
+// bindless variant; declared in both so the two stages agree.
+layout(location = 9) flat in float v_MaterialIndex;
 
 layout(location = 0) out vec4 o_Color;
 
@@ -587,6 +650,13 @@ vec2 Parallax(vec2 uv, vec3 viewTS)
 
 void main()
 {
+#ifdef RV_BINDLESS
+	// The material, once, before anything reads it. The index is flat and
+	// per instance; the record buffer is ordinary memory, so this indexing
+	// needs no qualifier -- only the descriptor lookups the record feeds do.
+	g_Material = u_Materials.Materials[int(v_MaterialIndex)];
+#endif
+
 	// Screen motion, in UV units: where this surface point is now, minus where
 	// it was last frame. The halving turns an NDC difference into a
 	// texture-coordinate one, which is what a history fetch is addressed in.

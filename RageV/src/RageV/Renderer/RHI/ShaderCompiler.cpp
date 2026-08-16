@@ -120,7 +120,8 @@ namespace RageV::RHI
 			layout->Bindings.push_back(binding);
 		}
 
-		uint64_t HashSource(const std::string& source, ShaderStage stage)
+		uint64_t HashSource(const std::string& source, ShaderStage stage,
+							const std::string& preamble)
 		{
 			// FNV-1a. Only used as a cache key.
 			uint64_t hash = 1469598103934665603ull;
@@ -129,9 +130,35 @@ namespace RageV::RHI
 				hash ^= c;
 				hash *= 1099511628211ull;
 			}
+			// The preamble is part of what was compiled, so it is part of the
+			// key: the same source with and without RV_BINDLESS is two shaders,
+			// and a cache that could not tell them apart would hand the second
+			// caller the first caller's SPIR-V.
+			for (unsigned char c : preamble)
+			{
+				hash ^= c;
+				hash *= 1099511628211ull;
+			}
 			hash ^= (uint64_t)stage;
 			hash *= 1099511628211ull;
 			return hash;
+		}
+
+		// `NAME` or `NAME=VALUE`, one per line, as glslang's preamble wants it.
+		std::string PreambleFor(const std::vector<std::string>& defines)
+		{
+			std::string preamble;
+			for (const std::string& define : defines)
+			{
+				const size_t equals = define.find('=');
+				preamble += "#define ";
+				if (equals == std::string::npos)
+					preamble += define;
+				else
+					preamble += define.substr(0, equals) + " " + define.substr(equals + 1);
+				preamble += '\n';
+			}
+			return preamble;
 		}
 
 		std::filesystem::path CachePathFor(uint64_t hash)
@@ -271,7 +298,8 @@ namespace RageV::RHI
 		}
 	}
 
-	std::optional<CompiledShader> ShaderCompiler::CompileFromFile(const std::filesystem::path& path)
+	std::optional<CompiledShader> ShaderCompiler::CompileFromFile(const std::filesystem::path& path,
+																  const std::vector<std::string>& defines)
 	{
 		std::string source;
 		std::vector<std::filesystem::path> seen;
@@ -282,6 +310,7 @@ namespace RageV::RHI
 
 		ShaderDesc desc;
 		desc.Name = path.stem().string();
+		desc.Defines = defines;
 
 		// Split on `#type <stage>` markers.
 		const std::string marker = "#type ";
@@ -330,9 +359,11 @@ namespace RageV::RHI
 		CompiledShader result;
 		result.Name = desc.Name;
 
+		const std::string preamble = PreambleFor(desc.Defines);
+
 		for (const auto& stageSource : desc.Stages)
 		{
-			const uint64_t hash = HashSource(stageSource.Source, stageSource.Stage);
+			const uint64_t hash = HashSource(stageSource.Source, stageSource.Stage, preamble);
 
 			std::vector<uint32_t> spirv;
 			bool fromCache = false;
@@ -341,7 +372,7 @@ namespace RageV::RHI
 
 			if (!fromCache)
 			{
-				auto compiled = CompileStage(stageSource.Source, stageSource.Stage,
+				auto compiled = CompileStage(stageSource.Source, stageSource.Stage, preamble,
 											 desc.Name + ":" + ShaderStageName(stageSource.Stage));
 				if (!compiled)
 					return std::nullopt;
@@ -365,6 +396,7 @@ namespace RageV::RHI
 
 	std::optional<std::vector<uint32_t>> ShaderCompiler::CompileStage(const std::string& source,
 																	  ShaderStage stage,
+																	  const std::string& preamble,
 																	  const std::string& debugName)
 	{
 		const EShLanguage language = ToGlslangStage(stage);
@@ -372,6 +404,11 @@ namespace RageV::RHI
 
 		const char* sources[] = { source.c_str() };
 		shader.setStrings(sources, 1);
+		// Processed before the source and, by glslang's own contract, without
+		// disturbing the source's #version -- so a define can sit in front of a
+		// file whose first line has to be `#version 450`.
+		if (!preamble.empty())
+			shader.setPreamble(preamble.c_str());
 		shader.setEnvInput(glslang::EShSourceGlsl, language, glslang::EShClientVulkan, 100);
 		shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
 		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);

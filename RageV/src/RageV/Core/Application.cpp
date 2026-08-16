@@ -60,6 +60,7 @@ namespace RageV {
 		deviceDesc.Height = m_Window->GetHeight();
 		deviceDesc.VSync = config.VSync;
 		deviceDesc.EnableValidation = config.EnableValidation;
+		deviceDesc.GpuAssistedValidation = config.ValidationGpuAssisted;
 		deviceDesc.FramesInFlight = config.FramesInFlight;
 
 		m_Device = RHI::RHIDevice::Create(deviceDesc);

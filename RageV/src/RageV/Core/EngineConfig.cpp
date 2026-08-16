@@ -71,7 +71,19 @@ namespace RageV
 			return ParseBool(value, config.VSync);
 
 		if (key == "validation")
+		{
+			// "gpu" is the layers plus GPU-assisted validation: the only thing
+			// that can catch an out-of-range index into a bindless array,
+			// which ordinary validation cannot see (ENGINE-NOTES 7al).
+			if (value == "gpu")
+			{
+				config.EnableValidation = true;
+				config.ValidationGpuAssisted = true;
+				return true;
+			}
+			config.ValidationGpuAssisted = false;
 			return ParseBool(value, config.EnableValidation);
+		}
 
 		if (key == "audio")
 			return ParseBool(value, config.EnableAudio);
@@ -81,6 +93,9 @@ namespace RageV
 
 		if (key == "depth-sort" || key == "depthsort")
 			return ParseBool(value, config.DepthSortOpaque);
+
+		if (key == "bindless")
+			return ParseBool(value, config.Bindless);
 
 		if (key == "msaa" || key == "samples")
 		{

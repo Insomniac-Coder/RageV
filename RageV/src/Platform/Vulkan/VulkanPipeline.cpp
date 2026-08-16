@@ -53,7 +53,15 @@ namespace RageV::Vk
 		VkDevice device = m_Device.GetDevice();
 		VkPipeline pipeline = m_Pipeline;
 		VkPipelineLayout layout = m_Layout;
-		auto setLayouts = m_SetLayouts;
+		// Only the layouts this pipeline made. A borrowed one is the device's
+		// and outlives every pipeline that reads the heap through it.
+		std::vector<VkDescriptorSetLayout> setLayouts;
+		for (size_t i = 0; i < m_SetLayouts.size(); i++)
+		{
+			if (i < m_BorrowedLayouts.size() && m_BorrowedLayouts[i])
+				continue;
+			setLayouts.push_back(m_SetLayouts[i]);
+		}
 
 		m_Deletion->Push([device, pipeline, layout, setLayouts]()
 		{
@@ -132,9 +140,38 @@ namespace RageV::Vk
 			maxSet = Math::Max(maxSet, set.Set);
 
 		m_SetLayouts.assign(reflection.Sets.empty() ? 0 : maxSet + 1, VK_NULL_HANDLE);
+		m_BorrowedLayouts.assign(m_SetLayouts.size(), false);
 
 		for (const auto& set : reflection.Sets)
 		{
+			// A runtime-sized array means the bindless heap (ENGINE-NOTES
+			// 7al), and the heap's layout is the device's, not this
+			// pipeline's: pipeline-layout compatibility is by identically
+			// defined set layouts, so the only way the one heap can be bound
+			// to every pipeline that reads it is for all of them to hold the
+			// same VkDescriptorSetLayout. The set may declare nothing else --
+			// a heap shares its set with nobody -- and the pipeline records
+			// that it borrowed rather than built, so it does not destroy it.
+			const bool runtimeArray = std::any_of(set.Bindings.begin(), set.Bindings.end(),
+												  [](const RHI::ResourceBinding& b) { return b.Count == 0; });
+			if (runtimeArray)
+			{
+				const bool shape = set.Bindings.size() == 1 && set.Bindings[0].Binding == 0 &&
+								   set.Bindings[0].Type == RHI::ResourceType::CombinedImageSampler;
+				VkDescriptorSetLayout shared = shape ? m_Device.GetBindlessTextureLayout() : VK_NULL_HANDLE;
+				if (shared == VK_NULL_HANDLE)
+				{
+					RV_CORE_ERROR("[Vulkan] '{0}' declares a runtime-sized array in set {1}, which "
+								  "must be exactly `sampler2D[]` at binding 0 and needs descriptor "
+								  "indexing; the pipeline layout will be wrong",
+								  m_DebugName, set.Set);
+					continue;
+				}
+				m_SetLayouts[set.Set] = shared;
+				m_BorrowedLayouts[set.Set] = true;
+				continue;
+			}
+
 			std::vector<VkDescriptorSetLayoutBinding> bindings;
 			bindings.reserve(set.Bindings.size());
 
@@ -355,7 +392,7 @@ namespace RageV::Vk
 	// -------------------------------------------------------------------------
 	VulkanResourceSet::VulkanResourceSet(VulkanDevice& device, VulkanPipelineCommon* pipeline,
 										 std::shared_ptr<void> owner, uint32_t set)
-		: RHI::RHIResourceSet(set), m_Device(device), m_Deletion(device.GetDeletionQueue()),
+		: VulkanSetBase(set), m_Device(device), m_Deletion(device.GetDeletionQueue()),
 		  m_Pipeline(pipeline), m_Owner(std::move(owner))
 	{
 		const uint32_t frames = device.GetFramesInFlight();
@@ -517,5 +554,116 @@ namespace RageV::Vk
 		m_Dirty[frame] = false;
 		m_PendingBuffers.clear();
 		m_PendingImages.clear();
+	}
+
+	// -------------------------------------------------------------------------
+	// Bindless heap
+	// -------------------------------------------------------------------------
+	VulkanBindlessSet::VulkanBindlessSet(VulkanDevice& device, uint32_t capacity)
+		: VulkanSetBase(0), m_Device(device), m_Deletion(device.GetDeletionQueue()),
+		  m_Capacity(capacity)
+	{
+		VkDescriptorSetLayout layout = m_Device.GetBindlessTextureLayout();
+		RV_CORE_ASSERT(layout != VK_NULL_HANDLE, "bindless set created without descriptor indexing");
+
+		// A pool of its own, sized for exactly this heap and flagged for
+		// update-after-bind, which the renderer's pool chain is not.
+		VkDescriptorPoolSize size{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, capacity };
+		VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+		poolInfo.maxSets = 1;
+		poolInfo.poolSizeCount = 1;
+		poolInfo.pPoolSizes = &size;
+		VK_CHECK(vkCreateDescriptorPool(m_Device.GetDevice(), &poolInfo, nullptr, &m_Pool));
+
+		// The layout says "up to MaxBindlessTextures"; the allocation says how
+		// many this heap actually has, so an index past capacity is out of
+		// range rather than a slot nobody wrote.
+		VkDescriptorSetVariableDescriptorCountAllocateInfo countInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO };
+		countInfo.descriptorSetCount = 1;
+		countInfo.pDescriptorCounts = &capacity;
+
+		VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+		allocInfo.pNext = &countInfo;
+		allocInfo.descriptorPool = m_Pool;
+		allocInfo.descriptorSetCount = 1;
+		allocInfo.pSetLayouts = &layout;
+		VK_CHECK(vkAllocateDescriptorSets(m_Device.GetDevice(), &allocInfo, &m_Set));
+
+		m_Device.SetDebugName((uint64_t)m_Set, VK_OBJECT_TYPE_DESCRIPTOR_SET, "bindless textures");
+	}
+
+	VulkanBindlessSet::~VulkanBindlessSet()
+	{
+		VkDevice device = m_Device.GetDevice();
+		VkDescriptorPool pool = m_Pool;
+		// Destroying the pool frees the set with it.
+		m_Deletion->Push([device, pool]()
+		{
+			if (pool) vkDestroyDescriptorPool(device, pool, nullptr);
+		});
+	}
+
+	void VulkanBindlessSet::SetUniformBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>&,
+											 uint64_t, uint64_t)
+	{
+		RV_CORE_ERROR("[Vulkan] SetUniformBuffer({0}) on the bindless texture heap; ignored", binding);
+	}
+
+	void VulkanBindlessSet::SetStorageBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>&,
+											 uint64_t, uint64_t)
+	{
+		RV_CORE_ERROR("[Vulkan] SetStorageBuffer({0}) on the bindless texture heap; ignored", binding);
+	}
+
+	void VulkanBindlessSet::SetTexture(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
+									   const RHI::Ref<RHI::RHISampler>& sampler, uint32_t arrayIndex)
+	{
+		if (binding != 0 || arrayIndex >= m_Capacity)
+		{
+			RV_CORE_ERROR("[Vulkan] bindless SetTexture(binding {0}, slot {1}) outside binding 0, "
+						  "slots 0..{2}; ignored", binding, arrayIndex, m_Capacity - 1);
+			return;
+		}
+
+		auto vulkanTexture = std::static_pointer_cast<VulkanTexture>(texture);
+		auto vulkanSampler = std::static_pointer_cast<VulkanSampler>(sampler);
+
+		VkDescriptorImageInfo info{};
+		info.imageView = vulkanTexture->GetView();
+		info.sampler = vulkanSampler->GetHandle();
+		info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		m_PendingInfos.push_back(info);
+		m_PendingSlots.push_back(arrayIndex);
+	}
+
+	void VulkanBindlessSet::Commit()
+	{
+		if (m_PendingSlots.empty())
+			return;
+
+		// One write per slot. Runs of consecutive slots could be one write
+		// with a count, and the startup fill is exactly such a run -- but that
+		// fill happens once and the per-frame traffic is a handful of slots,
+		// so the simple form is the honest one.
+		std::vector<VkWriteDescriptorSet> writes;
+		writes.reserve(m_PendingSlots.size());
+		for (size_t i = 0; i < m_PendingSlots.size(); i++)
+		{
+			VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			write.dstSet = m_Set;
+			write.dstBinding = 0;
+			write.dstArrayElement = m_PendingSlots[i];
+			write.descriptorCount = 1;
+			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			write.pImageInfo = &m_PendingInfos[i];
+			writes.push_back(write);
+		}
+
+		vkUpdateDescriptorSets(m_Device.GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
+
+		m_PendingInfos.clear();
+		m_PendingSlots.clear();
 	}
 }

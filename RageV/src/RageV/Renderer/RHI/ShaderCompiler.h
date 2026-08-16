@@ -50,7 +50,10 @@ namespace RageV::RHI
 
 		// Reads a .glsl file split into stages by `#type vertex` / `#type
 		// fragment` markers -- the same convention the engine already used.
-		static std::optional<CompiledShader> CompileFromFile(const std::filesystem::path& path);
+		// `defines` are ShaderDesc::Defines: applied to every stage, and part
+		// of the cache key.
+		static std::optional<CompiledShader> CompileFromFile(const std::filesystem::path& path,
+															 const std::vector<std::string>& defines = {});
 
 		static std::optional<CompiledShader> Compile(const ShaderDesc& desc);
 
@@ -72,6 +75,7 @@ namespace RageV::RHI
 	private:
 		static std::optional<std::vector<uint32_t>> CompileStage(const std::string& source,
 																 ShaderStage stage,
+																 const std::string& preamble,
 																 const std::string& debugName);
 		static void ReflectStage(const CompiledStage& stage, ShaderReflection& outReflection);
 	};

@@ -371,7 +371,12 @@ namespace RageV::RHI
 	struct ResourceBinding
 	{
 		uint32_t     Binding     = 0;
-		uint32_t     Count       = 1;   // >1 for arrays such as u_Textures[32]
+		// >1 for arrays such as u_Textures[32]. **0 for a runtime-sized
+		// array** -- `sampler2D u_Textures[]` -- which is what a shader
+		// declares to read the bindless heap (ENGINE-NOTES 7al). A set with one
+		// is laid out by the device's shared heap layout rather than from this
+		// description, and cannot be cross-compiled to OpenGL at all.
+		uint32_t     Count       = 1;
 		ResourceType Type        = ResourceType::UniformBuffer;
 		ShaderStage  Stages      = ShaderStage::None;
 		uint32_t     BlockSize   = 0;   // buffers only
@@ -466,7 +471,14 @@ namespace RageV::RHI
 		bool SupportsAnisotropy       = false;
 		float MaxAnisotropy           = 1.0f;
 		bool SupportsDynamicRendering = false;
+		// Whether RHIDevice::CreateBindlessTextureSet can succeed: a shader
+		// may declare `sampler2D u_Textures[]` and index it per instance.
+		// Vulkan 1.2's descriptor indexing, when the driver has the five
+		// feature bits the heap needs; false on OpenGL, always, because 4.5
+		// has no object for it (ENGINE-NOTES 7al).
 		bool SupportsDescriptorIndexing = false;
+		// How many textures one heap can hold. Zero when unsupported.
+		uint32_t MaxBindlessTextures  = 0;
 		bool SupportsTimestampQueries = false;
 
 		// Compute shaders and dispatch. Core in Vulkan and in OpenGL 4.3, so

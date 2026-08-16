@@ -236,9 +236,9 @@ to two backends, and this is the first feature where that commitment has a real
 price: bindless would mean two materially different resource-binding designs,
 not one interface with two implementations.
 
-That is a decision to make deliberately rather than drift into. It does not need
-making yet — the renderer is nowhere near CPU-bound on descriptor updates — but
-when it does, the honest options are "GL stays on the slow path" or "drop GL".
+*This paragraph predicted the price. §7al records what it actually was once
+the design was done: the split is forced in exactly two places, neither of them
+the RHI, and the rest stays common.*
 
 ### Skip
 
@@ -5065,6 +5065,296 @@ be checked away from the UI.
 
 ---
 
+## 7al. Bindless (8.2): the split is forced in two places, and neither is the RHI
+
+§5 called this the first place two backends would cost something real, and
+the roadmap called it a decision about what the engine is. Both were written
+before anyone had read the binding code with the question in hand. This
+section is the result of reading it, and the answer is smaller than the
+warning: **the split is forced in exactly two places -- the descriptor heap
+itself, and the GLSL that reads a texture by index -- and everything else
+stays common.** The RHI keeps one interface. OpenGL keeps rendering what it
+renders today, through the code it renders it with today. The fork lives in
+`Material::Bind` and in one block of `pbr_fragment.glsl`, and it is
+falsified by a pixel comparison on the one backend where both paths run.
+
+### Why the split is forced, and why it is not larger
+
+**The heap.** Vulkan has an object for "a large array of textures the shader
+indexes at runtime": a descriptor set whose one binding is a runtime-sized
+array with `PARTIALLY_BOUND` and `UPDATE_AFTER_BIND`. OpenGL 4.5 has no such
+object. `GL_ARB_bindless_texture` exists, but it has no SPIR-V route:
+SPIRV-Cross *throws* on a runtime-sized descriptor array when the target is
+desktop GLSL, and turns `nonuniformEXT` into `GL_NV_gpu_shader5`, which is
+one vendor. Going that way would mean compiling GL shaders from raw GLSL,
+which bypasses reflection and the `FlatBindingMap` the whole GL backend rests
+on -- a second shader path, not a second binding path. The other GL surrogate,
+a sized `sampler2D[N]`, is bounded by 32 texture units per stage, and the PBR
+fragment shader already uses 25 of them. So OpenGL does not get a heap, and
+that is the end of that question rather than a compromise.
+
+**The GLSL.** `texture(u_Textures[nonuniformEXT(i)], uv)` has no GL 4.5
+spelling. One source file has to produce two shaders.
+
+**Why nothing else splits.** The renderer was already halfway there without
+saying so. `InstanceData` carries the material's *scalars* per instance --
+base colour, emissive, metallic, roughness, occlusion, normal scale -- so
+that two objects with different values still share one instanced draw (7m).
+The only thing the material set still does is bind nine textures, and the
+textures are the only reason `MaterialKey` is in the sort key at all.
+Bindless finishes that job; it does not start a new one. Post-processing,
+2D, UI, particles, sky, IBL, shadows, the render graph and compute never
+touch the material set and are not touched by this.
+
+### The seam: a shader define and a material fork, and the RHI stays one interface
+
+The rule that keeps the fork to two places: **split at the shader
+preprocessor and at the material, never at the RHI.**
+
+`ShaderDesc` gains a list of defines, injected as a glslang preamble and
+folded into the SPIR-V cache hash. The renderer compiles the PBR shaders
+with `RV_BINDLESS` when the device says it can, and without it otherwise.
+The GL variant therefore never contains a runtime array, so cross-compile,
+reflection and the flat binding map are untouched -- the GL backend does not
+know the feature exists.
+
+The RHI gains one capability that already existed as a field and was never
+set -- `DeviceCaps::SupportsDescriptorIndexing`, with `MaxBindlessTextures`
+beside it -- and one factory: `CreateBindlessTextureSet(capacity)`, which
+returns an `RHIResourceSet` on which only `SetTexture(0, texture, sampler,
+index)` and `Commit()` mean anything, or null when the device cannot. That
+is the whole public change. On OpenGL it returns null and the caps stay
+false; that is the whole OpenGL implementation. `ResourceBinding::Count == 0`
+acquires a meaning it did not have -- runtime-sized -- which is what
+SPIRV-Cross already reports for `sampler2D u_Textures[]`.
+
+### The heap, on Vulkan
+
+One descriptor set, allocated from its own pool created with
+`UPDATE_AFTER_BIND_POOL`, whose one binding is `COMBINED_IMAGE_SAMPLER` x
+capacity with `PARTIALLY_BOUND | UPDATE_AFTER_BIND`. **Not one per frame in
+flight**, unlike every other resource set: update-after-bind is precisely
+the permission to write into a set that is bound to a pending command
+buffer, and the heap depends on it -- a texture registered mid-frame is
+readable the same frame.
+
+The permission has one condition, and it is the whole of the heap's
+lifetime design: **a slot that a pending command buffer reads must not be
+rewritten until that command buffer has completed.** So a slot is released
+in three steps -- retired into a per-frame list, rewritten to the error
+texture when that frame's slot comes round again (which the fence has
+already guaranteed is after the GPU finished with it), and only then
+returned to the free list. This is the same shape as `DeletionQueue::PerFrame`
+and for the same reason.
+
+The pipeline layout has to agree with the heap. Set layouts are built from
+reflection and only from reflection (`CreateLayouts`), and pipeline-layout
+compatibility requires *identically defined* set layouts -- same count, same
+flags. So the device owns one canonical bindless layout, created lazily with
+`descriptorCount = MaxBindlessTextures`, and hands the same object to the
+heap when it is created and to any pipeline whose reflection declares a
+runtime array. A pipeline that borrows it does not destroy it. The
+convention that keeps this a lookup rather than a search: **the heap is set
+2, binding 0, in every shader that uses it**, and set 1 -- the material set
+-- is simply empty in the bindless variant. `CreateLayouts` already fills a
+gap with an empty layout.
+
+**Slot 0 is the error texture, and every slot starts as slot 0.** All
+`capacity` slots are written with a 1x1 magenta at creation, so there is no
+such thing as an unwritten slot: an index that is stale, uninitialised or
+simply wrong reads magenta, deterministically, on any hardware, instead of
+being undefined behaviour that happens to look fine on this one. This is
+worth stating because of the trap below.
+
+The renderer-side `TextureHeap` is the free list, the dedup by
+`(texture, sampler)` pointer pair, and the retire chain, in common code that
+only ever calls `SetTexture` and `Commit` on the RHI set. It holds textures
+*weakly*: strong references live in the materials, and a texture nobody
+references is one nobody's record can name, so its slot is safe to retire
+once the frames that might have named it are done. A sweep at the start of
+each scene retires expired entries; a lookup that finds an expired entry
+under a reused pointer treats it as a miss and retires it, so a
+destroy-and-reallocate at the same address between the sweep and the lookup
+cannot hand out a dead slot. Samplers are held strongly; there are three of
+them.
+
+Capacity is `min(4096, maxDescriptorSetUpdateAfterBindSampledImages)`, and
+a device whose limit is under 256 reports the feature absent rather than a
+heap too small to be worth having. Every 1.2 desktop driver this engine has
+met is in the millions.
+
+### The material record, and where the index rides
+
+In the bindless variant the material set is gone. What it used to say is
+said in two places instead:
+
+- The scalars stay in `InstanceData`, exactly as they were.
+- The rest -- eight heap indices, `MapFlags`, `Specular`, `HeightScale`,
+  `UvTransform` -- is a 64-byte `GpuMaterial` record in a per-frame storage
+  buffer at set 0, binding 13, beside the lights. `InstanceData.Indices.z`
+  is the record index, carried to the fragment stage as a flat varying, the
+  way the probe index already is in `.y`.
+
+Records are gathered per frame, not kept: `EndScene` walks the sorted
+pending draws, assigns each distinct material an index for this frame,
+writes its record, and stamps the index into the instance. A frame's records
+cost `materials x 64 bytes` and are rebuilt every frame, which is nothing,
+and it means no second free list, no dirty tracking across frames in flight,
+and no state on the material at all beyond the ability to write its own
+record from what it already holds. Building a stable global material table
+was considered and rejected for exactly those three costs. A record could
+instead have gone into `InstanceData` directly and skipped the indirection;
+that grows every instance by a quarter to carry data identical across the
+thousand instances of one material, and the shadow pass fetches
+`InstanceData` too. The lights already answered this question the same way.
+
+The batch key follows: on the bindless path `Material::GetBatchKey` mixes
+nothing but the sampler, so runs merge across materials sharing a mesh, and
+a run breaks on mesh alone. On the bound path it is unchanged. That is the
+one-line branch in `Renderer3D`.
+
+### One shader source
+
+The fork in `pbr_fragment.glsl` is a declaration block and nothing below it:
+
+```glsl
+#ifdef RV_BINDLESS
+#extension GL_EXT_nonuniform_qualifier : require
+layout(set = 2, binding = 0) uniform sampler2D u_Textures[];
+layout(std430, set = 0, binding = 13) readonly buffer MaterialBlock { GpuMaterial Materials[]; } u_Materials;
+GpuMaterial g_Material;                 // fetched once at the top of main
+#define u_Material     g_Material
+#define u_BaseColorMap u_Textures[nonuniformEXT(g_Material.Maps0.x)]
+// ... one line per map
+#else
+layout(set = 1, binding = 0) uniform MaterialData { ... } u_Material;
+layout(set = 1, binding = 1) uniform sampler2D u_BaseColorMap;
+// ... as today
+#endif
+```
+
+Every `texture(u_BaseColorMap, uv)` and every `u_Material.MapFlags` below
+the block compiles unchanged in both variants. The lighting is one piece of
+code with two front doors, which is the whole point of putting the fork at
+the preprocessor: the six hundred lines that could drift do not exist twice.
+`pbr_skinned` includes the same file and gets both variants for free.
+
+`nonuniformEXT` is on the *descriptor* index only. Indexing the record
+buffer by a per-instance value is ordinary memory addressing and needs no
+qualifier; indexing a descriptor array by a value that differs across the
+instances of one draw does, and once runs merge across materials it always
+differs. Leaving it off is undefined behaviour that works on most hardware,
+which is the worst kind.
+
+### The checks, and the one trap worth stating now
+
+**On Vulkan both paths run**, which is what makes this checkable at all:
+`--bindless=off` compiles the bound variant on a device that supports the
+heap. The demo scene rendered both ways must be pixel-identical, and the
+check is falsified by breaking one index -- swap two record fields and the
+compare must fail. That one comparison covers the fork end to end.
+OpenGL's existing checks are the regression suite for the bound path, and a
+`CheckBindless` in scenetest covers the heap on its own: register, sample by
+index, release, and the slot not reused until the frames that could have
+read it are done, skipped with a stated reason where the caps say no.
+
+**The trap: an out-of-range index into a partially-bound array produces no
+validation message.** The layer cannot know which element a shader will
+read, so ordinary validation says nothing, and GPU-assisted validation is
+the only thing that catches it -- which is why the error texture in slot 0
+and every unwritten slot exists, and why the check suite runs the demo once
+under GPU-AV. A wrong index in this engine is a magenta object, not a
+crash and not silence.
+
+### What it maps to, if another backend arrives
+
+DX12's binding model *is* a heap -- one shader-visible descriptor heap, with
+`NonUniformResourceIndex` for the qualifier and, from SM 6.6,
+`ResourceDescriptorHeap[i]` with no declaration at all. SPIRV-Cross's HLSL
+backend emits runtime arrays and `NonUniformResourceIndex` for SM 5.1, so
+the `RV_BINDLESS` variant cross-compiles without a third source, and a DX12
+backend would implement even the *bound* `RHIResourceSet` as a table in the
+same heap. DX11 is fixed slots -- 128 SRVs, and dynamic indexing of a
+resource array is SM 5.1, which is DX12 -- so it would land on the bound
+side beside OpenGL and take the existing path. The seam absorbs either
+without a third fork.
+
+### What is deliberately not moved
+
+2D and UI already do the poor version -- a `sampler2D[32]` and a per-quad
+index, flushing at 32 -- and would move in forty lines each. They do not
+move now: the benefit appears only past 32 distinct textures in one batch,
+which nothing in the tree approaches, and each subsystem moved is another
+fork with a bound twin to maintain. Post-processing never moves: every pass
+reads one to four *specific* textures known when the pass is written, which
+is the opposite of the situation bindless is for, and its targets are
+transient and resize, which would churn the heap for nothing.
+
+**What this buys today, plainly: not frame time.** A thousand meshes draw in
+1.9 ms and are nowhere near a binding wall. Runs merge across materials, and
+that is the visible effect. The reason to do it is that 8.12 and 8.3 are
+both behind it, and this is the smallest version that unblocks them without
+the OpenGL backend learning anything.
+
+### What building it found
+
+Everything above was written before the code. Four things came out of
+writing the code that the design did not predict, and they are the record
+that matters.
+
+**The parity check failed on its first run, and the bound path was the one
+that was wrong.** 1,036,879 pixels differed, all on the courtyard's walls.
+The wall and the plinth share every brick map and differ in `Tiling` (9 x
+2.4 against 2.2 x 1.6) and `HeightScale`; `Material::GetBatchKey` mixed the
+maps, the sampler and `MapFlags` -- and not `UvTransform`, `HeightScale` or
+`Specular`, which live in the material's uniform block and nowhere per
+instance. So on the bound path the two materials were one run, the nearer
+plinth came first, its block was bound for both, and **every wall in the
+demo has been drawing at the plinth's tiling since the day `UvTransform`
+joined the block.** Nobody noticed, because it still looked like bricks. The
+bindless path writes one record per material and was right from the start;
+the key now mixes the block's scalars, and after that the two paths agree
+to zero pixels across five runs. This is the whole argument for a second
+implementation stated as a number: a check that compares an implementation
+against itself passes forever, and this one compared it against another.
+
+**GPU-assisted validation does what the trap paragraph said, and ordinary
+validation does exactly nothing.** With one record slot deliberately pushed
+past capacity, `--validation=on` exits 0 with zero `[Vulkan]` lines and the
+object draws magenta; `--validation=gpu` reports *"Index of 5004 used to
+index descriptor array of length 4096"* on every draw, by set and binding.
+The flag exists now (`EngineConfig::ValidationGpuAssisted`, layer setting
+`gpuav_enable`); it turns sync and core validation off for the run, on the
+layer's own advice, and prints three "adjusting settings" advisories at
+startup that are its own. `check_bindless.py` runs it and permits exactly
+those.
+
+**The parity check covers the maps the demo samples, and only those.**
+Falsifying it by making the normal-map slot read the base colour: 1,432,357
+of 1,440,000 pixels differ. Falsifying it by making the *emissive* slot read
+the base colour: **zero pixels differ**, because no courtyard material has an
+emissive map and the shader reads a map only when its flag is set. So the
+check proves base colour, normal, occlusion, roughness and height, and
+proves nothing about emissive, metallic or specular. `CheckBindlessHeap`
+samples every slot it registers through a compute shader, so the *heap* is
+covered end to end; the *record fields* for the three unused maps are
+covered by inspection. Stated in the script, so nobody reads its green as
+wider than it is.
+
+**The RHI change was as small as promised, and one line smaller in the
+Vulkan pipeline than expected.** `BindResourceSet` needed only to cast to a
+common base rather than the per-frame class; `CreateLayouts` needed a
+borrowed-layout flag so the destructor does not destroy the device's; and
+the resource-set base already carried `arrayIndex`, so the heap's write path
+is the existing one with a different lifetime. The whole diff is ~600 lines,
+of which ~200 are Vulkan and ~150 are the two forks; the OpenGL backend
+gained six lines, all of them the word "no". Numbers at landing: 4096 slots
+on this device (the driver's limit is in the millions), 1606 scenetest
+checks on Vulkan and 1585 on OpenGL, zero validation lines, `check_ssr`,
+`check_oit`, `check_depth_of_field`, `check_ssao` and `check_smaa` unchanged.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
@@ -5074,7 +5364,7 @@ be checked away from the UI.
 | Physics | "add Jolt" | batch body adds, 2 broad-phase layers, BodyID not pointers |
 | Lights | 8-light cap accepted | clustered forward removes it in Phase 3 |
 | Render graph | Phase 3.1 | confirmed, and now has a concrete design |
-| Bindless | unexamined | named as the point where two backends costs something real |
+| Bindless | unexamined | one fork, at the material and its shader block; the RHI stays one interface (§7al) |
 | ECS | EnTT | confirmed, with the failure mode written down |
 | GPU-driven | unstated | explicitly out of scope |
 | Contacts | "route them into scripts" | the routing is easy; sleep, removal and sub-shape granularity are not (§3a) |

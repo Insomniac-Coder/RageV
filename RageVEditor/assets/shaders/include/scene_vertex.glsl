@@ -106,11 +106,17 @@ struct InstanceData
 	// Slot 0 holds the sky, so zero means "nothing better than the sky was in
 	// range" rather than "unset".
 	//
+	// z = which record of the frame's material buffer describes this
+	// instance's textures. Read only when the fragment stage is the bindless
+	// variant (ENGINE-NOTES 7al); zero otherwise.
+	//
 	// Per instance rather than pushed per batch, because two characters sharing
 	// one mesh are one instanced draw and each is in its own pose -- and,
 	// for the probe, because two objects near different probes are still one
 	// draw. A per-batch probe would have to be part of the sort key, and every
-	// change of answer would cut a run in half.
+	// change of answer would cut a run in half. The material index is the same
+	// argument taken to its end: with it here, the material is not in the sort
+	// key at all.
 	vec4 Indices;
 };
 
@@ -153,4 +159,7 @@ layout(location = 7) flat out float v_Probe;
 // Where this vertex was last frame, in clip space. The fragment differences
 // the two projections to get its motion vector.
 layout(location = 8) out vec4 v_PrevClipPos;
+// Which record of the frame's material buffer this instance reads, straight
+// out of Indices.z. Read only by the bindless fragment variant.
+layout(location = 9) flat out float v_MaterialIndex;
 

@@ -139,7 +139,7 @@ namespace RageV::Vk
 			throw std::runtime_error("volkInitialize failed");
 		}
 
-		CreateInstance(desc.EnableValidation);
+		CreateInstance(desc.EnableValidation, desc.GpuAssistedValidation);
 		CreateSurface();
 		SelectPhysicalDevice();
 		CreateLogicalDevice();
@@ -181,6 +181,10 @@ namespace RageV::Vk
 
 		if (m_ImGuiPool) vkDestroyDescriptorPool(m_Device, m_ImGuiPool, nullptr);
 		m_ImGuiPool = VK_NULL_HANDLE;
+		// After FlushAll above, so every pipeline that borrowed it and every
+		// heap allocated from it has already gone.
+		if (m_BindlessLayout) vkDestroyDescriptorSetLayout(m_Device, m_BindlessLayout, nullptr);
+		m_BindlessLayout = VK_NULL_HANDLE;
 
 		for (VkQueryPool pool : m_TimestampPools)
 			vkDestroyQueryPool(m_Device, pool, nullptr);
@@ -203,7 +207,7 @@ namespace RageV::Vk
 		if (m_Instance) vkDestroyInstance(m_Instance, nullptr);
 	}
 
-	void VulkanDevice::CreateInstance(bool enableValidation)
+	void VulkanDevice::CreateInstance(bool enableValidation, bool gpuAssisted)
 	{
 		VkApplicationInfo appInfo{ VK_STRUCTURE_TYPE_APPLICATION_INFO };
 		appInfo.pApplicationName = "RageV";
@@ -246,9 +250,22 @@ namespace RageV::Vk
 		// intermittently corrupt frame on one GPU and nothing on another.
 		// Enabling it here rather than through vkconfig means it does not depend
 		// on external configuration state.
+		//
+		// GPU-assisted validation is the other opt-in, and the only check that
+		// sees an out-of-range index into the bindless heap: the layer cannot
+		// know which element a shader will read, so it instruments the shader
+		// to find out (ENGINE-NOTES 7al). It replaces sync validation for the
+		// run rather than joining it -- both instrument, and together they
+		// have not been a reliable pair.
 		const VkBool32 enabled = VK_TRUE;
+		const VkBool32 disabled = VK_FALSE;
+		// Core checks go off with it too, on the layer's own advice: the two
+		// together are "not recommended" and it says so on every run. The
+		// ordinary --validation=on run is where core checks live.
 		const VkLayerSettingEXT layerSettings[] = {
-			{ validationLayer, "validate_sync", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &enabled },
+			{ validationLayer, "validate_sync", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, gpuAssisted ? &disabled : &enabled },
+			{ validationLayer, "validate_core", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, gpuAssisted ? &disabled : &enabled },
+			{ validationLayer, "gpuav_enable",  VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, gpuAssisted ? &enabled : &disabled },
 		};
 
 		VkLayerSettingsCreateInfoEXT layerSettingsInfo{ VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT };
@@ -258,7 +275,8 @@ namespace RageV::Vk
 		if (!layers.empty() && HasInstanceExtension(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME, validationLayer))
 		{
 			extensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
-			RV_CORE_INFO("Vulkan synchronization validation enabled");
+			RV_CORE_INFO(gpuAssisted ? "Vulkan GPU-assisted validation enabled (synchronization validation off for this run)"
+									 : "Vulkan synchronization validation enabled");
 		}
 		else
 		{
@@ -460,8 +478,36 @@ namespace RageV::Vk
 		features13.dynamicRendering = VK_TRUE;
 		features13.synchronization2 = VK_TRUE;
 
+		// Descriptor indexing, for the bindless texture heap (ENGINE-NOTES
+		// 7al). Optional: every 1.2 feature bit is, so they are asked for and
+		// enabled only where present, and the caps say which way it went. Six
+		// bits, each load-bearing: runtime-sized arrays in the shader,
+		// non-uniform indexing of them, a set that may be partially written
+		// and rewritten while bound, and a set allocated with fewer
+		// descriptors than its layout's maximum.
+		VkPhysicalDeviceVulkan12Features supported12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+		VkPhysicalDeviceFeatures2 supported2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+		supported2.pNext = &supported12;
+		vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supported2);
+
 		VkPhysicalDeviceVulkan12Features features12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
 		features12.pNext = &features13;
+		m_DescriptorIndexingSupported =
+			supported12.descriptorIndexing &&
+			supported12.runtimeDescriptorArray &&
+			supported12.shaderSampledImageArrayNonUniformIndexing &&
+			supported12.descriptorBindingPartiallyBound &&
+			supported12.descriptorBindingSampledImageUpdateAfterBind &&
+			supported12.descriptorBindingVariableDescriptorCount;
+		if (m_DescriptorIndexingSupported)
+		{
+			features12.descriptorIndexing = VK_TRUE;
+			features12.runtimeDescriptorArray = VK_TRUE;
+			features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+			features12.descriptorBindingPartiallyBound = VK_TRUE;
+			features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+			features12.descriptorBindingVariableDescriptorCount = VK_TRUE;
+		}
 
 		// dynamic_rendering is core in 1.3, but Dear ImGui's Vulkan backend
 		// requires the extension to be enabled explicitly regardless.
@@ -536,6 +582,33 @@ namespace RageV::Vk
 		m_Caps.MaxAnisotropy = properties.limits.maxSamplerAnisotropy;
 		m_Caps.SupportsDynamicRendering = true;
 		m_Caps.SupportsTimestampQueries = properties.limits.timestampComputeAndGraphics == VK_TRUE;
+
+		// The heap's capacity is what one update-after-bind set may hold, which
+		// is a separate, usually far larger limit than the ordinary one. A
+		// device whose limit is under the floor reports the feature absent: a
+		// heap of a hundred textures is not the feature, it is a smaller version
+		// of the problem it exists to remove.
+		if (m_DescriptorIndexingSupported)
+		{
+			VkPhysicalDeviceVulkan12Properties properties12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES };
+			VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+			properties2.pNext = &properties12;
+			vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &properties2);
+
+			const uint32_t limit = Math::Min(properties12.maxDescriptorSetUpdateAfterBindSampledImages,
+											 properties12.maxPerStageDescriptorUpdateAfterBindSampledImages);
+			if (limit >= kBindlessFloor)
+			{
+				m_Caps.SupportsDescriptorIndexing = true;
+				m_Caps.MaxBindlessTextures = Math::Min(kBindlessCapacity, limit);
+			}
+			else
+			{
+				RV_CORE_WARN("[Vulkan] descriptor indexing present but the update-after-bind "
+							 "sampled-image limit is {0}; the bindless heap is disabled", limit);
+				m_DescriptorIndexingSupported = false;
+			}
+		}
 		// Core since Vulkan 1.0, and the graphics queue this engine uses is
 		// required to support it -- so this is reporting rather than probing.
 		m_Caps.SupportsCompute = true;
@@ -1413,6 +1486,63 @@ namespace RageV::Vk
 	{
 		auto concrete = std::static_pointer_cast<VulkanComputePipeline>(pipeline);
 		return std::make_shared<VulkanResourceSet>(*this, concrete.get(), concrete, set);
+	}
+
+	VkDescriptorSetLayout VulkanDevice::GetBindlessTextureLayout()
+	{
+		if (!m_DescriptorIndexingSupported)
+			return VK_NULL_HANDLE;
+		if (m_BindlessLayout != VK_NULL_HANDLE)
+			return m_BindlessLayout;
+
+		// One binding, up to MaxBindlessTextures descriptors, and the three
+		// flags the heap is built on: PARTIALLY_BOUND so a slot never written
+		// is not an error, UPDATE_AFTER_BIND so a slot can be written while the
+		// set is bound to a pending command buffer, and VARIABLE_DESCRIPTOR_COUNT
+		// so a heap is allocated with exactly the capacity asked for and an
+		// index past it is out of range rather than an unwritten slot. The
+		// layout carries the matching pool flag or the second is refused at
+		// creation.
+		VkDescriptorSetLayoutBinding binding{};
+		binding.binding = 0;
+		binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		binding.descriptorCount = m_Caps.MaxBindlessTextures;
+		binding.stageFlags = VK_SHADER_STAGE_ALL;
+
+		const VkDescriptorBindingFlags flags =
+			VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+			VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
+			VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+		VkDescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+		flagsInfo.bindingCount = 1;
+		flagsInfo.pBindingFlags = &flags;
+
+		VkDescriptorSetLayoutCreateInfo createInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+		createInfo.pNext = &flagsInfo;
+		createInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+		createInfo.bindingCount = 1;
+		createInfo.pBindings = &binding;
+
+		VK_CHECK(vkCreateDescriptorSetLayout(m_Device, &createInfo, nullptr, &m_BindlessLayout));
+		SetDebugName((uint64_t)m_BindlessLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "bindless textures");
+		return m_BindlessLayout;
+	}
+
+	RHI::Ref<RHI::RHIResourceSet> VulkanDevice::CreateBindlessTextureSet(uint32_t capacity)
+	{
+		if (!m_DescriptorIndexingSupported)
+		{
+			RV_CORE_INFO("[Vulkan] bindless texture heap unavailable on this device; "
+						 "the bound path is used");
+			return nullptr;
+		}
+		if (capacity == 0 || capacity > m_Caps.MaxBindlessTextures)
+		{
+			RV_CORE_ERROR("[Vulkan] bindless heap capacity {0} is outside 1..{1}",
+						  capacity, m_Caps.MaxBindlessTextures);
+			return nullptr;
+		}
+		return std::make_shared<VulkanBindlessSet>(*this, capacity);
 	}
 
 	RHI::Ref<RHI::RHIComputePipeline> VulkanDevice::CreateComputePipeline(

@@ -3,6 +3,7 @@
 #include "Renderer.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "TextureLoader.h"
+#include "TextureHeap.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
 #include "LightGrid.h"
@@ -271,6 +272,11 @@ namespace RageV
 				// recorded in HANDOFF section 5, and the validation layer says
 				// so immediately.
 				Ref<RHIResourceSet> SkinnedSet;
+				// One GpuMaterial per distinct material this scene drew, on the
+				// bindless path only (ENGINE-NOTES 7al). Rebuilt every frame;
+				// materials x 64 bytes, and it means no second free list.
+				Ref<RHIBuffer>      Materials;
+				uint32_t            MaterialCapacity = 0;
 			};
 
 			// [frame in flight][scene within the frame]
@@ -312,6 +318,10 @@ namespace RageV
 			// Accumulated between BeginScene and EndScene, then sorted.
 			std::vector<PendingDraw> Pending;
 			std::vector<InstanceData> InstanceScratch;
+			// The frame's material records and which record each material got,
+			// bindless path only. Kept between frames for the allocation.
+			std::vector<GpuMaterial> MaterialScratch;
+			std::unordered_map<const Material*, uint32_t> MaterialIndex;
 			// Kept between frames so the front-to-back reorder allocates
 			// nothing on a stable scene.
 			std::vector<DrawRun> Runs;
@@ -328,6 +338,12 @@ namespace RageV
 			std::vector<Mat4> ShadowBoneScratch;
 
 			Ref<Material> DefaultMaterial;
+
+			// The bindless texture heap, or null on the bound path. Which path
+			// this is was decided once, in Init, from the caps and --bindless:
+			// the shaders were compiled for it, so it cannot change afterwards.
+			std::unique_ptr<TextureHeap> Heap;
+			bool Bindless = false;
 
 			// The depth-only pipeline. Its own shader and its own pipeline
 			// object: no colour attachment, so it cannot share the lit one.
@@ -440,7 +456,30 @@ namespace RageV
 		s_Data->Device = &device;
 
 		ShaderCompiler::Init();
-		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader");
+
+		// The one decision that forks the material path (ENGINE-NOTES 7al),
+		// made once: the device has to have descriptor indexing, the flag has
+		// to allow it, and the heap has to have been created -- and then the
+		// lit shaders are compiled for that path and no other. On OpenGL the
+		// caps say no and none of this runs, which is the whole of the OpenGL
+		// implementation.
+		const DeviceCaps& caps = device.GetCaps();
+		if (EngineConfig::Get().Bindless && caps.SupportsDescriptorIndexing)
+		{
+			s_Data->Heap = TextureHeap::Create(device, caps.MaxBindlessTextures);
+			s_Data->Bindless = s_Data->Heap != nullptr;
+		}
+		RV_CORE_INFO("Renderer3D: material textures {0} (change with --bindless=on|off)",
+					 s_Data->Bindless
+						 ? "through the bindless heap, " + std::to_string(caps.MaxBindlessTextures) + " slots"
+						 : caps.SupportsDescriptorIndexing ? std::string("bound per material (heap disabled)")
+														   : std::string("bound per material (no descriptor indexing)"));
+
+		const std::vector<std::string> defines = s_Data->Bindless
+			? std::vector<std::string>{ "RV_BINDLESS" }
+			: std::vector<std::string>{};
+
+		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", defines);
 		if (!compiled)
 		{
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr.rvshader");
@@ -454,7 +493,7 @@ namespace RageV
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
 
-		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr_skinned.rvshader"))
+		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr_skinned.rvshader", defines))
 			s_Data->SkinnedShader = device.CreateShader(*compiled);
 		else
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_skinned.rvshader");
@@ -499,6 +538,21 @@ namespace RageV
 	Ref<Material> Renderer3D::GetDefaultMaterial()
 	{
 		return s_Data ? s_Data->DefaultMaterial : nullptr;
+	}
+
+	bool Renderer3D::IsBindless()
+	{
+		return s_Data && s_Data->Bindless;
+	}
+
+	unsigned int Renderer3D::GetHeapLiveCount()
+	{
+		return s_Data && s_Data->Heap ? s_Data->Heap->GetLiveCount() : 0u;
+	}
+
+	unsigned int Renderer3D::GetHeapFreeCount()
+	{
+		return s_Data && s_Data->Heap ? s_Data->Heap->GetFreeCount() : 0u;
 	}
 
 	void Renderer3D::SetTargetFormats(Format color, Format depth, uint32_t samples,
@@ -586,6 +640,10 @@ namespace RageV
 		// The GPU has finished with this frame's slots, so they are reusable.
 		s_Data->SceneCursor = 0;
 		s_Data->ShadowCursor = 0;
+		// And with the heap slots retired when this frame index last came
+		// round, which is what lets the heap recycle them now.
+		if (s_Data->Heap)
+			s_Data->Heap->BeginFrame(s_Data->Device->GetFrameIndex());
 		// Accumulated across every scene drawn this frame rather than reset per
 		// scene, or the statistics panel would only ever show the last viewport.
 		s_Data->DrawCalls = 0;
@@ -1077,6 +1135,44 @@ namespace RageV
 
 		const uint32_t count = (uint32_t)s_Data->Pending.size();
 
+		// The material records (ENGINE-NOTES 7al). Every distinct material this
+		// scene drew gets one, numbered in first-seen order after the sort, and
+		// the number goes into the instance where the fragment stage reads it
+		// back. Before the instance upload below, because it writes into the
+		// instances. Bound path: nothing -- the material set carries it all.
+		if (s_Data->Bindless)
+		{
+			s_Data->MaterialScratch.clear();
+			s_Data->MaterialIndex.clear();
+			for (PendingDraw& draw : s_Data->Pending)
+			{
+				const Material* key = draw.MaterialRef.get();
+				auto it = s_Data->MaterialIndex.find(key);
+				if (it == s_Data->MaterialIndex.end())
+				{
+					GpuMaterial record;
+					if (draw.MaterialRef)
+						draw.MaterialRef->WriteRecord(*s_Data->Heap, record);
+					it = s_Data->MaterialIndex.emplace(key, (uint32_t)s_Data->MaterialScratch.size()).first;
+					s_Data->MaterialScratch.push_back(record);
+				}
+				draw.Instance.Indices.z = (float)it->second;
+			}
+
+			const uint32_t records = (uint32_t)s_Data->MaterialScratch.size();
+			if (!EnsureInstanceBuffer(slot.Materials, slot.MaterialCapacity, records,
+									  sizeof(GpuMaterial), "Renderer3D.materials"))
+			{
+				return;
+			}
+			slot.Materials->Upload(s_Data->MaterialScratch.data(),
+								   (uint64_t)records * sizeof(GpuMaterial));
+
+			// The heap's staged writes, once, before the command buffer that
+			// reads them is submitted.
+			s_Data->Heap->Commit();
+		}
+
 		if (!EnsureInstanceBuffer(slot.Instances, slot.InstanceCapacity, count,
 								  sizeof(InstanceData), "Renderer3D.instances"))
 		{
@@ -1093,6 +1189,14 @@ namespace RageV
 
 		slot.Set->SetStorageBuffer(7, slot.Instances, 0,
 								   (uint64_t)count * sizeof(InstanceData));
+		// Only where the layout declares it: on the bound path the shader has
+		// no binding 13, and writing an undeclared binding is the validation
+		// error HANDOFF section 5 records.
+		if (s_Data->Bindless)
+		{
+			slot.Set->SetStorageBuffer(13, slot.Materials, 0,
+									   (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+		}
 
 		// Always bound, even with nothing skinned in the scene: the layout
 		// declares the binding whether or not this frame uses it, and a
@@ -1124,6 +1228,11 @@ namespace RageV
 											  (uint64_t)count * sizeof(InstanceData));
 			slot.SkinnedSet->SetStorageBuffer(11, slot.Bones, 0,
 											  (uint64_t)boneCount * sizeof(Mat4));
+			if (s_Data->Bindless)
+			{
+				slot.SkinnedSet->SetStorageBuffer(13, slot.Materials, 0,
+												  (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+			}
 			slot.SkinnedSet->Commit();
 		}
 
@@ -1172,13 +1281,20 @@ namespace RageV
 			{
 				cmd->BindPipeline(pipeline);
 				cmd->BindResourceSet(0, sceneSet);
+				// The heap, at the set every bindless shader declares it at.
+				// Once per pipeline, not per run: nothing about it changes
+				// between draws, which is the point of it.
+				if (s_Data->Bindless)
+					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 				boundSkinned = first.Skinned;
 				anyPipelineBound = true;
 			}
 
 			// Any material in the run would do: the key is exactly the state
-			// this binds, so they are interchangeable by construction.
-			if (first.MaterialRef)
+			// this binds, so they are interchangeable by construction. On the
+			// bindless path there is nothing to bind -- the maps are heap
+			// slots in the record the instance names -- and set 1 is empty.
+			if (first.MaterialRef && !s_Data->Bindless)
 				first.MaterialRef->Bind(*cmd, pipeline, 1);
 
 			ObjectPushConstants object;
@@ -1497,7 +1613,7 @@ namespace RageV
 
 		PendingDraw draw;
 		draw.MeshKey = mesh.get();
-		draw.MaterialKey = effective->GetBatchKey();
+		draw.MaterialKey = effective->GetBatchKey(s_Data->Bindless);
 		draw.MeshRef = mesh;
 		draw.MaterialRef = effective;
 
@@ -1552,7 +1668,7 @@ namespace RageV
 
 		PendingDraw draw;
 		draw.MeshKey = mesh.get();
-		draw.MaterialKey = effective->GetBatchKey();
+		draw.MaterialKey = effective->GetBatchKey(s_Data->Bindless);
 		draw.Skinned = true;
 		draw.MeshRef = mesh;
 		draw.MaterialRef = effective;

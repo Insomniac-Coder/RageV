@@ -18,13 +18,17 @@
 // Command line:
 //   --rhi=vulkan|opengl     graphics backend
 //   --vsync=on|off
-//   --validation=on|off     Vulkan validation layers (no effect without the SDK)
+//   --validation=on|off|gpu Vulkan validation layers (no effect without the SDK);
+//                           gpu adds GPU-assisted validation, which is the only
+//                           check that sees a bad bindless index
 //   --frames-in-flight=N
 //   --fixed-hz=N            simulation steps per second (default 60)
 //   --width=N --height=N    window size
 //   --audio=on|off          open an output device at all
 //   --import-cache=on|off   read and write cooked assets (default on)
 //   --depth-sort=on|off     order opaque batches front to back (default on)
+//   --bindless=on|off       material textures through the bindless heap where
+//                           the device can (default on; no effect on OpenGL)
 //   --aa=none|fxaa|smaa|ssaa|msaa|taa  override the scene's anti-aliasing choice
 //                           (also written to ragev.ini by the editor's
 //                           Render Settings dropdown, so a choice sticks)
@@ -190,6 +194,17 @@ namespace RageV
 		// switch is worth a few percent.
 		bool         DepthSortOpaque = true;
 
+		// Whether the lit pass reads material textures through the bindless
+		// heap (ENGINE-NOTES 7al) on a device that has one.
+		//
+		// On by default and silently absent on OpenGL, which has no heap. Off
+		// exists for one reason: on Vulkan both paths run, so rendering the
+		// same scene with this on and off and comparing the pixels is the
+		// check that the whole feature is right -- the two must be identical.
+		// The same reason --depth-sort=off exists: a switch that keeps a
+		// change measurable rather than remembered.
+		bool         Bindless = true;
+
 		// Whether cooked assets may be read from and written to the project's
 		// import cache (ENGINE-NOTES 7l).
 		//
@@ -218,6 +233,13 @@ namespace RageV
 		// cost like that should be a choice, not a default. `validation = on`
 		// in ragev.ini or --validation=on turns them on for GPU debugging.
 		bool         EnableValidation = false;
+		// --validation=gpu: the layers instrument every shader to check what
+		// it actually reads. Slow, and the only thing that reports an
+		// out-of-range index into a bindless array -- ordinary validation
+		// cannot know which element a shader will touch (ENGINE-NOTES 7al).
+		// Turns synchronization validation off for the run; the two do not
+		// share a process well.
+		bool         ValidationGpuAssisted = false;
 
 		// Parses ragev.ini (if present) then the command line. Call once, before
 		// anything creates a window.

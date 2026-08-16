@@ -28,6 +28,8 @@ namespace RageV::RHI
 		uint32_t            Height           = 900;
 		bool                VSync            = true;
 		bool                EnableValidation = false;
+		// With the layers on, also instrument shaders (GPU-assisted). Slow.
+		bool                GpuAssistedValidation = false;
 		uint32_t            FramesInFlight   = 2;
 	};
 
@@ -147,5 +149,25 @@ namespace RageV::RHI
 		// layout rather than to a pipeline kind, so these differ only in where
 		// the layout is read from.
 		virtual Ref<RHIResourceSet>  CreateResourceSet(const Ref<RHIComputePipeline>& pipeline, uint32_t set) = 0;
+
+		// The bindless texture heap (ENGINE-NOTES 7al): one set whose single
+		// binding is `capacity` combined image samplers, which a shader
+		// declares as `sampler2D u_Textures[]` and indexes at runtime. Only
+		// `SetTexture(0, texture, sampler, index)` and `Commit()` mean
+		// anything on the result. Its layout comes from the device, not from
+		// a pipeline -- every pipeline whose reflection declares a runtime
+		// array borrows the same one, which is what lets the heap be bound to
+		// any of them.
+		//
+		// Unlike every other set it is *not* one per frame in flight: writes
+		// land immediately, even while the set is bound to a command buffer
+		// the GPU has not finished. That permission has one condition, and
+		// the caller owns it -- a slot that a pending frame reads must not be
+		// rewritten until that frame has completed. Rewrite only slots that
+		// have been retired for as many frames as are in flight.
+		//
+		// Null when GetCaps().SupportsDescriptorIndexing is false, which it is
+		// on OpenGL always; the caller takes the bound path.
+		virtual Ref<RHIResourceSet>  CreateBindlessTextureSet(uint32_t capacity) = 0;
 	};
 }

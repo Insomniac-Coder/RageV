@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "Material.h"
 #include "TextureLoader.h"
+#include "TextureHeap.h"
 
 namespace RageV
 {
@@ -182,8 +183,31 @@ namespace RageV
 		commandList.BindResourceSet(set, resourceSet);
 	}
 
-	uint64_t Material::GetBatchKey() const
+	void Material::WriteRecord(TextureHeap& heap, GpuMaterial& out) const
 	{
+		// The same fallbacks, in the same slots, as Bind's SetTexture calls
+		// above -- and it has to stay that way. The parity check between the
+		// two paths compares pixels, and a different neutral for an absent map
+		// would show up there as a difference that is not the feature's.
+		out.Maps0[0] = heap.Slot(m_BaseColor ? m_BaseColor : TextureLoader::White(m_Device),      m_Sampler);
+		out.Maps0[1] = heap.Slot(m_Normal    ? m_Normal    : TextureLoader::FlatNormal(m_Device), m_Sampler);
+		out.Maps0[2] = heap.Slot(m_Occlusion ? m_Occlusion : TextureLoader::White(m_Device),      m_Sampler);
+		out.Maps0[3] = heap.Slot(m_Emissive  ? m_Emissive  : TextureLoader::Black(m_Device),      m_Sampler);
+		out.Maps1[0] = heap.Slot(m_Roughness ? m_Roughness : TextureLoader::White(m_Device),      m_Sampler);
+		out.Maps1[1] = heap.Slot(m_Metallic  ? m_Metallic  : TextureLoader::White(m_Device),      m_Sampler);
+		out.Maps1[2] = heap.Slot(m_Specular  ? m_Specular  : TextureLoader::White(m_Device),      m_Sampler);
+		out.Maps1[3] = heap.Slot(m_Height    ? m_Height    : TextureLoader::Black(m_Device),      m_Sampler);
+		out.UvTransform = m_Params.UvTransform;
+		out.MapFlags    = m_Params.MapFlags;
+		out.Specular    = m_Params.Specular;
+		out.HeightScale = m_Params.HeightScale;
+	}
+
+	uint64_t Material::GetBatchKey(bool bindless) const
+	{
+		if (bindless)
+			return 0;
+
 		// A hash of the bound state, not of the material. Pointer identity is
 		// the right comparison here: two Refs to the same texture produce the
 		// same descriptor write, and two textures with identical contents are
@@ -206,12 +230,34 @@ namespace RageV
 		mix(m_Height.get());
 		mix(m_Sampler.get());
 
-		// MapFlags is the one scalar the shader still reads from the material
-		// block, so it has to agree across a batch. It is derived from the maps
-		// above and so is almost always implied by them -- almost, because
-		// nothing stops it being set by hand.
-		hash ^= (uint64_t)(uint32_t)m_Params.MapFlags;
-		hash *= 1099511628211ull;
+		// Everything the shader still reads from the material *block* -- not
+		// only MapFlags. Specular, HeightScale and UvTransform live in that
+		// block and nowhere per instance, so two materials that differ only in
+		// tiling are two bound states, and merging them draws the second with
+		// the first one's tiling.
+		//
+		// Which is exactly what happened, and the bindless parity check is what
+		// found it (ENGINE-NOTES 7al): the courtyard's wall and plinth share
+		// their brick maps and differ in tiling, so on the bound path they
+		// were one run, the nearer plinth came first, and every wall drew at
+		// the plinth's 2.2 x 1.6 instead of its own 9 x 2.4. Nobody noticed,
+		// because it still looked like bricks. The bindless path gives each
+		// material its own record and was right from the start; this key was
+		// wrong from the day UvTransform joined the block, and only a second
+		// implementation to compare against could have said so.
+		auto mixBits = [&hash](const void* data, size_t size)
+		{
+			const auto* bytes = static_cast<const unsigned char*>(data);
+			for (size_t i = 0; i < size; i++)
+			{
+				hash ^= bytes[i];
+				hash *= 1099511628211ull;
+			}
+		};
+		mixBits(&m_Params.MapFlags, sizeof(m_Params.MapFlags));
+		mixBits(&m_Params.Specular, sizeof(m_Params.Specular));
+		mixBits(&m_Params.HeightScale, sizeof(m_Params.HeightScale));
+		mixBits(&m_Params.UvTransform, sizeof(m_Params.UvTransform));
 
 		return hash;
 	}

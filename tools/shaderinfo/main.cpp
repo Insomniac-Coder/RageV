@@ -3,7 +3,11 @@
 // generates for the OpenGL backend. Useful for checking binding layouts and
 // vertex strides without launching the editor.
 //
-//   shaderinfo [path/to/shader.rvshader]
+//   shaderinfo [path/to/shader.rvshader] [-DNAME[=VALUE]]... [--no-glsl]
+//
+// -D compiles a variant, the way the renderer does for RV_BINDLESS. --no-glsl
+// skips the OpenGL cross-compile, which a bindless variant cannot survive by
+// design (ENGINE-NOTES 7al) -- so the failure is stated rather than tripped.
 #include <rvpch.h>
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "RageV/Core/Log.h"
@@ -40,13 +44,28 @@ int main(int argc, char** argv)
     Log::Init();
     ShaderCompiler::Init();
 
-    const char* path = argc > 1 ? argv[1] : "assets/shaders/quad.rvshader";
-    auto compiled = ShaderCompiler::CompileFromFile(path);
+    const char* path = "assets/shaders/quad.rvshader";
+    std::vector<std::string> defines;
+    bool crossCompile = true;
+    for (int i = 1; i < argc; i++)
+    {
+        const std::string arg = argv[i];
+        if (arg.rfind("-D", 0) == 0 && arg.size() > 2)
+            defines.push_back(arg.substr(2));
+        else if (arg == "--no-glsl")
+            crossCompile = false;
+        else
+            path = argv[i];
+    }
+
+    auto compiled = ShaderCompiler::CompileFromFile(path, defines);
     if (!compiled)
     {
         RV_CORE_ERROR("COMPILE FAILED");
         return 1;
     }
+    for (const auto& define : defines)
+        RV_CORE_INFO("  define {0}", define);
 
     RV_CORE_INFO("Shader '{0}' compiled, {1} stage(s)", compiled->Name, compiled->Stages.size());
     for (const auto& stage : compiled->Stages)
@@ -82,6 +101,8 @@ int main(int argc, char** argv)
 
     for (const auto& stage : compiled->Stages)
     {
+        if (!crossCompile)
+            break;
         auto glsl = ShaderCompiler::CrossCompileToGLSL(stage, bindings, 450);
         if (!glsl)
         {

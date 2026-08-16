@@ -52,6 +52,12 @@ namespace RageV::RHI
 	{
 		std::string                    Name;
 		std::vector<ShaderStageSource> Stages;
+		// Preprocessor definitions applied to every stage, each `NAME` or
+		// `NAME=VALUE`, before the source is seen. One .rvshader can then
+		// yield more than one shader -- the PBR source compiles with and
+		// without RV_BINDLESS -- without the six hundred lines that could
+		// drift existing twice. Part of the SPIR-V cache key.
+		std::vector<std::string>       Defines;
 	};
 
 	class RHIShader

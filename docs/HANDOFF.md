@@ -1591,31 +1591,44 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: the manual is real now -- phase 8 is next, and the owner picks
+### START HERE: bindless is in, and it found a bug in the path it replaced -- 8.12 is unblocked
 
-**2026-08-16 was five pieces of work, all committed, four unpushed.** In
-order: M.1 (MSAA handed a multisampled depth to a `sampler2D`; the whole frame
-blurred), X (the engine's own `<cmath>` and `RageV.Mathf`), E.1 (Ctrl+S did
-nothing because the UI overlay ate the keystroke), and D.5a-d (the manual).
+**8.2 (2026-08-16, ENGINE-NOTES 7al) is done and verified.** The design was
+written first and it held: the split between the backends is forced in
+exactly two places -- the descriptor heap and the GLSL that indexes it -- and
+neither is the RHI. On Vulkan the lit pass reads material textures through
+one heap indexed per instance; on OpenGL nothing changed, and the log says
+so at startup (`Renderer3D: material textures ...`). The fork lives in
+`Material::Bind` / `Material::WriteRecord` and one block of
+`pbr_fragment.glsl` under `RV_BINDLESS`; the RHI gained one factory
+(`CreateBindlessTextureSet`) and one flag that already existed and was never
+set (`SupportsDescriptorIndexing`).
 
-**D.5 was the owner's criticism, raised twice: the manual explained a few
-things and assumed the rest.** It is now 22 pages from 9. The settings and
-components are **drift-checked by name, by default and by enumerator** -- 272
-members, 114 defaults, 43 enum values, all failing by name at exit 1 when a
-header moves. The ten system pages are prose and are **not** checked; that is
-the stated limit.
+**The check that proves it is a pixel comparison, and on its first run it
+failed on every wall -- in the *bound* path.** `Material::GetBatchKey` mixed
+maps, sampler and `MapFlags` but not `UvTransform`, `HeightScale` or
+`Specular`, so the courtyard's wall and plinth (same maps, different tiling)
+were one run and every wall drew at the plinth's tiling, since the day
+`UvTransform` joined the block. Fixed; both paths now agree to zero pixels
+across five runs (`tools/scripts/check_bindless.py`). **Read 7al's "What
+building it found" before touching either path.**
 
-**Phase 8 is next and which item is the owner's call.** 8.12 ray tracing was
-added at the owner's direction with two lines the others do not have: it
-depends on 8.2, and it has no OpenGL path at all. The roadmap's own ordering
-still stands -- 8.4 and 8.9 are ordinary features, 8.2 is a decision about the
-engine's identity, and everything else is larger than everything built so far.
-**Settling 8.2 on paper is worth doing before either 8.2 or 8.12 is started.**
+**Two new flags.** `--bindless=on|off` (default on; the off run on Vulkan is
+the parity control) and `--validation=gpu` (GPU-assisted validation: the only
+thing that reports an out-of-range bindless index -- plain validation says
+nothing, verified). A wrong index draws **magenta**, by construction: slot 0
+and every unwritten slot are the error texture.
 
-**One thing unconfirmed from the assistant's side**: the Ctrl+S fix could not
-be driven end to end from a terminal. Open the editor, change something in the
-Inspector, press Ctrl+S. If it still does nothing, that is above everything
-else on this list.
+**Phase 8 continues and which item is the owner's call.** 8.12 ray tracing
+was behind 8.2 and is unblocked; it still has no OpenGL path and needs an RTX
+or RDNA2-class GPU. 8.4 and 8.9 are ordinary features. The rest are each
+larger than everything built so far.
+
+**Still unconfirmed from the assistant's side**: the Ctrl+S fix (E.1) could
+not be driven end to end from a terminal. Open the editor, change something
+in the Inspector, press Ctrl+S.
+
+---
 
 ---
 
@@ -1675,6 +1688,59 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 8.2, bindless materials: one fork, and a bug in the path it replaced (2026-08-16)
+
+Design first (ENGINE-NOTES 7al), then the code. The design's claim -- that
+the split is forced in two places and neither is the RHI -- held: ~600 lines,
+~200 of them Vulkan, ~150 the two forks, six in the OpenGL backend and all of
+them "no".
+
+**RHI**: `ShaderDesc::Defines` (glslang preamble, in the SPIR-V cache key);
+`ResourceBinding::Count == 0` means runtime-sized;
+`DeviceCaps::SupportsDescriptorIndexing` / `MaxBindlessTextures` set for
+real; `RHIDevice::CreateBindlessTextureSet(capacity)`. **Vulkan**: the six
+1.2 indexing features enabled where present; one canonical heap layout on
+the device (`GetBindlessTextureLayout`, PARTIALLY_BOUND | UPDATE_AFTER_BIND |
+VARIABLE_DESCRIPTOR_COUNT), borrowed by any pipeline whose reflection
+declares a runtime array and not destroyed by it; `VulkanBindlessSet`, one
+set with its own update-after-bind pool, writes landing immediately;
+`VulkanSetBase` so `BindResourceSet` binds either kind. **OpenGL**:
+`CreateBindlessTextureSet` returns null and says so once. **Renderer**:
+`TextureHeap` (free list, dedup by (texture, sampler), weak textures, slot 0
+= magenta, every slot written at creation, retire-then-recycle by frame in
+flight); `Material::WriteRecord` and a 64-byte `GpuMaterial` per distinct
+material per frame at set 0 binding 13; `InstanceData.Indices.z` names it;
+`GetBatchKey(bindless)` returns 0 so runs merge across materials; the heap
+bound at `TextureHeap::kSet` = 2 after each pipeline bind. **Shader**: one
+`#ifdef RV_BINDLESS` block in `pbr_fragment.glsl` -- `u_Textures[]`,
+`u_Materials`, `#define u_BaseColorMap u_Textures[nonuniformEXT(...)]` -- and
+everything below it unchanged; `pbr_skinned` shares it.
+
+**Checks.** `CheckBindlessHeap` in scenetest (32 checks on Vulkan: the
+shader/renderer convention, slot bookkeeping, retire-and-recycle, and a
+compute shader that samples through the heap and reads back red/green/blue
+and magenta; 11 on OpenGL: the convention plus a stated skip).
+`check_bindless.py`: on equals off to zero pixels on Vulkan, each path
+reproduces, OpenGL takes the bound path, GPU-AV is quiet. Falsified three
+ways: a wrong normal-map slot (1,432,357 px differ), a slot pushed past
+capacity under `--validation=gpu` ("Index of 5004 used to index descriptor
+array of length 4096" -- and nothing under `--validation=on`), and the batch
+key reverted (1,036,879 px differ, the walls).
+
+**Honest limits.** The parity check covers the maps the courtyard samples;
+a wrong emissive/metallic/specular slot is invisible to it because no
+courtyard material has one (verified: swapping emissive gave zero pixels
+differing). 2D, UI and post are deliberately not on the heap -- see 7al for
+why, and what it would cost to move them.
+
+**Verified**: Debug/Release/Dist built; scenetest 1606 on Vulkan with
+validation (zero `[Vulkan]` lines), 1585 on OpenGL, zero FAIL; editor and
+runtime exit 0 on both backends; check_bindless, check_ssr, check_oit,
+check_depth_of_field, check_ssao, check_smaa all pass on Release; rvdoc
+--check exit 0.
 
 ---
 

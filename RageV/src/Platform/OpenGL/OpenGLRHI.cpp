@@ -1904,6 +1904,15 @@ namespace RageV::GL
 		return std::make_shared<OpenGLResourceSetRHI>(*this, concrete.get(), concrete, set);
 	}
 
+	Ref<RHIResourceSet> OpenGLDevice::CreateBindlessTextureSet(uint32_t)
+	{
+		// Stated once rather than silently, so a caller that forgot to ask the
+		// caps first learns why it got nothing.
+		RV_CORE_INFO("[OpenGL] bindless texture heap unavailable on this backend; "
+					 "the bound path is used");
+		return nullptr;
+	}
+
 	void OpenGLDevice::ExecuteImmediate(const std::function<void(RHICommandList&)>& record)
 	{
 		if (!record)

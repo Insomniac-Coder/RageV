@@ -69,6 +69,7 @@ namespace RageV::Vk
 		RHI::Ref<RHI::RHIRenderTarget> CreateRenderTarget(const RHI::RenderTargetDesc& desc) override;
 		RHI::Ref<RHI::RHIResourceSet>  CreateResourceSet(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set) override;
 		RHI::Ref<RHI::RHIResourceSet>  CreateResourceSet(const RHI::Ref<RHI::RHIComputePipeline>& pipeline, uint32_t set) override;
+		RHI::Ref<RHI::RHIResourceSet>  CreateBindlessTextureSet(uint32_t capacity) override;
 		RHI::Ref<RHI::RHIComputePipeline> CreateComputePipeline(const RHI::ComputePipelineDesc& desc) override;
 
 		// ------------------------------------------------------------------
@@ -99,6 +100,15 @@ namespace RageV::Vk
 		VkDescriptorPool AllocateDescriptorSets(const VkDescriptorSetLayout* layouts,
 												uint32_t count, VkDescriptorSet* out);
 
+		// The one set layout every bindless heap and every pipeline that reads
+		// one share (ENGINE-NOTES 7al). Pipeline-layout compatibility is by
+		// *identically defined* set layouts, so a pipeline whose reflection
+		// declares a runtime-sized sampler array borrows this rather than
+		// building its own -- and must not destroy it. Created on first use;
+		// VK_NULL_HANDLE when the device cannot do descriptor indexing.
+		VkDescriptorSetLayout GetBindlessTextureLayout();
+		bool DescriptorIndexingSupported() const { return m_DescriptorIndexingSupported; }
+
 		// Resources copy this so their destructors never touch the device
 		// itself; see DeletionQueue for why that matters.
 		const std::shared_ptr<DeletionQueue>& GetDeletionQueue() const { return m_Deletion; }
@@ -127,7 +137,7 @@ namespace RageV::Vk
 		bool WasSetBoundThisFrame(VkDescriptorSet set) const;
 
 	private:
-		void CreateInstance(bool enableValidation);
+		void CreateInstance(bool enableValidation, bool gpuAssisted);
 		void CreateSurface();
 		void SelectPhysicalDevice();
 		void CreateLogicalDevice();
@@ -197,6 +207,14 @@ namespace RageV::Vk
 		// Not in the chain: ImGui holds this handle forever and cannot be moved
 		// to a new block when one fills.
 		VkDescriptorPool m_ImGuiPool = VK_NULL_HANDLE;
+
+		// The bindless heap. Capacity is what is asked for; a driver whose
+		// update-after-bind limit is under the floor reports the feature
+		// absent instead of a heap too small to be the feature.
+		static constexpr uint32_t kBindlessCapacity = 4096;
+		static constexpr uint32_t kBindlessFloor    = 256;
+		bool m_DescriptorIndexingSupported = false;
+		VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
 
 		// One pool per frame in flight, so a frame never resets a pool the GPU
 		// is still writing into.

@@ -365,7 +365,9 @@ namespace RageV::Vk
 	{
 		RV_CORE_ASSERT(m_BoundPipeline, "BindResourceSet requires a bound pipeline");
 
-		auto vulkanSet = std::static_pointer_cast<VulkanResourceSet>(resources);
+		// The base rather than the per-frame class: the bindless heap is a
+		// set too, and which kind this is does not matter here.
+		auto vulkanSet = std::static_pointer_cast<VulkanSetBase>(resources);
 		VkDescriptorSet handle = vulkanSet->GetHandle();
 
 		// The bound pipeline's own bind point, not a fixed one: a set bound

@@ -339,6 +339,10 @@ namespace RageV::GL
 		Ref<RHIRenderTarget> CreateRenderTarget(const RenderTargetDesc& desc) override;
 		Ref<RHIResourceSet>  CreateResourceSet(const Ref<RHIPipeline>& pipeline, uint32_t set) override;
 		Ref<RHIResourceSet>  CreateResourceSet(const Ref<RHIComputePipeline>& pipeline, uint32_t set) override;
+		// Always null. GL 4.5 has no object for a runtime-indexed texture
+		// array, and the extension that adds one has no SPIR-V route -- see
+		// ENGINE-NOTES 7al for why this is the whole OpenGL implementation.
+		Ref<RHIResourceSet>  CreateBindlessTextureSet(uint32_t capacity) override;
 		Ref<RHIComputePipeline> CreateComputePipeline(const ComputePipelineDesc& desc) override;
 		void ExecuteImmediate(const std::function<void(RHICommandList&)>& record) override;
 

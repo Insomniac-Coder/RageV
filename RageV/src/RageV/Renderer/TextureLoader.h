@@ -77,6 +77,11 @@ namespace RageV
 		static RHI::Ref<RHI::RHITexture> TransparentBlack(RHI::RHIDevice& device);
 		// (0.5, 0.5, 1.0) -- a normal pointing straight out of the surface.
 		static RHI::Ref<RHI::RHITexture> FlatNormal(RHI::RHIDevice& device);
+		// The colour of a wrong index: slot 0 of the bindless heap and every
+		// slot nobody has written (ENGINE-NOTES 7al). Deliberately the one
+		// colour no material in a real scene is, so it reads as a bug and not
+		// as a look.
+		static RHI::Ref<RHI::RHITexture> Magenta(RHI::RHIDevice& device);
 
 		static void ClearCache();
 	};

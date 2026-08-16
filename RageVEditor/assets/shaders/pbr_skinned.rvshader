@@ -74,6 +74,7 @@ void main()
 	v_EmissiveColor = instance.EmissiveColor;
 	v_Surface       = instance.Surface;
 	v_Probe         = instance.Indices.y;
+	v_MaterialIndex = instance.Indices.z;
 
 	gl_Position = u_Scene.ViewProjection * world;
 	v_ClipPos = gl_Position;

@@ -628,7 +628,7 @@ deleted. **None of these should be started because it sounds interesting.**
 | # | Item | Size | What it costs |
 |---|---|---|---|
 | 8.1 | Global illumination — SDFGI or voxel GI | XL | IBL plus good shadows already gets most of the perceived benefit. This is the largest possible effort for the smallest visible delta in this engine |
-| 8.2 | Bindless resource binding | L | **The first place the two-backend commitment has a real price.** Descriptor indexing is core in Vulkan 1.2; OpenGL 4.5 has no equivalent. Doing this means either dropping OpenGL or maintaining two materially different binding models |
+| 8.2 | Bindless resource binding | L | **Done 2026-08-16 (ENGINE-NOTES 7al).** The price turned out smaller than predicted: the split is forced in two places — the heap and the GLSL that indexes it — and neither is the RHI. The Vulkan lit pass reads material textures through a heap; OpenGL keeps the bound path, unchanged. One fork, in `Material` and one shader block, checked by rendering the demo both ways on Vulkan to zero differing pixels — which on its first run found the bound path drawing every wall at the plinth's tiling |
 | 8.3 | GPU-driven rendering — compute-built draw commands, meshlets | XL | Real wins at hundreds of thousands of objects. The renderer draws a thousand in 1.9 ms and is nowhere near the wall |
 | 8.4 | Terrain | L | **`experiments/terrain/Chunk` must be deleted first.** It creates one entity per voxel *face* — thousands of entities per chunk — and is not a starting point for anything |
 | 8.5 | Navigation and AI — navmesh generation, pathfinding | XL | An engine-sized subsystem on its own |
@@ -641,9 +641,10 @@ deleted. **None of these should be started because it sounds interesting.**
 | 8.12 | Ray tracing — acceleration structures, ray queries, reflections and shadows | XL | **Depends on 8.2, and has no OpenGL path at all.** A hit shader is reached by a ray that could have hit anything, so it must read any mesh and any material with nobody having bound them — that is descriptor indexing, which is 8.2. And where bindless has an awkward OpenGL analogue, ray tracing has none: this is the first item that would make `--rhi=opengl` a backend that cannot run the feature |
 
 **The honest ordering, if any of these happen:** 8.4 and 8.9 are ordinary
-features. 8.2 is a decision about the engine's identity, not a feature — and
-8.12 is behind it, which makes settling 8.2 worth doing on paper before either
-is started. The rest are each larger than everything built so far.
+features. 8.2 was a decision about the engine's identity, and it has been
+made: the seam is at the shader define and the material, the RHI stays one
+interface, and OpenGL is not dropped. 8.12 is unblocked. The rest are each
+larger than everything built so far.
 
 ### 8.12 in more detail, because it is the one most likely to be started for the wrong reason
 
@@ -696,10 +697,11 @@ that excluded them kept beside each item as its cost rather than thrown away.
 
 Two of them are worth repeating here because they are not merely large:
 
-- **Bindless (8.2) is a decision about what this engine is.** OpenGL 4.5 has no
-  equivalent to Vulkan's descriptor indexing, so adopting it means dropping a
-  backend or maintaining two different binding models. Everything else in this
-  document is compatible with both.
+- **Bindless (8.2) was a decision about what this engine is, and it is made.**
+  OpenGL 4.5 has no equivalent to Vulkan's descriptor indexing; the engine
+  keeps both by forking at the shader preprocessor and the material, never at
+  the RHI (ENGINE-NOTES 7al). Everything else in this document is compatible
+  with both, and 8.12 is the first item that will not be.
 - **Terrain (8.4) has a false start in the tree.** `experiments/terrain/Chunk`
   creates one entity per voxel face. It must be deleted before anything is
   built, not extended.

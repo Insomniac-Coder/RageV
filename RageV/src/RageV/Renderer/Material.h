@@ -73,6 +73,29 @@ namespace RageV
 	static_assert(sizeof(MaterialParams) == 80,
 				  "Must match the MaterialData block in include/pbr_fragment.glsl");
 
+	// What the bindless variant reads instead of a bound material set
+	// (ENGINE-NOTES 7al): the eight heap slots and the three scalars the
+	// bound path still keeps in its uniform block. The rest of MaterialParams
+	// is already per instance. One record per distinct material per frame,
+	// written into a storage buffer the instance indexes. Mirrors GpuMaterial
+	// in include/pbr_fragment.glsl, std430.
+	struct GpuMaterial
+	{
+		// Base colour, normal, occlusion, emissive.
+		uint32_t Maps0[4] = { 0, 0, 0, 0 };
+		// Roughness, metallic, specular, height.
+		uint32_t Maps1[4] = { 0, 0, 0, 0 };
+		Vec4     UvTransform{ 1.0f, 1.0f, 0.0f, 0.0f };
+		int32_t  MapFlags = 0;
+		float    Specular = 0.5f;
+		float    HeightScale = 0.05f;
+		int32_t  _padding = 0;
+	};
+	static_assert(sizeof(GpuMaterial) == 64,
+				  "Must match GpuMaterial in include/pbr_fragment.glsl");
+
+	class TextureHeap;
+
 	enum MaterialMap : int32_t
 	{
 		MaterialMap_BaseColor         = 1 << 0,
@@ -134,17 +157,36 @@ namespace RageV
 		// done in the constructor.
 		void Bind(RHI::RHICommandList& commandList, const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set);
 
+		// The bindless path's half of Bind (ENGINE-NOTES 7al): registers every
+		// map in the heap and writes the record the shader reads instead of a
+		// bound set. A pure function of the material's state; the renderer
+		// decides where the record goes and which instance names it. Absent
+		// maps take the same neutral 1x1 fallbacks the bound path binds, so
+		// the two variants sample identical texels and the pixel comparison
+		// between them is exact.
+		void WriteRecord(TextureHeap& heap, GpuMaterial& out) const;
+
 		// What makes two materials interchangeable to a batched draw.
 		//
-		// The five maps, the sampler and the map flags -- everything the
-		// descriptor set holds -- and deliberately not the scalar parameters,
-		// which the renderer sends per instance. Two materials with the same
-		// key produce the same bound state, so their objects can be one draw
-		// even when they are different colours. That is the difference between
-		// instancing collapsing a scene of props and doing nothing at all,
-		// because a scene where every object carries its own Material has no
-		// two objects sharing one.
-		uint64_t GetBatchKey() const;
+		// The eight maps, the sampler, and every scalar the shader still reads
+		// from the material *block* -- MapFlags, Specular, HeightScale,
+		// UvTransform -- which is everything the descriptor set holds, and
+		// deliberately not the parameters the renderer sends per instance. Two
+		// materials with the same key produce the same bound state, so their
+		// objects can be one draw even when they are different colours. That
+		// is the difference between instancing collapsing a scene of props and
+		// doing nothing at all, because a scene where every object carries its
+		// own Material has no two objects sharing one.
+		//
+		// The block's scalars were missing from this key until the bindless
+		// parity check found two materials sharing maps and differing in
+		// tiling drawn as one run -- see the .cpp.
+		//
+		// On the bindless path nothing is bound per material at all -- the
+		// maps are heap slots in a per-instance record -- so the key is zero
+		// and a run breaks on mesh alone. That is the one-line branch the
+		// design promised the batching loop would need.
+		uint64_t GetBatchKey(bool bindless = false) const;
 
 		static RHI::Ref<Material> CreateDefault(RHI::RHIDevice& device);
 
