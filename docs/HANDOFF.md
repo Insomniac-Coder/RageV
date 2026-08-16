@@ -1591,7 +1591,33 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: Ctrl+S works again -- phase 8 is next
+### START HERE: the manual is real now -- phase 8 is next, and the owner picks
+
+**2026-08-16 was five pieces of work, all committed, four unpushed.** In
+order: M.1 (MSAA handed a multisampled depth to a `sampler2D`; the whole frame
+blurred), X (the engine's own `<cmath>` and `RageV.Mathf`), E.1 (Ctrl+S did
+nothing because the UI overlay ate the keystroke), and D.5a-d (the manual).
+
+**D.5 was the owner's criticism, raised twice: the manual explained a few
+things and assumed the rest.** It is now 22 pages from 9. The settings and
+components are **drift-checked by name, by default and by enumerator** -- 272
+members, 114 defaults, 43 enum values, all failing by name at exit 1 when a
+header moves. The ten system pages are prose and are **not** checked; that is
+the stated limit.
+
+**Phase 8 is next and which item is the owner's call.** 8.12 ray tracing was
+added at the owner's direction with two lines the others do not have: it
+depends on 8.2, and it has no OpenGL path at all. The roadmap's own ordering
+still stands -- 8.4 and 8.9 are ordinary features, 8.2 is a decision about the
+engine's identity, and everything else is larger than everything built so far.
+**Settling 8.2 on paper is worth doing before either 8.2 or 8.12 is started.**
+
+**One thing unconfirmed from the assistant's side**: the Ctrl+S fix could not
+be driven end to end from a terminal. Open the editor, change something in the
+Inspector, press Ctrl+S. If it still does nothing, that is above everything
+else on this list.
+
+---
 
 **E.1 (2026-08-16), reported by the owner twice**: Ctrl+S did not save. It
 saved fine with the pointer over the viewport and did nothing everywhere else
@@ -1649,6 +1675,39 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - D.5d, the check reads the values, not only the names (2026-08-16)
+
+The coverage check asserted a row exists. It said nothing about what the row
+claims, and that gap is where all three errors in D.5b and D.5c lived.
+
+**Defaults**: the header's initialiser against the row's second column,
+compared *numerically*, so `0.5f` against `0.5` is an agreement rather than a
+special case. Only bare scalars are comparable; a handle, a vector or an
+enumerator is counted as unchecked **and the count is printed**, so the
+coverage is a figure rather than an impression. 114 compared.
+
+**Enumerators**: every value of an enum the manual describes has to appear on
+the page as a code span. 43 values across 13 enums. This is the check that
+would have caught `ConstantPixelSize`.
+
+Both falsified: `BloomKnee` changed to 0.4f gives *"defaults to 0.4f, but
+post-processing.md says 0.5"*; `Capsule` renamed to `Pill` gives
+*"ColliderShape::Pill exists but components.md does not name it"*.
+
+**Writing them found three flaws in the checker, all the same family as the
+bugs it hunts -- a check asserting less than it appears to.**
+`DocumentedDefaults` was flat per page, so `Speed` on the animator collided
+with `Speed` on the emitter and three *correct* defaults were reported wrong;
+it is per heading now. `EnumValuesOf` read line by line, so a single-line enum
+yielded one value and the check passed having verified half of it; it splits
+on commas now. And `.at("")` threw on any page with two-cell tables.
+
+**What is still unchecked, and cannot be**: the ten prose pages, and the
+description text in every row. Nothing automatic can ask whether a paragraph
+is still true.
 
 ---
 
