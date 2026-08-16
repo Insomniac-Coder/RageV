@@ -638,10 +638,40 @@ deleted. **None of these should be started because it sounds interesting.**
 | 8.9 | FBX / Collada import | L | glTF covers Blender, Maya, Substance and every online library. This is a second material translation with its own failure modes |
 | 8.10 | Visual scripting | XL | "Two scripting languages is already two" — and this would be the third |
 | 8.11 | Asset store / plugin ecosystem | XL | Needs a stable ABI, which nothing here has |
+| 8.12 | Ray tracing — acceleration structures, ray queries, reflections and shadows | XL | **Depends on 8.2, and has no OpenGL path at all.** A hit shader is reached by a ray that could have hit anything, so it must read any mesh and any material with nobody having bound them — that is descriptor indexing, which is 8.2. And where bindless has an awkward OpenGL analogue, ray tracing has none: this is the first item that would make `--rhi=opengl` a backend that cannot run the feature |
 
 **The honest ordering, if any of these happen:** 8.4 and 8.9 are ordinary
-features. 8.2 is a decision about the engine's identity, not a feature. The rest
-are each larger than everything built so far.
+features. 8.2 is a decision about the engine's identity, not a feature — and
+8.12 is behind it, which makes settling 8.2 worth doing on paper before either
+is started. The rest are each larger than everything built so far.
+
+### 8.12 in more detail, because it is the one most likely to be started for the wrong reason
+
+**What it would buy, which is more than 8.1 would.** The limits it removes are
+already written down: ENGINE-NOTES 7af and 7ag record that screen-space
+reflections only reflect what is on screen, arrive a frame late, and get no
+help from the hi-Z pyramid on grazing rays; §7ac records that SSAO's occluder
+is the depth buffer, which is why 9.8b needed an agreement rule; and cascaded
+shadows carry acne against peter-panning with no setting that has neither. A
+traced ray has none of those problems. That is a stronger case than 8.1, where
+the roadmap's own note says the visible delta is small.
+
+**Two tiers, and the distinction is the whole plan.** *Ray queries* trace from
+an existing compute or fragment shader — no new pipeline type, no shader
+binding table — and the passes that would use them already exist. *Ray tracing
+pipelines* add raygen/miss/closest-hit/any-hit stages and an SBT, which is a
+genuinely new concept in the RHI. The staged version is acceleration structures
+plus ray queries, wired into the SSR trace as the fallback when the
+screen-space walk misses, judged against the exactness fixture 9.9 already
+built.
+
+**What it costs regardless of tier:** a new RHI resource class (a bottom-level
+structure per mesh, a top-level one per frame, with build and refit paths — the
+largest single addition to the RHI since it was written); a BLAS refit every
+frame for anything skinned; device-feature gating, for which the caps
+mechanism already exists and the "skipped on this backend" check shape is
+already demonstrated by `CheckParticleSort`; and an RTX or RDNA2-class GPU to
+develop against with a defined behaviour on everything older.
 
 ---
 

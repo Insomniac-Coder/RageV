@@ -33,7 +33,7 @@ motion.
 
 | Setting | Default | Range | Applies to |
 |---|---|---|---|
-| `AA` | `FXAA` | None, FXAA, SMAA, SSAA, MSAA, TAA | always |
+| `AA` | `FXAA` | `None`, `FXAA`, `SMAA`, `SSAA`, `MSAA`, `TAA` | always |
 | `MsaaSamples` | `4` | 1 to 8, and what the hardware offers | MSAA |
 | `SupersampleFactor` | `2` | 1 to 4 | SSAA |
 | `TemporalFeedback` | `0.6` | 0 to 1 | TAA |

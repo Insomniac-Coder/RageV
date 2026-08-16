@@ -1666,6 +1666,209 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 		return names;
 	}
 
+	// A field's initialiser, by name, for the types the manual states defaults
+	// for.
+	//
+	// **This exists because the name check was never enough.** Coverage says a
+	// row is present; it says nothing about what the row claims. Every default
+	// on those pages was transcribed by hand, and a default changed in a header
+	// leaves the page confidently wrong with the check still green.
+	std::map<std::string, std::string> FieldDefaultsOf(const std::string& body)
+	{
+		std::map<std::string, std::string> defaults;
+		int depth = 0;
+
+		for (const std::string& raw : SplitLines(body))
+		{
+			const std::string line = Trim(raw);
+			const int before = depth;
+			for (char c : line)
+			{
+				if (c == '{') depth++;
+				else if (c == '}') depth--;
+			}
+			if (before != 0 || line.empty())
+				continue;
+
+			const size_t equals = line.find('=');
+			if (equals == std::string::npos)
+				continue;
+
+			std::string head = Trim(line.substr(0, equals));
+			if (head.find('(') != std::string::npos)
+				continue;
+
+			const size_t space = head.find_last_of(" \t&*>");
+			if (space == std::string::npos)
+				continue;
+			const std::string name = Trim(head.substr(space + 1));
+			if (name.empty() || !std::isupper((unsigned char)name[0]))
+				continue;
+
+			std::string value = Trim(line.substr(equals + 1));
+			const size_t semicolon = value.find(';');
+			if (semicolon != std::string::npos)
+				value = Trim(value.substr(0, semicolon));
+
+			defaults[name] = value;
+		}
+
+		return defaults;
+	}
+
+	// The default cell of a reference row, by name -- the second column, and
+	// only from rows that have a third. A two-column table is a runtime-state
+	// listing whose second cell is prose, not a default.
+	//
+	// **Kept per heading, because field names collide across components.**
+	// `Speed` is on the animator and on the particle emitter; `Loop` is on the
+	// animator and the audio source; `Size` is on both text components. A flat
+	// map lets the last one win, and then the check reports three defaults as
+	// wrong that are all correct -- which is worse than not checking, because
+	// somebody has to disprove it.
+	//
+	// The empty key holds everything, for a page that documents a single type
+	// and whose headings are therefore not type names.
+	std::map<std::string, std::map<std::string, std::string>>
+	DocumentedDefaults(const std::string& markdown)
+	{
+		std::map<std::string, std::map<std::string, std::string>> bySection;
+		std::string section;
+
+		for (const std::string& raw : SplitLines(markdown))
+		{
+			const std::string line = Trim(raw);
+
+			if (line.rfind("#", 0) == 0)
+			{
+				size_t hashes = 0;
+				while (hashes < line.size() && line[hashes] == '#')
+					hashes++;
+				section = Trim(line.substr(hashes));
+				continue;
+			}
+
+			if (line.empty() || line[0] != '|' || IsTableSeparator(line))
+				continue;
+
+			const std::vector<std::string> cells = SplitRow(line);
+			if (cells.size() < 3)
+				continue;
+
+			const std::string first = Trim(cells[0]);
+			if (first.size() < 3 || first.front() != '`')
+				continue;
+			const size_t close = first.find('`', 1);
+			if (close == std::string::npos)
+				continue;
+
+			std::string value = Trim(cells[1]);
+			// Strip one layer of code span, which is how a literal is written.
+			if (value.size() >= 2 && value.front() == '`' && value.back() == '`')
+				value = Trim(value.substr(1, value.size() - 2));
+
+			const std::string name = Trim(first.substr(1, close - 1));
+			bySection[section][name] = value;
+			bySection[""][name] = value;
+		}
+		return bySection;
+	}
+
+	// True when both sides are the same number, or the same boolean.
+	//
+	// **Numeric rather than textual**, so `0.5f` against `0.5`, and `0` against
+	// `0.0`, are agreements rather than three special cases. Anything that is
+	// not a plain scalar -- a handle, a vector, an enumerator, a string -- is
+	// reported as *unchecked* rather than guessed at, and the count is printed
+	// so the coverage is a number somebody can look at instead of an
+	// impression.
+	bool ScalarDefaultsAgree(const std::string& header, const std::string& page, bool& comparable)
+	{
+		comparable = false;
+		if (header.empty() || page.empty())
+			return true;
+
+		const std::string h = header.back() == 'f' || header.back() == 'F'
+							? header.substr(0, header.size() - 1) : header;
+
+		if ((h == "true" || h == "false") && (page == "true" || page == "false"))
+		{
+			comparable = true;
+			return h == page;
+		}
+
+		try
+		{
+			size_t usedHeader = 0, usedPage = 0;
+			const double a = std::stod(h, &usedHeader);
+			const double b = std::stod(page, &usedPage);
+			if (usedHeader != h.size() || usedPage != page.size())
+				return true;   // trailing text: not a bare scalar
+			comparable = true;
+			return a == b;
+		}
+		catch (...)
+		{
+			return true;       // not a number on one side or the other
+		}
+	}
+
+	// Every enumerator of an `enum class`, so a page naming the values of a
+	// field can be held to naming them correctly.
+	//
+	// **The other half of what coverage misses.** `CanvasScaleMode` was
+	// documented as `ConstantPixelSize`; the real enumerator is
+	// `ConstantPixels`. The field was present, so the name check passed, and
+	// the value it described did not exist.
+	std::set<std::string> EnumValuesOf(const std::string& body)
+	{
+		std::set<std::string> values;
+
+		// **Split on commas, not only on newlines.** A line-based reader takes
+		// the first enumerator of `enum class ParticleFacing { Billboard, Flat
+		// };` and stops, so the check reports success having verified half of
+		// it -- which is the failure this whole pass is about, committed by the
+		// thing meant to prevent it.
+		std::string token;
+		auto flush = [&values, &token]()
+		{
+			std::string name = Trim(token);
+			token.clear();
+
+			const size_t assign = name.find('=');
+			if (assign != std::string::npos)
+				name = Trim(name.substr(0, assign));
+			if (name.empty() || !std::isalpha((unsigned char)name[0]))
+				return;
+
+			const bool plain = std::all_of(name.begin(), name.end(),
+				[](unsigned char c) { return std::isalnum(c) || c == '_'; });
+			// `Count` is the size marker several of these carry, and is not a
+			// value anybody sets.
+			if (plain && name != "Count")
+				values.insert(name);
+		};
+
+		for (char c : body)
+		{
+			if (c == ',' || c == '\n' || c == '{' || c == '}' || c == ';')
+				flush();
+			else
+				token += c;
+		}
+		flush();
+
+		return values;
+	}
+
+	// An enum whose values the manual states, and the page that states them.
+	struct EnumCheck
+	{
+		const char* Header;
+		const char* Type;
+		const char* Page;
+	};
+
 	struct ReferenceCheck
 	{
 		const char* Header;
@@ -1788,12 +1991,68 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 			declaredByPage[check.Page].insert(declared.begin(), declared.end());
 
 			bool pageRead = false;
-			const std::set<std::string> documented = DocumentedNames(ReadFile(manual / check.Page, pageRead));
+			const std::string pageText = ReadFile(manual / check.Page, pageRead);
+			const std::set<std::string> documented = DocumentedNames(pageText);
 			if (!pageRead)
 			{
 				RV_CORE_ERROR("Cannot read {0}", check.Page);
 				problems++;
 				continue;
+			}
+
+			// --- and the value in the row, not only the name of it -----------
+			//
+			// Coverage says a row exists. This says the number in it is the
+			// number in the header, which is the claim a reader actually acts
+			// on. Only bare scalars are comparable; a handle, a vector or an
+			// enumerator is counted as unchecked and reported as such, so the
+			// coverage is a figure rather than an impression.
+			{
+				const std::map<std::string, std::string> headerDefaults = FieldDefaultsOf(body);
+				const auto sections = DocumentedDefaults(pageText);
+
+				// The type's own section when the page has one -- components.md
+				// heads each with `### TypeName` -- and everything otherwise,
+				// which is what a single-type page needs.
+				// `at("")` would throw on a page with no default column at all
+				// -- the C++ reference's tables are two cells wide -- and an
+				// uncaught exception in a doc checker reads as a corrupt build.
+				static const std::map<std::string, std::string> kNone;
+				const auto named = sections.find(check.Type);
+				const auto everything = sections.find("");
+				const auto& pageDefaults = named != sections.end() ? named->second
+									     : everything != sections.end() ? everything->second
+									     : kNone;
+
+				int compared = 0, skipped = 0;
+				for (const auto& [name, headerValue] : headerDefaults)
+				{
+					const auto row = pageDefaults.find(name);
+					if (row == pageDefaults.end())
+						continue;   // documented in a table with no default column
+
+					bool comparable = false;
+					const bool agree = ScalarDefaultsAgree(headerValue, row->second, comparable);
+					if (!comparable)
+					{
+						skipped++;
+						continue;
+					}
+
+					compared++;
+					if (!agree)
+					{
+						RV_CORE_ERROR("{0}::{1} defaults to {2}, but {3} says {4}",
+									  check.Type, name, headerValue, check.Page, row->second);
+						problems++;
+					}
+				}
+
+				if (compared > 0 || skipped > 0)
+				{
+					RV_CORE_INFO("    {0} default(s) compared, {1} not a plain scalar",
+								 compared, skipped);
+				}
 			}
 
 			for (const std::string& name : declared)
@@ -1804,6 +2063,86 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 								  check.Type, name, check.Page);
 					problems++;
 				}
+			}
+		}
+
+		// --- the enumerators a page names -----------------------------------
+		//
+		// A field of an enum type is documented by listing the values it can
+		// take, and those values are prose the coverage check never reads.
+		// `CanvasScaleMode` was written up as `ConstantPixelSize` when the
+		// enumerator is `ConstantPixels`: the field was present, the name check
+		// passed, and the page described a value that does not exist.
+		//
+		// One direction only. Every enumerator has to appear somewhere on the
+		// page; the page may also mention things that are not enumerators,
+		// because prose does.
+		static const EnumCheck enums[] = {
+			{ "RageV/src/RageV/Renderer/RenderSettings.h", "AntiAliasing",    "rendering.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "ProbeUpdate",     "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "ProbeRate",       "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "CanvasScaleMode", "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "UITextAlign",     "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "TextBillboard",   "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "ParticleFacing",  "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "ParticleBlend",   "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "ParticleSpace",   "components.md" },
+			{ "RageV/src/RageV/Physics/PhysicsTypes.h",    "BodyType",        "components.md" },
+			{ "RageV/src/RageV/Physics/PhysicsTypes.h",    "ColliderShape",   "components.md" },
+			{ "RageV/src/RageV/Audio/AudioEngine.h",       "AudioBus",        "components.md" },
+			{ "RageV/src/RageV/Renderer/Mesh.h",           "PrimitiveType",   "assets.md" },
+		};
+
+		for (const EnumCheck& check : enums)
+		{
+			bool read = false;
+			const std::string header = ReadFile(root / check.Header, read);
+			if (!read)
+			{
+				RV_CORE_ERROR("Cannot read {0} to check {1} against", check.Header, check.Type);
+				problems++;
+				continue;
+			}
+
+			const std::string body = BodyOf(StripComments(header), "enum class", check.Type);
+			const std::set<std::string> values = body.empty()
+											   ? std::set<std::string>{}
+											   : EnumValuesOf(body);
+			if (values.empty())
+			{
+				RV_CORE_ERROR("No values parsed from enum '{0}' in {1} -- it was renamed or moved",
+							  check.Type, check.Header);
+				problems++;
+				continue;
+			}
+
+			bool pageRead = false;
+			const std::string page = ReadFile(manual / check.Page, pageRead);
+			if (!pageRead)
+			{
+				RV_CORE_ERROR("Cannot read {0}", check.Page);
+				problems++;
+				continue;
+			}
+
+			int missing = 0;
+			for (const std::string& value : values)
+			{
+				// As a code span, so that a page mentioning the word "None" in
+				// a sentence does not count as documenting the enumerator.
+				if (page.find("`" + value + "`") == std::string::npos)
+				{
+					RV_CORE_ERROR("{0}::{1} exists but {2} does not name it",
+								  check.Type, value, check.Page);
+					problems++;
+					missing++;
+				}
+			}
+
+			if (missing == 0)
+			{
+				RV_CORE_INFO("  {0}: {1} value(s) named in {2}",
+							 check.Type, values.size(), check.Page);
 			}
 		}
 

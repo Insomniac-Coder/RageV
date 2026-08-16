@@ -37,8 +37,8 @@ handle travels with the `.meta`, and every reference keeps resolving.
 | Post profile | `.rvpostprofile` | Created in the editor |
 | LUT | `.cube` or `.rvlut` | Exported from a grading tool, or authored here |
 
-The built-in mesh primitives — **Cube, Sphere, Plane, Cylinder, Quad** — are
-not files. They have reserved handles and are always available.
+The built-in mesh primitives — `Cube`, `Sphere`, `Plane`, `Cylinder` and
+`Quad` — are not files. They have reserved handles and are always available.
 
 > [!NOTE]
 > A `.ttf` is **not** an asset. Nothing at runtime can read one, and treating
