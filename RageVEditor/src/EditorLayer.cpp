@@ -2264,6 +2264,15 @@ void EditorLayer::DrawViewportPanel()
 	// which drags the image around under the cursor.
 	if (!ImGui::Begin("Viewport", &m_ShowViewport, kViewportFlags))
 	{
+		// Collapsed, or behind another tab -- the Game panel shares this dock
+		// node, so this path runs whenever the owner is looking at the game.
+		// The focus flags have to be cleared here as well: leaving last frame's
+		// values means a viewport nobody can see still reports itself hovered,
+		// and every reader of those flags is deciding who owns the input.
+		m_IsViewportFocused = false;
+		m_IsViewportHovered = false;
+		Application::Get().GetImGuiLayer()->SetEventBlocker(true);
+
 		ImGui::End();
 		ImGui::PopStyleVar();
 		return;

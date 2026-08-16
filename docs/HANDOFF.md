@@ -65,7 +65,7 @@ build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan
 build/bin/Debug/scenetest/scenetest.exe --rhi=opengl
 ```
 
-1567 checks, `exit 0`. Then look at a frame:
+1574 checks, `exit 0`. Then look at a frame:
 
 ```bash
 build/bin/Debug/RageVRuntime/RageVRuntime.exe --rhi=vulkan --validation=on --screenshot=f.png
@@ -1591,7 +1591,18 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: the engine has its own <cmath> -- phase 8 is next
+### START HERE: Ctrl+S works again -- phase 8 is next
+
+**E.1 (2026-08-16), reported by the owner twice**: Ctrl+S did not save. It
+saved fine with the pointer over the viewport and did nothing everywhere else
+-- which is every time it matters, since you press it after changing
+something and changing something means you were in a panel. The UI layer sits
+*above* the editor layer and was consuming key events whenever ImGui wanted
+the keyboard, and with keyboard navigation enabled that is true whenever any
+panel has focus. Silently: no save, no error, no log line. Every other
+shortcut went the same way. ENGINE-NOTES 7ak.
+
+---
 
 **X.1 (2026-08-16), at the owner's direction**: `RageV::Math` now carries the
 whole of `<cmath>` the engine uses, and `RageV.Mathf` mirrors it in C#. A call
@@ -1638,6 +1649,34 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - E.1, Ctrl+S saves from anywhere (2026-08-16)
+
+ENGINE-NOTES 7ak. Two paths to one symptom, both fixed.
+
+**The UI layer was eating the shortcut.** `ImGuiLayer` is an *overlay*, so it
+is above `EditorLayer`, and `Application::OnEvent` stops at the first layer
+that marks an event handled. Its rule consumed keyboard events whenever
+`io.WantCaptureKeyboard` was set -- which, with
+`ImGuiConfigFlags_NavEnableKeyboard` on, is true whenever any panel has
+focus. So after changing anything in the Inspector, Ctrl+S, Ctrl+Z, Ctrl+N,
+Ctrl+O, Ctrl+P and Delete all did nothing and said nothing. The rule now asks
+`io.WantTextInput`: a caret in a field is a claim on the keyboard,
+navigation focus is not.
+
+**The blocker was also going stale.** It is set inside the Viewport panel's
+draw, and `ImGui::Begin` returns false when that panel is collapsed or behind
+another tab -- and the Game panel shares its dock node. Looking at the Game
+tab took the early return, which left last frame's focus flags in place. Both
+are cleared on that path now.
+
+**Check**: `UiConsumesEvent` is a pure function of what ImGui says it wants,
+so `CheckShortcutOwnership` can state the whole truth table with no context,
+no window and nobody pressing a key. Restoring the old rule fails exactly one
+line of it -- "a focused panel does not swallow a shortcut" -- which is the
+bug, named. 1574 checks.
 
 ---
 

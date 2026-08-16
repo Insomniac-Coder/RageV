@@ -139,13 +139,34 @@ namespace RageV
 		ImGui::DestroyContext();
 	}
 
+	bool UiConsumesEvent(const UiCapture& capture, bool isMouse, bool isKeyboard)
+	{
+		if (isMouse && capture.WantsMouse)
+			return true;
+
+		// Text input, deliberately, and not WantsKeyboard. See the header.
+		if (isKeyboard && capture.WantsTextInput)
+			return true;
+
+		return false;
+	}
+
 	void ImGuiLayer::OnEvent(Event& e)
 	{
-		if (m_BlockEvents)
+		if (!m_BlockEvents)
+			return;
+
+		const ImGuiIO& io = ImGui::GetIO();
+
+		UiCapture capture;
+		capture.WantsMouse = io.WantCaptureMouse;
+		capture.WantsKeyboard = io.WantCaptureKeyboard;
+		capture.WantsTextInput = io.WantTextInput;
+
+		if (UiConsumesEvent(capture, e.IsInCategory(EventCategoryMouse),
+							e.IsInCategory(EventCategoryKeyboard)))
 		{
-			ImGuiIO& io = ImGui::GetIO();
-			e.m_Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
-			e.m_Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
+			e.m_Handled = true;
 		}
 	}
 

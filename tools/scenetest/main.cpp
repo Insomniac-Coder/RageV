@@ -94,6 +94,8 @@
 #include "RageV/Core/ChildProcess.h"
 #include "RageV/Math/Math.h"
 #include "GlmBridge.h"
+#include "RageV/ImGui/ImGuiLayer.h"
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -1587,6 +1589,59 @@ namespace
 	// reaches the GPU, and the failure mode that matters -- a dispatch that
 	// silently does nothing -- looks exactly like success from every angle
 	// except the buffer's contents.
+	// Who owns a key press when the UI is on top.
+	//
+	// **This is the check that was missing while Ctrl+S did nothing.** The UI
+	// layer sits above the editor layer and may mark an event handled, which
+	// stops the loop before the editor sees it. It asked ImGui's
+	// `WantCaptureKeyboard`, and with keyboard navigation enabled that is true
+	// whenever any panel has focus -- so after changing anything in the
+	// Inspector, every editor shortcut was swallowed. No save, no error, no
+	// log line: the most convincing possible impression that saving is broken.
+	//
+	// The rule is a pure function of what ImGui says it wants, so it can be
+	// stated here without a window, a context or a person pressing a key.
+	void CheckShortcutOwnership()
+	{
+		const bool kMouse = true, kKeyboard = true;
+
+		// Nothing wanted: everything reaches the application.
+		UiCapture idle;
+		Check(!UiConsumesEvent(idle, kMouse, false), "an idle UI takes no mouse event");
+		Check(!UiConsumesEvent(idle, false, kKeyboard), "and no key event");
+
+		// **The case that broke.** A panel has focus, so ImGui asks for the
+		// keyboard in order to navigate -- but nothing is being typed into, and
+		// Ctrl+S belongs to the application.
+		UiCapture navigating;
+		navigating.WantsKeyboard = true;
+		Check(!UiConsumesEvent(navigating, false, kKeyboard),
+			  "a focused panel does not swallow a shortcut: navigation focus is "
+			  "not a claim on Ctrl+S");
+
+		// Typing is a claim. The letters, and the modified ones with them --
+		// while a field has the caret, the field owns the keyboard.
+		UiCapture typing;
+		typing.WantsKeyboard = true;
+		typing.WantsTextInput = true;
+		Check(UiConsumesEvent(typing, false, kKeyboard),
+			  "a text field being typed into does swallow key events");
+
+		// The mouse half is unchanged and is the one that was always right:
+		// a pointer over a panel belongs to the panel.
+		UiCapture overPanel;
+		overPanel.WantsMouse = true;
+		Check(UiConsumesEvent(overPanel, kMouse, false),
+			  "the pointer over a panel belongs to the panel");
+		Check(!UiConsumesEvent(overPanel, false, kKeyboard),
+			  "and wanting the mouse says nothing about the keyboard");
+
+		// A mouse event while typing still reaches the application: clicking
+		// the viewport with a field focused has to move the camera.
+		Check(!UiConsumesEvent(typing, kMouse, false),
+			  "typing does not capture the mouse as well");
+	}
+
 	// The engine's <cmath>, against <cmath>.
 	//
 	// Most of RageV::Math's scalars are one-line forwards, and a check that a
@@ -10919,6 +10974,7 @@ int RunTests(int argc, char** argv)
 	CheckProbeSelection();
 	CheckProbeArraySize();
 	CheckFrameGraph();
+	CheckShortcutOwnership();
 	CheckMathFunctions();
 	CheckMultisampledDepth();
 	CheckGameModule();

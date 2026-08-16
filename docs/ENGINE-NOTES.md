@@ -5014,6 +5014,57 @@ work** — proved by stashing it and watching the same 76 pixels.
 
 ---
 
+## 7ak. Who owns a key press (E.1)
+
+**Reported twice: Ctrl+S does not save.** It saves perfectly when the pointer
+is over the viewport, and does nothing at all the rest of the time — which is
+every time it matters, because you press it *after changing something*, and
+changing something means you were in the Inspector or the Hierarchy.
+
+**The layer stack is the mechanism.** `ImGuiLayer` is pushed as an *overlay*,
+so it sits above `EditorLayer`, and `Application::OnEvent` walks the stack
+from the top and stops at the first layer that marks an event handled. The UI
+layer's rule was:
+
+```cpp
+e.m_Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
+```
+
+`WantCaptureKeyboard` is true for keyboard **navigation**, not only for
+typing, and `ImGuiConfigFlags_NavEnableKeyboard` is on. So any panel having
+focus made it true, the overlay consumed the key, and
+`EditorLayer::OnKeyPressed` never ran. No save, no error, no log line —
+nothing to see, and nothing to search for. Every editor shortcut went the same
+way: Ctrl+Z, Ctrl+N, Ctrl+O, Ctrl+P, Delete.
+
+**The rule now asks about text input**, which is a fact about what ImGui is
+doing rather than a guess about who owns a shortcut: a caret in a field is a
+claim on the keyboard, navigation focus is not.
+
+**The second path to the same symptom** is the one the owner's screenshot
+showed without either of us noticing: the blocker is set inside the Viewport
+panel's draw, and `ImGui::Begin` returns false when that panel is collapsed
+or **behind another tab**. The Game panel shares its dock node. So looking at
+the Game tab took the early return, which set nothing — leaving last frame's
+values, and a viewport nobody can see reporting itself hovered. Both flags are
+cleared on that path now.
+
+**The check is a pure function**, which is the only way this was ever going to
+be testable: `UiConsumesEvent(capture, isMouse, isKeyboard)` takes what ImGui
+says it wants and answers who gets the event, with no context, no window and
+nobody pressing a key. `CheckShortcutOwnership` states the truth table, and
+the case that broke is one line of it — a focused panel does not swallow a
+shortcut. Restoring the old rule fails exactly that check and nothing else.
+
+**What this says about the bar.** Everything in this engine that a person
+reaches by *pressing* something has this shape: no check renders the editor
+and drives it, so the whole of the input layer is verified by using it. The
+fix here was to move the decision out of the frame loop and into a function,
+which is the general answer — a rule that can be stated away from the UI can
+be checked away from the UI.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
