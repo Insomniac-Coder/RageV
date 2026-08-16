@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Component reference — RageV manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="index.html">Introduction</a></li><li><a class="nav-link" href="getting-started.html">Getting started</a></li><li><a class="nav-link" href="concepts.html">Core concepts</a></li><li><a class="nav-link is-current" href="components.html" aria-current="page">Component reference</a></li><li><a class="nav-link" href="rendering.html">Rendering</a></li><li><a class="nav-link" href="post-processing.html">Post processing</a></li><li><a class="nav-link" href="particles.html">Particles</a></li><li><a class="nav-link" href="scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link" href="scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="component-reference">Component reference<a class="anchor" href="#component-reference" aria-label="Link to this section">#</a></h1>
+<p>Every component, every field, with its default and what it does.</p>
+<p>A component is data attached to an entity. Add one from <strong>Add Component</strong> in the Inspector, or by name from a script. Nothing here is inherited and nothing is optional-by-omission: a field holds a value, and the default is what it holds until you change it.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>This page is <strong>checked against the header</strong>. <code>rvdoc --check</code> fails if a field exists in <code>Components.h</code> with no entry here, or if an entry here names a field that no longer exists. A reference that silently drifts is worse than none, so it is not allowed to.</p>
+</aside>
+<p><strong>Runtime state</strong> is called out per component where it exists. Those fields are real and reachable from a script, but they are <em>derived</em> — not saved to the scene, not shown in the Inspector. If you set one and it does not survive a reload, this is why.</p>
+<h2 id="every-entity-has-two">Every entity has two<a class="anchor" href="#every-entity-has-two" aria-label="Link to this section">#</a></h2>
+<p>You never add these and the Inspector does not show them, but they exist on every entity and the scripting API reads them.</p>
+<h3 id="idcomponent">IDComponent<a class="anchor" href="#idcomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ID</code></td><td style="text-align:left">minted on creation</td><td style="text-align:left">The entity&#39;s UUID. Stable across saves, and what every cross-entity reference stores</td></tr>
+</tbody></table></div>
+<h3 id="relationshipcomponent">RelationshipComponent<a class="anchor" href="#relationshipcomponent" aria-label="Link to this section">#</a></h3>
+<p>Parent and child links, by UUID rather than by handle, so they survive serialization.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Parent</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The parent&#39;s UUID, or invalid for a root</td></tr>
+<tr><td style="text-align:left"><code>Children</code></td><td style="text-align:left">empty</td><td style="text-align:left"><strong>Derived.</strong> Rebuilt on load from every entity&#39;s <code>Parent</code></td></tr>
+</tbody></table></div>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Only <code>Parent</code> is written to disk. Storing both directions would let them disagree, and a hierarchy that disagrees with itself is a bug that surfaces three features later.</p>
+</aside>
+<h2 id="core">Core<a class="anchor" href="#core" aria-label="Link to this section">#</a></h2>
+<h3 id="tagcomponent">TagComponent<a class="anchor" href="#tagcomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Name</code></td><td style="text-align:left">—</td><td style="text-align:left">The entity&#39;s name, in the Hierarchy and for lookup by name</td></tr>
+</tbody></table></div>
+<h3 id="transformcomponent">TransformComponent<a class="anchor" href="#transformcomponent" aria-label="Link to this section">#</a></h3>
+<p>Position, rotation and scale are <strong>local</strong> — relative to the parent. World space is derived from them.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Position</code></td><td style="text-align:left"><code>0, 0, 0</code></td><td style="text-align:left">Local position</td></tr>
+<tr><td style="text-align:left"><code>Rotation</code></td><td style="text-align:left"><code>0, 0, 0</code></td><td style="text-align:left">Local rotation, <strong>radians</strong>, XYZ order</td></tr>
+<tr><td style="text-align:left"><code>Scale</code></td><td style="text-align:left"><code>1, 1, 1</code></td><td style="text-align:left">Local scale</td></tr>
+</tbody></table></div>
+<p><strong>Runtime state:</strong></p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>World</code></td><td style="text-align:left">The composed world matrix, recomputed top-down once per frame</td></tr>
+<tr><td style="text-align:left"><code>PreviousWorld</code></td><td style="text-align:left">Where <code>World</code> was last frame — what a motion vector is made of</td></tr>
+</tbody></table></div>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><code>World</code> is recomputed unconditionally rather than cached behind a dirty flag. A flag has to be set at every write site — inspector, gizmo, scripts, serializer, and everything added later — and one missed site leaves an object silently rendering in the wrong place.</p>
+</aside>
+<h2 id="rendering">Rendering<a class="anchor" href="#rendering" aria-label="Link to this section">#</a></h2>
+<h3 id="meshcomponent">MeshComponent<a class="anchor" href="#meshcomponent" aria-label="Link to this section">#</a></h3>
+<p>Geometry plus a material, both by handle. The overrides below are <strong>free</strong>: base colour, emissive and the surface scalars already travel per instance, so overriding them cannot split a batch — a thousand cubes differing only in colour stay one draw.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Mesh</code></td><td style="text-align:left">the Cube primitive</td><td style="text-align:left">Which geometry to draw</td></tr>
+<tr><td style="text-align:left"><code>Material</code></td><td style="text-align:left">invalid</td><td style="text-align:left">Which material. Invalid means the renderer&#39;s shared default</td></tr>
+<tr><td style="text-align:left"><code>OverrideBaseColor</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Use <code>BaseColor</code> instead of the material&#39;s</td></tr>
+<tr><td style="text-align:left"><code>BaseColor</code></td><td style="text-align:left">white</td><td style="text-align:left">Albedo tint, RGBA</td></tr>
+<tr><td style="text-align:left"><code>OverrideEmissive</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Use <code>EmissiveColor</code> instead of the material&#39;s</td></tr>
+<tr><td style="text-align:left"><code>EmissiveColor</code></td><td style="text-align:left">black</td><td style="text-align:left">Light emitted by the surface, RGBA</td></tr>
+<tr><td style="text-align:left"><code>OverrideMetallic</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Use <code>Metallic</code> instead of the material&#39;s</td></tr>
+<tr><td style="text-align:left"><code>Metallic</code></td><td style="text-align:left"><code>0.0</code></td><td style="text-align:left">0 is dielectric, 1 is metal</td></tr>
+<tr><td style="text-align:left"><code>OverrideRoughness</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Use <code>Roughness</code> instead of the material&#39;s</td></tr>
+<tr><td style="text-align:left"><code>Roughness</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">0 is a mirror, 1 is fully diffuse</td></tr>
+<tr><td style="text-align:left"><code>OverrideOcclusion</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Use <code>Occlusion</code> instead of the material&#39;s</td></tr>
+<tr><td style="text-align:left"><code>Occlusion</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Baked ambient occlusion, 1 being unoccluded</td></tr>
+<tr><td style="text-align:left"><code>OverrideNormalScale</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Use <code>NormalScale</code> instead of the material&#39;s</td></tr>
+<tr><td style="text-align:left"><code>NormalScale</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">How strongly the normal map is applied</td></tr>
+</tbody></table></div>
+<h3 id="cameracomponent">CameraComponent<a class="anchor" href="#cameracomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Camera</code></td><td style="text-align:left">perspective</td><td style="text-align:left">Projection, field of view and clip planes</td></tr>
+<tr><td style="text-align:left"><code>ViewRank</code></td><td style="text-align:left"><code>0</code></td><td style="text-align:left">Which camera the game view renders through — <strong>lowest wins</strong>, 0 highest priority through 99</td></tr>
+<tr><td style="text-align:left"><code>PostProfile</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The <code>.rvpostprofile</code> grading this view. Invalid means the neutral grade, <strong>not</strong> &quot;no post processing&quot;</td></tr>
+</tbody></table></div>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><code>ViewRank</code> is a rank rather than an <code>isPrimary</code> flag because a boolean can be true on two cameras at once, and then which one renders depends on iteration order — so adding a camera could silently change the view. Ties break on entity id, so the answer is the same on every run.</p>
+</aside>
+<p>See <a href="post-processing.html">Post processing</a> for what a profile holds.</p>
+<h3 id="lightcomponent">LightComponent<a class="anchor" href="#lightcomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Light</code></td><td style="text-align:left">directional</td><td style="text-align:left">Type, colour, intensity, range and cone angles</td></tr>
+</tbody></table></div>
+<p>Directional, point and spot are all supported, and all cast shadows. Lighting is clustered forward, so there is <strong>no light count cap</strong>.</p>
+<h3 id="reflectionprobecomponent">ReflectionProbeComponent<a class="anchor" href="#reflectionprobecomponent" aria-label="Link to this section">#</a></h3>
+<p>Captures the scene into a cube map from one point, for nearby surfaces to reflect. The scene picks one probe per render: the nearest whose influence contains the camera, and the sky otherwise.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Update</code></td><td style="text-align:left"><code>Baked</code></td><td style="text-align:left"><code>Baked</code> captures once and keeps it; <code>Realtime</code> re-captures continuously</td></tr>
+<tr><td style="text-align:left"><code>Resolution</code></td><td style="text-align:left"><code>128</code></td><td style="text-align:left">Per face. Reflections are seen through rough or curved surfaces, so this can be far smaller than it feels — 128 is hard to fault on anything but a mirror</td></tr>
+<tr><td style="text-align:left"><code>NearClip</code></td><td style="text-align:left"><code>0.05</code></td><td style="text-align:left">Near plane of the capture</td></tr>
+<tr><td style="text-align:left"><code>FarClip</code></td><td style="text-align:left"><code>100.0</code></td><td style="text-align:left">Far plane of the capture</td></tr>
+<tr><td style="text-align:left"><code>Influence</code></td><td style="text-align:left"><code>20.0</code></td><td style="text-align:left">How far from the probe its capture is still a reasonable answer. Past it, the sky is the better lie</td></tr>
+<tr><td style="text-align:left"><code>FacesPerFrame</code></td><td style="text-align:left"><code>1</code></td><td style="text-align:left">Realtime only. Six faces in one frame is a visible hitch; one per frame is a sixth of the cost and a sixth of a second of latency</td></tr>
+<tr><td style="text-align:left"><code>Rate</code></td><td style="text-align:left"><code>PerFrame</code></td><td style="text-align:left">Realtime only: <code>Hz15</code>, <code>Hz30</code>, <code>Hz45</code>, <code>Hz60</code> or <code>PerFrame</code>. <strong>This is where a realtime probe&#39;s cost actually goes</strong> — the demo at 15 Hz looks identical to per-frame and costs a quarter as much</td></tr>
+</tbody></table></div>
+<p><strong>Runtime state:</strong></p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Probe</code></td><td style="text-align:left">The captured cube map</td></tr>
+<tr><td style="text-align:left"><code>NextFace</code></td><td style="text-align:left">Which face the next capture step writes</td></tr>
+<tr><td style="text-align:left"><code>RateAccumulator</code></td><td style="text-align:left">Seconds since the last step, against <code>Rate</code>&#39;s interval</td></tr>
+<tr><td style="text-align:left"><code>Dirty</code></td><td style="text-align:left">Never captured, or something invalidated it. A baked probe watches this; a realtime one re-captures regardless</td></tr>
+</tbody></table></div>
+<h2 id="physics">Physics<a class="anchor" href="#physics" aria-label="Link to this section">#</a></h2>
+<h3 id="rigidbodycomponent">RigidBodyComponent<a class="anchor" href="#rigidbodycomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Type</code></td><td style="text-align:left"><code>Dynamic</code></td><td style="text-align:left"><code>Static</code> never moves, <code>Kinematic</code> is moved by you, <code>Dynamic</code> is simulated</td></tr>
+<tr><td style="text-align:left"><code>Mass</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Kilograms. Dynamic bodies only</td></tr>
+<tr><td style="text-align:left"><code>Friction</code></td><td style="text-align:left"><code>0.4</code></td><td style="text-align:left">0 slides, 1 grips</td></tr>
+<tr><td style="text-align:left"><code>Restitution</code></td><td style="text-align:left"><code>0.1</code></td><td style="text-align:left">Bounciness. 0 absorbs, 1 returns the energy</td></tr>
+<tr><td style="text-align:left"><code>LinearDamping</code></td><td style="text-align:left"><code>0.05</code></td><td style="text-align:left">Velocity bled off per second</td></tr>
+<tr><td style="text-align:left"><code>AngularDamping</code></td><td style="text-align:left"><code>0.05</code></td><td style="text-align:left">Spin bled off per second</td></tr>
+<tr><td style="text-align:left"><code>GravityFactor</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Multiplier on gravity. 0 floats; negative falls upward</td></tr>
+<tr><td style="text-align:left"><code>FreezeRotation</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Locks all rotation — what a character controller wants</td></tr>
+</tbody></table></div>
+<h3 id="collidercomponent">ColliderComponent<a class="anchor" href="#collidercomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Shape</code></td><td style="text-align:left"><code>Box</code></td><td style="text-align:left"><code>Box</code>, <code>Sphere</code> or <code>Capsule</code></td></tr>
+<tr><td style="text-align:left"><code>HalfExtents</code></td><td style="text-align:left"><code>0.5, 0.5, 0.5</code></td><td style="text-align:left">Box only: half the size on each axis</td></tr>
+<tr><td style="text-align:left"><code>Radius</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">Sphere and capsule</td></tr>
+<tr><td style="text-align:left"><code>Height</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Capsule only, the cylindrical part</td></tr>
+<tr><td style="text-align:left"><code>Offset</code></td><td style="text-align:left"><code>0, 0, 0</code></td><td style="text-align:left">Shifts the shape relative to the transform</td></tr>
+<tr><td style="text-align:left"><code>IsTrigger</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Reports overlaps without resisting them — <code>OnTrigger*</code> instead of <code>OnCollision*</code></td></tr>
+</tbody></table></div>
+<h2 id="audio">Audio<a class="anchor" href="#audio" aria-label="Link to this section">#</a></h2>
+<h3 id="audiosourcecomponent">AudioSourceComponent<a class="anchor" href="#audiosourcecomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Clip</code></td><td style="text-align:left">invalid</td><td style="text-align:left">Which sound</td></tr>
+<tr><td style="text-align:left"><code>Bus</code></td><td style="text-align:left"><code>SFX</code></td><td style="text-align:left"><code>Master</code>, <code>Music</code> or <code>SFX</code>, each with its own volume</td></tr>
+<tr><td style="text-align:left"><code>Volume</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Linear gain</td></tr>
+<tr><td style="text-align:left"><code>Pitch</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Playback rate; also shifts the pitch</td></tr>
+<tr><td style="text-align:left"><code>Loop</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Restart at the end</td></tr>
+<tr><td style="text-align:left"><code>PlayOnAwake</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Start when the scene starts playing</td></tr>
+<tr><td style="text-align:left"><code>Spatial</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Positioned in 3D. Off is a flat stereo sound, which is what music wants</td></tr>
+<tr><td style="text-align:left"><code>MinDistance</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Within this, full volume</td></tr>
+<tr><td style="text-align:left"><code>MaxDistance</code></td><td style="text-align:left"><code>50.0</code></td><td style="text-align:left">Beyond this, silent</td></tr>
+<tr><td style="text-align:left"><code>Stream</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Decode as it plays rather than loading whole — for long music</td></tr>
+</tbody></table></div>
+<p><strong>Runtime state:</strong></p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Voice</code></td><td style="text-align:left">The playing voice&#39;s handle, or 0</td></tr>
+</tbody></table></div>
+<h3 id="audiolistenercomponent">AudioListenerComponent<a class="anchor" href="#audiolistenercomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ListenerRank</code></td><td style="text-align:left"><code>0</code></td><td style="text-align:left">Which listener hears the scene — lowest wins, like <code>ViewRank</code></td></tr>
+</tbody></table></div>
+<h2 id="animation">Animation<a class="anchor" href="#animation" aria-label="Link to this section">#</a></h2>
+<h3 id="animatorcomponent">AnimatorComponent<a class="anchor" href="#animatorcomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Clip</code></td><td style="text-align:left"><code>0</code></td><td style="text-align:left">Which clip of the mesh&#39;s skeleton to play, chosen by name in the Inspector</td></tr>
+<tr><td style="text-align:left"><code>Playing</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Advancing or held</td></tr>
+<tr><td style="text-align:left"><code>Loop</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Restart at the end</td></tr>
+<tr><td style="text-align:left"><code>Speed</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Playback multiplier; negative plays backwards</td></tr>
+<tr><td style="text-align:left"><code>RunInEditor</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Animate without entering Play. Off by default so a saved pose is what you see</td></tr>
+<tr><td style="text-align:left"><code>BlendTime</code></td><td style="text-align:left"><code>0.15</code></td><td style="text-align:left">Seconds to cross-fade when the clip changes. 0 cuts</td></tr>
+</tbody></table></div>
+<p><strong>Runtime state:</strong></p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Time</code></td><td style="text-align:left">Seconds into the current clip</td></tr>
+<tr><td style="text-align:left"><code>Active</code></td><td style="text-align:left">The clip actually playing</td></tr>
+<tr><td style="text-align:left"><code>Started</code></td><td style="text-align:left">Whether playback has begun</td></tr>
+<tr><td style="text-align:left"><code>FadingFrom</code></td><td style="text-align:left">The clip being faded out, or -1</td></tr>
+<tr><td style="text-align:left"><code>FadingTime</code></td><td style="text-align:left">Where the outgoing clip was when the fade began</td></tr>
+<tr><td style="text-align:left"><code>FadeElapsed</code></td><td style="text-align:left">Seconds into the current fade</td></tr>
+<tr><td style="text-align:left"><code>Skinning</code></td><td style="text-align:left">The bone matrices handed to the renderer this frame</td></tr>
+</tbody></table></div>
+<h2 id="particles">Particles<a class="anchor" href="#particles" aria-label="Link to this section">#</a></h2>
+<h3 id="particleemittercomponent">ParticleEmitterComponent<a class="anchor" href="#particleemittercomponent" aria-label="Link to this section">#</a></h3>
+<p>The full guide, with the curve editor and the blend modes, is in <a href="particles.html">Particles</a>. Every field:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Emit</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Spawning or stopped. Existing particles finish either way</td></tr>
+<tr><td style="text-align:left"><code>Rate</code></td><td style="text-align:left"><code>20.0</code></td><td style="text-align:left">Particles per second</td></tr>
+<tr><td style="text-align:left"><code>Burst</code></td><td style="text-align:left"><code>0</code></td><td style="text-align:left">Particles spawned at once when triggered from a script</td></tr>
+<tr><td style="text-align:left"><code>Lifetime</code></td><td style="text-align:left"><code>1.5</code></td><td style="text-align:left">Seconds a particle lives</td></tr>
+<tr><td style="text-align:left"><code>LifetimeJitter</code></td><td style="text-align:left"><code>0.25</code></td><td style="text-align:left">Fraction of random variation on the lifetime</td></tr>
+<tr><td style="text-align:left"><code>Direction</code></td><td style="text-align:left"><code>0, 1, 0</code></td><td style="text-align:left">Which way the cone points</td></tr>
+<tr><td style="text-align:left"><code>Spread</code></td><td style="text-align:left"><code>25.0</code></td><td style="text-align:left">Half-angle of the cone, in degrees. 0 is a beam, 180 is a sphere</td></tr>
+<tr><td style="text-align:left"><code>Speed</code></td><td style="text-align:left"><code>3.0</code></td><td style="text-align:left">Initial speed along the cone</td></tr>
+<tr><td style="text-align:left"><code>SpeedJitter</code></td><td style="text-align:left"><code>0.3</code></td><td style="text-align:left">Fraction of random variation on the speed</td></tr>
+<tr><td style="text-align:left"><code>Gravity</code></td><td style="text-align:left"><code>0, 0, 0</code></td><td style="text-align:left">Constant acceleration</td></tr>
+<tr><td style="text-align:left"><code>Drag</code></td><td style="text-align:left"><code>0.0</code></td><td style="text-align:left">Velocity bled off per second</td></tr>
+<tr><td style="text-align:left"><code>SizeStart</code></td><td style="text-align:left"><code>0.25</code></td><td style="text-align:left">Size at birth</td></tr>
+<tr><td style="text-align:left"><code>SizeEnd</code></td><td style="text-align:left"><code>0.05</code></td><td style="text-align:left">Size at death</td></tr>
+<tr><td style="text-align:left"><code>ColorStart</code></td><td style="text-align:left">white</td><td style="text-align:left">Colour at birth, RGBA</td></tr>
+<tr><td style="text-align:left"><code>ColorEnd</code></td><td style="text-align:left">transparent</td><td style="text-align:left">Colour at death, RGBA</td></tr>
+<tr><td style="text-align:left"><code>SizeCurve</code></td><td style="text-align:left">invalid</td><td style="text-align:left">A <code>.rcurve</code> overriding the two size endpoints</td></tr>
+<tr><td style="text-align:left"><code>ColorGradient</code></td><td style="text-align:left">invalid</td><td style="text-align:left">A <code>.rcurve</code> overriding the two colour endpoints</td></tr>
+<tr><td style="text-align:left"><code>AlphaCurve</code></td><td style="text-align:left">invalid</td><td style="text-align:left">A <code>.rcurve</code> overriding alpha alone</td></tr>
+<tr><td style="text-align:left"><code>Spin</code></td><td style="text-align:left"><code>0.0</code></td><td style="text-align:left">Rotation speed, radians per second</td></tr>
+<tr><td style="text-align:left"><code>Facing</code></td><td style="text-align:left"><code>Billboard</code></td><td style="text-align:left"><code>Billboard</code> faces the camera (3D); <code>Flat</code> lies in the plane (2D)</td></tr>
+<tr><td style="text-align:left"><code>Blend</code></td><td style="text-align:left"><code>Alpha</code></td><td style="text-align:left"><code>Alpha</code> sorts and blends, <code>Additive</code> glows, <code>WeightedBlended</code> is order-independent</td></tr>
+<tr><td style="text-align:left"><code>Space</code></td><td style="text-align:left"><code>World</code></td><td style="text-align:left"><code>World</code> leaves particles behind as the emitter moves; <code>Local</code> carries them</td></tr>
+<tr><td style="text-align:left"><code>Texture</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The sprite. Invalid is a soft disc</td></tr>
+<tr><td style="text-align:left"><code>MaxParticles</code></td><td style="text-align:left"><code>1000</code></td><td style="text-align:left">Pool size — the ceiling on live particles</td></tr>
+<tr><td style="text-align:left"><code>SimulateOnGpu</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Run the simulation in a compute shader. Measured 2.4× at ~16k particles</td></tr>
+</tbody></table></div>
+<p><strong>Runtime state:</strong></p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Pool</code></td><td style="text-align:left">The live particles, on the CPU path</td></tr>
+<tr><td style="text-align:left"><code>EmitCarry</code></td><td style="text-align:left">Fractional particles owed from the last step</td></tr>
+<tr><td style="text-align:left"><code>Rng</code></td><td style="text-align:left">The emitter&#39;s random seed</td></tr>
+</tbody></table></div>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>An unset curve means the start/end pair still decides that channel, so attaching one changes nothing until a key moves.</p>
+</aside>
+<h2 id="user-interface">User interface<a class="anchor" href="#user-interface" aria-label="Link to this section">#</a></h2>
+<p>The canvas system is not ImGui — it is the game&#39;s own UI, drawn by the engine and saved in the scene.</p>
+<h3 id="uicanvascomponent">UICanvasComponent<a class="anchor" href="#uicanvascomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ScaleMode</code></td><td style="text-align:left"><code>ScaleWithScreen</code></td><td style="text-align:left"><code>ConstantPixelSize</code> keeps pixels fixed; <code>ScaleWithScreen</code> scales against a reference resolution</td></tr>
+<tr><td style="text-align:left"><code>ReferenceResolution</code></td><td style="text-align:left"><code>1920, 1080</code></td><td style="text-align:left">The resolution the layout was authored at</td></tr>
+<tr><td style="text-align:left"><code>MatchWidthOrHeight</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left">0 matches width, 1 matches height, 0.5 splits the difference</td></tr>
+<tr><td style="text-align:left"><code>SortOrder</code></td><td style="text-align:left"><code>0</code></td><td style="text-align:left">Which canvas draws on top</td></tr>
+</tbody></table></div>
+<h3 id="uirectcomponent">UIRectComponent<a class="anchor" href="#uirectcomponent" aria-label="Link to this section">#</a></h3>
+<p>Anchors and offsets, the same model every UI toolkit uses: anchors are fractions of the parent, offsets are pixels from the anchor.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>AnchorMin</code></td><td style="text-align:left"><code>0, 0</code></td><td style="text-align:left">Lower-left anchor, as a fraction of the parent</td></tr>
+<tr><td style="text-align:left"><code>AnchorMax</code></td><td style="text-align:left"><code>1, 1</code></td><td style="text-align:left">Upper-right anchor</td></tr>
+<tr><td style="text-align:left"><code>OffsetMin</code></td><td style="text-align:left"><code>0, 0</code></td><td style="text-align:left">Pixels in from the lower-left anchor</td></tr>
+<tr><td style="text-align:left"><code>OffsetMax</code></td><td style="text-align:left"><code>0, 0</code></td><td style="text-align:left">Pixels in from the upper-right anchor</td></tr>
+<tr><td style="text-align:left"><code>SortOrder</code></td><td style="text-align:left"><code>0</code></td><td style="text-align:left">Draw order within the canvas</td></tr>
+<tr><td style="text-align:left"><code>Visible</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Drawn or not. Hides children too</td></tr>
+<tr><td style="text-align:left"><code>BlocksPointer</code></td><td style="text-align:left"><code>false</code></td><td style="text-align:left">Swallows clicks that land on it, so the scene behind does not get them</td></tr>
+</tbody></table></div>
+<h3 id="uiimagecomponent">UIImageComponent<a class="anchor" href="#uiimagecomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Texture</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The image. Invalid is a solid rectangle</td></tr>
+<tr><td style="text-align:left"><code>Color</code></td><td style="text-align:left">white</td><td style="text-align:left">Tint, RGBA</td></tr>
+</tbody></table></div>
+<h3 id="uitextcomponent">UITextComponent<a class="anchor" href="#uitextcomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Text</code></td><td style="text-align:left"><code>&quot;Text&quot;</code></td><td style="text-align:left">What it says</td></tr>
+<tr><td style="text-align:left"><code>Font</code></td><td style="text-align:left">invalid</td><td style="text-align:left">A <code>.rvfont</code>. Invalid uses the built-in</td></tr>
+<tr><td style="text-align:left"><code>Size</code></td><td style="text-align:left"><code>32.0</code></td><td style="text-align:left">Pixels</td></tr>
+<tr><td style="text-align:left"><code>Color</code></td><td style="text-align:left">white</td><td style="text-align:left">RGBA</td></tr>
+<tr><td style="text-align:left"><code>Align</code></td><td style="text-align:left"><code>Left</code></td><td style="text-align:left"><code>Left</code>, <code>Center</code> or <code>Right</code></td></tr>
+<tr><td style="text-align:left"><code>Wrap</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Break lines at the rect&#39;s width</td></tr>
+<tr><td style="text-align:left"><code>LineSpacing</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Multiplier on the line height</td></tr>
+</tbody></table></div>
+<h3 id="uibuttoncomponent">UIButtonComponent<a class="anchor" href="#uibuttoncomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Interactable</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">Off ignores the pointer and shows no hover</td></tr>
+<tr><td style="text-align:left"><code>NormalColor</code></td><td style="text-align:left">white</td><td style="text-align:left">Tint at rest</td></tr>
+<tr><td style="text-align:left"><code>HoverColor</code></td><td style="text-align:left">lighter</td><td style="text-align:left">Tint under the pointer</td></tr>
+<tr><td style="text-align:left"><code>PressedColor</code></td><td style="text-align:left">darker</td><td style="text-align:left">Tint while held</td></tr>
+<tr><td style="text-align:left"><code>OnClickTarget</code></td><td style="text-align:left">none</td><td style="text-align:left">Which entity&#39;s script handles the click</td></tr>
+<tr><td style="text-align:left"><code>OnClickMethod</code></td><td style="text-align:left">empty</td><td style="text-align:left">Which method on it, picked from a dropdown of that script&#39;s methods</td></tr>
+</tbody></table></div>
+<p><strong>Runtime state:</strong></p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Hovered</code></td><td style="text-align:left">The pointer is over it</td></tr>
+<tr><td style="text-align:left"><code>Pressed</code></td><td style="text-align:left">Held down</td></tr>
+<tr><td style="text-align:left"><code>Clicked</code></td><td style="text-align:left">Released over it this frame — what a script polls</td></tr>
+</tbody></table></div>
+<h3 id="worldtextcomponent">WorldTextComponent<a class="anchor" href="#worldtextcomponent" aria-label="Link to this section">#</a></h3>
+<p>Text that lives in the scene rather than on a canvas: labels over objects, signs, damage numbers.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Text</code></td><td style="text-align:left"><code>&quot;Text&quot;</code></td><td style="text-align:left">What it says</td></tr>
+<tr><td style="text-align:left"><code>Font</code></td><td style="text-align:left">invalid</td><td style="text-align:left">A <code>.rvfont</code></td></tr>
+<tr><td style="text-align:left"><code>Size</code></td><td style="text-align:left"><code>0.5</code></td><td style="text-align:left"><strong>World metres</strong>, not pixels</td></tr>
+<tr><td style="text-align:left"><code>Color</code></td><td style="text-align:left">white</td><td style="text-align:left">RGBA</td></tr>
+<tr><td style="text-align:left"><code>Align</code></td><td style="text-align:left"><code>Center</code></td><td style="text-align:left"><code>Left</code>, <code>Center</code> or <code>Right</code></td></tr>
+<tr><td style="text-align:left"><code>WrapWidth</code></td><td style="text-align:left"><code>0.0</code></td><td style="text-align:left">Metres before wrapping. 0 never wraps</td></tr>
+<tr><td style="text-align:left"><code>LineSpacing</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">Multiplier on the line height</td></tr>
+<tr><td style="text-align:left"><code>Billboard</code></td><td style="text-align:left"><code>Upright</code></td><td style="text-align:left"><code>None</code> keeps the transform&#39;s orientation; <code>Upright</code> turns to face the camera about Y; <code>Full</code> always faces it</td></tr>
+</tbody></table></div>
+<h2 id="scripting">Scripting<a class="anchor" href="#scripting" aria-label="Link to this section">#</a></h2>
+<p>Both languages are equals — same hooks, same surface. See <a href="scripting/index.html">Scripting</a>.</p>
+<h3 id="nativescriptcomponent">NativeScriptComponent<a class="anchor" href="#nativescriptcomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ScriptName</code></td><td style="text-align:left">empty</td><td style="text-align:left">Which registered C++ class to instantiate</td></tr>
+<tr><td style="text-align:left"><code>Label</code></td><td style="text-align:left">empty</td><td style="text-align:left">What the Inspector calls it, if not the class name</td></tr>
+<tr><td style="text-align:left"><code>Fields</code></td><td style="text-align:left">empty</td><td style="text-align:left">Per-entity values for the script&#39;s declared fields</td></tr>
+</tbody></table></div>
+<p><strong>Runtime state:</strong></p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Instance</code></td><td style="text-align:left">The live object, while playing</td></tr>
+<tr><td style="text-align:left"><code>ActiveScript</code></td><td style="text-align:left">Which class the live instance is, so a rename is noticed</td></tr>
+</tbody></table></div>
+<h3 id="managedscriptcomponent">ManagedScriptComponent<a class="anchor" href="#managedscriptcomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>ScriptName</code></td><td style="text-align:left">empty</td><td style="text-align:left">Which C# class to instantiate</td></tr>
+<tr><td style="text-align:left"><code>Label</code></td><td style="text-align:left">empty</td><td style="text-align:left">What the Inspector calls it</td></tr>
+<tr><td style="text-align:left"><code>Fields</code></td><td style="text-align:left">empty</td><td style="text-align:left">Per-entity values for the script&#39;s declared fields</td></tr>
+</tbody></table></div>
+<p><strong>Runtime state:</strong></p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Handle</code></td><td style="text-align:left">The managed object&#39;s handle</td></tr>
+<tr><td style="text-align:left"><code>ActiveScript</code></td><td style="text-align:left">Which class the live instance is</td></tr>
+</tbody></table></div>
+<h2 id="prefabs">Prefabs<a class="anchor" href="#prefabs" aria-label="Link to this section">#</a></h2>
+<h3 id="prefabcomponent">PrefabComponent<a class="anchor" href="#prefabcomponent" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>Source</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The <code>.rvprefab</code> this entity was instantiated from</td></tr>
+</tbody></table></div>
+<p>Marks an entity as an instance, so the editor can tell it apart from one built by hand.</p>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="concepts.html">Core concepts</a> — entities, scenes, assets and play mode</li>
+<li><a href="rendering.html">Rendering</a> and <a href="post-processing.html">Post processing</a> — the settings that are not on a component</li>
+<li><a href="particles.html">Particles</a> — the emitter in depth</li>
+<li><a href="scripting/index.html">Scripting</a> — reaching all of this from code</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="concepts.html"><span class="pager-label">Previous</span><span class="pager-title">Core concepts</span></a><a class="pager-link pager-next" href="rendering.html"><span class="pager-label">Next</span><span class="pager-title">Rendering</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#every-entity-has-two">Every entity has two</a><a class="toc-link toc-l3" href="#idcomponent">IDComponent</a><a class="toc-link toc-l3" href="#relationshipcomponent">RelationshipComponent</a><a class="toc-link toc-l2" href="#core">Core</a><a class="toc-link toc-l3" href="#tagcomponent">TagComponent</a><a class="toc-link toc-l3" href="#transformcomponent">TransformComponent</a><a class="toc-link toc-l2" href="#rendering">Rendering</a><a class="toc-link toc-l3" href="#meshcomponent">MeshComponent</a><a class="toc-link toc-l3" href="#cameracomponent">CameraComponent</a><a class="toc-link toc-l3" href="#lightcomponent">LightComponent</a><a class="toc-link toc-l3" href="#reflectionprobecomponent">ReflectionProbeComponent</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l3" href="#rigidbodycomponent">RigidBodyComponent</a><a class="toc-link toc-l3" href="#collidercomponent">ColliderComponent</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l3" href="#audiosourcecomponent">AudioSourceComponent</a><a class="toc-link toc-l3" href="#audiolistenercomponent">AudioListenerComponent</a><a class="toc-link toc-l2" href="#animation">Animation</a><a class="toc-link toc-l3" href="#animatorcomponent">AnimatorComponent</a><a class="toc-link toc-l2" href="#particles">Particles</a><a class="toc-link toc-l3" href="#particleemittercomponent">ParticleEmitterComponent</a><a class="toc-link toc-l2" href="#user-interface">User interface</a><a class="toc-link toc-l3" href="#uicanvascomponent">UICanvasComponent</a><a class="toc-link toc-l3" href="#uirectcomponent">UIRectComponent</a><a class="toc-link toc-l3" href="#uiimagecomponent">UIImageComponent</a><a class="toc-link toc-l3" href="#uitextcomponent">UITextComponent</a><a class="toc-link toc-l3" href="#uibuttoncomponent">UIButtonComponent</a><a class="toc-link toc-l3" href="#worldtextcomponent">WorldTextComponent</a><a class="toc-link toc-l2" href="#scripting">Scripting</a><a class="toc-link toc-l3" href="#nativescriptcomponent">NativeScriptComponent</a><a class="toc-link toc-l3" href="#managedscriptcomponent">ManagedScriptComponent</a><a class="toc-link toc-l2" href="#prefabs">Prefabs</a><a class="toc-link toc-l3" href="#prefabcomponent">PrefabComponent</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="search-index.js"></script>
+<script src="manual.js"></script>
+</body>
+</html>

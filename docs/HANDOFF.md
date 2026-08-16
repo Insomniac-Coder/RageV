@@ -1652,6 +1652,42 @@ still open.
 
 ---
 
+### Done - D.5b, every component documented, and checked (2026-08-16)
+
+`components.md`: all **23 component structs and roughly 150 fields**, each with
+its default and what it does. Eighteen of the twenty-one registered components
+had no documentation at all before this.
+
+Two things worth keeping from how it is written. **Runtime state is called out
+separately per component** -- `Probe`, `Skinning`, `Pool`, `Hovered`,
+`PreviousWorld` and the rest are real and reachable from a script but derived,
+not saved and not in the Inspector, and "I set it and it did not survive a
+reload" is a question the manual now answers. And the two components nobody
+adds -- `IDComponent`, `RelationshipComponent` -- are documented rather than
+hidden, because the scripting API reads them.
+
+**All 23 are in the drift check**, one page, names unioned across the structs
+so a field two components share is satisfied by documenting it once. Falsified
+on a real component: adding a field to `ColliderComponent` gives
+`ColliderComponent::TemporaryUndocumented exists but components.md does not
+document it`, exit 1.
+
+**Extending it found a second hole in the checker**, after the parenthesis one
+in D.5a. The guard "fewer than four members parsed means the parser is lost"
+was right for one large class and wrong for components: eight of them have
+fewer than four fields, so they were skipped *and then* every line the page
+wrote about them was reported as documenting something that no longer exists --
+a failure that reads as the manual being wrong when the manual was right. The
+threshold is one now, and the reasoning is in the code: a lost parser reads
+zero, a half-lost one leaves fields undeclared and the opposite direction
+catches it. **The two directions together are the check; neither alone was.**
+
+**Still open**: the system pages -- materials, lighting, cameras, physics,
+audio, animation, UI, prefabs, the asset pipeline and the editor's panels --
+explaining how these fit together rather than what each field is.
+
+---
+
 ### Done - D.5a, the manual states the settings (2026-08-16)
 
 The owner's criticism, and it was right: the manual explained a few things

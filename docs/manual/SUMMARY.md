@@ -7,6 +7,7 @@ part of the manual — the generator will not emit it and nothing will link to i
 - [Introduction](index.md)
 - [Getting started](getting-started.md)
 - [Core concepts](concepts.md)
+- [Component reference](components.md)
 - [Rendering](rendering.md)
 - [Post processing](post-processing.md)
 - [Particles](particles.md)

@@ -1690,6 +1690,40 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 			// arrived undocumented.
 			{ "RageV/src/RageV/Renderer/RenderSettings.h", "RenderSettings", true, "rendering.md" },
 			{ "RageV/src/RageV/Renderer/PostSettings.h",   "PostSettings",   true, "post-processing.md" },
+
+			// Every component, against one page. The names are unioned per page
+			// before either direction is checked, so a field shared by two
+			// components -- `Color`, `SortOrder` -- is satisfied by documenting
+			// it once. The alternative is a page per component, which is a
+			// table of contents nobody reads instead of a reference somebody
+			// searches.
+			//
+			// `Particle` and `ScriptFieldOverrides` are deliberately absent:
+			// they are the shape of one particle and the storage behind a
+			// script's fields, neither of which anybody attaches to an entity.
+			{ "RageV/src/RageV/Scene/Components.h", "IDComponent",                true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "RelationshipComponent",      true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "TagComponent",               true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "TransformComponent",         true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "CameraComponent",            true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "LightComponent",             true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "ReflectionProbeComponent",   true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "MeshComponent",              true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "AnimatorComponent",          true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "RigidBodyComponent",         true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "ColliderComponent",          true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "AudioSourceComponent",       true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "ParticleEmitterComponent",   true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "AudioListenerComponent",     true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "UICanvasComponent",          true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "UIRectComponent",            true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "UIImageComponent",           true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "UITextComponent",            true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "UIButtonComponent",          true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "WorldTextComponent",         true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "PrefabComponent",            true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "ManagedScriptComponent",     true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "NativeScriptComponent",      true, "components.md" },
 		};
 
 		int problems = 0;
@@ -1727,10 +1761,24 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 			// check: it reports success forever while the manual rots. If the
 			// header ever stops looking the way this parser expects, that has
 			// to be loud.
-			if (declared.size() < 4)
+			//
+			// **The threshold is one, not four.** Four was right while this
+			// covered a single large class, and wrong the moment it covered
+			// components: `TagComponent` has one field and `PrefabComponent`
+			// has one, so a floor of four skipped eight of them *and then*
+			// reported everything the page said about them as documenting
+			// something that no longer exists -- a failure that reads as the
+			// manual being wrong when the manual was right.
+			//
+			// One is still enough to catch the case this guards. A parser that
+			// lost the header reads zero; a parser that half lost it leaves
+			// most fields undeclared, and the other direction below then
+			// reports every one of them as documented-but-absent. The two
+			// directions together are the check, and neither alone was.
+			if (declared.empty())
 			{
-				RV_CORE_ERROR("Only {0} member(s) parsed from {1} -- the parser has lost track of the header",
-							  declared.size(), check.Type);
+				RV_CORE_ERROR("No members parsed from {0} -- the parser has lost track of the header",
+							  check.Type);
 				problems++;
 				continue;
 			}
