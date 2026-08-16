@@ -100,6 +100,12 @@ namespace RageV::RHI
 		Indirect    = 1u << 4,
 		TransferSrc = 1u << 5,
 		TransferDst = 1u << 6,
+		// Readable by an acceleration-structure build, by device address
+		// (ENGINE-NOTES 7am). A creation-time property: a mesh's vertex and
+		// index buffers made without it cannot be traced, and the failure is
+		// a message about an address at build time rather than here. Ignored
+		// on a device that cannot trace.
+		AccelerationStructureInput = 1u << 7,
 	};
 
 	inline BufferUsage operator|(BufferUsage a, BufferUsage b)
@@ -133,6 +139,44 @@ namespace RageV::RHI
 	{
 		UInt16,
 		UInt32,
+	};
+
+	// ---------------------------------------------------------------------
+	// Acceleration structures (ENGINE-NOTES 7am)
+	// ---------------------------------------------------------------------
+	class RHIBuffer;
+	class RHIAccelerationStructure;
+
+	// One triangle mesh, as a bottom-level structure sees it: positions are
+	// the first three floats of each vertex, `VertexStride` apart, indexed by
+	// the index buffer. Both buffers must carry
+	// BufferUsage::AccelerationStructureInput.
+	struct AccelerationGeometryDesc
+	{
+		std::shared_ptr<RHIBuffer> Vertices;
+		uint32_t  VertexStride = 0;
+		uint32_t  VertexCount  = 0;
+		uint64_t  VertexOffset = 0;
+		std::shared_ptr<RHIBuffer> Indices;
+		IndexType Type       = IndexType::UInt32;
+		uint32_t  IndexCount = 0;
+		uint64_t  IndexOffset = 0;
+		// Opaque geometry lets a shadow ray stop at its first hit without
+		// asking anyone; everything this engine draws lit is opaque.
+		bool      Opaque = true;
+		std::string DebugName;
+	};
+
+	// One placement of a bottom-level structure in a top-level one.
+	struct AccelerationInstance
+	{
+		// World transform. The backend takes the upper 3x4 of it.
+		float    Transform[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 };
+		std::shared_ptr<RHIAccelerationStructure> Blas;
+		// What a shader reads back as the instance's custom index; 24 bits.
+		uint32_t CustomIndex = 0;
+		// Which ray masks see this instance. 0xFF is every ray.
+		uint8_t  Mask = 0xFF;
 	};
 
 	// Declared ahead of SamplerDesc, which needs it for comparison sampling.
@@ -365,6 +409,11 @@ namespace RageV::RHI
 		StorageBuffer,
 		CombinedImageSampler,
 		StorageImage,
+		// `uniform accelerationStructureEXT`: a top-level structure a ray
+		// query traces into (ENGINE-NOTES 7am). Vulkan only; a shader that
+		// declares one cannot be cross-compiled to OpenGL and is never asked
+		// to be.
+		AccelerationStructure,
 	};
 
 	// One binding inside a resource set, recovered from SPIR-V reflection.
@@ -479,6 +528,13 @@ namespace RageV::RHI
 		bool SupportsDescriptorIndexing = false;
 		// How many textures one heap can hold. Zero when unsupported.
 		uint32_t MaxBindlessTextures  = 0;
+		// Whether a shader may trace rays into an acceleration structure
+		// (ENGINE-NOTES 7am): the acceleration-structure, ray-query and
+		// deferred-host-operations extensions plus the buffer-device-address
+		// feature, all present. The first capability with no OpenGL
+		// implementation at all -- false there, always, and the shadow-map
+		// path is what runs.
+		bool SupportsRayQuery         = false;
 		bool SupportsTimestampQueries = false;
 
 		// Compute shaders and dispatch. Core in Vulkan and in OpenGL 4.3, so

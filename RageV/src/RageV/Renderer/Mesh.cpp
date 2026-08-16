@@ -37,17 +37,23 @@ namespace RageV
 	{
 		// Static geometry, so device-local through the staging path rather than
 		// host-visible: it is written once and read every frame.
+		// The acceleration-structure input usage is asked for unconditionally
+		// and dropped by a device that cannot trace (ENGINE-NOTES 7am): it is a
+		// creation-time property, and a mesh made without it can never be
+		// traced, so every mesh carries it where it means anything.
 		BufferDesc vertexDesc;
 		vertexDesc.Size = vertices.size() * sizeof(MeshVertex);
-		vertexDesc.Usage = BufferUsage::Vertex;
+		vertexDesc.Usage = BufferUsage::Vertex | BufferUsage::AccelerationStructureInput;
 		vertexDesc.Memory = MemoryDomain::DeviceLocal;
 		vertexDesc.DebugName = debugName + ".vertices";
 		m_VertexBuffer = device.CreateBuffer(vertexDesc);
 		m_VertexBuffer->Upload(vertices.data(), vertexDesc.Size);
+		m_VertexCount = (uint32_t)vertices.size();
+		m_VertexStride = sizeof(MeshVertex);
 
 		BufferDesc indexDesc;
 		indexDesc.Size = indices.size() * sizeof(uint32_t);
-		indexDesc.Usage = BufferUsage::Index;
+		indexDesc.Usage = BufferUsage::Index | BufferUsage::AccelerationStructureInput;
 		indexDesc.Memory = MemoryDomain::DeviceLocal;
 		indexDesc.DebugName = debugName + ".indices";
 		m_IndexBuffer = device.CreateBuffer(indexDesc);
@@ -80,15 +86,17 @@ namespace RageV
 	{
 		BufferDesc vertexDesc;
 		vertexDesc.Size = vertices.size() * sizeof(SkinnedVertex);
-		vertexDesc.Usage = BufferUsage::Vertex;
+		vertexDesc.Usage = BufferUsage::Vertex | BufferUsage::AccelerationStructureInput;
 		vertexDesc.Memory = MemoryDomain::DeviceLocal;
 		vertexDesc.DebugName = debugName + ".skinnedvertices";
 		m_VertexBuffer = device.CreateBuffer(vertexDesc);
 		m_VertexBuffer->Upload(vertices.data(), vertexDesc.Size);
+		m_VertexCount = (uint32_t)vertices.size();
+		m_VertexStride = sizeof(SkinnedVertex);
 
 		BufferDesc indexDesc;
 		indexDesc.Size = indices.size() * sizeof(uint32_t);
-		indexDesc.Usage = BufferUsage::Index;
+		indexDesc.Usage = BufferUsage::Index | BufferUsage::AccelerationStructureInput;
 		indexDesc.Memory = MemoryDomain::DeviceLocal;
 		indexDesc.DebugName = debugName + ".indices";
 		m_IndexBuffer = device.CreateBuffer(indexDesc);
@@ -116,6 +124,30 @@ namespace RageV
 	namespace
 	{
 		std::unordered_map<uint32_t, Ref<Mesh>> s_PrimitiveCache;
+	}
+
+	const Ref<RHIAccelerationStructure>& Mesh::GetAccelerationStructure(RHIDevice& device)
+	{
+		// Once, whichever way it goes: a device that cannot trace answers null
+		// on the first ask, and asking again every frame would be asking the
+		// same question of the same device.
+		if (!m_BlasTried)
+		{
+			m_BlasTried = true;
+			if (device.GetCaps().SupportsRayQuery && m_VertexBuffer && m_IndexBuffer && m_IndexCount >= 3)
+			{
+				AccelerationGeometryDesc geometry;
+				geometry.Vertices = m_VertexBuffer;
+				geometry.VertexStride = m_VertexStride;
+				geometry.VertexCount = m_VertexCount;
+				geometry.Indices = m_IndexBuffer;
+				geometry.Type = IndexType::UInt32;
+				geometry.IndexCount = m_IndexCount;
+				geometry.DebugName = m_VertexBuffer->GetDesc().DebugName + ".blas";
+				m_Blas = device.CreateBottomLevelAS(geometry);
+			}
+		}
+		return m_Blas;
 	}
 
 	Ref<Mesh> Mesh::GetPrimitive(RHIDevice& device, PrimitiveType type)

@@ -164,6 +164,9 @@ namespace RageV::GL
 							  uint64_t offset = 0, uint64_t range = 0) override;
 		void SetTexture(uint32_t binding, const Ref<RHITexture>& texture,
 						const Ref<RHISampler>& sampler, uint32_t arrayIndex = 0) override;
+		// No such binding exists on GL, and no GL shader can declare one.
+		void SetAccelerationStructure(uint32_t binding,
+									  const Ref<RHIAccelerationStructure>& structure) override;
 		void Commit() override;
 
 		// Replays the accumulated bindings against the GL context.
@@ -255,6 +258,9 @@ namespace RageV::GL
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
 		void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
+		// A no-op: nothing to build on this backend (ENGINE-NOTES 7am).
+		void BuildTopLevelAS(const Ref<RHIAccelerationStructure>& tlas,
+							 const AccelerationInstance* instances, uint32_t count) override;
 		void BufferBarrier(const Ref<RHIBuffer>& buffer, BufferSync from, BufferSync to) override;
 
 		void WriteTimestamp(uint32_t slot) override;
@@ -343,6 +349,10 @@ namespace RageV::GL
 		// array, and the extension that adds one has no SPIR-V route -- see
 		// ENGINE-NOTES 7al for why this is the whole OpenGL implementation.
 		Ref<RHIResourceSet>  CreateBindlessTextureSet(uint32_t capacity) override;
+		// Always null: no ray tracing of any kind on this backend (ENGINE-NOTES
+		// 7am). The shadow-map path is what runs.
+		Ref<RHIAccelerationStructure> CreateBottomLevelAS(const AccelerationGeometryDesc& geometry) override;
+		Ref<RHIAccelerationStructure> CreateTopLevelAS(uint32_t maxInstances) override;
 		Ref<RHIComputePipeline> CreateComputePipeline(const ComputePipelineDesc& desc) override;
 		void ExecuteImmediate(const std::function<void(RHICommandList&)>& record) override;
 

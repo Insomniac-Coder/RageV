@@ -30,6 +30,13 @@ namespace RageV::RHI
 		virtual void SetTexture(uint32_t binding, const Ref<RHITexture>& texture,
 								const Ref<RHISampler>& sampler, uint32_t arrayIndex = 0) = 0;
 
+		// A top-level acceleration structure, for a binding the shader
+		// declared as `uniform accelerationStructureEXT` (ENGINE-NOTES 7am).
+		// Vulkan only; the OpenGL set logs and drops it, and no OpenGL shader
+		// can declare the binding in the first place.
+		virtual void SetAccelerationStructure(uint32_t binding,
+											  const Ref<RHIAccelerationStructure>& structure) = 0;
+
 		// Applies everything staged since the last call. Cheap and a no-op when
 		// nothing changed.
 		virtual void Commit() = 0;

@@ -41,6 +41,10 @@ void main()
 }
 
 #type fragment
-#version 450 core
+// 460, not 450: glslang admits the ray-query keywords only from 460, and the
+// fragment stage traces under RV_RAY_SHADOWS (ENGINE-NOTES 7am). Nothing else
+// in the stage needs it, and the OpenGL backend cross-compiles to 450 from
+// the SPIR-V whatever the source said.
+#version 460 core
 
 #include "include/pbr_fragment.glsl"

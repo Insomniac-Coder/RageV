@@ -2079,6 +2079,7 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 		// because prose does.
 		static const EnumCheck enums[] = {
 			{ "RageV/src/RageV/Renderer/RenderSettings.h", "AntiAliasing",    "rendering.md" },
+			{ "RageV/src/RageV/Renderer/RenderSettings.h", "ShadowMode",      "rendering.md" },
 			{ "RageV/src/RageV/Scene/Components.h",        "ProbeUpdate",     "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h",        "ProbeRate",       "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h",        "CanvasScaleMode", "components.md" },

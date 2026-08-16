@@ -32,6 +32,8 @@
 //   --aa=none|fxaa|smaa|ssaa|msaa|taa  override the scene's anti-aliasing choice
 //                           (also written to ragev.ini by the editor's
 //                           Render Settings dropdown, so a choice sticks)
+//   --shadows=maps|rt       override the project's shadow method (rt falls back
+//                           to maps on a device without ray queries)
 //   --ssaa=N                how many times larger SSAA draws each axis
 //   --msaa=N                coverage samples per pixel for MSAA
 //   --project=<path>        the .rvproject to open, or a folder containing one
@@ -179,6 +181,13 @@ namespace RageV
 		// mode because the two questions are separate: whether to supersample
 		// is a look, and how far is a budget.
 		int          SupersampleOverride = 0;
+
+		// --shadows=maps|rt. The same family as --aa: the check renders one
+		// scene both ways and compares, and the alternative is editing the
+		// project between runs. rt on a device without ray queries resolves
+		// to maps, and the log says so (ENGINE-NOTES 7am).
+		bool         HasShadowOverride = false;
+		ShadowMode   ShadowOverride = ShadowMode::Maps;
 
 		// --msaa=N. Zero leaves the scene's count alone.
 		int          MsaaOverride = 0;

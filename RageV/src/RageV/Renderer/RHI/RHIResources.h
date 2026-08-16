@@ -29,6 +29,25 @@ namespace RageV::RHI
 		BufferDesc m_Desc;
 	};
 
+	// An acceleration structure (ENGINE-NOTES 7am): bottom level is one
+	// triangle mesh, built once; top level is a list of placed bottom-level
+	// ones, rebuilt per frame by RHICommandList::BuildTopLevelAS. A shader
+	// traces into a top-level one through a resource set binding.
+	class RHIAccelerationStructure
+	{
+	public:
+		virtual ~RHIAccelerationStructure() = default;
+		bool IsTopLevel() const { return m_TopLevel; }
+		// For a top-level structure: how many instances a build may carry.
+		uint32_t GetMaxInstances() const { return m_MaxInstances; }
+
+	protected:
+		RHIAccelerationStructure(bool topLevel, uint32_t maxInstances)
+			: m_TopLevel(topLevel), m_MaxInstances(maxInstances) {}
+		bool     m_TopLevel = false;
+		uint32_t m_MaxInstances = 0;
+	};
+
 	class RHISampler
 	{
 	public:

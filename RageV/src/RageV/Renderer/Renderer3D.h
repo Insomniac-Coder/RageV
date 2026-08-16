@@ -131,6 +131,15 @@ namespace RageV
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetTriangleCount();
 
+		// Whether the lit shaders trace the directional light's shadow instead
+		// of sampling cascades (ENGINE-NOTES 7am). Switching recompiles the two
+		// lit shaders with RV_RAY_SHADOWS and rebuilds their pipelines, which
+		// the SPIR-V cache makes cheap after the first time; called by
+		// Scene::RenderShadows once it has resolved the mode. A no-op on a
+		// device that cannot trace, whatever it is asked.
+		static void SetRayTracedShadows(bool enabled);
+		static bool IsRayTracedShadows();
+
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and
 		// --bindless did not say no. Reported rather than assumed, because a
@@ -144,5 +153,6 @@ namespace RageV
 
 	private:
 		static void EnsurePipeline();
+		static bool CompileLitShaders();
 	};
 }

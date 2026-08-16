@@ -102,6 +102,15 @@ namespace RageV
 		const RHI::Ref<RHI::RHIBuffer>& GetIndexBuffer()  const { return m_IndexBuffer; }
 		uint32_t GetIndexCount() const { return m_IndexCount; }
 
+		// The bottom-level acceleration structure for this geometry, built on
+		// first use and kept (ENGINE-NOTES 7am): static, the same lifetime as
+		// the vertex buffer. For a skinned mesh it is the *bind pose* -- the
+		// posed vertices exist only inside the vertex shader -- so a skinned
+		// caster traces as its rest shape moved by its transform. Null on a
+		// device that cannot trace, and stays null; callers take the answer as
+		// "leave this mesh out".
+		const RHI::Ref<RHI::RHIAccelerationStructure>& GetAccelerationStructure(RHI::RHIDevice& device);
+
 		const AABB& GetBounds() const { return m_Bounds; }
 
 		// Replaces the box computed from the vertices.
@@ -136,6 +145,10 @@ namespace RageV
 		RHI::Ref<RHI::RHIBuffer> m_VertexBuffer;
 		RHI::Ref<RHI::RHIBuffer> m_IndexBuffer;
 		uint32_t m_IndexCount = 0;
+		uint32_t m_VertexCount = 0;
+		uint32_t m_VertexStride = 0;
+		RHI::Ref<RHI::RHIAccelerationStructure> m_Blas;
+		bool m_BlasTried = false;
 
 		AABB m_Bounds;
 		std::vector<Vec3> m_Positions;

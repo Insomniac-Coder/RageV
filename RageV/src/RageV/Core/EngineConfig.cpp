@@ -97,6 +97,23 @@ namespace RageV
 		if (key == "bindless")
 			return ParseBool(value, config.Bindless);
 
+		if (key == "shadows")
+		{
+			if (value == "maps" || value == "map")
+			{
+				config.HasShadowOverride = true;
+				config.ShadowOverride = ShadowMode::Maps;
+				return true;
+			}
+			if (value == "rt" || value == "raytraced" || value == "rays")
+			{
+				config.HasShadowOverride = true;
+				config.ShadowOverride = ShadowMode::RayTraced;
+				return true;
+			}
+			return false;
+		}
+
 		if (key == "msaa" || key == "samples")
 		{
 			config.MsaaOverride = std::atoi(value.c_str());

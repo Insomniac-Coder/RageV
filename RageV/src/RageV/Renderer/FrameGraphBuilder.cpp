@@ -2,6 +2,7 @@
 #include "FrameGraphBuilder.h"
 #include "PostProcess.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RayShadows.h"
 #include "RageV/Asset/AssetManager.h"
 #include "Renderer.h"
 #include "UIRenderer.h"
@@ -139,6 +140,25 @@ namespace RageV
 		// would tone map into an intermediate that nothing then reads, and the
 		// window would be black with no error anywhere.
 		return PostProcess::IsReady() ? requested : AntiAliasing::None;
+	}
+
+	ShadowMode ResolveShadowMode(const RenderSettings& render)
+	{
+		const EngineConfig& config = EngineConfig::Get();
+		const ShadowMode requested = config.HasShadowOverride ? config.ShadowOverride
+															  : render.ShadowMethod;
+		if (requested == ShadowMode::RayTraced && !RayShadows::IsAvailable())
+		{
+			static bool reported = false;
+			if (!reported)
+			{
+				RV_CORE_INFO("Shadows: ray-traced requested but this device has no ray queries; "
+							 "using shadow maps");
+				reported = true;
+			}
+			return ShadowMode::Maps;
+		}
+		return requested;
 	}
 
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc)

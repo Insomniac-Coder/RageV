@@ -47,6 +47,8 @@ namespace RageV::Vk
 						 uint32_t firstInstance = 0) override;
 
 		void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
+		void BuildTopLevelAS(const RHI::Ref<RHI::RHIAccelerationStructure>& tlas,
+							 const RHI::AccelerationInstance* instances, uint32_t count) override;
 		void BufferBarrier(const RHI::Ref<RHI::RHIBuffer>& buffer,
 						   RHI::BufferSync from, RHI::BufferSync to) override;
 

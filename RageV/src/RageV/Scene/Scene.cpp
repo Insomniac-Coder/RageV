@@ -13,6 +13,8 @@
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ShadowMap.h"
+#include "RageV/Renderer/RayShadows.h"
+#include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/ProbeArray.h"
 #include "RageV/Renderer/UIRenderer.h"
@@ -1275,6 +1277,12 @@ namespace RageV
 
 		UpdateWorldTransforms();
 
+		// Maps or rays for the directional light (ENGINE-NOTES 7am), resolved
+		// once here and told to the lit pass, which recompiles its shaders when
+		// the answer changes. Local lights keep their maps either way.
+		const bool traced = ResolveShadowMode(Project::Render()) == ShadowMode::RayTraced;
+		Renderer3D::SetRayTracedShadows(traced);
+
 		// Nothing to shadow, and a shadow pass over an empty scene is a render
 		// pass that clears and stops.
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
@@ -1479,6 +1487,28 @@ namespace RageV
 
 		if (casterIndex < 0)
 			return;
+
+		if (traced)
+		{
+			// The whole scene, once, into this frame's acceleration structure:
+			// every mesh with its world transform, skinned ones at their bind
+			// pose (their posed vertices exist only in the vertex shader; the
+			// refit is stage 2). No frustum: a caster outside the view still
+			// shadows what is inside it, and a ray does not have a frustum.
+			// Building is not permitted inside a render pass, and this runs
+			// before the graph, so it is recorded here rather than in the
+			// scene pass that reads it.
+			ShadowMap::SetLightIndex(casterIndex);
+			RayShadows::ClearInstances();
+			for (auto& item : meshView)
+			{
+				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+				if (RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh))
+					RayShadows::AddInstance(resolved, transform.World);
+			}
+			RayShadows::Build(*cmd);
+			return;
+		}
 
 		const uint32_t count = (uint32_t)Math::Clamp(Project::Render().ShadowCascades, 1,
 													(int)ShadowMap::kMaxCascades);

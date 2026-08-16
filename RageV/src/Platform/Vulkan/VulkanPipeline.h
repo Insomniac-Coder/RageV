@@ -128,6 +128,8 @@ namespace RageV::Vk
 							  uint64_t offset = 0, uint64_t range = 0) override;
 		void SetTexture(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
 						const RHI::Ref<RHI::RHISampler>& sampler, uint32_t arrayIndex = 0) override;
+		void SetAccelerationStructure(uint32_t binding,
+									  const RHI::Ref<RHI::RHIAccelerationStructure>& structure) override;
 		void Commit() override;
 
 		VkDescriptorSet GetHandle() const override;
@@ -148,6 +150,11 @@ namespace RageV::Vk
 			uint32_t ArrayIndex;
 			VkDescriptorImageInfo Info;
 		};
+		struct StructureWrite
+		{
+			uint32_t Binding;
+			VkAccelerationStructureKHR Structure;
+		};
 
 		VulkanDevice&           m_Device;
 		std::shared_ptr<DeletionQueue> m_Deletion;
@@ -163,11 +170,13 @@ namespace RageV::Vk
 
 		std::vector<BufferWrite> m_PendingBuffers;
 		std::vector<ImageWrite>  m_PendingImages;
+		std::vector<StructureWrite> m_PendingStructures;
 		// A set is only valid once written; track which frames still need the
 		// full write set so newly created sets are populated on first use.
 		std::vector<bool> m_Dirty;
 		std::vector<BufferWrite> m_LastBuffers;
 		std::vector<ImageWrite>  m_LastImages;
+		std::vector<StructureWrite> m_LastStructures;
 	};
 
 	// The bindless texture heap (ENGINE-NOTES 7al): one descriptor set, not
@@ -195,6 +204,8 @@ namespace RageV::Vk
 		// `binding` must be 0 and `arrayIndex` the slot.
 		void SetTexture(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
 						const RHI::Ref<RHI::RHISampler>& sampler, uint32_t arrayIndex = 0) override;
+		void SetAccelerationStructure(uint32_t binding,
+									  const RHI::Ref<RHI::RHIAccelerationStructure>& structure) override;
 		void Commit() override;
 
 		VkDescriptorSet GetHandle() const override { return m_Set; }

@@ -1,0 +1,89 @@
+Scene: Ray shadow boxes
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.02, 0.02, 0.025]
+  SkyZenith: [0.02, 0.02, 0.025]
+  SkyGround: [0.02, 0.02, 0.025]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 8, 18]
+      Rotation: [-0.35, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 14694575495496207728
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 20, 0]
+      Rotation: [-0.5236, 3.14159, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.96, 0.9]
+      Intensity: 3
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, -0.1, -80]
+      Rotation: [0, 0, 0]
+      Scale: [600, 0.2, 600]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.6, 0.6, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Near box
+    TransformComponent:
+      Position: [-3, 1.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 3, 1.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.7, 0.3, 0.2, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 1663341875487337577
+    TagComponent:
+      Tag: Far box
+    TransformComponent:
+      Position: [0, 30, -150]
+      Rotation: [0, 0, 0]
+      Scale: [30, 60, 30]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.2, 0.3, 0.7, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1

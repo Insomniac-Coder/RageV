@@ -18,6 +18,9 @@ namespace RageV::Vk
 		void* GetMappedPointer() override { return m_Mapped; }
 
 		VkBuffer GetHandle() const { return m_Buffer; }
+		// The address a build or a shader reads this buffer at. Zero unless the
+		// buffer was created with a usage that carries the address bit.
+		VkDeviceAddress GetDeviceAddress() const;
 
 	private:
 		VulkanDevice& m_Device;
@@ -25,6 +28,49 @@ namespace RageV::Vk
 		VkBuffer      m_Buffer     = VK_NULL_HANDLE;
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;
 		void*         m_Mapped     = nullptr;
+		bool          m_HasAddress = false;
+	};
+
+	// An acceleration structure (ENGINE-NOTES 7am), either level. Owns the
+	// VkAccelerationStructureKHR, the buffer it lives in, and -- for a
+	// top-level one -- the instance buffer and scratch a per-frame rebuild
+	// writes into, sized once for `maxInstances` so a rebuild allocates
+	// nothing. A bottom-level one is built in the constructor, immediately,
+	// with transient scratch, and never touched again.
+	class VulkanAccelerationStructure final : public RHI::RHIAccelerationStructure
+	{
+	public:
+		// Bottom level: builds now from the geometry.
+		VulkanAccelerationStructure(VulkanDevice& device, const RHI::AccelerationGeometryDesc& geometry);
+		// Top level: allocated for up to maxInstances; built by Build().
+		VulkanAccelerationStructure(VulkanDevice& device, uint32_t maxInstances);
+		~VulkanAccelerationStructure() override;
+
+		VkAccelerationStructureKHR GetHandle() const { return m_Structure; }
+		VkDeviceAddress GetDeviceAddress() const { return m_Address; }
+
+		// Top level only. Packs the instances into the instance buffer, records
+		// the build, and the barrier that makes it readable by shaders.
+		void Build(VkCommandBuffer cmd, const RHI::AccelerationInstance* instances, uint32_t count);
+
+	private:
+		struct Backing
+		{
+			VkBuffer      Buffer = VK_NULL_HANDLE;
+			VmaAllocation Allocation = VK_NULL_HANDLE;
+			void*         Mapped = nullptr;
+			VkDeviceAddress Address = 0;
+		};
+		Backing CreateBacking(VkDeviceSize size, VkBufferUsageFlags usage, bool hostVisible, const char* name);
+		void    Destroy(Backing& backing);
+
+		VulkanDevice& m_Device;
+		std::shared_ptr<DeletionQueue> m_Deletion;
+		VkAccelerationStructureKHR m_Structure = VK_NULL_HANDLE;
+		VkDeviceAddress m_Address = 0;
+		Backing m_Storage;    // the structure itself
+		Backing m_Scratch;    // top level: kept; bottom level: transient
+		Backing m_Instances;  // top level only, host visible
 	};
 
 	class VulkanSampler final : public RHI::RHISampler

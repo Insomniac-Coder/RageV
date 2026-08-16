@@ -638,7 +638,7 @@ deleted. **None of these should be started because it sounds interesting.**
 | 8.9 | FBX / Collada import | L | glTF covers Blender, Maya, Substance and every online library. This is a second material translation with its own failure modes |
 | 8.10 | Visual scripting | XL | "Two scripting languages is already two" — and this would be the third |
 | 8.11 | Asset store / plugin ecosystem | XL | Needs a stable ABI, which nothing here has |
-| 8.12 | Ray tracing — acceleration structures, ray queries, reflections and shadows | XL | **Depends on 8.2, and has no OpenGL path at all.** A hit shader is reached by a ray that could have hit anything, so it must read any mesh and any material with nobody having bound them — that is descriptor indexing, which is 8.2. And where bindless has an awkward OpenGL analogue, ray tracing has none: this is the first item that would make `--rhi=opengl` a backend that cannot run the feature |
+| 8.12 | Ray tracing — acceleration structures, ray queries, reflections and shadows | XL | **Stage 1 done 2026-08-16 (ENGINE-NOTES 7am):** acceleration structures in the RHI, ray queries proven in scenetest, and ray-traced directional shadows as `ShadowMode::RayTraced` beside the cascades — hard-edged, bias-free, one ray per pixel, checked against the maps to IoU 0.94. Vulkan only; OpenGL falls back to maps and says so. **Stages 2–3 open:** local-light shadow rays and a skinned BLAS refit (skinned casters trace at bind pose for now); then hit shading — buffers by address, a mesh table — and with it the SSR fallback, judged against 9.9's fixture |
 
 **The honest ordering, if any of these happen:** 8.4 and 8.9 are ordinary
 features. 8.2 was a decision about the engine's identity, and it has been

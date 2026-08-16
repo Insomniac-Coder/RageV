@@ -123,6 +123,13 @@ namespace RageV::Vk
 		if (HasFlag(usage, BufferUsage::Indirect))    flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 		if (HasFlag(usage, BufferUsage::TransferSrc)) flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 		if (HasFlag(usage, BufferUsage::TransferDst)) flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		// The build reads its inputs by device address, so the input bit
+		// brings the address bit with it (ENGINE-NOTES 7am).
+		if (HasFlag(usage, BufferUsage::AccelerationStructureInput))
+		{
+			flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+					 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+		}
 		return flags;
 	}
 
@@ -166,6 +173,7 @@ namespace RageV::Vk
 			case ResourceType::StorageBuffer:        return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			case ResourceType::CombinedImageSampler: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			case ResourceType::StorageImage:         return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+			case ResourceType::AccelerationStructure: return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 		}
 		return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	}

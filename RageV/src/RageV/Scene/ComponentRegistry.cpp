@@ -1200,6 +1200,7 @@ namespace
 		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA",
 												   "MSAA", "TAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
+		const char* const kShadowModeNames[] = { "Maps", "RayTraced" };
 
 		// Which rows apply to the mode that is selected.
 		//
@@ -1222,6 +1223,13 @@ namespace
 		bool CastsShadows(const void* block)
 		{
 			return static_cast<const RenderSettings*>(block)->ShadowsEnabled;
+		}
+		// The cascade dials mean nothing to a traced shadow; the resolution
+		// still does, because spot and point lights keep their maps.
+		bool UsesCascades(const void* block)
+		{
+			const auto* render = static_cast<const RenderSettings*>(block);
+			return render->ShadowsEnabled && render->ShadowMethod == ShadowMode::Maps;
 		}
 
 		bool HasColorLut(const void* block)
@@ -1308,22 +1316,31 @@ namespace
 
 				Field<&RenderSettings::ShadowsEnabled>("ShadowsEnabled", Named("Shadows")),
 
+				Field<&RenderSettings::ShadowMethod>("ShadowMethod",
+					Named("Method", OnlyWhen(CastsShadows, Enum(kShadowModeNames,
+						"Maps renders the scene from the light into depth maps and "
+						"samples them with two biases; RayTraced sends one ray per "
+						"pixel toward the light and has no acne, no detachment and "
+						"no distance limit, at a hard edge. RayTraced needs a device "
+						"with ray queries and falls back to Maps without one. Spot "
+						"and point lights keep their maps either way.")))),
+
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
-					Named("Distance", OnlyWhen(CastsShadows,
+					Named("Distance", OnlyWhen(UsesCascades,
 						Drag(0.5f, 1.0f, 500.0f,
 							"How far from the camera shadows are drawn at all. Not "
 							"the far plane: past this distance the texels are so "
 							"large the shadow is worse than none.")))),
 
 				Field<&RenderSettings::ShadowSplitLambda>("ShadowSplitLambda",
-					Named("Split lambda", OnlyWhen(CastsShadows,
+					Named("Split lambda", OnlyWhen(UsesCascades,
 						Slider(0.0f, 1.0f,
 							"Blend between a logarithmic cascade split, which "
 							"distributes texels correctly and starves the far "
 							"cascades, and a uniform one, which does the reverse.")))),
 
 				Field<&RenderSettings::ShadowNormalOffset>("ShadowNormalOffset",
-					Named("Normal offset", OnlyWhen(CastsShadows,
+					Named("Normal offset", OnlyWhen(UsesCascades,
 						Drag(0.05f, 0.0f, 8.0f,
 							"How far along the surface normal a sample is pushed, in "
 							"shadow texels. Raising it removes acne and starts "
@@ -1336,7 +1353,7 @@ namespace
 				// setting the panel edits and nothing saves is the exact bug
 				// this registry exists to prevent.
 				Field<&RenderSettings::ShadowCascades>("ShadowCascades",
-					Named("Cascades", OnlyWhen(CastsShadows,
+					Named("Cascades", OnlyWhen(UsesCascades,
 						Drag(0.05f, 1, 4,
 							"More cascades means better texel density near the "
 							"camera and more scene renders.")))),

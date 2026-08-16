@@ -53,6 +53,23 @@ namespace RageV
 		TAA  = 5,
 	};
 
+	// How the directional light's shadow is decided (ENGINE-NOTES 7am).
+	//
+	//   Maps: cascaded shadow maps -- the scene rendered from the light into
+	//   depth maps, sampled with two biases against acne and detachment, out
+	//   to ShadowDistance and no further.
+	//
+	//   RayTraced: one ray per pixel toward the light, into an acceleration
+	//   structure of the scene. No acne, no detachment, no distance limit,
+	//   and hard-edged. Needs a device with ray queries; where there is none
+	//   -- OpenGL, always -- it falls back to Maps and the log says so once.
+	//   Spot and point lights keep their maps either way, for now.
+	enum class ShadowMode : uint32_t
+	{
+		Maps      = 0,
+		RayTraced = 1,
+	};
+
 	// What the frame costs to render, as opposed to what it looks like.
 	//
 	// **These belong to the project**, not to a scene and not to a camera.
@@ -165,6 +182,11 @@ namespace RageV
 
 		// --- shadows -----------------------------------------------------------
 		bool ShadowsEnabled = true;
+
+		// Maps or rays for the directional light. Maps by default, so no
+		// existing project changes appearance; RayTraced falls back to Maps
+		// on a device without ray queries.
+		ShadowMode ShadowMethod = ShadowMode::Maps;
 
 		// More cascades means better texel density near the camera and more
 		// scene renders. Four is the usual answer and the most this supports.

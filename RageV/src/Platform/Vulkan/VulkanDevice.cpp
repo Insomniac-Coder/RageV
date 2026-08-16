@@ -490,8 +490,46 @@ namespace RageV::Vk
 		supported2.pNext = &supported12;
 		vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supported2);
 
+		// Ray queries (ENGINE-NOTES 7am): three extensions and three features,
+		// enabled only when every one is present. Deferred host operations is
+		// a dependency of acceleration structures the spec insists on, though
+		// nothing here defers anything.
+		const std::vector<const char*> rayExtensions = {
+			VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+			VK_KHR_RAY_QUERY_EXTENSION_NAME,
+			VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+		};
+		VkPhysicalDeviceRayQueryFeaturesKHR supportedRayQuery{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+		VkPhysicalDeviceAccelerationStructureFeaturesKHR supportedAcceleration{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+		supportedAcceleration.pNext = &supportedRayQuery;
+		const bool rayExtensionsPresent = HasDeviceExtensions(m_PhysicalDevice, rayExtensions);
+		if (rayExtensionsPresent)
+		{
+			// Chained behind the 1.2 query above only if the extensions exist:
+			// asking about a feature struct of an absent extension is itself
+			// a validation error.
+			supported12.pNext = &supportedAcceleration;
+			vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supported2);
+			supported12.pNext = nullptr;
+		}
+		m_RayQuerySupported = rayExtensionsPresent &&
+							  supported12.bufferDeviceAddress &&
+							  supportedAcceleration.accelerationStructure &&
+							  supportedRayQuery.rayQuery;
+
+		VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+		rayQueryFeatures.rayQuery = VK_TRUE;
+		VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+		accelerationFeatures.accelerationStructure = VK_TRUE;
+		accelerationFeatures.pNext = &rayQueryFeatures;
+
 		VkPhysicalDeviceVulkan12Features features12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
 		features12.pNext = &features13;
+		if (m_RayQuerySupported)
+		{
+			features12.bufferDeviceAddress = VK_TRUE;
+			features13.pNext = &accelerationFeatures;
+		}
 		m_DescriptorIndexingSupported =
 			supported12.descriptorIndexing &&
 			supported12.runtimeDescriptorArray &&
@@ -511,10 +549,12 @@ namespace RageV::Vk
 
 		// dynamic_rendering is core in 1.3, but Dear ImGui's Vulkan backend
 		// requires the extension to be enabled explicitly regardless.
-		const std::vector<const char*> extensions = {
+		std::vector<const char*> extensions = {
 			VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 			VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
 		};
+		if (m_RayQuerySupported)
+			extensions.insert(extensions.end(), rayExtensions.begin(), rayExtensions.end());
 
 		VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 		createInfo.pNext = &features12;
@@ -555,6 +595,10 @@ namespace RageV::Vk
 		createInfo.instance = m_Instance;
 		createInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 		createInfo.pVulkanFunctions = &functions;
+		// Acceleration structures and their inputs are reached by address, and
+		// VMA has to know the feature is on to allocate memory that can be.
+		if (m_RayQuerySupported)
+			createInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
 		VK_CHECK(vmaCreateAllocator(&createInfo, &m_Allocator));
 	}
@@ -581,6 +625,7 @@ namespace RageV::Vk
 		m_Caps.SupportsAnisotropy = features.samplerAnisotropy == VK_TRUE;
 		m_Caps.MaxAnisotropy = properties.limits.maxSamplerAnisotropy;
 		m_Caps.SupportsDynamicRendering = true;
+		m_Caps.SupportsRayQuery = m_RayQuerySupported;
 		m_Caps.SupportsTimestampQueries = properties.limits.timestampComputeAndGraphics == VK_TRUE;
 
 		// The heap's capacity is what one update-after-bind set may hold, which
@@ -664,7 +709,7 @@ namespace RageV::Vk
 	{
 		// One block. VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT lets
 		// resource sets be released individually when they are destroyed.
-		const VkDescriptorPoolSize sizes[] = {
+		std::vector<VkDescriptorPoolSize> sizes = {
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1000 },
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
 			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,          500 },
@@ -675,12 +720,17 @@ namespace RageV::Vk
 			{ VK_DESCRIPTOR_TYPE_SAMPLER,                 250 },
 			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          1000 },
 		};
+		// A type from an extension the device did not enable is a creation
+		// error, so the scene sets' TLAS binding is only provided for where it
+		// can exist (ENGINE-NOTES 7am).
+		if (m_RayQuerySupported)
+			sizes.push_back({ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 200 });
 
 		VkDescriptorPoolCreateInfo createInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
 		createInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 		createInfo.maxSets = kDescriptorSetsPerPool;
-		createInfo.poolSizeCount = (uint32_t)std::size(sizes);
-		createInfo.pPoolSizes = sizes;
+		createInfo.poolSizeCount = (uint32_t)sizes.size();
+		createInfo.pPoolSizes = sizes.data();
 
 		VkDescriptorPool pool = VK_NULL_HANDLE;
 		VK_CHECK(vkCreateDescriptorPool(m_Device, &createInfo, nullptr, &pool));
@@ -1526,6 +1576,26 @@ namespace RageV::Vk
 		VK_CHECK(vkCreateDescriptorSetLayout(m_Device, &createInfo, nullptr, &m_BindlessLayout));
 		SetDebugName((uint64_t)m_BindlessLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "bindless textures");
 		return m_BindlessLayout;
+	}
+
+	RHI::Ref<RHI::RHIAccelerationStructure> VulkanDevice::CreateBottomLevelAS(
+		const RHI::AccelerationGeometryDesc& geometry)
+	{
+		if (!m_RayQuerySupported)
+			return nullptr;
+		auto structure = std::make_shared<VulkanAccelerationStructure>(*this, geometry);
+		// A build that could not start leaves no handle behind; hand back null
+		// rather than an object that traces into nothing.
+		if (structure->GetHandle() == VK_NULL_HANDLE)
+			return nullptr;
+		return structure;
+	}
+
+	RHI::Ref<RHI::RHIAccelerationStructure> VulkanDevice::CreateTopLevelAS(uint32_t maxInstances)
+	{
+		if (!m_RayQuerySupported)
+			return nullptr;
+		return std::make_shared<VulkanAccelerationStructure>(*this, Math::Max(maxInstances, 1u));
 	}
 
 	RHI::Ref<RHI::RHIResourceSet> VulkanDevice::CreateBindlessTextureSet(uint32_t capacity)

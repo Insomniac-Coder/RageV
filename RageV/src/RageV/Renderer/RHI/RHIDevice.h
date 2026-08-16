@@ -169,5 +169,14 @@ namespace RageV::RHI
 		// Null when GetCaps().SupportsDescriptorIndexing is false, which it is
 		// on OpenGL always; the caller takes the bound path.
 		virtual Ref<RHIResourceSet>  CreateBindlessTextureSet(uint32_t capacity) = 0;
+
+		// Acceleration structures (ENGINE-NOTES 7am). A bottom-level one is
+		// built here, immediately, the way a texture is uploaded -- static
+		// geometry, once. A top-level one is only allocated here, for up to
+		// `maxInstances`, and built each frame by the command list from
+		// whatever the scene has in it. Both null when
+		// GetCaps().SupportsRayQuery is false, which it is on OpenGL always.
+		virtual Ref<RHIAccelerationStructure> CreateBottomLevelAS(const AccelerationGeometryDesc& geometry) = 0;
+		virtual Ref<RHIAccelerationStructure> CreateTopLevelAS(uint32_t maxInstances) = 0;
 	};
 }

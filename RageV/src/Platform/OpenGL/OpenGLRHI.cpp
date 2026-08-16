@@ -850,6 +850,13 @@ namespace RageV::GL
 		m_Buffers.push_back(entry);
 	}
 
+	void OpenGLResourceSetRHI::SetAccelerationStructure(uint32_t binding,
+														 const Ref<RHIAccelerationStructure>&)
+	{
+		RV_CORE_ERROR("[OpenGL] SetAccelerationStructure({0}): no ray tracing on this backend; ignored",
+					  binding);
+	}
+
 	void OpenGLResourceSetRHI::SetTexture(uint32_t binding, const Ref<RHITexture>& texture,
 										  const Ref<RHISampler>& sampler, uint32_t arrayIndex)
 	{
@@ -1351,6 +1358,19 @@ namespace RageV::GL
 		glDrawElementsInstancedBaseVertexBaseInstance(
 			m_BoundPipeline->GetTopology(), (GLsizei)indexCount, m_IndexType, offset,
 			(GLsizei)instanceCount, vertexOffset, firstInstance);
+	}
+
+	void OpenGLCommandListRHI::BuildTopLevelAS(const Ref<RHIAccelerationStructure>&,
+												const AccelerationInstance*, uint32_t)
+	{
+		// Nothing exists to build. A caller that reached here ignored the caps;
+		// said once rather than at frame rate.
+		static bool reported = false;
+		if (!reported)
+		{
+			RV_CORE_WARN("[OpenGL] BuildTopLevelAS called; this backend has no ray tracing");
+			reported = true;
+		}
 	}
 
 	void OpenGLCommandListRHI::Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
@@ -1902,6 +1922,16 @@ namespace RageV::GL
 	{
 		auto concrete = std::static_pointer_cast<OpenGLComputePipelineRHI>(pipeline);
 		return std::make_shared<OpenGLResourceSetRHI>(*this, concrete.get(), concrete, set);
+	}
+
+	Ref<RHIAccelerationStructure> OpenGLDevice::CreateBottomLevelAS(const AccelerationGeometryDesc&)
+	{
+		return nullptr;
+	}
+
+	Ref<RHIAccelerationStructure> OpenGLDevice::CreateTopLevelAS(uint32_t)
+	{
+		return nullptr;
 	}
 
 	Ref<RHIResourceSet> OpenGLDevice::CreateBindlessTextureSet(uint32_t)

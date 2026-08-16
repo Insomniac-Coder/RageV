@@ -1591,41 +1591,44 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: bindless is in, and it found a bug in the path it replaced -- 8.12 is unblocked
+### START HERE: rays are real -- 8.12 stage 1 is in, stages 2-3 are the open work
 
-**8.2 (2026-08-16, ENGINE-NOTES 7al) is done and verified.** The design was
-written first and it held: the split between the backends is forced in
-exactly two places -- the descriptor heap and the GLSL that indexes it -- and
-neither is the RHI. On Vulkan the lit pass reads material textures through
-one heap indexed per instance; on OpenGL nothing changed, and the log says
-so at startup (`Renderer3D: material textures ...`). The fork lives in
-`Material::Bind` / `Material::WriteRecord` and one block of
-`pbr_fragment.glsl` under `RV_BINDLESS`; the RHI gained one factory
-(`CreateBindlessTextureSet`) and one flag that already existed and was never
-set (`SupportsDescriptorIndexing`).
+**8.12 stage 1 (2026-08-16, ENGINE-NOTES 7am) is done and verified**, on the
+same day as 8.2 and on top of it: acceleration structures in the RHI
+(`RHIAccelerationStructure`, `CreateBottomLevelAS` / `CreateTopLevelAS`,
+`BuildTopLevelAS` on the command list, `SetAccelerationStructure` on a set,
+`BufferUsage::AccelerationStructureInput`, `DeviceCaps::SupportsRayQuery`),
+ray queries proven in scenetest (`CheckRayQuery`, 13 checks), and
+**ray-traced directional shadows** as `RenderSettings::ShadowMethod =
+RayTraced` beside the cascades. `Mesh` builds a BLAS on first use;
+`RayShadows` builds one TLAS per frame in `Scene::RenderShadows` (before the
+graph -- building inside a render pass is forbidden); `pbr_fragment.glsl`
+under `RV_RAY_SHADOWS` traces one ray per pixel in `ShadowFactor` and the
+lit shaders are recompiled when the mode changes. `--shadows=maps|rt`
+overrides the project. OpenGL: null, false, falls back to maps and logs it.
 
-**The check that proves it is a pixel comparison, and on its first run it
-failed on every wall -- in the *bound* path.** `Material::GetBatchKey` mixed
-maps, sampler and `MapFlags` but not `UvTransform`, `HeightScale` or
-`Specular`, so the courtyard's wall and plinth (same maps, different tiling)
-were one run and every wall drew at the plinth's tiling, since the day
-`UvTransform` joined the block. Fixed; both paths now agree to zero pixels
-across five runs (`tools/scripts/check_bindless.py`). **Read 7al's "What
-building it found" before touching either path.**
+**Checks**: `check_ray_shadows.py` -- traced and mapped agree to IoU 0.94
+near and far, the traced edge is 0 px wide against the maps' 6, no
+self-shadowing on open floor, both reproduce, OpenGL falls back; falsified
+by negating the ray (IoU 0.000). **What the fixture refuted**: maps do not
+stop at `ShadowDistance` -- the last cascade's footprint reaches far past
+it -- so that planned claim is not made; 7am records it.
 
-**Two new flags.** `--bindless=on|off` (default on; the off run on Vulkan is
-the parity control) and `--validation=gpu` (GPU-assisted validation: the only
-thing that reports an out-of-range bindless index -- plain validation says
-nothing, verified). A wrong index draws **magenta**, by construction: slot 0
-and every unwritten slot are the error texture.
+**Stated limits, all stage 2-3 work**: skinned casters trace at *bind pose*
+(the fox's shadow stands while the fox runs); spot and point lights keep
+their maps; the edge is hard (no penumbra); no reflections yet -- hit
+shading needs buffers by address, which is the next section when it comes.
 
-**Phase 8 continues and which item is the owner's call.** 8.12 ray tracing
-was behind 8.2 and is unblocked; it still has no OpenGL path and needs an RTX
-or RDNA2-class GPU. 8.4 and 8.9 are ordinary features. The rest are each
-larger than everything built so far.
+**Also today**: 8.2 bindless (75c9b22) -- read the previous START HERE
+entry's substance in ENGINE-NOTES 7al, including the bound-path batch-key
+bug the parity check found. E.1 Ctrl+S confirmed by the owner.
 
-**E.1 (Ctrl+S) is confirmed by the owner, by pressing it** -- the one check
-this session could not run from a terminal.
+**Verified for this commit**: Debug built, both backends; scenetest 1619 on
+Vulkan with validation and zero `[Vulkan]` lines, 1585+ on OpenGL; runtime
+and editor exit 0 on both; `check_ray_shadows` 11/11 (Debug);
+`check_bindless` and the 8.2 neighbours passed earlier today on Release.
+Release/Dist were rebuilt at the end of the session; if the next session
+finds them stale, rebuild before trusting a Release-config script.
 
 ---
 
@@ -1687,6 +1690,50 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 8.12 stage 1, acceleration structures and ray-traced shadows (2026-08-16)
+
+Design first (ENGINE-NOTES 7am): ray queries before pipelines, and a shadow
+ray before a reflection, because a shadow needs no hit shading and hit
+shading is a bindless-*buffers* project before it is a ray-tracing one.
+
+**RHI**: `AccelerationGeometryDesc`, `AccelerationInstance`,
+`RHIAccelerationStructure`; `CreateBottomLevelAS` (built immediately, like a
+texture upload) and `CreateTopLevelAS(maxInstances)`; `BuildTopLevelAS` on
+the command list, which packs the instances (the BLAS address is the one
+field only Vulkan can fill), records the build, and ends with the
+build-to-shader barrier; `SetAccelerationStructure`;
+`ResourceType::AccelerationStructure` reflected from SPIRV-Cross;
+`BufferUsage::AccelerationStructureInput` (dropped by a device that cannot
+trace, so callers need not ask); `SupportsRayQuery`. **Vulkan**: the three
+extensions and features enabled where present, VMA's device-address flag,
+the descriptor pool grows the AS type, `VulkanAccelerationStructure` with
+per-TLAS instance and scratch buffers so a rebuild allocates nothing.
+**OpenGL**: null and no-op throughout.
+
+**Renderer**: `Mesh::GetAccelerationStructure` builds and caches a BLAS
+(skinned: bind pose); `RayShadows` (one TLAS per frame in flight plus an
+empty one so the binding is never unwritten); `ShadowMode` /
+`RenderSettings::ShadowMethod` with inspector rows that hide the cascade
+dials under `RayTraced`; `ResolveShadowMode` beside `ResolveAntiAliasing`
+with the caps fallback logged once; `Renderer3D::SetRayTracedShadows`
+recompiles the lit shaders (SPIR-V cache makes it a file read) and binds the
+TLAS at set 0 binding 14; `Scene::RenderShadows` builds the TLAS instead of
+the cascades and keeps the local maps. **Shader**: `#version 460` on the
+two lit fragment stages (glslang admits the ray-query keywords only from
+460), `RV_RAY_SHADOWS` around one declaration and the body of
+`ShadowFactor`; origin pushed 2-10 mm along the geometric normal, opaque,
+terminate-on-first-hit.
+
+**Checks and findings**: `CheckRayQuery` (13); `check_ray_shadows.py` (11)
+-- IoU 0.944 / 0.946, edge 0 px vs 6, speckle 0, reproducible, OpenGL
+fallback; falsified by negating the ray direction (IoU 0.000). The maps
+reach past `ShadowDistance` (the fit is bounded, the footprint is not), so
+the "no shadow past the distance" claim the design planned was dropped and
+recorded. Under validation: zero `[Vulkan]` lines on the demo and the
+fixture, including the per-frame TLAS build.
 
 ---
 

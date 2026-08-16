@@ -2076,6 +2076,214 @@ void main()
 		Check(sampled(colours[4], 0.0f, 1.0f, 0.0f), "and the same slot twice is the same texture");
 	}
 
+	// Ray queries (ENGINE-NOTES 7am), before any of the renderer uses them:
+	// one triangle in a bottom-level structure, two placements of it in a
+	// top-level one, and a compute shader that traces a handful of rays and
+	// writes back what it hit. This is the check that says the acceleration
+	// structures are real, independent of any picture: a ray aimed at the
+	// triangle reports its distance and its instance, a ray beside it misses,
+	// a ray from behind with back-face culling misses, and the instance
+	// transform moves the hit. Skipped with a stated reason on a device that
+	// cannot trace, which OpenGL always is.
+	void CheckRayQuery()
+	{
+		RHI::RHIDevice& device = Renderer::GetDevice();
+		const RHI::DeviceCaps& caps = device.GetCaps();
+
+		if (!caps.SupportsRayQuery)
+		{
+			RHI::AccelerationGeometryDesc none;
+			Check(device.CreateBottomLevelAS(none) == nullptr,
+				  "no ray query on this device, and CreateBottomLevelAS says so with null");
+			Check(device.CreateTopLevelAS(4) == nullptr, "and CreateTopLevelAS the same");
+			Check(true, "the ray query checks are skipped: this device takes the shadow-map path");
+			return;
+		}
+		if (!caps.SupportsCompute)
+		{
+			Check(true, "no compute on this device; the ray query check is skipped");
+			return;
+		}
+
+		// One triangle in the z = 0 plane, counter-clockwise from +z, so +z
+		// is its front face.
+		const float positions[] = { -1.0f, -1.0f, 0.0f,   1.0f, -1.0f, 0.0f,   0.0f, 1.0f, 0.0f };
+		const uint32_t indices[] = { 0, 1, 2 };
+
+		RHI::BufferDesc vertexDesc;
+		vertexDesc.Size = sizeof(positions);
+		vertexDesc.Usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::AccelerationStructureInput;
+		vertexDesc.DebugName = "scenetest.rq.vertices";
+		RHI::Ref<RHI::RHIBuffer> vertices = device.CreateBuffer(vertexDesc);
+		vertices->Upload(positions, sizeof(positions));
+
+		RHI::BufferDesc indexDesc;
+		indexDesc.Size = sizeof(indices);
+		indexDesc.Usage = RHI::BufferUsage::Index | RHI::BufferUsage::AccelerationStructureInput;
+		indexDesc.DebugName = "scenetest.rq.indices";
+		RHI::Ref<RHI::RHIBuffer> indexBuffer = device.CreateBuffer(indexDesc);
+		indexBuffer->Upload(indices, sizeof(indices));
+
+		RHI::AccelerationGeometryDesc geometry;
+		geometry.Vertices = vertices;
+		geometry.VertexStride = 3 * sizeof(float);
+		geometry.VertexCount = 3;
+		geometry.Indices = indexBuffer;
+		geometry.Type = RHI::IndexType::UInt32;
+		geometry.IndexCount = 3;
+		geometry.DebugName = "scenetest.rq.blas";
+		RHI::Ref<RHI::RHIAccelerationStructure> blas = device.CreateBottomLevelAS(geometry);
+		Check(blas != nullptr && !blas->IsTopLevel(), "a bottom-level structure builds from one triangle");
+		if (!blas)
+			return;
+
+		// Two placements: at the origin with custom index 3, and ten units
+		// along +x with custom index 7. Instance three of a possible four,
+		// so the count and the capacity are not the same number.
+		RHI::AccelerationInstance instances[2];
+		instances[0].Blas = blas;
+		instances[0].CustomIndex = 3;
+		instances[1].Blas = blas;
+		instances[1].CustomIndex = 7;
+		instances[1].Transform[12] = 10.0f;   // column-major: translation x
+
+		RHI::Ref<RHI::RHIAccelerationStructure> tlas = device.CreateTopLevelAS(4);
+		Check(tlas != nullptr && tlas->IsTopLevel() && tlas->GetMaxInstances() == 4,
+			  "a top-level structure is allocated for four instances");
+		if (!tlas)
+			return;
+
+		// The rays: origin.xyz + tMax, direction.xyz + cull-back-faces flag.
+		struct Ray { Vec4 Origin; Vec4 Direction; };
+		const Ray rays[] = {
+			{ {  0.0f, 0.0f,  5.0f, 100.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // straight at it: hit, t = 5, instance 3
+			{ {  3.0f, 3.0f,  5.0f, 100.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // beside it: miss
+			{ {  0.0f, 0.0f, -5.0f, 100.0f }, { 0.0f, 0.0f,  1.0f, 1.0f } },   // from behind, culling: miss
+			{ {  0.0f, 0.0f, -5.0f, 100.0f }, { 0.0f, 0.0f,  1.0f, 0.0f } },   // from behind, no culling: hit
+			{ { 10.0f, 0.0f,  5.0f, 100.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // the moved copy: hit, instance 7
+			{ {  5.0f, 0.0f,  5.0f, 100.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // between the two: miss
+			{ {  0.0f, 0.0f,  5.0f,   2.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // too short a ray: miss
+		};
+		constexpr uint32_t kCount = (uint32_t)std::size(rays);
+
+		RHI::ShaderDesc desc;
+		desc.Name = "scenetest.rayquery";
+		desc.Stages.push_back({ RHI::ShaderStage::Compute, R"(
+#version 460 core
+#extension GL_EXT_ray_query : require
+layout(local_size_x = 8) in;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT u_Scene;
+layout(std430, set = 0, binding = 1) readonly buffer Rays { vec4 Data[]; } u_Rays;
+layout(std430, set = 0, binding = 2) writeonly buffer Hits { vec4 Hit[]; } u_Hits;
+
+layout(push_constant) uniform Params { uint Count; } u_Params;
+
+void main()
+{
+	uint i = gl_GlobalInvocationID.x;
+	if (i >= u_Params.Count)
+		return;
+
+	vec4 origin = u_Rays.Data[2u * i];
+	vec4 direction = u_Rays.Data[2u * i + 1u];
+	uint flags = gl_RayFlagsOpaqueEXT;
+	if (direction.w > 0.5)
+		flags |= gl_RayFlagsCullBackFacingTrianglesEXT;
+
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_Scene, flags, 0xFFu, origin.xyz, 0.0, direction.xyz, origin.w);
+	while (rayQueryProceedEXT(q)) {}
+
+	if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
+	{
+		u_Hits.Hit[i] = vec4(rayQueryGetIntersectionTEXT(q, true),
+							 float(rayQueryGetIntersectionPrimitiveIndexEXT(q, true)),
+							 float(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true)),
+							 1.0);
+	}
+	else
+	{
+		u_Hits.Hit[i] = vec4(-1.0, -1.0, -1.0, 0.0);
+	}
+}
+)" });
+
+		auto compiled = RHI::ShaderCompiler::Compile(desc);
+		Check(compiled.has_value(), "a compute shader with a ray query compiles");
+		if (!compiled)
+			return;
+
+		bool declaresStructure = false;
+		if (const RHI::ResourceSetLayoutDesc* set = compiled->Reflection.FindSet(0))
+		{
+			for (const auto& binding : set->Bindings)
+				declaresStructure |= binding.Binding == 0 && binding.Type == RHI::ResourceType::AccelerationStructure;
+		}
+		Check(declaresStructure, "and reflection recovers the acceleration structure binding");
+
+		RHI::Ref<RHI::RHIShader> shader = device.CreateShader(*compiled);
+		RHI::ComputePipelineDesc pipelineDesc;
+		pipelineDesc.Name = "scenetest.rayquery";
+		pipelineDesc.Shader = shader;
+		RHI::Ref<RHI::RHIComputePipeline> pipeline = device.CreateComputePipeline(pipelineDesc);
+		Check(pipeline != nullptr, "and builds a compute pipeline");
+		if (!pipeline)
+			return;
+
+		RHI::BufferDesc raysDesc;
+		raysDesc.Size = sizeof(rays);
+		raysDesc.Usage = RHI::BufferUsage::Storage;
+		raysDesc.Memory = RHI::MemoryDomain::HostVisible;
+		raysDesc.DebugName = "scenetest.rq.rays";
+		RHI::Ref<RHI::RHIBuffer> raysBuffer = device.CreateBuffer(raysDesc);
+		raysBuffer->Upload(rays, sizeof(rays));
+
+		RHI::BufferDesc hitsDesc;
+		hitsDesc.Size = kCount * sizeof(Vec4);
+		hitsDesc.Usage = RHI::BufferUsage::Storage;
+		hitsDesc.Memory = RHI::MemoryDomain::HostVisible;
+		hitsDesc.DebugName = "scenetest.rq.hits";
+		RHI::Ref<RHI::RHIBuffer> hitsBuffer = device.CreateBuffer(hitsDesc);
+
+		RHI::Ref<RHI::RHIResourceSet> set = device.CreateResourceSet(pipeline, 0);
+		set->SetAccelerationStructure(0, tlas);
+		set->SetStorageBuffer(1, raysBuffer, 0, raysDesc.Size);
+		set->SetStorageBuffer(2, hitsBuffer, 0, hitsDesc.Size);
+		set->Commit();
+
+		device.ExecuteImmediate([&](RHI::RHICommandList& cmd)
+		{
+			// The build, then the trace, in one command list; the build's own
+			// barrier is what orders them.
+			cmd.BuildTopLevelAS(tlas, instances, 2);
+			cmd.BindComputePipeline(pipeline);
+			cmd.BindResourceSet(0, set);
+			const uint32_t count = kCount;
+			cmd.PushConstants(RHI::ShaderStage::Compute, 0, sizeof(count), &count);
+			cmd.Dispatch(1);
+			cmd.BufferBarrier(hitsBuffer, RHI::BufferSync::ComputeWrite, RHI::BufferSync::ShaderRead);
+		});
+
+		const auto* hits = static_cast<const Vec4*>(hitsBuffer->GetMappedPointer());
+		Check(hits != nullptr, "the hits read back");
+		if (!hits)
+			return;
+
+		auto hit = [&](uint32_t i) { return hits[i].w > 0.5f; };
+		Check(hit(0) && Math::Abs(hits[0].x - 5.0f) < 1e-3f,
+			  "a ray aimed at the triangle hits it at the distance geometry says, t = 5");
+		Check(hit(0) && hits[0].y == 0.0f && hits[0].z == 3.0f,
+			  "and reports primitive 0 of the instance with custom index 3");
+		Check(!hit(1), "a ray beside it misses");
+		Check(!hit(2), "a ray from behind, culling back faces, misses");
+		Check(hit(3) && Math::Abs(hits[3].x - 5.0f) < 1e-3f, "and the same ray without culling hits");
+		Check(hit(4) && hits[4].z == 7.0f,
+			  "the copy placed ten units along x is hit there and reports custom index 7");
+		Check(!hit(5), "the space between the two copies is empty");
+		Check(!hit(6), "a ray shorter than the distance misses: tMax is respected");
+	}
+
 	// The particle sort, against a buffer whose right answer is arithmetic.
 	//
 	// **This started as a pixel comparison and that was the wrong instrument.**
@@ -11240,6 +11448,7 @@ int RunTests(int argc, char** argv)
 	CheckMathFunctions();
 	CheckMultisampledDepth();
 	CheckBindlessHeap();
+	CheckRayQuery();
 	CheckGameModule();
 	CheckProject();
 	CheckPackaging();

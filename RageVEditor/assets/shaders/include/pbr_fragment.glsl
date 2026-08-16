@@ -148,6 +148,15 @@ layout(set = 0, binding = 4) uniform samplerCubeShadow u_PointShadows[4];
 // agree, or every comparison is against a depth from a different projection.
 const float POINT_SHADOW_NEAR = 0.05;
 
+// Ray-traced shadows (ENGINE-NOTES 7am): the frame's acceleration structure,
+// which ShadowFactor below traces into instead of looking a cascade up.
+// Compiled in only when the project asks for traced shadows on a device that
+// can; the cascade path is the same file with this block absent.
+#ifdef RV_RAY_SHADOWS
+#extension GL_EXT_ray_query : require
+layout(set = 0, binding = 14) uniform accelerationStructureEXT u_SceneAS;
+#endif
+
 // The material: two front doors, one shading (ENGINE-NOTES 7al).
 //
 // Everything below this block -- every texture(u_BaseColorMap, uv), every
@@ -391,6 +400,30 @@ float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
 	if (count <= 0)
 		return 1.0;
 
+#ifdef RV_RAY_SHADOWS
+	// One ray toward the light. Opaque and terminate-on-first-hit: a shadow
+	// ray does not care what it hit or where, only whether. The origin is
+	// pushed off the surface along the *geometric* normal by a few
+	// millimetres, scaled by the slope -- the same shape as the maps' normal
+	// offset and for the same reason, self-intersection, but a hundredth of
+	// the size, because a ray has no texel to clear. Too small and every
+	// surface shadows itself in a moire; too large and the shadow detaches.
+	// The result is hard: a directional light has an angular size and a real
+	// penumbra needs several rays and a filter across frames, which this is
+	// not.
+	vec3 Ng = normalize(v_Normal);
+	float NgdotL = clamp(dot(Ng, L), 0.0, 1.0);
+	float slope = sqrt(1.0 - NgdotL * NgdotL) / max(NgdotL, 0.15);
+	float offset = 0.002 * (1.0 + min(slope, 4.0));
+
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_SceneAS,
+						  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+						  0xFFu, worldPos + Ng * offset, 0.0, L, 1.0e4);
+	while (rayQueryProceedEXT(q)) {}
+	return rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT
+		 ? 1.0 : 0.0;
+#else
 	float viewDepth = dot(worldPos - u_Scene.CameraPosition.xyz, u_Scene.CameraForward.xyz);
 
 	int cascade = count - 1;
@@ -425,6 +458,7 @@ float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
 	}
 
 	return lit;
+#endif
 }
 
 float SampleSpot(int slot, vec3 coordinate)

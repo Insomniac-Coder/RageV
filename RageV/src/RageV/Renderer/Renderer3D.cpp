@@ -4,6 +4,7 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "TextureLoader.h"
 #include "TextureHeap.h"
+#include "RayShadows.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
 #include "LightGrid.h"
@@ -345,6 +346,11 @@ namespace RageV
 			std::unique_ptr<TextureHeap> Heap;
 			bool Bindless = false;
 
+			// Whether the lit shaders were compiled with RV_RAY_SHADOWS. Unlike
+			// the heap this changes at runtime -- it is a project setting -- so
+			// the shaders are recompiled and the pipelines rebuilt when it does.
+			bool RayShadowsOn = false;
+
 			// The depth-only pipeline. Its own shader and its own pipeline
 			// object: no colour attachment, so it cannot share the lit one.
 			Ref<RHIShader>   ShadowShader;
@@ -475,28 +481,19 @@ namespace RageV
 						 : caps.SupportsDescriptorIndexing ? std::string("bound per material (heap disabled)")
 														   : std::string("bound per material (no descriptor indexing)"));
 
-		const std::vector<std::string> defines = s_Data->Bindless
-			? std::vector<std::string>{ "RV_BINDLESS" }
-			: std::vector<std::string>{};
+		// The acceleration structures the lit pass may trace into. Unavailable
+		// on a device without ray queries, and then everything below that asks
+		// about it is answered "no" (ENGINE-NOTES 7am).
+		RayShadows::Init(device);
 
-		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", defines);
-		if (!compiled)
-		{
-			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr.rvshader");
+		if (!CompileLitShaders())
 			return;
-		}
-		s_Data->Shader = device.CreateShader(*compiled);
 
 		// Slots are created on demand; most frames need one.
 		s_Data->SceneSlots.resize(device.GetFramesInFlight());
 		s_Data->ShadowSlots.resize(device.GetFramesInFlight());
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
-
-		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr_skinned.rvshader", defines))
-			s_Data->SkinnedShader = device.CreateShader(*compiled);
-		else
-			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_skinned.rvshader");
 
 		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/shadow_depth.rvshader"))
 			s_Data->ShadowShader = device.CreateShader(*compiled);
@@ -530,9 +527,62 @@ namespace RageV
 	{
 		Mesh::ClearCache();
 		TextureLoader::ClearCache();
+		RayShadows::Shutdown();
 		// After s_Data's default material, which holds a reference to it.
 		s_Data.reset();
 		Material::ReleaseShared();
+	}
+
+	// The two lit shaders, compiled for the paths this device and this frame
+	// take: RV_BINDLESS is decided once at Init, RV_RAY_SHADOWS follows the
+	// project setting. Called at Init and again whenever the shadow method
+	// changes; the SPIR-V cache makes the second and later calls a file read.
+	bool Renderer3D::CompileLitShaders()
+	{
+		std::vector<std::string> defines;
+		if (s_Data->Bindless)
+			defines.push_back("RV_BINDLESS");
+		if (s_Data->RayShadowsOn)
+			defines.push_back("RV_RAY_SHADOWS");
+
+		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", defines);
+		if (!compiled)
+		{
+			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr.rvshader");
+			return false;
+		}
+		s_Data->Shader = s_Data->Device->CreateShader(*compiled);
+
+		if (auto skinned = ShaderCompiler::CompileFromFile("assets/shaders/pbr_skinned.rvshader", defines))
+			s_Data->SkinnedShader = s_Data->Device->CreateShader(*skinned);
+		else
+			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_skinned.rvshader");
+
+		return true;
+	}
+
+	void Renderer3D::SetRayTracedShadows(bool enabled)
+	{
+		if (!s_Data)
+			return;
+		if (enabled && !RayShadows::IsAvailable())
+			enabled = false;
+		if (s_Data->RayShadowsOn == enabled)
+			return;
+
+		s_Data->RayShadowsOn = enabled;
+		RV_CORE_INFO("Renderer3D: directional shadows {0}", enabled ? "traced" : "from cascaded maps");
+
+		// New shaders, new pipelines, and every scene set with them: a set is
+		// allocated against a layout, and the layouts differ by the structure
+		// binding.
+		if (CompileLitShaders())
+			s_Data->PipelineDirty = true;
+	}
+
+	bool Renderer3D::IsRayTracedShadows()
+	{
+		return s_Data && s_Data->RayShadowsOn;
 	}
 
 	Ref<Material> Renderer3D::GetDefaultMaterial()
@@ -644,6 +694,8 @@ namespace RageV
 		// round, which is what lets the heap recycle them now.
 		if (s_Data->Heap)
 			s_Data->Heap->BeginFrame(s_Data->Device->GetFrameIndex());
+		// Last frame's acceleration structure is last frame's.
+		RayShadows::BeginFrame();
 		// Accumulated across every scene drawn this frame rather than reset per
 		// scene, or the statistics panel would only ever show the last viewport.
 		s_Data->DrawCalls = 0;
@@ -798,7 +850,20 @@ namespace RageV
 		s_Data->Scene.ShadowParams = Vec4(0.0f, 0.0f, 0.0f, -1.0f);
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;
-		if (cascadeCount > 0)
+		if (s_Data->RayShadowsOn)
+		{
+			// Traced: ShadowParams.x is a flag rather than a count -- one when
+			// a structure was built this frame, zero when not (a probe
+			// capture, or before the first RenderShadows), and the shader's
+			// "count <= 0 means lit" reads it the same way either path.
+			s_Data->Scene.ShadowParams = {
+				RayShadows::IsActive() ? 1.0f : 0.0f,
+				render.ShadowNormalOffset,
+				0.0f,
+				0.0f,
+			};
+		}
+		else if (cascadeCount > 0)
 		{
 			const ShadowCascade* cascades = ShadowMap::GetCascades();
 			const uint32_t resolution = Math::Max(ShadowMap::GetResolution(), 1u);
@@ -975,6 +1040,12 @@ namespace RageV
 		sceneSet->SetTexture(12, haveReflections ? reflections->Texture
 												 : TextureLoader::TransparentBlack(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
+
+		// The structure the shadow ray traces into, only where the layout
+		// declares it. This frame's when one was built, the empty one when
+		// not; never left unwritten.
+		if (s_Data->RayShadowsOn)
+			sceneSet->SetAccelerationStructure(RayShadows::kBinding, RayShadows::GetStructure());
 
 		// All four, always. A comparison sampler the layout declares and the
 		// set does not fill is a validation error; a 1x1 depth of 1.0 is the

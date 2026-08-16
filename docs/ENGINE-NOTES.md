@@ -5355,6 +5355,220 @@ checks on Vulkan and 1585 on OpenGL, zero validation lines, `check_ssr`,
 
 ---
 
+## 7am. Ray tracing (8.12): a ray before a hit shader, and a shadow before a reflection
+
+The roadmap wrote 8.12 down as "acceleration structures and ray queries,
+wired into the SSR trace as the fallback when the screen-space walk misses".
+That is still the destination. This section is about what has to exist
+before it, and about the first thing that should be built on it -- which is
+not a reflection.
+
+### Two tiers, and the whole plan is the distinction
+
+**Ray queries** are a function call from a shader that already exists: a
+fragment or compute stage asks "does this ray hit anything, and where", and
+gets an answer. No new pipeline type, no shader binding table, no raygen or
+hit stages. **Ray tracing pipelines** are all of those, and are the thing
+people picture. Ray queries come first, and everything in this section is
+built on them alone; pipelines are not needed for anything on the roadmap
+and are not planned.
+
+What a ray query cannot do is *shade the thing it hit*. It returns a
+primitive index, an instance index and barycentrics; turning that into a
+colour means reading that mesh's vertices and that instance's material with
+nobody having bound them -- every vertex and index buffer reachable by
+address, every material record and every texture reachable by index. The
+textures are 8.2. The buffers are not yet anything. **Hit shading is the
+large half of ray-traced reflections, and it is a bindless-buffers project
+before it is a ray-tracing one.**
+
+### So the first ray is a shadow ray
+
+A shadow needs no hit shading. From the point being lit, trace toward the
+light; if the ray hits anything at all, the point is in shadow. One ray per
+fragment per light, opaque geometry, stop at the first hit -- the cheapest
+query there is, and the one that puts a real ray on screen with nothing but
+the acceleration structures underneath it.
+
+It is also the ray that removes a limitation the notes already record. 3.5
+built cascaded shadow maps with two biases because one was not enough --
+back-face rendering against acne, a normal offset against the acne that
+remains -- and `ShadowNormalOffset`'s own comment says there is no value
+that has neither acne nor detachment. A traced ray has neither: the shadow
+starts where the caster touches the ground, exactly, and a surface edge-on
+to the light is not a texel spanning a metre of depth. It also has no
+`ShadowDistance`: the cascades stop at forty metres because past that the
+texels are worse than nothing, and a ray does not have texels. So the
+measurement is already stated: agree with the maps where the maps are right,
+and be right where they are not.
+
+Stage 1 is therefore: **acceleration structures in the RHI, ray queries
+proven in scenetest, and ray-traced directional shadows as a shadow mode
+beside the cascades.** Reflections -- the SSR fallback -- come after, on the
+same structures, once buffers can be reached by address.
+
+### The RHI shape
+
+Two resource kinds, one build, one binding, one usage bit, one cap:
+
+- **`RHIAccelerationStructure`**, bottom or top level. A bottom-level one
+  (BLAS) is one triangle mesh -- a vertex buffer with positions in its first
+  three floats, an index buffer -- and is built once, immediately, the way a
+  texture is uploaded. A top-level one (TLAS) is a list of *instances*, each
+  a BLAS with a transform, and is rebuilt every frame from whatever the
+  scene has in it. `CreateBottomLevelAS(geometry)` and
+  `CreateTopLevelAS(maxInstances)` on the device.
+- **`RHICommandList::BuildTopLevelAS(tlas, instances, count)`**: writes the
+  instance list, records the build, and ends with the barrier that makes the
+  structure readable by any shader stage. The barrier is inside the call
+  rather than a `BufferSync` kind because there is exactly one thing a
+  built TLAS is for, and a caller that could forget the barrier would.
+  **Must be recorded outside a render pass** -- building is not permitted
+  inside one, and the frame has a place for it: `Scene::RenderShadows`,
+  which already runs before the graph and already walks every mesh.
+- **`RHIResourceSet::SetAccelerationStructure(binding, tlas)`**, and
+  `ResourceType::AccelerationStructure` recovered from reflection, so a
+  shader declaring `uniform accelerationStructureEXT` gets a layout that
+  matches without anyone writing it down twice.
+- **`BufferUsage::AccelerationStructureInput`** on a mesh's vertex and index
+  buffers. The build reads them by device address, and a buffer that was not
+  created with that usage cannot be read that way -- so `Mesh` sets it when
+  the device can trace, and a mesh created before that decision cannot be
+  traced. Stated because it is the kind of requirement that fails at build
+  time with a message about an address.
+- **`DeviceCaps::SupportsRayQuery`**: the three extensions
+  (`VK_KHR_acceleration_structure`, `VK_KHR_ray_query`,
+  `VK_KHR_deferred_host_operations`) and the three features
+  (`accelerationStructure`, `rayQuery`, `bufferDeviceAddress`), all present.
+  OpenGL: false, `CreateBottomLevelAS` null, and the shadow-map path is what
+  it always was. This is the first feature with no OpenGL implementation at
+  all -- not an awkward analogue, none -- and the roadmap said it would be.
+
+On Vulkan the buffers behind all of this are ordinary VMA buffers with the
+device-address usage; the allocator itself is created with the
+buffer-device-address flag; scratch memory for a build is sized by
+`vkGetAccelerationStructureBuildSizesKHR` and, for the TLAS, kept beside it
+so a per-frame rebuild allocates nothing. **One TLAS per frame in flight**,
+like every other per-frame resource, because the previous frame's fragment
+shaders may still be tracing into theirs. Instances are
+`VkAccelerationStructureInstanceKHR` -- a 3x4 transform, a 24-bit custom
+index, an 8-bit mask, flags, and the BLAS's device address -- in a
+host-visible buffer the command list fills; the address is why the RHI
+takes `AccelerationInstance{ Transform, Blas, ... }` and packs it in the
+backend, rather than asking the renderer for a struct only Vulkan can
+complete.
+
+### The renderer
+
+`Mesh` builds its BLAS on first use, when the device can, and caches it --
+static geometry, built once, the same lifetime as the vertex buffer. A
+skinned mesh builds one too, **from its bind pose**: its posed vertices
+exist only inside the vertex shader, and refitting a BLAS from them needs a
+compute skinning pass writing to a buffer, which is stage 2. So in stage 1
+the fox casts the shadow of its bind pose, moved by its transform -- present
+and slightly wrong, which is better than absent, and stated.
+
+`Scene::RenderShadows` is where the frame decides what shadows are. Under
+`ShadowMode::Maps` it renders cascades as it always has. Under
+`ShadowMode::RayTraced` on a device that can, it skips the cascades and
+instead walks the same mesh view, appends an instance per mesh -- BLAS plus
+world transform -- and records one `BuildTopLevelAS` into the frame's
+command buffer. Local lights keep their spot and point maps either way in
+stage 1: replacing them is one more ray per light per fragment inside the
+cluster loop, and it is stage 2 with the skinned refit. `Renderer3D` binds
+the frame's TLAS at set 0, binding 14, in the scene set, and compiles the
+PBR shaders with `RV_RAY_SHADOWS` when the mode is on -- the same seam 8.2
+opened, a define, so `ShadowFactor` becomes:
+
+```glsl
+#ifdef RV_RAY_SHADOWS
+rayQueryEXT q;
+rayQueryInitializeEXT(q, u_SceneAS,
+    gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF,
+    worldPos + N * offset, 0.0, L, 1e4);
+rayQueryProceedEXT(q);
+return rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+#else
+... the cascades, unchanged ...
+#endif
+```
+
+and everything that calls `ShadowFactor` does not know which it got. The
+offset is along the *geometric* normal, a few millimetres scaled by the
+slope -- the same shape as the map's normal offset and for the same reason,
+self-intersection, but a hundredth of the size, because a ray has no texel
+to clear. Opaque and terminate-on-first-hit: a shadow ray does not care
+what it hit or where, only whether. The result is hard. A directional light
+has an angular size and a real penumbra needs several rays and a filter
+across frames; that is a later stage and it is not this one, and the check
+below measures the hard edge as hard rather than pretending.
+
+The mode is a `RenderSettings` field -- `ShadowMode Shadows`, `Maps` or
+`RayTraced`, default `Maps` -- because it is a judgement about the hardware
+(7s), like everything else in that block, and defaulting to `Maps` means no
+existing project changes appearance. Where the device cannot, `RayTraced`
+falls back to `Maps` and the log says so, once. `--shadows=maps|rt` on the
+command line, so the check renders the same scene both ways without editing
+the project.
+
+### The checks
+
+**`CheckRayQuery` in scenetest**, before any of the renderer exists: one
+triangle in a BLAS, one instance in a TLAS, a compute shader that traces a
+handful of rays and writes back hit distances. Rays aimed at the triangle
+report its distance; rays aimed beside it report a miss; a ray from behind,
+with back-face culling, misses; the transform moves the hit. Skipped with a
+stated reason on OpenGL. This is the check that says the acceleration
+structures are real, independent of any picture.
+
+**`check_ray_shadows.py`**, on a fixture the light is low over and shining
+toward the camera: a near box and a far wall at 150 m. Claims, as measured
+at landing (all pass, Debug, both backends where they apply):
+
+1. Traced and mapped shadows are the same shape near (IoU 0.944) and far
+   (IoU 0.946). Where the maps are right, the rays agree with them -- and
+   this judges the ray's origin offset from *above*: too large detaches.
+2. The traced edge is hard: 0 px between 10% and 90% of the swing, against
+   the maps' 6.
+3. Open sunlit floor has no self-shadowing: 0.000000 of pixels dark. This
+   judges the offset from *below*: too small is a moire.
+4. Both frames reproduce; OpenGL asked for `rt` logs the fallback and its
+   maps agree with Vulkan's (IoU 1.000).
+
+Falsified by negating the ray direction: IoU collapses to 0.000 near and
+far.
+
+**And one claim the design planned that the fixture refuted.** "Past
+`ShadowDistance` the maps draw no shadow" is not true of these maps: the
+setting bounds the cascade *fit*, but the last cascade's orthographic
+footprint on a receding ground plane reaches far past it and the sampler
+clamps to the edge texel outside the map -- so the wall's foot at 150 m is
+shadowed by the maps too. The claim is not made. What the rays do have that
+the maps do not, at any distance, is the hard edge and the absence of a
+bias; the check states those instead.
+
+**The traps worth stating now.** A ray query inside a fragment shader
+inside a render pass is fine; the *build* is not, and the frame's one
+correct place for it is before the graph. Buffer device address is a
+creation-time property, so a mesh loaded before the device said it could
+trace has buffers that cannot be traced. And the shadow ray's origin offset
+is the whole of its correctness: too small and every surface shadows
+itself in a moiré, too large and the shadow detaches -- the same two
+failures as the maps, three orders of magnitude smaller, and the check's
+first claim is what says the value chosen is right.
+
+### What comes after, on the same structures
+
+Stage 2: local-light shadow rays inside the cluster loop, and a compute
+skinning pass so a skinned BLAS is refit each frame from posed vertices.
+Stage 3: hit shading -- vertex and index buffers reachable by address, a
+mesh table indexed by the instance's custom index, and a shade of the hit
+point through the material record and the heap -- and with it the SSR
+fallback the roadmap named, judged against 9.9's exactness fixture. Each
+is a section of its own when it happens.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
@@ -5365,6 +5579,7 @@ checks on Vulkan and 1585 on OpenGL, zero validation lines, `check_ssr`,
 | Lights | 8-light cap accepted | clustered forward removes it in Phase 3 |
 | Render graph | Phase 3.1 | confirmed, and now has a concrete design |
 | Bindless | unexamined | one fork, at the material and its shader block; the RHI stays one interface (§7al) |
+| Ray tracing | "no OpenGL path at all" | ray queries only, shadows first, reflections after hit shading exists (§7am) |
 | ECS | EnTT | confirmed, with the failure mode written down |
 | GPU-driven | unstated | explicitly out of scope |
 | Contacts | "route them into scripts" | the routing is easy; sleep, removal and sub-shape granularity are not (§3a) |

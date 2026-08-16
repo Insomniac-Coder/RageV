@@ -486,28 +486,58 @@ namespace RageV::Vk
 		m_PendingImages.push_back(write);
 	}
 
+	void VulkanResourceSet::SetAccelerationStructure(uint32_t binding,
+													  const RHI::Ref<RHI::RHIAccelerationStructure>& structure)
+	{
+		auto vulkanStructure = std::static_pointer_cast<VulkanAccelerationStructure>(structure);
+		StructureWrite write{};
+		write.Binding = binding;
+		write.Structure = vulkanStructure ? vulkanStructure->GetHandle() : VK_NULL_HANDLE;
+		if (write.Structure == VK_NULL_HANDLE)
+		{
+			RV_CORE_ERROR("[Vulkan] SetAccelerationStructure({0}) with no structure; ignored", binding);
+			return;
+		}
+		m_PendingStructures.push_back(write);
+	}
+
 	void VulkanResourceSet::Commit()
 	{
 		const uint32_t frame = m_Device.GetFrameIndex();
 
 		// Carry forward the last complete write set so a frame slot that has
 		// not been written yet still gets a fully populated descriptor set.
-		if (!m_PendingBuffers.empty()) m_LastBuffers = m_PendingBuffers;
-		if (!m_PendingImages.empty())  m_LastImages = m_PendingImages;
+		if (!m_PendingBuffers.empty())    m_LastBuffers = m_PendingBuffers;
+		if (!m_PendingImages.empty())     m_LastImages = m_PendingImages;
+		if (!m_PendingStructures.empty()) m_LastStructures = m_PendingStructures;
 
 		const bool needsFullWrite = m_Dirty[frame];
-		const auto& buffers = needsFullWrite ? m_LastBuffers : m_PendingBuffers;
-		const auto& images  = needsFullWrite ? m_LastImages  : m_PendingImages;
+		const auto& buffers    = needsFullWrite ? m_LastBuffers    : m_PendingBuffers;
+		const auto& images     = needsFullWrite ? m_LastImages     : m_PendingImages;
+		const auto& structures = needsFullWrite ? m_LastStructures : m_PendingStructures;
 
-		if (buffers.empty() && images.empty())
+		if (buffers.empty() && images.empty() && structures.empty())
 		{
 			m_PendingBuffers.clear();
 			m_PendingImages.clear();
+			m_PendingStructures.clear();
 			return;
 		}
 
+		// The pNext chain each structure write needs, kept alive until the
+		// update call below has read it.
+		std::vector<VkWriteDescriptorSetAccelerationStructureKHR> structureInfos;
+		structureInfos.reserve(structures.size());
+		for (const auto& structure : structures)
+		{
+			VkWriteDescriptorSetAccelerationStructureKHR info{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
+			info.accelerationStructureCount = 1;
+			info.pAccelerationStructures = &structure.Structure;
+			structureInfos.push_back(info);
+		}
+
 		std::vector<VkWriteDescriptorSet> writes;
-		writes.reserve(buffers.size() + images.size());
+		writes.reserve(buffers.size() + images.size() + structures.size());
 
 		for (const auto& buffer : buffers)
 		{
@@ -532,6 +562,17 @@ namespace RageV::Vk
 			writes.push_back(write);
 		}
 
+		for (size_t i = 0; i < structures.size(); i++)
+		{
+			VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			write.pNext = &structureInfos[i];
+			write.dstSet = m_Sets[frame];
+			write.dstBinding = structures[i].Binding;
+			write.descriptorCount = 1;
+			write.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+			writes.push_back(write);
+		}
+
 		// The rewrite-after-bind tripwire. The validation layer will report
 		// the consequence -- the command buffer invalidated -- but names
 		// neither who owned the set nor who rewrote it. This names both.
@@ -542,6 +583,8 @@ namespace RageV::Vk
 				bindings += (bindings.empty() ? "" : ",") + std::to_string(buffer.Binding);
 			for (const auto& image : images)
 				bindings += (bindings.empty() ? "" : ",") + std::to_string(image.Binding);
+			for (const auto& structure : structures)
+				bindings += (bindings.empty() ? "" : ",") + std::to_string(structure.Binding);
 
 			RV_CORE_ERROR("[Vulkan] descriptor set for pipeline '{0}' (binding(s) {1}) "
 						  "rewritten after being bound in this frame's command "
@@ -554,6 +597,7 @@ namespace RageV::Vk
 		m_Dirty[frame] = false;
 		m_PendingBuffers.clear();
 		m_PendingImages.clear();
+		m_PendingStructures.clear();
 	}
 
 	// -------------------------------------------------------------------------
@@ -636,6 +680,12 @@ namespace RageV::Vk
 
 		m_PendingInfos.push_back(info);
 		m_PendingSlots.push_back(arrayIndex);
+	}
+
+	void VulkanBindlessSet::SetAccelerationStructure(uint32_t binding,
+													  const RHI::Ref<RHI::RHIAccelerationStructure>&)
+	{
+		RV_CORE_ERROR("[Vulkan] SetAccelerationStructure({0}) on the bindless texture heap; ignored", binding);
 	}
 
 	void VulkanBindlessSet::Commit()

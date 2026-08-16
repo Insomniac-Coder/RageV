@@ -88,6 +88,20 @@ namespace RageV::RHI
 		// failure found late. Asserted on both.
 		virtual void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
 
+		// Rebuilds a top-level acceleration structure from `count` instances
+		// (ENGINE-NOTES 7am): writes the instance list, records the build, and
+		// ends with the barrier that makes the result readable by any shader
+		// stage that traces into it. The barrier is here rather than a
+		// BufferSync kind because there is exactly one thing a built TLAS is
+		// for, and a caller that could forget it would.
+		//
+		// **Must be recorded outside a render pass** -- building is not
+		// permitted inside one. The frame's place for it is before the graph,
+		// beside the shadow maps. Asserted on Vulkan; a no-op on OpenGL, which
+		// has no structure to build.
+		virtual void BuildTopLevelAS(const Ref<RHIAccelerationStructure>& tlas,
+									 const AccelerationInstance* instances, uint32_t count) = 0;
+
 		// Orders one buffer's uses against each other: everything recorded
 		// before this that used it as `from` completes before anything
 		// recorded after uses it as `to`.

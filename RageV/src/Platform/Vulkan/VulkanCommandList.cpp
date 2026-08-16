@@ -361,6 +361,16 @@ namespace RageV::Vk
 		m_BoundPipeline = common;
 	}
 
+	void VulkanCommandList::BuildTopLevelAS(const RHI::Ref<RHI::RHIAccelerationStructure>& tlas,
+											 const RHI::AccelerationInstance* instances, uint32_t count)
+	{
+		RV_CORE_ASSERT(!m_InRenderPass, "BuildTopLevelAS must be recorded outside a render pass");
+		auto structure = std::static_pointer_cast<VulkanAccelerationStructure>(tlas);
+		if (!structure)
+			return;
+		structure->Build(m_CommandBuffer, instances, count);
+	}
+
 	void VulkanCommandList::BindResourceSet(uint32_t set, const RHI::Ref<RHI::RHIResourceSet>& resources)
 	{
 		RV_CORE_ASSERT(m_BoundPipeline, "BindResourceSet requires a bound pipeline");

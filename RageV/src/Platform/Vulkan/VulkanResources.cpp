@@ -108,6 +108,17 @@ namespace RageV::Vk
 		if (desc.Memory == RHI::MemoryDomain::DeviceLocal)
 			usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;   // needs to receive staging copies
 
+		// A usage from an extension the device did not enable is a creation
+		// error, so on a device that cannot trace the input bit is dropped
+		// here rather than by every caller asking the caps first. The buffer
+		// then simply cannot be traced, which is what the caps said.
+		if (!m_Device.RayQuerySupported())
+		{
+			usage &= ~(VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+					   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+		}
+		m_HasAddress = (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0;
+
 		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 		bufferInfo.size = desc.Size;
 		bufferInfo.usage = usage;
@@ -132,6 +143,15 @@ namespace RageV::Vk
 
 		if (!desc.DebugName.empty())
 			m_Device.SetDebugName((uint64_t)m_Buffer, VK_OBJECT_TYPE_BUFFER, desc.DebugName.c_str());
+	}
+
+	VkDeviceAddress VulkanBuffer::GetDeviceAddress() const
+	{
+		if (!m_HasAddress || m_Buffer == VK_NULL_HANDLE)
+			return 0;
+		VkBufferDeviceAddressInfo info{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+		info.buffer = m_Buffer;
+		return vkGetBufferDeviceAddress(m_Device.GetDevice(), &info);
 	}
 
 	VulkanBuffer::~VulkanBuffer()
@@ -733,5 +753,283 @@ namespace RageV::Vk
 		if (index >= m_Color.size())
 			return nullptr;
 		return m_Color[index];
+	}
+
+	// -------------------------------------------------------------------------
+	// Acceleration structures (ENGINE-NOTES 7am)
+	// -------------------------------------------------------------------------
+	namespace
+	{
+		VkTransformMatrixKHR ToVkTransform(const float m[16])
+		{
+			// Column-major 4x4 in, row-major 3x4 out: the first three rows,
+			// each row's four values being that row across the columns.
+			VkTransformMatrixKHR out{};
+			for (int row = 0; row < 3; row++)
+				for (int col = 0; col < 4; col++)
+					out.matrix[row][col] = m[col * 4 + row];
+			return out;
+		}
+	}
+
+	VulkanAccelerationStructure::Backing VulkanAccelerationStructure::CreateBacking(
+		VkDeviceSize size, VkBufferUsageFlags usage, bool hostVisible, const char* name)
+	{
+		Backing backing;
+
+		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bufferInfo.size = size;
+		bufferInfo.usage = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		if (hostVisible)
+		{
+			allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+							  VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		}
+
+		VmaAllocationInfo allocationInfo{};
+		VK_CHECK(vmaCreateBuffer(m_Device.GetAllocator(), &bufferInfo, &allocInfo,
+								 &backing.Buffer, &backing.Allocation, &allocationInfo));
+		if (hostVisible)
+			backing.Mapped = allocationInfo.pMappedData;
+
+		VkBufferDeviceAddressInfo addressInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+		addressInfo.buffer = backing.Buffer;
+		backing.Address = vkGetBufferDeviceAddress(m_Device.GetDevice(), &addressInfo);
+
+		if (name)
+			m_Device.SetDebugName((uint64_t)backing.Buffer, VK_OBJECT_TYPE_BUFFER, name);
+		return backing;
+	}
+
+	void VulkanAccelerationStructure::Destroy(Backing& backing)
+	{
+		if (backing.Buffer == VK_NULL_HANDLE)
+			return;
+		VmaAllocator allocator = m_Device.GetAllocator();
+		VkBuffer buffer = backing.Buffer;
+		VmaAllocation allocation = backing.Allocation;
+		m_Deletion->Push([allocator, buffer, allocation]()
+		{
+			vmaDestroyBuffer(allocator, buffer, allocation);
+		});
+		backing = Backing{};
+	}
+
+	VulkanAccelerationStructure::VulkanAccelerationStructure(VulkanDevice& device,
+															 const RHI::AccelerationGeometryDesc& geometry)
+		: RHI::RHIAccelerationStructure(false, 0), m_Device(device), m_Deletion(device.GetDeletionQueue())
+	{
+		auto vertices = std::static_pointer_cast<VulkanBuffer>(geometry.Vertices);
+		auto indices = std::static_pointer_cast<VulkanBuffer>(geometry.Indices);
+		if (!vertices || !indices || vertices->GetDeviceAddress() == 0 || indices->GetDeviceAddress() == 0)
+		{
+			RV_CORE_ERROR("[Vulkan] bottom-level acceleration structure '{0}': the vertex and index "
+						  "buffers must exist and carry BufferUsage::AccelerationStructureInput",
+						  geometry.DebugName);
+			return;
+		}
+
+		VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
+		triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+		triangles.vertexData.deviceAddress = vertices->GetDeviceAddress() + geometry.VertexOffset;
+		triangles.vertexStride = geometry.VertexStride;
+		triangles.maxVertex = geometry.VertexCount > 0 ? geometry.VertexCount - 1 : 0;
+		triangles.indexType = geometry.Type == RHI::IndexType::UInt16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
+		triangles.indexData.deviceAddress = indices->GetDeviceAddress() + geometry.IndexOffset;
+
+		VkAccelerationStructureGeometryKHR geometryInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+		geometryInfo.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+		geometryInfo.geometry.triangles = triangles;
+		geometryInfo.flags = geometry.Opaque ? VK_GEOMETRY_OPAQUE_BIT_KHR : 0;
+
+		const uint32_t primitiveCount = geometry.IndexCount / 3;
+
+		VkAccelerationStructureBuildGeometryInfoKHR build{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+		build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+		build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		build.geometryCount = 1;
+		build.pGeometries = &geometryInfo;
+
+		VkAccelerationStructureBuildSizesInfoKHR sizes{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+		vkGetAccelerationStructureBuildSizesKHR(m_Device.GetDevice(),
+												VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+												&build, &primitiveCount, &sizes);
+
+		m_Storage = CreateBacking(sizes.accelerationStructureSize,
+								  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, false,
+								  geometry.DebugName.empty() ? "blas" : geometry.DebugName.c_str());
+		Backing scratch = CreateBacking(sizes.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false,
+										"blas.scratch");
+
+		VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+		createInfo.buffer = m_Storage.Buffer;
+		createInfo.size = sizes.accelerationStructureSize;
+		createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+		VK_CHECK(vkCreateAccelerationStructureKHR(m_Device.GetDevice(), &createInfo, nullptr, &m_Structure));
+		if (!geometry.DebugName.empty())
+			m_Device.SetDebugName((uint64_t)m_Structure, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, geometry.DebugName.c_str());
+
+		VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
+		addressInfo.accelerationStructure = m_Structure;
+		m_Address = vkGetAccelerationStructureDeviceAddressKHR(m_Device.GetDevice(), &addressInfo);
+
+		build.dstAccelerationStructure = m_Structure;
+		build.scratchData.deviceAddress = scratch.Address;
+
+		VkAccelerationStructureBuildRangeInfoKHR range{};
+		range.primitiveCount = primitiveCount;
+		const VkAccelerationStructureBuildRangeInfoKHR* ranges[] = { &range };
+
+		// Once, now, and wait: static geometry, the same lifetime as the
+		// vertex buffer, and nothing downstream can proceed without it.
+		m_Device.ImmediateSubmit([&](VkCommandBuffer cmd)
+		{
+			vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build, ranges);
+		});
+
+		Destroy(scratch);
+	}
+
+	VulkanAccelerationStructure::VulkanAccelerationStructure(VulkanDevice& device, uint32_t maxInstances)
+		: RHI::RHIAccelerationStructure(true, maxInstances), m_Device(device), m_Deletion(device.GetDeletionQueue())
+	{
+		// Sized for the most instances a build may carry; the per-frame build
+		// then reuses all three buffers and allocates nothing.
+		m_Instances = CreateBacking((VkDeviceSize)Math::Max(maxInstances, 1u) * sizeof(VkAccelerationStructureInstanceKHR),
+									VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+									true, "tlas.instances");
+
+		VkAccelerationStructureGeometryInstancesDataKHR instances{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR };
+		instances.arrayOfPointers = VK_FALSE;
+		instances.data.deviceAddress = m_Instances.Address;
+
+		VkAccelerationStructureGeometryKHR geometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+		geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+		geometry.geometry.instances = instances;
+
+		VkAccelerationStructureBuildGeometryInfoKHR build{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+		build.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+		build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		build.geometryCount = 1;
+		build.pGeometries = &geometry;
+
+		VkAccelerationStructureBuildSizesInfoKHR sizes{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+		vkGetAccelerationStructureBuildSizesKHR(m_Device.GetDevice(),
+												VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+												&build, &maxInstances, &sizes);
+
+		m_Storage = CreateBacking(sizes.accelerationStructureSize,
+								  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, false, "tlas");
+		m_Scratch = CreateBacking(Math::Max(sizes.buildScratchSize, sizes.updateScratchSize),
+								  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false, "tlas.scratch");
+
+		VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+		createInfo.buffer = m_Storage.Buffer;
+		createInfo.size = sizes.accelerationStructureSize;
+		createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+		VK_CHECK(vkCreateAccelerationStructureKHR(m_Device.GetDevice(), &createInfo, nullptr, &m_Structure));
+		m_Device.SetDebugName((uint64_t)m_Structure, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, "tlas");
+
+		VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
+		addressInfo.accelerationStructure = m_Structure;
+		m_Address = vkGetAccelerationStructureDeviceAddressKHR(m_Device.GetDevice(), &addressInfo);
+	}
+
+	VulkanAccelerationStructure::~VulkanAccelerationStructure()
+	{
+		VkDevice device = m_Device.GetDevice();
+		VkAccelerationStructureKHR structure = m_Structure;
+		if (structure != VK_NULL_HANDLE)
+		{
+			m_Deletion->Push([device, structure]()
+			{
+				vkDestroyAccelerationStructureKHR(device, structure, nullptr);
+			});
+		}
+		Destroy(m_Storage);
+		Destroy(m_Scratch);
+		Destroy(m_Instances);
+	}
+
+	void VulkanAccelerationStructure::Build(VkCommandBuffer cmd, const RHI::AccelerationInstance* instances,
+											uint32_t count)
+	{
+		if (!m_TopLevel || m_Structure == VK_NULL_HANDLE)
+		{
+			RV_CORE_ERROR("[Vulkan] Build called on something that is not a top-level acceleration structure");
+			return;
+		}
+		if (count > m_MaxInstances)
+		{
+			RV_CORE_WARN("[Vulkan] top-level build asked for {0} instances, sized for {1}; the rest are dropped",
+						 count, m_MaxInstances);
+			count = m_MaxInstances;
+		}
+
+		// Pack. The BLAS address is the one field only this side can fill,
+		// which is why the RHI took a reference and not a struct.
+		auto* packed = static_cast<VkAccelerationStructureInstanceKHR*>(m_Instances.Mapped);
+		uint32_t written = 0;
+		for (uint32_t i = 0; i < count; i++)
+		{
+			auto blas = std::static_pointer_cast<VulkanAccelerationStructure>(instances[i].Blas);
+			if (!blas || blas->GetDeviceAddress() == 0)
+				continue;
+
+			VkAccelerationStructureInstanceKHR& out = packed[written++];
+			out.transform = ToVkTransform(instances[i].Transform);
+			out.instanceCustomIndex = instances[i].CustomIndex & 0x00FFFFFFu;
+			out.mask = instances[i].Mask;
+			out.instanceShaderBindingTableRecordOffset = 0;
+			out.flags = 0;
+			out.accelerationStructureReference = blas->GetDeviceAddress();
+		}
+
+		VkAccelerationStructureGeometryInstancesDataKHR instanceData{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR };
+		instanceData.arrayOfPointers = VK_FALSE;
+		instanceData.data.deviceAddress = m_Instances.Address;
+
+		VkAccelerationStructureGeometryKHR geometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+		geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+		geometry.geometry.instances = instanceData;
+
+		VkAccelerationStructureBuildGeometryInfoKHR build{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+		build.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+		build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		build.dstAccelerationStructure = m_Structure;
+		build.geometryCount = 1;
+		build.pGeometries = &geometry;
+		build.scratchData.deviceAddress = m_Scratch.Address;
+
+		VkAccelerationStructureBuildRangeInfoKHR range{};
+		range.primitiveCount = written;
+		const VkAccelerationStructureBuildRangeInfoKHR* ranges[] = { &range };
+
+		// The host wrote the instances a moment ago; the build reads them by
+		// address. Host writes made before a submit are visible to it, and
+		// this build is in the frame's command buffer, so no barrier is owed
+		// for that. The one owed is *after*: the structure is written by the
+		// build stage and read by whichever shader stage traces into it.
+		vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build, ranges);
+
+		VkMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+		barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+		barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+							   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+							   VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+		barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+
+		VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		dependency.memoryBarrierCount = 1;
+		dependency.pMemoryBarriers = &barrier;
+		vkCmdPipelineBarrier2(cmd, &dependency);
 	}
 }

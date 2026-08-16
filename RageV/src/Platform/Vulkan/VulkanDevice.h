@@ -70,6 +70,8 @@ namespace RageV::Vk
 		RHI::Ref<RHI::RHIResourceSet>  CreateResourceSet(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set) override;
 		RHI::Ref<RHI::RHIResourceSet>  CreateResourceSet(const RHI::Ref<RHI::RHIComputePipeline>& pipeline, uint32_t set) override;
 		RHI::Ref<RHI::RHIResourceSet>  CreateBindlessTextureSet(uint32_t capacity) override;
+		RHI::Ref<RHI::RHIAccelerationStructure> CreateBottomLevelAS(const RHI::AccelerationGeometryDesc& geometry) override;
+		RHI::Ref<RHI::RHIAccelerationStructure> CreateTopLevelAS(uint32_t maxInstances) override;
 		RHI::Ref<RHI::RHIComputePipeline> CreateComputePipeline(const RHI::ComputePipelineDesc& desc) override;
 
 		// ------------------------------------------------------------------
@@ -108,6 +110,10 @@ namespace RageV::Vk
 		// VK_NULL_HANDLE when the device cannot do descriptor indexing.
 		VkDescriptorSetLayout GetBindlessTextureLayout();
 		bool DescriptorIndexingSupported() const { return m_DescriptorIndexingSupported; }
+		// Whether the three ray-tracing extensions and their features were
+		// enabled (ENGINE-NOTES 7am). Buffers consult it to drop the
+		// device-address usage on a device that has none.
+		bool RayQuerySupported() const { return m_RayQuerySupported; }
 
 		// Resources copy this so their destructors never touch the device
 		// itself; see DeletionQueue for why that matters.
@@ -215,6 +221,7 @@ namespace RageV::Vk
 		static constexpr uint32_t kBindlessFloor    = 256;
 		bool m_DescriptorIndexingSupported = false;
 		VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
+		bool m_RayQuerySupported = false;
 
 		// One pool per frame in flight, so a frame never resets a pool the GPU
 		// is still writing into.

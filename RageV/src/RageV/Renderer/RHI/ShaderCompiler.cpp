@@ -494,6 +494,12 @@ namespace RageV::RHI
 		for (const auto& image : resources.storage_images)
 			decorate(image, ResourceType::StorageImage, 0);
 
+		// `uniform accelerationStructureEXT`, for ray queries (ENGINE-NOTES
+		// 7am). Reflected like anything else so the layout is built from the
+		// shader; never cross-compiled, because OpenGL has nothing to bind it to.
+		for (const auto& structure : resources.acceleration_structures)
+			decorate(structure, ResourceType::AccelerationStructure, 0);
+
 		for (const auto& pushConstant : resources.push_constant_buffers)
 		{
 			const auto& type = compiler.get_type(pushConstant.base_type_id);
@@ -632,6 +638,10 @@ namespace RageV::RHI
 						map.Textures[key] = nextTextureUnit;
 						// An array consumes one unit per element.
 						nextTextureUnit += Math::Max(1u, binding->Count);
+						break;
+					case ResourceType::AccelerationStructure:
+						// No GL binding point exists for one, and no shader that
+						// declares one is ever cross-compiled.
 						break;
 				}
 			}
