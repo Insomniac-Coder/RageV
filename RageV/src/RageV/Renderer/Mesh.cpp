@@ -78,6 +78,13 @@ namespace RageV
 		}
 	}
 
+	// skin_positions.rvshader reads this buffer as words at these offsets
+	// (ENGINE-NOTES 7an); a change here is a change there.
+	static_assert(sizeof(SkinnedVertex) == 64, "skin_positions.rvshader assumes sixteen words per skinned vertex");
+	static_assert(offsetof(SkinnedVertex, Position) == 0, "skin_positions.rvshader reads the position at word 0");
+	static_assert(offsetof(SkinnedVertex, Joints) == 32, "skin_positions.rvshader reads the joints at word 8");
+	static_assert(offsetof(SkinnedVertex, Weights) == 48, "skin_positions.rvshader reads the weights at word 12");
+
 	Mesh::Mesh(RHIDevice& device,
 			   const std::vector<SkinnedVertex>& vertices,
 			   const std::vector<uint32_t>& indices,
@@ -86,7 +93,9 @@ namespace RageV
 	{
 		BufferDesc vertexDesc;
 		vertexDesc.Size = vertices.size() * sizeof(SkinnedVertex);
-		vertexDesc.Usage = BufferUsage::Vertex | BufferUsage::AccelerationStructureInput;
+		// Storage as well: the compute pass that poses these for a shadow
+		// ray's structure reads them as a storage buffer (7an).
+		vertexDesc.Usage = BufferUsage::Vertex | BufferUsage::Storage | BufferUsage::AccelerationStructureInput;
 		vertexDesc.Memory = MemoryDomain::DeviceLocal;
 		vertexDesc.DebugName = debugName + ".skinnedvertices";
 		m_VertexBuffer = device.CreateBuffer(vertexDesc);

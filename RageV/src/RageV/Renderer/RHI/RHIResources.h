@@ -30,9 +30,11 @@ namespace RageV::RHI
 	};
 
 	// An acceleration structure (ENGINE-NOTES 7am): bottom level is one
-	// triangle mesh, built once; top level is a list of placed bottom-level
-	// ones, rebuilt per frame by RHICommandList::BuildTopLevelAS. A shader
-	// traces into a top-level one through a resource set binding.
+	// triangle mesh, built once -- or, when created Dynamic, built and then
+	// refit by RHICommandList::BuildBottomLevelAS as its vertices move
+	// (7an); top level is a list of placed bottom-level ones, rebuilt per
+	// frame by RHICommandList::BuildTopLevelAS. A shader traces into a
+	// top-level one through a resource set binding.
 	class RHIAccelerationStructure
 	{
 	public:
@@ -40,12 +42,15 @@ namespace RageV::RHI
 		bool IsTopLevel() const { return m_TopLevel; }
 		// For a top-level structure: how many instances a build may carry.
 		uint32_t GetMaxInstances() const { return m_MaxInstances; }
+		// For a bottom-level structure: whether it was created to be refit.
+		bool IsDynamic() const { return m_Dynamic; }
 
 	protected:
-		RHIAccelerationStructure(bool topLevel, uint32_t maxInstances)
-			: m_TopLevel(topLevel), m_MaxInstances(maxInstances) {}
+		RHIAccelerationStructure(bool topLevel, uint32_t maxInstances, bool dynamic = false)
+			: m_TopLevel(topLevel), m_MaxInstances(maxInstances), m_Dynamic(dynamic) {}
 		bool     m_TopLevel = false;
 		uint32_t m_MaxInstances = 0;
+		bool     m_Dynamic = false;
 	};
 
 	class RHISampler

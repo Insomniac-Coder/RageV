@@ -2163,6 +2163,7 @@ void main()
 			{ { 10.0f, 0.0f,  5.0f, 100.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // the moved copy: hit, instance 7
 			{ {  5.0f, 0.0f,  5.0f, 100.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // between the two: miss
 			{ {  0.0f, 0.0f,  5.0f,   2.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // too short a ray: miss
+			{ {  0.0f, 0.0f,  5.0f,   6.0f }, { 0.0f, 0.0f, -1.0f, 0.0f } },   // long enough for z = 0, not for z = -3 (the refit below)
 		};
 		constexpr uint32_t kCount = (uint32_t)std::size(rays);
 
@@ -2282,6 +2283,79 @@ void main()
 			  "the copy placed ten units along x is hit there and reports custom index 7");
 		Check(!hit(5), "the space between the two copies is empty");
 		Check(!hit(6), "a ray shorter than the distance misses: tMax is respected");
+		Check(hit(7) && Math::Abs(hits[7].x - 5.0f) < 1e-3f, "and one just long enough hits");
+
+		// --- the refit (ENGINE-NOTES 7an) ------------------------------------
+		// The same triangle in a buffer this side can rewrite, under a
+		// *dynamic* structure: built from the command list, then moved three
+		// units down z and refit. The ray that hit z = 0 at t = 5 now hits at
+		// t = 8, and the ray that was just long enough is not any more. This
+		// is what a skinned caster's structure does every frame, minus the
+		// compute pass that does the moving.
+		Check(!blas->IsDynamic(), "the static structure is not dynamic");
+
+		RHI::BufferDesc movingDesc;
+		movingDesc.Size = sizeof(positions);
+		movingDesc.Usage = RHI::BufferUsage::Storage | RHI::BufferUsage::AccelerationStructureInput;
+		movingDesc.Memory = RHI::MemoryDomain::HostVisible;
+		movingDesc.DebugName = "scenetest.rq.moving";
+		RHI::Ref<RHI::RHIBuffer> moving = device.CreateBuffer(movingDesc);
+		moving->Upload(positions, sizeof(positions));
+
+		RHI::AccelerationGeometryDesc dynamicGeometry = geometry;
+		dynamicGeometry.Vertices = moving;
+		dynamicGeometry.Dynamic = true;
+		dynamicGeometry.DebugName = "scenetest.rq.dynamic";
+		RHI::Ref<RHI::RHIAccelerationStructure> dynamic = device.CreateBottomLevelAS(dynamicGeometry);
+		Check(dynamic != nullptr && dynamic->IsDynamic(), "a dynamic bottom-level structure is created, unbuilt");
+		if (!dynamic)
+			return;
+
+		RHI::AccelerationInstance placed;
+		placed.Blas = dynamic;
+		placed.CustomIndex = 11;
+
+		RHI::Ref<RHI::RHIAccelerationStructure> refitTlas = device.CreateTopLevelAS(1);
+		RHI::Ref<RHI::RHIResourceSet> refitSet = device.CreateResourceSet(pipeline, 0);
+		refitSet->SetAccelerationStructure(0, refitTlas);
+		refitSet->SetStorageBuffer(1, raysBuffer, 0, raysDesc.Size);
+		refitSet->SetStorageBuffer(2, hitsBuffer, 0, hitsDesc.Size);
+		refitSet->Commit();
+
+		auto traceRefit = [&]()
+		{
+			device.ExecuteImmediate([&](RHI::RHICommandList& cmd)
+			{
+				// The host wrote the vertices before this submit; the
+				// bottom-level build (or refit) reads them, its own barrier
+				// orders the top-level build after it, and that one's orders
+				// the trace.
+				cmd.BuildBottomLevelAS(dynamic);
+				cmd.BuildTopLevelAS(refitTlas, &placed, 1);
+				cmd.BindComputePipeline(pipeline);
+				cmd.BindResourceSet(0, refitSet);
+				const uint32_t count = kCount;
+				cmd.PushConstants(RHI::ShaderStage::Compute, 0, sizeof(count), &count);
+				cmd.Dispatch(1);
+				cmd.BufferBarrier(hitsBuffer, RHI::BufferSync::ComputeWrite, RHI::BufferSync::ShaderRead);
+			});
+		};
+
+		traceRefit();
+		Check(hit(0) && Math::Abs(hits[0].x - 5.0f) < 1e-3f && hits[0].z == 11.0f,
+			  "built from the command list, the dynamic structure is hit at t = 5 with its own custom index");
+		Check(hit(7), "and the just-long-enough ray hits it");
+
+		float moved[std::size(positions)];
+		memcpy(moved, positions, sizeof(positions));
+		moved[2] = moved[5] = moved[8] = -3.0f;
+		moving->Upload(moved, sizeof(moved));
+
+		traceRefit();
+		Check(hit(0) && Math::Abs(hits[0].x - 8.0f) < 1e-3f,
+			  "after moving the vertices and refitting, the same ray hits at t = 8: the structure followed them");
+		Check(!hit(7), "and the just-long-enough ray now falls short of it");
+		Check(!hit(6), "the too-short ray still misses");
 	}
 
 	// The particle sort, against a buffer whose right answer is arithmetic.

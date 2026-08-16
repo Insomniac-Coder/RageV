@@ -258,9 +258,10 @@ namespace RageV::GL
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
 		void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
-		// A no-op: nothing to build on this backend (ENGINE-NOTES 7am).
+		// No-ops: nothing to build on this backend (ENGINE-NOTES 7am, 7an).
 		void BuildTopLevelAS(const Ref<RHIAccelerationStructure>& tlas,
 							 const AccelerationInstance* instances, uint32_t count) override;
+		void BuildBottomLevelAS(const Ref<RHIAccelerationStructure>& blas) override;
 		void BufferBarrier(const Ref<RHIBuffer>& buffer, BufferSync from, BufferSync to) override;
 
 		void WriteTimestamp(uint32_t slot) override;

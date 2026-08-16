@@ -1277,10 +1277,12 @@ namespace RageV
 
 		UpdateWorldTransforms();
 
-		// Maps or rays for the directional light (ENGINE-NOTES 7am), resolved
-		// once here and told to the lit pass, which recompiles its shaders when
-		// the answer changes. Local lights keep their maps either way.
-		const bool traced = ResolveShadowMode(Project::Render()) == ShadowMode::RayTraced;
+		// Maps or rays (ENGINE-NOTES 7am, 7an), resolved once here and told to
+		// the lit pass, which recompiles its shaders when the answer changes.
+		// Under rays every casting light of every kind traces and no map is
+		// rendered; under maps the cascades and the local maps are what they
+		// always were.
+		const bool traced = ResolveRayTracing(Project::Render());
 		Renderer3D::SetRayTracedShadows(traced);
 
 		// Nothing to shadow, and a shadow pass over an empty scene is a render
@@ -1366,6 +1368,7 @@ namespace RageV
 		// this is likely to see.
 		int index = 0;
 		int casterIndex = -1;
+		bool anyCaster = false;
 		uint32_t spotSlot = 0;
 		uint32_t pointSlot = 0;
 		Vec3 direction(0.0f, -1.0f, 0.0f);
@@ -1373,14 +1376,29 @@ namespace RageV
 		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
 		for (auto& item : lightView)
 		{
-			if (index >= (int)ShadowMap::kMaxLights)   // the shader's light cap
-				break;
-
 			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
 			const int lightIndex = index++;
 
 			if (!light.Light.CastShadows)
 				continue;
+
+			if (traced)
+			{
+				// Every casting light, whatever its kind and however many
+				// there are (7an): the shader traces toward it, and there is
+				// no map to run out of. The kind still travels, so the
+				// shader knows whether to trace to infinity or to a point.
+				LocalShadow assigned;
+				switch (light.Light.Type)
+				{
+					case Light::LightType::Directional: assigned.Type = LocalShadow::Kind::Cascades; break;
+					case Light::LightType::Spot:        assigned.Type = LocalShadow::Kind::Spot; break;
+					case Light::LightType::Point:       assigned.Type = LocalShadow::Kind::Point; break;
+				}
+				ShadowMap::Assign((uint32_t)lightIndex, assigned);
+				anyCaster = true;
+				continue;
+			}
 
 			const Vec3 position = Vec3(transform.World[3]);
 			const Vec3 forward = Math::Normalize(
@@ -1485,30 +1503,45 @@ namespace RageV
 			}
 		}
 
-		if (casterIndex < 0)
-			return;
-
 		if (traced)
 		{
+			// Nothing casts, so nothing is built and the lit pass binds the
+			// empty structure: every ray misses, every surface is lit.
+			if (!anyCaster)
+				return;
+
 			// The whole scene, once, into this frame's acceleration structure:
-			// every mesh with its world transform, skinned ones at their bind
-			// pose (their posed vertices exist only in the vertex shader; the
-			// refit is stage 2). No frustum: a caster outside the view still
-			// shadows what is inside it, and a ray does not have a frustum.
-			// Building is not permitted inside a render pass, and this runs
-			// before the graph, so it is recorded here rather than in the
-			// scene pass that reads it.
-			ShadowMap::SetLightIndex(casterIndex);
+			// every mesh with its world transform, and a skinned one with its
+			// pose when it has one -- RayShadows poses it in compute and
+			// refits a structure of its own (7an); without a pose it traces
+			// as the bind pose the mesh caches. No frustum: a caster outside
+			// the view still shadows what is inside it, and a ray does not
+			// have a frustum. Building is not permitted inside a render pass,
+			// and this runs before the graph, so it is recorded here rather
+			// than in the scene pass that reads it.
 			RayShadows::ClearInstances();
 			for (auto& item : meshView)
 			{
 				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
-				if (RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh))
-					RayShadows::AddInstance(resolved, transform.World);
+				RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
+				if (!resolved)
+					continue;
+
+				const std::vector<Mat4>* bones = nullptr;
+				if (resolved->IsSkinned())
+				{
+					const auto* animator = m_Registry.try_get<AnimatorComponent>(item);
+					if (animator && !animator->Skinning.empty())
+						bones = &animator->Skinning;
+				}
+				RayShadows::AddInstance(resolved, transform.World, bones);
 			}
 			RayShadows::Build(*cmd);
 			return;
 		}
+
+		if (casterIndex < 0)
+			return;
 
 		const uint32_t count = (uint32_t)Math::Clamp(Project::Render().ShadowCascades, 1,
 													(int)ShadowMap::kMaxCascades);

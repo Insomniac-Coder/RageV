@@ -163,11 +163,11 @@ namespace RageV
 	// shipped once -- see the note on the definition.
 	AntiAliasing ResolveAntiAliasing(const RenderSettings& render);
 
-	// The same, for the shadow method (ENGINE-NOTES 7am): the project's answer,
-	// then --shadows=, then the device -- RayTraced on a device without ray
-	// queries is Maps, and the fallback is logged once. Everything that needs
-	// to know which is running asks here.
-	ShadowMode ResolveShadowMode(const RenderSettings& render);
+	// The same, for ray tracing (ENGINE-NOTES 7am, 7an): the project's
+	// checkbox, then --raytracing=, then the device -- on on a device without
+	// ray queries is off, and the fallback is logged once. Everything that
+	// needs to know whether the rays are running asks here.
+	bool ResolveRayTracing(const RenderSettings& render);
 
 	// This frame's sub-pixel offset for a target of this size, in NDC.
 	//

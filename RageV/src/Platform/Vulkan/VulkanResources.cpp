@@ -821,7 +821,7 @@ namespace RageV::Vk
 
 	VulkanAccelerationStructure::VulkanAccelerationStructure(VulkanDevice& device,
 															 const RHI::AccelerationGeometryDesc& geometry)
-		: RHI::RHIAccelerationStructure(false, 0), m_Device(device), m_Deletion(device.GetDeletionQueue())
+		: RHI::RHIAccelerationStructure(false, 0, geometry.Dynamic), m_Device(device), m_Deletion(device.GetDeletionQueue())
 	{
 		auto vertices = std::static_pointer_cast<VulkanBuffer>(geometry.Vertices);
 		auto indices = std::static_pointer_cast<VulkanBuffer>(geometry.Indices);
@@ -848,9 +848,16 @@ namespace RageV::Vk
 
 		const uint32_t primitiveCount = geometry.IndexCount / 3;
 
+		// A dynamic structure (7an) is created for update -- the flag has to
+		// be there at creation, and it costs a larger structure -- and built
+		// for a fast build rather than a fast trace, because it will be
+		// refit every frame and traced by shadow rays that stop at the first
+		// hit. A static one is the opposite on both counts.
 		VkAccelerationStructureBuildGeometryInfoKHR build{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
 		build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+		build.flags = geometry.Dynamic
+					? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR
+					: VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
 		build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 		build.geometryCount = 1;
 		build.pGeometries = &geometryInfo;
@@ -863,8 +870,6 @@ namespace RageV::Vk
 		m_Storage = CreateBacking(sizes.accelerationStructureSize,
 								  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, false,
 								  geometry.DebugName.empty() ? "blas" : geometry.DebugName.c_str());
-		Backing scratch = CreateBacking(sizes.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false,
-										"blas.scratch");
 
 		VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
 		createInfo.buffer = m_Storage.Buffer;
@@ -877,6 +882,23 @@ namespace RageV::Vk
 		VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
 		addressInfo.accelerationStructure = m_Structure;
 		m_Address = vkGetAccelerationStructureDeviceAddressKHR(m_Device.GetDevice(), &addressInfo);
+
+		if (geometry.Dynamic)
+		{
+			// Not built now: the vertex buffer is whatever the caller has not
+			// yet written into it. Kept instead: the geometry, so
+			// BuildBottomLevel re-records it without being told again, and
+			// scratch large enough for either a build or an update, so a
+			// per-frame refit allocates nothing.
+			m_Geometry = geometryInfo;
+			m_PrimitiveCount = primitiveCount;
+			m_Scratch = CreateBacking(Math::Max(sizes.buildScratchSize, sizes.updateScratchSize),
+									  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false, "blas.scratch");
+			return;
+		}
+
+		Backing scratch = CreateBacking(sizes.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false,
+										"blas.scratch");
 
 		build.dstAccelerationStructure = m_Structure;
 		build.scratchData.deviceAddress = scratch.Address;
@@ -893,6 +915,54 @@ namespace RageV::Vk
 		});
 
 		Destroy(scratch);
+		m_Built = true;
+	}
+
+	void VulkanAccelerationStructure::BuildBottomLevel(VkCommandBuffer cmd)
+	{
+		if (m_TopLevel || !m_Dynamic || m_Structure == VK_NULL_HANDLE)
+		{
+			RV_CORE_ERROR("[Vulkan] BuildBottomLevel called on something that is not a dynamic "
+						  "bottom-level acceleration structure");
+			return;
+		}
+
+		VkAccelerationStructureBuildGeometryInfoKHR build{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+		build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR |
+					  VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+		// The first time there is nothing to update from; after that the
+		// structure is refit in place -- source and destination the same --
+		// which is legal exactly because the topology has not changed.
+		build.mode = m_Built ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
+							 : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		build.srcAccelerationStructure = m_Built ? m_Structure : VK_NULL_HANDLE;
+		build.dstAccelerationStructure = m_Structure;
+		build.geometryCount = 1;
+		build.pGeometries = &m_Geometry;
+		build.scratchData.deviceAddress = m_Scratch.Address;
+
+		VkAccelerationStructureBuildRangeInfoKHR range{};
+		range.primitiveCount = m_PrimitiveCount;
+		const VkAccelerationStructureBuildRangeInfoKHR* ranges[] = { &range };
+
+		vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build, ranges);
+		m_Built = true;
+
+		// What reads a bottom-level structure is a top-level build that
+		// places it, and the two are recorded back to back in a frame; a
+		// shader never traces into one directly. So the barrier is build to
+		// build. The top-level build's own barrier then covers the shaders.
+		VkMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+		barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+		barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+		barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+
+		VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		dependency.memoryBarrierCount = 1;
+		dependency.pMemoryBarriers = &barrier;
+		vkCmdPipelineBarrier2(cmd, &dependency);
 	}
 
 	VulkanAccelerationStructure::VulkanAccelerationStructure(VulkanDevice& device, uint32_t maxInstances)

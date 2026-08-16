@@ -32,8 +32,9 @@
 //   --aa=none|fxaa|smaa|ssaa|msaa|taa  override the scene's anti-aliasing choice
 //                           (also written to ragev.ini by the editor's
 //                           Render Settings dropdown, so a choice sticks)
-//   --shadows=maps|rt       override the project's shadow method (rt falls back
-//                           to maps on a device without ray queries)
+//   --raytracing=on|off     override the project's ray tracing checkbox (on
+//                           falls back to shadow maps on a device without ray
+//                           queries)
 //   --ssaa=N                how many times larger SSAA draws each axis
 //   --msaa=N                coverage samples per pixel for MSAA
 //   --project=<path>        the .rvproject to open, or a folder containing one
@@ -41,6 +42,9 @@
 //   --loading-screenshot=<file>  write a PNG of a frame drawn while loading
 //   --screenshot-frame=N    which frame to capture (default 30, to let the
 //                           scene settle and any first-frame allocation pass)
+//   --screenshot-count=N    capture N consecutive frames from that one, as
+//                           <file>_<frame>.png, then exit (default 1: the
+//                           file as named)
 //   --benchmark=N           run N frames, print a frame-time summary, exit
 //   --scene=<path>          open this scene instead of the project's start scene
 //   --ui-scale=N|auto       editor UI scale; auto follows the monitor
@@ -90,6 +94,11 @@ namespace RageV
 		// was drawn, a scene rendered through the wrong camera.
 		std::string ScreenshotPath;
 		uint32_t    ScreenshotFrame = 30;
+		// How many consecutive frames from ScreenshotFrame to write. One is
+		// the file as named; more writes <stem>_<frame><ext> for each, in one
+		// run, which is the only way to look at a flicker: separate runs are
+		// separate clocks, and consecutive frames of one are not.
+		uint32_t    ScreenshotCount = 1;
 
 		// Write a PNG of a frame drawn *during* loading, and keep going.
 		//
@@ -182,12 +191,12 @@ namespace RageV
 		// is a look, and how far is a budget.
 		int          SupersampleOverride = 0;
 
-		// --shadows=maps|rt. The same family as --aa: the check renders one
+		// --raytracing=on|off. The same family as --aa: the check renders one
 		// scene both ways and compares, and the alternative is editing the
-		// project between runs. rt on a device without ray queries resolves
-		// to maps, and the log says so (ENGINE-NOTES 7am).
-		bool         HasShadowOverride = false;
-		ShadowMode   ShadowOverride = ShadowMode::Maps;
+		// project between runs. On, on a device without ray queries, resolves
+		// to off -- shadow maps -- and the log says so (ENGINE-NOTES 7am, 7an).
+		bool         HasRayTracingOverride = false;
+		bool         RayTracingOverride = false;
 
 		// --msaa=N. Zero leaves the scene's count alone.
 		int          MsaaOverride = 0;

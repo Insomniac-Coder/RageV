@@ -540,9 +540,21 @@ namespace RageV {
 			// jitter. Two counters that were meant to agree would be one more
 			// thing that can drift.
 			const uint64_t frameNumber = Renderer::GetFrameCount();
-			if (!config.ScreenshotPath.empty() && frameNumber == config.ScreenshotFrame)
+			const uint64_t lastScreenshotFrame =
+				(uint64_t)config.ScreenshotFrame + Math::Max(config.ScreenshotCount, 1u) - 1;
+			if (!config.ScreenshotPath.empty() && frameNumber >= config.ScreenshotFrame
+				&& frameNumber <= lastScreenshotFrame)
 			{
-				const std::string path = config.ScreenshotPath;
+				// One frame: the file as named. A run of them: numbered, so a
+				// flicker can be looked at as the sequence it is.
+				std::string path = config.ScreenshotPath;
+				if (config.ScreenshotCount > 1)
+				{
+					const std::filesystem::path given(path);
+					std::filesystem::path numbered = given.parent_path() /
+						(given.stem().string() + "_" + std::to_string(frameNumber) + given.extension().string());
+					path = numbered.string();
+				}
 				m_Device->RequestCapture([path](const uint8_t* rgba, uint32_t w, uint32_t h)
 				{
 					WriteScreenshot(path, rgba, w, h);
@@ -559,7 +571,7 @@ namespace RageV {
 			}
 
 			// After the capture, not before: the point of the flag is the file.
-			if (!config.ScreenshotPath.empty() && frameNumber >= config.ScreenshotFrame)
+			if (!config.ScreenshotPath.empty() && frameNumber >= lastScreenshotFrame)
 				m_Running = false;
 
 			if (benchmarkFrames > 0)

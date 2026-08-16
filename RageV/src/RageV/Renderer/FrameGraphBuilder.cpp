@@ -142,21 +142,21 @@ namespace RageV
 		return PostProcess::IsReady() ? requested : AntiAliasing::None;
 	}
 
-	ShadowMode ResolveShadowMode(const RenderSettings& render)
+	bool ResolveRayTracing(const RenderSettings& render)
 	{
 		const EngineConfig& config = EngineConfig::Get();
-		const ShadowMode requested = config.HasShadowOverride ? config.ShadowOverride
-															  : render.ShadowMethod;
-		if (requested == ShadowMode::RayTraced && !RayShadows::IsAvailable())
+		const bool requested = config.HasRayTracingOverride ? config.RayTracingOverride
+															: render.RayTracing;
+		if (requested && !RayShadows::IsAvailable())
 		{
 			static bool reported = false;
 			if (!reported)
 			{
-				RV_CORE_INFO("Shadows: ray-traced requested but this device has no ray queries; "
+				RV_CORE_INFO("Ray tracing requested but this device has no ray queries; "
 							 "using shadow maps");
 				reported = true;
 			}
-			return ShadowMode::Maps;
+			return false;
 		}
 		return requested;
 	}

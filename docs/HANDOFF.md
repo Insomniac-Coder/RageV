@@ -1591,7 +1591,69 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: rays are real -- 8.12 stage 1 is in, stages 2-3 are the open work
+### START HERE: every light traces and the fox's shadow runs -- 8.12 stage 2 is in, stage 3 is the open work
+
+**8.12 stage 2 (2026-08-16, ENGINE-NOTES 7an) is done and verified**, on top
+of stage 1 the same day. Ray-traced shadows now cover **every casting light
+of every kind** -- the shader traces one ray per light per pixel, along `L`
+to infinity for the sun and to the light for a spot or a point, with no cap
+on how many cast (the four-map budget is a maps thing) -- and **skinned
+casters cast their pose**: `skin_positions.rvshader` (compute) poses each
+one into a per-frame buffer and a *dynamic* BLAS is refit from it
+(`AccelerationGeometryDesc::Dynamic`, `RHICommandList::BuildBottomLevelAS`,
+`BufferSync::AccelerationBuild`) before the frame's TLAS build. Casters are a
+pool in `RayShadows`, one posed buffer / structure / set per frame in flight
+each; a skinned mesh with no pose keeps the mesh's cached bind-pose BLAS.
+
+**At the owner's direction the setting is a checkbox**: `RenderSettings::
+RayTracing` (bool, default off) replaced the `ShadowMethod` enum;
+`ResolveRayTracing` replaced `ResolveShadowMode`; `--raytracing=on|off`
+replaced `--shadows=maps|rt`; `RenderSettings.RayTracing` reaches C#. It
+needs **no restart** -- flipping it recompiles the lit shaders on the spot,
+both ways -- so there is no "restart to apply" dialogue like the backend
+picker's; the tooltip says so. On a device without ray queries (OpenGL,
+always) it uses the maps and logs once.
+
+**A stale cap went with it**: `ShadowMap::kMaxLights = 8` -- "the shader's
+MAX_LIGHTS", which the 3D shader has not had since 3.8a -- capped the
+assignment table, so the ninth light in a scene could never shadow. It is a
+vector now.
+
+**Checks**: `check_ray_shadows.py` (21) -- the stage 1 claims plus, on a
+new fixture (`make_ray_shadow_local_scene`, no sun, a spot, a point light,
+five casting spots, the running fox): spot IoU 0.977, point 0.981, fox
+0.946 against its posed mapped shadow and 0.854 between frames 30 and 45
+while the boxes hold at 1.000; the budget warning under maps and not under
+rays; OpenGL falls back. Falsified: tMax ignored (lids over the lights catch
+the overshoot) collapses the local IoUs to 0.67-0.71; refit skipped gives
+the fox 0.670 and 1.000 between frames -- the bind pose exactly.
+`CheckRayQuery` gained the refit (1628 on Vulkan under validation, zero
+`[Vulkan]` lines).
+
+**And the flicker the owner reported in the editor viewport was SSAO's, not
+the rays'** -- fixed, checked, and written up in 7an: `ReconstructedNormal`
+chose its winding by the sign of `normal.z`, which for a wall seen along
+its length is noise, and the noise turned with the TAA jitter; the winding
+is now chosen against the ray to the point, and the reconstruction snaps
+to the depth texel centre. `check_ssao.py` gained the jitter-phase claim
+(0.04 levels of drift; the old sign gives 57). `--screenshot-count=N`
+(consecutive frames in one run) is the tool that found it.
+
+**Stated limits, stage 3 work**: the edge is hard (no penumbra); no
+reflections yet -- hit shading needs buffers by address and a mesh table,
+and with it the SSR fallback the roadmap named. Also, the compute skinning
+is a second copy of the vertex shader's arithmetic (positions only); if one
+changes shape the other must.
+
+**Verified for this commit**: Debug/Release/Dist built; scenetest 1628 on
+Vulkan with validation and zero `[Vulkan]` lines, 1588 on OpenGL; runtime
+and editor exit 0 on both backends with `--raytracing=on` under validation;
+`check_ray_shadows` 21/21, `check_ssao` (with the new claim), `check_ssr`,
+`check_bindless`; `rvdoc --check` exit 0.
+
+---
+
+### Earlier the same day: 8.12 stage 1
 
 **8.12 stage 1 (2026-08-16, ENGINE-NOTES 7am) is done and verified**, on the
 same day as 8.2 and on top of it: acceleration structures in the RHI
@@ -1605,7 +1667,9 @@ RayTraced` beside the cascades. `Mesh` builds a BLAS on first use;
 graph -- building inside a render pass is forbidden); `pbr_fragment.glsl`
 under `RV_RAY_SHADOWS` traces one ray per pixel in `ShadowFactor` and the
 lit shaders are recompiled when the mode changes. `--shadows=maps|rt`
-overrides the project. OpenGL: null, false, falls back to maps and logs it.
+overrides the project (both since renamed by stage 2: the enum became the
+`RayTracing` checkbox and the flag `--raytracing=on|off` -- see above).
+OpenGL: null, false, falls back to maps and logs it.
 
 **Checks**: `check_ray_shadows.py` -- traced and mapped agree to IoU 0.94
 near and far, the traced edge is 0 px wide against the maps' 6, no
@@ -1690,6 +1754,46 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 8.12 stage 2, every light and the skinned refit; the ray-tracing checkbox; the SSAO flicker (2026-08-16)
+
+Design first (ENGINE-NOTES 7an). **Local lights**: the same shadow ray with
+a length -- `TraceShadow(worldPos, L, tMax)` under `RV_RAY_SHADOWS`, `1e4`
+for a directional light and the distance to the light for a spot or a
+point; the map lookups (`ShadowFactor`, `SpotShadow`, `PointShadow`) are
+not compiled under the define. `Scene::RenderShadows` under rays assigns
+every casting light its kind and no slot, renders no map, and builds the
+TLAS when *any* light casts (stage 1 returned early without a sun).
+`ShadowMap::kMaxLights` removed; the assignment table is a vector.
+
+**Skinned casters**: `skin_positions.rvshader` reads the `SkinnedVertex`
+buffer as words (std430 would pad the vec3s; `Mesh.cpp` static_asserts the
+offsets), the bones from a per-frame buffer of `RayShadows`' own, and
+writes `vec4` positions; `Mesh`'s skinned vertex buffer gains
+`BufferUsage::Storage`. RHI: `AccelerationGeometryDesc::Dynamic` (created
+for update, not built at creation, scratch kept),
+`RHICommandList::BuildBottomLevelAS` (full build first, in-place update
+after, build-to-build barrier inside), `BufferSync::AccelerationBuild`
+(build inputs are a *shader read* at the build stage), `IsDynamic()`.
+`RayShadows::AddInstance(mesh, world, bones)` owns a caster pool reused by
+index; `Build` poses, barriers, refits, then builds the TLAS.
+
+**The checkbox** (owner's direction): `RenderSettings::RayTracing`,
+`ResolveRayTracing`, `--raytracing=on|off`, `RenderSettings.RayTracing` in
+C#, the manual rows and the rvdoc enum row; no restart needed, none asked
+for. **`--screenshot-count=N`**: consecutive frames from one run.
+
+**Checks and findings**: `check_ray_shadows.py` 21 claims (spot 0.977,
+point 0.981, fox 0.946 / 0.854-between-frames, budget warning, OpenGL
+fallback), falsified two ways; `CheckRayQuery` refit case; and the SSAO
+flicker in the editor viewport, diagnosed frame by frame (period eight is
+the jitter phase; AO off stops it; the reconstructed-normal winding was
+chosen by `normal.z`, noise for a grazing wall) and fixed in
+`ssao_compute.rvshader` -- winding against the ray to the point, uv
+snapped to the depth texel -- with `check_ssao.py`'s new jitter-phase claim
+guarding it (0.04 levels of drift; 57 with the old sign).
 
 ---
 

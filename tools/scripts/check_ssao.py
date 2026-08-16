@@ -25,6 +25,15 @@ it (9.8b):
    factor over the open wall must hold at one -- which the geometric normal
    does and the shading normal, taken wherever it faces the camera, does
    not (0.954 at worst on this fixture). ENGINE-NOTES 7ae.
+7. **And it holds under the temporal jitter.** With TAA on, eight
+   consecutive frames -- one full jitter phase -- of the same wall: the AO
+   factor over the open wall stays at one in every one of them, and the
+   wall's brightness moves by less than a level across the eight. This is
+   the claim the editor viewport failed before the reconstructed normal was
+   faced against the ray to the point rather than against the view axis: a
+   wall seen along its length has a normal with almost no z, the sign of
+   that z was noise, the noise turned with the jitter, and the wall went a
+   third darker every eighth frame. ENGINE-NOTES 7an.
 
 Usage:
     python tools/scripts/check_ssao.py [--config Release]
@@ -52,6 +61,12 @@ MAX_OPEN_DRIFT = 1.0
 # shading normal, taken wherever it faces the camera, 0.992 and 0.954.
 MIN_WALL_P10 = 0.995
 MIN_WALL_FLOOR = 0.97
+# Under TAA, across one full jitter phase: how far the open wall's mean
+# brightness may move between the brightest and the darkest of the eight
+# frames, in 8-bit levels. The broken sign gave 37 levels; the fixed one
+# gives well under one.
+JITTER_PHASE = 8
+MAX_WALL_JITTER_DRIFT = 1.0
 
 
 def run(exe, args):
@@ -71,6 +86,24 @@ def shoot(exe, backend, path, scene="scenes/ssao_box.rage"):
         print(f"FAIL: {path} was never written -- the scene probably did not load")
         sys.exit(1)
     return np.asarray(Image.open(path).convert("RGB")).astype(float).mean(axis=2)
+
+
+def shoot_sequence(exe, backend, path, scene, count):
+    """`count` consecutive frames from FRAME under TAA, in one run: separate
+    runs are separate clocks and would not be consecutive. Returns them in
+    frame order."""
+    path = pathlib.Path(path)
+    run(exe, [f"--rhi={backend}", f"--scene={scene}",
+              "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
+              f"--screenshot-count={count}", f"--screenshot={path}", "--aa=taa"])
+    frames = []
+    for frame in range(FRAME, FRAME + count):
+        numbered = path.with_name(f"{path.stem}_{frame}{path.suffix}")
+        if not numbered.exists():
+            print(f"FAIL: {numbered} was never written")
+            sys.exit(1)
+        frames.append(np.asarray(Image.open(numbered).convert("RGB")).astype(float).mean(axis=2))
+    return frames
 
 
 def regions(image):
@@ -196,6 +229,31 @@ def main():
                             f"(AO factor p10 {p10:.3f}, worst {floor:.3f}) -- "
                             "a normal-map bump the depth buffer does not have")
 
+        # The same wall through one full jitter phase under TAA. The AO-off
+        # frames are the reference for their own frame, so TAA's own
+        # convergence is not what is being measured.
+        wall_profile({ "AmbientOcclusion": False })
+        off_frames = shoot_sequence(exe, backend, shots / f"{backend}-wall-taa-off.png",
+                                    "scenes/ssao_wall.rage", JITTER_PHASE)
+        wall_profile({ "AmbientOcclusion": True, "AoIntensity": 1.0 })
+        on_frames = shoot_sequence(exe, backend, shots / f"{backend}-wall-taa-on.png",
+                                   "scenes/ssao_wall.rage", JITTER_PHASE)
+        p10s = []
+        means = []
+        for off_frame, on_frame in zip(off_frames, on_frames):
+            factor = on_frame[region] / np.maximum(off_frame[region], 1.0)
+            p10s.append(float(np.percentile(factor, 10)))
+            means.append(float(on_frame[region].mean()))
+        drift = max(means) - min(means)
+        print(f"{backend}: under TAA across {JITTER_PHASE} frames the wall's AO factor p10 "
+              f"is {min(p10s):.3f} at worst and its brightness drifts {drift:.2f} levels")
+        if min(p10s) < MIN_WALL_P10:
+            failures.append(f"{backend}: under TAA the open brick wall occludes itself on "
+                            f"some jitter offset (AO factor p10 {min(p10s):.3f} at worst)")
+        if drift > MAX_WALL_JITTER_DRIFT:
+            failures.append(f"{backend}: under TAA the open brick wall's brightness moves "
+                            f"{drift:.2f} levels across the jitter phase -- it flickers")
+
     print()
     if failures:
         for failure in failures:
@@ -204,7 +262,7 @@ def main():
 
     print("OK: off is off to the byte, the seam darkens and deepens with "
           "intensity, the open floor holds still, a frame reproduces, and a "
-          "normal-mapped wall does not occlude itself")
+          "normal-mapped wall does not occlude itself -- on any jitter offset")
 
 
 if __name__ == "__main__":

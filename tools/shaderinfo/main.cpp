@@ -23,6 +23,7 @@ static const char* TypeName(ResourceType t)
         case ResourceType::StorageBuffer:        return "StorageBuffer";
         case ResourceType::CombinedImageSampler: return "CombinedImageSampler";
         case ResourceType::StorageImage:         return "StorageImage";
+        case ResourceType::AccelerationStructure: return "AccelerationStructure";
     }
     return "?";
 }

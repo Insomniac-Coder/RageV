@@ -1200,7 +1200,6 @@ namespace
 		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA",
 												   "MSAA", "TAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
-		const char* const kShadowModeNames[] = { "Maps", "RayTraced" };
 
 		// Which rows apply to the mode that is selected.
 		//
@@ -1224,12 +1223,12 @@ namespace
 		{
 			return static_cast<const RenderSettings*>(block)->ShadowsEnabled;
 		}
-		// The cascade dials mean nothing to a traced shadow; the resolution
-		// still does, because spot and point lights keep their maps.
+		// The cascade dials mean nothing to a traced shadow (7an): with ray
+		// tracing on, no map of any kind is rendered.
 		bool UsesCascades(const void* block)
 		{
 			const auto* render = static_cast<const RenderSettings*>(block);
-			return render->ShadowsEnabled && render->ShadowMethod == ShadowMode::Maps;
+			return render->ShadowsEnabled && !render->RayTracing;
 		}
 
 		bool HasColorLut(const void* block)
@@ -1316,14 +1315,15 @@ namespace
 
 				Field<&RenderSettings::ShadowsEnabled>("ShadowsEnabled", Named("Shadows")),
 
-				Field<&RenderSettings::ShadowMethod>("ShadowMethod",
-					Named("Method", OnlyWhen(CastsShadows, Enum(kShadowModeNames,
-						"Maps renders the scene from the light into depth maps and "
-						"samples them with two biases; RayTraced sends one ray per "
-						"pixel toward the light and has no acne, no detachment and "
-						"no distance limit, at a hard edge. RayTraced needs a device "
-						"with ray queries and falls back to Maps without one. Spot "
-						"and point lights keep their maps either way.")))),
+				Field<&RenderSettings::RayTracing>("RayTracing",
+					Named("Ray tracing", OnlyWhen(CastsShadows, Tip(
+						"Trace rays instead of rendering shadow maps: one ray per "
+						"pixel toward every casting light, with no acne, no "
+						"detachment, no distance limit and no cap on how many "
+						"lights cast; skinned casters cast their pose. The edge is "
+						"hard. Needs a device with ray queries (Vulkan on hardware "
+						"that traces); without one the maps are used and the log "
+						"says so. Applies at once -- no restart.")))),
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,

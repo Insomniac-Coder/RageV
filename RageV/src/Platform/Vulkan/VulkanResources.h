@@ -35,12 +35,14 @@ namespace RageV::Vk
 	// VkAccelerationStructureKHR, the buffer it lives in, and -- for a
 	// top-level one -- the instance buffer and scratch a per-frame rebuild
 	// writes into, sized once for `maxInstances` so a rebuild allocates
-	// nothing. A bottom-level one is built in the constructor, immediately,
-	// with transient scratch, and never touched again.
+	// nothing. A static bottom-level one is built in the constructor,
+	// immediately, with transient scratch, and never touched again; a
+	// Dynamic one (7an) keeps its geometry and scratch and is built, then
+	// refit, by BuildBottomLevel from the frame's command buffer.
 	class VulkanAccelerationStructure final : public RHI::RHIAccelerationStructure
 	{
 	public:
-		// Bottom level: builds now from the geometry.
+		// Bottom level: builds now from the geometry, unless Dynamic.
 		VulkanAccelerationStructure(VulkanDevice& device, const RHI::AccelerationGeometryDesc& geometry);
 		// Top level: allocated for up to maxInstances; built by Build().
 		VulkanAccelerationStructure(VulkanDevice& device, uint32_t maxInstances);
@@ -52,6 +54,11 @@ namespace RageV::Vk
 		// Top level only. Packs the instances into the instance buffer, records
 		// the build, and the barrier that makes it readable by shaders.
 		void Build(VkCommandBuffer cmd, const RHI::AccelerationInstance* instances, uint32_t count);
+
+		// Dynamic bottom level only. A full build the first time, an update in
+		// place after, from the vertex buffer as it is now; ends with the
+		// barrier a top-level build recorded after it needs.
+		void BuildBottomLevel(VkCommandBuffer cmd);
 
 	private:
 		struct Backing
@@ -69,8 +76,15 @@ namespace RageV::Vk
 		VkAccelerationStructureKHR m_Structure = VK_NULL_HANDLE;
 		VkDeviceAddress m_Address = 0;
 		Backing m_Storage;    // the structure itself
-		Backing m_Scratch;    // top level: kept; bottom level: transient
+		Backing m_Scratch;    // top level and dynamic bottom level: kept; static bottom level: transient
 		Backing m_Instances;  // top level only, host visible
+
+		// Dynamic bottom level only: the geometry as described at creation,
+		// re-recorded by every BuildBottomLevel, and whether one has run yet
+		// (the first is a build; the rest are updates of it).
+		VkAccelerationStructureGeometryKHR m_Geometry{};
+		uint32_t m_PrimitiveCount = 0;
+		bool     m_Built = false;
 	};
 
 	class VulkanSampler final : public RHI::RHISampler

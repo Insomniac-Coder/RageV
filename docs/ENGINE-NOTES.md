@@ -5565,7 +5565,218 @@ Stage 3: hit shading -- vertex and index buffers reachable by address, a
 mesh table indexed by the instance's custom index, and a shade of the hit
 point through the material record and the heap -- and with it the SSR
 fallback the roadmap named, judged against 9.9's exactness fixture. Each
-is a section of its own when it happens.
+is a section of its own when it happens. *Stage 2 is §7an.*
+
+---
+
+## 7an. Ray tracing, stage 2 (8.12): every light gets the ray, and the fox's shadow runs
+
+Stage 1 (§7am) left two things stated as limits: spot and point lights kept
+their maps under `RayTraced`, and a skinned caster traced as its bind pose.
+Neither is a new mechanism -- the structures, the query, the define and the
+shadow mode all exist -- so this section is short on design and long on the
+two places the existing design turned out to have a wrong assumption in it.
+
+### Local lights: the ray is the same ray, with a length
+
+The stage 1 shadow ray has no `tMax` worth speaking of: a directional light
+is infinitely far, so the ray goes until it hits or `1e4`. A spot or point
+light is a *position*, and the only change a shadow ray needs is to stop
+there: origin at the surface (same geometric-normal offset, same reason),
+direction toward the light, `tMax` the distance to it. A caster beyond the
+light does not shadow, which the length says and a map's far plane said
+before. So the cluster loop's fork is: kind 1 traces along `L` to infinity;
+kinds 2 and 3 trace along `L` to the light. `SpotShadow` and `PointShadow`
+-- the map lookups -- are simply not compiled under `RV_RAY_SHADOWS`; the
+loop reaches one `TraceShadow` for every casting light instead of three
+functions for three kinds.
+
+**And the slot caps go away under the rays.** `ShadowMap::kMaxLocal` (four
+spot maps, four point cubes) exists because each map is a scene render, and
+`Scene::RenderShadows` stops assigning past it with a warning. A ray is not
+a scene render: the cost of the fifth casting spot light is one more query
+per fragment inside its cluster, and there is no map to run out of. So under
+`RayTraced` every light with `CastShadows` is assigned its kind and *no
+slot*, and none of them renders a map. The TLAS is built when any light
+casts, not only when a directional one does -- stage 1 returned early
+without a sun, which was right for cascades and wrong for a scene lit by a
+lantern.
+
+**And the setting is a checkbox.** 7am made it a two-way `ShadowMethod`
+enum, `Maps | RayTraced`; the owner asked for ray tracing to be one switch
+in Render Settings, and that is the better shape now that the rays are not
+a shadow *method* but a way of answering every light -- and, in stage 3,
+reflections -- on the same structures and the same hardware question. So
+`RenderSettings::RayTracing` is a `bool`, off by default, shown as a
+checkbox with the cascade dials hidden under it; `ResolveRayTracing`
+replaces `ResolveShadowMode`, `--raytracing=on|off` replaces
+`--shadows=maps|rt`, and `RenderSettings.RayTracing` reaches C#. It needs
+no restart: flipping it recompiles the lit shaders on the spot, both ways
+(`Renderer3D::SetRayTracedShadows` already did), so there is no
+"restart to apply" dialogue of the kind the backend picker has -- the
+tooltip says so, and the log says once when a device without ray queries
+was asked and given the maps instead.
+
+**A stale cap found on the way.** `ShadowMap::kMaxLights = 8` -- "must
+match the shader's MAX_LIGHTS" -- was the 2D shader's array size, and the
+3D lights have lived in a storage buffer since 3.8a. It survived as the size
+of the assignment table, which meant the ninth light in a scene could never
+cast a shadow of any kind however many slots were free. The table is a
+vector now, sized to the scene, and the constant is gone; the maps gain
+from this too.
+
+### Skinned casters: pose the vertices once, in compute, and refit
+
+A skinned mesh's posed vertices exist only inside its vertex shader (3.7c);
+an acceleration structure reads a buffer by address. So the pose has to be
+written to a buffer, and the only stage that can write one is compute. The
+pass is the vertex shader's skinning with the rest removed: read the
+`SkinnedVertex` (position, four joints, four weights), read the four bones
+from the same matrices the lit pass will be given, write `weights · bones ·
+position` -- as a `vec4` at a stride of sixteen, into a buffer created with
+`AccelerationStructureInput`. Positions only: a shadow ray needs the shape
+and nothing else, and the normal, texture coordinate and skinning weights
+stay where they were.
+
+**Refit, not rebuild.** A bottom-level structure built with `ALLOW_UPDATE`
+can be *updated* in place from moved vertices as long as the topology is the
+same, and a skinned mesh's topology never changes -- the index buffer is the
+mesh's own. Update is a fraction of a build, and it is what every engine
+does for characters. So `AccelerationGeometryDesc::Dynamic` says: create
+for update, keep the scratch, do not build at creation (the posed buffer is
+empty then), and `RHICommandList::BuildBottomLevelAS(blas)` records a full
+build the first time and an update after -- with the barrier a TLAS build
+after it needs, inside the call, for the same reason the TLAS's is. The
+call re-specifies nothing: the structure remembers its geometry, and the
+geometry's addresses point at the posed buffer, which is what changed.
+`BufferSync::AccelerationBuild` names the read side of the barrier between
+the compute write and the build (build inputs are a *shader read* at the
+build stage, per the specification, and not an acceleration-structure
+read).
+
+**One of everything per frame in flight, and per caster.** The TLAS is
+per frame in flight because the previous frame's fragment shaders may still
+be tracing into it; a BLAS the TLAS references and a posed buffer the BLAS
+reads are in the same position, so a skinned caster owns `frames` posed
+buffers, `frames` structures and `frames` sets, and refits this frame's.
+Casters are a pool in `RayShadows`, reused by index in the order the scene
+walks them -- the same shape as the TLAS capacity and the per-frame slots
+everywhere else -- and a slot whose mesh changed since it was last used
+recreates its buffer and structure for that frame (a full build follows,
+because a refit needs the previous shape to have been this mesh). A skinned
+mesh with no animator, or an animator with no pose yet, keeps the static
+bind-pose structure the mesh already caches: nothing to pose, nothing to
+refit, and the editor -- where clips do not run outside Play -- traces the
+same structure it did in stage 1.
+
+The bones the compute pass reads are the animator's `Skinning` matrices --
+the same vector the lit pass uploads at binding 11 -- collected into a
+per-frame buffer of `RayShadows`' own, because `RenderShadows` runs before
+`BeginScene` and the lit pass's buffer does not exist yet. The order in the
+frame is then: pose every skinned caster (one dispatch each, bones by
+offset), one barrier per posed buffer, refit every dynamic structure, build
+the TLAS, then the graph. All of it before the first render pass, where
+stage 1 already put the build.
+
+### The checks
+
+`CheckRayQuery` in scenetest gains the refit: a dynamic structure over a
+triangle whose vertices are then *moved* in the buffer and the structure
+refit; a ray that hit the old position misses, and one aimed at the new
+position reports the new distance. This is the RHI's claim, independent of
+skinning.
+
+`check_ray_shadows.py` gains a second fixture, `ray_shadows_local`: a dark
+floor with no sun, a spot light and a point light each throwing a box's
+shadow onto it, and the fox running under a third spot. Claims:
+
+1. **A spot's traced shadow and its mapped shadow are the same shape**
+   (IoU ≥ 0.9), and **a point light's are** -- the local-light ray agrees
+   with the map where the map is right, which judges the ray's origin,
+   direction and length together.
+2. **The fox's traced shadow is its pose, not its bind pose**: at the same
+   frame the traced shadow and the mapped one -- the maps render the posed
+   fox through the skinned depth shader -- overlap to IoU ≥ 0.85 (a rougher
+   bar than the boxes': the fox is small and the map's filter is a
+   texel wide either way); and **the traced shadow at frame 30 differs from
+   the one at frame 45** (IoU ≤ 0.95, while the boxes' hold at ≥ 0.99),
+   because the fox moved and its transform did not.
+   Stage 1 fails the second claim exactly: a bind-pose structure moved by a
+   constant transform gives the same shadow every frame.
+3. Frames reproduce; OpenGL falls back and its maps agree.
+
+Falsified by (a) making `TraceShadow` ignore `tMax` for local lights --
+a lid sits just beyond each light, and a ray that overshoots meets it, so
+every local shadow region goes dark and the IoU falls -- and (b) skipping
+the refit -- the fox claim 2 fails on both halves. Both restored before
+landing; the numbers are below.
+
+### What building it found: the numbers, and the owner's flicker
+
+Measured at landing (Debug and Release, both backends where they apply):
+the spot's traced shadow and its mapped shadow overlap to IoU 0.977, the
+point light's to 0.981; the fox's traced shadow overlaps its posed, mapped
+shadow to 0.946 at frame 30 and differs from its own frame-45 shadow at
+IoU 0.854 while the boxes' shadows hold at 1.000; five casting spots warn
+under maps and not under rays; OpenGL falls back and its maps agree with
+Vulkan's at 1.000. Falsified as planned: tMax ignored collapses the spot,
+point and fox IoUs to 0.673, 0.666 and 0.712 (the lids over the lights are
+what make that measurable -- a ray that overshoots meets one); the refit
+skipped gives the fox 0.670 against the maps and 1.000 between frames, the
+bind pose exactly. `CheckRayQuery` gained the refit (a dynamic structure
+built from the command list, its vertices moved three units and refit; the
+ray that hit at t = 5 hits at t = 8 and the just-long-enough ray falls
+short): 1628 checks on Vulkan under validation, zero validation lines.
+
+**And a flicker the owner reported in the editor viewport, which turned out
+to be SSAO's and not the rays'.** The demo's courtyard walls pulsed dark in
+the editor and nowhere else. Consecutive frames from separate runs are
+separate clocks, so `--screenshot-count=N` now writes N consecutive frames
+from one run as `<stem>_<frame>.png` -- the tool this needed -- and forty
+frames showed the left wall drop by a third every eighth frame and the
+right wall alternate every second: a period of eight is the temporal
+jitter's phase. `--aa=none` was still; the runtime under TAA was still;
+`--raytracing=on` still flickered, so not the shadows; the light grid's
+tile ranges, logged, did not move; the Game panel closed and the viewport
+grid off changed nothing; and `AmbientOcclusion: false` in the profile
+stopped it dead -- and brightened the right wall by half, so the AO had
+been wrong on it *every* frame, not only the flickering ones. A diagnostic
+build of the pass that wrote the written-versus-reconstructed dot as the
+occlusion showed the reconstructed normal on the grazing walls at nearly
+ninety degrees to the written one, whole faces at a time, on the frames
+that went dark. The cause: `ReconstructedNormal` chose the cross product's
+winding by the sign of `normal.z`, "toward the camera" -- and a wall seen
+along its length has a normal with almost no z, so a noise-sized component
+decided which way the whole normal faced, half the time *into* the wall.
+Every tap then sat inside the wall, read the wall in front of it, and the
+face went a third darker; the jitter moved the depth content under the
+texel grid, the noise changed sign with the jitter index, and the wall
+came and went. Two lines fix it: the winding is chosen against the ray
+from the eye to the point (`dot(normal, centre)`), which meets any visible
+surface at a healthy angle whatever its slant; and the reconstruction
+snaps its uv to the depth texel's centre before turning depth into a
+point, because the pass runs at half resolution and point-samples a depth
+that belongs to a texel centre up to half a texel away -- on a grazing
+wall, centimetres of depth, and the five points the normal is built from
+were never quite on the plane. `check_ssao.py` gained the claim that would
+have caught it: the brick wall under TAA across one full jitter phase,
+eight frames in one run, AO factor at one in every frame and brightness
+drifting under a level (0.04 measured). The old sign test back: 57 levels
+of drift, p10 0.135, and the wall failing at `--aa=none` too. The runtime
+never showed it because its camera does not see the walls that grazing;
+the 9.8b fixture held at 1.000 by the sign falling the right way at that
+one camera and jitter -- which is what "a check that measures one frame of
+a temporal effect" is worth, and why the new claim spans the phase.
+
+### What stays stated
+
+The edge is still hard, for every light kind: a real penumbra is several
+rays and a filter across frames, and that is not this section. Skinned
+casters are posed by a second copy of the skinning arithmetic, in compute;
+if the vertex shader's skinning changes shape (a fifth influence, dual
+quaternions) this pass changes with it or the shadow stops matching the
+mesh -- stated because the two are in different files. Hit shading and the
+SSR fallback are stage 3, unchanged.
 
 ---
 
@@ -5579,7 +5790,7 @@ is a section of its own when it happens.
 | Lights | 8-light cap accepted | clustered forward removes it in Phase 3 |
 | Render graph | Phase 3.1 | confirmed, and now has a concrete design |
 | Bindless | unexamined | one fork, at the material and its shader block; the RHI stays one interface (§7al) |
-| Ray tracing | "no OpenGL path at all" | ray queries only, shadows first, reflections after hit shading exists (§7am) |
+| Ray tracing | "no OpenGL path at all" | ray queries only, shadows first, reflections after hit shading exists (§7am); every light kind and skinned casters refit in stage 2 (§7an) |
 | ECS | EnTT | confirmed, with the failure mode written down |
 | GPU-driven | unstated | explicitly out of scope |
 | Contacts | "route them into scripts" | the routing is easy; sleep, removal and sub-shape granularity are not (§3a) |

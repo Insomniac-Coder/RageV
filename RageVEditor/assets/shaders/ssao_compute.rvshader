@@ -81,10 +81,31 @@ const float kBiasPerMetre = 0.012;
 
 vec2 InvProjection() { return vec2(u_Params.InvP0, u_Params.InvP1); }
 
+// The point the depth texel this uv lands on actually describes.
+//
+// **Snapped to that texel's centre before reconstruction.** This pass runs
+// at half resolution and point-samples the full-resolution depth, so its uv
+// lands on a texel *boundary*, and the depth it reads belongs to a texel
+// centre up to half a texel away. Reconstructing at the unsnapped uv puts
+// the point off the surface by that half texel's worth of depth -- nothing
+// on a wall seen square-on, and on a wall seen along its length, where a
+// texel spans centimetres of depth, enough to scatter the five points the
+// normal is built from off the plane by more than the sixteen degrees the
+// written normal is admitted within. The wall then takes a wrong
+// reconstructed normal, dips its hemisphere into itself, and darkens by a
+// third; and because the temporal jitter moves the depth content under the
+// texel grid by up to half a pixel, *which* texel each uv rounds into
+// changes with the jitter index, so the wrong normal comes and goes with a
+// period of eight frames -- the flicker the owner saw in the editor viewport,
+// where the courtyard walls run away from the camera. Snapping makes the
+// reconstruction exact for a plane whatever the texel, and the jitter has
+// nothing left to move. ENGINE-NOTES 7an.
 vec3 ViewPositionAt(vec2 uv)
 {
-	const float z = LinearDepth(texture(u_Depth, uv).r, u_Params.NearClip, u_Params.FarClip);
-	return ViewPosition(uv, z, InvProjection());
+	const vec2 depthSize = vec2(textureSize(u_Depth, 0));
+	const vec2 snapped = (floor(uv * depthSize) + 0.5) / depthSize;
+	const float z = LinearDepth(texture(u_Depth, snapped).r, u_Params.NearClip, u_Params.FarClip);
+	return ViewPosition(snapped, z, InvProjection());
 }
 
 // The chosen-neighbour normal, from depth alone. Four candidate positions,
@@ -108,7 +129,21 @@ vec3 ReconstructedNormal(vec2 uv, vec3 centre, vec2 texel)
 	vec3 normal = normalize(cross(dy, dx));
 	// Toward the camera, whichever winding the cross came out with: a
 	// surface the camera can see cannot face away from it.
-	return normal.z > 0.0 ? -normal : normal;
+	//
+	// **Against the ray to the point, not against the view axis.** This used
+	// to test normal.z, and for a wall seen along its length -- the courtyard
+	// walls from the editor camera -- the true normal's z is nearly zero:
+	// the sign of a tiny, noise-driven component decided which way the whole
+	// normal faced, and half the time it faced *into* the wall. Every tap
+	// then landed inside the wall, read the wall in front of it, and the
+	// face went a third darker; and since the temporal jitter moves the depth
+	// content under the texel grid, the noise changed sign with the jitter
+	// index and the wall came and went with a period of eight frames -- the
+	// flicker the owner saw. The ray from the eye to the point is at a
+	// healthy angle to any visible surface, grazing or not, so its sign is
+	// never in doubt. `centre` is that ray: the frame's origin is the eye.
+	// ENGINE-NOTES 7an.
+	return dot(normal, centre) > 0.0 ? -normal : normal;
 }
 
 uint Hash(uint x)

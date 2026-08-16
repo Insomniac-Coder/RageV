@@ -1373,6 +1373,16 @@ namespace RageV::GL
 		}
 	}
 
+	void OpenGLCommandListRHI::BuildBottomLevelAS(const Ref<RHIAccelerationStructure>&)
+	{
+		static bool reported = false;
+		if (!reported)
+		{
+			RV_CORE_WARN("[OpenGL] BuildBottomLevelAS called; this backend has no ray tracing");
+			reported = true;
+		}
+	}
+
 	void OpenGLCommandListRHI::Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
 	{
 		RV_CORE_ASSERT(m_BoundBindings, "Dispatch requires a bound compute pipeline");

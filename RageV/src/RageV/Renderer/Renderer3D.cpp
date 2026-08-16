@@ -571,7 +571,7 @@ namespace RageV
 			return;
 
 		s_Data->RayShadowsOn = enabled;
-		RV_CORE_INFO("Renderer3D: directional shadows {0}", enabled ? "traced" : "from cascaded maps");
+		RV_CORE_INFO("Renderer3D: shadows {0}", enabled ? "traced" : "from maps");
 
 		// New shaders, new pipelines, and every scene set with them: a set is
 		// allocated against a layout, and the layouts differ by the structure
@@ -897,21 +897,19 @@ namespace RageV
 			s_Data->Scene.ShadowParams.y = render.ShadowNormalOffset;
 		}
 
-		// Which map each light got, decided when the shadows were rendered.
+		// Which map each light got, decided when the shadows were rendered --
+		// or, under rays (7an), which kind of ray, and no map.
 		//
-		// Only the first few can have one: there are four spot maps and four
-		// point cubes however many lights a scene has. Past that a light lights
-		// and does not cast, which is the budget rather than the cap that used
-		// to sit here.
+		// Under maps only the first few can have one: there are four spot maps
+		// and four point cubes however many lights a scene has. Past that a
+		// light lights and does not cast, which is the budget rather than the
+		// cap that used to sit here.
 		// Indexed by the light's *original* position, not its position after the
 		// reorder above -- ShadowMap assigned slots while walking the scene, and
 		// asking it about the wrong light gives a light somebody else's map.
 		for (uint32_t slot = 0; slot < (uint32_t)s_Data->LightOrder.size(); slot++)
 		{
 			const uint32_t original = s_Data->LightOrder[slot];
-			if (original >= ShadowMap::kMaxLights)
-				continue;
-
 			const LocalShadow& assigned = ShadowMap::GetAssignment(original);
 
 			s_Data->LightScratch[slot].Shadow = {

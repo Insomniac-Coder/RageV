@@ -130,14 +130,16 @@ namespace RageV
 								const Vec3& position, float farClip,
 								const DrawCasters& draw);
 
-		// Which map each light in the scene's list ended up with. Recorded here
-		// rather than on the light, because the assignment is made while
-		// rendering shadows and read while rendering the scene -- two passes
-		// that build their light lists separately and must agree.
+		// Which map each light in the scene's list ended up with -- or, under
+		// ray-traced shadows (ENGINE-NOTES 7an), which kind of ray it gets
+		// and no map. Recorded here rather than on the light, because the
+		// assignment is made while rendering shadows and read while rendering
+		// the scene -- two passes that build their light lists separately and
+		// must agree.
 		//
-		// Must match the shader's MAX_LIGHTS.
-		static constexpr uint32_t kMaxLights = 8;
-
+		// Sized to the scene, not capped: the eight-light table this used to
+		// be was the 2D shader's array size, and the 3D lights have lived in
+		// a storage buffer since 3.8a. A light past the end is unassigned.
 		static void Assign(uint32_t lightIndex, const LocalShadow& shadow);
 		static const LocalShadow& GetAssignment(uint32_t lightIndex);
 

@@ -371,6 +371,15 @@ namespace RageV::Vk
 		structure->Build(m_CommandBuffer, instances, count);
 	}
 
+	void VulkanCommandList::BuildBottomLevelAS(const RHI::Ref<RHI::RHIAccelerationStructure>& blas)
+	{
+		RV_CORE_ASSERT(!m_InRenderPass, "BuildBottomLevelAS must be recorded outside a render pass");
+		auto structure = std::static_pointer_cast<VulkanAccelerationStructure>(blas);
+		if (!structure)
+			return;
+		structure->BuildBottomLevel(m_CommandBuffer);
+	}
+
 	void VulkanCommandList::BindResourceSet(uint32_t set, const RHI::Ref<RHI::RHIResourceSet>& resources)
 	{
 		RV_CORE_ASSERT(m_BoundPipeline, "BindResourceSet requires a bound pipeline");
@@ -476,6 +485,14 @@ namespace RageV::Vk
 				case RHI::BufferSync::TransferWrite:
 					stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 					access = VK_ACCESS_TRANSFER_WRITE_BIT;
+					break;
+				case RHI::BufferSync::AccelerationBuild:
+					// Build inputs -- vertices, indices, instances -- are a
+					// shader read at the build stage, per the specification;
+					// the acceleration-structure access bits are for the
+					// structure itself, which BuildBottomLevelAS orders.
+					stage = VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+					access = VK_ACCESS_SHADER_READ_BIT;
 					break;
 				default:
 					stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;

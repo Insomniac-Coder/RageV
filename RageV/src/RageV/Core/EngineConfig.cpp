@@ -97,21 +97,10 @@ namespace RageV
 		if (key == "bindless")
 			return ParseBool(value, config.Bindless);
 
-		if (key == "shadows")
+		if (key == "raytracing" || key == "rt")
 		{
-			if (value == "maps" || value == "map")
-			{
-				config.HasShadowOverride = true;
-				config.ShadowOverride = ShadowMode::Maps;
-				return true;
-			}
-			if (value == "rt" || value == "raytraced" || value == "rays")
-			{
-				config.HasShadowOverride = true;
-				config.ShadowOverride = ShadowMode::RayTraced;
-				return true;
-			}
-			return false;
+			config.HasRayTracingOverride = true;
+			return ParseBool(value, config.RayTracingOverride);
 		}
 
 		if (key == "msaa" || key == "samples")
@@ -269,6 +258,20 @@ namespace RageV
 			catch (const std::exception&)
 			{
 				RV_CORE_WARN("screenshot-frame expects an integer, got '{0}'", value);
+				return false;
+			}
+		}
+
+		if (key == "screenshot-count" || key == "screenshotcount")
+		{
+			try
+			{
+				config.ScreenshotCount = (uint32_t)Math::Max(std::stoi(value), 1);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("screenshot-count expects an integer, got '{0}'", value);
 				return false;
 			}
 		}

@@ -164,6 +164,13 @@ namespace RageV::RHI
 		// Opaque geometry lets a shadow ray stop at its first hit without
 		// asking anyone; everything this engine draws lit is opaque.
 		bool      Opaque = true;
+		// The vertices will move (ENGINE-NOTES 7an): a skinned mesh posed
+		// into this buffer each frame. Created for update and *not built at
+		// creation* -- the buffer is empty then -- so the first
+		// RHICommandList::BuildBottomLevelAS builds it and every later one
+		// refits it in place from whatever the buffer holds. Same topology
+		// throughout: the index buffer is the one thing that must not change.
+		bool      Dynamic = false;
 		std::string DebugName;
 	};
 
@@ -474,6 +481,13 @@ namespace RageV::RHI
 		IndirectRead,
 		// Written by a transfer: a buffer upload or a copy.
 		TransferWrite,
+		// Read as the vertex or index input of an acceleration-structure
+		// build (ENGINE-NOTES 7an): a posed buffer a compute pass wrote and
+		// a bottom-level refit is about to read. A shader read at the build
+		// stage, which is what the specification calls a build input, and
+		// not an acceleration-structure read -- that is the structure
+		// itself, and BuildBottomLevelAS orders it.
+		AccelerationBuild,
 	};
 
 	// ---------------------------------------------------------------------

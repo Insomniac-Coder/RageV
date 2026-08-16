@@ -42,7 +42,8 @@ namespace RageV
 
 			RHI::Ref<RHITexture> EmptyCube;
 
-			std::array<LocalShadow, ShadowMap::kMaxLights> Assignments{};
+			// Sized to the scene as lights are assigned (7an); cleared per frame.
+			std::vector<LocalShadow> Assignments;
 
 			bool Ready = false;
 		};
@@ -164,20 +165,23 @@ namespace RageV
 		{
 			s_Data->Rendered = 0;
 			s_Data->LightIndex = -1;
-			s_Data->Assignments.fill(LocalShadow{});
+			s_Data->Assignments.clear();
 		}
 	}
 
 	void ShadowMap::Assign(uint32_t lightIndex, const LocalShadow& shadow)
 	{
-		if (s_Data && lightIndex < kMaxLights)
-			s_Data->Assignments[lightIndex] = shadow;
+		if (!s_Data)
+			return;
+		if (lightIndex >= s_Data->Assignments.size())
+			s_Data->Assignments.resize((size_t)lightIndex + 1);
+		s_Data->Assignments[lightIndex] = shadow;
 	}
 
 	const LocalShadow& ShadowMap::GetAssignment(uint32_t lightIndex)
 	{
 		static const LocalShadow none;
-		if (!s_Data || lightIndex >= kMaxLights)
+		if (!s_Data || lightIndex >= s_Data->Assignments.size())
 			return none;
 		return s_Data->Assignments[lightIndex];
 	}

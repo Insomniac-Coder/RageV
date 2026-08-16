@@ -1,0 +1,210 @@
+Scene: Ray shadow locals
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.02, 0.02, 0.025]
+  SkyZenith: [0.02, 0.02, 0.025]
+  SkyGround: [0.02, 0.02, 0.025]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 15, -1]
+      Rotation: [-1.5, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 13584252748874752256
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, -0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 0.2, 60]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.6, 0.6, 0.6, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Budget spot 1
+    TransformComponent:
+      Position: [-25, 6, 0]
+      Rotation: [-1.5608, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 20
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Budget spot 2
+    TransformComponent:
+      Position: [25, 6, 0]
+      Rotation: [-1.5608, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 20
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 1663341875487337577
+    TagComponent:
+      Tag: Budget spot 3
+    TransformComponent:
+      Position: [0, 6, -20]
+      Rotation: [-1.5608, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 20
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 13064056694810536062
+    TagComponent:
+      Tag: Spot
+    TransformComponent:
+      Position: [-9, 6, 4]
+      Rotation: [-0.896055, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 60
+      Range: 20
+      InnerCone: 30
+      OuterCone: 40
+      CastShadows: true
+  - EntityID: 6018027440424182931
+    TagComponent:
+      Tag: Spot box
+    TransformComponent:
+      Position: [-9, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 2, 1.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.7, 0.3, 0.2, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 17418742259747381416
+    TagComponent:
+      Tag: Spot lid
+    TransformComponent:
+      Position: [-9, 7, 4]
+      Rotation: [0, 0, 0]
+      Scale: [8, 0.2, 8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.5, 0.5, 0.5, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 10372713005361028285
+    TagComponent:
+      Tag: Point
+    TransformComponent:
+      Position: [9, 5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 1, 1]
+      Intensity: 100
+      Range: 13
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 3326683750974675154
+    TagComponent:
+      Tag: Point box
+    TransformComponent:
+      Position: [9, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 2, 1.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.2, 0.3, 0.7, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 14727398570297873639
+    TagComponent:
+      Tag: Point lid
+    TransformComponent:
+      Position: [9, 6, 4]
+      Rotation: [0, 0, 0]
+      Scale: [8, 0.2, 8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.5, 0.5, 0.5, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 1
+        Occlusion: 1
+  - EntityID: 7681369315911520508
+    TagComponent:
+      Tag: Fox spot
+    TransformComponent:
+      Position: [0, 3, 6]
+      Rotation: [-0.380506, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 40
+      Range: 20
+      InnerCone: 22
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 635340061525167377
+    TagComponent:
+      Tag: Fox
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 1.5708, 0]
+      Scale: [0.02, 0.02, 0.02]
+    MeshComponent:
+      Mesh: 11679010045657754579
+      Material: 0
+    AnimatorComponent:
+      Clip: 2
+      Playing: true
+      Loop: true
+      Speed: 1

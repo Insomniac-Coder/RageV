@@ -1,0 +1,87 @@
+// A skinned mesh's positions, posed, written to a buffer.
+//
+// pbr_skinned.rvshader poses a vertex inside its vertex stage and the result
+// exists nowhere else; an acceleration structure reads a buffer by address.
+// So for a skinned caster to throw the shadow of its pose rather than of its
+// bind pose (ENGINE-NOTES 7an), the pose has to be written down once, here,
+// and the caster's bottom-level structure refit from it before the frame's
+// top-level build.
+//
+// The skinning arithmetic is the vertex shader's, exactly: the weighted sum
+// of four bone matrices applied to the position. Copied rather than shared,
+// because a compute stage cannot include a vertex stage's main; stated in
+// 7an because the two are in different files and must move together.
+//
+// Positions only. A shadow ray asks whether it hit, not what -- normals,
+// texture coordinates and the influences themselves stay where they were.
+
+#type compute
+#version 450 core
+
+layout(local_size_x = 64) in;
+
+// The mesh's own vertex buffer, read as words rather than as a struct: a
+// SkinnedVertex is {vec3 position, vec3 normal, vec2 uv, uvec4 joints, vec4
+// weights}, sixty-four bytes with the vec3s packed tight, and std430 would
+// pad a vec3 member to sixteen. Sixteen words per vertex; the offsets below
+// are the C++ struct's, and Mesh.cpp static_asserts them.
+layout(std430, set = 0, binding = 0) readonly buffer Vertices
+{
+	uint Words[];
+} u_Vertices;
+
+// Every skinned caster's bones this frame, back to back; the push constant
+// says where this caster's begin. The same matrices the lit pass is given.
+layout(std430, set = 0, binding = 1) readonly buffer Bones
+{
+	mat4 Matrices[];
+} u_Bones;
+
+// Where the structure reads from: one vec4 per vertex, w unused, so the
+// stride is sixteen and the position is the first three floats.
+layout(std430, set = 0, binding = 2) writeonly buffer Posed
+{
+	vec4 Positions[];
+} u_Posed;
+
+layout(push_constant) uniform Params
+{
+	uint VertexCount;
+	uint BoneBase;
+} u_Params;
+
+const uint kWordsPerVertex = 16u;
+const uint kPositionWord = 0u;
+const uint kJointsWord = 8u;
+const uint kWeightsWord = 12u;
+
+void main()
+{
+	uint i = gl_GlobalInvocationID.x;
+	if (i >= u_Params.VertexCount)
+		return;
+
+	uint base = i * kWordsPerVertex;
+	vec3 position = vec3(uintBitsToFloat(u_Vertices.Words[base + kPositionWord + 0u]),
+						 uintBitsToFloat(u_Vertices.Words[base + kPositionWord + 1u]),
+						 uintBitsToFloat(u_Vertices.Words[base + kPositionWord + 2u]));
+	uvec4 joints = uvec4(u_Vertices.Words[base + kJointsWord + 0u],
+						 u_Vertices.Words[base + kJointsWord + 1u],
+						 u_Vertices.Words[base + kJointsWord + 2u],
+						 u_Vertices.Words[base + kJointsWord + 3u]);
+	vec4 weights = vec4(uintBitsToFloat(u_Vertices.Words[base + kWeightsWord + 0u]),
+						uintBitsToFloat(u_Vertices.Words[base + kWeightsWord + 1u]),
+						uintBitsToFloat(u_Vertices.Words[base + kWeightsWord + 2u]),
+						uintBitsToFloat(u_Vertices.Words[base + kWeightsWord + 3u]));
+
+	// The vertex shader's line, verbatim: weights sum to one, so this is an
+	// average of the four transforms and one multiply poses the vertex.
+	uint b = u_Params.BoneBase;
+	mat4 skin =
+		weights.x * u_Bones.Matrices[b + joints.x] +
+		weights.y * u_Bones.Matrices[b + joints.y] +
+		weights.z * u_Bones.Matrices[b + joints.z] +
+		weights.w * u_Bones.Matrices[b + joints.w];
+
+	u_Posed.Positions[i] = vec4((skin * vec4(position, 1.0)).xyz, 1.0);
+}

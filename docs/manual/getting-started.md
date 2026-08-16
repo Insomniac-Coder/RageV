@@ -122,7 +122,7 @@ Every flag below can also go in a `ragev.ini` file next to the executable, as
 | `--vsync=on\|off` | Present synchronised to the display. |
 | `--validation=on\|off\|gpu` | Vulkan validation layers. **Off by default, everywhere** — see below. `gpu` adds GPU-assisted validation. |
 | `--bindless=on\|off` | Read material textures through the bindless heap on a device that has one. Default on; no effect on OpenGL — see below. |
-| `--shadows=maps\|rt` | Override the project's shadow method for this run. `rt` falls back to maps on a device without ray queries and says so. |
+| `--raytracing=on\|off` | Override the project's Ray tracing checkbox for this run. `on` falls back to shadow maps on a device without ray queries and says so. |
 | `--fixed-hz=N` | Simulation rate, 20–240. Default 60. |
 | `--width=N` `--height=N` | Window size. |
 | `--audio=on\|off` | Whether to open an output device at all. |
@@ -130,6 +130,7 @@ Every flag below can also go in a `ragev.ini` file next to the executable, as
 | `--scene=<path>` | Open this scene instead of the project's start scene. |
 | `--screenshot=<file>` | Write a PNG of one frame and exit. |
 | `--screenshot-frame=N` | Which frame to capture. Default 30, to let the scene settle. |
+| `--screenshot-count=N` | Capture N consecutive frames from that one, in one run, as `<file>_<frame>.png`, then exit. Default 1 (the file as named). The way to look at a flicker: separate runs are separate clocks. |
 | `--benchmark=N` | Run N frames, print what they cost, and exit. |
 | `--ui-scale=N\|auto` | Editor font and spacing. `auto` follows the monitor. |
 | `--theme=dark\|light` | Editor theme. Default is whatever was last used. |

@@ -1027,6 +1027,18 @@ public static unsafe class RenderSettings
 		set => SetBool("ShadowsEnabled", value);
 	}
 
+	/// <summary>
+	/// Trace rays instead of rendering shadow maps: one ray per pixel toward
+	/// every casting light, no acne, no detachment, no distance limit, a hard
+	/// edge; skinned casters cast their pose. Needs a device with ray queries
+	/// and uses the maps without one (OpenGL, always). Applies at once.
+	/// </summary>
+	public static bool RayTracing
+	{
+		get => GetBool("RayTracing");
+		set => SetBool("RayTracing", value);
+	}
+
 	/// <summary>How far from the camera shadows are still drawn, in world units.</summary>
 	public static float ShadowDistance
 	{

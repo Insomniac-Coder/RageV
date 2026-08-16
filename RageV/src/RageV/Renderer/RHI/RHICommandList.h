@@ -102,6 +102,22 @@ namespace RageV::RHI
 		virtual void BuildTopLevelAS(const Ref<RHIAccelerationStructure>& tlas,
 									 const AccelerationInstance* instances, uint32_t count) = 0;
 
+		// Builds a *Dynamic* bottom-level structure from whatever its vertex
+		// buffer holds now (ENGINE-NOTES 7an): a full build the first time,
+		// an in-place refit every time after -- same topology, moved
+		// vertices, which is a skinned mesh posed by a compute pass. Nothing
+		// is re-specified: the structure remembers its geometry, and what
+		// changed is the buffer that geometry points at. Ends with the
+		// barrier a top-level build recorded after it needs.
+		//
+		// The write of the vertex buffer before this must be ordered against
+		// it by the caller -- BufferBarrier(buffer, ComputeWrite,
+		// AccelerationBuild) -- because the command list does not know who
+		// wrote it. Must be recorded outside a render pass. Asserted on
+		// Vulkan; a no-op on OpenGL. A structure that was not created
+		// Dynamic is an error, logged, and left as it was.
+		virtual void BuildBottomLevelAS(const Ref<RHIAccelerationStructure>& blas) = 0;
+
 		// Orders one buffer's uses against each other: everything recorded
 		// before this that used it as `from` completes before anything
 		// recorded after uses it as `to`.

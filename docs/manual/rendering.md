@@ -40,8 +40,8 @@ motion.
 | `TemporalJitterScale` | `1.0` | 0 upward; over 1 is legal | TAA |
 | `TemporalJitterPhase` | `8` | any positive count | TAA |
 | `ShadowsEnabled` | `true` | — | always |
-| `ShadowMethod` | `Maps` | `Maps`, `RayTraced` | shadows |
-| `ShadowCascades` | `4` | 1 to 4 | shadows, Maps |
+| `RayTracing` | `false` | — | shadows |
+| `ShadowCascades` | `4` | 1 to 4 | shadows, maps |
 | `ShadowResolution` | `2048` | powers of two | shadows |
 | `ShadowDistance` | `40.0` | metres | shadows |
 | `ShadowSplitLambda` | `0.85` | 0 to 1 | shadows |
@@ -142,13 +142,15 @@ Settings panel says so when one of the narrower layers is winning.
 
 ## Shadows
 
-One directional light casts cascaded shadow maps; spot and point lights have
-their own. These six settings are the directional cascades.
+With maps, one directional light casts cascaded shadow maps and up to four
+spot and four point lights have their own. With ray tracing on, every casting
+light of every kind traces and no map is rendered. The five settings after
+`RayTracing` are the directional cascades.
 
 | Setting | Default | What it does | Cost |
 |---|---|---|---|
 | `ShadowsEnabled` | `true` | Off skips the shadow passes entirely | — |
-| `ShadowMethod` | `Maps` | How the directional light's shadow is decided. **`Maps`**: cascaded shadow maps, sampled with two biases, out to `ShadowDistance`. **`RayTraced`**: one ray per pixel toward the light into an acceleration structure of the scene — no acne, no detachment, no distance limit, hard-edged; skinned casters shadow at their bind pose for now. Needs a device with ray queries and falls back to `Maps` (logged once) without one, which OpenGL always is. Spot and point lights keep their maps either way. `--shadows=maps\|rt` overrides it. ENGINE-NOTES 7am | Traced: one ray per pixel and a per-frame acceleration-structure build, no cascade renders |
+| `RayTracing` | `false` | Trace rays instead of rendering shadow maps: one ray per pixel toward every casting light — sun, spot and point — into an acceleration structure of the scene. No acne, no detachment, no distance limit, no cap on how many lights cast; skinned casters cast their pose; the edge is hard. Needs a device with ray queries and uses the maps (logged once) without one, which OpenGL always is. Applies at once — no restart. `--raytracing=on\|off` overrides it. ENGINE-NOTES 7am, 7an | One ray per light per pixel and a per-frame acceleration-structure build (skinned casters posed in compute and refit), no map renders |
 | `ShadowCascades` | `4` | More cascades, better texel density near the camera | One scene render each. 4 is the usual answer and the most supported |
 | `ShadowResolution` | `2048` | Per cascade, square | **The single biggest lever on both quality and cost** — four 2048 maps is 64 MB of depth |
 | `ShadowDistance` | `40.0` | How far from the camera shadows are drawn at all, in metres | Shorter is sharper everywhere it reaches |

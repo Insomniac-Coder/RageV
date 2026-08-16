@@ -1,24 +1,34 @@
 #pragma once
 
-// Ray-traced shadows, stage 1 (ENGINE-NOTES 7am): the frame's top-level
+// Ray-traced shadows (ENGINE-NOTES 7am, 7an): the frame's top-level
 // acceleration structure, built once per frame from every mesh the scene
 // has, and handed to the lit pass so its fragment shader can trace a shadow
-// ray toward the directional light instead of looking a cascade up.
+// ray toward each light instead of looking a map up.
 //
 // The renderer side of the RHI's acceleration structures, and nothing about
-// it is a picture: it collects instances, builds a TLAS into the frame's
-// slot, and answers "is there one this frame". On a device that cannot trace
-// -- OpenGL always -- Init leaves it unavailable and every call is a no-op,
-// which is how the shadow-map path stays exactly what it was.
+// it is a picture: it collects instances, poses the skinned ones, builds a
+// TLAS into the frame's slot, and answers "is there one this frame". On a
+// device that cannot trace -- OpenGL always -- Init leaves it unavailable
+// and every call is a no-op, which is how the shadow-map path stays exactly
+// what it was.
 //
 // One structure per frame in flight, because the previous frame's fragment
 // shaders may still be tracing into theirs; and one *empty* structure, built
 // once with no instances, bound wherever the layout declares the binding and
 // no scene was traced this frame -- a probe capture, a frame before the
 // first RenderShadows -- so the binding is never left unwritten.
+//
+// A skinned caster with a pose (7an) is posed by a compute pass into a
+// buffer of its own and traces through a per-frame bottom-level structure
+// refit from that buffer, so its shadow is the shadow of its pose. Casters
+// are a pool reused by index in the order the scene walks them; one posed
+// buffer, one structure and one set per frame in flight each, for the same
+// reason the TLAS has one.
 
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Math/Math.h"
+
+#include <vector>
 
 namespace RageV
 {
@@ -46,8 +56,15 @@ namespace RageV
 		// the graph, is where it is called from. Building twice in one frame
 		// (the editor renders shadows for two cameras) is a no-op the second
 		// time: the scene did not change between them.
+		//
+		// `bones`, when given and non-empty, is the caster's pose -- the
+		// animator's skinning matrices, the same vector the lit pass is
+		// given -- and the caster is posed and refit before the build.
+		// Without it a skinned mesh traces as its bind pose through the
+		// structure the mesh caches.
 		static void ClearInstances();
-		static void AddInstance(const RHI::Ref<Mesh>& mesh, const Mat4& world);
+		static void AddInstance(const RHI::Ref<Mesh>& mesh, const Mat4& world,
+								const std::vector<Mat4>* bones = nullptr);
 		static void Build(RHI::RHICommandList& cmd);
 
 		// True after Build ran this frame.
@@ -57,5 +74,7 @@ namespace RageV
 		static const RHI::Ref<RHI::RHIAccelerationStructure>& GetStructure();
 
 		static uint32_t GetInstanceCount();
+		// How many of this frame's instances were posed and refit.
+		static uint32_t GetSkinnedCount();
 	};
 }
