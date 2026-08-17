@@ -1620,8 +1620,9 @@ the `perlin_noise` link into RageV that nothing included, is gone.
    remaining ordinary feature, the rest are engine-sized. None should be
    started because it sounds interesting.
 
-**Eleven commits are unpushed** before this one; pushing is the owner's
-action.
+**Two commits are unpushed** as of this writing -- terrain stage 1 (b37b8ed)
+and its HANDOFF follow-up; everything before them is on origin. Pushing is
+the owner's action.
 
 ---
 
