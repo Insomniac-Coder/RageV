@@ -23,6 +23,7 @@
 // the suite assert vertex counts, skirt depths and normals headlessly.
 
 #include "RageV/Renderer/Mesh.h"
+#include "RageV/Renderer/Material.h"
 #include "RageV/Asset/TerrainData.h"
 #include "RageV/Asset/Asset.h"
 #include "RageV/Math/Math.h"
@@ -84,6 +85,13 @@ namespace RageV
 		// there is one.
 		static const RHI::Ref<Terrain>& Resolve(TerrainComponent& component);
 
+		// How the chunk vertices' uv (local metres / TextureScale) reaches the
+		// weight map's texel centres (ENGINE-NOTES 7aq): uv * xy + zw. The
+		// offset is one half in both axes; the scale is TextureScale / Size
+		// times (R - 1) / R, so sample i lands on texel centre (i + 0.5) / R
+		// rather than half a texel to one side. Pure, so the suite can ask it.
+		static Vec4 WeightUvFor(const Dimensions& dimensions, uint32_t resolution);
+
 		// The pure builder. One chunk at one level, into `vertices` and
 		// `indices` (cleared first), in terrain-local metres: x and z in
 		// [-Size/2, Size/2], y in [0, Height]; uv = local metres /
@@ -109,6 +117,17 @@ namespace RageV
 		// same triangles the meshes and the collider use; clamped to the
 		// terrain's extent.
 		float HeightAt(float localX, float localZ) const;
+
+		// The layered material every chunk draws with (7aq): the component's
+		// four layer handles resolved to materials -- layer 0 to the renderer's
+		// default when empty, the others left inactive -- over this terrain's
+		// weight map. Once per frame, before the chunks are drawn; null when
+		// this terrain was built without a device.
+		const RHI::Ref<LayeredMaterial>& RefreshLayers(const TerrainComponent& component);
+		const RHI::Ref<LayeredMaterial>& GetLayers() const { return m_Layers; }
+		// The RGBA8 weight texture built from the asset's weights, or a 1x1
+		// "all layer 0" texel when it has none.
+		const RHI::Ref<RHI::RHITexture>& GetWeightMap() const { return m_WeightMap; }
 
 		bool Matches(AssetHandle asset, const Dimensions& dimensions) const
 		{
@@ -137,5 +156,7 @@ namespace RageV
 		uint32_t m_ChunksPerSide = 0;
 		std::vector<Chunk> m_Chunks;
 		AABB m_Bounds;
+		RHI::Ref<RHI::RHITexture> m_WeightMap;
+		RHI::Ref<LayeredMaterial> m_Layers;
 	};
 }

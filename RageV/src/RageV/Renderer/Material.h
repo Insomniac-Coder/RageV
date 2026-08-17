@@ -195,6 +195,14 @@ namespace RageV
 		// the device is about to go.
 		static void ReleaseShared();
 
+		// The three maps a layered material reads from each of its layers, and
+		// the sampler it reads them with (ENGINE-NOTES 7aq). Null when absent;
+		// the layered material binds the same neutral fallbacks Bind does.
+		const RHI::Ref<RHI::RHITexture>& GetBaseColorMap() const { return m_BaseColor; }
+		const RHI::Ref<RHI::RHITexture>& GetNormalMap() const { return m_Normal; }
+		const RHI::Ref<RHI::RHITexture>& GetRoughnessMap() const { return m_Roughness; }
+		const RHI::Ref<RHI::RHISampler>& GetSampler() const { return m_Sampler; }
+
 	private:
 		void EnsureResources(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set);
 
@@ -225,6 +233,138 @@ namespace RageV
 		// whenever one material was used by two objects, or when the same scene
 		// was drawn into two viewports. Writing only on an actual change fixes
 		// the hazard and removes a per-draw descriptor write.
+		std::vector<bool> m_FrameDirty;
+		bool m_Built = false;
+	};
+
+	// --- a layered material (ENGINE-NOTES 7aq) --------------------------------
+
+	// The block the layered variant of the lit shader reads at set 1, binding
+	// 0: four layers' scalars, how the mesh's texture coordinate reaches the
+	// weight map, and -- on the bindless path -- the heap slots of the
+	// thirteen maps the variant samples. One layout for both paths; the slots
+	// are zero and unread on the bound one, where the maps are the set's own
+	// samplers. Mirrors LayeredData in include/pbr_fragment.glsl, std140.
+	struct LayeredParams
+	{
+		static constexpr uint32_t kLayers = 4;
+
+		Vec4 BaseColor[kLayers];
+		Vec4 EmissiveColor[kLayers];
+		// metallic, roughness, occlusion, normal scale
+		Vec4 Surface[kLayers];
+		// xy scale, zw offset, as MaterialParams::UvTransform.
+		Vec4 UvTransform[kLayers];
+		// One dielectric reflectance per layer.
+		Vec4 Specular{ 0.5f, 0.5f, 0.5f, 0.5f };
+		// The layer's MaterialMap flags for the three maps read, plus
+		// LayeredMap_Active for a layer that has a material at all.
+		int32_t MapFlags[kLayers] = { 0, 0, 0, 0 };
+		// The mesh's uv * xy + zw is the weight map's coordinate.
+		Vec4 WeightUv{ 1.0f, 1.0f, 0.0f, 0.0f };
+		// Heap slots, bindless path only.
+		uint32_t BaseColorSlots[kLayers] = { 0, 0, 0, 0 };
+		uint32_t NormalSlots[kLayers] = { 0, 0, 0, 0 };
+		uint32_t RoughnessSlots[kLayers] = { 0, 0, 0, 0 };
+		// x = the weight map's slot; the rest padding.
+		uint32_t WeightSlot[4] = { 0, 0, 0, 0 };
+	};
+	static_assert(sizeof(LayeredParams) == 368,
+				  "Must match LayeredData in include/pbr_fragment.glsl");
+
+	// A layer with a material assigned. Above every MaterialMap bit.
+	enum LayeredMap : int32_t
+	{
+		LayeredMap_Active = 1 << 15,
+	};
+
+	// A surface made of up to four materials in proportions read from a
+	// weight map -- the terrain's paint (ENGINE-NOTES 7aq). Beside Material
+	// rather than a kind of it: it binds a different block and a different set
+	// of samplers, and the lit shader that reads it is a third pipeline whose
+	// surface is assembled from the four layers before the one lighting every
+	// mesh gets runs over it.
+	//
+	// The state it binds is a function of the four layer materials' *current*
+	// state, so Refresh rebuilds the block from them once per frame and
+	// rewrites the set only when something changed; a layer edited in the
+	// inspector reaches the terrain the same frame with no dirty protocol
+	// between the two classes.
+	class LayeredMaterial
+	{
+	public:
+		static constexpr uint32_t kLayers = LayeredParams::kLayers;
+
+		// Set 1's bindings in the layered variant. The block, the weights, and
+		// each map kind as an array of four (one binding, four descriptors),
+		// which is what keeps a layer's index a constant in the shader.
+		static constexpr uint32_t kBindingParams = 0;
+		static constexpr uint32_t kBindingWeights = 1;
+		static constexpr uint32_t kBindingBaseColor = 2;
+		static constexpr uint32_t kBindingNormal = 3;
+		static constexpr uint32_t kBindingRoughness = 4;
+
+		LayeredMaterial(RHI::RHIDevice& device, std::string name);
+
+		const std::string& GetName() const { return m_Name; }
+
+		// Null makes the layer inactive: its weight is dropped from the
+		// normalisation. Layer 0 is expected never to be null -- the caller
+		// substitutes the renderer's default, as it does for a mesh.
+		void SetLayer(uint32_t index, const RHI::Ref<Material>& material);
+		const RHI::Ref<Material>& GetLayer(uint32_t index) const { return m_Layers[index]; }
+
+		// The weight texture (RGBA8, one channel per layer, clamped at its
+		// edges) and how the mesh's uv reaches it.
+		void SetWeights(const RHI::Ref<RHI::RHITexture>& weights, const Vec4& weightUv);
+		const RHI::Ref<RHI::RHITexture>& GetWeights() const { return m_Weights; }
+		const Vec4& GetWeightUv() const { return m_WeightUv; }
+
+		// Rebuilds the block and the texture list from the layers' current
+		// state. Once per frame, before Bind or GetBatchKey; `heap` is the
+		// bindless heap, or null on the bound path, and decides which of the
+		// two the set will carry. Cheap when nothing changed.
+		void Refresh(TextureHeap* heap);
+
+		// Binds set `set` of `pipeline`: the block, and on the bound path the
+		// thirteen samplers. Writes this frame's set only when Refresh found a
+		// change since it was last written.
+		void Bind(RHI::RHICommandList& commandList, const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set);
+
+		// What makes two layered materials interchangeable to a batched draw:
+		// a hash of the block and of every texture and sampler the set binds.
+		// Recomputed by Refresh.
+		uint64_t GetBatchKey() const { return m_Key; }
+
+		const LayeredParams& GetParams() const { return m_Params; }
+
+		// The sampler the weight map is read with, shared by every layered
+		// material: filtered, clamped to edge -- repeat would blend the far
+		// rim's paint into the near rim's last texel.
+		static const RHI::Ref<RHI::RHISampler>& WeightSampler(RHI::RHIDevice& device);
+		static void ReleaseShared();
+
+	private:
+		void EnsureResources(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set);
+
+		RHI::RHIDevice& m_Device;
+		std::string m_Name;
+
+		RHI::Ref<Material> m_Layers[kLayers];
+		RHI::Ref<RHI::RHITexture> m_Weights;
+		Vec4 m_WeightUv{ 1.0f, 1.0f, 0.0f, 0.0f };
+
+		// What Refresh last built, and what Bind writes.
+		LayeredParams m_Params;
+		// The bound path's texture list, in binding order: weights, then base
+		// colour, normal, roughness of each layer; and each layer's sampler.
+		RHI::Ref<RHI::RHITexture> m_Textures[1 + 3 * kLayers];
+		RHI::Ref<RHI::RHISampler> m_Samplers[kLayers];
+		bool m_Bindless = false;
+		uint64_t m_Key = 0;
+
+		std::vector<RHI::Ref<RHI::RHIBuffer>>      m_ParamBuffers;
+		std::vector<RHI::Ref<RHI::RHIResourceSet>> m_Sets;
 		std::vector<bool> m_FrameDirty;
 		bool m_Built = false;
 	};

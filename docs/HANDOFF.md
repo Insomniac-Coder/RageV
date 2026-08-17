@@ -1316,7 +1316,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | IBL | Irradiance convolution, GGX prefilter per roughness level, BRDF table (3.4) |
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
 | Ray tracing | Vulkan with ray queries only: one checkbox under Shadows traces every casting light; options under it trace reflections and ambient occlusion in place of SSR/SSAO. Absent from the panel on OpenGL (8.12) |
-| Terrain | A heightfield asset (`.rvterrain`) and component: chunk meshes at four levels of detail with skirts, one tiled material, Jolt height-field collision, culled/shadowed/traced/picked as ordinary meshes (8.4 stage 1) |
+| Terrain | A heightfield asset (`.rvterrain`) and component: chunk meshes at four levels of detail with skirts, up to four materials blended by paint stored in the asset, Jolt height-field collision, culled/shadowed/traced/picked as ordinary meshes (8.4 stages 1-2) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
 | Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
@@ -1593,37 +1593,43 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 8.4 terrain stage 1 is DONE (2026-08-17); its stages 2-3 and the rest of phase 8 are each their own decision
+### START HERE: 8.4 terrain stages 1 and 2 are DONE (2026-08-17); stage 3 -- the brush -- and the rest of phase 8 are each their own decision
 
-**Terrain landed on top of 8.12** -- read the terrain narrative below, its
-Done entry, and ENGINE-NOTES 7ap (design first, numbers at landing, and
-what the fixtures taught). A heightfield as a source of meshes: an
-`.rvterrain` asset, a `TerrainComponent`, chunk meshes at four levels with
-skirts, Jolt's height field over the same samples. The renderer never
-learned the word. `experiments/terrain/Chunk` is **kept, cut off**, at the
-owner's direction -- it was already in no target; the one thread left,
-the `perlin_noise` link into RageV that nothing included, is gone.
+**Terrain landed on top of 8.12, in two stages the same day** -- read the
+two terrain narratives below, their Done entries, and ENGINE-NOTES 7ap and
+7aq (design first, numbers at landing, and what the fixtures taught). Stage
+1: a heightfield as a source of meshes -- an `.rvterrain` asset, a
+`TerrainComponent`, chunk meshes at four levels with skirts, Jolt's height
+field over the same samples; the renderer never learned the word. Stage 2:
+**a layered material** -- up to four `.rmat`s in proportions painted into
+the asset (RGBA8 per sample after the heights, `layers = 4`), a
+`LayeredMaterial` beside `Material` bound as set 1 of a *third* lit
+pipeline, and one fork in `pbr_fragment.glsl` -- `SampleSurface` -- that
+assembles the surface from the layers and changes nothing below it. Three
+maps per layer (base colour, normal, roughness) on both paths, because set 0
+already spends sixteen of OpenGL's thirty-two texture units and the two
+paths are compared pixel for pixel. `experiments/terrain/Chunk` is **kept,
+cut off**, at the owner's direction.
 
 **What is open, in the order it would be sensible to take:**
 
-1. **Terrain stage 2 -- a layered material.** A `terrain.rvshader` blending
-   up to four `.rmat`s by a weight map stored in the asset (the format
-   reserves the header word for it), sharing the lighting includes; the
-   post-blend surface goes through the same split-sum and shadow paths.
-   Then **stage 3 -- sculpt and paint in the editor**, and **the owner's
-   direction on its shape (2026-08-17): a brush, not stamps.** The user
-   *draws* the terrain -- a circular brush with size, strength and falloff
-   that raises, lowers, smooths and flattens the heights under the cursor
-   as the mouse drags, and later paints layer weights with the same brush.
-   Not a menu of preset shapes ("hill", "mountain") dropped onto the grid:
-   the owner said so explicitly, so do not build a stamp library first and
-   call it sculpting. Each stroke is one command on the undo stack (so a
-   drag is one Ctrl+Z), the chunk meshes touched by the stroke are rebuilt
-   as it goes (`Terrain::Resolve` already replaces on change; a per-chunk
-   rebuild is the piece to add so a stroke does not rebuild 64 chunks), the
-   collider is refit on release, and the result is written back to the
-   asset by `TerrainSerializer::Save`. `HeightAt` as a script call belongs
-   to whichever stage comes first.
+1. **Terrain stage 3 -- the brush.** **The owner's direction on its shape
+   (2026-08-17): a brush, not stamps.** The user *draws* the terrain -- a
+   circular brush with size, strength and falloff that raises, lowers,
+   smooths and flattens the heights under the cursor as the mouse drags,
+   and paints the four layers' weights with the same brush (the weights are
+   the same grid as the heights, `TerrainData::Weights`, so one brush
+   reaches both). Not a menu of preset shapes ("hill", "mountain") dropped
+   onto the grid: the owner said so explicitly, so do not build a stamp
+   library first and call it sculpting. Each stroke is one command on the
+   undo stack (so a drag is one Ctrl+Z), the chunk meshes touched by the
+   stroke are rebuilt as it goes (`Terrain::Resolve` replaces the whole
+   object on change; a **per-chunk rebuild** and a **weight-texture
+   re-upload of the touched rows** are the pieces to add so a stroke does
+   not rebuild 64 chunks and 1 MB of paint), the collider is refit on
+   release, and the result is written back to the asset by
+   `TerrainSerializer::Save`, which already writes the paint. `HeightAt` as
+   a script call belongs here too.
 2. **The two long-standing non-blockers** at the end of this section: the
    focus-click guard has never been confirmed against a real click, and an
    orphaned LUT is not warned about.
@@ -1631,9 +1637,86 @@ the `perlin_noise` link into RageV that nothing included, is gone.
    remaining ordinary feature, the rest are engine-sized. None should be
    started because it sounds interesting.
 
-**Two commits are unpushed** as of this writing -- terrain stage 1 (b37b8ed)
-and its HANDOFF follow-up; everything before them is on origin. Pushing is
-the owner's action.
+**Six commits are unpushed** as of this writing -- terrain stage 1 and its
+follow-ups (b37b8ed .. c8cb011) and stage 2 on top; everything before them
+is on origin. Pushing is the owner's action.
+
+---
+
+### Terrain (8.4 stage 2) -- a layered material, one fork in the lit shader
+
+**8.4 stage 2 (2026-08-17, ENGINE-NOTES 7aq) is done and verified.** The
+shape: **the paint lives in the `.rvterrain`** -- the header's reserved
+`layers` word is 0 (stage-1 file) or 4, and when 4 the heights are followed
+by `R x R x 4` bytes, one RGBA8 weight per sample on the heights' grid
+(`TerrainData::Weights`, `WeightAt`, `HasWeights`; the serializer reads and
+writes it and refuses any other count or a truncation inside it). The
+shader normalises the four weights and takes layer 0 where the sum is zero,
+so an unpainted terrain draws exactly as a stage-1 one. **`TerrainComponent`**
+keeps `Material` under that key as **layer 0** (label "Layer 0") and gains
+`Layer1`..`Layer3`; empty layers are inactive, an empty layer 0 is the
+renderer's default. **`LayeredMaterial`** (`Renderer/Material.h`, beside
+`Material`): four layer materials, the weight texture, `WeightUv`; `Refresh`
+rebuilds a 368-byte `LayeredParams` block from the layers' *current* state
+each frame and rewrites the set only on change (so an inspector edit to a
+layer reaches the terrain with no dirty protocol); `Bind` writes the block
+and, on the bound path, thirteen samplers (weights, and base colour /
+normal / roughness of each layer as arrays of four); on the bindless path
+the same maps are heap slots inside the block. **`Renderer3D`**: a third
+lit pipeline over `pbr_layered.rvshader` (the static vertex stage, factored
+into `include/static_vertex.glsl`, and `pbr_fragment.glsl` with
+`RV_LAYERED`), `DrawKind { Static, Skinned, Layered }` replacing the bool
+in the sort and run loop, `LayeredSet` per scene slot, `DrawLayeredMesh`,
+`GetTextureHeap`. **`pbr_fragment.glsl`**: the surface is now one struct
+filled by `SampleSurface`, whose single-material body is the code that was
+inline and whose layered body reads the weights at `v_TexCoord * WeightUv`
+(`Terrain::WeightUvFor`: scale `TextureScale / Size * (R - 1) / R`, offset
+one half -- texel centres, not edges), then unrolls four `SHADE_LAYER(i)`
+macros with `textureGrad` under a per-fragment weight branch and a tangent
+frame per layer. **`Terrain`** owns the weight texture (RGBA8 from the
+asset, or the 1x1 red `TextureLoader::Red` when unpainted) and the
+`LayeredMaterial`; `RefreshLayers(component)` resolves the four handles once
+per terrain per frame from `Scene::PrepareTerrains` (was `SelectTerrainLods`;
+`ForEachTerrain` now underlies `ForEachTerrainChunk`). The preloader wants
+all four layers. **Tools**: `make_terrain.py` writes weights (`hills`
+painted from slope and height -- soil, a mossy soil on the flats, a sandy one
+in the low ground, the tints over the demo soil's maps; a `layers` test
+card: red on the left third, blue on the right third *at half intensity*, a
+blend between, an unpainted strip inside the blue), four `.rmat`s with the
+registry's own SourceHash, and `scenes/terrain_layers.rage`.
+
+**Checks**: `scenetest` +21 (1702 Vulkan under validation, 1662 OpenGL) --
+the painted round trip byte for byte, the two refusals, `WeightAt`,
+`WeightUvFor` on texel centres at two texture scales, `sizeof(LayeredParams)
+== 368`, the four handles through the scene file, and with a device: layer 0
+empty is the default, absent layers inactive, the unpainted weight map is
+the red texel, the batch key holds across a no-op refresh and moves with a
+layer. `check_terrain.py` claim 4 on **three material paths** (Vulkan heap
+on, Vulkan heap off, OpenGL): left `[222, 87, 84]`, right `[89.5, 87, 219]`,
+middle `[196.6, 87, 189.2]`, unpainted-inside-blue `[222, 87, 84]` --
+identical on all three. Falsified: weight channels swapped (left and right
+trade places, six failures), normalisation dropped (right 332 vs left 393,
+unpainted black, six failures). Vulkan heap on vs off on the hills:
+identical to the pixel; vs OpenGL mean 0.34 levels.
+
+**Verified for this commit**: Debug/Release/Dist; scenetest both backends
+(zero `[Vulkan]` lines under validation); runtime on the painted hills with
+`--raytracing=on --rt-reflections=on --rt-ao=on` under validation, zero
+lines; runtime and editor exit 0 on both backends on the terrain and demo
+scenes; `check_terrain`, `check_ray_shadows`, `check_ssao`, `check_ssr`,
+`check_bindless` on Release all OK; `rvdoc --check` exit 0 with the three
+new rows, the terrain page's Layers section and `docs/site` regenerated.
+
+**Stated limits** (7aq): three maps per layer on both paths; four layers;
+paint at the heights' resolution; no parallax and no triplanar on layers;
+a terrain in a traced reflection shows layer 0 (the ray-instance record is
+layer 0's); the sample project has no grass/rock/snow textures, so the
+hills' layers are tints of the one soil.
+
+**One trap found on the way, worth its line**: a scratchpad backup named
+`pbr_fragment.bak` from the *previous* session was restored over the shader
+mid-falsification and silently drew a stage-1 pipeline for one check run.
+Name backups by date and diff before restoring.
 
 ---
 
@@ -1958,6 +2041,24 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 8.4 stage 2, terrain: a layered material, one fork in the lit shader (2026-08-17)
+
+Design first (ENGINE-NOTES 7aq). `TerrainData::Weights` + serializer
+(`layers` 0 or 4, RGBA8 per sample after the heights, refusals), `LayeredParams`
++ `LayeredMaterial` (Refresh/Bind/GetBatchKey, bound samplers or heap
+slots), `Material` map getters, `TextureLoader::Red`, `pbr_layered.rvshader`
++ `include/static_vertex.glsl` + the `SampleSurface` fork in
+`pbr_fragment.glsl`, `Renderer3D` third pipeline / `DrawKind` /
+`LayeredSet` / `DrawLayeredMesh` / `GetTextureHeap`, `Terrain` weight
+texture + `WeightUvFor` + `RefreshLayers`, `TerrainComponent::Layer1..3`
+(+ registry rows, `Material` relabelled "Layer 0"), `Scene::ForEachTerrain`
++ `PrepareTerrains`, preloader wants, `make_terrain.py` paint + four `.rmat`s
++ `terrain_layers.rage`, `CheckTerrain` +21, `check_terrain.py` claim 4 on
+three material paths; falsified two ways; manual (terrain page Layers
+section, component and asset rows).
 
 ---
 

@@ -6176,10 +6176,10 @@ anything yet.
 
 ### What stays stated
 
-One material, no layers, no painting -- stage 2 (a `terrain.rvshader`
-blending up to four materials by a weight map stored in the asset, the
-same lighting includes) and stage 3 (sculpt and paint in the editor,
-undo through the command stack, written back to the asset). **The owner
+One material, no layers, no painting -- stage 2 (four materials blended
+by a weight map stored in the asset, the same lighting includes: **built,
+7aq**) and stage 3 (sculpt and paint in the editor, undo through the
+command stack, written back to the asset). **The owner
 set stage 3's shape at landing: a brush the user draws the ground with**
 -- size, strength, falloff; raise, lower, smooth, flatten under a dragged
 cursor, the same brush painting layer weights later -- **not a library of
@@ -6197,6 +6197,201 @@ ground, where a game camera stands, they are under the surface). `HeightAt`
 is not yet a script call. And the
 first draft's memory of the experiment stays true: one entity, one asset,
 sixty-four meshes -- never one entity per face.
+
+---
+
+## 7aq. Terrain stage 2: a layered material, which is one fork in the lit shader and nothing new to light
+
+Stage 1 (7ap) drew a terrain with one `.rmat` tiled over all of it, and
+said the layered material was "a shader, not a change to any of this".
+That held. What stage 2 adds is a way for the *surface* of a chunk to be
+made of up to four materials in proportions painted per sample, and it
+touches exactly the part of the lit shader that decides what the surface
+is -- not one line of the part that lights it.
+
+### What is decided, and by what
+
+**Four layers, each an ordinary `.rmat`, blended by weights that live in
+the `.rvterrain`.** The header word 7ap reserved is used: `layers` is 0
+(stage-1 files, and a terrain nobody has painted) or 4, and when it is 4
+the heights are followed by `R x R x 4` bytes -- one RGBA8 weight per
+sample, row-major, the *same grid as the heights*. Not a texture asset,
+for 7ap's own three reasons read again: the brush of stage 3 writes these
+bytes back and needs them on the CPU, and the file it writes back to has
+to be one the engine owns; a `.png` in the project would be cooked to a
+block format on the way in and re-quantised on the way back. Not a
+separate resolution either -- Unity's control map is one, but one grid
+means one brush, one `Sample`, one file, and a `reserved` word is still
+there the day someone paints finer than they sculpt. The sum of the four
+weights need not be 255: the shader normalises, so a half-painted map is
+not a darker one, and where the sum is zero -- unpainted, or a stage-1
+file -- **layer 0 has weight 1**. That last rule is what makes a stage-1
+scene look, to the pixel, as it did: layer 0 *is* the `Material` the
+component already had, and the serialized key stays `Material` (its label
+is now "Layer 0"); `Layer1`..`Layer3` are new keys. A layer left empty is
+inactive and its weight is ignored in the normalisation; layer 0 left empty
+is the renderer's default, as it was.
+
+**The renderer learns "layered material", not "terrain".** `LayeredMaterial`
+sits beside `Material` in `Renderer/Material.h`: four `Ref<Material>`
+layers, a weight texture, and `WeightUv` -- how the mesh's own texture
+coordinate reaches the weight map. It binds as **set 1 of a third lit
+pipeline** whose fragment stage is `pbr_fragment.glsl` compiled with
+`RV_LAYERED`, and whose vertex stage is the static one, factored into
+`include/static_vertex.glsl` so it is not a third copy. On the bound path
+set 1 is a uniform block of the four layers' scalars and thirteen samplers
+-- the weights, and each layer's base colour, normal and roughness maps;
+on the bindless path it is the same block with the thirteen heap slots
+inside it, and no samplers, the maps read through the heap like every
+other material's. One block layout, both paths, `LayeredParams` mirrored
+by hand and size-asserted like `MaterialParams` is. The draw itself is
+`Renderer3D::DrawLayeredMesh(mesh, world, layered, probe, previous)`, a
+third kind beside static and skinned; the sort key, the pipeline bind and
+the run loop each grew the one branch that kind needs. The terrain's
+`Renderer/Terrain` owns the `LayeredMaterial` and the weight texture
+(built in `Create` from the asset's bytes, a 1x1 red when unpainted, so
+"no weights" and "layer 0 everywhere" are the same texture), and refreshes
+the four layers from the component's handles **once per terrain per
+frame** in `Scene::PrepareTerrains` -- the walk that also selects the
+levels -- not once per chunk per consumer, which was four hash lookups
+times sixty-four chunks times every walk.
+
+**Three maps per layer, and why exactly three.** OpenGL guarantees sixteen
+texture units per fragment stage and every desktop driver gives
+thirty-two; the shared set 0 already spends sixteen (environment,
+irradiance, BRDF, the reflection trace, four cascades, four spots, four
+point cubes). Four layers of base colour, normal and roughness plus the
+weights is thirteen -- twenty-nine of thirty-two -- and four layers of a
+fourth map would be thirty-three. So on the *bound* path a layer's
+occlusion, metallic, specular, emissive and height maps are not read; its
+scalars are (metallic, roughness, occlusion, specular, emissive colour,
+base colour, tiling). And the *bindless* path, which could read all eight
+per layer for free, reads the same three -- because the two paths are
+compared pixel for pixel (7al) and a terrain that gained ambient occlusion
+when `--bindless=on` would be a difference that is not the feature's.
+Stated as the limit it is: ground materials from the texture libraries
+ship AO and height maps, and this stage ignores both. If it ever matters,
+the way through is texture arrays per map (one `sampler2DArray` of four
+slices per kind, which is what Unity and Unreal do) at the cost of
+resampling four independent textures to one size and format on load, and
+that is a stage of its own.
+
+**The surface, once, in one function.** `pbr_fragment.glsl`'s `main` used
+to sample the material's maps inline; the block is now `SampleSurface`,
+returning a struct -- base colour, metallic, roughness, occlusion,
+specular, the shading normal, emissive -- and *that* is what forks under
+`RV_LAYERED`. The single-material body is the code that was there. The
+layered body reads the weights at `v_TexCoord * WeightUv.xy + WeightUv.zw`,
+zeroes the inactive layers, normalises, and for each of the four layers
+with a weight above zero samples its three maps at its own tiled
+coordinate and accumulates: base colour, roughness, metallic and the rest
+by weight, the normal as the weighted sum of the four perturbed normals
+renormalised. `textureGrad`, not `texture`, inside the weight test: the
+test is a per-fragment branch on a value read from a texture, and an
+implicit derivative inside divergent control flow is undefined -- so the
+coordinate's derivatives are taken once outside, and each layer scales
+them by its own tiling. The tangent frame is built per layer, outside the
+weight branch for the same reason, because a layer's `UvTransform` can be
+non-uniform or mirrored and the frame is a function of the transformed
+coordinate; four derivative pairs cost nothing. No
+parallax on layers (no height map is bound), no triplanar (a steep face
+stretches its texture, as it does on any mesh). The lighting below the
+struct -- clustered lights, shadows by map or by ray, the probe, the SSR
+mix, RTAO through the normal attachment -- does not know which body
+filled it, which is the whole point of the fork being where it is.
+
+**Weight coordinate arithmetic.** The chunk vertices carry `uv = local
+metres / TextureScale` (7ap), and the terrain spans `[-Size/2, Size/2]`;
+the weight map has `R` texels a side whose centres sit at `(i + 0.5) / R`
+while sample `i` sits at `i / (R - 1)` of the span. So the map is read at
+`uv * (TextureScale / Size) * (R - 1) / R + 0.5` -- the offset is exactly
+one half in both axes, and the scale carries the texel-centre correction --
+which puts every sample's weight under its own vertex rather than half a
+texel to one side, a shift the eye reads as the paint sliding uphill.
+`Terrain::WeightUvFor(dimensions, resolution)` is that expression as a
+pure function, and a check asks it for texel centres 0 and R - 1. The
+weight sampler clamps to edge: repeat would blend the far rim's paint into
+the near rim's last texel.
+
+**Where the layers do not reach.** A ray-traced reflection (7ao) shades a
+hit from the ray-instance table's one material record per instance, and a
+terrain chunk's record is layer 0's: a terrain seen *in a mirror* shows
+its base layer only. Stated, and small -- reflections of ground are
+roughness-blurred ground. The shadow-depth pass, the picker and the
+physics do not know a material exists and are untouched. `Material` grew
+four const getters (its base colour, normal and roughness maps and its
+sampler) so the layered material can read what it binds; nothing else on
+it moved.
+
+### The checks
+
+`scenetest`: the serializer round-trips a 33-grid *with* weights (32 +
+2178 + 4356 bytes) and the weights come back byte for byte; it refuses
+`layers = 2` and a file truncated inside its weights; `WeightAt` reads the
+interleaved bytes back by layer; `WeightUvFor` puts sample 0 and sample
+R - 1 on texel centres 0 and R - 1 for a 129 grid at two texture scales;
+`LayeredParams` is 368 bytes; a `LayeredMaterial`'s batch key changes when
+one layer changes and does not when nothing did; a `TerrainComponent`
+round-trips its four handles through the scene serializer.
+
+`check_terrain.py` gains a fixture built for the claim: a flat 129 grid
+under a camera looking straight down and a sun straight down, layer 0 a
+flat red `.rmat` and layer 1 a flat blue one, the weight map painted red on
+the left third, blue on the right third **at half intensity** (weights of
+127, which the normalisation must lift to one), a linear blend across the
+middle, and a strip along the top of the *right* third unpainted -- inside
+the blue, so a claim about it cannot pass by measuring red that was
+painted red. Four claims, the regions' columns and rows derived from the
+camera: the left region red and the right blue (the dominant channel over
+the other by two to one and a hundred levels, in display space -- the
+tonemap lifts a 0.08 channel to 85); the two regions' brightness within
+ten percent of each other (the normalisation claim -- unnormalised, the
+right is half as bright); the middle column's red and blue within twenty
+percent of each other (the blend); the unpainted strip red (the layer-0
+rule, where the paint around it says blue). On both backends, and
+on Vulkan with the heap on and off, so all three material paths the
+layered shader has are the ones measured. Falsified by swapping the
+weight channels in the shader (left and right trade places, the first
+claim fails both ways) and by removing the normalisation (the brightness
+claim fails, and the unpainted strip goes black).
+
+### Numbers at landing
+
+`scenetest` +21 (1702 on Vulkan under validation, 1662 on OpenGL), every
+claim above as written. `check_terrain.py`'s fourth fixture on the three
+material paths -- Vulkan with the heap, Vulkan without, OpenGL -- reads
+left `[222, 87, 84]`, right `[89.5, 87, 219]`, middle `[196.6, 87, 189.2]`,
+the unpainted patch inside the blue `[222, 87, 84]`: **identical on all
+three**, which is the pixel parity 7al promised extended to a surface the
+heap did not exist for. Falsified as planned: channels swapped, left and
+right trade places on every path; normalisation dropped, the right reads
+332 against the left's 393 and the unpainted patch goes to `[0, 0, 0]`.
+The hills with the heap on and off differ by nothing (p99 0.0), and from
+OpenGL by 0.34 levels on average. The painted hills under traced shadows,
+reflections and occlusion together, under validation: zero lines. And the
+stage-1 fixtures -- ridge row 90 vs 90.1, shadow 185.0 under maps and rays,
+cliff 0 holes -- are unchanged by drawing through the layered pipeline,
+which is the "layer 0 everywhere is a stage-1 terrain" rule measured.
+
+One thing learned that is not about terrain: a shader backup with a generic
+name (`pbr_fragment.bak`) left in the scratchpad by the *previous* session
+was restored over the working file between two falsifications, and the
+build drew one check run through a stage-1 fragment shader bound to a
+layered set without a validation word about it -- the block was smaller
+than the layout expected and the samplers went unwritten, and Vulkan said
+nothing. The check caught it (every region red), the backup at a dated
+name was right, and the rule is: diff a backup against the file before
+restoring it, and never reuse a backup name across sessions.
+
+### What stays stated
+
+Three maps per layer, on both paths, for the reason above. Four layers,
+because the weights are an RGBA8 texel. Weights at the heights'
+resolution. No parallax and no triplanar on layers. Layer 0 only in a
+traced reflection. The sample project has no grass, rock or snow textures,
+so the hills' three layers are tints of its one soil; the shader does not
+know that. Painting is stage 3, and its shape is set (7ap): a brush the
+user draws with, and now the same brush paints weights.
 
 ---
 

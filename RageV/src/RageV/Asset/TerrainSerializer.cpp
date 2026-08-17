@@ -55,17 +55,21 @@ namespace RageV::Assets
 						  TerrainData::kMaxResolution);
 			return false;
 		}
-		// Version 1 knows no layers. A count here is a file from a later
-		// build; refusing is better than reading its weights as heights.
-		if (layers != 0)
+		// Zero layers is a stage-1 file: heights and nothing after them. Four
+		// is a painted one: an RGBA8 weight per sample follows the heights
+		// (ENGINE-NOTES 7aq). Anything else is a file from some other build;
+		// refusing is better than reading its bytes as weights.
+		if (layers != 0 && layers != TerrainData::kLayers)
 		{
-			RV_CORE_ERROR("Terrain {0} carries {1} layer(s), which this build cannot read",
-						  path.string(), layers);
+			RV_CORE_ERROR("Terrain {0} carries {1} layer(s); this build reads 0 or {2}",
+						  path.string(), layers, TerrainData::kLayers);
 			return false;
 		}
 
 		const size_t sampleCount = (size_t)resolution * resolution;
-		const size_t expected = kHeaderBytes + sampleCount * sizeof(uint16_t);
+		const size_t heightBytes = sampleCount * sizeof(uint16_t);
+		const size_t weightBytes = layers == 0 ? 0 : sampleCount * TerrainData::kLayers;
+		const size_t expected = kHeaderBytes + heightBytes + weightBytes;
 		if (bytes.size() < expected)
 		{
 			RV_CORE_ERROR("Terrain {0} is truncated: {1} bytes, {2} expected",
@@ -78,7 +82,12 @@ namespace RageV::Assets
 		TerrainData data;
 		data.Resolution = resolution;
 		data.Heights.resize(sampleCount);
-		std::memcpy(data.Heights.data(), bytes.data() + kHeaderBytes, sampleCount * sizeof(uint16_t));
+		std::memcpy(data.Heights.data(), bytes.data() + kHeaderBytes, heightBytes);
+		if (weightBytes > 0)
+		{
+			data.Weights.resize(weightBytes);
+			std::memcpy(data.Weights.data(), bytes.data() + kHeaderBytes + heightBytes, weightBytes);
+		}
 
 		out = std::move(data);
 		return true;
@@ -102,11 +111,16 @@ namespace RageV::Assets
 		file.write(kMagic, 4);
 		WriteU32(file, kVersion);
 		WriteU32(file, data.Resolution);
-		WriteU32(file, 0);   // layers
+		WriteU32(file, data.HasWeights() ? TerrainData::kLayers : 0u);
 		for (int i = 0; i < 4; ++i)
 			WriteU32(file, 0);   // reserved
 		file.write(reinterpret_cast<const char*>(data.Heights.data()),
 				   (std::streamsize)(data.Heights.size() * sizeof(uint16_t)));
+		if (data.HasWeights())
+		{
+			file.write(reinterpret_cast<const char*>(data.Weights.data()),
+					   (std::streamsize)data.Weights.size());
+		}
 
 		return file.good();
 	}

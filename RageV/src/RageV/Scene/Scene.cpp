@@ -1262,9 +1262,8 @@ namespace RageV
 
 	// --- terrain (ENGINE-NOTES 7ap) ------------------------------------------
 
-	void Scene::ForEachTerrainChunk(const std::function<void(Entity, TransformComponent&,
-														 TerrainComponent&, Terrain&,
-														 Terrain::Chunk&)>& fn)
+	void Scene::ForEachTerrain(const std::function<void(Entity, TransformComponent&,
+													TerrainComponent&, Terrain&)>& fn)
 	{
 		auto view = m_Registry.view<TransformComponent, TerrainComponent>();
 		for (auto& item : view)
@@ -1273,20 +1272,30 @@ namespace RageV
 			const RHI::Ref<Terrain>& terrain = Terrain::Resolve(component);
 			if (!terrain)
 				continue;
-			for (Terrain::Chunk& chunk : terrain->GetChunks())
-				fn(Entity{ item, this }, transform, component, *terrain, chunk);
+			fn(Entity{ item, this }, transform, component, *terrain);
 		}
 	}
 
-	void Scene::SelectTerrainLods(const Vec3& cameraPosition)
+	void Scene::ForEachTerrainChunk(const std::function<void(Entity, TransformComponent&,
+														 TerrainComponent&, Terrain&,
+														 Terrain::Chunk&)>& fn)
 	{
-		auto view = m_Registry.view<TransformComponent, TerrainComponent>();
-		for (auto& item : view)
+		ForEachTerrain([&](Entity entity, TransformComponent& transform,
+						   TerrainComponent& component, Terrain& terrain)
 		{
-			auto [transform, component] = view.get<TransformComponent, TerrainComponent>(item);
-			if (const RHI::Ref<Terrain>& terrain = Terrain::Resolve(component))
-				terrain->SelectLod(cameraPosition, transform.World);
-		}
+			for (Terrain::Chunk& chunk : terrain.GetChunks())
+				fn(entity, transform, component, terrain, chunk);
+		});
+	}
+
+	void Scene::PrepareTerrains(const Vec3& cameraPosition)
+	{
+		ForEachTerrain([&](Entity, TransformComponent& transform,
+						   TerrainComponent& component, Terrain& terrain)
+		{
+			terrain.SelectLod(cameraPosition, transform.World);
+			terrain.RefreshLayers(component);
+		});
 	}
 
 	bool Scene::HasTerrain()
@@ -1308,11 +1317,11 @@ namespace RageV
 		if (m_CapturingProbes || !Renderer::HasDevice())
 			return;
 
-		// The terrain's levels of detail for this camera, before anything --
-		// the shadow casters, the ray-instance list, the draw -- reads them
-		// (7ap). First, so a shadows-off return below still leaves the levels
-		// chosen for the frame's draw.
-		SelectTerrainLods(Vec3(cameraTransform[3]));
+		// The terrain's levels of detail for this camera, and its layers for
+		// this frame, before anything -- the shadow casters, the ray-instance
+		// list, the draw -- reads them (7ap, 7aq). First, so a shadows-off
+		// return below still leaves them chosen for the frame's draw.
+		PrepareTerrains(Vec3(cameraTransform[3]));
 
 		// Maps or rays (ENGINE-NOTES 7am, 7an), resolved once here and told to
 		// the lit pass, which recompiles its shaders when the answer changes.
@@ -2164,32 +2173,39 @@ namespace RageV
 			}
 
 			// The terrain: each chunk at the level RenderShadows chose for this
-			// camera, culled against the same frustum, lit with the component's
-			// one material, and drawn as the ordinary mesh it is (7ap).
+			// camera, culled against the same frustum, drawn through the layered
+			// material PrepareTerrains refreshed -- four layers in the asset's
+			// painted proportions, layer 0 alone where nothing is painted (7aq)
+			// -- and otherwise the ordinary mesh it is (7ap). Refreshed again
+			// here rather than trusted: a probe capture or a first frame can
+			// reach this draw before any RenderShadows has, and the refresh is
+			// a compare when nothing changed.
 			if (anyTerrain)
 			{
-				ForEachTerrainChunk([&](Entity, TransformComponent& transform, TerrainComponent& component,
-										Terrain&, Terrain::Chunk& chunk)
+				ForEachTerrain([&](Entity, TransformComponent& transform, TerrainComponent& component,
+								   Terrain& terrain)
 				{
-					const RHI::Ref<Mesh>& mesh = chunk.Selected();
-					if (!mesh)
+					const RHI::Ref<LayeredMaterial>& layers = terrain.RefreshLayers(component);
+					if (!layers)
 						return;
 
-					Vec3 centre, extents;
-					Frustum::TransformBounds(chunk.Bounds, transform.World, centre, extents);
-					if (!frustum.Intersects(centre, extents))
+					for (Terrain::Chunk& chunk : terrain.GetChunks())
 					{
-						Renderer3D::CountCulled();
-						return;
+						const RHI::Ref<Mesh>& mesh = chunk.Selected();
+						if (!mesh)
+							continue;
+
+						Vec3 centre, extents;
+						Frustum::TransformBounds(chunk.Bounds, transform.World, centre, extents);
+						if (!frustum.Intersects(centre, extents))
+						{
+							Renderer3D::CountCulled();
+							continue;
+						}
+
+						Renderer3D::DrawLayeredMesh(mesh, transform.World, layers,
+													ProbeSlotFor(centre), &transform.PreviousWorld);
 					}
-
-					RHI::Ref<Material> material = Assets::Manager::GetMaterial(component.Material);
-					if (!material)
-						material = Renderer3D::GetDefaultMaterial();
-					const MaterialParams params = material ? material->GetParams() : MaterialParams{};
-
-					Renderer3D::DrawMesh(mesh, transform.World, material, params,
-										 ProbeSlotFor(centre), &transform.PreviousWorld);
 				});
 			}
 

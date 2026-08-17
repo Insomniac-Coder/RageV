@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Terrain fixtures: `.rvterrain` heightfields, and scenes that stand on them.
 
-The asset (ENGINE-NOTES 7ap) is a square grid of 16-bit heights, 2^n + 1 a
-side, in a small binary file:
+The asset (ENGINE-NOTES 7ap, 7aq) is a square grid of 16-bit heights, 2^n + 1
+a side, in a small binary file, with the paint after it when there is any:
 
-    char[4] "RVTR", uint32 version 1, uint32 resolution, uint32 layers 0,
-    uint32 reserved[4], then resolution*resolution little-endian uint16.
+    char[4] "RVTR", uint32 version 1, uint32 resolution, uint32 layers (0 or 4),
+    uint32 reserved[4], then resolution*resolution little-endian uint16 heights,
+    then -- when layers is 4 -- resolution*resolution*4 bytes: one RGBA weight
+    per sample, one channel per layer, on the same row-major grid.
 
 Three generators, each written beside a `.meta` whose handle is a stable
 hash of the name and whose SourceHash is the registry's own FNV-1a of the
@@ -22,10 +24,20 @@ bytes, so a checkout does not resave anything:
 - `cliff`  -- a slope rising away from the camera to a crest at the far edge,
               rough per sample: the level-of-detail seams face the camera and
               a crack in one opens onto the sky, which check_terrain counts.
+- `layers` -- a flat 129 grid painted for the layered-material claim (7aq):
+              layer 0 on the left third, layer 1 on the right third at *half*
+              intensity, a linear blend across the middle, and a strip along
+              the top of the *right* third left unpainted -- where the paint
+              around it says blue and the rule says layer 0. Under a camera looking
+              straight down and a sun straight down, with a flat red `.rmat`
+              as layer 0 and a flat blue one as layer 1, so the frame's colour
+              *is* the weight map -- and where it is not, something is wrong.
 
-And three scenes: `scenes/terrain.rage` (the hills, a sun, a camera, a couple
-of crates resting on the ground), `scenes/terrain_ridge.rage` (the ridge under
-the stated camera check_terrain projects) and `scenes/terrain_cliff.rage`.
+And four scenes: `scenes/terrain.rage` (the hills, painted by slope and height
+with three layers -- soil, a mossy soil on the flats, a sandy one in the low
+ground -- a sun, a camera, a couple of crates resting on the ground),
+`scenes/terrain_ridge.rage` (the ridge under the stated camera check_terrain
+projects), `scenes/terrain_cliff.rage`, and `scenes/terrain_layers.rage`.
 
     python tools/scripts/make_terrain.py            # everything into SampleProject
     python tools/scripts/make_terrain.py --png in.png out.rvterrain   # from a 16-bit PNG
@@ -78,8 +90,28 @@ CLIFF_SKY = (0.30, 0.50, 0.90)
 HILLS_RESOLUTION = 513
 HILLS_SIZE = 256.0
 HILLS_HEIGHT = 30.0
-# SampleProject/assets/materials/soil.rmat, by its .meta handle.
+# SampleProject/assets/materials/soil.rmat, by its .meta handle, and its
+# maps (make_demo_scene's palette), which the moss and sand tints share.
 SOIL_MATERIAL = 2253873544424874864
+SOIL_MAPS = {"BaseColor": 17246187153222571135, "Normal": 12973099232739305617,
+             "Roughness": 10909146574749930491, "Height": 12081873772315894805}
+
+# The layered fixture (7aq), stated for check_terrain.
+LAYERS_RESOLUTION = 129
+LAYERS_SIZE = 64.0
+LAYERS_HEIGHT = 1.0
+LAYERS_CAMERA_HEIGHT = 50.0
+LAYERS_CAMERA_FOV_DEGREES = 60.0
+# The paint, in sample columns of the 129: layer 0 up to LEFT, layer 1 from
+# RIGHT, a linear blend between; and rows below UNPAINTED_ROWS of the *right*
+# third carry no paint at all -- a patch that must read as layer 0 inside a
+# region painted layer 1, so the claim cannot pass by measuring the wrong rows.
+LAYERS_LEFT_COLUMN = 43
+LAYERS_RIGHT_COLUMN = 86
+LAYERS_UNPAINTED_ROWS = 20
+LAYERS_RIGHT_WEIGHT = 127          # half intensity: what the normalisation lifts
+LAYERS_RED = (0.80, 0.08, 0.08)
+LAYERS_BLUE = (0.08, 0.08, 0.80)
 
 
 def handle_for(name):
@@ -100,21 +132,29 @@ def fnv1a_bytes(data):
     return h
 
 
-def encode(heights):
-    """`heights` is a square uint16 array, 2^n + 1 a side."""
+def encode(heights, weights=None):
+    """`heights` is a square uint16 array, 2^n + 1 a side; `weights`, when
+    given, a (resolution, resolution, 4) uint8 array of layer weights."""
     heights = np.ascontiguousarray(heights, dtype="<u2")
     resolution = heights.shape[0]
     assert heights.shape == (resolution, resolution), heights.shape
     quads = resolution - 1
     assert 33 <= resolution <= 4097 and quads & (quads - 1) == 0, resolution
-    header = MAGIC + struct.pack("<IIIIIII", VERSION, resolution, 0, 0, 0, 0, 0)
-    return header + heights.tobytes()
+    layers = 0
+    tail = b""
+    if weights is not None:
+        weights = np.ascontiguousarray(weights, dtype=np.uint8)
+        assert weights.shape == (resolution, resolution, 4), weights.shape
+        layers = 4
+        tail = weights.tobytes()
+    header = MAGIC + struct.pack("<IIIIIII", VERSION, resolution, layers, 0, 0, 0, 0)
+    return header + heights.tobytes() + tail
 
 
-def write_terrain(path, heights, name):
+def write_terrain(path, heights, name, weights=None):
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = encode(heights)
+    data = encode(heights, weights)
     path.write_bytes(data)
     handle = handle_for(name)
     path.with_name(path.name + ".meta").write_text(
@@ -125,6 +165,49 @@ def write_terrain(path, heights, name):
 
 def to_u16(unit):
     return np.clip(np.rint(np.asarray(unit, dtype=np.float64) * 65535.0), 0, 65535).astype(np.uint16)
+
+
+def to_weights(*channels):
+    """Up to four (resolution, resolution) arrays in [0, 1] to the RGBA8
+    weight map; missing channels are zero. Not normalised here: the shader
+    normalises, and the layered fixture relies on that."""
+    resolution = channels[0].shape[0]
+    out = np.zeros((resolution, resolution, 4), dtype=np.uint8)
+    for i, channel in enumerate(channels):
+        out[:, :, i] = np.clip(np.rint(np.asarray(channel, dtype=np.float64) * 255.0), 0, 255).astype(np.uint8)
+    return out
+
+
+def write_material(path, name, base_color, maps=None, tiling=(1.0, 1.0),
+                   roughness=1.0, height_scale=0.0):
+    """A `.rmat` beside a `.meta` whose SourceHash is the registry's own, so a
+    check run leaves it clean. Untextured unless `maps` names the handles."""
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"Material: {path.stem}",
+        f"BaseColor: [{base_color[0]:g}, {base_color[1]:g}, {base_color[2]:g}, 1]",
+        "Emissive: [0, 0, 0, 1]",
+        "Metallic: 0",
+        f"Roughness: {roughness:g}",
+        "Occlusion: 1",
+        "NormalScale: 1",
+        "Specular: 0.5",
+        f"HeightScale: {height_scale:g}",
+        f"Tiling: [{tiling[0]:g}, {tiling[1]:g}]",
+        "UvOffset: [0, 0]",
+    ]
+    if maps:
+        lines.append("Maps:")
+        for key, value in maps.items():
+            lines.append(f"  {key}: {value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    data = path.read_bytes()
+    handle = handle_for(name)
+    path.with_name(path.name + ".meta").write_text(
+        f"Handle: {handle}\nType: Material\nSourceHash: {fnv1a_bytes(data)}",
+        encoding="utf-8", newline="\n")
+    return handle
 
 
 # --- generators --------------------------------------------------------------
@@ -193,6 +276,41 @@ def flat(resolution=65, unit=0.5):
     return to_u16(np.full((resolution, resolution), unit))
 
 
+def hills_weights(heights, size=HILLS_SIZE, height=HILLS_HEIGHT):
+    """The hills' paint, from their own shape: a mossy soil where the ground
+    is flat, a sandy one where it is low, plain soil for the rest. Rules, not
+    a brush -- the brush is stage 3 -- but they make the layers visible from
+    the demo camera and give the shader three layers to blend."""
+    unit = heights.astype(np.float64) / 65535.0
+    metres = unit * height
+    cell = size / (heights.shape[0] - 1)
+    dz, dx = np.gradient(metres, cell)
+    slope = np.sqrt(dx * dx + dz * dz)                 # rise over run
+    flatness = np.clip((0.35 - slope) / 0.25, 0.0, 1.0)  # 1 on the flat, 0 past ~19 degrees
+    low = np.clip((0.30 - unit) / 0.10, 0.0, 1.0)      # 1 in the bowl, 0 above 30 %
+    sand = low
+    moss = flatness * (1.0 - sand)
+    soil = np.clip(1.0 - moss - sand, 0.0, 1.0)
+    return to_weights(soil, moss, sand)
+
+
+def layers(resolution=LAYERS_RESOLUTION):
+    """The layered fixture: flat heights, and the stated paint (7aq)."""
+    heights = flat(resolution, 0.5)
+    xs = np.arange(resolution)
+    t = np.clip((xs - LAYERS_LEFT_COLUMN) / float(LAYERS_RIGHT_COLUMN - LAYERS_LEFT_COLUMN), 0.0, 1.0)
+    red = np.where(xs <= LAYERS_LEFT_COLUMN, 1.0, np.where(xs >= LAYERS_RIGHT_COLUMN, 0.0, 1.0 - t))
+    blue = np.where(xs >= LAYERS_RIGHT_COLUMN, LAYERS_RIGHT_WEIGHT / 255.0,
+                    np.where(xs <= LAYERS_LEFT_COLUMN, 0.0, t))
+    red = np.repeat(red[None, :], resolution, axis=0)
+    blue = np.repeat(blue[None, :], resolution, axis=0)
+    # The unpainted strip: the first rows (z from -Size/2, the top of a
+    # frame looking down) of the right third, every channel zero.
+    red[:LAYERS_UNPAINTED_ROWS, LAYERS_RIGHT_COLUMN:] = 0.0
+    blue[:LAYERS_UNPAINTED_ROWS, LAYERS_RIGHT_COLUMN:] = 0.0
+    return heights, to_weights(red, blue)
+
+
 def from_png(path):
     from PIL import Image
     image = Image.open(path)
@@ -210,7 +328,7 @@ def from_png(path):
 # --- scenes ------------------------------------------------------------------
 
 def _terrain_entity(next_id, tag, handle, size, height, material=None,
-                    texture_scale=4.0, position=(0, 0, 0)):
+                    texture_scale=4.0, position=(0, 0, 0), layers=()):
     lines = [
         f"  - EntityID: {next_id()}",
         "    TagComponent:",
@@ -226,6 +344,9 @@ def _terrain_entity(next_id, tag, handle, size, height, material=None,
     ]
     if material is not None:
         lines.append(f"      Material: {material}")
+    for i, layer in enumerate(layers):
+        if layer is not None:
+            lines.append(f"      Layer{i + 1}: {layer}")
     lines += [
         f"      TextureScale: {texture_scale:g}",
         "      Collision: true",
@@ -283,15 +404,18 @@ def _crate(next_id, tag, position, scale=(1, 1, 1), dynamic=True):
     return lines
 
 
-def build_hills_scene(handle, profile=None):
+def build_hills_scene(handle, profile=None, moss=None, sand=None):
     next_id = base._ids()
     lines = base._header("Terrain hills", sky_rgb=(0.45, 0.6, 0.8))
     lines += base._camera(next_id, (0.0, 34.0, 118.0), rotation=(-0.28, 0, 0), profile=profile)
     lines += _sun(next_id, (-0.9, 0.6, 0.0))
     # The demo's soil, whose own tiling is 6 repeats per uv unit: at 12 metres
-    # per uv unit that is one repeat every two metres.
+    # per uv unit that is one repeat every two metres. Layer 0; the moss and
+    # the sand are the same maps under a tint, in the weights hills_weights
+    # painted from the slope and the height.
     lines += _terrain_entity(next_id, "Terrain", handle, HILLS_SIZE, HILLS_HEIGHT,
-                             material=SOIL_MATERIAL, texture_scale=12.0)
+                             material=SOIL_MATERIAL, texture_scale=12.0,
+                             layers=(moss, sand))
     lines += _crate(next_id, "Crate A", (3.0, 25.0, 10.0))
     lines += _crate(next_id, "Crate B", (-4.0, 27.0, 6.0), (1.5, 1.5, 1.5))
     return "\n".join(lines) + "\n"
@@ -304,6 +428,19 @@ def build_ridge_scene(handle, profile=None):
                           profile=profile)
     lines += _sun(next_id, RIDGE_SUN_ROTATION)
     lines += _terrain_entity(next_id, "Ridge", handle, RIDGE_SIZE, RIDGE_HEIGHT)
+    return "\n".join(lines) + "\n"
+
+
+def build_layers_scene(handle, red, blue, profile=None):
+    """Straight down at a flat painted terrain, lit straight down: the frame
+    is the weight map, and every claim about it is about the shader."""
+    next_id = base._ids()
+    lines = base._header("Terrain layers", sky_rgb=(0.02, 0.02, 0.025))
+    lines += base._camera(next_id, (0.0, LAYERS_CAMERA_HEIGHT, 0.0),
+                          rotation=(-math.pi / 2.0, 0, 0), profile=profile)
+    lines += _sun(next_id, (-math.pi / 2.0, 0.0, 0.0))
+    lines += _terrain_entity(next_id, "Layers", handle, LAYERS_SIZE, LAYERS_HEIGHT,
+                             material=red, layers=(blue,))
     return "\n".join(lines) + "\n"
 
 
@@ -324,16 +461,39 @@ def build_cliff_scene(handle, profile=None):
 CHECK_PROFILE = { "BloomEnabled": False }
 
 
-def write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle):
-    """The three scenes and a post profile beside each, exactly as the check
+def write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle, layers_handle,
+                         materials):
+    """The four scenes and a post profile beside each, exactly as the check
     writes them, so a checkout and a check run agree to the byte."""
     import postprofile
     ridge = scenes / "terrain_ridge.rage"
     cliff = scenes / "terrain_cliff.rage"
     hills = scenes / "terrain.rage"
-    write_scene(hills, build_hills_scene(hills_handle, postprofile.write_beside(hills, CHECK_PROFILE)))
+    painted = scenes / "terrain_layers.rage"
+    write_scene(hills, build_hills_scene(hills_handle, postprofile.write_beside(hills, CHECK_PROFILE),
+                                         moss=materials["moss"], sand=materials["sand"]))
     write_scene(ridge, build_ridge_scene(ridge_handle, postprofile.write_beside(ridge, CHECK_PROFILE)))
     write_scene(cliff, build_cliff_scene(cliff_handle, postprofile.write_beside(cliff, CHECK_PROFILE)))
+    write_scene(painted, build_layers_scene(layers_handle, materials["red"], materials["blue"],
+                                            postprofile.write_beside(painted, CHECK_PROFILE)))
+
+
+def write_materials(materials_dir):
+    """The layers the fixtures name: two flat colours for the claim, and the
+    hills' moss and sand -- the demo soil's maps under a tint, tiled as it
+    is, so the three layers differ in colour and nothing else."""
+    return {
+        "red": write_material(materials_dir / "terrain_layer_red.rmat",
+                              "materials/terrain_layer_red.rmat", LAYERS_RED),
+        "blue": write_material(materials_dir / "terrain_layer_blue.rmat",
+                               "materials/terrain_layer_blue.rmat", LAYERS_BLUE),
+        "moss": write_material(materials_dir / "terrain_moss.rmat",
+                               "materials/terrain_moss.rmat", (0.55, 0.72, 0.38),
+                               maps=SOIL_MAPS, tiling=(6.0, 6.0), height_scale=0.05),
+        "sand": write_material(materials_dir / "terrain_sand.rmat",
+                               "materials/terrain_sand.rmat", (0.92, 0.84, 0.62),
+                               maps=SOIL_MAPS, tiling=(6.0, 6.0), height_scale=0.05),
+    }
 
 
 def write_scene(path, text):
@@ -357,15 +517,23 @@ def main():
         return
 
     terrain_dir = ASSETS / "terrain"
-    hills_handle = write_terrain(terrain_dir / "hills.rvterrain", hills(), "terrain/hills.rvterrain")
+    hill_heights = hills()
+    hills_handle = write_terrain(terrain_dir / "hills.rvterrain", hill_heights, "terrain/hills.rvterrain",
+                                 weights=hills_weights(hill_heights))
     ridge_handle = write_terrain(terrain_dir / "ridge.rvterrain", ridge(), "terrain/ridge.rvterrain")
     cliff_handle = write_terrain(terrain_dir / "cliff.rvterrain", cliff(), "terrain/cliff.rvterrain")
+    layer_heights, layer_weights = layers()
+    layers_handle = write_terrain(terrain_dir / "layers.rvterrain", layer_heights,
+                                  "terrain/layers.rvterrain", weights=layer_weights)
 
+    materials = write_materials(ASSETS / "materials")
     scenes = ASSETS / "scenes"
-    write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle)
-    print(f"wrote {terrain_dir / 'hills.rvterrain'} ({HILLS_RESOLUTION}^2), "
+    write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle, layers_handle, materials)
+    print(f"wrote {terrain_dir / 'hills.rvterrain'} ({HILLS_RESOLUTION}^2, painted), "
           f"{terrain_dir / 'ridge.rvterrain'} ({RIDGE_RESOLUTION}^2), "
-          f"{terrain_dir / 'cliff.rvterrain'} ({CLIFF_RESOLUTION}^2), and three scenes")
+          f"{terrain_dir / 'cliff.rvterrain'} ({CLIFF_RESOLUTION}^2), "
+          f"{terrain_dir / 'layers.rvterrain'} ({LAYERS_RESOLUTION}^2, painted), "
+          f"four materials and four scenes")
 
 
 if __name__ == "__main__":

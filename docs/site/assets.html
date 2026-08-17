@@ -34,7 +34,7 @@
 <tr><td style="text-align:left">Font</td><td style="text-align:left"><code>.rvfont</code></td><td style="text-align:left">Baked from a <code>.ttf</code> by <code>rvfont</code></td></tr>
 <tr><td style="text-align:left">Post profile</td><td style="text-align:left"><code>.rvpostprofile</code></td><td style="text-align:left">Created in the editor</td></tr>
 <tr><td style="text-align:left">LUT</td><td style="text-align:left"><code>.cube</code> or <code>.rvlut</code></td><td style="text-align:left">Exported from a grading tool, or authored here</td></tr>
-<tr><td style="text-align:left">Terrain</td><td style="text-align:left"><code>.rvterrain</code></td><td style="text-align:left">Written by <code>tools/scripts/make_terrain.py</code> from a 16-bit heightmap or from noise</td></tr>
+<tr><td style="text-align:left">Terrain</td><td style="text-align:left"><code>.rvterrain</code></td><td style="text-align:left">Written by <code>tools/scripts/make_terrain.py</code> from a 16-bit heightmap or from noise; heights, and the layer paint once there is any</td></tr>
 </tbody></table></div>
 <p>The built-in mesh primitives — <code>Cube</code>, <code>Sphere</code>, <code>Plane</code>, <code>Cylinder</code> and <code>Quad</code> — are not files. They have reserved handles and are always available.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>A <code>.ttf</code> is <strong>not</strong> an asset. Nothing at runtime can read one, and treating it as an asset would offer a handle that never resolves. The <code>.rvfont</code> baked from it is the asset.</p>

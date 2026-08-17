@@ -184,6 +184,11 @@ namespace RageV
 		// order objects arrive in is the registry's, which is neither grouped
 		// by mesh nor sorted by depth, so nothing can be batched without first
 		// having all of them.
+		// Which of the lit pipelines a draw needs. Static and skinned differ in
+		// vertex layout; layered (ENGINE-NOTES 7aq) in what set 1 holds. A run
+		// is entirely one kind, and the sort puts the kinds in this order.
+		enum class DrawKind : uint8_t { Static, Skinned, Layered };
+
 		struct PendingDraw
 		{
 			// Sort key: the bound state a draw needs. Meshes first because
@@ -191,12 +196,14 @@ namespace RageV
 			// materials within a mesh so a run is contiguous in both.
 			const Mesh* MeshKey = nullptr;
 			uint64_t MaterialKey = 0;
-			// First in the sort key: skinned and static are different
-			// pipelines, and a run has to be one or the other.
-			bool Skinned = false;
+			// First in the sort key: the three kinds are three pipelines, and
+			// a run has to be one of them.
+			DrawKind Kind = DrawKind::Static;
 
 			Ref<Mesh> MeshRef;
 			Ref<Material> MaterialRef;
+			// The layered kind's set 1, which binds itself; null otherwise.
+			Ref<LayeredMaterial> LayeredRef;
 			InstanceData Instance;
 			// Distance from the eye, for ordering batches front to back.
 			float ViewDepth = 0.0f;
@@ -238,6 +245,11 @@ namespace RageV
 			// vertex stage does; everything below that is a shared include.
 			Ref<RHIShader>   SkinnedShader;
 			Ref<RHIPipeline> SkinnedPipeline;
+			// The same lighting over a surface assembled from four layers
+			// (7aq): the static vertex stage, and a fragment stage whose set 1
+			// is the layered block and its samplers instead of a material's.
+			Ref<RHIShader>   LayeredShader;
+			Ref<RHIPipeline> LayeredPipeline;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
 			Format TargetDepth = Format::D32_SFLOAT;
 		// Sample count, which has to equal the target's. A pipeline whose
@@ -298,6 +310,10 @@ namespace RageV
 				// recorded in HANDOFF section 5, and the validation layer says
 				// so immediately.
 				Ref<RHIResourceSet> SkinnedSet;
+				// And the layered pipeline's, for the same reason: its layout is
+				// set 0 of a different pipeline object, and a set is allocated
+				// against one layout.
+				Ref<RHIResourceSet> LayeredSet;
 				// One GpuMaterial per distinct material this scene drew, on the
 				// bindless path only (ENGINE-NOTES 7al). Rebuilt every frame;
 				// materials x 64 bytes, and it means no second free list.
@@ -561,6 +577,7 @@ namespace RageV
 		// After s_Data's default material, which holds a reference to it.
 		s_Data.reset();
 		Material::ReleaseShared();
+		LayeredMaterial::ReleaseShared();
 	}
 
 	// The two lit shaders, compiled for the paths this device and this frame
@@ -589,6 +606,13 @@ namespace RageV
 			s_Data->SkinnedShader = s_Data->Device->CreateShader(*skinned);
 		else
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_skinned.rvshader");
+
+		// The layered variant defines RV_LAYERED itself; everything else about
+		// it -- the heap, the rays -- follows the same defines.
+		if (auto layered = ShaderCompiler::CompileFromFile("assets/shaders/pbr_layered.rvshader", defines))
+			s_Data->LayeredShader = s_Data->Device->CreateShader(*layered);
+		else
+			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_layered.rvshader");
 
 		return true;
 	}
@@ -725,6 +749,16 @@ namespace RageV
 			s_Data->SkinnedPipeline = s_Data->Device->CreatePipeline(desc);
 		}
 
+		// And the layered one, again from the same description: the static
+		// vertex layout, every raster and depth setting shared, so a terrain
+		// chunk is rasterised exactly as the crate resting on it is.
+		if (s_Data->LayeredShader)
+		{
+			desc.Name = "Renderer3D.pbr.layered";
+			desc.Shader = s_Data->LayeredShader;
+			s_Data->LayeredPipeline = s_Data->Device->CreatePipeline(desc);
+		}
+
 		s_Data->PipelineDirty = false;
 
 		// Resource sets are tied to a pipeline layout, so they go with it and
@@ -735,6 +769,7 @@ namespace RageV
 			{
 				slot.Set.reset();
 				slot.SkinnedSet.reset();
+				slot.LayeredSet.reset();
 			}
 		}
 	}
@@ -1045,14 +1080,17 @@ namespace RageV
 		// above and the block is uploaded once.
 		slot.Buffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
 
-		// Both sets get every write. Two sets rather than one because their
-		// layouts differ by a single binding, and one loop rather than two
-		// copies because the day they drift is the day a skinned mesh is lit
-		// from a different environment than the mesh beside it.
+		// Every set gets every write. Three sets rather than one because each
+		// is allocated against its own pipeline's layout, and one loop rather
+		// than three copies because the day they drift is the day a skinned
+		// mesh -- or a terrain chunk -- is lit from a different environment
+		// than the mesh beside it.
 		if (s_Data->SkinnedPipeline && !slot.SkinnedSet)
 			slot.SkinnedSet = s_Data->Device->CreateResourceSet(s_Data->SkinnedPipeline, 0);
+		if (s_Data->LayeredPipeline && !slot.LayeredSet)
+			slot.LayeredSet = s_Data->Device->CreateResourceSet(s_Data->LayeredPipeline, 0);
 
-		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet };
+		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet };
 
 		for (const Ref<RHIResourceSet>& sceneSet : targets)
 		{
@@ -1198,7 +1236,7 @@ namespace RageV
 			{
 				size_t end = begin + 1;
 				while (end < pending.size() &&
-					   pending[end].Skinned == pending[begin].Skinned &&
+					   pending[end].Kind == pending[begin].Kind &&
 					   pending[end].MeshKey == pending[begin].MeshKey &&
 					   pending[end].MaterialKey == pending[begin].MaterialKey)
 				{
@@ -1218,15 +1256,16 @@ namespace RageV
 			if (s_Data->Runs.size() < 2)
 				return;
 
-			// Skinned last whatever their depth: the two pipelines must stay
-			// separated, which is the property the grouping sort guarantees.
+			// The kinds in their order whatever their depth: the pipelines
+			// must stay separated, which is the property the grouping sort
+			// guarantees.
 			std::stable_sort(s_Data->Runs.begin(), s_Data->Runs.end(),
 							 [&](const DrawRun& a, const DrawRun& b)
 							 {
-								 const bool skinnedA = pending[a.Begin].Skinned;
-								 const bool skinnedB = pending[b.Begin].Skinned;
-								 if (skinnedA != skinnedB)
-									 return !skinnedA;
+								 const DrawKind kindA = pending[a.Begin].Kind;
+								 const DrawKind kindB = pending[b.Begin].Kind;
+								 if (kindA != kindB)
+									 return kindA < kindB;
 								 return a.Nearest < b.Nearest;
 							 });
 
@@ -1246,12 +1285,12 @@ namespace RageV
 		std::sort(s_Data->Pending.begin(), s_Data->Pending.end(),
 				  [](const PendingDraw& a, const PendingDraw& b)
 				  {
-					  // Pipeline first. Static and skinned are different
-					  // pipelines and different vertex layouts, so a run has to
-					  // be entirely one or the other -- sorting them together
-					  // would put a pipeline switch in the middle of a batch.
-					  if (a.Skinned != b.Skinned)
-						  return !a.Skinned;
+					  // Pipeline first. Static, skinned and layered are three
+					  // pipelines, so a run has to be entirely one of them --
+					  // sorting them together would put a pipeline switch in the
+					  // middle of a batch.
+					  if (a.Kind != b.Kind)
+						  return a.Kind < b.Kind;
 					  if (a.MeshKey != b.MeshKey)
 						  return a.MeshKey < b.MeshKey;
 					  return a.MaterialKey < b.MaterialKey;
@@ -1414,8 +1453,8 @@ namespace RageV
 							   s_Data->BoneScratch.size() * sizeof(Mat4));
 		}
 
-		// The instance buffer to both, the bones only to the set whose layout
-		// declares them.
+		// The instance buffer to all three, the bones only to the set whose
+		// layout declares them.
 		if (slot.SkinnedSet)
 		{
 			slot.SkinnedSet->SetStorageBuffer(7, slot.Instances, 0,
@@ -1432,12 +1471,25 @@ namespace RageV
 			slot.SkinnedSet->Commit();
 		}
 
+		if (slot.LayeredSet)
+		{
+			slot.LayeredSet->SetStorageBuffer(7, slot.Instances, 0,
+											  (uint64_t)count * sizeof(InstanceData));
+			if (s_Data->Bindless)
+			{
+				slot.LayeredSet->SetStorageBuffer(13, slot.Materials, 0,
+												  (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn)
+					slot.LayeredSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+			slot.LayeredSet->Commit();
+		}
+
 		slot.Set->Commit();
 
 		// Bound per run rather than once, because the run decides which of the
-		// two pipelines draws it.
-		const Mesh* boundPipelineFor = nullptr;
-		bool boundSkinned = false;
+		// three pipelines draws it.
+		DrawKind boundKind = DrawKind::Static;
 		bool anyPipelineBound = false;
 
 		// One draw per run of identical mesh and bound material state.
@@ -1454,26 +1506,32 @@ namespace RageV
 
 			const PendingDraw& first = s_Data->Pending[start];
 
-			// A skinned run needs the skinned pipeline. Without one it is
-			// skipped rather than drawn by the static one: the vertex layouts
-			// differ, and the static pipeline would read joint indices as
-			// texture coordinates and scatter the mesh across the world.
-			const Ref<RHIPipeline>& pipeline = first.Skinned ? s_Data->SkinnedPipeline
-															 : s_Data->Pipeline;
+			// Each kind needs its own pipeline. Without one the run is skipped
+			// rather than drawn by another: a skinned mesh through the static
+			// pipeline reads joint indices as texture coordinates and scatters
+			// across the world, and a layered chunk through it binds a set the
+			// layout does not describe.
+			const Ref<RHIPipeline>& pipeline =
+				first.Kind == DrawKind::Skinned ? s_Data->SkinnedPipeline
+				: first.Kind == DrawKind::Layered ? s_Data->LayeredPipeline
+				: s_Data->Pipeline;
 			if (!pipeline)
 			{
 				start = end;
 				continue;
 			}
 
-			const Ref<RHIResourceSet>& sceneSet = first.Skinned ? slot.SkinnedSet : slot.Set;
+			const Ref<RHIResourceSet>& sceneSet =
+				first.Kind == DrawKind::Skinned ? slot.SkinnedSet
+				: first.Kind == DrawKind::Layered ? slot.LayeredSet
+				: slot.Set;
 			if (!sceneSet)
 			{
 				start = end;
 				continue;
 			}
 
-			if (!anyPipelineBound || boundSkinned != first.Skinned)
+			if (!anyPipelineBound || boundKind != first.Kind)
 			{
 				cmd->BindPipeline(pipeline);
 				cmd->BindResourceSet(0, sceneSet);
@@ -1482,7 +1540,7 @@ namespace RageV
 				// between draws, which is the point of it.
 				if (s_Data->Bindless)
 					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-				boundSkinned = first.Skinned;
+				boundKind = first.Kind;
 				anyPipelineBound = true;
 			}
 
@@ -1490,8 +1548,17 @@ namespace RageV
 			// this binds, so they are interchangeable by construction. On the
 			// bindless path there is nothing to bind -- the maps are heap
 			// slots in the record the instance names -- and set 1 is empty.
-			if (first.MaterialRef && !s_Data->Bindless)
+			// A layered run binds its own set 1 on *both* paths: the block is
+			// the layers' scalars and, bindless, their heap slots (7aq).
+			if (first.Kind == DrawKind::Layered)
+			{
+				if (first.LayeredRef)
+					first.LayeredRef->Bind(*cmd, pipeline, 1);
+			}
+			else if (first.MaterialRef && !s_Data->Bindless)
+			{
 				first.MaterialRef->Bind(*cmd, pipeline, 1);
+			}
 
 			ObjectPushConstants object;
 			object.BaseInstance = (int32_t)start;
@@ -1865,7 +1932,7 @@ namespace RageV
 		PendingDraw draw;
 		draw.MeshKey = mesh.get();
 		draw.MaterialKey = effective->GetBatchKey(s_Data->Bindless);
-		draw.Skinned = true;
+		draw.Kind = DrawKind::Skinned;
 		draw.MeshRef = mesh;
 		draw.MaterialRef = effective;
 
@@ -1879,6 +1946,55 @@ namespace RageV
 		draw.Instance.Indices = { (float)base, (float)probe, 0.0f, 0.0f };
 
 		s_Data->Pending.push_back(std::move(draw));
+	}
+
+	void Renderer3D::DrawLayeredMesh(const Ref<Mesh>& mesh, const Mat4& transform,
+									 const Ref<LayeredMaterial>& layered, uint32_t probe,
+									 const Mat4* previousTransform)
+	{
+		if (!s_Data || !s_Data->SceneActive || !mesh || !layered)
+			return;
+
+		// Layer 0 stands in for "the material" everywhere the rest of the
+		// frame wants one: the instance's scalars, the record the bindless
+		// instance names (so g_Material is a real record), and the material a
+		// traced reflection of this chunk shades with (7aq's stated limit).
+		Ref<Material> base = layered->GetLayer(0);
+		if (!base)
+			base = s_Data->DefaultMaterial;
+		if (!base)
+			return;
+		const MaterialParams& params = base->GetParams();
+
+		PendingDraw draw;
+		draw.MeshKey = mesh.get();
+		draw.MaterialKey = layered->GetBatchKey();
+		draw.Kind = DrawKind::Layered;
+		draw.MeshRef = mesh;
+		draw.MaterialRef = base;
+		draw.LayeredRef = layered;
+
+		draw.Instance.Model = transform;
+		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;
+		draw.Instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
+		draw.Instance.BaseColor = params.BaseColor;
+		draw.Instance.EmissiveColor = params.EmissiveColor;
+		draw.Instance.Surface = { params.Metallic, params.Roughness,
+								  params.Occlusion, params.NormalScale };
+		draw.Instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
+
+		{
+			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
+			const Vec3 centre = Vec3(transform[3]);
+			draw.ViewDepth = Math::Length(centre - eye);
+		}
+
+		s_Data->Pending.push_back(std::move(draw));
+	}
+
+	TextureHeap* Renderer3D::GetTextureHeap()
+	{
+		return s_Data && s_Data->Bindless ? s_Data->Heap.get() : nullptr;
 	}
 
 	unsigned int Renderer3D::GetCulledCount() { return s_Data ? s_Data->Culled : 0; }

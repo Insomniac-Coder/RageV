@@ -28,19 +28,41 @@ namespace RageV
 		static constexpr uint32_t kMinResolution = 33;
 		static constexpr uint32_t kMaxResolution = 4097;
 
+		// Layers a painted terrain has, which is the four channels of one RGBA8
+		// weight per sample (ENGINE-NOTES 7aq). The file's layer count is 0 or
+		// exactly this.
+		static constexpr uint32_t kLayers = 4;
+
 		// Samples per side.
 		uint32_t Resolution = 0;
 		// Resolution * Resolution, row-major: the sample at (x, z) is
 		// Heights[z * Resolution + x]. 0 is the base, 65535 the full height.
 		std::vector<uint16_t> Heights;
+		// Empty, or Resolution * Resolution * kLayers bytes: the four layer
+		// weights of each sample, interleaved, on the same row-major grid as
+		// the heights. Their sum need not be 255 -- the shader normalises --
+		// and a sample whose weights are all zero is layer 0. Empty means
+		// unpainted, which draws exactly as all-zero does (7aq).
+		std::vector<uint8_t> Weights;
 
 		static bool IsValidResolution(uint32_t resolution);
+		// A valid grid of heights, and weights that are either absent or the
+		// grid's size.
 		bool IsValid() const;
+		bool HasWeights() const { return !Weights.empty(); }
 
 		// Quads per side: Resolution - 1.
 		uint32_t QuadCount() const { return Resolution > 0 ? Resolution - 1 : 0; }
 
 		uint16_t At(uint32_t x, uint32_t z) const { return Heights[(size_t)z * Resolution + x]; }
+		// The weight of `layer` at a sample; 0 everywhere on an unpainted
+		// terrain, layer 0 included -- the "all zero means layer 0" rule is the
+		// shader's, applied after normalisation, and this reads the bytes.
+		uint8_t WeightAt(uint32_t x, uint32_t z, uint32_t layer) const
+		{
+			return Weights.empty() ? 0
+				: Weights[((size_t)z * Resolution + x) * kLayers + layer];
+		}
 
 		// The surface height in [0, 1] at fractional sample coordinates,
 		// clamped to the grid. Interpolated over the *triangles* -- the quad

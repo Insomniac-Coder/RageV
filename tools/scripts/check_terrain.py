@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Terrain (8.4, ENGINE-NOTES 7ap): what the pixels can say.
+"""Terrain (8.4, ENGINE-NOTES 7ap, 7aq): what the pixels can say.
 
 The unit claims -- the serializer, the triangle-exact sampling, the chunk
 builder, the level rule, HeightAt, the height-field body -- are in
 scenetest. This is the rest: what a terrain looks like from a stated
 camera, on both backends, and whether the level-of-detail seams hold.
 
-Three fixtures, all from make_terrain.py, all with the camera and the
+Four fixtures, all from make_terrain.py, all with the camera and the
 heights stated there so nothing below is found in a frame that could
 instead be derived:
 
@@ -29,6 +29,24 @@ instead be derived:
    sky. So: sky-coloured pixels not connected to the frame's border -- holes
    -- number zero. (Falsified by building the chunks with `skirts = false`
    in Terrain::Create: the holes appear.)
+
+4. **The paint is the picture (7aq).** A flat 129 grid painted layer 0
+   (a flat red `.rmat`) on the left third, layer 1 (a flat blue one) on the
+   right third *at half intensity*, a linear blend between, and a strip
+   along the top of the right third unpainted; camera straight down, sun
+   straight down. Four claims, each region's frame columns and rows derived
+   from the camera: the left region is red (red over blue by more than two
+   to one and a hundred levels, in display space) and the right blue by the
+   same; the two are within ten percent of each other's brightness -- the
+   normalisation claim, since the right was painted at half; the middle
+   column has red and blue within twenty percent -- the blend; and the
+   unpainted strip, inside the blue region, is red -- the layer-0 rule,
+   measured where the paint around it says otherwise. On both
+   backends, and on Vulkan with the heap on and off, so all three material
+   paths the layered shader has are the ones measured. (Falsified by
+   swapping the weight channels in the shader -- left and right trade
+   places -- and by dropping the normalisation: the right goes half as
+   bright and the unpainted strip black.)
 
 Falsified further by swapping the row-major read (x for z) in the builder:
 the ridge turns ninety degrees and claim 1's row is nowhere near.
@@ -53,6 +71,10 @@ MIN_SHADOW_DARKENING = 25.0
 MAX_MAPS_VS_RAYS_LEVELS = 12.0
 MAX_HOLES = 0
 SKY_TOLERANCE = 6
+MIN_LAYER_RATIO = 2.0            # the dominant channel over the other, in a painted region ...
+MIN_LAYER_GAP = 100.0            # ... and by this many levels, in display space
+MAX_BRIGHTNESS_MISMATCH = 0.10   # left vs right, after the normalisation lifts the right
+MAX_BLEND_MISMATCH = 0.20        # red vs blue in the middle of the blend
 
 
 def run(exe, args):
@@ -128,6 +150,71 @@ def enclosed_sky_pixels(image):
                 reached[ny, nx] = True
                 stack.append((ny, nx))
     return int(np.count_nonzero(sky & ~reached))
+
+
+def layer_columns(mt, width, first_sample, last_sample):
+    """The frame columns a run of weight-map sample columns lands on, from a
+    camera straight down at LAYERS_CAMERA_HEIGHT with the stated field of
+    view. Column x of the frame sees world x = (x / width - 0.5) * 2 *
+    half_width, half_width = height * tan(fov / 2) * aspect; sample i sits
+    at world x = (i / (R - 1) - 0.5) * Size."""
+    aspect = 16.0 / 9.0
+    half_width = mt.LAYERS_CAMERA_HEIGHT * math.tan(math.radians(mt.LAYERS_CAMERA_FOV_DEGREES) * 0.5) * aspect
+    def column(sample):
+        world_x = (sample / (mt.LAYERS_RESOLUTION - 1) - 0.5) * mt.LAYERS_SIZE
+        return int(round((world_x / half_width * 0.5 + 0.5) * width))
+    return column(first_sample), column(last_sample)
+
+
+def layer_rows(mt, height, first_sample, last_sample):
+    """The same for rows: the frame's top is -z, sample 0's row."""
+    half_height = mt.LAYERS_CAMERA_HEIGHT * math.tan(math.radians(mt.LAYERS_CAMERA_FOV_DEGREES) * 0.5)
+    def row(sample):
+        world_z = (sample / (mt.LAYERS_RESOLUTION - 1) - 0.5) * mt.LAYERS_SIZE
+        return int(round((world_z / half_height * 0.5 + 0.5) * height))
+    return row(first_sample), row(last_sample)
+
+
+def check_layers(image, mt, label, failures):
+    """The four claims of fixture 4 on one frame."""
+    height, width = image.shape[:2]
+    inset = 4   # samples in from every edge of a region, clear of the blend and the seams
+    R = mt.LAYERS_RESOLUTION - 1
+    l0, l1 = layer_columns(mt, width, inset, mt.LAYERS_LEFT_COLUMN - inset)
+    r0, r1 = layer_columns(mt, width, mt.LAYERS_RIGHT_COLUMN + inset, R - inset)
+    m0, m1 = layer_columns(mt, width, (mt.LAYERS_LEFT_COLUMN + mt.LAYERS_RIGHT_COLUMN) // 2 - 1,
+                           (mt.LAYERS_LEFT_COLUMN + mt.LAYERS_RIGHT_COLUMN) // 2 + 1)
+    # Rows: the painted claims below the unpainted strip; the strip itself,
+    # whose first rows are above the frame (the terrain is taller than the
+    # view), so it is clamped to what the frame shows.
+    p0, p1 = layer_rows(mt, height, mt.LAYERS_UNPAINTED_ROWS + inset, R - inset)
+    u0, u1 = layer_rows(mt, height, inset, mt.LAYERS_UNPAINTED_ROWS - inset)
+    p0, p1, u0, u1 = (min(max(v, 0), height) for v in (p0, p1, u0, u1))
+
+    left = image[p0:p1, l0:l1].reshape(-1, 3).mean(axis=0)
+    right = image[p0:p1, r0:r1].reshape(-1, 3).mean(axis=0)
+    middle = image[p0:p1, m0:m1].reshape(-1, 3).mean(axis=0)
+    strip = image[u0:u1, r0:r1].reshape(-1, 3).mean(axis=0)
+    print(f"{label}: left {left.round(1)}, right {right.round(1)}, middle {middle.round(1)}, "
+          f"unpainted (in the right third) {strip.round(1)}")
+
+    def dominates(colour, channel, other):
+        return colour[channel] >= MIN_LAYER_RATIO * max(colour[other], 1.0) and \
+               colour[channel] - colour[other] >= MIN_LAYER_GAP
+
+    if not dominates(left, 0, 2):
+        failures.append(f"{label}: the left region is not layer 0's red ({left.round(1)})")
+    if not dominates(right, 2, 0):
+        failures.append(f"{label}: the right region is not layer 1's blue ({right.round(1)})")
+    lb, rb = left.sum(), right.sum()
+    if abs(lb - rb) > MAX_BRIGHTNESS_MISMATCH * max(lb, rb):
+        failures.append(f"{label}: the half-intensity right ({rb:.0f}) is not lifted to the left's "
+                        f"brightness ({lb:.0f}); the weights are not being normalised")
+    if abs(middle[0] - middle[2]) > MAX_BLEND_MISMATCH * max(middle[0], middle[2]):
+        failures.append(f"{label}: the middle of the blend is not an even mix ({middle.round(1)})")
+    if not dominates(strip, 0, 2) or strip.sum() < 0.5 * lb:
+        failures.append(f"{label}: the unpainted strip inside the blue region is not layer 0 "
+                        f"({strip.round(1)})")
 
 
 def main():
@@ -210,6 +297,13 @@ def main():
         if holes > MAX_HOLES:
             failures.append(f"{backend}: the cliff shows {holes} hole(s) at its level seams")
 
+    # --- 4. the paint (7aq): both backends, and both material paths on Vulkan --
+    for label, backend, extra in (("vulkan", "vulkan", ("--bindless=on",)),
+                                  ("vulkan-bound", "vulkan", ("--bindless=off",)),
+                                  ("opengl", "opengl", ())):
+        image = shoot(exe, backend, "terrain_layers", shots / f"{label}-layers.png", extra)
+        check_layers(image, mt, label, failures)
+
     print()
     if failures:
         for failure in failures:
@@ -217,7 +311,8 @@ def main():
         sys.exit(1)
 
     print("OK: the ridge stands where the heights say on both backends, its shadow lands "
-          "on the plain under maps and rays alike, and the level seams open no holes")
+          "on the plain under maps and rays alike, the level seams open no holes, and the "
+          "paint is the picture on every material path")
 
 
 if __name__ == "__main__":

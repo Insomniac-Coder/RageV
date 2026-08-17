@@ -36,7 +36,7 @@ handle travels with the `.meta`, and every reference keeps resolving.
 | Font | `.rvfont` | Baked from a `.ttf` by `rvfont` |
 | Post profile | `.rvpostprofile` | Created in the editor |
 | LUT | `.cube` or `.rvlut` | Exported from a grading tool, or authored here |
-| Terrain | `.rvterrain` | Written by `tools/scripts/make_terrain.py` from a 16-bit heightmap or from noise |
+| Terrain | `.rvterrain` | Written by `tools/scripts/make_terrain.py` from a 16-bit heightmap or from noise; heights, and the layer paint once there is any |
 
 The built-in mesh primitives — `Cube`, `Sphere`, `Plane`, `Cylinder` and
 `Quad` — are not files. They have reserved handles and are always available.

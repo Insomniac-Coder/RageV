@@ -1,44 +1,20 @@
 // Cook-Torrance PBR with the metallic-roughness parameterisation glTF uses,
 // for meshes that do not deform.
 //
-// Almost nothing is here: the scene block, the lights, the shadows and the
-// whole of the shading live in include/, shared with the skinned variant.
-// What is left is the one thing the two genuinely differ in -- how a vertex
-// reaches world space.
+// Nothing is here: the scene block, the lights, the shadows and the whole
+// of the shading live in include/, shared with the skinned variant -- and
+// the vertex stage is shared with the layered variant (ENGINE-NOTES 7aq),
+// which differs from this one only in what set 1 holds. What the three
+// genuinely differ in -- how a vertex reaches world space, and what the
+// surface is made of -- is each written once.
 //
 // Output is linear HDR. Tone mapping and the transfer function belong to the
 // tonemap pass, for the reason recorded in HANDOFF section 5.
 #type vertex
 #version 450 core
 
-layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec3 a_Normal;
-layout(location = 2) in vec2 a_TexCoord;
-
 #include "include/scene_vertex.glsl"
-
-void main()
-{
-	InstanceData instance = u_Instances.Instances[u_Object.BaseInstance + gl_InstanceIndex];
-
-	vec4 world = instance.Model * vec4(a_Position, 1.0);
-
-	v_WorldPos = world.xyz;
-	// Non-uniform scale does not preserve normals under the model matrix.
-	v_Normal   = mat3(instance.NormalMatrix) * a_Normal;
-	v_TexCoord = a_TexCoord;
-
-	v_BaseColor     = instance.BaseColor;
-	v_EmissiveColor = instance.EmissiveColor;
-	v_Surface       = instance.Surface;
-	v_Probe         = instance.Indices.y;
-	v_MaterialIndex = instance.Indices.z;
-
-	gl_Position = u_Scene.ViewProjection * world;
-	v_ClipPos = gl_Position;
-	v_PrevClipPos = u_Scene.PreviousViewProjection * instance.PreviousModel *
-					vec4(a_Position, 1.0);
-}
+#include "include/static_vertex.glsl"
 
 #type fragment
 // 460, not 450: glslang admits the ray-query keywords only from 460, and the

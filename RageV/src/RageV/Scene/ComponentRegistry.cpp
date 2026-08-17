@@ -542,15 +542,28 @@ namespace
 					Drag(0.1f, 0.0f, 4000.0f,
 						 "Metres the highest possible sample stands above the base. "
 						 "The asset's heights are fractions of this.")),
+				// The key stays "Material" -- the one material a stage-1 terrain
+				// had, and layer 0 of a painted one -- so a scene saved before
+				// layers existed reads unchanged. The label says what it is now.
 				Field<&TerrainComponent::Material>("Material",
-					AssetRef(AssetType::Material,
-							 "One material, tiled over the whole terrain; leave it empty "
-							 "for the renderer's default. Layers painted by a weight map "
-							 "are not built yet.")),
+					Named("Layer 0", AssetRef(AssetType::Material,
+							 "The base layer: everywhere nothing else is painted, "
+							 "and the material of a terrain with no paint at all. "
+							 "Empty means the renderer's default."))),
+				Field<&TerrainComponent::Layer1>("Layer1",
+					Named("Layer 1", AssetRef(AssetType::Material,
+							 "A material blended in where the asset's weight map "
+							 "paints this layer. Empty means the layer is not there."))),
+				Field<&TerrainComponent::Layer2>("Layer2",
+					Named("Layer 2", AssetRef(AssetType::Material,
+							 "As layer 1, from the weight map's third channel."))),
+				Field<&TerrainComponent::Layer3>("Layer3",
+					Named("Layer 3", AssetRef(AssetType::Material,
+							 "As layer 1, from the weight map's fourth channel."))),
 				Field<&TerrainComponent::TextureScale>("TextureScale",
 					Named("Texture scale", Drag(0.05f, 0.05f, 1000.0f,
-						 "Metres per repeat of the material's textures. The "
-						 "material's own tiling multiplies on top."))),
+						 "Metres per repeat of the layers' textures. Each "
+						 "layer's own tiling multiplies on top."))),
 				Field<&TerrainComponent::Collision>("Collision",
 					Tip("A static collider under the drawn surface, exact to the "
 						"triangle. The terrain is its own collider: no RigidBody or "

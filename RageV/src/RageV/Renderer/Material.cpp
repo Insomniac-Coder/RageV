@@ -270,4 +270,225 @@ namespace RageV
 		material->GetParams().Roughness = 0.55f;
 		return material;
 	}
+
+	// --- LayeredMaterial (ENGINE-NOTES 7aq) --------------------------------------
+
+	namespace
+	{
+		Ref<RHISampler> s_WeightSampler;
+
+		uint64_t HashBytes(uint64_t hash, const void* data, size_t size)
+		{
+			const auto* bytes = static_cast<const unsigned char*>(data);
+			for (size_t i = 0; i < size; i++)
+			{
+				hash ^= bytes[i];
+				hash *= 1099511628211ull;
+			}
+			return hash;
+		}
+	}
+
+	const Ref<RHISampler>& LayeredMaterial::WeightSampler(RHIDevice& device)
+	{
+		if (!s_WeightSampler)
+		{
+			SamplerDesc desc;
+			desc.WrapU = WrapMode::ClampToEdge;
+			desc.WrapV = WrapMode::ClampToEdge;
+			desc.WrapW = WrapMode::ClampToEdge;
+			// One level: the map is read at its own resolution and a chain
+			// would blur paint across a boundary the eye can see.
+			desc.MaxLod = 0.0f;
+			s_WeightSampler = device.CreateSampler(desc);
+		}
+		return s_WeightSampler;
+	}
+
+	void LayeredMaterial::ReleaseShared()
+	{
+		s_WeightSampler.reset();
+	}
+
+	LayeredMaterial::LayeredMaterial(RHIDevice& device, std::string name)
+		: m_Device(device), m_Name(std::move(name))
+	{
+		const uint32_t frames = device.GetFramesInFlight();
+		m_ParamBuffers.resize(frames);
+		for (uint32_t i = 0; i < frames; i++)
+		{
+			BufferDesc desc;
+			desc.Size = sizeof(LayeredParams);
+			desc.Usage = BufferUsage::Uniform;
+			desc.Memory = MemoryDomain::HostVisible;
+			desc.DebugName = m_Name + ".layers." + std::to_string(i);
+			m_ParamBuffers[i] = device.CreateBuffer(desc);
+		}
+		m_FrameDirty.assign(frames, true);
+	}
+
+	void LayeredMaterial::SetLayer(uint32_t index, const Ref<Material>& material)
+	{
+		if (index < kLayers)
+			m_Layers[index] = material;
+	}
+
+	void LayeredMaterial::SetWeights(const Ref<RHITexture>& weights, const Vec4& weightUv)
+	{
+		m_Weights = weights;
+		m_WeightUv = weightUv;
+	}
+
+	void LayeredMaterial::Refresh(TextureHeap* heap)
+	{
+		// Built fresh from the layers, then compared with what the set holds.
+		// A layer's material is edited through its own object -- the inspector,
+		// a hot reload -- and nothing tells this one; reading it back each
+		// frame is what keeps the terrain honest to its layers with no
+		// protocol between the two classes. Thirteen pointer reads and a
+		// 368-byte compare per terrain per frame.
+		LayeredParams params;
+		Ref<RHITexture> textures[1 + 3 * kLayers];
+		Ref<RHISampler> samplers[kLayers];
+
+		const Ref<RHISampler>& weightSampler = WeightSampler(m_Device);
+		// A missing weight map means unpainted, and unpainted means layer 0:
+		// a 1x1 red under the same clamp sampler says exactly that. Red is
+		// TextureLoader's neutral for "layer 0 has weight 1", chosen here so
+		// the shader's zero-sum rule and this fallback agree.
+		textures[0] = m_Weights ? m_Weights : TextureLoader::Red(m_Device);
+		params.WeightUv = m_WeightUv;
+
+		for (uint32_t i = 0; i < kLayers; i++)
+		{
+			const Ref<Material>& layer = m_Layers[i];
+			// The same neutral fallbacks Material::Bind binds for an absent
+			// map, so a layer with no roughness map reads as its scalar on
+			// every path.
+			const Ref<RHITexture> base = layer && layer->GetBaseColorMap() ? layer->GetBaseColorMap()
+																		  : TextureLoader::White(m_Device);
+			const Ref<RHITexture> normal = layer && layer->GetNormalMap() ? layer->GetNormalMap()
+																		 : TextureLoader::FlatNormal(m_Device);
+			const Ref<RHITexture> rough = layer && layer->GetRoughnessMap() ? layer->GetRoughnessMap()
+																		  : TextureLoader::White(m_Device);
+			textures[1 + i] = base;
+			textures[1 + kLayers + i] = normal;
+			textures[1 + 2 * kLayers + i] = rough;
+			samplers[i] = layer ? layer->GetSampler() : weightSampler;
+
+			if (layer)
+			{
+				const MaterialParams& p = layer->GetParams();
+				params.BaseColor[i] = p.BaseColor;
+				params.EmissiveColor[i] = p.EmissiveColor;
+				params.Surface[i] = { p.Metallic, p.Roughness, p.Occlusion, p.NormalScale };
+				params.UvTransform[i] = p.UvTransform;
+				params.Specular[i] = p.Specular;
+				// Only the three maps this variant reads; a layer's occlusion
+				// or height map is not bound and its flag must not say it is.
+				params.MapFlags[i] = (p.MapFlags & (MaterialMap_BaseColor | MaterialMap_Normal |
+													MaterialMap_Roughness)) | LayeredMap_Active;
+			}
+			else
+			{
+				params.BaseColor[i] = Vec4(0.0f);
+				params.EmissiveColor[i] = Vec4(0.0f);
+				params.Surface[i] = Vec4(0.0f);
+				params.UvTransform[i] = { 1.0f, 1.0f, 0.0f, 0.0f };
+				params.Specular[i] = 0.5f;
+				params.MapFlags[i] = 0;
+			}
+		}
+
+		if (heap)
+		{
+			params.WeightSlot[0] = heap->Slot(textures[0], weightSampler);
+			for (uint32_t i = 0; i < kLayers; i++)
+			{
+				params.BaseColorSlots[i] = heap->Slot(textures[1 + i], samplers[i]);
+				params.NormalSlots[i] = heap->Slot(textures[1 + kLayers + i], samplers[i]);
+				params.RoughnessSlots[i] = heap->Slot(textures[1 + 2 * kLayers + i], samplers[i]);
+			}
+		}
+
+		bool changed = m_Bindless != (heap != nullptr) ||
+					   std::memcmp(&params, &m_Params, sizeof(LayeredParams)) != 0;
+		for (uint32_t i = 0; i < 1 + 3 * kLayers && !changed; i++)
+			changed = textures[i].get() != m_Textures[i].get();
+		for (uint32_t i = 0; i < kLayers && !changed; i++)
+			changed = samplers[i].get() != m_Samplers[i].get();
+		if (!changed)
+			return;
+
+		m_Bindless = heap != nullptr;
+		m_Params = params;
+		for (uint32_t i = 0; i < 1 + 3 * kLayers; i++)
+			m_Textures[i] = textures[i];
+		for (uint32_t i = 0; i < kLayers; i++)
+			m_Samplers[i] = samplers[i];
+
+		// The bound state, hashed as Material::GetBatchKey hashes its own:
+		// the block's bytes, and the identity of every texture and sampler.
+		uint64_t hash = 1469598103934665603ull;
+		hash = HashBytes(hash, &m_Params, sizeof(m_Params));
+		for (const Ref<RHITexture>& texture : m_Textures)
+		{
+			const void* pointer = texture.get();
+			hash = HashBytes(hash, &pointer, sizeof(pointer));
+		}
+		for (const Ref<RHISampler>& sampler : m_Samplers)
+		{
+			const void* pointer = sampler.get();
+			hash = HashBytes(hash, &pointer, sizeof(pointer));
+		}
+		m_Key = hash;
+
+		m_FrameDirty.assign(m_FrameDirty.size(), true);
+	}
+
+	void LayeredMaterial::EnsureResources(const Ref<RHIPipeline>& pipeline, uint32_t set)
+	{
+		if (m_Built)
+			return;
+		const uint32_t frames = m_Device.GetFramesInFlight();
+		m_Sets.clear();
+		for (uint32_t i = 0; i < frames; i++)
+			m_Sets.push_back(m_Device.CreateResourceSet(pipeline, set));
+		m_FrameDirty.assign(frames, true);
+		m_Built = true;
+	}
+
+	void LayeredMaterial::Bind(RHICommandList& commandList, const Ref<RHIPipeline>& pipeline, uint32_t set)
+	{
+		EnsureResources(pipeline, set);
+
+		const uint32_t frame = m_Device.GetFrameIndex();
+		auto& resourceSet = m_Sets[frame];
+
+		if (m_FrameDirty[frame])
+		{
+			m_ParamBuffers[frame]->Upload(&m_Params, sizeof(LayeredParams));
+			resourceSet->SetUniformBuffer(kBindingParams, m_ParamBuffers[frame], 0, sizeof(LayeredParams));
+
+			// The samplers only where the layout declares them: the bindless
+			// variant reads the maps through the heap by the slots in the
+			// block, and writing a binding a shader never declared is the
+			// hazard HANDOFF section 5 records.
+			if (!m_Bindless)
+			{
+				resourceSet->SetTexture(kBindingWeights, m_Textures[0], WeightSampler(m_Device));
+				for (uint32_t i = 0; i < kLayers; i++)
+				{
+					resourceSet->SetTexture(kBindingBaseColor, m_Textures[1 + i], m_Samplers[i], i);
+					resourceSet->SetTexture(kBindingNormal, m_Textures[1 + kLayers + i], m_Samplers[i], i);
+					resourceSet->SetTexture(kBindingRoughness, m_Textures[1 + 2 * kLayers + i], m_Samplers[i], i);
+				}
+			}
+
+			resourceSet->Commit();
+			m_FrameDirty[frame] = false;
+		}
+
+		commandList.BindResourceSet(set, resourceSet);
+	}
 }

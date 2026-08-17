@@ -1,10 +1,12 @@
 # Terrain
 
 A heightfield: a square grid of heights that the engine turns into ground.
-One `.rvterrain` asset holds the heights; one `TerrainComponent` places it,
-sizes it, gives it a material and a collider. Everything else the engine
-already does -- shadows, ray tracing, culling, picking, physics -- takes the
-terrain as the ordinary meshes it is built from.
+One `.rvterrain` asset holds the heights and, once painted, which of up to
+four materials each point of the ground is made of; one `TerrainComponent`
+places it, sizes it, names the four materials and gives it a collider.
+Everything else the engine already does -- shadows, ray tracing, culling,
+picking, physics -- takes the terrain as the ordinary meshes it is built
+from.
 
 ## Making one
 
@@ -19,10 +21,13 @@ The PNG must be square with 2^n + 1 pixels a side -- 33, 65, 129, 257, 513,
 1025, 2049 or 4097 -- and 16-bit greyscale is what the format keeps; an 8-bit
 image is accepted and scaled up, with the terracing 8 bits imply. Run the
 script with no arguments to write the sample project's own terrains (hills
-from noise, a ridge, a cliff) and the scenes that stand on them.
+from noise, painted by slope and height; a ridge; a cliff; a flat painted
+test card) and the scenes that stand on them.
 
 Then, in the editor: add a **Terrain** component to an entity, pick the
 asset, and set the size and height. The terrain is centred on the entity.
+Give it a material as **Layer 0**, and up to three more layers where the
+asset's paint says they go.
 
 ## The asset
 
@@ -33,6 +38,17 @@ needs all sixteen bits, and the texture cooker would compress a `_height`
 map to eight the way it should for a parallax map -- and it is its own file
 because sculpting, when it arrives, writes heights back.
 
+A painted terrain carries its **paint** in the same file: after the heights,
+one RGBA byte per grid point, one channel per layer, on the same grid. The
+header's layer count is 0 (heights only -- a terrain with one material) or 4
+(the paint follows). The four channels need not sum to 255: the engine
+normalises them, so a lightly painted map is not a dark one, and where every
+channel is zero the ground is layer 0. An unpainted terrain and a stage-one
+file look exactly the same for that reason. `make_terrain.py` writes paint
+for the sample project's hills (from slope and height -- a mossy soil on the
+flats, a sandy one in the low ground) and for the `layers` test card; the
+brush that paints it by hand is the next stage.
+
 ## The component
 
 | Field | Default | What it does |
@@ -40,13 +56,33 @@ because sculpting, when it arrives, writes heights back.
 | `Terrain` | invalid | The `.rvterrain`. Invalid draws nothing |
 | `Size` | `256` | Metres a side, centred on the entity |
 | `Height` | `40` | Metres the highest possible sample stands above the base |
-| `Material` | invalid | One `.rmat`, tiled over the terrain. Invalid is the renderer's default |
-| `TextureScale` | `4` | Metres per repeat of the material's textures; the material's own tiling multiplies on top |
+| `Material` | invalid | **Layer 0**: the material everywhere nothing else is painted, and the whole terrain when there is no paint. Invalid is the renderer's default |
+| `Layer1` | invalid | The material the paint's second channel blends in. Invalid means the layer is not there and its channel is ignored |
+| `Layer2` | invalid | The third channel's, likewise |
+| `Layer3` | invalid | The fourth channel's, likewise |
+| `TextureScale` | `4` | Metres per repeat of the layers' textures; each layer's own tiling multiplies on top |
 | `Collision` | `true` | A static height-field collider under the surface, exact to the triangle |
 
 The entity's transform places, turns and scales it like any mesh. A
 `RigidBody` on the same entity is ignored: the terrain is its own collider,
 static by nature, and needs no `Collider` component.
+
+The field is called `Material` in the scene file and "Layer 0" in the
+inspector: it is the one material a terrain had before layers existed, and a
+scene saved then reads and looks unchanged.
+
+## Layers
+
+Each layer is an ordinary `.rmat`. Its base colour, normal and roughness
+maps are read, and its scalars -- colour, metallic, roughness, occlusion,
+specular, emissive, tiling -- are honoured; its occlusion, metallic,
+specular, emissive and height *maps* are not, on either backend, because the
+four layers together would ask for more texture units than OpenGL gives a
+fragment shader, and the two backends are kept to the same picture. Where a
+layer's paint runs out its weight is zero and it costs nothing; where two
+overlap the surface is a blend of both, normals included. Parallax is not
+applied on layers, and a steep face stretches its texture as it would on any
+mesh.
 
 ## What happens underneath
 
@@ -66,9 +102,12 @@ what is drawn. Ray casts hit it and report the terrain's entity.
 
 ## Limits
 
-- One material for the whole terrain. Layers painted by a weight map are the
-  next stage.
-- No sculpting or painting in the editor. The next stage after that.
+- Four layers at most, each reading three maps (base colour, normal,
+  roughness); the paint is at the heights' resolution.
+- No sculpting or painting in the editor. The next stage: a brush that
+  raises, lowers, smooths and flattens the ground under the cursor and paints
+  the layers with the same stroke.
+- A terrain seen in a ray-traced reflection shows layer 0 only.
 - No holes: a heightfield cannot have caves or overhangs.
 - Everything is built at load and stays resident. A 1025 terrain is a few
   tens of megabytes of geometry; 2049 is around 180 MB and the practical
@@ -79,6 +118,6 @@ what is drawn. Ray casts hit it and report the terrain's entity.
 
 ## Where to go next
 
-- [Materials](materials.md) -- the one material a terrain wears
+- [Materials](materials.md) -- what a layer is
 - [Physics](physics.md) -- what rests on it
 - [Component reference](components.md#terraincomponent) -- the fields again

@@ -82,6 +82,9 @@ namespace RageV
 		// colour no material in a real scene is, so it reads as a bug and not
 		// as a look.
 		static RHI::Ref<RHI::RHITexture> Magenta(RHI::RHIDevice& device);
+		// (1, 0, 0, 0): a layer-weight texel that says "all of layer 0". The
+		// weight map of a terrain nobody has painted (ENGINE-NOTES 7aq).
+		static RHI::Ref<RHI::RHITexture> Red(RHI::RHIDevice& device);
 
 		static void ClearCache();
 	};

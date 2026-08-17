@@ -1,0 +1,19 @@
+// The lit shader over a surface made of four materials in painted
+// proportions -- a terrain chunk (ENGINE-NOTES 7aq).
+//
+// The vertex stage is the static one, included: a chunk is a mesh that does
+// not deform. The fragment stage is the same lighting as every other mesh's,
+// compiled with RV_LAYERED, which forks exactly one thing -- what set 1
+// holds and how the surface is assembled from it -- and nothing below the
+// surface. See the RV_LAYERED blocks in include/pbr_fragment.glsl.
+#type vertex
+#version 450 core
+
+#include "include/scene_vertex.glsl"
+#include "include/static_vertex.glsl"
+
+#type fragment
+#version 460 core
+
+#define RV_LAYERED
+#include "include/pbr_fragment.glsl"

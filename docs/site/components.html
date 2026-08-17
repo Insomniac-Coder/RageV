@@ -72,18 +72,21 @@
 <tr><td style="text-align:left"><code>NormalScale</code></td><td style="text-align:left"><code>1.0</code></td><td style="text-align:left">How strongly the normal map is applied</td></tr>
 </tbody></table></div>
 <h3 id="terraincomponent">TerrainComponent<a class="anchor" href="#terraincomponent" aria-label="Link to this section">#</a></h3>
-<p>A heightfield from an <code>.rvterrain</code> asset, drawn as chunk meshes with levels of detail and collided with through a static height field. Centred on the entity. See <a href="terrain.html">Terrain</a>.</p>
+<p>A heightfield from an <code>.rvterrain</code> asset, drawn as chunk meshes with levels of detail, surfaced from up to four materials in the proportions the asset&#39;s paint says, and collided with through a static height field. Centred on the entity. See <a href="terrain.html">Terrain</a>.</p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>Terrain</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The <code>.rvterrain</code> holding the heights. Invalid draws nothing</td></tr>
 <tr><td style="text-align:left"><code>Size</code></td><td style="text-align:left"><code>256.0</code></td><td style="text-align:left">Metres a side, centred on the entity</td></tr>
 <tr><td style="text-align:left"><code>Height</code></td><td style="text-align:left"><code>40.0</code></td><td style="text-align:left">Metres the highest possible sample stands above the base</td></tr>
-<tr><td style="text-align:left"><code>Material</code></td><td style="text-align:left">invalid</td><td style="text-align:left">One material, tiled over the whole terrain. Invalid means the renderer&#39;s shared default</td></tr>
-<tr><td style="text-align:left"><code>TextureScale</code></td><td style="text-align:left"><code>4.0</code></td><td style="text-align:left">Metres per repeat of the material&#39;s textures</td></tr>
+<tr><td style="text-align:left"><code>Material</code></td><td style="text-align:left">invalid</td><td style="text-align:left">Layer 0: the material wherever nothing else is painted, and the whole terrain when there is no paint. Invalid means the renderer&#39;s shared default. Shown as &quot;Layer 0&quot; in the inspector</td></tr>
+<tr><td style="text-align:left"><code>Layer1</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The material the paint&#39;s second channel blends in. Invalid means the layer is not there</td></tr>
+<tr><td style="text-align:left"><code>Layer2</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The third channel&#39;s material, likewise</td></tr>
+<tr><td style="text-align:left"><code>Layer3</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The fourth channel&#39;s material, likewise</td></tr>
+<tr><td style="text-align:left"><code>TextureScale</code></td><td style="text-align:left"><code>4.0</code></td><td style="text-align:left">Metres per repeat of the layers&#39; textures; each layer&#39;s own tiling multiplies on top</td></tr>
 <tr><td style="text-align:left"><code>Collision</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">A static height-field collider under the drawn surface. The terrain is its own collider: no RigidBody or Collider component is needed, and one on this entity is ignored</td></tr>
 </tbody></table></div>
 <p><strong>Runtime state:</strong></p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
-<tr><td style="text-align:left"><code>Runtime</code></td><td style="text-align:left">The chunk meshes built from the asset at these dimensions; rebuilt when the asset or a dimension changes</td></tr>
+<tr><td style="text-align:left"><code>Runtime</code></td><td style="text-align:left">The chunk meshes, weight texture and layered material built from the asset at these dimensions; rebuilt when the asset or a dimension changes</td></tr>
 </tbody></table></div>
 <h3 id="cameracomponent">CameraComponent<a class="anchor" href="#cameracomponent" aria-label="Link to this section">#</a></h3>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>

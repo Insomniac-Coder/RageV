@@ -1,6 +1,8 @@
 #include <rvpch.h>
 #include "Terrain.h"
 #include "Renderer.h"
+#include "Renderer3D.h"
+#include "TextureLoader.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Scene/Components.h"
 #include "RageV/Core/Log.h"
@@ -37,6 +39,13 @@ namespace RageV
 							 / ((float)(zr - zl) * cell);
 			return Math::Normalize(Vec3(-dhdx, 1.0f, -dhdz));
 		}
+	}
+
+	Vec4 Terrain::WeightUvFor(const Dimensions& dims, uint32_t resolution)
+	{
+		const float r = (float)Math::Max(resolution, 2u);
+		const float scale = dims.TextureScale / Math::Max(dims.Size, 1e-6f) * (r - 1.0f) / r;
+		return Vec4(scale, scale, 0.5f, 0.5f);
 	}
 
 	int Terrain::LevelFor(float distance, float chunkWidth)
@@ -247,7 +256,54 @@ namespace RageV
 		}
 
 		terrain->m_Bounds = whole;
+
+		// The paint (7aq): the asset's weights as an RGBA8 texture on the
+		// heights' grid, or the 1x1 "all layer 0" texel when there are none --
+		// the same picture, so a stage-1 terrain and an unpainted one draw
+		// through the same code and look the same.
+		if (device)
+		{
+			if (data.HasWeights())
+			{
+				RHI::TextureDesc desc;
+				desc.Width = data.Resolution;
+				desc.Height = data.Resolution;
+				desc.Format = RHI::Format::R8G8B8A8_UNORM;
+				desc.Usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferDst;
+				desc.DebugName = "Terrain weights";
+				terrain->m_WeightMap = device->CreateTexture(desc);
+				terrain->m_WeightMap->Upload(data.Weights.data(), data.Weights.size());
+			}
+			else
+			{
+				terrain->m_WeightMap = TextureLoader::Red(*device);
+			}
+
+			terrain->m_Layers = std::make_shared<LayeredMaterial>(*device, "Terrain layers");
+			terrain->m_Layers->SetWeights(terrain->m_WeightMap,
+										  WeightUvFor(terrain->m_Dimensions, data.Resolution));
+		}
+
 		return terrain;
+	}
+
+	const RHI::Ref<LayeredMaterial>& Terrain::RefreshLayers(const TerrainComponent& component)
+	{
+		if (!m_Layers)
+			return m_Layers;
+
+		// Layer 0 is the material a stage-1 terrain had, and empty means the
+		// renderer's default as it always did; the other three empty means
+		// "not a layer", and their weight is dropped from the normalisation.
+		RHI::Ref<Material> base = Assets::Manager::GetMaterial(component.Material);
+		if (!base)
+			base = Renderer3D::GetDefaultMaterial();
+		m_Layers->SetLayer(0, base);
+		m_Layers->SetLayer(1, Assets::Manager::GetMaterial(component.Layer1));
+		m_Layers->SetLayer(2, Assets::Manager::GetMaterial(component.Layer2));
+		m_Layers->SetLayer(3, Assets::Manager::GetMaterial(component.Layer3));
+		m_Layers->Refresh(Renderer3D::GetTextureHeap());
+		return m_Layers;
 	}
 
 	const RHI::Ref<Terrain>& Terrain::Resolve(TerrainComponent& component)

@@ -55,6 +55,8 @@ Entities:
       Size: 256
       Height: 30
       Material: 2253873544424874864
+      Layer1: 2133364294771198536
+      Layer2: 12944800412100436564
       TextureScale: 12
       Collision: true
   - EntityID: 8709371129873690708

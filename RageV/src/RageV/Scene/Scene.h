@@ -281,22 +281,28 @@ namespace RageV
 		// for every object in it and still look approximately correct.
 		uint32_t ProbeSlotFor(const Vec3& position) const;
 
-		// Every terrain chunk at the level SelectLod last chose (ENGINE-NOTES
-		// 7ap): the entity, its world transform, its component, the terrain and
+		// Every terrain that has something to draw (ENGINE-NOTES 7ap): the
+		// entity, its world transform, its component and the terrain built from
+		// its asset -- resolved on first use; an entity whose asset is missing
+		// is skipped.
+		void ForEachTerrain(const std::function<void(Entity, TransformComponent&,
+												 TerrainComponent&, Terrain&)>& fn);
+
+		// Every terrain chunk at the level SelectLod last chose: the same, and
 		// the chunk. The one walk the scene pass, the shadow casters, the
 		// ray-instance list and the picker share, so none of them can disagree
-		// about which level a chunk is at. Resolves the terrain from the asset
-		// on first use; an entity whose asset is missing is skipped. `Fn` is
-		// void(Entity, TransformComponent&, TerrainComponent&, Terrain&,
-		// Terrain::Chunk&).
+		// about which level a chunk is at.
 		void ForEachTerrainChunk(const std::function<void(Entity, TransformComponent&,
 													  TerrainComponent&, Terrain&,
 													  Terrain::Chunk&)>& fn);
 
-		// Chooses every terrain chunk's level for a camera at `cameraPosition`.
+		// Once per frame, before anything reads a chunk: chooses every terrain
+		// chunk's level for a camera at `cameraPosition`, and refreshes each
+		// terrain's layered material from its component's four handles (7aq).
 		// RenderShadows calls it first thing, so the level the shadows are
-		// rendered from is the level the frame draws.
-		void SelectTerrainLods(const Vec3& cameraPosition);
+		// rendered from is the level the frame draws, and the layers are the
+		// frame's before the draw asks for them.
+		void PrepareTerrains(const Vec3& cameraPosition);
 
 		// True when at least one terrain has something to draw.
 		bool HasTerrain();

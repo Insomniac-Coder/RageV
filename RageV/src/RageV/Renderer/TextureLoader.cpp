@@ -43,6 +43,7 @@ namespace RageV
 		Ref<RHITexture> s_Black;
 		Ref<RHITexture> s_TransparentBlack;
 		Ref<RHITexture> s_FlatNormal;
+		Ref<RHITexture> s_Red;
 		Ref<RHITexture> s_Magenta;
 		Ref<RHITexture> s_BlackCube;
 		Ref<RHITexture> s_BlackCubeArray;
@@ -447,6 +448,13 @@ namespace RageV
 		return s_TransparentBlack;
 	}
 
+	Ref<RHITexture> TextureLoader::Red(RHIDevice& device)
+	{
+		if (!s_Red)
+			s_Red = MakeSolid(device, 0x000000ff, "default.red");   // R=255, G=B=A=0
+		return s_Red;
+	}
+
 	Ref<RHITexture> TextureLoader::FlatNormal(RHIDevice& device)
 	{
 		if (!s_FlatNormal)
@@ -475,6 +483,7 @@ namespace RageV
 		s_Black.reset();
 		s_TransparentBlack.reset();
 		s_FlatNormal.reset();
+		s_Red.reset();
 		s_Magenta.reset();
 		s_BlackCube.reset();
 		s_BlackCubeArray.reset();

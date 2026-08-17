@@ -105,23 +105,27 @@ colour stay one draw.
 ### TerrainComponent
 
 A heightfield from an `.rvterrain` asset, drawn as chunk meshes with levels of
-detail and collided with through a static height field. Centred on the entity.
-See [Terrain](terrain.md).
+detail, surfaced from up to four materials in the proportions the asset's
+paint says, and collided with through a static height field. Centred on the
+entity. See [Terrain](terrain.md).
 
 | Field | Default | What it does |
 |---|---|---|
 | `Terrain` | invalid | The `.rvterrain` holding the heights. Invalid draws nothing |
 | `Size` | `256.0` | Metres a side, centred on the entity |
 | `Height` | `40.0` | Metres the highest possible sample stands above the base |
-| `Material` | invalid | One material, tiled over the whole terrain. Invalid means the renderer's shared default |
-| `TextureScale` | `4.0` | Metres per repeat of the material's textures |
+| `Material` | invalid | Layer 0: the material wherever nothing else is painted, and the whole terrain when there is no paint. Invalid means the renderer's shared default. Shown as "Layer 0" in the inspector |
+| `Layer1` | invalid | The material the paint's second channel blends in. Invalid means the layer is not there |
+| `Layer2` | invalid | The third channel's material, likewise |
+| `Layer3` | invalid | The fourth channel's material, likewise |
+| `TextureScale` | `4.0` | Metres per repeat of the layers' textures; each layer's own tiling multiplies on top |
 | `Collision` | `true` | A static height-field collider under the drawn surface. The terrain is its own collider: no RigidBody or Collider component is needed, and one on this entity is ignored |
 
 **Runtime state:**
 
 | Field | What it is |
 |---|---|
-| `Runtime` | The chunk meshes built from the asset at these dimensions; rebuilt when the asset or a dimension changes |
+| `Runtime` | The chunk meshes, weight texture and layered material built from the asset at these dimensions; rebuilt when the asset or a dimension changes |
 
 ### CameraComponent
 

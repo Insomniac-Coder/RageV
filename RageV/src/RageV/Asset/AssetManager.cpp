@@ -277,15 +277,18 @@ namespace RageV::Assets
 		for (auto handle : registry.view<WorldTextComponent>())
 			Want(registry.get<WorldTextComponent>(handle).Font, WantKind::Font, pending, seen);
 
-		// A terrain's heights, and the material it is drawn with. The chunk
-		// meshes are built on the first frame that draws it -- they need the
-		// component's dimensions, which the preloader does not resolve -- but
-		// the file, which is the bytes, is read here.
+		// A terrain's heights, and the four layers it is drawn with (7aq). The
+		// chunk meshes are built on the first frame that draws it -- they need
+		// the component's dimensions, which the preloader does not resolve --
+		// but the file, which is the bytes, is read here.
 		for (auto handle : registry.view<TerrainComponent>())
 		{
 			const auto& terrain = registry.get<TerrainComponent>(handle);
 			Want(terrain.Terrain, WantKind::Terrain, pending, seen);
 			WantMaterial(terrain.Material, pending, seen);
+			WantMaterial(terrain.Layer1, pending, seen);
+			WantMaterial(terrain.Layer2, pending, seen);
+			WantMaterial(terrain.Layer3, pending, seen);
 		}
 
 		// Audio is streamed from disk over a sound's lifetime, so there is

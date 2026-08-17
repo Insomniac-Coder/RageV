@@ -323,9 +323,12 @@ namespace RageV
 	// the ground around it. Rotation and scale go through the world matrix
 	// like any mesh's.
 	//
-	// The material is one ordinary `.rmat`, tiled: the chunk vertices carry
-	// uv = local metres / TextureScale, and the material's own tiling multiplies
-	// on top. A layered material blended by a painted weight map is stage 2.
+	// The surface is up to four ordinary `.rmat`s in proportions painted into
+	// the asset's weight map (ENGINE-NOTES 7aq), each tiled: the chunk
+	// vertices carry uv = local metres / TextureScale, and each layer's own
+	// tiling multiplies on top. Layer 0 is `Material` -- the one material a
+	// stage-1 terrain had, kept under that key so a scene saved then reads
+	// unchanged -- and where nothing is painted, layer 0 is all there is.
 	//
 	// The entity's transform places it; a RigidBody on the same entity is
 	// ignored -- the terrain *is* its collider, static by nature, whenever
@@ -339,9 +342,14 @@ namespace RageV
 		// Metres a full (65535) sample stands above the base.
 		float Height = 40.0f;
 
-		// Null means the renderer's shared default material.
+		// Layer 0. Null means the renderer's shared default material.
 		AssetHandle Material = AssetHandle::Invalid();
-		// Metres per repeat of the material's textures.
+		// Layers 1 to 3. Null means the layer is not there: its weight is
+		// ignored, not drawn as the default.
+		AssetHandle Layer1 = AssetHandle::Invalid();
+		AssetHandle Layer2 = AssetHandle::Invalid();
+		AssetHandle Layer3 = AssetHandle::Invalid();
+		// Metres per repeat of the layers' textures.
 		float TextureScale = 4.0f;
 
 		// A static Jolt height field under the drawn surface, to the triangle.

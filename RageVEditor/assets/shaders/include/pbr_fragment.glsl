@@ -197,12 +197,17 @@ layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 } u_RayInstances;
 #endif
 
-// The material: two front doors, one shading (ENGINE-NOTES 7al).
+// The material: two front doors, one shading (ENGINE-NOTES 7al) -- and a
+// third kind of surface behind either door (7aq).
 //
 // Everything below this block -- every texture(u_BaseColorMap, uv), every
 // u_Material.MapFlags -- compiles unchanged in both variants. That is the
 // point of forking at the preprocessor: the six hundred lines that could
-// drift do not exist twice.
+// drift do not exist twice. RV_LAYERED changes what set 1 *holds* -- a
+// block of four layers and, on the bound path, their samplers instead of
+// one material's -- and what SampleSurface below assembles from it; on the
+// bindless path the heap and the record buffer are declared as ever, since
+// the hit shading of a traced reflection still reads them.
 #ifdef RV_BINDLESS
 
 // The bindless heap: every texture the scene has registered, in one array
@@ -253,7 +258,7 @@ GpuMaterial g_Material;
 #define u_SpecularMap  u_Textures[nonuniformEXT(g_Material.Maps1.z)]
 #define u_HeightMap    u_Textures[nonuniformEXT(g_Material.Maps1.w)]
 
-#else
+#elif !defined(RV_LAYERED)
 
 layout(set = 1, binding = 0) uniform MaterialData
 {
@@ -293,6 +298,62 @@ layout(set = 1, binding = 8) uniform sampler2D u_SpecularMap;
 layout(set = 1, binding = 9) uniform sampler2D u_HeightMap;
 
 #endif
+
+// A layered surface (ENGINE-NOTES 7aq): four materials, each an ordinary
+// .rmat, in proportions read from a weight map. Set 1 is this block and --
+// on the bound path -- thirteen samplers: the weights, and each layer's base
+// colour, normal and roughness as arrays of four, so a layer's index is a
+// constant wherever a sampler is named. On the bindless path the same maps
+// are heap slots inside the block. Three maps per layer and not eight,
+// because the shared set 0 already spends sixteen of the thirty-two texture
+// units OpenGL gives a fragment stage, and both paths read the same three so
+// the pixel comparison between them stays exact. Mirrored by hand in
+// Material.h (LayeredParams), std140.
+#ifdef RV_LAYERED
+
+const int LAYER_ACTIVE = 1 << 15;
+const int LAYERS = 4;
+
+layout(set = 1, binding = 0) uniform LayeredData
+{
+	vec4  BaseColor[LAYERS];
+	vec4  EmissiveColor[LAYERS];
+	// metallic, roughness, occlusion, normal scale
+	vec4  Surface[LAYERS];
+	// xy scale, zw offset
+	vec4  UvTransform[LAYERS];
+	// One dielectric reflectance per layer.
+	vec4  Specular;
+	// The layer's MAP_ flags for the three maps read, plus LAYER_ACTIVE.
+	ivec4 MapFlags;
+	// v_TexCoord * xy + zw is the weight map's coordinate.
+	vec4  WeightUv;
+	// Heap slots, bindless only; zero and unread on the bound path.
+	uvec4 BaseColorSlots;
+	uvec4 NormalSlots;
+	uvec4 RoughnessSlots;
+	uvec4 WeightSlot;
+} u_Layered;
+
+#ifdef RV_BINDLESS
+// The slot comes from a uniform block, so it is uniform across the draw and
+// the qualifier is not needed; kept for the same reason the material path
+// keeps it -- the index into the descriptor array is what it decorates.
+#define u_Weights            u_Textures[nonuniformEXT(u_Layered.WeightSlot.x)]
+#define LAYER_BASE_COLOR(i)  u_Textures[nonuniformEXT(u_Layered.BaseColorSlots[i])]
+#define LAYER_NORMAL(i)      u_Textures[nonuniformEXT(u_Layered.NormalSlots[i])]
+#define LAYER_ROUGHNESS(i)   u_Textures[nonuniformEXT(u_Layered.RoughnessSlots[i])]
+#else
+layout(set = 1, binding = 1) uniform sampler2D u_Weights;
+layout(set = 1, binding = 2) uniform sampler2D u_LayerBaseColor[LAYERS];
+layout(set = 1, binding = 3) uniform sampler2D u_LayerNormal[LAYERS];
+layout(set = 1, binding = 4) uniform sampler2D u_LayerRoughness[LAYERS];
+#define LAYER_BASE_COLOR(i)  u_LayerBaseColor[i]
+#define LAYER_NORMAL(i)      u_LayerNormal[i]
+#define LAYER_ROUGHNESS(i)   u_LayerRoughness[i]
+#endif
+
+#endif   // RV_LAYERED
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
@@ -346,7 +407,9 @@ vec2 OctEncode(vec3 n)
 	return e * 0.5 + 0.5;
 }
 
+#ifndef RV_LAYERED
 bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
+#endif
 
 // Which cell of the grid this fragment falls in.
 //
@@ -826,18 +889,24 @@ mat3 TangentFrame(vec3 N, vec3 worldPos, vec2 uv)
 	return mat3(T * invmax, B * invmax, N);
 }
 
+// A normal-map texel to a world-space normal through the frame. Z is
+// reconstructed from XY, never read -- one path for every normal map. A
+// two-channel (BC5) map has no Z to read; for an RGB map whose normals are
+// unit length the reconstruction *is* the stored Z, and one that was not unit
+// length gets renormalized, which is a correction. A shader that branched on
+// the texture's format here would be two shading paths waiting to drift.
+vec3 UnpackNormal(mat3 TBN, vec2 xy, float scale)
+{
+	xy = xy * 2.0 - 1.0;
+	vec3 tangentNormal = vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
+	tangentNormal.xy *= scale;
+	return normalize(TBN * tangentNormal);
+}
+
+#ifndef RV_LAYERED
 vec3 PerturbNormal(mat3 TBN, vec2 uv)
 {
-	// Z is reconstructed from XY, never read -- one path for every normal
-	// map. A two-channel (BC5) map has no Z to read; for an RGB map whose
-	// normals are unit length the reconstruction *is* the stored Z, and one
-	// that was not unit length gets renormalized, which is a correction. A
-	// shader that branched on the texture's format here would be two shading
-	// paths waiting to drift.
-	vec2 xy = texture(u_NormalMap, uv).xy * 2.0 - 1.0;
-	vec3 tangentNormal = vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
-	tangentNormal.xy *= v_Surface.w;
-	return normalize(TBN * tangentNormal);
+	return UnpackNormal(TBN, texture(u_NormalMap, uv).xy, v_Surface.w);
 }
 
 // Parallax occlusion: march the view ray through the height field and use the
@@ -883,6 +952,169 @@ vec2 Parallax(vec2 uv, vec3 viewTS)
 	float t = clamp(after / (after - before + 1e-5), 0.0, 1.0);
 	return cur + delta * t;
 }
+#endif   // !RV_LAYERED
+
+// What the lighting below is given: the surface at this fragment, with every
+// map already read. One struct, filled by one of two SampleSurface bodies --
+// the single material every mesh has, or the four layers a terrain chunk has
+// (ENGINE-NOTES 7aq) -- and nothing after it knows which. That is the whole
+// of the layered fork: the lights, the shadows by map or by ray, the probe,
+// the reflection mix and the emissive term run over this struct unchanged.
+struct Surface
+{
+	vec4  BaseColor;
+	float Metallic;
+	float Roughness;
+	float Occlusion;
+	float Specular;
+	// The shading normal, after any normal map.
+	vec3  N;
+	vec3  Emissive;
+};
+
+#ifndef RV_LAYERED
+
+Surface SampleSurface(vec3 Ngeo, vec3 V)
+{
+	Surface s;
+
+	// The material's tiling, applied once. Every map has to use the same
+	// coordinate or the normals stop lining up with the colour they belong to,
+	// which reads as a lighting bug rather than as a UV one.
+	vec2 uv = v_TexCoord * u_Material.UvTransform.xy + u_Material.UvTransform.zw;
+
+	mat3 TBN = TangentFrame(Ngeo, v_WorldPos, uv);
+
+	// Parallax before any map is sampled, so colour, normal, roughness and
+	// occlusion all agree about which texel is under this pixel.
+	if (HasMap(MAP_HEIGHT))
+		uv = Parallax(uv, transpose(TBN) * V);
+
+	s.BaseColor = v_BaseColor;
+	if (HasMap(MAP_BASE_COLOR))
+		s.BaseColor *= texture(u_BaseColorMap, uv);
+
+	s.Metallic  = v_Surface.x;
+	s.Roughness = v_Surface.y;
+	// Separate greyscale maps, read from red. glTF packs these two into one
+	// texture; the importer splits it, so by the time a material exists there
+	// is no packed form left to handle.
+	if (HasMap(MAP_ROUGHNESS))
+		s.Roughness *= texture(u_RoughnessMap, uv).r;
+	if (HasMap(MAP_METALLIC))
+		s.Metallic *= texture(u_MetallicMap, uv).r;
+
+	s.Occlusion = v_Surface.z;
+	if (HasMap(MAP_OCCLUSION))
+		s.Occlusion *= texture(u_OcclusionMap, uv).r;
+
+	s.N = Ngeo;
+	if (HasMap(MAP_NORMAL))
+		s.N = PerturbNormal(TBN, uv);
+
+	// Dielectric reflectance, on the convention everyone uses: F0 = 0.08 *
+	// specular, so the default 0.5 is the 4% that was hardcoded here. Metals
+	// ignore it entirely -- their F0 *is* their albedo, which is what the mix
+	// in main says.
+	s.Specular = u_Material.Specular;
+	if (HasMap(MAP_SPECULAR))
+		s.Specular *= texture(u_SpecularMap, uv).r;
+
+	s.Emissive = v_EmissiveColor.rgb;
+	if (HasMap(MAP_EMISSIVE))
+		s.Emissive *= texture(u_EmissiveMap, uv).rgb;
+
+	return s;
+}
+
+#else   // RV_LAYERED
+
+// One layer's contribution, at a constant index so every sampler it names
+// is a constant. A macro rather than a function so the bound path's sampler
+// arrays are indexed by a literal -- and unrolled by hand, four times, for
+// the same reason.
+//
+// textureGrad, not texture: the body sits under a per-fragment branch on a
+// weight read from a texture, and an implicit derivative inside divergent
+// control flow is undefined. The coordinate's derivatives are taken once
+// outside and scaled by the layer's own tiling here. The tangent frame is
+// built per layer, outside the weight branch for the same reason, because
+// the frame is a function of the transformed coordinate and a layer's
+// tiling may be non-uniform or mirrored; four frames are four derivative
+// pairs and cost nothing.
+#define SHADE_LAYER(i)                                                                     \
+	{                                                                                      \
+		int   flags = u_Layered.MapFlags[i];                                               \
+		float w     = weight[i];                                                           \
+		vec2 uvL  = v_TexCoord * u_Layered.UvTransform[i].xy + u_Layered.UvTransform[i].zw; \
+		vec2 ddxL = ddx * u_Layered.UvTransform[i].xy;                                     \
+		vec2 ddyL = ddy * u_Layered.UvTransform[i].xy;                                     \
+		mat3 TBN  = TangentFrame(Ngeo, v_WorldPos, uvL);                                   \
+		if (w > 0.0)                                                                       \
+		{                                                                                  \
+			vec4 baseL = u_Layered.BaseColor[i];                                           \
+			if ((flags & MAP_BASE_COLOR) != 0)                                             \
+				baseL *= textureGrad(LAYER_BASE_COLOR(i), uvL, ddxL, ddyL);                \
+			float roughL = u_Layered.Surface[i].y;                                         \
+			if ((flags & MAP_ROUGHNESS) != 0)                                              \
+				roughL *= textureGrad(LAYER_ROUGHNESS(i), uvL, ddxL, ddyL).r;              \
+			vec3 nL = Ngeo;                                                                \
+			if ((flags & MAP_NORMAL) != 0)                                                 \
+				nL = UnpackNormal(TBN, textureGrad(LAYER_NORMAL(i), uvL, ddxL, ddyL).xy,   \
+								  u_Layered.Surface[i].w);                                 \
+			s.BaseColor += w * baseL;                                                      \
+			s.Metallic  += w * u_Layered.Surface[i].x;                                     \
+			s.Roughness += w * roughL;                                                     \
+			s.Occlusion += w * u_Layered.Surface[i].z;                                     \
+			s.Specular  += w * u_Layered.Specular[i];                                      \
+			s.Emissive  += w * u_Layered.EmissiveColor[i].rgb;                             \
+			s.N         += w * nL;                                                         \
+		}                                                                                  \
+	}
+
+Surface SampleSurface(vec3 Ngeo, vec3 V)
+{
+	// The paint under this fragment. Inactive layers weigh nothing whatever
+	// the map says; the rest are normalised so a half-painted map is not a
+	// darker one; and where nothing is painted at all -- a zero sum, which is
+	// also every texel of an unpainted terrain -- layer 0 is the surface.
+	vec2 wuv = v_TexCoord * u_Layered.WeightUv.xy + u_Layered.WeightUv.zw;
+	vec4 weight = texture(u_Weights, wuv);
+	for (int i = 0; i < LAYERS; ++i)
+		if ((u_Layered.MapFlags[i] & LAYER_ACTIVE) == 0)
+			weight[i] = 0.0;
+	float sum = weight.x + weight.y + weight.z + weight.w;
+	weight = sum > 1e-4 ? weight / sum : vec4(1.0, 0.0, 0.0, 0.0);
+
+	// The derivatives every layer's fetch scales, taken here where control
+	// flow is still uniform.
+	vec2 ddx = dFdx(v_TexCoord);
+	vec2 ddy = dFdy(v_TexCoord);
+
+	Surface s;
+	s.BaseColor = vec4(0.0);
+	s.Metallic  = 0.0;
+	s.Roughness = 0.0;
+	s.Occlusion = 0.0;
+	s.Specular  = 0.0;
+	s.N         = vec3(0.0);
+	s.Emissive  = vec3(0.0);
+
+	SHADE_LAYER(0)
+	SHADE_LAYER(1)
+	SHADE_LAYER(2)
+	SHADE_LAYER(3)
+
+	// The weighted sum of unit normals is not unit; the geometric normal is
+	// the answer where every layer's cancels, which cannot happen for
+	// weights above zero over normals in one hemisphere but costs nothing to
+	// state.
+	float length2 = dot(s.N, s.N);
+	s.N = length2 > 1e-8 ? s.N * inversesqrt(length2) : Ngeo;
+	return s;
+}
+
+#endif   // RV_LAYERED
 
 void main()
 {
@@ -918,46 +1150,19 @@ void main()
 		o_Velocity = ((nowNDC - u_Scene.Jitter.xy) - (thenNDC - u_Scene.Jitter.zw)) * 0.5;
 	}
 
-	// The material's tiling, applied once. Every map has to use the same
-	// coordinate or the normals stop lining up with the colour they belong to,
-	// which reads as a lighting bug rather than as a UV one.
-	vec2 uv = v_TexCoord * u_Material.UvTransform.xy + u_Material.UvTransform.zw;
-
 	vec3 Ngeo = normalize(v_Normal);
 	vec3 V = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
-	mat3 TBN = TangentFrame(Ngeo, v_WorldPos, uv);
 
-	// Parallax before any map is sampled, so colour, normal, roughness and
-	// occlusion all agree about which texel is under this pixel.
-	if (HasMap(MAP_HEIGHT))
-		uv = Parallax(uv, transpose(TBN) * V);
+	// The surface, every map read, from whichever body this variant has.
+	Surface surface = SampleSurface(Ngeo, V);
 
-	vec4 baseColor = v_BaseColor;
-	if (HasMap(MAP_BASE_COLOR))
-		baseColor *= texture(u_BaseColorMap, uv);
-
+	vec4 baseColor = surface.BaseColor;
 	vec3 albedo = baseColor.rgb;
 
-	float metallic  = v_Surface.x;
-	float roughness = v_Surface.y;
-	// Separate greyscale maps, read from red. glTF packs these two into one
-	// texture; the importer splits it, so by the time a material exists there
-	// is no packed form left to handle.
-	if (HasMap(MAP_ROUGHNESS))
-		roughness *= texture(u_RoughnessMap, uv).r;
-	if (HasMap(MAP_METALLIC))
-		metallic *= texture(u_MetallicMap, uv).r;
-
-	roughness = clamp(roughness, 0.045, 1.0);   // fully smooth aliases badly
-	metallic  = clamp(metallic, 0.0, 1.0);
-
-	float occlusion = v_Surface.z;
-	if (HasMap(MAP_OCCLUSION))
-		occlusion *= texture(u_OcclusionMap, uv).r;
-
-	vec3 N = Ngeo;
-	if (HasMap(MAP_NORMAL))
-		N = PerturbNormal(TBN, uv);
+	float roughness = clamp(surface.Roughness, 0.045, 1.0);   // fully smooth aliases badly
+	float metallic  = clamp(surface.Metallic, 0.0, 1.0);
+	float occlusion = surface.Occlusion;
+	vec3 N = surface.N;
 
 	// The surface as SSR will see it: the *shading* normal, after the normal
 	// map, so a reflection off the brick floor follows the mortar and not a
@@ -967,16 +1172,9 @@ void main()
 	o_Surface = vec4(OctEncode(N), roughness, metallic);
 
 	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
-	// the reflectance and have no diffuse response at all.
-	// Dielectric reflectance, on the convention everyone uses: F0 = 0.08 *
-	// specular, so the default 0.5 is the 4% that was hardcoded here. Metals
-	// ignore it entirely -- their F0 *is* their albedo, which is what the mix
-	// below says.
-	float specular = u_Material.Specular;
-	if (HasMap(MAP_SPECULAR))
-		specular *= texture(u_SpecularMap, uv).r;
-
-	vec3 F0 = mix(vec3(0.08 * clamp(specular, 0.0, 1.0)), albedo, metallic);
+	// the reflectance and have no diffuse response at all: F0 = 0.08 *
+	// specular for a dielectric, the albedo for a metal.
+	vec3 F0 = mix(vec3(0.08 * clamp(surface.Specular, 0.0, 1.0)), albedo, metallic);
 
 	vec3 Lo = vec3(0.0);
 
@@ -1196,11 +1394,7 @@ void main()
 	vec2 envBRDF = EnvBRDF(NdotV, roughness);
 	ambient += prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;
 
-	vec3 emissive = v_EmissiveColor.rgb;
-	if (HasMap(MAP_EMISSIVE))
-		emissive *= texture(u_EmissiveMap, uv).rgb;
-
-	vec3 color = ambient + Lo + emissive;
+	vec3 color = ambient + Lo + surface.Emissive;
 
 	// Linear, unbounded, untouched. Tone mapping and the transfer function
 	// moved to the tonemap pass, for two reasons: bloom needs these values

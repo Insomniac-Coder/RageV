@@ -114,6 +114,16 @@ namespace RageV
 									const std::vector<Mat4>& bones, uint32_t probe,
 									const Mat4* previousTransform = nullptr);
 
+		// A mesh whose surface is four materials in painted proportions -- a
+		// terrain chunk (ENGINE-NOTES 7aq). Drawn by the third lit pipeline,
+		// whose set 1 the layered material binds itself; the instance's scalars
+		// are layer 0's, and its material record on the bindless path is
+		// layer 0's too, which is what a traced reflection of it shades with.
+		// `layered` must have had Refresh called this frame.
+		static void DrawLayeredMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
+									const RHI::Ref<LayeredMaterial>& layered, uint32_t probe,
+									const Mat4* previousTransform = nullptr);
+
 		// Shared by every mesh that has no material of its own.
 		static RHI::Ref<Material> GetDefaultMaterial();
 
@@ -154,6 +164,9 @@ namespace RageV
 		// device that lacks the feature takes the bound path silently and a
 		// pixel comparison between the two needs to know which it got.
 		static bool IsBindless();
+		// The heap itself, or null on the bound path: what a layered material
+		// registers its maps in (7aq).
+		static TextureHeap* GetTextureHeap();
 		// How many heap slots are live and how many remain, for the stats
 		// panel; both zero on the bound path.
 		static unsigned int GetHeapLiveCount();

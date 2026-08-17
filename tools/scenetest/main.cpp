@@ -10917,7 +10917,85 @@ void main()
 			Check(!Assets::TerrainSerializer::Save(bad, dir / "bad.rvterrain") &&
 				  !std::filesystem::exists(dir / "bad.rvterrain", error),
 				  "an invalid grid is not written at all");
+
+			// --- and with paint (ENGINE-NOTES 7aq) --------------------------------
+			// The same ramp with a weight per sample: layer 1 rising with x,
+			// layer 0 the rest, the other two zero.
+			TerrainData painted = ramp;
+			painted.Weights.assign((size_t)33 * 33 * TerrainData::kLayers, 0);
+			for (uint32_t z = 0; z < 33; ++z)
+			{
+				for (uint32_t x = 0; x < 33; ++x)
+				{
+					const size_t at = ((size_t)z * 33 + x) * TerrainData::kLayers;
+					painted.Weights[at + 1] = (uint8_t)(x * 255 / 32);
+					painted.Weights[at + 0] = (uint8_t)(255 - painted.Weights[at + 1]);
+				}
+			}
+			Check(painted.IsValid() && painted.HasWeights(), "a grid with a weight per sample is valid");
+			Check(painted.WeightAt(32, 5, 1) == 255 && painted.WeightAt(32, 5, 0) == 0 &&
+				  painted.WeightAt(0, 9, 0) == 255 && painted.WeightAt(16, 0, 1) == 127 &&
+				  painted.WeightAt(16, 0, 2) == 0,
+				  "WeightAt reads the interleaved bytes back by layer");
+			Check(ramp.WeightAt(16, 0, 1) == 0, "and zero everywhere on an unpainted grid");
+			TerrainData half = painted;
+			half.Weights.resize(half.Weights.size() / 2);
+			Check(!half.IsValid(), "weights that are not the grid's size are not valid");
+
+			const std::filesystem::path paintedPath = dir / "painted.rvterrain";
+			Check(Assets::TerrainSerializer::Save(painted, paintedPath), "a painted terrain writes");
+			Check(std::filesystem::file_size(paintedPath, error) == 32 + 33 * 33 * 2 + 33 * 33 * 4,
+				  "as the header, two bytes a sample, and four more a sample of paint");
+			TerrainData paintedBack;
+			Check(Assets::TerrainSerializer::Load(paintedBack, paintedPath) &&
+				  paintedBack.Heights == painted.Heights && paintedBack.Weights == painted.Weights,
+				  "and reads back with every weight byte for byte");
+			{
+				std::vector<uint8_t> bytes;
+				IO::VFS::ReadBytes(paintedPath, bytes);
+				// The layer count says 4; a file that stops inside its weights is
+				// short, not a file with fewer layers.
+				std::vector<uint8_t> cut(bytes.begin(), bytes.end() - 100);
+				std::ofstream truncated(dir / "short_paint.rvterrain", std::ios::binary);
+				truncated.write((const char*)cut.data(), (std::streamsize)cut.size());
+				truncated.close();
+				Check(!Assets::TerrainSerializer::Load(untouched, dir / "short_paint.rvterrain"),
+					  "a terrain truncated inside its weights is refused");
+				// And a layer count that is neither 0 nor 4.
+				std::vector<uint8_t> two = bytes;
+				two[12] = 2;
+				std::ofstream odd(dir / "two_layers.rvterrain", std::ios::binary);
+				odd.write((const char*)two.data(), (std::streamsize)two.size());
+				odd.close();
+				Check(!Assets::TerrainSerializer::Load(untouched, dir / "two_layers.rvterrain") &&
+					  untouched.Heights[0] == 7,
+					  "a layer count that is not 0 or 4 is refused, and leaves the caller's data alone");
+			}
 			std::filesystem::remove_all(dir, error);
+		}
+
+		// --- the layered material's numbers (7aq) -----------------------------
+		// The block is mirrored by hand in the shader; the size is the first
+		// thing that drifts.
+		Check(sizeof(LayeredParams) == 368, "LayeredParams is the 368 bytes LayeredData declares");
+		{
+			// The weight coordinate lands sample i on texel centre (i + 0.5) / R,
+			// whatever the texture scale: sample 0 sits at uv = -Size / (2 T),
+			// sample R - 1 at +Size / (2 T).
+			Dimensions wd;
+			wd.Size = 64.0f;
+			wd.Height = 10.0f;
+			for (float textureScale : { 4.0f, 12.0f })
+			{
+				wd.TextureScale = textureScale;
+				const Vec4 w = Terrain::WeightUvFor(wd, 129);
+				const float uvEdge = wd.Size * 0.5f / textureScale;
+				const float first = -uvEdge * w.x + w.z;
+				const float last = uvEdge * w.x + w.z;
+				Check(Math::Abs(first - 0.5f / 129.0f) < 1e-5f && Math::Abs(last - 128.5f / 129.0f) < 1e-5f &&
+					  w.z == 0.5f && w.w == 0.5f,
+					  "WeightUvFor puts the first and last samples on the first and last texel centres");
+			}
 		}
 
 		// --- the chunk builder -----------------------------------------------
@@ -11105,6 +11183,9 @@ void main()
 			terrainComponent.Terrain = flatHandle;
 			terrainComponent.Size = 64.0f;
 			terrainComponent.Height = 10.0f;
+			// Two layers named, so the round trip below can lose one.
+			terrainComponent.Layer1 = AssetHandle(0x1111ull);
+			terrainComponent.Layer3 = AssetHandle(0x3333ull);
 			// A RigidBody as well, which the terrain must ignore.
 			ground.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
 
@@ -11138,9 +11219,49 @@ void main()
 				{
 					const auto& t = reloaded->GetRegistry().get<TerrainComponent>(entity);
 					if (t.Terrain == flatHandle)
-						same = t.Size == 64.0f && t.Height == 10.0f && t.TextureScale == 4.0f && t.Collision;
+						same = t.Size == 64.0f && t.Height == 10.0f && t.TextureScale == 4.0f && t.Collision &&
+							   t.Layer1 == AssetHandle(0x1111ull) && !t.Layer2.IsValid() &&
+							   t.Layer3 == AssetHandle(0x3333ull);
 				}
-				Check(same, "a terrain component round-trips through the scene file");
+				Check(same, "a terrain component round-trips through the scene file, its four layers included");
+			}
+
+			// The layered material (7aq), where there is a device to build one
+			// on: layer 0 empty is the renderer's default, a layer's key changes
+			// with the layer and not without.
+			if (Renderer::HasDevice())
+			{
+				const RHI::Ref<Terrain>& built = Terrain::Resolve(terrainComponent);
+				const RHI::Ref<LayeredMaterial>& layers = built ? built->RefreshLayers(terrainComponent) : nullptr;
+				Check(layers != nullptr, "a terrain built with a device has a layered material");
+				if (layers)
+				{
+					Check(layers->GetLayer(0) == Renderer3D::GetDefaultMaterial(),
+						  "an empty layer 0 is the renderer's default material");
+					Check(!layers->GetLayer(1) && !layers->GetLayer(2) && !layers->GetLayer(3),
+						  "and a layer whose handle names nothing is not there");
+					Check(layers->GetParams().MapFlags[0] & LayeredMap_Active,
+						  "layer 0 is marked active in the block");
+					Check((layers->GetParams().MapFlags[1] & LayeredMap_Active) == 0,
+						  "and an absent layer is not");
+					Check(layers->GetWeights() == TextureLoader::Red(Renderer::GetDevice()),
+						  "an unpainted terrain's weight map is the 1x1 all-layer-0 texel");
+					const uint64_t before = layers->GetBatchKey();
+					built->RefreshLayers(terrainComponent);
+					Check(layers->GetBatchKey() == before, "refreshing an unchanged terrain keeps its batch key");
+					auto red = std::make_shared<Material>(Renderer::GetDevice(), "scenetest red");
+					red->GetParams().BaseColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+					layers->SetLayer(1, red);
+					layers->Refresh(Renderer3D::GetTextureHeap());
+					Check(layers->GetBatchKey() != before &&
+						  (layers->GetParams().MapFlags[1] & LayeredMap_Active) &&
+						  layers->GetParams().BaseColor[1] == Vec4(1.0f, 0.0f, 0.0f, 1.0f),
+						  "a layer assigned changes the key and lands in the block");
+					// A refresh from the component puts it back to what the
+					// component says: the material is a function of the handles.
+					built->RefreshLayers(terrainComponent);
+					Check(layers->GetBatchKey() == before, "and RefreshLayers restores the component's own");
+				}
 			}
 
 			// The picker: a click straight down on each terrain lands on it,

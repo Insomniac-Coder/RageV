@@ -15,15 +15,20 @@ namespace RageV::Assets
 	//   char[4]  "RVTR"
 	//   uint32   version            1
 	//   uint32   resolution         2^n + 1, 33..4097
-	//   uint32   layer count        0 in version 1; stage 2's weight map
+	//   uint32   layer count        0, or 4 when the weights below are present
 	//   uint32   reserved[4]        0
 	//   uint16   heights[res * res] row-major, little-endian
+	//   uint8    weights[res * res * 4]   only when the count is 4: one RGBA
+	//                                     weight per sample, interleaved, on
+	//                                     the heights' grid (ENGINE-NOTES 7aq)
 	//
-	// Thirty-two bytes of header, then the samples. Version 1 has no layers
-	// and no material list; the header carries the count so a version-2 file
-	// can grow them without turning the magic over, and a version-1 reader
-	// meeting a count it does not understand refuses cleanly rather than
-	// reading weights as heights.
+	// Thirty-two bytes of header, then the samples. The layer count is the
+	// word stage 1 reserved and stage 2 uses: 0 is a terrain with one
+	// material, 4 a painted one, and a reader meeting any other count refuses
+	// cleanly rather than reading bytes it does not understand as weights.
+	// The four materials themselves are the component's, not the file's --
+	// the same weights under different `.rmat`s are a different look, not a
+	// different terrain.
 	//
 	// Both directions, because a terrain is authored -- by a tool now, by
 	// sculpting later -- and Save is what stage 3 writes through.

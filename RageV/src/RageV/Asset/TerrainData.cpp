@@ -14,8 +14,10 @@ namespace RageV
 
 	bool TerrainData::IsValid() const
 	{
+		const size_t samples = (size_t)Resolution * Resolution;
 		return IsValidResolution(Resolution) &&
-			   Heights.size() == (size_t)Resolution * Resolution;
+			   Heights.size() == samples &&
+			   (Weights.empty() || Weights.size() == samples * kLayers);
 	}
 
 	float TerrainData::Sample(float x, float z) const

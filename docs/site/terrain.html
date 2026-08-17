@@ -14,46 +14,54 @@
 <main id="content">
 <article>
 <h1 id="terrain">Terrain<a class="anchor" href="#terrain" aria-label="Link to this section">#</a></h1>
-<p>A heightfield: a square grid of heights that the engine turns into ground. One <code>.rvterrain</code> asset holds the heights; one <code>TerrainComponent</code> places it, sizes it, gives it a material and a collider. Everything else the engine already does -- shadows, ray tracing, culling, picking, physics -- takes the terrain as the ordinary meshes it is built from.</p>
+<p>A heightfield: a square grid of heights that the engine turns into ground. One <code>.rvterrain</code> asset holds the heights and, once painted, which of up to four materials each point of the ground is made of; one <code>TerrainComponent</code> places it, sizes it, names the four materials and gives it a collider. Everything else the engine already does -- shadows, ray tracing, culling, picking, physics -- takes the terrain as the ordinary meshes it is built from.</p>
 <h2 id="making-one">Making one<a class="anchor" href="#making-one" aria-label="Link to this section">#</a></h2>
 <p>There is no sculpting tool yet. A terrain starts as a heightmap image or as noise, through the script:</p>
 <figure class="code"><figcaption>bash</figcaption><pre><code>python tools/scripts/make_terrain.py --png heights.png assets/terrain/valley.rvterrain
 </code></pre></figure>
-<p>The PNG must be square with 2^n + 1 pixels a side -- 33, 65, 129, 257, 513, 1025, 2049 or 4097 -- and 16-bit greyscale is what the format keeps; an 8-bit image is accepted and scaled up, with the terracing 8 bits imply. Run the script with no arguments to write the sample project&#39;s own terrains (hills from noise, a ridge, a cliff) and the scenes that stand on them.</p>
-<p>Then, in the editor: add a <strong>Terrain</strong> component to an entity, pick the asset, and set the size and height. The terrain is centred on the entity.</p>
+<p>The PNG must be square with 2^n + 1 pixels a side -- 33, 65, 129, 257, 513, 1025, 2049 or 4097 -- and 16-bit greyscale is what the format keeps; an 8-bit image is accepted and scaled up, with the terracing 8 bits imply. Run the script with no arguments to write the sample project&#39;s own terrains (hills from noise, painted by slope and height; a ridge; a cliff; a flat painted test card) and the scenes that stand on them.</p>
+<p>Then, in the editor: add a <strong>Terrain</strong> component to an entity, pick the asset, and set the size and height. The terrain is centred on the entity. Give it a material as <strong>Layer 0</strong>, and up to three more layers where the asset&#39;s paint says they go.</p>
 <h2 id="the-asset">The asset<a class="anchor" href="#the-asset" aria-label="Link to this section">#</a></h2>
 <p><code>.rvterrain</code> is a small binary file: a header, then one unsigned 16-bit sample per grid point, row-major. Sample 0 is the base of the terrain and 65535 is <code>Height</code> metres above it. It is not a texture on purpose -- a height needs all sixteen bits, and the texture cooker would compress a <code>_height</code> map to eight the way it should for a parallax map -- and it is its own file because sculpting, when it arrives, writes heights back.</p>
+<p>A painted terrain carries its <strong>paint</strong> in the same file: after the heights, one RGBA byte per grid point, one channel per layer, on the same grid. The header&#39;s layer count is 0 (heights only -- a terrain with one material) or 4 (the paint follows). The four channels need not sum to 255: the engine normalises them, so a lightly painted map is not a dark one, and where every channel is zero the ground is layer 0. An unpainted terrain and a stage-one file look exactly the same for that reason. <code>make_terrain.py</code> writes paint for the sample project&#39;s hills (from slope and height -- a mossy soil on the flats, a sandy one in the low ground) and for the <code>layers</code> test card; the brush that paints it by hand is the next stage.</p>
 <h2 id="the-component">The component<a class="anchor" href="#the-component" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">Default</th><th style="text-align:left">What it does</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>Terrain</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The <code>.rvterrain</code>. Invalid draws nothing</td></tr>
 <tr><td style="text-align:left"><code>Size</code></td><td style="text-align:left"><code>256</code></td><td style="text-align:left">Metres a side, centred on the entity</td></tr>
 <tr><td style="text-align:left"><code>Height</code></td><td style="text-align:left"><code>40</code></td><td style="text-align:left">Metres the highest possible sample stands above the base</td></tr>
-<tr><td style="text-align:left"><code>Material</code></td><td style="text-align:left">invalid</td><td style="text-align:left">One <code>.rmat</code>, tiled over the terrain. Invalid is the renderer&#39;s default</td></tr>
-<tr><td style="text-align:left"><code>TextureScale</code></td><td style="text-align:left"><code>4</code></td><td style="text-align:left">Metres per repeat of the material&#39;s textures; the material&#39;s own tiling multiplies on top</td></tr>
+<tr><td style="text-align:left"><code>Material</code></td><td style="text-align:left">invalid</td><td style="text-align:left"><strong>Layer 0</strong>: the material everywhere nothing else is painted, and the whole terrain when there is no paint. Invalid is the renderer&#39;s default</td></tr>
+<tr><td style="text-align:left"><code>Layer1</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The material the paint&#39;s second channel blends in. Invalid means the layer is not there and its channel is ignored</td></tr>
+<tr><td style="text-align:left"><code>Layer2</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The third channel&#39;s, likewise</td></tr>
+<tr><td style="text-align:left"><code>Layer3</code></td><td style="text-align:left">invalid</td><td style="text-align:left">The fourth channel&#39;s, likewise</td></tr>
+<tr><td style="text-align:left"><code>TextureScale</code></td><td style="text-align:left"><code>4</code></td><td style="text-align:left">Metres per repeat of the layers&#39; textures; each layer&#39;s own tiling multiplies on top</td></tr>
 <tr><td style="text-align:left"><code>Collision</code></td><td style="text-align:left"><code>true</code></td><td style="text-align:left">A static height-field collider under the surface, exact to the triangle</td></tr>
 </tbody></table></div>
 <p>The entity&#39;s transform places, turns and scales it like any mesh. A <code>RigidBody</code> on the same entity is ignored: the terrain is its own collider, static by nature, and needs no <code>Collider</code> component.</p>
+<p>The field is called <code>Material</code> in the scene file and &quot;Layer 0&quot; in the inspector: it is the one material a terrain had before layers existed, and a scene saved then reads and looks unchanged.</p>
+<h2 id="layers">Layers<a class="anchor" href="#layers" aria-label="Link to this section">#</a></h2>
+<p>Each layer is an ordinary <code>.rmat</code>. Its base colour, normal and roughness maps are read, and its scalars -- colour, metallic, roughness, occlusion, specular, emissive, tiling -- are honoured; its occlusion, metallic, specular, emissive and height <em>maps</em> are not, on either backend, because the four layers together would ask for more texture units than OpenGL gives a fragment shader, and the two backends are kept to the same picture. Where a layer&#39;s paint runs out its weight is zero and it costs nothing; where two overlap the surface is a blend of both, normals included. Parallax is not applied on layers, and a steep face stretches its texture as it would on any mesh.</p>
 <h2 id="what-happens-underneath">What happens underneath<a class="anchor" href="#what-happens-underneath" aria-label="Link to this section">#</a></h2>
 <p>The grid is cut into <strong>chunks of 64 quads</strong>, each built at four levels of detail (every 1st, 2nd, 4th and 8th sample) as an ordinary mesh. Each frame every chunk picks a level from the camera&#39;s distance -- full detail within four chunk widths, one level coarser per doubling after that -- and that level is what is drawn, what casts shadows, what a ray hits and what a click lands on. Where two neighbouring chunks meet at different levels a <strong>skirt</strong> -- the chunk&#39;s edge dropped a little way down -- hides the sliver of background that would otherwise show. A chunk pops when its level changes; temporal anti-aliasing softens it.</p>
 <p>Collision is Jolt&#39;s height-field shape over the same samples, split into triangles along the same diagonal as the meshes, so a body rests exactly on what is drawn. Ray casts hit it and report the terrain&#39;s entity.</p>
 <h2 id="limits">Limits<a class="anchor" href="#limits" aria-label="Link to this section">#</a></h2>
 <ul>
-<li>One material for the whole terrain. Layers painted by a weight map are the next stage.</li>
-<li>No sculpting or painting in the editor. The next stage after that.</li>
+<li>Four layers at most, each reading three maps (base colour, normal, roughness); the paint is at the heights&#39; resolution.</li>
+<li>No sculpting or painting in the editor. The next stage: a brush that raises, lowers, smooths and flattens the ground under the cursor and paints the layers with the same stroke.</li>
+<li>A terrain seen in a ray-traced reflection shows layer 0 only.</li>
 <li>No holes: a heightfield cannot have caves or overhangs.</li>
 <li>Everything is built at load and stays resident. A 1025 terrain is a few tens of megabytes of geometry; 2049 is around 180 MB and the practical ceiling until terrains stream.</li>
 <li>Seen from <em>off</em> the terrain&#39;s edge, the skirts on interior seams show as short vertical legs below the rim. From on the ground, where a game camera stands, they are under the surface.</li>
 </ul>
 <h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
 <ul>
-<li><a href="materials.html">Materials</a> -- the one material a terrain wears</li>
+<li><a href="materials.html">Materials</a> -- what a layer is</li>
 <li><a href="physics.html">Physics</a> -- what rests on it</li>
 <li><a href="components.html#terraincomponent">Component reference</a> -- the fields again</li>
 </ul>
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="materials.html"><span class="pager-label">Previous</span><span class="pager-title">Materials</span></a><a class="pager-link pager-next" href="lighting.html"><span class="pager-label">Next</span><span class="pager-title">Lighting</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#making-one">Making one</a><a class="toc-link toc-l2" href="#the-asset">The asset</a><a class="toc-link toc-l2" href="#the-component">The component</a><a class="toc-link toc-l2" href="#what-happens-underneath">What happens underneath</a><a class="toc-link toc-l2" href="#limits">Limits</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#making-one">Making one</a><a class="toc-link toc-l2" href="#the-asset">The asset</a><a class="toc-link toc-l2" href="#the-component">The component</a><a class="toc-link toc-l2" href="#layers">Layers</a><a class="toc-link toc-l2" href="#what-happens-underneath">What happens underneath</a><a class="toc-link toc-l2" href="#limits">Limits</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>
