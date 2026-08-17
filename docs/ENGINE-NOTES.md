@@ -6178,8 +6178,15 @@ anything yet.
 
 One material, no layers, no painting -- stage 2 (a `terrain.rvshader`
 blending up to four materials by a weight map stored in the asset, the
-same lighting includes) and stage 3 (sculpt and paint brushes in the
-editor, undo through the command stack, written back to the asset). No
+same lighting includes) and stage 3 (sculpt and paint in the editor,
+undo through the command stack, written back to the asset). **The owner
+set stage 3's shape at landing: a brush the user draws the ground with**
+-- size, strength, falloff; raise, lower, smooth, flatten under a dragged
+cursor, the same brush painting layer weights later -- **not a library of
+preset shapes stamped onto the grid.** A stamp is a shortcut for the one
+terrain its author imagined; a brush is what every terrain editor since
+Bryce has actually been, and the thing that turns a heightmap import into
+an authoring tool. No
 holes (caves, tunnels) -- a heightfield has none. No streaming: the whole
 terrain's chunk meshes are built at load and stay resident, which caps a
 practical terrain around 2049 (~180 MB of geometry) until a paging story

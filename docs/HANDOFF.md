@@ -1610,9 +1610,20 @@ the `perlin_noise` link into RageV that nothing included, is gone.
    up to four `.rmat`s by a weight map stored in the asset (the format
    reserves the header word for it), sharing the lighting includes; the
    post-blend surface goes through the same split-sum and shadow paths.
-   Then **stage 3 -- sculpt and paint in the editor**, brushes through the
-   command stack, written back to the asset by `TerrainSerializer::Save`.
-   `HeightAt` as a script call belongs to whichever comes first.
+   Then **stage 3 -- sculpt and paint in the editor**, and **the owner's
+   direction on its shape (2026-08-17): a brush, not stamps.** The user
+   *draws* the terrain -- a circular brush with size, strength and falloff
+   that raises, lowers, smooths and flattens the heights under the cursor
+   as the mouse drags, and later paints layer weights with the same brush.
+   Not a menu of preset shapes ("hill", "mountain") dropped onto the grid:
+   the owner said so explicitly, so do not build a stamp library first and
+   call it sculpting. Each stroke is one command on the undo stack (so a
+   drag is one Ctrl+Z), the chunk meshes touched by the stroke are rebuilt
+   as it goes (`Terrain::Resolve` already replaces on change; a per-chunk
+   rebuild is the piece to add so a stroke does not rebuild 64 chunks), the
+   collider is refit on release, and the result is written back to the
+   asset by `TerrainSerializer::Save`. `HeightAt` as a script call belongs
+   to whichever stage comes first.
 2. **The two long-standing non-blockers** at the end of this section: the
    focus-click guard has never been confirmed against a real click, and an
    orphaned LUT is not warned about.
