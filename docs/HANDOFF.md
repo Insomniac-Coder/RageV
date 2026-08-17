@@ -1593,7 +1593,25 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 8.4 terrain is DONE in three stages (2026-08-17); the owner's next ask is brush *varieties*
+### START HERE: 9.12 global illumination is DESIGNED AND WRITTEN BUT WITHDRAWN (2026-08-17); terrain is finished
+
+**Do this first.** The owner asked for global illumination in the post profile
+plus a ray-traced twin in Render Settings that greys the profile's row. It is
+designed in full in **ENGINE-NOTES 7at**, and it was built end to end -- and
+then **withdrawn from the tree rather than committed**, because with it applied
+`tools/scripts/check_ssao.py --config Release` fails on OpenGL
+("AmbientOcclusion: false changed the image (max 64)") while passing on Vulkan,
+and passes on both without it. That regression is undiagnosed. Read 7at's first
+paragraph: it names the prime suspect (the new `vec4 GlobalIllumination` in the
+scene uniform block, which OpenGL binds differently), the exact next
+experiment, and where the work is parked -- `build/9.12-gi-wip/gi.patch` plus
+the four files it does not carry. The SSGI chain demonstrably runs and adds
+light; the bleed claim, the RT GI path, the checks and the docs are all still
+to do.
+
+---
+
+### 8.4 terrain is DONE in three stages plus varieties (2026-08-17)
 
 **Stage 3 -- the brush -- landed last** (ENGINE-NOTES 7ar; narrative and Done
 entry below). Read 7ar first: the kernel and rates, one stroke = one
