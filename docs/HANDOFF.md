@@ -1599,7 +1599,21 @@ not, which is the same mistake as the culling number, caught this time.
 entry below). Read 7ar first: the kernel and rates, one stroke = one
 command, the lazy per-chunk rebuild in `SelectLod`, `RHITexture::UploadRegion`,
 `Terrain::Raycast`, the write-back on save, edit mode only, and `--brush=`.
-**The owner asked at landing (2026-08-17), and it is the next item:**
+**Then one fix on top (2026-08-17, after the owner dropped a terrain into the
+demo scene and looked under it -- "I can see the separators for each block"):
+the skirts are drawn only while the camera is above the ground.** From under
+a heightfield the surface culls away and each chunk's skirt (wound both ways,
+on purpose) hung in the sky as a wall along every seam. `Terrain::SelectLod`
+now also compares the camera, in terrain space, with `HeightAt` at its own
+(x, z) -- clamped, so off the rim it compares with the nearest rim -- and
+while under, every chunk draws its surface indices alone: the builder emits
+the surface before the skirts and returns where they end
+(`Chunk::SurfaceIndices`), `Terrain::DrawIndexCount(chunk)` says how many,
+and `Renderer3D::DrawLayeredMesh` takes an index count (`PendingDraw::
+IndexCount`, part of the run key). Shadow pass and BLAS keep the whole mesh.
+Paragraph in 7ap, `check_terrain.py` claim 6 on the new `under` fixture (0
+non-sky pixels both backends; 24633 with the rule forced off), scenetest +10.
+**The owner asked at stage 3's landing (2026-08-17), and it is the next item:**
 
 0. **Brush varieties.** "Different brush varieties which can generate terrain
    in different patterns like Unity or Unreal" -- brush *textures* (an alpha
@@ -1645,9 +1659,10 @@ cut off**, at the owner's direction.
    remaining ordinary feature, the rest are engine-sized. None should be
    started because it sounds interesting.
 
-**Seven commits are unpushed** as of this writing -- terrain stage 1 and its
-follow-ups (b37b8ed .. c8cb011), stage 2 (fe20a5c) and stage 3 on top;
-everything before them is on origin. Pushing is the owner's action.
+**Eight commits are unpushed** as of this writing -- terrain stage 1 and its
+follow-ups (b37b8ed .. c8cb011), stage 2 (fe20a5c), stage 3 (d203b1b) and
+the skirts-from-under fix on top; everything before them is on origin.
+Pushing is the owner's action.
 
 ---
 
@@ -2110,6 +2125,23 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - terrain: skirts only from above the ground (2026-08-17)
+
+The owner looked under a terrain and saw every seam's skirt as a wall.
+`Terrain::BuildChunkGeometry` returns where the surface's indices end
+(`Chunk::SurfaceIndices` per level, filled by `BuildLevel`, which now writes
+into the chunk); `SelectLod` sets `m_SkirtsDrawn` from the camera in terrain
+space against `HeightAt`; `DrawIndexCount(chunk)`; `Renderer3D::
+DrawLayeredMesh(..., indexCount, ...)` with `PendingDraw::IndexCount` in both
+run groupings and the draw; `Scene::OnRender` passes it. `make_terrain.py`
+`under` fixture (`terrain_under.rage`, bright sky, camera three metres under
+the ridge's plain looking away and up), `check_terrain.py` claim 6, scenetest
++10 (builder order and return, headless SkirtsDrawn on/off the rim and
+through the world matrix, device-built two-by-two terrain's counts at levels
+0 and 3). Falsified by forcing the skirts on. Paragraph in 7ap; manual.
 
 ---
 

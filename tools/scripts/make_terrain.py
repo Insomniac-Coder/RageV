@@ -38,12 +38,16 @@ bytes, so a checkout does not resave anything:
               claims never see. Its scene stands red layer 0 and blue layer 1
               on it under the ridge's camera and sun.
 
-And five scenes: `scenes/terrain.rage` (the hills, painted by slope and height
+And six scenes: `scenes/terrain.rage` (the hills, painted by slope and height
 with three layers -- soil, a mossy soil on the flats, a sandy one in the low
 ground -- a sun, a camera, a couple of crates resting on the ground),
 `scenes/terrain_ridge.rage` (the ridge under the stated camera check_terrain
-projects), `scenes/terrain_cliff.rage`, `scenes/terrain_layers.rage`, and
-`scenes/terrain_brush.rage`.
+projects), `scenes/terrain_cliff.rage`, `scenes/terrain_layers.rage`,
+`scenes/terrain_brush.rage`, and `scenes/terrain_under.rage` (the ridge again,
+under a bright sky, with the camera three metres *under* its plain, looking
+away from the ridge and up: from under the ground the terrain is invisible --
+the surface culls away and the skirts are not drawn -- so every pixel is sky,
+where they used to be the seams' skirts hanging as walls).
 
     python tools/scripts/make_terrain.py            # everything into SampleProject
     python tools/scripts/make_terrain.py --png in.png out.rvterrain   # from a 16-bit PNG
@@ -79,6 +83,15 @@ RIDGE_CAMERA_FOV_DEGREES = 60.0
 # the ridge's shadow lands on the near plain, in front of the camera.
 RIDGE_SUN_ROTATION = (-0.7854, 3.14159, 0.0)
 RIDGE_SUN_ELEVATION_DEGREES = 45.0
+
+# Under the ridge's plain (4 m): three metres down, ten across from the x = 0
+# seam so that seam's skirt is not edge-on, forty out along z where the
+# ridge's Gaussian tail is nothing; facing +z (away from the ridge) and 0.4
+# rad up, so the frame holds the seams' skirts if they are drawn and nothing
+# but sky if they are not. A bright sky, so a shadowed skirt still differs.
+UNDER_CAMERA_POSITION = (10.0, 1.0, 40.0)
+UNDER_CAMERA_ROTATION = (0.4, 3.14159, 0.0)
+UNDER_SKY = (0.30, 0.50, 0.90)
 
 # The cliff: a slope rising away from the camera to a crest at the far edge
 # with nothing behind it but sky, rough at the sample scale so a coarser
@@ -464,6 +477,18 @@ def build_brush_scene(handle, red, blue, profile=None):
     return "\n".join(lines) + "\n"
 
 
+def build_under_scene(handle, profile=None):
+    """The ridge from three metres under its plain (7ap, the skirts drawn
+    only from above the ground): sky, and nothing else."""
+    next_id = base._ids()
+    lines = base._header("Terrain under", sky_rgb=UNDER_SKY)
+    lines += base._camera(next_id, UNDER_CAMERA_POSITION, rotation=UNDER_CAMERA_ROTATION,
+                          profile=profile)
+    lines += _sun(next_id, RIDGE_SUN_ROTATION)
+    lines += _terrain_entity(next_id, "Ridge", handle, RIDGE_SIZE, RIDGE_HEIGHT)
+    return "\n".join(lines) + "\n"
+
+
 def build_cliff_scene(handle, profile=None):
     next_id = base._ids()
     lines = base._header("Terrain cliff", sky_rgb=CLIFF_SKY)
@@ -483,7 +508,7 @@ CHECK_PROFILE = { "BloomEnabled": False }
 
 def write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle, layers_handle,
                          brush_handle, materials):
-    """The five scenes and a post profile beside each, exactly as the check
+    """The six scenes and a post profile beside each, exactly as the check
     writes them, so a checkout and a check run agree to the byte."""
     import postprofile
     ridge = scenes / "terrain_ridge.rage"
@@ -491,6 +516,8 @@ def write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle, layer
     hills = scenes / "terrain.rage"
     painted = scenes / "terrain_layers.rage"
     brush = scenes / "terrain_brush.rage"
+    under = scenes / "terrain_under.rage"
+    write_scene(under, build_under_scene(ridge_handle, postprofile.write_beside(under, CHECK_PROFILE)))
     write_scene(brush, build_brush_scene(brush_handle, materials["red"], materials["blue"],
                                          postprofile.write_beside(brush, CHECK_PROFILE)))
     write_scene(hills, build_hills_scene(hills_handle, postprofile.write_beside(hills, CHECK_PROFILE),
@@ -559,7 +586,7 @@ def main():
           f"{terrain_dir / 'cliff.rvterrain'} ({CLIFF_RESOLUTION}^2), "
           f"{terrain_dir / 'layers.rvterrain'} ({LAYERS_RESOLUTION}^2, painted), "
           f"{terrain_dir / 'brush.rvterrain'} ({RIDGE_RESOLUTION}^2), "
-          f"four materials and five scenes")
+          f"four materials and six scenes")
 
 
 if __name__ == "__main__":

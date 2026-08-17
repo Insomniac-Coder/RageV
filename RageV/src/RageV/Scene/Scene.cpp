@@ -2176,10 +2176,12 @@ namespace RageV
 			// camera, culled against the same frustum, drawn through the layered
 			// material PrepareTerrains refreshed -- four layers in the asset's
 			// painted proportions, layer 0 alone where nothing is painted (7aq)
-			// -- and otherwise the ordinary mesh it is (7ap). Refreshed again
-			// here rather than trusted: a probe capture or a first frame can
-			// reach this draw before any RenderShadows has, and the refresh is
-			// a compare when nothing changed.
+			// -- and otherwise the ordinary mesh it is (7ap), whole or without
+			// its skirts as SelectLod decided from where the camera stands
+			// (under the ground, a skirt is a wall along every seam). Refreshed
+			// again here rather than trusted: a probe capture or a first frame
+			// can reach this draw before any RenderShadows has, and the refresh
+			// is a compare when nothing changed.
 			if (anyTerrain)
 			{
 				ForEachTerrain([&](Entity, TransformComponent& transform, TerrainComponent& component,
@@ -2204,7 +2206,8 @@ namespace RageV
 						}
 
 						Renderer3D::DrawLayeredMesh(mesh, transform.World, layers,
-													ProbeSlotFor(centre), &transform.PreviousWorld);
+													ProbeSlotFor(centre), terrain.DrawIndexCount(chunk),
+													&transform.PreviousWorld);
 					}
 				});
 			}

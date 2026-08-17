@@ -17,7 +17,10 @@
 // casters, the ray-instance list -- so the geometry that casts a shadow is the
 // geometry that receives it. Cracks between neighbouring levels are hidden by
 // skirts, not stitching; there is no geomorphing, so a chunk pops when its
-// level changes.
+// level changes. The skirts are drawn only while the camera is above the
+// ground: from under the heightfield the surface culls away and a skirt is a
+// wall along every seam, so SelectLod also decides, per frame, whether a chunk
+// draws its whole mesh or its surface indices alone (DrawIndexCount).
 //
 // The pure builder (BuildChunkGeometry) needs no device, which is what lets
 // the suite assert vertex counts, skirt depths and normals headlessly.
@@ -67,6 +70,10 @@ namespace RageV
 			Vec3 Centre{ 0.0f };
 			// One mesh per level; null when built without a device.
 			RHI::Ref<Mesh> Levels[kLevels];
+			// How many of each level's indices are the surface: the builder
+			// emits those first and the skirts after, so drawing this many
+			// draws the chunk without its skirts. 0 until the level is built.
+			uint32_t SurfaceIndices[kLevels] = {};
 			// The level chosen by the last SelectLod. 0 until one runs.
 			int Level = 0;
 			// Levels whose mesh no longer matches the data, one bit per level
@@ -101,13 +108,15 @@ namespace RageV
 		// `indices` (cleared first), in terrain-local metres: x and z in
 		// [-Size/2, Size/2], y in [0, Height]; uv = local metres /
 		// TextureScale; normals from central differences of the heights.
-		// Skirts on every edge a neighbouring chunk shares, none on the
-		// terrain's outer edge; `skirts` off is for the falsification and
-		// nothing else.
-		static void BuildChunkGeometry(const TerrainData& data, const Dimensions& dimensions,
-									   uint32_t chunkX, uint32_t chunkZ, int level,
-									   std::vector<MeshVertex>& vertices,
-									   std::vector<uint32_t>& indices, bool skirts = true);
+		// The surface's indices come first and the skirts' after; the return
+		// is where the surface ends, so a caller can draw the chunk without
+		// its skirts by drawing that many. Skirts on every edge a
+		// neighbouring chunk shares, none on the terrain's outer edge;
+		// `skirts` off is for the falsification and nothing else.
+		static uint32_t BuildChunkGeometry(const TerrainData& data, const Dimensions& dimensions,
+										   uint32_t chunkX, uint32_t chunkZ, int level,
+										   std::vector<MeshVertex>& vertices,
+										   std::vector<uint32_t>& indices, bool skirts = true);
 
 		// The level rule: 0 within four chunk widths of the camera, and one
 		// coarser for each doubling of distance, capped at kLevels - 1.
@@ -117,8 +126,20 @@ namespace RageV
 		// this terrain's world matrix. Once per frame, before anything reads
 		// Chunk::Level -- and rebuilds the level it chose wherever a stroke
 		// left it stale, so the frame never draws a mesh the data has moved
-		// on from (7ar).
+		// on from (7ar). Also decides whether this frame draws the skirts:
+		// only while the camera is above the surface at its own (x, z),
+		// clamped to the extent. A skirt fills a crack, a crack is only seen
+		// from above the ground, and from under it every skirt is a wall.
 		void SelectLod(const Vec3& cameraWorld, const Mat4& world);
+
+		// What the last SelectLod decided about the skirts.
+		bool SkirtsDrawn() const { return m_SkirtsDrawn; }
+		// How many of the chunk's selected mesh's indices to draw this frame:
+		// all of them, or the surface alone while the camera is under the
+		// ground. The shadow pass and the acceleration structures do not ask
+		// -- a skirt is inside the ground and casts what the surface casts,
+		// and a caster with cracks leaks light through them.
+		uint32_t DrawIndexCount(const Chunk& chunk) const;
 
 		// --- editing (ENGINE-NOTES 7ar) ------------------------------------
 
@@ -188,9 +209,10 @@ namespace RageV
 		float GetChunkWidth() const { return GetCellSize() * (float)m_ChunkQuads; }
 
 	private:
-		// One level of one chunk, as a Mesh (null without a device); the
-		// chunk's bounds and centre from the heights alone.
-		RHI::Ref<Mesh> BuildLevel(uint32_t chunkX, uint32_t chunkZ, int level) const;
+		// One level of one chunk into the chunk: its Mesh (null without a
+		// device) and where that mesh's surface indices end. Then the chunk's
+		// bounds and centre from the heights alone.
+		void BuildLevel(Chunk& chunk, uint32_t chunkX, uint32_t chunkZ, int level) const;
 		void RefreshBounds(Chunk& chunk) const;
 		void RefreshWholeBounds();
 		void UploadWeightRows(const TerrainRect& rect);
@@ -205,5 +227,6 @@ namespace RageV
 		AABB m_Bounds;
 		RHI::Ref<RHI::RHITexture> m_WeightMap;
 		RHI::Ref<LayeredMaterial> m_Layers;
+		bool m_SkirtsDrawn = true;
 	};
 }

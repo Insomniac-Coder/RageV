@@ -11046,10 +11046,22 @@ void main()
 			Dimensions wideDims;
 			wideDims.Size = 128.0f;
 			wideDims.Height = 10.0f;
-			Terrain::BuildChunkGeometry(wide, wideDims, 0, 0, 0, vertices, indices);
+			const uint32_t surfaceEnd = Terrain::BuildChunkGeometry(wide, wideDims, 0, 0, 0, vertices, indices);
 			const uint32_t n = 64;
 			Check(vertices.size() == 65 * 65 + 2 * 65 && indices.size() == 6 * 64 * 64 + 2 * 12 * 64,
 				  "a chunk with two neighbours wears two skirts, and the counts say so");
+			// The surface's indices come first and the builder says where they
+			// end: what a frame from under the ground draws (7ap). Every index
+			// before that point names a surface vertex; every one after, a
+			// skirt's strip.
+			bool surfaceBefore = surfaceEnd == 6 * 64 * 64 && surfaceEnd <= indices.size();
+			for (size_t i = 0; i < surfaceEnd && surfaceBefore; ++i)
+				surfaceBefore = indices[i] < 65 * 65;
+			bool skirtAfter = false;
+			for (size_t i = surfaceEnd; i < indices.size(); ++i)
+				skirtAfter = skirtAfter || indices[i] >= 65 * 65;
+			Check(surfaceBefore && skirtAfter,
+				  "the surface's indices come first, and the builder reports where they end");
 
 			// Every skirt vertex is its edge vertex dropped by the same positive
 			// depth: the far-z strip first, then the far-x strip, in the
@@ -11083,9 +11095,9 @@ void main()
 			Terrain::BuildChunkGeometry(wide, wideDims, 1, 1, 3, vertices, indices);
 			Check(vertices.size() == 9 * 9 + 2 * 9 && indices.size() == 6 * 64 + 2 * 12 * 8,
 				  "at level 3 the far corner chunk samples every eighth height, 9 a side, two skirts");
-			Terrain::BuildChunkGeometry(wide, wideDims, 0, 0, 0, vertices, indices, false);
-			Check(vertices.size() == 65 * 65 && indices.size() == 6 * 64 * 64,
-				  "without skirts it is the surface alone");
+			Check(Terrain::BuildChunkGeometry(wide, wideDims, 0, 0, 0, vertices, indices, false) == 6 * 64 * 64 &&
+				  vertices.size() == 65 * 65 && indices.size() == 6 * 64 * 64,
+				  "without skirts it is the surface alone, and the surface still ends where it ends");
 		}
 		Terrain::BuildChunkGeometry(ramp, dims, 0, 0, 3, vertices, indices);
 		Check(vertices.size() == 5 * 5 && indices.size() == 6 * 16,
@@ -11144,6 +11156,70 @@ void main()
 				for (const Terrain::Chunk& c : terrain->GetChunks())
 					allCoarse = allCoarse && c.Level == 3;
 				Check(allFine && allCoarse, "SelectLod puts a near camera at level 0 and a far one at level 3");
+
+				// The skirts, only from above the ground (7ap): the flat terrain
+				// is 10 m up everywhere, so a camera at 12 m is above it and one
+				// at 8 m under it -- and off the rim the comparison is with the
+				// rim nearest the camera, which is the same 10 m.
+				terrain->SelectLod(Vec3(0.0f, 12.0f, 0.0f), identity);
+				const bool aboveDraws = terrain->SkirtsDrawn();
+				terrain->SelectLod(Vec3(0.0f, 8.0f, 0.0f), identity);
+				const bool underHides = !terrain->SkirtsDrawn();
+				Check(aboveDraws && underHides,
+					  "the skirts are drawn for a camera above the surface at its own (x, z) and not for one under it");
+				terrain->SelectLod(Vec3(1000.0f, 8.0f, -1000.0f), identity);
+				const bool offRimUnder = !terrain->SkirtsDrawn();
+				terrain->SelectLod(Vec3(1000.0f, 12.0f, -1000.0f), identity);
+				const bool offRimAbove = terrain->SkirtsDrawn();
+				Check(offRimUnder && offRimAbove, "off the rim, the camera compares with the rim nearest it");
+				// Through the world matrix: the terrain lifted 100 m puts the
+				// 12 m camera under it, and a scale of 2 (heights doubled) puts
+				// a 15 m one under a surface now at 20.
+				terrain->SelectLod(Vec3(0.0f, 12.0f, 0.0f), Math::Translate(Mat4(1.0f), Vec3(0.0f, 100.0f, 0.0f)));
+				const bool liftedUnder = !terrain->SkirtsDrawn();
+				terrain->SelectLod(Vec3(0.0f, 15.0f, 0.0f), Math::Scale(Mat4(1.0f), Vec3(2.0f)));
+				const bool scaledUnder = !terrain->SkirtsDrawn();
+				terrain->SelectLod(Vec3(0.0f, 25.0f, 0.0f), Math::Scale(Mat4(1.0f), Vec3(2.0f)));
+				const bool scaledAbove = terrain->SkirtsDrawn();
+				Check(liftedUnder && scaledUnder && scaledAbove,
+					  "and the terrain's world matrix counts: lifted or scaled, the camera is judged in terrain space");
+				Check(terrain->DrawIndexCount(terrain->GetChunks()[0]) == 0,
+					  "a chunk without a mesh draws no indices, skirts or not");
+			}
+
+			// --- the same on a device: how many indices a chunk draws ------------
+			if (Renderer::HasDevice())
+			{
+				TerrainData big = TerrainData::Flat(129, 32768);
+				Dimensions bigDims;
+				bigDims.Size = 128.0f;
+				bigDims.Height = 20.0f;
+				RHI::Ref<Terrain> terrain = Terrain::Create(&Renderer::GetDevice(), big,
+															AssetHandle::Invalid(), bigDims);
+				Check(terrain && terrain->GetChunks().size() == 4 && terrain->GetChunks()[0].Levels[0],
+					  "a two-by-two terrain built on the device has meshes");
+				if (terrain && terrain->GetChunks()[0].Levels[0])
+				{
+					Mat4 identity(1.0f);
+					const Terrain::Chunk& chunk = terrain->GetChunks()[0];
+					terrain->SelectLod(Vec3(0.0f, 12.0f, 0.0f), identity);
+					const uint32_t whole = chunk.Selected()->GetIndexCount();
+					const uint32_t surface = chunk.SurfaceIndices[chunk.Level];
+					Check(chunk.Level == 0 && whole == 6 * 64 * 64 + 2 * 12 * 64 && surface == 6 * 64 * 64,
+						  "the corner chunk's level 0 is 6x64^2 surface indices and two skirts after them");
+					Check(terrain->SkirtsDrawn() && terrain->DrawIndexCount(chunk) == whole,
+						  "a camera above the ground draws the chunk whole, skirts and all");
+					terrain->SelectLod(Vec3(0.0f, 8.0f, 0.0f), identity);
+					Check(!terrain->SkirtsDrawn() && terrain->DrawIndexCount(chunk) == surface,
+						  "a camera under it draws the surface indices alone");
+					// Every level keeps its own count, so the far camera's level
+					// 3 (9 a side: 6x64 surface, 2x12x8 skirts) says so too.
+					terrain->SelectLod(Vec3(0.0f, 8.0f, 5000.0f), identity);
+					Check(chunk.Level == 3 && chunk.SurfaceIndices[3] == 6 * 64 &&
+						  terrain->DrawIndexCount(chunk) == 6 * 64 &&
+						  chunk.Selected()->GetIndexCount() == 6 * 64 + 2 * 12 * 8,
+						  "and at level 3 the surface count is that level's own");
+				}
 			}
 
 			RHI::Ref<Terrain> rampTerrain = Terrain::Create(nullptr, ramp, AssetHandle::Invalid(), dims);

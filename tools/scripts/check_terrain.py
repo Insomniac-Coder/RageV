@@ -6,7 +6,7 @@ builder, the level rule, HeightAt, the height-field body -- are in
 scenetest. This is the rest: what a terrain looks like from a stated
 camera, on both backends, and whether the level-of-detail seams hold.
 
-Five fixtures, all from make_terrain.py, all with the camera and the
+Six fixtures, all from make_terrain.py, all with the camera and the
 heights stated there so nothing below is found in a frame that could
 instead be derived:
 
@@ -64,6 +64,16 @@ instead be derived:
    (Falsified by inverting the raise -- the changed region's top drops to
    the plain, a hole and not a hill -- and by painting layer 0: red stays.)
 
+6. **From under the ground the terrain is invisible (7ap).** The `under`
+   fixture: the ridge under a bright sky, the camera three metres under its
+   plain, ten across from a chunk seam, looking away from the ridge and up.
+   The surface's back faces cull, and the skirts -- wound both ways so a
+   crack is filled from either side, which is what made each seam a wall
+   hanging in the sky from under -- are drawn only while the camera is above
+   the surface at its own (x, z). So every pixel of the frame is sky, on both
+   backends. (Falsified by forcing the skirts on: the seams' skirts cross the
+   frame -- thousands of pixels that are not sky.)
+
 Falsified further by swapping the row-major read (x for z) in the builder:
 the ridge turns ninety degrees and claim 1's row is nowhere near.
 
@@ -93,6 +103,7 @@ MIN_LAYER_RATIO = 2.0            # the dominant channel over the other, in a pai
 MIN_LAYER_GAP = 100.0            # ... and by this many levels, in display space
 MAX_BRIGHTNESS_MISMATCH = 0.10   # left vs right, after the normalisation lifts the right
 MAX_BLEND_MISMATCH = 0.20        # red vs blue in the middle of the blend
+MAX_UNDER_PIXELS = 0             # pixels that are not sky, seen from under the ground
 
 
 def run(exe, args):
@@ -342,6 +353,15 @@ def main():
         if holes > MAX_HOLES:
             failures.append(f"{backend}: the cliff shows {holes} hole(s) at its level seams")
 
+    # --- 6. from under the ground: nothing but sky (7ap) ---------------------
+    for backend in ("vulkan", "opengl"):
+        image = shoot(exe, backend, "terrain_under", shots / f"{backend}-under.png")
+        stray = int(np.count_nonzero(~is_sky(image, sky_colour(image))))
+        print(f"{backend}: from under the ground, {stray} pixels are not sky")
+        if stray > MAX_UNDER_PIXELS:
+            failures.append(f"{backend}: from under the ground {stray} pixels are not sky -- "
+                            f"the seams' skirts, or something else, are drawn from below")
+
     # --- 5. the brush (7ar): the editor sculpts, the runtime renders the file --
     editor = root / "build" / "bin" / args.config / "RageVEditor" / "RageVEditor.exe"
     if not editor.exists():
@@ -424,8 +444,8 @@ def main():
 
     print("OK: the ridge stands where the heights say on both backends, its shadow lands "
           "on the plain under maps and rays alike, the level seams open no holes, the "
-          "paint is the picture on every material path, and the brush sculpts and paints "
-          "what it says and the file keeps it")
+          "paint is the picture on every material path, the brush sculpts and paints "
+          "what it says and the file keeps it, and from under the ground there is only sky")
 
 
 if __name__ == "__main__":

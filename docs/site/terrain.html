@@ -57,7 +57,7 @@
 <p>Strokes edit the terrain asset, not the scene, and are <strong>written when the scene is saved</strong> (Ctrl+S) -- the unsaved mark counts them. The height-field collider is built from the data at the next Play, so what was sculpted is what a body rests on.</p>
 <p><code>--brush=mode,x,z,radius,strength,seconds[,layer]</code> applies one stroke on the <code>--select</code>ed terrain when the editor opens and saves it, which is how the checks hold the brush.</p>
 <h2 id="what-happens-underneath">What happens underneath<a class="anchor" href="#what-happens-underneath" aria-label="Link to this section">#</a></h2>
-<p>The grid is cut into <strong>chunks of 64 quads</strong>, each built at four levels of detail (every 1st, 2nd, 4th and 8th sample) as an ordinary mesh. Each frame every chunk picks a level from the camera&#39;s distance -- full detail within four chunk widths, one level coarser per doubling after that -- and that level is what is drawn, what casts shadows, what a ray hits and what a click lands on. Where two neighbouring chunks meet at different levels a <strong>skirt</strong> -- the chunk&#39;s edge dropped a little way down -- hides the sliver of background that would otherwise show. A chunk pops when its level changes; temporal anti-aliasing softens it.</p>
+<p>The grid is cut into <strong>chunks of 64 quads</strong>, each built at four levels of detail (every 1st, 2nd, 4th and 8th sample) as an ordinary mesh. Each frame every chunk picks a level from the camera&#39;s distance -- full detail within four chunk widths, one level coarser per doubling after that -- and that level is what is drawn, what casts shadows, what a ray hits and what a click lands on. Where two neighbouring chunks meet at different levels a <strong>skirt</strong> -- the chunk&#39;s edge dropped a little way down -- hides the sliver of background that would otherwise show. Skirts are drawn only while the camera is above the ground: from under a terrain the surface culls away, as it does in every engine, and the skirts would otherwise hang in view as a wall along every seam. A chunk pops when its level changes; temporal anti-aliasing softens it.</p>
 <p>Collision is Jolt&#39;s height-field shape over the same samples, split into triangles along the same diagonal as the meshes, so a body rests exactly on what is drawn. Ray casts hit it and report the terrain&#39;s entity.</p>
 <h2 id="limits">Limits<a class="anchor" href="#limits" aria-label="Link to this section">#</a></h2>
 <ul>
@@ -67,7 +67,7 @@
 <li>A terrain seen in a ray-traced reflection shows layer 0 only.</li>
 <li>No holes: a heightfield cannot have caves or overhangs.</li>
 <li>Everything is built at load and stays resident. A 1025 terrain is a few tens of megabytes of geometry; 2049 is around 180 MB and the practical ceiling until terrains stream.</li>
-<li>Seen from <em>off</em> the terrain&#39;s edge, the skirts on interior seams show as short vertical legs below the rim. From on the ground, where a game camera stands, they are under the surface.</li>
+<li>From under the ground the terrain is invisible -- sky through the surface, plus the faces of any hill that rises into view -- and those hills&#39; level seams can show hairline cracks, since the skirts are off. Standing <em>off</em> the terrain&#39;s edge below its rim counts as under.</li>
 </ul>
 <h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
 <ul>

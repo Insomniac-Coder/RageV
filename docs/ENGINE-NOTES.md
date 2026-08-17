@@ -6085,6 +6085,41 @@ edge that meets nothing and can crack against nothing. What is *not* done:
 geomorphing. A chunk pops when its level changes; TAA softens it and the
 distance rule keeps it small on screen. Stated as the limit it is.
 
+**Skirts are drawn only while the camera is above the ground** (added
+2026-08-17, after the owner dropped a terrain into the demo scene and looked
+under it: "I can see the separators for each block"). Seen from *under* the
+heightfield the surface's back faces are culled -- as every engine culls
+them; Unity and Unreal are invisible from below -- and what remains is every
+chunk's skirt, wound both ways on purpose, hanging in the sky as a wall along
+each shared edge: the separators. The skirt exists to fill a crack, and a
+crack is only ever seen from above the surface, because a skirt is a vertical
+drop from an edge whose height *is* the ground at that (x, z): everything
+below the edge is inside the ground, and a viewer above the surface reaches
+it only through a gap. So the rule is exact and cheap: `SelectLod` transforms
+the camera into terrain space and compares it with `HeightAt` at its own
+(x, z) -- clamped to the extent, so a camera off the rim compares with the
+rim nearest it -- and while the camera is *under*, every chunk draws **only
+its surface triangles**. Not a shader branch and not a second mesh: the
+builder emits the surface's indices before the skirts', reports where they
+end (`BuildChunkGeometry` returns the count, `Chunk::SurfaceIndices` keeps
+it per level), and `Renderer3D::DrawLayeredMesh` takes an index count --
+the renderer still never learns the word terrain; it draws the first N
+indices of a mesh. The shadow pass and the acceleration structures keep the
+whole mesh: a skirt is inside the ground and casts nothing the surface does
+not, and a shadow map with cracks in its casters leaks light through them.
+What a viewer under the ground sees now: sky through the surface, and the
+front faces of any hill that rises into their view once the ray is above
+ground -- with hairline cracks at those hills' level seams, since the skirts
+are off; the stated trade, since it is the view from inside a hill. The
+approximation is the camera off the footprint and *below the rim but above
+the surface it looks at*, e.g. standing beside a plateau: the rule (nearest
+rim height) says "under" and the far slopes lose their skirts -- hairlines,
+not walls -- and the paper-thin rim itself is what it always was. Checked by
+`check_terrain.py` claim 6 (the `under` fixture: a camera three metres under
+the ridge's plain, looking away from the ridge and up -- every pixel is sky,
+where before the fix the seams' skirts crossed the frame) and by scenetest
+(under -> the surface count, above -> the whole mesh, on and off the rim).
+
 **Normals** are central differences of the heightfield in metres, baked
 per vertex; the material's normal map lands on top through the same
 derivative tangent frame every mesh uses. **Triangulation** matches Jolt's
@@ -6192,9 +6227,11 @@ holes (caves, tunnels) -- a heightfield has none. No streaming: the whole
 terrain's chunk meshes are built at load and stay resident, which caps a
 practical terrain around 2049 (~180 MB of geometry) until a paging story
 exists; the format allows 4097. LOD pops, softened by TAA. The skirts
-add ~5% geometry per chunk, and seen from *off* the terrain's rim the
-interior seams' skirts show as short legs below the edge (from on the
-ground, where a game camera stands, they are under the surface). `HeightAt`
+add ~5% geometry per chunk at level 0 and two thirds of it at level 3
+(48n against 6n^2 indices), and are drawn only while the camera is above the
+ground (the paragraph above); from under it the terrain is invisible but for
+the front faces of hills the eye ray rises into, with hairline seams on
+those. `HeightAt`
 is not yet a script call. And the
 first draft's memory of the experiment stays true: one entity, one asset,
 sixty-four meshes -- never one entity per face.

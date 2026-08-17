@@ -119,9 +119,13 @@ namespace RageV
 		// whose set 1 the layered material binds itself; the instance's scalars
 		// are layer 0's, and its material record on the bindless path is
 		// layer 0's too, which is what a traced reflection of it shades with.
-		// `layered` must have had Refresh called this frame.
+		// `layered` must have had Refresh called this frame. `indexCount` is
+		// how many of the mesh's indices to draw, from the first -- the whole
+		// mesh, or the part before its skirts while the camera is under the
+		// ground (7ap); clamped to the mesh's count.
 		static void DrawLayeredMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 									const RHI::Ref<LayeredMaterial>& layered, uint32_t probe,
+									uint32_t indexCount,
 									const Mat4* previousTransform = nullptr);
 
 		// Shared by every mesh that has no material of its own.

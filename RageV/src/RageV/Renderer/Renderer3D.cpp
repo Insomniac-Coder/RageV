@@ -204,6 +204,10 @@ namespace RageV
 			Ref<Material> MaterialRef;
 			// The layered kind's set 1, which binds itself; null otherwise.
 			Ref<LayeredMaterial> LayeredRef;
+			// How many of the mesh's indices this draw covers, from the first:
+			// the mesh's count for everything but a terrain chunk drawn without
+			// its skirts (7ap). Part of what a run must agree on.
+			uint32_t IndexCount = 0;
 			InstanceData Instance;
 			// Distance from the eye, for ordering batches front to back.
 			float ViewDepth = 0.0f;
@@ -1238,7 +1242,8 @@ namespace RageV
 				while (end < pending.size() &&
 					   pending[end].Kind == pending[begin].Kind &&
 					   pending[end].MeshKey == pending[begin].MeshKey &&
-					   pending[end].MaterialKey == pending[begin].MaterialKey)
+					   pending[end].MaterialKey == pending[begin].MaterialKey &&
+					   pending[end].IndexCount == pending[begin].IndexCount)
 				{
 					end++;
 				}
@@ -1499,7 +1504,8 @@ namespace RageV
 			uint32_t end = start + 1;
 			while (end < count &&
 				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
-				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey)
+				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
+				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
 			{
 				end++;
 			}
@@ -1566,10 +1572,10 @@ namespace RageV
 
 			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
 			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
-			cmd->DrawIndexed(first.MeshRef->GetIndexCount(), end - start);
+			cmd->DrawIndexed(first.IndexCount, end - start);
 
 			s_Data->DrawCalls++;
-			s_Data->Triangles += (first.MeshRef->GetIndexCount() / 3) * (end - start);
+			s_Data->Triangles += (first.IndexCount / 3) * (end - start);
 
 			start = end;
 		}
@@ -1879,6 +1885,7 @@ namespace RageV
 		draw.MaterialKey = effective->GetBatchKey(s_Data->Bindless);
 		draw.MeshRef = mesh;
 		draw.MaterialRef = effective;
+		draw.IndexCount = mesh->GetIndexCount();
 
 		draw.Instance.Model = transform;
 		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;
@@ -1935,6 +1942,7 @@ namespace RageV
 		draw.Kind = DrawKind::Skinned;
 		draw.MeshRef = mesh;
 		draw.MaterialRef = effective;
+		draw.IndexCount = mesh->GetIndexCount();
 
 		draw.Instance.Model = transform;
 		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;
@@ -1950,9 +1958,12 @@ namespace RageV
 
 	void Renderer3D::DrawLayeredMesh(const Ref<Mesh>& mesh, const Mat4& transform,
 									 const Ref<LayeredMaterial>& layered, uint32_t probe,
-									 const Mat4* previousTransform)
+									 uint32_t indexCount, const Mat4* previousTransform)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh || !layered)
+			return;
+		indexCount = Math::Min(indexCount, mesh->GetIndexCount());
+		if (indexCount == 0)
 			return;
 
 		// Layer 0 stands in for "the material" everywhere the rest of the
@@ -1973,6 +1984,7 @@ namespace RageV
 		draw.MeshRef = mesh;
 		draw.MaterialRef = base;
 		draw.LayeredRef = layered;
+		draw.IndexCount = indexCount;
 
 		draw.Instance.Model = transform;
 		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;

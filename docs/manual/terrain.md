@@ -126,8 +126,11 @@ four chunk widths, one level coarser per doubling after that -- and that
 level is what is drawn, what casts shadows, what a ray hits and what a click
 lands on. Where two neighbouring chunks meet at different levels a **skirt**
 -- the chunk's edge dropped a little way down -- hides the sliver of
-background that would otherwise show. A chunk pops when its level changes;
-temporal anti-aliasing softens it.
+background that would otherwise show. Skirts are drawn only while the camera
+is above the ground: from under a terrain the surface culls away, as it does
+in every engine, and the skirts would otherwise hang in view as a wall along
+every seam. A chunk pops when its level changes; temporal anti-aliasing
+softens it.
 
 Collision is Jolt's height-field shape over the same samples, split into
 triangles along the same diagonal as the meshes, so a body rests exactly on
@@ -147,9 +150,10 @@ what is drawn. Ray casts hit it and report the terrain's entity.
 - Everything is built at load and stays resident. A 1025 terrain is a few
   tens of megabytes of geometry; 2049 is around 180 MB and the practical
   ceiling until terrains stream.
-- Seen from *off* the terrain's edge, the skirts on interior seams show as
-  short vertical legs below the rim. From on the ground, where a game camera
-  stands, they are under the surface.
+- From under the ground the terrain is invisible -- sky through the
+  surface, plus the faces of any hill that rises into view -- and those
+  hills' level seams can show hairline cracks, since the skirts are off.
+  Standing *off* the terrain's edge below its rim counts as under.
 
 ## Where to go next
 

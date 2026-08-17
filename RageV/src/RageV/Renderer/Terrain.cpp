@@ -60,28 +60,28 @@ namespace RageV
 		return Math::Clamp(level, 0, kLevels - 1);
 	}
 
-	void Terrain::BuildChunkGeometry(const TerrainData& data, const Dimensions& dims,
-									 uint32_t chunkX, uint32_t chunkZ, int level,
-									 std::vector<MeshVertex>& vertices,
-									 std::vector<uint32_t>& indices, bool skirts)
+	uint32_t Terrain::BuildChunkGeometry(const TerrainData& data, const Dimensions& dims,
+										 uint32_t chunkX, uint32_t chunkZ, int level,
+										 std::vector<MeshVertex>& vertices,
+										 std::vector<uint32_t>& indices, bool skirts)
 	{
 		vertices.clear();
 		indices.clear();
 		if (!data.IsValid())
-			return;
+			return 0;
 
 		const uint32_t quads = data.QuadCount();
 		const uint32_t chunkQuads = Math::Min(kChunkQuads, quads);
 		const uint32_t step = 1u << (uint32_t)Math::Clamp(level, 0, kLevels - 1);
 		if (chunkQuads % step != 0)
-			return;
+			return 0;
 		const uint32_t n = chunkQuads / step;   // quads a side at this level
 		const float cell = dims.Size / (float)quads;
 
 		const uint32_t sample0X = chunkX * chunkQuads;
 		const uint32_t sample0Z = chunkZ * chunkQuads;
 		if (sample0X + chunkQuads > quads || sample0Z + chunkQuads > quads)
-			return;
+			return 0;
 
 		const float half = dims.Size * 0.5f;
 
@@ -121,8 +121,12 @@ namespace RageV
 			}
 		}
 
+		// Where the surface ends and the skirts begin: what a frame with the
+		// camera under the ground draws up to, and no further.
+		const uint32_t surfaceIndices = (uint32_t)indices.size();
+
 		if (!skirts)
-			return;
+			return surfaceIndices;
 
 		// --- the skirts ------------------------------------------------------
 		// The chunk's edge vertices again, dropped by half the chunk's own
@@ -130,7 +134,9 @@ namespace RageV
 		// a strip wound *both* ways so it is not culled from either side. The
 		// range is over every sample in the chunk, not this level's, so each
 		// level's skirt hangs the same and the coarser levels stay inside the
-		// finest level's bounds.
+		// finest level's bounds. Both windings are what makes the strip a
+		// wall from under the ground, which is why the skirts are drawn only
+		// while the camera is above it (SelectLod, DrawIndexCount).
 		//
 		// Only on edges a neighbouring chunk shares: a crack needs two levels
 		// meeting, and the terrain's outer edge meets nothing. A skirt there
@@ -141,7 +147,7 @@ namespace RageV
 		const bool skirtNearX = chunkX > 0;
 		const bool skirtFarX = chunkX + 1 < chunksPerSide;
 		if (!skirtNearZ && !skirtFarZ && !skirtNearX && !skirtFarX)
-			return;
+			return surfaceIndices;
 		float low = std::numeric_limits<float>::max();
 		float high = std::numeric_limits<float>::lowest();
 		for (uint32_t sz = sample0Z; sz <= sample0Z + chunkQuads; ++sz)
@@ -185,6 +191,7 @@ namespace RageV
 		if (skirtFarZ)  strip([n](uint32_t i) { return n * (n + 1) + i; });      // z = n edge
 		if (skirtNearX) strip([n](uint32_t i) { return i * (n + 1); });          // x = 0 edge
 		if (skirtFarX)  strip([n](uint32_t i) { return i * (n + 1) + n; });      // x = n edge
+		return surfaceIndices;
 	}
 
 	RHI::Ref<Terrain> Terrain::Create(RHI::RHIDevice* device, const TerrainData& data,
@@ -216,7 +223,7 @@ namespace RageV
 				chunk.SampleZ = cz * terrain->m_ChunkQuads;
 				terrain->RefreshBounds(chunk);
 				for (int level = 0; level < kLevels; ++level)
-					chunk.Levels[level] = terrain->BuildLevel(cx, cz, level);
+					terrain->BuildLevel(chunk, cx, cz, level);
 				terrain->m_Chunks.push_back(std::move(chunk));
 			}
 		}
@@ -318,25 +325,48 @@ namespace RageV
 			chunk.Level = LevelFor(Math::Distance(cameraWorld, centre), width);
 		}
 
+		// The skirts, only from above the ground. A skirt is a vertical drop
+		// from an edge whose height is the ground at that (x, z): everything
+		// below the edge is inside the ground, and a camera above the surface
+		// reaches it only through a crack -- the job. A camera *under* the
+		// surface sees the surface's back faces culled and every skirt as a
+		// wall along its seam. So: the camera in terrain space against the
+		// surface at its own (x, z), which HeightAt clamps to the extent, so
+		// a camera off the rim compares with the rim nearest it.
+		const Vec3 local = Vec3(Math::Inverse(world) * Vec4(cameraWorld, 1.0f));
+		m_SkirtsDrawn = local.y >= HeightAt(local.x, local.z);
+
 		// The level each chunk will draw this frame is the one that must not
 		// be stale; the others wait for the stroke's release (7ar).
 		RebuildStale(false);
 	}
 
+	uint32_t Terrain::DrawIndexCount(const Chunk& chunk) const
+	{
+		const RHI::Ref<Mesh>& mesh = chunk.Selected();
+		if (!mesh)
+			return 0;
+		return m_SkirtsDrawn ? mesh->GetIndexCount() : chunk.SurfaceIndices[chunk.Level];
+	}
+
 	// --- editing (7ar) ------------------------------------------------------------
 
-	RHI::Ref<Mesh> Terrain::BuildLevel(uint32_t chunkX, uint32_t chunkZ, int level) const
+	void Terrain::BuildLevel(Chunk& chunk, uint32_t chunkX, uint32_t chunkZ, int level) const
 	{
+		chunk.Levels[level] = nullptr;
+		chunk.SurfaceIndices[level] = 0;
 		if (!m_Device)
-			return nullptr;
+			return;
 		std::vector<MeshVertex> vertices;
 		std::vector<uint32_t> indices;
-		BuildChunkGeometry(m_Data, m_Dimensions, chunkX, chunkZ, level, vertices, indices);
+		const uint32_t surface = BuildChunkGeometry(m_Data, m_Dimensions, chunkX, chunkZ, level,
+													vertices, indices);
 		if (vertices.empty())
-			return nullptr;
-		return std::make_shared<Mesh>(*m_Device, vertices, indices,
-									  "Terrain chunk " + std::to_string(chunkX) + "," +
-									  std::to_string(chunkZ) + " L" + std::to_string(level));
+			return;
+		chunk.Levels[level] = std::make_shared<Mesh>(*m_Device, vertices, indices,
+													 "Terrain chunk " + std::to_string(chunkX) + "," +
+													 std::to_string(chunkZ) + " L" + std::to_string(level));
+		chunk.SurfaceIndices[level] = surface;
 	}
 
 	void Terrain::RefreshBounds(Chunk& chunk) const
@@ -431,7 +461,7 @@ namespace RageV
 					const uint8_t bit = (uint8_t)(1u << level);
 					if (!(chunk.Stale & bit) || (!all && level != chunk.Level))
 						continue;
-					chunk.Levels[level] = BuildLevel(cx, cz, level);
+					BuildLevel(chunk, cx, cz, level);
 					chunk.Stale &= (uint8_t)~bit;
 				}
 			}
