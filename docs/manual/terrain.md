@@ -86,8 +86,8 @@ mesh.
 
 ## Sculpting and painting
 
-Select the terrain, and under its component's fields is **Brush**: four
-modes, and the brush's size, strength and hardness.
+Select the terrain, and under its component's fields is **Brush**: press
+**Sculpt** to take it up, then choose a mode.
 
 | Mode | What a drag does | Shift |
 |---|---|---|
@@ -95,13 +95,40 @@ modes, and the brush's size, strength and hardness.
 | **Smooth** | Blends each sample toward the mean of its neighbours | -- |
 | **Flatten** | Pulls the ground toward the height where the drag began | -- |
 | **Paint** | Paints the chosen layer -- one of the four -- into the asset's weights | Erases it |
+| **Terrace** | Steps the ground into **Steps** levels across `Height`: plateaus with risers between them | -- |
+| **Ramp** | Press where the ramp starts, drag to its far end and hold: a straight slope between the two, `2 x Size` wide | -- |
+| **Set Height** | Drives the ground to **Height**, in metres | Click reads the height under the cursor into that field |
+| **Erode** | Rains 1500 droplets a second that roll downhill, carry material and drop it lower: gullies above, fans below | -- |
 
-- **Size** is the radius in metres; `[` and `]` change it in the viewport.
+- **Size** is the radius in metres -- or half the width of a mask's square;
+  `[` and `]` change it in the viewport.
 - **Strength** is a rate: a full-strength raise climbs a quarter of the height
-  each second, and smooth, flatten and paint close an eighth of their gap per
-  sixtieth of a second, whatever the frame rate.
+  each second, the blends close an eighth of their gap per sixtieth of a
+  second, and erosion rains at its stated rate -- whatever the frame rate.
 - **Hardness** is how much of the radius is at full weight before the fall-off:
-  0 a soft cone, 1 a hard disc. A ring on the ground shows the rim and the core.
+  0 a soft cone, 1 a hard disc. A mask carries its own fall-off and ignores it.
+
+### Shapes and patterns
+
+The brush is a **shape** times a **pattern**, which is what turns four modes
+into a landscape tool.
+
+**Shape** is what the brush covers: the plain disc, or one of the masks in the
+editor's `assets/brushes` folder -- `dome`, `mountain`, `ridge`, `mesa`,
+`crater`, `pad`, the irregular `soft`, `mid` and `hard`, and the filamentary
+`wispy` and `branch`. A mask is laid over the brush's square and turned by
+**Angle**; **Follow stroke** turns it to the direction the cursor is moving,
+so a ridge lies along the drag. The overlay draws the turned square, so what
+you see is where it will bite. Drop any square greyscale PNG in that folder
+and it appears in the list -- it is a tool of the editor, not an asset of the
+project.
+
+**Pattern** is a field laid over the *ground* that multiplies the brush's
+weight wherever it touches: `erosion` for gullies, `veins` for a linked range,
+`rock` for detail, `dunes` for wind ridges, or plain `Noise`. **Scale** is
+metres per repeat. Because it lives on the ground rather than in the brush,
+two strokes over one place agree, and a stroke that walks across the terrain
+reveals the pattern instead of dragging it along.
 
 While a mode is chosen, a plain left drag on the terrain sculpts and a click
 does not select; Alt+drag still orbits and the right button still flies.
@@ -140,11 +167,14 @@ what is drawn. Ray casts hit it and report the terrain's entity.
 
 - Four layers at most, each reading three maps (base colour, normal,
   roughness); the paint is at the heights' resolution.
-- One brush shape -- a disc with a hardness. Brush textures, noise, erosion,
-  ramp and clone tools are the next stage.
-- A held smooth or flatten stops within four height units of its target
-  (a fraction of a millimetre on a ten-metre terrain); a held paint reaches
-  full and empty.
+- A held smooth, flatten, terrace or set height stops within four height units
+  of its target (a fraction of a millimetre on a ten-metre terrain); a held
+  paint reaches full and empty.
+- Erosion is confined to the brush's footprint: a droplet that would run out
+  of it stops there. A wide brush erodes like a landscape, a narrow one like a
+  puddle.
+- One mask per shape and one per pattern; no clone-from-elsewhere, no thermal
+  erosion, no symmetry, and no scatter or spacing controls.
 - A terrain seen in a ray-traced reflection shows layer 0 only.
 - No holes: a heightfield cannot have caves or overhangs.
 - Everything is built at load and stays resident. A 1025 terrain is a few

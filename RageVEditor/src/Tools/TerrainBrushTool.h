@@ -1,12 +1,14 @@
 #pragma once
 
-// The hand that holds the terrain brush (ENGINE-NOTES 7ar).
+// The hand that holds the terrain brush (ENGINE-NOTES 7ar, 7as).
 //
 // The brush itself -- what a step does to the samples -- is RageV::TerrainBrush
 // in the engine, pure and headless. This is everything around it that only an
 // editor has: which terrain the cursor is over and where, a stroke from press
-// to release recorded as one undoable command, the rebuild and the ring, and
-// the scripted stroke `--brush` uses so a check can hold the mouse.
+// to release recorded as one undoable command, the stroke's own context (where
+// it began and how high, which way it is moving, its seed), the mask library,
+// the rebuild and the overlay, and the scripted stroke `--brush` uses so a
+// check can hold the mouse.
 //
 // Edit mode only. A terrain is an asset; the height-field body is built from
 // the data at the next Play, so a sculpt made here is what the ball rolls on.
@@ -18,14 +20,48 @@
 #include "RageV/Scene/ScenePicking.h"
 
 #include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace RageV::Tools
 {
+	// The brush masks the editor ships (7as): every PNG in assets/brushes,
+	// found through the VFS on first use and decoded on demand. Not assets --
+	// a brush is a tool of the editor, not content of a project -- so a user
+	// drops a PNG in the folder and has a brush, with no import step.
+	class BrushLibrary
+	{
+	public:
+		// The names, without folder or extension, sorted. Empty when the
+		// folder is missing, which is survivable: the disc still works.
+		const std::vector<std::string>& Names();
+		// The mask by name, decoded once and kept; null when it is not there
+		// or will not decode.
+		std::shared_ptr<const BrushMask> Get(const std::string& name);
+		// Where a name sits in Names(), or -1.
+		int IndexOf(const std::string& name);
+
+	private:
+		void Scan();
+		bool m_Scanned = false;
+		std::vector<std::string> m_Names;
+		std::unordered_map<std::string, std::shared_ptr<const BrushMask>> m_Masks;
+	};
+
 	class TerrainBrushTool
 	{
 	public:
 		// The settings the inspector edits.
 		TerrainBrush Brush;
+		// The masks the shape and pattern combos offer.
+		BrushLibrary Library;
+		// Which library entry each of the two combos is on, by name; empty is
+		// "none", and what the combo shows when the brush is on the disc or on
+		// the noise. Kept beside the brush because the brush holds the decoded
+		// mask, not its name.
+		std::string ShapeMaskName;
+		std::string PatternMaskName;
 		// Whether a mode is chosen: while it is, a plain left drag on the
 		// selected terrain sculpts and the click-to-select picker stands down.
 		bool Enabled = false;
@@ -60,17 +96,28 @@ namespace RageV::Tools
 		bool IsStroking() const { return m_Stroking; }
 		bool HoversTerrain() const { return m_HasHit; }
 
-		// The ring at the cursor's point on the ground, and its hard core.
-		// Inside a DebugRenderer scene the caller has begun.
+		// What the brush covers, on the ground, inside a DebugRenderer scene
+		// the caller has begun: the disc's rim and hard core as two rings, a
+		// mask's square turned to its angle (and the stroke's direction when
+		// it follows), and a ramp's centreline while one is being drawn.
 		void DrawOverlay() const;
+
+		// Sets the shape or the pattern from a library name; an empty name is
+		// the disc, or no pattern. False when the name is not in the library.
+		bool SetShapeMask(const std::string& name);
+		bool SetPatternMask(const std::string& name);
 
 		// One whole stroke without a mouse: `seconds` of sixtieth-of-a-second
 		// steps at terrain-local (localX, localZ) on `entity`'s terrain, through
 		// the same begin, step and end a drag goes through -- so a check can
 		// exercise the path from kernel to command to pixels. Nothing if the
-		// entity has no terrain.
+		// entity has no terrain. `toX`/`toZ`, when given, is where the stroke
+		// holds after its first step -- a press at (localX, localZ), a drag to
+		// there, and a hold, which is what a ramp needs to be more than a
+		// point.
 		bool ScriptStroke(const std::shared_ptr<Scene>& scene, Entity entity,
-						  float localX, float localZ, float seconds, CommandStack& commands);
+						  float localX, float localZ, float seconds, CommandStack& commands,
+						  const float* toX = nullptr, const float* toZ = nullptr);
 
 		// Turns the tool off and drops any stroke in progress without pushing
 		// it. Escape, and the selection changing to something without a terrain.
@@ -98,7 +145,17 @@ namespace RageV::Tools
 		bool m_ScriptedRing = false;
 
 		bool m_Stroking = false;
-		float m_FlattenTarget = 0.0f;
+		// The stroke's context (7as): where it began and how high, which way
+		// it last moved, and the seed a step draws from. Advanced by Step, so
+		// a scripted stroke is the same stroke twice.
+		TerrainBrush::Stroke m_Stroke;
+		// The last point a step was taken at, for the direction.
+		Vec3 m_LastStep{ 0.0f };
+		bool m_HasLastStep = false;
+		// Where the next stroke's seed comes from: strokes differ, and a
+		// scripted one is the same every run because this starts where it
+		// starts.
+		uint32_t m_NextSeed = 1u;
 		TerrainStrokeRecorder m_Recorder;
 	};
 }

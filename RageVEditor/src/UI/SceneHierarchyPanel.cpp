@@ -502,67 +502,133 @@ namespace
 		}
 
 		TerrainBrush& brush = tool.Brush;
-
-		// The modes. One button each, the active one accent-filled; clicking
-		// the active one turns the tool off, which is how the viewport gets
-		// its click-to-select back.
 		const float spacing = ImGui::GetStyle().ItemSpacing.x;
-		const float width = (ImGui::GetContentRegionAvail().x - spacing * (TerrainBrush::kModeCount - 1))
-						  / (float)TerrainBrush::kModeCount;
-		for (int i = 0; i < TerrainBrush::kModeCount; ++i)
+
+		// One button takes the brush up and puts it down; the mode is a row in
+		// the list below. Eight modes were never going to fit as eight buttons
+		// -- four already truncated to "Ra Sm Fla Pai" in a narrow panel, 7ar's
+		// papercut -- and a toggle plus a combo says the same at any width.
+		if (tool.Enabled)
 		{
-			const TerrainBrush::Op op = (TerrainBrush::Op)i;
-			const bool active = tool.Enabled && brush.Mode == op;
-			ImGui::PushID(i);
-			bool pressed;
-			if (active)
-				pressed = UI::AccentButton(TerrainBrush::ModeName(op), ImVec2(width, 0.0f));
-			else
-				pressed = ImGui::Button(TerrainBrush::ModeName(op), ImVec2(width, 0.0f));
-			if (pressed)
-			{
-				if (active)
-					tool.Cancel();
-				else
-				{
-					brush.Mode = op;
-					tool.Enabled = true;
-				}
-			}
+			if (UI::AccentButton("Sculpting", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
+				tool.Cancel();
 			if (ImGui::IsItemHovered())
-			{
-				switch (op)
-				{
-				case TerrainBrush::Op::Raise:
-					ImGui::SetTooltip("Raise the ground under the brush. Hold Shift to lower it.");
-					break;
-				case TerrainBrush::Op::Smooth:
-					ImGui::SetTooltip("Blend each sample toward the mean of its neighbours.");
-					break;
-				case TerrainBrush::Op::Flatten:
-					ImGui::SetTooltip("Pull the ground toward the height where the stroke began.");
-					break;
-				case TerrainBrush::Op::Paint:
-					ImGui::SetTooltip("Paint the chosen layer. Hold Shift to erase it.");
-					break;
-				}
-			}
-			ImGui::PopID();
-			if (i + 1 < TerrainBrush::kModeCount)
-				ImGui::SameLine();
+				ImGui::SetTooltip("The brush owns the left mouse button. Click here, or press Escape, to put it down.");
+		}
+		else
+		{
+			if (ImGui::Button("Sculpt", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
+				tool.Enabled = true;
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Take up the brush: a left drag on the terrain sculpts instead of selecting.");
 		}
 
 		if (UI::BeginProperties("terrain-brush"))
 		{
+			static const char* const kModes[] = { "Raise", "Smooth", "Flatten", "Paint",
+												  "Terrace", "Ramp", "Set Height", "Erode" };
+			static_assert(IM_ARRAYSIZE(kModes) == TerrainBrush::kModeCount, "a mode has no name");
+			int mode = (int)brush.Mode;
+			if (UI::RowCombo("Mode", &mode, kModes, TerrainBrush::kModeCount,
+							 "What a stroke does. Raise lifts the ground (Shift lowers); Smooth blends "
+							 "each sample toward its neighbours; Flatten pulls toward the height where "
+							 "the stroke began; Paint paints a layer (Shift erases); Terrace steps the "
+							 "ground into levels; Ramp lays a slope from where the stroke began to the "
+							 "cursor; Set Height drives the ground to a height in metres; Erode runs "
+							 "water over it."))
+			{
+				brush.Mode = (TerrainBrush::Op)mode;
+				tool.Enabled = true;
+			}
+
 			UI::RowDragFloat("Size", &brush.Radius, 0.25f, 0.25f, 4096.0f, "%.2f m",
-							 "Metres from the centre of the brush to its rim. [ and ] change it in the viewport.");
+							 "Metres from the centre of the brush to its rim -- or half the width of "
+							 "a mask's square. [ and ] change it in the viewport.");
 			UI::RowSliderFloat("Strength", &brush.Strength, 0.0f, 1.0f, "%.2f",
 							   "How fast the brush works. At 1, a full raise climbs a quarter of "
-							   "the terrain's Height each second; smooth, flatten and paint close "
-							   "an eighth of the gap per sixtieth of a second.");
+							   "the terrain's Height each second; the blends close an eighth of the "
+							   "gap per sixtieth of a second; erosion rains 1500 droplets a second.");
+			const bool masked = brush.ShapeKind == TerrainBrush::Shape::Mask;
+			ImGui::BeginDisabled(masked);
 			UI::RowSliderFloat("Hardness", &brush.Hardness, 0.0f, 1.0f, "%.2f",
-							   "The fraction of the radius at full weight before the fall-off "
-							   "begins: 0 is a soft cone, 1 a hard disc.");
+							   masked ? "The disc's fall-off. A mask carries its own, so this does "
+										"nothing while one is chosen."
+									  : "The fraction of the radius at full weight before the fall-off "
+										"begins: 0 is a soft cone, 1 a hard disc.");
+			ImGui::EndDisabled();
+
+			// --- the kernel: a shape, and a pattern over the ground (7as) ---
+			const std::vector<std::string>& masks = tool.Library.Names();
+			{
+				std::vector<const char*> items;
+				items.push_back("Disc");
+				for (const std::string& name : masks)
+					items.push_back(name.c_str());
+				int shape = masked ? tool.Library.IndexOf(tool.ShapeMaskName) + 1 : 0;
+				if (shape < 0)
+					shape = 0;
+				if (UI::RowCombo("Shape", &shape, items.data(), (int)items.size(),
+								 "What the brush covers: the plain disc with its hardness, or a mask "
+								 "from the editor's brushes folder -- a dome, a mountain, a ridge, a "
+								 "mesa, a crater, a pad, or one of the irregular and wispy ones. Drop "
+								 "a square greyscale PNG in that folder and it appears here."))
+				{
+					tool.SetShapeMask(shape <= 0 ? std::string() : masks[(size_t)shape - 1]);
+				}
+			}
+			if (brush.ShapeKind == TerrainBrush::Shape::Mask)
+			{
+				float degrees = brush.Angle * 180.0f / Math::Pi;
+				if (UI::RowDragFloat("Angle", &degrees, 1.0f, -360.0f, 360.0f, "%.0f deg",
+									 "How far the mask is turned on the ground."))
+					brush.Angle = degrees * Math::Pi / 180.0f;
+				UI::RowCheckbox("Follow stroke", &brush.FollowStroke,
+								"Turn the mask to the direction the cursor is moving, so a ridge lies "
+								"along the drag and gullies run with it.");
+			}
+			{
+				std::vector<const char*> items;
+				items.push_back("None");
+				items.push_back("Noise");
+				for (const std::string& name : masks)
+					items.push_back(name.c_str());
+				int pattern = brush.PatternKind == TerrainBrush::Pattern::Noise ? 1
+							: brush.PatternKind == TerrainBrush::Pattern::Tiled
+								? tool.Library.IndexOf(tool.PatternMaskName) + 2 : 0;
+				if (pattern < 0)
+					pattern = 0;
+				if (UI::RowCombo("Pattern", &pattern, items.data(), (int)items.size(),
+								 "A field laid over the *ground* that the brush works through: erosion "
+								 "for gullies, veins for a linked range, rock for detail, dunes for wind "
+								 "ridges, or plain noise. It stays where the world is, so two strokes "
+								 "over one place agree."))
+				{
+					if (pattern <= 0)
+					{
+						tool.SetPatternMask("");
+						brush.PatternKind = TerrainBrush::Pattern::None;
+					}
+					else if (pattern == 1)
+					{
+						tool.SetPatternMask("");
+						brush.PatternKind = TerrainBrush::Pattern::Noise;
+					}
+					else
+						tool.SetPatternMask(masks[(size_t)pattern - 2]);
+				}
+			}
+			if (brush.PatternKind != TerrainBrush::Pattern::None)
+				UI::RowDragFloat("Scale", &brush.PatternScale, 0.5f, 0.5f, 4096.0f, "%.1f m",
+								 "Metres per repeat of the pattern on the ground.");
+
+			if (brush.Mode == TerrainBrush::Op::Terrace)
+				UI::RowDragInt("Steps", &brush.TerraceSteps, 0.25f, 2, 64,
+							   "How many levels the terrain's Height is cut into.");
+			if (brush.Mode == TerrainBrush::Op::SetHeight)
+				UI::RowDragFloat("Height", &brush.TargetHeight, 0.1f, 0.0f, 8192.0f, "%.2f m",
+								 "The height the ground is driven to, in metres above the terrain's "
+								 "base. Shift+click on the terrain reads the height under the cursor "
+								 "into this.");
 			if (brush.Mode == TerrainBrush::Op::Paint)
 			{
 				UI::PropertyRow("Layer", "Which of the four layers the brush paints. A layer with "
@@ -605,10 +671,16 @@ namespace
 			UI::EndProperties();
 		}
 
-		if (tool.Enabled)
-			ImGui::TextDisabled("Drag on the terrain to sculpt. Esc puts the brush down.");
+		if (!tool.Enabled)
+			ImGui::TextDisabled("Press Sculpt, then drag on the terrain in the viewport.");
+		else if (brush.Mode == TerrainBrush::Op::Ramp)
+			ImGui::TextDisabled("Press where the ramp starts, drag to its far end and hold. Esc puts the brush down.");
+		else if (brush.Mode == TerrainBrush::Op::SetHeight)
+			ImGui::TextDisabled("Shift+click reads the height under the cursor. Esc puts the brush down.");
+		else if (brush.Mode == TerrainBrush::Op::Erode)
+			ImGui::TextDisabled("Hold on a slope and let the water run. Esc puts the brush down.");
 		else
-			ImGui::TextDisabled("Choose a mode, then drag on the terrain in the viewport.");
+			ImGui::TextDisabled("Drag on the terrain to sculpt. Esc puts the brush down.");
 	}
 
 	// What is left of the hand-written material section.

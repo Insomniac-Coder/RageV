@@ -37,6 +37,11 @@ bytes, so a checkout does not resave anything:
               the brush check (7ar) can sculpt and paint a copy that the ridge
               claims never see. Its scene stands red layer 0 and blue layer 1
               on it under the ridge's camera and sun.
+- `stamp`  -- a flat 129 grid, unpainted, under the layers fixture's
+              straight-down camera and sun, red layer 0 and blue layer 1: what
+              the brush *varieties* check (7as) paints through a mask and a
+              pattern, so where the paint lands is where the kernel says and
+              the frame reads it directly.
 
 And six scenes: `scenes/terrain.rage` (the hills, painted by slope and height
 with three layers -- soil, a mossy soil on the flats, a sandy one in the low
@@ -489,6 +494,19 @@ def build_under_scene(handle, profile=None):
     return "\n".join(lines) + "\n"
 
 
+def build_stamp_scene(handle, red, blue, profile=None):
+    """The layers fixture's flat ground and straight-down camera, unpainted:
+    what the shape and pattern claims (7as) paint on."""
+    next_id = base._ids()
+    lines = base._header("Terrain stamp", sky_rgb=(0.02, 0.02, 0.025))
+    lines += base._camera(next_id, (0.0, LAYERS_CAMERA_HEIGHT, 0.0),
+                          rotation=(-math.pi / 2.0, 0, 0), profile=profile)
+    lines += _sun(next_id, (-math.pi / 2.0, 0.0, 0.0))
+    lines += _terrain_entity(next_id, "Stamp", handle, LAYERS_SIZE, LAYERS_HEIGHT,
+                             material=red, layers=(blue,))
+    return "\n".join(lines) + "\n"
+
+
 def build_cliff_scene(handle, profile=None):
     next_id = base._ids()
     lines = base._header("Terrain cliff", sky_rgb=CLIFF_SKY)
@@ -507,7 +525,7 @@ CHECK_PROFILE = { "BloomEnabled": False }
 
 
 def write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle, layers_handle,
-                         brush_handle, materials):
+                         brush_handle, stamp_handle, materials):
     """The six scenes and a post profile beside each, exactly as the check
     writes them, so a checkout and a check run agree to the byte."""
     import postprofile
@@ -517,7 +535,10 @@ def write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle, layer
     painted = scenes / "terrain_layers.rage"
     brush = scenes / "terrain_brush.rage"
     under = scenes / "terrain_under.rage"
+    stamp = scenes / "terrain_stamp.rage"
     write_scene(under, build_under_scene(ridge_handle, postprofile.write_beside(under, CHECK_PROFILE)))
+    write_scene(stamp, build_stamp_scene(stamp_handle, materials["red"], materials["blue"],
+                                         postprofile.write_beside(stamp, CHECK_PROFILE)))
     write_scene(brush, build_brush_scene(brush_handle, materials["red"], materials["blue"],
                                          postprofile.write_beside(brush, CHECK_PROFILE)))
     write_scene(hills, build_hills_scene(hills_handle, postprofile.write_beside(hills, CHECK_PROFILE),
@@ -576,17 +597,20 @@ def main():
     layers_handle = write_terrain(terrain_dir / "layers.rvterrain", layer_heights,
                                   "terrain/layers.rvterrain", weights=layer_weights)
     brush_handle = write_terrain(terrain_dir / "brush.rvterrain", ridge(), "terrain/brush.rvterrain")
+    stamp_handle = write_terrain(terrain_dir / "stamp.rvterrain",
+                                 np.zeros((LAYERS_RESOLUTION, LAYERS_RESOLUTION)),
+                                 "terrain/stamp.rvterrain")
 
     materials = write_materials(ASSETS / "materials")
     scenes = ASSETS / "scenes"
     write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle, layers_handle,
-                         brush_handle, materials)
+                         brush_handle, stamp_handle, materials)
     print(f"wrote {terrain_dir / 'hills.rvterrain'} ({HILLS_RESOLUTION}^2, painted), "
           f"{terrain_dir / 'ridge.rvterrain'} ({RIDGE_RESOLUTION}^2), "
           f"{terrain_dir / 'cliff.rvterrain'} ({CLIFF_RESOLUTION}^2), "
           f"{terrain_dir / 'layers.rvterrain'} ({LAYERS_RESOLUTION}^2, painted), "
           f"{terrain_dir / 'brush.rvterrain'} ({RIDGE_RESOLUTION}^2), "
-          f"four materials and six scenes")
+          f"four materials and seven scenes")
 
 
 if __name__ == "__main__":

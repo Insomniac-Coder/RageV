@@ -96,6 +96,7 @@ window.RVDOC_INDEX = [
 {"h":"The component","p":"Terrain","u":"terrain.html#the-component","t":""},
 {"h":"Layers","p":"Terrain","u":"terrain.html#layers","t":""},
 {"h":"Sculpting and painting","p":"Terrain","u":"terrain.html#sculpting-and-painting","t":""},
+{"h":"Shapes and patterns","p":"Terrain","u":"terrain.html#shapes-and-patterns","t":""},
 {"h":"What happens underneath","p":"Terrain","u":"terrain.html#what-happens-underneath","t":""},
 {"h":"Limits","p":"Terrain","u":"terrain.html#limits","t":""},
 {"h":"Where to go next","p":"Terrain","u":"terrain.html#where-to-go-next","t":""},

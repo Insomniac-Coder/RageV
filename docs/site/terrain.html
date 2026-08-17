@@ -41,18 +41,26 @@
 <h2 id="layers">Layers<a class="anchor" href="#layers" aria-label="Link to this section">#</a></h2>
 <p>Each layer is an ordinary <code>.rmat</code>. Its base colour, normal and roughness maps are read, and its scalars -- colour, metallic, roughness, occlusion, specular, emissive, tiling -- are honoured; its occlusion, metallic, specular, emissive and height <em>maps</em> are not, on either backend, because the four layers together would ask for more texture units than OpenGL gives a fragment shader, and the two backends are kept to the same picture. Where a layer&#39;s paint runs out its weight is zero and it costs nothing; where two overlap the surface is a blend of both, normals included. Parallax is not applied on layers, and a steep face stretches its texture as it would on any mesh.</p>
 <h2 id="sculpting-and-painting">Sculpting and painting<a class="anchor" href="#sculpting-and-painting" aria-label="Link to this section">#</a></h2>
-<p>Select the terrain, and under its component&#39;s fields is <strong>Brush</strong>: four modes, and the brush&#39;s size, strength and hardness.</p>
+<p>Select the terrain, and under its component&#39;s fields is <strong>Brush</strong>: press <strong>Sculpt</strong> to take it up, then choose a mode.</p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Mode</th><th style="text-align:left">What a drag does</th><th style="text-align:left">Shift</th></tr></thead><tbody>
 <tr><td style="text-align:left"><strong>Raise</strong></td><td style="text-align:left">Lifts the ground under the brush. At strength 1 the centre climbs a quarter of <code>Height</code> per second</td><td style="text-align:left">Lowers it</td></tr>
 <tr><td style="text-align:left"><strong>Smooth</strong></td><td style="text-align:left">Blends each sample toward the mean of its neighbours</td><td style="text-align:left">--</td></tr>
 <tr><td style="text-align:left"><strong>Flatten</strong></td><td style="text-align:left">Pulls the ground toward the height where the drag began</td><td style="text-align:left">--</td></tr>
 <tr><td style="text-align:left"><strong>Paint</strong></td><td style="text-align:left">Paints the chosen layer -- one of the four -- into the asset&#39;s weights</td><td style="text-align:left">Erases it</td></tr>
+<tr><td style="text-align:left"><strong>Terrace</strong></td><td style="text-align:left">Steps the ground into <strong>Steps</strong> levels across <code>Height</code>: plateaus with risers between them</td><td style="text-align:left">--</td></tr>
+<tr><td style="text-align:left"><strong>Ramp</strong></td><td style="text-align:left">Press where the ramp starts, drag to its far end and hold: a straight slope between the two, <code>2 x Size</code> wide</td><td style="text-align:left">--</td></tr>
+<tr><td style="text-align:left"><strong>Set Height</strong></td><td style="text-align:left">Drives the ground to <strong>Height</strong>, in metres</td><td style="text-align:left">Click reads the height under the cursor into that field</td></tr>
+<tr><td style="text-align:left"><strong>Erode</strong></td><td style="text-align:left">Rains 1500 droplets a second that roll downhill, carry material and drop it lower: gullies above, fans below</td><td style="text-align:left">--</td></tr>
 </tbody></table></div>
 <ul>
-<li><strong>Size</strong> is the radius in metres; <code>[</code> and <code>]</code> change it in the viewport.</li>
-<li><strong>Strength</strong> is a rate: a full-strength raise climbs a quarter of the height each second, and smooth, flatten and paint close an eighth of their gap per sixtieth of a second, whatever the frame rate.</li>
-<li><strong>Hardness</strong> is how much of the radius is at full weight before the fall-off: 0 a soft cone, 1 a hard disc. A ring on the ground shows the rim and the core.</li>
+<li><strong>Size</strong> is the radius in metres -- or half the width of a mask&#39;s square; <code>[</code> and <code>]</code> change it in the viewport.</li>
+<li><strong>Strength</strong> is a rate: a full-strength raise climbs a quarter of the height each second, the blends close an eighth of their gap per sixtieth of a second, and erosion rains at its stated rate -- whatever the frame rate.</li>
+<li><strong>Hardness</strong> is how much of the radius is at full weight before the fall-off: 0 a soft cone, 1 a hard disc. A mask carries its own fall-off and ignores it.</li>
 </ul>
+<h3 id="shapes-and-patterns">Shapes and patterns<a class="anchor" href="#shapes-and-patterns" aria-label="Link to this section">#</a></h3>
+<p>The brush is a <strong>shape</strong> times a <strong>pattern</strong>, which is what turns four modes into a landscape tool.</p>
+<p><strong>Shape</strong> is what the brush covers: the plain disc, or one of the masks in the editor&#39;s <code>assets/brushes</code> folder -- <code>dome</code>, <code>mountain</code>, <code>ridge</code>, <code>mesa</code>, <code>crater</code>, <code>pad</code>, the irregular <code>soft</code>, <code>mid</code> and <code>hard</code>, and the filamentary <code>wispy</code> and <code>branch</code>. A mask is laid over the brush&#39;s square and turned by <strong>Angle</strong>; <strong>Follow stroke</strong> turns it to the direction the cursor is moving, so a ridge lies along the drag. The overlay draws the turned square, so what you see is where it will bite. Drop any square greyscale PNG in that folder and it appears in the list -- it is a tool of the editor, not an asset of the project.</p>
+<p><strong>Pattern</strong> is a field laid over the <em>ground</em> that multiplies the brush&#39;s weight wherever it touches: <code>erosion</code> for gullies, <code>veins</code> for a linked range, <code>rock</code> for detail, <code>dunes</code> for wind ridges, or plain <code>Noise</code>. <strong>Scale</strong> is metres per repeat. Because it lives on the ground rather than in the brush, two strokes over one place agree, and a stroke that walks across the terrain reveals the pattern instead of dragging it along.</p>
 <p>While a mode is chosen, a plain left drag on the terrain sculpts and a click does not select; Alt+drag still orbits and the right button still flies. Escape, or the lit mode button, puts the brush down. <strong>One drag is one undo step.</strong> The tool is inert while the scene is playing.</p>
 <p>Strokes edit the terrain asset, not the scene, and are <strong>written when the scene is saved</strong> (Ctrl+S) -- the unsaved mark counts them. The height-field collider is built from the data at the next Play, so what was sculpted is what a body rests on.</p>
 <p><code>--brush=mode,x,z,radius,strength,seconds[,layer]</code> applies one stroke on the <code>--select</code>ed terrain when the editor opens and saves it, which is how the checks hold the brush.</p>
@@ -62,8 +70,9 @@
 <h2 id="limits">Limits<a class="anchor" href="#limits" aria-label="Link to this section">#</a></h2>
 <ul>
 <li>Four layers at most, each reading three maps (base colour, normal, roughness); the paint is at the heights&#39; resolution.</li>
-<li>One brush shape -- a disc with a hardness. Brush textures, noise, erosion, ramp and clone tools are the next stage.</li>
-<li>A held smooth or flatten stops within four height units of its target (a fraction of a millimetre on a ten-metre terrain); a held paint reaches full and empty.</li>
+<li>A held smooth, flatten, terrace or set height stops within four height units of its target (a fraction of a millimetre on a ten-metre terrain); a held paint reaches full and empty.</li>
+<li>Erosion is confined to the brush&#39;s footprint: a droplet that would run out of it stops there. A wide brush erodes like a landscape, a narrow one like a puddle.</li>
+<li>One mask per shape and one per pattern; no clone-from-elsewhere, no thermal erosion, no symmetry, and no scatter or spacing controls.</li>
 <li>A terrain seen in a ray-traced reflection shows layer 0 only.</li>
 <li>No holes: a heightfield cannot have caves or overhangs.</li>
 <li>Everything is built at load and stays resident. A 1025 terrain is a few tens of megabytes of geometry; 2049 is around 180 MB and the practical ceiling until terrains stream.</li>
@@ -78,7 +87,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="materials.html"><span class="pager-label">Previous</span><span class="pager-title">Materials</span></a><a class="pager-link pager-next" href="lighting.html"><span class="pager-label">Next</span><span class="pager-title">Lighting</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#making-one">Making one</a><a class="toc-link toc-l2" href="#the-asset">The asset</a><a class="toc-link toc-l2" href="#the-component">The component</a><a class="toc-link toc-l2" href="#layers">Layers</a><a class="toc-link toc-l2" href="#sculpting-and-painting">Sculpting and painting</a><a class="toc-link toc-l2" href="#what-happens-underneath">What happens underneath</a><a class="toc-link toc-l2" href="#limits">Limits</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#making-one">Making one</a><a class="toc-link toc-l2" href="#the-asset">The asset</a><a class="toc-link toc-l2" href="#the-component">The component</a><a class="toc-link toc-l2" href="#layers">Layers</a><a class="toc-link toc-l2" href="#sculpting-and-painting">Sculpting and painting</a><a class="toc-link toc-l3" href="#shapes-and-patterns">Shapes and patterns</a><a class="toc-link toc-l2" href="#what-happens-underneath">What happens underneath</a><a class="toc-link toc-l2" href="#limits">Limits</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>

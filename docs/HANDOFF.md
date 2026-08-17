@@ -1613,15 +1613,20 @@ and `Renderer3D::DrawLayeredMesh` takes an index count (`PendingDraw::
 IndexCount`, part of the run key). Shadow pass and BLAS keep the whole mesh.
 Paragraph in 7ap, `check_terrain.py` claim 6 on the new `under` fixture (0
 non-sky pixels both backends; 24633 with the rule forced off), scenetest +10.
-**The owner asked at stage 3's landing (2026-08-17), and it is the next item
--- DESIGNED in ENGINE-NOTES 7as (read it first; it is complete: kernel =
-shape x pattern, BrushMask, the eight masks and make_brushes.py, Terrace /
-Ramp / Set Height / Erode, the Stroke context, the inspector as combos, the
-`--brush` key=value options, the checks and the `stamp` fixture) but NOT
-BUILT: the session hit its usage limit right after the design. Draft patch
-scripts for the engine half are parked in `build/7as-drafts/brush_h.py` and
-`brush_cpp.py` (apply from the repo root, in that order, then build); the
-tool, inspector, parser, masks and checks are still to write. Start there.**
+**Stage 3b -- brush varieties -- is DONE too** (ENGINE-NOTES 7as, the owner's
+ask at stage 3's landing): the kernel is a **shape** (the disc, or any square
+greyscale mask from `RageVEditor/assets/brushes`, turned by an angle and
+optionally following the stroke) times a **pattern** laid over the *ground*
+(noise, or a tiled mask), and four more operations -- **Terrace**, **Ramp**,
+**Set Height** and droplet **Erode**. Fifteen masks ship
+(`tools/scripts/make_brushes.py`), every one a landform or a ground texture
+after the owner rejected the first, decorative set: dome / soft / mid / hard /
+pad / wispy / branch / mountain / ridge / mesa / crater as shapes, erosion /
+rock / veins / dunes as patterns. The mode row became a **Sculpt** toggle plus
+a Mode combo, which is also the fix for 7ar's "Ra Sm Fla Pai" papercut.
+`--brush=` gained `key=value` options (shape, angle, follow, pattern, scale,
+hardness, steps, height, to). scenetest +34 (1798 Vulkan / 1758 OpenGL);
+`check_terrain.py` claim 7 on the new `stamp` fixture, falsified twice.
 
 0. **Brush varieties.** "Different brush varieties which can generate terrain
    in different patterns like Unity or Unreal" -- brush *textures* (an alpha
@@ -1667,7 +1672,7 @@ cut off**, at the owner's direction.
    remaining ordinary feature, the rest are engine-sized. None should be
    started because it sounds interesting.
 
-**Eight commits are unpushed** as of this writing -- terrain stage 1 and its
+**Ten commits are unpushed** as of this writing -- terrain stage 1 and its
 follow-ups (b37b8ed .. c8cb011), stage 2 (fe20a5c), stage 3 (d203b1b) and
 the skirts-from-under fix on top; everything before them is on origin.
 Pushing is the owner's action.

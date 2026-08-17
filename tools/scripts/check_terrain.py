@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Terrain (8.4, ENGINE-NOTES 7ap, 7aq, 7ar): what the pixels can say.
+"""Terrain (8.4, ENGINE-NOTES 7ap, 7aq, 7ar, 7as): what the pixels can say.
 
 The unit claims -- the serializer, the triangle-exact sampling, the chunk
 builder, the level rule, HeightAt, the height-field body -- are in
 scenetest. This is the rest: what a terrain looks like from a stated
 camera, on both backends, and whether the level-of-detail seams hold.
 
-Six fixtures, all from make_terrain.py, all with the camera and the
+Seven fixtures, all from make_terrain.py, all with the camera and the
 heights stated there so nothing below is found in a frame that could
 instead be derived:
 
@@ -74,6 +74,23 @@ instead be derived:
    backends. (Falsified by forcing the skirts on: the seams' skirts cross the
    frame -- thousands of pixels that are not sky.)
 
+7. **A brush shape is the mask, and a pattern is on the ground (7as).** The
+   `stamp` fixture: the layers fixture's flat grid and straight-down camera,
+   unpainted, red layer 0 and blue layer 1. The *editor* paints layer 1
+   through `shape=ridge` -- the mask's crest runs along its own x, and the
+   image says so: it reads 0.94 half way out along x, and 0.000 nine tenths
+   of the way out along z. So the pixel at (0.5 R, 0) must read blue and the
+   one at (0, 0.9 R) red; at `angle=90` the two swap, which no radial kernel
+   can do. (The negative probe is where the mask is *zero*, not merely small:
+   7ar's rule that a step which means to move moves at least one unit turns a
+   weight of 0.03 into visible blue over two seconds.) Then, on a fresh fixture, `pattern=dunes scale=16` with the
+   plain disc, centred four metres off the origin: one crest per tile, at
+   x = 0, so the ground at x = 0 reads blue and the trough eight metres away
+   -- half a tile, and the same distance from the brush's centre -- stays red. (Falsified by
+   ignoring the angle: the turned stroke paints what the unturned one did.
+   And by sampling the pattern in the brush's frame instead of the ground's:
+   the crest follows the cursor and the trough goes blue.)
+
 Falsified further by swapping the row-major read (x for z) in the builder:
 the ridge turns ninety degrees and claim 1's row is nowhere near.
 
@@ -104,6 +121,17 @@ MIN_LAYER_GAP = 100.0            # ... and by this many levels, in display space
 MAX_BRIGHTNESS_MISMATCH = 0.10   # left vs right, after the normalisation lifts the right
 MAX_BLEND_MISMATCH = 0.20        # red vs blue in the middle of the blend
 MAX_UNDER_PIXELS = 0             # pixels that are not sky, seen from under the ground
+STAMP_RADIUS = 16.0              # metres, the shape and pattern claims' brush
+# Where the ridge mask is read, as fractions of the radius. Along its crest at
+# a half it is 0.94; across it at nine tenths it is 0.000 -- exactly nothing,
+# which is the point: 7ar's rule that a paint step which means to move moves at
+# least one unit turns any non-zero weight into paint if it is held long
+# enough, so the negative probe has to be where the mask is zero, not merely
+# small (at seven tenths across it is 0.03, and two seconds of that is visibly
+# blue -- which is how this was found).
+STAMP_ALONG = 0.5
+STAMP_ACROSS = 0.9
+STAMP_WINDOW = 5                 # pixels either side of a probed point
 
 
 def run(exe, args):
@@ -151,6 +179,16 @@ def project_column(camera, pitch, point, width, height, fov_degrees):
     aspect = width / height
     ndc_x = (d[0] / depth) / (math.tan(math.radians(fov_degrees) * 0.5) * aspect)
     return (ndc_x + 1.0) * 0.5 * width
+
+
+def down_pixel(mt, width, height, world_x, world_z):
+    """The pixel a world point lands on under the straight-down camera the
+    layers and stamp fixtures share: the frame is the ground, to scale."""
+    half_height = mt.LAYERS_CAMERA_HEIGHT * math.tan(math.radians(mt.LAYERS_CAMERA_FOV_DEGREES) * 0.5)
+    half_width = half_height * (width / height)
+    column = (world_x / half_width * 0.5 + 0.5) * width
+    row = (world_z / half_height * 0.5 + 0.5) * height
+    return int(round(column)), int(round(row))
 
 
 def brush_weight(distance, radius, hardness):
@@ -362,6 +400,71 @@ def main():
             failures.append(f"{backend}: from under the ground {stray} pixels are not sky -- "
                             f"the seams' skirts, or something else, are drawn from below")
 
+    # --- 7. shapes and patterns (7as): the mask is the brush, the pattern is
+    # on the ground ------------------------------------------------------------
+    editor7 = root / "build" / "bin" / args.config / "RageVEditor" / "RageVEditor.exe"
+    if not editor7.exists():
+        print(f"FAIL: {editor7} does not exist; build {args.config} first")
+        sys.exit(1)
+
+    def regenerate7():
+        subprocess.run([sys.executable, str(root / "tools" / "scripts" / "make_terrain.py")],
+                       check=True, capture_output=True)
+
+    def stamp_paint(spec, image):
+        code, log = run(editor7, [f"--project={root / 'SampleProject'}", "--rhi=vulkan",
+                                  "--scene=scenes/terrain_stamp.rage", "--select=Stamp",
+                                  f"--brush={spec}", "--width=1280", "--height=720",
+                                  f"--screenshot={image}"])
+        if code != 0 or "--brush:" not in log or "saved" not in log:
+            print(f"FAIL: the editor did not apply and save --brush={spec} (exit {code})")
+            print(log[-2000:])
+            sys.exit(1)
+
+    def patch_of(image, world_x, world_z):
+        height, width = image.shape[:2]
+        column, row = down_pixel(mt, width, height, world_x, world_z)
+        w = STAMP_WINDOW
+        return image[max(row - w, 0):row + w, max(column - w, 0):column + w].reshape(-1, 3).mean(axis=0)
+
+    def is_blue(colour):
+        return colour[2] > 1.5 * max(colour[0], 1.0)
+
+    def is_red(colour):
+        return colour[0] > 1.5 * max(colour[2], 1.0)
+
+    on = STAMP_RADIUS * STAMP_ALONG
+    off = STAMP_RADIUS * STAMP_ACROSS
+    for angle, along, across in ((0, (on, 0.0), (0.0, off)),
+                                 (90, (0.0, on), (off, 0.0))):
+        stamp_paint(f"paint,0,0,{STAMP_RADIUS:g},1,2,layer=1,shape=ridge,angle={angle}",
+                    shots / f"editor-stamp-ridge{angle}.png")
+        image = shoot(exe, "vulkan", "terrain_stamp", shots / f"vulkan-stamp-ridge{angle}.png")
+        regenerate7()
+        crest = patch_of(image, along[0], along[1])
+        flank = patch_of(image, across[0], across[1])
+        print(f"stamp ridge at {angle} deg: along the crest {crest.round(1)}, across it {flank.round(1)}")
+        if not is_blue(crest):
+            failures.append(f"stamp ridge at {angle} deg: the crest ({along}) is not painted ({crest.round(1)})")
+        if not is_red(flank):
+            failures.append(f"stamp ridge at {angle} deg: across it ({across}) is painted ({flank.round(1)})")
+
+    # Centred four metres off the origin on purpose: the pattern is meant to
+    # live on the *ground*, so the crest must stay at x = 0 and not follow the
+    # brush. A pattern sampled in the brush's own frame would put the crest at
+    # x = 4 and read half-lit at both probes, which is the falsification.
+    stamp_paint(f"paint,4,0,{STAMP_RADIUS * 1.5:g},1,2,layer=1,pattern=dunes,scale=16",
+                shots / "editor-stamp-dunes.png")
+    image = shoot(exe, "vulkan", "terrain_stamp", shots / "vulkan-stamp-dunes.png")
+    regenerate7()
+    crest = patch_of(image, 0.0, 0.0)
+    trough = patch_of(image, 8.0, 0.0)
+    print(f"stamp dunes: the crest at x = 0 {crest.round(1)}, the trough at x = 8 {trough.round(1)}")
+    if not is_blue(crest):
+        failures.append(f"stamp dunes: the crest is not painted ({crest.round(1)})")
+    if not is_red(trough):
+        failures.append(f"stamp dunes: the trough half a tile away is painted ({trough.round(1)})")
+
     # --- 5. the brush (7ar): the editor sculpts, the runtime renders the file --
     editor = root / "build" / "bin" / args.config / "RageVEditor" / "RageVEditor.exe"
     if not editor.exists():
@@ -445,7 +548,8 @@ def main():
     print("OK: the ridge stands where the heights say on both backends, its shadow lands "
           "on the plain under maps and rays alike, the level seams open no holes, the "
           "paint is the picture on every material path, the brush sculpts and paints "
-          "what it says and the file keeps it, and from under the ground there is only sky")
+          "what it says and the file keeps it, from under the ground there is only sky, "
+          "and a mask paints its own shape while a pattern stays on the ground")
 
 
 if __name__ == "__main__":

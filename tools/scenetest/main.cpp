@@ -11723,6 +11723,276 @@ void main()
 				Check(true, "a region upload beyond the texture is refused and survivable");
 			}
 
+			// --- the varieties (7as): shape x pattern, and four more operations --
+
+			// A mask with an answer of its own: the left half full, the right
+			// half empty, so where it reads 1 and 0 is not a matter of taste.
+			auto halfMask = []()
+			{
+				auto mask = std::make_shared<BrushMask>();
+				mask->Size = 16;
+				mask->Values.assign(16 * 16, 0.0f);
+				for (uint32_t z = 0; z < 16; ++z)
+					for (uint32_t x = 0; x < 8; ++x)
+						mask->Values[(size_t)z * 16 + x] = 1.0f;
+				return mask;
+			};
+			{
+				std::shared_ptr<const BrushMask> mask = halfMask();
+				Check(mask->Valid() && mask->Sample(0.2f, 0.5f, false) > 0.99f &&
+					  mask->Sample(0.8f, 0.5f, false) < 0.01f,
+					  "a mask samples its own halves");
+				Check(Math::Abs(mask->Sample(0.5f, 0.5f, false) - 0.5f) < 0.02f,
+					  "and interpolates across the seam between them");
+				Check(mask->Sample(-0.5f, 0.5f, false) == 0.0f && mask->Sample(1.5f, 0.5f, false) == 0.0f,
+					  "outside its square it is nothing");
+				Check(mask->Sample(1.2f, 0.5f, true) > 0.99f && mask->Sample(1.8f, 0.5f, true) < 0.01f,
+					  "and wrapped it tiles");
+				BrushMask empty;
+				Check(!empty.Valid() && empty.Sample(0.5f, 0.5f, false) == 0.0f,
+					  "an empty mask is not valid and reads zero");
+			}
+
+			// The shape: the disc's radial rule untouched, the mask turned.
+			{
+				TerrainBrush shaped;
+				shaped.Radius = 10.0f;
+				shaped.Hardness = 0.5f;
+				Check(Math::Abs(shaped.Weight(3.0f, 4.0f, 0.0f) - shaped.Weight(5.0f)) < 1e-6f,
+					  "a disc's weight at an offset is its weight at that distance");
+
+				shaped.ShapeKind = TerrainBrush::Shape::Mask;
+				shaped.ShapeMask = halfMask();
+				// The mask's left half covers -x; at no rotation the point 7 m
+				// along -x is inside it and the one along +x is not.
+				Check(shaped.Weight(-7.0f, 0.0f, 0.0f) > 0.99f && shaped.Weight(7.0f, 0.0f, 0.0f) < 0.01f,
+					  "a mask covers what its image says, in the brush's own frame");
+				Check(shaped.Weight(0.0f, 12.0f, 0.0f) == 0.0f,
+					  "and nothing outside the square, whatever the image holds");
+				shaped.Angle = Math::Pi;
+				Check(shaped.Weight(-7.0f, 0.0f, 0.0f) < 0.01f && shaped.Weight(7.0f, 0.0f, 0.0f) > 0.99f,
+					  "turned half a circle it covers the other side");
+				shaped.Angle = 0.0f;
+				shaped.FollowStroke = true;
+				Check(shaped.Weight(-7.0f, 0.0f, Math::Pi) < 0.01f && shaped.Weight(7.0f, 0.0f, Math::Pi) > 0.99f,
+					  "and following the stroke, the heading turns it the same way");
+				shaped.FollowStroke = false;
+				shaped.ShapeMask = nullptr;
+				Check(shaped.Weight(0.0f, 0.0f, 0.0f) == 0.0f, "a mask shape with no mask covers nothing");
+			}
+
+			// The pattern, on the ground rather than in the brush.
+			{
+				TerrainBrush patterned;
+				patterned.Radius = 10.0f;
+				Check(patterned.PatternAt(3.0f, 4.0f, 7u) == 1.0f, "no pattern is a weight of one everywhere");
+
+				const float n = TerrainBrush::Noise(1.25f, -0.5f, 11u);
+				Check(n >= 0.0f && n <= 1.0f, "the brush's noise stays inside its range");
+				Check(TerrainBrush::Noise(1.25f, -0.5f, 11u) == n, "and is the same at the same place and seed");
+				Check(TerrainBrush::Noise(1.25f, -0.5f, 12u) != n, "and different at another seed");
+				bool varies = false;
+				for (int i = 1; i < 40 && !varies; ++i)
+					varies = Math::Abs(TerrainBrush::Noise((float)i * 0.37f, 0.0f, 11u) - n) > 0.05f;
+				Check(varies, "and is a field, not a constant");
+
+				patterned.PatternKind = TerrainBrush::Pattern::Tiled;
+				patterned.PatternMask = halfMask();
+				patterned.PatternScale = 8.0f;
+				// Tiled every 8 m: the mask's left half lands on [0, 4) of every
+				// tile, so 2 m in is full and 6 m in is empty, at any tile.
+				Check(patterned.PatternAt(2.0f, 0.0f, 0u) > 0.99f && patterned.PatternAt(6.0f, 0.0f, 0u) < 0.01f,
+					  "a tiled pattern lands where the tiling says");
+				Check(patterned.PatternAt(802.0f, 0.0f, 0u) > 0.99f && patterned.PatternAt(-6.0f, 0.0f, 0u) > 0.99f,
+					  "and repeats, forward and back, without a seam in the answer");
+			}
+
+			// The footprint grows for a mask, because a turned square reaches
+			// further than the disc it replaces.
+			{
+				TerrainData grid = TerrainData::Flat(kRes, 30000);
+				TerrainBrush footprint;
+				footprint.Radius = 8.0f;
+				const TerrainRect disc = footprint.Footprint(grid, kSize, 0.0f, 0.0f);
+				footprint.ShapeKind = TerrainBrush::Shape::Mask;
+				footprint.ShapeMask = halfMask();
+				const TerrainRect square = footprint.Footprint(grid, kSize, 0.0f, 0.0f);
+				Check(square.Width() > disc.Width() && square.Width() <= disc.Width() * 2,
+					  "a mask's footprint is the disc's grown by root two, not doubled");
+
+				// A ramp's is the segment's box, so a stroke that walks 20 m
+				// covers ground the point never did.
+				TerrainBrush ramp;
+				ramp.Mode = TerrainBrush::Op::Ramp;
+				ramp.Radius = 4.0f;
+				TerrainBrush::Stroke stroke;
+				stroke.StartX = -10.0f;
+				stroke.StartZ = 0.0f;
+				const TerrainRect line = ramp.Footprint(grid, kSize, 10.0f, 0.0f, stroke);
+				Check(line.Width() > line.Height() && line.Width() >= 20,
+					  "a ramp's footprint spans from where the stroke began to where it is");
+			}
+
+			// Terrace: toward the nearest of its levels, and a sample already on
+			// one does not move.
+			{
+				TerrainData grid = TerrainData::Flat(kRes, 20000);
+				TerrainBrush terrace;
+				terrace.Mode = TerrainBrush::Op::Terrace;
+				terrace.Radius = 20.0f;
+				terrace.Hardness = 1.0f;
+				terrace.Strength = 1.0f;
+				terrace.TerraceSteps = 4;   // levels at 0, 16384, 32768, 49152, 65535
+				for (int i = 0; i < 240; ++i)
+					terrace.Apply(grid, kSize, kHeight, 0.0f, 0.0f, 0.0f, TerrainBrush::kStepSeconds);
+				Check(Math::Abs((int)grid.At(32, 32) - 16384) < 64,
+					  "terrace pulls a sample to the nearest of its levels");
+				TerrainData onLevel = TerrainData::Flat(kRes, 16384);
+				terrace.Apply(onLevel, kSize, kHeight, 0.0f, 0.0f, 0.0f, TerrainBrush::kStepSeconds);
+				Check(onLevel.At(32, 32) == 16384, "and leaves one already on a level alone");
+			}
+
+			// Set Height: in metres, and it converges there.
+			{
+				TerrainData grid = TerrainData::Flat(kRes, 0);
+				TerrainBrush set;
+				set.Mode = TerrainBrush::Op::SetHeight;
+				set.Radius = 20.0f;
+				set.Hardness = 1.0f;
+				set.Strength = 1.0f;
+				set.TargetHeight = kHeight * 0.5f;   // half the terrain's height
+				for (int i = 0; i < 240; ++i)
+					set.Apply(grid, kSize, kHeight, 0.0f, 0.0f, 0.0f, TerrainBrush::kStepSeconds);
+				Check(Math::Abs((int)grid.At(32, 32) - 32768) < 64,
+					  "set height drives the ground to a height in metres");
+				Check(grid.At(0, 0) == 0, "and leaves what the brush never reached");
+			}
+
+			// Ramp: the far end reaches the cursor's height, the near end stays,
+			// and across the line it is flat.
+			{
+				TerrainData grid = TerrainData::Flat(kRes, 0);
+				// A step up at the far end for the ramp to climb to.
+				for (uint32_t z = 0; z < kRes; ++z)
+					for (uint32_t x = 40; x < kRes; ++x)
+						grid.Heights[(size_t)z * kRes + x] = 40000;
+				TerrainBrush ramp;
+				ramp.Mode = TerrainBrush::Op::Ramp;
+				ramp.Radius = 6.0f;
+				ramp.Hardness = 1.0f;
+				ramp.Strength = 1.0f;
+				TerrainBrush::Stroke stroke;
+				stroke.StartX = -20.0f;
+				stroke.StartZ = 0.0f;
+				stroke.StartHeight = 0.0f;
+				for (int i = 0; i < 300; ++i)
+					ramp.Apply(grid, kSize, kHeight, 12.0f, 0.0f, stroke, TerrainBrush::kStepSeconds);
+				// Sample indices are metres from the terrain's near edge, so
+				// index 32 is local 0: the stroke runs from local -20 (index
+				// 12) to local 12 (index 44), and its middle is local -4.
+				const int near0 = (int)grid.At(12, 32);    // the near end
+				const int middle = (int)grid.At(28, 32);   // half way along the segment
+				const int far0 = (int)grid.At(44, 32);     // the far end
+				Check(near0 < middle && middle < far0,
+					  "a ramp rises from where the stroke began to where it is");
+				Check(Math::Abs(middle - (near0 + far0) / 2) < 3000,
+					  "and lands about half way at half way -- a line, not a curve");
+				Check(grid.At(28, 32) == grid.At(28, 30) && grid.At(28, 32) == grid.At(28, 34),
+					  "flat across the line inside the core");
+				Check(grid.At(28, 5) == 0, "and nothing beyond its width");
+			}
+
+			// Erode: material leaves the peak and lands lower down, the same way
+			// twice for one seed, and differently for another.
+			{
+				auto cone = []()
+				{
+					TerrainData grid = TerrainData::Flat(kRes, 0);
+					for (uint32_t z = 0; z < kRes; ++z)
+						for (uint32_t x = 0; x < kRes; ++x)
+						{
+							const float dx = (float)x - 32.0f, dz = (float)z - 32.0f;
+							const float d = Math::Sqrt(dx * dx + dz * dz);
+							const float h = Math::Max(1.0f - d / 24.0f, 0.0f);
+							grid.Heights[(size_t)z * kRes + x] = (uint16_t)(h * 40000.0f);
+						}
+					return grid;
+				};
+				auto total = [](const TerrainData& grid)
+				{
+					double sum = 0.0;
+					for (uint16_t h : grid.Heights)
+						sum += (double)h;
+					return sum;
+				};
+
+				TerrainData before = cone();
+				TerrainData grid = cone();
+				TerrainBrush erode;
+				erode.Mode = TerrainBrush::Op::Erode;
+				erode.Radius = 24.0f;
+				erode.Hardness = 1.0f;
+				erode.Strength = 1.0f;
+				TerrainBrush::Stroke stroke;
+				stroke.Seed = 12345u;
+				for (int i = 0; i < 30; ++i)
+				{
+					erode.Apply(grid, kSize, kHeight, 0.0f, 0.0f, stroke, TerrainBrush::kStepSeconds);
+					stroke.Seed = stroke.Seed * 1664525u + 1013904223u;
+				}
+				Check(grid.At(32, 32) < before.At(32, 32), "erosion takes the apex down");
+				bool anyRaised = false;
+				for (uint32_t z = 20; z < 45 && !anyRaised; ++z)
+					for (uint32_t x = 20; x < 45; ++x)
+						if (grid.At(x, z) > before.At(x, z) + 50)
+						{
+							anyRaised = true;
+							break;
+						}
+				Check(anyRaised, "and puts what it took somewhere lower");
+				const double lost = (total(before) - total(grid)) / Math::Max(total(before), 1.0);
+				Check(lost >= -0.02 && lost < 0.35,
+					  "the ground it moves mostly stays inside the footprint");
+
+				TerrainData again = cone();
+				TerrainBrush::Stroke same;
+				same.Seed = 12345u;
+				for (int i = 0; i < 30; ++i)
+				{
+					erode.Apply(again, kSize, kHeight, 0.0f, 0.0f, same, TerrainBrush::kStepSeconds);
+					same.Seed = same.Seed * 1664525u + 1013904223u;
+				}
+				Check(again.Heights == grid.Heights, "the same seed erodes the same way, to the bit");
+
+				TerrainData other = cone();
+				TerrainBrush::Stroke different;
+				different.Seed = 999u;
+				for (int i = 0; i < 30; ++i)
+				{
+					erode.Apply(other, kSize, kHeight, 0.0f, 0.0f, different, TerrainBrush::kStepSeconds);
+					different.Seed = different.Seed * 1664525u + 1013904223u;
+				}
+				Check(!(other.Heights == grid.Heights), "and another seed does not");
+			}
+
+			// The 7ar calls are the 7as calls with a stroke that began here.
+			{
+				TerrainData viaOld = TerrainData::Flat(kRes, 20000);
+				TerrainData viaNew = TerrainData::Flat(kRes, 20000);
+				TerrainBrush flatten;
+				flatten.Mode = TerrainBrush::Op::Flatten;
+				flatten.Radius = 10.0f;
+				flatten.Strength = 1.0f;
+				TerrainBrush::Stroke stroke;
+				stroke.StartX = 4.0f;
+				stroke.StartZ = -3.0f;
+				stroke.StartHeight = 0.75f;
+				flatten.Apply(viaOld, kSize, kHeight, 4.0f, -3.0f, 0.75f, 0.5f);
+				flatten.Apply(viaNew, kSize, kHeight, 4.0f, -3.0f, stroke, 0.5f);
+				Check(viaOld.Heights == viaNew.Heights,
+					  "the old two-argument Apply is the new one with a stroke that began where it is");
+			}
+
 			std::filesystem::remove(path, error);
 			std::filesystem::remove(path.string() + ".meta", error);
 			Assets::Registry::Refresh();

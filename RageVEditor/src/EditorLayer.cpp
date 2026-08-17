@@ -2388,25 +2388,34 @@ void EditorLayer::RunBrushScript()
 	}
 	if (parts.size() < 6)
 	{
-		RV_ERROR("--brush wants mode,x,z,radius,strength,seconds[,layer]; got '{0}'", script);
+		RV_ERROR("--brush wants mode,x,z,radius,strength,seconds[,layer][,key=value...]; got '{0}'", script);
 		return;
 	}
 
 	Tools::TerrainBrushTool& tool = m_TerrainTool;
 	const std::string& mode = parts[0];
-	if      (mode == "raise")   { tool.Brush.Mode = TerrainBrush::Op::Raise;   tool.Brush.Invert = false; }
-	else if (mode == "lower")   { tool.Brush.Mode = TerrainBrush::Op::Raise;   tool.Brush.Invert = true; }
-	else if (mode == "smooth")  { tool.Brush.Mode = TerrainBrush::Op::Smooth;  tool.Brush.Invert = false; }
-	else if (mode == "flatten") { tool.Brush.Mode = TerrainBrush::Op::Flatten; tool.Brush.Invert = false; }
-	else if (mode == "paint")   { tool.Brush.Mode = TerrainBrush::Op::Paint;   tool.Brush.Invert = false; }
-	else if (mode == "erase")   { tool.Brush.Mode = TerrainBrush::Op::Paint;   tool.Brush.Invert = true; }
+	if      (mode == "raise")     { tool.Brush.Mode = TerrainBrush::Op::Raise;     tool.Brush.Invert = false; }
+	else if (mode == "lower")     { tool.Brush.Mode = TerrainBrush::Op::Raise;     tool.Brush.Invert = true; }
+	else if (mode == "smooth")    { tool.Brush.Mode = TerrainBrush::Op::Smooth;    tool.Brush.Invert = false; }
+	else if (mode == "flatten")   { tool.Brush.Mode = TerrainBrush::Op::Flatten;   tool.Brush.Invert = false; }
+	else if (mode == "paint")     { tool.Brush.Mode = TerrainBrush::Op::Paint;     tool.Brush.Invert = false; }
+	else if (mode == "erase")     { tool.Brush.Mode = TerrainBrush::Op::Paint;     tool.Brush.Invert = true; }
+	else if (mode == "terrace")   { tool.Brush.Mode = TerrainBrush::Op::Terrace;   tool.Brush.Invert = false; }
+	else if (mode == "ramp")      { tool.Brush.Mode = TerrainBrush::Op::Ramp;      tool.Brush.Invert = false; }
+	else if (mode == "setheight") { tool.Brush.Mode = TerrainBrush::Op::SetHeight; tool.Brush.Invert = false; }
+	else if (mode == "erode")     { tool.Brush.Mode = TerrainBrush::Op::Erode;     tool.Brush.Invert = false; }
 	else
 	{
-		RV_ERROR("--brush: unknown mode '{0}' (raise, lower, smooth, flatten, paint, erase)", mode);
+		RV_ERROR("--brush: unknown mode '{0}' (raise, lower, smooth, flatten, paint, erase, "
+				 "terrace, ramp, setheight, erode)", mode);
 		return;
 	}
 
 	float x = 0.0f, z = 0.0f, seconds = 1.0f;
+	// The ramp's far end, when one is given: the stroke presses at (x, z),
+	// drags there and holds (7as).
+	bool hasTo = false;
+	float toX = 0.0f, toZ = 0.0f;
 	try
 	{
 		x = std::stof(parts[1]);
@@ -2414,8 +2423,76 @@ void EditorLayer::RunBrushScript()
 		tool.Brush.Radius = std::stof(parts[3]);
 		tool.Brush.Strength = std::stof(parts[4]);
 		seconds = std::stof(parts[5]);
-		if (parts.size() > 6)
-			tool.Brush.Layer = std::stoi(parts[6]);
+
+		// Everything after the six is either the layer (a bare number, the
+		// 7ar form) or a key=value naming one of 7as's dials.
+		for (size_t i = 6; i < parts.size(); ++i)
+		{
+			const std::string& part = parts[i];
+			if (part.empty())
+				continue;
+			const size_t equals = part.find('=');
+			if (equals == std::string::npos)
+			{
+				tool.Brush.Layer = std::stoi(part);
+				continue;
+			}
+			const std::string key = part.substr(0, equals);
+			const std::string value = part.substr(equals + 1);
+			if (key == "layer")        tool.Brush.Layer = std::stoi(value);
+			else if (key == "shape")
+			{
+				if (value == "disc" || value.empty())
+					tool.SetShapeMask("");
+				else if (!tool.SetShapeMask(value))
+				{
+					RV_ERROR("--brush: no brush mask named '{0}' in assets/brushes", value);
+					return;
+				}
+			}
+			else if (key == "angle")   tool.Brush.Angle = std::stof(value) * Math::Pi / 180.0f;
+			else if (key == "follow")  tool.Brush.FollowStroke = value != "0";
+			else if (key == "pattern")
+			{
+				if (value == "none" || value.empty())
+				{
+					tool.SetPatternMask("");
+					tool.Brush.PatternKind = TerrainBrush::Pattern::None;
+				}
+				else if (value == "noise")
+				{
+					tool.SetPatternMask("");
+					tool.Brush.PatternKind = TerrainBrush::Pattern::Noise;
+				}
+				else if (!tool.SetPatternMask(value))
+				{
+					RV_ERROR("--brush: no brush mask named '{0}' in assets/brushes", value);
+					return;
+				}
+			}
+			else if (key == "scale")   tool.Brush.PatternScale = std::stof(value);
+			else if (key == "hardness") tool.Brush.Hardness = std::stof(value);
+			else if (key == "steps")   tool.Brush.TerraceSteps = std::stoi(value);
+			else if (key == "height")  tool.Brush.TargetHeight = std::stof(value);
+			else if (key == "to")
+			{
+				const size_t colon = value.find(':');
+				if (colon == std::string::npos)
+				{
+					RV_ERROR("--brush: to= wants x:z, got '{0}'", value);
+					return;
+				}
+				toX = std::stof(value.substr(0, colon));
+				toZ = std::stof(value.substr(colon + 1));
+				hasTo = true;
+			}
+			else
+			{
+				RV_ERROR("--brush: unknown option '{0}' (layer, shape, angle, follow, pattern, "
+						 "scale, hardness, steps, height, to)", key);
+				return;
+			}
+		}
 	}
 	catch (const std::exception&)
 	{
@@ -2433,7 +2510,8 @@ void EditorLayer::RunBrushScript()
 	// The tool's Invert follows Shift in Update; here it is the mode's, and
 	// Update does not run between the stroke and the save.
 	const bool invert = tool.Brush.Invert;
-	if (!tool.ScriptStroke(m_Scene, selected, x, z, seconds, m_Commands))
+	if (!tool.ScriptStroke(m_Scene, selected, x, z, seconds, m_Commands,
+						   hasTo ? &toX : nullptr, hasTo ? &toZ : nullptr))
 	{
 		RV_ERROR("--brush: the stroke could not be applied");
 		return;
