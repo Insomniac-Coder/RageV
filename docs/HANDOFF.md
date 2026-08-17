@@ -1616,12 +1616,7 @@ the `perlin_noise` link into RageV that nothing included, is gone.
 2. **The two long-standing non-blockers** at the end of this section: the
    focus-click guard has never been confirmed against a real click, and an
    orphaned LUT is not warned about.
-3. **The vendored-ImGui mid-word wrap** ("click one i / n the viewport",
-   "used instea / d;"): both callers use `PushTextWrapPos(0)`; an explicit
-   wrap position made no difference, so it is the vendored ImGui's
-   `ImFontCalcWordWrapPositionEx`. Cosmetic; a separate session was started
-   on it.
-4. **Phase 8's other items** are priced in the roadmap; 8.9 FBX is the
+3. **Phase 8's other items** are priced in the roadmap; 8.9 FBX is the
    remaining ordinary feature, the rest are engine-sized. None should be
    started because it sounds interesting.
 
@@ -2001,7 +1996,14 @@ none of it; `FieldHint::DisabledIf/DisabledNote`, `DisabledWhen(...)`,
 +109.85 vs -0.10), `check_ssao.py` +3 (seam 15.17, wall p10 1.000, jitter
 0.04); falsified three ways; the RTAO written-normal defect (p10 0.972)
 found by the wall claim and fixed as 7ao records; the rays-with-shadows-off
-gap closed. Papercut noted: the vendored ImGui wraps text mid-word.
+gap closed. Papercut noted: the vendored ImGui wraps text mid-word --
+**fixed the same evening (47cc26e, merged 3379edf)**: not the vendored
+wrapper but a *per-module static* -- ImGui is linked into both RageV.dll
+and the exe, and since 1.92.6 the wrapper classifies characters through a
+static table filled only where the atlas is built (the DLL); the exe's
+copy stayed zero, so from that module every character read as a blank.
+`ImGuiBinding::Bind()` fills it now. Same family as the two-module traps
+§5 already lists.
 
 ---
 
