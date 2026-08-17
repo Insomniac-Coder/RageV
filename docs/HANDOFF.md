@@ -1613,7 +1613,15 @@ and `Renderer3D::DrawLayeredMesh` takes an index count (`PendingDraw::
 IndexCount`, part of the run key). Shadow pass and BLAS keep the whole mesh.
 Paragraph in 7ap, `check_terrain.py` claim 6 on the new `under` fixture (0
 non-sky pixels both backends; 24633 with the rule forced off), scenetest +10.
-**The owner asked at stage 3's landing (2026-08-17), and it is the next item:**
+**The owner asked at stage 3's landing (2026-08-17), and it is the next item
+-- DESIGNED in ENGINE-NOTES 7as (read it first; it is complete: kernel =
+shape x pattern, BrushMask, the eight masks and make_brushes.py, Terrace /
+Ramp / Set Height / Erode, the Stroke context, the inspector as combos, the
+`--brush` key=value options, the checks and the `stamp` fixture) but NOT
+BUILT: the session hit its usage limit right after the design. Draft patch
+scripts for the engine half are parked in `build/7as-drafts/brush_h.py` and
+`brush_cpp.py` (apply from the repo root, in that order, then build); the
+tool, inspector, parser, masks and checks are still to write. Start there.**
 
 0. **Brush varieties.** "Different brush varieties which can generate terrain
    in different patterns like Unity or Unreal" -- brush *textures* (an alpha
