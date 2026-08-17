@@ -1924,6 +1924,7 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 			{ "RageV/src/RageV/Scene/Components.h", "UITextComponent",            true, "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h", "UIButtonComponent",          true, "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h", "WorldTextComponent",         true, "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h", "TerrainComponent",           true, "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h", "PrefabComponent",            true, "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h", "ManagedScriptComponent",     true, "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h", "NativeScriptComponent",      true, "components.md" },

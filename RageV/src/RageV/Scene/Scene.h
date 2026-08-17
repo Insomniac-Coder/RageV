@@ -7,7 +7,9 @@
 #include "RageV/Renderer/PostSettings.h"
 #include "RageV/Renderer/ViewportGrid.h"
 #include "RageV/Renderer/RHI/RHIResources.h"
+#include "RageV/Renderer/Terrain.h"
 #include "RageV/Math/Math.h"
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -18,6 +20,8 @@ namespace RageV
 	class Entity;
 	class Camera;
 	class EditorCamera;
+	struct TransformComponent;
+	struct TerrainComponent;
 	// Only ever held as a pointer here; the editor is what fills one in.
 	struct EditorIconSettings;
 
@@ -276,6 +280,26 @@ namespace RageV
 		// much the same room, so a scene can select entirely the wrong probe
 		// for every object in it and still look approximately correct.
 		uint32_t ProbeSlotFor(const Vec3& position) const;
+
+		// Every terrain chunk at the level SelectLod last chose (ENGINE-NOTES
+		// 7ap): the entity, its world transform, its component, the terrain and
+		// the chunk. The one walk the scene pass, the shadow casters, the
+		// ray-instance list and the picker share, so none of them can disagree
+		// about which level a chunk is at. Resolves the terrain from the asset
+		// on first use; an entity whose asset is missing is skipped. `Fn` is
+		// void(Entity, TransformComponent&, TerrainComponent&, Terrain&,
+		// Terrain::Chunk&).
+		void ForEachTerrainChunk(const std::function<void(Entity, TransformComponent&,
+													  TerrainComponent&, Terrain&,
+													  Terrain::Chunk&)>& fn);
+
+		// Chooses every terrain chunk's level for a camera at `cameraPosition`.
+		// RenderShadows calls it first thing, so the level the shadows are
+		// rendered from is the level the frame draws.
+		void SelectTerrainLods(const Vec3& cameraPosition);
+
+		// True when at least one terrain has something to draw.
+		bool HasTerrain();
 
 	private:
 		// `viewCamera` is the camera as the viewer set it. What the scene is

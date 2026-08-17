@@ -102,6 +102,27 @@ colour stay one draw.
 | `OverrideNormalScale` | `false` | Use `NormalScale` instead of the material's |
 | `NormalScale` | `1.0` | How strongly the normal map is applied |
 
+### TerrainComponent
+
+A heightfield from an `.rvterrain` asset, drawn as chunk meshes with levels of
+detail and collided with through a static height field. Centred on the entity.
+See [Terrain](terrain.md).
+
+| Field | Default | What it does |
+|---|---|---|
+| `Terrain` | invalid | The `.rvterrain` holding the heights. Invalid draws nothing |
+| `Size` | `256.0` | Metres a side, centred on the entity |
+| `Height` | `40.0` | Metres the highest possible sample stands above the base |
+| `Material` | invalid | One material, tiled over the whole terrain. Invalid means the renderer's shared default |
+| `TextureScale` | `4.0` | Metres per repeat of the material's textures |
+| `Collision` | `true` | A static height-field collider under the drawn surface. The terrain is its own collider: no RigidBody or Collider component is needed, and one on this entity is ignored |
+
+**Runtime state:**
+
+| Field | What it is |
+|---|---|
+| `Runtime` | The chunk meshes built from the asset at these dimensions; rebuilt when the asset or a dimension changes |
+
 ### CameraComponent
 
 | Field | Default | What it does |

@@ -168,13 +168,14 @@ target_compile_definitions(glm INTERFACE
     GLM_ENABLE_EXPERIMENTAL)
 
 # ---------------------------------------------------------------------------
-# EnTT / PerlinNoise -- header only
+# EnTT -- header only
 # ---------------------------------------------------------------------------
 add_library(entt INTERFACE)
 target_include_directories(entt INTERFACE EnTT/include)
 
-add_library(perlin_noise INTERFACE)
-target_include_directories(perlin_noise INTERFACE PerlinNoise)
+# PerlinNoise (vendor/PerlinNoise) is kept on disk beside the parked terrain
+# experiment that used it (experiments/terrain), and is deliberately not a
+# target: nothing in the engine includes it (ENGINE-NOTES 7ap).
 
 # ---------------------------------------------------------------------------
 # spdlog -- header only mode, no separate compilation

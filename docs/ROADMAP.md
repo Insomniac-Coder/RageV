@@ -630,7 +630,7 @@ deleted. **None of these should be started because it sounds interesting.**
 | 8.1 | Global illumination — SDFGI or voxel GI | XL | IBL plus good shadows already gets most of the perceived benefit. This is the largest possible effort for the smallest visible delta in this engine |
 | 8.2 | Bindless resource binding | L | **Done 2026-08-16 (ENGINE-NOTES 7al).** The price turned out smaller than predicted: the split is forced in two places — the heap and the GLSL that indexes it — and neither is the RHI. The Vulkan lit pass reads material textures through a heap; OpenGL keeps the bound path, unchanged. One fork, in `Material` and one shader block, checked by rendering the demo both ways on Vulkan to zero differing pixels — which on its first run found the bound path drawing every wall at the plinth's tiling |
 | 8.3 | GPU-driven rendering — compute-built draw commands, meshlets | XL | Real wins at hundreds of thousands of objects. The renderer draws a thousand in 1.9 ms and is nowhere near the wall |
-| 8.4 | Terrain | L | **`experiments/terrain/Chunk` must be deleted first.** It creates one entity per voxel *face* — thousands of entities per chunk — and is not a starting point for anything |
+| 8.4 | Terrain | L | **Stage 1 done 2026-08-17 (ENGINE-NOTES 7ap):** a heightfield as a *source of meshes* — an `.rvterrain` asset of 16-bit heights, a `TerrainComponent` (size, height, one material, collision), chunks of 64 quads at four levels of detail with skirts on shared edges, the level chosen per chunk per frame and read by the draw, the shadow casters, the ray-instance list and the picker alike; Jolt's height-field body over the same samples and the same triangle split, so a ball rests on what is drawn. The renderer never learned the word. `experiments/terrain/Chunk` is **kept, cut off** (owner's call): it was already in no target, and its `PerlinNoise` link is gone. **Stages open:** a layered material painted by a weight map (a shader), then sculpt/paint in the editor writing back to the asset |
 | 8.5 | Navigation and AI — navmesh generation, pathfinding | XL | An engine-sized subsystem on its own |
 | 8.6 | Networking / multiplayer | XL | Touches every system that owns state. Retrofitting it is the classic way an engine's architecture is rewritten |
 | 8.7 | Non-Windows platforms | XL | The RHI keeps the door open. Walking through it means a second window layer, a second input layer, and a second CI |
@@ -710,9 +710,10 @@ Two of them are worth repeating here because they are not merely large:
   with both, and 8.12 was the first item that is not: ray tracing is Vulkan
   only, offered in the panel only where the device traces, and OpenGL keeps
   the maps and the screen-space effects.
-- **Terrain (8.4) has a false start in the tree.** `experiments/terrain/Chunk`
-  creates one entity per voxel face. It must be deleted before anything is
-  built, not extended.
+- **Terrain (8.4) has a false start in the tree, kept on purpose.**
+  `experiments/terrain/Chunk` creates one entity per voxel face. Stage 1 of
+  8.4 was built beside it, not on it (ENGINE-NOTES 7ap), and it stays in
+  `experiments/` as the shape to avoid.
 
 The bar from §2 still applies to all of it: an item is done when it works on
 both backends, exits cleanly, and has been looked at as pixels rather than as a
@@ -770,5 +771,5 @@ a way that matters, however good its shadows are.
 
 **Phase 8 items should each be treated as a proposal, not a task.** Every one of
 them was excluded once, with a reason that is still recorded next to it. Two of
-them — bindless and terrain — have prerequisites that are decisions rather than
-work.
+them — bindless and terrain — had prerequisites that were decisions rather than
+work, and both decisions have been made.

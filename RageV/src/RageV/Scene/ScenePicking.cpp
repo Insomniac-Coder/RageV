@@ -228,6 +228,45 @@ namespace RageV
 				consider(Entity{ handle, &scene }, nearest / lengthScale);
 		}
 
+		// --- terrain, triangle-exact at the finest level ----------------------
+		// The same test the meshes get, over each chunk's finest mesh (7ap):
+		// the box is the filter, the triangles are the answer, and a click on
+		// a hill selects the terrain entity. Level 0 rather than the drawn
+		// level, so what is picked is the surface and not its approximation.
+		scene.ForEachTerrainChunk([&](Entity entity, TransformComponent& transform, TerrainComponent&,
+									  Terrain&, Terrain::Chunk& chunk)
+		{
+			const RHI::Ref<Mesh>& resolved = chunk.Levels[0];
+			if (!resolved || resolved->GetPositions().empty())
+				return;
+
+			const Mat4 inverseWorld = Math::Inverse(transform.World);
+			Ray local;
+			local.Origin = Vec3(inverseWorld * Vec4(ray.Origin, 1.0f));
+			local.Direction = Vec3(inverseWorld * Vec4(ray.Direction, 0.0f));
+			const float lengthScale = Math::Length(local.Direction);
+			if (lengthScale < 1e-9f)
+				return;
+			local.Direction /= lengthScale;
+
+			float boxDistance = 0.0f;
+			if (!RayIntersectsBox(local, chunk.Bounds.Min, chunk.Bounds.Max, boxDistance))
+				return;
+
+			const auto& positions = resolved->GetPositions();
+			const auto& indices = resolved->GetIndices();
+			float nearest = std::numeric_limits<float>::max();
+			for (size_t i = 0; i + 2 < indices.size(); i += 3)
+			{
+				float distance = 0.0f;
+				if (RayIntersectsTriangle(local, positions[indices[i]], positions[indices[i + 1]],
+										  positions[indices[i + 2]], distance))
+					nearest = Math::Min(nearest, distance);
+			}
+			if (nearest < std::numeric_limits<float>::max())
+				consider(entity, nearest / lengthScale);
+		});
+
 		// --- colliders with no mesh -------------------------------------------
 		// A trigger volume is invisible by construction, so without this the
 		// only way to select one is to find it in the hierarchy.

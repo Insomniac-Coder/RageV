@@ -1,6 +1,6 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-16.
+**Read this first.** Updated 2026-08-17.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
 finished with, and `main` is pushed.
@@ -1316,6 +1316,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | IBL | Irradiance convolution, GGX prefilter per roughness level, BRDF table (3.4) |
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
 | Ray tracing | Vulkan with ray queries only: one checkbox under Shadows traces every casting light; options under it trace reflections and ambient occlusion in place of SSR/SSAO. Absent from the panel on OpenGL (8.12) |
+| Terrain | A heightfield asset (`.rvterrain`) and component: chunk meshes at four levels of detail with skirts, one tiled material, Jolt height-field collision, culled/shadowed/traced/picked as ordinary meshes (8.4 stage 1) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
 | Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
@@ -1592,39 +1593,108 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 8.12 is DONE -- all three stages; phase 8's remaining items are each their own decision
+### START HERE: 8.4 terrain stage 1 is DONE (2026-08-17); its stages 2-3 and the rest of phase 8 are each their own decision
 
-**8.12 stage 3 landed 2026-08-16 (late), on top of stages 1 and 2 the same
-day** -- see the stage 3 narrative below and the Done entry after it;
-ENGINE-NOTES 7ao is the design and carries the numbers. Ray tracing is one
-checkbox under Shadows with two options under it, offered only where the
-device traces (Vulkan on hardware with ray queries) -- **none of the
-ray-tracing rows appear on OpenGL**, at the owner's direction -- and the
-post profile's SSR and SSAO rows grey out with a note while the traced
-twin runs.
+**Terrain landed on top of 8.12** -- read the terrain narrative below, its
+Done entry, and ENGINE-NOTES 7ap (design first, numbers at landing, and
+what the fixtures taught). A heightfield as a source of meshes: an
+`.rvterrain` asset, a `TerrainComponent`, chunk meshes at four levels with
+skirts, Jolt's height field over the same samples. The renderer never
+learned the word. `experiments/terrain/Chunk` is **kept, cut off**, at the
+owner's direction -- it was already in no target; the one thread left,
+the `perlin_noise` link into RageV that nothing included, is gone.
 
 **What is open, in the order it would be sensible to take:**
 
-1. **The two long-standing non-blockers** at the end of this section: the
+1. **Terrain stage 2 -- a layered material.** A `terrain.rvshader` blending
+   up to four `.rmat`s by a weight map stored in the asset (the format
+   reserves the header word for it), sharing the lighting includes; the
+   post-blend surface goes through the same split-sum and shadow paths.
+   Then **stage 3 -- sculpt and paint in the editor**, brushes through the
+   command stack, written back to the asset by `TerrainSerializer::Save`.
+   `HeightAt` as a script call belongs to whichever comes first.
+2. **The two long-standing non-blockers** at the end of this section: the
    focus-click guard has never been confirmed against a real click, and an
    orphaned LUT is not warned about.
-2. **A vendored-ImGui papercut found while eyeballing the greyed rows**:
-   wrapped text breaks mid-word at the panel edge ("click one i / n the
-   viewport" in the empty Properties hint; "used instea / d;" in the new
-   disabled-row note). Both callers use `PushTextWrapPos(0)`; an explicit
+3. **The vendored-ImGui mid-word wrap** ("click one i / n the viewport",
+   "used instea / d;"): both callers use `PushTextWrapPos(0)`; an explicit
    wrap position made no difference, so it is the vendored ImGui's
-   word-wrap (`ImFontCalcWordWrapPositionEx`), not the callers. Cosmetic;
-   fix or upgrade ImGui when convenient.
-3. **Phase 8's other items** are priced in the roadmap and each is L or
-   XL; the roadmap says which are ordinary features (8.4 terrain -- delete
-   `experiments/terrain/Chunk` first -- and 8.9 FBX) and which are
-   engine-sized. None should be started because it sounds interesting.
-   Ray tracing's own stated limits (no penumbra, Lambert hit shading, no
-   RTAO accumulation) are recorded in 7ao and are *not* on this list: they
-   are trades, not debts.
+   `ImFontCalcWordWrapPositionEx`. Cosmetic; a separate session was started
+   on it.
+4. **Phase 8's other items** are priced in the roadmap; 8.9 FBX is the
+   remaining ordinary feature, the rest are engine-sized. None should be
+   started because it sounds interesting.
 
-**Ten commits are unpushed** as of this writing; pushing is the owner's
+**Eleven commits are unpushed** before this one; pushing is the owner's
 action.
+
+---
+
+### Terrain (8.4 stage 1) -- a heightfield that is a mesh source
+
+**8.4 stage 1 (2026-08-17, ENGINE-NOTES 7ap) is done and verified.** The
+shape: **`.rvterrain`** (`RVTR` v1: 32-byte header, `2^n + 1` a side, 33
+to 4097, unsigned 16-bit heights row-major; `TerrainData` + `TerrainSerializer`
+through the VFS; `AssetType::Terrain`; `Assets::Manager::GetTerrain` cached
+by handle; a content-browser icon and a hierarchy mark). **`TerrainComponent`**
+`{ Terrain, Size 256, Height 40, Material, TextureScale 4, Collision true }`
++ a runtime `Ref<Terrain>` the registry does not serialize; centred on the
+entity; one `.rmat` tiled at `uv = local metres / TextureScale`.
+**`Renderer/Terrain`**: chunks of 64 quads at four levels (65^2 / 33^2 /
+17^2 / 9^2 vertices), skirts on edges a neighbour shares (both windings,
+half the chunk's range + 2 % of the height), central-difference normals,
+Jolt's triangle split; `SelectLod` per chunk per frame from the camera's
+distance (full within four widths, one coarser per doubling), read by
+`Scene::ForEachTerrainChunk` -- the one walk the scene pass, the shadow
+casters, the ray-instance list and the picker share -- and
+`Terrain::Resolve(component)` builds on first use and *replaces* the object
+(never mutates the shared one) when the asset or a dimension changes.
+**Physics**: `DescribeTerrainBody` -- a static `HeightFieldShape` at 16
+bits per sample over the same heights, offset/scale carrying `Size`,
+`Height` and the entity's scale, no RigidBody or Collider consulted (a
+RigidBody on the entity is warned about and ignored); rays and contacts
+name the entity. **Tools**: `make_terrain.py` (hills from value noise, an
+analytic ridge, a ridged cliff; from a 16-bit PNG with `--png`), three
+fixture scenes with profiles beside them, exactly as `check_terrain.py`
+regenerates them.
+
+**Two things the first frames taught, both fixed**: the level rule was two
+chunk widths and the skyline stepped sixty metres out -- four now; and
+skirts on the terrain's *outer* edge hung as a curtain off the rim -- they
+are only on shared edges now. **And the crack fixture had to be designed
+twice**: per-sample noise makes cracks and fills them with the next bump,
+so skirts on and off measured the same; per-*column* ridges keep the seam
+rough and the rise behind it smooth, and the two builds separate 0 holes
+from 253.
+
+**Checks**: `scenetest` +53 (1681 Vulkan under validation, 1641 OpenGL) --
+serializer round trip and three refusals, triangle-exact sampling (0 and
+0.5 where bilinear says 0.0625 and 0.5625), builder counts by arithmetic,
+skirt depth 2.7 m on the 129 ramp, +Y winding, the level rule, `Create`
+without a device, `HeightAt`, the scene walk, the scene-file round trip,
+the ball at rest 5.50 +- 0.05, ray vs `HeightAt` to the centimetre, the
+picker on both terrains. `check_terrain.py`: ridge silhouette row 90 vs
+90.1 derived on both backends; shadow band 185.0 levels under maps and
+rays; cliff 0 holes. Falsified: skirts off (253 holes), row-major swapped
+(row 0, shadow 2.7).
+
+**Verified for this commit**: Debug/Release/Dist; scenetest both backends
+(zero `[Vulkan]` lines under validation, Debug and Release); runtime and
+editor exit 0 on both backends on the terrain scene (Vulkan with
+`--raytracing=on` and validation, zero lines) and on the demo; the editor
+eyeballed with the terrain selected (asset pickers, dials, collision box);
+`check_terrain`, `check_ray_shadows`, `check_ssao`, `check_ssr`,
+`check_bindless` on Release; `rvdoc --check` exit 0 with the new
+`TerrainComponent` row and manual page.
+
+**Stated limits** (7ap): one material, no layers, no sculpting; no holes;
+everything resident (2049 is ~180 MB of geometry, the practical ceiling);
+LOD pops softened by TAA; interior seams' skirts show as short legs when
+the terrain is seen from off its rim; `HeightAt` is not a script call; the
+LOD is chosen by the last camera `RenderShadows` saw, so in the editor with
+the game panel open the ray-traced structure holds the editor camera's
+levels while the game view draws its own -- a terrain-shadow LOD mismatch
+of one level in the game panel only.
 
 ---
 
@@ -1881,6 +1951,26 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 8.4 stage 1, terrain: a heightfield as a source of meshes (2026-08-17)
+
+Design first (ENGINE-NOTES 7ap). `Asset/TerrainData` + `TerrainSerializer`
+(`.rvterrain`, `AssetType::Terrain`, manager cache, preload want),
+`Renderer/Terrain` (chunk builder, four levels, skirts on shared edges,
+`SelectLod`, `HeightAt`, `Resolve`), `TerrainComponent` + registry rows,
+`Scene::ForEachTerrainChunk` / `SelectTerrainLods` / `HasTerrain` walked by
+the scene pass, both shadow paths and the picker, Jolt height-field bodies
+in `World::Build`/`AddBody`, editor icon and hierarchy mark, the manual's
+terrain page + component/asset rows, `make_terrain.py`, three fixtures,
+`CheckTerrain` (+53) and `check_terrain.py`; falsified three ways.
+`experiments/terrain` kept and unlinked (`perlin_noise` gone). Also:
+`tools/scripts/postprofile.py` now writes the registry's own FNV-1a
+`SourceHash` (and no trailing newline, as the registry does) instead of 0,
+so a check run no longer leaves every generated `.rvpostprofile.meta`
+modified -- the churn §2 told people to `git checkout` before committing is
+gone for the profiles; the demo scene and its profile still resave.
 
 ---
 

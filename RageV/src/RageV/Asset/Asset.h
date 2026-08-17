@@ -43,6 +43,11 @@ namespace RageV
 		// A `.cube`: a colour-grading lookup table, uploaded as a 3D texture.
 		// The look a grading tool exported, accepted unchanged.
 		ColorLut,
+		// An `.rvterrain`: a square grid of 16-bit heights (ENGINE-NOTES 7ap).
+		// Its own type rather than a texture because a height needs sixteen
+		// bits the cook policy would take away, is read on the CPU, and is
+		// written back by sculpting.
+		Terrain,
 	};
 
 	const char* AssetTypeName(AssetType type);

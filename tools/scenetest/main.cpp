@@ -60,6 +60,9 @@
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ViewportGrid.h"
 #include "RageV/Asset/FontSerializer.h"
+#include "RageV/Asset/TerrainData.h"
+#include "RageV/Asset/TerrainSerializer.h"
+#include "RageV/Renderer/Terrain.h"
 #include "RageV/Renderer/UIRenderer.h"
 #include "RageV/UI/TextLayout.h"
 #include "RageV/UI/Canvas.h"
@@ -10835,6 +10838,377 @@ void main()
 
 	// Stop has to put the scene back exactly, including everything physics
 	// moved -- which is most of the scene after a run.
+	// Terrain (8.4, ENGINE-NOTES 7ap): the data and its serializer, the pure
+	// chunk builder, the level rule, HeightAt, the scene walk, and the Jolt
+	// height field -- and the claim that ties them: the surface a body rests
+	// on is the surface drawn, to the triangle.
+	void CheckTerrain()
+	{
+		using Dimensions = Terrain::Dimensions;
+
+		// --- the data --------------------------------------------------------
+		Check(TerrainData::IsValidResolution(33) && TerrainData::IsValidResolution(513) &&
+			  TerrainData::IsValidResolution(4097),
+			  "a terrain resolution is 2^n + 1 between 33 and 4097");
+		Check(!TerrainData::IsValidResolution(34) && !TerrainData::IsValidResolution(32) &&
+			  !TerrainData::IsValidResolution(8193) && !TerrainData::IsValidResolution(17),
+			  "and nothing else is");
+
+		// One quad with a single raised corner at (1, 0): the point (0.25, 0.75)
+		// lies in the triangle that does *not* touch that corner and the point
+		// (0.75, 0.25) in the one that does. Bilinear interpolation would give
+		// 0.0625 and 0.5625; the other diagonal would give 0.25 and 0.75; the
+		// (x, z) -> (x + 1, z + 1) split the meshes and Jolt use gives 0 and
+		// 0.5, exactly.
+		TerrainData corner = TerrainData::Flat(33, 0);
+		corner.Heights[0 * 33 + 1] = 65535;
+		Check(corner.Sample(0.25f, 0.75f) == 0.0f,
+			  "a height is interpolated over the quad's triangles, not bilinearly");
+		Check(Math::Abs(corner.Sample(0.75f, 0.25f) - 0.5f) < 1e-6f,
+			  "and over the same diagonal the collider uses");
+		Check(corner.Sample(1.0f, 0.0f) == 1.0f && corner.Sample(0.0f, 0.0f) == 0.0f,
+			  "a sample on a vertex is that vertex's height");
+		Check(corner.Sample(-4.0f, 99.0f) == 0.0f, "and a sample off the grid is clamped to it");
+
+		// A ramp: h = x / 32 across the grid, flat along z.
+		TerrainData ramp = TerrainData::Flat(33, 0);
+		for (uint32_t z = 0; z < 33; ++z)
+			for (uint32_t x = 0; x < 33; ++x)
+				ramp.Heights[(size_t)z * 33 + x] = (uint16_t)Math::Round((float)x / 32.0f * 65535.0f);
+		Check(Math::Abs(ramp.Sample(16.0f, 5.5f) - 0.5f) < 1e-4f, "a ramp samples to its slope");
+
+		// --- the serializer --------------------------------------------------
+		{
+			const std::filesystem::path dir = ScratchDir("terrain-test");
+			std::error_code created;
+			std::filesystem::create_directories(dir, created);
+			const std::filesystem::path path = dir / "ramp.rvterrain";
+			Check(Assets::TerrainSerializer::Save(ramp, path), "a terrain writes to disk");
+			TerrainData back;
+			Check(Assets::TerrainSerializer::Load(back, path), "and reads back");
+			Check(back.Resolution == ramp.Resolution && back.Heights == ramp.Heights,
+				  "with every one of its samples intact");
+
+			std::error_code error;
+			Check(std::filesystem::file_size(path, error) == 32 + 33 * 33 * 2,
+				  "as thirty-two bytes of header and two bytes a sample");
+
+			// Refusals: a wrong magic, a truncated file, an invalid resolution.
+			{
+				std::ofstream broken(dir / "broken.rvterrain", std::ios::binary);
+				broken << "NOPE" << std::string(64, '\0');
+			}
+			TerrainData untouched = TerrainData::Flat(33, 7);
+			Check(!Assets::TerrainSerializer::Load(untouched, dir / "broken.rvterrain") &&
+				  untouched.Resolution == 33 && untouched.Heights[0] == 7,
+				  "a file that is not a terrain is refused and leaves the caller's data alone");
+			{
+				std::vector<uint8_t> bytes;
+				IO::VFS::ReadBytes(path, bytes);
+				bytes.resize(bytes.size() / 2);
+				std::ofstream truncated(dir / "short.rvterrain", std::ios::binary);
+				truncated.write((const char*)bytes.data(), (std::streamsize)bytes.size());
+			}
+			Check(!Assets::TerrainSerializer::Load(untouched, dir / "short.rvterrain"),
+				  "a truncated terrain is refused");
+			TerrainData bad = TerrainData::Flat(33, 1);
+			bad.Resolution = 34;
+			bad.Heights.resize(34 * 34);
+			Check(!Assets::TerrainSerializer::Save(bad, dir / "bad.rvterrain") &&
+				  !std::filesystem::exists(dir / "bad.rvterrain", error),
+				  "an invalid grid is not written at all");
+			std::filesystem::remove_all(dir, error);
+		}
+
+		// --- the chunk builder -----------------------------------------------
+		Dimensions dims;
+		dims.Size = 64.0f;
+		dims.Height = 10.0f;
+		dims.TextureScale = 4.0f;
+
+		std::vector<MeshVertex> vertices;
+		std::vector<uint32_t> indices;
+
+		// A 33 grid is one chunk of 32 quads with no neighbour, so no skirt:
+		// at level 0 that is 33^2 vertices and 6 * 32^2 indices.
+		Terrain::BuildChunkGeometry(ramp, dims, 0, 0, 0, vertices, indices);
+		Check(vertices.size() == 33 * 33 && indices.size() == 6 * 32 * 32,
+			  "a level-0 chunk has the vertices and indices the arithmetic predicts, "
+			  "and a lone chunk wears no skirt");
+		{
+			const MeshVertex& first = vertices[0];
+			const MeshVertex& last = vertices[33 * 33 - 1];
+			Check(Math::Abs(first.Position.x + 32.0f) < 1e-4f && Math::Abs(first.Position.z + 32.0f) < 1e-4f &&
+				  Math::Abs(first.Position.y) < 1e-4f,
+				  "the first vertex sits at the terrain's near corner, centred on the origin");
+			Check(Math::Abs(last.Position.x - 32.0f) < 1e-4f && Math::Abs(last.Position.z - 32.0f) < 1e-4f &&
+				  Math::Abs(last.Position.y - 10.0f) < 1e-3f,
+				  "and the last at the far corner, at the full height");
+			Check(Math::Abs(first.TexCoord.x + 8.0f) < 1e-4f && Math::Abs(first.TexCoord.y + 8.0f) < 1e-4f,
+				  "uv is local metres over the texture scale");
+			// The ramp rises with x, so every surface normal leans toward -x
+			// and up; the flat grid's all point straight up.
+			bool leaning = true;
+			for (size_t i = 0; i < 33 * 33; ++i)
+				leaning = leaning && vertices[i].Normal.x < 0.0f && vertices[i].Normal.y > 0.9f &&
+						  Math::Abs(vertices[i].Normal.z) < 1e-4f;
+			Check(leaning, "a ramp's normals lean against the slope");
+		}
+		{
+			// Skirts: a 129 ramp is two by two chunks of 64; chunk (0, 0) shares
+			// its far-x and far-z edges and gets a skirt on each and on nothing
+			// else. At level 0: 65^2 surface vertices plus two strips of 65,
+			// 6 * 64^2 surface indices plus 2 * 12 * 64 for the strips (a quad
+			// each, both windings, six indices a triangle).
+			TerrainData wide = TerrainData::Flat(129, 0);
+			for (uint32_t z = 0; z < 129; ++z)
+				for (uint32_t x = 0; x < 129; ++x)
+					wide.Heights[(size_t)z * 129 + x] = (uint16_t)Math::Round((float)x / 128.0f * 65535.0f);
+			Dimensions wideDims;
+			wideDims.Size = 128.0f;
+			wideDims.Height = 10.0f;
+			Terrain::BuildChunkGeometry(wide, wideDims, 0, 0, 0, vertices, indices);
+			const uint32_t n = 64;
+			Check(vertices.size() == 65 * 65 + 2 * 65 && indices.size() == 6 * 64 * 64 + 2 * 12 * 64,
+				  "a chunk with two neighbours wears two skirts, and the counts say so");
+
+			// Every skirt vertex is its edge vertex dropped by the same positive
+			// depth: the far-z strip first, then the far-x strip, in the
+			// builder's order.
+			auto edge = [n](int which, uint32_t i) -> uint32_t
+			{
+				return which == 0 ? n * (n + 1) + i : i * (n + 1) + n;
+			};
+			bool dropped = true;
+			float depth = -1.0f;
+			for (int which = 0; which < 2; ++which)
+			{
+				for (uint32_t i = 0; i <= n; ++i)
+				{
+					const MeshVertex& top = vertices[edge(which, i)];
+					const MeshVertex& skirt = vertices[65 * 65 + which * (n + 1) + i];
+					const float d = top.Position.y - skirt.Position.y;
+					if (depth < 0.0f) depth = d;
+					dropped = dropped && d > 0.0f && Math::Abs(d - depth) < 1e-4f &&
+							  top.Position.x == skirt.Position.x && top.Position.z == skirt.Position.z &&
+							  top.Normal == skirt.Normal;
+				}
+			}
+			Check(dropped, "every skirt vertex is its edge vertex dropped by one positive depth, "
+						   "carrying the edge's normal");
+			// Chunk (0, 0) spans half the ramp: 5 m of range, half of that plus
+			// 2 % of the terrain's height.
+			Check(Math::Abs(depth - (2.5f + 0.2f)) < 1e-3f, "and the depth is half the chunk's range plus a sliver");
+
+			// Chunk (1, 1) shares its near edges instead; the same two strips.
+			Terrain::BuildChunkGeometry(wide, wideDims, 1, 1, 3, vertices, indices);
+			Check(vertices.size() == 9 * 9 + 2 * 9 && indices.size() == 6 * 64 + 2 * 12 * 8,
+				  "at level 3 the far corner chunk samples every eighth height, 9 a side, two skirts");
+			Terrain::BuildChunkGeometry(wide, wideDims, 0, 0, 0, vertices, indices, false);
+			Check(vertices.size() == 65 * 65 && indices.size() == 6 * 64 * 64,
+				  "without skirts it is the surface alone");
+		}
+		Terrain::BuildChunkGeometry(ramp, dims, 0, 0, 3, vertices, indices);
+		Check(vertices.size() == 5 * 5 && indices.size() == 6 * 16,
+			  "level 3 samples every eighth height: 5 a side");
+		{
+			TerrainData flat = TerrainData::Flat(33, 20000);
+			Terrain::BuildChunkGeometry(flat, dims, 0, 0, 1, vertices, indices);
+			bool up = true;
+			for (const MeshVertex& v : vertices)
+				up = up && Math::Abs(v.Normal.y - 1.0f) < 1e-6f;
+			Check(up, "a flat terrain's normals all point straight up");
+			// The +Y winding, the convention every primitive here uses: the
+			// geometric normal of the first triangle is +Y.
+			const Vec3 a = vertices[indices[0]].Position;
+			const Vec3 b = vertices[indices[1]].Position;
+			const Vec3 c = vertices[indices[2]].Position;
+			Check(Math::Cross(b - a, c - a).y > 0.0f, "and the triangles wind so the geometric normal is +Y");
+		}
+		Terrain::BuildChunkGeometry(ramp, dims, 1, 0, 0, vertices, indices);
+		Check(vertices.empty() && indices.empty(), "a chunk past the grid's edge builds nothing");
+
+		// --- the level rule --------------------------------------------------
+		Check(Terrain::LevelFor(10.0f, 32.0f) == 0 && Terrain::LevelFor(127.0f, 32.0f) == 0,
+			  "a chunk within four widths draws at full detail");
+		Check(Terrain::LevelFor(129.0f, 32.0f) == 1 && Terrain::LevelFor(257.0f, 32.0f) == 2 &&
+			  Terrain::LevelFor(513.0f, 32.0f) == 3 && Terrain::LevelFor(50000.0f, 32.0f) == 3,
+			  "and one level coarser per doubling after that, capped at the last");
+
+		// --- a Terrain without a device --------------------------------------
+		{
+			TerrainData big = TerrainData::Flat(129, 32768);
+			Dimensions bigDims;
+			bigDims.Size = 128.0f;
+			bigDims.Height = 20.0f;
+			RHI::Ref<Terrain> terrain = Terrain::Create(nullptr, big, AssetHandle::Invalid(), bigDims);
+			Check(terrain && terrain->GetChunks().size() == 4 && terrain->GetChunksPerSide() == 2 &&
+				  terrain->GetChunkQuads() == 64,
+				  "a 129 grid is two by two chunks of 64 quads");
+			Check(terrain && Math::Abs(terrain->GetChunkWidth() - 64.0f) < 1e-4f,
+				  "each 64 metres wide at 128 metres a side");
+			Check(terrain && Math::Abs(terrain->HeightAt(0.0f, 0.0f) - 10.0f) < 1e-3f &&
+				  Math::Abs(terrain->HeightAt(-64.0f, 63.0f) - 10.0f) < 1e-3f,
+				  "HeightAt reads the flat grid's height in metres anywhere on it");
+			if (terrain)
+			{
+				const Terrain::Chunk& chunk = terrain->GetChunks()[0];
+				Check(chunk.Bounds.Max.y >= 10.0f && chunk.Bounds.Min.y < 10.0f && !chunk.Levels[0],
+					  "a chunk built without a device has bounds that include its skirt and no mesh");
+				Mat4 identity(1.0f);
+				terrain->SelectLod(Vec3(0.0f, 0.0f, 0.0f), identity);
+				bool allFine = true;
+				for (const Terrain::Chunk& c : terrain->GetChunks())
+					allFine = allFine && c.Level == 0;
+				terrain->SelectLod(Vec3(0.0f, 0.0f, 5000.0f), identity);
+				bool allCoarse = true;
+				for (const Terrain::Chunk& c : terrain->GetChunks())
+					allCoarse = allCoarse && c.Level == 3;
+				Check(allFine && allCoarse, "SelectLod puts a near camera at level 0 and a far one at level 3");
+			}
+
+			RHI::Ref<Terrain> rampTerrain = Terrain::Create(nullptr, ramp, AssetHandle::Invalid(), dims);
+			Check(rampTerrain && Math::Abs(rampTerrain->HeightAt(-32.0f, 0.0f)) < 1e-3f &&
+				  Math::Abs(rampTerrain->HeightAt(32.0f, 0.0f) - 10.0f) < 1e-3f &&
+				  Math::Abs(rampTerrain->HeightAt(0.0f, 11.0f) - 5.0f) < 1e-3f,
+				  "HeightAt on the ramp is the ramp, in metres, centred");
+		}
+
+		// --- the scene, and the collider -------------------------------------
+		// A flat terrain at half height, written into the sample project for
+		// the duration of the check so the registry can hand out a handle for
+		// it, and removed after.
+		const std::filesystem::path terrainDir = Project::AssetRoot() / "terrain";
+		const std::filesystem::path flatPath = terrainDir / "scenetest_flat.rvterrain";
+		const std::filesystem::path rampPath = terrainDir / "scenetest_ramp.rvterrain";
+		std::error_code error;
+		std::filesystem::create_directories(terrainDir, error);
+		Assets::TerrainSerializer::Save(TerrainData::Flat(33, 32768), flatPath);
+		Assets::TerrainSerializer::Save(ramp, rampPath);
+		Assets::Registry::Refresh();
+
+		const AssetHandle flatHandle = Assets::Registry::GetHandle("terrain/scenetest_flat.rvterrain");
+		const AssetHandle rampHandle = Assets::Registry::GetHandle("terrain/scenetest_ramp.rvterrain");
+		Check(flatHandle.IsValid() && rampHandle.IsValid(), "an .rvterrain in the project is an asset with a handle");
+		Check(Assets::Manager::GetTerrain(flatHandle) != nullptr &&
+			  Assets::Manager::GetTerrain(flatHandle)->Resolution == 33,
+			  "and the manager reads its heights");
+		Check(Assets::Registry::GetMetadata(flatHandle).Type == AssetType::Terrain,
+			  "typed as a terrain by its extension");
+
+		if (flatHandle.IsValid() && rampHandle.IsValid())
+		{
+			auto scene = std::make_shared<Scene>();
+
+			Entity ground = scene->CreateEntity("Ground");
+			auto& terrainComponent = ground.AddComponent<TerrainComponent>();
+			terrainComponent.Terrain = flatHandle;
+			terrainComponent.Size = 64.0f;
+			terrainComponent.Height = 10.0f;
+			// A RigidBody as well, which the terrain must ignore.
+			ground.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+
+			Entity slope = scene->CreateEntity("Slope");
+			auto& slopeComponent = slope.AddComponent<TerrainComponent>();
+			slopeComponent.Terrain = rampHandle;
+			slopeComponent.Size = 64.0f;
+			slopeComponent.Height = 10.0f;
+			slope.GetComponent<TransformComponent>().Position = { 200.0f, 0.0f, 0.0f };
+
+			Entity ball = scene->CreateEntity("Ball");
+			ball.GetComponent<TransformComponent>().Position = { 3.0f, 20.0f, -7.0f };
+			ball.AddComponent<RigidBodyComponent>(BodyType::Dynamic);
+			auto& ballCollider = ball.AddComponent<ColliderComponent>(ColliderShape::Sphere);
+			ballCollider.Radius = 0.5f;
+
+			// The walk, and the round trip through the scene file.
+			Check(scene->HasTerrain(), "a scene with a terrain says so");
+			int walked = 0;
+			scene->ForEachTerrainChunk([&](Entity, TransformComponent&, TerrainComponent&, Terrain&,
+										   Terrain::Chunk&) { walked++; });
+			Check(walked == 2, "the walk visits every chunk of every terrain: one each here");
+			{
+				SceneSerializer serializer(scene);
+				const std::string saved = serializer.SerializeToString();
+				auto reloaded = std::make_shared<Scene>();
+				SceneSerializer reader(reloaded);
+				reader.DeserializeFromString(saved);
+				bool same = false;
+				for (auto entity : reloaded->GetRegistry().view<TerrainComponent>())
+				{
+					const auto& t = reloaded->GetRegistry().get<TerrainComponent>(entity);
+					if (t.Terrain == flatHandle)
+						same = t.Size == 64.0f && t.Height == 10.0f && t.TextureScale == 4.0f && t.Collision;
+				}
+				Check(same, "a terrain component round-trips through the scene file");
+			}
+
+			// The picker: a click straight down on each terrain lands on it,
+			// triangle-exact, at the height the heights say.
+			{
+				Ray down;
+				down.Origin = { -5.0f, 30.0f, 8.0f };
+				down.Direction = { 0.0f, -1.0f, 0.0f };
+				const PickResult onFlat = PickEntity(*scene, down);
+				Check(onFlat.Entity == ground && Math::Abs(onFlat.Point.y - 5.0f) < 0.01f,
+					  "a click on a terrain selects it, at the surface");
+				down.Origin = { 216.0f, 30.0f, 4.0f };
+				const PickResult onSlope = PickEntity(*scene, down);
+				Check(onSlope.Entity == slope && Math::Abs(onSlope.Point.y - 7.5f) < 0.01f,
+					  "and on the ramp, at the ramp's height");
+				down.Origin = { 100.0f, 30.0f, 100.0f };
+				Check(!PickEntity(*scene, down), "a click beside every terrain selects nothing");
+			}
+
+			scene->OnRuntimeStart();
+			Physics::World* physics = scene->GetPhysics();
+			Check(physics && physics->GetBodyCount() == 3,
+				  "play gives each terrain a static body, and the ball its own");
+
+			constexpr float dt = 1.0f / 60.0f;
+			for (int i = 0; i < 400; i++)
+				scene->OnFixedUpdateRuntime(dt);
+			scene->OnUpdateRuntime(dt);
+
+			const Vec3 rest = ball.GetComponent<TransformComponent>().Position;
+			// The flat terrain stands at 5 m; the ball's radius is 0.5.
+			Check(Math::Abs(rest.y - 5.5f) < 0.05f,
+				  "a ball dropped on a terrain rests at HeightAt plus its radius");
+			Check(physics && Math::Length(physics->GetLinearVelocity(ball.GetUUID())) < 0.2f,
+				  "and settles");
+			Check(Math::Abs(ground.GetComponent<TransformComponent>().Position.y) < 1e-4f,
+				  "a terrain with a RigidBody on it does not fall: the terrain is static");
+
+			// Rays: through the flat one, and through the ramp at a known x.
+			if (physics)
+			{
+				const RayHit hit = physics->CastRay({ -10.0f, 20.0f, 9.0f }, { 0.0f, -40.0f, 0.0f });
+				Check(hit.Hit && hit.Entity == ground.GetUUID(), "a ray from above hits the terrain and names its entity");
+				Check(hit.Hit && Math::Abs(hit.Position.y - 5.0f) < 0.02f && hit.Normal.y > 0.99f,
+					  "at the surface height, with the surface's normal");
+
+				// The ramp at local x = 16 stands at 7.5 m; the entity is at x = 200.
+				const RayHit onRamp = physics->CastRay({ 216.0f, 30.0f, 4.0f }, { 0.0f, -60.0f, 0.0f });
+				const float expected = scene->GetRegistry().get<TerrainComponent>(slope).Runtime
+					? scene->GetRegistry().get<TerrainComponent>(slope).Runtime->HeightAt(16.0f, 4.0f) : -1.0f;
+				Check(onRamp.Hit && onRamp.Entity == slope.GetUUID() &&
+					  Math::Abs(onRamp.Position.y - 7.5f) < 0.02f && Math::Abs(expected - 7.5f) < 1e-3f,
+					  "the collider and HeightAt agree on the ramp to the centimetre");
+				Check(onRamp.Hit && onRamp.Normal.x < -0.1f && onRamp.Normal.y > 0.9f,
+					  "and the ramp's collision normal leans against the slope");
+			}
+
+			scene->OnRuntimeStop();
+		}
+
+		// Leave the sample project as it was found.
+		std::filesystem::remove(flatPath, error);
+		std::filesystem::remove(rampPath, error);
+		std::filesystem::remove(flatPath.string() + ".meta", error);
+		std::filesystem::remove(rampPath.string() + ".meta", error);
+		Assets::Registry::Refresh();
+	}
+
 	void CheckPhysicsRestoresOnStop()
 	{
 		auto scene = std::make_shared<Scene>();
@@ -11523,6 +11897,7 @@ int RunTests(int argc, char** argv)
 	CheckMultisampledDepth();
 	CheckBindlessHeap();
 	CheckRayQuery();
+	CheckTerrain();
 	CheckGameModule();
 	CheckProject();
 	CheckPackaging();

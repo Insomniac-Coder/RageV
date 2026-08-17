@@ -12,6 +12,8 @@ Project:
     TemporalJitterPhase: 8
     ShadowsEnabled: true
     RayTracing: false
+    RayTracedReflections: false
+    RayTracedAmbientOcclusion: false
     ShadowDistance: 40
     ShadowSplitLambda: 0.85
     ShadowNormalOffset: 0.9

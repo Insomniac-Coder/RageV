@@ -11,6 +11,7 @@ part of the manual — the generator will not emit it and nothing will link to i
 - [Component reference](components.md)
 - [Rendering](rendering.md)
 - [Materials](materials.md)
+- [Terrain](terrain.md)
 - [Lighting](lighting.md)
 - [Cameras](cameras.md)
 - [Post processing](post-processing.md)

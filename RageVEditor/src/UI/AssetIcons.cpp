@@ -161,6 +161,15 @@ namespace RageV::UI
 			c.Line(0.40f, 0.80f, 0.60f, 0.80f);
 		}
 
+		// Two hills and a horizon: a heightfield read at icon size. Not a
+		// grid of cubes, which is the experiment this replaced (7ap).
+		void Terrain(const Canvas& c)
+		{
+			c.Path({ ImVec2(0.10f, 0.74f), ImVec2(0.30f, 0.42f), ImVec2(0.44f, 0.58f),
+					 ImVec2(0.62f, 0.28f), ImVec2(0.90f, 0.74f) }, false);
+			c.Line(0.10f, 0.74f, 0.90f, 0.74f);
+		}
+
 		// --- everything else in a project's folders ------------------------
 
 		// Angle brackets and a slash. The most universally read "this is code"
@@ -460,6 +469,7 @@ namespace RageV::UI
 			case AssetType::Audio:    return IconKind::Audio;
 			case AssetType::Curve:    return IconKind::Curve;
 			case AssetType::PostProfile: return IconKind::PostProfile;
+			case AssetType::Terrain:  return IconKind::Terrain;
 			default:                  return IconKind::Unknown;
 		}
 	}
@@ -538,6 +548,7 @@ namespace RageV::UI
 			case IconKind::Audio:    Audio(canvas);    break;
 			case IconKind::Curve:    Curve(canvas);    break;
 			case IconKind::PostProfile: PostProfile(canvas); break;
+			case IconKind::Terrain:  Terrain(canvas);  break;
 			case IconKind::Script:   Script(canvas);   break;
 			case IconKind::Shader:   Shader(canvas);   break;
 			case IconKind::Font:     Font(canvas);     break;

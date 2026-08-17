@@ -12,6 +12,7 @@
 #include "RageV/Scene/SceneSerializer.h"
 #include "CurveSerializer.h"
 #include "FontSerializer.h"
+#include "TerrainSerializer.h"
 #include "PostProfileSerializer.h"
 #include "CubeLut.h"
 // The import splits glTF's packed metallic-roughness texture into the two
@@ -85,6 +86,12 @@ namespace RageV::Assets
 		// it is.
 		std::unordered_map<AssetHandle, Font> s_Fonts;
 		std::unordered_set<AssetHandle> s_FontFailed;
+
+		// Terrain heights, the same shape as the fonts: numbers, cached by
+		// handle, a failure remembered so a missing file is not reopened
+		// every frame.
+		std::unordered_map<AssetHandle, TerrainData> s_Terrains;
+		std::unordered_set<AssetHandle> s_TerrainFailed;
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_FontAtlases;
 
 		constexpr PrimitiveType kPrimitives[] = {
@@ -144,6 +151,7 @@ namespace RageV::Assets
 			Font,
 			Curve,
 			Cubemap,
+			Terrain,             // the heights; the meshes come on first draw
 			Nothing,             // audio streams; there is no upload to do
 		};
 
@@ -268,6 +276,17 @@ namespace RageV::Assets
 
 		for (auto handle : registry.view<WorldTextComponent>())
 			Want(registry.get<WorldTextComponent>(handle).Font, WantKind::Font, pending, seen);
+
+		// A terrain's heights, and the material it is drawn with. The chunk
+		// meshes are built on the first frame that draws it -- they need the
+		// component's dimensions, which the preloader does not resolve -- but
+		// the file, which is the bytes, is read here.
+		for (auto handle : registry.view<TerrainComponent>())
+		{
+			const auto& terrain = registry.get<TerrainComponent>(handle);
+			Want(terrain.Terrain, WantKind::Terrain, pending, seen);
+			WantMaterial(terrain.Material, pending, seen);
+		}
 
 		// Audio is streamed from disk over a sound's lifetime, so there is
 		// nothing to upload -- but it is listed anyway, because a clip still
@@ -425,6 +444,9 @@ namespace RageV::Assets
 				GetCurve(item.Handle);
 				GetBakedCurve(item.Handle);
 				break;
+			case WantKind::Terrain:
+				GetTerrain(item.Handle);
+				break;
 			// The expensive one: six faces converted from a panorama, plus
 			// the irradiance convolution. Doing it here rather than on the
 			// first frame is most of what this step is worth.
@@ -469,6 +491,8 @@ namespace RageV::Assets
 		s_Fonts.clear();
 		s_FontFailed.clear();
 		s_FontAtlases.clear();
+		s_Terrains.clear();
+		s_TerrainFailed.clear();
 
 		// The three phase-9 caches, which were added one at a time and each
 		// missed this function.
@@ -794,6 +818,34 @@ namespace RageV::Assets
 
 		s_Fonts[handle] = std::move(font);
 		return &s_Fonts[handle];
+	}
+
+	const TerrainData* Manager::GetTerrain(AssetHandle handle)
+	{
+		// No device check, for the reason GetFont has none: heights are
+		// numbers, and keeping them that way is what lets the suite build and
+		// sample a terrain with no GPU.
+		if (!handle.IsValid())
+			return nullptr;
+
+		if (s_TerrainFailed.count(handle) != 0)
+			return nullptr;
+
+		const auto cached = s_Terrains.find(handle);
+		if (cached != s_Terrains.end())
+			return &cached->second;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+
+		TerrainData data;
+		if (path.empty() || !TerrainSerializer::Load(data, path))
+		{
+			s_TerrainFailed.insert(handle);
+			return nullptr;
+		}
+
+		s_Terrains[handle] = std::move(data);
+		return &s_Terrains[handle];
 	}
 
 	RHI::Ref<RHI::RHITexture> Manager::GetFontAtlas(AssetHandle handle)

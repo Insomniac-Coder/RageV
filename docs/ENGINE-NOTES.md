@@ -5960,6 +5960,239 @@ off there is no structure and neither runs, by design and by the panel.
 
 ---
 
+## 7ap. Terrain (8.4): a heightfield that is a mesh source, and nothing the renderer has to learn
+
+The roadmap's price for 8.4 was a decision, not work: the tree carried a
+false start, `experiments/terrain/Chunk`, which generated one entity per
+visible cube *face* -- thousands per chunk, each with a transform, a tag, a
+relationship and a colour, each drawn as its own quad -- and the row said
+it had to be deleted first so nobody built on it. **The owner's call at
+landing was to keep it, cut off.** It already was: `experiments/` is not
+on any include path or in any target (its README says so), and the one
+thread still tying it to the engine was `perlin_noise`, a header-only
+vendored library that RageV linked and nothing included -- that link is
+gone. The experiment stays as what it is, the shape to avoid, with the
+README pointing here for the shape that was built instead.
+
+### What terrain is here
+
+**A heightfield, not voxels.** A regular grid of heights, one surface, no
+overhangs, no caves. That is what a game at Godot's scope means by the
+word -- Unity's, Godot's and Unreal's terrains are all heightfields -- and
+it is the shape every other system already knows how to take: a
+heightfield is a mesh with a rule for making it, a collider Jolt ships a
+shape for, and a thing a ray can hit. Voxel worlds are a different engine
+(streaming, meshing, a different physics story) and the experiment's
+lesson is that they are not this one's business.
+
+**One decision governs the design: terrain is a *source of meshes*, and
+the renderer never learns the word.** Every chunk is an ordinary `Mesh` --
+vertex buffer, index buffer, bounds, CPU positions, a BLAS on first use --
+so batching, frustum culling, the shadow pass, the ray-traced shadows and
+reflections, the probe choice, TAA's velocity, picking and the depth sort
+all take it for free, exactly as they take a crate. `Renderer3D` is
+unchanged by this section. What is added is a component, an asset, a
+builder that turns heights into chunk meshes with LOD, and a walk in each
+place the scene enumerates its meshes.
+
+### The asset: `.rvterrain`, its own file, and why not a texture
+
+The heights are an asset of their own -- `RVTR` v1: a resolution `R`
+(2^n+1, 33 to 4097), then `R*R` unsigned 16-bit heights, row-major, 0 to
+65535 spanning the component's height in metres; a small header reserves
+room for stage 2's layer weights so the format does not turn over then.
+`AssetType::Terrain`, `.rvterrain`, `TerrainSerializer` through the VFS
+like every other reader, `Assets::Manager::GetTerrain` caching a
+`TerrainData` (the CPU heights) by handle. Made by
+`tools/scripts/make_terrain.py`, from a 16-bit PNG or from noise; an
+importer inside the editor is a stage-2 nicety, not a stage-1 need.
+
+Not a texture, for three reasons that each decide it alone. **Precision**:
+a height needs 16 bits (a 100 m range in 8 bits is 39 cm steps, and a
+slope of 39 cm terraces reads as terraces), and the cook policy of §7i
+turns a `_height` map into BC4 -- rightly, for a parallax map, which is
+what that suffix means -- so a heightmap named the obvious way would be
+quantised on the way into a pak. **Access**: the terrain needs the samples
+on the CPU, for the mesh, the collider and `HeightAt`, and a texture asset
+is a GPU object; the pixel-readback path a texture would need is a second
+loader for the same bytes. **Ownership**: stage 3 (sculpting) writes
+heights back, and the thing it writes back to has to be a file the engine
+owns the format of. The same reasoning made `.rmat`, `.rvpostprofile`,
+`.rcurve` and `.rvlut` their own files rather than fields on something.
+
+### The component, and where the terrain sits
+
+`TerrainComponent { Terrain (asset handle), Size (metres per side, 256),
+Height (metres at a full sample, 40), Material (handle, null = the
+default), TextureScale (metres per texture repeat, 4), Collision (true) }`.
+The terrain occupies `[-Size/2, Size/2]` in local X and Z and `[0,
+Height]` in local Y, and the entity's transform places it -- **centred on
+the origin, not cornered there**: an entity placed at (0,0,0) should have
+the terrain around it, and every other primitive here is centred. Rotation
+and non-uniform scale are legal and go through the world matrix like any
+mesh's; the collider decomposes the same matrix.
+
+`Material` is one ordinary `.rmat`, tiled: the vertices carry `uv = local
+metres / TextureScale`, and the material's own `UvTransform` multiplies on
+top as it does for every mesh. A layered material -- four `.rmat`s blended
+by a weight map painted into the asset -- is stage 2, and is a *shader*,
+not a change to any of this; the asset reserves the bytes for it. Stage 1
+is deliberately "a mesh with a material", because that is what every
+downstream system knows how to light.
+
+### Chunks, LOD, and skirts
+
+The heightfield is cut into **chunks of 64 quads** (a 513 terrain is 8x8
+= 64 chunks; a 4097 one is 64x64 = 4096, and its bounds are its problem).
+Each chunk is built at **four levels of detail** -- 64, 32, 16 and 8
+quads a side, i.e. 65^2, 33^2, 17^2 and 9^2 vertices, sampling every 1st,
+2nd, 4th and 8th height -- as four `Mesh` objects, up front, at load. A
+513 terrain is 64 x (65^2 + 33^2 + 17^2 + 9^2) x 32 bytes ~ 11 MB of
+vertices and about the same again in indices and CPU positions; a 1025 is
+four times that. Stated, and acceptable for a terrain that is a mesh
+source: the alternative -- one grid, heights fetched in the vertex shader,
+a clipmap that follows the camera -- draws no meshes, so it would need its
+own shadow path, its own BLAS refit and its own picking, and that is the
+"different piece of code" the experiment's README already warned about.
+
+**Which level draws is chosen per chunk, per frame, once**, from the
+camera's distance to the chunk's centre: level = clamp(floor(log2(d /
+(4 x chunk width))) + 1, 0, 3), so a chunk within four widths is full and
+each doubling of distance halves it -- 128, 256 and 512 m on a 256 m
+terrain of 513 samples, where a chunk is 32 m. (The first draft said two
+widths; the first frame showed a skyline stepping between levels sixty
+metres from the camera, which is where the eye rests.) Chosen in `Terrain::SelectLod(camera)` at
+the top of the frame and *read* by every consumer -- the scene pass, the
+shadow casters, the ray-instance list, the picker -- so the geometry that
+casts a shadow is the geometry that receives it and the geometry a ray
+hits is the geometry drawn. A chunk outside the frustum still gets a level
+(it casts), it just is not drawn.
+
+**Cracks between levels are hidden by skirts**, not by stitching. Two
+neighbouring chunks at different levels meet along an edge where one has
+twice the vertices of the other; the coarse edge cuts corners the fine
+edge follows, and the difference is a sliver of background. Stitching
+(index buffers per neighbour combination) is exact and combinatorial;
+a skirt -- the chunk's edge vertices duplicated a little way *down*, joined
+to the edge by a strip of triangles -- is one rule and hides the sliver
+from every angle a camera above the ground can take. Each chunk's skirt
+hangs by half the chunk's own height range plus a fraction of the
+terrain's, wound both ways so it is not culled from either side, carrying
+the edge's normal so it lights as the surface does -- and only on the
+edges a neighbouring chunk shares: the first frame of the cliff fixture
+showed the terrain's outer rim wearing a curtain, which is a skirt on an
+edge that meets nothing and can crack against nothing. What is *not* done:
+geomorphing. A chunk pops when its level changes; TAA softens it and the
+distance rule keeps it small on screen. Stated as the limit it is.
+
+**Normals** are central differences of the heightfield in metres, baked
+per vertex; the material's normal map lands on top through the same
+derivative tangent frame every mesh uses. **Triangulation** matches Jolt's
+heightfield exactly -- the diagonal from (x, z) to (x+1, z+1), the two
+triangles (x,z)(x,z+1)(x+1,z+1) and (x,z)(x+1,z+1)(x+1,z) -- so the
+surface a body rests on is the surface drawn, to the triangle, and
+`Terrain::HeightAt(x, z)` interpolates over the same split; a check drops
+a sphere and asks that it rest at `HeightAt + radius`.
+
+### The physics: Jolt's own shape
+
+Jolt has `HeightFieldShape` for exactly this, and it is used: a static
+body per terrain entity with `Collision` on -- offset (-Size/2, 0,
+-Size/2), scale (Size/Q, Height, Size/Q) over the heights as floats in
+[0, 1], the entity's world position, rotation and scale folded in the way
+every collider's are. **No RigidBody or Collider component is needed or
+consulted**: the terrain *is* its collider, static by nature, and a
+RigidBody on the same entity is ignored with a warning rather than
+honoured, because a terrain that falls is not a thing anyone meant.
+Raycasts hit it and report the terrain entity; contact events name it.
+The debug overlay (F3) draws nothing for it in stage 1 -- the terrain is
+visible, and its collider is its surface -- and says so here.
+
+### What each place that walks meshes now also walks
+
+The scene enumerates its meshes in five places -- `OnRender` (draw),
+`RenderShadows` (the map casters, and the ray-instance list), the picker,
+and the asset preloader's want-list -- and each gains the terrain walk
+through one helper: `Scene::ForEachTerrainChunk(entity, fn)` hands over
+`(mesh at the chunk's selected level, the entity's world, chunk bounds)`.
+One helper so the five cannot disagree about which level a chunk is at.
+
+### The checks
+
+`scenetest`: the serializer round-trips (bytes and heights); `HeightAt`
+returns the corner heights at the corners and the triangle-exact
+interpolation inside a quad on both sides of the diagonal; a chunk mesh at
+each level has the vertex and index counts arithmetic predicts, every
+skirt vertex sits below the lowest surface vertex of its edge, and a flat
+terrain's normals are all `+Y`; the level rule gives 0 near and 3 far and
+the same answer for two chunks at the same distance; a physics world built
+from a terrain scene has a body, a ray from above hits it at `HeightAt`,
+and a sphere dropped on it comes to rest at `HeightAt + radius`.
+
+`check_terrain.py`: a scene with a terrain from a *known* heightmap (a
+ridge along one axis) rendered on both backends: the ridge's silhouette
+row is derived from the camera and the heights, not found in the frame; a
+far chunk boundary at a level change shows no background pixels along the
+seam (the skirt claim), and disabling skirts shows them (the
+falsification); with `--raytracing=on` the ridge shadows the plain on the
+far side. Falsified further by mis-triangulating (the resting sphere sinks
+or floats), by flipping the level rule (near chunks coarse: the silhouette
+row moves), and by an off-by-one in the row-major read (the ridge turns
+ninety degrees).
+
+### Numbers at landing, and what the fixtures taught
+
+`scenetest` +53 (1681 on Vulkan under validation, 1641 on OpenGL): the
+serializer round-trips 33^2 samples in 32 + 2178 bytes and refuses a wrong
+magic, a truncation and a 34-grid; the corner quad samples 0 and 0.5 where
+bilinear would say 0.0625 and 0.5625; a 129 grid is 2x2 chunks of 64 whose
+corner chunk wears exactly two skirts of 65 (the count is arithmetic:
+65^2 + 2x65 vertices, 6x64^2 + 2x12x64 indices), every skirt vertex its
+edge dropped by 2.7 m; the ball rests at 5.50 +- 0.05 on a 5 m terrain,
+the ray and `HeightAt` agree on the ramp to the centimetre, and a click
+lands on the surface. `check_terrain.py`: the ridge meets the sky at row
+90 on both backends where the crest projects to 90.1; its shadow darkens
+the plain by **185.0 levels under maps and 185.0 under rays** (28.7 vs
+213.7); the cliff shows **0 holes** with skirts and **253 without**.
+Falsified three ways: skirts off (the 253); the row-major read swapped
+(the ridge turns ninety degrees -- row 0, shadow 2.7); and the unit claims
+each pin one thing the others do not.
+
+Three findings on the way. **The level rule** was two chunk widths in the
+first draft and is four: the first frame showed the skyline stepping
+between levels sixty metres out. **Skirts on the outer edge** were a
+curtain hanging off the world's rim in the cliff's first frame; a skirt
+belongs only on an edge a neighbour shares. And **the crack fixture had to
+be designed twice**: white noise per sample makes cracks and then fills
+them -- the surface right behind a seam dips as often as not, so a ray
+through the crack exits and hits the next bump, terrain-coloured, and the
+skirts-off build measured *the same* 196 stray sky pixels as the skirts-on
+one (sky between spikes at the silhouette, not holes). Noise per *column*
+-- ridges running away from the camera -- keeps the seam rough and the
+rise behind it smooth, so a ray through the crack stays under the surface
+to the sky, and the two builds separate 0 from 253. A fixture that
+cannot tell the broken build from the working one has not measured
+anything yet.
+
+### What stays stated
+
+One material, no layers, no painting -- stage 2 (a `terrain.rvshader`
+blending up to four materials by a weight map stored in the asset, the
+same lighting includes) and stage 3 (sculpt and paint brushes in the
+editor, undo through the command stack, written back to the asset). No
+holes (caves, tunnels) -- a heightfield has none. No streaming: the whole
+terrain's chunk meshes are built at load and stay resident, which caps a
+practical terrain around 2049 (~180 MB of geometry) until a paging story
+exists; the format allows 4097. LOD pops, softened by TAA. The skirts
+add ~5% geometry per chunk, and seen from *off* the terrain's rim the
+interior seams' skirts show as short legs below the edge (from on the
+ground, where a game camera stands, they are under the surface). `HeightAt`
+is not yet a script call. And the
+first draft's memory of the experiment stays true: one entity, one asset,
+sixty-four meshes -- never one entity per face.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

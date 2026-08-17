@@ -84,7 +84,6 @@ target_link_libraries(RageV
         glfw
         volk
         vma
-        perlin_noise
         glslang
         SPIRV
         glslang-default-resource-limits

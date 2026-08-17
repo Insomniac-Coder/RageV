@@ -11,6 +11,7 @@
 #include "Curve.h"
 #include "Font.h"
 #include "LutRecipe.h"
+#include "TerrainData.h"
 
 // Declared in the enclosing namespace on purpose. Inside
 // `namespace RageV::Assets` these would declare new types that nothing ever
@@ -221,6 +222,14 @@ namespace RageV::Assets
 		// nothing. Both mistakes render as text that is soft in a way no
 		// amount of tuning the shader will fix.
 		static RHI::Ref<RHI::RHITexture> GetFontAtlas(AssetHandle handle);
+
+		// The heights of a terrain (ENGINE-NOTES 7ap), read once and kept:
+		// numbers on the CPU, no device needed, so the suite can build chunk
+		// geometry and sample heights headlessly. Null for a handle that is
+		// not a readable `.rvterrain`, and remembered as such. Renderer/Terrain
+		// builds the chunk meshes from this; the physics world builds the
+		// height field from it; both read the same samples.
+		static const TerrainData* GetTerrain(AssetHandle handle);
 
 		// An environment map, built from whatever image the handle names. The
 		// conversion from a panorama is not cheap, so a failure is cached as

@@ -16,6 +16,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -498,6 +499,76 @@ namespace RageV::Physics
 			return true;
 		}
 
+		// A terrain (ENGINE-NOTES 7ap): Jolt's own height field, static, from
+		// the same samples the chunk meshes were built from, so the surface a
+		// body rests on is the surface drawn, to the triangle. The terrain is
+		// its own collider -- no RigidBody or Collider component is consulted,
+		// and Collision off means no body. False when there is nothing to
+		// build from.
+		bool DescribeTerrainBody(Scene& scene, Entity entity, JPH::BodyCreationSettings& out)
+		{
+			if (!entity.HasComponent<TerrainComponent>() || !entity.HasComponent<TransformComponent>())
+				return false;
+
+			auto& component = entity.GetComponent<TerrainComponent>();
+			if (!component.Collision)
+				return false;
+
+			if (entity.HasComponent<RigidBodyComponent>())
+			{
+				RV_CORE_WARN("Physics: {0} has a RigidBody and a Terrain; the terrain is static "
+							 "and its own collider, so the RigidBody is ignored", entity.GetName());
+			}
+
+			const RHI::Ref<Terrain>& terrain = Terrain::Resolve(component);
+			if (!terrain)
+				return false;
+
+			const TerrainData& data = terrain->GetData();
+			const Terrain::Dimensions& dims = terrain->GetDimensions();
+
+			const Mat4 world = scene.GetWorldTransform(entity);
+			Vec3 position, scale;
+			Quat rotation;
+			if (!Math::Decompose(world, position, rotation, scale))
+				return false;
+
+			// Heights as fractions of one; the scale carries the metres. Jolt's
+			// surface is offset + scale * (x, h, z) with (x, z) integer sample
+			// coordinates -- the same mapping the meshes use, the entity's own
+			// scale folded in the way every collider's is.
+			const uint32_t resolution = data.Resolution;
+			std::vector<float> samples((size_t)resolution * resolution);
+			for (size_t i = 0; i < samples.size(); ++i)
+				samples[i] = (float)data.Heights[i] / 65535.0f;
+
+			const float cell = dims.Size / (float)data.QuadCount();
+			const JPH::Vec3 offset(-0.5f * dims.Size * scale.x, 0.0f, -0.5f * dims.Size * scale.z);
+			const JPH::Vec3 fieldScale(cell * scale.x, Math::Max(dims.Height, 0.0f) * scale.y, cell * scale.z);
+
+			JPH::HeightFieldShapeSettings settings(samples.data(), offset, fieldScale, resolution);
+			// Full precision: the asset is sixteen bits and the meshes carry all
+			// of them; a collider that quantised coarser than the picture would
+			// let a ball sink into a hill it can see itself standing on.
+			settings.mBitsPerSample = 16;
+
+			JPH::ShapeSettings::ShapeResult result = settings.Create();
+			if (result.HasError())
+			{
+				RV_CORE_ERROR("Physics: terrain {0} height field failed: {1}",
+							  entity.GetName(), result.GetError().c_str());
+				return false;
+			}
+
+			out = JPH::BodyCreationSettings(result.Get(), JPH::RVec3(position.x, position.y, position.z),
+											ToJolt(Math::Normalize(rotation)),
+											JPH::EMotionType::Static, Layers::NonMoving);
+			out.mFriction = 0.6f;
+			out.mRestitution = 0.0f;
+			out.mUserData = (uint64_t)entity.GetUUID();
+			return true;
+		}
+
 		// Turns what the listener recorded into engine events. Main thread,
 		// after Update has returned, so bodies may be queried normally again.
 		void ProcessContacts()
@@ -705,6 +776,31 @@ namespace RageV::Physics
 						   ToGlm(settings.mPosition), ToGlm(settings.mRotation));
 		}
 
+		// Terrains, in the same batch: static bodies the broad phase wants in
+		// its tree before anything falls on them.
+		auto terrains = scene.GetRegistry().view<TerrainComponent, TransformComponent>();
+		for (auto handle : terrains)
+		{
+			Entity entity{ handle, &scene };
+			if (m_Impl->Find(entity.GetUUID()))
+				continue;   // an entity that is somehow both; the rigid body won above
+
+			JPH::BodyCreationSettings settings;
+			if (!m_Impl->DescribeTerrainBody(scene, entity, settings))
+				continue;
+
+			JPH::Body* body = bodies.CreateBody(settings);
+			if (!body)
+			{
+				RV_CORE_ERROR("Physics: out of bodies at terrain {0}", entity.GetName());
+				break;
+			}
+
+			pending.push_back(body->GetID());
+			m_Impl->Record(entity.GetUUID(), body->GetID(), BodyType::Static,
+						   ToGlm(settings.mPosition), ToGlm(settings.mRotation));
+		}
+
 		if (!pending.empty())
 		{
 			// AddBodiesPrepare may reorder the array, which is why the mapping
@@ -727,7 +823,10 @@ namespace RageV::Physics
 			return;
 
 		JPH::BodyCreationSettings settings;
-		if (!m_Impl->DescribeBody(scene, entity, settings))
+		BodyType type = BodyType::Static;
+		if (m_Impl->DescribeBody(scene, entity, settings))
+			type = entity.GetComponent<RigidBodyComponent>().Type;
+		else if (!m_Impl->DescribeTerrainBody(scene, entity, settings))
 			return;
 
 		JPH::BodyInterface& bodies = m_Impl->Interface();
@@ -735,7 +834,7 @@ namespace RageV::Physics
 		if (id.IsInvalid())
 			return;
 
-		m_Impl->Record(entity.GetUUID(), id, entity.GetComponent<RigidBodyComponent>().Type,
+		m_Impl->Record(entity.GetUUID(), id, type,
 					   ToGlm(settings.mPosition), ToGlm(settings.mRotation));
 	}
 

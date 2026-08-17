@@ -18,7 +18,12 @@ quad. A real implementation needs a greedy mesher producing one mesh per
 chunk, which is a different piece of code rather than an improvement to this
 one.
 
-Terrain is on the non-goals list in [docs/ROADMAP.md](../docs/ROADMAP.md), so
-this is parked rather than developed. It was moved out of
-`RageV/src/RageV/Renderer/` because it is not a renderer concern and it was
-compiling into the engine library — including its warnings.
+Terrain was built for real as roadmap item 8.4 (ENGINE-NOTES 7ap): a
+heightfield asset (`.rvterrain`), a `TerrainComponent`, and chunk meshes with
+levels of detail that every existing system -- culling, shadows, ray tracing,
+picking, Jolt's height-field collider -- takes as ordinary meshes. This
+experiment is kept, at the owner's direction, as the shape to avoid: one
+entity per face. It was moved out of `RageV/src/RageV/Renderer/` because it
+is not a renderer concern and it was compiling into the engine library --
+including its warnings -- and the header-only `PerlinNoise` it used is no
+longer linked into the engine either.

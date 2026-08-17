@@ -50,6 +50,22 @@ def profile_handle(name):
     return h or 0x7261676556504F53
 
 
+def source_hash(path):
+    """The registry's SourceHash for a file: FNV-1a over its bytes on disk.
+
+    Written into the `.meta` so a generated fixture is *already* what the
+    registry would rewrite it to on its next scan. Before this the generators
+    wrote 0 and the first run of the engine rewrote every generated `.meta`,
+    which left them modified after every check -- the churn the handoff kept
+    telling people to `git checkout` before committing.
+    """
+    h = 0xCBF29CE484222325
+    for byte in pathlib.Path(path).read_bytes():
+        h ^= byte
+        h = (h * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return h
+
+
 def write_named(path, settings):
     """Write a profile at an exact path, and its `.meta`. Returns the handle.
 
@@ -75,7 +91,7 @@ def write_named(path, settings):
 
     meta = path.with_name(path.name + ".meta")
     meta.write_text(
-        f"Handle: {handle}\nType: PostProfile\nSourceHash: 0\n", encoding="utf-8")
+        f"Handle: {handle}\nType: PostProfile\nSourceHash: {source_hash(path)}", encoding="utf-8")
 
     return handle
 
@@ -105,11 +121,10 @@ def write_beside(scene_path, settings):
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    # SourceHash 0: the registry recomputes it on the next scan. Getting it
-    # wrong here would mean re-cooking something that has not changed rather
-    # than anything worse.
+    # The registry's own hash of the bytes just written, so the sidecar is
+    # already what a scan would make it and a check run leaves nothing dirty.
     meta = path.with_name(path.name + ".meta")
     meta.write_text(
-        f"Handle: {handle}\nType: PostProfile\nSourceHash: 0\n", encoding="utf-8")
+        f"Handle: {handle}\nType: PostProfile\nSourceHash: {source_hash(path)}", encoding="utf-8")
 
     return handle

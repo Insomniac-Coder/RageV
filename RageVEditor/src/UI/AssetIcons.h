@@ -64,6 +64,7 @@ namespace RageV::UI
 		Audio,
 		Curve,
 		PostProfile,
+		Terrain,
 
 		// Everything else that turns up in a project's folders.
 		Script,     // .cs .cpp .h .hpp .c .cc

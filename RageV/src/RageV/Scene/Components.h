@@ -18,6 +18,8 @@
 
 namespace RageV
 {
+	class Terrain;
+
 	// Stable identity. Added to every entity at creation, preserved across
 	// save/load, and the only durable way to name an entity -- entt::entity
 	// handles are recycled and mean nothing outside one registry instance.
@@ -309,6 +311,53 @@ namespace RageV
 			if (OverrideNormalScale) params.NormalScale = NormalScale;
 			return params;
 		}
+	};
+
+	// A heightfield terrain (ENGINE-NOTES 7ap): an `.rvterrain` of heights,
+	// placed and sized by this entity, drawn as chunk meshes with levels of
+	// detail, and collided with through Jolt's height-field shape.
+	//
+	// The terrain occupies [-Size/2, Size/2] in local X and Z and [0, Height]
+	// in local Y -- centred on the entity, not cornered at it, because every
+	// other primitive here is centred and an entity at the origin should have
+	// the ground around it. Rotation and scale go through the world matrix
+	// like any mesh's.
+	//
+	// The material is one ordinary `.rmat`, tiled: the chunk vertices carry
+	// uv = local metres / TextureScale, and the material's own tiling multiplies
+	// on top. A layered material blended by a painted weight map is stage 2.
+	//
+	// The entity's transform places it; a RigidBody on the same entity is
+	// ignored -- the terrain *is* its collider, static by nature, whenever
+	// Collision is on, and needs no ColliderComponent.
+	struct TerrainComponent
+	{
+		AssetHandle Terrain = AssetHandle::Invalid();
+
+		// Metres a side.
+		float Size = 256.0f;
+		// Metres a full (65535) sample stands above the base.
+		float Height = 40.0f;
+
+		// Null means the renderer's shared default material.
+		AssetHandle Material = AssetHandle::Invalid();
+		// Metres per repeat of the material's textures.
+		float TextureScale = 4.0f;
+
+		// A static Jolt height field under the drawn surface, to the triangle.
+		bool Collision = true;
+
+		// --- runtime, not serialized ------------------------------------
+		// The chunk meshes built from the asset at these dimensions, cached
+		// here so the same terrain is not rebuilt every frame and a copy of the
+		// component (Play's snapshot, a duplicate) shares rather than rebuilds.
+		// Renderer/Terrain::Resolve owns it: null until first drawn, replaced --
+		// never mutated -- when the asset or a dimension changes, so a
+		// duplicate that then changes its Size cannot reshape the original.
+		RHI::Ref<RageV::Terrain> Runtime;
+
+		TerrainComponent() = default;
+		TerrainComponent(const TerrainComponent&) = default;
 	};
 
 	// Plays a clip from the model a MeshComponent points at.

@@ -1260,6 +1260,46 @@ namespace RageV
 		return largest > 0 ? largest : 128;
 	}
 
+	// --- terrain (ENGINE-NOTES 7ap) ------------------------------------------
+
+	void Scene::ForEachTerrainChunk(const std::function<void(Entity, TransformComponent&,
+														 TerrainComponent&, Terrain&,
+														 Terrain::Chunk&)>& fn)
+	{
+		auto view = m_Registry.view<TransformComponent, TerrainComponent>();
+		for (auto& item : view)
+		{
+			auto [transform, component] = view.get<TransformComponent, TerrainComponent>(item);
+			const RHI::Ref<Terrain>& terrain = Terrain::Resolve(component);
+			if (!terrain)
+				continue;
+			for (Terrain::Chunk& chunk : terrain->GetChunks())
+				fn(Entity{ item, this }, transform, component, *terrain, chunk);
+		}
+	}
+
+	void Scene::SelectTerrainLods(const Vec3& cameraPosition)
+	{
+		auto view = m_Registry.view<TransformComponent, TerrainComponent>();
+		for (auto& item : view)
+		{
+			auto [transform, component] = view.get<TransformComponent, TerrainComponent>(item);
+			if (const RHI::Ref<Terrain>& terrain = Terrain::Resolve(component))
+				terrain->SelectLod(cameraPosition, transform.World);
+		}
+	}
+
+	bool Scene::HasTerrain()
+	{
+		auto view = m_Registry.view<TransformComponent, TerrainComponent>();
+		for (auto& item : view)
+		{
+			if (Terrain::Resolve(view.get<TerrainComponent>(item)))
+				return true;
+		}
+		return false;
+	}
+
 	void Scene::RenderShadows(const Camera& camera, const Mat4& cameraTransform)
 	{
 		// A probe capture draws the scene, and the scene samples shadows. Doing
@@ -1267,6 +1307,12 @@ namespace RageV
 		// and then leave them there for the real camera.
 		if (m_CapturingProbes || !Renderer::HasDevice())
 			return;
+
+		// The terrain's levels of detail for this camera, before anything --
+		// the shadow casters, the ray-instance list, the draw -- reads them
+		// (7ap). First, so a shadows-off return below still leaves the levels
+		// chosen for the frame's draw.
+		SelectTerrainLods(Vec3(cameraTransform[3]));
 
 		// Maps or rays (ENGINE-NOTES 7am, 7an), resolved once here and told to
 		// the lit pass, which recompiles its shaders when the answer changes.
@@ -1297,7 +1343,7 @@ namespace RageV
 		// Nothing to shadow, and a shadow pass over an empty scene is a render
 		// pass that clears and stops.
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
-		if (meshView.begin() == meshView.end())
+		if (meshView.begin() == meshView.end() && !HasTerrain())
 			return;
 
 		const uint32_t localResolution =
@@ -1358,6 +1404,24 @@ namespace RageV
 
 				Renderer3D::DrawMeshShadow(resolved, transform.World);
 			}
+
+			// The terrain's chunks at their chosen level, against this pass's
+			// frustum like every other caster (7ap).
+			ForEachTerrainChunk([&](Entity, TransformComponent& transform, TerrainComponent&,
+									Terrain&, Terrain::Chunk& chunk)
+			{
+				const RHI::Ref<Mesh>& mesh = chunk.Selected();
+				if (!mesh)
+					return;
+				Vec3 centre, extents;
+				Frustum::TransformBounds(chunk.Bounds, transform.World, centre, extents);
+				if (!frustum.Intersects(centre, extents))
+				{
+					Renderer3D::CountCulled();
+					return;
+				}
+				Renderer3D::DrawMeshShadow(mesh, transform.World);
+			});
 
 			Renderer3D::EndShadow();
 		};
@@ -1556,6 +1620,22 @@ namespace RageV
 
 				RayShadows::AddInstance(resolved, transform.World, bones, material, params);
 			}
+
+			// The terrain, every chunk at its level, no frustum: a hill outside
+			// the view still shadows what is inside it (7ap).
+			ForEachTerrainChunk([&](Entity, TransformComponent& transform, TerrainComponent& component,
+									Terrain&, Terrain::Chunk& chunk)
+			{
+				const RHI::Ref<Mesh>& mesh = chunk.Selected();
+				if (!mesh)
+					return;
+				RHI::Ref<Material> material = Assets::Manager::GetMaterial(component.Material);
+				if (!material)
+					material = Renderer3D::GetDefaultMaterial();
+				RayShadows::AddInstance(mesh, transform.World, nullptr, material,
+										material ? material->GetParams() : MaterialParams{});
+			});
+
 			RayShadows::Build(*cmd);
 			return;
 		}
@@ -1998,7 +2078,8 @@ namespace RageV
 		// of the alpha-blended quads means the quads blend against a complete
 		// depth buffer rather than over each other arbitrarily.
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
-		if (meshView.begin() != meshView.end() && Renderer::HasDevice())
+		const bool anyTerrain = Renderer::HasDevice() && HasTerrain();
+		if ((meshView.begin() != meshView.end() || anyTerrain) && Renderer::HasDevice())
 		{
 			// The jitter goes in as well as into the camera, because the
 			// velocity attachment has to come back out *without* it: a motion
@@ -2080,6 +2161,36 @@ namespace RageV
 					Renderer3D::DrawMesh(resolved, transform.World, material, params, probe,
 										 &transform.PreviousWorld);
 				}
+			}
+
+			// The terrain: each chunk at the level RenderShadows chose for this
+			// camera, culled against the same frustum, lit with the component's
+			// one material, and drawn as the ordinary mesh it is (7ap).
+			if (anyTerrain)
+			{
+				ForEachTerrainChunk([&](Entity, TransformComponent& transform, TerrainComponent& component,
+										Terrain&, Terrain::Chunk& chunk)
+				{
+					const RHI::Ref<Mesh>& mesh = chunk.Selected();
+					if (!mesh)
+						return;
+
+					Vec3 centre, extents;
+					Frustum::TransformBounds(chunk.Bounds, transform.World, centre, extents);
+					if (!frustum.Intersects(centre, extents))
+					{
+						Renderer3D::CountCulled();
+						return;
+					}
+
+					RHI::Ref<Material> material = Assets::Manager::GetMaterial(component.Material);
+					if (!material)
+						material = Renderer3D::GetDefaultMaterial();
+					const MaterialParams params = material ? material->GetParams() : MaterialParams{};
+
+					Renderer3D::DrawMesh(mesh, transform.World, material, params,
+										 ProbeSlotFor(centre), &transform.PreviousWorld);
+				});
 			}
 
 			Renderer3D::EndScene();

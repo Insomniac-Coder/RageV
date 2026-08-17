@@ -1,0 +1,101 @@
+Scene: Terrain hills
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.45, 0.6, 0.8]
+  SkyZenith: [0.45, 0.6, 0.8]
+  SkyGround: [0.45, 0.6, 0.8]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 34, 118]
+      Rotation: [-0.28, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 4414807142641375367
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 50, 0]
+      Rotation: [-0.9, 0.6, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.96, 0.9]
+      Intensity: 3
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Terrain
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      Terrain: 15731441207428090258
+      Size: 256
+      Height: 30
+      Material: 2253873544424874864
+      TextureScale: 12
+      Collision: true
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Crate A
+    TransformComponent:
+      Position: [3, 25, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.7, 0.45, 0.25, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.8
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+  - EntityID: 1663341875487337577
+    TagComponent:
+      Tag: Crate B
+    TransformComponent:
+      Position: [-4, 27, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.7, 0.45, 0.25, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.8
+        Occlusion: 1
+    RigidBodyComponent:
+      Type: Dynamic
+      Mass: 1
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.75, 0.75, 0.75]

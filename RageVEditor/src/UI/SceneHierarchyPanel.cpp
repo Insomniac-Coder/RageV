@@ -309,6 +309,7 @@ static RageV::UI::IconKind EntityIconKind(RageV::Entity entity)
 	if (entity.HasComponent<LightComponent>())           return UI::IconKind::Light;
 	if (entity.HasComponent<ParticleEmitterComponent>()) return UI::IconKind::ParticleEmitter;
 	if (entity.HasComponent<AudioSourceComponent>())     return UI::IconKind::AudioSource;
+	if (entity.HasComponent<TerrainComponent>())         return UI::IconKind::Terrain;
 	if (entity.HasComponent<MeshComponent>())            return UI::IconKind::Mesh;
 
 	return UI::IconKind::Entity;

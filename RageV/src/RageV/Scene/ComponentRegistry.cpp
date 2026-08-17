@@ -523,6 +523,53 @@ namespace
 			s_Components.push_back(std::move(desc));
 		}
 
+		// --- Terrain (ENGINE-NOTES 7ap) --------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "TerrainComponent";
+			desc.DisplayName = "Terrain";
+			desc.Fields = {
+				Field<&TerrainComponent::Terrain>("Terrain",
+					AssetRef(AssetType::Terrain,
+							 "The heights: an .rvterrain, a square grid of 16-bit samples "
+							 "made by tools/scripts/make_terrain.py from a 16-bit PNG or "
+							 "from noise. Empty draws nothing.")),
+				Field<&TerrainComponent::Size>("Size",
+					Drag(0.5f, 1.0f, 16384.0f,
+						 "Metres a side. The terrain is centred on this entity: it "
+						 "reaches half of this each way in X and Z.")),
+				Field<&TerrainComponent::Height>("Height",
+					Drag(0.1f, 0.0f, 4000.0f,
+						 "Metres the highest possible sample stands above the base. "
+						 "The asset's heights are fractions of this.")),
+				Field<&TerrainComponent::Material>("Material",
+					AssetRef(AssetType::Material,
+							 "One material, tiled over the whole terrain; leave it empty "
+							 "for the renderer's default. Layers painted by a weight map "
+							 "are not built yet.")),
+				Field<&TerrainComponent::TextureScale>("TextureScale",
+					Named("Texture scale", Drag(0.05f, 0.05f, 1000.0f,
+						 "Metres per repeat of the material's textures. The "
+						 "material's own tiling multiplies on top."))),
+				Field<&TerrainComponent::Collision>("Collision",
+					Tip("A static collider under the drawn surface, exact to the "
+						"triangle. The terrain is its own collider: no RigidBody or "
+						"Collider component is needed, and one on this entity is "
+						"ignored.")),
+			};
+
+			desc.OnChanged = [](void* component)
+			{
+				auto* terrain = static_cast<TerrainComponent*>(component);
+				terrain->Size = Math::Max(terrain->Size, 1.0f);
+				terrain->Height = Math::Max(terrain->Height, 0.0f);
+				terrain->TextureScale = Math::Max(terrain->TextureScale, 0.05f);
+			};
+
+			Bind<TerrainComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
 		// --- Light -----------------------------------------------------------
 		{
 			ComponentDesc desc;
