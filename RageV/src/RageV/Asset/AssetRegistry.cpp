@@ -92,6 +92,20 @@ namespace RageV::Assets
 		ScanDirectory(s_Root);
 	}
 
+	void Registry::Reindex(AssetHandle handle)
+	{
+		if (!s_Initialised)
+			return;
+		const auto it = s_PathByHandle.find(handle);
+		if (it == s_PathByHandle.end() || it->second.rfind("virtual:", 0) == 0)
+			return;
+		const std::filesystem::path file = s_Root / it->second;
+		const AssetType type = AssetTypeFromExtension(file.extension().string());
+		if (type == AssetType::None)
+			return;
+		Index(ReadOrCreateMeta(file, type));
+	}
+
 	void Registry::ScanDirectory(const std::filesystem::path& directory)
 	{
 		// Through the VFS, so the scan sees pak entries and loose files with

@@ -1,0 +1,60 @@
+Scene: Terrain brush
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.02, 0.02, 0.025]
+  SkyZenith: [0.02, 0.02, 0.025]
+  SkyGround: [0.02, 0.02, 0.025]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 22, 60]
+      Rotation: [-0.3, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 6961013001807607980
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 50, 0]
+      Rotation: [-0.7854, 3.14159, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.96, 0.9]
+      Intensity: 3
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Brush
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      Terrain: 10797184554510969434
+      Size: 128
+      Height: 40
+      Material: 17072321550628825837
+      Layer1: 1122476831179182328
+      TextureScale: 4
+      Collision: true

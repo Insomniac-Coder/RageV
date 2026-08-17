@@ -92,6 +92,7 @@ namespace RageV::Assets
 		// every frame.
 		std::unordered_map<AssetHandle, TerrainData> s_Terrains;
 		std::unordered_set<AssetHandle> s_TerrainFailed;
+		std::unordered_set<AssetHandle> s_TerrainDirty;
 		std::unordered_map<AssetHandle, RHI::Ref<RHI::RHITexture>> s_FontAtlases;
 
 		constexpr PrimitiveType kPrimitives[] = {
@@ -496,6 +497,7 @@ namespace RageV::Assets
 		s_FontAtlases.clear();
 		s_Terrains.clear();
 		s_TerrainFailed.clear();
+		s_TerrainDirty.clear();
 
 		// The three phase-9 caches, which were added one at a time and each
 		// missed this function.
@@ -849,6 +851,53 @@ namespace RageV::Assets
 
 		s_Terrains[handle] = std::move(data);
 		return &s_Terrains[handle];
+	}
+
+	TerrainData* Manager::EditTerrain(AssetHandle handle)
+	{
+		if (!GetTerrain(handle))
+			return nullptr;
+		s_TerrainDirty.insert(handle);
+		return &s_Terrains[handle];
+	}
+
+	bool Manager::IsTerrainDirty(AssetHandle handle)
+	{
+		return s_TerrainDirty.count(handle) != 0;
+	}
+
+	bool Manager::HasDirtyTerrains()
+	{
+		return !s_TerrainDirty.empty();
+	}
+
+	bool Manager::SaveTerrain(AssetHandle handle)
+	{
+		const auto cached = s_Terrains.find(handle);
+		if (cached == s_Terrains.end())
+			return false;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+		if (path.empty() || !TerrainSerializer::Save(cached->second, path))
+		{
+			RV_CORE_ERROR("Terrain {0} could not be saved to {1}", (uint64_t)handle, path.string());
+			return false;
+		}
+
+		// The sidecar's hash follows the bytes, so the next scan finds nothing
+		// to rewrite; one file's, not the project's.
+		Registry::Reindex(handle);
+		s_TerrainDirty.erase(handle);
+		RV_CORE_INFO("Saved terrain {0}", path.filename().string());
+		return true;
+	}
+
+	void Manager::SaveDirtyTerrains()
+	{
+		// Copied first: SaveTerrain erases from the set it would be walking.
+		const std::vector<AssetHandle> dirty(s_TerrainDirty.begin(), s_TerrainDirty.end());
+		for (AssetHandle handle : dirty)
+			SaveTerrain(handle);
 	}
 
 	RHI::Ref<RHI::RHITexture> Manager::GetFontAtlas(AssetHandle handle)

@@ -297,6 +297,17 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// The frame a background build finishes, its results are published here --
 	// on this thread, before anything else reads them.
 	FinishBuild();
+	m_FrameSeconds = ts.GetSeconds();
+	m_TerrainTool.Playing = m_SceneState != SceneState::Edit;
+
+	// --brush, once, after the scene has loaded and the renderer can build
+	// the terrain's runtime: the frame after OnLoaded rather than in it, so
+	// the stroke goes through the same objects a hand's stroke would.
+	if (!m_BrushScriptDone && m_Scene && !EngineConfig::Get().BrushScript.empty())
+	{
+		m_BrushScriptDone = true;
+		RunBrushScript();
+	}
 
 	// In seconds rather than frames, for the reason the statistics window
 	// below is: the same notice would linger four seconds on a slow machine
@@ -515,7 +526,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		}
 	};
 
-	if (m_ShowColliders)
+	if (m_ShowColliders || (m_TerrainTool.Enabled && m_SceneState == SceneState::Edit))
 		scene.DrawOverlay = [this](RGPassContext&) { DrawColliderOverlay(); };
 
 	// The scene's own canvases. Drawn last of all, after tone mapping, so no
@@ -675,6 +686,12 @@ void EditorLayer::HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2&
 	if (!m_IsViewportHovered || ImGuizmo::IsOver() || ImGuizmo::IsUsing())
 		return;
 
+	// While the brush is on and a terrain is selected, a click in the
+	// viewport is a stroke, not a selection (7ar): the tool owns the mouse
+	// until its mode is switched off.
+	if (m_SceneState == SceneState::Edit && m_TerrainTool.WantsMouse())
+		return;
+
 	// The threshold is in screen pixels and deliberately small. Large enough to
 	// forgive the hand moving on the way up, small enough that a deliberate
 	// drag is never mistaken for a click.
@@ -687,39 +704,9 @@ void EditorLayer::HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2&
 			return;
 	}
 
-	const ImVec2 mouse = ImGui::GetMousePos();
-	const Vec2 local{ mouse.x - imageOrigin.x, mouse.y - imageOrigin.y };
-
-	if (local.x < 0.0f || local.y < 0.0f || local.x > imageSize.x || local.y > imageSize.y)
-		return;
-
-	// Into normalised device coordinates. The y flip is because a window's
-	// origin is top-left and clip space's is bottom-left; forgetting it gives
-	// picking that works perfectly along the horizontal centre line and is
-	// mirrored everywhere else.
-	const Vec2 ndc{
-		(local.x / imageSize.x) * 2.0f - 1.0f,
-		1.0f - (local.y / imageSize.y) * 2.0f,
-	};
-
 	Ray ray;
-	if (m_UseEditorCamera)
-	{
-		ray = ScreenPointToRay(m_EditorCamera, m_EditorCamera.GetTransform(), ndc);
-	}
-	else
-	{
-		Entity camera = m_Scene->GetPrimaryCameraEntity();
-		if (!camera)
-			return;
-
-		auto& component = camera.GetComponent<CameraComponent>();
-		if (!component.fixedAspectRatio)
-			component.Camera.SetAspectRatio(imageSize.x / imageSize.y);
-
-		ray = ScreenPointToRay(component.Camera,
-							   camera.GetComponent<TransformComponent>().World, ndc);
-	}
+	if (!ViewportMouseRay(imageOrigin, imageSize, ray))
+		return;
 
 	// The marks are clickable exactly when they are drawn -- otherwise a click
 	// would select a light nobody can see.
@@ -731,6 +718,45 @@ void EditorLayer::HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2&
 	// to deselect rather than a thing that can only ever select.
 	const PickResult hit = PickEntity(*m_Scene, ray, options);
 	m_SceneHierarchyPanel.SetSelectedEntity(hit ? hit.Entity : Entity{});
+}
+
+bool EditorLayer::ViewportMouseRay(const ImVec2& imageOrigin, const ImVec2& imageSize, Ray& out) const
+{
+	if (imageSize.x <= 0.0f || imageSize.y <= 0.0f)
+		return false;
+
+	const ImVec2 mouse = ImGui::GetMousePos();
+	const Vec2 local{ mouse.x - imageOrigin.x, mouse.y - imageOrigin.y };
+
+	if (local.x < 0.0f || local.y < 0.0f || local.x > imageSize.x || local.y > imageSize.y)
+		return false;
+
+	// Into normalised device coordinates. The y flip is because a window's
+	// origin is top-left and clip space's is bottom-left; forgetting it gives
+	// picking that works perfectly along the horizontal centre line and is
+	// mirrored everywhere else.
+	const Vec2 ndc{
+		(local.x / imageSize.x) * 2.0f - 1.0f,
+		1.0f - (local.y / imageSize.y) * 2.0f,
+	};
+
+	if (m_UseEditorCamera)
+	{
+		out = ScreenPointToRay(m_EditorCamera, m_EditorCamera.GetTransform(), ndc);
+		return true;
+	}
+
+	Entity camera = m_Scene->GetPrimaryCameraEntity();
+	if (!camera)
+		return false;
+
+	auto& component = camera.GetComponent<CameraComponent>();
+	if (!component.fixedAspectRatio)
+		component.Camera.SetAspectRatio(imageSize.x / imageSize.y);
+
+	out = ScreenPointToRay(component.Camera,
+						   camera.GetComponent<TransformComponent>().World, ndc);
+	return true;
 }
 
 // The collider overlay, drawn through whichever camera the scene view is using.
@@ -762,7 +788,12 @@ void EditorLayer::DrawColliderOverlay()
 								  camera.GetComponent<TransformComponent>().World);
 	}
 
-	Physics::DrawColliders(*m_Scene, selected);
+	if (m_ShowColliders)
+		Physics::DrawColliders(*m_Scene, selected);
+	// The brush's ring on the ground under the cursor, in the same overlay
+	// (7ar). Only in edit mode: the tool is inert in Play.
+	if (m_SceneState == SceneState::Edit)
+		m_TerrainTool.DrawOverlay();
 	DebugRenderer::EndScene();
 }
 
@@ -2314,10 +2345,103 @@ void EditorLayer::DrawViewportPanel()
 	// and after the image, so the origin above is the image's.
 	HandleViewportPicking(imageOrigin, viewportSize);
 
-	DrawGizmo();
+	// The brush, every frame the viewport is drawn (7ar): where the cursor
+	// meets the selected terrain, and the stroke a held button makes. Edit
+	// mode only -- a terrain is an asset, and Play is for playing.
+	if (m_SceneState == SceneState::Edit)
+	{
+		Tools::TerrainBrushTool::ViewportInput input;
+		input.Hovered = m_IsViewportHovered && ViewportMouseRay(imageOrigin, viewportSize, input.WorldRay);
+		input.LeftPressed = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+		input.LeftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+		input.Shift = ImGui::GetIO().KeyShift;
+		input.Alt = ImGui::GetIO().KeyAlt;
+		input.Dt = m_FrameSeconds;
+		m_TerrainTool.Update(m_Scene, m_SceneHierarchyPanel.GetSelectedEntity(), input, m_Commands);
+	}
+
+	// No gizmo while the brush owns the terrain: its axes sit at the entity's
+	// origin, which is the middle of the ground being sculpted.
+	if (!(m_SceneState == SceneState::Edit && m_TerrainTool.WantsMouse()))
+		DrawGizmo();
 
 	ImGui::End();
 	ImGui::PopStyleVar();
+}
+
+// --brush=mode,x,z,radius,strength,seconds[,layer]: one stroke on the selected
+// terrain (--select names it) at terrain-local (x, z), through the tool's own
+// begin, step and end, then the asset saved -- so a check can hold the brush
+// and render what it wrote (ENGINE-NOTES 7ar).
+void EditorLayer::RunBrushScript()
+{
+	const std::string& script = EngineConfig::Get().BrushScript;
+	std::vector<std::string> parts;
+	{
+		std::string part;
+		for (char c : script)
+		{
+			if (c == ',') { parts.push_back(part); part.clear(); }
+			else          part += c;
+		}
+		parts.push_back(part);
+	}
+	if (parts.size() < 6)
+	{
+		RV_ERROR("--brush wants mode,x,z,radius,strength,seconds[,layer]; got '{0}'", script);
+		return;
+	}
+
+	Tools::TerrainBrushTool& tool = m_TerrainTool;
+	const std::string& mode = parts[0];
+	if      (mode == "raise")   { tool.Brush.Mode = TerrainBrush::Op::Raise;   tool.Brush.Invert = false; }
+	else if (mode == "lower")   { tool.Brush.Mode = TerrainBrush::Op::Raise;   tool.Brush.Invert = true; }
+	else if (mode == "smooth")  { tool.Brush.Mode = TerrainBrush::Op::Smooth;  tool.Brush.Invert = false; }
+	else if (mode == "flatten") { tool.Brush.Mode = TerrainBrush::Op::Flatten; tool.Brush.Invert = false; }
+	else if (mode == "paint")   { tool.Brush.Mode = TerrainBrush::Op::Paint;   tool.Brush.Invert = false; }
+	else if (mode == "erase")   { tool.Brush.Mode = TerrainBrush::Op::Paint;   tool.Brush.Invert = true; }
+	else
+	{
+		RV_ERROR("--brush: unknown mode '{0}' (raise, lower, smooth, flatten, paint, erase)", mode);
+		return;
+	}
+
+	float x = 0.0f, z = 0.0f, seconds = 1.0f;
+	try
+	{
+		x = std::stof(parts[1]);
+		z = std::stof(parts[2]);
+		tool.Brush.Radius = std::stof(parts[3]);
+		tool.Brush.Strength = std::stof(parts[4]);
+		seconds = std::stof(parts[5]);
+		if (parts.size() > 6)
+			tool.Brush.Layer = std::stoi(parts[6]);
+	}
+	catch (const std::exception&)
+	{
+		RV_ERROR("--brush: a number in '{0}' would not parse", script);
+		return;
+	}
+
+	Entity selected = m_SceneHierarchyPanel.GetSelectedEntity();
+	if (!selected || !selected.HasComponent<TerrainComponent>())
+	{
+		RV_ERROR("--brush: nothing selected with a Terrain component; --select names one");
+		return;
+	}
+
+	// The tool's Invert follows Shift in Update; here it is the mode's, and
+	// Update does not run between the stroke and the save.
+	const bool invert = tool.Brush.Invert;
+	if (!tool.ScriptStroke(m_Scene, selected, x, z, seconds, m_Commands))
+	{
+		RV_ERROR("--brush: the stroke could not be applied");
+		return;
+	}
+	(void)invert;
+	Assets::Manager::SaveDirtyTerrains();
+	RV_INFO("--brush: {0} at ({1}, {2}) r {3} strength {4} for {5} s, saved",
+			mode, x, z, tool.Brush.Radius, tool.Brush.Strength, seconds);
 }
 
 // The scene as the player would see it. Same scene, different camera -- so a
@@ -2734,6 +2858,30 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 		// Frame the selection, the one navigation shortcut every editor shares.
 		case RV_KEY_F: if (!control && !ImGui::GetIO().WantTextInput) { FocusSelection(); return true; } break;
 
+		// The brush's size, the keys every painting tool uses for it (7ar);
+		// Escape puts the brush down.
+		case RV_KEY_LEFT_BRACKET:
+			if (m_TerrainTool.Enabled && !ImGui::GetIO().WantTextInput)
+			{
+				m_TerrainTool.Brush.Radius = Math::Max(m_TerrainTool.Brush.Radius / 1.25f, 0.25f);
+				return true;
+			}
+			break;
+		case RV_KEY_RIGHT_BRACKET:
+			if (m_TerrainTool.Enabled && !ImGui::GetIO().WantTextInput)
+			{
+				m_TerrainTool.Brush.Radius = Math::Min(m_TerrainTool.Brush.Radius * 1.25f, 4096.0f);
+				return true;
+			}
+			break;
+		case RV_KEY_ESCAPE:
+			if (m_TerrainTool.Enabled)
+			{
+				m_TerrainTool.Cancel();
+				return true;
+			}
+			break;
+
 		// Function keys rather than letters: both are toggled while looking at
 		// the scene, often with the other hand on the camera controls, and every
 		// unmodified letter near WASD is already a gizmo.
@@ -2778,6 +2926,7 @@ void EditorLayer::NewScene()
 		m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
 	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
 	m_SceneHierarchyPanel.SetCommandStack(&m_Commands);
+	m_SceneHierarchyPanel.SetTerrainTool(&m_TerrainTool);
 	// The recorded commands refer to entities that no longer exist.
 	m_Commands.Clear();
 
@@ -3233,6 +3382,7 @@ void EditorLayer::OpenSceneFile(const std::filesystem::path& filepath)
 		m_Scene->OnViewportResize((unsigned int)m_ViewportSize.x, (unsigned int)m_ViewportSize.y);
 	m_SceneHierarchyPanel.SetSceneRef(m_Scene);
 	m_SceneHierarchyPanel.SetCommandStack(&m_Commands);
+	m_SceneHierarchyPanel.SetTerrainTool(&m_TerrainTool);
 	m_Commands.Clear();
 
 	SceneSerializer serializer(m_Scene);
@@ -3263,6 +3413,10 @@ void EditorLayer::SaveScene()
 	SceneSerializer serializer(m_Scene);
 	if (serializer.Serialize(m_ScenePath.string()))
 	{
+		// The terrains the brush touched go with the scene (7ar): the
+		// stroke commands count toward the unsaved mark, and this is the
+		// write that clears them.
+		Assets::Manager::SaveDirtyTerrains();
 		m_Commands.MarkSaved();
 		RV_INFO("Saved {0}", m_ScenePath.filename().string());
 	}

@@ -52,6 +52,12 @@ namespace RageV::Assets
 		// Picks up files added or removed since the last scan.
 		static void Refresh();
 
+		// Re-reads one asset's sidecar after its file was rewritten in place
+		// -- a sculpted terrain saved (ENGINE-NOTES 7ar) -- so its SourceHash
+		// follows the bytes without the whole project being rescanned and
+		// rehashed. A handle the registry does not know is ignored.
+		static void Reindex(AssetHandle handle);
+
 		static bool IsInitialised();
 		static const std::filesystem::path& Root();
 

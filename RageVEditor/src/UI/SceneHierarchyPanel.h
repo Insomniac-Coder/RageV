@@ -4,6 +4,8 @@
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Scene/SceneCommands.h"
 
+namespace RageV::Tools { class TerrainBrushTool; }
+
 namespace RageV
 {
 
@@ -17,6 +19,10 @@ namespace RageV
 		// Every mutation the panel makes goes through here. Null disables undo
 		// rather than crashing, so a panel can be constructed before the stack.
 		void SetCommandStack(CommandStack* stack) { m_Commands = stack; }
+
+		// The terrain brush (ENGINE-NOTES 7ar), whose controls the Terrain
+		// component's block draws under its fields. Null draws none.
+		void SetTerrainTool(Tools::TerrainBrushTool* tool) { m_TerrainTool = tool; }
 
 		Entity GetSelectedEntity() const { return m_Selected; }
 		// Selecting from anywhere -- a viewport click, a menu, loading a scene --
@@ -106,6 +112,7 @@ namespace RageV
 		// and a linear search beat a set that has to be allocated.
 		std::vector<uint64_t> m_RevealPath;
 		CommandStack* m_Commands = nullptr;
+		Tools::TerrainBrushTool* m_TerrainTool = nullptr;
 
 		// Structural changes are applied after the tree has been walked;
 		// mutating the hierarchy mid-traversal invalidates the child lists the

@@ -6180,7 +6180,8 @@ One material, no layers, no painting -- stage 2 (four materials blended
 by a weight map stored in the asset, the same lighting includes: **built,
 7aq**) and stage 3 (sculpt and paint in the editor, undo through the
 command stack, written back to the asset). **The owner
-set stage 3's shape at landing: a brush the user draws the ground with**
+set stage 3's shape at landing: a brush the user draws the ground with
+(built, 7ar)**
 -- size, strength, falloff; raise, lower, smooth, flatten under a dragged
 cursor, the same brush painting layer weights later -- **not a library of
 preset shapes stamped onto the grid.** A stamp is a shortcut for the one
@@ -6392,6 +6393,200 @@ traced reflection. The sample project has no grass, rock or snow textures,
 so the hills' three layers are tints of its one soil; the shader does not
 know that. Painting is stage 3, and its shape is set (7ap): a brush the
 user draws with, and now the same brush paints weights.
+
+---
+
+## 7ar. Terrain stage 3: the brush -- the user draws the ground, and every stroke is one thing that can be undone
+
+The owner set the shape of this stage before it was built (7ap): **a brush,
+not stamps.** Not a menu of "hill" and "mountain" dropped onto the grid,
+but a circle under the cursor with a size, a strength and a hardness that
+raises, lowers, smooths and flattens the heights as the mouse drags, and
+paints the four layers of 7aq with the same motion. Everything below is
+what that costs to do properly, and where the cost was put.
+
+### What is decided, and by what
+
+**The brush is a function of the data, and lives with the data.**
+`Asset/TerrainBrush` is a settings struct -- `Mode` (Raise, Smooth,
+Flatten, Paint), `Radius` in metres, `Strength` 0..1, `Hardness` 0..1,
+`Layer` 0..3, `Invert` -- and one pure `Apply(TerrainData&, size, height,
+localX, localZ, flattenTarget, dt)` that edits the samples under the circle
+and returns the inclusive sample rectangle it touched. Pure, headless, and
+tested as arithmetic: a raise on a flat grid rises by the rate, a lower is
+its mirror, a smooth takes a spike down and its neighbours up, a flatten
+converges on its target, a paint moves weight and nothing else. The
+kernel: `t = d / r`, weight 1 inside `Hardness * r`, then `1 -
+smoothstep((t - Hardness) / (1 - Hardness))` out to the rim, zero beyond --
+so hardness 0 is a soft cone from the centre and hardness 1 a hard disc.
+The rates are relative to the terrain's `Height` and to time, not to
+frames: at strength 1 a full-weight sample rises a quarter of `Height` per
+second (a 40 m terrain climbs 10 m/s under the centre of the brush), a
+smooth or a flatten closes an eighth of the gap per sixtieth of a second
+at most, a paint the same. Frame-rate independent by construction, and the
+numbers are the ones a check can ask for.
+
+**Smooth is a 3x3 mean read before it is written; Flatten aims at the
+height under the cursor when the button went down.** Both are what every
+sculpting tool means by the words. **Paint replaces**: layer `L` moves
+toward 255 by `a` and every other layer scales by `1 - a`, so a texel that
+was all-something stays all-something and the shader's normalisation sees
+a sum that neither grows nor collapses. And -- the rule that took a moment
+-- **an unpainted texel is materialised as layer 0 before it is painted**:
+the shader reads a zero sum as layer 0 (7aq), so a fresh terrain is
+`(0,0,0,0)` everywhere, and painting layer 1 into that with the faintest
+touch would give `(0, a, 0, 0)` and normalise to *all* layer 1. Written as
+`(255,0,0,0)` first, the touch blends as the eye expects. Shift inverts:
+lower under Raise, erase under Paint (the layer's weight scales down, and
+the sum going to zero is layer 0 again by the same rule).
+
+**One stroke is one command.** A press starts a stroke, every frame the
+button is held applies one step at the cursor's point on the *current*
+surface, a release ends it -- and the whole of it is one
+`TerrainStrokeCommand` on the stack, so Ctrl+Z takes back the drag and not
+its last frame. The command holds the touched rectangle and its samples
+before and after (heights for a sculpt, weights for a paint, never both),
+recorded by a `StrokeRecorder` that grows its rectangle as the stroke
+travels and copies each newly covered sample *before* the step that would
+change it. Execute writes the after, Undo the before, both through the
+same `Terrain::ApplyRegion` the live stroke uses, so a redo draws exactly
+what the drag drew. `TouchesScene` is true: the stroke edits an asset the
+save has to write, and the unsaved mark's position arithmetic then works
+for terrain edits as it does for everything else -- undo back to the save
+point and the mark goes out.
+
+**Where the heights live while they are being edited.** There are two
+copies of a terrain's `TerrainData` -- the asset manager's cache, which
+`Terrain::Create` copies from, and the `Terrain` runtime's own -- and the
+manager's is authoritative: `Assets::Manager::EditTerrain(handle)` hands
+out the mutable one and marks it dirty; `Terrain::ApplyRegion(data, rect)`
+copies the rectangle into the runtime's copy and rebuilds. Editing only the
+runtime's copy would have been the bug where changing `Size` (which
+replaces the runtime from the cache) silently threw the sculpt away.
+
+**Per-chunk, per-level, lazily.** `Terrain::Resolve` replaces the whole
+object on a dimension change and that stays; a stroke must not. So
+`Terrain::Invalidate(rect)` marks every level of every chunk overlapping
+the rectangle *grown by one sample* (the normals are central differences,
+so a sample's change moves the normal one sample either side) as stale,
+and refreshes each chunk's bounds straight from the data (min and max
+height over its samples plus the skirt drop -- no mesh needed, so culling
+is right before any rebuild). `Terrain::SelectLod`, which already runs once
+per frame before every consumer, rebuilds the *selected* level of any stale
+chunk on its way past; the release rebuilds every stale level. During a
+drag over four chunks that is four meshes a frame instead of sixteen, and
+the level the camera sees is never stale for a frame it draws. A mesh
+rebuild is a new `Mesh` (the old one's buffers go through the deletion
+queue when the last frame that named them retires), and its BLAS is built
+on first use as ever, so the ray-traced shadow of a hill follows the brush
+a frame behind the hill. The weight texture is updated in place: a new RHI
+verb, `RHITexture::UploadRegion(x, y, w, h, bytes)`, mip 0 layer 0 only --
+`glTextureSubImage2D` on one backend, a staged `vkCmdCopyBufferToImage`
+with an offset on the other -- so a paint stroke on a 4097 terrain uploads
+its rows and not 64 MB. In place also means the bindless heap slot needs
+no re-registration.
+
+**Where the cursor is on the ground.** The click-to-select picker tests
+the chunk meshes at level 0, and during a stroke those may be stale by
+design. The brush therefore asks the *data*: `Terrain::Raycast(localOrigin,
+localDirection)` clips the ray to the terrain's box, marches it in steps of
+half a cell comparing the ray's height with `HeightAt`, and bisects the
+first crossing to a millimetre. Exact against the surface being sculpted,
+independent of what any mesh currently says, and cheap -- a 4097 grid is
+eight thousand steps in the worst case. The editor transforms the mouse
+ray into terrain space through the entity's world matrix, so a rotated or
+scaled terrain sculpts under the cursor like an unrotated one.
+
+**Every upload waits, and the number is stated.** Buffer and texture
+uploads in this RHI stage through an immediate submission that waits for
+the GPU -- that is how every asset loads. A stroke step over four chunks
+is four meshes, each two uploads, plus one region upload: nine waits, a
+few milliseconds on this machine. Acceptable for a tool held in a hand,
+measured below, and the honest note is that a shared per-frame transfer
+command buffer is the fix if it ever is not; that is a change to how
+everything uploads and not to the brush.
+
+**Written back on save, not on release.** A stroke marks the asset dirty;
+the scene save writes every dirty terrain through `TerrainSerializer::Save`
+(which already writes the paint) and re-indexes its `.meta` through a new
+`Registry::Reindex(handle)`, one file's hash rather than the whole
+project's rescan. Writing on release was considered and rejected: a
+4097 terrain is 96 MB, and a stroke that ends in a hundred-millisecond
+disk write is a stroke that stutters; the save is where the user expects
+to wait. Undo past the save point dirties it again by the same position
+arithmetic, and the next save writes the undone terrain.
+
+**The tool, in the editor.** `Tools/TerrainBrushTool` holds the settings
+and the stroke; the Terrain component's inspector block draws its controls
+under the fields -- the four modes as buttons, size, strength, hardness,
+and under Paint the four layers by their materials' names -- and the
+viewport drives it: while a mode is chosen and a terrain is selected, a
+plain left drag on that terrain sculpts (Alt+left still orbits, right still
+flies), the click-to-select picker stands down over the terrain, and a ring
+is drawn on the surface through the debug renderer at the brush's radius
+with an inner ring at its hard core. `[` and `]` change the size. **Edit
+mode only**: in Play the tool is inert and its block says so, because a
+terrain is an asset and Play is for playing; the height field body is
+built from the data at the next Play, so a sculpt made in edit mode is
+what the ball rolls on. Jolt's `HeightFieldShape::SetHeights` exists for
+the day someone wants to sculpt under a running simulation, and is not
+used.
+
+**A stroke by command line.** `--brush=mode,x,z,radius,strength,seconds[,layer]`
+applies one stroke to the selected terrain (`--select` names it) at
+terrain-local `(x, z)` for `seconds` of sixtieths, through the tool's own
+begin/step/end, then saves the terrain asset and carries on. It is what
+lets a check hold the brush: `check_terrain.py` runs the editor with it on
+a fixture built for the purpose, then renders the *saved* asset with the
+runtime and measures -- so the whole path from kernel to file to pixels is
+under one claim, and the fixture is regenerated afterwards.
+
+### The checks
+
+`scenetest`: the kernel's weight is 1 at the centre, 0 at and beyond the
+rim, monotone between, and equal at equal distances; a raise on a flat
+grid lifts the centre by exactly `Strength * Height / 4 * dt` and nothing
+outside the rim; Shift lowers by the same; a smooth on a spike lowers the
+spike and lifts its eight neighbours; a flatten converges on the target
+and stops there; a paint on an unpainted texel materialises layer 0 first
+(`(255(1-a), 255a, 0, 0)`), a second layer replaces proportionally, an
+erase scales down; the touched rectangle is exactly the samples the kernel
+reached; the recorder's before is what the grid held before the first
+step over each sample; a `TerrainStrokeCommand` executed and undone
+through a real `Terrain` leaves `HeightAt` and the level-0 vertices where
+they started and puts them back on redo; `Raycast` hits a flat terrain
+where the ray meets the plane, hits a ridge from the side at its slope,
+and misses when pointed away; `UploadRegion` beyond the texture is refused
+and survivable.
+
+`check_terrain.py` claim 5, on the `brush` fixture (the ridge's heights
+under the ridge's camera, red layer 0, blue layer 1, unpainted): the
+editor with `--brush=raise,-30,20,10,1,2` saves a bump 20 m tall on the
+4 m plain in front of the ridge; the runtime renders it; the top of the
+region that changed against the unsculpted frame lands on the row the
+bump's peak projects to, within a few pixels; and `--brush=paint,...,1`
+puts blue at the stroke's centre where the frame was red. Falsified by
+inverting the raise (the region's top drops below the plain's row -- a
+hole, not a hill) and by painting the wrong channel (the centre stays
+red).
+
+### What stays stated
+
+Four modes; one brush shape (a disc with a hardness); no brush textures,
+no clone or ramp tools; no symmetry. Strength is a rate, so a slow machine
+sculpts as fast as a quick one but a held frame is a held brush. The
+heights are sixteen bits and round to nearest, so a held smooth or flatten
+stops when an eighth of the remaining gap is under half a unit -- within
+four units of its target, a fraction of a millimetre on a ten-metre
+terrain, a quarter of one on a four-thousand-metre one. The paint's eight
+bits would stall the same way -- at 4, where 4 x 7/8 rounds back to 4 --
+and 4 is not 0 to the zero-sum rule, so a paint step that means to move
+and would round to nothing moves one unit toward where it meant to go: an
+airbrush held on one spot saturates, at its soft edge one unit a frame,
+which is what every painting tool means by holding it, and a sculpt does
+not creep the same way because a quarter-millimetre a frame at the rim
+would be a hard edge in a minute. Uploads wait. Edit mode only. The write-back is on save. `HeightAt` is
+still not a script call.
 
 ---
 

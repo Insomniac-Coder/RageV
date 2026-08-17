@@ -103,6 +103,16 @@ namespace RageV::RHI
 
 		virtual void GenerateMips() = 0;
 
+		// A rectangle of mip 0, layer 0, of a 2D texture: `data` is `width` x
+		// `height` texels of the texture's format, tightly packed, and lands
+		// at (x, y). What lets a terrain's paint follow the brush without
+		// re-sending the whole map (ENGINE-NOTES 7ar); nothing generates
+		// mips afterwards, because the one caller has none. Refused, with a
+		// warning, when the rectangle leaves the texture, the format is
+		// compressed, or `size` is not the rectangle's byte count.
+		virtual void UploadRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+								  const void* data, uint64_t size) = 0;
+
 		// Opaque handle for ImGui::Image. GL hands back the texture name;
 		// Vulkan hands back a VkDescriptorSet allocated by the ImGui backend.
 		virtual uint64_t GetImGuiHandle() = 0;

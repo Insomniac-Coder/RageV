@@ -10,8 +10,8 @@ from.
 
 ## Making one
 
-There is no sculpting tool yet. A terrain starts as a heightmap image or as
-noise, through the script:
+A terrain starts as a heightmap image or as noise, through the script, and is
+then sculpted and painted with the brush in the editor (below):
 
 ```bash
 python tools/scripts/make_terrain.py --png heights.png assets/terrain/valley.rvterrain
@@ -84,6 +84,39 @@ overlap the surface is a blend of both, normals included. Parallax is not
 applied on layers, and a steep face stretches its texture as it would on any
 mesh.
 
+## Sculpting and painting
+
+Select the terrain, and under its component's fields is **Brush**: four
+modes, and the brush's size, strength and hardness.
+
+| Mode | What a drag does | Shift |
+|---|---|---|
+| **Raise** | Lifts the ground under the brush. At strength 1 the centre climbs a quarter of `Height` per second | Lowers it |
+| **Smooth** | Blends each sample toward the mean of its neighbours | -- |
+| **Flatten** | Pulls the ground toward the height where the drag began | -- |
+| **Paint** | Paints the chosen layer -- one of the four -- into the asset's weights | Erases it |
+
+- **Size** is the radius in metres; `[` and `]` change it in the viewport.
+- **Strength** is a rate: a full-strength raise climbs a quarter of the height
+  each second, and smooth, flatten and paint close an eighth of their gap per
+  sixtieth of a second, whatever the frame rate.
+- **Hardness** is how much of the radius is at full weight before the fall-off:
+  0 a soft cone, 1 a hard disc. A ring on the ground shows the rim and the core.
+
+While a mode is chosen, a plain left drag on the terrain sculpts and a click
+does not select; Alt+drag still orbits and the right button still flies.
+Escape, or the lit mode button, puts the brush down. **One drag is one undo
+step.** The tool is inert while the scene is playing.
+
+Strokes edit the terrain asset, not the scene, and are **written when the
+scene is saved** (Ctrl+S) -- the unsaved mark counts them. The height-field
+collider is built from the data at the next Play, so what was sculpted is
+what a body rests on.
+
+`--brush=mode,x,z,radius,strength,seconds[,layer]` applies one stroke on the
+`--select`ed terrain when the editor opens and saves it, which is how the
+checks hold the brush.
+
 ## What happens underneath
 
 The grid is cut into **chunks of 64 quads**, each built at four levels of
@@ -104,9 +137,11 @@ what is drawn. Ray casts hit it and report the terrain's entity.
 
 - Four layers at most, each reading three maps (base colour, normal,
   roughness); the paint is at the heights' resolution.
-- No sculpting or painting in the editor. The next stage: a brush that
-  raises, lowers, smooths and flattens the ground under the cursor and paints
-  the layers with the same stroke.
+- One brush shape -- a disc with a hardness. Brush textures, noise, erosion,
+  ramp and clone tools are the next stage.
+- A held smooth or flatten stops within four height units of its target
+  (a fraction of a millimetre on a ten-metre terrain); a held paint reaches
+  full and empty.
 - A terrain seen in a ray-traced reflection shows layer 0 only.
 - No holes: a heightfield cannot have caves or overhangs.
 - Everything is built at load and stays resident. A 1025 terrain is a few

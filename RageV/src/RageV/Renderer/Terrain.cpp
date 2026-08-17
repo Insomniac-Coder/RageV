@@ -8,6 +8,7 @@
 #include "RageV/Core/Log.h"
 
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 namespace RageV
@@ -193,6 +194,7 @@ namespace RageV
 			return nullptr;
 
 		auto terrain = std::make_shared<Terrain>();
+		terrain->m_Device = device;
 		terrain->m_Data = data;
 		terrain->m_Asset = asset;
 		terrain->m_Dimensions = dimensions;
@@ -204,14 +206,7 @@ namespace RageV
 		terrain->m_ChunkQuads = Math::Min(kChunkQuads, quads);
 		terrain->m_ChunksPerSide = quads / terrain->m_ChunkQuads;
 
-		AABB whole;
-		whole.Min = Vec3(std::numeric_limits<float>::max());
-		whole.Max = Vec3(std::numeric_limits<float>::lowest());
-
-		std::vector<MeshVertex> vertices;
-		std::vector<uint32_t> indices;
 		terrain->m_Chunks.reserve((size_t)terrain->m_ChunksPerSide * terrain->m_ChunksPerSide);
-
 		for (uint32_t cz = 0; cz < terrain->m_ChunksPerSide; ++cz)
 		{
 			for (uint32_t cx = 0; cx < terrain->m_ChunksPerSide; ++cx)
@@ -219,43 +214,13 @@ namespace RageV
 				Chunk chunk;
 				chunk.SampleX = cx * terrain->m_ChunkQuads;
 				chunk.SampleZ = cz * terrain->m_ChunkQuads;
-
+				terrain->RefreshBounds(chunk);
 				for (int level = 0; level < kLevels; ++level)
-				{
-					BuildChunkGeometry(data, terrain->m_Dimensions, cx, cz, level, vertices, indices);
-					if (vertices.empty())
-						continue;
-
-					if (level == 0)
-					{
-						AABB bounds;
-						bounds.Min = Vec3(std::numeric_limits<float>::max());
-						bounds.Max = Vec3(std::numeric_limits<float>::lowest());
-						for (const MeshVertex& v : vertices)
-						{
-							bounds.Min = Math::Min(bounds.Min, v.Position);
-							bounds.Max = Math::Max(bounds.Max, v.Position);
-						}
-						chunk.Bounds = bounds;
-						chunk.Centre = bounds.Centre();
-						whole.Min = Math::Min(whole.Min, bounds.Min);
-						whole.Max = Math::Max(whole.Max, bounds.Max);
-					}
-
-					if (device)
-					{
-						chunk.Levels[level] = std::make_shared<Mesh>(
-							*device, vertices, indices,
-							"Terrain chunk " + std::to_string(cx) + "," + std::to_string(cz) +
-							" L" + std::to_string(level));
-					}
-				}
-
+					chunk.Levels[level] = terrain->BuildLevel(cx, cz, level);
 				terrain->m_Chunks.push_back(std::move(chunk));
 			}
 		}
-
-		terrain->m_Bounds = whole;
+		terrain->RefreshWholeBounds();
 
 		// The paint (7aq): the asset's weights as an RGBA8 texture on the
 		// heights' grid, or the 1x1 "all layer 0" texel when there are none --
@@ -352,6 +317,307 @@ namespace RageV
 			const Vec3 centre = Vec3(world * Vec4(chunk.Centre, 1.0f));
 			chunk.Level = LevelFor(Math::Distance(cameraWorld, centre), width);
 		}
+
+		// The level each chunk will draw this frame is the one that must not
+		// be stale; the others wait for the stroke's release (7ar).
+		RebuildStale(false);
+	}
+
+	// --- editing (7ar) ------------------------------------------------------------
+
+	RHI::Ref<Mesh> Terrain::BuildLevel(uint32_t chunkX, uint32_t chunkZ, int level) const
+	{
+		if (!m_Device)
+			return nullptr;
+		std::vector<MeshVertex> vertices;
+		std::vector<uint32_t> indices;
+		BuildChunkGeometry(m_Data, m_Dimensions, chunkX, chunkZ, level, vertices, indices);
+		if (vertices.empty())
+			return nullptr;
+		return std::make_shared<Mesh>(*m_Device, vertices, indices,
+									  "Terrain chunk " + std::to_string(chunkX) + "," +
+									  std::to_string(chunkZ) + " L" + std::to_string(level));
+	}
+
+	void Terrain::RefreshBounds(Chunk& chunk) const
+	{
+		// From the heights, not from a mesh: the box has to be right before
+		// any level is rebuilt, or a chunk raised above its old box culls
+		// while it is being raised. The skirts hang below the lowest sample
+		// by the same rule the builder uses; the terrain's outer rim wears
+		// none, but a chunk that shares any edge does.
+		const float cell = GetCellSize();
+		const float half = m_Dimensions.Size * 0.5f;
+		float low = std::numeric_limits<float>::max();
+		float high = std::numeric_limits<float>::lowest();
+		for (uint32_t sz = chunk.SampleZ; sz <= chunk.SampleZ + m_ChunkQuads; ++sz)
+		{
+			for (uint32_t sx = chunk.SampleX; sx <= chunk.SampleX + m_ChunkQuads; ++sx)
+			{
+				const float h = HeightMetres(m_Data, m_Dimensions, sx, sz);
+				low = Math::Min(low, h);
+				high = Math::Max(high, h);
+			}
+		}
+		const float depth = m_ChunksPerSide > 1
+			? Math::Max(0.5f * (high - low) + 0.02f * m_Dimensions.Height, 0.01f) : 0.0f;
+
+		chunk.Bounds.Min = Vec3(-half + (float)chunk.SampleX * cell, low - depth,
+								-half + (float)chunk.SampleZ * cell);
+		chunk.Bounds.Max = Vec3(-half + (float)(chunk.SampleX + m_ChunkQuads) * cell, high,
+								-half + (float)(chunk.SampleZ + m_ChunkQuads) * cell);
+		chunk.Centre = chunk.Bounds.Centre();
+	}
+
+	void Terrain::RefreshWholeBounds()
+	{
+		AABB whole;
+		whole.Min = Vec3(std::numeric_limits<float>::max());
+		whole.Max = Vec3(std::numeric_limits<float>::lowest());
+		for (const Chunk& chunk : m_Chunks)
+		{
+			whole.Min = Math::Min(whole.Min, chunk.Bounds.Min);
+			whole.Max = Math::Max(whole.Max, chunk.Bounds.Max);
+		}
+		m_Bounds = whole;
+	}
+
+	void Terrain::Invalidate(const TerrainRect& rect)
+	{
+		if (rect.Empty() || m_Chunks.empty())
+			return;
+
+		// One sample either way: a height moves the central-difference
+		// normal of its neighbours, and a neighbour on the far side of a
+		// chunk edge belongs to the next chunk.
+		const TerrainRect grown = rect.Grown(1, m_Data.Resolution);
+		const uint32_t cx0 = grown.X0 / m_ChunkQuads;
+		const uint32_t cz0 = grown.Z0 / m_ChunkQuads;
+		const uint32_t cx1 = Math::Min(grown.X1 / m_ChunkQuads, m_ChunksPerSide - 1);
+		const uint32_t cz1 = Math::Min(grown.Z1 / m_ChunkQuads, m_ChunksPerSide - 1);
+		for (uint32_t cz = cz0; cz <= cz1; ++cz)
+		{
+			for (uint32_t cx = cx0; cx <= cx1; ++cx)
+			{
+				Chunk& chunk = m_Chunks[(size_t)cz * m_ChunksPerSide + cx];
+				chunk.Stale = (uint8_t)((1u << kLevels) - 1u);
+				RefreshBounds(chunk);
+			}
+		}
+		RefreshWholeBounds();
+	}
+
+	bool Terrain::HasStale() const
+	{
+		for (const Chunk& chunk : m_Chunks)
+			if (chunk.Stale)
+				return true;
+		return false;
+	}
+
+	void Terrain::RebuildStale(bool all)
+	{
+		if (!m_Device)
+			return;
+		for (uint32_t cz = 0; cz < m_ChunksPerSide; ++cz)
+		{
+			for (uint32_t cx = 0; cx < m_ChunksPerSide; ++cx)
+			{
+				Chunk& chunk = m_Chunks[(size_t)cz * m_ChunksPerSide + cx];
+				if (!chunk.Stale)
+					continue;
+				for (int level = 0; level < kLevels; ++level)
+				{
+					const uint8_t bit = (uint8_t)(1u << level);
+					if (!(chunk.Stale & bit) || (!all && level != chunk.Level))
+						continue;
+					chunk.Levels[level] = BuildLevel(cx, cz, level);
+					chunk.Stale &= (uint8_t)~bit;
+				}
+			}
+		}
+	}
+
+	void Terrain::UploadWeightRows(const TerrainRect& rect)
+	{
+		if (!m_Device || !m_Data.HasWeights() || rect.Empty())
+			return;
+
+		// The paint arrived after the texture: the terrain was built unpainted
+		// (the 1x1 all-layer-0 texel) and the brush has just written its
+		// first weights. A real map now, uploaded whole; from here on, rows.
+		if (!m_WeightMap || m_WeightMap->GetWidth() != m_Data.Resolution)
+		{
+			RHI::TextureDesc desc;
+			desc.Width = m_Data.Resolution;
+			desc.Height = m_Data.Resolution;
+			desc.Format = RHI::Format::R8G8B8A8_UNORM;
+			desc.Usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferDst;
+			desc.DebugName = "Terrain weights";
+			m_WeightMap = m_Device->CreateTexture(desc);
+			m_WeightMap->Upload(m_Data.Weights.data(), m_Data.Weights.size());
+			if (m_Layers)
+				m_Layers->SetWeights(m_WeightMap, WeightUvFor(m_Dimensions, m_Data.Resolution));
+			return;
+		}
+
+		// Whole rows of the rectangle: the map's texel row is the grid's, so
+		// the region is contiguous per row and packed for the upload.
+		const uint32_t width = rect.Width();
+		std::vector<uint8_t> rows((size_t)width * rect.Height() * TerrainData::kLayers);
+		for (uint32_t z = rect.Z0; z <= rect.Z1; ++z)
+		{
+			const uint8_t* from = &m_Data.Weights[((size_t)z * m_Data.Resolution + rect.X0) * TerrainData::kLayers];
+			std::copy(from, from + (size_t)width * TerrainData::kLayers,
+					  rows.begin() + (size_t)(z - rect.Z0) * width * TerrainData::kLayers);
+		}
+		m_WeightMap->UploadRegion(rect.X0, rect.Z0, width, rect.Height(), rows.data(), rows.size());
+	}
+
+	void Terrain::ApplyRegion(const TerrainData& source, const TerrainRect& rect)
+	{
+		if (rect.Empty() || !source.IsValid() || source.Resolution != m_Data.Resolution ||
+			rect.X1 >= m_Data.Resolution || rect.Z1 >= m_Data.Resolution)
+			return;
+
+		// Heights: the rectangle copied, the chunks it touches marked.
+		bool heightsMoved = false;
+		for (uint32_t z = rect.Z0; z <= rect.Z1 && !heightsMoved; ++z)
+		{
+			const size_t at = (size_t)z * m_Data.Resolution + rect.X0;
+			heightsMoved = std::memcmp(&source.Heights[at], &m_Data.Heights[at],
+									   rect.Width() * sizeof(uint16_t)) != 0;
+		}
+		if (heightsMoved)
+		{
+			for (uint32_t z = rect.Z0; z <= rect.Z1; ++z)
+			{
+				const size_t at = (size_t)z * m_Data.Resolution + rect.X0;
+				std::copy(source.Heights.begin() + at, source.Heights.begin() + at + rect.Width(),
+						  m_Data.Heights.begin() + at);
+			}
+			Invalidate(rect);
+		}
+
+		// Weights: the same rectangle, and the texture's rows.
+		if (source.HasWeights())
+		{
+			if (!m_Data.HasWeights())
+				m_Data.Weights.assign(source.Weights.size(), 0);
+			bool weightsMoved = false;
+			for (uint32_t z = rect.Z0; z <= rect.Z1; ++z)
+			{
+				const size_t at = ((size_t)z * m_Data.Resolution + rect.X0) * TerrainData::kLayers;
+				const size_t bytes = (size_t)rect.Width() * TerrainData::kLayers;
+				if (std::memcmp(&source.Weights[at], &m_Data.Weights[at], bytes) != 0)
+				{
+					weightsMoved = true;
+					std::copy(source.Weights.begin() + at, source.Weights.begin() + at + bytes,
+							  m_Data.Weights.begin() + at);
+				}
+			}
+			if (weightsMoved)
+				UploadWeightRows(rect);
+		}
+	}
+
+	bool Terrain::Raycast(const Vec3& localOrigin, const Vec3& localDirection, float& t) const
+	{
+		if (!m_Data.IsValid())
+			return false;
+
+		const Vec3 direction = Math::Normalize(localDirection);
+		const float half = m_Dimensions.Size * 0.5f;
+
+		// Clip the ray to the terrain's box in x and z (y is open: the
+		// surface is somewhere between 0 and Height, and the march below
+		// finds it), so the march starts at the rim and stops at the far one.
+		float tNear = 0.0f;
+		float tFar = std::numeric_limits<float>::max();
+		for (int axis : { 0, 2 })
+		{
+			const float o = localOrigin[axis];
+			const float d = direction[axis];
+			if (Math::Abs(d) < 1e-8f)
+			{
+				if (o < -half || o > half)
+					return false;
+				continue;
+			}
+			float t0 = (-half - o) / d;
+			float t1 = (half - o) / d;
+			if (t0 > t1) { const float swap = t0; t0 = t1; t1 = swap; }
+			tNear = Math::Max(tNear, t0);
+			tFar = Math::Min(tFar, t1);
+			if (tNear > tFar)
+				return false;
+		}
+		// And in y: the surface lies between 0 and Height, so a ray has
+		// nothing to meet above the top going up or below the base going
+		// down, and a vertical ray -- which the box clip above leaves
+		// unbounded -- ends where it leaves that slab.
+		{
+			const float o = localOrigin.y;
+			const float d = direction.y;
+			const float top = Math::Max(m_Dimensions.Height, 0.0f);
+			if (Math::Abs(d) < 1e-8f)
+			{
+				if (o < 0.0f || o > top)
+					return false;
+			}
+			else
+			{
+				float t0 = (0.0f - o) / d;
+				float t1 = (top - o) / d;
+				if (t0 > t1) { const float swap = t0; t0 = t1; t1 = swap; }
+				tNear = Math::Max(tNear, t0);
+				tFar = Math::Min(tFar, t1);
+				if (tNear > tFar)
+					return false;
+			}
+		}
+		if (tFar <= 0.0f)
+			return false;
+
+		// March in half-cell steps -- fine enough that a slope between two
+		// samples cannot be stepped over -- and bisect the first crossing
+		// from above to below.
+		const float step = GetCellSize() * 0.5f;
+		auto above = [&](float at)
+		{
+			const Vec3 p = localOrigin + direction * at;
+			return p.y - HeightAt(p.x, p.z);
+		};
+
+		float previous = tNear;
+		float previousAbove = above(previous);
+		if (previousAbove < 0.0f)
+		{
+			// Starting under the surface: no crossing from above ahead of us
+			// unless the ray climbs out first, which a brush ray never does.
+			return false;
+		}
+		for (float at = tNear + step; at <= tFar + step; at += step)
+		{
+			const float clamped = Math::Min(at, tFar);
+			const float now = above(clamped);
+			if (now <= 0.0f)
+			{
+				float lo = previous, hi = clamped;
+				for (int i = 0; i < 24; ++i)
+				{
+					const float mid = 0.5f * (lo + hi);
+					if (above(mid) > 0.0f) lo = mid; else hi = mid;
+				}
+				t = hi;
+				return true;
+			}
+			previous = clamped;
+			previousAbove = now;
+			if (clamped >= tFar)
+				break;
+		}
+		return false;
 	}
 
 	float Terrain::HeightAt(float localX, float localZ) const

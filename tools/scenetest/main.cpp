@@ -63,6 +63,7 @@
 #include "RageV/Asset/TerrainData.h"
 #include "RageV/Asset/TerrainSerializer.h"
 #include "RageV/Renderer/Terrain.h"
+#include "RageV/Asset/TerrainBrush.h"
 #include "RageV/Renderer/UIRenderer.h"
 #include "RageV/UI/TextLayout.h"
 #include "RageV/UI/Canvas.h"
@@ -11330,6 +11331,328 @@ void main()
 		Assets::Registry::Refresh();
 	}
 
+	// The terrain brush (ENGINE-NOTES 7ar): the kernel, the four modes, the
+	// rectangle a step reports, the recorder that makes a drag one command,
+	// the command through a real Terrain, the heightfield ray cast, and the
+	// region upload the paint rides on.
+	void CheckTerrainBrush()
+	{
+		using Dimensions = Terrain::Dimensions;
+		constexpr uint32_t kRes = 65;
+		constexpr float kSize = 64.0f;     // one metre a cell
+		constexpr float kHeight = 10.0f;
+
+		// --- the kernel ------------------------------------------------------
+		TerrainBrush brush;
+		brush.Radius = 8.0f;
+		brush.Hardness = 0.5f;
+		Check(brush.Weight(0.0f) == 1.0f && brush.Weight(3.9f) == 1.0f,
+			  "the kernel weighs one at the centre and out to hardness times the radius");
+		Check(brush.Weight(8.0f) == 0.0f && brush.Weight(20.0f) == 0.0f,
+			  "and nothing at the rim and beyond it");
+		{
+			bool monotone = true;
+			float previous = 1.0f;
+			for (float d = 4.0f; d <= 8.0f; d += 0.25f)
+			{
+				const float w = brush.Weight(d);
+				monotone = monotone && w <= previous + 1e-6f && w >= 0.0f && w <= 1.0f;
+				previous = w;
+			}
+			Check(monotone, "and falls off without a bump between");
+			Check(Math::Abs(brush.Weight(6.0f) - 0.5f) < 1e-5f,
+				  "halfway across the fall-off band it weighs a half");
+		}
+		brush.Hardness = 1.0f;
+		Check(brush.Weight(7.99f) == 1.0f && brush.Weight(8.0f) == 0.0f,
+			  "hardness one is a hard disc");
+		brush.Hardness = 0.0f;
+		Check(brush.Weight(0.0f) == 1.0f && Math::Abs(brush.Weight(4.0f) - 0.5f) < 1e-5f,
+			  "hardness zero is a cone from the centre");
+		brush.Hardness = 0.5f;
+
+		// --- raise and lower ---------------------------------------------------
+		{
+			TerrainData flat = TerrainData::Flat(kRes, 32768);
+			brush.Mode = TerrainBrush::Op::Raise;
+			brush.Strength = 1.0f;
+			brush.Invert = false;
+			const TerrainRect rect = brush.Apply(flat, kSize, kHeight, 0.0f, 0.0f, 0.5f, 0.5f);
+			// The centre is sample (32, 32); the circle's box is 24..40.
+			Check(rect.X0 == 24 && rect.X1 == 40 && rect.Z0 == 24 && rect.Z1 == 40,
+				  "a step reports the circle's bounding box in samples");
+			// A quarter of the height per second at strength 1: half a second
+			// is an eighth, 8192 units, at every full-weight sample.
+			Check(flat.At(32, 32) == 32768 + 8192 && flat.At(35, 32) == 32768 + 8192,
+				  "a full-strength raise climbs a quarter of Height per second at full weight");
+			Check(flat.At(32, 32 + 6) == 32768 + 4096,
+				  "and half that where the kernel weighs a half");
+			Check(flat.At(32, 40) == 32768 && flat.At(0, 0) == 32768 && flat.At(23, 32) == 32768,
+				  "and nothing at the rim or outside the box");
+			bool symmetric = true;
+			for (uint32_t i = 0; i <= 8; ++i)
+				symmetric = symmetric && flat.At(32 + i, 32) == flat.At(32 - i, 32) &&
+							flat.At(32, 32 + i) == flat.At(32, 32 - i);
+			Check(symmetric, "the raise is symmetric about the centre");
+
+			brush.Invert = true;
+			brush.Apply(flat, kSize, kHeight, 0.0f, 0.0f, 0.5f, 0.5f);
+			Check(flat.At(32, 32) == 32768 && flat.At(32, 38) == 32768,
+				  "Shift lowers by exactly what the same stroke raised");
+			brush.Invert = false;
+
+			// Frame-rate independence: two steps of a sixtieth equal one of a
+			// thirtieth, to the rounding of a unit.
+			TerrainData a = TerrainData::Flat(kRes, 32768), b = TerrainData::Flat(kRes, 32768);
+			brush.Apply(a, kSize, kHeight, 0.0f, 0.0f, 0.5f, 1.0f / 30.0f);
+			brush.Apply(b, kSize, kHeight, 0.0f, 0.0f, 0.5f, 1.0f / 60.0f);
+			brush.Apply(b, kSize, kHeight, 0.0f, 0.0f, 0.5f, 1.0f / 60.0f);
+			Check(Math::Abs((int)a.At(32, 32) - (int)b.At(32, 32)) <= 1,
+				  "a raise is a rate: two short steps equal one long one");
+
+			// Saturation: nothing climbs past the top of the sixteen bits.
+			TerrainData high = TerrainData::Flat(kRes, 65000);
+			brush.Apply(high, kSize, kHeight, 0.0f, 0.0f, 0.5f, 5.0f);
+			Check(high.At(32, 32) == 65535, "and the top of the range clamps");
+
+			// Off the grid: no rectangle, nothing touched.
+			TerrainData untouched = TerrainData::Flat(kRes, 100);
+			const TerrainRect none = brush.Apply(untouched, kSize, kHeight, 500.0f, 0.0f, 0.5f, 1.0f);
+			Check(none.Empty() && untouched.At(64, 32) == 100, "a step off the grid touches nothing");
+		}
+
+		// --- smooth --------------------------------------------------------------
+		{
+			TerrainData spike = TerrainData::Flat(kRes, 10000);
+			spike.Heights[(size_t)32 * kRes + 32] = 50000;
+			brush.Mode = TerrainBrush::Op::Smooth;
+			brush.Strength = 1.0f;
+			brush.Apply(spike, kSize, kHeight, 0.0f, 0.0f, 0.5f, TerrainBrush::kStepSeconds);
+			// An eighth of the way to the 3x3 mean: the spike's mean is
+			// (50000 + 8 * 10000) / 9 = 14444, so it drops by (50000 - 14444) / 8.
+			Check(spike.At(32, 32) < 50000 && Math::Abs((int)spike.At(32, 32) - 45556) <= 2,
+				  "a smooth step takes a spike an eighth of the way to its neighbourhood's mean");
+			Check(spike.At(33, 32) > 10000 && spike.At(31, 33) > 10000,
+				  "and lifts the neighbours toward it");
+			Check(spike.At(45, 45) == 10000, "and leaves the ground outside the brush alone");
+			for (int i = 0; i < 400; ++i)
+				brush.Apply(spike, kSize, kHeight, 0.0f, 0.0f, 0.5f, TerrainBrush::kStepSeconds);
+			Check(spike.At(32, 32) < 12000, "held long enough, the spike is gone");
+		}
+
+		// --- flatten -------------------------------------------------------------
+		{
+			TerrainData ramp = TerrainData::Flat(kRes, 0);
+			for (uint32_t z = 0; z < kRes; ++z)
+				for (uint32_t x = 0; x < kRes; ++x)
+					ramp.Heights[(size_t)z * kRes + x] = (uint16_t)(x * 1000);
+			brush.Mode = TerrainBrush::Op::Flatten;
+			brush.Strength = 1.0f;
+			for (int i = 0; i < 300; ++i)
+				brush.Apply(ramp, kSize, kHeight, 0.0f, 0.0f, 32000.0f / 65535.0f, TerrainBrush::kStepSeconds);
+			// Within four units: an eighth of a gap under four units rounds to
+			// nothing, so a held flatten stops that close -- a fraction of a
+			// millimetre on a ten-metre terrain, stated in 7ar.
+			Check(Math::Abs((int)ramp.At(35, 32) - 32000) <= 4 && Math::Abs((int)ramp.At(29, 30) - 32000) <= 4,
+				  "a flatten held converges the full-weight samples on its target, to the rounding");
+			Check(ramp.At(50, 32) == 50000, "and leaves the ramp beyond the rim");
+		}
+
+		// --- paint ---------------------------------------------------------------
+		{
+			TerrainData ground = TerrainData::Flat(kRes, 100);
+			brush.Mode = TerrainBrush::Op::Paint;
+			brush.Strength = 1.0f;
+			brush.Layer = 1;
+			brush.Invert = false;
+			Check(!ground.HasWeights(), "an unpainted grid has no weights");
+			brush.Apply(ground, kSize, kHeight, 0.0f, 0.0f, 0.5f, TerrainBrush::kStepSeconds);
+			Check(ground.HasWeights(), "the first paint step gives it some");
+			// One step at strength 1 is a = 1/8. The texel was all zero -- layer
+			// 0 by the shader's rule -- so it is materialised as (255, 0, 0, 0)
+			// first, then layer 1 takes an eighth: (223, 32, 0, 0).
+			Check(ground.WeightAt(32, 32, 0) == 223 && ground.WeightAt(32, 32, 1) == 32 &&
+				  ground.WeightAt(32, 32, 2) == 0,
+				  "painting an unpainted texel materialises layer 0 before it blends");
+			Check(ground.WeightAt(60, 60, 0) == 0 && ground.WeightAt(60, 60, 1) == 0,
+				  "and leaves texels outside the brush unpainted");
+			for (int i = 0; i < 200; ++i)
+				brush.Apply(ground, kSize, kHeight, 0.0f, 0.0f, 0.5f, TerrainBrush::kStepSeconds);
+			Check(ground.WeightAt(32, 32, 1) == 255 && ground.WeightAt(32, 32, 0) == 0,
+				  "held, the layer replaces the others under the brush");
+			brush.Layer = 2;
+			brush.Apply(ground, kSize, kHeight, 0.0f, 0.0f, 0.5f, TerrainBrush::kStepSeconds);
+			Check(ground.WeightAt(32, 32, 2) == 32 && ground.WeightAt(32, 32, 1) == 223,
+				  "a second layer takes its share from the first, and the sum stays");
+			brush.Invert = true;
+			brush.Layer = 1;
+			for (int i = 0; i < 100; ++i)
+				brush.Apply(ground, kSize, kHeight, 0.0f, 0.0f, 0.5f, TerrainBrush::kStepSeconds);
+			Check(ground.WeightAt(32, 32, 1) == 0 && ground.WeightAt(32, 32, 2) == 32,
+				  "Shift erases the layer and only the layer");
+			brush.Invert = false;
+		}
+
+		// --- the recorder --------------------------------------------------------
+		{
+			TerrainData grid = TerrainData::Flat(kRes, 1000);
+			brush.Mode = TerrainBrush::Op::Raise;
+			brush.Strength = 1.0f;
+			TerrainStrokeRecorder recorder;
+			recorder.Begin(grid, true);
+			// Two steps that overlap: the second's before must be the grid as
+			// the first left it where they overlap, and the untouched grid
+			// where they do not.
+			TerrainRect first = brush.Footprint(grid, kSize, 0.0f, 0.0f);
+			recorder.Cover(grid, first);
+			brush.Apply(grid, kSize, kHeight, 0.0f, 0.0f, 0.5f, 0.5f);
+			TerrainRect second = brush.Footprint(grid, kSize, 6.0f, 0.0f);
+			recorder.Cover(grid, second);
+			brush.Apply(grid, kSize, kHeight, 6.0f, 0.0f, 0.5f, 0.5f);
+			recorder.End();
+			const TerrainRect all = recorder.Rect();
+			Check(all.X0 == 24 && all.X1 == 46 && all.Z0 == 24 && all.Z1 == 40,
+				  "the recorder's rectangle is the union of the steps'");
+			const std::vector<uint16_t>& before = recorder.BeforeHeights();
+			auto at = [&](uint32_t x, uint32_t z) { return before[(size_t)(z - all.Z0) * all.Width() + (x - all.X0)]; };
+			Check(at(32, 32) == 1000 && at(46, 32) == 1000 && at(38, 32) == 1000,
+				  "and its before is the untouched grid everywhere, the overlap included");
+			Check(grid.At(32, 32) > 1000 && grid.At(38, 32) > 1000, "while the grid itself moved");
+		}
+
+		// --- the command, through a real terrain, and the ray cast ---------------
+		{
+			const std::filesystem::path terrainDir = Project::AssetRoot() / "terrain";
+			const std::filesystem::path path = terrainDir / "scenetest_brush.rvterrain";
+			std::error_code error;
+			std::filesystem::create_directories(terrainDir, error);
+			Assets::TerrainSerializer::Save(TerrainData::Flat(kRes, 32768), path);
+			Assets::Registry::Refresh();
+			const AssetHandle handle = Assets::Registry::GetHandle("terrain/scenetest_brush.rvterrain");
+			Check(handle.IsValid(), "the brush fixture is an asset");
+
+			if (handle.IsValid())
+			{
+				auto scene = std::make_shared<Scene>();
+				Entity ground = scene->CreateEntity("Ground");
+				auto& component = ground.AddComponent<TerrainComponent>();
+				component.Terrain = handle;
+				component.Size = kSize;
+				component.Height = kHeight;
+
+				const RHI::Ref<Terrain>& terrain = Terrain::Resolve(component);
+				Check(terrain != nullptr, "and resolves to a runtime");
+				if (terrain)
+				{
+					// The ray cast, before anything moves: a flat terrain 5 m up.
+					float t = 0.0f;
+					Check(terrain->Raycast(Vec3(0.0f, 20.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f), t) &&
+						  Math::Abs(t - 15.0f) < 0.01f,
+						  "a ray straight down meets a flat terrain at its height");
+					Check(terrain->Raycast(Vec3(10.0f, 20.0f, 30.0f), Vec3(-1.0f, -1.0f, -1.0f), t) &&
+						  Math::Abs(t - 15.0f * Math::Sqrt(3.0f)) < 0.01f,
+						  "and a diagonal ray where its height reaches the plane");
+					Check(!terrain->Raycast(Vec3(0.0f, 20.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f), t),
+						  "a ray pointing away misses");
+					Check(!terrain->Raycast(Vec3(100.0f, 20.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f), t),
+						  "and so does one beside the terrain");
+
+					// A stroke by hand: edit the manager's grid, push the region
+					// through the runtime, wrap it in a command, undo, redo.
+					TerrainData* data = Assets::Manager::EditTerrain(handle);
+					Check(data != nullptr && Assets::Manager::IsTerrainDirty(handle),
+						  "EditTerrain hands out the manager's grid and marks it dirty");
+					if (data)
+					{
+						brush.Mode = TerrainBrush::Op::Raise;
+						brush.Strength = 1.0f;
+						brush.Invert = false;
+						TerrainStrokeRecorder recorder;
+						recorder.Begin(*data, true);
+						const TerrainRect footprint = brush.Footprint(*data, kSize, 0.0f, 0.0f);
+						recorder.Cover(*data, footprint);
+						const TerrainRect touched = brush.Apply(*data, kSize, kHeight, 0.0f, 0.0f, 0.5f, 1.0f);
+						terrain->ApplyRegion(*data, touched);
+						recorder.End();
+
+						const float raised = terrain->HeightAt(0.0f, 0.0f);
+						Check(Math::Abs(raised - 7.5f) < 0.01f,
+							  "ApplyRegion moves HeightAt: a second at strength 1 lifts a 5 m plain to 7.5");
+						Check(terrain->HasStale(), "and leaves the touched chunks stale");
+						if (Renderer::HasDevice())
+						{
+							terrain->RebuildStale(true);
+							Check(!terrain->HasStale(), "RebuildStale(true) clears them");
+							// The rebuilt level 0 carries the new heights.
+							const Terrain::Chunk* chunk = terrain->ChunkAt(0, 0);
+							bool lifted = false;
+							if (chunk && chunk->Levels[0])
+							{
+								for (const Vec3& p : chunk->Levels[0]->GetPositions())
+									if (Math::Abs(p.x) < 0.01f && Math::Abs(p.z) < 0.01f)
+										lifted = Math::Abs(p.y - 7.5f) < 0.01f;
+							}
+							Check(lifted, "and the level-0 mesh has the raised vertex where the data says");
+						}
+						Check(Math::Abs(terrain->GetChunks()[0].Bounds.Max.y - 7.5f) < 0.01f,
+							  "the chunk's bounds follow the heights");
+
+						std::vector<uint16_t> after;
+						CopyHeightsOut(*data, recorder.Rect(), after);
+						auto command = std::make_unique<TerrainStrokeCommand>(
+							scene, handle, recorder.Rect(), "Terrain Raise",
+							recorder.BeforeHeights(), std::move(after));
+						Check(command->TouchesScene(), "a stroke command counts toward the unsaved mark");
+						command->Undo();
+						Check(Math::Abs(terrain->HeightAt(0.0f, 0.0f) - 5.0f) < 0.01f &&
+							  data->At(32, 32) == 32768,
+							  "undoing the stroke puts the grid and the runtime back");
+						command->Execute();
+						Check(Math::Abs(terrain->HeightAt(0.0f, 0.0f) - 7.5f) < 0.01f,
+							  "and redo draws exactly what the stroke drew");
+						command->Undo();
+
+						// A paint stroke through the same door: the runtime's copy
+						// gains weights and, with a device, a real weight map.
+						brush.Mode = TerrainBrush::Op::Paint;
+						brush.Layer = 1;
+						const TerrainRect painted = brush.Apply(*data, kSize, kHeight, 0.0f, 0.0f, 0.5f, 1.0f);
+						terrain->ApplyRegion(*data, painted);
+						Check(terrain->GetData().HasWeights() && terrain->GetData().WeightAt(32, 32, 1) > 200,
+							  "a paint stroke reaches the runtime's weights");
+						if (Renderer::HasDevice())
+						{
+							Check(terrain->GetWeightMap() && terrain->GetWeightMap()->GetWidth() == kRes,
+								  "and turns the 1x1 stand-in into a real weight map");
+						}
+					}
+
+					// Saved back, and the sidecar follows the bytes.
+					Check(Assets::Manager::SaveTerrain(handle) && !Assets::Manager::IsTerrainDirty(handle),
+						  "SaveTerrain writes the asset and clears the mark");
+					TerrainData reread;
+					Check(Assets::TerrainSerializer::Load(reread, path) && reread.HasWeights() &&
+						  reread.WeightAt(32, 32, 1) > 200,
+						  "and the file holds the paint");
+					Check(Assets::Registry::GetMetadata(handle).SourceHash == Assets::Registry::HashFile(path),
+						  "with a sidecar whose hash is the file's");
+				}
+			}
+
+			// UploadRegion: refused and survivable when it does not fit.
+			if (Renderer::HasDevice())
+			{
+				const uint8_t texel[16] = { 0 };
+				TextureLoader::White(Renderer::GetDevice())->UploadRegion(1, 1, 2, 2, texel, sizeof(texel));
+				Check(true, "a region upload beyond the texture is refused and survivable");
+			}
+
+			std::filesystem::remove(path, error);
+			std::filesystem::remove(path.string() + ".meta", error);
+			Assets::Registry::Refresh();
+		}
+	}
+
 	void CheckPhysicsRestoresOnStop()
 	{
 		auto scene = std::make_shared<Scene>();
@@ -12019,6 +12342,7 @@ int RunTests(int argc, char** argv)
 	CheckBindlessHeap();
 	CheckRayQuery();
 	CheckTerrain();
+	CheckTerrainBrush();
 	CheckGameModule();
 	CheckProject();
 	CheckPackaging();

@@ -18,6 +18,7 @@
 #include "AssetIcons.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Asset/AssetManager.h"
+#include "../Tools/TerrainBrushTool.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Scene/ScriptRegistry.h"
 
@@ -483,6 +484,133 @@ namespace
 	using namespace RageV::UI;
 
 
+	// The terrain brush's controls (ENGINE-NOTES 7ar), under the Terrain
+	// component's fields: the mode as a row of buttons -- the chosen one lit,
+	// pressing it again puts the brush down -- then size, strength and
+	// hardness, and under Paint the four layers by their materials' names.
+	// The settings live on the tool, not the component: they are the hand's,
+	// not the ground's, and are not saved with the scene.
+	void DrawTerrainBrush(Tools::TerrainBrushTool& tool, const TerrainComponent& component, bool playing)
+	{
+		ImGui::Spacing();
+		UI::SectionHeader("Brush");
+
+		if (playing)
+		{
+			ImGui::TextDisabled("Sculpting is an edit-mode tool; stop the scene to use it.");
+			return;
+		}
+
+		TerrainBrush& brush = tool.Brush;
+
+		// The modes. One button each, the active one accent-filled; clicking
+		// the active one turns the tool off, which is how the viewport gets
+		// its click-to-select back.
+		const float spacing = ImGui::GetStyle().ItemSpacing.x;
+		const float width = (ImGui::GetContentRegionAvail().x - spacing * (TerrainBrush::kModeCount - 1))
+						  / (float)TerrainBrush::kModeCount;
+		for (int i = 0; i < TerrainBrush::kModeCount; ++i)
+		{
+			const TerrainBrush::Op op = (TerrainBrush::Op)i;
+			const bool active = tool.Enabled && brush.Mode == op;
+			ImGui::PushID(i);
+			bool pressed;
+			if (active)
+				pressed = UI::AccentButton(TerrainBrush::ModeName(op), ImVec2(width, 0.0f));
+			else
+				pressed = ImGui::Button(TerrainBrush::ModeName(op), ImVec2(width, 0.0f));
+			if (pressed)
+			{
+				if (active)
+					tool.Cancel();
+				else
+				{
+					brush.Mode = op;
+					tool.Enabled = true;
+				}
+			}
+			if (ImGui::IsItemHovered())
+			{
+				switch (op)
+				{
+				case TerrainBrush::Op::Raise:
+					ImGui::SetTooltip("Raise the ground under the brush. Hold Shift to lower it.");
+					break;
+				case TerrainBrush::Op::Smooth:
+					ImGui::SetTooltip("Blend each sample toward the mean of its neighbours.");
+					break;
+				case TerrainBrush::Op::Flatten:
+					ImGui::SetTooltip("Pull the ground toward the height where the stroke began.");
+					break;
+				case TerrainBrush::Op::Paint:
+					ImGui::SetTooltip("Paint the chosen layer. Hold Shift to erase it.");
+					break;
+				}
+			}
+			ImGui::PopID();
+			if (i + 1 < TerrainBrush::kModeCount)
+				ImGui::SameLine();
+		}
+
+		if (UI::BeginProperties("terrain-brush"))
+		{
+			UI::RowDragFloat("Size", &brush.Radius, 0.25f, 0.25f, 4096.0f, "%.2f m",
+							 "Metres from the centre of the brush to its rim. [ and ] change it in the viewport.");
+			UI::RowSliderFloat("Strength", &brush.Strength, 0.0f, 1.0f, "%.2f",
+							   "How fast the brush works. At 1, a full raise climbs a quarter of "
+							   "the terrain's Height each second; smooth, flatten and paint close "
+							   "an eighth of the gap per sixtieth of a second.");
+			UI::RowSliderFloat("Hardness", &brush.Hardness, 0.0f, 1.0f, "%.2f",
+							   "The fraction of the radius at full weight before the fall-off "
+							   "begins: 0 is a soft cone, 1 a hard disc.");
+			if (brush.Mode == TerrainBrush::Op::Paint)
+			{
+				UI::PropertyRow("Layer", "Which of the four layers the brush paints. A layer with "
+									  "no material is not offered.");
+				const AssetHandle handles[4] = { component.Material, component.Layer1,
+												 component.Layer2, component.Layer3 };
+				const float layerWidth = (ImGui::GetContentRegionAvail().x - spacing * 3.0f) / 4.0f;
+				for (int i = 0; i < 4; ++i)
+				{
+					ImGui::PushID(100 + i);
+					std::string label = std::to_string(i);
+					const bool has = i == 0 || handles[i].IsValid();
+					if (handles[i].IsValid())
+					{
+						const std::string& path = Assets::Registry::GetMetadata(handles[i]).Path;
+						const size_t slash = path.find_last_of('/');
+						const size_t dot = path.find_last_of('.');
+						const size_t start = slash == std::string::npos ? 0 : slash + 1;
+						label = std::to_string(i) + " " + path.substr(start, dot == std::string::npos || dot < start
+																				? std::string::npos : dot - start);
+					}
+					else if (i == 0)
+						label = "0 default";
+
+					ImGui::BeginDisabled(!has);
+					const bool active = brush.Layer == i;
+					bool pressed;
+					if (active)
+						pressed = UI::AccentButton(label.c_str(), ImVec2(layerWidth, 0.0f));
+					else
+						pressed = ImGui::Button(label.c_str(), ImVec2(layerWidth, 0.0f));
+					if (pressed)
+						brush.Layer = i;
+					ImGui::EndDisabled();
+					ImGui::PopID();
+					if (i < 3)
+						ImGui::SameLine();
+				}
+			}
+			UI::EndProperties();
+		}
+
+		if (tool.Enabled)
+			ImGui::TextDisabled("Drag on the terrain to sculpt. Esc puts the brush down.");
+		else
+			ImGui::TextDisabled("Choose a mode, then drag on the terrain in the viewport.");
+	}
+
 	// What is left of the hand-written material section.
 	//
 	// Everything it used to draw -- base colour, metallic, roughness, occlusion,
@@ -635,6 +763,10 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 
 			if (std::string(desc.Name) == "MeshComponent")
 				DrawMaterialAdvice(*static_cast<MeshComponent*>(component));
+
+			if (std::string(desc.Name) == "TerrainComponent" && m_TerrainTool)
+				DrawTerrainBrush(*m_TerrainTool, *static_cast<TerrainComponent*>(component),
+								 m_TerrainTool->Playing);
 
 			if (std::string(desc.Name) == "ManagedScriptComponent")
 				DrawManagedScript(*static_cast<ManagedScriptComponent*>(component));

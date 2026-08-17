@@ -25,6 +25,7 @@
 #include "RageV/Renderer/Mesh.h"
 #include "RageV/Renderer/Material.h"
 #include "RageV/Asset/TerrainData.h"
+#include "RageV/Asset/TerrainBrush.h"
 #include "RageV/Asset/Asset.h"
 #include "RageV/Math/Math.h"
 
@@ -68,6 +69,10 @@ namespace RageV
 			RHI::Ref<Mesh> Levels[kLevels];
 			// The level chosen by the last SelectLod. 0 until one runs.
 			int Level = 0;
+			// Levels whose mesh no longer matches the data, one bit per level
+			// (7ar). Set by Invalidate, cleared as each is rebuilt: the
+			// selected one by SelectLod, all of them by RebuildStale(true).
+			uint8_t Stale = 0;
 
 			const RHI::Ref<Mesh>& Selected() const { return Levels[Level]; }
 		};
@@ -110,8 +115,37 @@ namespace RageV
 
 		// Chooses every chunk's level from the camera's world position and
 		// this terrain's world matrix. Once per frame, before anything reads
-		// Chunk::Level.
+		// Chunk::Level -- and rebuilds the level it chose wherever a stroke
+		// left it stale, so the frame never draws a mesh the data has moved
+		// on from (7ar).
 		void SelectLod(const Vec3& cameraWorld, const Mat4& world);
+
+		// --- editing (ENGINE-NOTES 7ar) ------------------------------------
+
+		// Copies `rect` of `source` -- the manager's authoritative grid, of
+		// this terrain's resolution -- into this terrain's own copy, marks the
+		// chunks it touches stale, refreshes their bounds from the data, and
+		// sends the paint's rows to the weight texture. What the brush, the
+		// undo of a stroke and its redo all go through.
+		void ApplyRegion(const TerrainData& source, const TerrainRect& rect);
+
+		// Marks every level of every chunk overlapping `rect` grown by one
+		// sample as stale (a sample moves the normals either side of it) and
+		// refreshes those chunks' bounds from the heights.
+		void Invalidate(const TerrainRect& rect);
+
+		// Rebuilds stale levels: every level of every stale chunk when `all`,
+		// otherwise only each stale chunk's selected level. Nothing without a
+		// device.
+		void RebuildStale(bool all);
+		bool HasStale() const;
+
+		// The first point on the surface a terrain-local ray meets, by
+		// marching the heights -- exact against the data whatever any chunk
+		// mesh currently says, which during a stroke is the point. `t` is the
+		// distance along `direction` (unit); false when the ray misses the
+		// terrain's box or never crosses the surface inside it.
+		bool Raycast(const Vec3& localOrigin, const Vec3& localDirection, float& t) const;
 
 		// The surface height in metres at a terrain-local (x, z), over the
 		// same triangles the meshes and the collider use; clamped to the
@@ -136,6 +170,11 @@ namespace RageV
 
 		const std::vector<Chunk>& GetChunks() const { return m_Chunks; }
 		std::vector<Chunk>& GetChunks() { return m_Chunks; }
+		Chunk* ChunkAt(uint32_t chunkX, uint32_t chunkZ)
+		{
+			return chunkX < m_ChunksPerSide && chunkZ < m_ChunksPerSide
+				? &m_Chunks[(size_t)chunkZ * m_ChunksPerSide + chunkX] : nullptr;
+		}
 		const AABB& GetBounds() const { return m_Bounds; }
 		const TerrainData& GetData() const { return m_Data; }
 		const Dimensions& GetDimensions() const { return m_Dimensions; }
@@ -149,6 +188,14 @@ namespace RageV
 		float GetChunkWidth() const { return GetCellSize() * (float)m_ChunkQuads; }
 
 	private:
+		// One level of one chunk, as a Mesh (null without a device); the
+		// chunk's bounds and centre from the heights alone.
+		RHI::Ref<Mesh> BuildLevel(uint32_t chunkX, uint32_t chunkZ, int level) const;
+		void RefreshBounds(Chunk& chunk) const;
+		void RefreshWholeBounds();
+		void UploadWeightRows(const TerrainRect& rect);
+
+		RHI::RHIDevice* m_Device = nullptr;
 		TerrainData m_Data;
 		AssetHandle m_Asset;
 		Dimensions m_Dimensions;

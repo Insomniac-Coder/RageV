@@ -113,6 +113,8 @@ namespace RageV::Vk
 
 		void Upload(const void* data, uint64_t size) override;
 		void UploadLayer(const void* data, uint64_t size, uint32_t layer) override;
+		void UploadRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+						  const void* data, uint64_t size) override;
 		void UploadMip(const void* data, uint64_t size, uint32_t mip,
 					   uint32_t layer) override;
 		void GenerateMips() override;
@@ -145,6 +147,9 @@ namespace RageV::Vk
 		// by every upload path; they differ only in which level and layer
 		// they name.
 		void StageInto(const void* data, uint64_t size, uint32_t mip, uint32_t layer);
+		// The same staging copy into a rectangle of mip 0, layer 0.
+		void StageRegion(const void* data, uint64_t size, uint32_t x, uint32_t y,
+						 uint32_t width, uint32_t height);
 
 		// A cube is six layers whether or not the desc said so, which is what
 		// CreateImage allocated. Anything walking layers has to agree with it.

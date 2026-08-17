@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Terrain (8.4, ENGINE-NOTES 7ap, 7aq): what the pixels can say.
+"""Terrain (8.4, ENGINE-NOTES 7ap, 7aq, 7ar): what the pixels can say.
 
 The unit claims -- the serializer, the triangle-exact sampling, the chunk
 builder, the level rule, HeightAt, the height-field body -- are in
 scenetest. This is the rest: what a terrain looks like from a stated
 camera, on both backends, and whether the level-of-detail seams hold.
 
-Four fixtures, all from make_terrain.py, all with the camera and the
+Five fixtures, all from make_terrain.py, all with the camera and the
 heights stated there so nothing below is found in a frame that could
 instead be derived:
 
@@ -48,6 +48,22 @@ instead be derived:
    places -- and by dropping the normalisation: the right goes half as
    bright and the unpainted strip black.)
 
+5. **The brush sculpts what it says, and the file keeps it (7ar).** The
+   `brush` fixture is the ridge's heights under the ridge's camera, red
+   layer 0 and blue layer 1, unpainted. The *editor* is run with
+   `--brush=raise,-30,20,10,1,2`: one two-second full-strength stroke of a
+   ten-metre brush at (-30, 20) on the plain, through the tool's own begin,
+   step and end, saved to the asset. The runtime then renders the saved
+   asset. The bump's height is stated -- a quarter of Height per second at
+   the centre, the kernel's fall-off toward the rim, on top of the ridge's
+   own tail -- so the row its highest point projects to is derived, and
+   the top of the region that changed against the unsculpted frame must
+   land on it within a few pixels. Then, on a fresh fixture,
+   `--brush=paint,-30,20,10,1,2,1`: layer 1 painted where the plain was
+   red, and the pixel the stroke's centre projects to reads blue.
+   (Falsified by inverting the raise -- the changed region's top drops to
+   the plain, a hole and not a hill -- and by painting layer 0: red stays.)
+
 Falsified further by swapping the row-major read (x for z) in the builder:
 the ridge turns ninety degrees and claim 1's row is nowhere near.
 
@@ -71,6 +87,8 @@ MIN_SHADOW_DARKENING = 25.0
 MAX_MAPS_VS_RAYS_LEVELS = 12.0
 MAX_HOLES = 0
 SKY_TOLERANCE = 6
+MAX_BRUSH_ROW_ERROR_PX = 6       # the sculpted bump's top against the row its peak projects to
+BRUSH_STROKE = (-30.0, 20.0, 10.0, 1.0, 2.0)   # x, z, radius, strength, seconds
 MIN_LAYER_RATIO = 2.0            # the dominant channel over the other, in a painted region ...
 MIN_LAYER_GAP = 100.0            # ... and by this many levels, in display space
 MAX_BRIGHTNESS_MISMATCH = 0.10   # left vs right, after the normalisation lifts the right
@@ -107,6 +125,33 @@ def project_row(camera, pitch, point, height, fov_degrees):
     rise = sum(a * b for a, b in zip(d, up))
     ndc_y = (rise / depth) / math.tan(math.radians(fov_degrees) * 0.5)
     return (1.0 - ndc_y) * 0.5 * height
+
+
+def project_column(camera, pitch, point, width, height, fov_degrees):
+    """The frame column a world point lands on, from a camera at `camera`
+    with rotation (pitch, 0, 0), for a frame `width` by `height` with a
+    vertical field of view. The pair of project_row: the same depth, the
+    sideways offset against the horizontal half-extent."""
+    cx, cy, cz = camera
+    px, py, pz = point
+    d = (px - cx, py - cy, pz - cz)
+    forward = (0.0, math.sin(pitch), -math.cos(pitch))
+    depth = sum(a * b for a, b in zip(d, forward))
+    aspect = width / height
+    ndc_x = (d[0] / depth) / (math.tan(math.radians(fov_degrees) * 0.5) * aspect)
+    return (ndc_x + 1.0) * 0.5 * width
+
+
+def brush_weight(distance, radius, hardness):
+    """TerrainBrush::Weight, restated: 1 inside hardness * radius, then
+    1 - smoothstep to the rim, 0 beyond (ENGINE-NOTES 7ar)."""
+    if radius <= 0.0 or distance >= radius:
+        return 0.0
+    t = distance / radius
+    if t <= hardness:
+        return 1.0
+    u = (t - hardness) / max(1.0 - hardness, 1e-6)
+    return 1.0 - u * u * (3.0 - 2.0 * u)
 
 
 def sky_colour(image):
@@ -297,6 +342,73 @@ def main():
         if holes > MAX_HOLES:
             failures.append(f"{backend}: the cliff shows {holes} hole(s) at its level seams")
 
+    # --- 5. the brush (7ar): the editor sculpts, the runtime renders the file --
+    editor = root / "build" / "bin" / args.config / "RageVEditor" / "RageVEditor.exe"
+    if not editor.exists():
+        print(f"FAIL: {editor} does not exist; build {args.config} first")
+        sys.exit(1)
+
+    def regenerate():
+        subprocess.run([sys.executable, str(root / "tools" / "scripts" / "make_terrain.py")],
+                       check=True, capture_output=True)
+
+    def editor_brush(spec, image):
+        code, log = run(editor, [f"--project={root / 'SampleProject'}", "--rhi=vulkan",
+                                 "--scene=scenes/terrain_brush.rage", "--select=Brush",
+                                 f"--brush={spec}", "--width=1280", "--height=720",
+                                 f"--screenshot={image}"])
+        if code != 0 or "--brush:" not in log or "saved" not in log:
+            print(f"FAIL: the editor did not apply and save --brush={spec} (exit {code})")
+            print(log[-2000:])
+            sys.exit(1)
+
+    bx, bz, radius, strength, seconds = BRUSH_STROKE
+    hardness = 0.5   # the tool's default, which --brush does not change
+    plain_of = mt.ridge_height_metres
+
+    before = shoot(exe, "vulkan", "terrain_brush", shots / "vulkan-brush-before.png")
+    editor_brush(f"raise,{bx:g},{bz:g},{radius:g},{strength:g},{seconds:g}",
+                 shots / "editor-brush-raise.png")
+    after = shoot(exe, "vulkan", "terrain_brush", shots / "vulkan-brush-raise.png")
+    regenerate()
+
+    height, width = after.shape[:2]
+    # The bump's surface is stated: the ridge's own height at each z plus the
+    # raise -- a quarter of Height per second at full weight -- times the
+    # kernel's weight at that distance from the centre. Rows do not depend on
+    # x, so the profile along the stroke's centre column is enough; the
+    # highest-projecting point of it is where the changed region must begin.
+    lift = strength * mt.RIDGE_HEIGHT * 0.25 * seconds
+    derived = min(project_row(mt.RIDGE_CAMERA_POSITION, mt.RIDGE_CAMERA_PITCH,
+                              (bx, plain_of(z) + lift * brush_weight(abs(z - bz), radius, hardness), z),
+                              height, mt.RIDGE_CAMERA_FOV_DEGREES)
+                  for z in np.linspace(bz - radius, bz + radius, 401))
+    changed = np.abs(after - before).max(axis=2) > 12
+    rows = np.nonzero(changed.any(axis=1))[0]
+    found = int(rows.min()) if len(rows) else height
+    print(f"brush raise: the sculpt changes the frame from row {found}; the bump's peak projects to {derived:.1f} "
+          f"({int(changed.sum())} pixels changed)")
+    if abs(found - derived) > MAX_BRUSH_ROW_ERROR_PX:
+        failures.append(f"brush raise: the changed region begins at row {found}, "
+                        f"the stated bump projects to {derived:.1f}")
+
+    editor_brush(f"paint,{bx:g},{bz:g},{radius:g},{strength:g},{seconds:g},1",
+                 shots / "editor-brush-paint.png")
+    painted = shoot(exe, "vulkan", "terrain_brush", shots / "vulkan-brush-paint.png")
+    regenerate()
+    centre = (bx, plain_of(bz), bz)
+    row = int(round(project_row(mt.RIDGE_CAMERA_POSITION, mt.RIDGE_CAMERA_PITCH, centre, height,
+                                mt.RIDGE_CAMERA_FOV_DEGREES)))
+    column = int(round(project_column(mt.RIDGE_CAMERA_POSITION, mt.RIDGE_CAMERA_PITCH, centre,
+                                      width, height, mt.RIDGE_CAMERA_FOV_DEGREES)))
+    window = painted[max(row - 6, 0):row + 6, max(column - 6, 0):column + 6].reshape(-1, 3).mean(axis=0)
+    was = before[max(row - 6, 0):row + 6, max(column - 6, 0):column + 6].reshape(-1, 3).mean(axis=0)
+    print(f"brush paint: the stroke's centre projects to ({column}, {row}); it read {was.round(1)} and reads "
+          f"{window.round(1)}")
+    if window[2] < 2.0 * max(window[0], 1.0) or was[0] < 2.0 * max(was[2], 1.0):
+        failures.append(f"brush paint: the painted centre is not layer 1's blue ({window.round(1)}) "
+                        f"where it was red ({was.round(1)})")
+
     # --- 4. the paint (7aq): both backends, and both material paths on Vulkan --
     for label, backend, extra in (("vulkan", "vulkan", ("--bindless=on",)),
                                   ("vulkan-bound", "vulkan", ("--bindless=off",)),
@@ -311,8 +423,9 @@ def main():
         sys.exit(1)
 
     print("OK: the ridge stands where the heights say on both backends, its shadow lands "
-          "on the plain under maps and rays alike, the level seams open no holes, and the "
-          "paint is the picture on every material path")
+          "on the plain under maps and rays alike, the level seams open no holes, the "
+          "paint is the picture on every material path, and the brush sculpts and paints "
+          "what it says and the file keeps it")
 
 
 if __name__ == "__main__":

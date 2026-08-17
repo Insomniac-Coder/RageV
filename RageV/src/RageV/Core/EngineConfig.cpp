@@ -203,6 +203,12 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "brush")
+		{
+			config.BrushScript = value;
+			return true;
+		}
+
 		if (key == "camera")
 		{
 			// x,y,z,distance,yaw,pitch -- the editor camera's whole state, which

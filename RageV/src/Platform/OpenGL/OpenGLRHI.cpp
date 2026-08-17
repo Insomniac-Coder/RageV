@@ -359,6 +359,39 @@ namespace RageV::GL
 			GenerateMips();
 	}
 
+	void OpenGLTextureRHI::UploadRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+										const void* data, uint64_t size)
+	{
+		if (!data || size == 0 || width == 0 || height == 0)
+			return;
+
+		if (m_Desc.Type != TextureType::Texture2D || IsCompressedFormat(m_Desc.Format) ||
+			x + width > m_Desc.Width || y + height > m_Desc.Height)
+		{
+			RV_CORE_WARN("Texture '{0}': a region upload of {1}x{2} at ({3}, {4}) does not fit a "
+						 "{5}x{6} uncompressed 2D texture", m_Desc.DebugName, width, height, x, y,
+						 m_Desc.Width, m_Desc.Height);
+			return;
+		}
+
+		const uint64_t expected = TextureDataSize(m_Desc.Format, width, height);
+		if (size != expected)
+		{
+			RV_CORE_WARN("Texture '{0}': a {1}x{2} region takes {3} bytes; given {4}",
+						 m_Desc.DebugName, width, height, expected, size);
+			return;
+		}
+
+		const GLFormat format = ToGLFormat(m_Desc.Format);
+		// Rows are tightly packed whatever their byte length: the default
+		// unpack alignment of four would skew a rectangle whose row is not a
+		// multiple of it. Set for the call, restored after.
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTextureSubImage2D(m_Handle, 0, (GLint)x, (GLint)y, (GLsizei)width, (GLsizei)height,
+							format.Format, format.Type, data);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	}
+
 	void OpenGLTextureRHI::UploadLayer(const void* data, uint64_t size, uint32_t layer)
 	{
 		if (!data || size == 0)

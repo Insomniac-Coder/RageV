@@ -1,6 +1,8 @@
 #include <rvpch.h>
 #include "SceneCommands.h"
 #include "SceneSerializer.h"
+#include "RageV/Asset/AssetManager.h"
+#include "RageV/Renderer/Terrain.h"
 #include <algorithm>
 
 namespace RageV
@@ -552,5 +554,54 @@ namespace RageV
 
 		if (desc->OnChanged)
 			desc->OnChanged(component);
+	}
+
+	// --- TerrainStrokeCommand (7ar) -------------------------------------------------
+
+	TerrainStrokeCommand::TerrainStrokeCommand(std::shared_ptr<Scene> scene, AssetHandle terrain,
+											   const TerrainRect& rect, std::string name,
+											   std::vector<uint16_t> beforeHeights,
+											   std::vector<uint16_t> afterHeights)
+		: m_Scene(std::move(scene)), m_Terrain(terrain), m_Rect(rect), m_Name(std::move(name)),
+		  m_Heights(true), m_BeforeHeights(std::move(beforeHeights)), m_AfterHeights(std::move(afterHeights))
+	{
+	}
+
+	TerrainStrokeCommand::TerrainStrokeCommand(std::shared_ptr<Scene> scene, AssetHandle terrain,
+											   const TerrainRect& rect, std::string name,
+											   std::vector<uint8_t> beforeWeights,
+											   std::vector<uint8_t> afterWeights)
+		: m_Scene(std::move(scene)), m_Terrain(terrain), m_Rect(rect), m_Name(std::move(name)),
+		  m_Heights(false), m_BeforeWeights(std::move(beforeWeights)), m_AfterWeights(std::move(afterWeights))
+	{
+	}
+
+	void TerrainStrokeCommand::Execute() { Apply(true); }
+	void TerrainStrokeCommand::Undo() { Apply(false); }
+
+	void TerrainStrokeCommand::Apply(bool after)
+	{
+		TerrainData* data = Assets::Manager::EditTerrain(m_Terrain);
+		if (!data || m_Rect.Empty())
+			return;
+
+		if (m_Heights)
+			CopyHeightsIn(*data, m_Rect, after ? m_AfterHeights : m_BeforeHeights);
+		else
+			CopyWeightsIn(*data, m_Rect, after ? m_AfterWeights : m_BeforeWeights);
+
+		// Every runtime built from this asset in the scene follows -- the
+		// same rectangle, through the same door the live stroke used.
+		if (m_Scene)
+		{
+			m_Scene->ForEachTerrain([&](Entity, TransformComponent&, TerrainComponent& component, Terrain& terrain)
+			{
+				if (component.Terrain == m_Terrain)
+				{
+					terrain.ApplyRegion(*data, m_Rect);
+					terrain.RebuildStale(true);
+				}
+			});
+		}
 	}
 }

@@ -231,6 +231,18 @@ namespace RageV::Assets
 		// height field from it; both read the same samples.
 		static const TerrainData* GetTerrain(AssetHandle handle);
 
+		// The same grid, mutable, for the brush (ENGINE-NOTES 7ar): the
+		// authoritative copy every Terrain runtime is built from, so an edit
+		// here survives the runtime being replaced. Marks the asset dirty;
+		// SaveTerrain writes it back and re-indexes its sidecar, SaveDirtyTerrains
+		// does so for every dirty one -- which the editor calls from its scene
+		// save. Null for a handle that is not a readable terrain.
+		static TerrainData* EditTerrain(AssetHandle handle);
+		static bool IsTerrainDirty(AssetHandle handle);
+		static bool SaveTerrain(AssetHandle handle);
+		static void SaveDirtyTerrains();
+		static bool HasDirtyTerrains();
+
 		// An environment map, built from whatever image the handle names. The
 		// conversion from a panorama is not cheap, so a failure is cached as
 		// null too -- a scene pointing at a missing sky must not try again

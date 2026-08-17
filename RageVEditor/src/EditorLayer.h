@@ -8,6 +8,7 @@
 #include "UI/SceneHierarchyPanel.h"
 #include "UI/ContentBrowserPanel.h"
 #include "UI/EditorTheme.h"
+#include "Tools/TerrainBrushTool.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/TemporalHistory.h"
@@ -208,6 +209,22 @@ private:
 	// captured on the first frame of the drag and recorded on release.
 	bool m_GizmoDragging = false;
 	RageV::TransformComponent m_GizmoBefore;
+
+	// The terrain brush (ENGINE-NOTES 7ar): its settings live in the Terrain
+	// component's inspector block, its strokes in the viewport, its ring in
+	// the overlay. Edit mode only.
+	RageV::Tools::TerrainBrushTool m_TerrainTool;
+	// This frame's dt, for the brush's rates; OnUpdate has it and the
+	// viewport panel, drawn later in the frame, does not.
+	float m_FrameSeconds = 0.0f;
+	// --brush ran, once.
+	bool m_BrushScriptDone = false;
+
+	// The mouse ray through the viewport image, in world space, through
+	// whichever camera the scene view is using. False when the mouse is off
+	// the image or there is no camera to look through.
+	bool ViewportMouseRay(const ImVec2& imageOrigin, const ImVec2& imageSize, RageV::Ray& out) const;
+	void RunBrushScript();
 
 	// The same shape for the two settings blocks the Render Settings panel
 	// edits: captured before the first change of a gesture, recorded once

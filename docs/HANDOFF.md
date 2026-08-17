@@ -1316,7 +1316,7 @@ listed with a caveat, the caveat is real and was found rather than guessed.
 | IBL | Irradiance convolution, GGX prefilter per roughness level, BRDF table (3.4) |
 | Shadows | Directional cascades, spot maps, point cubes; per-light toggle (3.5) |
 | Ray tracing | Vulkan with ray queries only: one checkbox under Shadows traces every casting light; options under it trace reflections and ambient occlusion in place of SSR/SSAO. Absent from the panel on OpenGL (8.12) |
-| Terrain | A heightfield asset (`.rvterrain`) and component: chunk meshes at four levels of detail with skirts, up to four materials blended by paint stored in the asset, Jolt height-field collision, culled/shadowed/traced/picked as ordinary meshes (8.4 stages 1-2) |
+| Terrain | A heightfield asset (`.rvterrain`) and component: chunk meshes at four levels of detail with skirts, up to four materials blended by paint stored in the asset, a brush that raises/lowers/smooths/flattens and paints the layers (one stroke = one undo, saved with the scene), Jolt height-field collision, culled/shadowed/traced/picked as ordinary meshes (8.4 stages 1-3) |
 | Subsystem health | Every renderer module has `IsReady()`, and `scenetest` asks all seven |
 | Culling | Frustum culling per pass, against each pass's own frustum (3.6) |
 | Clustered forward | 16x9x24 cells, lights binned on the CPU, no light cap (3.8) |
@@ -1593,11 +1593,34 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 8.4 terrain stages 1 and 2 are DONE (2026-08-17); stage 3 -- the brush -- and the rest of phase 8 are each their own decision
+### START HERE: 8.4 terrain is DONE in three stages (2026-08-17); the owner's next ask is brush *varieties*
 
-**Terrain landed on top of 8.12, in two stages the same day** -- read the
-two terrain narratives below, their Done entries, and ENGINE-NOTES 7ap and
-7aq (design first, numbers at landing, and what the fixtures taught). Stage
+**Stage 3 -- the brush -- landed last** (ENGINE-NOTES 7ar; narrative and Done
+entry below). Read 7ar first: the kernel and rates, one stroke = one
+command, the lazy per-chunk rebuild in `SelectLod`, `RHITexture::UploadRegion`,
+`Terrain::Raycast`, the write-back on save, edit mode only, and `--brush=`.
+**The owner asked at landing (2026-08-17), and it is the next item:**
+
+0. **Brush varieties.** "Different brush varieties which can generate terrain
+   in different patterns like Unity or Unreal" -- brush *textures* (an alpha
+   image as the kernel, rotated per stroke), and patterned brushes: noise
+   (raise by a noise field under the disc), erosion (Unreal's hydro/thermal),
+   ramp (two clicks, a slope between), clone/stamp-from-elsewhere, terrace,
+   maybe set-height. The owner also said "a brush to paint texture" -- **that
+   is already Paint mode**, painting the four layers of 7aq; if they mean
+   more (a texture *as* the paint, i.e. decals or a fifth layer), ask. Build
+   varieties on `TerrainBrush::Op` + `Weight()`: a brush texture is a
+   replacement for the kernel's weight, a pattern is a replacement for the
+   per-sample delta; the stroke, recorder, command, rebuild and check
+   machinery is all shared and does not change. Put the design in 7as
+   first. **The Brush block's mode buttons truncate to "Ra Sm Fla Pai" in a
+   narrow Properties panel** -- two rows below ~260 px is the fix; a
+   papercut to take with the varieties, since the row grows.
+
+**Terrain landed on top of 8.12, in three stages the same day** -- read the
+three terrain narratives below, their Done entries, and ENGINE-NOTES 7ap,
+7aq and 7ar. Stage
+
 1: a heightfield as a source of meshes -- an `.rvterrain` asset, a
 `TerrainComponent`, chunk meshes at four levels with skirts, Jolt's height
 field over the same samples; the renderer never learned the word. Stage 2:
@@ -1611,25 +1634,10 @@ already spends sixteen of OpenGL's thirty-two texture units and the two
 paths are compared pixel for pixel. `experiments/terrain/Chunk` is **kept,
 cut off**, at the owner's direction.
 
-**What is open, in the order it would be sensible to take:**
+**What is open, after the varieties above:**
 
-1. **Terrain stage 3 -- the brush.** **The owner's direction on its shape
-   (2026-08-17): a brush, not stamps.** The user *draws* the terrain -- a
-   circular brush with size, strength and falloff that raises, lowers,
-   smooths and flattens the heights under the cursor as the mouse drags,
-   and paints the four layers' weights with the same brush (the weights are
-   the same grid as the heights, `TerrainData::Weights`, so one brush
-   reaches both). Not a menu of preset shapes ("hill", "mountain") dropped
-   onto the grid: the owner said so explicitly, so do not build a stamp
-   library first and call it sculpting. Each stroke is one command on the
-   undo stack (so a drag is one Ctrl+Z), the chunk meshes touched by the
-   stroke are rebuilt as it goes (`Terrain::Resolve` replaces the whole
-   object on change; a **per-chunk rebuild** and a **weight-texture
-   re-upload of the touched rows** are the pieces to add so a stroke does
-   not rebuild 64 chunks and 1 MB of paint), the collider is refit on
-   release, and the result is written back to the asset by
-   `TerrainSerializer::Save`, which already writes the paint. `HeightAt` as
-   a script call belongs here too.
+1. **`HeightAt` as a script call** (both languages), the one terrain thing
+   left over from every stage's list.
 2. **The two long-standing non-blockers** at the end of this section: the
    focus-click guard has never been confirmed against a real click, and an
    orphaned LUT is not warned about.
@@ -1637,9 +1645,70 @@ cut off**, at the owner's direction.
    remaining ordinary feature, the rest are engine-sized. None should be
    started because it sounds interesting.
 
-**Six commits are unpushed** as of this writing -- terrain stage 1 and its
-follow-ups (b37b8ed .. c8cb011) and stage 2 on top; everything before them
-is on origin. Pushing is the owner's action.
+**Seven commits are unpushed** as of this writing -- terrain stage 1 and its
+follow-ups (b37b8ed .. c8cb011), stage 2 (fe20a5c) and stage 3 on top;
+everything before them is on origin. Pushing is the owner's action.
+
+---
+
+### Terrain (8.4 stage 3) -- the brush
+
+**8.4 stage 3 (2026-08-17, ENGINE-NOTES 7ar) is done and verified.** The
+shape: **`Asset/TerrainBrush`** -- `Op {Raise, Smooth, Flatten, Paint}`,
+Radius, Strength, Hardness, Layer, Invert (Shift: lower/erase); `Weight(d)`
+(1 inside hardness x radius, 1 - smoothstep to the rim); `Footprint` (the
+disc's sample box) and `Apply(data, size, height, x, z, flattenTarget, dt)`
+-- rates relative to Height and time (a quarter of Height per second at
+strength 1; blend modes an eighth of the gap per sixtieth), Smooth a 3x3
+mean read before written, Flatten toward the height at press, Paint a
+replace that **materialises an unpainted texel as layer 0 first** and
+**moves at least one unit when it means to move** (eight bits would stall a
+held paint at 254 and a held erase at 4, and 4 is not 0 to the zero-sum
+rule); `TerrainStrokeRecorder` grows a rectangle and copies each newly
+covered sample before the step that writes it. **`Terrain`**: `Stale`
+bitmask per chunk, `Invalidate(rect)` (grown by one sample, bounds refreshed
+from the data), `RebuildStale(all)` -- `SelectLod` rebuilds each stale
+chunk's *selected* level on its way past, the release rebuilds all --
+`ApplyRegion(source, rect)` (heights and/or weights into the runtime's copy
++ `UploadWeightRows` through the new `RHITexture::UploadRegion`, both
+backends), `Raycast(localOrigin, dir)` (box clip in x, z *and the y slab*
+-- a vertical ray with an unbounded march hung scenetest until the slab
+was added -- then half-cell march + 24 bisections). **`Assets::Manager`**:
+`EditTerrain` (mutable, marks dirty), `SaveTerrain`/`SaveDirtyTerrains`
+(write + `Registry::Reindex(handle)`, one file's hash), `IsTerrainDirty`.
+**`TerrainStrokeCommand`** in SceneCommands: rect + before/after,
+Execute/Undo through `ApplyRegion` on every terrain of that asset,
+`TouchesScene` true. **Editor**: `Tools/TerrainBrushTool` (Aim through the
+inverse world matrix, Begin/Step/End, `PushApplied` on release, ring
+overlay through DebugRenderer, `ScriptStroke`, `Cancel`); the Terrain
+block draws the Brush controls (mode buttons, size/strength/hardness, layer
+buttons under Paint, hint); `EditorLayer` runs the tool from
+`DrawViewportPanel` (mouse ray via the new `ViewportMouseRay`), picking
+and the gizmo stand down while it owns the terrain, `[`/`]` size, Escape
+cancels, `SaveScene` calls `SaveDirtyTerrains`, `--brush=` (EngineConfig
+`BrushScript`) applies one stroke on the first update after load and saves.
+Edit mode only (`Playing` flag; the block says so).
+
+**Checks**: scenetest +34 (1754 Vulkan under validation, zero `[Vulkan]`;
+1714 OpenGL) -- kernel values, raise rate/symmetry/lower/rate independence
+/saturation/off-grid, smooth on a spike, flatten convergence to the
+rounding, paint materialise/replace/second layer/erase, the recorder's
+union and before, Raycast hits and misses, ApplyRegion + HeightAt + level-0
+vertex + bounds, the command's undo/redo through a real Terrain, SaveTerrain
++ file + sidecar hash, UploadRegion out of range survivable.
+`check_terrain.py` claim 5 on the new `brush` fixture: editor
+`--brush=raise,-30,20,10,1,2` then the runtime renders the saved asset --
+changed region begins at **row 148 against a derived 147.6** (the ridge's
+Gaussian tail lifts the bump's far side; the derivation includes it);
+`--brush=paint,...,1` turns the stroke's centre from `[27,8,9]` to
+`[8,8,32]`. Falsified: raise inverted (row 603, a hole), wrong layer
+painted (stays red). Verified Debug/Release/Dist, editor eyeballed with
+the two rings on the mesa (`--camera=-30,14,20,50,35,35`), rvdoc green.
+
+**Stated limits** (7ar): one brush shape; uploads wait (a stroke over four
+chunks is nine GPU waits, a few ms); the write-back is on save; edit mode
+only; `HeightAt` not a script call; smooth/flatten stop within four height
+units of their target.
 
 ---
 
@@ -2041,6 +2110,22 @@ engine* -- Vulkan 1.2 has descriptor indexing, OpenGL 4.5 has no
 equivalent -- and wants deciding before anything that would build on it.
 The two open non-blockers below (focus-click guard, orphaned LUT) are
 still open.
+
+---
+
+### Done - 8.4 stage 3, terrain: the brush (2026-08-17)
+
+Design first (ENGINE-NOTES 7ar). `Asset/TerrainBrush.{h,cpp}` (rect, brush,
+recorder, copies), `Terrain` stale/Invalidate/RebuildStale/ApplyRegion/
+UploadWeightRows/Raycast + BuildLevel/RefreshBounds, `RHITexture::UploadRegion`
+(Vulkan `StageRegion`, GL `glTextureSubImage2D`), `Manager::EditTerrain/
+SaveTerrain/SaveDirtyTerrains/IsTerrainDirty/HasDirtyTerrains`,
+`Registry::Reindex`, `TerrainStrokeCommand`, `EngineConfig::BrushScript`
+(`--brush=`), `RageVEditor/src/Tools/TerrainBrushTool.{h,cpp}`, the Brush
+block in `SceneHierarchyPanel`, `EditorLayer` wiring (`ViewportMouseRay`,
+`RunBrushScript`, keys, save), `make_terrain.py` `brush` fixture +
+`terrain_brush.rage`, `CheckTerrainBrush` (+34), `check_terrain.py` claim 5;
+falsified two ways; manual (terrain page Sculpting section).
 
 ---
 

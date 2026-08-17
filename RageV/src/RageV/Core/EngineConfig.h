@@ -135,6 +135,11 @@ namespace RageV
 		// selected, and driving the hierarchy by hand is not a check anybody
 		// repeats. Ignored by the runtime, which has no inspector.
 		std::string  SelectEntity;
+		// --brush=mode,x,z,radius,strength,seconds[,layer]: one terrain brush
+		// stroke on the selected entity's terrain, applied and saved once the
+		// editor has loaded (ENGINE-NOTES 7ar). The same family as --select:
+		// what lets a check hold the brush. Ignored by the runtime.
+		std::string  BrushScript;
 
 		// --camera=x,y,z,distance,yaw,pitch: where the editor's viewport camera
 		// starts. Angles in degrees.

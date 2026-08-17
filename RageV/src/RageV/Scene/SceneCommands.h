@@ -3,6 +3,7 @@
 #include "Entity.h"
 #include "Components.h"
 #include "ComponentRegistry.h"
+#include "RageV/Asset/TerrainBrush.h"
 #include <functional>
 #include <memory>
 #include <string>
@@ -100,6 +101,44 @@ namespace RageV
 		// Bounded, because every DeleteEntity command holds a serialized copy
 		// of its subtree and an unbounded stack would grow without limit.
 		static constexpr size_t kLimit = 128;
+	};
+
+	// --- terrain strokes (ENGINE-NOTES 7ar) ------------------------------------
+	// One brush stroke -- press to release -- on one terrain asset: the
+	// rectangle of samples it touched, before and after, heights for a
+	// sculpt or weights for a paint. Execute writes the after and Undo the
+	// before into the manager's grid, and both push the rectangle through
+	// every live Terrain built from that asset, so a redo draws exactly what
+	// the drag drew. It touches the scene in the sense that matters: the
+	// save has to write the asset for the stroke to survive.
+	class TerrainStrokeCommand : public EditorCommand
+	{
+	public:
+		TerrainStrokeCommand(std::shared_ptr<Scene> scene, AssetHandle terrain,
+							 const TerrainRect& rect, std::string name,
+							 std::vector<uint16_t> beforeHeights, std::vector<uint16_t> afterHeights);
+		TerrainStrokeCommand(std::shared_ptr<Scene> scene, AssetHandle terrain,
+							 const TerrainRect& rect, std::string name,
+							 std::vector<uint8_t> beforeWeights, std::vector<uint8_t> afterWeights);
+
+		void Execute() override;
+		void Undo() override;
+		std::string Name() const override { return m_Name; }
+
+		AssetHandle GetTerrain() const { return m_Terrain; }
+		const TerrainRect& GetRect() const { return m_Rect; }
+		bool EditsHeights() const { return m_Heights; }
+
+	private:
+		void Apply(bool after);
+
+		std::shared_ptr<Scene> m_Scene;
+		AssetHandle m_Terrain;
+		TerrainRect m_Rect;
+		std::string m_Name;
+		bool m_Heights = true;
+		std::vector<uint16_t> m_BeforeHeights, m_AfterHeights;
+		std::vector<uint8_t> m_BeforeWeights, m_AfterWeights;
 	};
 
 	// --- field edits ---------------------------------------------------------

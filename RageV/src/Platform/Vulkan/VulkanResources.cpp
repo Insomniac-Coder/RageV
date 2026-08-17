@@ -464,6 +464,74 @@ namespace RageV::Vk
 		StageInto(data, size, mip, layer);
 	}
 
+	void VulkanTexture::UploadRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+									 const void* data, uint64_t size)
+	{
+		if (!data || size == 0 || width == 0 || height == 0)
+			return;
+
+		if (m_Desc.Type != RHI::TextureType::Texture2D || IsCompressedFormat(m_Desc.Format) ||
+			x + width > m_Desc.Width || y + height > m_Desc.Height)
+		{
+			RV_CORE_WARN("Texture '{0}': a region upload of {1}x{2} at ({3}, {4}) does not fit a "
+						 "{5}x{6} uncompressed 2D texture", m_Desc.DebugName, width, height, x, y,
+						 m_Desc.Width, m_Desc.Height);
+			return;
+		}
+
+		const uint64_t expected = TextureDataSize(m_Desc.Format, width, height);
+		if (size != expected)
+		{
+			RV_CORE_WARN("Texture '{0}': a {1}x{2} region takes {3} bytes; given {4}",
+						 m_Desc.DebugName, width, height, expected, size);
+			return;
+		}
+
+		StageRegion(data, size, x, y, width, height);
+	}
+
+	void VulkanTexture::StageRegion(const void* data, uint64_t size, uint32_t x, uint32_t y,
+									uint32_t width, uint32_t height)
+	{
+		VkBufferCreateInfo stagingInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		stagingInfo.size = size;
+		stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+		VmaAllocationCreateInfo stagingAlloc{};
+		stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+							 VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		VkBuffer staging = VK_NULL_HANDLE;
+		VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+		VmaAllocationInfo stagingOut{};
+		VK_CHECK(vmaCreateBuffer(m_Device.GetAllocator(), &stagingInfo, &stagingAlloc,
+								 &staging, &stagingAllocation, &stagingOut));
+
+		memcpy(stagingOut.pMappedData, data, (size_t)size);
+
+		m_Device.ImmediateSubmit([&](VkCommandBuffer cmd)
+		{
+			TransitionTo(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+			// The buffer is the rectangle, tightly packed: a row length of
+			// zero tells the copy to take the width from the extent.
+			VkBufferImageCopy region{};
+			region.imageSubresource.aspectMask = m_Aspect;
+			region.imageSubresource.mipLevel = 0;
+			region.imageSubresource.baseArrayLayer = 0;
+			region.imageSubresource.layerCount = 1;
+			region.imageOffset = { (int32_t)x, (int32_t)y, 0 };
+			region.imageExtent = { width, height, 1 };
+
+			vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+			TransitionTo(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		});
+
+		vmaDestroyBuffer(m_Device.GetAllocator(), staging, stagingAllocation);
+	}
+
 	void VulkanTexture::StageInto(const void* data, uint64_t size, uint32_t mip, uint32_t layer)
 	{
 		VkBufferCreateInfo stagingInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };

@@ -16,7 +16,7 @@
 <h1 id="terrain">Terrain<a class="anchor" href="#terrain" aria-label="Link to this section">#</a></h1>
 <p>A heightfield: a square grid of heights that the engine turns into ground. One <code>.rvterrain</code> asset holds the heights and, once painted, which of up to four materials each point of the ground is made of; one <code>TerrainComponent</code> places it, sizes it, names the four materials and gives it a collider. Everything else the engine already does -- shadows, ray tracing, culling, picking, physics -- takes the terrain as the ordinary meshes it is built from.</p>
 <h2 id="making-one">Making one<a class="anchor" href="#making-one" aria-label="Link to this section">#</a></h2>
-<p>There is no sculpting tool yet. A terrain starts as a heightmap image or as noise, through the script:</p>
+<p>A terrain starts as a heightmap image or as noise, through the script, and is then sculpted and painted with the brush in the editor (below):</p>
 <figure class="code"><figcaption>bash</figcaption><pre><code>python tools/scripts/make_terrain.py --png heights.png assets/terrain/valley.rvterrain
 </code></pre></figure>
 <p>The PNG must be square with 2^n + 1 pixels a side -- 33, 65, 129, 257, 513, 1025, 2049 or 4097 -- and 16-bit greyscale is what the format keeps; an 8-bit image is accepted and scaled up, with the terracing 8 bits imply. Run the script with no arguments to write the sample project&#39;s own terrains (hills from noise, painted by slope and height; a ridge; a cliff; a flat painted test card) and the scenes that stand on them.</p>
@@ -40,13 +40,30 @@
 <p>The field is called <code>Material</code> in the scene file and &quot;Layer 0&quot; in the inspector: it is the one material a terrain had before layers existed, and a scene saved then reads and looks unchanged.</p>
 <h2 id="layers">Layers<a class="anchor" href="#layers" aria-label="Link to this section">#</a></h2>
 <p>Each layer is an ordinary <code>.rmat</code>. Its base colour, normal and roughness maps are read, and its scalars -- colour, metallic, roughness, occlusion, specular, emissive, tiling -- are honoured; its occlusion, metallic, specular, emissive and height <em>maps</em> are not, on either backend, because the four layers together would ask for more texture units than OpenGL gives a fragment shader, and the two backends are kept to the same picture. Where a layer&#39;s paint runs out its weight is zero and it costs nothing; where two overlap the surface is a blend of both, normals included. Parallax is not applied on layers, and a steep face stretches its texture as it would on any mesh.</p>
+<h2 id="sculpting-and-painting">Sculpting and painting<a class="anchor" href="#sculpting-and-painting" aria-label="Link to this section">#</a></h2>
+<p>Select the terrain, and under its component&#39;s fields is <strong>Brush</strong>: four modes, and the brush&#39;s size, strength and hardness.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Mode</th><th style="text-align:left">What a drag does</th><th style="text-align:left">Shift</th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Raise</strong></td><td style="text-align:left">Lifts the ground under the brush. At strength 1 the centre climbs a quarter of <code>Height</code> per second</td><td style="text-align:left">Lowers it</td></tr>
+<tr><td style="text-align:left"><strong>Smooth</strong></td><td style="text-align:left">Blends each sample toward the mean of its neighbours</td><td style="text-align:left">--</td></tr>
+<tr><td style="text-align:left"><strong>Flatten</strong></td><td style="text-align:left">Pulls the ground toward the height where the drag began</td><td style="text-align:left">--</td></tr>
+<tr><td style="text-align:left"><strong>Paint</strong></td><td style="text-align:left">Paints the chosen layer -- one of the four -- into the asset&#39;s weights</td><td style="text-align:left">Erases it</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Size</strong> is the radius in metres; <code>[</code> and <code>]</code> change it in the viewport.</li>
+<li><strong>Strength</strong> is a rate: a full-strength raise climbs a quarter of the height each second, and smooth, flatten and paint close an eighth of their gap per sixtieth of a second, whatever the frame rate.</li>
+<li><strong>Hardness</strong> is how much of the radius is at full weight before the fall-off: 0 a soft cone, 1 a hard disc. A ring on the ground shows the rim and the core.</li>
+</ul>
+<p>While a mode is chosen, a plain left drag on the terrain sculpts and a click does not select; Alt+drag still orbits and the right button still flies. Escape, or the lit mode button, puts the brush down. <strong>One drag is one undo step.</strong> The tool is inert while the scene is playing.</p>
+<p>Strokes edit the terrain asset, not the scene, and are <strong>written when the scene is saved</strong> (Ctrl+S) -- the unsaved mark counts them. The height-field collider is built from the data at the next Play, so what was sculpted is what a body rests on.</p>
+<p><code>--brush=mode,x,z,radius,strength,seconds[,layer]</code> applies one stroke on the <code>--select</code>ed terrain when the editor opens and saves it, which is how the checks hold the brush.</p>
 <h2 id="what-happens-underneath">What happens underneath<a class="anchor" href="#what-happens-underneath" aria-label="Link to this section">#</a></h2>
 <p>The grid is cut into <strong>chunks of 64 quads</strong>, each built at four levels of detail (every 1st, 2nd, 4th and 8th sample) as an ordinary mesh. Each frame every chunk picks a level from the camera&#39;s distance -- full detail within four chunk widths, one level coarser per doubling after that -- and that level is what is drawn, what casts shadows, what a ray hits and what a click lands on. Where two neighbouring chunks meet at different levels a <strong>skirt</strong> -- the chunk&#39;s edge dropped a little way down -- hides the sliver of background that would otherwise show. A chunk pops when its level changes; temporal anti-aliasing softens it.</p>
 <p>Collision is Jolt&#39;s height-field shape over the same samples, split into triangles along the same diagonal as the meshes, so a body rests exactly on what is drawn. Ray casts hit it and report the terrain&#39;s entity.</p>
 <h2 id="limits">Limits<a class="anchor" href="#limits" aria-label="Link to this section">#</a></h2>
 <ul>
 <li>Four layers at most, each reading three maps (base colour, normal, roughness); the paint is at the heights&#39; resolution.</li>
-<li>No sculpting or painting in the editor. The next stage: a brush that raises, lowers, smooths and flattens the ground under the cursor and paints the layers with the same stroke.</li>
+<li>One brush shape -- a disc with a hardness. Brush textures, noise, erosion, ramp and clone tools are the next stage.</li>
+<li>A held smooth or flatten stops within four height units of its target (a fraction of a millimetre on a ten-metre terrain); a held paint reaches full and empty.</li>
 <li>A terrain seen in a ray-traced reflection shows layer 0 only.</li>
 <li>No holes: a heightfield cannot have caves or overhangs.</li>
 <li>Everything is built at load and stays resident. A 1025 terrain is a few tens of megabytes of geometry; 2049 is around 180 MB and the practical ceiling until terrains stream.</li>
@@ -61,7 +78,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="materials.html"><span class="pager-label">Previous</span><span class="pager-title">Materials</span></a><a class="pager-link pager-next" href="lighting.html"><span class="pager-label">Next</span><span class="pager-title">Lighting</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#making-one">Making one</a><a class="toc-link toc-l2" href="#the-asset">The asset</a><a class="toc-link toc-l2" href="#the-component">The component</a><a class="toc-link toc-l2" href="#layers">Layers</a><a class="toc-link toc-l2" href="#what-happens-underneath">What happens underneath</a><a class="toc-link toc-l2" href="#limits">Limits</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#making-one">Making one</a><a class="toc-link toc-l2" href="#the-asset">The asset</a><a class="toc-link toc-l2" href="#the-component">The component</a><a class="toc-link toc-l2" href="#layers">Layers</a><a class="toc-link toc-l2" href="#sculpting-and-painting">Sculpting and painting</a><a class="toc-link toc-l2" href="#what-happens-underneath">What happens underneath</a><a class="toc-link toc-l2" href="#limits">Limits</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>
