@@ -6816,31 +6816,181 @@ project's; a packaged game never sees them.
 
 ## 7at. Global illumination (9.12): a screen-space pass in the profile, a ray in the shader, and one of them at a time
 
-**DESIGNED AND WRITTEN 2026-08-17, NOT LANDED: the implementation regressed
-SSAO on OpenGL and was withdrawn rather than committed.** Everything below is
+**DESIGNED AND WRITTEN 2026-08-17. The OpenGL regression that held it back is
+FOUND AND FIXED (below); the feature itself is still unverified -- no bleed
+measurement, no RT GI run, no checks of its own -- so it is still not
+committed.** Everything below is
 the design, and it was built once, end to end: it compiles, the SSGI chain
 runs, and its add measurably lifts a frame (173,582 pixels changed on the
-corner fixture). Two things stopped it. The first was mine and is fixed in the
-parked patch: sharing SSAO's blur by moving *its* depth from green into alpha
-broke that shader (`vec2` neighbours read `.a`), which made PostProcess fail
-to compile, which skipped the whole post chain and rendered black -- so SSGI
-now has its own `ssgi_blur.rvshader` and SSAO's three shaders are untouched.
-The second is **not diagnosed**: with the C++ half applied, `check_ssao.py`
-still fails on OpenGL ("AmbientOcclusion: false changed the image, max 64")
-while Vulkan passes, and the same check passes on both backends with the patch
-removed. The prime suspect is the scene uniform block: this adds a `vec4
-GlobalIllumination` to `SceneUniforms` and to `pbr_fragment.glsl`, and OpenGL
-binds that block differently from Vulkan -- start by reverting *only* that
-field and its shader use, rebuild, and re-run `check_ssao.py --config Release`.
+corner fixture). Two bugs stopped it, both mine, both now fixed.
+
+**The first: sharing SSAO's blur.** Moving *its* depth from green into alpha so
+one blur could serve both left the neighbour samples typed `vec2` reading
+`.a`; the shader failed to compile, `PostProcess` never became ready, the
+whole post chain was skipped, and **every frame rendered black**. SSGI has its
+own `ssgi_blur.rvshader` now and SSAO's three shaders are untouched -- a copy
+is the cheaper mistake than editing a pass three shipped features depend on.
+
+**The second: one uniform block, declared two ways.** With the C++ half applied
+`check_ssao.py` failed on OpenGL ("AmbientOcclusion: false changed the image,
+max 64") and passed on Vulkan. The claim it broke is "off is off to the byte",
+and the reason is worse than a wrong value: **two identical OpenGL runs of the
+same scene differed by 67 levels.** The scene uniform block is *mirrored by
+hand* in two shader files -- `include/pbr_fragment.glsl` and
+`include/scene_vertex.glsl` -- and the struct's own comment in Renderer3D.cpp
+says so. This added `vec4 GlobalIllumination` to the C++ struct and to the
+fragment mirror **only**. Vulkan does not care: each stage's block is a view
+over one buffer and a stage that declares fewer fields simply reads fewer. On
+OpenGL the two stages are *linked into one program*, and a uniform block
+declared two different ways in one program is ground the spec does not
+define -- the linker resolves it as it likes, and what it resolved to varied
+between runs. Adding the field to both mirrors makes OpenGL bit-identical run
+to run again, and `check_ssao.py` green on both backends (scenetest also 1798
+Vulkan / 1758 OpenGL, unchanged). **The rule, now written at the struct: a
+field added to `SceneUniforms` must be added to every shader that mirrors the
+block.** It is the same class of failure the struct's older comment warns
+about for `PreviousViewProjection` -- "the two disagreeing is a picture that
+is wrong rather than a build that fails" -- except that on OpenGL it is not
+even consistently wrong.
 
 The work is parked in `build/9.12-gi-wip/` (git-ignored, on the owner's
-machine): `gi.patch` (940 lines: settings, resolve, CLI, PostProcess entries,
-graph passes, the lit-shader block, registry rows) plus the four new files it
-does not carry -- `ssgi_compute`, `ssgi_blur`, `ssgi_apply` and
-`make_gi_scene.py`. Apply with `git apply build/9.12-gi-wip/gi.patch` and copy
-the shaders back. Also unfinished: the `gi_corner` fixture's camera does not
+machine): `gi.patch` (settings, resolve, CLI, PostProcess entries, graph
+passes, the lit-shader block, registry rows) plus the four new files it does
+not carry -- `ssgi_compute`, `ssgi_blur`, `ssgi_apply` and `make_gi_scene.py`.
+Apply with `git apply build/9.12-gi-wip/gi.patch` and copy the shaders back;
+**the patch predates the uniform-block fix, so add `vec4 GlobalIllumination`
+to `scene_vertex.glsl` as well after applying it.** Still unfinished: the `gi_corner` fixture's camera does not
 frame the red wall (the bleed claim has never been measured), RT GI has never
 been run, and there are no scenetest or check_gi.py claims yet.
+
+The owner's ask (2026-08-17): "global illumination which will be a part of
+post processing profile, and also ray traced illumination -- its option
+should be available in rendering settings under ray tracing when ray tracing
+is enabled, and when RT illumination is selected the global illumination gets
+disabled/greyed out."
+
+That is exactly the shape 7ao already built twice. **A screen-space effect
+lives in the post profile; its traced twin lives in Render Settings under the
+ray-tracing switch; the traced one takes over and the profile's row greys
+with a note.** SSR/RT reflections and SSAO/RTAO are that pattern; this is the
+third pair, and it reuses the machinery rather than inventing a third way:
+`ResolveRayTracedGlobalIllumination`, `FieldHint::DisabledIf`, the same
+"ray-traced equivalent in use" note, the same `--raygi=` override.
+
+**What indirect light *is* here.** Both forms answer one question -- how much
+light arrives at this pixel from the *scene* rather than from a light or the
+sky -- and both add it as diffuse. Neither is a full light transport: one
+bounce, no specular indirect (SSR and RT reflections are that), no
+multi-bounce, no infinite light.
+
+### The screen-space form: SSGI in the profile
+
+`PostSettings::GlobalIllumination`, with `GiIntensity` and `GiRadius`. The
+chain is SSAO's chain with a different first pass and a different last one,
+which is deliberate: the shape is known to work, the blur is *literally the
+same shader*, and the half-resolution decision, the reconstruction of
+position and normal, and the projection scales are all already carried in
+`PostParams`.
+
+1. **`ssgi_compute`**, half resolution. Position and normal come from the
+   depth buffer and the surface attachment exactly as SSAO's do (7ac, 7ae --
+   the written normal where it agrees with depth, reconstructed where it does
+   not). Twelve cosine-weighted taps in the hemisphere; each is projected back
+   to the screen; the depth there says whether the tap landed on a real
+   surface within `GiRadius` and in front of the sample (the same thickness
+   reasoning SSR's walk uses), and if it did, that pixel's **lit colour** is
+   gathered, weighted by the cosine. The result is an irradiance estimate in
+   RGB, at half res.
+2. **`ssao_blur` twice**, unchanged, because a noisy gather wants exactly the
+   separable blur a noisy occlusion wanted.
+3. **`ssgi_apply`**: `out = lit + lit * gi * intensity`.
+
+That last line is the design's one real approximation and it is stated
+plainly. A post pass has the lit colour and the normal but **not the albedo**,
+and indirect diffuse is albedo x irradiance. Using the pixel's own lit colour
+in albedo's place is the standard forward-renderer stand-in and it has the
+two properties that matter: a red wall bounces red onto what it lights *and*
+receives tinted by its own colour, and a black surface receives nothing --
+which is what "albedo x irradiance" says at the ends of the range. What it
+gets wrong is a dark surface under a bright light: it reads bright, so it
+receives more than it should. The intensity dial is the restraint, exactly as
+SSAO's is for its own stated compromise. Off adds no pass and is exact.
+
+Two more stated limits, both inherited from being screen-space: light only
+bounces from what is **on screen** (turn away from the red wall and its
+bleed goes with it), and only from what is **in front** (a surface behind the
+camera plane contributes nothing). These are the failures the traced form
+exists to fix.
+
+### The traced form: RT GI in the lit shader
+
+`RenderSettings::RayTracedGlobalIllumination`, offered only while
+`RayTracing` is on **and** the device is bindless -- the same gate RT
+reflections use, and for the same reason: shading a hit needs the material
+heap. It does **not** live in a post pass. It lives in `pbr_fragment.glsl`
+under `RV_RAY_GI`, next to `RV_RAY_REFLECTIONS`, because everything it needs
+is already bound there and nowhere else: the acceleration structure, the ray
+instance table (binding 15), the material heap, the light buffer, and
+`TraceReflection` -- which is already "the radiance a ray finds, shaded at
+the hit". A reflection ray and an indirect-diffuse ray differ only in which
+direction they are cast and how the result is weighted.
+
+Per pixel: **four** cosine-weighted directions about the shading normal,
+built from a per-pixel hash of `gl_FragCoord` and the frame counter so the
+noise is different every pixel and every frame (TAA is what resolves it, the
+same bargain the rest of the renderer already takes); each ray goes through
+`TraceReflection`, which returns the sky where it misses and a simplified
+shade where it hits. The mean is the irradiance; it multiplies the surface's
+own `diffuse` (albedo x (1 - metallic)) and `GiIntensity`, and lands in the
+same place the ambient term does. **Albedo is right here** -- the shader has
+it -- which is the substantive quality difference from the screen-space form,
+alongside seeing off-screen and behind.
+
+Four rays per pixel is a real cost and it is stated: this is the most
+expensive switch in the engine, and it is off by default.
+
+### One at a time, and the row that says so
+
+`ResolveRayTracedGlobalIllumination(render)` reads the project's checkbox,
+the `--raygi=` override, and what the device can do -- the same three-way
+resolve as the other two. When it is true:
+
+- the frame graph **does not add the SSGI passes at all**, whatever the
+  profile says (`desc.Post.GlobalIllumination && !rayGi`);
+- the lit shaders compile with `RV_RAY_GI`;
+- the profile's **Global illumination** row is disabled through
+  `FieldHint::DisabledIf(RayGiTakesOver)` and reads "ray-traced equivalent in
+  use", which is the note 7ao already writes for SSR and SSAO;
+- the **Intensity** dial stays live under either form (`GiDialsApply`), because
+  both consult it -- the same rule the AO radius and intensity already follow.
+
+### The checks
+
+`scenetest`: the graph assertions -- SSGI off adds no pass; on adds compute,
+two blurs and apply; with RT GI resolved on, the SSGI passes are absent
+whatever the profile holds; and the resolve prefers the override to the
+project. `check_gi.py` on a new `gi_corner` fixture -- a white floor and a
+white wall meeting a **saturated red wall**, one directional light, no sky
+light, so the only red in the frame is bounce: the white wall's pixels near
+the corner must be redder with GI on than with it off, by a stated margin,
+and the far end of the same wall must not be (the bleed falls off). Then the
+same scene with `--raytracing=on --raygi=on`: the same corner reddens, and --
+the claim the screen-space form cannot pass -- a wall **facing away** from
+the red one, whose bounce source is off screen, reddens too. Falsified by
+zeroing the gather (no reddening anywhere) and by removing the `!rayGi` gate
+(both run and the corner is twice as red).
+
+### What stays stated
+
+One bounce. No indirect specular. No caching, no probes, no radiance cache,
+no denoiser beyond the blur and TAA -- so SSGI is soft and RT GI is grainy
+until TAA settles. SSGI's albedo stand-in. SSGI sees only what is on screen
+and in front. RT GI is four rays a pixel and costs accordingly. Neither
+affects the shadow pass, the probes, or the sky.
+
+---
+
+## 7at. Global illumination (9.12): a screen-space pass in the profile, a ray in the shader, and one of them at a time
 
 The owner's ask (2026-08-17): "global illumination which will be a part of
 post processing profile, and also ray traced illumination -- its option
