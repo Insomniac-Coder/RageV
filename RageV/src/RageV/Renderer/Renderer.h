@@ -86,6 +86,15 @@ namespace RageV
 		static void SetScreenReflections(const ScreenReflections* reflections);
 		static const ScreenReflections* GetScreenReflections();
 
+		// Ray-traced global illumination's dial and its per-frame die
+		// (ENGINE-NOTES 7at). The frame graph sets it when the traced form
+		// resolves on; the lit shader's RV_RAY_GI block reads both. Intensity
+		// is the profile's GiIntensity -- one dial serves both forms -- and
+		// the counter is what makes each frame's four rays a different four,
+		// which is what TAA needs to converge them.
+		static void SetGlobalIllumination(float intensity);
+		static float GetGlobalIllumination();
+
 		// Null outside a frame, and between BeginFrame returning nullptr and
 		// the next successful frame.
 		static RHI::RHICommandList* GetCommandList();

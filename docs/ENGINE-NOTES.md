@@ -6816,10 +6816,28 @@ project's; a packaged game never sees them.
 
 ## 7at. Global illumination (9.12): a screen-space pass in the profile, a ray in the shader, and one of them at a time
 
-**DESIGNED AND WRITTEN 2026-08-17. The OpenGL regression that held it back is
-FOUND AND FIXED (below); the feature itself is still unverified -- no bleed
-measurement, no RT GI run, no checks of its own -- so it is still not
-committed.** Everything below is
+**LANDED 2026-08-17.** Three bugs stood between the design and a working
+feature, and each hid differently; all three are fixed and each is described
+below. What shipped, measured on the `gi_corner` and `gi_away` fixtures: the
+screen-space form puts **+0.77 levels of red** on the white wall beside the red
+one and **+0.00** on the far end of that same wall; the traced form **+2.72**
+on the near region and **+1.26** on a wall whose bounce source is *off screen*,
+where the screen-space form manages **+0.00** -- the difference the two forms
+exist to have. An intensity of zero is the frame without the feature, to the
+byte, on both backends; with the traced form on, flipping the profile's toggle
+changes nothing at all. Falsified by zeroing the gather (+0.00 everywhere) and
+by removing the exclusivity gate (both run; the toggle then moves the image by
+25 levels). scenetest 1802 Vulkan / 1762 OpenGL.
+
+**The third bug, which the other two hid: a hit shaded through a table nobody
+bound.** `TraceReflection` and the ray-instance table it reads were both
+guarded on `RV_RAY_REFLECTIONS`, and the renderer only *bound* binding 15 when
+reflections were on. With GI alone the lit shader first failed to compile --
+and **a lit-shader compile failure is not loud**: the engine logs it and
+carries on with the previous shader, which looks exactly like a feature that
+does nothing. Widening the guards then produced a black frame, because the
+shader was reading an unbound buffer. Both the `#ifdef`s and the four bind
+sites now fire for *either* traced feature. Everything below is
 the design, and it was built once, end to end: it compiles, the SSGI chain
 runs, and its add measurably lifts a frame (173,582 pixels changed on the
 corner fixture). Two bugs stopped it, both mine, both now fixed.

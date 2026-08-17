@@ -72,6 +72,17 @@ layout(set = 0, binding = 0) uniform SceneData
 	// trace. x = intensity (zero: nothing to read), y = the sign that takes
 	// an NDC y-offset into the trace's row direction. ENGINE-NOTES 7af.
 	vec4 ScreenReflections;
+
+	// Ray-traced global illumination (ENGINE-NOTES 7at). x = intensity, zero
+	// when the traced form is not running; y = a counter the bounce rays hash
+	// so successive frames cast different directions. zw unused.
+	//
+	// Declared in *both* mirrors of this block -- pbr_fragment.glsl and
+	// scene_vertex.glsl -- because OpenGL links the stages into one program
+	// and two spellings of one uniform block is undefined ground: the first
+	// draft added it to the fragment mirror alone and every OpenGL frame came
+	// out different.
+	vec4 GlobalIllumination;
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.

@@ -1,0 +1,298 @@
+// SSGI, pass 1 of 4: one bounce of diffuse light, at half resolution
+// (ENGINE-NOTES 7at).
+//
+// The same pass as SSAO's, asked a different question. Position and normal
+// are reconstructed exactly as they are there -- the written normal where it
+// agrees with the depth buffer's slope, reconstructed where it does not, the
+// snapped texel centre, the ray-relative facing test -- because the geometry
+// question ("what surface is this pixel, and which way does it face") has one
+// right answer and it is already written down once. See ssao_compute for why
+// each of those is the way it is; the comments are not repeated here.
+//
+// Where the taps differ: SSAO asks whether something sits *in front of* the
+// tap and counts it as darkness. This asks whether the tap landed *on* a real
+// surface near enough to matter, and if it did, gathers that surface's lit
+// colour, weighted by the cosine of the direction it arrives from. The mean
+// is an irradiance estimate: what this pixel receives from the scene rather
+// than from a light.
+//
+// Only from what is on screen and in front of the camera -- the two failures
+// the ray-traced form (RV_RAY_GI, in the lit shader) exists to fix, and both
+// stated in 7at.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// The scene's depth. A different size than this pass under SSAA and under
+// half resolution always -- normalised coordinates make that nobody's
+// problem, the same way every other post pass reads it.
+layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+// The surface description: octahedral world normal in RG, roughness B,
+// metallic A. Point sampled: a normal halfway between two surfaces is a
+// direction nothing faces.
+layout(set = 0, binding = 1) uniform sampler2D u_Surface;
+// The lit HDR image this frame, full resolution. Linearly sampled: a bounce
+// is low frequency and a gather of point samples would alias badly.
+layout(set = 0, binding = 2) uniform sampler2D u_Scene;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header: this pass's texel
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+
+	float NearClip;
+	float FarClip;
+	// Inverses of the projection's [0][0] and [1][1]: what turns an NDC
+	// coordinate back into a view-space one at unit depth. Perspective is
+	// assumed; see 7ac for what an orthographic camera gets instead.
+	float InvP0;
+	float InvP1;
+	// World metres the hemisphere reaches.
+	float Radius;
+	float _pad0;
+
+	// The view matrix's rotation, as three rows -- what takes the world
+	// normal the attachment stores into the frame the kernel is built in.
+	// Rows rather than a mat4 because push constants are tight and only the
+	// rotation is needed. The same three rows SSR's trace carries.
+	vec4 ViewRow0;
+	vec4 ViewRow1;
+	vec4 ViewRow2;
+} u_Params;
+
+#include "include/view_reconstruction.glsl"
+
+const int kTaps = 12;
+const float kGoldenAngle = 2.39996323;
+// How far in front of a tap something must sit before it counts as an
+// occluder, in metres -- plus a per-metre term, because the restraint has
+// to grow with distance: a floor seen at a grazing angle has neighbouring
+// texels whole steps apart in depth, the reconstructed normal wobbles with
+// them, and a fixed bias that is honest up close lets the far floor occlude
+// itself into visible mottling. The real normal does not wobble, but the
+// depth the taps are compared against still quantises, so the term stays.
+const float kBias = 0.02;
+const float kBiasPerMetre = 0.012;
+
+vec2 InvProjection() { return vec2(u_Params.InvP0, u_Params.InvP1); }
+
+// The point the depth texel this uv lands on actually describes.
+//
+// **Snapped to that texel's centre before reconstruction.** This pass runs
+// at half resolution and point-samples the full-resolution depth, so its uv
+// lands on a texel *boundary*, and the depth it reads belongs to a texel
+// centre up to half a texel away. Reconstructing at the unsnapped uv puts
+// the point off the surface by that half texel's worth of depth -- nothing
+// on a wall seen square-on, and on a wall seen along its length, where a
+// texel spans centimetres of depth, enough to scatter the five points the
+// normal is built from off the plane by more than the sixteen degrees the
+// written normal is admitted within. The wall then takes a wrong
+// reconstructed normal, dips its hemisphere into itself, and darkens by a
+// third; and because the temporal jitter moves the depth content under the
+// texel grid by up to half a pixel, *which* texel each uv rounds into
+// changes with the jitter index, so the wrong normal comes and goes with a
+// period of eight frames -- the flicker the owner saw in the editor viewport,
+// where the courtyard walls run away from the camera. Snapping makes the
+// reconstruction exact for a plane whatever the texel, and the jitter has
+// nothing left to move. ENGINE-NOTES 7an.
+vec3 ViewPositionAt(vec2 uv)
+{
+	const vec2 depthSize = vec2(textureSize(u_Depth, 0));
+	const vec2 snapped = (floor(uv * depthSize) + 0.5) / depthSize;
+	const float z = LinearDepth(texture(u_Depth, snapped).r, u_Params.NearClip, u_Params.FarClip);
+	return ViewPosition(snapped, z, InvProjection());
+}
+
+// The chosen-neighbour normal, from depth alone. Four candidate positions,
+// and each axis keeps the difference whose *depth* is nearer the centre's
+// -- the one on this pixel's own surface -- so a silhouette pixel takes its
+// slope from its own surface rather than inventing the 45-degree normal a
+// naive derivative cross produces along every edge. The fallback, and what
+// every pixel used before the attachment existed.
+vec3 ReconstructedNormal(vec2 uv, vec3 centre, vec2 texel)
+{
+	const vec3 right = ViewPositionAt(uv + vec2(texel.x, 0.0));
+	const vec3 left  = ViewPositionAt(uv - vec2(texel.x, 0.0));
+	const vec3 up    = ViewPositionAt(uv + vec2(0.0, texel.y));
+	const vec3 down  = ViewPositionAt(uv - vec2(0.0, texel.y));
+
+	const vec3 dx = abs(right.z - centre.z) < abs(centre.z - left.z)
+				  ? right - centre : centre - left;
+	const vec3 dy = abs(up.z - centre.z) < abs(centre.z - down.z)
+				  ? up - centre : centre - down;
+
+	vec3 normal = normalize(cross(dy, dx));
+	// Toward the camera, whichever winding the cross came out with: a
+	// surface the camera can see cannot face away from it.
+	//
+	// **Against the ray to the point, not against the view axis.** This used
+	// to test normal.z, and for a wall seen along its length -- the courtyard
+	// walls from the editor camera -- the true normal's z is nearly zero:
+	// the sign of a tiny, noise-driven component decided which way the whole
+	// normal faced, and half the time it faced *into* the wall. Every tap
+	// then landed inside the wall, read the wall in front of it, and the
+	// face went a third darker; and since the temporal jitter moves the depth
+	// content under the texel grid, the noise changed sign with the jitter
+	// index and the wall came and went with a period of eight frames -- the
+	// flicker the owner saw. The ray from the eye to the point is at a
+	// healthy angle to any visible surface, grazing or not, so its sign is
+	// never in doubt. `centre` is that ray: the frame's origin is the eye.
+	// ENGINE-NOTES 7an.
+	return dot(normal, centre) > 0.0 ? -normal : normal;
+}
+
+uint Hash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+	const vec3 centre = ViewPositionAt(uv);
+
+	// The normal. The scene's own where it wrote one *and it agrees with the
+	// depth buffer's own slope*; reconstructed otherwise.
+	//
+	// The written normal is the shading normal, after the normal map. The
+	// occluders here are the depth buffer, which knows geometry and nothing
+	// else: a texel whose normal map tilts it thirty degrees off a flat wall
+	// is still a flat wall to every depth sample around it, and a hemisphere
+	// tilted thirty degrees dips its lower taps into that wall -- so the wall
+	// reads as occluding itself along every mortar line. The first version
+	// of this pass took the written normal wherever it faced the camera, and
+	// the owner saw the demo's brick walls mottle; on the fixture that
+	// isolates it -- a brick wall seen along its length with nothing near it
+	// -- that rule darkened open texels by up to 4.6 %, where the geometric
+	// normal holds the wall at 1.000 to three places. So the written normal
+	// is taken only where it is within the reconstruction's own accuracy of
+	// the geometric one; a larger disagreement is a bump the depth buffer
+	// does not have, and occlusion by that depth buffer has to be measured
+	// against the normal that buffer implies. Curved surfaces, where the
+	// reconstruction is noisy and the written normal is smooth, agree and
+	// take the written one -- which is what the switch was for.
+	//
+	// The same test also refuses a shading normal that leans away from the
+	// camera at a grazing angle: it cannot agree with a geometric normal
+	// that faces it.
+	//
+	// The tolerance is a few times the reconstruction's wobble on a distant
+	// floor and well under any normal map worth authoring; with the kernel's
+	// lift of 0.4, a tilt this size still keeps every tap above the
+	// geometric plane, so nothing self-occludes on either side of the line.
+	const float kAgreement = 0.96;   // cos of about 16 degrees
+
+	const vec4 surface = texture(u_Surface, uv);
+	vec3 normal = ReconstructedNormal(uv, centre, texel);
+	if (!SurfaceIsEmpty(surface))
+	{
+		const vec3 written = ReconstructionNormal(OctDecode(surface.rg),
+												 u_Params.ViewRow0.xyz,
+												 u_Params.ViewRow1.xyz,
+												 u_Params.ViewRow2.xyz, flip);
+		if (dot(written, normal) > kAgreement)
+			normal = written;
+	}
+
+	// An orthonormal frame around it, from whichever axis is less parallel.
+	const vec3 axis = abs(normal.x) < 0.7 ? vec3(1, 0, 0) : vec3(0, 1, 0);
+	const vec3 tangent = normalize(cross(axis, normal));
+	const vec3 bitangent = cross(normal, tangent);
+
+	// Per-pixel rotation of the spiral, from the pixel coordinate alone --
+	// never the frame number. The same determinism sentence as 7ab.
+	const uvec2 pixel = uvec2(uv / texel);
+	const float rotation = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y))
+						 / 4294967296.0 * 6.2831853;
+
+	// The light gathered, and the weight it was gathered with.
+	vec3 gathered = vec3(0.0);
+	float weight = 0.0;
+
+	for (int i = 0; i < kTaps; i++)
+	{
+		// The DoF gather's spiral, bent into a hemisphere: sqrt spacing
+		// fills the disc evenly, and the lift keeps every tap on the
+		// surface's outside.
+		const float t = (float(i) + 0.5) / float(kTaps);
+		const float r = sqrt(t);
+		const float theta = float(i) * kGoldenAngle + rotation;
+
+		const vec3 direction = normalize(vec3(cos(theta) * r, sin(theta) * r,
+											  0.4 + 0.6 * (1.0 - r)));
+		const vec3 sample_ = centre
+						   + (tangent * direction.x + bitangent * direction.y
+							  + normal * direction.z) * u_Params.Radius;
+
+		// Back to uv -- the exact inverse of ViewPosition, so the two agree
+		// by construction rather than by convention.
+		const vec2 sampleUv = ViewToUv(sample_, InvProjection());
+
+		if (any(lessThan(sampleUv, vec2(0.0))) || any(greaterThan(sampleUv, vec2(1.0))))
+			continue;
+
+		const float sceneZ = LinearDepth(texture(u_Depth, sampleUv).r,
+										 u_Params.NearClip, u_Params.FarClip);
+
+		// The surface the tap's screen position actually shows, in view
+		// space: gathering the *tap's* colour rather than the tap's position
+		// is the whole difference from an occlusion query, and the position
+		// the colour belongs to is the one the depth buffer holds there, not
+		// the one the kernel proposed.
+		const vec3 hit = ViewPosition(sampleUv, sceneZ, InvProjection());
+		vec3 toHit = hit - centre;
+		const float distance_ = length(toHit);
+		if (distance_ < 1.0e-4 || distance_ > u_Params.Radius)
+			continue;
+		toHit /= distance_;
+
+		// Light arrives along the surface's own hemisphere: a bounce from
+		// behind this pixel is not light it receives. The bias is the same
+		// depth-quantisation restraint SSAO's is, for the same reason.
+		const float cosine = dot(normal, toHit);
+		const float bias = kBias + kBiasPerMetre * centre.z;
+		if (cosine <= 0.0 || sceneZ >= sample_.z + u_Params.Radius + bias)
+			continue;
+
+		// Falls off with distance, so a wall across the room bleeds less
+		// than one at arm's length: the inverse-square the geometry term
+		// would apply, softened at the near end so a tap a millimetre away
+		// does not carry the frame.
+		const float falloff = 1.0 / (1.0 + distance_ * distance_);
+		gathered += texture(u_Scene, sampleUv).rgb * cosine * falloff;
+		weight += cosine;
+	}
+
+	// Normalised by the weight that was actually gathered, not by the tap
+	// count: a pixel whose taps mostly left the screen would otherwise read
+	// as receiving nothing rather than as having nothing to say.
+	const vec3 irradiance = weight > 1.0e-4 ? gathered / weight : vec3(0.0);
+
+	// Light in RGB, linear depth in A for the blur's edge test -- the same
+	// packing SSAO uses, so its blur reads this without a word of change.
+	o_Color = vec4(irradiance, centre.z);
+}

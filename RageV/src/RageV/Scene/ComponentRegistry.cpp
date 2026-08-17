@@ -1344,6 +1344,28 @@ namespace
 		{
 			return ResolveRayTracedAmbientOcclusion(Project::Render());
 		}
+		bool RayGiTakesOver(const void*)
+		{
+			return ResolveRayTracedGlobalIllumination(Project::Render());
+		}
+		// The radius is the screen-space gather's alone: a traced ray runs
+		// until it hits something.
+		bool GiScreenSpaceRuns(const void* block)
+		{
+			return static_cast<const PostSettings*>(block)->GlobalIllumination && !RayGiTakesOver(block);
+		}
+		// The intensity serves both forms, so it shows while either runs --
+		// the rule the AO dials already follow.
+		bool GiDialsApply(const void* block)
+		{
+			return static_cast<const PostSettings*>(block)->GlobalIllumination || RayGiTakesOver(block);
+		}
+		// The traced bounce shades a hit through the heap, so it is offered
+		// exactly where reflections are.
+		bool OffersRayGi(const void* block)
+		{
+			return OffersRayReflections(block);
+		}
 		// The AO dials serve both forms, so they show while either runs.
 		bool AoDialsApply(const void* block)
 		{
@@ -1458,6 +1480,19 @@ namespace
 						"count, and no reconstruction to wobble. Uses the post "
 						"profile's AO radius and intensity; while on, its Ambient "
 						"occlusion toggle is not used and its row says so.")))),
+
+				Field<&RenderSettings::RayTracedGlobalIllumination>("RayTracedGlobalIllumination",
+					Named("RT global illumination", OnlyWhen(OffersRayGi, Tip(
+						"Cast the bounce as rays from every surface instead of "
+						"gathering it off the screen: light arrives from what is "
+						"behind the camera and behind other things, and lands on "
+						"the surface's own albedo rather than on the lit colour "
+						"standing in for it. Four rays a pixel -- the most "
+						"expensive switch here -- resolved by temporal "
+						"anti-aliasing. Offered only where materials are bindless "
+						"as well. While on, the post profile's Global illumination "
+						"is not used and its row says so; its intensity still "
+						"applies.")))),
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,
@@ -1723,6 +1758,35 @@ namespace
 						Slider(0.0f, 2.0f,
 							"A scale on the traced reflection's share of the "
 							"pixel; 1 is what the material implies."))))),
+
+				// --- global illumination. ENGINE-NOTES 7at --------------------
+				Field<&PostSettings::GlobalIllumination>("GlobalIllumination",
+					Named("Global illumination", DisabledWhen(RayGiTakesOver,
+						"Ray-traced global illumination is on in Render Settings and is used "
+						"instead; the intensity below still applies.",
+						Tip(
+						"One bounce of diffuse light gathered from what is on "
+						"the screen: a red wall throws red onto the white floor "
+						"beside it. Light only bounces from what is in frame and "
+						"in front of the camera -- turn away from the wall and "
+						"its colour goes with it, which is what the ray-traced "
+						"form fixes.")))),
+
+				Field<&PostSettings::GiRadius>("GiRadius",
+					Named("GI radius", OnlyWhen(GiScreenSpaceRuns,
+						Drag(0.05f, 0.1f, 20.0f,
+							"World metres a bounce may travel. Small is colour "
+							"bleeding in corners; large is room-scale. Shown only "
+							"for the screen-space form: a traced ray runs until "
+							"it hits something.")))),
+
+				Field<&PostSettings::GiIntensity>("GiIntensity",
+					Named("GI intensity", OnlyWhen(GiDialsApply,
+						Slider(0.0f, 4.0f,
+							"How much of the gathered light is added. 0 is "
+							"exactly the image without it. Read by both forms, "
+							"so a scene tuned under one is not re-tuned under "
+							"the other.")))),
 
 				// --- SSAO. ENGINE-NOTES 7ac -----------------------------------
 				Field<&PostSettings::AmbientOcclusion>("AmbientOcclusion",

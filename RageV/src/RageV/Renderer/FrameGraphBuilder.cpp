@@ -198,6 +198,31 @@ namespace RageV
 		return config.HasRayAoOverride ? config.RayAoOverride : render.RayTracedAmbientOcclusion;
 	}
 
+	bool ResolveRayTracedGlobalIllumination(const RenderSettings& render)
+	{
+		if (!ResolveRayTracing(render))
+			return false;
+		const EngineConfig& config = EngineConfig::Get();
+		const bool requested = config.HasRayGiOverride ? config.RayGiOverride
+													  : render.RayTracedGlobalIllumination;
+		// Shading a hit reads the material heap, exactly as a reflection's
+		// does: without bindless there is nothing to shade with, so the
+		// screen-space form stays and the log says so once (7at).
+		if (requested && !Renderer3D::IsBindless())
+		{
+			static bool reported = false;
+			if (!reported)
+			{
+				RV_CORE_INFO("Ray-traced global illumination requested but materials are not "
+							 "bindless on this device; a bounce cannot be shaded, so the "
+							 "screen-space form stays");
+				reported = true;
+			}
+			return false;
+		}
+		return requested;
+	}
+
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc)
 	{
 		if (desc.Output == kRGInvalid || desc.Width == 0 || desc.Height == 0)
@@ -347,6 +372,14 @@ namespace RageV
 		// on-screen. The profile's toggle is not consulted; its row says so.
 		const bool rayReflections = ResolveRayTracedReflections(desc.Render);
 		const bool rayOcclusion = ResolveRayTracedAmbientOcclusion(desc.Render);
+		// The third twin (7at). Where it runs, the lit shader casts the bounce
+		// itself and the screen-space chain below is not added at all --
+		// whatever the profile holds; its row says so. The dial goes to the
+		// renderer here, because the shader reads it out of the scene block:
+		// zero when the traced form is not running, so the block costs
+		// nothing where it is compiled in but idle.
+		const bool rayGi = ResolveRayTracedGlobalIllumination(desc.Render);
+		Renderer::SetGlobalIllumination(rayGi ? Math::Max(desc.Post.GiIntensity, 0.0f) : 0.0f);
 		const bool wantReflections = desc.Post.ScreenSpaceReflections
 								  && !rayReflections
 								  && desc.Reflections != nullptr
@@ -636,6 +669,110 @@ namespace RageV
 		// pass -- the taps cast as rays into the frame's structure -- and it
 		// runs on the render setting alone: the profile's AmbientOcclusion is
 		// then not consulted, its radius and intensity still are.
+		// --- SSGI (9.12): one bounce, gathered off the screen ---------------
+		//
+		// The same four-pass shape as the occlusion chain below, and for the
+		// same reasons: half resolution because a bounce is low frequency,
+		// the separable depth-aware blur because a gather of twelve taps is
+		// noisy, and the add on the linear HDR image before defocus and bloom
+		// because indirect light is lighting. Blurs 2 and 3 are literally
+		// SSAO's shader -- the packing is RGB and depth in alpha for exactly
+		// that. Before the occlusion chain, so a corner that receives a bounce
+		// also has that bounce darkened by its own occlusion rather than the
+		// other way about. Not added at all when the traced form runs, and not
+		// added at all when the profile's toggle is off. ENGINE-NOTES 7at.
+		if (desc.Post.GlobalIllumination && !rayGi && PostProcess::IsReady())
+		{
+			const uint32_t giWidth = Math::Max(desc.Width / 2u, 1u);
+			const uint32_t giHeight = Math::Max(desc.Height / 2u, 1u);
+
+			RGTargetDesc giDesc;
+			giDesc.Name = "SsgiRaw";
+			giDesc.Color = Format::R16G16B16A16_SFLOAT;
+			giDesc.Depth = Format::Undefined;
+			giDesc.Scale = 0.5f;
+			const RGResource giRaw = graph.CreateTarget(giDesc);
+
+			RGTargetDesc giBlurDesc = giDesc;
+			giBlurDesc.Name = "SsgiBlurX";
+			const RGResource giBlurX = graph.CreateTarget(giBlurDesc);
+			giBlurDesc.Name = "SsgiBlurred";
+			const RGResource giBlurred = graph.CreateTarget(giBlurDesc);
+
+			RGTargetDesc giAppliedDesc;
+			giAppliedDesc.Name = "SsgiApplied";
+			giAppliedDesc.Color = Format::R16G16B16A16_SFLOAT;
+			giAppliedDesc.Depth = Format::Undefined;
+			const RGResource giApplied = graph.CreateTarget(giAppliedDesc);
+
+			const RGResource giSource = shaded;
+			const float giRadius = desc.Post.GiRadius;
+			const float giIntensity = desc.Post.GiIntensity;
+
+			graph.AddPass("SSGI compute",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(giRaw);
+					builder.Sample(sceneHDR);
+					builder.Sample(giSource);
+					builder.DisableDepth();
+				},
+				[sceneHDR, giSource, normalIndex, giWidth, giHeight, reconstruction,
+				 giRadius](RGPassContext& context)
+				{
+					PostProcess::SsgiCompute(context.Cmd, context.Depth(sceneHDR),
+											 context.Color(sceneHDR, normalIndex),
+											 context.Color(giSource),
+											 giWidth, giHeight, reconstruction,
+											 giRadius, Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("SSGI blur x",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(giBlurX);
+					builder.Sample(giRaw);
+					builder.DisableDepth();
+				},
+				[giRaw, giWidth, giHeight](RGPassContext& context)
+				{
+					PostProcess::SsgiBlur(context.Cmd, context.Color(giRaw),
+										  giWidth, giHeight, 1.0f, 0.0f,
+										  Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("SSGI blur y",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(giBlurred);
+					builder.Sample(giBlurX);
+					builder.DisableDepth();
+				},
+				[giBlurX, giWidth, giHeight](RGPassContext& context)
+				{
+					PostProcess::SsgiBlur(context.Cmd, context.Color(giBlurX),
+										  giWidth, giHeight, 0.0f, 1.0f,
+										  Format::R16G16B16A16_SFLOAT);
+				});
+
+			graph.AddPass("SSGI apply",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(giApplied);
+					builder.Sample(giSource);
+					builder.Sample(giBlurred);
+					builder.DisableDepth();
+				},
+				[giSource, giBlurred, giIntensity](RGPassContext& context)
+				{
+					PostProcess::SsgiApply(context.Cmd, context.Color(giSource),
+										   context.Color(giBlurred), giIntensity,
+										   Format::R16G16B16A16_SFLOAT);
+				});
+
+			shaded = giApplied;
+		}
+
 		if ((desc.Post.AmbientOcclusion || rayOcclusion) && PostProcess::IsReady())
 		{
 			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);

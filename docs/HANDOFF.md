@@ -1593,32 +1593,15 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 9.12 global illumination is WRITTEN, its OpenGL regression is FIXED, and its own evidence is still missing (2026-08-17); terrain is finished
+### START HERE: 9.12 global illumination is DONE (2026-08-17); terrain is finished
 
-**Do this first.** The owner asked for global illumination in the post profile
-plus a ray-traced twin in Render Settings that greys the profile's row. It is
-designed in full in **ENGINE-NOTES 7at** and was built end to end, then held
-back from the tree because `check_ssao.py --config Release` failed on OpenGL
-with it applied. **That regression is now found and fixed.** The scene uniform
-block is mirrored *by hand* in `include/pbr_fragment.glsl` **and**
-`include/scene_vertex.glsl`; the new `vec4 GlobalIllumination` went into the
-fragment mirror alone, and on OpenGL -- where the two stages link into one
-program -- one block declared two ways made **every run render differently**
-(two identical runs differed by 67 levels), which is exactly what check_ssao's
-"off is off to the byte" claim caught. With the field in both mirrors,
-check_ssao is green on both backends and scenetest is 1798 Vulkan / 1758
-OpenGL. 7at tells the whole story, including the earlier black-frame bug from
-sharing SSAO's blur, and states the rule now written at the struct: **a field
-added to `SceneUniforms` must be added to every shader that mirrors the
-block.**
-
-What is still missing is the *feature's own* evidence, and it is why this is
-not committed: the `gi_corner` fixture's camera never framed the red wall, so
-colour bleed has never actually been measured; RT GI has never been run; and
-there are no scenetest or `check_gi.py` claims. Do those, then commit. The work
-is parked in `build/9.12-gi-wip/` -- `gi.patch` plus the four files it does not
-carry -- and the patch predates the uniform-block fix, so add
-`vec4 GlobalIllumination` to `scene_vertex.glsl` after applying it.
+The owner asked for global illumination in the post profile plus a ray-traced
+twin in Render Settings that greys the profile's row. **Both are in.** Read
+ENGINE-NOTES **7at**: the design, the three bugs it took to get there (a shared
+blur that blacked out every frame, one uniform block declared two ways that
+made *OpenGL* render differently on every run, and a hit shaded through a table
+nobody bound), and the measurements. `check_gi.py` is the evidence; scenetest
+carries the graph assertions. Nothing here is outstanding.
 
 ---
 

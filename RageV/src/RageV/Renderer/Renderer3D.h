@@ -162,6 +162,12 @@ namespace RageV
 		static void SetRayTracedReflections(bool enabled);
 		static bool IsRayTracedReflections();
 
+		// The traced bounce (ENGINE-NOTES 7at): needs traced shadows for the
+		// structure and bindless for the heap, exactly as reflections do, and
+		// silently stays off without either. Recompiles the lit shaders.
+		static void SetRayTracedGlobalIllumination(bool enabled);
+		static bool IsRayTracedGlobalIllumination();
+
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and
 		// --bindless did not say no. Reported rather than assumed, because a

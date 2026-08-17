@@ -115,6 +115,23 @@ namespace RageV
 			// row direction (-1 on the backend whose row 0 is the top). zw
 			// unused. ENGINE-NOTES 7af.
 			Vec4 ScreenReflections;
+
+			// Ray-traced global illumination (ENGINE-NOTES 7at). x = the
+			// profile's intensity, zero when the traced form is not running;
+			// y = a frame counter the bounce rays hash, so each frame draws a
+			// different four directions and TAA has something to average. zw
+			// unused.
+			//
+			// **A field added here must be added to EVERY shader that mirrors
+			// this block** -- pbr_fragment.glsl *and* scene_vertex.glsl. On
+			// Vulkan a stage that declares fewer fields is harmless; on
+			// OpenGL the two stages link into one program, and one uniform
+			// block declared two ways is a layout the linker resolves as it
+			// likes. Adding this to the fragment mirror alone made OpenGL
+			// render *differently on every run* -- two identical runs differed
+			// by 67 levels -- which is what check_ssao's "off is off to the
+			// byte" caught. See 7at.
+			Vec4 GlobalIllumination;
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -399,6 +416,10 @@ namespace RageV
 			// the shaders are recompiled and the pipelines rebuilt when it does.
 			bool RayShadowsOn = false;
 			bool RayReflectionsOn = false;
+			// The traced bounce (7at): same structures, same heap, its own
+			// define, so it recompiles the lit shaders the way the other two
+			// do.
+			bool RayGlobalIlluminationOn = false;
 			std::vector<GpuRayInstance> RayInstanceScratch;
 
 			// The depth-only pipeline. Its own shader and its own pipeline
@@ -597,6 +618,8 @@ namespace RageV
 			defines.push_back("RV_RAY_SHADOWS");
 		if (s_Data->RayReflectionsOn)
 			defines.push_back("RV_RAY_REFLECTIONS");
+		if (s_Data->RayGlobalIlluminationOn)
+			defines.push_back("RV_RAY_GI");
 
 		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", defines);
 		if (!compiled)
@@ -631,9 +654,13 @@ namespace RageV
 			return;
 
 		s_Data->RayShadowsOn = enabled;
-		// Reflections ride on the shadows' structure; off with them.
+		// Reflections and the traced bounce ride on the shadows' structure;
+		// off with them.
 		if (!enabled)
+		{
 			s_Data->RayReflectionsOn = false;
+			s_Data->RayGlobalIlluminationOn = false;
+		}
 		RV_CORE_INFO("Renderer3D: shadows {0}", enabled ? "traced" : "from maps");
 
 		// New shaders, new pipelines, and every scene set with them: a set is
@@ -668,6 +695,29 @@ namespace RageV
 	bool Renderer3D::IsRayTracedReflections()
 	{
 		return s_Data && s_Data->RayReflectionsOn;
+	}
+
+	void Renderer3D::SetRayTracedGlobalIllumination(bool enabled)
+	{
+		if (!s_Data)
+			return;
+		// A bounce is a ray into the shadows' structure, shaded through the
+		// heap: the same two prerequisites reflections have.
+		if (enabled && (!s_Data->RayShadowsOn || !s_Data->Bindless))
+			enabled = false;
+		if (s_Data->RayGlobalIlluminationOn == enabled)
+			return;
+
+		s_Data->RayGlobalIlluminationOn = enabled;
+		RV_CORE_INFO("Renderer3D: global illumination {0}",
+					 enabled ? "traced" : "screen-space or none");
+		if (CompileLitShaders())
+			s_Data->PipelineDirty = true;
+	}
+
+	bool Renderer3D::IsRayTracedGlobalIllumination()
+	{
+		return s_Data && s_Data->RayGlobalIlluminationOn;
 	}
 
 	Ref<Material> Renderer3D::GetDefaultMaterial()
@@ -859,6 +909,15 @@ namespace RageV
 		const bool haveReflections = reflections && reflections->Texture
 								  && reflections->Intensity > 0.0f;
 		const float rowSign = s_Data->Device->GetBackend() == Backend::Vulkan ? -1.0f : 1.0f;
+		// The traced bounce's dial, and the counter its directions are hashed
+		// from: incremented per BeginScene rather than per frame, so a probe
+		// face and the main view do not draw the same four rays either.
+		{
+			static uint32_t giFrame = 0;
+			s_Data->Scene.GlobalIllumination = Vec4(Renderer::GetGlobalIllumination(),
+													(float)(giFrame++ & 0xFFFFu), 0.0f, 0.0f);
+		}
+
 		s_Data->Scene.ScreenReflections = Vec4(haveReflections ? reflections->Intensity : 0.0f,
 											   rowSign, 0.0f, 0.0f);
 		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
@@ -1333,7 +1392,7 @@ namespace RageV
 			// build order, each naming its buffers by address and its material
 			// by the same record index the draws use -- so a material seen
 			// only in a reflection still gets a record this frame.
-			if (s_Data->RayReflectionsOn)
+			if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
 			{
 				const std::vector<RayCaster>& casters = RayShadows::GetCasters();
 				s_Data->RayInstanceScratch.clear();
@@ -1432,7 +1491,7 @@ namespace RageV
 		{
 			slot.Set->SetStorageBuffer(13, slot.Materials, 0,
 									   (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
-			if (s_Data->RayReflectionsOn)
+			if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
 				slot.Set->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 		}
 
@@ -1470,7 +1529,7 @@ namespace RageV
 			{
 				slot.SkinnedSet->SetStorageBuffer(13, slot.Materials, 0,
 												  (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
-				if (s_Data->RayReflectionsOn)
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
 					slot.SkinnedSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
 			slot.SkinnedSet->Commit();
@@ -1484,7 +1543,7 @@ namespace RageV
 			{
 				slot.LayeredSet->SetStorageBuffer(13, slot.Materials, 0,
 												  (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
-				if (s_Data->RayReflectionsOn)
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
 					slot.LayeredSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
 			slot.LayeredSet->Commit();

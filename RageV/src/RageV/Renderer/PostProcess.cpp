@@ -76,7 +76,10 @@ namespace RageV
 				case 21: return "assets/shaders/ssr_trace.rvshader";
 				case 22: return "assets/shaders/ssr_resolve.rvshader";
 				case 23: return "assets/shaders/ssr_hiz.rvshader";
-				default: return "assets/shaders/rtao_compute.rvshader";
+				case 24: return "assets/shaders/rtao_compute.rvshader";
+				case 25: return "assets/shaders/ssgi_compute.rvshader";
+				case 26: return "assets/shaders/ssgi_blur.rvshader";
+				default: return "assets/shaders/ssgi_apply.rvshader";
 			}
 		}
 
@@ -96,7 +99,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 25> Shaders;
+			std::array<Ref<RHIShader>, 28> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -156,7 +159,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 25,
+		static_assert((int)Shader::Count <= 28,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -826,6 +829,65 @@ namespace RageV
 		// exist, and a filtered normal is a direction nothing faces.
 		Dispatch(cmd, Shader::SsaoCompute, outputFormat, depth, surface,
 				 &params, sizeof(params), Sampling::Point, Sampling::Point);
+	}
+
+	void PostProcess::SsgiCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,
+								  const Ref<RHITexture>& surface,
+								  const Ref<RHITexture>& scene,
+								  uint32_t width, uint32_t height,
+								  const ViewReconstruction& view, float radius,
+								  Format outputFormat)
+	{
+		if (!s_Data || !depth || !surface || !scene)
+			return;
+
+		SsaoComputeParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+								  1.0f / (float)Math::Max(height, 1u) };
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
+		params.Radius = Math::Max(radius, 0.01f);
+		ViewRows(view.View, params.ViewRow0, params.ViewRow1, params.ViewRow2);
+
+		// Depth and normal point sampled for SSAO's reasons; the lit image
+		// linear, because a bounce is low frequency and a gather of point
+		// samples off a half-resolution grid aliases into sparkle.
+		Dispatch(cmd, Shader::SsgiCompute, outputFormat, depth, surface,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point,
+				 scene, Sampling::Linear);
+	}
+
+	void PostProcess::SsgiBlur(RHICommandList& cmd, const Ref<RHITexture>& source,
+							   uint32_t width, uint32_t height,
+							   float directionX, float directionY, Format outputFormat)
+	{
+		if (!s_Data || !source)
+			return;
+
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+							 1.0f / (float)Math::Max(height, 1u) };
+		params.A = directionX;
+		params.B = directionY;
+
+		Dispatch(cmd, Shader::SsgiBlur, outputFormat, source, nullptr,
+				 &params, sizeof(params), Sampling::Point);
+	}
+
+	void PostProcess::SsgiApply(RHICommandList& cmd, const Ref<RHITexture>& scene,
+								const Ref<RHITexture>& indirect,
+								float intensity, Format outputFormat)
+	{
+		if (!s_Data || !scene || !indirect)
+			return;
+
+		PostParams params;
+		params.A = Math::Max(intensity, 0.0f);
+
+		Dispatch(cmd, Shader::SsgiApply, outputFormat, scene, indirect,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Linear);
 	}
 
 	void PostProcess::SsaoBlur(RHICommandList& cmd, const Ref<RHITexture>& source,

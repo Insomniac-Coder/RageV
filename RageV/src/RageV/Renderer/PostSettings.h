@@ -172,6 +172,34 @@ namespace RageV
 		// weight the material implies.
 		float SsrIntensity = 1.0f;
 
+		// --- global illumination (9.12). ENGINE-NOTES 7at -------------------
+		//
+		// One bounce of diffuse light gathered from what is already on the
+		// screen: a red wall throws red onto the white floor beside it. The
+		// same four-pass shape SSAO has -- a half-resolution gather, the two
+		// blurs (literally SSAO's shader), and an apply -- because the
+		// question has the same noise and the same low frequency.
+		//
+		// A post pass has the lit colour and the normal but not the albedo,
+		// and indirect diffuse is albedo x irradiance, so the pixel's own
+		// colour stands in for its albedo: a black surface receives nothing
+		// and a red one receives red, which are the ends of the range that
+		// matter, and a dark surface under a bright light receives too much,
+		// which is the stated cost. Light bounces only from what is on
+		// screen and in front of the camera -- the two failures the ray-traced
+		// form exists to fix. Off adds no pass and is exact.
+		bool GlobalIllumination = false;
+
+		// World metres a bounce may travel. Small is colour bleeding in
+		// corners; large is room-scale and costs cache misses, the same trade
+		// the AO radius makes.
+		float GiRadius = 2.0f;
+
+		// A scale on the gathered light's share of the pixel. Read by the
+		// ray-traced form too, so a scene tuned under one is not re-tuned
+		// under the other.
+		float GiIntensity = 1.0f;
+
 		// --- SSAO (9.6). ENGINE-NOTES 7ac -----------------------------------
 		//
 		// Occlusion from depth alone, applied as a multiply on the lit image

@@ -140,6 +140,21 @@ namespace RageV
 		return s_CameraMotion;
 	}
 
+	namespace
+	{
+		float s_GlobalIllumination = 0.0f;
+	}
+
+	void Renderer::SetGlobalIllumination(float intensity)
+	{
+		s_GlobalIllumination = intensity;
+	}
+
+	float Renderer::GetGlobalIllumination()
+	{
+		return s_GlobalIllumination;
+	}
+
 	void Renderer::SetScreenReflections(const ScreenReflections* reflections)
 	{
 		s_ScreenReflections = reflections;

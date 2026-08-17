@@ -63,6 +63,17 @@ layout(set = 0, binding = 0) uniform SceneData
 	// takes an NDC y-offset into the trace texture's row direction: -1 on
 	// the backend whose row 0 is the top. ENGINE-NOTES 7af.
 	vec4 ScreenReflections;
+
+	// Ray-traced global illumination (ENGINE-NOTES 7at). x = intensity, zero
+	// when the traced form is not running; y = a counter the bounce rays hash
+	// so successive frames cast different directions. zw unused.
+	//
+	// Declared in *both* mirrors of this block -- pbr_fragment.glsl and
+	// scene_vertex.glsl -- because OpenGL links the stages into one program
+	// and two spellings of one uniform block is undefined ground: the first
+	// draft added it to the fragment mirror alone and every OpenGL frame came
+	// out different.
+	vec4 GlobalIllumination;
 } u_Scene;
 
 // Every light in the scene, however many that is.
@@ -166,7 +177,7 @@ layout(set = 0, binding = 14) uniform accelerationStructureEXT u_SceneAS;
 // heap, by the record index the instance table names. One row per structure
 // instance in build order; the hit's custom index is the row. Mirrored by
 // hand in Renderer3D.cpp (GpuRayInstance), std430.
-#ifdef RV_RAY_REFLECTIONS
+#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI)
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_buffer_reference_uvec2 : require
@@ -657,7 +668,7 @@ vec3 RotateIntoSky(vec3 v)
 	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
 }
 
-#ifdef RV_RAY_REFLECTIONS
+#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI)
 // The radiance the mirror ray from `origin` along `direction` finds
 // (ENGINE-NOTES 7ao): the sky where it misses, and a *simplified* shade of
 // the surface where it hits -- base colour and emissive through the hit's
@@ -668,6 +679,19 @@ vec3 RotateIntoSky(vec3 v)
 // occlusion: a mirror of a brick wall shows the wall's colour and lighting,
 // not its mortar's bump. Exact for emissive geometry, which is what the
 // check that judges it is made of.
+#ifdef RV_RAY_GI
+// The bounce rays' die (7at). The same integer hash the post passes use, kept
+// here rather than shared because a shader include that exists for one caller
+// is a file to find rather than a line to read.
+uint GiHash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+#endif
+
 vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction)
 {
 	// Off the surface along its geometric normal, the shadow ray's offset,
@@ -1296,6 +1320,51 @@ void main()
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
 	vec3 irradiance = textureLod(u_Irradiance, vec4(RotateIntoSky(N), v_Probe), 0.0).rgb *
 					  u_Scene.Environment.x;
+
+#ifdef RV_RAY_GI
+	// One bounce, traced (ENGINE-NOTES 7at). Four cosine-weighted directions
+	// about the shading normal, each answered by the same TraceReflection the
+	// mirror ray uses -- the sky where it misses, a simplified shade where it
+	// hits -- and averaged into the irradiance the diffuse term already
+	// multiplies by albedo. That last part is the point: a post pass has to
+	// stand the lit colour in for the albedo it does not have, and here the
+	// albedo is right there.
+	//
+	// The directions are hashed from the pixel *and* the frame, unlike every
+	// other kernel in this renderer, which are hashed from the pixel alone so
+	// a frame is deterministic. Four rays cannot integrate a hemisphere; what
+	// makes this converge is TAA accumulating a different four every frame,
+	// so the noise has to move. A still camera with TAA off will show it.
+	{
+		const int kGiRays = 4;
+		uvec2 giPixel = uvec2(gl_FragCoord.xy);
+		uint giSeed = GiHash(giPixel.x * 0x9E3779B9u ^ giPixel.y
+							 ^ (uint(u_Scene.GlobalIllumination.y) * 0x85EBCA6Bu));
+
+		vec3 giAxis = abs(N.x) < 0.7 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+		vec3 giT = normalize(cross(giAxis, N));
+		vec3 giB = cross(N, giT);
+
+		vec3 bounced = vec3(0.0);
+		for (int i = 0; i < kGiRays; ++i)
+		{
+			giSeed = GiHash(giSeed + uint(i) * 0x9E3779B9u);
+			float u1 = float(giSeed & 0x00FFFFFFu) / 16777216.0;
+			giSeed = GiHash(giSeed);
+			float u2 = float(giSeed & 0x00FFFFFFu) / 16777216.0;
+
+			// Cosine-weighted about the normal: the distribution the diffuse
+			// integral wants, so the mean of the samples *is* the irradiance
+			// with no per-sample cosine to divide back out.
+			float r = sqrt(u1);
+			float phi = 6.2831853 * u2;
+			vec3 direction = normalize(giT * (r * cos(phi)) + giB * (r * sin(phi))
+									   + N * sqrt(max(1.0 - u1, 0.0)));
+			bounced += TraceReflection(v_WorldPos, normalize(v_Normal), direction);
+		}
+		irradiance += bounced / float(kGiRays) * u_Scene.GlobalIllumination.x;
+	}
+#endif
 
 	float NdotV = max(dot(N, V), 0.0);
 	vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);

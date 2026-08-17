@@ -152,12 +152,41 @@ objects want it small**, and a large value lets rays hit walls through railings.
 > reflected — the probe answers there instead. The trace is also one frame late
 > by design. Neither is a bug to report.
 
+## Global illumination — off by default
+
+One bounce of diffuse light: a red wall throws red onto the white floor beside
+it. Two forms, and only one runs at a time.
+
+**Screen-space** is this profile's **Global illumination** switch. A
+half-resolution gather gives every pixel the light arriving from surfaces
+around it, blurred, then added. **GI radius** is how far a bounce may travel;
+**GI intensity** scales it, and 0 is exactly the image without it.
+
+Two limits come with being screen-space, and they are the reason the other
+form exists: light bounces only from what is **on screen** — turn away from
+the red wall and its colour goes with it — and the pass has the lit colour but
+not the albedo, so it uses the pixel's own colour in its place. A black
+surface receives nothing and a red one receives red, which are the ends that
+matter; a dark surface under a bright light receives more than it should.
+
+**Ray-traced** is **RT global illumination** in Render Settings, under Ray
+tracing (it needs ray queries and bindless materials, like RT reflections).
+Four rays a pixel from every surface, shaded where they hit: light arrives
+from behind the camera and behind other things, and lands on the surface's own
+albedo. It is the most expensive switch in the engine, and temporal
+anti-aliasing is what resolves its noise. While it is on, this profile's
+**Global illumination** row is greyed and says so; **GI intensity** still
+applies to it.
+
 ## Ambient occlusion — off by default
 
 Occlusion from depth alone, applied as a multiply on the lit image.
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|
+| `GlobalIllumination` | `false` | — | One screen-space bounce; on adds four passes at half resolution |
+| `GiRadius` | `2.0` | world metres | How far a bounce may travel |
+| `GiIntensity` | `1.0` | — | Scales the bounce; 0 is the image without it, and the ray-traced form reads it too |
 | `AmbientOcclusion` | `false` | — | On adds four passes at half resolution |
 | `AoRadius` | `0.5` | world metres | How far the hemisphere reaches |
 | `AoIntensity` | `1.0` | ≥ 0 | An exponent on the occlusion |

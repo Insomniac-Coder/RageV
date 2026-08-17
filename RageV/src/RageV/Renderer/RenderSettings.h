@@ -191,6 +191,18 @@ namespace RageV
 		bool RayTracedReflections = false;
 		bool RayTracedAmbientOcclusion = false;
 
+		// The third of the pattern (ENGINE-NOTES 7at): indirect diffuse cast
+		// as rays from the shading point instead of gathered off the screen,
+		// so light bounces from what is behind the camera and behind other
+		// things, and lands on the surface's own albedo rather than on the
+		// lit colour standing in for it. In the lit shader, not a post pass --
+		// everything it needs is bound there. Needs bindless as well as ray
+		// queries, like reflections do, because shading a hit reads the
+		// material heap. While on, the profile's GlobalIllumination is not
+		// consulted; its GiIntensity still is. Four rays a pixel: the most
+		// expensive switch here, and off by default.
+		bool RayTracedGlobalIllumination = false;
+
 		// More cascades means better texel density near the camera and more
 		// scene renders. Four is the usual answer and the most this supports.
 		int ShadowCascades = 4;

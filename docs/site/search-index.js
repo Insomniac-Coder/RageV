@@ -124,6 +124,7 @@ window.RVDOC_INDEX = [
 {"h":"Auto exposure — off by default","p":"Post processing","u":"post-processing.html#auto-exposure-off-by-default","t":""},
 {"h":"Depth of field — off by default","p":"Post processing","u":"post-processing.html#depth-of-field-off-by-default","t":""},
 {"h":"Screen-space reflections — off by default","p":"Post processing","u":"post-processing.html#screen-space-reflections-off-by-default","t":""},
+{"h":"Global illumination — off by default","p":"Post processing","u":"post-processing.html#global-illumination-off-by-default","t":""},
 {"h":"Ambient occlusion — off by default","p":"Post processing","u":"post-processing.html#ambient-occlusion-off-by-default","t":""},
 {"h":"Motion blur — off by default","p":"Post processing","u":"post-processing.html#motion-blur-off-by-default","t":""},
 {"h":"Lens and film — all three off by default","p":"Post processing","u":"post-processing.html#lens-and-film-all-three-off-by-default","t":""},

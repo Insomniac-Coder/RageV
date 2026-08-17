@@ -231,6 +231,39 @@ namespace RageV
 								const ViewReconstruction& view, float radius,
 								RHI::Format outputFormat);
 
+		// Global illumination, screen-space (9.12). ENGINE-NOTES 7at.
+		//
+		// 1: one bounce at half resolution. The same geometry as SSAO's first
+		// pass -- position and normal from the depth buffer and the surface
+		// attachment -- with the taps gathering the lit image's colour instead
+		// of counting occluders. Irradiance in RGB, linear depth in A, which
+		// is the packing SsaoBlur reads: passes 2 and 3 are *that* blur, and
+		// its own blur reads.
+		static void SsgiCompute(RHI::RHICommandList& cmd,
+								const RHI::Ref<RHI::RHITexture>& depth,
+								const RHI::Ref<RHI::RHITexture>& surface,
+								const RHI::Ref<RHI::RHITexture>& scene,
+								uint32_t width, uint32_t height,
+								const ViewReconstruction& view, float radius,
+								RHI::Format outputFormat);
+
+		// 2 and 3: the same separable blur SSAO uses, widened to carry three
+		// channels of light with the depth in alpha. A copy rather than a
+		// shared shader: moving SSAO's own depth into alpha to share one broke
+		// occlusion on OpenGL, and the check caught it (7at).
+		static void SsgiBlur(RHI::RHICommandList& cmd,
+							 const RHI::Ref<RHI::RHITexture>& source,
+							 uint32_t width, uint32_t height,
+							 float directionX, float directionY,
+							 RHI::Format outputFormat);
+
+		// 4: the add onto the linear HDR image. `intensity` scales the
+		// bounce; 0 is exactly the image that came in.
+		static void SsgiApply(RHI::RHICommandList& cmd,
+							  const RHI::Ref<RHI::RHITexture>& scene,
+							  const RHI::Ref<RHI::RHITexture>& indirect,
+							  float intensity, RHI::Format outputFormat);
+
 		// 2 and 3: the separable depth-aware blur, one axis per call.
 		static void SsaoBlur(RHI::RHICommandList& cmd,
 							 const RHI::Ref<RHI::RHITexture>& source,
@@ -318,6 +351,9 @@ namespace RageV
 			SsrTrace, SsrResolve,
 			SsrHiZ,
 			RtaoCompute,
+			// Appended, never inserted: ShaderPath below is indexed by this
+			// enum's order.
+			SsgiCompute, SsgiBlur, SsgiApply,
 			Count
 		};
 

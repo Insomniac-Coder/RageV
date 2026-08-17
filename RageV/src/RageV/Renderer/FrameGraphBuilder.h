@@ -176,6 +176,11 @@ namespace RageV
 	// SSAO rows ask these to know whether they have been taken over.
 	bool ResolveRayTracedReflections(const RenderSettings& render);
 	bool ResolveRayTracedAmbientOcclusion(const RenderSettings& render);
+	// The third (ENGINE-NOTES 7at): indirect diffuse cast from the shading
+	// point rather than gathered off the screen. Needs bindless as well, for
+	// the same reason reflections do. The post profile's Global illumination
+	// row asks this to know whether it has been taken over.
+	bool ResolveRayTracedGlobalIllumination(const RenderSettings& render);
 
 	// This frame's sub-pixel offset for a target of this size, in NDC.
 	//

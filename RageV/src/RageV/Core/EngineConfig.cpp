@@ -115,6 +115,12 @@ namespace RageV
 			return ParseBool(value, config.RayAoOverride);
 		}
 
+		if (key == "rt-gi" || key == "rtgi" || key == "raygi")
+		{
+			config.HasRayGiOverride = true;
+			return ParseBool(value, config.RayGiOverride);
+		}
+
 		if (key == "msaa" || key == "samples")
 		{
 			config.MsaaOverride = std::atoi(value.c_str());

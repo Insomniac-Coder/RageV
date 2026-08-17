@@ -1,0 +1,90 @@
+// SSGI, passes 2 and 3 of 4: a separable depth-aware blur (ENGINE-NOTES 7at).
+//
+// SSAO's blur, widened: it carries three channels of light rather than one of
+// occlusion, and reads the linear depth its edge test needs from alpha rather
+// than green -- which is the only reason this is a second file. The first
+// draft shared SSAO's shader by moving *its* depth into alpha too; that is a
+// change to a pass three shipped features depend on, it broke ambient
+// occlusion on OpenGL, and the check caught it. A copy is the cheaper
+// mistake.
+//
+// The compute pass trades banding for noise with its per-pixel rotation;
+// this is where the noise goes. Depth-aware, because an ordinary blur drags
+// a dark contact seam across the silhouette above it -- a tap only counts
+// if it is on the same surface, judged by the linear depth the compute pass
+// packed beside the occlusion. One shader run twice, horizontal then
+// vertical, with the direction in the shared header's spare floats.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// RGB the light being blurred, A the linear depth in metres.
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header
+	float TexelY;
+	float DirX;          // the header's A and B: one axis is 1, the other 0
+	float DirY;
+	float C;
+	float FlipY;
+} u_Params;
+
+const int kRadius = 4;
+
+// How far apart two depths may be and still count as one surface. Relative
+// rather than absolute, so a metre of separation matters up close and a
+// hillside far away still blurs as one thing.
+float SameSurface(float za, float zb)
+{
+	return exp(-abs(za - zb) / max(za * 0.05, 1.0e-3));
+}
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec2 step_ = vec2(u_Params.DirX, u_Params.DirY)
+					 * vec2(u_Params.TexelX, u_Params.TexelY);
+
+	const vec4 centre = texture(u_Source, uv);
+
+	vec3 sum = centre.rgb;
+	float weight = 1.0;
+
+	for (int i = 1; i <= kRadius; i++)
+	{
+		// A triangle falloff rather than a true gaussian: at four taps a
+		// side the difference is invisible and the arithmetic is not.
+		const float falloff = 1.0 - float(i) / float(kRadius + 1);
+
+		const vec4 a = texture(u_Source, uv + step_ * float(i));
+		const vec4 b = texture(u_Source, uv - step_ * float(i));
+
+		const float wa = falloff * SameSurface(centre.a, a.a);
+		const float wb = falloff * SameSurface(centre.a, b.a);
+
+		sum += a.rgb * wa + b.rgb * wb;
+		weight += wa + wb;
+	}
+
+	// The depth rides along unblurred: the next blur pass needs the centre's
+	// own depth for its edge test, not an average of its neighbours'.
+	o_Color = vec4(sum / weight, centre.a);
+}

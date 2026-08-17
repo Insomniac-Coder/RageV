@@ -1336,6 +1336,11 @@ namespace RageV
 		// And whether the same structure answers reflections (7ao); resolved
 		// after the shadows because it rides on them.
 		Renderer3D::SetRayTracedReflections(ResolveRayTracedReflections(Project::Render()));
+		// And the traced bounce (7at), on the same beat and by the same
+		// resolve. Its dial is the post profile's, handed to the renderer
+		// here so the lit shader has it: zero while the traced form is not
+		// running, which is what makes the shader's block cost nothing.
+		Renderer3D::SetRayTracedGlobalIllumination(ResolveRayTracedGlobalIllumination(Project::Render()));
 
 		if (!Project::Render().ShadowsEnabled)
 			return;

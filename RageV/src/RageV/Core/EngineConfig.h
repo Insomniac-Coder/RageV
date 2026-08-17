@@ -211,6 +211,8 @@ namespace RageV
 		bool         RayReflectionsOverride = false;
 		bool         HasRayAoOverride = false;
 		bool         RayAoOverride = false;
+		bool         HasRayGiOverride = false;
+		bool         RayGiOverride = false;
 
 		// --msaa=N. Zero leaves the scene's count alone.
 		int          MsaaOverride = 0;

@@ -9319,6 +9319,24 @@ void main()
 		Check(build(1600, 900, render, post) && !hasPass("SSAO"),
 			  "off again adds none of them");
 
+		// --- global illumination (9.12). ENGINE-NOTES 7at -----------------------
+		//
+		// The same shape as SSAO's chain, and the same two halves: off adds
+		// nothing, on adds all four. The third assertion is the one this
+		// feature adds -- the traced twin takes the whole chain away, whatever
+		// the profile says, which is what the greyed-out row in the editor is
+		// promising.
+		post.GlobalIllumination = true;
+		Check(build(1600, 900, render, post), "with screen-space GI on the frame compiles");
+		Check(hasPass("SSGI compute") && hasPass("SSGI blur x")
+			  && hasPass("SSGI blur y") && hasPass("SSGI apply"),
+			  "and all four SSGI stages are in it");
+		Check(hasPass("SSGI apply") && hasPass("SSAO apply") == false,
+			  "and the occlusion chain is not dragged in with it");
+		post.GlobalIllumination = false;
+		Check(build(1600, 900, render, post) && !hasPass("SSGI"),
+			  "off again adds none of them");
+
 		// --- SSR (9.7, 9.9) -----------------------------------------------------
 		//
 		// The trace is written at the end of one frame and read by the next

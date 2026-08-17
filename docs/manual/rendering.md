@@ -43,6 +43,7 @@ motion.
 | `RayTracing` | `false` | — | shadows, on a device with ray queries |
 | `RayTracedReflections` | `false` | — | ray tracing, with bindless materials |
 | `RayTracedAmbientOcclusion` | `false` | — | ray tracing |
+| `RayTracedGlobalIllumination` | `false` | — | ray tracing + bindless |
 | `ShadowCascades` | `4` | 1 to 4 | shadows, maps |
 | `ShadowResolution` | `2048` | powers of two | shadows |
 | `ShadowDistance` | `40.0` | metres | shadows |
@@ -154,6 +155,7 @@ light of every kind traces and no map is rendered. The five settings after
 | `ShadowsEnabled` | `true` | Off skips the shadow passes entirely | — |
 | `RayTracedReflections` | `false` | With ray tracing on: trace the mirror ray from every glossy surface and shade what it hits, in place of the profile's screen-space reflections (their rows grey out and say so). Off-screen and hidden things reflect with correct parallax; rough surfaces keep the probe. Offered only where materials are bindless as well as ray queries. ENGINE-NOTES 7ao | One ray plus a hit shade per glossy pixel |
 | `RayTracedAmbientOcclusion` | `false` | With ray tracing on: cast the ambient-occlusion taps as short rays into the scene in place of the profile's depth-buffer probe (its toggle greys out and says so; its radius and intensity still apply). No halos, off-screen occluders count. ENGINE-NOTES 7ao | Twelve short rays per half-resolution pixel |
+| `RayTracedGlobalIllumination` | `false` | With ray tracing on: cast one diffuse bounce as four rays per pixel from every surface and shade what they hit, in place of the profile's screen-space gather (its Global illumination toggle greys out and says so; its intensity still applies). Light arrives from behind the camera and behind other things, and lands on the surface's own albedo. Needs bindless materials, as reflections do. ENGINE-NOTES 7at | Four shaded rays per pixel -- the most expensive switch here |
 | `RayTracing` | `false` | Trace rays instead of rendering shadow maps: one ray per pixel toward every casting light — sun, spot and point — into an acceleration structure of the scene. No acne, no detachment, no distance limit, no cap on how many lights cast; skinned casters cast their pose; the edge is hard. Offered only on a device with ray queries — Vulkan on hardware that traces, never OpenGL — and under `ShadowsEnabled`, whose pass builds the structure the rays trace into; elsewhere the row is absent, the value is kept, and the maps are used (a `--raytracing=on` on such a device is logged once and falls back). Applies at once — no restart. `--raytracing=on\|off` overrides it. ENGINE-NOTES 7am, 7an | One ray per light per pixel and a per-frame acceleration-structure build (skinned casters posed in compute and refit), no map renders |
 | `ShadowCascades` | `4` | More cascades, better texel density near the camera | One scene render each. 4 is the usual answer and the most supported |
 | `ShadowResolution` | `2048` | Per cascade, square | **The single biggest lever on both quality and cost** — four 2048 maps is 64 MB of depth |
