@@ -7363,7 +7363,53 @@ therefore clamped per frame and the accumulation is a bounded feedback
 (`GiFeedback`, default well under 1), with a check that a white room under a
 bright light reaches a fixed point rather than climbing.
 
-### The denoiser
+### The denoiser -- built, measured, and **not landed** (2026-08-18)
+
+**The temporal stage was written and it cannot land as designed, because the
+feedback loop this section already warned about is not something a denoiser
+can be tuned around.** Parked in `build/9.13-denoiser-wip/` (git-ignored):
+`gi_denoise.rvshader` plus `denoiser.patch`, which applies with
+`git apply --exclude='SampleProject/*'`.
+
+What it does: reproject through the velocity buffer, reject what left the
+screen, blend at a feedback far above TAA's. That part works. What breaks is
+the loop: **SSGI gathers the lit image, and the lit image now carries last
+frame's indirect**, so the accumulation compounds its own output. Measured on
+`gi_corner`, at feedback 0.9:
+
+| | correct | with the denoiser |
+|---|---|---|
+| SSGI near the corner | +1.71 / +1.74 | **+16.98 / +15.39** |
+| Backend disagreement | 0.02 | **2.03** |
+| RT GI near / off screen | +2.69 / +1.25 | +5.37 / +2.61 |
+
+**Two attempted fixes both failed, and why is the useful part.** Clamping the
+denoiser's output against its input (`min(result, current * 2)`) does nothing,
+because `current` *is* the thing growing -- the loop runs through the lit
+image, one stage upstream of anything the denoiser can see. Shortening only
+the screen-space form's tail to 0.35 brought it to +6.94 / +4.91: still four
+times calibration, and **still 2.03 apart between backends**, because the
+result had become a function of accumulated history rather than of the scene.
+
+So closing the loop is structural, not a constant. SSGI has to gather an image
+that does *not* contain the indirect term -- which means either the lit shader
+publishing a direct-only colour somewhere (another attachment, another sweep)
+or the gather subtracting what it contributed. That is the next design
+decision, and it is a decision rather than a tweak.
+
+**The traced form has no loop** (`TraceReflection` shades hits from lights and
+the probe, never from the indirect buffer) and would take the denoiser as-is.
+Splitting the two so RT GI can have it while SSGI waits is a legitimate option
+and is *not* what was built, because one buffer with one writer was the point
+of the restructure.
+
+**And the checks could not see any of it.** Every threshold in `check_gi.py`
+was a floor, so +16.98 passed exactly as +1.71 did. They are bands now --
+ceilings on both forms and a limit on how far the two backends may disagree --
+and re-applying the parked patch fails four of them. **That is the falsifiable
+part of this entry**: a floor answers "did the feature do anything", a band
+answers "is it still calibrated", and nine months of this repository's checks
+have been the former.
 
 Two stages over the `Indirect` buffer, in this order:
 

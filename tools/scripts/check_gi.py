@@ -71,10 +71,27 @@ AWAY_REGION = (0.28, 0.52, 0.02, 0.20)
 # and off-screen claims are qualitative -- 0.00 against a real number.
 MIN_NEAR_BLEED = 0.4
 MAX_FAR_SHARE = 0.6
+# **And a ceiling, which the first version of this file did not have.** Every
+# threshold here was a floor -- "did the feature do anything" -- so a bleed ten
+# times too strong passed as happily as a correct one. That is not a
+# hypothetical: wiring a temporal denoiser onto the indirect buffer turned
+# SSGI's +1.71 into +16.98, because the gather reads the lit image and the lit
+# image now carries last frame's indirect, and this file printed OK. A floor
+# cannot tell a feature from a runaway. ENGINE-NOTES 7av.
+MAX_NEAR_BLEED = 6.0
+# The two backends compute the same bounce by the same rules, so they must
+# agree about it. They do, to 0.02 levels -- and under that loop they diverged
+# by 2.03, because the result had become a function of accumulated history
+# rather than of the scene. A number that differs by backend is a number
+# nobody can tune against.
+MAX_BACKEND_SPREAD = 0.75
 # The away view's discriminator: the screen-space form must add essentially
 # nothing (it has nothing to gather), the traced one must add a real amount.
 MAX_SCREEN_AWAY_BLEED = 0.3
 MIN_TRACED_AWAY_BLEED = 0.6
+# Ceilings for the traced form, for the reason the screen-space one has them.
+MAX_TRACED_NEAR_BLEED = 4.0
+MAX_TRACED_AWAY_BLEED = 2.0
 
 
 def run(exe, args):
@@ -123,6 +140,7 @@ def main():
     make_gi_scene.main()
 
     failures = []
+    near_by_backend = {}
 
     def profile(scene, settings):
         """Rewrite one fixture's profile, and its scene with it -- the scene
@@ -153,12 +171,25 @@ def main():
         far = redness(on, FAR_REGION) - redness(off, FAR_REGION)
         print(f"{backend}: screen-space bleed -- near the corner +{near:.2f} levels of red, "
               f"far along the same wall +{far:.2f}")
+        near_by_backend[backend] = near
         if near < MIN_NEAR_BLEED:
             failures.append(f"{backend}: the wall beside the red one did not redden "
                             f"(+{near:.2f} levels, wanted {MIN_NEAR_BLEED})")
+        if near > MAX_NEAR_BLEED:
+            failures.append(f"{backend}: the bleed is far past this fixture's calibration "
+                            f"(+{near:.2f} levels, ceiling {MAX_NEAR_BLEED}) -- "
+                            f"a feedback loop looks exactly like this")
         if far > near * MAX_FAR_SHARE:
             failures.append(f"{backend}: the far end reddened as much as the near one "
                             f"(+{far:.2f} against +{near:.2f}) -- a tint, not a bounce")
+
+    if len(near_by_backend) == 2:
+        spread = abs(near_by_backend["vulkan"] - near_by_backend["opengl"])
+        print(f"the two backends' near bleed differs by {spread:.2f} levels")
+        if spread > MAX_BACKEND_SPREAD:
+            failures.append(f"the backends disagree about the bounce by {spread:.2f} levels "
+                            f"(allowed {MAX_BACKEND_SPREAD}) -- the same rules on the same "
+                            f"fixture must give the same answer")
 
     # --- 4a: the screen-space form has nothing to gather off screen -----------
     profile("gi_away", {})
@@ -182,6 +213,9 @@ def main():
     if traced_near < MIN_NEAR_BLEED:
         failures.append(f"ray-traced GI did not redden the wall beside the red one "
                         f"({traced_near:+.2f} levels)")
+    if traced_near > MAX_TRACED_NEAR_BLEED:
+        failures.append(f"ray-traced GI reddened the wall far past calibration "
+                        f"({traced_near:+.2f} levels, ceiling {MAX_TRACED_NEAR_BLEED})")
 
     profile("gi_away", {})
     away_base = shoot(exe, "vulkan", "gi_away", shots / "vulkan-away-base.png")
@@ -192,6 +226,9 @@ def main():
     if traced_away < MIN_TRACED_AWAY_BLEED:
         failures.append(f"ray-traced GI did not redden a wall whose bounce source is off screen "
                         f"({traced_away:+.2f} levels) -- the one thing it is for")
+    if traced_away > MAX_TRACED_AWAY_BLEED:
+        failures.append(f"ray-traced GI's off-screen bounce is far past calibration "
+                        f"({traced_away:+.2f} levels, ceiling {MAX_TRACED_AWAY_BLEED})")
 
     # 5: while the traced form runs, the profile's toggle is not consulted.
     profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0, "GiRadius": 4.0 })
