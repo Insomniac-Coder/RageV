@@ -1463,11 +1463,15 @@ void main()
 			vec3 direction = CosineDirection(N, giSeed);
 
 			TracedSurface first = TraceSurface(v_WorldPos, giNormal, direction);
+			// A miss is nothing, not the sky (ENGINE-NOTES 7bb). The probe below
+			// already integrates the sky over the whole hemisphere; four rays
+			// that mostly miss are a four-sample estimate of that same probe, and
+			// adding them was the sky twice -- 171 to 214.7 on a wall lit by
+			// nothing else. The divide by kGiRays stays, so what is left is the
+			// walls' share of the hemisphere; the sky is the probe's to supply and
+			// the sky the walls block is ambient occlusion's to remove.
 			if (first.Missed)
-			{
-				bounced += first.Sky;
 				continue;
-			}
 
 			// What arrives at the hit. At one bounce the probe answers; at two,
 			// one more ray does and the probe answers for *its* hit instead.

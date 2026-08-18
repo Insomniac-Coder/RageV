@@ -76,6 +76,14 @@ Three more about how deep the light goes (9.13b, ENGINE-NOTES 7ax):
    term by a constant -- the obvious way to get claim 8 by accident -- lifts
    both by the same factor and fails here.
 
+12. **The sky is counted once** (9.14, ENGINE-NOTES 7bb). `gi_skylit` is the
+    room with the sun off and a grey sky, so every photon is environment light
+    and the probe already accounts for all of it. The traced form may add what
+    the walls it hits deliver -- a few per cent -- and no more: a ray that
+    misses contributes nothing now, where it used to return the sky and add it
+    to a probe that had already integrated it. Banded on both sides, because
+    a "fix" that zeroed the traced term entirely would pass a ceiling alone.
+
 11. **The quality dial reaches the gather, and only the gather.** Low and High
     differ; under the traced form they do not, to the byte. **It does not claim
     a narrower bleed** -- that width is `GiRadius`'s, not the dial's, and 7az
@@ -123,23 +131,33 @@ AWAY_REGION = (0.28, 0.52, 0.02, 0.20)
 # How much redder (R - B, in display levels) a region must go for a bounce to
 # count as measured, and how much less the far end may take before "local"
 # stops meaning anything.
-# Measured on this fixture: the screen-space form puts **+1.27** levels of red
-# on the near region and +0.00 on the far one; the traced form +1.86 and +0.82
-# in the away view's left edge. The thresholds sit well under those, and the far
-# and off-screen claims are qualitative -- 0.00 against a real number.
+# Measured on this fixture: the screen-space form puts **+0.22** levels of red
+# on the near region (+0.25 on OpenGL) and +0.00 on the far one; the traced form
+# +1.86 and +0.82 in the away view's left edge. The far and off-screen claims are
+# qualitative -- 0.00 against a real number.
 #
-# **Both screen-space numbers have moved twice, and neither move was a
+# **The screen-space number has moved three times, and none of the moves was a
 # regression.** 9.13 gave the gather the surface's own albedo instead of the lit
-# pixel standing in for it (+0.77 -> +1.71), and 9.13c stopped it reading its own
-# output back (+1.71 -> +1.27). The second is a quarter of the old number and was
-# never one bounce: see ENGINE-NOTES 7ay.
-# **A calibration band, not a floor and a runaway ceiling.** +1.27 measured,
-# and the bounds are set so that the two ways this number has been wrong both
-# fail: reading the gather's own output back out of the lit image puts it at
-# +1.70 (ENGINE-NOTES 7ay), and carrying linear depth into the buffer's alpha
-# puts it at +6.93. Neither is a crash and neither looks wrong on screen.
-MIN_NEAR_BLEED = 0.9
+# pixel standing in for it (+0.77 -> +1.71); 9.13c stopped it reading its own
+# output back (+1.71 -> +1.27, ENGINE-NOTES 7ay); and 9.14 made every tap in the
+# hemisphere count in the normalisation, so the light two taps found is no
+# longer extrapolated over ten that found nothing (+1.27 -> +0.22, 7bb). On this
+# wall, at this radius, most taps find nothing within four metres -- the room is
+# open and the sky is black -- and the old estimator read that as "the whole
+# hemisphere is floor". The traced number did not move, because it never
+# extrapolated.
+# **A calibration band, not a floor and a runaway ceiling.** +0.22 / +0.25
+# measured, and the bounds are set so that the three ways this number has been
+# wrong all fail: the pre-9.14 normalisation, which extrapolated the accepted
+# taps over the whole hemisphere, reads +1.27; the loop of 9.13c, +1.70; and
+# linear depth carried in the buffer's alpha, +6.93. None is a crash and none
+# looks wrong on screen.
+MIN_NEAR_BLEED = 0.12
 MAX_FAR_SHARE = 0.6
+# The traced form's own floor for the same region: it never extrapolated, so it
+# did not move with 9.14, and a floor a fifth of its size would let the
+# screen-space band's floor pass a traced form that had gone dark.
+MIN_TRACED_NEAR_BLEED = 1.0
 # **And a ceiling, which the first version of this file did not have.** Every
 # threshold here was a floor -- "did the feature do anything" -- so a bleed ten
 # times too strong passed as happily as a correct one. That is not a
@@ -148,7 +166,7 @@ MAX_FAR_SHARE = 0.6
 # image carried last frame's indirect, and this file printed OK. A floor cannot
 # tell a feature from a runaway. ENGINE-NOTES 7av; the loop itself is closed in
 # 7ay, and claim 2b below is what keeps it closed.
-MAX_NEAR_BLEED = 1.6
+MAX_NEAR_BLEED = 0.45
 # The two backends compute the same bounce by the same rules, so they must
 # agree about it. They do, to 0.02 levels -- and under that loop they diverged
 # by 2.03, because the result had become a function of accumulated history
@@ -177,6 +195,21 @@ SETTLE_WINDOW = 12
 # only a few per cent wide.
 DETAIL_FRAME = 80
 DETAIL_COUNT = 4
+
+# --- the sky is counted once (9.14, ENGINE-NOTES 7bb) -----------------------
+#
+# `gi_skylit`: sun off, grey sky. Ratios of "traced GI on" to "traced GI at
+# intensity zero" over two regions, read as luminance because nothing here is
+# red. Measured after the fix: far wall 1.066, open floor 1.046. Before it --
+# a miss returning the sky, added to a probe that had already integrated it --
+# 1.146 and 1.147, and the ceilings sit between. The far wall's floor is what
+# stops a "fix" that simply zeroes the traced term from passing: the walls do
+# bounce a little, and that little has to still be there.
+SKYLIT_FAR = (0.20, 0.40, 0.88, 0.98)
+SKYLIT_FLOOR = (0.75, 0.90, 0.30, 0.60)
+MIN_SKYLIT_WALL_GAIN = 1.02
+MAX_SKYLIT_WALL_GAIN = 1.10
+MAX_SKYLIT_FLOOR_GAIN = 1.09
 
 # --- the second bounce (9.13b, ENGINE-NOTES 7ax) -----------------------------
 #
@@ -264,7 +297,7 @@ MAX_ACCUMULATION_MATCH = 1.10
 
 
 def run(exe, args):
-    result = subprocess.run([str(exe), *args], cwd=exe.parent, capture_output=True, text=True)
+    result = subprocess.run([str(exe), "--render-defaults=on", *args], cwd=exe.parent, capture_output=True, text=True)
     return result.returncode, (result.stdout or "") + (result.stderr or "")
 
 
@@ -377,7 +410,8 @@ def main():
         camera = make_gi_scene.AWAY_CAMERA_POSITION if away else None
         rotation = make_gi_scene.AWAY_CAMERA_ROTATION if away else None
         path.write_text(make_gi_scene.build(handle, camera=camera, rotation=rotation,
-                                            detail=scene == "gi_detail"),
+                                            detail=scene == "gi_detail",
+                                            skylit=scene == "gi_skylit"),
                         encoding="utf-8", newline="\n")
 
     # --- 1 and 2: the screen-space form, on both backends ---------------------
@@ -424,9 +458,10 @@ def main():
                             f"(+{near:.2f} levels, wanted {MIN_NEAR_BLEED})")
         if near > MAX_NEAR_BLEED:
             failures.append(f"{backend}: the bleed is past this fixture's calibration "
-                            f"(+{near:.2f} levels, ceiling {MAX_NEAR_BLEED}) -- at +1.70 the "
-                            f"gather is reading its own output back, and much higher than "
-                            f"that it is being scaled by something with units")
+                            f"(+{near:.2f} levels, ceiling {MAX_NEAR_BLEED}) -- at +1.27 the "
+                            f"gather is normalising over the taps that landed instead of the "
+                            f"hemisphere, at +1.70 it is reading its own output back, and much "
+                            f"higher than that it is being scaled by something with units")
         if far > near * MAX_FAR_SHARE:
             failures.append(f"{backend}: the far end reddened as much as the near one "
                             f"(+{far:.2f} against +{near:.2f}) -- a tint, not a bounce")
@@ -458,9 +493,9 @@ def main():
     traced = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-rtgi.png", ray)
     traced_near = redness(traced, NEAR_REGION) - redness(corner_off, NEAR_REGION)
     print(f"traced bleed near the corner: {traced_near:+.2f} levels of red")
-    if traced_near < MIN_NEAR_BLEED:
+    if traced_near < MIN_TRACED_NEAR_BLEED:
         failures.append(f"ray-traced GI did not redden the wall beside the red one "
-                        f"({traced_near:+.2f} levels)")
+                        f"({traced_near:+.2f} levels, wanted {MIN_TRACED_NEAR_BLEED})")
     if traced_near > MAX_TRACED_NEAR_BLEED:
         failures.append(f"ray-traced GI reddened the wall far past calibration "
                         f"({traced_near:+.2f} levels, ceiling {MAX_TRACED_NEAR_BLEED})")
@@ -609,6 +644,27 @@ def main():
         failures.append(f"the quality dial moved the traced form (max {unused:g}) -- it "
                         f"sizes a screen-space gather that is not running")
 
+    # --- 12: the sky is counted once -------------------------------------------
+    #
+    # Intensity zero as the reference rather than the traced form off, for the
+    # reason claim 7 gives: --raytracing=on changes more than the bounce.
+    profile("gi_skylit", { "GiIntensity": 0.0 })
+    sky_off = shoot(exe, "vulkan", "gi_skylit", shots / "vulkan-skylit-off.png", ray, frame=90)
+    profile("gi_skylit", { "GiIntensity": 1.0 })
+    sky_on = shoot(exe, "vulkan", "gi_skylit", shots / "vulkan-skylit-rtgi.png", ray, frame=90)
+    wall_gain = luminance(sky_on, SKYLIT_FAR) / max(luminance(sky_off, SKYLIT_FAR), 1e-6)
+    floor_gain = luminance(sky_on, SKYLIT_FLOOR) / max(luminance(sky_off, SKYLIT_FLOOR), 1e-6)
+    print(f"under a grey sky with no sun, traced GI lifts the far wall {wall_gain:.3f}x "
+          f"and the open floor {floor_gain:.3f}x")
+    if not MIN_SKYLIT_WALL_GAIN <= wall_gain <= MAX_SKYLIT_WALL_GAIN:
+        failures.append(f"traced GI lifted a sky-lit wall {wall_gain:.3f}x (band "
+                        f"{MIN_SKYLIT_WALL_GAIN} to {MAX_SKYLIT_WALL_GAIN}) -- above the band "
+                        f"the sky is being counted twice, below it the walls' bounce is gone")
+    if floor_gain > MAX_SKYLIT_FLOOR_GAIN:
+        failures.append(f"traced GI lifted a sky-lit open floor {floor_gain:.3f}x (ceiling "
+                        f"{MAX_SKYLIT_FLOOR_GAIN}) -- a surface that sees mostly sky is "
+                        f"getting the sky from the rays as well as from the probe")
+
     # --- 8, 9 and 10: the second bounce --------------------------------------
     #
     # `--gi-bounces=` rather than the scene's RenderSettings because the
@@ -685,8 +741,9 @@ def main():
           "the white one beside it and not onto the far end, the traced form does the same and "
           "also reddens a wall whose bounce source is off screen -- which the screen-space form "
           "cannot -- only one of the two ever runs, the traced form's accumulation settles, "
-          "and settles on the value an independent average agrees with, and a second bounce "
-          "reaches further than one, unevenly, without touching the form that cannot have one")
+          "and settles on the value an independent average agrees with, a second bounce "
+          "reaches further than one, unevenly, without touching the form that cannot have one, "
+          "and under a sky the sky is counted once")
 
 
 if __name__ == "__main__":

@@ -264,6 +264,20 @@ void main()
 						   + (tangent * direction.x + bitangent * direction.y
 							  + normal * direction.z) * u_Params.Radius;
 
+		// **Every tap in the hemisphere counts in the weight, whether or not
+		// it finds anything** (ENGINE-NOTES 7bb). Normalising by the accepted
+		// taps alone read two walls out of twelve directions as a hemisphere
+		// made of wall -- the estimate held its value as taps left the screen
+		// and then dropped to nothing when the last one did. Counted here, a
+		// tap that finds no surface contributes zero and its cosine, so the
+		// gather is the walls' share of the hemisphere and the probe -- added
+		// once, in the lit shader -- stands over the directions it could not
+		// see. That is 7av's probe fallback with nothing to add. The proposed
+		// direction's cosine, because a rejected tap has no found surface to
+		// take one from; where every tap lands this is bit-identical to what
+		// it was, since the accepted branch below swaps in the found cosine.
+		weight += direction.z;
+
 		// Back to uv -- the exact inverse of ViewPosition, so the two agree
 		// by construction rather than by convention.
 		const vec2 sampleUv = ViewToUv(sample_, InvProjection());
@@ -305,12 +319,15 @@ void main()
 		const vec3 direct = max(texture(u_Scene, sampleUv).rgb
 								- texture(u_Contributed, sampleUv).rgb, vec3(0.0));
 		gathered += direct * cosine * falloff;
-		weight += cosine;
+		// The found surface's cosine in place of the proposed direction's,
+		// which was added on the way in.
+		weight += cosine - direction.z;
 	}
 
-	// Normalised by the weight that was actually gathered, not by the tap
-	// count: a pixel whose taps mostly left the screen would otherwise read
-	// as receiving nothing rather than as having nothing to say.
+	// Normalised by the whole hemisphere's weight, not the accepted taps'
+	// (7bb): a pixel whose taps mostly left the screen reads as receiving
+	// what the taps that landed delivered, and nothing over the rest -- which
+	// is what "having nothing to say" has to mean once the probe stands there.
 	const vec3 irradiance = weight > 1.0e-4 ? gathered / weight : vec3(0.0);
 
 	// Light in RGB, linear depth in A for the blur's edge test -- the same

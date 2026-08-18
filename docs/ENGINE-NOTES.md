@@ -8144,15 +8144,269 @@ wrong answer.
 
 **What has to happen first**, and it is not 9.13d's size: the GI term has to
 *replace* the environment's contribution over the directions it covers rather
-than add to it -- which means the lit shader knowing what fraction of the
-hemisphere the estimate actually covered, both forms reporting it, and every
-calibrated number in `check_gi.py` being re-measured afterwards. That is a
-change to 9.12's design, it touches both forms, and it wants its own item
-rather than a corner of this one.
+than add to it. That became 9.14, and **7bb built it smaller than this
+paragraph sketched** -- no fraction reported, no blend: a traced miss
+contributes nothing, and the screen-space gather counts every tap in its
+weight so that it never extrapolates over the directions it could not see. The
+probe stands where nothing was found, which is the fallback with nothing added.
 
 **Filed rather than fixed, deliberately.** The alternative was to build the
 fallback on top of a defect and record neither -- and 7ay is one entry away,
 where a mechanism was named without the arithmetic being done.
+
+---
+
+## 7ba. The check audit (CHK.1): four ways a green check lies
+
+9.13 found, one at a time, four different ways a check that prints OK can be
+telling you nothing. This entry names them, audits every script in
+`tools/scripts/check_*.py` against all four, and records what was changed. It
+is the first pass over the whole set rather than the last: the point is that
+the next check written here has a list to be checked against.
+
+### The four shapes
+
+**1. A floor with no ceiling.** "Did the feature do anything" -- and a feature
+ten times too strong passes as happily as a correct one. Found in `check_gi`
+(7av: +16.98 printed OK against a calibrated +1.71). The fix is a *band*, and
+the band's ceiling wants a *measured break* on the far side of it, not a round
+number: `check_gi`'s claim 9 sits between 1.25 (a traced second bounce) and
+1.08 (a constant scale standing in for one), and both numbers came from
+building the thing.
+
+**2. A noisy render compared against a filtered one, through the tone curve.**
+The mean of a tone-mapped stochastic signal is not the tone-mapped mean, so a
+stochastic feature measured through the display transform reads *high* -- by a
+third, in `check_gi`'s case, in the mean of a region with tens of thousands of
+pixels (7aw). Two renders compare as numbers only when their sampling variance
+is comparable.
+
+**3. A claim nobody has seen fail.** 7aw wrote one, passed it, and then broke
+the thing it measured three separate ways and watched it stay within 3 % --
+there was nothing there to measure. **A threshold that has never been seen on
+the wrong side of itself is a threshold nobody has read.** The repository's
+rule has always been to falsify each claim by breaking what it guards; this is
+that rule stated as the reason.
+
+**4. A check that inherits ambient state.** For a day the sample project
+carried every ray-tracing switch on, and every screen-space claim in
+`check_ssao` and `check_ssr` silently measured the *traced* twin -- reading
+0.00 on Vulkan and green on OpenGL, which has no rays to switch to. **Nothing
+in either check said which settings it depended on**, so nothing could say
+they had changed. Fifteen of the seventeen checks that launch the runtime had
+this exposure; and the project's `AntiAliasing` is TAA rather than the
+struct's FXAA, so three checks that never said `--aa=` were calibrated to a
+setting they had never named.
+
+### The audit
+
+Twenty scripts. Three do not launch the runtime (`font_atlas`,
+`tangent_frame`, `theme_contrast`) and shape 4 does not apply to them; their
+thresholds are exact or bounded and they are omitted from the table.
+
+| check | shape 1 (floor/ceiling) | shape 2 | shape 4 | changed |
+|---|---|---|---|---|
+| `gi` | banded in 9.13 | 7aw | inherited | pinned |
+| `ssao` | **`MIN_SEAM_DARKENING` 3.0 vs measured 13.65** -- a floor a quarter its measurement; a triple-strength AO read 45.68 and passed | RTAO vs SSAO share a kernel; comparable | inherited, **and it broke** | banded 9-22, pinned |
+| `ssr` | **`MIN_MIRROR_GAIN` 6.0 vs 79.7; `MIN_LIMB_CONTRAST` 4.0 vs 103.85** -- one twelfth and one twenty-fifth of their measurements | mirror rays; deterministic | inherited, **and it broke** | banded 50-140 / 70-140, pinned |
+| `motion_blur` | `MIN_GROWTH_HALF` 3 vs 6 measured; the ratio band cannot see a shutter that scales both sides | -- | inherited | ceiling 14, pinned |
+| `depth_of_field` | `MIN_BLUR_DROP` 0.35 with the focus plane held by `MIN_SHARP_KEPT`; a CoC ten times too large blurs the far plane to mush and passes both | -- | inherited | pinned; **ceiling not yet placed**, see below |
+| `smaa` | `REQUIRED_GAIN` 2.5, but the flat-region claim bounds over-blur | -- | inherited | pinned |
+| `taa_motion` | still gain floor + moving loss ceiling: a band across two regions | -- | inherited | pinned |
+| `taa_jitter` | period claims, exact | -- | inherited | pinned |
+| `auto_exposure` | `MIN_UNCORRECTED_GAP` is fixture sanity; `MAX_METERED_GAP` is the ceiling that matters | -- | inherited | pinned |
+| `lens_effects` | correlations, bounded in [0,1]; ceiling on far correlation present | -- | inherited | pinned |
+| `color_grading` | exact (0) and a 2-level ceiling | -- | inherited | pinned |
+| `ray_shadows` | IoU floors on a [0,1] quantity; edge-width floor/ceiling pair | 1 spp hard shadows; deterministic | inherited, one launch already pinned | pinned |
+| `terrain` | shadow darkening floor on a saturating quantity; layer ratios bounded by the fixture's colours | -- | inherited, one launch already pinned | runtime launches pinned; **editor launches left bare on purpose** |
+| `bindless` | exact: bound and bindless must match | -- | inherited -- and RT reflections need bindless, so the two sides would have *diverged* under the broken project | pinned |
+| `depth_sort` | exact (0) | -- | inherited, and never said `--aa=` | pinned |
+| `import_cache` | ceiling on a mean difference | -- | inherited, and never said `--aa=` | pinned |
+| `oit` | inline thresholds, calibrated under TAA | -- | inherited, **and never said `--aa=`** | pinned, and `--aa=taa` now stated |
+
+### What was built for shape 4: `--render-defaults=on`
+
+Seventeen `--raytracing=off` pins would have closed one field. The project has
+seventeen render settings, any of which the editor will save on a click, and
+the checks cannot pin what the command line has no flag for. So the runtime
+gained one: **`--render-defaults=on` replaces the project's Render Settings
+with `RenderSettings{}` at load**, and the other overrides still apply on top.
+A check's run now depends on the struct's defaults plus what its own command
+line says, and on nothing else. One line in `Project::Load`.
+
+Every runtime launch in every check passes it. **The editor never does** --
+`check_terrain` launches the editor twice through the same helper, and the
+pin was moved out of that helper into the runtime-only path, because the
+editor saves the project on a Render Settings edit and must not be holding
+defaults it did not read when it does.
+
+**Behaviour-preserving, and that was checked rather than assumed**: the sample
+project's settings are the struct's defaults in every field but
+`AntiAliasing`, and every check that reads a picture already said `--aa=`
+except `check_oit`, which now says `--aa=taa` -- the mode it has always
+measured under. The whole suite was re-run under the pin before this entry
+was written.
+
+**Falsified** by putting the broken project file back -- every ray-tracing
+switch on -- and running `check_ssao` and `check_ssr`: both stay green.
+
+### The two bisection lessons that came with it
+
+They are recorded in HANDOFF and belong here as well, because they are about
+checks:
+
+- **A bisection that does not check out the whole tree bisects the wrong
+  variable.** `git checkout <rev> -- RageV RageVEditor` kept HEAD's broken
+  project file in every "old" state and blamed 9.13c for an hour.
+- **A count of FAIL lines is not a reading of the verdict.** 9.13d's
+  verification was `grep -c`; the number was right and the habit was wrong.
+
+### What this pass did not do
+
+- **Depth of field's ceiling is not placed.** The far-plane blur has no upper
+  bound and wants one; it needs a measured break (a CoC scale, say) on the far
+  side, and that is a run and a number, not a guess.
+- **Shape 3 was not re-falsified across the board.** Every check here was
+  falsified when written and says so in its commit; this pass did not repeat
+  that for the twenty. It did for the three ceilings it added: `check_ssao`'s
+  by a triple-strength AO (45.68 against a ceiling of 22), and the two `ssr`
+  bands are placed at less than half and more than one and a half times their
+  measurements, where the old floors sat at a twelfth and a twenty-fifth.
+- **The band values are this fixture's**, at this resolution, on these two
+  backends. A band is a calibration and says so in its comment.
+
+---
+
+## 7bb. The GI term stops adding the sky twice (9.14): a miss is nothing, not the sky
+
+7az found it and filed it: on a sky-lit room with the sun off, ray-traced GI
+lifted the far wall from 171.0 to **214.7** -- a wall whose only light source
+the reflection probe already accounted for in full. The ROADMAP row sketched
+a fix in terms of a coverage fraction reported by both forms and a blend in the
+lit shader. **Working it through, the fix is smaller than that, and it also
+turns out to be 7av's probe fallback done properly.**
+
+### Where the sky was counted twice
+
+The lit shader's ambient term:
+
+```glsl
+vec3 irradiance = ProbeIrradiance(N);      // the sky, integrated, once
+irradiance += indirect;                    // last frame's GI buffer
+ambient = kD * albedo * (ambientLight + irradiance) * occlusion;
+```
+
+The traced form fills the buffer with the mean of four cosine rays, and a ray
+that misses returns `first.Sky` -- the environment along that ray. Four rays
+that mostly miss are a four-sample estimate of *the probe*. So an open surface
+under RT GI got the sky from the probe and again from the rays: `probe +
+probe_estimate`, which is what 214.7 is.
+
+### The fix: a miss contributes nothing
+
+```glsl
+if (first.Missed) continue;      // was: bounced += first.Sky
+```
+
+with the mean still over `kGiRays`, so the estimate is what the *walls* deliver
+over the fraction of the hemisphere they occupy, and the sky is the probe's to
+supply -- once. **On the black-sky fixtures every calibrated number in
+`check_gi.py` is unchanged**, because there `first.Sky` was zero already; only
+a scene with a sky moves, and that is the scene the bug lived in.
+
+**What this does not fix, deliberately.** The probe still assumes the whole
+hemisphere sees sky, and the wall directions do not. That residual is exactly
+what ambient occlusion is for -- `occlusion` multiplies the same line -- and
+this pipeline already models it there. The alternative, a control variate that
+subtracts the sky *behind* each hit (`hit - skyAlong(direction)`), is more
+exact in isolation and double-counts the occlusion the moment AO is on; and it
+puts signed values in a buffer that two clamps and a denoiser assume are
+irradiance. Three separable terms -- probe supplies sky, AO removes the sky
+walls block, GI adds what walls deliver -- is the model, and this makes the
+traced form conform to it.
+
+The second bounce is untouched: at the first hit, `arriving` *replaces* the
+probe (7ax) rather than adding to it, so there was no double count there.
+
+### The screen-space form, and the fallback that fell out
+
+`ssgi_compute` never lands a tap on the sky -- a sky pixel fails the radius test
+-- so it never added the sky. Its defect is the normalisation:
+
+```glsl
+irradiance = weight > 1e-4 ? gathered / weight : vec3(0.0);
+```
+
+where `weight` sums the cosines of *accepted* taps only. A pixel with two of
+twelve taps landing on walls read the mean of those two -- as if the entire
+hemisphere were wall. That is 7av's "turning the camera extinguishes a bounce"
+from the other side: the estimate does not fade as coverage is lost, it holds
+its value until the last tap leaves and then drops to zero.
+
+**Every tap in the hemisphere now counts in the weight; only accepted taps add
+light.** A tap that leaves the screen, lands too far away, or finds a surface
+behind the shading point contributes zero *and* its cosine, so the estimate is
+the walls' share of the hemisphere and nothing is extrapolated over the
+directions it could not see. Over those directions, what remains is the probe
+-- added once, in the lit shader, as it always was.
+
+**That is the probe fallback 7av asked for**, and 7az stopped because building
+it as specified -- taking the probe's irradiance *for* the missed direction and
+adding it -- would have been a third helping. Done as a normalisation there is
+nothing to add: the probe already stands where the gather found nothing. And
+the discontinuity is gone by construction, because a gather that loses taps as
+the camera turns fades in proportion.
+
+For the rejected taps the weight is the *proposed* direction's cosine, since
+there is no found surface to take one from. Where every tap is accepted the
+estimator is bit-identical to what it was; it differs only where coverage is
+lost, and that is where it was wrong.
+
+### What moved
+
+**The traced form's black-sky numbers did not**: +1.852 near the corner against
++1.853 before, to the third decimal, because there was no sky to add twice.
+
+**The screen-space bleed fell from +1.27 to +0.22** (+1.25 to +0.25 on OpenGL),
+and this is the number to be clear about. On the wall beside the corner, at a
+four-metre radius, most taps find nothing -- the room is open in that direction
+and the sky is black -- and the old estimator read the floor and red wall that
+the *other* taps found as if they filled the hemisphere. A five-fold change to a
+shipped effect's strength; but the +1.27 was the extrapolation, not the light,
+and the traced form -- which never extrapolated -- was already saying +1.85 on
+the same wall with four times the coverage. `GiIntensity` is the dial for
+taste; the estimator is not.
+
+**On `gi_skylit`** (the fixture built for this: sun off, grey sky, so every
+photon is environment light), ratios of GI on to GI at intensity zero:
+
+| | traced, before | traced, after | screen-space, after |
+|---|---|---|---|
+| far wall | 1.146 | **1.066** | 1.000 |
+| open floor | 1.147 | **1.046** | 1.001 |
+
+The 7 % that remains on the far wall is the walls the rays hit -- real
+second-order light plus the occluded-sky residual that is AO's to remove -- and
+the floor, whose hemisphere is mostly sky, keeps less of it, which is the
+direction the fix predicts. Note that 7az's **171 to 214.7** was measured on a
+string-patched fixture whose `SkyGround` stayed black -- a hemisphere of sky
+rather than a sphere -- so its base differs from `gi_skylit`'s 195.0; the
+ratios are the comparable quantities, and 1.26 there against 1.146 here is the
+same defect on a darker floor.
+
+### The check
+
+`check_gi` claim 12, on `gi_skylit`: the traced far wall lifts between 1.02
+and 1.10 -- **a floor as well as a ceiling**, because a "fix" that zeroed the
+traced term entirely would pass a ceiling alone and the walls do bounce a
+little -- and the open floor no more than 1.09. The screen-space band for the
+near bleed becomes 0.12 to 0.45, and the traced form gets its own floor of 1.0
+there rather than sharing the screen-space one, since it did not move.
+
+**Falsified** by putting the previous lines back in both shaders: the sky-lit
+wall reads 1.146 and the floor 1.147 against ceilings of 1.10 and 1.09; the
+near bleed reads +1.27 against a ceiling of 0.45. Four failures, each naming
+its own reason.
 
 ---
 

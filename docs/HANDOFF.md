@@ -1637,15 +1637,22 @@ pin; that is now a fourth shape for CHK.1.**
 9.13c and 9.13d were green when committed -- 9.13c's OK lines were read, 9.13d's
 were counted -- and the engine has had no regression at any point.
 
-### START HERE (2026-08-18): terrain is finished; 9.13 restructured GI is half built
+### START HERE (2026-08-18, end of day): phase 9 is complete; CHK.1 and 9.14 landed; read 7ba
 
-**Read item 2 of the open list below before touching GI** -- six commits in,
-three pieces left. The fourth, a convergence check, is done and it closed the
-number the previous session could not explain: **the denoiser costs nothing,
-and the unfiltered figures were a third too high** because a stochastic
-renderer measured through the tone curve reads high (ENGINE-NOTES 7aw, which
-is worth reading even if you never touch GI -- it changes what CHK.1 is).
-ENGINE-NOTES 7av is the restructure's design.
+**9.13 is done in full** (7av-7az) and **9.14 closed the double-counted sky**
+(7bb). **CHK.1 audited every check script against four ways a green check
+lies** (7ba) and added `--render-defaults=on`, which every check now passes so
+that a run depends only on its own command line -- the fix for the day's one
+real incident, in which an accidentally committed project file with ray
+tracing on made two checks read 0.00 and an engine-only bisection blamed the
+wrong commit for an hour. **Read 7ba before writing a check, and read the
+RESOLVED note below it before bisecting anything.**
+
+Two process traps from today, both recorded in 7ba and in memory: `git add -A`
+without `git checkout -- SampleProject/` first; and a bisection that checks
+out engine directories rather than the whole tree.
+
+The 9.13 detail below stands as history.
 
 Terrain is complete: `HeightAt` became a script call in both languages
 (7au, protocol 9), which was the last item on every terrain stage's list.
@@ -1866,8 +1873,9 @@ cut off**, at the owner's direction.
    four-times-larger gather cannot -- the gather was still at half resolution,
    reading a texel size for a grid twice as fine.
 
-   **(d2) THE PROBE FALLBACK IS FILED, NOT BUILT, AND THE REASON IS THE NEXT
-   ITEM.** Building it meant measuring what the probe already contributes, and
+   **(d2) THE PROBE FALLBACK -- superseded by 9.14 (7bb), which delivers it as
+   a normalisation with nothing to add. The paragraph below is the finding
+   that led there.** Building it meant measuring what the probe already contributes, and
    **the environment is already counted twice**: the lit shader adds the GI term
    *on top of* the probe, and a traced ray that misses returns the sky. On
    `gi_corner` with the sun off and a grey sky -- every photon on the far wall

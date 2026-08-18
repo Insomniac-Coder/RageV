@@ -9,7 +9,7 @@ ambient. Nothing in the frame is red but the red wall itself -- so any red on
 the white surfaces arrived by bouncing, and its amount is what the check
 measures.
 
-Three views come out of one room:
+Four views come out of one room:
 
 - `gi_corner.rage` looks into the corner, with the red wall in frame: the
   white wall **near** it must redden when GI is on, and the same wall **far**
@@ -21,6 +21,10 @@ Three views come out of one room:
   filter keeps the bounce's *structure*, and that check was abandoned --
   ENGINE-NOTES 7aw records why, and it is a finding about diffuse light rather
   than about this fixture.
+- `gi_skylit.rage` is the corner view with the sun off and a grey sky, so every
+  photon in the room is environment light and the probe already accounts for
+  all of it. A GI term that adds the sky again shows here and nowhere else --
+  ENGINE-NOTES 7bb.
 - `gi_away.rage` is the same room with the camera turned until the red wall is
   **off screen**. The white wall is still lit by light bounced off it, so the
   screen-space form has nothing red to gather and must add none, while the
@@ -119,11 +123,18 @@ def _block(next_id, tag, position, scale, colour, rotation=(0, 0, 0)):
     ]
 
 
-def build(profile, camera=None, rotation=None, detail=False):
+def build(profile, camera=None, rotation=None, detail=False, skylit=False):
     next_id = base._ids()
     # A black sky and no ambient: every photon in the frame comes from the
     # one light, so a red pixel on a white wall has exactly one explanation.
-    lines = base._header("GI corner", sky_rgb=(0.0, 0.0, 0.0))
+    # Black sky and no ambient for the bleed fixtures: every photon comes from
+    # the one light, so a red pixel on a white wall has exactly one explanation.
+    # `skylit` is the other room (ENGINE-NOTES 7bb): the sun off and a grey sky,
+    # so every photon is *environment* light and a surface's correct
+    # irradiance is the probe's -- which is what a GI term that added the sky
+    # a second time could not leave alone.
+    sky = (0.5, 0.5, 0.5) if skylit else (0.0, 0.0, 0.0)
+    lines = base._header("GI corner", sky_rgb=sky)
     lines += base._camera(next_id, camera or CAMERA_POSITION,
                           rotation=rotation or CAMERA_ROTATION, profile=profile)
 
@@ -138,7 +149,7 @@ def build(profile, camera=None, rotation=None, detail=False):
         "    LightComponent:",
         "      Type: Directional",
         "      Color: [1, 1, 1]",
-        f"      Intensity: {SUN_INTENSITY:g}",
+        f"      Intensity: {0 if skylit else SUN_INTENSITY:g}",
         "      Range: 60",
         "      InnerCone: 20",
         "      OuterCone: 30",
@@ -197,6 +208,12 @@ def main():
     text = build(postprofile.write_beside(detail, CHECK_PROFILE), detail=True)
     detail.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {detail}")
+
+    # The fourth: the same room lit by nothing but a grey sky (7bb).
+    skylit = SCENES / "gi_skylit.rage"
+    text = build(postprofile.write_beside(skylit, CHECK_PROFILE), skylit=True)
+    skylit.write_text(text, encoding="utf-8", newline="\n")
+    print(f"wrote {skylit}")
 
 
 if __name__ == "__main__":
