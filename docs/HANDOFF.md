@@ -1593,48 +1593,49 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### STOP FIRST (2026-08-18): SSAO AND SSR ARE BROKEN ON VULKAN, BISECTED TO 9.13c
+### RESOLVED (2026-08-18): the SSAO/SSR "regression" was the project file, and the bisection that blamed 9.13c was wrong
 
-`check_ssao.py` and `check_ssr.py` both fail on Vulkan and pass on OpenGL.
-Deterministic -- run twice, identical. Not a threshold: the features read
-**zero**.
+For about an hour on 2026-08-18 `check_ssao.py` and `check_ssr.py` were red on
+Vulkan, reading **0.00** where they should read a bleed, and green on OpenGL.
+The first write-up (one commit back in this file's history) bisected it to
+9.13c and named three suspects inside it. **All of that was wrong, and the way
+it was wrong is the thing to remember.**
 
-```
-FAIL: vulkan: the contact seam darkened by only 0.00 levels
-FAIL: vulkan: the mirror floor gained only 0.00 levels under the block
-FAIL: the backends put the reflection 201.7 rows apart
-```
+**What it was:** commit `7d3d860` -- a one-line ROADMAP edit -- swept
+`SampleProject/SampleProject.rvproject` in with `git add -A`, and that file had
+**every ray-tracing switch turned on** (plus `courtyard.rvpostprofile` with GI
+on at High). Only the editor writes those files (`Project::Save` has no other
+caller outside scenetest's throwaway Probe project), and I did not launch it, so
+they were most likely changed by hand in the editor while the session ran --
+which is fine and expected. The failure was mine: `git add -A` with no
+`git checkout -- SampleProject/` first, on the one commit that had no reason to
+touch assets.
 
-**Bisected, whole-tree, rebuilding each time:**
+With `RayTracedAmbientOcclusion` and `RayTracedReflections` on in the project,
+every "screen-space off" and "screen-space on" render in those two checks was
+the *traced* twin -- identical to each other, hence 0.00 -- and OpenGL, having
+no rays to switch to, stayed green. That is exactly the shape the checks
+reported and exactly the shape I misread as a Vulkan barrier bug.
 
-| commit | | |
-|---|---|---|
-| `ac68d79` | end of the previous session | **green** |
-| `1ece654` | 9.13b, the second bounce | **green** |
-| `e33a0cd` | 9.13c, SSGI's loop closed | **RED** |
+**Why the bisection lied:** it was `git checkout <rev> -- RageV RageVEditor` --
+the engine directories only -- so every "old" state under test still had the
+broken project file from HEAD. The one whole-tree checkout (`1ece654 -- .`) was
+green *because it restored the project file*, not because 9.13c was at fault.
+**A bisection that does not check out the whole tree bisects the wrong
+variable.** The three "suspects" I then probed inside 9.13c were each reverted,
+rebuilt, and still red -- which was the evidence that it was none of them, and I
+read it as "must be the fourth."
 
-So it is 9.13c. Probed inside it, each rebuilt and re-run, **all still red**:
+**Fixed by:** restoring both files to their committed content, and pinning
+`--raytracing=off` ahead of `extra` in `check_ssao` and `check_ssr`'s launch
+helpers, so their screen-space claims measure the screen-space effect whatever
+the project holds -- falsified by putting the broken project file back and
+watching both stay green. **Every other check that measures a screen-space
+effect inherits the project's Render Settings the same way and wants the same
+pin; that is now a fourth shape for CHK.1.**
 
-- the fourth texture at descriptor slot 3 in `PostProcess::Dispatch`
-  (disabled with `if (false && fourth)`) -- not it
-- the lit shader's changes (`pbr_fragment.glsl` reverted to 1ece654) -- not it
-- the `Shader::SsgiApply` enum deletion -- ruled out by inspection: the enum is
-  appended-only and the deleted entry was last but one, so no index moved
-
-**Untested, and therefore where to look next:** `FrameGraphBuilder.cpp`'s
-unification of the two denoise branches (it added `builder.Sample(sceneHDR)`
-and a `previousIndirect` sample to a pass that also writes an attachment of the
-same target -- a barrier hazard on Vulkan is the shape of this bug),
-`gi_denoise.rvshader`, and `ssgi_compute.rvshader`. Revert
-`FrameGraphBuilder.cpp` to 1ece654 together with `PostProcess.h/.cpp`'s
-`SsgiCompute` signature so it compiles, and bisect from there.
-
-**The awkward part:** 9.13c and 9.13d were both committed with "check_ssao,
-check_ssr green" in the message. The runs behind that were `grep -c` on FAIL
-lines, and I recorded the count instead of reading the verdict. The commits are
-truthful about everything else and wrong about that.
-
-**32 commits are unpushed. Do not push until this is fixed.**
+9.13c and 9.13d were green when committed -- 9.13c's OK lines were read, 9.13d's
+were counted -- and the engine has had no regression at any point.
 
 ### START HERE (2026-08-18): terrain is finished; 9.13 restructured GI is half built
 

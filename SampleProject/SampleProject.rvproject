@@ -11,11 +11,9 @@ Project:
     TemporalJitterScale: 1
     TemporalJitterPhase: 8
     ShadowsEnabled: true
-    RayTracing: true
-    RayTracedReflections: true
-    RayTracedAmbientOcclusion: true
-    RayTracedGlobalIllumination: true
-    GiBounces: 1
+    RayTracing: false
+    RayTracedReflections: false
+    RayTracedAmbientOcclusion: false
     ShadowDistance: 40
     ShadowSplitLambda: 0.85
     ShadowNormalOffset: 0.9

@@ -25,11 +25,6 @@ ScreenSpaceReflections: true
 SsrMaxDistance: 24
 SsrThickness: 0.4
 SsrIntensity: 1
-GlobalIllumination: true
-GiRadius: 2
-GiQuality: High
-GiIntensity: 1
-GiDenoise: 0.9
 AmbientOcclusion: true
 AoRadius: 0.5
 AoIntensity: 0.8

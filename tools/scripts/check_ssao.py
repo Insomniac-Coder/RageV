@@ -94,9 +94,18 @@ RAY_FLAGS = ("--raytracing=on", "--rt-ao=on")
 
 
 def shoot(exe, backend, path, scene="scenes/ssao_box.rage", extra=()):
+    # `--raytracing=off` is pinned *before* `extra`, so the screen-space
+    # claims measure the screen-space effect whatever the project file holds,
+    # and a claim that wants the traced twin says `--raytracing=on` in `extra`
+    # and wins because it comes later. This check inherited the project's
+    # Render Settings until 2026-08-18, when a `SampleProject.rvproject` with
+    # every ray-tracing switch on was committed by accident and every
+    # screen-space claim here read 0.00 -- on Vulkan only, because OpenGL has
+    # no rays to switch to. A check that depends on ambient state is a check
+    # that fails for reasons outside its own claim.
     run(exe, [f"--rhi={backend}", f"--scene={scene}",
               "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
-              f"--screenshot={path}", "--aa=none", *extra])
+              f"--screenshot={path}", "--aa=none", "--raytracing=off", *extra])
     if not pathlib.Path(path).exists():
         print(f"FAIL: {path} was never written -- the scene probably did not load")
         sys.exit(1)
@@ -110,7 +119,7 @@ def shoot_sequence(exe, backend, path, scene, count, extra=()):
     path = pathlib.Path(path)
     run(exe, [f"--rhi={backend}", f"--scene={scene}",
               "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
-              f"--screenshot-count={count}", f"--screenshot={path}", "--aa=taa", *extra])
+              f"--screenshot-count={count}", f"--screenshot={path}", "--aa=taa", "--raytracing=off", *extra])
     frames = []
     for frame in range(FRAME, FRAME + count):
         numbered = path.with_name(f"{path.stem}_{frame}{path.suffix}")
