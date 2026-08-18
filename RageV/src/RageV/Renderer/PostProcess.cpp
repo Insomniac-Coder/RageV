@@ -79,7 +79,6 @@ namespace RageV
 				case 24: return "assets/shaders/rtao_compute.rvshader";
 				case 25: return "assets/shaders/ssgi_compute.rvshader";
 				case 26: return "assets/shaders/ssgi_blur.rvshader";
-				case 27: return "assets/shaders/ssgi_apply.rvshader";
 				default: return "assets/shaders/gi_denoise.rvshader";
 			}
 		}
@@ -160,7 +159,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 29,
+		static_assert((int)Shader::Count <= 28,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -294,6 +293,7 @@ namespace RageV
 							   const void* params, uint32_t paramSize,
 							   Sampling firstSampling, Sampling secondSampling,
 							   const Ref<RHITexture>& third, Sampling thirdSampling,
+							   const Ref<RHITexture>& fourth, Sampling fourthSampling,
 							   const Ref<RHIBuffer>& storage,
 							   const Ref<RHIAccelerationStructure>& structure)
 	{
@@ -374,6 +374,13 @@ namespace RageV
 
 		if (third)
 			set->SetTexture(2, third, samplerFor(thirdSampling));
+
+		// Slot 3 is a texture *or* the exposure buffer, and never both: the
+		// layout is the shader's, so the only thing that could go wrong is one
+		// shader declaring both, and none does. SSGI's gather is the one pass
+		// that wants a fourth image (ENGINE-NOTES 7ay).
+		if (fourth)
+			set->SetTexture(3, fourth, samplerFor(fourthSampling));
 
 		// Auto exposure's answer, and never null for a shader that declares it
 		// -- the caller passes a unit buffer when the feature is off, for the
@@ -516,6 +523,7 @@ namespace RageV
 				 bloom ? bloom : s_Data->Black, &params, sizeof(params),
 				 Sampling::Linear, Sampling::Linear,
 				 grading ? lut : s_Data->IdentityLut, Sampling::Linear,
+				 nullptr, Sampling::Linear,   // no fourth image; binding 3 is the buffer
 				 lens.Exposure ? lens.Exposure : s_Data->UnitExposure);
 	}
 
@@ -804,7 +812,8 @@ namespace RageV
 
 		Dispatch(cmd, Shader::RtaoCompute, outputFormat, depth, surface,
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,
-				 nullptr, Sampling::Point, nullptr, structure);
+				 nullptr, Sampling::Point, nullptr, Sampling::Point,
+				 nullptr, structure);
 	}
 
 	void PostProcess::SsaoCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,
@@ -835,11 +844,12 @@ namespace RageV
 	void PostProcess::SsgiCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,
 								  const Ref<RHITexture>& surface,
 								  const Ref<RHITexture>& scene,
+								  const Ref<RHITexture>& contributed,
 								  uint32_t width, uint32_t height,
 								  const ViewReconstruction& view, float radius,
 								  Format outputFormat)
 	{
-		if (!s_Data || !depth || !surface || !scene)
+		if (!s_Data || !depth || !surface || !scene || !contributed)
 			return;
 
 		SsaoComputeParams params;
@@ -855,9 +865,13 @@ namespace RageV
 		// Depth and normal point sampled for SSAO's reasons; the lit image
 		// linear, because a bounce is low frequency and a gather of point
 		// samples off a half-resolution grid aliases into sparkle.
+		// The indirect light already in the lit image, linear for the same
+		// reason the image is: the two are subtracted tap for tap and a
+		// point-sampled minuend against a filtered subtrahend leaves an edge
+		// where neither belongs (ENGINE-NOTES 7ay).
 		Dispatch(cmd, Shader::SsgiCompute, outputFormat, depth, surface,
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,
-				 scene, Sampling::Linear);
+				 scene, Sampling::Linear, contributed, Sampling::Linear);
 	}
 
 	void PostProcess::SsgiBlur(RHICommandList& cmd, const Ref<RHITexture>& source,
@@ -875,17 +889,6 @@ namespace RageV
 
 		Dispatch(cmd, Shader::SsgiBlur, outputFormat, source, nullptr,
 				 &params, sizeof(params), Sampling::Point);
-	}
-
-	void PostProcess::SsgiResolve(RHICommandList& cmd, const Ref<RHITexture>& indirect,
-								  Format outputFormat)
-	{
-		if (!s_Data || !indirect)
-			return;
-
-		PostParams params;
-		Dispatch(cmd, Shader::SsgiApply, outputFormat, indirect, nullptr,
-				 &params, sizeof(params), Sampling::Linear);
 	}
 
 	void PostProcess::SsaoBlur(RHICommandList& cmd, const Ref<RHITexture>& source,

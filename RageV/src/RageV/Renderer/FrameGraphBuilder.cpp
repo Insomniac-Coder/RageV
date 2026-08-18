@@ -809,12 +809,13 @@ namespace RageV
 					builder.Sample(giSource);
 					builder.DisableDepth();
 				},
-				[sceneHDR, giSource, normalIndex, giWidth, giHeight, reconstruction,
-				 giRadius](RGPassContext& context)
+				[sceneHDR, giSource, normalIndex, indirectIndex, giWidth, giHeight,
+				 reconstruction, giRadius](RGPassContext& context)
 				{
 					PostProcess::SsgiCompute(context.Cmd, context.Depth(sceneHDR),
 											 context.Color(sceneHDR, normalIndex),
 											 context.Color(giSource),
+											 context.Color(sceneHDR, indirectIndex),
 											 giWidth, giHeight, reconstruction,
 											 giRadius, Format::R16G16B16A16_SFLOAT);
 				});
@@ -852,25 +853,41 @@ namespace RageV
 			// deliberately NOT reassigned -- the bounce reaches the picture
 			// through the lit shader next frame, multiplied by albedo.
 			//
-			// **No accumulation on this path** (7av). The gather reads the lit
-			// image, the lit image carries last frame's indirect, and blending
-			// its own output back in compounds it: measured at +16.98 levels
-			// against a calibrated +1.71, with the two backends 2.03 apart.
-			// Neither clamping the blend nor shortening its tail bounds a loop
-			// that runs a stage upstream. Until the gather reads an image
-			// without the indirect term in it, this path resolves and stops.
-			// The traced branch below has no such loop and does accumulate.
-			graph.AddPass("SSGI resolve",
+			// **And it accumulates, which it could not before** (ENGINE-NOTES
+			// 7ay). 7av had to give the denoiser to the traced form alone: the
+			// gather read the lit image, the lit image carried last frame's
+			// indirect, and blending its own output back in compounded it to
+			// +16.98 against a calibrated +1.71, with the backends 2.03 apart.
+			// The gather now subtracts what the lit shader added, so its output
+			// no longer depends on its own history and the two forms take the
+			// same pass -- one name for it, because they are one thing again.
+			//
+			// The *gather's* dimensions, not the buffer's: `TexelSize` places
+			// the neighbourhood taps on `u_Current`, and this chain runs at
+			// half resolution. Passing the output size would put all nine taps
+			// inside one source texel, which is a clamp box of nothing, which
+			// is an accumulation that clips itself straight back to the frame
+			// it was supposed to be smoothing.
+			graph.AddPass("GI denoise",
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(currentIndirect);
 					builder.Sample(giBlurred);
+					builder.Sample(sceneHDR);
+					if (previousIndirect != kRGInvalid)
+						builder.Sample(previousIndirect);
 					builder.DisableDepth();
 				},
-				[giBlurred](RGPassContext& context)
+				[giBlurred, sceneHDR, velocityIndex, previousIndirect,
+				 giWidth, giHeight, feedback = giFeedback,
+				 has = indirectHasHistory](RGPassContext& context)
 				{
-					PostProcess::SsgiResolve(context.Cmd, context.Color(giBlurred),
-											 Format::R16G16B16A16_SFLOAT);
+					PostProcess::GiDenoise(context.Cmd, context.Color(giBlurred),
+										   previousIndirect != kRGInvalid
+											   ? context.Color(previousIndirect) : nullptr,
+										   context.Color(sceneHDR, velocityIndex),
+										   giWidth, giHeight, feedback, has,
+										   Format::R16G16B16A16_SFLOAT);
 				});
 
 			// Swapped once the pass is declared, for the reason the
@@ -882,10 +899,12 @@ namespace RageV
 		{
 			// The traced form. The lit shader has already written raw
 			// irradiance into the scene target's indirect attachment, so all
-			// that is left is to resolve it into the buffer the next frame
+			// that is left is to accumulate it into the buffer the next frame
 			// reads -- through the same pass the screen-space chain ends on,
-			// because at this point the two carry the same quantity.
-			graph.AddPass("RT GI denoise",
+			// because at this point the two carry the same quantity and, since
+			// 7ay closed the gather's loop, neither carries its own answer back
+			// into itself.
+			graph.AddPass("GI denoise",
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(currentIndirect);

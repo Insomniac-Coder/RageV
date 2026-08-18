@@ -21,6 +21,13 @@ the effect under test to define its own measurement (check_ssao's rule).
    with GI off) by a stated margin, and the far end of the *same wall* reddens
    by much less. A global tint would lift both.
 
+2b. **And accumulating it changes nothing.** Its kernel is fixed, so on a still
+   camera there is nothing to average. It is claim 2's *band* that keeps the
+   gather from reading its own output; this one catches the other way the same
+   number has gone wrong -- the screen-space chain carries linear depth in
+   alpha, and a pass that hands that alpha on multiplies the bounce by a
+   distance. ENGINE-NOTES 7ay.
+
 3. **The traced form bleeds too**, on the same region, with `--raytracing=on
    --rt-gi=on`. Vulkan only: the ray form needs ray queries and bindless.
 
@@ -111,20 +118,32 @@ AWAY_REGION = (0.28, 0.52, 0.02, 0.20)
 # How much redder (R - B, in display levels) a region must go for a bounce to
 # count as measured, and how much less the far end may take before "local"
 # stops meaning anything.
-# Measured on this fixture: the screen-space form puts +0.77 levels of red on
-# the near region and +0.00 on the far one; the traced form +2.72 and +1.26 in
-# the away view's left edge. The thresholds sit well under those, and the far
+# Measured on this fixture: the screen-space form puts **+1.27** levels of red
+# on the near region and +0.00 on the far one; the traced form +1.86 and +0.82
+# in the away view's left edge. The thresholds sit well under those, and the far
 # and off-screen claims are qualitative -- 0.00 against a real number.
-MIN_NEAR_BLEED = 0.4
+#
+# **Both screen-space numbers have moved twice, and neither move was a
+# regression.** 9.13 gave the gather the surface's own albedo instead of the lit
+# pixel standing in for it (+0.77 -> +1.71), and 9.13c stopped it reading its own
+# output back (+1.71 -> +1.27). The second is a quarter of the old number and was
+# never one bounce: see ENGINE-NOTES 7ay.
+# **A calibration band, not a floor and a runaway ceiling.** +1.27 measured,
+# and the bounds are set so that the two ways this number has been wrong both
+# fail: reading the gather's own output back out of the lit image puts it at
+# +1.70 (ENGINE-NOTES 7ay), and carrying linear depth into the buffer's alpha
+# puts it at +6.93. Neither is a crash and neither looks wrong on screen.
+MIN_NEAR_BLEED = 0.9
 MAX_FAR_SHARE = 0.6
 # **And a ceiling, which the first version of this file did not have.** Every
 # threshold here was a floor -- "did the feature do anything" -- so a bleed ten
 # times too strong passed as happily as a correct one. That is not a
 # hypothetical: wiring a temporal denoiser onto the indirect buffer turned
-# SSGI's +1.71 into +16.98, because the gather reads the lit image and the lit
-# image now carries last frame's indirect, and this file printed OK. A floor
-# cannot tell a feature from a runaway. ENGINE-NOTES 7av.
-MAX_NEAR_BLEED = 6.0
+# SSGI's +1.71 into +16.98, because the gather read the lit image and the lit
+# image carried last frame's indirect, and this file printed OK. A floor cannot
+# tell a feature from a runaway. ENGINE-NOTES 7av; the loop itself is closed in
+# 7ay, and claim 2b below is what keeps it closed.
+MAX_NEAR_BLEED = 1.6
 # The two backends compute the same bounce by the same rules, so they must
 # agree about it. They do, to 0.02 levels -- and under that loop they diverged
 # by 2.03, because the result had become a function of accumulated history
@@ -217,6 +236,25 @@ MAX_UNFILTERED_SETTLE_RATIO = 2.0
 # levels what you would refuse in irradiance and the check refuses nothing.**
 MIN_SETTLED_AGREEMENT = 0.89
 MAX_SETTLED_AGREEMENT = 1.08
+
+# Claim 2b: accumulating the screen-space gather must not change what it says.
+#
+# Its kernel is fixed, so on a still camera its estimate is the same every frame
+# and a temporal blend has nothing to average -- measured 1.00 either way.
+#
+# **What this catches is a unit error, and that is not what it was written for.**
+# 7av recorded that accumulating this gather took +1.71 to +16.98 and blamed the
+# feedback loop; 7ay found the real cause -- the screen-space chain carries
+# *linear depth* in alpha for its blur's edge test, the denoise pass passed that
+# alpha through, and the lit shader multiplies the bounce by it. A bounce
+# multiplied by a distance in metres. The claim compares the two paths through
+# the same pass, so it fails when one of them starts scaling the other.
+#
+# A band rather than equality, because a gather that later jitters its kernel
+# per frame -- 9.13d's sharpness work might -- would have something to average
+# and should be allowed to.
+MIN_ACCUMULATION_MATCH = 0.90
+MAX_ACCUMULATION_MATCH = 1.10
 
 
 
@@ -349,21 +387,41 @@ def main():
         if difference != 0.0:
             failures.append(f"{backend}: an intensity of zero changed the image (max {difference:g})")
 
+        # `GiDenoise` left at its default, which accumulates: claim 2b below
+        # compares this against the same gather with the accumulation off.
         profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0, "GiRadius": 4.0 })
-        on = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-ssgi.png")
+        on = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-ssgi.png", frame=90)
 
         near = redness(on, NEAR_REGION) - redness(off, NEAR_REGION)
         far = redness(on, FAR_REGION) - redness(off, FAR_REGION)
         print(f"{backend}: screen-space bleed -- near the corner +{near:.2f} levels of red, "
               f"far along the same wall +{far:.2f}")
+        # 2b: and accumulating it changes nothing, because it no longer reads
+        # its own answer (ENGINE-NOTES 7ay).
+        profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0,
+                               "GiRadius": 4.0, "GiDenoise": 0.0 })
+        alone = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-noaccum.png",
+                      frame=90)
+        unaccumulated = redness(alone, NEAR_REGION) - redness(off, NEAR_REGION)
+        match = near / max(unaccumulated, 1e-6)
+        print(f"{backend}: accumulating the gather leaves it at {match:.2f} of itself "
+              f"(+{near:.2f} against +{unaccumulated:.2f})")
+        if not MIN_ACCUMULATION_MATCH <= match <= MAX_ACCUMULATION_MATCH:
+            failures.append(f"{backend}: accumulating the screen-space gather moved it to "
+                            f"{match:.2f} of itself (wanted {MIN_ACCUMULATION_MATCH} to "
+                            f"{MAX_ACCUMULATION_MATCH}) -- the two paths through the denoise "
+                            f"pass disagree, and the way that has happened before is one of "
+                            f"them scaling the bounce by the depth in alpha")
+
         near_by_backend[backend] = near
         if near < MIN_NEAR_BLEED:
             failures.append(f"{backend}: the wall beside the red one did not redden "
                             f"(+{near:.2f} levels, wanted {MIN_NEAR_BLEED})")
         if near > MAX_NEAR_BLEED:
-            failures.append(f"{backend}: the bleed is far past this fixture's calibration "
-                            f"(+{near:.2f} levels, ceiling {MAX_NEAR_BLEED}) -- "
-                            f"a feedback loop looks exactly like this")
+            failures.append(f"{backend}: the bleed is past this fixture's calibration "
+                            f"(+{near:.2f} levels, ceiling {MAX_NEAR_BLEED}) -- at +1.70 the "
+                            f"gather is reading its own output back, and much higher than "
+                            f"that it is being scaled by something with units")
         if far > near * MAX_FAR_SHARE:
             failures.append(f"{backend}: the far end reddened as much as the near one "
                             f"(+{far:.2f} against +{near:.2f}) -- a tint, not a bounce")

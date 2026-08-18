@@ -7397,11 +7397,23 @@ publishing a direct-only colour somewhere (another attachment, another sweep)
 or the gather subtracting what it contributed. That is the next design
 decision, and it is a decision rather than a tweak.
 
+> **CORRECTION (9.13c, ENGINE-NOTES 7ay).** The loop is real and closing it was
+> right -- it was inflating the screen-space bleed by a quarter, +1.27 read as
+> +1.71 -- but **it is not what the +16.98 above was.** That was a unit error:
+> the screen-space chain carries linear depth in alpha for its blur's edge
+> test, `ssgi_apply` normalised it to 1 and `GiDenoise` did not, and the lit
+> shader multiplies this buffer's alpha into the bounce. The two compounded.
+> The arithmetic was there to be done at the time and was not: a loop of gain
+> `g . albedo` cannot take 1.71 to 16.98 for any `g` under one.
+
 **The traced form has no loop** -- `TraceReflection` shades its hits from the
 lights and the probe, never from this buffer, so there is no path by which its
 own output returns. **At the owner's direction (2026-08-18) the two were split
-and the traced form has the denoiser now**: `RT GI denoise` accumulates, `SSGI
-resolve` does not, and the `GiDenoise` dial is the traced form's alone.
+and the traced form had the denoiser**: `RT GI denoise` accumulated, `SSGI
+resolve` did not, and the `GiDenoise` dial was the traced form's alone.
+
+> **The split lasted one day.** 9.13c closed the gather's loop and found the
+> unit error above, and both forms now end on one `GI denoise` pass. See 7ay.
 
 One buffer with one writer was the point of the restructure, and it survives
 -- both forms still write the same `Indirect` buffer and the lit shader still
@@ -7876,6 +7888,162 @@ of 2.25 standing in for the trace (2 fails while 1 nearly passes, which is the
 whole reason 2 exists); and the dial both passed on when the traced form is off
 and read in the shared indirect fetch (3 fails, and **it takes both mistakes**
 -- the guard is in the frame and in the shader, and either alone is harmless).
+
+---
+
+## 7ay. SSGI's feedback loop (9.13c): the gather subtracts what it put there
+
+7av found this and could not close it: the screen-space gather reads the lit
+image, the lit image carries last frame's indirect, so accumulating its output
+compounds -- **+16.98 against a calibrated +1.71, with the two backends 2.03
+levels apart.** Clamping the denoiser's output against its input did nothing,
+because the input is what grows; shortening the tail to 0.35 still gave
++6.94 / +4.91 and still 2.03 apart. It was recorded as a design decision rather
+than a tweak, and this is the decision.
+
+### The loop is worse than a blocked denoiser
+
+The denoiser made it *visible*, but it is there without one. With no
+accumulation the gather still reads an image that already contains indirect
+light, so what it estimates is not one bounce:
+
+```
+I  =  G(direct + I . albedo)        so        I  ~  G(direct) / (1 - g . albedo)
+```
+
+for a gather with effective gain `g`. That converges rather than diverging --
+there is no accumulation to compound it -- but it converges on a **geometric
+series nobody chose**, with a ratio set by the albedo of whatever the taps
+happened to land on. **So the +1.71 that 7at calibrated and 9.13's checks band
+is not a one-bounce number**, and the fix will move it down. That is the
+prediction this entry makes; the measurement is below.
+
+The traced form has never had this: `TraceSurface` shades its hits from the
+lights and the probe and never from the buffer, which is why 7av's split gave
+the denoiser to it alone.
+
+### Two ways to close it, and why subtraction wins
+
+7av named both. **A direct-only colour published by the lit shader** is the
+obvious one, and it costs a fifth full-resolution `R16G16B16A16` attachment
+*always* -- the target's shape cannot depend on a checkbox, which is 7av's own
+rule and the reason the indirect attachment is unconditional -- plus the
+thirteen-place sweep to declare it everywhere. That is a permanent cost in
+bandwidth and in places-to-get-wrong, for a feature that is off by default.
+
+**The gather subtracting its own contribution** needs the same information and
+no new attachment, because *there is already an attachment sitting empty*: with
+the screen-space form running, the lit shader writes `o_Indirect = vec4(0.0)`
+and nothing reads it. So the lit shader publishes what it added, and the gather
+takes it back off each tap.
+
+The subtraction is **exact, not approximate**, and that is the point of doing it
+this way rather than estimating. The lit shader adds
+
+```glsl
+ambient = kD * albedo * (ambientLight + irradiance) * occlusion;
+```
+
+and the indirect term is one addend of `irradiance`, so the amount this pixel's
+colour owes to last frame's indirect is exactly `kD * albedo * indirect *
+occlusion` -- every factor already in hand at the line that applies it. Publish
+that, subtract that, and what the gather sees is the direct-lit image to the
+bit.
+
+### The attachment now means two things, and that is stated rather than hidden
+
+Location 3 on the scene target is **the lit shader's channel to whichever
+indirect chain is running**, and the two chains want different things there:
+
+| | what `o_Indirect` carries |
+|---|---|
+| `RV_RAY_GI` | the traced estimate, albedo-free -- the chain's *input* |
+| otherwise | the indirect light already in this pixel's colour -- what the chain must *remove* |
+
+Two meanings in one attachment is a smell, and the mitigation is that the two
+forms are mutually exclusive and a check already asserts it (7at's claim 5: with
+the traced form on, the profile's toggle changes nothing to the byte). A fifth
+attachment would buy one meaning each and cost a permanent target.
+
+**Every other shader that draws into the scene target already writes zero
+there** -- sky, particles, the grid, the debug renderer, quads and world-space
+UI all do, which was checked rather than assumed -- so a tap that lands on any
+of them subtracts nothing, which is right: none of them received indirect light.
+
+### What it unlocks
+
+With the loop closed, SSGI's output no longer depends on its own history, so it
+can take the temporal stage the traced form has and 7av's split can be undone:
+one buffer, one denoiser, both forms accumulating. That is the second half of
+this item and the reason it is worth doing at all -- closing the loop for its
+own sake fixes a number nobody was looking at; closing it to give SSGI a
+denoiser is what the owner asked for.
+
+### What it measured, and the part where 7av was wrong
+
+**The prediction holds.** With the gather subtracting what the lit shader
+added, the screen-space bleed falls from **+1.71 to +1.27** (Vulkan; +1.74 to
++1.25 on OpenGL). A quarter of the number 7at calibrated and 9.13 banded was
+the gather reading its own output back out of the lit image. It was never one
+bounce.
+
+**And 7av's diagnosis of the +16.98 was wrong.** The loop is real, but it is
+not what stopped the screen-space form accumulating. The real cause is a unit
+error, and it is worth stating exactly because it is invisible:
+
+> The screen-space chain packs **linear depth in alpha** so its blur can do an
+> edge test. `ssgi_apply` -- the resolve that used to end that chain -- wrote
+> `vec4(irradiance, 1.0)` and quietly normalised it away. `GiDenoise` wrote
+> `current.a` and passed it on. The lit shader multiplies this buffer's alpha
+> into the bounce. **So the bounce was multiplied by a distance in metres.**
+
+Reproduced today: putting `current.a` back gives **+6.93** against a correct
++1.27, a factor of 5.5 -- and with the loop *also* open, as it was in 7av, the
+inflated term feeds the gather that feeds the inflation, and the two compound
+to the +16.98 recorded there. Each break now reproduces its own share, which is
+how they were told apart.
+
+**This matters beyond GI.** 7av looked at one number, recognised a mechanism it
+knew about, and stopped. The mechanism was real and present -- and it was the
+smaller of the two things wrong. *A diagnosis that explains the sign of an error
+is not a diagnosis that explains its size*, and the arithmetic was never done:
+a loop with gain `g . albedo` cannot take 1.71 to 16.98 for any `g` under one.
+The number said so at the time.
+
+### What changed as a result
+
+7av's split is **undone**. Both forms end on the same `GI denoise` pass under
+one name, because the reason they differed no longer exists, and a fork that
+outlives its reason is how the next person learns the wrong thing.
+`ssgi_apply.rvshader` and `PostProcess::SsgiResolve` are deleted with it.
+
+**On a still camera the accumulation changes nothing for the screen-space
+form** -- measured 1.00 -- and that is not a defect. Its kernel is fixed, so
+its estimate is identical every frame and there is nothing to average. What it
+buys is *motion*: a history reprojected through the velocity buffer instead of
+a gather that pops as screen content enters and leaves. The fixtures here are
+still cameras, so the check states the 1.00 rather than claiming a gain it
+cannot see.
+
+The denoise pass is given the **gather's** dimensions, not the buffer's:
+`TexelSize` places the neighbourhood taps on `u_Current`, and this chain runs
+at half resolution. The output size would put all nine taps inside one source
+texel -- a clamp box of nothing, and an accumulation that clips itself straight
+back to the frame it was meant to be smoothing.
+
+### The checks
+
+1. **A calibration band on the bleed, not a floor and a runaway ceiling.**
+   +1.27, banded 0.9 to 1.6. Both ways this number has been wrong now fail it:
+   the loop puts it at +1.70, the alpha at +6.93.
+2. **Accumulating it changes nothing**, 1.00, banded 0.9 to 1.1. This is the
+   one that catches the alpha, because it compares the two paths through the
+   same pass rather than one path against a constant.
+
+**Falsified by** publishing zero instead of the contribution -- the shader as
+it was one commit ago -- which puts the bleed at +1.70 and fails claim 1 on
+both backends; and by writing `current.a` again, which puts it at +6.93 and
+fails both.
 
 ---
 

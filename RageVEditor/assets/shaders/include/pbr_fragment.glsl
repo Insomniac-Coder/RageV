@@ -1302,9 +1302,6 @@ void main()
 	// last held.
 	o_Surface = vec4(OctEncode(N), roughness, metallic);
 
-#ifndef RV_RAY_GI
-	o_Indirect = vec4(0.0);
-#endif
 
 	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
 	// the reflectance and have no diffuse response at all: F0 = 0.08 *
@@ -1514,6 +1511,10 @@ void main()
 	// nothing was gathered for this point and the probe answers alone, which
 	// is what clamp-to-edge would have got wrong by handing back a neighbour's
 	// bounce.
+	// Kept as well as added, because the screen-space gather has to subtract
+	// it back off (ENGINE-NOTES 7ay): it reads this image, and an image that
+	// already contains indirect light feeds a gather its own answer.
+	vec3 indirectTerm = vec3(0.0);
 	if (u_Scene.Indirect.x > 0.0)
 	{
 		vec2 previousIndirectNDC = thenNDC - u_Scene.Jitter.zw;
@@ -1524,7 +1525,8 @@ void main()
 			all(lessThanEqual(indirectUV, vec2(1.0))))
 		{
 			vec4 bounced = texture(u_Indirect, indirectUV);
-			irradiance += max(bounced.rgb, vec3(0.0)) * bounced.a * u_Scene.Indirect.x;
+			indirectTerm = max(bounced.rgb, vec3(0.0)) * bounced.a * u_Scene.Indirect.x;
+			irradiance += indirectTerm;
 		}
 	}
 
@@ -1532,6 +1534,19 @@ void main()
 	vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
 	vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
 	vec3 ambient = kD * albedo * (ambientLight + irradiance) * occlusion;
+
+#ifndef RV_RAY_GI
+	// **What this pixel's colour owes to last frame's indirect light**
+	// (ENGINE-NOTES 7ay). Every factor is the one the line above applied, so
+	// the screen-space gather's subtraction is exact rather than an estimate:
+	// what it sees after taking this off is the directly lit image.
+	//
+	// The traced form writes its own estimate here instead, and the two forms
+	// are mutually exclusive -- 7at's claim 5 is the check that keeps them so.
+	// Every other shader that draws into this target writes zero here, which
+	// is right: none of them received indirect light.
+	o_Indirect = vec4(kD * albedo * indirectTerm * occlusion, 1.0);
+#endif
 
 	// The environment, reflected. Roughness selects a mip rather than driving
 	// a real GGX convolution -- the chain is box filtered, so this is an

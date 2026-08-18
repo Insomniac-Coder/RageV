@@ -243,6 +243,10 @@ namespace RageV
 								const RHI::Ref<RHI::RHITexture>& depth,
 								const RHI::Ref<RHI::RHITexture>& surface,
 								const RHI::Ref<RHI::RHITexture>& scene,
+								// The indirect light already in `scene`, which
+								// the gather subtracts off every tap so that it
+								// does not read its own answer (7ay).
+								const RHI::Ref<RHI::RHITexture>& contributed,
 								uint32_t width, uint32_t height,
 								const ViewReconstruction& view, float radius,
 								RHI::Format outputFormat);
@@ -258,13 +262,9 @@ namespace RageV
 							 RHI::Format outputFormat);
 
 		// 4: the resolve into the frame's Indirect buffer (ENGINE-NOTES 7av).
-		// Albedo-free irradiance in RGB, confidence in A. It no longer touches
-		// the scene image: the lit shader reads this buffer one frame later
-		// and multiplies by the surface's own base colour, which is what
-		// retired the lit-pixel stand-in.
-		static void SsgiResolve(RHI::RHICommandList& cmd,
-								const RHI::Ref<RHI::RHITexture>& indirect,
-								RHI::Format outputFormat);
+		// 4 was a resolve of its own until 9.13c: with the gather's feedback
+		// loop closed, the screen-space chain ends on the same GiDenoise the
+		// traced form does, and `ssgi_apply` went with it (ENGINE-NOTES 7ay).
 
 		// 2 and 3: the separable depth-aware blur, one axis per call.
 		static void SsaoBlur(RHI::RHICommandList& cmd,
@@ -373,7 +373,7 @@ namespace RageV
 			RtaoCompute,
 			// Appended, never inserted: ShaderPath below is indexed by this
 			// enum's order.
-			SsgiCompute, SsgiBlur, SsgiApply, GiDenoise,
+			SsgiCompute, SsgiBlur, GiDenoise,
 			Count
 		};
 
@@ -397,6 +397,12 @@ namespace RageV
 							 Sampling secondSampling = Sampling::Linear,
 							 const RHI::Ref<RHI::RHITexture>& third = nullptr,
 							 Sampling thirdSampling = Sampling::Linear,
+							 // Also binding 3, and never alongside the buffer
+							 // below: the layout is the shader's, and no shader
+							 // declares both. SSGI's gather is the one pass that
+							 // wants a fourth image (ENGINE-NOTES 7ay).
+							 const RHI::Ref<RHI::RHITexture>& fourth = nullptr,
+							 Sampling fourthSampling = Sampling::Linear,
 							 // Bound at binding 3 when the shader declares it.
 							 // Only the tonemap does, for auto exposure.
 							 const RHI::Ref<RHI::RHIBuffer>& storage = nullptr,

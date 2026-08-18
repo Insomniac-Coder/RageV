@@ -7,13 +7,18 @@
 // none. This pass accumulates the indirect term on its own, so convergence
 // stops depending on which AA the profile happens to hold.
 //
-// **Only the traced form uses this** (ENGINE-NOTES 7av). The screen-space
-// gather reads the lit image, and the lit image carries last frame's indirect,
-// so accumulating its output compounds it -- measured at ten times the
-// calibrated bleed, and no constant in this shader can bound a loop that runs
-// one stage upstream of it. `TraceReflection` shades its hits from the lights
-// and the probe and never from this buffer, so the traced form has no such
-// path and takes the accumulation cleanly.
+// **Both forms use this** (ENGINE-NOTES 7ay). It was the traced form's alone
+// for one commit: the screen-space gather read the lit image, the lit image
+// carried last frame's indirect, and accumulating its output compounded it to
+// ten times the calibrated bleed -- a loop no constant in this shader could
+// bound, because it ran one stage upstream. The gather now subtracts what the
+// lit shader added, so its output no longer depends on its own history and
+// this pass serves both.
+//
+// On a still camera it changes nothing for the screen-space form, and that is
+// not a bug: its kernel is fixed and its estimate is the same every frame, so
+// there is nothing to average. What it buys there is *motion* -- a reprojected
+// history instead of a gather that pops with the screen content.
 //
 // The same shape as taa_resolve: reproject last frame through the velocity
 // buffer 7.10 writes, reject what reprojected off screen, blend. Three
@@ -100,7 +105,7 @@ void main()
 	// resumed history from being a lie -- the same contract taa_resolve has.
 	if (u_Params.HasHistory < 0.5 || u_Params.Feedback <= 0.0)
 	{
-		o_Color = current;
+		o_Color = vec4(current.rgb, 1.0);
 		return;
 	}
 
@@ -146,5 +151,13 @@ void main()
 
 	// Negative irradiance is not a thing; a filtered read across a disocclusion
 	// can produce one, and it would darken the surface below unlit.
-	o_Color = vec4(max(result, vec3(0.0)), current.a);
+	//
+	// **Alpha is written as one, not carried from the input** (ENGINE-NOTES
+	// 7ay). The lit shader multiplies this buffer's alpha into the bounce, so
+	// it is a validity flag and nothing else -- and the screen-space chain
+	// arrives here with *linear depth* in alpha, which its blur uses for its
+	// edge test. Passing that through multiplied the bounce by a distance in
+	// metres: measured +6.93 against a correct +1.27, and it looked exactly
+	// like a feedback loop rather than like a unit error.
+	o_Color = vec4(max(result, vec3(0.0)), 1.0);
 }

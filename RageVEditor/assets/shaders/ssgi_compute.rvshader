@@ -48,6 +48,17 @@ layout(set = 0, binding = 1) uniform sampler2D u_Surface;
 // The lit HDR image this frame, full resolution. Linearly sampled: a bounce
 // is low frequency and a gather of point samples would alias badly.
 layout(set = 0, binding = 2) uniform sampler2D u_Scene;
+// **The indirect light already in that image** (ENGINE-NOTES 7ay): what the
+// lit shader added out of last frame's buffer, with this pixel's own kD,
+// albedo and occlusion already applied. Subtracted from every tap, so what
+// this pass gathers is the directly lit scene and not its own answer coming
+// back round.
+//
+// Exact without SSAA. With it, the lit image has been resolved to output
+// resolution while this is still supersampled, so one is a box mean of
+// subsamples and the other a bilinear mean of texels -- near enough, and
+// stated rather than silently assumed.
+layout(set = 0, binding = 3) uniform sampler2D u_Contributed;
 
 layout(push_constant) uniform Params
 {
@@ -283,7 +294,12 @@ void main()
 		// would apply, softened at the near end so a tap a millimetre away
 		// does not carry the frame.
 		const float falloff = 1.0 / (1.0 + distance_ * distance_);
-		gathered += texture(u_Scene, sampleUv).rgb * cosine * falloff;
+		// Direct light only. Clamped at zero because the two images are
+		// sampled from targets of different sizes under SSAA, and a filtered
+		// difference can cross zero at an edge where neither image does.
+		const vec3 direct = max(texture(u_Scene, sampleUv).rgb
+								- texture(u_Contributed, sampleUv).rgb, vec3(0.0));
+		gathered += direct * cosine * falloff;
 		weight += cosine;
 	}
 

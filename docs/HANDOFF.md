@@ -1728,8 +1728,10 @@ cut off**, at the owner's direction.
    - 9.13a: the convergence check, three claims, a third fixture, and 7aw.
    - 9.13b: the second bounce -- `TraceSurface`, `RenderSettings::GiBounces`,
      three more check_gi claims and a scenetest clamp unit. 7ax.
+   - 9.13c: SSGI's loop closed, the split undone, and **7av's diagnosis of it
+     corrected**. 7ay.
 
-   **TWO DONE, TWO LEFT, IN ORDER, AND WHY THIS ORDER:**
+   **THREE DONE, ONE LEFT:**
 
    **(a) The convergence check -- DONE 2026-08-18, ENGINE-NOTES 7aw.** The
    ~30 % drop is closed: **nothing was lost, the unfiltered number was wrong.**
@@ -1773,18 +1775,34 @@ cut off**, at the owner's direction.
    registry fields. Giving the traced-GI switches typed properties is one job
    rather than half of one.
 
-   **(c) SSGI's feedback loop -- a design decision, not a tweak.** Its gather
-   reads the lit image, the lit image carries last frame's indirect, so
-   accumulating its output compounds: **+16.98 against a calibrated +1.71,
-   with the two backends 2.03 levels apart.** Two fixes were tried and both
-   failed, and *why* is the useful part: clamping the denoiser's output
-   against its input does nothing because the input is what grows (the loop
-   runs a stage upstream of anything the denoiser can see), and shortening the
-   tail to 0.35 still gave +6.94/+4.91 and still 2.03 apart. **Closing it
-   means SSGI gathering an image that does not contain the indirect term** --
-   the lit shader publishing a direct-only colour (another attachment, another
-   sweep) or the gather subtracting its own contribution. Pick one
-   deliberately; there is no constant that fixes this.
+   **(c) SSGI's feedback loop -- DONE 2026-08-18, ENGINE-NOTES 7ay.** The lit
+   shader publishes what it added to each pixel out of the indirect buffer --
+   `kD * albedo * indirect * occlusion`, into the attachment that sat empty
+   while the screen-space form ran -- and the gather subtracts it off every
+   tap. Exact, and no new attachment: a direct-only colour would have cost a
+   fifth full-resolution target *always*, because a target's shape cannot
+   depend on a checkbox.
+
+   **The bleed fell from +1.71 to +1.27**: a quarter of the number 7at
+   calibrated was the gather reading its own output back. It was never one
+   bounce.
+
+   **7av's diagnosis was wrong and is corrected in place.** The +16.98 it
+   blamed on the loop was mostly a *unit error*: the screen-space chain carries
+   linear depth in alpha for its blur's edge test, `ssgi_apply` normalised it
+   away and `GiDenoise` did not, and the lit shader multiplies this buffer's
+   alpha into the bounce -- so the bounce was multiplied by a distance in
+   metres. Reproducing it alone gives +6.93; with the loop open too, the two
+   compound to 7av's figure. **The arithmetic was there to be done at the time:
+   a loop of gain `g . albedo` cannot take 1.71 to 16.98 for any `g` under
+   one.** That is the lesson worth keeping -- a mechanism that explains the
+   *sign* of an error is not a diagnosis of its *size*.
+
+   7av's split is undone: both forms end on one `GI denoise` pass, and
+   `ssgi_apply.rvshader` plus `PostProcess::SsgiResolve` are deleted. On a
+   still camera the accumulation changes nothing for the screen-space form --
+   its kernel is fixed, so there is nothing to average -- and what it buys is a
+   reprojected history under motion, which these fixtures cannot show.
 
    **(d) Sharpness and the probe fallback**, the two original asks that
    survive untouched. `PostSettings::GiQuality` (Low/Medium/High: half res and
