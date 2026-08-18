@@ -7230,9 +7230,54 @@ So: **one `Indirect` buffer, albedo-free, written by whichever form is
 enabled.**
 
 - **SSGI** writes it from the screen gather it already does.
-- **RT GI** writes it from a *ray pass of its own* -- the RTAO pattern, which
-  is proven: `rtao_compute.rvshader` is already a post pass that binds an
-  acceleration structure and traces from depth and the surface attachment.
+- **RT GI** writes it from the lit shader, into an attachment. **This is a
+  correction to the first draft of this section, made while building it
+  (2026-08-18).** The plan was a ray pass of its own on RTAO's pattern, on the
+  grounds that `rtao_compute.rvshader` is already a post pass that binds an
+  acceleration structure. **RTAO gets away with that because it never shades a
+  hit** -- occluded is a hit, and hit-or-miss is the whole answer. GI needs the
+  *radiance* at the hit, which needs the ray-instance table, the material
+  records, the bindless heap, the light buffer and a shadow ray: effectively
+  the whole of set 0 and set 2. Handing all of that to `PostProcess` would be
+  a larger and worse change than the feature.
+
+  So the trace stays where the data already is, and only its *destination*
+  moves: under `RV_RAY_GI` the lit shader writes raw traced irradiance to a
+  fourth colour attachment instead of adding it to `irradiance` directly, and
+  a resolve pass copies that attachment into the Indirect buffer. The
+  denoiser's requirement is met -- the GI term exists on its own, separable
+  from direct light -- which was the point, and the tracing code is unchanged.
+
+  The attachment is **always present**, appended after the surface one,
+  because 7ad's rule stands: a target whose *shape* depends on a setting is a
+  target the reflection probes and every pipeline have to agree about, and 7q
+  records how that goes.
+
+  **And the cost of that is larger than "one more RGBA16F", which is what a
+  first attempt found the hard way (2026-08-18).** Writing `o_Indirect` from
+  the lit shader and appending the format to `sceneDesc.ExtraColors` compiles,
+  runs, passes every graph assertion -- the resolve pass is provably in the
+  graph -- and delivers **nothing**. A probe that wrote a constant red into the
+  attachment still measured +0.00 at the corner, which is what said the trace
+  was fine and the plumbing was not.
+
+  The reason is written on `Renderer::SetTargetFormats`, whose signature names
+  velocity and normal *explicitly* and whose comment says the rest: "anything
+  that renders the scene into a target of its own -- a reflection probe face --
+  has to match it, because **the pipelines are built once for one count**." A
+  fourth attachment is therefore a sweep, not a field: `SetTargetFormats` and
+  `UIRenderer::SetWorldTargetFormats` both grow a parameter, the UI world layer
+  that draws *inside* the scene pass has to write the attachment it does not
+  care about, and every reflection probe face has to be given the same shape.
+  That is the sweep 7ad's own note refers to when it says what the surface
+  attachment cost.
+
+  **So this is priced as its own piece of work, not as part of the ray pass**,
+  and the attempt is reverted rather than left half-plumbed. What survives is
+  the finding: the trace has to move its destination, the destination has to be
+  an attachment, and an attachment is a sweep. The compensation stands -- this
+  is the same attachment the first draft was going to spend on albedo, and that
+  one is not needed at all now, so the sweep is paid once and buys both.
 - The exclusivity rule is unchanged and gets simpler: one writer, chosen by
   `ResolveRayTracedGlobalIllumination`.
 
