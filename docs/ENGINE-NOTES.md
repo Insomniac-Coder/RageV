@@ -7195,6 +7195,223 @@ the second form is there when that stops being free.
 
 ---
 
+## 7av. GI, restructured (9.13): one indirect buffer, a denoiser in front of it, and the second bounce that becomes affordable
+
+The owner asked (2026-08-18) for four things against 7at's stated limits: a
+second bounce for the traced form, and for the screen-space form the albedo
+fix, the sharpness fix and the partial off-screen fix. Then, reading the note
+that the second bounce would make the grain *worse*, asked the question that
+changes the design: **what about denoising?**
+
+It is the right question, and the answer reorganises the work.
+
+### Why there is nowhere to put a denoiser today
+
+RT GI runs **inside the lit shader**. Its four rays are averaged into
+`irradiance`, which is multiplied by albedo and added to direct light,
+shadows, emissive and everything else the pixel is. By the time any later pass
+could filter it, **the noise is inseparable from the image**: blurring it
+means blurring the frame.
+
+So "add a denoiser" is not a pass one can bolt on. The GI term has to *exist
+somewhere on its own* before anything can filter it. That single requirement
+drags three of the four asks along behind it, and the result is a better
+design than the four patches were.
+
+### The shape: one buffer, written by whichever form is on
+
+**Both forms compute the same physical quantity** -- irradiance arriving at a
+surface from the scene rather than from a light -- and today both are wired up
+entirely differently: one is four post passes ending in a multiply, the other
+is a block in the lit shader. That is the actual mistake 7at made, and it is
+why each of the four asks needed its own fix.
+
+So: **one `Indirect` buffer, albedo-free, written by whichever form is
+enabled.**
+
+- **SSGI** writes it from the screen gather it already does.
+- **RT GI** writes it from a *ray pass of its own* -- the RTAO pattern, which
+  is proven: `rtao_compute.rvshader` is already a post pass that binds an
+  acceleration structure and traces from depth and the surface attachment.
+- The exclusivity rule is unchanged and gets simpler: one writer, chosen by
+  `ResolveRayTracedGlobalIllumination`.
+
+Then the denoiser filters that one buffer, and **the lit shader samples it and
+multiplies by its own albedo** -- which is where the multiply belonged all
+along.
+
+### What this fixes for free, and the ask it retires
+
+**The albedo ask (SSGI's stand-in) disappears.** The reason SSGI multiplied by
+the lit pixel was that a post pass has no albedo. Moving the multiply back
+into the lit shader puts it exactly where albedo is a local variable. **No new
+attachment**, which the first draft of this design had costed at a full-
+resolution RGBA8 every frame -- written by three pipelines, declared in every
+pass that names a subset. That is a large piece of work this restructure
+deletes rather than does, and it is the strongest argument for the restructure
+after the denoiser itself.
+
+**The traced form gains the same correctness.** It had the real albedo already
+because it lived in the lit shader, and it keeps it -- the multiply is in the
+same place, only the irradiance now arrives through a buffer that has been
+filtered.
+
+### The cost this pattern carries: one frame
+
+The lit pass produces the depth and surface attachments the GI pass needs, so
+the GI pass runs after it and cannot feed the same frame's lighting. **The
+indirect term is therefore one frame late**, reprojected -- which is exactly
+what 9.9 does for SSR's radiance (`FrameDesc::Reflections`, a per-chain
+`TemporalHistory` pair, `v_PrevClipPos`), for exactly this reason. The
+machinery exists and the precedent is written down.
+
+One frame of latency on *indirect diffuse* is the cheapest frame in the
+renderer to be late with: it is low frequency, it has no hard edges, and a
+reprojection error in it is a slightly wrong soft gradient rather than a
+smeared highlight.
+
+**The feedback loop, stated because it is a real hazard.** SSGI gathers the
+lit image, and the lit image will now contain last frame's indirect. That is a
+loop: light bounced this frame is gathered again next frame. Physically this
+is multi-bounce and arguably a feature -- it is how screen-space GI gets extra
+bounces for free -- but an unclamped loop with a bright surface and an
+intensity above one **diverges**, and it diverges slowly enough to look like a
+scene that is merely getting brighter until it blows out. The buffer is
+therefore clamped per frame and the accumulation is a bounded feedback
+(`GiFeedback`, default well under 1), with a check that a white room under a
+bright light reaches a fixed point rather than climbing.
+
+### The denoiser
+
+Two stages over the `Indirect` buffer, in this order:
+
+1. **Temporal.** Reproject last frame's filtered indirect through the motion
+   vectors 7.10 already writes, accept it where depth and normal agree with
+   this pixel, and blend. This is where the convergence actually comes from:
+   four rays a frame accumulated over many frames is a real estimate, and it
+   is the reason the second bounce stops being unaffordable. A neighbourhood
+   clamp in the TAA style rejects history a disocclusion invalidated -- **and
+   the trap 7r records applies here too: a neighbourhood clamp hides
+   reprojection errors wherever the neighbourhood is uniform, and indirect
+   light is uniform almost everywhere**, so the check for this must use a
+   fixture with per-pixel detail in the bounce or it will pass with the sign
+   inverted.
+2. **Spatial, edge-aware.** SSGI's existing separable blur, widened, and
+   weighted by depth and normal agreement so a bounce does not leak across a
+   corner. It runs after the temporal stage rather than before, so it is
+   filtering an already-converged estimate and can be gentler than a filter
+   carrying the whole burden.
+
+Whole-frame TAA stays where it is and stops being load-bearing for GI.
+
+### Then the second bounce, which is now worth having
+
+With a converged buffer, lengthening each path costs variance the denoiser can
+absorb rather than variance the eye sees. `TraceReflection` already ends on
+the line the second bounce replaces:
+
+```glsl
+return lit + diffuse * (ambientLight + irradiance) + emissive;
+```
+
+That `irradiance` is the probe's *guess* at indirect light at the hit. The
+second bounce replaces the guess with a traced answer: one cosine ray from the
+hit, shaded the same way, whose own indirect term takes the probe -- so the
+recursion terminates at depth two **by construction**, not by a counter.
+
+GLSL has no recursion, so the tracer is **split, not duplicated**:
+
+```glsl
+struct TracedSurface {
+    bool Missed; vec3 Sky;
+    vec3 Position, Normal;
+    vec3 Diffuse, Direct, Emissive;
+};
+TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction);
+```
+
+`TraceReflection` becomes four lines over it and stays bit-identical; the GI
+pass calls it twice and composes. One tracer body, two callers -- the
+alternative is a second copy of a hundred and thirty lines of vertex fetch and
+light loop, which 7au refused for the terrain query for the same reason.
+
+`RenderSettings::GiBounces` (1 or 2, default 1), beside the GI checkbox under
+ray tracing, `--gi-bounces=`. Not a `PostSettings` field: it costs *rays*, and
+Render Settings owns what the frame costs.
+
+### The two SSGI asks that survive unchanged
+
+**Sharpness.** Half resolution and twelve taps are constants today, and they
+are why bleed reads as a wash. `PostSettings::GiQuality` (Low/Medium/High):
+half and 12, half and 24, full and 24, with the spatial filter's radius
+following the resolution so a sharper gather is not immediately smeared back.
+**That last part is the easy thing to get wrong**, and the check measures the
+*width of the bleed profile* rather than its peak, because a peak alone cannot
+tell a sharper gather from a stronger one.
+
+**Off screen.** A tap whose uv leaves the screen is `continue` today: it
+contributes nothing *and is not counted*, so the mean is over what landed --
+which is why turning the camera extinguishes a bounce. It now takes the
+reflection probe's irradiance along its own direction instead. The probe is
+the one the lit shader samples and the one 9.9 falls back to for SSR's misses.
+
+**What that is not.** The probe holds the room's *average* light, not the red
+wall. A camera turned away gets a plausible non-zero bounce of roughly the
+right brightness and the *wrong colour*. It removes the discontinuity; it does
+not make a screen-space gather see off screen. **Nothing can** -- that is what
+RT GI is for, and `gi_away` exists to keep the two honest. The check asserts
+the weaker claim: non-zero, and **below** the traced form's +1.26.
+
+### Build order, and why it is this one
+
+1. **The buffer and the restructure** -- nothing else can be built first, and
+   it is what retires the albedo ask.
+2. **The denoiser** -- the owner's call, and the thing that makes 3 worth
+   having.
+3. **The second bounce** -- on top of a converged estimate, not instead of one.
+4. **Sharpness**, then **off-screen**: independent, small, and they touch only
+   the gather.
+
+### The checks
+
+Extending `check_gi.py` on the fixtures it already builds:
+
+1. **Nothing moved that should not.** With the denoiser's temporal blend at 0
+   and one bounce, the frame matches 7at's recorded numbers within the
+   restructure's stated tolerance -- the restructure is a refactor plus a
+   frame of latency, and it has to be shown to be one.
+2. **The albedo is real now.** A dark material and a bright one under the same
+   light and the same bleed: the dark one gains and the bright one loses
+   against 7at's stand-in. Direction, not magnitude.
+3. **The denoiser converges.** On a still camera, the frame-to-frame
+   difference of the indirect term falls monotonically and lands under a
+   stated floor; with the temporal stage off it does not. Measured on a
+   fixture with per-pixel detail in the bounce, per 7r's trap.
+4. **It does not diverge.** A white room, feedback on, held for 300 frames:
+   the mean reaches a fixed point rather than climbing. Falsified by removing
+   the clamp.
+5. **The second bounce reaches what one cannot.** A surface shadowed from the
+   sun and facing away from the red wall lifts at `GiBounces` 2 and not at 1.
+   Falsified by terminating the second ray at the sky.
+6. **One bounce is unchanged.** `GiBounces` 1 is byte-identical to `GiBounces`
+   1 -- the dial costs nothing unused, 7at's intensity-zero claim again.
+7. **Sharper is narrower**, by bleed half-width, peak comparable.
+8. **The fallback is non-zero and modest** on `gi_away`: above zero, below the
+   traced form's +1.26. Both bounds matter -- the lower says it works, the
+   upper says it has not been fudged into pretending it sees off screen.
+
+### What stays stated after all of it
+
+Two bounces, not many. No indirect specular -- SSR and RT reflections are
+that, unchanged and correctly so. The indirect term is **one frame late**.
+SSGI still cannot see off screen; the fallback approximates with the room's
+average colour. The denoiser is a temporal accumulation plus an edge-aware
+blur, not a modern ReSTIR-class reconstruction, so a hard-lit scene with
+four rays will still need a moment to settle. A radiance cache or SDFGI (8.1)
+remains the thing that would make this cheap rather than merely convergent.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

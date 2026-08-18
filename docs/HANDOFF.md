@@ -1685,11 +1685,42 @@ cut off**, at the owner's direction.
    -- hence `bool` plus an out-parameter that is zeroed on a miss. Fourteen
    claims in scenetest (1818 Vulkan / 1778 OpenGL), four falsifications, one
    of which found a check that passed for the wrong reason.
-2. **GI follow-ups, none of them promised.** 7at's stated limits are the
-   backlog: one bounce, no indirect specular, no denoiser beyond the blur and
-   TAA (so RT GI is grainy until TAA settles), and SSGI's albedo stand-in.
-   A second bounce or a radiance cache would be the real next step, and it is
-   engine-sized.
+2. **GI follow-ups -- NOW COMMISSIONED, DESIGNED IN 7av, NOT YET BUILT.** The
+   owner asked (2026-08-18) for a second bounce plus SSGI's albedo, sharpness
+   and off-screen fixes; then asked what about denoising, which reorganised
+   the whole thing and is the owner's chosen order: **denoiser first, then the
+   second bounce.**
+
+   **The finding that drives it: there is nowhere to put a denoiser today.**
+   RT GI runs inside the lit shader, so its noise is inseparable from direct
+   light, shadows and textures by the time any pass could filter it. The GI
+   term has to exist on its own first.
+
+   So 7av is a restructure, not four patches: **one albedo-free `Indirect`
+   buffer written by whichever form is on** (SSGI's gather, or a ray pass of
+   its own on the proven RTAO pattern), denoised there, and **sampled by the
+   lit shader one frame late** -- 9.9's exact pattern for SSR radiance -- where
+   it is multiplied by the real albedo. That last move **retires the albedo ask
+   entirely**: no new full-resolution attachment, which the first draft had
+   costed at three shader writes and a subset in every pass that names one.
+
+   Build in this order, and 7av says why: (1) the buffer and the restructure,
+   (2) the denoiser (temporal reprojection then an edge-aware spatial pass),
+   (3) the second bounce -- `TraceReflection` split into `TraceSurface` plus a
+   four-line composer so there is one tracer body, `RenderSettings::GiBounces`
+   1|2 default 1 -- then (4) sharpness (`GiQuality`) and (5) the probe
+   fallback off screen.
+
+   **Three hazards written into 7av before any code: the feedback loop** (SSGI
+   gathers a lit image that now contains last frame's indirect -- clamp it, or
+   a bright room climbs until it blows out), **7r's neighbourhood-clamp trap**
+   (a temporal clamp hides reprojection errors wherever the neighbourhood is
+   uniform, and indirect light is uniform almost everywhere -- the check needs
+   a fixture with per-pixel detail in the bounce), and **the fallback's honest
+   claim** (the probe is the room's average, so `gi_away` must assert non-zero
+   *and* below the traced form's +1.26, never the traced form's claim).
+
+   Eight checks listed in 7av. Nothing is built yet.
 3. **The two long-standing non-blockers**: the focus-click guard has never
    been confirmed against a real click, and an orphaned LUT is not warned
    about.
