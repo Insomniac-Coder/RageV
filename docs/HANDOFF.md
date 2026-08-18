@@ -1757,6 +1757,26 @@ cut off**, at the owner's direction.
    silently stops working for them and the frame looks merely a bit darker.
    Wire the owners first, then flip the chain.
 
+   **AND STEPS 3 AND 4 ARE ONE STEP, NOT TWO -- found 2026-08-18 while trying
+   to land 3 alone.** `TemporalHistory::Advance()` sets `m_Valid = true`
+   unconditionally after the swap, and its comment says why: it means "what
+   was just written". So a history the graph declares, prepares and advances
+   **without a pass writing into it** reports `HasHistory()` true over
+   whatever the driver left in the target, and the next frame's lit shader
+   samples that as indirect light at full intensity. Uninitialised memory,
+   added to every surface, on frame two.
+
+   So the `wantIndirect` block and the SSGI chain's write have to arrive in
+   the same commit. There is no inert half: declaring the history without a
+   writer is not "nothing happens", it is worse than the finished thing.
+   7av's build order said "the buffer and the restructure" as one item and
+   this is what that means concretely.
+
+   Steps 1 and 2a (d3e8d99, 5e3c2f6) were separable precisely because neither
+   touches the history's validity: step 1 binds a 1x1 black when nothing is
+   set, and step 2a only gives the chains somewhere to keep a buffer nobody
+   writes.
+
    **Also settled this session, worth stating in the notes when step 2 lands:
    the denoiser makes RT GI work under every AA mode, not just TAA.** Its
    temporal stage reprojects through the velocity buffer 7.10 writes, which is
