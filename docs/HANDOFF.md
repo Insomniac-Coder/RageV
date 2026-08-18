@@ -1720,7 +1720,51 @@ cut off**, at the owner's direction.
    claim** (the probe is the room's average, so `gi_away` must assert non-zero
    *and* below the traced form's +1.26, never the traced form's claim).
 
-   Eight checks listed in 7av. Nothing is built yet.
+   Eight checks listed in 7av.
+
+   **Step 1 is built and committed (d3e8d99): the receiving side.**
+   `Renderer::ScreenIndirect`, `SceneUniforms::Indirect` (in BOTH GLSL
+   mirrors), binding 16, and the lit shader adding it to `irradiance` before
+   the diffuse multiply. Nothing writes it, so the frame is unchanged --
+   scenetest 1818 Vk / 1778 GL, check_ssao green on both backends, which is
+   the check that catches the mirroring trap.
+
+   **STEP 2, WHERE TO PICK UP -- the graph half.** The template is right
+   there: `FrameGraphBuilder.cpp`'s `wantReflections` block (search for it;
+   about sixty lines) is *exactly* the shape needed, because SSR is the same
+   one-frame-late pattern. Mirror it:
+   - `FrameDesc::Indirect` beside `FrameDesc::Reflections` in
+     FrameGraphBuilder.h, documented the same way.
+   - A `wantIndirect` block: `Prepare(...)` at full size in
+     `R16G16B16A16_SFLOAT`, `Import` both halves, and fill a
+     `Renderer::ScreenIndirect` from `Previous()` **only when
+     `HasHistory()`** -- the first frame of a chain holds whatever the driver
+     left, and reading a confidence out of that mixes somebody else's memory
+     into every surface. `Invalidate()` on the else branch.
+   - The SSGI chain's last pass changes job: `ssgi_apply` stops adding to the
+     scene and instead writes the blurred **albedo-free irradiance** into
+     `Current()`. The multiply now happens in the lit shader.
+   - Then the RT GI writer: a ray pass on `rtao_compute.rvshader`'s pattern
+     (it already binds an acceleration structure from a post pass) writing the
+     same buffer, chosen by `rayGi` instead of the SSGI gather.
+
+   **THE TRAP TO AVOID IN STEP 2, and it is why step 2 was not started at the
+   tail of a session:** every frame-chain owner has to hand over a
+   `TemporalHistory` -- the editor's viewport, the editor's game view and the
+   runtime each own their own, exactly as they do for `History` and
+   `Reflections`. A caller that passes null must keep working; and if the SSGI
+   chain is switched to writing the buffer *before* the callers own one, SSGI
+   silently stops working for them and the frame looks merely a bit darker.
+   Wire the owners first, then flip the chain.
+
+   **Also settled this session, worth stating in the notes when step 2 lands:
+   the denoiser makes RT GI work under every AA mode, not just TAA.** Its
+   temporal stage reprojects through the velocity buffer 7.10 writes, which is
+   written whatever AA is selected (9.5 motion blur depends on that too). RT GI
+   today is effectively TAA-only -- an unstated limit in 7at -- because TAA is
+   the only thing averaging its four rays. After the denoiser: None, FXAA,
+   SMAA, MSAA and SSAA all converge. Under MSAA the pass reads the resolved
+   depth M.2 built, which is fine because indirect diffuse is low frequency.
 3. **The two long-standing non-blockers**: the focus-click guard has never
    been confirmed against a real click, and an orphaned LUT is not warned
    about.
