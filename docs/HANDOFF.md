@@ -1673,18 +1673,27 @@ already spends sixteen of OpenGL's thirty-two texture units and the two
 paths are compared pixel for pixel. `experiments/terrain/Chunk` is **kept,
 cut off**, at the owner's direction.
 
-**What is open, after the varieties above:**
+**What is open (2026-08-17, after global illumination landed):**
 
-1. **`HeightAt` as a script call** (both languages), the one terrain thing
-   left over from every stage's list.
-2. **The two long-standing non-blockers** at the end of this section: the
-   focus-click guard has never been confirmed against a real click, and an
-   orphaned LUT is not warned about.
-3. **Phase 8's other items** are priced in the roadmap; 8.9 FBX is the
-   remaining ordinary feature, the rest are engine-sized. None should be
-   started because it sounds interesting.
+1. **`HeightAt` as a script call** (C++ and C#), the one terrain thing left
+   over from every stage's list. Small, self-contained, and the natural next
+   piece: the brush and the collider both use it already.
+2. **GI follow-ups, none of them promised.** 7at's stated limits are the
+   backlog: one bounce, no indirect specular, no denoiser beyond the blur and
+   TAA (so RT GI is grainy until TAA settles), and SSGI's albedo stand-in.
+   A second bounce or a radiance cache would be the real next step, and it is
+   engine-sized.
+3. **The two long-standing non-blockers**: the focus-click guard has never
+   been confirmed against a real click, and an orphaned LUT is not warned
+   about.
+4. **Phase 8's remaining items** are priced in ROADMAP; **8.9 FBX import** is
+   the only ordinary feature left, the rest are engine-sized.
 
-**Ten commits are unpushed** as of this writing -- terrain stage 1 and its
+**Papercut worth taking with whatever touches the editor next:** nothing
+outstanding from terrain -- the "Ra Sm Fla Pai" truncation was fixed by the
+Sculpt toggle + Mode combo in 7as.
+
+**Thirteen commits are unpushed** as of this writing -- terrain stage 1 and its
 follow-ups (b37b8ed .. c8cb011), stage 2 (fe20a5c), stage 3 (d203b1b) and
 the skirts-from-under fix on top; everything before them is on origin.
 Pushing is the owner's action.
