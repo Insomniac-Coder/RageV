@@ -37,6 +37,34 @@ the effect under test to define its own measurement (check_ssao's rule).
    screen-space passes at all, which is what the greyed-out row in the editor
    is telling the truth about.
 
+Three more about the traced form's temporal stage (9.13a, ENGINE-NOTES 7aw),
+all on Vulkan because the traced form is Vulkan's alone:
+
+6. **The accumulation settles.** On a still camera, over a run of consecutive
+   frames from one launch, the noise falls and the level stops moving -- and
+   with `GiDenoise` at 0 neither happens. Both halves are needed: a filter
+   frozen on its first frame has no noise and no movement either, and only the
+   comparison against 0 tells settled from stuck.
+
+7. **It settles on the right value.** This is the claim that closed 7av's open
+   number. The denoised level agrees with the same scene measured under TAA at
+   `GiDenoise` 0 -- an independent linear average, taken at a different stage
+   of the frame -- so a filter that loses energy is caught even though the
+   image looks perfectly plausible. **Read 7aw before touching the bounds**:
+   the unfiltered figures in 7at and 7av are a third too high, because a
+   stochastic renderer measured through the tone curve reads high, and
+   comparing against *them* would measure the noise.
+
+**There is no claim here that the filter keeps the bounce's structure**, and
+the empty space is deliberate -- see ENGINE-NOTES 7aw. One was written, on a
+fixture built for it, and then three separate breaks of the filter (a smeared
+history; a smeared estimate; both, with the neighbourhood clamp disarmed) left
+it reading within 3% of unbroken. A measurement that does not move when the
+thing it measures is destroyed is not a measurement. The reason is that a
+diffuse bounce is smooth at the scale a 3x3 clamp works at *even on a receiver
+covered in edges*: what varies from face to face is how much of a smooth field
+each face collects, which is the shading's doing and not the buffer's.
+
 Usage:
     python tools/scripts/check_gi.py [--config Release]
 """
@@ -93,21 +121,113 @@ MIN_TRACED_AWAY_BLEED = 0.6
 MAX_TRACED_NEAR_BLEED = 4.0
 MAX_TRACED_AWAY_BLEED = 2.0
 
+# --- the temporal stage (9.13a, ENGINE-NOTES 7aw) ----------------------------
+#
+# The run of frames claim 6 watches. From frame 2 because the point is to see
+# the accumulation start; long enough that the last quarter is unambiguously
+# settled.
+SETTLE_FIRST = 2
+SETTLE_COUNT = 48
+SETTLE_WINDOW = 12
+
+# Claims 7 and 8 read a settled image instead of a run: late enough that both
+# TAA and the denoiser have converged, several frames deep because the band is
+# only a few per cent wide.
+DETAIL_FRAME = 80
+DETAIL_COUNT = 4
+
+# Claim 6a: how much of the per-pixel flicker the accumulation has to remove.
+# Measured on this fixture: 0.67 display levels of frame-to-frame change with
+# the filter against 9.71 without it, a factor of fourteen. A fifth is asked
+# for, which is a real requirement rather than a restatement of the measurement.
+MIN_FLICKER_DROP = 5.0
+# Claim 6b: the level has to stop moving. Its drift over the last window
+# against its drift over the first: measured 0.005 against 0.068, fourteen
+# times. And **the same ratio with the filter off must not show it** --
+# measured 1.1, because an unfiltered estimate is as unsettled at frame 49 as
+# at frame 3. That second bound is the one that makes the first mean anything.
+MIN_SETTLE_RATIO = 4.0
+MAX_UNFILTERED_SETTLE_RATIO = 2.0
+
+# Claim 7: the settled level against an independent linear average of the same
+# quantity -- TAA, which accumulates the shaded frame one stage later by a
+# different mechanism. Measured 0.94, and it sits below 1 legitimately: TAA's
+# own averaging is about four frames deep against the denoiser's fifty, so the
+# reference still carries some of the noise inflation 7aw describes.
+#
+# **Tight on purpose, and these bounds were fitted to a break rather than to
+# the measurement.** The first version allowed 0.80 to 1.20 and a history that
+# lost three per cent a frame -- a fifth of the bounce at steady state --
+# passed it at 0.87. The band reads in display levels and the tone curve
+# compresses, so a fifth of the light is an eighth of the number: **allow in
+# levels what you would refuse in irradiance and the check refuses nothing.**
+MIN_SETTLED_AGREEMENT = 0.89
+MAX_SETTLED_AGREEMENT = 1.08
+
+
 
 def run(exe, args):
     result = subprocess.run([str(exe), *args], cwd=exe.parent, capture_output=True, text=True)
     return result.returncode, (result.stdout or "") + (result.stderr or "")
 
 
-def shoot(exe, backend, scene, path, extra=()):
+def shoot(exe, backend, scene, path, extra=(), aa="none", frame=FRAME):
     code, log = run(exe, [f"--rhi={backend}", f"--scene=scenes/{scene}.rage",
-                          "--frame-time=0.0166", f"--screenshot-frame={FRAME}",
-                          f"--screenshot={path}", "--aa=none", *extra])
+                          "--frame-time=0.0166", f"--screenshot-frame={frame}",
+                          f"--screenshot={path}", f"--aa={aa}", *extra])
     if code != 0 or not pathlib.Path(path).exists():
         print(f"FAIL: {backend} {scene} exited {code} / no image")
         print(log[-2000:])
         sys.exit(1)
     return np.asarray(Image.open(path).convert("RGB")).astype(float)
+
+
+def sequence(exe, backend, scene, path, first, count, extra=(), aa="none"):
+    """A run of consecutive frames out of one launch, as `<stem>_<frame>.png`.
+
+    One launch rather than one per frame, because the thing being measured is
+    an accumulation: frame 40 of a fresh process is frame 40 of a *different*
+    accumulation, and comparing those would measure process startup.
+
+    Stale frames are cleared first, and the caller's stems must not be
+    prefixes of one another -- `foo` and `foo2` share a glob, and the run that
+    cleans up second silently deletes the first one's frames.
+    """
+    path = pathlib.Path(path)
+    for stale in path.parent.glob(path.stem + "_*.png"):
+        stale.unlink()
+
+    code, log = run(exe, [f"--rhi={backend}", f"--scene=scenes/{scene}.rage",
+                          "--frame-time=0.0166", f"--screenshot-frame={first}",
+                          f"--screenshot-count={count}", f"--screenshot={path}",
+                          f"--aa={aa}", *extra])
+    frames = [path.with_name(f"{path.stem}_{n}{path.suffix}")
+              for n in range(first, first + count)]
+    missing = [f for f in frames if not f.exists()]
+    if code != 0 or missing:
+        print(f"FAIL: {backend} {scene} exited {code} / {len(missing)} frames missing")
+        print(log[-2000:])
+        sys.exit(1)
+    return [np.asarray(Image.open(f).convert("RGB")).astype(float) for f in frames]
+
+
+def patch(image, region):
+    height, width = image.shape[:2]
+    y0, y1, x0, x1 = region
+    return image[int(height * y0):int(height * y1), int(width * x0):int(width * x1)]
+
+
+def flicker(frames, region):
+    """Mean absolute change between consecutive frames, over a region.
+
+    Per pixel and then averaged, not the change in the region's mean: noise
+    that cancels within a frame is exactly what an accumulation is for, and a
+    region mean cannot see it move.
+    """
+    patches = [patch(f, region) for f in frames]
+    return [float(np.abs(b - a).mean()) for a, b in zip(patches, patches[1:])]
+
+
 
 
 def redness(image, region):
@@ -147,9 +267,14 @@ def main():
         carries the profile's handle."""
         path = scenes / f"{scene}.rage"
         handle = postprofile.write_beside(path, { "BloomEnabled": False, **settings })
-        camera = None if scene == "gi_corner" else make_gi_scene.AWAY_CAMERA_POSITION
-        rotation = None if scene == "gi_corner" else make_gi_scene.AWAY_CAMERA_ROTATION
-        path.write_text(make_gi_scene.build(handle, camera=camera, rotation=rotation),
+        # Named rather than "not the corner": `gi_detail` is the corner view
+        # too, and the version of this that tested for `gi_corner` would have
+        # pointed the third fixture's camera at the wrong wall.
+        away = scene == "gi_away"
+        camera = make_gi_scene.AWAY_CAMERA_POSITION if away else None
+        rotation = make_gi_scene.AWAY_CAMERA_ROTATION if away else None
+        path.write_text(make_gi_scene.build(handle, camera=camera, rotation=rotation,
+                                            detail=scene == "gi_detail"),
                         encoding="utf-8", newline="\n")
 
     # --- 1 and 2: the screen-space form, on both backends ---------------------
@@ -241,6 +366,92 @@ def main():
         failures.append(f"with ray-traced GI on, the profile's Global illumination still did "
                         f"something (max {exclusive:g}) -- the two are meant to be exclusive")
 
+    # --- 6: the temporal stage settles, and without it nothing does ----------
+    #
+    # One launch each, `--screenshot-count` frames apart, still camera. The
+    # difference between the two runs is the profile's GiDenoise and nothing
+    # else: the same pass runs either way and reads its feedback from there,
+    # so this is the filter being measured rather than a branch being taken.
+    profile("gi_corner", { "GiIntensity": 2.0, "GiDenoise": 0.9 })
+    accumulated = sequence(exe, "vulkan", "gi_corner", shots / "settle-filtered.png",
+                           SETTLE_FIRST, SETTLE_COUNT, ray)
+    profile("gi_corner", { "GiIntensity": 2.0, "GiDenoise": 0.0 })
+    unfiltered = sequence(exe, "vulkan", "gi_corner", shots / "settle-raw.png",
+                          SETTLE_FIRST, SETTLE_COUNT, ray)
+
+    filtered_flicker = np.mean(flicker(accumulated, NEAR_REGION)[-SETTLE_WINDOW:])
+    raw_flicker = np.mean(flicker(unfiltered, NEAR_REGION)[-SETTLE_WINDOW:])
+    drop = raw_flicker / max(filtered_flicker, 1e-6)
+    print(f"the accumulation removes {drop:.1f}x of the frame-to-frame flicker "
+          f"({filtered_flicker:.2f} levels against {raw_flicker:.2f})")
+    if drop < MIN_FLICKER_DROP:
+        failures.append(f"the temporal stage removed almost none of the ray noise "
+                        f"({drop:.1f}x, wanted {MIN_FLICKER_DROP}x) -- four rays a pixel "
+                        f"converge by being accumulated or not at all")
+
+    def settle_ratio(frames):
+        """How much less the *level* moves at the end of the run than at the
+        start. One number, so the two runs can be compared by it."""
+        levels = [redness(f, NEAR_REGION) for f in frames]
+        steps = np.abs(np.diff(levels))
+        return float(np.mean(steps[:SETTLE_WINDOW]) / max(np.mean(steps[-SETTLE_WINDOW:]), 1e-6))
+
+    filtered_settle = settle_ratio(accumulated)
+    raw_settle = settle_ratio(unfiltered)
+    print(f"the level settles {filtered_settle:.1f}x with the filter and "
+          f"{raw_settle:.1f}x without it")
+    if filtered_settle < MIN_SETTLE_RATIO:
+        failures.append(f"the indirect level never stopped moving ({filtered_settle:.1f}x, "
+                        f"wanted {MIN_SETTLE_RATIO}x) -- an accumulation that does not "
+                        f"converge is a lag, not a filter")
+    if raw_settle > MAX_UNFILTERED_SETTLE_RATIO:
+        failures.append(f"the level settled {raw_settle:.1f}x with the temporal stage *off* "
+                        f"(allowed {MAX_UNFILTERED_SETTLE_RATIO}x) -- then claim 6 is "
+                        f"measuring the scene going quiet, not the filter")
+
+    # --- 7: the value it settles on -----------------------------------------
+    #
+    # Under TAA, on `gi_detail`. TAA is the reference on purpose (ENGINE-NOTES
+    # 7aw): it is a linear average of the same light taken one stage later, so
+    # a denoiser that loses energy disagrees with it while a denoiser that
+    # removes noise does not. Measuring against an *unfiltered* frame instead
+    # would compare against a number a third too high, which is how the drop
+    # looked like a loss for a session.
+    #
+    # `gi_detail` rather than `gi_corner` because a receiver with occlusion and
+    # faces at many angles is a harder place to settle on the right value than
+    # two flat walls -- and because that fixture is where the structure claim
+    # was tried and abandoned, which is worth being able to re-run.
+    def settled(name, settings, extra=()):
+        """Four consecutive frames, averaged. One frame would do for the mean
+        of a settled image, but claim 7's band is a few per cent wide and a
+        single frame's residual wobble is a fair part of that."""
+        profile("gi_detail", settings)
+        frames = sequence(exe, "vulkan", "gi_detail", shots / f"detail-{name}.png",
+                          DETAIL_FRAME, DETAIL_COUNT, extra, aa="taa")
+        return np.mean(frames, axis=0)
+
+    # The baseline keeps the ray flags and turns the *intensity* to zero, rather
+    # than turning ray tracing off: `--raytracing=on` changes more than the
+    # bounce, and a baseline rendered down a different path would be subtracted
+    # from both readings and quietly move their ratio. Claim 5 is what licenses
+    # this -- intensity zero is the picture without the feature.
+    detail_off = settled("off", { "GiIntensity": 0.0 }, ray)
+    detail_raw = settled("raw", { "GiIntensity": 2.0, "GiDenoise": 0.0 }, ray)
+    detail_filtered = settled("filtered", { "GiIntensity": 2.0, "GiDenoise": 0.9 }, ray)
+
+    reference_level = (redness(detail_raw, NEAR_REGION)
+                       - redness(detail_off, NEAR_REGION))
+    settled_level = (redness(detail_filtered, NEAR_REGION)
+                     - redness(detail_off, NEAR_REGION))
+    agreement = settled_level / max(reference_level, 1e-6)
+    print(f"the settled level is {agreement:.2f} of an independently averaged one "
+          f"({settled_level:+.2f} against {reference_level:+.2f})")
+    if not MIN_SETTLED_AGREEMENT <= agreement <= MAX_SETTLED_AGREEMENT:
+        failures.append(f"the accumulated bounce is {agreement:.2f} of the same light "
+                        f"averaged by TAA instead (wanted {MIN_SETTLED_AGREEMENT} to "
+                        f"{MAX_SETTLED_AGREEMENT}) -- the filter is moving energy, not noise")
+
     make_gi_scene.main()   # leave the fixtures as committed
 
     if failures:
@@ -252,7 +463,8 @@ def main():
     print("\nOK: intensity zero is the image without it, light carries the red wall's colour onto "
           "the white one beside it and not onto the far end, the traced form does the same and "
           "also reddens a wall whose bounce source is off screen -- which the screen-space form "
-          "cannot -- and only one of the two ever runs")
+          "cannot -- only one of the two ever runs, and the traced form's accumulation settles, "
+          "and settles on the value an independent average agrees with")
 
 
 if __name__ == "__main__":

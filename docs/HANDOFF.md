@@ -1595,9 +1595,13 @@ not, which is the same mistake as the culling number, caught this time.
 
 ### START HERE (2026-08-18): terrain is finished; 9.13 restructured GI is half built
 
-**Read item 2 of the open list below before touching GI** -- five commits in,
-four pieces left, and the first of them (a convergence check) exists to settle
-a number the session could not explain. ENGINE-NOTES 7av is the design.
+**Read item 2 of the open list below before touching GI** -- six commits in,
+three pieces left. The fourth, a convergence check, is done and it closed the
+number the previous session could not explain: **the denoiser costs nothing,
+and the unfiltered figures were a third too high** because a stochastic
+renderer measured through the tone curve reads high (ENGINE-NOTES 7aw, which
+is worth reading even if you never touch GI -- it changes what CHK.1 is).
+ENGINE-NOTES 7av is the restructure's design.
 
 Terrain is complete: `HeightAt` became a script call in both languages
 (7au, protocol 9), which was the last item on every terrain stage's list.
@@ -1721,21 +1725,29 @@ cut off**, at the owner's direction.
    - `7cfd016` the fourth colour attachment and RT GI resolving through it.
    - `44f36bb` check_gi's thresholds become bands.
    - `1b01c28` the split: **RT GI accumulates, SSGI does not.**
+   - 9.13a: the convergence check, three claims, a third fixture, and 7aw.
 
-   **THE NEXT FOUR, IN ORDER, AND WHY THIS ORDER:**
+   **ONE DONE, THREE LEFT, IN ORDER, AND WHY THIS ORDER:**
 
-   **(a) The convergence check -- do this first, it settles an open number.**
-   7av's claim 3: on a still camera the frame-to-frame difference of the
-   indirect term falls monotonically and lands under a stated floor, and with
-   `GiDenoise` at 0 it does not. **The reason it is first:** the denoiser
-   moved the traced form from +2.69/+1.25 to **+1.86/+0.82**, a ~30 % drop
-   that is *not explained*. Two stories fit -- the unfiltered number is one
-   frame's four-ray sample and landed high, or the accumulation is biased low
-   by the min/max box the history is clipped into (`kClampScale` 4 in
-   `gi_denoise.rvshader`). Only this check tells them apart, and until it does
-   the traced number is trusted no further than the band it sits in. **7r's
-   trap applies**: a fixture with per-pixel detail in the bounce, or a uniform
-   neighbourhood will hide a reprojection error.
+   **(a) The convergence check -- DONE 2026-08-18, ENGINE-NOTES 7aw.** The
+   ~30 % drop is closed: **nothing was lost, the unfiltered number was wrong.**
+   Supersampling the shading, accumulating the frame under TAA and accumulating
+   the buffer all move the reading to the same place, and the two most averaged
+   configurations agree to 0.005 levels -- so **+2.69 / +1.25 were readings of
+   the ray noise**, and the denoised +1.86 / +0.82 is the scene. `check_gi.py`
+   gained three claims (it settles; without the filter it does not; it settles
+   on the value TAA independently agrees with) and a third fixture,
+   `gi_detail`.
+
+   **Two things from it that outlive GI.** First: *a stochastic renderer
+   measured through the tone curve reads high* -- by a third here, in the mean
+   of a region with tens of thousands of pixels. Every check that compares a
+   noisy feature's before and after is exposed, which makes CHK.1 bigger than
+   it looked. Second: *a check that has never been seen to fail is not a check*
+   -- a fourth claim was written, passed, and then survived three separate
+   breaks of the filter reading within 3 % of unbroken, so it was deleted
+   rather than kept. 7aw says why, and what instrument would be needed to do it
+   properly (a debug view of a render-graph target, or a float capture).
 
    **(b) The second bounce**, now that the traced form accumulates.
    `TraceReflection` ends on `return lit + diffuse * (ambientLight +

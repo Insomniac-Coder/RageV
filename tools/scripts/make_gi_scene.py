@@ -9,11 +9,18 @@ ambient. Nothing in the frame is red but the red wall itself -- so any red on
 the white surfaces arrived by bouncing, and its amount is what the check
 measures.
 
-Two views come out of one room:
+Three views come out of one room:
 
 - `gi_corner.rage` looks into the corner, with the red wall in frame: the
   white wall **near** it must redden when GI is on, and the same wall **far**
   along must redden far less -- bleed, rather than a global tint.
+- `gi_detail.rage` is the corner view with a cluster of small cubes standing
+  where the bounce is strongest: a receiver with occlusion and faces at many
+  angles, which is a harder place for the ray-traced form's denoiser to settle
+  on the right value than two flat walls. It was built for a check that the
+  filter keeps the bounce's *structure*, and that check was abandoned --
+  ENGINE-NOTES 7aw records why, and it is a finding about diffuse light rather
+  than about this fixture.
 - `gi_away.rage` is the same room with the camera turned until the red wall is
   **off screen**. The white wall is still lit by light bounced off it, so the
   screen-space form has nothing red to gather and must add none, while the
@@ -58,6 +65,38 @@ WALL_LENGTH = 8.0
 # the near/far difference a bounce rather than a gradient.
 AWAY_PANEL = (2.2, 1.1, 1.2)
 
+# A cluster of small white cubes at assorted angles, standing on the floor
+# where the bounce is strongest.
+#
+# **These were put here for a claim that did not survive** (ENGINE-NOTES 7aw).
+# The idea was that a receiver covered in edges would give the indirect term
+# structure at the scale the denoiser's neighbourhood clamp works at, so a
+# filter that leaked across an edge could be caught. The cluster does show a
+# hundred and thirty display levels between its brightest face and its dimmest
+# -- and smearing the indirect buffer over seventeen texels changes the picture
+# by 0.83 of a level, because that variation is one *smooth* field arriving on
+# faces at different angles rather than a field with structure in it.
+#
+# What they are good for is claim 7: a receiver with occlusion and many
+# orientations is a harder place to settle on the right value than two flat
+# walls. And a moving-camera check of the clamp -- which is the only kind that
+# can work -- will want a scene that disoccludes, which this one does.
+DETAIL_CUBE = 0.7
+DETAIL_CUBES = [
+    ((-3.1, 0.35, -0.4), 0.42),
+    ((-2.1, 0.35, -0.9), 0.95),
+    ((-1.2, 0.35, -0.2), 0.18),
+    ((-3.3, 0.35,  0.7), 1.21),
+    ((-2.3, 0.35,  0.4), 0.63),
+    ((-1.4, 0.35,  1.1), 1.05),
+    ((-3.0, 0.35,  1.9), 0.30),
+    ((-2.0, 0.35,  1.7), 0.78),
+    ((-1.1, 0.35,  2.4), 1.34),
+    ((-2.8, 1.05, -0.1), 0.55),
+    ((-1.7, 1.05,  0.9), 1.12),
+    ((-2.5, 1.05,  1.6), 0.24),
+]
+
 
 def _block(next_id, tag, position, scale, colour, rotation=(0, 0, 0)):
     """A plain diffuse box: base colour, no emissive, rough."""
@@ -80,7 +119,7 @@ def _block(next_id, tag, position, scale, colour, rotation=(0, 0, 0)):
     ]
 
 
-def build(profile, camera=None, rotation=None):
+def build(profile, camera=None, rotation=None, detail=False):
     next_id = base._ids()
     # A black sky and no ambient: every photon in the frame comes from the
     # one light, so a red pixel on a white wall has exactly one explanation.
@@ -116,6 +155,12 @@ def build(profile, camera=None, rotation=None):
     # The facing-away panel: its lit side is +z, away from the red wall.
     lines += _block(next_id, "AwayPanel", AWAY_PANEL, (2.2, 2.2, 0.2), (0.85, 0.85, 0.85))
 
+    if detail:
+        for index, (position, turn) in enumerate(DETAIL_CUBES):
+            lines += _block(next_id, f"Detail{index}", position,
+                            (DETAIL_CUBE, DETAIL_CUBE, DETAIL_CUBE),
+                            (0.85, 0.85, 0.85), rotation=(0.0, turn, 0.0))
+
     return "\n".join(lines) + "\n"
 
 
@@ -145,6 +190,13 @@ def main():
                  camera=AWAY_CAMERA_POSITION, rotation=AWAY_CAMERA_ROTATION)
     away.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {away}")
+
+    # The third view: the corner again, with something for the bounce to land
+    # on that has edges in it. See DETAIL_CUBES.
+    detail = SCENES / "gi_detail.rage"
+    text = build(postprofile.write_beside(detail, CHECK_PROFILE), detail=True)
+    detail.write_text(text, encoding="utf-8", newline="\n")
+    print(f"wrote {detail}")
 
 
 if __name__ == "__main__":

@@ -7413,16 +7413,15 @@ Measured after the split: SSGI back to **+1.71 / +1.74** with the backends
 0.02 apart, exactly its pre-denoiser calibration; the traced form **+1.86**
 near the corner and **+0.82** off screen, against **+2.69 / +1.25** unfiltered.
 
-**That drop is not yet explained, and it is the honest open question here.**
-The unfiltered number is one frame's four-ray estimate; the filtered one is an
-average over roughly thirty such frames, so the two disagreeing is expected and
-a single sample landing high is the ordinary case. But a consistent 30 % gap is
-larger than that story comfortably carries, and the alternative -- that the
-accumulation is biased low, most likely by the min/max box the history is
-clipped into -- is not ruled out. **7av's convergence claim (check 3: the
-frame-to-frame difference of the indirect term falls monotonically and settles)
-is what would tell the two apart, and it is not written yet.** Until it is, the
-traced form's denoised value is trusted no further than the band it sits in.
+**That drop was the open question here, and 7aw closes it: nothing was lost,
+and the unfiltered number was wrong.** Three unrelated ways of removing
+variance -- supersampling the shading, accumulating the shaded frame under TAA,
+accumulating the buffer -- all move the reading to the same place, and the two
+most heavily averaged configurations agree to 0.005 levels. **So the +2.69 and
++1.25 above are readings of the ray noise, not of the scene**, and a
+stochastic renderer measured through the tone curve reads high by a third here.
+7aw has the table and the finding, which is not about GI: two renders may be
+compared as numbers only when their sampling variance is comparable.
 
 The screen-space path keeps `SSGI resolve` and the scenetest graph assertions
 now state the difference directly -- `!hasPass("GI denoise")` on that branch --
@@ -7563,6 +7562,169 @@ average colour. The denoiser is a temporal accumulation plus an edge-aware
 blur, not a modern ReSTIR-class reconstruction, so a hard-lit scene with
 four rays will still need a moment to settle. A radiance cache or SDFGI (8.1)
 remains the thing that would make this cheap rather than merely convergent.
+
+---
+
+## 7aw. The convergence check (9.13a): the thirty per cent that was never lost
+
+7av left one number open. Giving the traced form the denoiser moved its bleed
+from **+2.69 / +1.25** to **+1.86 / +0.82**, and two stories fitted: either the
+unfiltered figure was one frame's four-ray sample landing high, or the
+accumulation was biased low by the box the history is clipped into. This entry
+closes it. **Nothing was lost. The unfiltered figure was wrong.**
+
+### What was measured
+
+`gi_corner`, still camera, ray-traced GI, a run of consecutive frames through
+`--screenshot-count`, read over the same near region `check_gi.py` already
+uses. The only thing varying between rows is *where the variance is removed*:
+
+| variance reduction | where it averages | near bleed |
+|---|---|---|
+| none (`--aa=none`, `GiDenoise` 0) | nowhere | **+2.74** |
+| SSAA x2 -- 4 subsamples, 16 rays | linear, before tone mapping | +2.07 |
+| SSAA x4 -- 16 subsamples, 64 rays | linear, before tone mapping | +2.06 |
+| TAA, `GiDenoise` 0 | linear, on the shaded frame | +1.94 |
+| `GiDenoise` 0.9 | linear, on the indirect buffer | +1.86 |
+| `GiDenoise` 0.98 | linear, on the indirect buffer | **+1.81** |
+| TAA **and** `GiDenoise` 0.98 | both | **+1.82** |
+
+Three unrelated mechanisms -- supersampling the shading, accumulating the
+shaded frame, accumulating the buffer -- move the reading the same way, and the
+two most heavily averaged configurations agree to **0.005 levels**. A filter
+losing energy would not land on the same number as a filter that runs at a
+different stage by a different mechanism; a filter removing noise would. The
+denoised value is the scene's. **The +2.69 recorded in 7at and 7av is a
+reading of the noise, and so is `gi_away`'s +1.25.**
+
+The feedback dial adds nothing to the argument but confirms its shape: 0.25,
+0.5, 0.7, 0.9, 0.98 give +2.22, +2.05, +1.94, +1.85, +1.81 -- a monotone
+approach to the same limit, the temporal spread falling from 0.014 to 0.002
+alongside it.
+
+### The finding that outlives GI
+
+**A stochastic renderer measured through the tone curve reads high.** Not
+noisier -- *high*, by a third here, in the mean of a region with tens of
+thousands of pixels in it. The noise does average out in the pixel values. It
+does not average out through the curve, because the mean of a tone-mapped
+noisy signal is not the tone-mapped mean, and eight-bit clipping at both ends
+finishes what the curvature starts.
+
+So a large region is not enough. **Two renders may be compared as numbers only
+when their sampling variance is comparable**, and every check here that puts a
+stochastic feature's before and after side by side is exposed: GI, RTAO,
+ray-traced shadows once they take more than one sample, and anything a later
+importance-sampled path adds. Where the two sides cannot be made to match, the
+honest form is a band wide enough to hold the noise, or a comparison taken
+after the same filter on both sides -- never a ratio quoted to two decimals.
+
+This is 7av's floors again in a different costume: the check ran, printed a
+number, and the number described the measuring apparatus rather than the
+engine.
+
+### What the check asserts
+
+Three claims, on `gi_corner` and on a new fixture, all on Vulkan because the
+traced form is Vulkan's alone. Each is stated with what breaks it, because a
+threshold nobody has seen fail is a threshold nobody has read:
+
+1. **It settles.** On a still camera the frame-to-frame difference of the
+   bleed region falls from its first value and stops falling, *and* the level
+   stops moving -- the last frames' spread is under a stated bound. Both
+   halves are load bearing: a filter frozen on its first frame also has a
+   frame-to-frame difference of nothing, and only the level claim separates
+   settled from stuck.
+2. **Off, it does not settle.** The same run at `GiDenoise` 0 keeps its
+   frame-to-frame difference at many times the accumulated one. Stated as a
+   ratio rather than as two levels, because the ratio is what "the
+   accumulation is doing work" means and it survives the fixture being
+   relit.
+3. **It settles on the right value.** The settled level agrees, within a band,
+   with the same scene measured under TAA at `GiDenoise` 0 -- an independent
+   linear average taken at a different stage of the frame. **This is the claim
+   that closes the open number**, and it is the one that fails first if the
+   filter ever starts eating energy.
+
+**Broken by:** taking the current frame whole instead of blending fails 1 and
+2 (the flicker drop goes to 1.0, the settling ratio to 0.4) and correctly
+leaves 3 alone, because a filter that does nothing loses nothing. Losing three
+per cent of the history a frame -- a fifth of the bounce at steady state --
+fails 3 at 0.87 and correctly leaves 1 and 2 alone, because a filter that
+converges on the wrong number still converges.
+
+**And that second break is why claim 3's band is 0.89 to 1.08 rather than the
+0.80 to 1.20 it was first written with.** A fifth of the light missing read as
+an eighth of the number, because the band is in display levels and the tone
+curve compresses. *Allow in levels what you would refuse in irradiance and the
+check refuses nothing* -- the same lesson as the section above, met from the
+other side.
+### The fourth claim, and why there is not one
+
+7av asked for a check that the filter keeps the bounce's structure, on "a
+fixture with per-pixel detail in the bounce", because of 7r's trap: a
+neighbourhood clamp rejects nothing where the neighbourhood is uniform, and
+indirect light is uniform almost everywhere. **That check was built, and then
+abandoned, and the abandoning is the useful part.**
+
+**First correction: detail cannot go *into* a diffuse bounce.** It is an
+integral over a hemisphere, so it is low frequency by construction; a comb of
+fins fine enough to band it at the three-by-three scale a clamp works at
+occludes almost no solid angle and bands nothing.
+
+So the detail went on the **receiver** instead: `gi_detail` is `gi_corner` with
+a cluster of small cubes at assorted angles standing where the bounce is
+strongest. Every face takes a different amount of it, and the difference image
+duly showed a hundred and thirty display levels between the brightest face and
+the dimmest. The check compared the spread of that, filtered against an
+independently averaged reference, and it read 1.03 -- structure kept.
+
+**Then it was broken three ways and went on reading 1.03.** A history smeared
+over seventeen texels: 1.02. The estimate itself smeared before accumulation:
+1.03. Both, with the neighbourhood clamp disarmed so it could not pull the
+smear back: 1.03, and per-pixel rather than by histogram, the smeared and
+unsmeared frames differed by 0.83 levels -- **two per cent of the spread the
+check was reading.** A measurement that does not move when the thing it
+measures is destroyed is not a measurement, and this one went into the tree
+green.
+
+**Second correction, and the one worth keeping: there was nothing there to
+measure.** The hundred and thirty levels are not the indirect field varying
+from face to face. They are one smooth field arriving on faces at different
+angles and different direct-light levels, so what varies is how much each face
+collects and where on the tone curve it lands -- the shading's doing, not the
+buffer's. Smear the buffer and the picture barely changes, because the buffer
+was already smooth. **The clamp really does have almost nothing to reject on a
+still camera**, which is 7r's trap stated as a property of the signal rather
+than as a warning about fixtures.
+
+Two things follow.
+
+- **The clamp cannot be validated by any image-space measurement of a static
+  scene.** What it is for is a *disocclusion* -- history that belongs to a
+  surface no longer there -- and that needs a moving camera, which is 7.10's
+  territory and a different check. `gi_detail` stays: claim 7 is measured on
+  it, a receiver with occlusion being a harder place to settle on the right
+  value than two flat walls, and a moving-camera clamp check will want it.
+- **Structure in the indirect buffer is not observable through the frame.**
+  Making it observable needs the buffer itself: a debug view that draws a
+  chosen render-graph target, or a float capture path. Neither exists, and
+  neither is 9.13's job -- but the second bounce and 7av's spatial stage will
+  both want one, and this is the entry that says why.
+
+### What is not claimed
+
+The gap between the TAA reading (+1.94) and the fully accumulated one (+1.82)
+is six per cent and is **not** separately attributed. TAA at feedback 0.6 is
+about four frames of averaging against the denoiser's fifty, so it is still
+carrying some of the same inflation -- but that is an explanation offered, not
+one measured, and claim 3's band is wide enough to hold both rather than
+pretending the difference has been accounted for. The band is a measurement,
+not a target.
+
+Nor is the tone curve's exact contribution separated from eight-bit clipping's.
+Both push the same way, the check does not need them apart, and taking them
+apart would need a float capture path that does not exist.
 
 ---
 
