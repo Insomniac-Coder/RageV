@@ -1593,6 +1593,49 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
+### STOP FIRST (2026-08-18): SSAO AND SSR ARE BROKEN ON VULKAN, BISECTED TO 9.13c
+
+`check_ssao.py` and `check_ssr.py` both fail on Vulkan and pass on OpenGL.
+Deterministic -- run twice, identical. Not a threshold: the features read
+**zero**.
+
+```
+FAIL: vulkan: the contact seam darkened by only 0.00 levels
+FAIL: vulkan: the mirror floor gained only 0.00 levels under the block
+FAIL: the backends put the reflection 201.7 rows apart
+```
+
+**Bisected, whole-tree, rebuilding each time:**
+
+| commit | | |
+|---|---|---|
+| `ac68d79` | end of the previous session | **green** |
+| `1ece654` | 9.13b, the second bounce | **green** |
+| `e33a0cd` | 9.13c, SSGI's loop closed | **RED** |
+
+So it is 9.13c. Probed inside it, each rebuilt and re-run, **all still red**:
+
+- the fourth texture at descriptor slot 3 in `PostProcess::Dispatch`
+  (disabled with `if (false && fourth)`) -- not it
+- the lit shader's changes (`pbr_fragment.glsl` reverted to 1ece654) -- not it
+- the `Shader::SsgiApply` enum deletion -- ruled out by inspection: the enum is
+  appended-only and the deleted entry was last but one, so no index moved
+
+**Untested, and therefore where to look next:** `FrameGraphBuilder.cpp`'s
+unification of the two denoise branches (it added `builder.Sample(sceneHDR)`
+and a `previousIndirect` sample to a pass that also writes an attachment of the
+same target -- a barrier hazard on Vulkan is the shape of this bug),
+`gi_denoise.rvshader`, and `ssgi_compute.rvshader`. Revert
+`FrameGraphBuilder.cpp` to 1ece654 together with `PostProcess.h/.cpp`'s
+`SsgiCompute` signature so it compiles, and bisect from there.
+
+**The awkward part:** 9.13c and 9.13d were both committed with "check_ssao,
+check_ssr green" in the message. The runs behind that were `grep -c` on FAIL
+lines, and I recorded the count instead of reading the verdict. The commits are
+truthful about everything else and wrong about that.
+
+**32 commits are unpushed. Do not push until this is fixed.**
+
 ### START HERE (2026-08-18): terrain is finished; 9.13 restructured GI is half built
 
 **Read item 2 of the open list below before touching GI** -- six commits in,
