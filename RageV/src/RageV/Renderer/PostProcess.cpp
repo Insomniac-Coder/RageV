@@ -876,18 +876,15 @@ namespace RageV
 				 &params, sizeof(params), Sampling::Point);
 	}
 
-	void PostProcess::SsgiApply(RHICommandList& cmd, const Ref<RHITexture>& scene,
-								const Ref<RHITexture>& indirect,
-								float intensity, Format outputFormat)
+	void PostProcess::SsgiResolve(RHICommandList& cmd, const Ref<RHITexture>& indirect,
+								  Format outputFormat)
 	{
-		if (!s_Data || !scene || !indirect)
+		if (!s_Data || !indirect)
 			return;
 
 		PostParams params;
-		params.A = Math::Max(intensity, 0.0f);
-
-		Dispatch(cmd, Shader::SsgiApply, outputFormat, scene, indirect,
-				 &params, sizeof(params), Sampling::Linear, Sampling::Linear);
+		Dispatch(cmd, Shader::SsgiApply, outputFormat, indirect, nullptr,
+				 &params, sizeof(params), Sampling::Linear);
 	}
 
 	void PostProcess::SsaoBlur(RHICommandList& cmd, const Ref<RHITexture>& source,

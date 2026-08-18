@@ -419,6 +419,50 @@ namespace RageV
 			desc.Reflections->Invalidate();
 		}
 
+		// --- the indirect buffer (ENGINE-NOTES 7av) -------------------------
+		//
+		// The same one-frame-late shape as the reflections above, one level
+		// down the integral: whichever GI form is enabled writes albedo-free
+		// irradiance here, and the lit shader reads it next frame and
+		// multiplies by the surface's own base colour. That multiply moving
+		// into the shader is what retired SSGI's lit-pixel stand-in.
+		const bool wantIndirect = desc.Post.GlobalIllumination
+							   && !rayGi
+							   && desc.Indirect != nullptr
+							   && PostProcess::IsReady();
+
+		Renderer::ScreenIndirect indirectForScene;
+		RGResource previousIndirect = kRGInvalid;
+		RGResource currentIndirect = kRGInvalid;
+
+		if (wantIndirect)
+		{
+			TemporalHistory& indirect = *desc.Indirect;
+			indirect.Prepare(Renderer::GetDevice(), desc.Width, desc.Height,
+							 Format::R16G16B16A16_SFLOAT, "Indirect");
+
+			if (indirect.Current() && indirect.Previous())
+			{
+				previousIndirect = graph.Import(indirect.Previous(), "IndirectPrevious");
+				currentIndirect = graph.Import(indirect.Current(), "IndirectCurrent");
+
+				// Nothing to read on a chain's first frame or after a resize:
+				// the pair holds whatever the driver left, and Advance() marks
+				// a target valid unconditionally because it means "what was
+				// just written". Reading that as light would add uninitialised
+				// memory to every surface.
+				if (indirect.HasHistory())
+				{
+					indirectForScene.Texture = indirect.Previous()->GetColorTexture(0);
+					indirectForScene.Intensity = Math::Max(desc.Post.GiIntensity, 0.0f);
+				}
+			}
+		}
+		else if (desc.Indirect)
+		{
+			desc.Indirect->Invalidate();
+		}
+
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
@@ -445,8 +489,10 @@ namespace RageV
 				// knows about.
 				if (previousReflections != kRGInvalid)
 					builder.Sample(previousReflections);
+				if (previousIndirect != kRGInvalid)
+					builder.Sample(previousIndirect);
 			},
-			[draw = desc.DrawScene, jitter, reflectionsForScene,
+			[draw = desc.DrawScene, jitter, reflectionsForScene, indirectForScene,
 			 motion = desc.History ? &desc.History->Motion() : nullptr](RGPassContext& context)
 			{
 				// Last frame's reflection trace, for the lighting. Set and
@@ -454,6 +500,9 @@ namespace RageV
 				// same reason: a probe face or a shadow caster reaching this
 				// would light itself from a trace made for another camera.
 				Renderer::SetScreenReflections(&reflectionsForScene);
+				// Last frame's indirect diffuse, on the same edges and for the
+				// same reason (7av).
+				Renderer::SetScreenIndirect(&indirectForScene);
 
 				// Set here and cleared immediately after, so that the only
 				// code able to see a non-zero jitter is code drawing the
@@ -681,7 +730,7 @@ namespace RageV
 		// also has that bounce darkened by its own occlusion rather than the
 		// other way about. Not added at all when the traced form runs, and not
 		// added at all when the profile's toggle is off. ENGINE-NOTES 7at.
-		if (desc.Post.GlobalIllumination && !rayGi && PostProcess::IsReady())
+		if (wantIndirect && currentIndirect != kRGInvalid)
 		{
 			const uint32_t giWidth = Math::Max(desc.Width / 2u, 1u);
 			const uint32_t giHeight = Math::Max(desc.Height / 2u, 1u);
@@ -699,15 +748,8 @@ namespace RageV
 			giBlurDesc.Name = "SsgiBlurred";
 			const RGResource giBlurred = graph.CreateTarget(giBlurDesc);
 
-			RGTargetDesc giAppliedDesc;
-			giAppliedDesc.Name = "SsgiApplied";
-			giAppliedDesc.Color = Format::R16G16B16A16_SFLOAT;
-			giAppliedDesc.Depth = Format::Undefined;
-			const RGResource giApplied = graph.CreateTarget(giAppliedDesc);
-
 			const RGResource giSource = shaded;
 			const float giRadius = desc.Post.GiRadius;
-			const float giIntensity = desc.Post.GiIntensity;
 
 			graph.AddPass("SSGI compute",
 				[&](RGPassBuilder& builder)
@@ -755,22 +797,27 @@ namespace RageV
 										  Format::R16G16B16A16_SFLOAT);
 				});
 
-			graph.AddPass("SSGI apply",
+			// The resolve, not an apply: the gather lands in the frame's
+			// Indirect buffer and the scene image is not touched. `shaded` is
+			// deliberately NOT reassigned -- the bounce reaches the picture
+			// through the lit shader next frame, multiplied by albedo.
+			graph.AddPass("SSGI resolve",
 				[&](RGPassBuilder& builder)
 				{
-					builder.Write(giApplied);
-					builder.Sample(giSource);
+					builder.Write(currentIndirect);
 					builder.Sample(giBlurred);
 					builder.DisableDepth();
 				},
-				[giSource, giBlurred, giIntensity](RGPassContext& context)
+				[giBlurred](RGPassContext& context)
 				{
-					PostProcess::SsgiApply(context.Cmd, context.Color(giSource),
-										   context.Color(giBlurred), giIntensity,
-										   Format::R16G16B16A16_SFLOAT);
+					PostProcess::SsgiResolve(context.Cmd, context.Color(giBlurred),
+											 Format::R16G16B16A16_SFLOAT);
 				});
 
-			shaded = giApplied;
+			// Swapped once the pass is declared, for the reason the
+			// reflections pair is: what was written this frame is what the
+			// next frame reads.
+			desc.Indirect->Advance();
 		}
 
 		if ((desc.Post.AmbientOcclusion || rayOcclusion) && PostProcess::IsReady())

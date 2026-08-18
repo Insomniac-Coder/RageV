@@ -1376,6 +1376,31 @@ void main()
 	}
 #endif
 
+	// Last frame's indirect diffuse (ENGINE-NOTES 7av), added to the probe's
+	// irradiance so the diffuse term below multiplies it by *this* surface's
+	// albedo. That multiply is the whole restructure: a post pass had to stand
+	// the lit pixel in for an albedo it could not know, and here albedo is the
+	// local variable two lines down.
+	//
+	// Reprojected through the same previous-frame NDC the reflections use --
+	// the buffer was written at the end of last frame. Off the edge means
+	// nothing was gathered for this point and the probe answers alone, which
+	// is what clamp-to-edge would have got wrong by handing back a neighbour's
+	// bounce.
+	if (u_Scene.Indirect.x > 0.0)
+	{
+		vec2 previousIndirectNDC = thenNDC - u_Scene.Jitter.zw;
+		vec2 indirectUV = vec2(previousIndirectNDC.x,
+							   previousIndirectNDC.y * u_Scene.Indirect.y) * 0.5 + 0.5;
+
+		if (all(greaterThanEqual(indirectUV, vec2(0.0))) &&
+			all(lessThanEqual(indirectUV, vec2(1.0))))
+		{
+			vec4 bounced = texture(u_Indirect, indirectUV);
+			irradiance += max(bounced.rgb, vec3(0.0)) * bounced.a * u_Scene.Indirect.x;
+		}
+	}
+
 	float NdotV = max(dot(N, V), 0.0);
 	vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
 	vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);

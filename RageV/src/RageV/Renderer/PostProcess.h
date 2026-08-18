@@ -257,12 +257,14 @@ namespace RageV
 							 float directionX, float directionY,
 							 RHI::Format outputFormat);
 
-		// 4: the add onto the linear HDR image. `intensity` scales the
-		// bounce; 0 is exactly the image that came in.
-		static void SsgiApply(RHI::RHICommandList& cmd,
-							  const RHI::Ref<RHI::RHITexture>& scene,
-							  const RHI::Ref<RHI::RHITexture>& indirect,
-							  float intensity, RHI::Format outputFormat);
+		// 4: the resolve into the frame's Indirect buffer (ENGINE-NOTES 7av).
+		// Albedo-free irradiance in RGB, confidence in A. It no longer touches
+		// the scene image: the lit shader reads this buffer one frame later
+		// and multiplies by the surface's own base colour, which is what
+		// retired the lit-pixel stand-in.
+		static void SsgiResolve(RHI::RHICommandList& cmd,
+								const RHI::Ref<RHI::RHITexture>& indirect,
+								RHI::Format outputFormat);
 
 		// 2 and 3: the separable depth-aware blur, one axis per call.
 		static void SsaoBlur(RHI::RHICommandList& cmd,

@@ -56,6 +56,7 @@
 #include "RageV/Particles/GpuParticles.h"
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
+#include "RageV/Renderer/RayShadows.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ViewportGrid.h"
@@ -9326,13 +9327,60 @@ void main()
 		// feature adds -- the traced twin takes the whole chain away, whatever
 		// the profile says, which is what the greyed-out row in the editor is
 		// promising.
+		//
+		// **Since 7av the gather writes an Indirect buffer rather than adding
+		// to the image**, so it needs somewhere to live between frames --
+		// exactly as SSR does below. A caller with no Indirect history gets no
+		// GI passes and the probe alone, which is what a probe capture wants.
 		post.GlobalIllumination = true;
-		Check(build(1600, 900, render, post), "with screen-space GI on the frame compiles");
-		Check(hasPass("SSGI compute") && hasPass("SSGI blur x")
-			  && hasPass("SSGI blur y") && hasPass("SSGI apply"),
-			  "and all four SSGI stages are in it");
-		Check(hasPass("SSGI apply") && hasPass("SSAO apply") == false,
-			  "and the occlusion chain is not dragged in with it");
+		Check(build(1600, 900, render, post), "with GI on and nowhere to keep the bounce, the frame compiles");
+		Check(!hasPass("SSGI"), "and adds no SSGI pass, because next frame could not read it");
+		{
+			TemporalHistory indirect;
+
+			auto buildBouncing = [&]()
+			{
+				graph.Begin(1600, 900);
+
+				FrameDesc frame;
+				frame.Output = graph.Backbuffer();
+				frame.Width = 1600;
+				frame.Height = 900;
+				frame.Render = render;
+				frame.Post = post;
+				frame.OutputFormat = RHI::Format::R8G8B8A8_UNORM;
+				frame.DrawScene = [](RGPassContext&) {};
+				frame.Indirect = &indirect;
+
+				BuildFrame(graph, frame);
+				return graph.Compile();
+			};
+
+			Check(buildBouncing(), "with GI on and an indirect history the frame compiles");
+			Check(hasPass("SSGI compute") && hasPass("SSGI blur x")
+				  && hasPass("SSGI blur y") && hasPass("SSGI resolve"),
+				  "and all four SSGI stages are in it, the last a resolve into the buffer");
+			Check(hasPass("SSGI resolve") && hasPass("SSAO apply") == false,
+				  "and the occlusion chain is not dragged in with it");
+
+			// The traced twin takes the whole chain away whatever the profile
+			// holds, which is what the greyed-out row promises.
+			//
+			// Only where the traced form can actually resolve on. OpenGL has
+			// no ray queries and 7ao's rule is that none of the ray-tracing
+			// rows are even offered there, so the checkbox stays false and the
+			// screen-space chain rightly keeps running -- asserting its
+			// absence would be asserting that OpenGL loses GI.
+			if (RayShadows::IsAvailable())
+			{
+				render.RayTracing = true;
+				render.RayTracedGlobalIllumination = true;
+				Check(buildBouncing() && !hasPass("SSGI"),
+					  "and with the traced form resolved on, the screen-space chain is absent");
+				render.RayTracedGlobalIllumination = false;
+				render.RayTracing = false;
+			}
+		}
 		post.GlobalIllumination = false;
 		Check(build(1600, 900, render, post) && !hasPass("SSGI"),
 			  "off again adds none of them");

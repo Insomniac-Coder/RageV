@@ -30,11 +30,16 @@ void main()
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
 
-layout(set = 0, binding = 0) uniform sampler2D u_Scene;
 // Half resolution, blurred: irradiance in RGB. Sampled with the linear
 // filter as its upsample, for the reason occlusion is -- a bounce is low
 // frequency by construction.
-layout(set = 0, binding = 1) uniform sampler2D u_Indirect;
+//
+// **This pass no longer applies anything** (ENGINE-NOTES 7av). It used to add
+// `scene + scene * indirect`, standing the lit pixel in for an albedo a post
+// pass cannot have. Now it resolves the gather into the frame's Indirect
+// buffer and stops; the lit shader reads that buffer next frame and multiplies
+// by the surface's own base colour, which is where the multiply belonged.
+layout(set = 0, binding = 0) uniform sampler2D u_Indirect;
 
 layout(push_constant) uniform Params
 {
@@ -51,11 +56,11 @@ void main()
 	const bool flip = u_Params.FlipY > 0.5;
 	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
 
-	const vec4 scene = texture(u_Scene, uv);
 	const vec3 indirect = max(texture(u_Indirect, uv).rgb, vec3(0.0));
 
-	// The pixel's own colour standing in for its albedo, so what a surface
-	// receives is tinted by what it is: an intensity of 0 is exactly the
-	// image that came in, which is the property the check measures.
-	o_Color = vec4(scene.rgb + scene.rgb * indirect * u_Params.Intensity, scene.a);
+	// Irradiance in RGB, albedo-free. Alpha is the confidence, and it is 1
+	// wherever the gather ran at all: the intensity dial lives in the lit
+	// shader now, so a zero here would throw the estimate away rather than
+	// scale it.
+	o_Color = vec4(indirect, 1.0);
 }
