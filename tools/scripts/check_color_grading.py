@@ -53,7 +53,7 @@ SWAP_MAX_DIFF = 2
 def shoot(exe, backend, out, scene, extra=()):
     """One frame of `scene` on `backend`, as an array."""
     subprocess.run(
-        [str(exe), f"--backend={backend}", "--aa=none", "--validation=on",
+        [str(exe), "--render-defaults=on", f"--backend={backend}", "--aa=none", "--validation=on",
          f"--scene={scene}", f"--screenshot={out}", "--screenshot-frame=30",
          "--frame-time=0.016666", *extra],
         check=True, capture_output=True, cwd=exe.parent)

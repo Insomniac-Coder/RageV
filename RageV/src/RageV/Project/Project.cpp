@@ -149,6 +149,15 @@ namespace RageV
 		ReadFields(project["RenderSettings"], RenderSettingsRegistry::Fields(),
 				   &loaded->Config.Render);
 
+		// A check's affordance (ENGINE-NOTES 7ba). The project's Render Settings
+		// are a fixture the checks never asked for: for a day in 2026-08 the
+		// sample project carried every ray-tracing switch on, and every
+		// screen-space claim in check_ssao and check_ssr silently measured the
+		// traced twin. With this, a run's settings are the struct's defaults
+		// plus whatever the command line says, and nothing else.
+		if (EngineConfig::Get().RenderDefaults)
+			loaded->Config.Render = RenderSettings{};
+
 		s_Active = std::move(loaded);
 
 		// Which files are font atlases is a fact about a project, and the

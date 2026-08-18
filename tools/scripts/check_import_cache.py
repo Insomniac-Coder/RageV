@@ -37,7 +37,7 @@ MEAN_LIMIT = 2.0
 
 
 def render(exe, out, rhi, extra):
-    args = [str(exe), f"--rhi={rhi}", f"--screenshot={out}",
+    args = [str(exe), "--render-defaults=on", f"--rhi={rhi}", f"--screenshot={out}",
             "--frame-time=0.0166", *extra]
     result = subprocess.run(args, cwd=exe.parent, capture_output=True, text=True)
     if result.returncode != 0 or not pathlib.Path(out).exists():

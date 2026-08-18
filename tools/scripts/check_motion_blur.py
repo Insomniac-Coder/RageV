@@ -45,11 +45,14 @@ FRAME = 30
 # measured off a thresholded image, but the *ratio* between two shutters is
 # tight: it cancels everything but the scaling being tested.
 MIN_GROWTH_HALF = 3.0        # px of extra vertical extent at shutter 0.5
+MAX_GROWTH_HALF = 14.0       # ...and no more than this: measured 6 (97 -> 103), and
+                             # a smear at twice its length is a shutter bug the ratio
+                             # claim below cannot see, because it scales both (7ba)
 RATIO_LOW, RATIO_HIGH = 1.4, 2.8   # extent growth, shutter 1.0 over 0.5
 
 
 def run(exe, args):
-    result = subprocess.run([str(exe), *args], cwd=exe.parent,
+    result = subprocess.run([str(exe), "--render-defaults=on", *args], cwd=exe.parent,
                             capture_output=True, text=True)
     if result.returncode != 0:
         print(f"FAIL: {' '.join(args)} exited {result.returncode}")
@@ -155,6 +158,10 @@ def main():
         if growth_half < MIN_GROWTH_HALF:
             failures.append(f"{backend}: a 0.5 shutter grew the smear by only "
                             f"{growth_half:.1f} px")
+        if growth_half > MAX_GROWTH_HALF:
+            failures.append(f"{backend}: a 0.5 shutter grew the smear by {growth_half:.1f} px "
+                            f"(ceiling {MAX_GROWTH_HALF}) -- a shutter this long is a bug "
+                            f"the ratio claim cannot see, because it scales both sides")
         if not (RATIO_LOW <= ratio <= RATIO_HIGH):
             failures.append(f"{backend}: doubling the shutter scaled the smear "
                             f"by {ratio:.2f}, expected about 2")

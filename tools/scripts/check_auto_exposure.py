@@ -148,7 +148,7 @@ def build(emissive, profile):
 
 def shoot(exe, backend, out, scene, frame=FRAME):
     subprocess.run(
-        [str(exe), f"--backend={backend}", "--aa=none", "--validation=on",
+        [str(exe), "--render-defaults=on", f"--backend={backend}", "--aa=none", "--validation=on",
          f"--scene={scene}", f"--screenshot={out}", f"--screenshot-frame={frame}",
          "--frame-time=0.016666"],
         check=True, capture_output=True, cwd=exe.parent)

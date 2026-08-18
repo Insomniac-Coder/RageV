@@ -63,10 +63,14 @@ BACKENDS = ("vulkan", "opengl")
 FRAME = 30
 
 # How much the seam must darken at intensity 1, in mean 8-bit levels, and
-# how still the open floor must hold. The seam number is deliberately modest
-# -- a restrained AO is the point -- and the open bound is the check's
-# entire reason to exist.
-MIN_SEAM_DARKENING = 3.0
+# how still the open floor must hold. **A band** (ENGINE-NOTES 7ba): the first
+# version set a floor of 3.0 and called it "deliberately modest -- a restrained
+# AO is the point", against a measured 13.65 -- so an occlusion at a quarter
+# of its strength, or one that had quietly become a contact shadow at three
+# times it, both passed. Measured 13.65 / 13.60 screen-space and 15.17 traced.
+# The open-floor bound is the check's entire reason to exist and is unchanged.
+MIN_SEAM_DARKENING = 9.0
+MAX_SEAM_DARKENING = 22.0
 MAX_OPEN_DRIFT = 1.0
 # The AO factor (on / off) over the open brick wall: its tenth percentile
 # and its worst texel. The geometric normal gives 1.000 and 0.984; the
@@ -82,7 +86,7 @@ MAX_WALL_JITTER_DRIFT = 1.0
 
 
 def run(exe, args):
-    result = subprocess.run([str(exe), *args], cwd=exe.parent,
+    result = subprocess.run([str(exe), "--render-defaults=on", *args], cwd=exe.parent,
                             capture_output=True, text=True)
     if result.returncode != 0:
         print(f"FAIL: {' '.join(args)} exited {result.returncode}")
@@ -206,6 +210,10 @@ def main():
         if seam_1 < MIN_SEAM_DARKENING:
             failures.append(f"{backend}: the contact seam darkened by only "
                             f"{seam_1:.2f} levels")
+        if seam_1 > MAX_SEAM_DARKENING:
+            failures.append(f"{backend}: the contact seam darkened by {seam_1:.2f} levels "
+                            f"(ceiling {MAX_SEAM_DARKENING}) -- an occlusion this strong "
+                            f"is a contact shadow, not ambient occlusion")
         if seam_2 <= seam_1:
             failures.append(f"{backend}: doubling the intensity did not deepen "
                             f"the seam ({seam_1:.2f} -> {seam_2:.2f})")
@@ -279,7 +287,7 @@ def main():
                             f"{drift:.2f} levels across the jitter phase -- it flickers")
 
     # --- ray-traced occlusion (7ao), where the device can ---------------------
-    probe_run = subprocess.run([str(exe), "--rhi=vulkan", "--scene=scenes/ssao_box.rage",
+    probe_run = subprocess.run([str(exe), "--render-defaults=on", "--rhi=vulkan", "--scene=scenes/ssao_box.rage",
                                 "--frame-time=0.0166", "--screenshot-frame=2",
                                 f"--screenshot={shots / 'vulkan-rt-probe.png'}", "--aa=none",
                                 *RAY_FLAGS], cwd=exe.parent, capture_output=True, text=True)
@@ -297,8 +305,9 @@ def main():
         rt_open = abs(rt_on[open_].mean() - off[open_].mean())
         print(f"vulkan: ray-traced occlusion darkens the seam by {rt_seam:.2f}, "
               f"open floor drifts {rt_open:.3f}")
-        if rt_seam < MIN_SEAM_DARKENING:
-            failures.append(f"vulkan: ray-traced occlusion darkened the seam by only {rt_seam:.2f}")
+        if not MIN_SEAM_DARKENING <= rt_seam <= MAX_SEAM_DARKENING:
+            failures.append(f"vulkan: ray-traced occlusion darkened the seam by {rt_seam:.2f} "
+                            f"(band {MIN_SEAM_DARKENING} to {MAX_SEAM_DARKENING})")
         if rt_open > MAX_OPEN_DRIFT:
             failures.append(f"vulkan: ray-traced occlusion moved the open floor by {rt_open:.3f}")
 

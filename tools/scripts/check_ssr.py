@@ -67,16 +67,24 @@ from PIL import Image
 BACKENDS = ("vulkan", "opengl")
 FRAME = 30
 
-# Mean-level gains. The mirror bound is deliberately modest -- what matters
-# is that it is clearly nonzero and clearly larger than the rough one.
-MIN_MIRROR_GAIN = 6.0
+# Mean-level gains. **A band, not a floor** (ENGINE-NOTES 7ba). The first
+# version of this file said the mirror bound was "deliberately modest -- what
+# matters is that it is clearly nonzero", and set 6.0 against a measured 79.7:
+# a reflection at one tenth of its strength would have passed. Measured 79.55
+# Vulkan / 79.70 OpenGL for the mirror floor, and 109.83 for the traced
+# reflection of the off-screen block, which lands on a brighter spot; the band
+# holds both with room for a real change and none for a tenfold one.
+MIN_MIRROR_GAIN = 50.0
+MAX_MIRROR_GAIN = 140.0
 MAX_EMPTY_DRIFT = 1.0
 BACKEND_ROW_TOLERANCE = 3
 # The sphere's left limb must gain this much more than its right. Only the
 # outer band of a sphere reflects *away* from the camera -- the middle
 # reflects back at it, which the trace correctly refuses -- so the band is
-# narrow and the bound is modest; what matters is the side.
-MIN_LIMB_CONTRAST = 4.0
+# narrow. Measured 103.58 / 103.85 against a right limb of 0.00; the old
+# floor of 4.0 was twenty-five times under it (7ba).
+MIN_LIMB_CONTRAST = 70.0
+MAX_LIMB_CONTRAST = 140.0
 # How far the reflected floor may differ, in mean 8-bit levels, from the
 # same floor lit by a sky the colour of what it reflects. Two levels: the
 # block's own colour carries a trace of the sky it stands under, and the
@@ -85,7 +93,7 @@ MAX_EXACTNESS_ERROR = 2.0
 
 
 def run(exe, args):
-    result = subprocess.run([str(exe), *args], cwd=exe.parent,
+    result = subprocess.run([str(exe), "--render-defaults=on", *args], cwd=exe.parent,
                             capture_output=True, text=True)
     if result.returncode != 0:
         print(f"FAIL: {' '.join(args)} exited {result.returncode}")
@@ -242,6 +250,9 @@ def main():
         if mirror_gain < MIN_MIRROR_GAIN:
             failures.append(f"{backend}: the mirror floor gained only "
                             f"{mirror_gain:.2f} levels under the block")
+        if mirror_gain > MAX_MIRROR_GAIN:
+            failures.append(f"{backend}: the mirror floor gained {mirror_gain:.2f} levels "
+                            f"(ceiling {MAX_MIRROR_GAIN}) -- past calibration, not merely on")
         if rough_gain >= mirror_gain:
             failures.append(f"{backend}: a rough floor reflected as much as a "
                             f"mirror ({rough_gain:.2f} vs {mirror_gain:.2f})")
@@ -286,6 +297,10 @@ def main():
             failures.append(f"{backend}: the slab to the sphere's left reflected "
                             f"{left_gain:.2f} on its left limb and {right_gain:.2f} "
                             "on its right -- the normal transform mirrors x")
+        if left_gain - right_gain > MAX_LIMB_CONTRAST:
+            failures.append(f"{backend}: the sphere's limbs differ by "
+                            f"{left_gain - right_gain:.2f} (ceiling {MAX_LIMB_CONTRAST}) "
+                            f"-- past calibration")
 
     # --- exactness: SSR on under one sky equals SSR off under another --------
     exact = scenes / "ssr_exact.rage"
@@ -327,7 +342,7 @@ def main():
     # --- ray-traced reflections (7ao), where the device can -----------------
     # The reference frame is claim 7's: SSR off under a sky of the block's
     # colour, which the traced floor must equal as well.
-    rt_log_probe = subprocess.run([str(exe), "--rhi=vulkan", "--scene=scenes/ssr_exact.rage",
+    rt_log_probe = subprocess.run([str(exe), "--render-defaults=on", "--rhi=vulkan", "--scene=scenes/ssr_exact.rage",
                                    "--frame-time=0.0166", "--screenshot-frame=2",
                                    f"--screenshot={shots / 'vulkan-rt-probe.png'}", "--aa=none",
                                    *RAY_FLAGS], cwd=exe.parent, capture_output=True, text=True)
@@ -379,9 +394,9 @@ def main():
         ssr_gain = float(ssr_far[spot].mean() - ssr_far[beside].mean())
         print(f"vulkan: off-screen block, reflection spot vs empty floor: "
               f"traced +{rt_gain:.2f}, screen-space +{ssr_gain:.2f} (row {row})")
-        if rt_gain < MIN_MIRROR_GAIN:
-            failures.append(f"vulkan: the traced reflection did not show the off-screen "
-                            f"block (gain {rt_gain:.2f})")
+        if not MIN_MIRROR_GAIN <= rt_gain <= MAX_MIRROR_GAIN:
+            failures.append(f"vulkan: the traced reflection of the off-screen block reads "
+                            f"{rt_gain:.2f} (band {MIN_MIRROR_GAIN} to {MAX_MIRROR_GAIN})")
         if ssr_gain > MAX_EMPTY_DRIFT:
             failures.append(f"vulkan: screen-space reflections showed an off-screen block "
                             f"(gain {ssr_gain:.2f}) -- which cannot be, so the region is wrong")

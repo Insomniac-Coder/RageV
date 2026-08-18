@@ -141,7 +141,11 @@ def run(exe, args):
 
 
 def shoot(exe, backend, scene, path, extra=()):
-    code, log = run(exe, [f"--rhi={backend}", f"--scene=scenes/{scene}.rage",
+    # Pinned on the runtime only (ENGINE-NOTES 7ba). The two editor launches
+    # below go through `run` bare: the editor saves the project on a Render
+    # Settings edit, and defaults it did not read are not something it should
+    # be holding when it does.
+    code, log = run(exe, ["--render-defaults=on", f"--rhi={backend}", f"--scene=scenes/{scene}.rage",
                           "--frame-time=0.016666", f"--screenshot-frame={FRAME}",
                           f"--screenshot={path}", "--aa=none", *extra])
     if code != 0 or not pathlib.Path(path).exists():

@@ -153,7 +153,7 @@ def build(focus_near, aperture, dof, profile):
 def shoot(exe, backend, out, scene, frame=FRAME, aa="none"):
     extra = ["--msaa=4"] if aa == "msaa" else []
     subprocess.run(
-        [str(exe), f"--backend={backend}", f"--aa={aa}", "--validation=on",
+        [str(exe), "--render-defaults=on", f"--backend={backend}", f"--aa={aa}", "--validation=on",
          f"--scene={scene}", f"--screenshot={out}", f"--screenshot-frame={frame}",
          "--frame-time=0.016666"] + extra,
         check=True, capture_output=True, cwd=exe.parent)

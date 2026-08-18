@@ -121,6 +121,9 @@ namespace RageV
 			return ParseBool(value, config.RayGiOverride);
 		}
 
+		if (key == "render-defaults" || key == "renderdefaults")
+			return ParseBool(value, config.RenderDefaults);
+
 		if (key == "gi-bounces" || key == "gibounces")
 		{
 			config.GiBouncesOverride = std::atoi(value.c_str());

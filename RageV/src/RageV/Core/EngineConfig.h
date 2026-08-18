@@ -39,6 +39,10 @@
 //                           ray tracing on and bindless materials)
 //   --rt-ao=on|off          override the ray-traced ambient occlusion option
 //   --gi-bounces=1|2        how many times traced light bounces (7ax)
+//   --render-defaults=on|off  ignore the project's Render Settings and use
+//                           the struct's defaults, so a check depends only on
+//                           its own command line (ENGINE-NOTES 7ba). The
+//                           overrides above still apply on top.
 //   --ssaa=N                how many times larger SSAA draws each axis
 //   --msaa=N                coverage samples per pixel for MSAA
 //   --project=<path>        the .rvproject to open, or a folder containing one
@@ -217,6 +221,12 @@ namespace RageV
 		// 0 means "not given"; 1 and 2 are the only values the flag accepts,
 		// so there is no third state to mean anything else.
 		int          GiBouncesOverride = 0;
+		// A check's affordance (ENGINE-NOTES 7ba): the project's Render Settings
+		// are replaced by `RenderSettings{}` at load, so a run depends only on
+		// what its command line says. The other overrides still apply on top.
+		// Never set by the editor -- it would save the defaults over the
+		// user's project on the next Render Settings edit.
+		bool         RenderDefaults = false;
 
 		// --msaa=N. Zero leaves the scene's count alone.
 		int          MsaaOverride = 0;

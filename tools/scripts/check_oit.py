@@ -44,9 +44,12 @@ def render(runtime_dir, project, scene, backend, out):
     # screenshot with plumes of different ages and every threshold here is
     # partly a stopwatch.
     result = subprocess.run(
-        [os.path.join(runtime_dir, "RageVRuntime.exe"),
+        [os.path.join(runtime_dir, "RageVRuntime.exe"), "--render-defaults=on",
          "--project=" + project, "--scene=scenes/" + scene, "--rhi=" + backend,
-         "--validation=on", "--screenshot=" + out,
+         # --aa=taa is what this check has always measured under: the sample
+         # project's AntiAliasing was TAA and nothing here said otherwise, so the
+         # thresholds below are TAA's (ENGINE-NOTES 7ba). Now stated.
+         "--aa=taa", "--validation=on", "--screenshot=" + out,
          "--frame-time=0.016666", "--screenshot-frame=30"],
         cwd=runtime_dir, capture_output=True, text=True)
     if result.returncode != 0:

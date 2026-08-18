@@ -111,7 +111,7 @@ BUDGET_WARNING = "spot lights ask to cast"
 
 
 def run(exe, args):
-    result = subprocess.run([str(exe), *args], cwd=exe.parent,
+    result = subprocess.run([str(exe), "--render-defaults=on", *args], cwd=exe.parent,
                             capture_output=True, text=True)
     return result.returncode, (result.stdout or "") + (result.stderr or "")
 
