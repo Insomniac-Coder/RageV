@@ -454,6 +454,11 @@ namespace RageV
 		Renderer::ScreenIndirect indirectForScene;
 		RGResource previousIndirect = kRGInvalid;
 		RGResource currentIndirect = kRGInvalid;
+		bool indirectHasHistory = false;
+		// How much of last frame's indirect survives into this one (7av).
+		// Far higher than TAA's 0.6: irradiance is low frequency, and the
+		// estimate underneath it is four rays wide.
+		const float giFeedback = Math::Clamp(desc.Post.GiDenoise, 0.0f, 0.98f);
 
 		if (wantIndirect)
 		{
@@ -475,6 +480,9 @@ namespace RageV
 				{
 					indirectForScene.Texture = indirect.Previous()->GetColorTexture(0);
 					indirectForScene.Intensity = Math::Max(desc.Post.GiIntensity, 0.0f);
+					// The same fact the denoiser needs: there is a frame
+					// behind this one worth accumulating onto.
+					indirectHasHistory = true;
 				}
 			}
 		}
@@ -829,6 +837,15 @@ namespace RageV
 			// Indirect buffer and the scene image is not touched. `shaded` is
 			// deliberately NOT reassigned -- the bounce reaches the picture
 			// through the lit shader next frame, multiplied by albedo.
+			//
+			// **No accumulation on this path** (7av). The gather reads the lit
+			// image, the lit image carries last frame's indirect, and blending
+			// its own output back in compounds it: measured at +16.98 levels
+			// against a calibrated +1.71, with the two backends 2.03 apart.
+			// Neither clamping the blend nor shortening its tail bounds a loop
+			// that runs a stage upstream. Until the gather reads an image
+			// without the indirect term in it, this path resolves and stops.
+			// The traced branch below has no such loop and does accumulate.
 			graph.AddPass("SSGI resolve",
 				[&](RGPassBuilder& builder)
 				{
@@ -854,18 +871,26 @@ namespace RageV
 			// that is left is to resolve it into the buffer the next frame
 			// reads -- through the same pass the screen-space chain ends on,
 			// because at this point the two carry the same quantity.
-			graph.AddPass("RT GI resolve",
+			graph.AddPass("RT GI denoise",
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(currentIndirect);
 					builder.Sample(sceneHDR);
+					if (previousIndirect != kRGInvalid)
+						builder.Sample(previousIndirect);
 					builder.DisableDepth();
 				},
-				[sceneHDR, indirectIndex](RGPassContext& context)
+				[sceneHDR, indirectIndex, previousIndirect, velocityIndex,
+				 width = desc.Width, height = desc.Height,
+				 feedback = giFeedback, has = indirectHasHistory](RGPassContext& context)
 				{
-					PostProcess::SsgiResolve(context.Cmd,
-											 context.Color(sceneHDR, indirectIndex),
-											 Format::R16G16B16A16_SFLOAT);
+					PostProcess::GiDenoise(context.Cmd,
+										   context.Color(sceneHDR, indirectIndex),
+										   previousIndirect != kRGInvalid
+											   ? context.Color(previousIndirect) : nullptr,
+										   context.Color(sceneHDR, velocityIndex),
+										   width, height, feedback, has,
+										   Format::R16G16B16A16_SFLOAT);
 				});
 
 			desc.Indirect->Advance();

@@ -7397,11 +7397,37 @@ publishing a direct-only colour somewhere (another attachment, another sweep)
 or the gather subtracting what it contributed. That is the next design
 decision, and it is a decision rather than a tweak.
 
-**The traced form has no loop** (`TraceReflection` shades hits from lights and
-the probe, never from the indirect buffer) and would take the denoiser as-is.
-Splitting the two so RT GI can have it while SSGI waits is a legitimate option
-and is *not* what was built, because one buffer with one writer was the point
-of the restructure.
+**The traced form has no loop** -- `TraceReflection` shades its hits from the
+lights and the probe, never from this buffer, so there is no path by which its
+own output returns. **At the owner's direction (2026-08-18) the two were split
+and the traced form has the denoiser now**: `RT GI denoise` accumulates, `SSGI
+resolve` does not, and the `GiDenoise` dial is the traced form's alone.
+
+One buffer with one writer was the point of the restructure, and it survives
+-- both forms still write the same `Indirect` buffer and the lit shader still
+reads it one frame late. What differs is only whether the write accumulates,
+which is a property of the *source*, not of the buffer. That is a smaller
+split than it first looked.
+
+Measured after the split: SSGI back to **+1.71 / +1.74** with the backends
+0.02 apart, exactly its pre-denoiser calibration; the traced form **+1.86**
+near the corner and **+0.82** off screen, against **+2.69 / +1.25** unfiltered.
+
+**That drop is not yet explained, and it is the honest open question here.**
+The unfiltered number is one frame's four-ray estimate; the filtered one is an
+average over roughly thirty such frames, so the two disagreeing is expected and
+a single sample landing high is the ordinary case. But a consistent 30 % gap is
+larger than that story comfortably carries, and the alternative -- that the
+accumulation is biased low, most likely by the min/max box the history is
+clipped into -- is not ruled out. **7av's convergence claim (check 3: the
+frame-to-frame difference of the indirect term falls monotonically and settles)
+is what would tell the two apart, and it is not written yet.** Until it is, the
+traced form's denoised value is trusted no further than the band it sits in.
+
+The screen-space path keeps `SSGI resolve` and the scenetest graph assertions
+now state the difference directly -- `!hasPass("GI denoise")` on that branch --
+because two paths deliberately differing is the kind of thing a later edit
+unifies by accident.
 
 **And the checks could not see any of it.** Every threshold in `check_gi.py`
 was a floor, so +16.98 passed exactly as +1.71 did. They are bands now --

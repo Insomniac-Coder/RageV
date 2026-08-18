@@ -1,0 +1,150 @@
+// The indirect buffer's temporal stage (ENGINE-NOTES 7av).
+//
+// Four cosine rays a pixel cannot integrate a hemisphere. What makes them
+// converge is accumulating a *different* four every frame, and until now the
+// only thing doing that was whole-frame TAA -- which meant ray-traced GI was
+// effectively TAA-only, grainy under every other anti-aliasing mode and under
+// none. This pass accumulates the indirect term on its own, so convergence
+// stops depending on which AA the profile happens to hold.
+//
+// **Only the traced form uses this** (ENGINE-NOTES 7av). The screen-space
+// gather reads the lit image, and the lit image carries last frame's indirect,
+// so accumulating its output compounds it -- measured at ten times the
+// calibrated bleed, and no constant in this shader can bound a loop that runs
+// one stage upstream of it. `TraceReflection` shades its hits from the lights
+// and the probe and never from this buffer, so the traced form has no such
+// path and takes the accumulation cleanly.
+//
+// The same shape as taa_resolve: reproject last frame through the velocity
+// buffer 7.10 writes, reject what reprojected off screen, blend. Three
+// differences, all because this buffer holds irradiance rather than a picture.
+//
+// **The feedback is much higher.** TAA settled on 0.6 because a picture that
+// lags is worse than a picture that aliases. Indirect light is low frequency
+// and has no edges to smear, so it can afford a long tail -- and it needs one,
+// because the estimate underneath is four samples wide.
+//
+// **The neighbourhood clamp is weak here, and that is stated rather than
+// hidden.** 7r's trap is that a clamp only rejects history where the
+// neighbourhood *varies*, and indirect light is nearly uniform almost
+// everywhere -- which is exactly where a wrong reprojection hides. So the clamp
+// is kept (it costs one 3x3 read and catches the disocclusion cases that do
+// vary) but it is not what makes this correct. The off-screen rejection is.
+//
+// **No YCoCg, no tonemapped clip.** Both exist in taa_resolve to protect a
+// display-referred image from a single bright sample dragging the box. This
+// buffer is linear irradiance with no highlights of its own; converting it
+// would only cost precision at the low end, which is where a bounce lives.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// This frame's raw estimate: the screen-space gather's blurred output, or the
+// lit shader's traced attachment. Point sampled -- the neighbourhood is read
+// at exact texel offsets, and a filtered read would blur the box before the
+// clip is computed from it.
+layout(set = 0, binding = 0) uniform sampler2D u_Current;
+// What this pass wrote last frame. Linear, because the reprojected position
+// lands between texels whenever anything moves by a fraction of a pixel.
+layout(set = 0, binding = 1) uniform sampler2D u_History;
+// Screen-space motion, point sampled: a measurement per pixel, and the average
+// of two pixels' motion is the motion of nothing.
+layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	float Feedback;      // how much of the history survives, 0 disables
+	float HasHistory;
+	float Unused0;
+	float FlipY;
+} u_Params;
+
+// How far outside the neighbourhood the history may sit before it is pulled
+// back. Generous on purpose: see the note at the top about why a tight clamp
+// on a near-uniform signal rejects almost nothing while costing the
+// accumulation its tail.
+const float kClampScale = 4.0;
+
+vec3 ClipToBox(vec3 history, vec3 centre, vec3 extent)
+{
+	vec3 offset = history - centre;
+	vec3 units = abs(offset / max(extent, vec3(1e-5)));
+	float furthest = max(units.x, max(units.y, units.z));
+	return furthest > 1.0 ? centre + offset / furthest : history;
+}
+
+void main()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec4 current = texture(u_Current, uv);
+
+	// Nothing to accumulate from: the chain's first frame, a resize, or the
+	// feature switched off. Taking the current frame whole is what stops a
+	// resumed history from being a lie -- the same contract taa_resolve has.
+	if (u_Params.HasHistory < 0.5 || u_Params.Feedback <= 0.0)
+	{
+		o_Color = current;
+		return;
+	}
+
+	vec2 velocity = texture(u_Velocity, uv).xy;
+	velocity.y = flip ? -velocity.y : velocity.y;
+	const vec2 historyUV = uv - velocity;
+
+	// Off the edge last frame means this surface was not on screen to be
+	// estimated. Clamp-to-edge would hand back a neighbour's bounce, which is
+	// how a wall picks up the glow of whatever was beside the frame.
+	if (any(lessThan(historyUV, vec2(0.0))) || any(greaterThan(historyUV, vec2(1.0))))
+	{
+		o_Color = current;
+		return;
+	}
+
+	// The 3x3 box this pixel's estimate sits in.
+	vec3 lowest = current.rgb;
+	vec3 highest = current.rgb;
+	vec3 mean = current.rgb;
+	for (int y = -1; y <= 1; y++)
+	{
+		for (int x = -1; x <= 1; x++)
+		{
+			if (x == 0 && y == 0)
+				continue;
+			const vec3 tap = texture(u_Current,
+									 uv + vec2(x, y) * u_Params.TexelSize).rgb;
+			lowest = min(lowest, tap);
+			highest = max(highest, tap);
+			mean += tap;
+		}
+	}
+	mean /= 9.0;
+
+	const vec3 centre = (lowest + highest) * 0.5;
+	const vec3 extent = max(highest - centre, vec3(1e-4)) * kClampScale;
+
+	vec4 history = texture(u_History, historyUV);
+	history.rgb = ClipToBox(history.rgb, centre, extent);
+
+	vec3 result = mix(current.rgb, history.rgb, u_Params.Feedback);
+
+	// Negative irradiance is not a thing; a filtered read across a disocclusion
+	// can produce one, and it would darken the surface below unlit.
+	o_Color = vec4(max(result, vec3(0.0)), current.a);
+}

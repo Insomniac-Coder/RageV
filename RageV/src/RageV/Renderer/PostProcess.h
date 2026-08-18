@@ -335,6 +335,24 @@ namespace RageV
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
 						 RHI::Format outputFormat);
 
+		// The indirect buffer's temporal stage (ENGINE-NOTES 7av): this
+		// frame's raw estimate accumulated onto what the last frame resolved,
+		// reprojected through the velocity buffer.
+		//
+		// `feedback` is how much of the history survives -- much higher than
+		// TAA's, because irradiance is low frequency and the estimate under it
+		// is four samples wide. Zero disables the accumulation exactly, which
+		// is what makes "the denoiser converges" a falsifiable claim rather
+		// than an impression. `hasHistory` false takes the current frame
+		// whole, the same contract TemporalResolve has.
+		static void GiDenoise(RHI::RHICommandList& cmd,
+							  const RHI::Ref<RHI::RHITexture>& current,
+							  const RHI::Ref<RHI::RHITexture>& history,
+							  const RHI::Ref<RHI::RHITexture>& velocity,
+							  uint32_t width, uint32_t height,
+							  float feedback, bool hasHistory,
+							  RHI::Format outputFormat);
+
 		static bool IsReady();
 
 	private:
@@ -355,7 +373,7 @@ namespace RageV
 			RtaoCompute,
 			// Appended, never inserted: ShaderPath below is indexed by this
 			// enum's order.
-			SsgiCompute, SsgiBlur, SsgiApply,
+			SsgiCompute, SsgiBlur, SsgiApply, GiDenoise,
 			Count
 		};
 

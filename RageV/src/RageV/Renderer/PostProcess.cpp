@@ -79,7 +79,8 @@ namespace RageV
 				case 24: return "assets/shaders/rtao_compute.rvshader";
 				case 25: return "assets/shaders/ssgi_compute.rvshader";
 				case 26: return "assets/shaders/ssgi_blur.rvshader";
-				default: return "assets/shaders/ssgi_apply.rvshader";
+				case 27: return "assets/shaders/ssgi_apply.rvshader";
+				default: return "assets/shaders/gi_denoise.rvshader";
 			}
 		}
 
@@ -99,7 +100,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 28> Shaders;
+			std::array<Ref<RHIShader>, 29> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -159,7 +160,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 28,
+		static_assert((int)Shader::Count <= 29,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -1158,6 +1159,28 @@ namespace RageV
 		// measurement per pixel, and the average of two pixels' motion is the
 		// motion of nothing.
 		Dispatch(cmd, Shader::TaaResolve, outputFormat, current, history,
+				 &params, sizeof(params), Sampling::Point, Sampling::Linear,
+				 velocity, Sampling::Point);
+	}
+
+	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,
+								const Ref<RHITexture>& history, const Ref<RHITexture>& velocity,
+								uint32_t width, uint32_t height,
+								float feedback, bool hasHistory, Format outputFormat)
+	{
+		if (!s_Data || !current)
+			return;
+
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+							 1.0f / (float)Math::Max(height, 1u) };
+		// Clamped short of 1 for TemporalResolve's reason: a filter that never
+		// accepts a new frame freezes on what it first accumulated, and from
+		// the outside that looks exactly like the pass having stopped running.
+		params.A = Math::Clamp(feedback, 0.0f, 0.98f);
+		params.B = (hasHistory && history && velocity) ? 1.0f : 0.0f;
+
+		Dispatch(cmd, Shader::GiDenoise, outputFormat, current, history,
 				 &params, sizeof(params), Sampling::Point, Sampling::Linear,
 				 velocity, Sampling::Point);
 	}

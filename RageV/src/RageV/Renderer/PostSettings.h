@@ -200,6 +200,24 @@ namespace RageV
 		// under the other.
 		float GiIntensity = 1.0f;
 
+		// How much of last frame's indirect estimate survives into this one
+		// (ENGINE-NOTES 7av). Far higher than TAA's feedback because
+		// irradiance is low frequency and has no edges to smear, and because
+		// the estimate underneath the traced form is four rays wide -- what
+		// makes those converge is accumulating a different four every frame.
+		//
+		// **Zero disables the accumulation exactly**, which is what makes
+		// "the denoiser converges" a measurable claim rather than an
+		// impression.
+		//
+		// **Read by the traced form only**, unlike the intensity above. The
+		// screen-space gather reads the lit image, and the lit image carries
+		// last frame's indirect, so accumulating its output compounds it --
+		// ten times the calibrated bleed, with the two backends 2.03 levels
+		// apart. Until that gather reads an image without the indirect term
+		// in it, this dial does nothing on that path, and the manual says so.
+		float GiDenoise = 0.9f;
+
 		// --- SSAO (9.6). ENGINE-NOTES 7ac -----------------------------------
 		//
 		// Occlusion from depth alone, applied as a multiply on the lit image

@@ -1788,6 +1788,18 @@ namespace
 							"so a scene tuned under one is not re-tuned under "
 							"the other.")))),
 
+				Field<&PostSettings::GiDenoise>("GiDenoise",
+					Named("GI denoise", OnlyWhen(GiDialsApply,
+						Slider(0.0f, 0.98f,
+							"How much of last frame's bounce survives into "
+							"this one, converging the traced form's four rays "
+							"a pixel; 0 turns the accumulation off exactly. "
+							"Reprojected through the motion vectors, so it "
+							"works under every anti-aliasing mode rather than "
+							"only under TAA. Ray-traced GI only: the "
+							"screen-space gather reads the lit image and "
+							"would compound its own output.")))),
+
 				// --- SSAO. ENGINE-NOTES 7ac -----------------------------------
 				Field<&PostSettings::AmbientOcclusion>("AmbientOcclusion",
 					Named("Ambient occlusion", DisabledWhen(RayOcclusionTakesOver,

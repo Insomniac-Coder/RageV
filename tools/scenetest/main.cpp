@@ -9365,6 +9365,17 @@ void main()
 			Check(hasPass("SSGI resolve") && hasPass("SSAO apply") == false,
 				  "and the occlusion chain is not dragged in with it");
 
+			// **The screen-space path does not accumulate** (7av), and that is
+			// asserted rather than left to a comment: the two paths differing
+			// is the whole point of the split, and it is exactly the kind of
+			// thing a later edit unifies by accident. Its gather reads the lit
+			// image, which carries last frame's indirect, so blending its own
+			// output back in compounds it -- +16.98 levels measured against a
+			// calibrated +1.71, with the backends 2.03 apart.
+			Check(!hasPass("GI denoise"),
+				  "and the screen-space path resolves without accumulating, "
+				  "because its gather would compound its own output");
+
 			// The traced twin takes the whole chain away whatever the profile
 			// holds, which is what the greyed-out row promises.
 			//
@@ -9379,6 +9390,21 @@ void main()
 				render.RayTracedGlobalIllumination = true;
 				Check(buildBouncing() && !hasPass("SSGI"),
 					  "and with the traced form resolved on, the screen-space chain is absent");
+
+				// The traced form *does* accumulate: TraceReflection shades
+				// its hits from the lights and the probe, never from this
+				// buffer, so there is no path for its own output to return.
+				Check(hasPass("RT GI denoise"),
+					  "and it resolves through the denoiser, which only it can safely have");
+
+				// Zero does not remove the pass; it makes it a copy. That is
+				// what keeps "the accumulation is off" a claim about pixels
+				// rather than about the graph.
+				post.GiDenoise = 0.0f;
+				Check(buildBouncing() && hasPass("RT GI denoise"),
+					  "and at an accumulation of zero the pass still runs, as a copy");
+				post.GiDenoise = 0.9f;
+
 				render.RayTracedGlobalIllumination = false;
 				render.RayTracing = false;
 			}
