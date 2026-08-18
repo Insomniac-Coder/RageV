@@ -95,6 +95,38 @@ namespace RageV
 		static void SetGlobalIllumination(float intensity);
 		static float GetGlobalIllumination();
 
+		// Last frame's indirect diffuse, for the lighting that draws this
+		// frame: RGB the irradiance arriving from the scene, **albedo-free**,
+		// A how far to trust it. ENGINE-NOTES 7av.
+		//
+		// The same shape as ScreenReflections above and for the same reasons,
+		// one level down the integral: the lit shader adds this to the probe's
+		// irradiance *before* the diffuse term multiplies by albedo, so the
+		// bounce is tinted by what the surface is rather than by what it
+		// already looked like. **That multiply moving back in here is what
+		// retires SSGI's albedo stand-in** -- a post pass has no albedo and
+		// this shader has it as a local.
+		//
+		// Whichever form is enabled fills it: the screen-space gather, or the
+		// traced ray pass. One buffer, one writer, so the exclusivity rule is
+		// a choice of writer rather than two code paths.
+		//
+		// One frame late, reprojected through the same previous-frame NDC the
+		// reflections use. Indirect diffuse is the cheapest thing in the frame
+		// to be late with: low frequency, no hard edges, and a reprojection
+		// error in it is a slightly wrong soft gradient.
+		//
+		// Null everywhere it does not apply -- a shadow cascade, a probe face,
+		// a chain with GI off, the first frame of a chain -- and null binds a
+		// 1x1 transparent black at intensity zero, which adds nothing.
+		struct ScreenIndirect
+		{
+			RHI::Ref<RHI::RHITexture> Texture;
+			float Intensity = 0.0f;
+		};
+		static void SetScreenIndirect(const ScreenIndirect* indirect);
+		static const ScreenIndirect* GetScreenIndirect();
+
 		// Null outside a frame, and between BeginFrame returning nullptr and
 		// the next successful frame.
 		static RHI::RHICommandList* GetCommandList();

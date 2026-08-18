@@ -83,6 +83,11 @@ layout(set = 0, binding = 0) uniform SceneData
 	// draft added it to the fragment mirror alone and every OpenGL frame came
 	// out different.
 	vec4 GlobalIllumination;
+
+	// Last frame's indirect diffuse (7av). Declared here because this block is
+	// mirrored by hand and OpenGL links both stages into one program; the
+	// fragment stage is the only one that reads it.
+	vec4 Indirect;
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.

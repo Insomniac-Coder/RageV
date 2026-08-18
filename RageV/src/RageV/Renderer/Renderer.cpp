@@ -155,6 +155,21 @@ namespace RageV
 		return s_GlobalIllumination;
 	}
 
+	namespace
+	{
+		const Renderer::ScreenIndirect* s_ScreenIndirect = nullptr;
+	}
+
+	void Renderer::SetScreenIndirect(const ScreenIndirect* indirect)
+	{
+		s_ScreenIndirect = indirect;
+	}
+
+	const Renderer::ScreenIndirect* Renderer::GetScreenIndirect()
+	{
+		return s_ScreenIndirect;
+	}
+
 	void Renderer::SetScreenReflections(const ScreenReflections* reflections)
 	{
 		s_ScreenReflections = reflections;

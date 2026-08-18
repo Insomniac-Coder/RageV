@@ -74,6 +74,10 @@ layout(set = 0, binding = 0) uniform SceneData
 	// draft added it to the fragment mirror alone and every OpenGL frame came
 	// out different.
 	vec4 GlobalIllumination;
+
+	// Last frame's indirect diffuse (ENGINE-NOTES 7av). x = intensity, zero
+	// when nothing is bound; y = the row sign. Mirrored in scene_vertex.glsl.
+	vec4 Indirect;
 } u_Scene;
 
 // Every light in the scene, however many that is.
@@ -144,6 +148,12 @@ layout(set = 0, binding = 6) uniform sampler2D u_BRDF;
 // binding, two descriptor types is a pipeline that will not build -- and on
 // the first attempt it did not, as a device loss the moment the fox drew.
 layout(set = 0, binding = 12) uniform sampler2D u_ScreenReflections;
+
+// Last frame's indirect diffuse, albedo-free, A the confidence (7av). Added
+// to the probe's irradiance *before* the diffuse term multiplies by albedo,
+// which is the whole point: the bounce is tinted by what this surface is.
+// Binding 16 for the reason 12 is not 11 -- see above.
+layout(set = 0, binding = 16) uniform sampler2D u_Indirect;
 
 // Comparison samplers: the hardware compares against the reference and filters
 // the answers, which is a 2x2 percentage-closer filter for one fetch. Four

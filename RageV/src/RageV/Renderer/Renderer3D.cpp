@@ -132,6 +132,17 @@ namespace RageV
 			// by 67 levels -- which is what check_ssao's "off is off to the
 			// byte" caught. See 7at.
 			Vec4 GlobalIllumination;
+
+			// Indirect diffuse from last frame's buffer (ENGINE-NOTES 7av).
+			// x = intensity, zero when nothing is bound; y = the row sign,
+			// exactly as ScreenReflections carries it; zw unused.
+			//
+			// REMINDER, and 7at paid for it: this block is mirrored BY HAND in
+			// include/pbr_fragment.glsl AND include/scene_vertex.glsl. A field
+			// added to one only is undefined on OpenGL, which links the stages
+			// into one program -- and it does not fail, it renders differently
+			// every run.
+			Vec4 Indirect;
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -920,6 +931,12 @@ namespace RageV
 
 		s_Data->Scene.ScreenReflections = Vec4(haveReflections ? reflections->Intensity : 0.0f,
 											   rowSign, 0.0f, 0.0f);
+
+		// The same two numbers for the indirect buffer, read the same way.
+		const Renderer::ScreenIndirect* indirect = Renderer::GetScreenIndirect();
+		const bool haveIndirect = indirect && indirect->Texture && indirect->Intensity > 0.0f;
+		s_Data->Scene.Indirect = Vec4(haveIndirect ? indirect->Intensity : 0.0f,
+									  rowSign, 0.0f, 0.0f);
 		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
 		s_Data->Scene.Ambient = Vec4(environment.AmbientColor, environment.AmbientIntensity);
 
@@ -1195,6 +1212,15 @@ namespace RageV
 		// sampler the environment uses.
 		sceneSet->SetTexture(12, haveReflections ? reflections->Texture
 												 : TextureLoader::TransparentBlack(*s_Data->Device),
+							 s_Data->EnvironmentSampler);
+
+		// Last frame's indirect diffuse, or a 1x1 transparent black whose
+		// alpha -- the confidence -- is zero (7av). Binding 16: 7 is the
+		// instance buffer and 11 the bone buffer, both in the vertex stage of
+		// a shader that includes this one, and one binding with two descriptor
+		// types is a pipeline that does not build.
+		sceneSet->SetTexture(16, haveIndirect ? indirect->Texture
+											  : TextureLoader::TransparentBlack(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
 
 		// The structure the shadow ray traces into, only where the layout
