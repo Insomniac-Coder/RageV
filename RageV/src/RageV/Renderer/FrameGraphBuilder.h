@@ -97,6 +97,29 @@ namespace RageV
 		// reflections and no error, the same shape as TAA with no History.
 		TemporalHistory* Reflections = nullptr;
 
+		// Where global illumination keeps last frame's indirect diffuse for
+		// this frame's lighting to read. ENGINE-NOTES 7av.
+		//
+		// One per frame chain, ping-ponged, for the reasons History and
+		// Reflections are: the editor's two chains are different sizes showing
+		// different cameras, and an indirect buffer made for one is nonsense
+		// to the other.
+		//
+		// **Albedo-free**: RGB is the irradiance arriving from the scene, A the
+		// confidence, and the lit shader multiplies by the surface's own base
+		// colour when it reads it. That is what lets the screen-space form
+		// stop standing its lit pixel in for an albedo it never had.
+		//
+		// Whichever form is enabled writes it -- the screen-space gather or the
+		// traced ray pass -- so the exclusivity rule is a choice of writer
+		// rather than two code paths.
+		//
+		// Null means the feature cannot run for this caller: there is nowhere
+		// to keep the buffer, so the frame renders with the probe alone. The
+		// same shape TAA has with no History, and what a probe capture and
+		// scenetest want.
+		TemporalHistory* Indirect = nullptr;
+
 		// **The frame time the loop handed down**, and the reason it is passed
 		// rather than measured: an adaptation driven by this is a function of
 		// the frame *number* under --frame-time, which is what keeps every

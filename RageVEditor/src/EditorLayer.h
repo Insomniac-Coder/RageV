@@ -319,6 +319,11 @@ private:
 	// reason there are two. ENGINE-NOTES 7af.
 	RageV::TemporalHistory m_SceneReflections;
 	RageV::TemporalHistory m_GameReflections;
+	// One indirect-diffuse history per chain (7av), for the reason the two
+	// above are two rather than one: the viewport and the game view are
+	// different sizes showing different cameras.
+	RageV::TemporalHistory m_SceneIndirect;
+	RageV::TemporalHistory m_GameIndirect;
 
 	// What both viewport textures are, and what the post chain's last pass
 	// writes. ImGui samples them, so they are LDR.

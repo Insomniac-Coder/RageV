@@ -58,6 +58,8 @@ private:
 	// And last frame's screen-space reflection trace, for this frame's
 	// lighting. ENGINE-NOTES 7af.
 	RageV::TemporalHistory m_Reflections;
+	// Indirect diffuse, one frame late (ENGINE-NOTES 7av).
+	RageV::TemporalHistory m_Indirect;
 
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 
