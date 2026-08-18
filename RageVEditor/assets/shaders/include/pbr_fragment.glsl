@@ -418,6 +418,13 @@ layout(location = 1) out vec2 o_Velocity;
 // the composed ViewProjection -- and the one pass that reads this has both.
 layout(location = 2) out vec4 o_Surface;
 
+// Traced indirect diffuse, raw irradiance, **albedo-free** (ENGINE-NOTES 7av).
+// It goes to an attachment rather than into `irradiance` directly because a
+// denoiser needs the GI term to exist on its own: mixed into the lit pixel it
+// cannot be filtered without filtering the frame. Zero in every variant that
+// does not trace.
+layout(location = 3) out vec4 o_Indirect;
+
 // Octahedral encoding, unit vector to [0,1]^2. Two 8-bit channels give about a
 // degree of direction, which a reflection ray does not notice.
 vec2 OctEncode(vec3 n)
@@ -1205,6 +1212,10 @@ void main()
 	// last held.
 	o_Surface = vec4(OctEncode(N), roughness, metallic);
 
+#ifndef RV_RAY_GI
+	o_Indirect = vec4(0.0);
+#endif
+
 	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
 	// the reflectance and have no diffuse response at all: F0 = 0.08 *
 	// specular for a dielectric, the albedo for a metal.
@@ -1372,7 +1383,14 @@ void main()
 									   + N * sqrt(max(1.0 - u1, 0.0)));
 			bounced += TraceReflection(v_WorldPos, normalize(v_Normal), direction);
 		}
-		irradiance += bounced / float(kGiRays) * u_Scene.GlobalIllumination.x;
+
+		// To the attachment, not to `irradiance`: the resolve copies it into
+		// the frame's Indirect buffer, the denoiser filters it there, and the
+		// *next* frame's lighting reads it back and multiplies by albedo --
+		// the same path the screen-space form takes. Raw, with no intensity
+		// applied: the dial lives at the read, so both forms scale in one
+		// place.
+		o_Indirect = vec4(bounced / float(kGiRays), 1.0);
 	}
 #endif
 

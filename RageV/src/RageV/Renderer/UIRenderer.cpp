@@ -63,6 +63,9 @@ namespace RageV
 			uint32_t WorldSamples = 1;
 			Format WorldVelocity = Format::Undefined;
 			Format WorldNormal = Format::Undefined;
+			// The scene target's fourth attachment (7av): the world layer
+			// draws inside the scene pass, so it declares the same shape.
+			Format WorldIndirect = Format::Undefined;
 			Ref<RHIShader> WorldShader;
 			bool   WorldPipelineDirty = true;
 
@@ -226,6 +229,8 @@ namespace RageV
 				desc.ColorFormats.push_back(s_Data->WorldVelocity);
 			if (s_Data->WorldNormal != Format::Undefined)
 				desc.ColorFormats.push_back(s_Data->WorldNormal);
+			if (s_Data->WorldIndirect != Format::Undefined)
+				desc.ColorFormats.push_back(s_Data->WorldIndirect);
 			desc.Samples = s_Data->WorldSamples;
 			desc.DepthFormat = s_Data->WorldDepth;
 
@@ -597,7 +602,8 @@ namespace RageV
 	}
 
 	void UIRenderer::SetWorldTargetFormats(Format color, Format depth, uint32_t samples,
-										   Format velocity, Format normal)
+										   Format velocity, Format normal,
+										   Format indirect)
 	{
 		if (!s_Data)
 			return;
@@ -607,12 +613,14 @@ namespace RageV
 		// of the cache.
 		if (s_Data->WorldColor != color || s_Data->WorldDepth != depth ||
 			s_Data->WorldVelocity != velocity ||
-			s_Data->WorldNormal != normal)
+			s_Data->WorldNormal != normal ||
+			s_Data->WorldIndirect != indirect)
 		{
 			s_Data->WorldColor = color;
 			s_Data->WorldDepth = depth;
 			s_Data->WorldVelocity = velocity;
 			s_Data->WorldNormal = normal;
+			s_Data->WorldIndirect = indirect;
 			s_Data->WorldPipelines.clear();
 			s_Data->WorldPipelineDirty = true;
 		}

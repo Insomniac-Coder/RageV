@@ -57,6 +57,9 @@ namespace RageV
 		// pass with another is undefined behaviour rather than an error.
 			Format TargetVelocity = Format::Undefined;
 			Format TargetNormal = Format::Undefined;
+			// Traced indirect diffuse (7av). Undefined everywhere the
+			// scene target does not carry it.
+			Format TargetIndirect = Format::Undefined;
 			bool   PipelineDirty = true;
 
 			// Per batch, not per frame, for the reason recorded on Renderer2D:
@@ -209,19 +212,22 @@ namespace RageV
 	}
 
 	void DebugRenderer::SetTargetFormats(Format color, Format depth, uint32_t samples,
-									   Format velocity, Format normal)
+									   Format velocity, Format normal,
+									   Format indirect)
 	{
 		if (!s_Data)
 			return;
 		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth &&
 			s_Data->TargetSamples == samples &&
-			s_Data->TargetVelocity == velocity && s_Data->TargetNormal == normal && s_Data->Pipeline)
+			s_Data->TargetVelocity == velocity && s_Data->TargetNormal == normal &&
+			s_Data->TargetIndirect == indirect && s_Data->Pipeline)
 			return;
 
 		s_Data->TargetColor = color;
 		s_Data->TargetSamples = samples;
 		s_Data->TargetVelocity = velocity;
 		s_Data->TargetNormal = normal;
+		s_Data->TargetIndirect = indirect;
 		s_Data->TargetDepth = depth;
 		s_Data->PipelineDirty = true;
 	}
@@ -260,6 +266,8 @@ namespace RageV
 			desc.ColorFormats.push_back(s_Data->TargetVelocity);
 		if (s_Data->TargetNormal != Format::Undefined)
 			desc.ColorFormats.push_back(s_Data->TargetNormal);
+		if (s_Data->TargetIndirect != Format::Undefined)
+			desc.ColorFormats.push_back(s_Data->TargetIndirect);
 		desc.DepthFormat = s_Data->TargetDepth;
 
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);

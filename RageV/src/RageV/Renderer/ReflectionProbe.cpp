@@ -60,15 +60,16 @@ namespace RageV
 		RenderTargetDesc scratch;
 		scratch.Width = m_FaceSize;
 		scratch.Height = m_FaceSize;
-		// Colour, velocity *and* the surface description, because the
-		// pipelines that draw the scene declare all three, and a pipeline
-		// bound into a pass with fewer attachments is undefined behaviour.
-		// Nothing reads a probe's motion vectors or normals; the attachments
-		// exist so the shapes agree. Same lesson as the sample count one item
+		// Colour, velocity, the surface description *and* the indirect
+		// diffuse, because the pipelines that draw the scene declare all
+		// four, and a pipeline bound into a pass with fewer attachments is
+		// undefined behaviour. Nothing reads a probe's motion vectors,
+		// normals or bounce; the attachments exist so the shapes agree. Same lesson as the sample count one item
 		// earlier -- ENGINE-NOTES 7q, 7r and 7ad.
 		scratch.ColorAttachments = { { Format::R16G16B16A16_SFLOAT },
 									 { Format::R16G16_SFLOAT },
-									 { Format::R8G8B8A8_UNORM } };
+									 { Format::R8G8B8A8_UNORM },
+									 { Format::R16G16B16A16_SFLOAT } };
 		scratch.HasDepth = true;
 		scratch.DepthAttachment.Format = Format::D32_SFLOAT;
 		// The same sample count the scene is being drawn at.

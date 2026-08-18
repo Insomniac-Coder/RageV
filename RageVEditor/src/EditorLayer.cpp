@@ -118,12 +118,14 @@ void EditorLayer::OnAttach()
 	// target's shape only from BuildFrame are bound into a probe face that
 	// already has the extra attachment. ENGINE-NOTES 7r.
 	Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT,
-							   1, RHI::Format::R16G16_SFLOAT, RHI::Format::R8G8B8A8_UNORM);
+							   1, RHI::Format::R16G16_SFLOAT, RHI::Format::R8G8B8A8_UNORM,
+							   RHI::Format::R16G16B16A16_SFLOAT);
 	// The UI's world layer draws in the scene pass too, and learns the shape
 	// from the same two places for the same reason.
 	UIRenderer::SetWorldTargetFormats(RHI::Format::R16G16B16A16_SFLOAT,
 									  RHI::Format::D32_SFLOAT, 1, RHI::Format::R16G16_SFLOAT,
-									  RHI::Format::R8G8B8A8_UNORM);
+									  RHI::Format::R8G8B8A8_UNORM,
+									  RHI::Format::R16G16B16A16_SFLOAT);
 
 	auto& graphDevice = Renderer::GetDevice();
 	m_Graph = std::make_unique<RenderGraph>(graphDevice);

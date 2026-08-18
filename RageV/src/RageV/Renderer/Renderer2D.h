@@ -21,7 +21,8 @@ namespace RageV
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth,
 									 uint32_t samples = 1,
 									 RHI::Format velocity = RHI::Format::Undefined,
-									 RHI::Format normal = RHI::Format::Undefined);
+									 RHI::Format normal = RHI::Format::Undefined,
+									 RHI::Format indirect = RHI::Format::Undefined);
 
 		// Rebuilds the pipeline with PolygonMode::Line. Both backends support
 		// it, so this is a genuine toggle rather than a GL-only debug aid.

@@ -7319,7 +7319,8 @@ void main()
 			Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT,
 									   RHI::Format::D32_SFLOAT,
 									   1, RHI::Format::R16G16_SFLOAT,
-									   RHI::Format::R8G8B8A8_UNORM);
+									   RHI::Format::R8G8B8A8_UNORM,
+									   RHI::Format::R16G16B16A16_SFLOAT);
 
 			Renderer::BeginFrame(cmd);
 			scene->CaptureReflectionProbes();
@@ -7439,7 +7440,8 @@ void main()
 		// As above: the pipelines have to expect the format a probe captures
 		// into before anything draws into one.
 		Renderer::SetTargetFormats(RHI::Format::R16G16B16A16_SFLOAT, RHI::Format::D32_SFLOAT,
-								   1, RHI::Format::R16G16_SFLOAT, RHI::Format::R8G8B8A8_UNORM);
+								   1, RHI::Format::R16G16_SFLOAT, RHI::Format::R8G8B8A8_UNORM,
+								   RHI::Format::R16G16B16A16_SFLOAT);
 
 		Renderer::BeginFrame(cmd);
 		scene->CaptureReflectionProbes();

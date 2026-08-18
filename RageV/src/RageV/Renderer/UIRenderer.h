@@ -112,7 +112,8 @@ namespace RageV
 		static void SetWorldTargetFormats(RHI::Format color, RHI::Format depth,
 										  uint32_t samples = 1,
 										  RHI::Format velocity = RHI::Format::Undefined,
-										  RHI::Format normal = RHI::Format::Undefined);
+										  RHI::Format normal = RHI::Format::Undefined,
+										  RHI::Format indirect = RHI::Format::Undefined);
 
 		// Opens a world-space layer. Quads are depth-*tested* against the scene
 		// and do not write depth, so geometry occludes the text and the glyphs

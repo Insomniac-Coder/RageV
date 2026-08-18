@@ -24,6 +24,11 @@ namespace RageV
 		// metallic. Eight bits per octahedral component is about a degree,
 		// which is ample for a reflection direction. ENGINE-NOTES 7ad.
 		constexpr Format kNormalFormat = Format::R8G8B8A8_UNORM;
+		// Traced indirect diffuse (7av): irradiance, unbounded and positive,
+		// so half floats rather than the normal's eight bits. Named here
+		// because five places have to agree about it -- the target, the six
+		// renderers, the UI world layer, the probe face and the resolve.
+		constexpr Format kIndirectFormat = Format::R16G16B16A16_SFLOAT;
 
 		// Radius of the tent filter on the way back up, in texels of the level
 		// being read. Wider is smoother and starts to look like a box.
@@ -279,13 +284,13 @@ namespace RageV
 		// record of how that goes. ENGINE-NOTES 7z.
 		sceneDesc.SampleDepth = true;
 		Renderer::SetTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
-								   Format::R16G16_SFLOAT, kNormalFormat);
+								   Format::R16G16_SFLOAT, kNormalFormat, kIndirectFormat);
 		// The UI renderer's *world* layer draws inside the scene pass -- world
 		// text, and the editor's light and camera marks -- so it takes the
 		// scene's sample count. Its screen-space layer is set separately, down
 		// with the UI pass, and stays at one.
 		UIRenderer::SetWorldTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
-										  Format::R16G16_SFLOAT, kNormalFormat);
+										  Format::R16G16_SFLOAT, kNormalFormat, kIndirectFormat);
 
 		// Accumulation and revealage live on the *scene's* target rather than
 		// one of their own, so the transparent pass depth-tests against the
@@ -322,6 +327,20 @@ namespace RageV
 		// ENGINE-NOTES 7ad records the sweep this attachment cost.
 		const uint32_t normalIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
 		sceneDesc.ExtraColors.push_back(kNormalFormat);
+
+		// Traced indirect diffuse (ENGINE-NOTES 7av). Appended last, so every
+		// number above keeps its meaning, and **always present** for the same
+		// shape-not-setting reason velocity and the surface are. Only the lit
+		// shaders compiled with RV_RAY_GI write anything but zero, and zero
+		// resolves to no bounce.
+		//
+		// This is the attachment whose absence made the first attempt at the
+		// traced pass measure +0.00 while every graph assertion passed: the
+		// pipelines are built once for one count, so declaring it here is only
+		// a third of the job -- the six renderers, the UI world layer and the
+		// probe face all had to be told as well.
+		const uint32_t indirectIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
+		sceneDesc.ExtraColors.push_back(kIndirectFormat);
 
 		const RGResource sceneHDR = graph.CreateTarget(sceneDesc);
 
@@ -426,8 +445,9 @@ namespace RageV
 		// irradiance here, and the lit shader reads it next frame and
 		// multiplies by the surface's own base colour. That multiply moving
 		// into the shader is what retired SSGI's lit-pixel stand-in.
-		const bool wantIndirect = desc.Post.GlobalIllumination
-							   && !rayGi
+		// Either form fills it -- that is the point of one buffer -- so this
+		// asks whether *anything* will, not which.
+		const bool wantIndirect = (desc.Post.GlobalIllumination || rayGi)
 							   && desc.Indirect != nullptr
 							   && PostProcess::IsReady();
 
@@ -479,7 +499,14 @@ namespace RageV
 					  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
 					  // And zero here decodes to "no surface": SSR reads it as
 					  // "no reflection", so sky, grid and text never reflect.
-					  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
+					  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+					  // Traced indirect diffuse (7av). **The subset is what
+					  // `layout(location = N)` counts, not the target** --
+					  // which is what made the first attempt measure +0.00
+					  // with the attachment declared, the six renderers swept
+					  // and the probe face widened: location 3 had nothing
+					  // behind it because this list stopped at three.
+					  { indirectIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
 				builder.SetClearColor(desc.ClearColor);
 
 				// Declared here even though the PBR shader binds it through
@@ -587,14 +614,15 @@ namespace RageV
 			graph.AddPass("Overlay",
 				[&](RGPassBuilder& builder)
 				{
-					// Preserve: the scene is already in there. Velocity and
-					// the surface description are bound too, because the
-					// debug renderer's pipeline is built for the scene
-					// target's shape and this is the scene target.
+					// Preserve: the scene is already in there. Velocity, the
+					// surface description and the indirect bounce are bound
+					// too, because the debug renderer's pipeline is built for
+					// the scene target's shape and this is the scene target.
 					builder.WriteAttachments(sceneHDR,
 						{ { 0, desc.ClearColor },
 						  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
-						  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } },
+						  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+						  { indirectIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } },
 						RGLoad::Preserve);
 				},
 				[draw = desc.DrawOverlay](RGPassContext& context) { draw(context); });
@@ -730,7 +758,7 @@ namespace RageV
 		// also has that bounce darkened by its own occlusion rather than the
 		// other way about. Not added at all when the traced form runs, and not
 		// added at all when the profile's toggle is off. ENGINE-NOTES 7at.
-		if (wantIndirect && currentIndirect != kRGInvalid)
+		if (wantIndirect && !rayGi && currentIndirect != kRGInvalid)
 		{
 			const uint32_t giWidth = Math::Max(desc.Width / 2u, 1u);
 			const uint32_t giHeight = Math::Max(desc.Height / 2u, 1u);
@@ -817,6 +845,29 @@ namespace RageV
 			// Swapped once the pass is declared, for the reason the
 			// reflections pair is: what was written this frame is what the
 			// next frame reads.
+			desc.Indirect->Advance();
+		}
+		else if (wantIndirect && rayGi && currentIndirect != kRGInvalid)
+		{
+			// The traced form. The lit shader has already written raw
+			// irradiance into the scene target's indirect attachment, so all
+			// that is left is to resolve it into the buffer the next frame
+			// reads -- through the same pass the screen-space chain ends on,
+			// because at this point the two carry the same quantity.
+			graph.AddPass("RT GI resolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(currentIndirect);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, indirectIndex](RGPassContext& context)
+				{
+					PostProcess::SsgiResolve(context.Cmd,
+											 context.Color(sceneHDR, indirectIndex),
+											 Format::R16G16B16A16_SFLOAT);
+				});
+
 			desc.Indirect->Advance();
 		}
 

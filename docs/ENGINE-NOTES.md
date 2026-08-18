@@ -7272,12 +7272,49 @@ enabled.**
   That is the sweep 7ad's own note refers to when it says what the surface
   attachment cost.
 
-  **So this is priced as its own piece of work, not as part of the ray pass**,
-  and the attempt is reverted rather than left half-plumbed. What survives is
-  the finding: the trace has to move its destination, the destination has to be
-  an attachment, and an attachment is a sweep. The compensation stands -- this
-  is the same attachment the first draft was going to spend on albedo, and that
-  one is not needed at all now, so the sweep is paid once and buys both.
+  **The sweep was then done (2026-08-18) and it is thirteen places**, which is
+  the number worth recording because the first attempt guessed three:
+
+  1. `sceneDesc.ExtraColors` -- declaring the attachment on the target.
+  2. **`RGPassBuilder::WriteAttachments` on the Scene pass**, and 3. on the
+     Overlay pass. **This is the one that hides.** The pass binds a *subset* of
+     the target's attachments, and `layout(location = N)` counts the subset,
+     not the target. With the attachment declared, all six renderers swept and
+     the probe face widened, the measurement was still +0.00 -- because
+     location 3 had nothing behind it while this list stopped at three. A
+     constant written into `o_Indirect` and still measuring +0.00 is what
+     separated "the trace is wrong" from "the binding is wrong"; nothing else
+     would have, because the graph assertions all passed throughout.
+  4-9. The six renderers that draw the scene -- `Renderer2D`, `Renderer3D`,
+     `DebugRenderer`, `ParticleRenderer`, `Skybox`, `ViewportGrid` -- each
+     needing the parameter, the stored format, the pipeline push **and the
+     early-out**, since a rebuild that never triggers is a pipeline still
+     built for the old count.
+  10. `UIRenderer::SetWorldTargetFormats`, because the world layer draws
+     *inside* the scene pass.
+  11. The reflection probe's scratch face, whose existing comment already said
+     why: "a pipeline bound into a pass with fewer attachments is undefined
+     behaviour".
+  12-13. **The four attach-time callers** -- `EditorLayer`, `RuntimeLayer` and
+     two in `scenetest` -- which set the shape *before* `BuildFrame` ever runs,
+     because probe captures happen first. Missing these is what left the
+     Skybox pipeline at three attachments against a four-attachment pass:
+     **ten Vulkan validation lines, and a picture that looked perfectly
+     correct.** The driver renders it anyway; only the validation layer
+     objects. That is why the bar is zero lines and not zero artefacts.
+
+  Every shader that draws into the scene target also declares and writes the
+  attachment -- `sky`, `grid`, `debug`, `particle`, `quad`, `ui_world` write
+  zero, the lit one writes the trace under `RV_RAY_GI` and zero otherwise. An
+  attachment a pipeline declares and does not write is undefined, and the
+  resolve reads undefined as light.
+
+  Measured after: traced GI **+2.69** near the corner and **+1.25** with the
+  bounce source off screen, against **+2.72** and **+1.26** when it was added
+  straight to `irradiance` -- preserved across the move, the small delta being
+  the frame of latency. The compensation stands: this is the same attachment
+  the first draft was going to spend on albedo, and that one is not needed at
+  all now, so the sweep is paid once and buys both.
 - The exclusivity rule is unchanged and gets simpler: one writer, chosen by
   `ResolveRayTracedGlobalIllumination`.
 
