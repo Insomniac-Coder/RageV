@@ -249,6 +249,8 @@ namespace RageV
 								const RHI::Ref<RHI::RHITexture>& contributed,
 								uint32_t width, uint32_t height,
 								const ViewReconstruction& view, float radius,
+								// How many taps each pixel takes (7az).
+								float taps,
 								RHI::Format outputFormat);
 
 		// 2 and 3: the same separable blur SSAO uses, widened to carry three

@@ -782,14 +782,31 @@ namespace RageV
 		// added at all when the profile's toggle is off. ENGINE-NOTES 7at.
 		if (wantIndirect && !rayGi && currentIndirect != kRGInvalid)
 		{
-			const uint32_t giWidth = Math::Max(desc.Width / 2u, 1u);
-			const uint32_t giHeight = Math::Max(desc.Height / 2u, 1u);
+			// ENGINE-NOTES 7az. High gathers at full resolution; the two below
+			// it halve. The blur that follows is handed *these* dimensions, so
+			// its radius narrows with them instead of smearing the extra
+			// detail straight back off -- which is the whole of what makes the
+			// dial worth having, and the one thing easy to get wrong.
+			const bool giFull = desc.Post.GiQuality == GiDetail::High;
+			const uint32_t giWidth = giFull ? desc.Width
+										    : Math::Max(desc.Width / 2u, 1u);
+			const uint32_t giHeight = giFull ? desc.Height
+											 : Math::Max(desc.Height / 2u, 1u);
+			// Twelve at Low, twenty-four above it. A push constant rather than
+			// a shader define: a fork earns its place by removing work from the
+			// inner loop (8.2), and a loop bound does not.
+			const float giTaps = desc.Post.GiQuality == GiDetail::Low ? 12.0f : 24.0f;
 
 			RGTargetDesc giDesc;
 			giDesc.Name = "SsgiRaw";
 			giDesc.Color = Format::R16G16B16A16_SFLOAT;
 			giDesc.Depth = Format::Undefined;
-			giDesc.Scale = 0.5f;
+			// The *targets* follow the quality dial, not only the numbers
+			// handed to the shader (ENGINE-NOTES 7az). Changing one without
+			// the other leaves the gather running at half resolution and
+			// reading a texel size for a grid twice as fine -- which changes
+			// the picture, costs nothing, and improves nothing.
+			giDesc.Scale = giFull ? 1.0f : 0.5f;
 			const RGResource giRaw = graph.CreateTarget(giDesc);
 
 			RGTargetDesc giBlurDesc = giDesc;
@@ -810,14 +827,14 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[sceneHDR, giSource, normalIndex, indirectIndex, giWidth, giHeight,
-				 reconstruction, giRadius](RGPassContext& context)
+				 reconstruction, giRadius, giTaps](RGPassContext& context)
 				{
 					PostProcess::SsgiCompute(context.Cmd, context.Depth(sceneHDR),
 											 context.Color(sceneHDR, normalIndex),
 											 context.Color(giSource),
 											 context.Color(sceneHDR, indirectIndex),
 											 giWidth, giHeight, reconstruction,
-											 giRadius, Format::R16G16B16A16_SFLOAT);
+											 giRadius, giTaps, Format::R16G16B16A16_SFLOAT);
 				});
 
 			graph.AddPass("SSGI blur x",

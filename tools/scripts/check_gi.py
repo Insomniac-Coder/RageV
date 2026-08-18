@@ -76,6 +76,11 @@ Three more about how deep the light goes (9.13b, ENGINE-NOTES 7ax):
    term by a constant -- the obvious way to get claim 8 by accident -- lifts
    both by the same factor and fails here.
 
+11. **The quality dial reaches the gather, and only the gather.** Low and High
+    differ; under the traced form they do not, to the byte. **It does not claim
+    a narrower bleed** -- that width is `GiRadius`'s, not the dial's, and 7az
+    records the measurement that says so.
+
 10. **The dial costs nothing unused.** With the screen-space form running,
     `--gi-bounces=2` is the same image to the byte: a screen-space gather has
     one bounce and no way to have two, and the setting is not consulted.
@@ -569,6 +574,40 @@ def main():
         failures.append(f"the accumulated bounce is {agreement:.2f} of the same light "
                         f"averaged by TAA instead (wanted {MIN_SETTLED_AGREEMENT} to "
                         f"{MAX_SETTLED_AGREEMENT}) -- the filter is moving energy, not noise")
+
+    # --- 11: the quality dial ------------------------------------------------
+    #
+    # **What this does not claim is the interesting part** (ENGINE-NOTES 7az).
+    # 7av asked for a check that a sharper gather narrows the bleed, and the
+    # bleed's width is not the gather's to set: it is `GiRadius` in world
+    # metres, measured 136 px at Low and 144 at High. What the dial changes is
+    # how finely that profile is sampled, which on a smooth falloff is nearly
+    # invisible -- so the claim here is the weaker, true one.
+    profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0,
+                           "GiRadius": 4.0, "GiQuality": "Low" })
+    low = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-qlow.png", frame=90)
+    profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0,
+                           "GiRadius": 4.0, "GiQuality": "High" })
+    high = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-qhigh.png", frame=90)
+    quality = float(np.abs(low - high).max())
+    print(f"the quality dial changes the gather by {quality:g} levels at most")
+    if quality == 0.0:
+        failures.append("Low and High render the same image to the byte -- the quality "
+                        "dial is not reaching the gather at all")
+
+    # And the traced form does not read it: its cost is rays, and GiBounces is
+    # where that lives. 7at's intensity-zero claim in the shape 9.13b used.
+    profile("gi_corner", { "GiIntensity": 2.0, "GiQuality": "Low" })
+    traced_low = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-qtlow.png",
+                       ray, frame=90)
+    profile("gi_corner", { "GiIntensity": 2.0, "GiQuality": "High" })
+    traced_high = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-qthigh.png",
+                        ray, frame=90)
+    unused = float(np.abs(traced_low - traced_high).max())
+    print(f"under the traced form the quality dial changes the image by {unused:g}")
+    if unused != 0.0:
+        failures.append(f"the quality dial moved the traced form (max {unused:g}) -- it "
+                        f"sizes a screen-space gather that is not running")
 
     # --- 8, 9 and 10: the second bounce --------------------------------------
     #

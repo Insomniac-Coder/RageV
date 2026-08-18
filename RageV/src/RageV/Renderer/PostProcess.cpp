@@ -847,7 +847,7 @@ namespace RageV
 								  const Ref<RHITexture>& contributed,
 								  uint32_t width, uint32_t height,
 								  const ViewReconstruction& view, float radius,
-								  Format outputFormat)
+								  float taps, Format outputFormat)
 	{
 		if (!s_Data || !depth || !surface || !scene || !contributed)
 			return;
@@ -860,6 +860,10 @@ namespace RageV
 		params.InvP0 = view.InvProjection0;
 		params.InvP1 = view.InvProjection1;
 		params.Radius = Math::Max(radius, 0.01f);
+		// The shared header's spare slot, read by the gather as a tap count
+		// (ENGINE-NOTES 7az). Clamped so no profile can ask for a loop that
+		// does not end.
+		params.Base.A = Math::Clamp(taps, 1.0f, 64.0f);
 		ViewRows(view.View, params.ViewRow0, params.ViewRow1, params.ViewRow2);
 
 		// Depth and normal point sampled for SSAO's reasons; the lit image

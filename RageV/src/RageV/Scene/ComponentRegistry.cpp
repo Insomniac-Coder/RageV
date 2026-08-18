@@ -1269,6 +1269,7 @@ namespace
 	namespace
 	{
 		// The names a script writes, and the same order the enum declares.
+		const char* const kGiQualityNames[] = { "Low", "Medium", "High" };
 		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA",
 												   "MSAA", "TAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
@@ -1790,6 +1791,16 @@ namespace
 							"bleeding in corners; large is room-scale. Shown only "
 							"for the screen-space form: a traced ray runs until "
 							"it hits something.")))),
+
+				Field<&PostSettings::GiQuality>("GiQuality",
+					Named("Quality", OnlyWhen(GiScreenSpaceRuns,
+						Enum(kGiQualityNames,
+							"How finely the bounce is gathered. Low and Medium "
+							"differ only in how many taps each pixel takes; High "
+							"also gathers at full resolution, which is where most "
+							"of its cost is and most of its sharpness. The blur "
+							"after it narrows to match, so the detail survives. "
+							"Not read by the ray-traced form -- its cost is rays.")))),
 
 				Field<&PostSettings::GiIntensity>("GiIntensity",
 					Named("GI intensity", OnlyWhen(GiDialsApply,

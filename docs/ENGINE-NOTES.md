@@ -8047,6 +8047,115 @@ fails both.
 
 ---
 
+## 7az. GI sharpness (9.13d), and the fallback that stopped at a measurement
+
+The last two of the owner's four asks. One is built. The other is not, and the
+reason is worth more than the feature was.
+
+### Sharpness: `PostSettings::GiQuality`
+
+Half resolution and twelve taps are constants today, and they are why bleed
+reads as a wash. Three levels:
+
+| | resolution | taps |
+|---|---|---|
+| Low | half | 12 |
+| Medium | half | 24 |
+| High | **full** | 24 |
+
+**The spatial filter follows for free, and that is the part 7av warned about.**
+`SsgiBlur` is handed the *gather's* dimensions, so a radius of four texels is
+eight screen pixels at half resolution and four at full: the blur narrows with
+the gather rather than smearing the extra resolution back off. The way to get
+this wrong is to pass the scene's size instead -- the same class of mistake
+9.13c found in the denoise pass, where the output size would have put nine
+neighbourhood taps inside one source texel.
+
+The tap count is a **push constant, not a define**: 8.2's rule is that a shader
+fork earns its place by removing work from the inner loop, and a loop bound
+does not.
+
+**7av wanted the check to measure the width of the bleed profile**, on the
+reasoning that a peak alone cannot tell a sharper gather from a stronger one.
+That is sound, and the width is not the gather's to set:
+
+| | peak | half-width | frame |
+|---|---|---|---|
+| Low | +1.42 | 136 px | 0.489 ms |
+| Medium | +1.41 | -- | 0.603 ms |
+| High | +1.42 | 144 px | **1.281 ms** |
+
+The profile's width is **`GiRadius` in world metres**, and the dial changes how
+finely that falloff is sampled -- which on something already smooth is nearly
+invisible. So the check claims the weaker, true thing: Low and High differ, and
+under the traced form they do not. A width claim here would have been a check
+that cannot fail, which 7aw is one entry away from.
+
+**A one-line bug found by disbelieving the cost.** The first build had High
+costing the same as Medium, which a four-times-larger gather cannot. The
+targets are sized by `RGTargetDesc::Scale`, and only the *numbers handed to the
+shader* had been made to follow the dial: the gather still ran at half
+resolution while reading a texel size for a grid twice as fine. It changed the
+picture, cost nothing, and improved nothing. **The benchmark caught what the
+image could not** -- 0.489 / 0.603 / **1.281 ms** is what a real full-resolution
+gather looks like.
+
+### The probe fallback: stopped, and why
+
+7av's ask: a tap whose uv leaves the screen is `continue` today, so it is not
+counted and turning the camera extinguishes the bounce; let it take the
+reflection probe's irradiance instead. Its honest claim was "non-zero, and
+below the traced form's number, because the probe is the room's average and not
+the red wall".
+
+**Building it means measuring what the probe already contributes, and the
+measurement says the environment is already counted twice.**
+
+The lit shader adds:
+
+```glsl
+vec3 irradiance = <probe>;          // the environment, once
+irradiance += <GI term>;            // the gather or the rays, added on top
+ambient = kD * albedo * (ambientLight + irradiance) * occlusion;
+```
+
+The GI term is **additive on the probe, not a replacement for it** -- and a
+traced ray that misses returns the sky. So environment light arrives twice: once
+as the probe, once as every ray that saw it.
+
+Measured, on `gi_corner` with **the sun turned off and a grey sky**, so that
+every photon on the far wall is environment light and nothing else:
+
+| | far wall |
+|---|---|
+| GI off | 171.0 |
+| ray-traced GI on | **214.7** |
+
+A 1.26x rise in display levels, which is far more in linear terms, on a surface
+whose only light source was already fully accounted for by the probe. Some of
+the rise is real -- rays that *hit* a wall carry genuine second-order light, and
+the walls are lit -- but the missed rays are the same photons as the probe, and
+they are being added to it.
+
+**So the fallback as specified would make it worse**: filling missed
+screen-space taps with the probe adds a third helping in exactly the directions
+the probe already answered for. A discontinuity would be traded for a brighter
+wrong answer.
+
+**What has to happen first**, and it is not 9.13d's size: the GI term has to
+*replace* the environment's contribution over the directions it covers rather
+than add to it -- which means the lit shader knowing what fraction of the
+hemisphere the estimate actually covered, both forms reporting it, and every
+calibrated number in `check_gi.py` being re-measured afterwards. That is a
+change to 9.12's design, it touches both forms, and it wants its own item
+rather than a corner of this one.
+
+**Filed rather than fixed, deliberately.** The alternative was to build the
+fallback on top of a defect and record neither -- and 7ay is one entry away,
+where a mechanism was named without the arithmetic being done.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

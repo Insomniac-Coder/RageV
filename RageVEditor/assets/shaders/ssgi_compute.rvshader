@@ -91,7 +91,12 @@ layout(push_constant) uniform Params
 
 #include "include/view_reconstruction.glsl"
 
-const int kTaps = 12;
+// How many taps this pixel takes, from the profile's quality dial (7az). A
+// uniform rather than a constant, so that Low and Medium are one pipeline:
+// 8.2's rule is that a shader fork earns its place by removing work from the
+// inner loop, and a loop bound does not.
+int TapCount() { return int(u_Params.A + 0.5); }
+#define kTaps TapCount()
 const float kGoldenAngle = 2.39996323;
 // How far in front of a tap something must sit before it counts as an
 // occluder, in metres -- plus a per-metre term, because the restraint has

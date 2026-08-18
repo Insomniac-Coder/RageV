@@ -116,6 +116,9 @@ def write_beside(scene_path, settings):
     for key, value in settings.items():
         if isinstance(value, bool):
             lines.append(f"{key}: {'true' if value else 'false'}")
+        elif isinstance(value, str):
+            # An enum field is written by name, the way the registry reads it.
+            lines.append(f"{key}: {value}")
         else:
             lines.append(f"{key}: {value:g}")
 

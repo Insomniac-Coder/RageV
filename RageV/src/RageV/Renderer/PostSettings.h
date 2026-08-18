@@ -23,6 +23,16 @@ namespace RageV
 	// pointed at the same profile are two cameras that will always agree,
 	// which is usually what is wanted and is occasionally a surprise; the
 	// inspector says which file it is writing to for that reason.
+	// How finely the screen-space bounce is gathered (ENGINE-NOTES 7az).
+	// Low and Medium differ only in taps; High also gathers at full
+	// resolution, which is where most of its cost is.
+	enum class GiDetail : uint32_t
+	{
+		Low,      // half resolution, 12 taps
+		Medium,   // half resolution, 24 taps
+		High,     // full resolution, 24 taps
+	};
+
 	struct PostSettings
 	{
 		// Applied before the tone curve, which is what makes it an exposure
@@ -199,6 +209,19 @@ namespace RageV
 		// ray-traced form too, so a scene tuned under one is not re-tuned
 		// under the other.
 		float GiIntensity = 1.0f;
+
+		// How finely the screen-space gather is taken (ENGINE-NOTES 7az).
+		// Half resolution and twelve taps were constants, and they are why
+		// bleed read as a wash.
+		//
+		// The spatial blur that follows the gather is handed the *gather's*
+		// dimensions, so its radius narrows with the resolution rather than
+		// smearing the extra detail straight back off -- which is the way this
+		// dial would otherwise buy nothing at High.
+		//
+		// The ray-traced form does not read this: its cost is rays, and
+		// `RenderSettings::GiBounces` is where that lives.
+		GiDetail GiQuality = GiDetail::Low;
 
 		// How much of last frame's indirect estimate survives into this one
 		// (ENGINE-NOTES 7av). Far higher than TAA's feedback because

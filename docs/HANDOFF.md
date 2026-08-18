@@ -1730,8 +1730,10 @@ cut off**, at the owner's direction.
      three more check_gi claims and a scenetest clamp unit. 7ax.
    - 9.13c: SSGI's loop closed, the split undone, and **7av's diagnosis of it
      corrected**. 7ay.
+   - 9.13d: `PostSettings::GiQuality`. The probe fallback is **filed, not
+     built** -- see 7az and the item below it.
 
-   **THREE DONE, ONE LEFT:**
+   **ALL FOUR DONE -- and one bigger thing found on the way:**
 
    **(a) The convergence check -- DONE 2026-08-18, ENGINE-NOTES 7aw.** The
    ~30 % drop is closed: **nothing was lost, the unfiltered number was wrong.**
@@ -1804,17 +1806,36 @@ cut off**, at the owner's direction.
    its kernel is fixed, so there is nothing to average -- and what it buys is a
    reprojected history under motion, which these fixtures cannot show.
 
-   **(d) Sharpness and the probe fallback**, the two original asks that
-   survive untouched. `PostSettings::GiQuality` (Low/Medium/High: half res and
-   12 taps, half and 24, full and 24) with the blur radius following the
-   resolution -- **that last part is the easy thing to get wrong**, and the
-   check measures the *width* of the bleed profile, not its peak, because a
-   peak alone cannot tell a sharper gather from a stronger one. Then: a tap
-   whose uv leaves the screen takes the reflection probe's irradiance instead
-   of being dropped. Its honest claim on `gi_away` is **non-zero AND below**
-   the traced form's +1.26 -- the probe is the room's average, not the red
-   wall, and it removes the discontinuity without making a screen-space gather
-   see off screen. Nothing can.
+   **(d) Sharpness -- DONE 2026-08-18, ENGINE-NOTES 7az.**
+   `PostSettings::GiQuality` (Low/Medium/High: half res and 12 taps, half and
+   24, full and 24), the blur following the resolution because it is handed the
+   gather's dimensions. 0.489 / 0.603 / **1.281 ms**.
+
+   **It does not narrow the bleed, and the check says so.** 7av wanted the
+   check to measure the profile's width; that width is `GiRadius` in world
+   metres -- 136 px at Low, 144 at High -- so a width claim would have been a
+   check that cannot fail. It claims the true weaker thing instead.
+
+   **A one-line bug the benchmark caught and the image could not**: the targets
+   are sized by `RGTargetDesc::Scale`, and the first build changed only the
+   numbers handed to the shader. High cost the same as Medium, which a
+   four-times-larger gather cannot -- the gather was still at half resolution,
+   reading a texel size for a grid twice as fine.
+
+   **(d2) THE PROBE FALLBACK IS FILED, NOT BUILT, AND THE REASON IS THE NEXT
+   ITEM.** Building it meant measuring what the probe already contributes, and
+   **the environment is already counted twice**: the lit shader adds the GI term
+   *on top of* the probe, and a traced ray that misses returns the sky. On
+   `gi_corner` with the sun off and a grey sky -- every photon on the far wall
+   is environment light -- GI off reads 171.0 and traced GI on reads **214.7**.
+   Filling missed screen-space taps with the probe would add a third helping in
+   exactly the directions it already answered for.
+
+   **What has to happen first:** the GI term has to *replace* the environment's
+   contribution over the directions it covers rather than add to it -- the lit
+   shader knowing what fraction of the hemisphere the estimate covered, both
+   forms reporting it, and **every calibrated number in check_gi re-measured
+   after**. That is a change to 9.12's design, not a corner of 9.13d.
 
    **PARKED:** `build/9.13-denoiser-wip/` (git-ignored) holds the SSGI variant
    of the denoiser and `denoiser.patch`, which applies with
