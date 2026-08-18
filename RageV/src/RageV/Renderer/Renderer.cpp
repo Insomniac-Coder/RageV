@@ -143,6 +143,7 @@ namespace RageV
 	namespace
 	{
 		float s_GlobalIllumination = 0.0f;
+		int s_GiBounces = 1;
 	}
 
 	void Renderer::SetGlobalIllumination(float intensity)
@@ -153,6 +154,16 @@ namespace RageV
 	float Renderer::GetGlobalIllumination()
 	{
 		return s_GlobalIllumination;
+	}
+
+	void Renderer::SetGiBounces(int bounces)
+	{
+		s_GiBounces = Math::Clamp(bounces, 1, 2);
+	}
+
+	int Renderer::GetGiBounces()
+	{
+		return s_GiBounces;
 	}
 
 	namespace

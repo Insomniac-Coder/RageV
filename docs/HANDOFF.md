@@ -1726,8 +1726,10 @@ cut off**, at the owner's direction.
    - `44f36bb` check_gi's thresholds become bands.
    - `1b01c28` the split: **RT GI accumulates, SSGI does not.**
    - 9.13a: the convergence check, three claims, a third fixture, and 7aw.
+   - 9.13b: the second bounce -- `TraceSurface`, `RenderSettings::GiBounces`,
+     three more check_gi claims and a scenetest clamp unit. 7ax.
 
-   **ONE DONE, THREE LEFT, IN ORDER, AND WHY THIS ORDER:**
+   **TWO DONE, TWO LEFT, IN ORDER, AND WHY THIS ORDER:**
 
    **(a) The convergence check -- DONE 2026-08-18, ENGINE-NOTES 7aw.** The
    ~30 % drop is closed: **nothing was lost, the unfiltered number was wrong.**
@@ -1749,18 +1751,27 @@ cut off**, at the owner's direction.
    rather than kept. 7aw says why, and what instrument would be needed to do it
    properly (a debug view of a render-graph target, or a float capture).
 
-   **(b) The second bounce**, now that the traced form accumulates.
-   `TraceReflection` ends on `return lit + diffuse * (ambientLight +
-   irradiance) + emissive;` and that `irradiance` is the probe's *guess* at
-   indirect light at the hit -- the second bounce replaces the guess with a
-   traced answer. GLSL has no recursion, so **split the tracer, do not
-   duplicate it**: `TracedSurface TraceSurface(origin, Ng, direction)` holding
-   Missed/Sky/Position/Normal/Diffuse/Direct/Emissive, with `TraceReflection`
-   becoming four lines over it and staying bit-identical. The GI path calls it
-   twice and the second hit's indirect takes the probe, so recursion ends at
-   depth two **by construction** rather than by a counter.
-   `RenderSettings::GiBounces` (1|2, default 1) under the ray-tracing block,
-   `--gi-bounces=`. Not a PostSettings field: it costs *rays*.
+   **(b) The second bounce -- DONE 2026-08-18, ENGINE-NOTES 7ax.**
+   `TraceReflection` split into `TraceSurface` + `ProbeIrradiance` +
+   `ShadeTraced`, and the GI path calls the tracer twice; the second hit's
+   indirect takes the probe, so depth two terminates by construction.
+   `RenderSettings::GiBounces` (1|2, default 1), `--gi-bounces=`, an inspector
+   row under the RT block. **The split is a refactor and that was checked, not
+   asserted**: the pre-split build and the post-split build at `GiBounces` 1
+   render the same image to the byte.
+
+   Measured: the wall beside the red one goes +1.85 to **+4.06**, and a wall
+   whose bounce source is off screen +0.81 to **+1.83** -- large because these
+   fixtures have a black sky, so at one bounce the probe every hit is shaded
+   with holds nothing. Cost 1.042 ms to **1.577 ms** on `gi_corner`, +71 %
+   rather than +100 % because a missed ray does not get shaded.
+
+   **Left over from it, deliberately:** `RayTracedGlobalIllumination` and
+   `GiBounces` have no typed C# properties. The convenience surface in
+   `Engine.cs` is a curated subset and carries neither; the generic
+   `RenderSettings.Get`/`Set` string pair reaches both today because they are
+   registry fields. Giving the traced-GI switches typed properties is one job
+   rather than half of one.
 
    **(c) SSGI's feedback loop -- a design decision, not a tweak.** Its gather
    reads the lit image, the lit image carries last frame's indirect, so

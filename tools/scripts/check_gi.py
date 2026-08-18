@@ -55,6 +55,24 @@ all on Vulkan because the traced form is Vulkan's alone:
    stochastic renderer measured through the tone curve reads high, and
    comparing against *them* would measure the noise.
 
+Three more about how deep the light goes (9.13b, ENGINE-NOTES 7ax):
+
+8. **A second bounce reaches further.** `gi_away` is the hard case -- the red
+   wall is off screen, so every level of red there arrived by tracing -- and
+   `--gi-bounces=2` must put more there than 1 does. A band, not a floor: a
+   second bounce that doubles the whole estimate is counting the first one
+   twice.
+
+9. **It is transport, not a multiply.** The lift is *uneven*: a surface that
+   already receives plenty at one bounce gains a few per cent, and one that
+   receives almost nothing gains a third. Anything that scaled the indirect
+   term by a constant -- the obvious way to get claim 8 by accident -- lifts
+   both by the same factor and fails here.
+
+10. **The dial costs nothing unused.** With the screen-space form running,
+    `--gi-bounces=2` is the same image to the byte: a screen-space gather has
+    one bounce and no way to have two, and the setting is not consulted.
+
 **There is no claim here that the filter keeps the bounce's structure**, and
 the empty space is deliberate -- see ENGINE-NOTES 7aw. One was written, on a
 fixture built for it, and then three separate breaks of the filter (a smeared
@@ -135,6 +153,42 @@ SETTLE_WINDOW = 12
 # only a few per cent wide.
 DETAIL_FRAME = 80
 DETAIL_COUNT = 4
+
+# --- the second bounce (9.13b, ENGINE-NOTES 7ax) -----------------------------
+#
+# Claims 9 and 10 read *luminance* rather than redness. Redness is the right
+# measure for "did light carry a colour" and the wrong one for "how much light
+# arrived": a white surface bouncing white light moves the mean without moving
+# R - B at all, and by the second bounce most of the transport in this room is
+# white on white.
+#
+# The two regions, chosen for how much light reaches them at *one* bounce and
+# not for how they respond to a second:
+#   - the red wall is directly lit and faces the lit floor, so one bounce
+#     already delivers most of what it will ever get;
+#   - the open floor faces a black sky and is lit by the sun at a glancing
+#     angle, so almost everything indirect it receives came off a wall that had
+#     itself been lit indirectly.
+LIT_REGION = (0.20, 0.45, 0.10, 0.35)
+DIM_REGION = (0.75, 0.90, 0.30, 0.60)
+
+# Claim 8: how much more red a second bounce puts on a wall whose bounce source
+# is off screen. Measured +0.81 at one bounce and +1.83 at two, a factor of
+# 2.25 -- large because this fixture has a black sky and no ambient, so at one
+# bounce every hit is shaded with an irradiance probe that holds nothing and
+# the second bounce is the first light those hits get.
+MIN_SECOND_BOUNCE_LIFT = 1.5
+MAX_SECOND_BOUNCE_LIFT = 3.5
+
+# Claim 9: how much more the dim region gains than the lit one, as a ratio of
+# their gains. Measured 1.33 against 1.07, so **1.25 for a traced second bounce
+# -- and 1.08 for a constant scale of 2.25 standing in for one**, which is the
+# break this bound exists to catch and was measured rather than assumed. (Not
+# 1.00: the tone curve answers a constant scale differently at different
+# brightnesses, which is 7aw's finding turning up as a floor under this number.)
+# The bound sits between the two, and the margin either side is thin because
+# there is nowhere roomier for it to be.
+MIN_BOUNCE_UNEVENNESS = 1.15
 
 # Claim 6a: how much of the per-pixel flicker the accumulation has to remove.
 # Measured on this fixture: 0.67 display levels of frame-to-frame change with
@@ -228,6 +282,12 @@ def flicker(frames, region):
     return [float(np.abs(b - a).mean()) for a, b in zip(patches, patches[1:])]
 
 
+
+
+def luminance(image, region):
+    """Mean of all three channels over a region: how much light arrived,
+    without regard to what colour it is."""
+    return float(patch(image, region).mean())
 
 
 def redness(image, region):
@@ -452,6 +512,70 @@ def main():
                         f"averaged by TAA instead (wanted {MIN_SETTLED_AGREEMENT} to "
                         f"{MAX_SETTLED_AGREEMENT}) -- the filter is moving energy, not noise")
 
+    # --- 8, 9 and 10: the second bounce --------------------------------------
+    #
+    # `--gi-bounces=` rather than the scene's RenderSettings because the
+    # fixtures are generated and a render setting lives on the project, not on
+    # the scene -- the same reason the ray flags are passed this way.
+    profile("gi_away", { "GiIntensity": 0.0 })
+    bounce_base = shoot(exe, "vulkan", "gi_away", shots / "vulkan-away-bounce-base.png",
+                        ray, frame=90)
+    profile("gi_away", { "GiIntensity": 2.0 })
+    away_one = shoot(exe, "vulkan", "gi_away", shots / "vulkan-away-bounce1.png",
+                     ray + ["--gi-bounces=1"], frame=90)
+    away_two = shoot(exe, "vulkan", "gi_away", shots / "vulkan-away-bounce2.png",
+                     ray + ["--gi-bounces=2"], frame=90)
+
+    one = redness(away_one, AWAY_REGION) - redness(bounce_base, AWAY_REGION)
+    two = redness(away_two, AWAY_REGION) - redness(bounce_base, AWAY_REGION)
+    lift = two / max(one, 1e-6)
+    print(f"a second bounce puts {lift:.2f}x the red on a wall whose source is off screen "
+          f"({two:+.2f} against {one:+.2f})")
+    if lift < MIN_SECOND_BOUNCE_LIFT:
+        failures.append(f"a second bounce added almost nothing ({lift:.2f}x, wanted "
+                        f"{MIN_SECOND_BOUNCE_LIFT}x) -- the ray is being traced and its "
+                        f"light is not arriving")
+    if lift > MAX_SECOND_BOUNCE_LIFT:
+        failures.append(f"a second bounce more than {MAX_SECOND_BOUNCE_LIFT}x the light of "
+                        f"one ({lift:.2f}x) -- a bounce that beats the light that made it "
+                        f"is a term counted twice")
+
+    profile("gi_corner", { "GiIntensity": 0.0 })
+    corner_base = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-bounce-base.png",
+                        ray, frame=90)
+    profile("gi_corner", { "GiIntensity": 2.0 })
+    corner_one = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-bounce1.png",
+                       ray + ["--gi-bounces=1"], frame=90)
+    corner_two = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-bounce2.png",
+                       ray + ["--gi-bounces=2"], frame=90)
+
+    def gain_ratio(region):
+        base = luminance(corner_base, region)
+        return ((luminance(corner_two, region) - base)
+                / max(luminance(corner_one, region) - base, 1e-6))
+
+    lit_gain = gain_ratio(LIT_REGION)
+    dim_gain = gain_ratio(DIM_REGION)
+    unevenness = dim_gain / max(lit_gain, 1e-6)
+    print(f"the second bounce lifts the dim region {dim_gain:.2f}x and the lit one "
+          f"{lit_gain:.2f}x -- {unevenness:.2f} times as much")
+    if unevenness < MIN_BOUNCE_UNEVENNESS:
+        failures.append(f"the second bounce lifted both regions alike ({unevenness:.2f}, "
+                        f"wanted {MIN_BOUNCE_UNEVENNESS}) -- a constant scale on the "
+                        f"indirect term looks exactly like this and is not transport")
+
+    # 10: with the screen-space form running, the dial is not consulted.
+    profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0, "GiRadius": 4.0 })
+    screen_one = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-screen1.png",
+                       ["--gi-bounces=1"])
+    screen_two = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-screen2.png",
+                       ["--gi-bounces=2"])
+    unused = float(np.abs(screen_one - screen_two).max())
+    print(f"with the screen-space form running, the bounce count changes the image by {unused:g}")
+    if unused != 0.0:
+        failures.append(f"asking for two bounces changed the screen-space gather "
+                        f"(max {unused:g}) -- it has one bounce and no way to have two")
+
     make_gi_scene.main()   # leave the fixtures as committed
 
     if failures:
@@ -463,8 +587,9 @@ def main():
     print("\nOK: intensity zero is the image without it, light carries the red wall's colour onto "
           "the white one beside it and not onto the far end, the traced form does the same and "
           "also reddens a wall whose bounce source is off screen -- which the screen-space form "
-          "cannot -- only one of the two ever runs, and the traced form's accumulation settles, "
-          "and settles on the value an independent average agrees with")
+          "cannot -- only one of the two ever runs, the traced form's accumulation settles, "
+          "and settles on the value an independent average agrees with, and a second bounce "
+          "reaches further than one, unevenly, without touching the form that cannot have one")
 
 
 if __name__ == "__main__":

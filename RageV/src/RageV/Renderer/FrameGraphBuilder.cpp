@@ -203,6 +203,17 @@ namespace RageV
 		return config.HasRayAoOverride ? config.RayAoOverride : render.RayTracedAmbientOcclusion;
 	}
 
+	// How many bounces the traced form runs (ENGINE-NOTES 7ax). Clamped to
+	// 1 or 2 here as well as at the flag, because the setting is an int in a
+	// serialized struct and a scene file can hold anything.
+	int ResolveGiBounces(const RenderSettings& render)
+	{
+		const EngineConfig& config = EngineConfig::Get();
+		const int requested = config.GiBouncesOverride != 0 ? config.GiBouncesOverride
+															: render.GiBounces;
+		return Math::Clamp(requested, 1, 2);
+	}
+
 	bool ResolveRayTracedGlobalIllumination(const RenderSettings& render)
 	{
 		if (!ResolveRayTracing(render))
@@ -399,6 +410,9 @@ namespace RageV
 		// nothing where it is compiled in but idle.
 		const bool rayGi = ResolveRayTracedGlobalIllumination(desc.Render);
 		Renderer::SetGlobalIllumination(rayGi ? Math::Max(desc.Post.GiIntensity, 0.0f) : 0.0f);
+		// One while the traced form is off, so the uniform never claims a
+		// depth nothing is tracing -- the same shape as the intensity above.
+		Renderer::SetGiBounces(rayGi ? ResolveGiBounces(desc.Render) : 1);
 		const bool wantReflections = desc.Post.ScreenSpaceReflections
 								  && !rayReflections
 								  && desc.Reflections != nullptr

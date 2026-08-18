@@ -203,6 +203,21 @@ namespace RageV
 		// expensive switch here, and off by default.
 		bool RayTracedGlobalIllumination = false;
 
+		// How many times light bounces before the reflection probe answers for
+		// the rest (ENGINE-NOTES 7ax). 1 shades each bounce ray's hit with the
+		// probe's guess at the indirect light arriving there; 2 replaces that
+		// guess with one more traced ray, whose *own* indirect term takes the
+		// probe -- so the recursion ends at depth two by construction rather
+		// than by a counter. Light then reaches a surface that can see nothing
+		// directly lit, which one bounce leaves dark.
+		//
+		// Here rather than in the post profile because it costs *rays*: the
+		// profile owns how the frame looks and Render Settings owns what it
+		// costs (9.0), and a camera cut must not change the ray budget. Only
+		// consulted while RayTracedGlobalIllumination is on -- the
+		// screen-space gather has one bounce and no way to have two.
+		int GiBounces = 1;
+
 		// More cascades means better texel density near the camera and more
 		// scene renders. Four is the usual answer and the most this supports.
 		int ShadowCascades = 4;

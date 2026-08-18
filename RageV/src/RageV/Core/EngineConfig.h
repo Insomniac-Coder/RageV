@@ -38,6 +38,7 @@
 //   --rt-reflections=on|off override the ray-traced reflections option (needs
 //                           ray tracing on and bindless materials)
 //   --rt-ao=on|off          override the ray-traced ambient occlusion option
+//   --gi-bounces=1|2        how many times traced light bounces (7ax)
 //   --ssaa=N                how many times larger SSAA draws each axis
 //   --msaa=N                coverage samples per pixel for MSAA
 //   --project=<path>        the .rvproject to open, or a folder containing one
@@ -213,6 +214,9 @@ namespace RageV
 		bool         RayAoOverride = false;
 		bool         HasRayGiOverride = false;
 		bool         RayGiOverride = false;
+		// 0 means "not given"; 1 and 2 are the only values the flag accepts,
+		// so there is no third state to mean anything else.
+		int          GiBouncesOverride = 0;
 
 		// --msaa=N. Zero leaves the scene's count alone.
 		int          MsaaOverride = 0;

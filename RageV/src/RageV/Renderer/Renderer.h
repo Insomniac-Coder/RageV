@@ -95,6 +95,12 @@ namespace RageV
 		static void SetGlobalIllumination(float intensity);
 		static float GetGlobalIllumination();
 
+		// How many times a traced bounce ray's light bounces again before the
+		// probe answers (ENGINE-NOTES 7ax). 1 or 2; the frame sets it, the lit
+		// shader reads it out of the scene block.
+		static void SetGiBounces(int bounces);
+		static int GetGiBounces();
+
 		// Last frame's indirect diffuse, for the lighting that draws this
 		// frame: RGB the irradiance arriving from the scene, **albedo-free**,
 		// A how far to trust it. ENGINE-NOTES 7av.

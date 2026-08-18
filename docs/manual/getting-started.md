@@ -125,6 +125,8 @@ Every flag below can also go in a `ragev.ini` file next to the executable, as
 | `--raytracing=on\|off` | Override the project's Ray tracing checkbox for this run. `on` falls back to shadow maps on a device without ray queries and says so. |
 | `--rt-reflections=on\|off` | Override the RT reflections option for this run. Needs ray tracing on and bindless materials; otherwise off and logged once. |
 | `--rt-ao=on\|off` | Override the RT ambient occlusion option for this run. Needs ray tracing on. |
+| `--rt-gi=on\|off` | Override the RT global illumination option for this run. Needs ray tracing on and bindless materials; otherwise off and logged once. |
+| `--gi-bounces=1\|2` | How many times traced light bounces before the reflection probe answers for the rest. Only read while RT global illumination is on. Anything but 1 or 2 is rejected rather than clamped, so a run cannot quietly measure a depth nobody asked for. |
 | `--fixed-hz=N` | Simulation rate, 20–240. Default 60. |
 | `--width=N` `--height=N` | Window size. |
 | `--audio=on\|off` | Whether to open an output device at all. |

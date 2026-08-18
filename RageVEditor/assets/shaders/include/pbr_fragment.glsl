@@ -707,10 +707,65 @@ uint GiHash(uint x)
 	x ^= x >> 16;
 	return x;
 }
+
+// One cosine-weighted direction about `n`, advancing the seed by two draws.
+//
+// Cosine-weighted is the distribution the diffuse integral wants, so the mean
+// of the samples *is* the irradiance with no per-sample cosine to divide back
+// out -- which is also why one sample of it substitutes directly for the
+// probe's irradiance at a hit (7ax).
+//
+// A function rather than two copies, because the second bounce draws from the
+// same sequence: `seed` is inout so the caller's stream advances, and the
+// caller perturbs it between bounces so the two rays are not the same ray.
+vec3 CosineDirection(vec3 n, inout uint seed)
+{
+	seed = GiHash(seed);
+	float u1 = float(seed & 0x00FFFFFFu) / 16777216.0;
+	seed = GiHash(seed);
+	float u2 = float(seed & 0x00FFFFFFu) / 16777216.0;
+
+	vec3 axis = abs(n.x) < 0.7 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+	vec3 t = normalize(cross(axis, n));
+	vec3 b = cross(n, t);
+
+	float r = sqrt(u1);
+	float phi = 6.2831853 * u2;
+	return normalize(t * (r * cos(phi)) + b * (r * sin(phi))
+					+ n * sqrt(max(1.0 - u1, 0.0)));
+}
 #endif
 
-vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction)
+// What a ray found, before anything decides how to light it (ENGINE-NOTES
+// 7ax). Splitting the tracer here is what lets the GI path run it twice: GLSL
+// has no recursion, so the alternative is a second copy of the vertex fetch
+// and the light loop below, which 7au refused for the terrain query for the
+// same reason.
+struct TracedSurface
 {
+	bool Missed;
+	vec3 Sky;        // where it missed: the environment along the ray
+	vec3 Position;   // where it hit, for a ray that continues from there
+	vec3 Normal;
+	vec3 Diffuse;    // albedo, metals removed
+	vec3 Direct;     // every light, shadowed toward the sun
+	vec3 Emissive;
+};
+
+TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction)
+{
+	TracedSurface surface;
+	surface.Missed = false;
+	surface.Sky = vec3(0.0);
+	// The origin and the incoming normal, so a miss still describes somewhere
+	// real -- a caller that reads Position or Normal after a miss gets the ray's
+	// own start rather than whatever was on the stack.
+	surface.Position = origin;
+	surface.Normal = Ng;
+	surface.Diffuse = vec3(0.0);
+	surface.Direct = vec3(0.0);
+	surface.Emissive = vec3(0.0);
+
 	// Off the surface along its geometric normal, the shadow ray's offset,
 	// for the shadow ray's reason.
 	float NgdotD = clamp(dot(Ng, direction), 0.0, 1.0);
@@ -725,8 +780,10 @@ vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction)
 	if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT)
 	{
 		// The sky, unfiltered: a mirror ray sees the sky at full sharpness.
-		return textureLod(u_Environment, vec4(RotateIntoSky(direction), 0.0), 0.0).rgb *
-			   u_Scene.Environment.x;
+		surface.Missed = true;
+		surface.Sky = textureLod(u_Environment, vec4(RotateIntoSky(direction), 0.0), 0.0).rgb *
+				      u_Scene.Environment.x;
+		return surface;
 	}
 
 	// What was hit, and where on it.
@@ -835,10 +892,43 @@ vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction)
 		lit += diffuse / PI * lightColor * attenuation * max(dot(hitNormal, L), 0.0) * shadow;
 	}
 
+	surface.Position = hitPosition;
+	surface.Normal = hitNormal;
+	surface.Diffuse = diffuse;
+	surface.Direct = lit;
+	surface.Emissive = emissive;
+	return surface;
+}
+
+// The probe's answer for indirect light arriving at a surface facing `normal`.
+// One bounce shades every hit with this; the second bounce replaces it with a
+// traced ray and lets *that* hit have it instead, which is why the recursion
+// ends at depth two by construction and not by a counter.
+vec3 ProbeIrradiance(vec3 normal)
+{
+	return textureLod(u_Irradiance, vec4(RotateIntoSky(normal), v_Probe), 0.0).rgb *
+			  u_Scene.Environment.x;
+}
+
+// A described hit plus what arrives at it. Callers check `Missed` first: this
+// deliberately does not, so a miss does not pay for an irradiance fetch it
+// throws away.
+vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
+{
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
-	vec3 irradiance = textureLod(u_Irradiance, vec4(RotateIntoSky(hitNormal), v_Probe), 0.0).rgb *
-					  u_Scene.Environment.x;
-	return lit + diffuse * (ambientLight + irradiance) + emissive;
+	return surface.Direct + surface.Diffuse * (ambientLight + arriving) + surface.Emissive;
+}
+
+// Unchanged in what it returns (7ax): find the surface, shade it with the
+// probe. The reflection ray stays one bounce deep even while the diffuse
+// around it is two -- a mirror ray is not a light-transport estimate, nothing
+// accumulates it, and doubling its cost would buy an agreement nobody can see.
+vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction)
+{
+	TracedSurface surface = TraceSurface(origin, Ng, direction);
+	if (surface.Missed)
+		return surface.Sky;
+	return ShadeTraced(surface, ProbeIrradiance(surface.Normal));
 }
 #endif
 
@@ -1362,26 +1452,45 @@ void main()
 		uint giSeed = GiHash(giPixel.x * 0x9E3779B9u ^ giPixel.y
 							 ^ (uint(u_Scene.GlobalIllumination.y) * 0x85EBCA6Bu));
 
-		vec3 giAxis = abs(N.x) < 0.7 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-		vec3 giT = normalize(cross(giAxis, N));
-		vec3 giB = cross(N, giT);
+		// How deep the path goes before the probe answers for the rest (7ax).
+		// A uniform rather than a define: a third lit-shader variant on top of
+		// the bindless and layered forks would be a fork that removes no work
+		// from the inner loop, which is 8.2's bar for one.
+		const int giBounces = int(u_Scene.GlobalIllumination.z + 0.5);
 
+		vec3 giNormal = normalize(v_Normal);
 		vec3 bounced = vec3(0.0);
 		for (int i = 0; i < kGiRays; ++i)
 		{
-			giSeed = GiHash(giSeed + uint(i) * 0x9E3779B9u);
-			float u1 = float(giSeed & 0x00FFFFFFu) / 16777216.0;
-			giSeed = GiHash(giSeed);
-			float u2 = float(giSeed & 0x00FFFFFFu) / 16777216.0;
+			giSeed += uint(i) * 0x9E3779B9u;
+			vec3 direction = CosineDirection(N, giSeed);
 
-			// Cosine-weighted about the normal: the distribution the diffuse
-			// integral wants, so the mean of the samples *is* the irradiance
-			// with no per-sample cosine to divide back out.
-			float r = sqrt(u1);
-			float phi = 6.2831853 * u2;
-			vec3 direction = normalize(giT * (r * cos(phi)) + giB * (r * sin(phi))
-									   + N * sqrt(max(1.0 - u1, 0.0)));
-			bounced += TraceReflection(v_WorldPos, normalize(v_Normal), direction);
+			TracedSurface first = TraceSurface(v_WorldPos, giNormal, direction);
+			if (first.Missed)
+			{
+				bounced += first.Sky;
+				continue;
+			}
+
+			// What arrives at the hit. At one bounce the probe answers; at two,
+			// one more ray does and the probe answers for *its* hit instead.
+			vec3 arriving = ProbeIrradiance(first.Normal);
+			if (giBounces >= 2)
+			{
+				// Perturbed before the second draw: reusing the first ray's two
+				// numbers would send every path off in the same direction twice,
+				// and correlated samples do not average into an answer -- they
+				// average into a bias the denoiser then holds very steadily.
+				giSeed += 0x68BC21EBu;
+				vec3 onward = CosineDirection(first.Normal, giSeed);
+
+				TracedSurface second = TraceSurface(first.Position, first.Normal, onward);
+				arriving = second.Missed
+						 ? second.Sky
+						 : ShadeTraced(second, ProbeIrradiance(second.Normal));
+			}
+
+			bounced += ShadeTraced(first, arriving);
 		}
 
 		// To the attachment, not to `irradiance`: the resolve copies it into

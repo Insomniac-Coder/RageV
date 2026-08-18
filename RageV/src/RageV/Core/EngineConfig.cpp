@@ -121,6 +121,15 @@ namespace RageV
 			return ParseBool(value, config.RayGiOverride);
 		}
 
+		if (key == "gi-bounces" || key == "gibounces")
+		{
+			config.GiBouncesOverride = std::atoi(value.c_str());
+			// Rejected rather than clamped: `--gi-bounces=4` is a person
+			// asking for something this does not do, and silently giving them
+			// two would have them measure two and write down four.
+			return config.GiBouncesOverride == 1 || config.GiBouncesOverride == 2;
+		}
+
 		if (key == "msaa" || key == "samples")
 		{
 			config.MsaaOverride = std::atoi(value.c_str());

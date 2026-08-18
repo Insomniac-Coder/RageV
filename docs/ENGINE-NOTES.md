@@ -7728,6 +7728,157 @@ apart would need a float capture path that does not exist.
 
 ---
 
+## 7ax. The second bounce (9.13b): one tracer, two callers, and a number in the uniform
+
+7av designed this and 7aw made it worth having: with the indirect buffer
+accumulating, a longer path costs variance the denoiser absorbs rather than
+variance the eye sees. What is left is the shape, and three decisions 7av did
+not make.
+
+### The split
+
+`TraceReflection` did two things in one body -- find and describe a hit, then
+shade it -- and only the first is reusable. So it becomes:
+
+```glsl
+struct TracedSurface {
+    bool Missed; vec3 Sky;
+    vec3 Position, Normal, Diffuse, Direct, Emissive;
+};
+TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction);
+vec3 ProbeIrradiance(vec3 normal);
+vec3 ShadeTraced(TracedSurface s, vec3 indirect);
+```
+
+and `TraceReflection` becomes `ShadeTraced(s, ProbeIrradiance(s.Normal))`, or
+`s.Sky` on a miss -- **bit-identical to what it was**, which is the check that
+this refactor is a refactor. One tracer body, two callers; the alternative is a
+second copy of a hundred and thirty lines of vertex fetch and light loop, which
+7au refused for the terrain query for the same reason.
+
+The recursion terminates by construction: the second hit's indirect term takes
+the probe, so there is no depth counter and no way to write one wrong.
+
+### Why the estimator needs no scale factor
+
+The probe's `irradiance` and a single cosine-sampled radiance are the *same
+quantity* under this shader's conventions, which is why the substitution is one
+line and not an integral. Outgoing radiance is `albedo/PI * INT L cos dw`;
+cosine-weighted sampling has `pdf = cos/PI`; so one sample estimates it as
+`albedo * L`. `diffuse * ProbeIrradiance(...)` and `diffuse * L_sample` are
+therefore interchangeable -- which is already the arrangement the *first*
+bounce uses at the primary surface, where `o_Indirect` is the mean of four
+`TraceReflection` results and the lit shader multiplies it by albedo.
+
+**One ray, not four.** The second bounce's variance is divided by the first
+bounce's four and then by the denoiser's fifty frames, and it arrives
+multiplied by a diffuse albedo, so it is the cheapest place in the estimator to
+be stingy. Four rays at depth two would be sixteen rays a pixel.
+
+### The three decisions 7av left
+
+**1. The count is a uniform, not a define.** `GlobalIllumination.z`, beside the
+intensity and the frame counter that were already there. A define would be a
+third lit-shader variant on top of the bindless and layered forks, and 8.2's
+rule is that a fork earns its place by removing work from the inner loop --
+one `if` per bounce ray does not.
+
+**2. `TraceReflection` stays one bounce even at `GiBounces` 2.** A mirror shows
+a world lit by one bounce while the diffuse around it has two. That is a
+visible inconsistency and it is accepted deliberately: RT reflections are a
+*mirror ray*, not a light-transport estimate, they are not denoised, and 7ao
+already states that they shade hits without normal maps or local shadows. A
+second bounce there would double a cost nothing accumulates.
+
+**3. The second ray's seed must move with the first.** Both are hashed from
+pixel and frame (7at), and reusing the first ray's hash for the second would
+make every path a straight line in the same two directions -- correlated
+samples that the denoiser averages into a *bias*, not into an answer. The
+bounce index goes into the hash.
+
+### `RenderSettings::GiBounces`
+
+1 or 2, default 1, under the ray-tracing block beside the GI checkbox, with
+`--gi-bounces=`. **Render Settings and not the post profile** because it costs
+*rays*: 9.0's rule is that the profile owns how the frame looks and the render
+settings own what it costs, and a camera cut must not change the ray budget.
+
+Not added to the C# convenience surface, which is a curated subset that does
+not carry `RayTracedGlobalIllumination` either; the generic
+`RenderSettings.Get`/`Set` string pair reaches it today because it is a
+registry field, and giving the traced GI switches typed properties is one job
+rather than half of one.
+
+### What it measured
+
+**The split is a refactor, and that was checked rather than asserted.** The
+same fixture rendered by the build before the split and by the build after it
+at `GiBounces` 1 differ by **zero pixels** -- not "within tolerance": the
+identical image. That is a *migration* check, though, run once by hand across
+two builds; it cannot live in `check_gi.py`, which only ever has one build to
+run, and the entry says so rather than leaving a claim nobody can re-run.
+
+**What a second bounce is worth**, on `gi_corner` and `gi_away` with the
+denoiser settled:
+
+| | one bounce | two |
+|---|---|---|
+| the wall beside the red one | +1.85 | **+4.06** |
+| a wall whose source is off screen (`gi_away`) | +0.81 | **+1.83** |
+
+Large, and larger than a second bounce would be in most rooms, **because these
+fixtures have a black sky and no ambient**: the probe holds nothing, so at one
+bounce every hit is shaded with an irradiance of zero and the second bounce is
+the first light those hits get. In a scene with a sky the probe is a fair guess
+and the difference is smaller. The fixture is built to make bounce light the
+only explanation for a red pixel (7at), and that is exactly what makes it
+flatter the depth that carries it.
+
+**The lift is uneven, and that is the part worth checking.** By luminance:
+the red wall, directly lit and facing the lit floor, gains 1.07x; the open
+floor, which faces a black sky and gets almost nothing at one bounce, gains
+1.33x. A constant scale standing in for a second bounce puts that ratio at
+**1.08** -- measured, by building it -- so the bound between them is thin and
+has a number on each side.
+
+**Cost**, 240 frames, `gi_corner`, Vulkan, vsync off:
+
+| | mean frame |
+|---|---|
+| GI off | 0.287 ms |
+| one bounce | 1.042 ms |
+| two bounces | **1.577 ms** |
+
+The second bounce adds 0.535 ms against the first's 0.755 ms -- **+71 %, not
++100 %**, because a missed ray costs the traversal and no shading, and by depth
+two a fair share of them miss.
+
+### The checks
+
+Three in `check_gi.py`, and the one that could not go there.
+
+1. **A second bounce reaches further.** On `gi_away`, where every level of red
+   arrived by tracing, 2 must put more there than 1: measured 2.25x, banded
+   1.5 to 3.5. A ceiling as well as a floor, because a bounce that beats the
+   light that made it is a term counted twice.
+2. **It is transport, not a multiply.** The uneven lift above, with a floor of
+   1.15 between the two regions' gains.
+3. **The dial costs nothing unused.** With the screen-space form running,
+   `--gi-bounces=2` is the same image to the byte.
+4. **The clamp**, in scenetest: a project asking for seven gets two, and one
+   asking for none gets one. Clamped where it is *read* and not only at the
+   flag, because a serialized int went through neither.
+
+**Falsified by** three breaks, each hitting a different claim: the second ray
+terminated at the sky (1 and 2 fail, 3 rightly does not, because a filter that
+carries no light still does not touch the screen-space form); a constant scale
+of 2.25 standing in for the trace (2 fails while 1 nearly passes, which is the
+whole reason 2 exists); and the dial both passed on when the traced form is off
+and read in the shared indirect fetch (3 fails, and **it takes both mistakes**
+-- the guard is in the frame and in the shader, and either alone is harmless).
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

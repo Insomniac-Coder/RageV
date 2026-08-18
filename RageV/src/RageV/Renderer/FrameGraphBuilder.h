@@ -204,6 +204,11 @@ namespace RageV
 	// the same reason reflections do. The post profile's Global illumination
 	// row asks this to know whether it has been taken over.
 	bool ResolveRayTracedGlobalIllumination(const RenderSettings& render);
+	// How deep the traced bounce goes (ENGINE-NOTES 7ax): the project's
+	// setting under --gi-bounces=, clamped to 1 or 2 here as well as at the
+	// flag, because a serialized int can hold anything and the shader reads
+	// this as a loop bound.
+	int ResolveGiBounces(const RenderSettings& render);
 
 	// This frame's sub-pixel offset for a target of this size, in NDC.
 	//

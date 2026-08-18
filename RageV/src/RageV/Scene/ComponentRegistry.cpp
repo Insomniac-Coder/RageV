@@ -1494,6 +1494,17 @@ namespace
 						"is not used and its row says so; its intensity still "
 						"applies.")))),
 
+				Field<&RenderSettings::GiBounces>("GiBounces",
+					Named("GI bounces", OnlyWhen(RayGiTakesOver,
+						Drag(0.02f, 1, 2,
+							"How many times light bounces before the reflection "
+							"probe answers for the rest. Two lets light reach a "
+							"surface that can see nothing directly lit -- the "
+							"inside of a doorway, the shaded side of a pillar -- "
+							"which one bounce leaves as dark as the probe's "
+							"average. One extra ray per bounce ray, and the "
+							"temporal filter absorbs its noise.")))),
+
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,
 						Drag(0.5f, 1.0f, 500.0f,

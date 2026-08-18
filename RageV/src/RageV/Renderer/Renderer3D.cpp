@@ -934,7 +934,8 @@ namespace RageV
 		{
 			static uint32_t giFrame = 0;
 			s_Data->Scene.GlobalIllumination = Vec4(Renderer::GetGlobalIllumination(),
-													(float)(giFrame++ & 0xFFFFu), 0.0f, 0.0f);
+													(float)(giFrame++ & 0xFFFFu),
+													(float)Renderer::GetGiBounces(), 0.0f);
 		}
 
 		s_Data->Scene.ScreenReflections = Vec4(haveReflections ? reflections->Intensity : 0.0f,

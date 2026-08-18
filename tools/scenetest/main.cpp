@@ -9405,6 +9405,20 @@ void main()
 					  "and at an accumulation of zero the pass still runs, as a copy");
 				post.GiDenoise = 0.9f;
 
+				// How deep the path goes (ENGINE-NOTES 7ax). Clamped where it
+				// is *read* and not only where it is typed: --gi-bounces=
+				// rejects anything but 1 and 2, and a scene file's int went
+				// through neither.
+				render.GiBounces = 2;
+				Check(ResolveGiBounces(render) == 2, "two bounces resolve as two");
+				render.GiBounces = 7;
+				Check(ResolveGiBounces(render) == 2,
+					  "and a project asking for seven gets two, not seven");
+				render.GiBounces = 0;
+				Check(ResolveGiBounces(render) == 1,
+					  "and one asking for none gets one, because zero bounces is not off");
+				render.GiBounces = 1;
+
 				render.RayTracedGlobalIllumination = false;
 				render.RayTracing = false;
 			}
