@@ -187,6 +187,7 @@ Occlusion from depth alone, applied as a multiply on the lit image.
 | `GlobalIllumination` | `false` | — | One screen-space bounce; on adds four passes at half resolution |
 | `GiRadius` | `2.0` | world metres | How far a bounce may travel |
 | `GiIntensity` | `1.0` | — | Scales the bounce; 0 is the image without it, and the ray-traced form reads it too |
+| `GiDenoise` | `0.9` | 0 – 0.98 | How much of last frame's bounce survives into this one, reprojected through the motion vectors — which is what converges the traced form's four rays a pixel under *every* anti-aliasing mode rather than only under TAA. 0 turns the accumulation off exactly. **Ray-traced GI only**: the screen-space gather reads the lit image, so accumulating its output would compound it |
 | `AmbientOcclusion` | `false` | — | On adds four passes at half resolution |
 | `AoRadius` | `0.5` | world metres | How far the hemisphere reaches |
 | `AoIntensity` | `1.0` | ≥ 0 | An exponent on the occlusion |

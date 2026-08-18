@@ -1593,7 +1593,18 @@ not, which is the same mistake as the culling number, caught this time.
 
 ## 8. Next steps
 
-### START HERE: 9.12 global illumination is DONE (2026-08-17); terrain is finished
+### START HERE (2026-08-18): terrain is finished; 9.13 restructured GI is half built
+
+**Read item 2 of the open list below before touching GI** -- five commits in,
+four pieces left, and the first of them (a convergence check) exists to settle
+a number the session could not explain. ENGINE-NOTES 7av is the design.
+
+Terrain is complete: `HeightAt` became a script call in both languages
+(7au, protocol 9), which was the last item on every terrain stage's list.
+
+**Twenty-six commits are unpushed.** Pushing is the owner's action.
+
+### The previous banner: 9.12 global illumination was DONE (2026-08-17); terrain is finished
 
 The owner asked for global illumination in the post profile plus a ray-traced
 twin in Render Settings that greys the profile's row. **Both are in.** Read
@@ -1685,106 +1696,107 @@ cut off**, at the owner's direction.
    -- hence `bool` plus an out-parameter that is zeroed on a miss. Fourteen
    claims in scenetest (1818 Vulkan / 1778 OpenGL), four falsifications, one
    of which found a check that passed for the wrong reason.
-2. **GI follow-ups -- NOW COMMISSIONED, DESIGNED IN 7av, NOT YET BUILT.** The
-   owner asked (2026-08-18) for a second bounce plus SSGI's albedo, sharpness
-   and off-screen fixes; then asked what about denoising, which reorganised
-   the whole thing and is the owner's chosen order: **denoiser first, then the
-   second bounce.**
+2. **9.13 GLOBAL ILLUMINATION, RESTRUCTURED -- five commits in, four pieces
+   left. Designed in ENGINE-NOTES 7av, which is the document to read before
+   touching any of it.** Session ended 2026-08-18; everything below is the
+   state at that point.
 
-   **The finding that drives it: there is nowhere to put a denoiser today.**
-   RT GI runs inside the lit shader, so its noise is inseparable from direct
-   light, shadows and textures by the time any pass could filter it. The GI
-   term has to exist on its own first.
+   **The shape, so the rest makes sense.** Both GI forms now write one
+   albedo-free `Indirect` buffer, and the lit shader reads it **one frame
+   late** and multiplies by the surface's own albedo -- 9.9's exact pattern for
+   SSR radiance. That multiply moving back into the shader is what retired
+   SSGI's lit-pixel albedo stand-in outright, so the new full-resolution
+   attachment the first draft had costed for albedo was never needed.
 
-   So 7av is a restructure, not four patches: **one albedo-free `Indirect`
-   buffer written by whichever form is on** (SSGI's gather, or a ray pass of
-   its own on the proven RTAO pattern), denoised there, and **sampled by the
-   lit shader one frame late** -- 9.9's exact pattern for SSR radiance -- where
-   it is multiplied by the real albedo. That last move **retires the albedo ask
-   entirely**: no new full-resolution attachment, which the first draft had
-   costed at three shader writes and a subset in every pass that names one.
+   **What is landed and verified** (scenetest 1824 Vulkan zero `[Vulkan]` /
+   1781 OpenGL; check_gi, check_ssao, check_ssr green both backends; Release,
+   Debug and Dist all build):
 
-   Build in this order, and 7av says why: (1) the buffer and the restructure,
-   (2) the denoiser (temporal reprojection then an edge-aware spatial pass),
-   (3) the second bounce -- `TraceReflection` split into `TraceSurface` plus a
-   four-line composer so there is one tracer body, `RenderSettings::GiBounces`
-   1|2 default 1 -- then (4) sharpness (`GiQuality`) and (5) the probe
-   fallback off screen.
+   - `d3e8d99` the receiving slot: `Renderer::ScreenIndirect`,
+     `SceneUniforms::Indirect` **in both GLSL mirrors**, binding 16.
+   - `5e3c2f6` the three frame chains each own a `TemporalHistory`.
+   - `35f558c` the gather writes the buffer; the albedo stand-in is gone.
+     SSGI +0.77 became **+1.71** because the wall's albedo (0.85) exceeds its
+     lit brightness at a grazing angle -- the direction the fix predicts.
+   - `7cfd016` the fourth colour attachment and RT GI resolving through it.
+   - `44f36bb` check_gi's thresholds become bands.
+   - `1b01c28` the split: **RT GI accumulates, SSGI does not.**
 
-   **Three hazards written into 7av before any code: the feedback loop** (SSGI
-   gathers a lit image that now contains last frame's indirect -- clamp it, or
-   a bright room climbs until it blows out), **7r's neighbourhood-clamp trap**
-   (a temporal clamp hides reprojection errors wherever the neighbourhood is
-   uniform, and indirect light is uniform almost everywhere -- the check needs
-   a fixture with per-pixel detail in the bounce), and **the fallback's honest
-   claim** (the probe is the room's average, so `gi_away` must assert non-zero
-   *and* below the traced form's +1.26, never the traced form's claim).
+   **THE NEXT FOUR, IN ORDER, AND WHY THIS ORDER:**
 
-   Eight checks listed in 7av.
+   **(a) The convergence check -- do this first, it settles an open number.**
+   7av's claim 3: on a still camera the frame-to-frame difference of the
+   indirect term falls monotonically and lands under a stated floor, and with
+   `GiDenoise` at 0 it does not. **The reason it is first:** the denoiser
+   moved the traced form from +2.69/+1.25 to **+1.86/+0.82**, a ~30 % drop
+   that is *not explained*. Two stories fit -- the unfiltered number is one
+   frame's four-ray sample and landed high, or the accumulation is biased low
+   by the min/max box the history is clipped into (`kClampScale` 4 in
+   `gi_denoise.rvshader`). Only this check tells them apart, and until it does
+   the traced number is trusted no further than the band it sits in. **7r's
+   trap applies**: a fixture with per-pixel detail in the bounce, or a uniform
+   neighbourhood will hide a reprojection error.
 
-   **Step 1 is built and committed (d3e8d99): the receiving side.**
-   `Renderer::ScreenIndirect`, `SceneUniforms::Indirect` (in BOTH GLSL
-   mirrors), binding 16, and the lit shader adding it to `irradiance` before
-   the diffuse multiply. Nothing writes it, so the frame is unchanged --
-   scenetest 1818 Vk / 1778 GL, check_ssao green on both backends, which is
-   the check that catches the mirroring trap.
+   **(b) The second bounce**, now that the traced form accumulates.
+   `TraceReflection` ends on `return lit + diffuse * (ambientLight +
+   irradiance) + emissive;` and that `irradiance` is the probe's *guess* at
+   indirect light at the hit -- the second bounce replaces the guess with a
+   traced answer. GLSL has no recursion, so **split the tracer, do not
+   duplicate it**: `TracedSurface TraceSurface(origin, Ng, direction)` holding
+   Missed/Sky/Position/Normal/Diffuse/Direct/Emissive, with `TraceReflection`
+   becoming four lines over it and staying bit-identical. The GI path calls it
+   twice and the second hit's indirect takes the probe, so recursion ends at
+   depth two **by construction** rather than by a counter.
+   `RenderSettings::GiBounces` (1|2, default 1) under the ray-tracing block,
+   `--gi-bounces=`. Not a PostSettings field: it costs *rays*.
 
-   **STEP 2, WHERE TO PICK UP -- the graph half.** The template is right
-   there: `FrameGraphBuilder.cpp`'s `wantReflections` block (search for it;
-   about sixty lines) is *exactly* the shape needed, because SSR is the same
-   one-frame-late pattern. Mirror it:
-   - `FrameDesc::Indirect` beside `FrameDesc::Reflections` in
-     FrameGraphBuilder.h, documented the same way.
-   - A `wantIndirect` block: `Prepare(...)` at full size in
-     `R16G16B16A16_SFLOAT`, `Import` both halves, and fill a
-     `Renderer::ScreenIndirect` from `Previous()` **only when
-     `HasHistory()`** -- the first frame of a chain holds whatever the driver
-     left, and reading a confidence out of that mixes somebody else's memory
-     into every surface. `Invalidate()` on the else branch.
-   - The SSGI chain's last pass changes job: `ssgi_apply` stops adding to the
-     scene and instead writes the blurred **albedo-free irradiance** into
-     `Current()`. The multiply now happens in the lit shader.
-   - Then the RT GI writer: a ray pass on `rtao_compute.rvshader`'s pattern
-     (it already binds an acceleration structure from a post pass) writing the
-     same buffer, chosen by `rayGi` instead of the SSGI gather.
+   **(c) SSGI's feedback loop -- a design decision, not a tweak.** Its gather
+   reads the lit image, the lit image carries last frame's indirect, so
+   accumulating its output compounds: **+16.98 against a calibrated +1.71,
+   with the two backends 2.03 levels apart.** Two fixes were tried and both
+   failed, and *why* is the useful part: clamping the denoiser's output
+   against its input does nothing because the input is what grows (the loop
+   runs a stage upstream of anything the denoiser can see), and shortening the
+   tail to 0.35 still gave +6.94/+4.91 and still 2.03 apart. **Closing it
+   means SSGI gathering an image that does not contain the indirect term** --
+   the lit shader publishing a direct-only colour (another attachment, another
+   sweep) or the gather subtracting its own contribution. Pick one
+   deliberately; there is no constant that fixes this.
 
-   **THE TRAP TO AVOID IN STEP 2, and it is why step 2 was not started at the
-   tail of a session:** every frame-chain owner has to hand over a
-   `TemporalHistory` -- the editor's viewport, the editor's game view and the
-   runtime each own their own, exactly as they do for `History` and
-   `Reflections`. A caller that passes null must keep working; and if the SSGI
-   chain is switched to writing the buffer *before* the callers own one, SSGI
-   silently stops working for them and the frame looks merely a bit darker.
-   Wire the owners first, then flip the chain.
+   **(d) Sharpness and the probe fallback**, the two original asks that
+   survive untouched. `PostSettings::GiQuality` (Low/Medium/High: half res and
+   12 taps, half and 24, full and 24) with the blur radius following the
+   resolution -- **that last part is the easy thing to get wrong**, and the
+   check measures the *width* of the bleed profile, not its peak, because a
+   peak alone cannot tell a sharper gather from a stronger one. Then: a tap
+   whose uv leaves the screen takes the reflection probe's irradiance instead
+   of being dropped. Its honest claim on `gi_away` is **non-zero AND below**
+   the traced form's +1.26 -- the probe is the room's average, not the red
+   wall, and it removes the discontinuity without making a screen-space gather
+   see off screen. Nothing can.
 
-   **AND STEPS 3 AND 4 ARE ONE STEP, NOT TWO -- found 2026-08-18 while trying
-   to land 3 alone.** `TemporalHistory::Advance()` sets `m_Valid = true`
-   unconditionally after the swap, and its comment says why: it means "what
-   was just written". So a history the graph declares, prepares and advances
-   **without a pass writing into it** reports `HasHistory()` true over
-   whatever the driver left in the target, and the next frame's lit shader
-   samples that as indirect light at full intensity. Uninitialised memory,
-   added to every surface, on frame two.
+   **PARKED:** `build/9.13-denoiser-wip/` (git-ignored) holds the SSGI variant
+   of the denoiser and `denoiser.patch`, which applies with
+   `git apply --exclude='SampleProject/*'`. Re-applying it is also the
+   falsification for check_gi's new bands -- it fails four of them.
 
-   So the `wantIndirect` block and the SSGI chain's write have to arrive in
-   the same commit. There is no inert half: declaring the history without a
-   writer is not "nothing happens", it is worse than the finished thing.
-   7av's build order said "the buffer and the restructure" as one item and
-   this is what that means concretely.
+   **THE FINDING WORTH CARRYING PAST GI.** Every threshold in check_gi was a
+   *floor* -- "did the bounce happen" -- so a bleed ten times too strong
+   printed OK. They are bands now, with ceilings on both forms and a limit on
+   how far the two backends may disagree. **The other check scripts have not
+   been audited for this**, and the same shape is likely in several: a floor
+   answers "does the feature do anything", a band answers "is it still
+   calibrated", and only the second catches a regression in a feature that
+   still works.
 
-   Steps 1 and 2a (d3e8d99, 5e3c2f6) were separable precisely because neither
-   touches the history's validity: step 1 binds a 1x1 black when nothing is
-   set, and step 2a only gives the chains somewhere to keep a buffer nobody
-   writes.
+   **The attachment sweep is thirteen places, listed in 7av**, and two of them
+   hide: the pass binds a *subset* and `layout(location = N)` counts the
+   subset rather than the target; and four callers set the target shape before
+   `BuildFrame` runs, because probe captures happen first. Missing the latter
+   left a pipeline at three attachments against a four-attachment pass -- ten
+   validation lines and a picture that looked perfectly correct. **That is why
+   the bar is zero validation lines and not zero visible artefacts.**
 
-   **Also settled this session, worth stating in the notes when step 2 lands:
-   the denoiser makes RT GI work under every AA mode, not just TAA.** Its
-   temporal stage reprojects through the velocity buffer 7.10 writes, which is
-   written whatever AA is selected (9.5 motion blur depends on that too). RT GI
-   today is effectively TAA-only -- an unstated limit in 7at -- because TAA is
-   the only thing averaging its four rays. After the denoiser: None, FXAA,
-   SMAA, MSAA and SSAA all converge. Under MSAA the pass reads the resolved
-   depth M.2 built, which is fine because indirect diffuse is low frequency.
 3. **The two long-standing non-blockers**: the focus-click guard has never
    been confirmed against a real click, and an orphaned LUT is not warned
    about.
@@ -1802,7 +1814,7 @@ cut off**, at the owner's direction.
 outstanding from terrain -- the "Ra Sm Fla Pai" truncation was fixed by the
 Sculpt toggle + Mode combo in 7as.
 
-**Fifteen commits are unpushed** as of this writing -- terrain stage 1 and its
+**Twenty-six commits are unpushed** as of this writing -- terrain stage 1 and its
 follow-ups (b37b8ed .. c8cb011), stage 2 (fe20a5c), stage 3 (d203b1b) and
 the skirts-from-under fix on top; everything before them is on origin.
 Pushing is the owner's action.
