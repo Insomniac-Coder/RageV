@@ -114,6 +114,13 @@ internal unsafe struct NativeApi
 	// struct, and a struct cannot cross this boundary while a name can.
 	public delegate* unmanaged[Cdecl]<byte*, byte*, int, int> GetRenderSetting;
 	public delegate* unmanaged[Cdecl]<byte*, byte*, int> SetRenderSetting;
+
+	// --- appended for protocol 9: the ground under a point -------------------
+	// Both answer whether there is terrain there and write the world height.
+	// The bool is load-bearing: the heightfield clamps to its own extent, so a
+	// float alone would be the rim's height for a point off the edge.
+	public delegate* unmanaged[Cdecl]<Vector3*, float*, int> GetTerrainHeight;
+	public delegate* unmanaged[Cdecl]<ulong, Vector3*, float*, int> GetTerrainHeightOn;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>

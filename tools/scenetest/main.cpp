@@ -11376,6 +11376,104 @@ void main()
 				Check(!PickEntity(*scene, down), "a click beside every terrain selects nothing");
 			}
 
+			// --- the ground under a point, as a script asks it (7au) ---------
+			//
+			// In its own scene, and *before* OnRuntimeStart: the whole reason
+			// this is not a downward ray is that it answers while the scene is
+			// only being edited, with no physics world in existence.
+			{
+				auto queried = std::make_shared<Scene>();
+
+				Entity plain = queried->CreateEntity("Plain");
+				auto& plainTerrain = plain.AddComponent<TerrainComponent>();
+				plainTerrain.Terrain = flatHandle;
+				plainTerrain.Size = 64.0f;
+				plainTerrain.Height = 10.0f;
+				const RHI::Ref<Terrain>& plainBuilt = Terrain::Resolve(plainTerrain);
+
+				float height = -1.0f;
+				Check(plainBuilt && queried->TerrainHeightAt(Vec3(-5.0f, 999.0f, 8.0f), height) &&
+					  Math::Abs(height - plainBuilt->HeightAt(-5.0f, 8.0f)) < 1e-4f &&
+					  Math::Abs(height - 5.0f) < 1e-3f,
+					  "the script call is the heightfield's own number under a world point");
+
+				float fromBelow = -1.0f;
+				Check(queried->TerrainHeightAt(Vec3(-5.0f, -999.0f, 8.0f), fromBelow) &&
+					  fromBelow == height,
+					  "and the asking point's own height is no part of the question");
+
+				// The trap the bool exists for, in one assertion: off the
+				// extent the query says no, where HeightAt itself clamps and
+				// answers a number that looks perfectly reasonable.
+				height = -1.0f;
+				Check(!queried->TerrainHeightAt(Vec3(100.0f, 0.0f, 100.0f), height) &&
+					  height == 0.0f && plainBuilt &&
+					  Math::Abs(plainBuilt->HeightAt(100.0f, 100.0f) - 5.0f) < 1e-3f,
+					  "off the extent it answers no, where HeightAt clamps and answers 5 m");
+
+				// Translate, yaw and scale at once, on the ramp -- flat ground
+				// would pass a rotation test that did nothing. The ramp rises
+				// along its own +x, so local (16, ., 0) stands at 7.5 m; a yaw
+				// of 90 degrees sends local +x to world -z, and a scale of two
+				// doubles both the offset and the height. The point below is
+				// that arithmetic run forwards.
+				Entity tilted = queried->CreateEntity("Tilted");
+				auto& tiltedTerrain = tilted.AddComponent<TerrainComponent>();
+				tiltedTerrain.Terrain = rampHandle;
+				tiltedTerrain.Size = 64.0f;
+				tiltedTerrain.Height = 10.0f;
+				auto& tiltedTransform = tilted.GetComponent<TransformComponent>();
+				tiltedTransform.Position = { 100.0f, 2.0f, 0.0f };
+				tiltedTransform.Rotation = { 0.0f, Math::Radians(90.0f), 0.0f };
+				tiltedTransform.Scale = { 2.0f, 2.0f, 2.0f };
+
+				height = -1.0f;
+				Check(queried->TerrainHeightAt(Vec3(100.0f, 0.0f, -32.0f), height) &&
+					  Math::Abs(height - 17.0f) < 0.01f,
+					  "it follows the terrain's transform: translated, yawed and scaled");
+
+				// A terrain raised above another: the query is about the ground
+				// you would land on, so the higher surface answers -- and it is
+				// the height that decides, not the order they were created in.
+				Entity upper = queried->CreateEntity("Upper");
+				auto& upperTerrain = upper.AddComponent<TerrainComponent>();
+				upperTerrain.Terrain = flatHandle;
+				upperTerrain.Size = 64.0f;
+				upperTerrain.Height = 10.0f;
+				auto& upperTransform = upper.GetComponent<TransformComponent>();
+				upperTransform.Position = { 0.0f, 10.0f, 0.0f };
+
+				height = -1.0f;
+				Check(queried->TerrainHeightAt(Vec3(-5.0f, 0.0f, 8.0f), height) &&
+					  Math::Abs(height - 15.0f) < 1e-3f,
+					  "where two terrains cover the point, the higher surface answers");
+
+				upperTransform.Position = { 0.0f, -10.0f, 0.0f };
+				height = -1.0f;
+				Check(queried->TerrainHeightAt(Vec3(-5.0f, 0.0f, 8.0f), height) &&
+					  Math::Abs(height - 5.0f) < 1e-3f,
+					  "and lowering it hands the answer back: height decides, not order");
+
+				// The named form: this terrain, whatever else covers the point.
+				upperTransform.Position = { 0.0f, 10.0f, 0.0f };
+				height = -1.0f;
+				Check(queried->TerrainHeightAt(plain, Vec3(-5.0f, 0.0f, 8.0f), height) &&
+					  Math::Abs(height - 5.0f) < 1e-3f,
+					  "the named form answers for the terrain named, not the highest");
+				height = -1.0f;
+				Check(!queried->TerrainHeightAt(plain, Vec3(100.0f, 0.0f, 100.0f), height) &&
+					  height == 0.0f,
+					  "and off that terrain's own extent it answers no");
+
+				Entity notTerrain = queried->CreateEntity("NotTerrain");
+				height = -1.0f;
+				Check(!queried->TerrainHeightAt(notTerrain, Vec3(0.0f, 0.0f, 0.0f), height) &&
+					  height == 0.0f,
+					  "an entity with no terrain on it answers no, not zero metres");
+				Check(!queried->TerrainHeightAt(Entity{}, Vec3(0.0f, 0.0f, 0.0f), height),
+					  "and neither does an entity that is not there at all");
+			}
+
 			scene->OnRuntimeStart();
 			Physics::World* physics = scene->GetPhysics();
 			Check(physics && physics->GetBodyCount() == 3,
@@ -14292,6 +14390,46 @@ int RunTests(int argc, char** argv)
 				Check(api.RemoveComponent(id, "LightComponent") == 1
 					  && api.HasComponent(id, "LightComponent") == 0,
 					  "while an ordinary one removes and is gone");
+
+				// --- protocol 9: the ground under a point (ENGINE-NOTES 7au) -
+				//
+				// What there is to check about a table entry is that it is a
+				// *forward* and not a second implementation of the rule: for
+				// any point, the boundary's answer is the engine's answer, to
+				// the bit, and its miss is the engine's miss. Asserting a
+				// height in metres here would only be re-testing Scene, which
+				// the units above already do on a fixture whose numbers are
+				// known.
+				{
+					const AssetHandle hills = Assets::Registry::GetHandle("terrain/hills.rvterrain");
+					Entity hillside = scene->CreateEntity("Hills");
+					auto& hillsTerrain = hillside.AddComponent<TerrainComponent>();
+					hillsTerrain.Terrain = hills;
+					hillsTerrain.Size = 64.0f;
+					hillsTerrain.Height = 20.0f;
+
+					const Vec3 on(4.0f, 100.0f, -9.0f);
+					float engine = -1.0f;
+					const bool found = scene->TerrainHeightAt(on, engine);
+
+					float across = -1.0f;
+					Check(hills.IsValid() && found &&
+						  api.GetTerrainHeight(&on, &across) == 1 && across == engine,
+						  "terrain height across the boundary is the engine's own answer, to the bit");
+
+					float named = -1.0f;
+					Check(api.GetTerrainHeightOn((uint64_t)hillside.GetUUID(), &on, &named) == 1 &&
+						  named == engine,
+						  "and the named form crosses with the same number");
+
+					const Vec3 off(500.0f, 0.0f, 500.0f);
+					float missed = -1.0f;
+					Check(api.GetTerrainHeight(&off, &missed) == 0 && missed == 0.0f,
+						  "a point with no terrain under it answers no, and zeroes the float it was given");
+					missed = -1.0f;
+					Check(api.GetTerrainHeightOn(0, &on, &missed) == 0 && missed == 0.0f,
+						  "and an id that names no entity does the same");
+				}
 			}
 
 			// Managed code must not be able to keep a scene alive past Stop,
@@ -14299,6 +14437,24 @@ int RunTests(int argc, char** argv)
 			Managed::Interop::SetScene(nullptr);
 			Check(Managed::Interop::Api().EntityExists((uint64_t)probe.GetUUID()) == 0,
 				  "and with no scene bound, every entity lookup answers 'no'");
+
+			// The terrain entries with nothing bound. This is the path the
+			// boundary's own zeroing exists for: with a scene, Scene::
+			// TerrainHeightAt does the zeroing itself, so a check that only
+			// asked about an unknown entity would pass whether the boundary
+			// zeroed or not -- which is exactly what falsifying it showed
+			// (7au). Here there is no Scene to fall back on.
+			{
+				const Vec3 anywhere(0.0f, 0.0f, 0.0f);
+				float height = -1.0f;
+				Check(Managed::Interop::Api().GetTerrainHeight(&anywhere, &height) == 0 &&
+					  height == 0.0f,
+					  "with no scene bound, terrain height answers no and still zeroes the float");
+				height = -1.0f;
+				Check(Managed::Interop::Api().GetTerrainHeightOn(1, &anywhere, &height) == 0 &&
+					  height == 0.0f,
+					  "and the named form does too, rather than leaving what the caller had");
+			}
 
 			Managed::Interop::Shutdown();
 			Check(!Managed::Interop::IsReady(), "interop reports itself shut down");

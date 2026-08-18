@@ -227,6 +227,33 @@ namespace RageV
 		// be normalised; the ray extends to its length. Test with `if (hit)`.
 		RayHit Raycast(const Vec3& origin, const Vec3& direction);
 
+		// --- terrain (ENGINE-NOTES 7au) --------------------------------------
+
+		// How high the ground is under a world point, from whichever terrain
+		// covers it.
+		//
+		//     float ground;
+		//     if (GetTerrainHeight(GetWorldPosition(), ground))
+		//         GetPosition().y = ground + 0.5f;
+		//
+		// **False means there is no terrain there**, and the bool is not
+		// decoration: the heightfield clamps to its own extent, so a call that
+		// only returned a float would answer a point well off the edge with
+		// the rim's height. `height` is left at zero on a miss.
+		//
+		// Prefer this to a downward Raycast for ground queries. The ray needs
+		// a length guessed in advance, only exists while the scene is playing,
+		// and finds nothing on a terrain whose Collision is off; this is exact
+		// against the terrain's own samples in all three cases, and it tracks
+		// a sculpt as the stroke lands.
+		//
+		// Where several terrains cover the point the highest surface wins,
+		// which is the answer a body dropped from above would get.
+		bool GetTerrainHeight(const Vec3& worldPosition, float& height);
+		// The same, on one named terrain. False for an entity with no
+		// TerrainComponent.
+		bool GetTerrainHeight(Entity terrain, const Vec3& worldPosition, float& height);
+
 		// --- rendering ---------------------------------------------------------
 		//
 		// Three of them, because a setting has three possible owners and

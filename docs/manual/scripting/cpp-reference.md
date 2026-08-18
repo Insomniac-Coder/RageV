@@ -113,6 +113,29 @@ No-ops outside play mode and on an entity with no rigid body. World space.
 | `GetLinearVelocity` | Current velocity. |
 | `Raycast` | Nearest body along the ray, which may be this one. Direction need not be normalised — the ray extends to its length. Test with `if (hit)`. |
 
+## Terrain
+
+| Member | Description |
+|---|---|
+| `GetTerrainHeight` | How high the ground is under a world point, from whichever terrain covers it — or, in the three-argument form, from one named terrain. **False means there is no terrain there**, and `height` is left at zero. |
+
+The bool is not decoration. The heightfield clamps queries to its own extent,
+so a call that only returned a float would answer a point well off the edge
+with the rim's height, and nothing downstream could tell.
+
+```cpp
+float ground;
+if (GetTerrainHeight(GetWorldPosition(), ground))
+    GetPosition().y = ground + 0.5f;
+```
+
+Prefer this to a downward `Raycast` for ground queries. The ray needs a length
+guessed in advance, only exists while the scene is playing, and finds nothing
+on a terrain whose `Collision` is off; this is exact against the terrain's own
+samples in all three cases, and it tracks a sculpt as the stroke lands. Where
+several terrains cover the point the highest surface wins — the answer a body
+dropped from above would get.
+
 ## Rendering
 
 | Member | Description |

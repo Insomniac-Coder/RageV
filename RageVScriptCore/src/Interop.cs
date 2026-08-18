@@ -42,7 +42,9 @@ public static unsafe class Interop
 	//    it, and the interpolation alpha became readable.
 	// 7: the game's UI -- a label's text, a button's click, and whether the UI
 	//    took the pointer.
-	public const int ProtocolVersion = 8;
+	// 8: the render settings, by name and as text.
+	// 9: the ground under a point -- terrain height (ENGINE-NOTES 7au).
+	public const int ProtocolVersion = 9;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the

@@ -98,6 +98,16 @@
 <tr><td style="text-align:left"><code>GetLinearVelocity</code></td><td style="text-align:left">Current velocity.</td></tr>
 <tr><td style="text-align:left"><code>Raycast</code></td><td style="text-align:left">Nearest body along the ray, which may be this one. Direction need not be normalised — the ray extends to its length. Test with <code>if (hit)</code>.</td></tr>
 </tbody></table></div>
+<h2 id="terrain">Terrain<a class="anchor" href="#terrain" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
+<tr><td style="text-align:left"><code>GetTerrainHeight</code></td><td style="text-align:left">How high the ground is under a world point, from whichever terrain covers it — or, in the three-argument form, from one named terrain. <strong>False means there is no terrain there</strong>, and <code>height</code> is left at zero.</td></tr>
+</tbody></table></div>
+<p>The bool is not decoration. The heightfield clamps queries to its own extent, so a call that only returned a float would answer a point well off the edge with the rim&#39;s height, and nothing downstream could tell.</p>
+<figure class="code"><figcaption>cpp</figcaption><pre><code><span class="tok-type">float</span> ground;
+<span class="tok-keyword">if</span> (<span class="tok-call">GetTerrainHeight</span>(<span class="tok-call">GetWorldPosition</span>(), ground))
+    <span class="tok-call">GetPosition</span>().y = ground + <span class="tok-number">0.5f</span>;
+</code></pre></figure>
+<p>Prefer this to a downward <code>Raycast</code> for ground queries. The ray needs a length guessed in advance, only exists while the scene is playing, and finds nothing on a terrain whose <code>Collision</code> is off; this is exact against the terrain&#39;s own samples in all three cases, and it tracks a sculpt as the stroke lands. Where several terrains cover the point the highest surface wins — the answer a body dropped from above would get.</p>
 <h2 id="rendering">Rendering<a class="anchor" href="#rendering" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>GetRenderSettings</code></td><td style="text-align:left">What the frame costs, from the project: anti-aliasing and its parameters, shadows. Read fresh when the frame is built, so a change made in <code>OnTick</code> or <code>OnFrame</code> is on screen that frame. Note <code>ragev.ini</code> and <code>--aa=</code> still override the mode after this.</td></tr>
@@ -139,7 +149,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/cpp.html"><span class="pager-label">Previous</span><span class="pager-title">Writing a script in C++</span></a><a class="pager-link pager-next" href="../scripting/csharp.html"><span class="pager-label">Next</span><span class="pager-title">Writing a script in C#</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#lifecycle">Lifecycle</a><a class="toc-link toc-l2" href="#collision-callbacks">Collision callbacks</a><a class="toc-link toc-l3" href="#the-collision-struct">The Collision struct</a><a class="toc-link toc-l2" href="#identity">Identity</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#transform">Transform</a><a class="toc-link toc-l2" href="#other-entities">Other entities</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#rendering">Rendering</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#the-game-s-ui">The game&#39;s UI</a><a class="toc-link toc-l2" href="#time">Time</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#lifecycle">Lifecycle</a><a class="toc-link toc-l2" href="#collision-callbacks">Collision callbacks</a><a class="toc-link toc-l3" href="#the-collision-struct">The Collision struct</a><a class="toc-link toc-l2" href="#identity">Identity</a><a class="toc-link toc-l2" href="#components">Components</a><a class="toc-link toc-l2" href="#transform">Transform</a><a class="toc-link toc-l2" href="#other-entities">Other entities</a><a class="toc-link toc-l2" href="#hierarchy">Hierarchy</a><a class="toc-link toc-l2" href="#physics">Physics</a><a class="toc-link toc-l2" href="#terrain">Terrain</a><a class="toc-link toc-l2" href="#rendering">Rendering</a><a class="toc-link toc-l2" href="#audio">Audio</a><a class="toc-link toc-l2" href="#input">Input</a><a class="toc-link toc-l2" href="#the-game-s-ui">The game&#39;s UI</a><a class="toc-link toc-l2" href="#time">Time</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>

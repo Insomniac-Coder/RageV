@@ -7008,132 +7008,190 @@ affects the shadow pass, the probes, or the sky.
 
 ---
 
-## 7at. Global illumination (9.12): a screen-space pass in the profile, a ray in the shader, and one of them at a time
+## 7au. The ground under a point (8.4r): the last terrain item, and the clamp that makes it two questions
 
-The owner's ask (2026-08-17): "global illumination which will be a part of
-post processing profile, and also ray traced illumination -- its option
-should be available in rendering settings under ray tracing when ray tracing
-is enabled, and when RT illumination is selected the global illumination gets
-disabled/greyed out."
+The one thing every terrain stage's list left over: **a script cannot ask how
+high the ground is.** The brush asks `Terrain::HeightAt` constantly and the
+Jolt height field is built from the same samples, so the function is written,
+exercised and trusted -- it has simply never been reachable from a script in
+either language. This is that, and nothing more.
 
-That is exactly the shape 7ao already built twice. **A screen-space effect
-lives in the post profile; its traced twin lives in Render Settings under the
-ray-tracing switch; the traced one takes over and the profile's row greys
-with a note.** SSR/RT reflections and SSAO/RTAO are that pattern; this is the
-third pair, and it reuses the machinery rather than inventing a third way:
-`ResolveRayTracedGlobalIllumination`, `FieldHint::DisabledIf`, the same
-"ray-traced equivalent in use" note, the same `--raygi=` override.
+### What already answers this, and why it is not enough
 
-**What indirect light *is* here.** Both forms answer one question -- how much
-light arrives at this pixel from the *scene* rather than from a light or the
-sky -- and both add it as diffuse. Neither is a full light transport: one
-bounce, no specular indirect (SSR and RT reflections are that), no
-multi-bounce, no infinite light.
+A script can cast a ray downwards today. `Raycast` hits the height-field body
+and reports where. It is a real answer, and it is the wrong tool for four
+reasons, each of which is a situation a game is actually in:
 
-### The screen-space form: SSGI in the profile
+- **It needs a ray long enough**, which means guessing how far below the
+  caller the ground might be. Guess short and the character falls through the
+  world; guess long and every scatter query walks the broad phase further than
+  it needed to.
+- **It only exists in Play.** The physics world is not there while the scene
+  is being edited, so an editor tool -- or a script's `OnCreate` reasoning
+  about where it has been placed -- gets nothing.
+- **It needs `Collision` on.** A terrain used as scenery, with its collider
+  switched off deliberately, still has a surface; a ray finds nothing.
+- **It is a broad-phase query for a lookup.** `HeightAt` is four samples and a
+  triangle test on data already in memory.
 
-`PostSettings::GlobalIllumination`, with `GiIntensity` and `GiRadius`. The
-chain is SSAO's chain with a different first pass and a different last one,
-which is deliberate: the shape is known to work, the blur is *literally the
-same shader*, and the half-resolution decision, the reconstruction of
-position and normal, and the projection scales are all already carried in
-`PostParams`.
+So the two coexist: the ray is for *what is under me, whatever it is*, and
+this is for *where is the ground*.
 
-1. **`ssgi_compute`**, half resolution. Position and normal come from the
-   depth buffer and the surface attachment exactly as SSAO's do (7ac, 7ae --
-   the written normal where it agrees with depth, reconstructed where it does
-   not). Twelve cosine-weighted taps in the hemisphere; each is projected back
-   to the screen; the depth there says whether the tap landed on a real
-   surface within `GiRadius` and in front of the sample (the same thickness
-   reasoning SSR's walk uses), and if it did, that pixel's **lit colour** is
-   gathered, weighted by the cosine. The result is an irradiance estimate in
-   RGB, at half res.
-2. **`ssao_blur` twice**, unchanged, because a noisy gather wants exactly the
-   separable blur a noisy occlusion wanted.
-3. **`ssgi_apply`**: `out = lit + lit * gi * intensity`.
+### The trap this is built around: `HeightAt` clamps
 
-That last line is the design's one real approximation and it is stated
-plainly. A post pass has the lit colour and the normal but **not the albedo**,
-and indirect diffuse is albedo x irradiance. Using the pixel's own lit colour
-in albedo's place is the standard forward-renderer stand-in and it has the
-two properties that matter: a red wall bounces red onto what it lights *and*
-receives tinted by its own colour, and a black surface receives nothing --
-which is what "albedo x irradiance" says at the ends of the range. What it
-gets wrong is a dark surface under a bright light: it reads bright, so it
-receives more than it should. The intensity dial is the restraint, exactly as
-SSAO's is for its own stated compromise. Off adds no pass and is exact.
+`Terrain::HeightAt(localX, localZ)` **clamps its arguments to the terrain's
+extent**, and that is right for the callers it has -- the brush wants the rim's
+height at the rim, and the skirt test wants a defined answer for a camera that
+has wandered off the edge. Forwarded to a script unchanged, the same clamp
+becomes a lie: ask about a point a kilometre past the edge and you are told,
+with no hedging, that the ground is at 12.4 m.
 
-Two more stated limits, both inherited from being screen-space: light only
-bounces from what is **on screen** (turn away from the red wall and its
-bleed goes with it), and only from what is **in front** (a surface behind the
-camera plane contributes nothing). These are the failures the traced form
-exists to fix.
+**So the script call answers two questions, not one: is there terrain here,
+and if so how high.** The extent test lives in the caller, not in `HeightAt`
+-- changing `HeightAt` to report misses would mean touching the brush, the
+skirt rule and the collider for the benefit of a function none of them call.
+The signature carries it:
 
-### The traced form: RT GI in the lit shader
+```cpp
+bool  found = GetTerrainHeight(GetWorldPosition(), height);
+```
 
-`RenderSettings::RayTracedGlobalIllumination`, offered only while
-`RayTracing` is on **and** the device is bindless -- the same gate RT
-reflections use, and for the same reason: shading a hit needs the material
-heap. It does **not** live in a post pass. It lives in `pbr_fragment.glsl`
-under `RV_RAY_GI`, next to `RV_RAY_REFLECTIONS`, because everything it needs
-is already bound there and nowhere else: the acceleration structure, the ray
-instance table (binding 15), the material heap, the light buffer, and
-`TraceReflection` -- which is already "the radiance a ray finds, shaded at
-the hit". A reflection ray and an indirect-diffuse ray differ only in which
-direction they are cast and how the result is weighted.
+and a script that ignores the bool and uses `height` anyway gets 0, not a
+plausible number from the wrong place. This is the whole reason the call is
+not `float GetTerrainHeight(...)`.
 
-Per pixel: **four** cosine-weighted directions about the shading normal,
-built from a per-pixel hash of `gl_FragCoord` and the frame counter so the
-noise is different every pixel and every frame (TAA is what resolves it, the
-same bargain the rest of the renderer already takes); each ray goes through
-`TraceReflection`, which returns the sky where it misses and a simplified
-shade where it hits. The mean is the irradiance; it multiplies the surface's
-own `diffuse` (albedo x (1 - metallic)) and `GiIntensity`, and lands in the
-same place the ambient term does. **Albedo is right here** -- the shader has
-it -- which is the substantive quality difference from the screen-space form,
-alongside seeing off-screen and behind.
+### Which terrain, when there are several
 
-Four rays per pixel is a real cost and it is stated: this is the most
-expensive switch in the engine, and it is off by default.
+A scene may hold any number of terrains, and nothing stops two overlapping.
+The rule: **among the terrains whose extent contains the point, the highest
+surface wins.**
 
-### One at a time, and the row that says so
+Not "the first one found" -- that is scene order, which is arbitrary and would
+change under a re-parent. Highest is the answer a body dropped from above
+would get, which is what the physics already does and therefore what the two
+sources of truth agreeing looks like. It is also stable: the same query gives
+the same answer whatever order the registry walks.
 
-`ResolveRayTracedGlobalIllumination(render)` reads the project's checkbox,
-the `--raygi=` override, and what the device can do -- the same three-way
-resolve as the other two. When it is true:
+The escape hatch for a scene where that rule picks wrong is the second form,
+which names the terrain and skips the walk:
 
-- the frame graph **does not add the SSGI passes at all**, whatever the
-  profile says (`desc.Post.GlobalIllumination && !rayGi`);
-- the lit shaders compile with `RV_RAY_GI`;
-- the profile's **Global illumination** row is disabled through
-  `FieldHint::DisabledIf(RayGiTakesOver)` and reads "ray-traced equivalent in
-  use", which is the note 7ao already writes for SSR and SSAO;
-- the **Intensity** dial stays live under either form (`GiDialsApply`), because
-  both consult it -- the same rule the AO radius and intensity already follow.
+```cpp
+bool found = GetTerrainHeight(terrainEntity, point, height);
+```
+
+### World in, world out -- and a point rather than an (x, z) pair
+
+`HeightAt` speaks terrain-local metres. Scripts speak world. The call takes a
+**`Vec3` world position**, not two floats, and returns a **world height**:
+inverse-transform the point through the terrain's world matrix, take the local
+x and z, ask `HeightAt`, put the answer back through the matrix as
+`(localX, height, localZ)` and read its y.
+
+Taking the whole point rather than an (x, z) pair is what makes this
+well-defined for *every* transform rather than only the flat ones. Under the
+transform a terrain actually has -- translated, yawed, uniformly scaled -- the
+input's y falls out of the arithmetic entirely, and `GetTerrainHeight(p)` gives
+the same answer for every p on a vertical line, which is what "the ground under
+here" ought to mean. Under a terrain **tilted** about x or z it does not fall
+out, and the honest description of what comes back is *the surface along the
+terrain's own up axis from the point given*. That is stated rather than
+forbidden: a tilted heightfield has no single ground height per world column,
+and a call that pretended otherwise would be picking one silently.
+
+### One implementation, two surfaces
+
+`Scene::TerrainHeightAt` holds the walk, the transform, the extent test and the
+highest-wins rule. `ScriptableEntity` calls it; the interop calls it. **Not two
+copies** -- the audio four are written the way they are (7 sentences in
+`Interop.cpp` mirroring `ScriptableEntity` "line for line, component checks
+included") precisely because that duplication was accepted once and has to be
+maintained forever; there is no reason to accept it again for a query with a
+rule in it.
+
+Resolving the terrain goes through `Terrain::Resolve`, which is the component's
+own cache and works without a device -- so this answers in a headless
+`scenetest` exactly as it does in the editor, which is what makes the units
+below possible at all.
+
+### The shape, both languages
+
+C++, on `ScriptableEntity`, beside `Raycast`:
+
+```cpp
+bool GetTerrainHeight(const Vec3& worldPosition, float& height);
+bool GetTerrainHeight(Entity terrain, const Vec3& worldPosition, float& height);
+```
+
+C#, protocol **9** -- two entries **appended** to `NativeApi`, never inserted,
+and `kProtocolVersion` bumped on both sides. The managed spelling is
+`TryGetTerrainHeight(Vector3, out float)`, which is not the native name: `Try`
+plus `out` is what a C# caller expects of exactly this shape, and the
+precedent for a deliberate difference is `RageV.Mathf` against `RageV::Math`.
+The engine's name is the one the guides teach in C++ and the managed one is
+the one they teach in C#, and both pages say the other exists.
 
 ### The checks
 
-`scenetest`: the graph assertions -- SSGI off adds no pass; on adds compute,
-two blurs and apply; with RT GI resolved on, the SSGI passes are absent
-whatever the profile holds; and the resolve prefers the override to the
-project. `check_gi.py` on a new `gi_corner` fixture -- a white floor and a
-white wall meeting a **saturated red wall**, one directional light, no sky
-light, so the only red in the frame is bounce: the white wall's pixels near
-the corner must be redder with GI on than with it off, by a stated margin,
-and the far end of the same wall must not be (the bleed falls off). Then the
-same scene with `--raytracing=on --raygi=on`: the same corner reddens, and --
-the claim the screen-space form cannot pass -- a wall **facing away** from
-the red one, whose bounce source is off screen, reddens too. Falsified by
-zeroing the gather (no reddening anywhere) and by removing the `!rayGi` gate
-(both run and the corner is twice as red).
+`scenetest`, headless, on the fixture `make_terrain.py` already writes:
+
+1. **It agrees with the source.** At a set of points inside the extent, the
+   script call and `Terrain::HeightAt` return the same number to 1e-4 -- with
+   the identity transform, so this claim is about the plumbing and nothing
+   else.
+2. **The clamp does not leak.** A point past the edge answers **false**, and
+   `HeightAt` at the same coordinates answers a real number. Those two facts
+   in one assertion are the trap, written down.
+3. **It follows the transform.** The same terrain translated, yawed and
+   uniformly scaled: the world height comes back translated, and *unchanged*
+   by the yaw at the centre; the input's y makes no difference to any of it.
+4. **Highest wins.** Two overlapping terrains at different elevations answer
+   with the higher -- and then the higher one is *lowered* and the answer
+   hands back to the other. Stated that way rather than as "in both registry
+   orders" because entt's iteration order is not the creation order and not
+   ours to choose: moving the terrain tests the rule itself, whichever order
+   the walk happens to use. It is the assertion that catches a first-hit
+   implementation, and the falsification below confirms it does.
+5. **The entity form** answers for the terrain named even where the automatic
+   rule would have picked the other, and false for an entity with no
+   `TerrainComponent`.
+
+And four more through the interop table itself, in the protocol-4 block's
+company, because a table entry's claim is different: it is a **forward, not a
+second implementation**. For any point the boundary's answer is
+`Scene::TerrainHeightAt`'s answer *to the bit*, its named form likewise, and
+its miss is the same miss. Asserting metres there would only be re-testing
+Scene.
+
+Each falsified by breaking what it guards: drop the extent test (2 fails),
+drop the inverse transform (3), take the first hit instead of the highest (4).
+
+**One of them was wrong when written, and falsifying it is what said so.** The
+boundary zeroes `*height` before it does anything else, and the first check of
+that asked an unknown entity id with a scene bound -- which passes whether the
+boundary zeroes or not, because `Scene::TerrainHeightAt` zeroes on its own
+first line. Removing the boundary's zeroing changed nothing and the check
+still passed. The path that zeroing actually exists for is **no scene bound at
+all**, where there is no Scene to fall back on, so the claim moved next to the
+existing "with no scene bound, every entity lookup answers 'no'" and now fails
+when the zeroing goes. The general lesson is the one this repository keeps
+relearning: a check that passes is not evidence until the thing it guards has
+been broken and it has failed.
 
 ### What stays stated
 
-One bounce. No indirect specular. No caching, no probes, no radiance cache,
-no denoiser beyond the blur and TAA -- so SSGI is soft and RT GI is grainy
-until TAA settles. SSGI's albedo stand-in. SSGI sees only what is on screen
-and in front. RT GI is four rays a pixel and costs accordingly. Neither
-affects the shadow pass, the probes, or the sky.
+No normal. A script placing a tree on a slope wants one, and the data is right
+there in the same four samples -- but it is a second call with its own
+convention (geometric, not the mesh's smoothed one) and this item is the height.
+Named here so the next person does not have to rediscover that it was
+considered.
+
+No interpolation *between* terrains: two neighbouring terrains meet at a seam
+this call knows nothing about, and each answers for its own extent. The height
+tracks edits, because `ApplyRegion` writes the terrain's own `TerrainData` as
+the stroke lands -- a script asking mid-stroke gets the ground as it now is.
+The walk is over terrain entities only, and there are few of them; a script
+calling this for a thousand scattered props pays a thousand short walks, and
+the second form is there when that stops being free.
 
 ---
 

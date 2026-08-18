@@ -1675,9 +1675,16 @@ cut off**, at the owner's direction.
 
 **What is open (2026-08-17, after global illumination landed):**
 
-1. **`HeightAt` as a script call** (C++ and C#), the one terrain thing left
-   over from every stage's list. Small, self-contained, and the natural next
-   piece: the brush and the collider both use it already.
+1. ~~**`HeightAt` as a script call**~~ -- **DONE 2026-08-18 (ENGINE-NOTES
+   7au)**, and with it the terrain list is empty. `Scene::TerrainHeightAt`
+   holds the walk, the extent test and the highest-wins rule; `Scriptable
+   Entity::GetTerrainHeight` and protocol 9's two table entries are forwards
+   to it. **The shape worth remembering: it answers two questions, not one.**
+   `Terrain::HeightAt` clamps to its own extent, so a call that returned only
+   a float would report the rim's height for a point a kilometre past the edge
+   -- hence `bool` plus an out-parameter that is zeroed on a miss. Fourteen
+   claims in scenetest (1818 Vulkan / 1778 OpenGL), four falsifications, one
+   of which found a check that passed for the wrong reason.
 2. **GI follow-ups, none of them promised.** 7at's stated limits are the
    backlog: one bounce, no indirect specular, no denoiser beyond the blur and
    TAA (so RT GI is grainy until TAA settles), and SSGI's albedo stand-in.
@@ -1686,14 +1693,21 @@ cut off**, at the owner's direction.
 3. **The two long-standing non-blockers**: the focus-click guard has never
    been confirmed against a real click, and an orphaned LUT is not warned
    about.
-4. **Phase 8's remaining items** are priced in ROADMAP; **8.9 FBX import** is
-   the only ordinary feature left, the rest are engine-sized.
+4. **Phase 8: nine of its twelve rows are open** -- 8.1, 8.3, 8.5, 8.6, 8.7,
+   8.8, 8.9, 8.10 and 8.11. Done are 8.2 (bindless), 8.4 (terrain) and 8.12
+   (ray tracing). **8.9 FBX/Collada import is the only L; the other eight
+   are XL**, which is the thing to say rather than "the rest are
+   engine-sized" -- the count is what stops the list reading as empty.
+   **8.1 is the one to be careful about**: it is still open and it is *not*
+   what 9.12 built. 9.12 is one bounce, screen-space or four rays a pixel;
+   8.1 is the world-space form -- SDFGI or voxels, multi-bounce, stable
+   without a temporal filter. Both rows now say so.
 
 **Papercut worth taking with whatever touches the editor next:** nothing
 outstanding from terrain -- the "Ra Sm Fla Pai" truncation was fixed by the
 Sculpt toggle + Mode combo in 7as.
 
-**Thirteen commits are unpushed** as of this writing -- terrain stage 1 and its
+**Fifteen commits are unpushed** as of this writing -- terrain stage 1 and its
 follow-ups (b37b8ed .. c8cb011), stage 2 (fe20a5c), stage 3 (d203b1b) and
 the skirts-from-under fix on top; everything before them is on origin.
 Pushing is the owner's action.

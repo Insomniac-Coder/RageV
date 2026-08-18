@@ -434,6 +434,25 @@ Log.Warn("low on fuel");
 Not `Console.WriteLine`: a packaged game has no console, and the engine's log
 is the only place anybody looks.
 
+## The ground under a point
+
+```csharp
+if (Entity.TryGetTerrainHeight(WorldPosition, out float ground))
+    Position = new Vector3(Position.X, ground + 0.5f, Position.Z);
+```
+
+`false` means there is no terrain under that point, and `ground` is zero. The
+bool matters: a terrain clamps height queries to its own extent, so a call
+that only handed back a float would answer a point well off the edge with the
+rim's height.
+
+An overload takes the terrain entity when a scene has several and you want a
+particular one; without it, the highest surface covering the point answers.
+
+The engine's C++ name for this is `GetTerrainHeight` — `Try…(out)` is the
+shape a C# caller expects, the same deliberate difference `Mathf` has from the
+engine's `Math`.
+
 ## Raycasts
 
 ```csharp

@@ -1298,6 +1298,84 @@ namespace RageV
 		});
 	}
 
+	namespace
+	{
+		// Where a world point lands in a terrain's own metres, and whether that
+		// terrain's extent actually contains it.
+		//
+		// The extent test is here rather than inside Terrain::HeightAt on
+		// purpose (7au): HeightAt clamps, which is right for the brush and for
+		// the skirt rule, and wrong for a caller asking whether there is ground
+		// at all. Changing it would touch three call sites for the benefit of
+		// one that none of them share.
+		bool LocalPointOn(const Terrain& terrain, const Mat4& world,
+						  const Vec3& worldPosition, Vec3& local)
+		{
+			local = Vec3(Math::Inverse(world) * Vec4(worldPosition, 1.0f));
+			const float half = terrain.GetDimensions().Size * 0.5f;
+			return Math::Abs(local.x) <= half && Math::Abs(local.z) <= half;
+		}
+
+		// The local surface point put back into world space. The y of that is
+		// the height; under any transform that keeps the terrain level, its x
+		// and z are the input's again.
+		float WorldHeightOf(const Terrain& terrain, const Mat4& world, const Vec3& local)
+		{
+			const float height = terrain.HeightAt(local.x, local.z);
+			return Vec3(world * Vec4(local.x, height, local.z, 1.0f)).y;
+		}
+	}
+
+	bool Scene::TerrainHeightAt(const Vec3& worldPosition, float& height)
+	{
+		bool found = false;
+		float highest = 0.0f;
+
+		ForEachTerrain([&](Entity entity, TransformComponent&, TerrainComponent&,
+						   Terrain& terrain)
+		{
+			// GetWorldTransform rather than TransformComponent::World: the
+			// cached one is written by the transform pass, and a script may ask
+			// this before the first frame of a scene has been drawn -- which is
+			// exactly the situation a headless check is in.
+			const Mat4 world = GetWorldTransform(entity);
+
+			Vec3 local;
+			if (!LocalPointOn(terrain, world, worldPosition, local))
+				return;
+
+			const float y = WorldHeightOf(terrain, world, local);
+			if (!found || y > highest)
+			{
+				highest = y;
+				found = true;
+			}
+		});
+
+		height = found ? highest : 0.0f;
+		return found;
+	}
+
+	bool Scene::TerrainHeightAt(Entity terrainEntity, const Vec3& worldPosition, float& height)
+	{
+		height = 0.0f;
+		if (!terrainEntity || !terrainEntity.HasComponent<TerrainComponent>())
+			return false;
+
+		const RHI::Ref<Terrain>& built =
+			Terrain::Resolve(terrainEntity.GetComponent<TerrainComponent>());
+		if (!built)
+			return false;
+
+		const Mat4 world = GetWorldTransform(terrainEntity);
+		Vec3 local;
+		if (!LocalPointOn(*built, world, worldPosition, local))
+			return false;
+
+		height = WorldHeightOf(*built, world, local);
+		return true;
+	}
+
 	bool Scene::HasTerrain()
 	{
 		auto view = m_Registry.view<TransformComponent, TerrainComponent>();

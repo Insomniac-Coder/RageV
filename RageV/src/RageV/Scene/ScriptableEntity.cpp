@@ -175,6 +175,16 @@ namespace RageV
 		return {};
 	}
 
+	bool ScriptableEntity::GetTerrainHeight(const Vec3& worldPosition, float& height)
+	{
+		return GetScene().TerrainHeightAt(worldPosition, height);
+	}
+
+	bool ScriptableEntity::GetTerrainHeight(Entity terrain, const Vec3& worldPosition, float& height)
+	{
+		return GetScene().TerrainHeightAt(terrain, worldPosition, height);
+	}
+
 	RenderSettings& ScriptableEntity::GetRenderSettings()
 	{
 		return Project::Render();

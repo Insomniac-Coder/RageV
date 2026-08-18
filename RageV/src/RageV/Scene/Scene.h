@@ -307,6 +307,34 @@ namespace RageV
 		// True when at least one terrain has something to draw.
 		bool HasTerrain();
 
+		// The height of the ground under a world point (ENGINE-NOTES 7au).
+		//
+		// **False means there is no terrain there**, and that is the reason
+		// this returns a bool at all: `Terrain::HeightAt` clamps to its own
+		// extent, so forwarding it unchanged would answer a point a kilometre
+		// past the edge with the rim's height and no hedging. `height` is left
+		// at zero on a miss, so a caller that ignores the bool gets an obvious
+		// wrong answer rather than a plausible one.
+		//
+		// Takes a point, not an (x, z) pair, so it is defined under every
+		// transform: the point is inverse-transformed into terrain space, its
+		// x and z are asked of the heightfield, and the answer comes back
+		// through the same matrix. Under the transform a terrain actually has
+		// -- translated, yawed, uniformly scaled -- the input's y falls out of
+		// the arithmetic and every point on a vertical line gives the same
+		// answer. Under one tilted about x or z it does not, and what comes
+		// back is the surface along the terrain's own up axis.
+		//
+		// Where several terrains cover the point, **the highest surface
+		// wins**: the answer a body dropped from above would get, and the same
+		// answer whatever order the registry walks.
+		bool TerrainHeightAt(const Vec3& worldPosition, float& height);
+		// The same, on one named terrain -- for a scene where the rule above
+		// picks the wrong one, and for a caller that would rather not walk.
+		// False for an entity with no TerrainComponent, and for a point off
+		// that terrain's extent even when another terrain covers it.
+		bool TerrainHeightAt(Entity terrainEntity, const Vec3& worldPosition, float& height);
+
 	private:
 		// `viewCamera` is the camera as the viewer set it. What the scene is
 		// actually drawn through is that projection plus this frame's temporal

@@ -837,6 +837,37 @@ namespace RageV::Managed
 			}
 		}
 
+		// The two terrain entries route through Scene, which is where the walk,
+		// the extent test and the highest-wins rule live -- deliberately not a
+		// second copy of them next to the native script API's copy (7au).
+
+		int32_t __cdecl GetTerrainHeight(const Vec3* worldPosition, float* height)
+		{
+			if (!worldPosition || !height)
+				return 0;
+
+			// Zeroed before the scene check, so a miss for any reason -- no
+			// scene, no terrain, off the extent -- reads the same to a caller
+			// that ignored the return value.
+			*height = 0.0f;
+			if (!s_Scene)
+				return 0;
+
+			return s_Scene->TerrainHeightAt(*worldPosition, *height) ? 1 : 0;
+		}
+
+		int32_t __cdecl GetTerrainHeightOn(uint64_t terrain, const Vec3* worldPosition, float* height)
+		{
+			if (!worldPosition || !height)
+				return 0;
+
+			*height = 0.0f;
+			if (!s_Scene)
+				return 0;
+
+			return s_Scene->TerrainHeightAt(Resolve(terrain), *worldPosition, *height) ? 1 : 0;
+		}
+
 		int32_t __cdecl GetRenderSetting(const char* name, char* buffer, int32_t capacity)
 		{
 			if (!s_Scene || !name)
@@ -934,6 +965,8 @@ namespace RageV::Managed
 			api.IsPointerOverUI = &IsPointerOverUI;
 			api.GetRenderSetting = &GetRenderSetting;
 			api.SetRenderSetting = &SetRenderSetting;
+			api.GetTerrainHeight = &GetTerrainHeight;
+			api.GetTerrainHeightOn = &GetTerrainHeightOn;
 			return api;
 		}
 	}

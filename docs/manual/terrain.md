@@ -144,6 +144,36 @@ what a body rests on.
 `--select`ed terrain when the editor opens and saves it, which is how the
 checks hold the brush.
 
+## Asking where the ground is, from a script
+
+```cpp
+float ground;
+if (GetTerrainHeight(GetWorldPosition(), ground))
+    GetPosition().y = ground + 0.5f;
+```
+
+```csharp
+if (Entity.TryGetTerrainHeight(WorldPosition, out float ground))
+    Position = new Vector3(Position.X, ground + 0.5f, Position.Z);
+```
+
+**False means there is no terrain under that point** and the height is left at
+zero. That is not a formality: a terrain clamps height queries to its own
+extent, so a call that only handed back a number would answer a point a
+kilometre past the edge with the rim's height, and nothing downstream could
+tell the difference.
+
+It answers in world space, follows the terrain's transform, and where two
+terrains cover the point the **higher surface** wins — the one a body dropped
+from above would land on. An overload takes a terrain entity when you want a
+particular one.
+
+Prefer it to casting a ray downwards. The ray has to be given a length you
+guessed, it only exists while the scene is playing, and it finds nothing on a
+terrain whose **Collision** is off. This reads the same samples the collider
+and the mesh are built from, in all three situations, and it tracks a sculpt
+as the stroke lands.
+
 ## What happens underneath
 
 The grid is cut into **chunks of 64 quads**, each built at four levels of

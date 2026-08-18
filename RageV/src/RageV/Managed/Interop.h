@@ -245,6 +245,22 @@ namespace RageV::Managed
 		// whose value is legitimately the empty string.
 		int32_t (__cdecl* GetRenderSetting)(const char* name, char* buffer, int32_t capacity);
 		int32_t (__cdecl* SetRenderSetting)(const char* name, const char* value);
+
+		// --- appended for protocol 9: the ground under a point ---------------
+		//
+		// ENGINE-NOTES 7au. Both return whether there is terrain there and
+		// write the world height through `height`, which is set to zero on a
+		// miss -- **the return value is not decoration.** `Terrain::HeightAt`
+		// clamps to its own extent, so an entry that only answered with a
+		// float would report the rim's height for a point well off the edge,
+		// and a C# script would have no way to tell.
+		//
+		// The first walks the scene's terrains and answers with the highest
+		// surface covering the point; the second asks one named terrain and
+		// answers 0 for an entity with no TerrainComponent.
+		int32_t (__cdecl* GetTerrainHeight)(const Vec3* worldPosition, float* height);
+		int32_t (__cdecl* GetTerrainHeightOn)(uint64_t terrain, const Vec3* worldPosition,
+											  float* height);
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -417,7 +433,11 @@ namespace RageV::Managed
 		//    joined it, and the interpolation alpha became readable.
 		// 7: the game's UI -- a label's text, a button's click, and whether the
 		//    UI took the pointer.
-		static constexpr int32_t kProtocolVersion = 8;
+		// 8: the render settings, by name and as text -- the three registries
+		//    behind one flat namespace.
+		// 9: the ground under a point: terrain height, from whichever terrain
+		//    covers it or from one named (ENGINE-NOTES 7au).
+		static constexpr int32_t kProtocolVersion = 9;
 
 		// The editable fields of a script type, for the inspector. Empty when
 		// C# is not running or the type is unknown -- both of which the

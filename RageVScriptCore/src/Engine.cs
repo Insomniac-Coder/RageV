@@ -394,6 +394,56 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 		return new RayHit(hit != 0, data.Entity, data.Position, data.Normal, data.Distance);
 	}
 
+	// --- terrain (ENGINE-NOTES 7au) ---
+
+	/// <summary>
+	/// How high the ground is under a world point, from whichever terrain
+	/// covers it. False when no terrain does.
+	/// </summary>
+	/// <remarks>
+	/// <code>
+	/// if (Entity.TryGetTerrainHeight(WorldPosition, out float ground))
+	///     Position = new Vector3(Position.X, ground + 0.5f, Position.Z);
+	/// </code>
+	/// **The bool is not decoration.** The heightfield clamps to its own
+	/// extent, so a call that only returned a float would answer a point well
+	/// off the edge with the rim's height; <paramref name="height"/> is zero on
+	/// a miss.
+	///
+	/// Prefer this to a downward <see cref="Raycast"/> for ground queries: the
+	/// ray needs a length guessed in advance, only exists while the scene is
+	/// playing, and finds nothing on a terrain whose collision is off. Where
+	/// several terrains cover the point, the highest surface wins.
+	///
+	/// The engine's C++ name for this is <c>GetTerrainHeight</c>; the managed
+	/// one is <c>Try…(out)</c> because that is the shape a C# caller expects,
+	/// the same deliberate difference <see cref="Mathf"/> has from the engine's
+	/// <c>Math</c>.
+	/// </remarks>
+	public static bool TryGetTerrainHeight(Vector3 worldPosition, out float height)
+	{
+		height = 0.0f;
+		if (!Native.IsReady)
+			return false;
+
+		fixed (float* value = &height)
+			return Native.Api.GetTerrainHeight(&worldPosition, value) != 0;
+	}
+
+	/// <summary>
+	/// The same, on one named terrain — for a scene where the highest-wins rule
+	/// picks the wrong one. False for an entity with no terrain on it.
+	/// </summary>
+	public static bool TryGetTerrainHeight(Entity terrain, Vector3 worldPosition, out float height)
+	{
+		height = 0.0f;
+		if (!Native.IsReady)
+			return false;
+
+		fixed (float* value = &height)
+			return Native.Api.GetTerrainHeightOn(terrain.Id, &worldPosition, value) != 0;
+	}
+
 	// --- audio ---
 	// Mirrors the native script API: a no-op without an AudioSourceComponent,
 	// and clips are named by their asset path.
@@ -757,6 +807,11 @@ public abstract class Script
 
 	protected RayHit Raycast(Vector3 origin, Vector3 direction) =>
 		RageV.Entity.Raycast(origin, direction);
+
+	protected bool TryGetTerrainHeight(Vector3 worldPosition, out float height) =>
+		RageV.Entity.TryGetTerrainHeight(worldPosition, out height);
+	protected bool TryGetTerrainHeight(Entity terrain, Vector3 worldPosition, out float height) =>
+		RageV.Entity.TryGetTerrainHeight(terrain, worldPosition, out height);
 
 	protected ulong PlaySource() => Entity.PlaySource();
 	protected void StopSource() => Entity.StopSource();
