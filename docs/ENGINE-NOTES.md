@@ -9481,6 +9481,46 @@ probe number, and cheaper than another ray*.
    in practice -- OpenGL has no rays, so the hybrid is unreachable there and
    the check must say so rather than skip silently), all configs, docs.
 
+### Every insertion point, found and pinned
+
+Worked out while starting the build and written down rather than re-derived:
+
+- **The resolve helper** goes beside its siblings at the top of
+  `FrameGraphBuilder.cpp` (~line 218). Copy `ResolveVoxelGlobalIllumination`'s
+  shape exactly: `EngineConfig` override first, then the setting, then the
+  `VoxelGI::IsReady()` guard with the one-shot `RV_CORE_INFO`.
+- **The gate that starves the grid under rays** is
+  `Scene.cpp:1803` -- `ResolveVoxelGlobalIllumination(...) && !ResolveRayTracedGlobalIllumination(...)`.
+  That `&& !` is the whole reason the grid is not built under rays; it becomes
+  *gather wants it **or** hybrid wants it*.
+- **The lit set is bound** at `Renderer3D.cpp:1233`, right after `u_Indirect`
+  at binding 16, and the comment there already records the rule that bites:
+  **a binding the layout declares and the set does not fill is a validation
+  error**, so 17/18/19 must be bound on every frame, grid or no grid. That
+  means `VoxelGI` owes a 1x1x1 black volume and a zeroed params buffer for the
+  frames it has nothing -- create both in `Init`, not lazily.
+- **The hybrid flag needs no new field.** `u_Scene.GlobalIllumination` is a
+  `vec4` carrying x, the frame in y and the bounce count in z; **w is free**.
+  Use it, and do *not* add anything to `SceneData` -- which is the next point.
+- **The `SceneData` trap is worse than 9.12 recorded.** That entry says the
+  block is "mirrored by hand in two GLSL files". It is mirrored in **five**:
+  `debug.rvshader`, `quad.rvshader`, `include/pbr_fragment.glsl`,
+  `include/scene_vertex.glsl` and `include/particle_vertex.glsl`. A field added
+  to one is a layout mismatch in the other four, which is exactly the bug 9.12
+  spent a day on. **Do not extend `SceneData` for this**; the grid params want
+  their own small uniform block at binding 19.
+- **The shader side is five lines plus an include.** `voxelgi_gather.rvshader`
+  lines 61-67 are the whole pattern: define `VoxelResolution`,
+  `VoxelCascadeCount`, `VoxelOrigin`, `VoxelSize` and `VoxelMaxMip` over
+  whatever block holds the params, then `#include "include/voxel_cone.glsl"`,
+  and `GatherCones(surface, normal, rotation, maxDistance)` is available. The
+  include needs `u_VoxelRadiance` and `u_VoxelFaces` to be the sampler names,
+  which is why 17 and 18 should carry those exact names in the lit shader too.
+- **The call site** is the `if (giBounces >= 2)` branch in `pbr_fragment.glsl`
+  (~line 1448). Under the hybrid it becomes `arriving = GatherCones(first.Position,
+  first.Normal, rotation, coneLength)` with **no second `TraceSurface`** -- that
+  is where the four saved rays come from.
+
 ---
 
 ## 8. What this changes
