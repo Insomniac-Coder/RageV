@@ -1647,8 +1647,10 @@ put on the wrong side of itself": ninety-odd breaks across all twenty scripts
 engine-break groups across eight Release builds), every threshold aimed at
 seen to fail, **ten claims that stayed green** under a break aimed straight at
 them -- three of them defects in the checks, now fixed, and seven that are
-notes on what the claim actually rests on. **40 commits are unpushed; pushing
-is the owner's action and it is safe to do.**
+notes on what the claim actually rests on. **A second full pass -- every
+break, every engine group, then the whole suite -- agreed with the first in
+every row (7ba, "The second pass"). 41 commits are unpushed; pushing is the
+owner's action and it is safe to do.**
 
 **What CHK.2 changed in the tree**, all in `tools/scripts/`: `check_ssao`'s
 traced wall has its own floor (`MIN_TRACED_WALL_P10 = 0.998`; the RTAO

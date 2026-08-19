@@ -8577,6 +8577,20 @@ defect the fixture cannot reach. Those sentences are corrected here
 rather than in the scripts, so that the check's own docstring still reads as
 the claim and this entry reads as what the claim turned out to rest on.
 
+### The second pass
+
+Run at the owner's request after the three fixes landed, as one unattended
+job: **every one of the seventy-four shader and data breaks** through
+`falsify.py` against the verdict recorded above (sixty-seven expected to fire,
+seven expected to stay green); the two font-atlas breaks; **every engine group
+rebuilt and re-run** (eight Release builds); and then **the whole suite of
+twenty checks on the restored binary**. Every break agreed with the first
+pass -- no break fired that should not have, none stayed green that should
+have fired -- every engine group fired on every check it was aimed at, and
+the suite came back green end to end. Three hours of machine time, and the
+thing it buys is that the table above is a measurement twice over rather than
+a report.
+
 ---
 
 ## 7bb. The GI term stops adding the sky twice (9.14): a miss is nothing, not the sky
