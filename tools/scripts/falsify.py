@@ -279,27 +279,63 @@ BREAKS = {
     # Each is one of the three findings that moved the numbers, put back.
     # The cones lifted by the finest voxel alone, whatever cascade the point is
     # in: every wall on a coarser cascade's edge reads itself through the first
-    # step; off screen +0.36 -> +0.08 (claim 13 fails its floor of 0.3).
+    # step; off screen +0.36 -> **+0.21**, so claim 13 fails its floor of 0.3.
+    # (Measured by running it; 7bc first recorded +0.08 from a build partway
+    # through the work, and every reading in this block is now the shipped
+    # one.) It also takes the reproducibility floor to 2-3 levels.
     'voxel-no-lift': [('include/voxel_cone.glsl',
                        'const float voxel = VoxelSize(VoxelCascadeAt(surface));',
                        'const float voxel = VoxelSize(0);')],
-    # Thirty-degree cones: the footprint spans the wall and the floor beside it
-    # and the red beside the corner reads a third of the traced form's, off
-    # screen +0.04 (claims 13 and 14).
+    # Thirty-degree cones: the footprint spans the wall and the floor beside
+    # it, and off screen the bounce falls to **+0.11** against the floor of 0.3
+    # (claim 13; recorded as +0.04 before it was run).
     'voxel-wide-cones': [('include/voxel_cone.glsl',
                           'const float kRatio = 0.577;',
                           'const float kRatio = 1.1547;')],
     # The directional chain sampled as if isotropic: every face reads as the
-    # +X one, so a wall is as thin as it is whichever way the cone looks, and
-    # the leak returns (claim 13: +0.20 against the floor of 0.3).
+    # +X one, so a wall is as thin as it is whichever way the cone looks and
+    # the leak returns. It fails **claim 14**, at 2.04 of the traced form's red
+    # against a ceiling of 1.5 -- not claim 13, which this entry used to say:
+    # the leak brightens the near corner more than it dims the off-screen
+    # bounce, and off screen still clears 0.3.
     'voxel-iso-faces': [('include/voxel_cone.glsl',
                          'const int face = axis * 2 + (direction[axis] > 0.0 ? 1 : 0);',
                          'const int face = 1;')],
-    # The injection without the sun's shadow: shadowed voxels light up and the
-    # bounce brightens past the traced form (claim 14's brightness ceiling).
+    # The injection without the sun's shadow: shadowed voxels light up.
+    # **This one is not caught, and the fixture is why.** Run through
+    # check_gi it moves the near brightness from +23.81 to +23.93 and the red
+    # ratio not at all -- because on `gi_corner` the sun lights essentially
+    # everything that contributes a bounce, so there is no shadowed surface for
+    # the break to wrongly light. Claim 14's ceiling is not too wide; the scene
+    # cannot see the defect. Catching it needs a fixture with a caster between
+    # the sun and the bouncing wall, and until there is one the injection's
+    # shadow term is unguarded -- stated here rather than implied by a break
+    # that only ever trips the reproducibility band by perturbing the grid.
     'voxel-no-shadow': [('voxel_inject.rvshader',
                          'const float shadow = light.Params.w > 0.5 ? CascadeShadow(world, N, L) : 1.0;',
                          'const float shadow = 1.0;')],
+    # **Claim 15 has no break of its own here, and both attempts at one are
+    # worth recording rather than a third guess.** Its floor half asks that the
+    # voxel path stay as reproducible as 7bc measured; its radius half asks
+    # that moving `GiRadius` do no more than relaunching does.
+    #
+    # The radius half cannot be broken with this lever, and that is the claim
+    # rather than a gap: `GiRadius` reaches the voxel gather through no path at
+    # all -- nowhere in `VoxelGI.cpp`, nowhere in `voxelgi_gather`, and the
+    # graph hands it only to `PostProcess::SsgiCompute`. Patching a deployed
+    # shader cannot make an absent plumbing route exist.
+    #
+    # The floor half had two breaks written for it and both survived, which is
+    # how 7bc's diagnosis came to be wrong twice: every fragment writing in all
+    # three axis passes (more writers, but carrying the same value, so which
+    # one wins does not matter), and then every fragment writing a *different*
+    # albedo keyed off its screen position (writers that disagree violently --
+    # floor unmoved at 1 level over 0.7%, picture unmoved at +1.77 against
+    # +1.78). Both are deleted rather than kept, by the rule CHK.2 set: a break
+    # that does not break is not evidence. What the floor does have is
+    # `voxel-no-lift` below, under which it reads 2 to 3 levels and fails -- so
+    # it moves when the grid's sampling moves, even though nothing yet written
+    # here moves it on purpose.
 
     # --- check_theme_contrast -------------------------------------------------
     # The palette *is* the thing under test, so the break is a colour: the

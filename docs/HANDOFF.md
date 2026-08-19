@@ -1637,85 +1637,79 @@ pin; that is now a fourth shape for CHK.1.**
 9.13c and 9.13d were green when committed -- 9.13c's OK lines were read, 9.13d's
 were counted -- and the engine has had no regression at any point.
 
-### START HERE (2026-08-19, late): 8.1 voxel GI is done. Next: 9.15, or a phase-8 item
+### START HERE (2026-08-19, later): check_gi runs end to end. 9.15 is specified, not landed
 
-**OPEN ITEMS FROM 8.1 -- read these before anything else (2026-08-19):**
+**State.** Phases 0-7 and 9 are done; 8.1 is done; phase 8 has 8.3, 8.5-8.11
+open. **Everything through `8cfc0a5` is pushed.** This session's work is on top
+of that and is the owner's to push.
 
-1. **`check_gi.py` claims 13-17 have NOT been run end to end.** They were
-   written from the probe harness's measurements (same shots, same regions,
-   same intensity) and the constants in the file are those numbers, but the
-   script itself was never run with them. First thing next session:
-   `python tools/scripts/check_gi.py` from a Release build; if a band
-   misses, read 7bc's table before moving a constant.
-2. **8.1 follow-ups, not done, stated in 7bc:** skinned casters (the voxeliser
-   skips them; the bind pose would be wrong, 7an's posed buffer is the path);
-   local-light shadows in the injection (spot/point lights light the grid
-   unshadowed); the ray-query injection under traced shadows (under
-   `RayTracing` the sun lights the grid unshadowed); conservative
-   rasterisation; the SDF; **the hybrid second bounce** -- the *ray-traced*
-   form's second ray (7ax) shading its hit from the lit voxel grid instead of
-   the probe's guess. The voxel form's own second bounce IS in (`GiBounces`
-   2 feeds the grid from last frame's grid).
-3. **Next, the owner's call:** **9.15** (calibrate the screen-space gather
-   against the two world-space forms -- the SSGI finding below) **or 8.9**.
-4. **`SampleProject/assets/post/courtyard.rvpostprofile` carries the owner's
-   own editor edit** (GI on, quality High), uncommitted and unreverted. Do
-   not `git checkout -- SampleProject/` over it; stash it first.
+**1. `check_gi.py` now runs end to end and passes** -- the thing the last
+START HERE said was owed. It is green on both backends, exit 0, verdict OK.
+Running it found one real thing, which is why it was worth running:
 
-**State.** Phases 0-7 and 9 are done; **8.1 is done** (ENGINE-NOTES 7bc,
-ROADMAP row); phase 8 has 8.3, 8.5-8.11 open. **43 commits are unpushed;
-pushing is the owner's action and it is safe to do.**
+**The voxel path is not byte-reproducible on OpenGL.** Repeated launches at
+identical settings differ by 1-2 levels over about 1% of channels; Vulkan
+reads 0 most runs and has been seen at 1; the screen-space path is 0 on both.
+Claim 15 compared `GiRadius` 1 against 8 byte-for-byte and failed on that
+noise -- the radius pair was *smaller* than the same-settings floor. `GiRadius`
+genuinely never reaches the voxel gather (it is in neither `VoxelGI.cpp` nor
+`voxelgi_gather`; the graph hands it only to `PostProcess::SsgiCompute`), so
+the claim now measures the floor in-script and asks whether moving the radius
+does more than relaunching does. **The cause is open, and ENGINE-NOTES 7bc
+records three candidates already eliminated by measurement**: the voxeliser's
+unsynchronised `imageStore` (a break that makes competing writers disagree
+violently moved nothing), the temporal accumulation's start frame (`GiDenoise`
+0 is *worse*, and frame 200 does not converge it away), and anything shared
+with the screen-space chain. What is left: it is per-frame, OpenGL's alone,
+and confined to the storage-image passes -- so look at synchronisation there
+next.
 
-**What 8.1 is, in one paragraph.** `RenderSettings::VoxelGlobalIllumination`
-(+ `VoxelGiResolution` 64, `VoxelGiCascades` 3, `VoxelGiVoxelSize` 0.25,
-`--voxel-gi=`): where a profile's Global illumination is on and ray-traced GI
-does not win, the bounce is gathered from a voxelised scene instead of the
-screen. `Renderer/VoxelGI` owns everything after `Scene::UpdateVoxelGI`'s
-walk -- clear, three-axis voxelise into storage images, inject from the
-cascades and the lights, a **directional** mip chain (six faces stacked along
-Y), and the cone gather that replaces `SSGI compute` at the head of the
-unchanged blur + `GI denoise` chain. The RHI gained
-`RHIResourceSet::SetStorageImage`, `RHICommandList::TextureBarrier` and
-`DeviceCaps::SupportsFragmentStores`; `Material` keeps its sets per pipeline
-layout now (the voxeliser binds materials on every backend). Shaders:
-`voxelize`, `voxel_clear`, `voxel_inject`, `voxel_mip`, `voxelgi_gather`,
-`include/voxel_cone.glsl`, `include/material_bound.glsl`.
+**2. The falsify pass ran, and two of its entries were wrong.** `voxel-no-lift`
+(+0.21), `voxel-wide-cones` (+0.11) and `voxel-iso-faces` (claim 14 at 2.04,
+not claim 13) all catch what they should; 7bc's predicted readings were from
+mid-development builds and are corrected to the measured ones.
+**`voxel-no-shadow` is not caught, and the fixture is why**: on `gi_corner` the
+sun lights essentially everything that contributes a bounce, so removing the
+injection's shadow term moves the near brightness from +23.81 to +23.93.
+Claim 14's ceiling is not too wide -- the scene cannot see the defect.
+**Catching it needs a fixture with a caster between the sun and the bouncing
+wall; until then the injection's shadow term is unguarded.** Two breaks written
+for claim 15's floor both survived and were deleted rather than kept (CHK.2's
+rule).
 
-**Measured against the traced form** (gi_corner/gi_away, intensity 2): red
-beside the corner +1.78 vs +1.86, brightness +23.8 vs +19.9, off screen +0.36
-vs +0.82 (screen-space +0.00), backends 0.05 apart, 0.09 ms grid + 0.9 ms
-gather at 1600x900 on the 5070 Ti. **Read 7bc's "Built" section before
-touching the cones or the mips**: three findings moved the numbers -- the
-cones reading their own wall through a coarser cascade's voxel, the cone
-width, and the box mip leaking -- and each is a break the check guards.
+**3. 9.15 is specified, not landed (ENGINE-NOTES 7bd, ROADMAP row).** The
+design named the gather's `1/(1+d^2)` as the cause of the screen-space form
+reading +0.22 where the world-space forms read +1.78 and +1.86. It was
+deleted, built and measured: **+0.22 became +4.17**, 2.2x the traced form, so
+it is reverted and nothing shipped. The falloff is not gratuitous -- the gather
+places every tap at the *same world radius* and reads whatever the depth
+buffer shows behind it, so tap density is uniform over a shell rather than
+over solid angle and nothing else carries the form factor. Moving the
+inverse-square into the weight breaks 7bb, whose normalisation needs weights
+comparable between a hit and a miss. **The remaining specification is narrow:
+sample directions and march to the first hit, reusing `ssr_resolve`'s DDA
+(9.10).** Target on the record: land between +1.78 and +1.86 on `gi_corner`,
++0.00 at the far end and off screen, backends inside 0.05. Two things the
+failed attempt did establish: locality is `GiRadius`'s doing, not the
+falloff's, and the off-screen discriminator does not depend on it either.
 
-**Verified today:** Release builds; scenetest both backends, zero `[Vulkan]`
-(graph assertions for the voxel chain, the storage-image unit); the runtime
-on both backends under `--validation=on` with zero lines; `rvdoc --check`
-green. **Not yet run end to end:** `check_gi.py`'s new claims 13-17 -- they
-were written against the probe harness's measurements (the same shots, the
-same regions) and the constants in the file are those numbers; the first
-thing next session is `python tools/scripts/check_gi.py` from a Release
-build, and the Debug/Dist builds if the background build did not finish.
-`falsify.py` has four voxel breaks (`voxel-no-lift`, `voxel-wide-cones`,
-`voxel-iso-faces`, `voxel-no-shadow`) whose expected readings are in 7bc; run
-them through the check once it is green.
+**Next, the owner's call:** **9.15** as now specified (the march); or the
+**OpenGL voxel reproducibility** hunt, which is the one open defect; or the
+8.1 follow-ups, of which *local-light shadows in the injection* now comes with
+a known missing fixture, and *skinned casters* is untouched
+([VoxelGI.cpp:441](../RageV/src/RageV/Renderer/VoxelGI.cpp) skips
+`mesh->IsSkinned()`, and 7an's compute-posed buffer is the path); or **8.9
+FBX / Collada**, still the only non-XL row left in phase 8.
 
-**Next, the owner's call:** **9.15** -- calibrate the screen-space gather
-against the voxel and traced forms, now that a raster-side reference exists
-on both backends (the SSGI finding below still stands: +0.22 where both
-world-space forms read +1.8); or **8.9 FBX / Collada** (L); or the 8.1
-follow-ups 7bc lists, of which *skinned casters* and *local-light shadows in
-the injection* are the two a real scene will notice first.
+**The SSGI finding, kept and now sharper:** the screen-space form is
+sub-visible at +0.22 against +1.78/+1.86, and 9.15's failed first attempt
+shows the cause is the kernel's shape rather than one multiply.
 
-**The SSGI finding, kept:** the screen-space form is sub-visible (0.8 levels
-mean on gi_corner, 0.9 % of pixels by more than 8); causes in 7bc's
-predecessor note in this file's history and in the SSGI shader's `1/(1+d^2)`
-falloff, which has no physical counterpart. Voxel GI is the visible form now,
-and the recommended fix for SSGI is still to drop the falloff and band it
-against the world-space forms.
+**`SampleProject/assets/post/courtyard.rvpostprofile` still carries the
+owner's own editor edit** (GI on, quality High), uncommitted and unreverted.
+Stash it before any `git checkout -- SampleProject/`.
 
-**Design first** -- an ENGINE-NOTES entry (7bd is next) before code, then
+**Design first** -- an ENGINE-NOTES entry (7be is next) before code, then
 HANDOFF, then the ROADMAP row in the same commit that first uses a new number.
 
 **Two process rules that cost an hour each when they were learned:** `git

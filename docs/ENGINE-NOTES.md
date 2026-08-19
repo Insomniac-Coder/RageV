@@ -9059,14 +9059,231 @@ refuses the extension (the trap `smaa_edges` records), and the first OpenGL
 run silently did nothing; the fragment returns instead, with every derivative
 taken before the branch.
 
+### The fourth finding, from running the check rather than the harness
+
+The three above came out of a probe harness that shot each configuration once.
+Run through `check_gi.py` end to end -- which the entry above had not been --
+**claim 15 failed on both backends**: `GiRadius` 1 against 8 differed by one
+level, where the row says the radius is not read.
+
+The radius is not read. It reaches the voxel gather through no path at all:
+it appears nowhere in `VoxelGI.cpp` and nowhere in `voxelgi_gather`, and
+`FrameGraphBuilder` hands it only to `PostProcess::SsgiCompute`. What the
+claim had actually caught is worth more than the thing it was looking for:
+**the voxel path is the one part of this frame that is not a function of the
+frame number.**
+
+Measured over repeated launches at identical settings:
+
+| | repeated launches, same settings | radius 1 against 8 |
+|---|---|---|
+| Vulkan, voxel | 0 levels (1 seen occasionally) | 0-1 levels |
+| OpenGL, voxel | **1 level over ~1% of channels** | 1 level over ~0.8% |
+| either, screen-space | 0 levels | -- |
+
+The radius pair is the same size as the same-settings floor, and sometimes
+smaller, which is the proof that it is noise rather than the radius.
+
+**What causes it is still open, and three guesses are already dead.** They are
+recorded because each cost a measurement and each would otherwise be guessed
+again:
+
+1. **The voxeliser's unsynchronised store.** The three axis draws write a
+   shared voxel with three plain `imageStore`s and no atomic, so where two
+   surfaces of different colour meet in one voxel the value that survives is
+   whichever fragment retired last -- the obvious suspect, and it is what this
+   entry first claimed. The break that tests it (every fragment writing a
+   *different* albedo keyed off its screen position, so the competitors
+   disagree violently) left the floor at 1 level over 0.7% and the picture at
+   +1.77 against +1.78. More writers carrying the same value is not
+   contention; making them disagree showed that which one wins does not vary
+   run to run on either driver. **Not the cause.**
+2. **The temporal accumulation's start frame.** The gather runs only on frames
+   where a grid is lit, so the frame it starts on could depend on when the
+   threaded scene load finished, and a history one frame shorter would land
+   slightly differently. `GiDenoise` 0 turns the accumulation off exactly --
+   and OpenGL got *worse*, 2 levels over 2.31% against 1 over 1.21%. Frame 200
+   does not converge it away either. **Not the cause; the filter was hiding
+   half of it.**
+3. **Anything shared with the screen-space path.** That path is 0 levels over
+   repeated launches on both backends, through the same blur and the same
+   denoise. **Not the cause.**
+
+What is left is the shape of the evidence: **it is per-frame, it is OpenGL's
+alone, and it is confined to the storage-image passes.** The next place to
+look is synchronisation around them on that backend -- `TextureBarrier` there
+is one `glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT |
+GL_TEXTURE_FETCH_BARRIER_BIT)`, which orders what follows it but says nothing
+about where the calls sit relative to the clear, the three draws, the
+injection and the mip levels. Vulkan's barriers are explicit per resource and
+per mip, which is consistent with Vulkan being clean.
+
+So claim 15's third part asks whether moving the radius does more than
+launching twice does, against a floor the script **measures** rather than
+assumes, and the same band bounds the irreproducibility from growing -- which
+is the useful thing to have while the cause is open. The two byte-exact halves
+of that claim are untouched, because with the feature off the voxel passes are
+not in the graph at all. The floor is not vacuous: under `voxel-no-lift` it
+reads 2 to 3 levels and fails, so it does move when the grid's sampling does.
+
 **What this stage still does not do** is the list above minus the
-directional chain: skinned casters, conservative rasterisation, a voxel that
-averages its writers, local-light shadows in the injection, the ray-query
+directional chain: skinned casters, conservative rasterisation, **a voxel that
+averages its writers (now a determinism defect, above, not a nicety)**,
+local-light shadows in the injection, the ray-query
 injection under traced shadows, SSGI as near-field detail, re-voxelising only
 what moved, and the hybrid second bounce. And the second bounce here is not
 the traced form's "two": it is the grid lighting itself one frame late, which
 converges on every bounce -- 4.4x the one-bounce number off screen against the
 traced form's 2.25x -- and the dial's row says so.
+
+### 7bd. 9.15: the screen-space gather, calibrated against the two world-space forms
+
+**The finding, which has been sitting in HANDOFF since 9.14.** On `gi_corner`
+at intensity 2, the same fixture and the same regions, the three forms read:
+
+| | near the corner | off screen |
+|---|---|---|
+| screen-space | **+0.22** | +0.00 |
+| voxel (8.1) | +1.78 | +0.36 |
+| ray-traced | +1.86 | +0.82 |
+
+The screen-space form is sub-visible -- 0.8 levels mean over the frame, 0.9%
+of pixels differing by more than 8. It is eight times darker than the two
+forms that are meant to be computing the same integral over the same walls.
+Until 8.1 there was no way to say whether that was the screen-space form being
+wrong or the traced form being a different thing, because the only reference
+needed ray hardware and did not run on OpenGL at all. There is one now, on
+both backends, so this is finally a calibration rather than an opinion.
+
+**The named cause.** `ssgi_compute.rvshader`:
+
+```
+const float falloff = 1.0 / (1.0 + distance_ * distance_);
+gathered += direct * cosine * falloff;
+...
+weight += cosine - direction.z;
+...
+const vec3 irradiance = weight > 1.0e-4 ? gathered / weight : vec3(0.0);
+```
+
+The estimator is a cosine-weighted mean radiance, `sum(L cos) / sum(cos)` --
+which is `E/pi`, the unit 7bb settled on and the unit the cone gather and the
+ray gather both produce. The falloff multiplies the **numerator only**. It is
+therefore not a reweighting of the taps at all: it is a systematic darkening
+by the mean of `1/(1+d^2)` over whichever taps were accepted, which at a
+four-metre radius is somewhere around a fifth.
+
+The reasoning above was: radiance arriving from a surface does not fall off
+with distance, because the inverse-square is already carried by solid angle
+and a hemisphere sampler accounts for solid angle by construction -- a wall
+twice as far subtends a quarter of the cone and so takes a quarter of the
+taps. Neither world-space form has anything like the falloff: a cone reads
+what its footprint covers, a ray reads what it hits.
+
+**So the change was a deletion, it was made, and the fixture said no.**
+
+### What it measured, and the premise it broke
+
+| | before | falloff deleted | reference |
+|---|---|---|---|
+| near the corner, Vulkan | +0.22 | **+4.17** | traced +1.86 |
+| near the corner, OpenGL | +0.25 | **+4.16** | voxel +1.78 |
+| far along the same wall | +0.00 | +0.00 | -- |
+| off screen | +0.00 | +0.00 | -- |
+| backends apart | 0.03 | 0.01 | -- |
+
+Both things the entry said must not move held: locality is still absolute
+(+0.00 at the far end) and the off-screen discriminator is still +0.00, so
+`GiRadius` is indeed what bounds the bleed's width and 7az is confirmed from
+the other side. The two backends agree *better* than before. And the form went
+from **eight times too dark to 2.2 times too bright**, which is not a
+calibration -- it is a different wrongness -- so the deletion is reverted and
+the shipped shader still has its falloff.
+
+**The premise was wrong, and specifically this sentence: "a hemisphere sampler
+accounts for solid angle by construction".** This gather is not a hemisphere
+sampler. It is a *position* sampler:
+
+```
+const vec3 direction = normalize(vec3(cos(theta) * r, sin(theta) * r,
+                                      0.4 + 0.6 * (1.0 - r)));
+const vec3 sample_ = centre + (tangent * ... ) * u_Params.Radius;
+```
+
+Every tap is placed at the **same world radius** from the shading point, and
+what it gathers is whatever the depth buffer happens to show at that tap's
+screen position -- which may be metres nearer or further than the tap. The
+direction that ends up weighting it is the direction to the *found* surface,
+not the direction that was sampled. So tap density is uniform over a shell,
+not over solid angle, and nothing anywhere in the estimator carries the form
+factor. The `1/(1+d^2)` was standing in for it. Crudely, and in the wrong
+place -- on the numerator alone, so it darkened rather than reweighted, which
+is the part of the original diagnosis that survives -- but it was not
+gratuitous, and deleting it removes the only distance term the estimator has.
+
+**Why the obvious repair does not work either.** Moving the inverse-square
+into the weight, so that it divides both sums instead of one, is the
+physically right shape -- and it breaks 7bb. That normalisation counts every
+tap's cosine, hit or miss, so that the estimate is the walls' *share of the
+hemisphere* and the probe stands over the rest. Cosines are comparable between
+a tap that found something and one that did not. `cos/d^2` is not: a tap at
+ten centimetres would carry a hundred times the weight of one at a metre, the
+denominator would stop meaning "hemisphere", and the miss fraction 9.14 built
+would collapse.
+
+**So 9.15 is specified rather than landed, and the specification is now
+narrow.** The gather has to sample *directions* and find the first surface
+along each -- a short screen-space march, which the engine already has in
+`ssr_resolve`'s DDA (9.10) -- instead of placing taps at a fixed radius and
+accepting whatever is behind them. Then the cosine weighting is correct
+without a distance term, 7bb's hit/miss normalisation still works because the
+weights are still cosines, and the calibration band this item exists to write
+has a chance of holding. The target is measured and on the record: land
+between the two world-space forms' +1.78 and +1.86 on `gi_corner`, keep +0.00
+at the far end and +0.00 off screen, and keep the backends inside 0.05.
+
+**Cost, when it is done:** a march per tap instead of one texture fetch, at
+twelve to twenty-four taps and half resolution. `GiQuality` already exists to
+pay for it.
+
+**What has to be re-measured, and what must not move.** Every screen-space
+band in `check_gi.py` is fitted to +0.22: `MIN_NEAR_BLEED`, `MAX_NEAR_BLEED`,
+`MAX_FAR_SHARE`, and the backend spread. Two things have to survive unchanged,
+and they are the interesting ones:
+
+1. **The off-screen discriminator.** With the red wall out of frame the
+   screen-space form must still add nothing, while the world-space forms add
+   +0.36 and +0.82. That difference is the reason both kinds exist (claim 4),
+   and a calibration that lifted the off-screen number would have found a way
+   to invent colour rather than to stop losing it.
+2. **Locality.** The far end of the same wall must still take much less than
+   the near end. The falloff is the obvious suspect for what was enforcing
+   that, but it should not have been: 7az already records that the bleed's
+   width is `GiRadius` in world metres, and a tap beyond the radius is
+   rejected outright. If locality survives the deletion, that measurement is
+   confirmed from the other side; if it does not, the radius is not doing what
+   7az says and *that* is the finding.
+
+**The new claim.** The screen-space form gets the calibration band the voxel
+form got in claim 14: its near bleed as a ratio of the world-space forms',
+bounded on both sides. That is the claim this item exists to make true, and it
+is what stops the number drifting again -- it has already moved three times
+(9.13's albedo, 9.13c's loop, 9.14's normalisation), each time for a good
+reason and each time re-fitted against nothing but itself.
+
+**Falsify, when it lands:** put the falloff back, or put the fixed-radius
+kernel back. Either must fail the calibration band; +4.17 and +0.22 are both
+recorded above as what the two failures look like.
+
+**What this will not claim.** Not that the three forms agree in general. The
+screen-space form still cannot see what is off screen, still stands the lit
+colour in for radiance it has no albedo for, and still has one bounce. The
+claim is narrower and checkable: on a fixture where all three can see the
+bounce source, they should agree about how much light it sends.
+
+**What is on disk from this pass:** nothing but this entry. The shader is as
+it was, `check_gi` is unchanged in its screen-space bands, and the numbers
+above are the reason the next attempt does not start by deleting a multiply.
 
 ---
 

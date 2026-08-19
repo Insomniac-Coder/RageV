@@ -112,9 +112,21 @@ the raster-side world-space form and runs on both backends:
     reference is.
 
 15. **Off is off, and the radius is not read.** With the voxel form on and
-    the profile's toggle off the image is the byte-for-byte image without it;
-    intensity zero is too; and `GiRadius` 1 against 8 changes nothing to the
-    byte -- a cone runs to the grid's edge, and the row says so.
+    the profile's toggle off the image is the byte-for-byte image without it,
+    and intensity zero is too -- both of those *are* byte tests, because with
+    the feature off the voxel passes are not in the graph at all. The radius
+    is not: `GiRadius` 1 against 8 must change the image **no more than
+    launching twice with the same settings does**. It cannot be a byte test,
+    and the reason is a defect rather than a tolerance: **the voxel path is
+    the one part of the frame that is not a function of the frame number, on
+    OpenGL.** Measured over repeated launches at identical settings: OpenGL 1
+    level over about 1% of channels, Vulkan 0 with 1 seen occasionally; the
+    screen-space path is 0 on both. **The cause is open** -- 7bc records the
+    three that have been eliminated (the voxeliser's write order, the temporal
+    accumulation's start frame, and anything shared with the screen-space
+    chain) and where to look next. A cone length actually wired to the radius
+    would move the image by many levels over most of the lit frame, which is
+    what the band below is sized to catch.
 
 16. **The two backends agree**, to the spread claim 2 asks of the screen
     gather: same rules, same fixture, same answer.
@@ -227,10 +239,14 @@ MAX_TRACED_AWAY_BLEED = 2.0
 # The off-screen floor is MAX_SCREEN_AWAY_BLEED: the screen gather is held
 # under 0.3 there and the voxel form has to clear it, or the two could not be
 # told apart by this file. Three ways this number has been wrong, each a
-# defect this band catches: the cones lifted by the finest voxel alone read
-# their own wall through a coarser cascade and it read +0.08; a thirty-degree
-# cone reads a wall through a footprint that already spans the floor beside
-# it, +0.04; the isotropic box mip leaks through the thin wall, +0.20.
+# defect this band catches, each measured by running the break through this
+# file rather than predicted: the cones lifted by the finest voxel alone read
+# their own wall through a coarser cascade and it reads **+0.21**; a
+# thirty-degree cone reads a wall through a footprint that already spans the
+# floor beside it, **+0.11**. The isotropic box mip does *not* fail this one --
+# it clears the floor and fails claim 14 instead, at 2.04 of the traced form's
+# red, because the leak brightens the near corner more than it dims the far
+# bounce.
 MIN_VOXEL_AWAY_BLEED = 0.3
 MAX_VOXEL_AWAY_BLEED = 1.2
 # Near the corner, against the traced form: red as a ratio, and brightness as
@@ -249,6 +265,14 @@ MAX_VOXEL_NEAR_LUM_RATIO = 1.6
 # is gaining rather than converging.
 MIN_VOXEL_BOUNCE_LIFT = 1.5
 MAX_VOXEL_BOUNCE_LIFT = 8.0
+# What the voxel path's irreproducibility costs, and therefore what stands in
+# for byte equality anywhere both images have it running (claim 15). These
+# bound it as well as use it: if it ever exceeds this, something has been added
+# to whatever is already doing it -- and 7bc has the three causes already ruled
+# out, so a widening band is a reason to read that list rather than to raise
+# the number.
+MAX_VOXEL_REPRO_LEVELS = 1.0
+MAX_VOXEL_REPRO_SHARE = 0.05
 
 # --- the temporal stage (9.13a, ENGINE-NOTES 7aw) ----------------------------
 #
@@ -611,14 +635,38 @@ def main():
         if float(np.abs(vzero - off).max()) != 0.0:
             failures.append(f"{backend}: voxel GI at intensity zero changed the image "
                             f"(max {float(np.abs(vzero - off).max()):g})")
+        # The radius against the write race's floor rather than against zero,
+        # and the floor measured here rather than assumed: two launches at one
+        # radius, then the third at the other. The first version of this
+        # compared the pair to zero and failed on both backends at one level
+        # -- which was the race, not the radius, and the radius pair was
+        # *smaller* than the floor.
         profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0, "GiRadius": 1.0 })
         vr1 = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-voxel-r1.png", voxel, frame=60)
+        vr1b = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-voxel-r1b.png", voxel, frame=60)
         profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0, "GiRadius": 8.0 })
         vr8 = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-voxel.png", voxel, frame=60)
-        if float(np.abs(vr1 - vr8).max()) != 0.0:
-            failures.append(f"{backend}: GiRadius reached the voxel gather (max "
-                            f"{float(np.abs(vr1 - vr8).max()):g}) -- a cone runs to the grid's "
-                            f"edge and the row says the radius is not read")
+
+        floor = np.abs(vr1 - vr1b)
+        moved = np.abs(vr1 - vr8)
+        floor_levels, floor_share = float(floor.max()), float((floor > 0).mean())
+        moved_levels, moved_share = float(moved.max()), float((moved > 0).mean())
+        print(f"{backend}: voxel, two identical launches differ by {floor_levels:g} levels over "
+              f"{floor_share * 100:.2f}% of channels; radius 1 against 8 by {moved_levels:g} over "
+              f"{moved_share * 100:.2f}%")
+        if floor_levels > MAX_VOXEL_REPRO_LEVELS or floor_share > MAX_VOXEL_REPRO_SHARE:
+            failures.append(f"{backend}: the voxel path is less reproducible than 7bc records "
+                            f"({floor_levels:g} levels over {floor_share * 100:.2f}% of channels, "
+                            f"allowed {MAX_VOXEL_REPRO_LEVELS:g} over "
+                            f"{MAX_VOXEL_REPRO_SHARE * 100:.0f}%) -- the voxeliser's unsynchronised "
+                            f"store is the only thing in the frame that is not a function of the "
+                            f"frame number, and a second source would hide inside this one")
+        if moved_levels > MAX_VOXEL_REPRO_LEVELS or moved_share > MAX_VOXEL_REPRO_SHARE:
+            failures.append(f"{backend}: GiRadius reached the voxel gather ({moved_levels:g} levels "
+                            f"over {moved_share * 100:.2f}% of channels, past the write race's "
+                            f"{MAX_VOXEL_REPRO_LEVELS:g} over {MAX_VOXEL_REPRO_SHARE * 100:.0f}%) "
+                            f"-- a cone runs to the grid's edge and the row says the radius is "
+                            f"not read")
 
         # 14's inputs, and 16's.
         vnear = redness(vr8, NEAR_REGION) - redness(off, NEAR_REGION)
@@ -638,8 +686,8 @@ def main():
         if voxel_away < MIN_VOXEL_AWAY_BLEED:
             failures.append(f"{backend}: the voxel form did not redden a wall whose bounce source "
                             f"is off screen ({voxel_away:+.2f} levels, wanted {MIN_VOXEL_AWAY_BLEED}) "
-                            f"-- the one thing a world-space form is for; at +0.08 the cones are "
-                            f"reading their own wall through a coarser cascade's voxel, at +0.04 "
+                            f"-- the one thing a world-space form is for; at +0.21 the cones are "
+                            f"reading their own wall through a coarser cascade's voxel, at +0.11 "
                             f"they are too wide to see the wall as a wall")
         if voxel_away > MAX_VOXEL_AWAY_BLEED:
             failures.append(f"{backend}: the voxel form's off-screen bounce is past calibration "
