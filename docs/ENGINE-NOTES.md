@@ -8273,14 +8273,239 @@ checks:
   at ten times), each placed against a measured break, both fired by it. Also
   observed and deliberately not bounded: the in-focus group reads 115 % of its
   unblurred detail with the effect on, which nobody has explained.
-- **Shape 3 was not re-falsified across the board.** Every check here was
-  falsified when written and says so in its commit; this pass did not repeat
-  that for the twenty. It did for the three ceilings it added: `check_ssao`'s
-  by a triple-strength AO (45.68 against a ceiling of 22), and the two `ssr`
-  bands are placed at less than half and more than one and a half times their
-  measurements, where the old floors sat at a twelfth and a twenty-fifth.
+- ~~**Shape 3 was not re-falsified across the board.**~~ Done as CHK.2, below.
 - **The band values are this fixture's**, at this resolution, on these two
   backends. A band is a calibration and says so in its comment.
+
+### CHK.2: every claim put on the wrong side of itself
+
+7ba left one item: **shape 3, a claim nobody has seen fail.** Every check was
+falsified when it was written and says so in its commit, but the audit
+re-falsified only the six ceilings it added that day. This pass put every
+claim in all twenty scripts on the wrong side of itself, on purpose, and
+recorded the reading. The table is the result; the paragraphs after it are
+what the exercise was actually for.
+
+### The lever: break the shader that ships, not the source
+
+The runtime loads `assets/shaders/*.rvshader` **as source, from beside the
+exe**, and compiles them at launch through a content-hashed cache. So editing
+the *deployed* copy is the same defect that a source edit plus a rebuild
+produces, without the rebuild: fifty seconds a check instead of five minutes,
+which is the difference between doing this once and doing it properly. A
+pristine copy of the whole shader directory is taken first and restored before
+every break, so no break can survive into the next one.
+
+Claims no shader can reach got the rebuild they needed. Two kinds:
+
+- **"Off is off, to the byte"** (six checks). The claim is not "the effect can
+  be switched off" -- it is that an explicit `false` renders what *silence*
+  renders, and silence reads the struct's default. So the defect it guards is
+  a default that disagrees with the key, and the break is one line per field
+  in `PostSettings.h`. Six checks, one build.
+- **"A frame reproduces"** (four checks) and the whole of `check_taa_jitter`,
+  whose subject -- the jitter sequence -- lives in `FrameGraphBuilder.cpp` and
+  has no shader to edit.
+
+Three checks never launch the runtime, and their breaks are data: a colour in
+the palette, a glyph rectangle in a `.rvfont`, a render handed to the check.
+
+### The table
+
+Every row is a check, the breaks it was put through, and what the check said.
+"Fired" means the check exited non-zero *and named the claim being tested*;
+a run that failed some other claim as collateral is not a falsification of
+this one.
+
+| check | break | reading | claim it put on the wrong side |
+|---|---|---|---|
+| `ssao` | occlusion term forced to zero | seam +0.00 (was 13.65) | `MIN_SEAM_DARKENING`, and monotonicity |
+| | occlusion x3 | seam 86.57 vs ceiling 22 | `MAX_SEAM_DARKENING` |
+| | `AoIntensity` ignored in the multiply | 13.65 -> 13.65 at 1.0 and 2.0 | "doubling the intensity deepens the seam" |
+| | kernel dipped below the plane (lift 0.4 -> -0.4) | open floor drifts 71.4 vs ceiling 1.0 | `MAX_OPEN_DRIFT` |
+| | written normal taken everywhere (pre-9.8b) | wall p10 0.985, worst 0.951 | `MIN_WALL_P10`, `MIN_WALL_FLOOR` |
+| | normal faced by `normal.z` (pre-7an) | wall drifts 55.6 levels over the jitter phase | `MAX_WALL_JITTER_DRIFT` |
+| | RTAO: no hits | traced seam 0.00 | the traced band's floor |
+| | RTAO: occlusion x3 | traced seam 92.84 | the traced band's ceiling |
+| | **RTAO: the slope guard removed** | **wall p10 0.996 against a floor of 0.995 -- passed** | see below |
+| | **bias removed (`kBias` and `kBiasPerMetre` to zero)** | **open floor still 0.000; seam 13.65 -> 16.51 -- passed** | see below |
+| `ssr` | the march never reports a hit | mirror +0.00, limbs 0.00 | `MIN_MIRROR_GAIN`, `MIN_LIMB_CONTRAST`, exactness |
+| | resolve doubles the radiance | mirror 102.7, limbs 115.0, exactness 22.68 off | `MAX_MIRROR_GAIN` (via exactness), `MAX_EXACTNESS_ERROR` |
+| | surface roughness clamped to zero in the lit shader | rough floor 79.58 against a mirror's 79.58 | "a rough floor shows less" |
+| | a miss returns white | empty floor lights up | `MAX_EMPTY_DRIFT` |
+| | the trace's Y flip removed | backends put the reflection rows apart | `BACKEND_ROW_TOLERANCE` |
+| | the traced reflection ray reversed | traced exactness fails, off-screen spot dark | the two ray-traced claims |
+| | **trace's `roughFade` and resolve's blur radius disabled** | **rough floor 24.63, mirror 79.55 -- passed** | see below |
+| `motion_blur` | velocity forced to zero | growth 0.0 px, ratio 0.00 | `MIN_GROWTH_HALF`, the ratio band |
+| | velocity x3 | growth 20.0 px vs ceiling 14 | `MAX_GROWTH_HALF` (7ba's own ceiling) |
+| | shutter ignored in the gather | ratio 1.00, expected about 2 | the shutter-scaling band |
+| | velocity axes swapped | smear 12.0 px off the motion axis | "the smear lies along the motion" |
+| | a constant 0.004 uv/frame added to every velocity | still patch differs by 104 levels | "zero velocity is a no-op to the byte" |
+| `oit` | the resolve's V flip removed | 34,304 px differ, flipped would be 34,304 | the orientation claim |
+| | **the depth weight flattened to `color.a`** | **centre still (225,150,126) -- passed** | see below |
+| `color_grading` | LUT sampled at `c` instead of texel centres | identity off by 3/255, swap off by 3 | the identity claim, the recipe claim, the swap |
+| | the LUT mixed at zero strength | swap reproduces the ungraded frame | "the LUT is not reaching the shader" |
+| | the tonemap's V flip removed | backends differ by 151/255 on all four grades | the cross-backend claim |
+| `depth_of_field` | circle of confusion forced to zero | every group keeps 100 % | `MIN_BLUR_DROP` both ways, the aperture claim, both AA modes |
+| | CoC x3 | far group loses 75 % vs ceiling 66 | `MAX_BLUR_DROP_FAR`, and under MSAA and SSAA |
+| | CoC x10 | f/16 blurs 49 % vs ceiling 10 | `MAX_STOPPED_DROP` |
+| | aperture pinned at f/1.4 inside the CoC | f/16 blurs 58 %, same as f/1.4 | the aperture claim, `MAX_STOPPED_DROP` |
+| | per-tap CoC test removed (background bleeds forward) | in-focus group keeps 58 % vs floor 92 | `MIN_SHARP_KEPT` |
+| `auto_exposure` | metering not multiplied into the tone map | metered gap 87.5, same as uncorrected | `MAX_METERED_GAP` |
+| | the profile's own Exposure dropped under metering | a stop of compensation lifts 0.0 levels | "the slider is compensation" |
+| | the correction applied twice (a normaliser) | metered -112.2 levels: the bright scene reads darker | `MIN_ORDER_GAP` |
+| `lens_effects` | vignette inverted | centre drops 72.8, corner 0.9 | "the falloff is a function of distance from the middle" |
+| | chromatic aberration branched past | a large setting changed nothing | "each effect reaches the shader" |
+| | grain sampled 64x finer (white noise) | neighbour correlation +0.001 | `MIN_NEIGHBOUR_CORRELATION` |
+| | grain lattice floored (blocks) | 51 % of adjacent pixels identical, ceiling 20 | `MAX_ADJACENT_IDENTICAL` |
+| | grain sampled 8x coarser (a blur) | +0.807 four pixels away, ceiling 0.15 | `MAX_FAR_CORRELATION` |
+| | grain's frame index replaced by zero | frames 30 and 31 identical | "it animates" |
+| | the response curve put back to `1 - luma/2` | the dark band no longer under the midtone | `MIDTONE_MARGIN` |
+| `theme_contrast` | the light theme's secondary grey replaced by the dark theme's | 2.44 and 2.14 against 4.5 | both `TextSecondary` pairs |
+| `font_atlas` | every glyph's plane bounds turned upside down | 'E' covers 59.5 % of its box | the coverage band |
+| | every glyph's atlas rect moved 30 texels | '8' reconstructs to 0.0 % | the coverage band, the other side |
+| `gi` | the screen-space gather returns zero | near bleed +0.00, accumulation 0.00 of itself | `MIN_NEAR_BLEED`, `MIN_ACCUMULATION_MATCH`, and the quality dial |
+| | the gather x4 | +1.63 against a ceiling of 0.45 | `MAX_NEAR_BLEED` |
+| | the traced bounce returns zero | eight distinct claims at once, from the near bleed to the second bounce | `MIN_TRACED_NEAR_BLEED`, `MIN_TRACED_AWAY_BLEED`, `MIN_FLICKER_DROP`, `MIN_SETTLE_RATIO`, `MIN_SETTLED_AGREEMENT`, the sky-lit band's floor, both second-bounce claims |
+| | the traced bounce x3 | sky-lit wall 1.143, floor 1.103, settled agreement 0.82 | `MAX_SKYLIT_WALL_GAIN`, `MAX_SKYLIT_FLOOR_GAIN`, `MAX_SETTLED_AGREEMENT` |
+| | **a traced miss returns the sky again (the 9.14 regression)** | sky-lit wall 1.146, floor 1.147 -- 7bb's own pre-fix numbers, to three places | the sky-lit band, both sides |
+| | the second bounce switched off | lift 1.00x, unevenness 1.00 | `MIN_SECOND_BOUNCE_LIFT`, `MIN_BOUNCE_UNEVENNESS` |
+| | the second bounce replaced by a constant 1.08 scale | lift 1.00x, unevenness 1.00 | the same two, from the direction 7ba's claim 9 was banded against |
+| | **the gather's tap count pinned at 24** | **Low and High still differ -- passed** | see below |
+| | **the gather's screen-bounds rejection removed** | **the away fixture's wall does not redden -- passed** | see below |
+| | the denoiser's history dropped | noise removed 1.0x (wanted 5), settle 0.4x (wanted 4) | `MIN_FLICKER_DROP`, `MIN_SETTLE_RATIO` |
+| | **`GiIntensity` dropped from the lit shader's read** | **an intensity of zero still renders the GI-off frame -- passed** | see below |
+| `ray_shadows` | the shadow ray traced along -L | near IoU 0.220, far 0.394, the whole sunlit floor dark, spot 0.673, point 0.666, fox 0.455, fox frames 30 and 45 identical | seven claims at once: `MIN_IOU`, `MIN_FOX_IOU`, `MAX_SAME_POSE_IOU`, `MAX_SPECKLE_FRACTION` and the local-light pair |
+| | every ray given tMax 1e4 | spot 0.673, point 0.666, fox 0.712 | the local-light claim (a caster beyond the light shadows the disc) |
+
+Six breaks were written and not run when the session ended: `rs-no-offset`
+(the shadow ray's origin offset, which needs its anchor disambiguated -- the
+same line appears in two functions), the two terrain layer breaks, the two
+bindless ones, and `sort-writes-depth`. They are in `falsify.py`, aimed and
+ready.
+
+### What did not fail, which is the whole point
+
+Eight claims stayed green under a break aimed straight at them. None of them
+is wrong; each is measuring something other than what its wording suggests,
+and that is only visible from the wrong side.
+
+**1. `check_ssao`'s open-floor bound does not guard the bias.** `kBias` and
+`kBiasPerMetre` exist so a floor does not occlude itself out of its own depth
+quantisation. Set both to zero and the open floor still drifts **0.000**; the
+seam goes 13.65 to 16.51, inside its band. What actually holds that floor
+still is the kernel's *lift* -- every tap sits above the surface -- and
+dipping the lift below the plane reads 71.4. The bias is doing something on
+some other geometry; on this fixture nothing measures it.
+
+**2. `check_ssao`'s traced wall claim passed its own documented defect by a
+thousandth.** The RTAO kernel refuses a ray that would go under the slope the
+depth buffer implies, and its comment says why. Remove the guard: p10 reads
+**0.996** against a floor of 0.995. Fixed here -- the traced form reaches
+1.000 where the screen-space form reaches 1.000 too but breaks differently, so
+it gets its own floor at 0.998, placed between the correct reading and the
+broken one. This is the only threshold CHK.2 changed.
+
+**3. `check_ssr`'s "a rough floor shows less" is not guarded by the SSR
+passes.** Disable the trace's `roughFade` *and* the resolve's roughness blur
+together and the rough floor still reads 24.63 against the mirror's 79.55 --
+the claim passes. The attenuation lives in the lit shader's specular weight,
+which is a different piece of code from the one the claim's wording points at;
+clamping the surface roughness there makes the rough floor read 79.58 against
+a mirror's 79.58 and the claim fires. The claim is sound and the file's
+explanation of it was pointing one module too early.
+
+**4. `check_oit`'s depth-weight claim cannot fail the way it says it can.**
+Its own docstring names the defect: "the depth weight saturated its clamp at
+every distance, which makes the resolve a flat average". Replace the weight
+with a constant and the frame is **identical to the byte** -- not close,
+identical -- and the check passes. The arithmetic says why: the resolve
+divides the weighted colour sum by the weighted alpha sum, so a constant
+factor cancels exactly. A constant weight is invisible *by construction*; what
+the 6.9 bug must actually have been is something else, and the claim as it
+stands measures the three plumes' own colours. Filed rather than fixed: the
+fix is a fixture change and wants its own item.
+
+**5. `check_smaa`'s flat-region claim survives a filter that blurs
+everything.** Offset both blend taps by half a texel at every pixel and the
+flat regions come through bit-identical, because the model's weights sum to
+one and a constant region under a normalised kernel is that same constant. The
+break that can move it is a kernel whose weights *do not* sum to one.
+
+**6. `check_gi`'s quality dial does not isolate the tap count.** Fixing
+`TapCount()` at 24 leaves Low and High differing anyway -- the dial also halves
+the gather's target (9.13d), so the images differ by resolution whatever the
+loop does.
+
+**7. `check_gi`'s off-screen claim is not guarded by the screen-bounds
+test.** Removing the rejection so out-of-range taps clamp to the edge texel
+does not redden the away fixture's wall.
+
+**8. `check_gi`'s intensity-zero claim is guarded by the frame graph, not by
+the shader.** Drop `GiIntensity` from the lit shader's read of the indirect
+buffer and an intensity of zero still renders the GI-off frame to the byte:
+the graph skips the whole chain at zero, so there is nothing in the buffer for
+the multiply to have failed to scale. The claim holds -- it is just not
+holding the line its wording points at.
+
+### What this pass changed
+
+**No threshold was moved.** Finding 2 has one ready and measured on both
+sides -- `check_ssao` wants a `MIN_TRACED_WALL_P10` of 0.998 for the traced
+wall, between the correct 1.000 and the 0.996 that removing the kernel's guard
+produces -- and it is *not* in, because the session ended before the suite
+could be re-run under it, and a calibration that has not been watched pass is
+the thing this entry is about. It is the first job of the next pass. The other
+seven are notes rather than edits because a claim that survives a break wants
+understanding before it wants a number.
+
+`tools/scripts/falsify.py` is the harness, with every break in this table in
+it: `falsify.py <name>`, run the check, read the FAIL line, `falsify.py
+restore`. It exists so the next person does not rebuild the list from prose.
+
+### What is left, and exactly what to do
+
+Everything above is the shader and data half, which is fifteen of the twenty
+scripts. The rest needs a Release build per break, and the session that did
+this ran out of clock before it. The breaks are designed and the edits are
+one-liners; what is missing is the build and the run.
+
+**The claims still to be put on the wrong side, and the break each wants:**
+
+- **"Off is off, to the byte"** -- `ssao`, `ssr`, `depth_of_field`,
+  `motion_blur`, `auto_exposure`, `lens_effects`. The break is *not* to make
+  the pass ignore its switch: with the pass forced on, the explicit-`false`
+  frame and the never-mentioned frame both have the effect and still match.
+  The claim is that silence and an explicit `false` agree, and silence reads
+  the struct's default -- so flip the defaults in `PostSettings.h`
+  (`AmbientOcclusion`, `ScreenSpaceReflections`, `DepthOfField`, `MotionBlur`,
+  `AutoExposure` to `true`, `VignetteIntensity` to 0.4). One build, six checks.
+- **"A frame reproduces"** -- `ssao`, `ssr`, `motion_blur`, `auto_exposure`,
+  and `lens_effects`' grain. A value that is not a function of the scene,
+  reaching the pass: a `static const float` seeded from the clock at process
+  start in `PostProcess.cpp`, multiplied into the SSAO radius, the SSR
+  distance and the shutter. One build.
+- **The whole of `check_taa_jitter`**, whose subject is
+  `TemporalJitter()` in `FrameGraphBuilder.cpp`: index it by a clock rather
+  than the frame (claims 1 and 2), by `frame / 2` (claim 3, two offsets
+  landing together), and scale the offset by twenty (claim 4, a jitter in the
+  wrong units moving flat regions). Three builds, because the three defects
+  are alternatives.
+- **`check_depth_sort`'s two exact claims** (identical pixels, identical draw
+  count) and **`check_bindless`'s reproduction and OpenGL-path claims**, which
+  are about the sort and the heap rather than about any shader.
+- **`check_import_cache`** -- the only script with nothing re-falsified at
+  all. Its three claims are about the cooker and the cache: something cooked
+  that differs from its source, and a run that reads nothing cooked while
+  claiming it did.
+- **`check_tangent_frame`** -- the break is written (`tangent-flipped` in
+  `falsify.py`: the tangent frame rotated 180 degrees about the geometric
+  normal, which is what a flipped `dFdy` does) and needs the parity fixture
+  rendered at 800x640 and handed to the check.
+- **Two shader breaks queued and not run**: `smaa-unnormalised` for
+  `check_smaa`'s flat-region claim (finding 5 above), and `taa-no-history`
+  against `check_smaa`'s own TAA gain floor, which is a different claim from
+  `check_taa_motion`'s and deserves its own run.
 
 ---
 

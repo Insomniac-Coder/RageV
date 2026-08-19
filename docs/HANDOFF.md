@@ -1637,66 +1637,70 @@ pin; that is now a fourth shape for CHK.1.**
 9.13c and 9.13d were green when committed -- 9.13c's OK lines were read, 9.13d's
 were counted -- and the engine has had no regression at any point.
 
-### START HERE (2026-08-19): phase 9 is complete. Next: CHK.2, then a phase-8 item
+### START HERE (2026-08-19, later): CHK.2 has done the shader half; finish it with four builds
 
-**State.** Everything in ROADMAP phases 0-7 and 9 is done. Phase 8 has nine
-rows open (8.1, 8.3, 8.5-8.11) and three done (8.2, 8.4, 8.12). scenetest
-1828 Vulkan (zero `[Vulkan]`) / 1782 OpenGL; all twenty check scripts green;
-Release, Debug, Dist build; `rvdoc --check` green. **37 commits are unpushed;
-pushing is the owner's action and it is safe to do.**
+**State.** Phases 0-7 and 9 are done; phase 8 has nine rows open. **CHK.2 --
+re-falsifying every claim in every check script -- is two thirds done and
+written up in ENGINE-NOTES 7ba under "every claim put on the wrong side of
+itself".** Sixty-odd breaks were run across fifteen of the twenty scripts and
+every threshold they were aimed at was seen to fail; **eight claims stayed
+green under a break aimed straight at them**, and those eight are the
+valuable part of the entry. **39 commits are unpushed; pushing is the owner's
+action and it is safe to do.**
 
-**THE ORDER, AGREED WITH THE OWNER AT THE END OF THE SESSION:**
+**READ 7ba's CHK.2 SECTION FIRST.** It carries the method, the table of every
+break and its reading, the eight that did not fail, and the list below in
+more detail.
 
-**1. CHK.2 -- re-falsify every claim in every check script.** This is the one
-item 7ba (the check audit) left open: shape 3, "a claim nobody has seen fail".
-Every check was falsified when written and says so in its commit, but the
-audit re-falsified only the six ceilings it added that day. The job is
-mechanical and long -- for each of the twenty scripts, for each threshold,
-break the thing it guards, watch it fail, restore -- and the point is not the
-thresholds, it is finding the claim that *cannot* be made to fail, which is
-what 7aw's deleted claim 4 was and what today's depth-of-field pass nearly
-missed (a reading that saturates against `MaxRadius` and reads the same at
-three times the error and ten). Record per script in a table under 7ba, with
-the break used and the reading it produced. **Read 7ba first**; its four
-shapes are the checklist, and `--render-defaults=on` (7ba) is why a check's
-launch line now looks the way it does. Budget: a full session.
+**1. Finish CHK.2.** What is left needs a Release build per break, which is
+why it stopped -- the shader half runs at fifty seconds a check and the engine
+half at five minutes:
 
-**2. Then a phase-8 item, the owner's choice.** The two the previous session
-recommended, for different reasons: **8.1 SDFGI / voxel GI** (XL) continues
-the GI arc while 7av-7bb are fresh -- it is the thing that would make GI cheap
-rather than merely convergent, and the indirect buffer, the denoiser and the
-sky-once fix are all inputs to it; **8.9 FBX / Collada import** (L) is the
-cheapest genuine capability on the list. 8.5 navmesh and 8.6 networking are
-the two that reshape the architecture and should not be picked casually. Every
-row's price is in ROADMAP.
+- **One build**: the six "off is off, to the byte" claims. The break is *not*
+  forcing the pass on; it is flipping the *defaults* in `PostSettings.h`, and
+  7ba explains why that is the defect the claim guards.
+- **One build**: the four "a frame reproduces" claims -- a value seeded from
+  the clock at process start, multiplied into the SSAO radius, the SSR
+  distance and the shutter in `PostProcess.cpp`.
+- **Three builds**: the whole of `check_taa_jitter`, whose subject is
+  `TemporalJitter()` in `FrameGraphBuilder.cpp` -- a clock instead of the
+  frame, `frame / 2`, and the offset scaled by twenty. Three alternatives, so
+  three builds.
+- **`check_import_cache` has nothing re-falsified at all**, and its claims are
+  the cooker's.
+- **Six shader breaks written and not run**: `rs-no-offset` (its anchor text
+  appears in two functions and needs disambiguating -- that is what stopped
+  the last batch), the two terrain layer breaks, the two bindless ones, and
+  `sort-writes-depth`. Plus `smaa-unnormalised` and `taa-no-history` against
+  `check_smaa`, and `tangent-flipped` rendered into a PNG for
+  `check_tangent_frame`.
+- **One threshold is measured and not applied**: `check_ssao` wants
+  `MIN_TRACED_WALL_P10 = 0.998`. Removing the RTAO kernel's slope guard --
+  the defect its own comment describes -- reads 0.996 against a floor of
+  0.995, so the claim survived its own break by a thousandth. Correct reads
+  1.000. It is out of the tree because the suite could not be re-run under it
+  before the session ended; put it in, run `check_ssao`, keep it.
 
-**READ BEFORE TOUCHING ANYTHING:**
+**`tools/scripts/falsify.py` is the harness** and carries all seventy-odd
+breaks: `falsify.py <name>`, run the check, read the FAIL line, `falsify.py
+restore`. It works by editing the *deployed* shaders beside the runtime exe,
+which is the same defect a source edit plus a build produces, without the
+build.
 
-- **ENGINE-NOTES 7ba** -- the four ways a green check lies, and the table.
-- **The RESOLVED note below** -- the day's one real incident: an accidentally
-  committed project file with ray tracing on made two checks read 0.00, and an
-  engine-only bisection blamed the wrong commit for an hour. Two rules from it:
-  `git checkout -- SampleProject/` before every `git add -A`, and bisect the
-  *whole tree* (`git checkout <rev> -- .`), never engine directories alone.
-- **7aw** -- a stochastic renderer measured through the tone curve reads high.
-- **7ay** -- 7av's diagnosis of the +16.98 was wrong (a unit error, not the
-  loop); the arithmetic that would have caught it was never done.
-- **Process trap recorded in memory:** patch scripts go through the Write tool
-  to the scratchpad. Inline Python through the Bash heredoc collapses
-  backslashes -- a `\1` became `chr(1)` and corrupted six check scripts
-  mid-audit (caught by the suite, repaired from git).
+**2. Then a phase-8 item, the owner's choice.** **8.1 SDFGI / voxel GI** (XL)
+continues the GI arc while 7av-7bb are fresh; **8.9 FBX / Collada import** (L)
+is the cheapest genuine capability on the list. 8.5 navmesh and 8.6 networking
+reshape the architecture and should not be picked casually.
+
+**Two process rules that cost an hour each when they were learned:** `git
+checkout -- SampleProject/` before every `git add -A`, and bisect the *whole
+tree* (`git checkout <rev> -- .`), never engine directories alone. Patch
+scripts go through the Write tool to the scratchpad -- inline Python through a
+Bash heredoc collapses backslashes.
 
 **Also carried, small:** `RayTracedGlobalIllumination` and `GiBounces` have no
-typed C# properties (7ax leaves it as one job); the in-focus group in
-`check_depth_of_field` reads *115 %* of its unblurred detail with the effect on,
-observed and unexplained and deliberately not bounded.
-
-**Where things are:** the GI design chain is 7at (9.12) -> 7av (the
-restructure) -> 7aw (convergence) -> 7ax (second bounce) -> 7ay (SSGI's loop) ->
-7az (quality; the fallback filed) -> 7bb (sky once; the fallback delivered as a
-normalisation). `check_gi.py` has twelve claims across four fixtures
-(`gi_corner`, `gi_away`, `gi_detail`, `gi_skylit`), all generated by
-`make_gi_scene.py`.
+typed C# properties; the in-focus group in `check_depth_of_field` reads 115 %
+of its unblurred detail, observed and unexplained.
 
 The 9.13 detail below stands as history.
 
