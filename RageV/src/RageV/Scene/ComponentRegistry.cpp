@@ -1355,6 +1355,24 @@ namespace
 		{
 			return !RayGiTakesOver(block) && ResolveVoxelGlobalIllumination(Project::Render());
 		}
+		// The hybrid (8.13, ENGINE-NOTES 7be): rays run *and* the grid is built
+		// for them, so the voxel dials matter again even though the gather does
+		// not run. Everything below that greys under rays has to say "and not
+		// this".
+		bool HybridOn(const void*)
+		{
+			return ResolveHybridSecondBounce(Project::Render());
+		}
+		bool RayGiWithoutHybrid(const void* block)
+		{
+			return RayGiTakesOver(block) && !HybridOn(block);
+		}
+		bool VoxelGridWanted(const void* block)
+		{
+			// The setting itself rather than VoxelGiOn, which is defined below:
+			// the same read, in the order the file allows.
+			return Project::Render().VoxelGlobalIllumination || HybridOn(block);
+		}
 		bool VoxelGiOn(const void*)
 		{
 			return Project::Render().VoxelGlobalIllumination;
@@ -1532,10 +1550,24 @@ namespace
 							"bounce more each frame, converging on every bounce "
 							"on a still scene.")))),
 
+				Field<&RenderSettings::HybridSecondBounce>("HybridSecondBounce",
+					Named("Hybrid second bounce", OnlyWhen(RayGiTakesOver, Tip(
+						"Where ray-traced global illumination runs, shade the "
+						"first hit from the voxel grid instead of the reflection "
+						"probe's single number, and trace no second ray for it. "
+						"The grid is a cache of multi-bounce light, so four rays "
+						"a pixel buy most of what eight would: measured four "
+						"fifths of a second traced bounce for half the rays, "
+						"plus about 0.1 ms to build the grid. Worth it where the "
+						"frame is ray-bound. Builds the voxel grid even though "
+						"the voxel gather does not run, so the voxel dials below "
+						"apply.")))),
+
 				Field<&RenderSettings::VoxelGlobalIllumination>("VoxelGlobalIllumination",
-					Named("Voxel global illumination", DisabledWhen(RayGiTakesOver,
+					Named("Voxel global illumination", DisabledWhen(RayGiWithoutHybrid,
 						"Ray-traced global illumination is on in Render Settings and wins: "
-						"the voxel grid is not built at all while it runs.",
+						"the voxel grid is not built at all while it runs, unless the "
+						"hybrid second bounce above is on and reads it.",
 						Tip(
 						"Where a camera's profile asks for global illumination, "
 						"gather it from a voxelised scene instead of from the "
@@ -1549,24 +1581,24 @@ namespace
 						"a voxel leaks a little light through itself.")))),
 
 				Field<&RenderSettings::VoxelGiResolution>("VoxelGiResolution",
-					Named("Voxel resolution", OnlyWhen(VoxelGiOn,
-						DisabledWhen(RayGiTakesOver, nullptr,
+					Named("Voxel resolution", OnlyWhen(VoxelGridWanted,
+						DisabledWhen(RayGiWithoutHybrid, nullptr,
 						Drag(0.5f, 32, 128,
 							"Voxels along each cascade's side; rounded to 32, 64 "
 							"or 128. Memory and the voxelisation cost go with the "
 							"cube of it."))))),
 
 				Field<&RenderSettings::VoxelGiCascades>("VoxelGiCascades",
-					Named("Voxel cascades", OnlyWhen(VoxelGiOn,
-						DisabledWhen(RayGiTakesOver, nullptr,
+					Named("Voxel cascades", OnlyWhen(VoxelGridWanted,
+						DisabledWhen(RayGiWithoutHybrid, nullptr,
 						Drag(0.02f, 1, 4,
 							"How many nested grids, each covering twice the "
 							"distance of the last at half the detail. Three at "
 							"the default voxel size reaches 64 metres."))))),
 
 				Field<&RenderSettings::VoxelGiVoxelSize>("VoxelGiVoxelSize",
-					Named("Voxel size", OnlyWhen(VoxelGiOn,
-						DisabledWhen(RayGiTakesOver, nullptr,
+					Named("Voxel size", OnlyWhen(VoxelGridWanted,
+						DisabledWhen(RayGiWithoutHybrid, nullptr,
 						Drag(0.01f, 0.05f, 4.0f,
 							"The finest cascade's voxel, in metres. Smaller "
 							"resolves thinner walls and a smaller room; larger "
