@@ -9477,6 +9477,33 @@ probe number, and cheaper than another ray*.
 5. `Renderer3D`'s lit resource set binds them; `pbr_fragment` defines the five
    accessors and includes `voxel_cone.glsl`; the `giBounces >= 2` branch
    becomes the hybrid branch when the flag is on.
+**Blocked, with a minimal repro (2026-08-19).** Steps 1-5 are built on
+`wip/8.13-hybrid` and run: the gate relaxation works and
+`VoxelGI: grids at 64^3 x 3 cascades, 7 levels` appears under
+`--raytracing=on` for the first time. What stops it is **not the hybrid**:
+
+```
+RageVRuntime --rhi=vulkan --render-defaults=on --raytracing=on --rt-gi=on              --hybrid-gi=on --bindless=on  --validation=on   ->  10 [Vulkan] lines
+             --hybrid-gi=on --bindless=off --validation=on   ->   0
+```
+
+The error is `VoxelGI.voxelize` statically using descriptor set 1 while sets 0
+to 1 are not compatible with the bound layout, and **it is the bindless path
+that decides it** -- proved by the pair above rather than reasoned. This is
+latent, not new: 8.1's voxeliser binds materials through the *bound* set 1
+(`include/material_bound.glsl`, which has no `RV_BINDLESS` fork) and 8.2's
+bindless path has never run in the same frame, because the grid was never
+built while rays were on -- the gate 8.13 relaxes.
+
+Ruled out already, so do not re-check: the voxeliser compiles without defines
+so its set 1 is always the bound layout; `Material::Bind` always reaches
+`BindResourceSet(set, ...)` rather than early-returning; and the draw order is
+`BindPipeline` then set 0 then set 1, which is correct. The next place to look
+is what `Renderer3D` binds for the heap under bindless and at which set index,
+against what `Material::EnsureResources(pipeline, set)` caches per pipeline --
+and whether `m_Params` holds heap slots rather than bound-path values by the
+time the voxeliser uploads it.
+
 6. check_gi claim on `gi_away`, the falsify break, both backends (Vulkan only
    in practice -- OpenGL has no rays, so the hybrid is unreachable there and
    the check must say so rather than skip silently), all configs, docs.
