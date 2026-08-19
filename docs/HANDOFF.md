@@ -1639,6 +1639,35 @@ were counted -- and the engine has had no regression at any point.
 
 ### START HERE (2026-08-19, later): check_gi runs end to end. 9.15 is specified, not landed
 
+### HIGH PRIORITY: the hybrid costs ~90 ms a frame, and 7be claimed it was nearly free
+
+**Owner's measurement, in the editor, 2026-08-19:** turning on Hybrid second
+bounce takes the frame to **~86-91 ms (11 FPS)**, with the render graph's GPU
+time at **90.171 ms** -- against a frame that was fine before it. Settings in
+the shot: ray tracing with RT reflections, RTAO and RT GI all on, `GiBounces`
+1, voxel GI also ticked, grid 64^3 x 3 cascades at 0.25 m.
+
+**8.13 as merged is unusable at that cost, and the ROADMAP row and 7be both
+say it costs "0.09 ms, less than the rays it replaces". That claim is wrong
+and was never measured.** What was measured was quality (1.80x, +1.47) and the
+*grid build*. **The gather was never timed at all**, and I asserted the cost
+from the design rather than from a number -- the same mistake as the black
+frames, one layer up.
+
+**Hypothesis, to verify before fixing anything:** the grid build is genuinely
+cheap; the *cone gather* is not. `GatherCones` is six cones, and the hybrid
+calls it **once per ray hit, four rays a pixel, at full resolution, inside the
+lit shader** -- so about **24 cone traces per pixel**. For scale, the voxel
+form's own gather is *one* per pixel at *half* resolution and costs 0.9 ms.
+That alone predicts something in the tens of milliseconds before divergence
+and register pressure in the lit shader are counted. If that is the cause, the
+fix is architectural rather than a constant: gather once per pixel rather than
+per ray hit, or gather at reduced rate, or restrict the cone count.
+
+**Do not trust the "0.09 ms" figure anywhere it appears until the gather is
+timed.** The GPU timestamp for the lit pass with the hybrid on and off is the
+first number to get.
+
 **TWO VERIFICATION HOLES TO CLOSE FIRST, NEXT SESSION.** Both were found the
 hard way while building 8.13, both let a completely broken renderer report
 success, and neither is fixed:
