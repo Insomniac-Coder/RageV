@@ -1703,13 +1703,22 @@ Vulkan from +1.78 to +0.38. There is no shader cache to be stale either --
 `ShaderCompiler::SetCacheDirectory` is never called, so every launch
 recompiles. **`falsify.py` works on Vulkan and CHK.2's guarantee stands.**
 
-What survives is narrow and still open: **on `gi_shadowed`, in the floor strip
-7bc measured, Vulkan reads +0.50 and does not respond to the injection**,
-reproducibly and independently of run order, while the same build on
-`gi_corner` responds normally. Explain that before trusting any number
-measured on `gi_shadowed`. And separately: the two backends respond to the
-same edit by different factors (Vulkan 0.21x, OpenGL 0.60x), which nobody has
-explained.
+**And the rest is explained: Vulkan has ray tracing and OpenGL does not.**
+`SampleProject.rvproject` has an uncommitted `RayTracing: true` +
+`RayTracedGlobalIllumination: true`. The probe scripts never passed
+`--render-defaults=on`, so on Vulkan `rayGi` was true and -- correctly, by the
+documented resolve order rays > voxel > screen -- `--voxel-gi=on` was ignored.
+**Voxel GI never ran on Vulkan in any of those probes**, so of course no edit
+to `voxel_inject.rvshader` changed anything. The log says so plainly
+(`VoxelGI: grids at 64^3 x 3 cascades, 7 levels` appears only on OpenGL, and
+appears on Vulkan the moment `--render-defaults=on` is added). Nothing is
+wrong with the engine.
+
+**Rule to keep, same shape as the courtyard one: any script that renders for
+measurement must pass `--render-defaults=on`**, or it inherits whatever the
+owner last saved in the project -- and on a ray-capable device that silently
+selects a different GI form. `check_gi.py` does this in `run()`; ad-hoc probes
+did not.
 
 **The local-light shadow follow-up is not blocked** -- it was left unbuilt for
 time, not for tooling.
