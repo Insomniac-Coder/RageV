@@ -1639,6 +1639,29 @@ were counted -- and the engine has had no regression at any point.
 
 ### START HERE (2026-08-19, late): 8.1 voxel GI is done. Next: 9.15, or a phase-8 item
 
+**OPEN ITEMS FROM 8.1 -- read these before anything else (2026-08-19):**
+
+1. **`check_gi.py` claims 13-17 have NOT been run end to end.** They were
+   written from the probe harness's measurements (same shots, same regions,
+   same intensity) and the constants in the file are those numbers, but the
+   script itself was never run with them. First thing next session:
+   `python tools/scripts/check_gi.py` from a Release build; if a band
+   misses, read 7bc's table before moving a constant.
+2. **8.1 follow-ups, not done, stated in 7bc:** skinned casters (the voxeliser
+   skips them; the bind pose would be wrong, 7an's posed buffer is the path);
+   local-light shadows in the injection (spot/point lights light the grid
+   unshadowed); the ray-query injection under traced shadows (under
+   `RayTracing` the sun lights the grid unshadowed); conservative
+   rasterisation; the SDF; **the hybrid second bounce** -- the *ray-traced*
+   form's second ray (7ax) shading its hit from the lit voxel grid instead of
+   the probe's guess. The voxel form's own second bounce IS in (`GiBounces`
+   2 feeds the grid from last frame's grid).
+3. **Next, the owner's call:** **9.15** (calibrate the screen-space gather
+   against the two world-space forms -- the SSGI finding below) **or 8.9**.
+4. **`SampleProject/assets/post/courtyard.rvpostprofile` carries the owner's
+   own editor edit** (GI on, quality High), uncommitted and unreverted. Do
+   not `git checkout -- SampleProject/` over it; stash it first.
+
 **State.** Phases 0-7 and 9 are done; **8.1 is done** (ENGINE-NOTES 7bc,
 ROADMAP row); phase 8 has 8.3, 8.5-8.11 open. **43 commits are unpushed;
 pushing is the owner's action and it is safe to do.**
