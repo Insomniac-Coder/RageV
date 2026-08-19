@@ -187,7 +187,11 @@ vec3  VoxelOrigin(int k)  { return u_VoxelGrid.Cascade[k].xyz; }
 float VoxelSize(int k)    { return u_VoxelGrid.Cascade[k].w; }
 float VoxelMaxMip()       { return u_VoxelGrid.Grid.z; }
 
-#include "include/voxel_cone.glsl"
+// Same directory, so the bare name -- an include resolves relative to the
+// file that asks for it, and "include/voxel_cone.glsl" from inside include/
+// looks for include/include/. voxelgi_gather.rvshader sits at the shader root,
+// which is why the path that works there does not work here.
+#include "voxel_cone.glsl"
 
 // Comparison samplers: the hardware compares against the reference and filters
 // the answers, which is a 2x2 percentage-closer filter for one fetch. Four
