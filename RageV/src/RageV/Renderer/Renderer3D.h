@@ -167,6 +167,13 @@ namespace RageV
 		// structure and bindless for the heap, exactly as reflections do, and
 		// silently stays off without either. Recompiles the lit shaders.
 		static void SetRayTracedGlobalIllumination(bool enabled);
+
+		// The hybrid (8.13, ENGINE-NOTES 7be): the traced form's first hit is
+		// shaded from the voxel grid instead of the probe, and no second ray is
+		// traced for it. Does not recompile anything -- it is a uniform, because
+		// a fourth lit-shader variant would remove no work from the inner loop
+		// (8.2's bar).
+		static void SetHybridSecondBounce(bool enabled);
 		static bool IsRayTracedGlobalIllumination();
 
 		// Whether the lit pass reads material textures through the bindless

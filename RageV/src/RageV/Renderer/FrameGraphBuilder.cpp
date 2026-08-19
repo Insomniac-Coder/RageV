@@ -215,6 +215,31 @@ namespace RageV
 		return Math::Clamp(requested, 1, 2);
 	}
 
+	bool ResolveHybridSecondBounce(const RenderSettings& render)
+	{
+		const EngineConfig& config = EngineConfig::Get();
+		const bool requested = config.HasHybridGiOverride ? config.HybridGiOverride
+														  : render.HybridSecondBounce;
+		if (!requested)
+			return false;
+		// Both halves have to be there: the rays it improves, and the grid it
+		// reads. Either missing and this is silently nothing, which is the
+		// failure mode 7be's own session was caused by, so it says so once.
+		if (!ResolveRayTracedGlobalIllumination(render) || !VoxelGI::IsReady())
+		{
+			static bool reported = false;
+			if (!reported)
+			{
+				RV_CORE_INFO("The hybrid second bounce was asked for but needs both "
+							 "ray-traced global illumination and a device that can "
+							 "voxelise; the traced form's own second bounce stays");
+				reported = true;
+			}
+			return false;
+		}
+		return true;
+	}
+
 	bool ResolveVoxelGlobalIllumination(const RenderSettings& render)
 	{
 		const EngineConfig& config = EngineConfig::Get();

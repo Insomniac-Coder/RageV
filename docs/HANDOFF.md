@@ -1639,6 +1639,27 @@ were counted -- and the engine has had no regression at any point.
 
 ### START HERE (2026-08-19, later): check_gi runs end to end. 9.15 is specified, not landed
 
+**TWO VERIFICATION HOLES TO CLOSE FIRST, NEXT SESSION.** Both were found the
+hard way while building 8.13, both let a completely broken renderer report
+success, and neither is fixed:
+
+1. **A clean `cmake --build` says nothing about whether the shaders load.**
+   Shaders compile at *runtime*, so a green build proves only that the C++
+   compiled. `pbr_fragment.glsl` had a bad `#include` path from the moment it
+   was written, the lit shader never compiled once, **every `gi_*` fixture
+   rendered pure black** -- and the build stayed green through all of it. The
+   checks need to fail loudly when a shader did not compile, rather than
+   measuring whatever the frame happens to contain.
+2. **`check_gi` cannot tell a black frame from a measured zero.** It read
+   +0.00 off 27 blank renders and reported them as results; with the hybrid
+   claim's original floor of 1.0 -- which is exactly the null result -- it
+   printed **OK** for a feature doing nothing on a renderer drawing nothing.
+   A check that accepts a uniformly black frame is not a check. It should
+   refuse the frame, not band it.
+
+The owner caught the black frames by looking at the screenshots, which is the
+thing no threshold in this file was doing.
+
 **State.** Phases 0-7 and 9 are done; 8.1 is done; phase 8 has 8.3, 8.5-8.11
 open. **Everything through `8cfc0a5` is pushed.** This session's work is on top
 of that and is the owner's to push.

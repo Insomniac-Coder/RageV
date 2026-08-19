@@ -216,6 +216,10 @@ namespace RageV
 	// themselves, rays first. The post profile's GiRadius row asks this to
 	// know whether it has been taken over.
 	bool ResolveVoxelGlobalIllumination(const RenderSettings& render);
+	// The hybrid (8.13): only where the traced form runs and a grid can be
+	// built. Never true on a device without ray queries -- there the voxel
+	// gather is the world-space form and this would be a second one.
+	bool ResolveHybridSecondBounce(const RenderSettings& render);
 
 	// This frame's sub-pixel offset for a target of this size, in NDC.
 	//

@@ -1420,6 +1420,7 @@ namespace RageV
 		// here so the lit shader has it: zero while the traced form is not
 		// running, which is what makes the shader's block cost nothing.
 		Renderer3D::SetRayTracedGlobalIllumination(ResolveRayTracedGlobalIllumination(Project::Render()));
+		Renderer3D::SetHybridSecondBounce(ResolveHybridSecondBounce(Project::Render()));
 
 		RenderShadowMaps(camera, cameraTransform);
 
@@ -1800,8 +1801,15 @@ namespace RageV
 		// Rays first, then voxels, then the screen (7bc): where the traced
 		// form runs the grid is not built, and where neither runs a grid left
 		// from before must not be read.
-		const bool voxel = ResolveVoxelGlobalIllumination(Project::Render())
-						&& !ResolveRayTracedGlobalIllumination(Project::Render());
+		// Two things want a grid now (8.13, ENGINE-NOTES 7be): the gather, which
+		// only runs where rays do not, and the hybrid, which only runs where
+		// they do. Before 8.13 this read `&& !ResolveRayTraced...`, and that
+		// one clause is why the grid was never built under ray tracing -- the
+		// thing that made a session of probes measure the traced form while
+		// believing they measured voxels (7bc's fifth finding).
+		const bool gather = ResolveVoxelGlobalIllumination(Project::Render())
+						 && !ResolveRayTracedGlobalIllumination(Project::Render());
+		const bool voxel = gather || ResolveHybridSecondBounce(Project::Render());
 		if (!voxel || !VoxelGI::IsReady())
 		{
 			VoxelGI::Invalidate();

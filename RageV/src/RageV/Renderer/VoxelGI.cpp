@@ -64,6 +64,18 @@ namespace RageV
 		};
 		static_assert(sizeof(GpuInjectParams) == 384, "Must match InjectParams in voxel_inject.rvshader");
 
+		// Mirrors VoxelGrid in pbr_fragment.glsl (8.13), std140. Its own block
+		// rather than four fields on SceneData: that block is mirrored by hand
+		// in *five* GLSL files, and a field added to one is a silent layout
+		// mismatch in the other four -- 9.12 spent a day on exactly that.
+		struct GpuHybridGrid
+		{
+			Vec4 Grid;
+			Vec4 Cascade[VoxelGI::kMaxCascades];
+			Vec4 Flags;
+		};
+		static_assert(sizeof(GpuHybridGrid) == 96, "Must match VoxelGrid in pbr_fragment.glsl");
+
 		// Mirrors Params in voxel_mip.rvshader.
 		struct MipPushConstants
 		{
@@ -142,6 +154,11 @@ namespace RageV
 
 			Ref<RHISampler> RadianceSampler;
 			Ref<RHISampler> PointSampler;
+
+			// What the lit pass binds when the hybrid is on -- and when it is
+			// off, or before any grid exists, so the binding is never unfilled.
+			Ref<RHITexture> EmptyVolume;
+			Ref<RHIBuffer> GridUniform;
 
 			// Per-level sets for the mip pass, per radiance image; their
 			// bindings never change, so they are built once.
@@ -397,8 +414,20 @@ namespace RageV
 		sampler.MaxLod = 0.0f;
 		s_Data->PointSampler = device.CreateSampler(sampler);
 
+		// One black voxel and a zeroed block, made once and kept: the lit pass
+		// binds these on every frame it has no grid, and a set with a hole in
+		// it is a validation error rather than a dark pixel.
+		s_Data->EmptyVolume = MakeGrid("VoxelGI.empty", Format::R16G16B16A16_SFLOAT, 1, 1, 1, 1);
+		s_Data->GridUniform = MakeUniform(sizeof(GpuHybridGrid), "VoxelGI.hybrid");
+		if (s_Data->GridUniform)
+		{
+			const GpuHybridGrid zero{};
+			s_Data->GridUniform->Upload(&zero, sizeof(zero));
+		}
+
 		s_Data->Frames.resize(device.GetFramesInFlight());
-		s_Data->Ready = s_Data->RadianceSampler && s_Data->PointSampler;
+		s_Data->Ready = s_Data->RadianceSampler && s_Data->PointSampler
+					 && s_Data->EmptyVolume && s_Data->GridUniform;
 		if (s_Data->Ready)
 			RV_CORE_INFO("Voxel global illumination ready");
 	}
@@ -426,6 +455,44 @@ namespace RageV
 		if (s_Data)
 			s_Data->HasGrid = false;
 	}
+
+	void VoxelGI::PublishGrid(bool hybridEnabled)
+	{
+		if (!s_Data || !s_Data->GridUniform)
+			return;
+
+		GpuHybridGrid grid{};
+		const bool live = hybridEnabled && s_Data->HasGrid;
+		if (live)
+		{
+			const uint32_t cascades = s_Data->CascadeCount;
+			grid.Grid = Vec4((float)s_Data->Resolution, (float)cascades,
+							 (float)Math::Max((int)s_Data->MipLevels - 2, 0),
+							 s_Data->Sizes[cascades - 1] * (float)s_Data->Resolution);
+			for (uint32_t k = 0; k < kMaxCascades; k++)
+				grid.Cascade[k] = Vec4(s_Data->Origins[k], s_Data->Sizes[k]);
+		}
+		// The shader believes the rest of this block only where x is one, so a
+		// frame without a grid reads the probe exactly as it did before 8.13.
+		grid.Flags = Vec4(live ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+		s_Data->GridUniform->Upload(&grid, sizeof(grid));
+	}
+
+	const Ref<RHITexture>& VoxelGI::GetRadiance()
+	{
+		return s_Data && s_Data->HasGrid && s_Data->Radiance[s_Data->Current]
+			 ? s_Data->Radiance[s_Data->Current] : s_Data->EmptyVolume;
+	}
+
+	const Ref<RHITexture>& VoxelGI::GetFaces()
+	{
+		return s_Data && s_Data->HasGrid && s_Data->Faces[s_Data->Current]
+			 ? s_Data->Faces[s_Data->Current] : s_Data->EmptyVolume;
+	}
+
+	const Ref<RHISampler>& VoxelGI::GetRadianceSampler() { return s_Data->RadianceSampler; }
+	const Ref<RHIBuffer>& VoxelGI::GetGridUniform()      { return s_Data->GridUniform; }
+	uint64_t VoxelGI::GetGridUniformSize()               { return sizeof(GpuHybridGrid); }
 
 	bool VoxelGI::HasGrid()
 	{
