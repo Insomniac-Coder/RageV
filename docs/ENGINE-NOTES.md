@@ -9374,6 +9374,113 @@ bounce source, they should agree about how much light it sends.
 it was, `check_gi` is unchanged in its screen-space bands, and the numbers
 above are the reason the next attempt does not start by deleting a multiply.
 
+### 7be. The hybrid second bounce: rays for the first, the grid for the rest
+
+**Designed, not built.** The plumbing is listed at the end so the next session
+starts from a list rather than from this paragraph.
+
+**Why it is worth doing, and why it is the only design in which 8.1 and 8.12
+cooperate.** Every other pairing in this renderer is exclusive: one writer of
+`Indirect`, resolved rays > voxel > screen, and the loser's row greyed. That
+is right for SSR against traced reflections, where the two compute the same
+thing at different quality. It is *wasteful* for GI, because the voxel grid is
+not a worse ray tracer -- it is a **cache of multi-bounce radiance in world
+space**, and a ray tracer's weakest point is exactly where a cache is
+strongest: what to do when the ray stops.
+
+Today `pbr_fragment` shoots four cosine rays. At `GiBounces` 1 the first hit's
+incoming light is `ProbeIrradiance(first.Normal)` -- one number for the whole
+room. At 2 it spends *a second ray per bounce ray* and then still ends on the
+probe, one hit further along. So the traced form pays double to move the guess
+one step back.
+
+**The hybrid spends nothing and moves it further than two rays can:**
+
+```
+arriving = VoxelIrradiance(first.Position, first.Normal);   // instead of
+                                                            // ProbeIrradiance,
+                                                            // and no second ray
+```
+
+The grid already carries more than one bounce -- with `GiBounces` 2 it is lit
+from last frame's own chain and converges on every bounce (7bc measured 4.4x
+the one-bounce number off screen, against the traced second ray's 2.25x). So
+the first ray gets a sharp, correct, ray-traced visibility test, and what it
+finds is shaded from a cache that already knows about the rest of the room.
+**Four rays a pixel, not eight, and a deeper answer than eight would give.**
+
+**What it costs:** the grid build, 0.09 ms at the defaults -- which is less
+than the four extra rays it replaces.
+
+### The shape
+
+1. **`RenderSettings::HybridSecondBounce`**, default false. Meaningful only
+   where ray-traced GI runs; it does not replace `VoxelGlobalIllumination`,
+   which is about the *gather* and stays a separate choice.
+2. **The grid is built when rays win.** Today `Scene::UpdateVoxelGI` and the
+   graph's `voxelWanted` both hang off `ResolveVoxelGlobalIllumination`, and
+   under rays the grid is never built at all -- which is what made an entire
+   session's probes measure nothing (the fifth finding above). Both need to
+   ask instead: *is the grid wanted by the gather **or** by the hybrid?*
+3. **The voxel gather still does not run** in this mode. The grid is an
+   **input to the lit shader**, not a writer of `Indirect`. `voxelGi` in
+   `FrameGraphBuilder` stays false; only `VoxelGI::Update` runs. Keeping that
+   distinction is the whole reason this does not violate the one-writer rule.
+4. **The lit shader gains the grid.** Two bindings in set 0 -- the radiance
+   chain and its face chain as `sampler3D`, and a small params block with the
+   cascade origins and sizes -- at free slots (17, 18, 19; 15 and 16 are the
+   ray-instance table and `Indirect`). `include/voxel_cone.glsl` already has
+   the cone gather and is written against accessor functions
+   (`VoxelOrigin`, `VoxelSize`, `VoxelResolution`, `VoxelCascadeCount`,
+   `VoxelMaxMip`), so the lit shader supplies its own definitions of those
+   over the new block and includes the file unchanged. **That is the reason
+   the gather was factored that way in 8.1 and the reason this is a small
+   change rather than a second cone tracer.**
+5. **One frame late, and say so.** The grid the lit shader reads was built
+   this frame by `Scene::UpdateVoxelGI` *before* the lit pass, so it is
+   current -- but its own multi-bounce feed is one frame late by construction
+   (7bc). Same determinism story as `GiBounces` 2; the frame is still a
+   function of the frame number.
+6. **The editor.** The voxel rows are greyed under ray-traced GI as of this
+   session -- correctly, because the grid is not built. **With the hybrid on
+   they must un-grey**, because the resolution, cascade count and voxel size
+   all matter again. The predicate becomes `rays win AND not hybrid` rather
+   than `rays win`.
+
+### What the check has to say
+
+On `gi_away` with `--raytracing=on --rt-gi=on`, where the bounce source is off
+screen and the numbers are already recorded: one traced bounce puts **+0.81**
+levels of red on the far wall, a traced second ray **+1.83** (2.25x, claim 8).
+The hybrid must **beat the second ray** -- the grid carries more bounces -- and
+must not run away: a band, floor above +1.83 and a ceiling well under the
+grid's own 4.4x, measured before it is written down. And it must do it while
+tracing *four* rays, which the GPU timer states.
+
+**Falsify:** point the lookup back at `ProbeIrradiance`. The band's floor must
+fail. That break is the item.
+
+**What it will not claim.** Not that this equals a path tracer. The grid is a
+voxelisation: a wall thinner than a voxel leaks, the finest cascade is a
+quarter-metre, and everything 7bc lists as not done is still not done. The
+claim is narrow -- *a cache of world-space radiance is a better answer than one
+probe number, and cheaper than another ray*.
+
+### The order to build it in
+
+1. This entry, then the ROADMAP row (8.13, the number this entry uses).
+2. `HybridSecondBounce` on `RenderSettings`, the registry row, `--hybrid-gi=`,
+   the C# mirror, and `ResolveHybridSecondBounce` beside its siblings.
+3. The gating: grid built when the gather **or** the hybrid wants it.
+4. `VoxelGI::GetRadiance()` / `GetFaces()` / `GetGatherParams()` so the lit
+   pass can bind what the gather already binds.
+5. `Renderer3D`'s lit resource set binds them; `pbr_fragment` defines the five
+   accessors and includes `voxel_cone.glsl`; the `giBounces >= 2` branch
+   becomes the hybrid branch when the flag is on.
+6. check_gi claim on `gi_away`, the falsify break, both backends (Vulkan only
+   in practice -- OpenGL has no rays, so the hybrid is unreachable there and
+   the check must say so rather than skip silently), all configs, docs.
+
 ---
 
 ## 8. What this changes
