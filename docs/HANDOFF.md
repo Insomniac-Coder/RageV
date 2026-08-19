@@ -1647,9 +1647,12 @@ of that and is the owner's to push.
 START HERE said was owed. It is green on both backends, exit 0, verdict OK.
 Running it found one real thing, which is why it was worth running:
 
-**The voxel path is not byte-reproducible on OpenGL.** Repeated launches at
-identical settings differ by 1-2 levels over about 1% of channels; Vulkan
-reads 0 most runs and has been seen at 1; the screen-space path is 0 on both.
+**The voxel path is not byte-reproducible, on either backend.** Measured by
+`check_gi` across five runs: Vulkan 1 level over 0.67-1.18% of channels,
+OpenGL 1-2 levels over 0.68-2.08%; the screen-space path is 0 on both. (An
+earlier note here said Vulkan was clean and blamed OpenGL synchronisation --
+that came from probes without `--render-defaults=on`, whose Vulkan rows were
+the traced form. See item 4.)
 Claim 15 compared `GiRadius` 1 against 8 byte-for-byte and failed on that
 noise -- the radius pair was *smaller* than the same-settings floor. `GiRadius`
 genuinely never reaches the voxel gather (it is in neither `VoxelGI.cpp` nor

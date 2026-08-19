@@ -9075,11 +9075,21 @@ frame number.**
 
 Measured over repeated launches at identical settings:
 
+Measured **by `check_gi` itself**, which resets render settings on every shot,
+across five runs of the file:
+
 | | repeated launches, same settings | radius 1 against 8 |
 |---|---|---|
-| Vulkan, voxel | 0 levels (1 seen occasionally) | 0-1 levels |
-| OpenGL, voxel | **1 level over ~1% of channels** | 1 level over ~0.8% |
+| Vulkan, voxel | **1 level over 0.67-1.18%** | 1 level over 0.70-1.07% |
+| OpenGL, voxel | **1-2 levels over 0.68-2.08%** | 1 level over 0.59-2.46% |
 | either, screen-space | 0 levels | -- |
+
+(An earlier draft of this entry had Vulkan at zero and called the problem
+OpenGL's alone. That came from ad-hoc probes which did not pass
+`--render-defaults=on`, so on this ray-capable machine their Vulkan rows were
+the *traced* form and never touched the voxel path at all -- the same mistake
+the fifth finding below is about. **Both backends are affected, to the same
+order.**)
 
 The radius pair is the same size as the same-settings floor, and sometimes
 smaller, which is the proof that it is noise rather than the radius.
@@ -9109,14 +9119,15 @@ again:
    repeated launches on both backends, through the same blur and the same
    denoise. **Not the cause.**
 
-What is left is the shape of the evidence: **it is per-frame, it is OpenGL's
-alone, and it is confined to the storage-image passes.** The next place to
-look is synchronisation around them on that backend -- `TextureBarrier` there
-is one `glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT |
-GL_TEXTURE_FETCH_BARRIER_BIT)`, which orders what follows it but says nothing
-about where the calls sit relative to the clear, the three draws, the
-injection and the mip levels. Vulkan's barriers are explicit per resource and
-per mip, which is consistent with Vulkan being clean.
+What is left is the shape of the evidence: **it is per-frame, it is on both
+backends at the same order of magnitude, and it is confined to the
+storage-image passes** -- the screen-space chain, which shares the blur and the
+denoise, is exactly reproducible. That it survives on Vulkan, whose barriers
+are explicit per resource and per mip, argues against a plain
+missing-barrier explanation and back towards something in the voxel passes
+themselves that is not a function of the frame number. The eliminated list
+above is the place to start, and the thing it does *not* yet contain is the
+order in which `Scene::UpdateVoxelGI` walks and submits casters.
 
 So claim 15's third part asks whether moving the radius does more than
 launching twice does, against a floor the script **measures** rather than
