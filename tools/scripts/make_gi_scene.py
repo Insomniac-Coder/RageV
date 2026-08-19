@@ -21,6 +21,11 @@ Four views come out of one room:
   filter keeps the bounce's *structure*, and that check was abandoned --
   ENGINE-NOTES 7aw records why, and it is a finding about diffuse light rather
   than about this fixture.
+- `gi_shadowed.rage` is the corner view with an awning jutting from the red
+  wall, so the wall below it is in shadow. It exists because `gi_corner` has
+  nothing shadowed that bounces, which left the voxel injection's shadow term
+  unguarded -- removing it moved that room by 0.12 of a level.
+
 - `gi_skylit.rage` is the corner view with the sun off and a grey sky, so every
   photon in the room is environment light and the probe already accounts for
   all of it. A GI term that adds the sky again shows here and nowhere else --
@@ -68,6 +73,16 @@ WALL_LENGTH = 8.0
 # has something between the walls to occlude and receive, which is what makes
 # the near/far difference a bounce rather than a gradient.
 AWAY_PANEL = (2.2, 1.1, 1.2)
+
+# The awning of the `shadowed` room (8.1 follow-through). It juts out of the
+# red wall's inner face at head height and runs along it, so the sun -- which
+# comes from above at every angle this fixture uses -- leaves the wall below it
+# dark. That band is the whole point: it is red, it is in shadow, and a voxel
+# injection that ignored the cascade shadow would light it and send red into a
+# room that should not receive any from there. `gi_corner` cannot show this,
+# because everything in it that bounces is lit.
+AWNING_POSITION = (-3.4, 2.6, 0.0)
+AWNING_SCALE = (1.4, 0.25, 7.0)
 
 # A cluster of small white cubes at assorted angles, standing on the floor
 # where the bounce is strongest.
@@ -123,7 +138,8 @@ def _block(next_id, tag, position, scale, colour, rotation=(0, 0, 0)):
     ]
 
 
-def build(profile, camera=None, rotation=None, detail=False, skylit=False):
+def build(profile, camera=None, rotation=None, detail=False, skylit=False,
+          shadowed=False):
     next_id = base._ids()
     # A black sky and no ambient: every photon in the frame comes from the
     # one light, so a red pixel on a white wall has exactly one explanation.
@@ -165,6 +181,12 @@ def build(profile, camera=None, rotation=None, detail=False, skylit=False):
 
     # The facing-away panel: its lit side is +z, away from the red wall.
     lines += _block(next_id, "AwayPanel", AWAY_PANEL, (2.2, 2.2, 0.2), (0.85, 0.85, 0.85))
+
+    # The awning, and nothing else changed: same walls, same sun, same camera,
+    # so a reading here is comparable with the corner room's.
+    if shadowed:
+        lines += _block(next_id, "Awning", AWNING_POSITION, AWNING_SCALE,
+                        (0.85, 0.85, 0.85))
 
     if detail:
         for index, (position, turn) in enumerate(DETAIL_CUBES):
@@ -210,6 +232,11 @@ def main():
     print(f"wrote {detail}")
 
     # The fourth: the same room lit by nothing but a grey sky (7bb).
+    shadowed = SCENES / "gi_shadowed.rage"
+    text = build(postprofile.write_beside(shadowed, CHECK_PROFILE), shadowed=True)
+    shadowed.write_text(text, encoding="utf-8", newline="\n")
+    print(f"wrote {shadowed}")
+
     skylit = SCENES / "gi_skylit.rage"
     text = build(postprofile.write_beside(skylit, CHECK_PROFILE), skylit=True)
     skylit.write_text(text, encoding="utf-8", newline="\n")

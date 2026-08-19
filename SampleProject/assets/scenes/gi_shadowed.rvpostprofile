@@ -1,0 +1,5 @@
+PostProfile: 1
+BloomEnabled: false
+GlobalIllumination: true
+GiIntensity: 2
+GiRadius: 4
