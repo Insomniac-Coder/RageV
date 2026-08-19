@@ -1,0 +1,46 @@
+// No #version here: an include is spliced into a file that already has
+// one, and GLSL requires it to be the first thing in the shader.
+//
+// The bound material: the parameter block and the nine maps Material::Bind
+// writes at set 1, exactly as it writes them. Included by pbr_fragment.glsl
+// on the bound path and by voxelize.rvshader on every path (ENGINE-NOTES
+// 7bc) -- one declaration, because Material::Bind writes every binding here
+// whether or not the shader reads it, and a set 1 that declares fewer is a
+// validation error rather than an unused one.
+
+layout(set = 1, binding = 0) uniform MaterialData
+{
+	vec4  BaseColor;
+	vec4  EmissiveColor;
+	float Metallic;
+	float Roughness;
+	float Occlusion;
+	float NormalScale;
+	int   MapFlags;
+	// F0 = 0.08 * Specular for anything that is not metal. 0.5 is the 4% this
+	// used to hardcode.
+	float Specular;
+	// Depth of the parallax displacement, in UV units.
+	float HeightScale;
+	// std140 pads out to a vec4 boundary, so this must be declared or the
+	// offsets here and in MaterialParams disagree -- and a uniform block that
+	// disagrees does not fail, it reads the wrong sixteen bytes.
+	int   _pad0;
+	// xy scale, zw offset. See MaterialParams::UvTransform.
+	vec4  UvTransform;
+} u_Material;
+
+layout(set = 1, binding = 1) uniform sampler2D u_BaseColorMap;
+layout(set = 1, binding = 2) uniform sampler2D u_NormalMap;
+// Binding 3 held the packed metallic-roughness map. glTF was the only source
+// of one and the importer splits it now, so nothing writes this -- the slot
+// stays declared because the descriptor set layout is built from the shader.
+layout(set = 1, binding = 3) uniform sampler2D u_Unused3;
+layout(set = 1, binding = 4) uniform sampler2D u_OcclusionMap;
+layout(set = 1, binding = 5) uniform sampler2D u_EmissiveMap;
+// Separate greyscale roughness and metallic, read from red. Every texture
+// library that is not a glTF ships them this way.
+layout(set = 1, binding = 6) uniform sampler2D u_RoughnessMap;
+layout(set = 1, binding = 7) uniform sampler2D u_MetallicMap;
+layout(set = 1, binding = 8) uniform sampler2D u_SpecularMap;
+layout(set = 1, binding = 9) uniform sampler2D u_HeightMap;

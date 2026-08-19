@@ -275,6 +275,32 @@ BREAKS = {
                               'indirectTerm = max(bounced.rgb, vec3(0.0)) * bounced.a * u_Scene.Indirect.x;',
                               'indirectTerm = max(bounced.rgb, vec3(0.0)) * bounced.a;')],
 
+    # --- check_gi, the voxel form (8.1, ENGINE-NOTES 7bc) --------------------
+    # Each is one of the three findings that moved the numbers, put back.
+    # The cones lifted by the finest voxel alone, whatever cascade the point is
+    # in: every wall on a coarser cascade's edge reads itself through the first
+    # step; off screen +0.36 -> +0.08 (claim 13 fails its floor of 0.3).
+    'voxel-no-lift': [('include/voxel_cone.glsl',
+                       'const float voxel = VoxelSize(VoxelCascadeAt(surface));',
+                       'const float voxel = VoxelSize(0);')],
+    # Thirty-degree cones: the footprint spans the wall and the floor beside it
+    # and the red beside the corner reads a third of the traced form's, off
+    # screen +0.04 (claims 13 and 14).
+    'voxel-wide-cones': [('include/voxel_cone.glsl',
+                          'const float kRatio = 0.577;',
+                          'const float kRatio = 1.1547;')],
+    # The directional chain sampled as if isotropic: every face reads as the
+    # +X one, so a wall is as thin as it is whichever way the cone looks, and
+    # the leak returns (claim 13: +0.20 against the floor of 0.3).
+    'voxel-iso-faces': [('include/voxel_cone.glsl',
+                         'const int face = axis * 2 + (direction[axis] > 0.0 ? 1 : 0);',
+                         'const int face = 1;')],
+    # The injection without the sun's shadow: shadowed voxels light up and the
+    # bounce brightens past the traced form (claim 14's brightness ceiling).
+    'voxel-no-shadow': [('voxel_inject.rvshader',
+                         'const float shadow = light.Params.w > 0.5 ? CascadeShadow(world, N, L) : 1.0;',
+                         'const float shadow = 1.0;')],
+
     # --- check_theme_contrast -------------------------------------------------
     # The palette *is* the thing under test, so the break is a colour: the
     # secondary grey that reads on charcoal, put on white unchanged -- the

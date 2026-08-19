@@ -131,6 +131,18 @@ namespace RageV::RHI
 		virtual void BufferBarrier(const Ref<RHIBuffer>& buffer,
 								   BufferSync from, BufferSync to) = 0;
 
+		// The same, for a texture a shader writes through a storage image
+		// (ENGINE-NOTES 7bc): everything recorded before this that used it as
+		// `from` completes before anything recorded after uses it as `to`. A
+		// compute pass that lights a voxel grid the previous pass wrote, and
+		// a fullscreen pass that samples what the compute pass lit, each need
+		// one; and the next frame's clear needs the reverse, for the reason
+		// BufferBarrier gives. No layout changes hands -- a storage texture
+		// lives in one layout -- so this is a memory dependency and nothing
+		// more. Must be recorded outside a render pass.
+		virtual void TextureBarrier(const Ref<RHITexture>& texture,
+									TextureSync from, TextureSync to) = 0;
+
 		// Copies a rendered 2D image onto one array layer of another texture,
 		// in the orientation that sampling that layer expects. Same size, same
 		// format, mip 0. Must be called outside a render pass.

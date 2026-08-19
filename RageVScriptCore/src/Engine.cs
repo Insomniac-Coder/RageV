@@ -1115,6 +1115,66 @@ public static unsafe class RenderSettings
 		set => SetBool("RayTracedAmbientOcclusion", value);
 	}
 
+	/// <summary>
+	/// With <see cref="RayTracing"/> on: cast the diffuse bounce as rays from
+	/// every surface and shade what they hit, in place of the profile's
+	/// screen-space gather. Four rays a pixel -- the most expensive switch
+	/// here. Needs bindless materials as well as ray queries. Off by default.
+	/// </summary>
+	public static bool RayTracedGlobalIllumination
+	{
+		get => GetBool("RayTracedGlobalIllumination");
+		set => SetBool("RayTracedGlobalIllumination", value);
+	}
+
+	/// <summary>
+	/// How many times indirect light bounces: 1 or 2. Read by the ray-traced
+	/// form, where 2 is one more ray per bounce ray, and by the voxel form,
+	/// where 2 lights the grid from last frame's grid as well and converges on
+	/// every bounce over a still scene. The screen-space gather has one and
+	/// does not read it.
+	/// </summary>
+	public static int GiBounces
+	{
+		get => int.TryParse(Get("GiBounces"), out int value) ? value : 1;
+		set => Set("GiBounces", value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>
+	/// Where a camera's profile asks for global illumination, gather it from a
+	/// voxelised scene rather than from the screen: light then arrives from
+	/// behind the camera, behind other things and off every edge of the
+	/// frame, on both backends, with no ray hardware. The profile's toggle
+	/// stays the on switch; ray-traced global illumination wins where it
+	/// runs. Off by default.
+	/// </summary>
+	public static bool VoxelGlobalIllumination
+	{
+		get => GetBool("VoxelGlobalIllumination");
+		set => SetBool("VoxelGlobalIllumination", value);
+	}
+
+	/// <summary>Voxels along each cascade's side: 32, 64 or 128.</summary>
+	public static int VoxelGiResolution
+	{
+		get => int.TryParse(Get("VoxelGiResolution"), out int value) ? value : 64;
+		set => Set("VoxelGiResolution", value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>How many nested grids, 1 to 4, each twice the reach of the last.</summary>
+	public static int VoxelGiCascades
+	{
+		get => int.TryParse(Get("VoxelGiCascades"), out int value) ? value : 3;
+		set => Set("VoxelGiCascades", value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>The finest cascade's voxel, in metres.</summary>
+	public static float VoxelGiVoxelSize
+	{
+		get => GetFloat("VoxelGiVoxelSize");
+		set => SetFloat("VoxelGiVoxelSize", value);
+	}
+
 	/// <summary>How far from the camera shadows are still drawn, in world units.</summary>
 	public static float ShadowDistance
 	{

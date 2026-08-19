@@ -916,6 +916,39 @@ namespace RageV::GL
 		m_Textures.push_back(entry);
 	}
 
+	void OpenGLResourceSetRHI::SetStorageImage(uint32_t binding, const Ref<RHITexture>& texture,
+											   uint32_t mip)
+	{
+		const uint32_t unit = m_Pipeline->GetBindings().LookupStorageImage(m_Set, binding);
+		if (unit == UINT32_MAX)
+		{
+			RV_CORE_WARN("No storage image binding for set {0} binding {1}", m_Set, binding);
+			return;
+		}
+		if (!texture || !HasFlag(texture->GetDesc().Usage, TextureUsage::Storage))
+		{
+			RV_CORE_ERROR("[OpenGL] SetStorageImage({0}) on a texture not created with "
+						  "TextureUsage::Storage; ignored", binding);
+			return;
+		}
+
+		ImageBinding entry;
+		entry.Unit = unit;
+		entry.Texture = std::static_pointer_cast<OpenGLTextureRHI>(texture)->GetHandle();
+		entry.Level = mip;
+		entry.InternalFormat = ToGLFormat(texture->GetDesc().Format).Internal;
+
+		for (auto& existing : m_Images)
+		{
+			if (existing.Unit == entry.Unit)
+			{
+				existing = entry;
+				return;
+			}
+		}
+		m_Images.push_back(entry);
+	}
+
 	void OpenGLResourceSetRHI::Commit()
 	{
 		// Nothing to do: GL has no descriptor sets to write. Bindings are
@@ -934,6 +967,16 @@ namespace RageV::GL
 		{
 			glBindTextureUnit(texture.Unit, texture.Texture);
 			glBindSampler(texture.Unit, texture.Sampler);
+		}
+
+		// Layered, so a 3D texture (or an array) is bound whole and the
+		// shader addresses its third coordinate; read-write, because the set
+		// cannot see which the shader does and a narrower access is a GL
+		// error on the wrong guess, not a speedup on the right one.
+		for (const auto& image : m_Images)
+		{
+			glBindImageTexture(image.Unit, image.Texture, (GLint)image.Level, GL_TRUE, 0,
+							   GL_READ_WRITE, image.InternalFormat);
 		}
 	}
 
@@ -1429,6 +1472,16 @@ namespace RageV::GL
 		glDispatchCompute(groupsX, groupsY, groupsZ);
 	}
 
+	void OpenGLCommandListRHI::TextureBarrier(const Ref<RHITexture>&, TextureSync, TextureSync)
+	{
+		// As BufferBarrier: GL orders by what comes after, so the texture and
+		// the `from` side have nothing to say here. Image stores before this
+		// are visible to image loads and texture fetches after it, which is
+		// both directions the RHI's pair can name.
+		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
+					  | GL_TEXTURE_FETCH_BARRIER_BIT);
+	}
+
 	void OpenGLCommandListRHI::BufferBarrier(const Ref<RHIBuffer>&, BufferSync, BufferSync)
 	{
 		// GL synchronises by what happens *after* the barrier rather than by a
@@ -1742,6 +1795,8 @@ namespace RageV::GL
 		// statement rather than a question -- but it is asked, because the
 		// alternative is a dispatch that silently does nothing.
 		m_Caps.SupportsCompute = GLAD_GL_VERSION_4_3 != 0;
+		// Image load/store is core in 4.2, and this device asked for more.
+		m_Caps.SupportsFragmentStores = GLAD_GL_VERSION_4_2 != 0;
 		if (m_Caps.SupportsCompute)
 		{
 			GLint workGroupSize = 0;

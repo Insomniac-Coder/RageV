@@ -8726,6 +8726,350 @@ its own reason.
 
 ---
 
+## 7bc. Voxel global illumination (8.1): the raster-side form that sees off screen, and no RT twin
+
+The owner chose 8.1 (2026-08-19) and asked one question before it started: **is
+this rasterisation only, not ray tracing?** Yes. Every GI feature so far was a
+pair -- a screen-space form for everyone and a traced twin on Vulkan (SSAO/RTAO,
+SSR/RT reflections, SSGI/RT GI). Voxel GI is not a third pair. It is the
+*first half* of the GI pair done properly: a world-space gather that needs no
+ray hardware, runs on both backends, and sees what the screen cannot. The
+traced twin already exists (`RV_RAY_GI`, 7at) and is not touched. The only
+place the two meet is an option this entry names and does not build: the
+traced second bounce (7ax) could read the lit grid at its hit instead of the
+probe.
+
+### What it is, in this engine's terms
+
+The scene is rasterised into a coarse 3D grid around the camera, the grid is
+lit from the same cascaded shadow maps the lit pass samples, the lit grid is
+mipped so a coarse texel means "the radiance and the occupancy over a bigger
+region", and at shade time a handful of cones are marched through the mip
+chain from every pixel's surface. What a cone accumulates is light arriving
+from geometry -- including geometry behind the camera, behind other things, and
+off every edge of the frame -- which is precisely the set of things 7at's
+screen-space gather cannot know and 7av's probe fallback only approximates with
+the room's average colour.
+
+Four passes a frame, all before the graph, beside the shadow maps; and one pass
+inside the graph, at the head of the chain SSGI already owns:
+
+1. **Voxelise.** Every mesh in the cascade volume is drawn three times with a
+   small pipeline -- once down each axis -- into a dummy N x N target whose
+   fragment shader writes albedo, normal and emissive into three 3D storage
+   images by `imageStore`. No depth test, nothing culled, no colour written to
+   the target; the target exists because a graphics pass needs one.
+2. **Inject.** A compute pass over every voxel: where one is occupied, the
+   sun's direct light (NdotL, colour, intensity, the cascade's shadow) plus the
+   local lights (the lit shader's own attenuation law, unshadowed) plus the
+   emissive, times albedo over pi, into a radiance image whose alpha is the
+   occupancy. **Premultiplied by construction**: radiance is stored times an
+   occupancy of one or zero, so the box filter below produces the right mean.
+3. **Mip.** Compute, one dispatch per level, a 2x2x2 box.
+4. **Gather** (in the graph, where `SSGI compute` runs today): depth and the
+   surface attachment give a position and a normal; six cones from there, each
+   stepping through the radiance mip chain with a footprint that grows with
+   distance, accumulating front-to-back with the occupancy; the cosine-weighted
+   mean of what they found lands in the same half-resolution target the
+   screen-space gather fills, and from there the chain is unchanged -- the
+   separable blur, `GI denoise`, the `Indirect` buffer, the lit shader's
+   multiply by its own albedo one frame later (7av, 7ay). **The voxel gather is
+   the third writer of that one buffer**, and nothing downstream of the gather
+   learns the word.
+
+### The clipmap
+
+`VoxelGiCascades` cubes (3 by default, 1 to 4), each `VoxelGiResolution` voxels
+on a side (64 by default; 32 or 128), the first with voxels `VoxelGiVoxelSize`
+metres across (0.25) and each after it twice the size of the one before: at the
+defaults 16, 32 and 64 metres of world around the camera, at a quarter, a half
+and a whole metre. Each cascade is centred on the camera and **its origin is
+snapped to eight of its own voxels**, so a still scene under a moving camera
+voxelises into the same cells frame after frame and the first four mip levels
+do not slide under the cone -- unsnapped, every step of the camera shifted the
+coarse texels and the bounce breathed.
+
+**One 3D texture per quantity, the cascades side by side along X.** Width
+`N x C`, height and depth `N`. Not one texture per cascade, because the gather
+picks the cascade per pixel per step and an array of samplers indexed by a
+value that is not dynamically uniform is exactly the thing the shadow maps'
+`SampleCascade` switch exists to avoid; and not a texture array, because the
+mip chain has to filter along all three axes. Side by side works because a
+2x2x2 box never straddles a cascade: at level L each cascade occupies `N/2^L`
+texels, the boundaries are multiples of that, and the filter's footprint is two
+texels wide starting at an even one. The mip count is `log2(N) + 1`, stated
+rather than derived from the width, so the coarsest level is one texel per
+cascade and not a fraction of one. A sample clamps its X inside its own
+cascade by half a texel at the level it reads, which is the atlas-padding rule
+from every texture atlas ever built.
+
+Four images: albedo `RGBA8` (alpha is the occupancy, and the only one that is
+cleared each frame -- an unoccupied voxel's normal and emissive are never read,
+and an occupied one's were written this frame); normal `RGBA8`; emissive
+`RGBA16F`; radiance `RGBA16F` with the mip chain, and **a second radiance
+image** the multi-bounce reads, below. At the defaults that is about twenty
+megabytes, most of it the two radiance chains.
+
+### Voxelising without a geometry shader
+
+The classic voxeliser projects each triangle along its dominant axis in a
+geometry shader. Neither backend here is promised one (the RHI never asked),
+and the alternative is both simpler and exact: **three draws, one per axis,
+and the fragment shader discards the triangles that are not its own.** The
+vertex stage maps world to the cascade's unit cube and swizzles so the pass's
+axis is the depth axis; the fragment stage takes `cross(dFdx(world),
+dFdy(world))` -- two in-plane vectors of the triangle, whatever the swizzle, so
+their cross is the triangle's normal -- and keeps the fragment only when that
+normal's largest component is the pass's axis. Every triangle is rasterised
+where it is largest, exactly as the geometry shader would have chosen, for
+three times the vertex work of one pass at a 64 x 64 viewport, which is
+nothing.
+
+Two small correctnesses that stop it being leaky rather than merely coarse:
+the fragment writes the voxel at its interpolated world position, not at its
+framebuffer coordinate, so the backends' opposite row order never enters; and
+it writes the *range* of voxels its footprint spans along the depth axis --
+half the sum of the depth's two screen derivatives -- so a surface tilted up
+to 45 degrees to the pass axis, which dominant-axis selection admits, does not
+leave a one-voxel gap every few cells. What it does not do: conservative
+rasterisation, so a sliver between sample points is missed; and it resolves
+two surfaces in one voxel by last write, so a corner voxel carries one wall's
+albedo and normal. Both are the known costs of the cheap version and both are
+on the list below.
+
+**The material is bound, on every backend, whatever the lit pass does.** The
+voxeliser samples one map -- base colour -- and reads the instance's colour and
+emissive; its set 1 is the lit shader's bound material set, declared once in a
+new `include/material_bound.glsl` that `pbr_fragment.glsl` now includes rather
+than restates, so `Material::Bind` writes exactly the bindings the layout
+declares. 8.2's reason for the heap was the lit pass's per-batch descriptor
+bind across a whole frame of draws; the voxeliser binds per material across a
+64 x 64 target, which is the cost OpenGL's lit pass pays every frame already.
+One shader, no records, no heap -- and it meant one generalisation:
+`Material::EnsureResources` built its sets for the first pipeline that asked
+and handed them to every pipeline after, which was correct for one lit
+pipeline and is wrong for two layouts (on OpenGL the set's texture units are
+the *pipeline's* flat assignment). Sets are now kept per pipeline layout. The
+layered terrain chunk voxelises with its layer-0 material, the choice 7ao made
+for the ray-instance table and for the same reason.
+
+**Who is voxelised.** A walk in `Scene` beside the shadow casters', culled
+against the outermost cascade's box by the same `Frustum` the shadow passes
+cull with (an orthographic box is a frustum), resolving mesh, material and
+parameters the way the ray-instance walk does. Static meshes and terrain
+chunks. **Skinned meshes are not voxelised in this stage**: their bounce is
+small, their pose is a compute pass away (7an's posed buffer is the path), and
+a character voxelised in the bind pose would be a wrong answer rather than a
+missing one. Stated as not done, below.
+
+### The grid is lit from the cascades, and then from itself
+
+Injection runs in compute over `N x C x N x N` threads, one per voxel, and
+exits on an empty one. For the sun: the normal the voxeliser stored, the
+light's colour and intensity from the same light list the lit pass uploads, and
+the shadow from the finest cascade whose lookup coordinate contains the voxel
+-- not selected by view depth as the lit shader's is, because a voxel has no
+view depth; it is wherever it is -- with the lit shader's normal-offset bias.
+For local lights, the lit shader's windowed inverse-square and cone, without
+their shadow maps (a spot's map is a small frustum and the voxels it would
+shadow are few; stated). Emissive is added as it is. Then `albedo / pi` times
+the sum, times the occupancy, into radiance mip 0. Under traced shadows (7am)
+there are no cascades to sample and the sun is taken as unshadowed -- the one
+place this stage is worse than the maps it replaces, and the ray-query variant
+of the injection shader is the fix, listed below.
+
+**Multi-bounce is the grid lighting itself, one frame late.** When
+`RenderSettings::GiBounces` is 2 the injection also traces the same six cones
+from every occupied voxel through *last frame's* radiance chain and adds what
+they gather, times albedo. The two radiance images alternate. Each frame adds
+one bounce to what the previous frame had, so a still scene converges on every
+bounce at once -- geometrically, since the gain per bounce is albedo times the
+fraction of the hemisphere that is occupied, and albedo is clamped to one in
+the voxeliser so it stays under one. This is the ROADMAP row's "multi-bounce,
+stable without a temporal filter", and it is the reason `GiBounces` stops being
+the traced form's alone: the dial means the same thing on both forms -- how
+many bounces -- and for the voxel form the second one costs one cone trace per
+occupied voxel rather than one ray per pixel ray.
+
+### The gather
+
+Six cones: one along the normal, five around it at sixty degrees, rotated
+about the normal by the pixel's own hash (the same determinism sentence as
+7ab and 7at: a frame is a function of the scene). Each cone's half-angle is
+thirty degrees, so its diameter at distance d is about 1.15 d and the mip it
+reads is `log2(diameter / voxel)`; it steps by half its diameter, starts one
+and a half voxels off the surface along the normal so it does not read the
+voxel it stands in, and accumulates `colour += (1 - a) * sample.rgb; a += (1 -
+a) * sample.a` until the occlusion passes 0.95 or the cone leaves the outermost
+cascade. A step whose footprint is larger than the cascade it is in moves to
+the next cascade out, so every cone reads the finest grid that still resolves
+it. **A cone that leaves the volume having hit nothing contributes nothing**
+(7bb): the probe is the sky's, and the gather is the walls' share of the
+hemisphere. The result is the cosine-weighted mean over the six, which is the
+quantity the traced form writes and the screen-space form writes, so the three
+land in one buffer in one unit.
+
+The gather reads the same depth and surface attachment the SSGI pass reads,
+at the same resolution `GiQuality` chooses, and writes the same packing --
+radiance in RGB, linear depth in A for the blur -- so the blur and `GI
+denoise` run unchanged. `GiIntensity` and `GiDenoise` apply as they do to every
+form. `GiRadius` does not: a cone runs to the cascade edge, and the profile
+row greys with a note while the voxel form runs, as SSAO's does under RTAO.
+
+### Where the settings live, and who wins
+
+Per 7s: the *profile* says whether a camera wants global illumination and how
+it should look; the *project* says what the frame may cost and what the
+hardware can do. So `PostSettings::GlobalIllumination` stays the on switch,
+and **`RenderSettings::VoxelGlobalIllumination`** (off by default, so no
+project changes appearance) says that where a profile asks for it, the bounce
+is gathered from a voxelised scene rather than from the screen -- with
+`VoxelGiResolution`, `VoxelGiCascades` and `VoxelGiVoxelSize` beside it. Not a
+switch that overrides the profile the way the ray-traced one does: that one
+overrides because it is hardware, and this one is a cost choice on hardware
+everyone has. Resolution: `ResolveRayTracedGlobalIllumination` first -- rays
+win where they run -- then `ResolveVoxelGlobalIllumination` (`--voxel-gi=`),
+then the screen gather. One writer of the `Indirect` buffer, as 7av requires.
+
+### The RHI learns storage images, which it should have in 6.7a
+
+6.7a gave compute buffers and stopped there: no pass has written a texture
+from a shader until now (RTAO and SSGI are fragment passes into targets). So
+**`RHIResourceSet::SetStorageImage(binding, texture, mip)`** on both backends,
+**`RHICommandList::TextureBarrier(texture, from, to)`** on the pattern of
+`BufferBarrier`, and `TextureUsage::Storage` meaning something. On Vulkan a
+texture created with that usage is transitioned to `GENERAL` once, at creation,
+and **lives there**: storage writes need it, sampling permits it, and a texture
+that never changes layout needs no tracking -- which is why `SetTexture` now
+writes the descriptor's layout from the texture's usage rather than assuming
+the read-only one. A per-mip image view is made on demand, because a compute
+pass writing level 3 binds level 3. On OpenGL the set records a
+`glBindImageTexture` with the level, layered, and the barrier is the memory
+barrier on image access and texture fetch. The fragment stage's stores are the
+one device feature this needs (`fragmentStoresAndAtomics`), enabled beside the
+others. A scenetest unit writes a 3D storage image from one compute pass,
+builds a level from it in a second, and reads both back through a sampler.
+
+### The checks
+
+`check_gi.py` gains a voxel section, on both backends, on the fixtures it has:
+
+13. **Off screen, on both backends.** `gi_away` with `--voxel-gi=on` and the
+    profile's toggle on reddens the wall whose bounce source is off screen.
+    **Placed against the traced form's number, not a round one**: the traced
+    form reads +0.82 there and the band is set from what this form measures
+    beside it, with a floor that says it happened and a ceiling that says it
+    is still calibrated.
+14. **Near the corner, within a band of the traced form.** `gi_corner` voxel
+    against traced, same intensity: the two are the same integral over the same
+    walls and must land within a stated factor of each other. This is the
+    calibration the screen-space form never had a reference for on OpenGL, and
+    the reason 9.15 (the SSGI finding in HANDOFF) can now be done on both
+    backends against a raster-side number.
+15. **Off is off.** `VoxelGlobalIllumination` on with the profile's toggle off
+    is the image to the byte; intensity zero is the image to the byte.
+16. **The two backends agree**, as claim 2's spread asks of the screen gather.
+17. **Two bounces reach further**, on `gi_away`, a band as claim 8's.
+18. **The voxel form is the writer.** With voxel GI on the graph carries the
+    voxel gather and not `SSGI compute`; with ray GI on as well the graph
+    carries neither (scenetest graph assertions, the shape 7at's claim 5 has).
+
+And `falsify.py` carries the breaks: the discard test inverted (every triangle
+in every pass), the injection's shadow dropped, the cone's occlusion
+accumulation removed, the miss returning the probe, the albedo clamp removed
+with `GiBounces` 2, the atlas clamp removed.
+
+### What this stage does not do, stated
+
+Skinned casters; conservative rasterisation; a voxel that averages its writers
+(atomic moving average on a packed `r32ui`) rather than keeping the last;
+anisotropic voxels (six directional faces) against light leaking through thin
+walls -- the cheap grid leaks where a wall is thinner than a voxel, and the
+SDF in the row's title is the step after that if it bites; local-light shadows
+in the injection; the ray-query injection under traced shadows; SSGI kept as
+near-field detail under the voxel gather (the voxel form replaces it
+outright); re-voxelising only what moved; and the hybrid -- the traced second
+bounce reading the lit grid at its hit -- which is the one item that would
+make 7ax cheaper rather than this entry richer.
+
+### Build order
+
+1. The RHI: storage images and the barrier, both backends, with the unit.
+2. The voxeliser: textures, the three draws, the walk -- proven by a debug
+   readback of the occupancy before anything is lit.
+3. Injection, mips and the gather, wired as the chain's head; settings,
+   registry, CLI, C#.
+4. Checks, falsify, docs.
+
+### Built (2026-08-19), and the three things the measurements moved
+
+All of the above is in, on both backends, with the traced form as the
+reference it was designed against. Measured on `gi_corner` and `gi_away` at
+intensity 2.0, the defaults, frame 60:
+
+| | screen-space | **voxel** | ray-traced |
+|---|---|---|---|
+| near the corner, red | +0.22 | **+1.78** | +1.86 |
+| near the corner, light | -- | **+23.8** | +19.9 |
+| off screen, red | +0.00 | **+0.36** | +0.82 |
+| off screen, two bounces | -- | **+1.59** | +1.83 |
+| backends apart | 0.02 | **0.05** | -- |
+| GPU, 1600x900 | 0.39 ms | **0.09 ms grid + 0.9 ms gather** | -- |
+
+The first build read +0.64 / +0.08 on the two red numbers -- a third and a
+tenth of the traced form -- and closing that gap was three findings, each of
+which the check now guards:
+
+1. **The cones were reading their own wall.** The gather lifted every cone a
+   voxel and a half of the *finest* cascade off its surface. A wall that sits
+   on a round coordinate sits on a cascade boundary (the origins are snapped
+   to round ones), and with a whole-voxel margin its voxels are the *next*
+   cascade's, twice as coarse -- so the first sample landed inside the wall's
+   own voxel and every wall gathered itself through the first step. That was
+   the +0.08 off screen and most of the shortfall beside the corner. Now the
+   lift and the first step are the voxel of whichever cascade the point is in
+   (`VoxelCascadeAt`), and the margin is half a voxel so the edge voxel is
+   still that cascade's. +0.08 became +0.36, +1.31 became +1.78.
+
+2. **Thirty-degree cones were too wide to see a wall as a wall.** At one
+   metre the footprint already spans the wall and the floor beside it; the
+   red beside the corner read +0.60 with them and +1.26 with cones of sixteen
+   degrees (`kRatio` 0.577), at twice the steps. Six narrow cones undersample
+   the hemisphere and the blur and GI denoise after them absorb what that
+   costs.
+
+3. **The isotropic box mip leaked through the thin walls**, as the design
+   said it would, and the off-screen number said it mattered: so the mip
+   chain is **directional** after all -- six faces stacked along Y of one
+   texture, each level composited front to back along its axis and averaged
+   across, a cone reading the three faces it looks into weighted by its
+   direction's squared components (`voxel_mip.rvshader`,
+   `VoxelFaceSample`). Level 0 stays isotropic; the face chain is half the
+   side. It is why the voxel form reads a fifth *brighter* than the traced one
+   beside the corner: a thin slab is now opaque along its normal at every
+   level, and this fixture is nothing but thin slabs. The check's band sits
+   above that rather than at it.
+
+Two smaller things. The step's opacity is taken as read rather than corrected
+to the step size -- these are surfaces, not a medium -- which is what brought
+the brightness to within five per cent of the traced form before the
+directional chain lifted it again. And `discard` is gone from the voxeliser:
+under SPIR-V 1.6 glslang lowers it to a demote, the OpenGL cross-compile
+refuses the extension (the trap `smaa_edges` records), and the first OpenGL
+run silently did nothing; the fragment returns instead, with every derivative
+taken before the branch.
+
+**What this stage still does not do** is the list above minus the
+directional chain: skinned casters, conservative rasterisation, a voxel that
+averages its writers, local-light shadows in the injection, the ray-query
+injection under traced shadows, SSGI as near-field detail, re-voxelising only
+what moved, and the hybrid second bounce. And the second bounce here is not
+the traced form's "two": it is the grid lighting itself one frame late, which
+converges on every bounce -- 4.4x the one-bounce number off screen against the
+traced form's 2.25x -- and the dial's row says so.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

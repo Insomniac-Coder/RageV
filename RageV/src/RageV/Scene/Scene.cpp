@@ -14,6 +14,7 @@
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ShadowMap.h"
 #include "RageV/Renderer/RayShadows.h"
+#include "RageV/Renderer/VoxelGI.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/ProbeArray.h"
@@ -1420,6 +1421,17 @@ namespace RageV
 		// running, which is what makes the shader's block cost nothing.
 		Renderer3D::SetRayTracedGlobalIllumination(ResolveRayTracedGlobalIllumination(Project::Render()));
 
+		RenderShadowMaps(camera, cameraTransform);
+
+		// The voxel grid, after the maps it is lit from (ENGINE-NOTES 7bc).
+		UpdateVoxelGI(cameraTransform);
+	}
+
+	void Scene::RenderShadowMaps(const Camera& camera, const Mat4& cameraTransform)
+	{
+		// The same answer RenderShadows told the lit pass a moment ago.
+		const bool traced = ResolveRayTracing(Project::Render());
+
 		if (!Project::Render().ShadowsEnabled)
 			return;
 
@@ -1755,6 +1767,119 @@ namespace RageV
 
 		ShadowMap::SetLightIndex(casterIndex);
 		ShadowMap::Render(*cmd, cascades, count, resolution, drawCasters);
+	}
+
+	LightList Scene::CollectLights()
+	{
+		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
+		LightList lights;
+
+		for (auto& item : lightView)
+		{
+			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
+
+			LightRenderData data;
+			data.Position = Vec3(transform.World[3]);
+			// A light's forward axis is -Z, matching the camera convention.
+			data.Direction = Math::Normalize(Vec3(transform.World * Vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+			data.Color = light.Light.Color;
+			data.Intensity = light.Light.Intensity;
+			data.Range = light.Light.Range;
+			data.InnerCone = light.Light.InnerCone;
+			data.OuterCone = light.Light.OuterCone;
+			data.Type = light.Light.Type;
+			data.CastShadows = light.Light.CastShadows;
+
+			lights.push_back(data);
+		}
+		return lights;
+	}
+
+	void Scene::UpdateVoxelGI(const Mat4& cameraTransform)
+	{
+		// Rays first, then voxels, then the screen (7bc): where the traced
+		// form runs the grid is not built, and where neither runs a grid left
+		// from before must not be read.
+		const bool voxel = ResolveVoxelGlobalIllumination(Project::Render())
+						&& !ResolveRayTracedGlobalIllumination(Project::Render());
+		if (!voxel || !VoxelGI::IsReady())
+		{
+			VoxelGI::Invalidate();
+			return;
+		}
+
+		RHI::RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+		{
+			VoxelGI::Invalidate();
+			return;
+		}
+
+		UpdateWorldTransforms();
+
+		VoxelGiSettings settings;
+		settings.Resolution = Project::Render().VoxelGiResolution;
+		settings.Cascades = Project::Render().VoxelGiCascades;
+		settings.VoxelSize = Project::Render().VoxelGiVoxelSize;
+		settings.Bounces = ResolveGiBounces(Project::Render());
+		settings.ShadowNormalOffset = Project::Render().ShadowNormalOffset;
+
+		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+
+		// The walk: every static mesh whose world box overlaps the outermost
+		// cascade, with its material and parameters resolved the way the
+		// ray-instance walk resolves them. Skinned meshes are not submitted
+		// (7bc): voxelised in the bind pose they would be wrong rather than
+		// missing.
+		VoxelGI::Update(*cmd, settings, Vec3(cameraTransform[3]), CollectLights(),
+			[&](const Vec3& boxMin, const Vec3& boxMax)
+			{
+				auto overlaps = [&](const Vec3& centre, const Vec3& extents)
+				{
+					return centre.x + extents.x >= boxMin.x && centre.x - extents.x <= boxMax.x
+						&& centre.y + extents.y >= boxMin.y && centre.y - extents.y <= boxMax.y
+						&& centre.z + extents.z >= boxMin.z && centre.z - extents.z <= boxMax.z;
+				};
+
+				for (auto& item : meshView)
+				{
+					auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+					RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
+					if (!resolved || resolved->IsSkinned())
+						continue;
+
+					Vec3 centre, extents;
+					Frustum::TransformBounds(resolved->GetBounds(), transform.World, centre, extents);
+					if (!overlaps(centre, extents))
+						continue;
+
+					RHI::Ref<Material> material = Assets::Manager::GetMaterial(mesh.Material);
+					if (!material)
+						material = Renderer3D::GetDefaultMaterial();
+					const MaterialParams params =
+						mesh.ResolveParams(material ? material->GetParams() : MaterialParams{});
+					VoxelGI::Submit(resolved, transform.World, material, params);
+				}
+
+				// The terrain's chunks at their chosen level, with layer 0's
+				// material -- the choice the ray-instance walk makes (7ao).
+				ForEachTerrainChunk([&](Entity, TransformComponent& transform, TerrainComponent& component,
+										Terrain&, Terrain::Chunk& chunk)
+				{
+					const RHI::Ref<Mesh>& chunkMesh = chunk.Selected();
+					if (!chunkMesh)
+						return;
+					Vec3 centre, extents;
+					Frustum::TransformBounds(chunk.Bounds, transform.World, centre, extents);
+					if (!overlaps(centre, extents))
+						return;
+					RHI::Ref<Material> material = Assets::Manager::GetMaterial(component.Material);
+					if (!material)
+						material = Renderer3D::GetDefaultMaterial();
+					VoxelGI::Submit(chunkMesh, transform.World, material,
+									material ? material->GetParams() : MaterialParams{});
+				});
+			});
 	}
 
 	void Scene::CaptureReflectionProbes()
@@ -2093,27 +2218,8 @@ namespace RageV
 		const Camera camera(jittered ? JitterProjection(viewCamera.GetProjection(), jitter)
 									 : viewCamera.GetProjection());
 
-		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
-		LightList lights;
-
-		for (auto& item : lightView)
-		{
-			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
-
-			LightRenderData data;
-			data.Position = Vec3(transform.World[3]);
-			// A light's forward axis is -Z, matching the camera convention.
-			data.Direction = Math::Normalize(Vec3(transform.World * Vec4(0.0f, 0.0f, -1.0f, 0.0f)));
-			data.Color = light.Light.Color;
-			data.Intensity = light.Light.Intensity;
-			data.Range = light.Light.Range;
-			data.InnerCone = light.Light.InnerCone;
-			data.OuterCone = light.Light.OuterCone;
-			data.Type = light.Light.Type;
-			data.CastShadows = light.Light.CastShadows;
-
-			lights.push_back(data);
-		}
+		// The lights, as the voxel grid's injection also collects them (7bc).
+		const LightList lights = CollectLights();
 
 		// What the scene reflects, resolved once: the same cube feeds the
 		// surfaces and the background, so a mirror cannot disagree with what is

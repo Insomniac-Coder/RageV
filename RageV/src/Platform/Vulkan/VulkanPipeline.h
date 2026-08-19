@@ -128,6 +128,8 @@ namespace RageV::Vk
 							  uint64_t offset = 0, uint64_t range = 0) override;
 		void SetTexture(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
 						const RHI::Ref<RHI::RHISampler>& sampler, uint32_t arrayIndex = 0) override;
+		void SetStorageImage(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
+							 uint32_t mip = 0) override;
 		void SetAccelerationStructure(uint32_t binding,
 									  const RHI::Ref<RHI::RHIAccelerationStructure>& structure) override;
 		void Commit() override;
@@ -148,6 +150,9 @@ namespace RageV::Vk
 		{
 			uint32_t Binding;
 			uint32_t ArrayIndex;
+			// Combined image sampler, or a storage image (ENGINE-NOTES 7bc):
+			// the same path, and the type has to match the layout's.
+			VkDescriptorType Type;
 			VkDescriptorImageInfo Info;
 		};
 		struct StructureWrite
@@ -204,6 +209,9 @@ namespace RageV::Vk
 		// `binding` must be 0 and `arrayIndex` the slot.
 		void SetTexture(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
 						const RHI::Ref<RHI::RHISampler>& sampler, uint32_t arrayIndex = 0) override;
+		// No storage images on the heap; logs and drops.
+		void SetStorageImage(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
+							 uint32_t mip = 0) override;
 		void SetAccelerationStructure(uint32_t binding,
 									  const RHI::Ref<RHI::RHIAccelerationStructure>& structure) override;
 		void Commit() override;

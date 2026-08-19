@@ -1,0 +1,197 @@
+// Voxel GI, the injection (8.1, ENGINE-NOTES 7bc): every occupied voxel is
+// lit the way the lit shader lights a surface -- the sun with its cascade
+// shadow, the local lights with the same windowed inverse-square and cone,
+// the emissive as it is -- and the result, times albedo over pi and times the
+// occupancy, goes into the radiance chain's level 0. Unoccupied voxels write
+// zero, so nothing else has to clear the chain.
+//
+// And the grid lights itself, one frame late: at two bounces the same six
+// cones the gather casts are cast from every voxel through *last frame's*
+// chain and added, times albedo. Each frame adds one bounce to what the
+// previous had; a still scene converges on every bounce at once, and the
+// gain per bounce is albedo times the occupied share of the hemisphere,
+// which the voxeliser's albedo clamp keeps under one.
+#type compute
+#version 450 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(set = 0, binding = 0, rgba8)   uniform readonly  image3D u_Albedo;
+layout(set = 0, binding = 1, rgba8)   uniform readonly  image3D u_Normal;
+layout(set = 0, binding = 2, rgba16f) uniform readonly  image3D u_Emissive;
+layout(set = 0, binding = 3, rgba16f) uniform writeonly image3D u_Radiance;
+// Last frame's lit chain, for the bounce -- level 0 and the directional
+// faces above it. Bound whether or not they are read: a declared binding
+// with nothing behind it is undefined, not zero.
+layout(set = 0, binding = 4) uniform sampler3D u_VoxelRadiance;
+layout(set = 0, binding = 8) uniform sampler3D u_VoxelFaces;
+
+// Mirrored by hand in VoxelGI.cpp (GpuInjectParams), std140.
+layout(set = 0, binding = 5) uniform InjectParams
+{
+	// x = N, y = cascades, z = bounces (2 feeds the grid from last frame),
+	// w = how many lights
+	vec4 Grid;
+	// x = the coarsest mip a cone reads, y = how far a cone runs, z = shadow
+	// cascades rendered (0 = none, sun unshadowed), w = the normal offset scale
+	vec4 Trace;
+	// xyz = each cascade's minimum corner, w = its voxel size
+	vec4 Cascade[4];
+	// The shadow cascades, exactly as the lit shader's scene block carries
+	// them: world straight to lookup coordinates, the world size of a texel
+	// in each, and one lookup-space texel.
+	mat4 CascadeLookup[4];
+	vec4 CascadeTexel;
+	vec4 ShadowTexel;
+} u_Params;
+
+// One light, as the lit shader's GpuLight: xyz position (w = 1 for
+// positional, 0 for directional); the axis a directional light travels and
+// a spot's cone axis; rgb colour, a intensity; x range, y cos inner, z cos
+// outer, w = 1 where the light is the one with cascades. Mirrored by hand in
+// VoxelGI.cpp (GpuVoxelLight), std430.
+struct VoxelLight
+{
+	vec4 Position;
+	vec4 Direction;
+	vec4 Color;
+	vec4 Params;
+};
+
+layout(std430, set = 0, binding = 6) readonly buffer LightBlock
+{
+	VoxelLight Lights[];
+} u_Lights;
+
+// Comparison samplers, four separate maps for the reason the lit shader
+// gives: indexing an array of samplers by a per-invocation value is not
+// dynamically uniform, and the switch keeps every index constant.
+layout(set = 0, binding = 7) uniform sampler2DShadow u_ShadowMaps[4];
+
+int   VoxelResolution()   { return int(u_Params.Grid.x + 0.5); }
+int   VoxelCascadeCount() { return int(u_Params.Grid.y + 0.5); }
+vec3  VoxelOrigin(int k)  { return u_Params.Cascade[k].xyz; }
+float VoxelSize(int k)    { return u_Params.Cascade[k].w; }
+float VoxelMaxMip()       { return u_Params.Trace.x; }
+
+#include "include/voxel_cone.glsl"
+
+const float PI = 3.14159265359;
+
+float SampleCascade(int cascade, vec3 coordinate)
+{
+	if (cascade == 0) return texture(u_ShadowMaps[0], coordinate);
+	if (cascade == 1) return texture(u_ShadowMaps[1], coordinate);
+	if (cascade == 2) return texture(u_ShadowMaps[2], coordinate);
+	return texture(u_ShadowMaps[3], coordinate);
+}
+
+// How lit a voxel is by the sun: the finest cascade whose lookup contains
+// it -- not selected by view depth as the lit shader's is, because a voxel
+// has no view depth; it is wherever it is -- with the lit shader's
+// normal-offset bias, one tap. Lit where no cascade reaches.
+float CascadeShadow(vec3 worldPos, vec3 N, vec3 L)
+{
+	const int count = int(u_Params.Trace.z + 0.5);
+	if (count <= 0)
+		return 1.0;
+
+	const float NdotL = clamp(dot(N, L), 0.0, 1.0);
+	const float slope = sqrt(1.0 - NdotL * NdotL) / max(NdotL, 0.15);
+
+	for (int cascade = 0; cascade < count; cascade++)
+	{
+		const float offset = u_Params.CascadeTexel[cascade] * u_Params.Trace.w * (1.0 + min(slope, 4.0));
+		const vec4 lightSpace = u_Params.CascadeLookup[cascade] * vec4(worldPos + N * offset, 1.0);
+		const vec3 coordinate = lightSpace.xyz / lightSpace.w;
+		if (any(lessThan(coordinate.xy, vec2(0.0))) || any(greaterThan(coordinate.xy, vec2(1.0))))
+			continue;
+		if (coordinate.z > 1.0)
+			return 1.0;
+		return SampleCascade(cascade, coordinate);
+	}
+	return 1.0;
+}
+
+uint Hash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+
+void main()
+{
+	const ivec3 texel = ivec3(gl_GlobalInvocationID);
+	if (any(greaterThanEqual(texel, imageSize(u_Albedo))))
+		return;
+
+	const vec4 albedo = imageLoad(u_Albedo, texel);
+	if (albedo.a <= 0.0)
+	{
+		imageStore(u_Radiance, texel, vec4(0.0));
+		return;
+	}
+
+	const int n = VoxelResolution();
+	const int cascade = texel.x / n;
+	const ivec3 voxel = ivec3(texel.x - cascade * n, texel.y, texel.z);
+	const float size = VoxelSize(cascade);
+	const vec3 world = VoxelOrigin(cascade) + (vec3(voxel) + 0.5) * size;
+	const vec3 N = normalize(imageLoad(u_Normal, texel).xyz * 2.0 - 1.0);
+
+	vec3 direct = vec3(0.0);
+	const int lightCount = int(u_Params.Grid.w + 0.5);
+	for (int i = 0; i < lightCount; i++)
+	{
+		const VoxelLight light = u_Lights.Lights[i];
+		const vec3 lightColor = light.Color.rgb * light.Color.a;
+
+		vec3 L;
+		float attenuation = 1.0;
+		if (light.Position.w == 0.0)
+		{
+			L = normalize(-light.Direction.xyz);
+		}
+		else
+		{
+			const vec3 toLight = light.Position.xyz - world;
+			const float distance_ = length(toLight);
+			L = toLight / max(distance_, 0.0001);
+
+			const float range = max(light.Params.x, 0.0001);
+			const float ratio = clamp(1.0 - pow(distance_ / range, 4.0), 0.0, 1.0);
+			attenuation = (ratio * ratio) / max(distance_ * distance_, 0.0001);
+
+			const float cosInner = light.Params.y;
+			const float cosOuter = light.Params.z;
+			if (cosOuter < cosInner)
+			{
+				const float theta = dot(L, normalize(-light.Direction.xyz));
+				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+			}
+		}
+
+		const float NdotL = max(dot(N, L), 0.0);
+		if (NdotL <= 0.0 || attenuation <= 0.0)
+			continue;
+
+		const float shadow = light.Params.w > 0.5 ? CascadeShadow(world, N, L) : 1.0;
+		direct += lightColor * attenuation * NdotL * shadow;
+	}
+
+	// Lambert: what a diffuse surface sends back out of what it received.
+	vec3 radiance = albedo.rgb / PI * direct + imageLoad(u_Emissive, texel).rgb;
+
+	// The bounce, from last frame's chain (7bc). The same gather the pixels
+	// take, so a voxel is lit by the walls it sees exactly as a surface is.
+	if (u_Params.Grid.z >= 1.5)
+	{
+		const uint seed = uint(texel.x) * 0x9E3779B9u ^ uint(texel.y) * 0x85EBCA6Bu ^ uint(texel.z);
+		const float rotation = float(Hash(seed)) / 4294967296.0 * 6.2831853;
+		radiance += albedo.rgb * GatherCones(world, N, rotation, u_Params.Trace.y);
+	}
+
+	imageStore(u_Radiance, texel, vec4(radiance * albedo.a, albedo.a));
+}

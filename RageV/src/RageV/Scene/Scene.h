@@ -4,6 +4,7 @@
 #include "RageV/Core/UUID.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/Light.h"
 #include "RageV/Renderer/PostSettings.h"
 #include "RageV/Renderer/ViewportGrid.h"
 #include "RageV/Renderer/RHI/RHIResources.h"
@@ -79,6 +80,12 @@ namespace RageV
 		// render entry points; call it directly after mutating transforms if a
 		// world value is needed before the next frame.
 		void UpdateWorldTransforms();
+		// The shadow maps half of RenderShadows: cascades and local maps, or
+		// the ray structures under traced shadows.
+		void RenderShadowMaps(const Camera& camera, const Mat4& cameraTransform);
+		// Every light in the scene as the renderer reads it -- what
+		// BeginScene and the voxel injection are both handed (7bc).
+		LightList CollectLights();
 
 		// Advances every animator and rebuilds its pose.
 		//
@@ -306,6 +313,14 @@ namespace RageV
 
 		// True when at least one terrain has something to draw.
 		bool HasTerrain();
+
+		// The voxel grid for this frame (8.1, ENGINE-NOTES 7bc): every static
+		// mesh and terrain chunk inside the outermost cascade, submitted to
+		// VoxelGI, which voxelises, lights and mips them. Called by
+		// RenderShadows after the maps, because the grid is lit from them;
+		// runs only where the project resolves to the voxel form and rays do
+		// not win, and tells VoxelGI nothing was lit otherwise.
+		void UpdateVoxelGI(const Mat4& cameraTransform);
 
 		// The height of the ground under a world point (ENGINE-NOTES 7au).
 		//

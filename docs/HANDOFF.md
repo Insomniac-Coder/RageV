@@ -1637,127 +1637,63 @@ pin; that is now a fourth shape for CHK.1.**
 9.13c and 9.13d were green when committed -- 9.13c's OK lines were read, 9.13d's
 were counted -- and the engine has had no regression at any point.
 
-### START HERE (2026-08-19, end of day): CHK.2 is done. Next: 8.1 voxel GI -- and read the SSGI finding first
+### START HERE (2026-08-19, late): 8.1 voxel GI is done. Next: 9.15, or a phase-8 item
 
-**State.** Phases 0-7 and 9 are done; phase 8 has nine rows open (8.1, 8.3,
-8.5-8.11). **CHK.2 -- every claim in every check script put on the wrong side
-of itself -- is done and written up in ENGINE-NOTES 7ba** under "every claim
-put on the wrong side of itself": ninety-odd breaks across all twenty scripts
-(seventy-four shader and data breaks in `tools/scripts/falsify.py`, nine
-engine-break groups across eight Release builds), every threshold aimed at
-seen to fail, **ten claims that stayed green** under a break aimed straight at
-them -- three of them defects in the checks, now fixed, and seven that are
-notes on what the claim actually rests on. **A second full pass -- every
-break, every engine group, then the whole suite -- agreed with the first in
-every row (7ba, "The second pass"). 41 commits are unpushed; pushing is the
-owner's action and it is safe to do.**
+**State.** Phases 0-7 and 9 are done; **8.1 is done** (ENGINE-NOTES 7bc,
+ROADMAP row); phase 8 has 8.3, 8.5-8.11 open. **43 commits are unpushed;
+pushing is the owner's action and it is safe to do.**
 
-**What CHK.2 changed in the tree**, all in `tools/scripts/`: `check_ssao`'s
-traced wall has its own floor (`MIN_TRACED_WALL_P10 = 0.998`; the RTAO
-guard's removal read 0.996 against the old 0.995); `check_lens_effects`' "off"
-profile now writes its three zeros (it was the untouched profile under another
-name, so the claim compared a file with itself -- caught by flipping the
-struct's vignette default); `check_taa_jitter`'s "eight distinct offsets"
-claim is deleted (vacuous since TAA.4 -- under accumulation no two frames are
-ever identical; claim 2 catches the same defect). `falsify.py` is the harness
-and carries every break; its `restore` reverts only the scripts a break
-names, because the directory-wide checkout it started with ate an uncommitted
-edit twice.
+**What 8.1 is, in one paragraph.** `RenderSettings::VoxelGlobalIllumination`
+(+ `VoxelGiResolution` 64, `VoxelGiCascades` 3, `VoxelGiVoxelSize` 0.25,
+`--voxel-gi=`): where a profile's Global illumination is on and ray-traced GI
+does not win, the bounce is gathered from a voxelised scene instead of the
+screen. `Renderer/VoxelGI` owns everything after `Scene::UpdateVoxelGI`'s
+walk -- clear, three-axis voxelise into storage images, inject from the
+cascades and the lights, a **directional** mip chain (six faces stacked along
+Y), and the cone gather that replaces `SSGI compute` at the head of the
+unchanged blur + `GI denoise` chain. The RHI gained
+`RHIResourceSet::SetStorageImage`, `RHICommandList::TextureBarrier` and
+`DeviceCaps::SupportsFragmentStores`; `Material` keeps its sets per pipeline
+layout now (the voxeliser binds materials on every backend). Shaders:
+`voxelize`, `voxel_clear`, `voxel_inject`, `voxel_mip`, `voxelgi_gather`,
+`include/voxel_cone.glsl`, `include/material_bound.glsl`.
 
-**Read 7ba's CHK.2 section before writing or touching a check.** Two things
-in it generalise: the cheap lever (the runtime loads its shaders as source
-from beside the exe, so breaking the deployed copy is the same defect as a
-source edit plus a build, at fifty seconds a check), and the withdrawal -- a
-"did not fire" from the scratch harness was believed without a second run and
-was wrong; every null result in the entry was re-run through the committed
-harness before it was kept.
+**Measured against the traced form** (gi_corner/gi_away, intensity 2): red
+beside the corner +1.78 vs +1.86, brightness +23.8 vs +19.9, off screen +0.36
+vs +0.82 (screen-space +0.00), backends 0.05 apart, 0.09 ms grid + 0.9 ms
+gather at 1600x900 on the 5070 Ti. **Read 7bc's "Built" section before
+touching the cones or the mips**: three findings moved the numbers -- the
+cones reading their own wall through a coarser cascade's voxel, the cone
+width, and the box mip leaking -- and each is a break the check guards.
 
-**THE OWNER HAS CHOSEN 8.1 (SDFGI / voxel GI).** Before designing it, read
-the finding below, because it decides what 8.1's first step is.
+**Verified today:** Release builds; scenetest both backends, zero `[Vulkan]`
+(graph assertions for the voxel chain, the storage-image unit); the runtime
+on both backends under `--validation=on` with zero lines; `rvdoc --check`
+green. **Not yet run end to end:** `check_gi.py`'s new claims 13-17 -- they
+were written against the probe harness's measurements (the same shots, the
+same regions) and the constants in the file are those numbers; the first
+thing next session is `python tools/scripts/check_gi.py` from a Release
+build, and the Debug/Dist builds if the background build did not finish.
+`falsify.py` has four voxel breaks (`voxel-no-lift`, `voxel-wide-cones`,
+`voxel-iso-faces`, `voxel-no-shadow`) whose expected readings are in 7bc; run
+them through the check once it is green.
 
-**A finding from the last hour, not yet acted on: the screen-space GI form is
-effectively invisible.** The owner toggled Global illumination in the
-courtyard's profile on both backends and saw nothing, and the check fixtures
-agree with the owner. Measured on `gi_corner`, GI on against GI off, same
-frame, per pixel:
+**Next, the owner's call:** **9.15** -- calibrate the screen-space gather
+against the voxel and traced forms, now that a raster-side reference exists
+on both backends (the SSGI finding below still stands: +0.22 where both
+world-space forms read +1.8); or **8.9 FBX / Collada** (L); or the 8.1
+follow-ups 7bc lists, of which *skinned casters* and *local-light shadows in
+the injection* are the two a real scene will notice first.
 
-| form | mean change | pixels changed by more than 8 levels |
-|---|---|---|
-| screen-space, intensity 1.0, either backend | **0.8 levels** | **0.9 %** |
-| ray-traced, intensity 1.0, `gi_skylit` | 8.6 levels | 69 % |
-| ray-traced, intensity 2.0, `gi_corner` | 15.9 levels | 51 % |
+**The SSGI finding, kept:** the screen-space form is sub-visible (0.8 levels
+mean on gi_corner, 0.9 % of pixels by more than 8); causes in 7bc's
+predecessor note in this file's history and in the SSGI shader's `1/(1+d^2)`
+falloff, which has no physical counterpart. Voxel GI is the visible form now,
+and the recommended fix for SSGI is still to drop the falloff and band it
+against the world-space forms.
 
-The screen-space form is what the profile's toggle drives; the traced form is
-a *Render Settings* switch (`RayTracing` + `RayTracedGlobalIllumination`,
-Vulkan only) and the profile toggle is ignored when it is on. So "no
-difference on both backends" is exactly right: SSGI is sub-visible, and it
-always has been -- +0.77 at 9.12, +1.71, +1.27, +0.22 now, every one of them
-under the eye's threshold; the bands in `check_gi` were calibrated to whatever
-it read and nothing in the suite asks whether the effect can be seen.
-
-Three causes, the third being the one that matters: (1) 9.14's normalisation
-over every tap is correct and unforgiving -- where most taps find nothing the
-estimate is small by construction; (2) `GiRadius` defaults to 2 m, where the
-traced rays go 10 km; (3) **the gather multiplies every tap by
-`1 / (1 + d*d)`** (`ssgi_compute.rvshader`, "the inverse-square the geometry
-term would apply") -- and for a hemisphere gather over *surfaces* there is no
-distance falloff: radiance is invariant along a ray and the solid-angle
-weighting is already in the cosine. The traced form, which is the same
-integral, has no such term. That factor halves a tap at one metre and takes
-80 % off at two, and is why SSGI lands an order of magnitude under the traced
-form on the same wall.
-
-**The recommended first step of 8.1, or a 9.15 before it -- the owner's
-call:** calibrate the screen-space form against the traced one, which is the
-reference this engine has. Drop the falloff, revisit the radius, and add a
-claim to `check_gi` that on `gi_corner` -- where every tap finds a surface --
-SSGI lands within a band of the traced form; then re-measure the bands 7ay and
-7bb set. It is small, it makes the shipped feature do something, and it gives
-voxel GI a sane baseline to be compared against. If 8.1 instead retires SSGI
-outright, the finding still stands as the reason.
-
-**What 8.1 is, in this engine's terms** (the explanation given to the owner,
-kept so the design entry starts from it):
-
-- It is a *world-space* GI form that needs no ray hardware: the scene is
-  rasterised into a coarse 3D grid around the camera (a clipmap of 3-4
-  cascades), the grid is lit from the cascaded shadow maps, mips are built so
-  a coarse level means "radiance and occupancy over a bigger region", and at
-  shade time a handful of cones are marched through the mip chain per pixel.
-  SDFGI is the same idea with a signed-distance grid and a probe lattice
-  refreshed by sphere-tracing it -- better occlusion, more plumbing.
-- **It does not get an RT twin.** Every feature so far was "screen-space form
-  for everyone + ray-traced twin on Vulkan" (SSAO/RTAO, SSR/RT reflections,
-  SSGI/RT GI). Voxel GI is the *first half* of that pair done properly: the
-  raster-side answer that sees off-screen light. The RT twin already exists
-  (`RV_RAY_GI`). Likely shape: `RayTracedGlobalIllumination` on = hardware
-  rays, as now; off = the voxel-traced gather, with SSGI retired or kept as
-  near-field detail. One consumer path -- the albedo-free `Indirect` buffer,
-  the denoiser, the one-frame-late albedo multiply (7av, 7ay) -- unchanged:
-  the voxel gather is a third writer of the same buffer.
-- One consequence worth designing for: the traced form's second bounce
-  currently shades its hit with the probe's irradiance (7ax); with a lit grid
-  it can read the grid at the hit instead, and get multi-bounce for the price
-  of a texture fetch. That is the hybrid, and the reason to do this while
-  7av-7bb are fresh.
-- Both backends have compute (6.7a) and 3D textures (9.1b), so OpenGL gets it
-  too; the voxelisation pass is the part to design twice-over. Moving objects
-  need re-voxelising where they were and are -- the TLAS rebuild already
-  tracks the per-frame mesh list (7am). The known artefact is light leaking
-  through thin walls, which is the argument for the SDF as a later step if it
-  bites. Start with the clipmap and cone tracing; it builds on what is here.
-- The check it wants already half exists: `gi_away` is the fixture whose
-  bounce source is off screen, where SSGI reads +0.00 and the traced form
-  reads +0.82 (7av's `MIN_TRACED_AWAY_BLEED`). Voxel GI must redden that wall
-  too, and the band is placed against the traced number, not a round one.
-
-**Design first** -- an ENGINE-NOTES entry (7bc is next) before code, then
+**Design first** -- an ENGINE-NOTES entry (7bd is next) before code, then
 HANDOFF, then the ROADMAP row in the same commit that first uses a new number.
-
-**Left on the table by 8.9 and the rest:** **8.9 FBX / Collada import** (L)
-is the cheapest genuine capability on the list if 8.1 stalls; 8.5 navmesh and
-8.6 networking reshape the architecture and should not be picked casually.
-Every row's price is in ROADMAP.
 
 **Two process rules that cost an hour each when they were learned:** `git
 checkout -- SampleProject/` before every `git add -A`, and bisect the *whole

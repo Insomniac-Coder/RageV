@@ -155,7 +155,7 @@ objects want it small**, and a large value lets rays hit walls through railings.
 ## Global illumination — off by default
 
 One bounce of diffuse light: a red wall throws red onto the white floor beside
-it. Two forms, and only one runs at a time.
+it. Three forms, and only one runs at a time.
 
 **Screen-space** is this profile's **Global illumination** switch. A
 half-resolution gather gives every pixel the light arriving from surfaces
@@ -178,14 +178,24 @@ anti-aliasing is what resolves its noise. While it is on, this profile's
 **Global illumination** row is greyed and says so; **GI intensity** still
 applies to it.
 
+**Voxel** is **Voxel global illumination** in Render Settings (ENGINE-NOTES
+7bc). It does not replace this profile's switch -- it changes what the switch
+gathers from: a grid of the scene around the camera, lit from the shadow
+cascades, rather than the screen. Light then arrives from behind the camera
+and off every edge of the frame, on both backends, with no ray hardware and
+no noise to resolve. **GI intensity**, **Quality** and **GI denoise** apply
+as they do to the screen gather; **GI radius** does not -- a cone runs to the
+grid's edge -- and its row says so. Ray-traced global illumination wins over
+it where both are on.
+
 ## Ambient occlusion — off by default
 
 Occlusion from depth alone, applied as a multiply on the lit image.
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|
-| `GlobalIllumination` | `false` | — | One screen-space bounce; on adds four passes at half resolution |
-| `GiRadius` | `2.0` | world metres | How far a bounce may travel |
+| `GlobalIllumination` | `false` | — | One bounce of diffuse light; on adds four passes at half resolution, gathered from the screen, or from the voxel grid where Render Settings' Voxel global illumination is on |
+| `GiRadius` | `2.0` | world metres | How far a screen-space bounce may travel. Not read by the voxel form, whose cones run to the grid's edge, nor by the traced one |
 | `GiIntensity` | `1.0` | — | Scales the bounce; 0 is the image without it, and the ray-traced form reads it too. Since 9.14 the screen-space gather is normalised over the whole hemisphere rather than the taps that found a surface, so where a wall sees mostly open room the bounce is proportionally weaker than it was -- ENGINE-NOTES 7bb, which says why the old number was extrapolation |
 | `GiQuality` | `Low` | `Low`, `Medium`, `High` | How finely the screen-space bounce is gathered. `Low` and `Medium` differ only in taps (12 against 24); `High` also gathers at **full resolution**, and the blur after it narrows to match so the detail survives. **It does not narrow the bleed** — that width is `GiRadius` in world metres, not the gather's to set. Measured 0.489 / 0.603 / 1.281 ms on the check's fixture. Not read by the ray-traced form, whose cost is rays. ENGINE-NOTES 7az |
 | `GiDenoise` | `0.9` | 0 – 0.98 | How much of last frame's bounce survives into this one, reprojected through the motion vectors — which is what converges the traced form's four rays a pixel under *every* anti-aliasing mode rather than only under TAA. 0 turns the accumulation off exactly. **Both forms** since 9.13c: the screen-space gather subtracts what the lit shader added, so it no longer reads its own answer back. On a still camera it changes nothing there -- that gather's kernel is fixed, so its estimate is the same every frame -- and what it buys is a reprojected history under motion. ENGINE-NOTES 7ay |

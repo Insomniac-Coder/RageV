@@ -57,6 +57,7 @@
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/RayShadows.h"
+#include "RageV/Renderer/VoxelGI.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ViewportGrid.h"
@@ -2723,6 +2724,206 @@ void main()
 			Check(device.CreateComputePipeline(bad) == nullptr,
 				  "a shader with no compute stage is refused a compute pipeline");
 		}
+	}
+
+	// Storage images (ENGINE-NOTES 7bc): a 3D texture a compute pass writes
+	// through imageStore, a second pass building its next level from it
+	// through imageLoad, and a third reading both back through a sampler into
+	// a buffer the host can see. The three stages are what the voxel GI
+	// pipeline is made of -- voxelise, mip, gather -- so this is its RHI half
+	// proven on both backends before a triangle is drawn.
+	void CheckStorageImages()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		RHI::RHIDevice& device = Renderer::GetDevice();
+		if (!device.GetCaps().SupportsCompute)
+			return;
+
+		Check(device.GetCaps().SupportsFragmentStores,
+			  "the device reports fragment-stage image stores (the voxeliser's imageStore)");
+
+		constexpr uint32_t kSize = 4;
+
+		RHI::TextureDesc textureDesc;
+		textureDesc.Type = RHI::TextureType::Texture3D;
+		textureDesc.Width = kSize;
+		textureDesc.Height = kSize;
+		textureDesc.Depth = kSize;
+		textureDesc.MipLevels = 2;
+		textureDesc.Format = RHI::Format::R16G16B16A16_SFLOAT;
+		textureDesc.Usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::Storage;
+		textureDesc.DebugName = "scenetest.storage3d";
+		RHI::Ref<RHI::RHITexture> volume = device.CreateTexture(textureDesc);
+		Check(volume != nullptr, "a 3D texture with storage usage is created");
+		if (!volume)
+			return;
+
+		auto makePipeline = [&](const char* name, const char* source)
+			-> RHI::Ref<RHI::RHIComputePipeline>
+		{
+			RHI::ShaderDesc desc;
+			desc.Name = name;
+			desc.Stages.push_back({ RHI::ShaderStage::Compute, source });
+			auto compiled = RHI::ShaderCompiler::Compile(desc);
+			if (!compiled)
+				return nullptr;
+			RHI::ComputePipelineDesc pipelineDesc;
+			pipelineDesc.Name = name;
+			pipelineDesc.Shader = device.CreateShader(*compiled);
+			return pipelineDesc.Shader ? device.CreateComputePipeline(pipelineDesc) : nullptr;
+		};
+
+		// Every texel of mip 0 takes (x, y, z, 1): distinct per texel, so a
+		// write that landed in the wrong place or the wrong level is visible.
+		RHI::Ref<RHI::RHIComputePipeline> write = makePipeline("scenetest.storage.write", R"(
+#version 450 core
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image3D u_Level0;
+void main()
+{
+	ivec3 texel = ivec3(gl_GlobalInvocationID);
+	imageStore(u_Level0, texel, vec4(vec3(texel), 1.0));
+}
+)");
+		// Level 1 is the 2x2x2 box of level 0 -- the voxel mip pass's shape.
+		RHI::Ref<RHI::RHIComputePipeline> mip = makePipeline("scenetest.storage.mip", R"(
+#version 450 core
+layout(local_size_x = 2, local_size_y = 2, local_size_z = 2) in;
+layout(set = 0, binding = 0, rgba16f) uniform readonly image3D u_Level0;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image3D u_Level1;
+void main()
+{
+	ivec3 texel = ivec3(gl_GlobalInvocationID);
+	ivec3 base = texel * 2;
+	vec4 sum = vec4(0.0);
+	for (int z = 0; z < 2; z++)
+		for (int y = 0; y < 2; y++)
+			for (int x = 0; x < 2; x++)
+				sum += imageLoad(u_Level0, base + ivec3(x, y, z));
+	imageStore(u_Level1, texel, sum * 0.125);
+}
+)");
+		// Samples both levels at texel centres through a sampler, into a
+		// buffer: eight level-0 texels along the diagonal, then the eight
+		// texels of level 1.
+		RHI::Ref<RHI::RHIComputePipeline> read = makePipeline("scenetest.storage.read", R"(
+#version 450 core
+layout(local_size_x = 16) in;
+layout(set = 0, binding = 0) uniform sampler3D u_Volume;
+layout(std430, set = 0, binding = 1) buffer Out { vec4 Data[]; } u_Out;
+void main()
+{
+	uint i = gl_GlobalInvocationID.x;
+	if (i < 4u)
+	{
+		// Level 0, the diagonal (i, i, i).
+		vec3 uvw = (vec3(float(i)) + 0.5) / 4.0;
+		u_Out.Data[i] = textureLod(u_Volume, uvw, 0.0);
+	}
+	else if (i < 12u)
+	{
+		uint j = i - 4u;
+		ivec3 texel = ivec3(j & 1u, (j >> 1) & 1u, (j >> 2) & 1u);
+		vec3 uvw = (vec3(texel) + 0.5) / 2.0;
+		u_Out.Data[i] = textureLod(u_Volume, uvw, 1.0);
+	}
+}
+)");
+		Check(write && mip && read, "the three storage-image shaders compile and build pipelines");
+		if (!write || !mip || !read)
+			return;
+
+		RHI::BufferDesc bufferDesc;
+		bufferDesc.Size = 12 * sizeof(Vec4);
+		bufferDesc.Usage = RHI::BufferUsage::Storage;
+		bufferDesc.Memory = RHI::MemoryDomain::HostVisible;
+		bufferDesc.DebugName = "scenetest.storage.readback";
+		RHI::Ref<RHI::RHIBuffer> readback = device.CreateBuffer(bufferDesc);
+		if (!readback)
+			return;
+		std::vector<Vec4> zeros(12, Vec4(-1.0f));
+		readback->Upload(zeros.data(), bufferDesc.Size);
+
+		RHI::SamplerDesc samplerDesc;
+		samplerDesc.MinFilter = RHI::FilterMode::Nearest;
+		samplerDesc.MagFilter = RHI::FilterMode::Nearest;
+		samplerDesc.Mipmap = RHI::MipmapMode::Nearest;
+		samplerDesc.WrapU = samplerDesc.WrapV = samplerDesc.WrapW = RHI::WrapMode::ClampToEdge;
+		RHI::Ref<RHI::RHISampler> sampler = device.CreateSampler(samplerDesc);
+
+		RHI::Ref<RHI::RHIResourceSet> writeSet = device.CreateResourceSet(write, 0);
+		RHI::Ref<RHI::RHIResourceSet> mipSet = device.CreateResourceSet(mip, 0);
+		RHI::Ref<RHI::RHIResourceSet> readSet = device.CreateResourceSet(read, 0);
+		if (!writeSet || !mipSet || !readSet || !sampler)
+			return;
+
+		writeSet->SetStorageImage(0, volume, 0);
+		writeSet->Commit();
+		mipSet->SetStorageImage(0, volume, 0);
+		mipSet->SetStorageImage(1, volume, 1);
+		mipSet->Commit();
+		readSet->SetTexture(0, volume, sampler);
+		readSet->SetStorageBuffer(1, readback, 0, bufferDesc.Size);
+		readSet->Commit();
+
+		device.ExecuteImmediate([&](RHI::RHICommandList& cmd)
+		{
+			cmd.BindComputePipeline(write);
+			cmd.BindResourceSet(0, writeSet);
+			cmd.Dispatch(1, 1, 1);
+			cmd.TextureBarrier(volume, RHI::TextureSync::ComputeWrite, RHI::TextureSync::ShaderRead);
+			cmd.TextureBarrier(volume, RHI::TextureSync::ComputeWrite, RHI::TextureSync::ComputeWrite);
+
+			cmd.BindComputePipeline(mip);
+			cmd.BindResourceSet(0, mipSet);
+			cmd.Dispatch(1, 1, 1);
+			cmd.TextureBarrier(volume, RHI::TextureSync::ComputeWrite, RHI::TextureSync::ShaderRead);
+
+			cmd.BindComputePipeline(read);
+			cmd.BindResourceSet(0, readSet);
+			cmd.Dispatch(1, 1, 1);
+			cmd.BufferBarrier(readback, RHI::BufferSync::ComputeWrite, RHI::BufferSync::ShaderRead);
+		});
+
+		const auto* result = static_cast<const Vec4*>(readback->GetMappedPointer());
+		Check(result != nullptr, "the storage-image readback can be mapped");
+		if (!result)
+			return;
+
+		auto close = [](float a, float b) { return Math::Abs(a - b) < 0.01f; };
+
+		bool level0 = true;
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			const Vec4& v = result[i];
+			level0 = level0 && close(v.x, (float)i) && close(v.y, (float)i) && close(v.z, (float)i)
+						  && close(v.w, 1.0f);
+		}
+		if (!level0)
+		{
+			RV_CORE_ERROR("storage image level 0 read back ({0}, {1}, {2}, {3}) at the "
+						  "diagonal's second texel", result[1].x, result[1].y, result[1].z, result[1].w);
+		}
+		Check(level0, "a compute pass writes a 3D storage image and a sampler reads it back");
+
+		// Level 1 texel (tx, ty, tz) is the mean of level 0's (2tx..2tx+1, ...),
+		// which is (2tx + 0.5, 2ty + 0.5, 2tz + 0.5, 1).
+		bool level1 = true;
+		for (uint32_t j = 0; j < 8; j++)
+		{
+			const float tx = (float)(j & 1u), ty = (float)((j >> 1) & 1u), tz = (float)((j >> 2) & 1u);
+			const Vec4& v = result[4 + j];
+			level1 = level1 && close(v.x, 2.0f * tx + 0.5f) && close(v.y, 2.0f * ty + 0.5f)
+						  && close(v.z, 2.0f * tz + 0.5f) && close(v.w, 1.0f);
+		}
+		if (!level1)
+		{
+			RV_CORE_ERROR("storage image level 1 read back ({0}, {1}, {2}, {3}) at its first texel",
+						  result[4].x, result[4].y, result[4].z, result[4].w);
+		}
+		Check(level1, "a second pass builds level 1 from level 0 through imageLoad, and the chain samples");
 	}
 
 	// Records every contact it is told about, so the routing can be checked
@@ -9426,6 +9627,46 @@ void main()
 				render.RayTracedGlobalIllumination = false;
 				render.RayTracing = false;
 			}
+
+			// The voxel form (8.1, ENGINE-NOTES 7bc): the third writer of the
+			// same buffer, replacing the screen gather at the head of the
+			// chain where the project resolves to it -- and only with a grid
+			// lit this frame, so the first thing is an update with nothing
+			// in it, which is what a frame with no casters in reach gets.
+			if (VoxelGI::IsReady())
+			{
+				render.VoxelGlobalIllumination = true;
+				VoxelGI::Invalidate();
+				Check(buildBouncing() && !hasPass("Voxel GI gather") && !hasPass("SSGI"),
+					  "voxel GI resolved on with no grid lit this frame adds no chain at all");
+
+				Renderer::GetDevice().ExecuteImmediate([&](RHI::RHICommandList& cmd)
+				{
+					VoxelGiSettings settings;
+					VoxelGI::Update(cmd, settings, Vec3(0.0f), LightList{},
+									[](const Vec3&, const Vec3&) {});
+				});
+				Check(VoxelGI::HasGrid(), "an update with no casters still lights a grid");
+				Check(buildBouncing() && hasPass("Voxel GI gather") && !hasPass("SSGI compute"),
+					  "and with a grid the frame carries the voxel gather and not the screen one");
+				Check(hasPass("SSGI blur x") && hasPass("SSGI blur y") && hasPass("GI denoise"),
+					  "and the blur and the denoise after it are the same passes the screen form ends on");
+
+				if (RayShadows::IsAvailable())
+				{
+					render.RayTracing = true;
+					render.RayTracedGlobalIllumination = true;
+					Check(buildBouncing() && !hasPass("Voxel GI gather") && !hasPass("SSGI"),
+						  "and with the traced form on as well, rays win: neither gather runs");
+					render.RayTracedGlobalIllumination = false;
+					render.RayTracing = false;
+				}
+
+				render.VoxelGlobalIllumination = false;
+				VoxelGI::Invalidate();
+				Check(buildBouncing() && hasPass("SSGI compute") && !hasPass("Voxel GI gather"),
+					  "and off again, the screen gather is back");
+			}
 		}
 		post.GlobalIllumination = false;
 		Check(build(1600, 900, render, post) && !hasPass("SSGI"),
@@ -12897,6 +13138,7 @@ int RunTests(int argc, char** argv)
 	CheckMultisampledDepth();
 	CheckBindlessHeap();
 	CheckRayQuery();
+	CheckStorageImages();
 	CheckTerrain();
 	CheckTerrainBrush();
 	CheckGameModule();

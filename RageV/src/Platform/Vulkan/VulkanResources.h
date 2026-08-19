@@ -128,6 +128,18 @@ namespace RageV::Vk
 		VkImageLayout GetLayout() const { return m_Layout; }
 		void SetLayout(VkImageLayout layout) { m_Layout = layout; }
 
+		// A view of one mip level, for a storage-image binding (ENGINE-NOTES
+		// 7bc): a compute pass writing level 3 binds level 3, and a view over
+		// the whole chain is not a thing an image descriptor can take. Made
+		// on first use and kept; the whole-chain view above stays what a
+		// sampler sees.
+		VkImageView GetMipView(uint32_t mip);
+
+		// Whether this texture was created for storage and so lives in
+		// VK_IMAGE_LAYOUT_GENERAL for its whole life. The descriptor writes
+		// ask, because the layout they name has to be the one the image is in.
+		bool IsStorage() const { return RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::Storage); }
+
 		// Records a layout transition covering every mip and layer.
 		//
 		// The stage and access are implied by the two layouts, which is enough
@@ -163,6 +175,9 @@ namespace RageV::Vk
 		VkImageLayout m_Layout     = VK_IMAGE_LAYOUT_UNDEFINED;
 		VkImageAspectFlags m_Aspect = VK_IMAGE_ASPECT_COLOR_BIT;
 		bool m_Owned = true;
+
+		// Per-mip views, indexed by level; null until GetMipView asks.
+		std::vector<VkImageView> m_MipViews;
 
 		// Lazily created descriptor set for ImGui::Image.
 		VkDescriptorSet m_ImGuiDescriptor = VK_NULL_HANDLE;

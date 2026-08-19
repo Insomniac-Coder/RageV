@@ -541,6 +541,59 @@ namespace RageV::Vk
 							 0, nullptr, 1, &barrier, 0, nullptr);
 	}
 
+	void VulkanCommandList::TextureBarrier(const RHI::Ref<RHI::RHITexture>& texture,
+										   RHI::TextureSync from, RHI::TextureSync to)
+	{
+		if (!texture)
+			return;
+		RV_CORE_ASSERT(!m_InRenderPass, "TextureBarrier must be recorded outside a render pass");
+
+		auto vulkanTexture = std::static_pointer_cast<VulkanTexture>(texture);
+
+		auto describe = [](RHI::TextureSync sync, VkPipelineStageFlags2& stage, VkAccessFlags2& access)
+		{
+			switch (sync)
+			{
+				case RHI::TextureSync::ComputeWrite:
+					stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+					access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+					break;
+				case RHI::TextureSync::FragmentWrite:
+					stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+					access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+					break;
+				case RHI::TextureSync::ShaderRead:
+				default:
+					// Sampled or imageLoad, from any stage that shades.
+					stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT
+						  | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+						  | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+					access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+					break;
+			}
+		};
+
+		VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+		describe(from, barrier.srcStageMask, barrier.srcAccessMask);
+		describe(to, barrier.dstStageMask, barrier.dstAccessMask);
+		// No layout changes hands: a storage texture lives in GENERAL
+		// (ENGINE-NOTES 7bc), and for anything else this is a memory
+		// dependency in whatever layout the image already holds.
+		barrier.oldLayout = vulkanTexture->GetLayout();
+		barrier.newLayout = vulkanTexture->GetLayout();
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.image = vulkanTexture->GetImage();
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+		barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+		VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		dependency.imageMemoryBarrierCount = 1;
+		dependency.pImageMemoryBarriers = &barrier;
+		vkCmdPipelineBarrier2(m_CommandBuffer, &dependency);
+	}
+
 	void VulkanCommandList::WriteTimestamp(uint32_t slot)
 	{
 		VkQueryPool pool = m_Device.GetTimestampPool();

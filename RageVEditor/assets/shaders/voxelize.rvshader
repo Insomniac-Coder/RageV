@@ -1,0 +1,202 @@
+// Voxelisation (8.1, ENGINE-NOTES 7bc): every mesh in a cascade's volume,
+// drawn down one axis into a dummy N x N target, writing albedo, normal and
+// emissive into three 3D storage images at the voxel the fragment's world
+// position falls in. Three draws a cascade, one per axis, and each fragment
+// keeps only the triangles whose dominant axis is this pass's -- the
+// geometry-shader projection done without a geometry shader.
+//
+// No depth test, nothing culled, no colour written: the target exists
+// because a graphics pass needs one. The voxel is addressed by world
+// position rather than by framebuffer coordinate, so the backends' opposite
+// row order never enters.
+#type vertex
+#version 450 core
+
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_TexCoord;
+
+// Per instance: the world transform and the scalars the lit pass sends per
+// instance for the same reason -- so two props of different colour are one
+// draw. Mirrored by hand in VoxelGI.cpp (GpuVoxelInstance), std430.
+struct VoxelInstance
+{
+	mat4 Model;
+	vec4 BaseColor;
+	vec4 EmissiveColor;
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer InstanceBlock
+{
+	VoxelInstance Instances[];
+} u_Instances;
+
+// Every cascade, the draw's push constant picking which. Mirrored by hand
+// in VoxelGI.cpp (GpuVoxelParams), std140.
+layout(set = 0, binding = 0) uniform VoxelParams
+{
+	// xyz = each cascade's minimum corner in world space, w = its voxel size
+	vec4 Cascade[4];
+	// x = voxels along each side, y = how many cascades, zw unused
+	vec4 Grid;
+} u_Voxel;
+
+// Where this batch starts in the instance buffer, which axis this draw
+// projects along (0 = X, 1 = Y, 2 = Z), and which cascade it writes. The
+// base is a push constant rather than the draw's firstInstance for the
+// reason scene_vertex.glsl gives: the two backends count gl_InstanceIndex
+// differently. Mirrored by hand in VoxelGI.cpp (VoxelPushConstants).
+layout(push_constant) uniform ObjectData
+{
+	int BaseInstance;
+	int Axis;
+	int Cascade;
+	int _pad;
+} u_Object;
+
+layout(location = 0) out vec3 v_WorldPos;
+layout(location = 1) out vec3 v_Normal;
+layout(location = 2) out vec2 v_TexCoord;
+layout(location = 3) flat out vec4 v_BaseColor;
+layout(location = 4) flat out vec4 v_EmissiveColor;
+
+void main()
+{
+	VoxelInstance instance = u_Instances.Instances[u_Object.BaseInstance + gl_InstanceIndex];
+
+	vec4 world = instance.Model * vec4(a_Position, 1.0);
+	v_WorldPos = world.xyz;
+	// The model matrix's upper 3x3, not its inverse transpose: the voxeliser
+	// wants a direction that faces the right way, and under the uniform scale
+	// every sample scene uses the two agree. A non-uniform scale tilts this
+	// normal slightly, which at voxel resolution is under the quantisation.
+	v_Normal = mat3(instance.Model) * a_Normal;
+	v_TexCoord = a_TexCoord;
+	v_BaseColor = instance.BaseColor;
+	v_EmissiveColor = instance.EmissiveColor;
+
+	// World to the cascade's unit cube, then swizzled so this pass's axis is
+	// the one the rasteriser does not see. Depth is irrelevant -- no depth
+	// test -- and sits at the middle of the clip range so nothing is clipped
+	// for being in front of or behind the cube.
+	const vec4 cascade = u_Voxel.Cascade[u_Object.Cascade];
+	const float extent = u_Voxel.Grid.x * cascade.w;
+	vec3 unit = (world.xyz - cascade.xyz) / extent * 2.0 - 1.0;
+	vec2 screen = u_Object.Axis == 0 ? unit.zy
+				: u_Object.Axis == 1 ? unit.xz
+				: unit.xy;
+	gl_Position = vec4(screen, 0.5, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec3 v_WorldPos;
+layout(location = 1) in vec3 v_Normal;
+layout(location = 2) in vec2 v_TexCoord;
+layout(location = 3) flat in vec4 v_BaseColor;
+layout(location = 4) flat in vec4 v_EmissiveColor;
+
+// The dummy attachment. Written, because an attachment a pipeline declares
+// and does not write is undefined (7av); never read.
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform VoxelParams
+{
+	vec4 Cascade[4];
+	vec4 Grid;
+} u_Voxel;
+
+layout(push_constant) uniform ObjectData
+{
+	int BaseInstance;
+	int Axis;
+	int Cascade;
+	int _pad;
+} u_Object;
+
+// The three grids, every cascade side by side along X (7bc). Albedo's alpha
+// is the occupancy and the only thing cleared each frame.
+layout(set = 0, binding = 2, rgba8)   uniform writeonly image3D u_Albedo;
+layout(set = 0, binding = 3, rgba8)   uniform writeonly image3D u_Normal;
+layout(set = 0, binding = 4, rgba16f) uniform writeonly image3D u_Emissive;
+
+// The bound material set, at set 1 -- the same declaration the lit shader
+// makes on its bound path, because Material::Bind writes every binding in
+// it (7bc). Only the base colour and emissive maps are read here.
+#include "include/material_bound.glsl"
+
+const int MAP_BASE_COLOR = 1 << 0;
+const int MAP_EMISSIVE   = 1 << 4;
+
+void main()
+{
+	o_Color = vec4(0.0);
+
+	// In voxels, from the cascade's corner.
+	const int cascade = u_Object.Cascade;
+	const vec4 box = u_Voxel.Cascade[cascade];
+	const float voxelSize = box.w;
+	const int n = int(u_Voxel.Grid.x);
+	const vec3 local = (v_WorldPos - box.xyz) / voxelSize;
+
+	// Every derivative first, in uniform control flow, before the fragment
+	// decides whether it is this pass's. The triangle's own normal, from the
+	// interpolated world position's screen derivatives: two in-plane vectors
+	// whatever the swizzle, so their cross is the plane's normal. And how
+	// many voxels this fragment's footprint spans along the depth axis: half
+	// the sum of the depth coordinate's two screen derivatives. A surface
+	// tilted up to 45 degrees to the pass axis -- which dominant-axis
+	// selection admits -- spans more than one, and writing only the centre's
+	// leaves a gap every few cells.
+	const vec3 planeNormal = cross(dFdx(v_WorldPos), dFdy(v_WorldPos));
+	const float depth = local[u_Object.Axis];
+	const float span = 0.5 * (abs(dFdx(depth)) + abs(dFdy(depth)));
+
+	// Keep the fragment only where this pass's axis is the normal's largest
+	// component -- the axis the triangle projects largest along, which is
+	// where it rasterises without gaps. A return rather than a discard: under
+	// SPIR-V 1.6 `discard` becomes a demote, which the OpenGL cross-compile
+	// refuses (the trap smaa_edges records), and nothing here is written to
+	// the attachment that a return would leave undefined.
+	const vec3 magnitude = abs(planeNormal);
+	const int dominant = magnitude.x >= magnitude.y
+					   ? (magnitude.x >= magnitude.z ? 0 : 2)
+					   : (magnitude.y >= magnitude.z ? 1 : 2);
+	if (dominant != u_Object.Axis)
+		return;
+
+	const int first = int(floor(depth - span));
+	const int last = int(floor(depth + span));
+
+	vec2 uv = v_TexCoord * u_Material.UvTransform.xy + u_Material.UvTransform.zw;
+
+	// What the surface is made of, at the coarsest level the map has: the
+	// base colour map's detail is irrelevant at voxel scale, and a sample at
+	// the fragment's own uv reads one texel where the voxel covers thousands,
+	// so the map's smallest mip -- its mean -- is the right answer, and an
+	// explicit level needs no derivative after the return above. Clamped to
+	// one so the multi-bounce (7bc) cannot gain.
+	vec3 albedo = v_BaseColor.rgb;
+	if ((u_Material.MapFlags & MAP_BASE_COLOR) != 0)
+		albedo *= textureLod(u_BaseColorMap, uv, 16.0).rgb;
+	albedo = min(albedo, vec3(1.0));
+
+	vec3 emissive = v_EmissiveColor.rgb;
+	if ((u_Material.MapFlags & MAP_EMISSIVE) != 0)
+		emissive *= textureLod(u_EmissiveMap, uv, 16.0).rgb;
+
+	const vec3 normal = normalize(v_Normal) * 0.5 + 0.5;
+
+	ivec3 voxel = ivec3(floor(local));
+	for (int d = first; d <= last && d <= first + 2; d++)
+	{
+		voxel[u_Object.Axis] = d;
+		if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(n))))
+			continue;
+		const ivec3 texel = ivec3(voxel.x + cascade * n, voxel.y, voxel.z);
+		imageStore(u_Albedo, texel, vec4(albedo, 1.0));
+		imageStore(u_Normal, texel, vec4(normal, 1.0));
+		imageStore(u_Emissive, texel, vec4(emissive, 1.0));
+	}
+}

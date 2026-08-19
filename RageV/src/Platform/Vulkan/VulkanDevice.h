@@ -245,6 +245,8 @@ namespace RageV::Vk
 		// which is wrong for weighted blending but is not a crash -- and the
 		// warning says which.
 		bool m_IndependentBlendSupported = false;
+		// Whether a fragment stage may imageStore (ENGINE-NOTES 7bc).
+		bool m_FragmentStoresSupported = false;
 
 		std::shared_ptr<DeletionQueue> m_Deletion;
 		std::vector<FrameContext> m_Frames;

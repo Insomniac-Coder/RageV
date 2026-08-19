@@ -1,0 +1,86 @@
+// Voxel GI, the mip chain (8.1, ENGINE-NOTES 7bc): **directional**. A plain
+// 2x2x2 box halves a thin wall's opacity at every level -- a quarter-metre
+// slab is half a texel at level 1 and a sixteenth at level 3 -- and a cone
+// reading that leaks through the wall into whatever is lit behind it, which
+// on the GI fixture turned the red wall's bounce into a fifth of the traced
+// form's. So each level is built *per viewing direction*: along the face's
+// axis the two texels are composited front to back (the near one, then the
+// far one through what the near one let past), and the four such pairs are
+// averaged. A wall seen along its normal stays opaque at every level; seen
+// edge-on it is as thin as it is.
+//
+// Six faces, stacked along Y of one texture -- -X, +X, -Y, +Y, -Z, +Z --
+// so a cone picks its three faces by the signs of its direction without
+// indexing an array of samplers by a per-pixel value. Level 1 is built from
+// the isotropic level 0 the injection wrote; every level after from the
+// face's own level below it. The radiance is premultiplied by occupancy
+// throughout, so the composite is the ordinary front-to-back one.
+#type compute
+#version 450 core
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+// Level 0 of the isotropic chain, or level L-1 of this face's own chain.
+layout(set = 0, binding = 0, rgba16f) uniform readonly  image3D u_Source;
+// Level L of the directional chain: six faces stacked along Y.
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image3D u_Destination;
+
+layout(push_constant) uniform Params
+{
+	// 1 where the source is the isotropic level 0 (one face region); 0
+	// where it is the directional level below (six, like the destination).
+	int SourceIsotropic;
+	// The destination's height per face, in texels.
+	int FaceHeight;
+	int _pad0, _pad1;
+} u_Params;
+
+vec4 Load(ivec3 texel)
+{
+	const ivec3 limit = imageSize(u_Source) - 1;
+	return imageLoad(u_Source, clamp(texel, ivec3(0), limit));
+}
+
+// `front` over `back`: what the near texel gives off, plus what the far one
+// gives off through what the near one let past.
+vec4 Composite(vec4 front, vec4 back)
+{
+	return front + (1.0 - front.a) * back;
+}
+
+void main()
+{
+	const ivec3 texel = ivec3(gl_GlobalInvocationID);
+	const ivec3 size = imageSize(u_Destination);
+	if (any(greaterThanEqual(texel, size)))
+		return;
+
+	const int face = texel.y / u_Params.FaceHeight;
+	const int axis = face / 2;            // 0 = X, 1 = Y, 2 = Z
+	const bool positive = (face & 1) == 1; // looking along +axis: the lower texel is in front
+	const ivec3 local = ivec3(texel.x, texel.y - face * u_Params.FaceHeight, texel.z);
+
+	// Where this face's source region begins: the isotropic level is one
+	// region; the directional level below stacks its faces the same way.
+	const int sourceFaceHeight = u_Params.FaceHeight * 2;
+	const ivec3 sourceOrigin = ivec3(0, u_Params.SourceIsotropic == 1 ? 0 : face * sourceFaceHeight, 0);
+	const ivec3 base = sourceOrigin + local * 2;
+
+	vec4 sum = vec4(0.0);
+	for (int b = 0; b < 2; b++)
+		for (int a = 0; a < 2; a++)
+		{
+			// The two texels along the face's axis, in viewing order.
+			ivec3 nearTexel = base, farTexel = base;
+			ivec3 across = axis == 0 ? ivec3(0, a, b) : axis == 1 ? ivec3(a, 0, b) : ivec3(a, b, 0);
+			nearTexel += across;
+			farTexel += across;
+			// Looking along +axis, the texel at the lower coordinate is the
+			// near one; along -axis, the higher.
+			nearTexel[axis] += positive ? 0 : 1;
+			farTexel[axis]  += positive ? 1 : 0;
+			sum += Composite(Load(nearTexel), Load(farTexel));
+		}
+
+	imageStore(u_Destination, texel, sum * 0.25);
+}

@@ -5,6 +5,7 @@
 #include "TextureLoader.h"
 #include "TextureHeap.h"
 #include "RayShadows.h"
+#include "VoxelGI.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
 #include "LightGrid.h"
@@ -861,6 +862,7 @@ namespace RageV
 			s_Data->Heap->BeginFrame(s_Data->Device->GetFrameIndex());
 		// Last frame's acceleration structure is last frame's.
 		RayShadows::BeginFrame();
+		VoxelGI::BeginFrame();
 		// Accumulated across every scene drawn this frame rather than reset per
 		// scene, or the statistics panel would only ever show the last viewport.
 		s_Data->DrawCalls = 0;

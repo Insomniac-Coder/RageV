@@ -317,15 +317,53 @@ namespace RageV::Vk
 		if (!m_Desc.DebugName.empty())
 			m_Device.SetDebugName((uint64_t)m_Image, VK_OBJECT_TYPE_IMAGE, m_Desc.DebugName.c_str());
 
+		// A storage texture lives in the general layout from here on (ENGINE-
+		// NOTES 7bc): imageStore needs it, sampling permits it, and an image
+		// that never changes layout needs nothing to track which one it is in.
+		// Uploads and mip generation still work -- their transitions go from
+		// whatever m_Layout says -- but they would leave it read-only, which is
+		// why a storage texture is written by shaders rather than uploaded.
+		if (RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::Storage))
+		{
+			m_Device.ImmediateSubmit([&](VkCommandBuffer cmd)
+			{
+				TransitionTo(cmd, VK_IMAGE_LAYOUT_GENERAL);
+			});
+		}
 		// Attachments start in their attachment layout so the first render pass
 		// does not have to special-case an undefined image.
-		if (RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::Sampled))
+		else if (RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::Sampled))
 		{
 			m_Device.ImmediateSubmit([&](VkCommandBuffer cmd)
 			{
 				TransitionTo(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			});
 		}
+	}
+
+	VkImageView VulkanTexture::GetMipView(uint32_t mip)
+	{
+		if (mip >= m_Desc.MipLevels)
+		{
+			RV_CORE_ERROR("[Vulkan] storage image view of mip {0} on a texture with {1} level(s)",
+						  mip, m_Desc.MipLevels);
+			return VK_NULL_HANDLE;
+		}
+		if (m_MipViews.size() < m_Desc.MipLevels)
+			m_MipViews.resize(m_Desc.MipLevels, VK_NULL_HANDLE);
+		if (m_MipViews[mip] != VK_NULL_HANDLE)
+			return m_MipViews[mip];
+
+		VkImageViewCreateInfo viewInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+		viewInfo.image = m_Image;
+		viewInfo.viewType = ViewTypeFor(m_Desc.Type);
+		viewInfo.format = ToVkFormat(m_Desc.Format);
+		viewInfo.subresourceRange.aspectMask = m_Aspect;
+		viewInfo.subresourceRange.baseMipLevel = mip;
+		viewInfo.subresourceRange.levelCount = 1;
+		viewInfo.subresourceRange.layerCount = EffectiveLayers();
+		VK_CHECK(vkCreateImageView(m_Device.GetDevice(), &viewInfo, nullptr, &m_MipViews[mip]));
+		return m_MipViews[mip];
 	}
 
 	VulkanTexture::~VulkanTexture()
@@ -338,9 +376,12 @@ namespace RageV::Vk
 		const bool owned = m_Owned;
 		VkDescriptorSet imguiSet = m_ImGuiDescriptor;
 		VkSampler imguiSampler = m_ImGuiSampler;
+		std::vector<VkImageView> mipViews = std::move(m_MipViews);
 
 		m_Deletion->Push([=]()
 		{
+			for (VkImageView mipView : mipViews)
+				if (mipView) vkDestroyImageView(device, mipView, nullptr);
 			// Guarded: this runs on the deletion queue, and the queue's final
 			// flush happens when the device is destroyed -- after the ImGui
 			// backend has shut down and taken its descriptor pool with it. The

@@ -218,6 +218,10 @@ namespace RageV
 		bool         RayAoOverride = false;
 		bool         HasRayGiOverride = false;
 		bool         RayGiOverride = false;
+		// --voxel-gi=on|off (8.1, ENGINE-NOTES 7bc): the project's
+		// VoxelGlobalIllumination, overridden for a run.
+		bool         HasVoxelGiOverride = false;
+		bool         VoxelGiOverride = false;
 		// 0 means "not given"; 1 and 2 are the only values the flag accepts,
 		// so there is no third state to mean anything else.
 		int          GiBouncesOverride = 0;

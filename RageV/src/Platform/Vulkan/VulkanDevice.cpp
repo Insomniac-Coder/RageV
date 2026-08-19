@@ -457,6 +457,12 @@ namespace RageV::Vk
 		// plainly -- and which is how this was found rather than shipped.
 		features.independentBlend  = supported.independentBlend;
 		m_IndependentBlendSupported = supported.independentBlend == VK_TRUE;
+		// A fragment shader writing a storage image -- the voxeliser's
+		// imageStore (ENGINE-NOTES 7bc). Optional in the spec and present on
+		// every desktop part; asked for where it is, and reported in the caps
+		// so the voxel pass can refuse where it is not.
+		features.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
+		m_FragmentStoresSupported = supported.fragmentStoresAndAtomics == VK_TRUE;
 		// Indexing a sampler array with a non-constant expression, which the
 		// batched quad shader does.
 		features.shaderSampledImageArrayDynamicIndexing = supported.shaderSampledImageArrayDynamicIndexing;
@@ -477,6 +483,11 @@ namespace RageV::Vk
 		VkPhysicalDeviceVulkan13Features features13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 		features13.dynamicRendering = VK_TRUE;
 		features13.synchronization2 = VK_TRUE;
+		// Mandatory in 1.3, and declared by glslang for a `discard` in a
+		// fragment stage that also does image stores (the voxeliser, 7bc):
+		// the capability the SPIR-V asks for has to be enabled or the layer
+		// objects at module creation.
+		features13.shaderDemoteToHelperInvocation = VK_TRUE;
 
 		// Descriptor indexing, for the bindless texture heap (ENGINE-NOTES
 		// 7al). Optional: every 1.2 feature bit is, so they are asked for and
@@ -659,6 +670,7 @@ namespace RageV::Vk
 		m_Caps.SupportsCompute = true;
 		m_Caps.MaxComputeWorkGroupSize = properties.limits.maxComputeWorkGroupSize[0];
 		m_Caps.MaxComputeWorkGroupCount = properties.limits.maxComputeWorkGroupCount[0];
+		m_Caps.SupportsFragmentStores = m_FragmentStoresSupported;
 		m_TimestampsSupported = m_Caps.SupportsTimestampQueries;
 		// Zero means the device does not support them at all, whatever the
 		// limit above said; a period of zero would turn every duration into

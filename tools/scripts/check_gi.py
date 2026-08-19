@@ -93,6 +93,41 @@ Three more about how deep the light goes (9.13b, ENGINE-NOTES 7ax):
     `--gi-bounces=2` is the same image to the byte: a screen-space gather has
     one bounce and no way to have two, and the setting is not consulted.
 
+Six about the voxel form (8.1, ENGINE-NOTES 7bc), `--voxel-gi=on`, which is
+the raster-side world-space form and runs on both backends:
+
+13. **It sees off screen, on both backends.** `gi_away` with the voxel form
+    reddens the wall whose bounce source is off screen -- the thing the
+    screen gather cannot do and the traced form exists for. A band, placed
+    against the traced form's +0.82: the floor is the ceiling the screen
+    gather is held under, so the two forms cannot be confused, and it is the
+    number that fell to a fifth when the cones read their own wall through a
+    coarser cascade's voxel (7bc), which is the defect it guards.
+
+14. **Near the corner it lands within a band of the traced form.** The two are
+    the same integral over the same walls at the same intensity; the voxel
+    form's red beside the red wall, and its brightness there, must land
+    within a stated factor of the traced form's. This is the calibration the
+    screen gather never had a reference for on OpenGL. Vulkan, because the
+    reference is.
+
+15. **Off is off, and the radius is not read.** With the voxel form on and
+    the profile's toggle off the image is the byte-for-byte image without it;
+    intensity zero is too; and `GiRadius` 1 against 8 changes nothing to the
+    byte -- a cone runs to the grid's edge, and the row says so.
+
+16. **The two backends agree**, to the spread claim 2 asks of the screen
+    gather: same rules, same fixture, same answer.
+
+17. **Two bounces reach further.** `--gi-bounces=2` lights the grid from last
+    frame's grid as well, and the off-screen wall takes more red -- a band,
+    because the voxel form converges on every bounce rather than stopping at
+    two, and a lift past the band is the feedback gaining.
+
+18. **The voxel form is the writer** is scenetest's: with the voxel form on
+    the graph carries `Voxel GI gather` and not `SSGI compute`; with ray GI on
+    as well it carries neither.
+
 **There is no claim here that the filter keeps the bounce's structure**, and
 the empty space is deliberate -- see ENGINE-NOTES 7aw. One was written, on a
 fixture built for it, and then three separate breaks of the filter (a smeared
@@ -180,6 +215,40 @@ MIN_TRACED_AWAY_BLEED = 0.6
 # Ceilings for the traced form, for the reason the screen-space one has them.
 MAX_TRACED_NEAR_BLEED = 4.0
 MAX_TRACED_AWAY_BLEED = 2.0
+
+# --- the voxel form (8.1, ENGINE-NOTES 7bc) -----------------------------------
+#
+# Measured at the defaults (64^3, three cascades, a quarter-metre voxel), six
+# cones of sixteen degrees, the directional mip chain, the cone lifted by its
+# own cascade's voxel: near the corner **+1.78** levels of red against the
+# traced form's +1.86 (0.96), and **+23.8** levels of brightness against its
+# +19.9 (1.20); off screen **+0.36** against +0.82. Both backends within 0.05.
+#
+# The off-screen floor is MAX_SCREEN_AWAY_BLEED: the screen gather is held
+# under 0.3 there and the voxel form has to clear it, or the two could not be
+# told apart by this file. Three ways this number has been wrong, each a
+# defect this band catches: the cones lifted by the finest voxel alone read
+# their own wall through a coarser cascade and it read +0.08; a thirty-degree
+# cone reads a wall through a footprint that already spans the floor beside
+# it, +0.04; the isotropic box mip leaks through the thin wall, +0.20.
+MIN_VOXEL_AWAY_BLEED = 0.3
+MAX_VOXEL_AWAY_BLEED = 1.2
+# Near the corner, against the traced form: red as a ratio, and brightness as
+# a ratio. The voxel form reads brighter than the traced one by a fifth here
+# -- a thin slab is opaque along its normal at every level of the directional
+# chain, and the floor and walls of this fixture are all thin slabs -- and the
+# ceiling sits above that rather than at it, because 1.2 is what it is and not
+# what it should be; a grid that doubled the bounce would still fail.
+MIN_VOXEL_NEAR_RED_RATIO = 0.6
+MAX_VOXEL_NEAR_RED_RATIO = 1.5
+MIN_VOXEL_NEAR_LUM_RATIO = 0.8
+MAX_VOXEL_NEAR_LUM_RATIO = 1.6
+# Two bounces against one, off screen: measured 4.4, because the grid feeding
+# itself converges on every bounce where the traced second stops at two
+# (2.25, claim 8). A band: under 1.5 the feed is not landing, over 8 the loop
+# is gaining rather than converging.
+MIN_VOXEL_BOUNCE_LIFT = 1.5
+MAX_VOXEL_BOUNCE_LIFT = 8.0
 
 # --- the temporal stage (9.13a, ENGINE-NOTES 7aw) ----------------------------
 #
@@ -524,6 +593,94 @@ def main():
         failures.append(f"with ray-traced GI on, the profile's Global illumination still did "
                         f"something (max {exclusive:g}) -- the two are meant to be exclusive")
 
+    # --- 13-17: the voxel form, both backends (ENGINE-NOTES 7bc) -----------
+    voxel = ["--voxel-gi=on"]
+    voxel_near_by_backend = {}
+    voxel_near_lum_by_backend = {}
+    for backend in ("vulkan", "opengl"):
+        # 15: off is off, three ways.
+        profile("gi_corner", {})
+        voff = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-voxeloff.png", voxel)
+        off = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-off.png")
+        if float(np.abs(voff - off).max()) != 0.0:
+            failures.append(f"{backend}: the voxel form on with the profile's toggle off changed "
+                            f"the image (max {float(np.abs(voff - off).max()):g}) -- the profile "
+                            f"is the on switch")
+        profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 0.0 })
+        vzero = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-voxelzero.png", voxel)
+        if float(np.abs(vzero - off).max()) != 0.0:
+            failures.append(f"{backend}: voxel GI at intensity zero changed the image "
+                            f"(max {float(np.abs(vzero - off).max()):g})")
+        profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0, "GiRadius": 1.0 })
+        vr1 = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-voxel-r1.png", voxel, frame=60)
+        profile("gi_corner", { "GlobalIllumination": True, "GiIntensity": 2.0, "GiRadius": 8.0 })
+        vr8 = shoot(exe, backend, "gi_corner", shots / f"{backend}-corner-voxel.png", voxel, frame=60)
+        if float(np.abs(vr1 - vr8).max()) != 0.0:
+            failures.append(f"{backend}: GiRadius reached the voxel gather (max "
+                            f"{float(np.abs(vr1 - vr8).max()):g}) -- a cone runs to the grid's "
+                            f"edge and the row says the radius is not read")
+
+        # 14's inputs, and 16's.
+        vnear = redness(vr8, NEAR_REGION) - redness(off, NEAR_REGION)
+        vlum = luminance(vr8, NEAR_REGION) - luminance(off, NEAR_REGION)
+        voxel_near_by_backend[backend] = vnear
+        voxel_near_lum_by_backend[backend] = vlum
+        print(f"{backend}: voxel bleed near the corner +{vnear:.2f} levels of red, "
+              f"+{vlum:.2f} levels of light")
+
+        # 13: off screen.
+        profile("gi_away", {})
+        vaway_off = shoot(exe, backend, "gi_away", shots / f"{backend}-away-off.png")
+        profile("gi_away", { "GlobalIllumination": True, "GiIntensity": 2.0, "GiRadius": 4.0 })
+        vaway = shoot(exe, backend, "gi_away", shots / f"{backend}-away-voxel.png", voxel, frame=60)
+        voxel_away = redness(vaway, AWAY_REGION) - redness(vaway_off, AWAY_REGION)
+        print(f"{backend}: with the red wall off screen, the voxel form adds {voxel_away:+.2f} levels of red")
+        if voxel_away < MIN_VOXEL_AWAY_BLEED:
+            failures.append(f"{backend}: the voxel form did not redden a wall whose bounce source "
+                            f"is off screen ({voxel_away:+.2f} levels, wanted {MIN_VOXEL_AWAY_BLEED}) "
+                            f"-- the one thing a world-space form is for; at +0.08 the cones are "
+                            f"reading their own wall through a coarser cascade's voxel, at +0.04 "
+                            f"they are too wide to see the wall as a wall")
+        if voxel_away > MAX_VOXEL_AWAY_BLEED:
+            failures.append(f"{backend}: the voxel form's off-screen bounce is past calibration "
+                            f"({voxel_away:+.2f} levels, ceiling {MAX_VOXEL_AWAY_BLEED})")
+
+        # 17: two bounces, off screen.
+        if backend == "vulkan":
+            vaway2 = shoot(exe, backend, "gi_away", shots / f"{backend}-away-voxel2.png",
+                           voxel + ["--gi-bounces=2"], frame=90)
+            voxel_away2 = redness(vaway2, AWAY_REGION) - redness(vaway_off, AWAY_REGION)
+            lift = voxel_away2 / max(voxel_away, 1e-6)
+            print(f"two voxel bounces put {voxel_away2:+.2f} levels of red off screen against "
+                  f"{voxel_away:+.2f} at one: {lift:.2f}x")
+            if not MIN_VOXEL_BOUNCE_LIFT <= lift <= MAX_VOXEL_BOUNCE_LIFT:
+                failures.append(f"the voxel grid feeding itself moved the off-screen bounce by "
+                                f"{lift:.2f}x (wanted {MIN_VOXEL_BOUNCE_LIFT} to "
+                                f"{MAX_VOXEL_BOUNCE_LIFT}) -- under that the feed is not landing, "
+                                f"over it the loop is gaining")
+
+    # 14: against the traced form, which is Vulkan's.
+    red_ratio = voxel_near_by_backend["vulkan"] / max(traced_near, 1e-6)
+    traced_lum = luminance(traced, NEAR_REGION) - luminance(corner_off, NEAR_REGION)
+    lum_ratio = voxel_near_lum_by_backend["vulkan"] / max(traced_lum, 1e-6)
+    print(f"near the corner the voxel form reads {red_ratio:.2f} of the traced form's red and "
+          f"{lum_ratio:.2f} of its light")
+    if not MIN_VOXEL_NEAR_RED_RATIO <= red_ratio <= MAX_VOXEL_NEAR_RED_RATIO:
+        failures.append(f"the voxel form's red beside the red wall is {red_ratio:.2f} of the traced "
+                        f"form's (wanted {MIN_VOXEL_NEAR_RED_RATIO} to {MAX_VOXEL_NEAR_RED_RATIO}) "
+                        f"-- the two are the same integral over the same walls")
+    if not MIN_VOXEL_NEAR_LUM_RATIO <= lum_ratio <= MAX_VOXEL_NEAR_LUM_RATIO:
+        failures.append(f"the voxel form's brightness beside the red wall is {lum_ratio:.2f} of the "
+                        f"traced form's (wanted {MIN_VOXEL_NEAR_LUM_RATIO} to "
+                        f"{MAX_VOXEL_NEAR_LUM_RATIO})")
+
+    # 16: the backends.
+    vspread = abs(voxel_near_by_backend["vulkan"] - voxel_near_by_backend["opengl"])
+    print(f"the two backends' voxel bleed differs by {vspread:.2f} levels")
+    if vspread > MAX_BACKEND_SPREAD:
+        failures.append(f"the backends disagree about the voxel bounce by {vspread:.2f} levels "
+                        f"(allowed {MAX_BACKEND_SPREAD})")
+
     # --- 6: the temporal stage settles, and without it nothing does ----------
     #
     # One launch each, `--screenshot-count` frames apart, still camera. The
@@ -743,7 +900,9 @@ def main():
           "cannot -- only one of the two ever runs, the traced form's accumulation settles, "
           "and settles on the value an independent average agrees with, a second bounce "
           "reaches further than one, unevenly, without touching the form that cannot have one, "
-          "and under a sky the sky is counted once")
+          "under a sky the sky is counted once, and the voxel form reddens the off-screen wall on "
+          "both backends, lands beside the traced form at the corner, is off when off and feeds "
+          "itself at two bounces")
 
 
 if __name__ == "__main__":

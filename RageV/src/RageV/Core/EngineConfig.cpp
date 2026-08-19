@@ -121,6 +121,12 @@ namespace RageV
 			return ParseBool(value, config.RayGiOverride);
 		}
 
+		if (key == "voxel-gi" || key == "voxelgi")
+		{
+			config.HasVoxelGiOverride = true;
+			return ParseBool(value, config.VoxelGiOverride);
+		}
+
 		if (key == "render-defaults" || key == "renderdefaults")
 			return ParseBool(value, config.RenderDefaults);
 

@@ -117,41 +117,57 @@ namespace RageV
 		Invalidate();
 	}
 
-	void Material::EnsureResources(const Ref<RHIPipeline>& pipeline, uint32_t set)
+	Material::PipelineSets& Material::EnsureResources(const Ref<RHIPipeline>& pipeline, uint32_t set)
 	{
-		if (m_Built)
-			return;
+		for (PipelineSets& existing : m_PipelineSets)
+		{
+			if (existing.Key == pipeline.get())
+				return existing;
+		}
 
+		// A new layout: sets of its own, every frame of them dirty. The set
+		// keeps the pipeline alive, so a pointer in this table is never
+		// reused by a later pipeline while the entry stands.
 		const uint32_t frames = m_Device.GetFramesInFlight();
-		m_Sets.clear();
+		PipelineSets entry;
+		entry.Key = pipeline.get();
 		for (uint32_t i = 0; i < frames; i++)
-			m_Sets.push_back(m_Device.CreateResourceSet(pipeline, set));
-
-		m_FrameDirty.assign(frames, true);
-		m_Built = true;
+			entry.Sets.push_back(m_Device.CreateResourceSet(pipeline, set));
+		entry.Dirty.assign(frames, true);
+		m_PipelineSets.push_back(std::move(entry));
+		return m_PipelineSets.back();
 	}
 
 	void Material::Invalidate()
 	{
 		// Every frame's copy, not just the current one: each frame in flight
-		// has its own buffer and set, and a change has to reach all of them.
+		// has its own buffer and set, and a change has to reach all of them --
+		// and every pipeline's sets, since each holds its own copy.
 		m_FrameDirty.assign(Math::Max<size_t>(m_FrameDirty.size(), m_ParamBuffers.size()), true);
+		for (PipelineSets& entry : m_PipelineSets)
+			entry.Dirty.assign(entry.Dirty.size(), true);
 	}
 
 	void Material::Bind(RHICommandList& commandList, const Ref<RHIPipeline>& pipeline, uint32_t set)
 	{
-		EnsureResources(pipeline, set);
+		PipelineSets& pipelineSets = EnsureResources(pipeline, set);
 
 		const uint32_t frame = m_Device.GetFrameIndex();
-		auto& resourceSet = m_Sets[frame];
+		auto& resourceSet = pipelineSets.Sets[frame];
+
+		// The bytes once per frame, whichever pipeline asked first.
+		if (m_FrameDirty[frame])
+		{
+			m_ParamBuffers[frame]->Upload(&m_Params, sizeof(MaterialParams));
+			m_FrameDirty[frame] = false;
+		}
 
 		// Only when something actually changed. Rewriting a descriptor set that
 		// is already bound to a command buffer is a use-after-bind hazard, and
 		// binding one material for several objects -- or drawing one scene into
 		// two viewports -- did exactly that on every draw after the first.
-		if (m_FrameDirty[frame])
+		if (pipelineSets.Dirty[frame])
 		{
-			m_ParamBuffers[frame]->Upload(&m_Params, sizeof(MaterialParams));
 			resourceSet->SetUniformBuffer(0, m_ParamBuffers[frame], 0, sizeof(MaterialParams));
 
 			// A sampler left unwritten is a validation error even when the
@@ -177,7 +193,7 @@ namespace RageV
 			resourceSet->SetTexture(9, m_Height           ? m_Height            : TextureLoader::Black(m_Device),      m_Sampler);
 
 			resourceSet->Commit();
-			m_FrameDirty[frame] = false;
+			pipelineSets.Dirty[frame] = false;
 		}
 
 		commandList.BindResourceSet(set, resourceSet);

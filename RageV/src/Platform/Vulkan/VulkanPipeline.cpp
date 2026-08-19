@@ -479,9 +479,39 @@ namespace RageV::Vk
 		ImageWrite write{};
 		write.Binding = binding;
 		write.ArrayIndex = arrayIndex;
+		write.Type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		write.Info.imageView = vulkanTexture->GetView();
 		write.Info.sampler = vulkanSampler->GetHandle();
-		write.Info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		// The layout the image is actually in. A storage texture lives in
+		// GENERAL for its whole life (ENGINE-NOTES 7bc) and is sampled from
+		// there; everything else this engine samples has been transitioned to
+		// the read-only layout by the time a pass reads it.
+		write.Info.imageLayout = vulkanTexture->IsStorage() ? VK_IMAGE_LAYOUT_GENERAL
+														   : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		m_PendingImages.push_back(write);
+	}
+
+	void VulkanResourceSet::SetStorageImage(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
+											uint32_t mip)
+	{
+		auto vulkanTexture = std::static_pointer_cast<VulkanTexture>(texture);
+		if (!vulkanTexture || !vulkanTexture->IsStorage())
+		{
+			RV_CORE_ERROR("[Vulkan] SetStorageImage({0}) on a texture not created with "
+						  "TextureUsage::Storage; ignored", binding);
+			return;
+		}
+
+		ImageWrite write{};
+		write.Binding = binding;
+		write.ArrayIndex = 0;
+		write.Type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		write.Info.imageView = vulkanTexture->GetMipView(mip);
+		write.Info.sampler = VK_NULL_HANDLE;
+		write.Info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+		if (write.Info.imageView == VK_NULL_HANDLE)
+			return;
 
 		m_PendingImages.push_back(write);
 	}
@@ -557,7 +587,7 @@ namespace RageV::Vk
 			write.dstBinding = image.Binding;
 			write.dstArrayElement = image.ArrayIndex;
 			write.descriptorCount = 1;
-			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			write.descriptorType = image.Type;
 			write.pImageInfo = &image.Info;
 			writes.push_back(write);
 		}
@@ -680,6 +710,11 @@ namespace RageV::Vk
 
 		m_PendingInfos.push_back(info);
 		m_PendingSlots.push_back(arrayIndex);
+	}
+
+	void VulkanBindlessSet::SetStorageImage(uint32_t binding, const RHI::Ref<RHI::RHITexture>&, uint32_t)
+	{
+		RV_CORE_ERROR("[Vulkan] SetStorageImage({0}) on the bindless texture heap; ignored", binding);
 	}
 
 	void VulkanBindlessSet::SetAccelerationStructure(uint32_t binding,

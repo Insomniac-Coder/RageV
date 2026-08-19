@@ -3,6 +3,7 @@
 #include "PostProcess.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RayShadows.h"
+#include "VoxelGI.h"
 #include "Renderer3D.h"
 #include "RageV/Asset/AssetManager.h"
 #include "Renderer.h"
@@ -212,6 +213,26 @@ namespace RageV
 		const int requested = config.GiBouncesOverride != 0 ? config.GiBouncesOverride
 															: render.GiBounces;
 		return Math::Clamp(requested, 1, 2);
+	}
+
+	bool ResolveVoxelGlobalIllumination(const RenderSettings& render)
+	{
+		const EngineConfig& config = EngineConfig::Get();
+		const bool requested = config.HasVoxelGiOverride ? config.VoxelGiOverride
+														: render.VoxelGlobalIllumination;
+		if (requested && !VoxelGI::IsReady())
+		{
+			static bool reported = false;
+			if (!reported)
+			{
+				RV_CORE_INFO("Voxel global illumination requested but this device cannot "
+							 "write storage images from a fragment stage, or the voxel "
+							 "shaders did not compile; the screen-space form stays");
+				reported = true;
+			}
+			return false;
+		}
+		return requested;
 	}
 
 	bool ResolveRayTracedGlobalIllumination(const RenderSettings& render)
@@ -461,9 +482,18 @@ namespace RageV
 		// into the shader is what retired SSGI's lit-pixel stand-in.
 		// Either form fills it -- that is the point of one buffer -- so this
 		// asks whether *anything* will, not which.
+		// The voxel form (ENGINE-NOTES 7bc) replaces the screen gather at the
+		// head of the same chain, where the profile asks for GI and rays do
+		// not win. Only with a grid lit this frame: the scene updates it
+		// beside the shadow maps, and a frame without one -- a probe capture,
+		// no camera -- adds no chain rather than reading a stale grid.
+		const bool voxelGi = !rayGi && ResolveVoxelGlobalIllumination(desc.Render)
+						  && VoxelGI::HasGrid();
+		const bool voxelWanted = !rayGi && ResolveVoxelGlobalIllumination(desc.Render);
 		const bool wantIndirect = (desc.Post.GlobalIllumination || rayGi)
 							   && desc.Indirect != nullptr
-							   && PostProcess::IsReady();
+							   && PostProcess::IsReady()
+							   && (!voxelWanted || voxelGi);
 
 		Renderer::ScreenIndirect indirectForScene;
 		RGResource previousIndirect = kRGInvalid;
@@ -818,6 +848,30 @@ namespace RageV
 			const RGResource giSource = shaded;
 			const float giRadius = desc.Post.GiRadius;
 
+			if (voxelGi)
+			{
+				// The voxel gather (ENGINE-NOTES 7bc): the same inputs the
+				// screen gather takes, minus the lit image -- it reads the lit
+				// grid instead -- and the same packing out, so the blur and
+				// the denoise below do not know which ran.
+				graph.AddPass("Voxel GI gather",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(giRaw);
+						builder.Sample(sceneHDR);
+						builder.DisableDepth();
+					},
+					[sceneHDR, normalIndex, giWidth, giHeight,
+					 reconstruction](RGPassContext& context)
+					{
+						VoxelGI::Gather(context.Cmd, context.Depth(sceneHDR),
+										context.Color(sceneHDR, normalIndex),
+										giWidth, giHeight, reconstruction,
+										Format::R16G16B16A16_SFLOAT);
+					});
+			}
+			else
+			{
 			graph.AddPass("SSGI compute",
 				[&](RGPassBuilder& builder)
 				{
@@ -836,6 +890,7 @@ namespace RageV
 											 giWidth, giHeight, reconstruction,
 											 giRadius, giTaps, Format::R16G16B16A16_SFLOAT);
 				});
+			}
 
 			graph.AddPass("SSGI blur x",
 				[&](RGPassBuilder& builder)

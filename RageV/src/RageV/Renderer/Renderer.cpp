@@ -9,6 +9,7 @@
 #include "ViewportGrid.h"
 #include "UIRenderer.h"
 #include "ShadowMap.h"
+#include "VoxelGI.h"
 #include "EnvironmentIBL.h"
 #include "ProbeArray.h"
 #include "PostProcess.h"
@@ -50,6 +51,8 @@ namespace RageV
 		ViewportGrid::Init(device);
 		UIRenderer::Init(device);
 		ShadowMap::Init(device);
+		// After the shadow maps: the voxel grid is lit from their cascades.
+		VoxelGI::Init(device);
 		EnvironmentIBL::Init(device);
 		// After it: the arrays are filled by its two convolutions, and Begin
 		// asks it how many roughness levels a face size can carry.
@@ -64,6 +67,7 @@ namespace RageV
 		PostProcess::Shutdown();
 		ProbeArray::Shutdown();
 		EnvironmentIBL::Shutdown();
+		VoxelGI::Shutdown();
 		ShadowMap::Shutdown();
 		UIRenderer::Shutdown();
 		ViewportGrid::Shutdown();

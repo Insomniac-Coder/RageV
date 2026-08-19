@@ -26,12 +26,18 @@ namespace RageV::RHI
 		std::unordered_map<uint32_t, uint32_t> StorageBuffers;
 		// Value is the *first* unit; an array of N samplers occupies N of them.
 		std::unordered_map<uint32_t, uint32_t> Textures;
+		// Storage images (ENGINE-NOTES 7bc) have image units of their own:
+		// GL_MAX_IMAGE_UNITS is a separate, smaller limit from the texture
+		// units', so they are not spent out of the same counter.
+		std::unordered_map<uint32_t, uint32_t> StorageImages;
 
 		uint32_t LookupUniformBuffer(uint32_t set, uint32_t binding) const;
 		uint32_t LookupStorageBuffer(uint32_t set, uint32_t binding) const;
 		uint32_t LookupTexture(uint32_t set, uint32_t binding) const;
+		uint32_t LookupStorageImage(uint32_t set, uint32_t binding) const;
 
 		uint32_t TextureUnitCount = 0;
+		uint32_t ImageUnitCount = 0;
 
 		// GL has no push constants. SPIRV-Cross re-emits the block as a uniform
 		// buffer and the backend keeps a small buffer behind it, so this is the

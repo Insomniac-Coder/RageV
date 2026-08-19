@@ -204,7 +204,21 @@ namespace RageV
 		const RHI::Ref<RHI::RHISampler>& GetSampler() const { return m_Sampler; }
 
 	private:
-		void EnsureResources(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set);
+		// The sets for one pipeline layout (ENGINE-NOTES 7bc). A material used
+		// to build its sets once, for the first pipeline that asked, and hand
+		// them to every pipeline after -- right for one lit pipeline, wrong
+		// for two layouts: on OpenGL a set's texture units are the pipeline's
+		// own flat assignment, and the voxeliser binds materials against a
+		// pipeline of its own. So the sets are kept per pipeline, each with
+		// its own per-frame dirty flags; the parameter buffer is shared, since
+		// its bytes are the same whoever reads them.
+		struct PipelineSets
+		{
+			const RHI::RHIPipeline* Key = nullptr;
+			std::vector<RHI::Ref<RHI::RHIResourceSet>> Sets;   // per frame in flight
+			std::vector<bool> Dirty;
+		};
+		PipelineSets& EnsureResources(const RHI::Ref<RHI::RHIPipeline>& pipeline, uint32_t set);
 
 		RHI::RHIDevice& m_Device;
 		std::string m_Name;
@@ -223,9 +237,10 @@ namespace RageV
 		// Per frame in flight: the parameter block is host-visible and may be
 		// rewritten while a previous frame still reads it.
 		std::vector<RHI::Ref<RHI::RHIBuffer>>      m_ParamBuffers;
-		std::vector<RHI::Ref<RHI::RHIResourceSet>> m_Sets;
+		std::vector<PipelineSets> m_PipelineSets;
 
-		// Whether this frame's set and buffer still match the material.
+		// Whether this frame's buffer still matches the material; each
+		// pipeline's sets carry the same flag for themselves.
 		//
 		// Bind used to upload and commit on every single draw. A descriptor set
 		// that is already bound must not be rewritten -- Vulkan reports it as
@@ -234,7 +249,6 @@ namespace RageV
 		// was drawn into two viewports. Writing only on an actual change fixes
 		// the hazard and removes a per-draw descriptor write.
 		std::vector<bool> m_FrameDirty;
-		bool m_Built = false;
 	};
 
 	// --- a layered material (ENGINE-NOTES 7aq) --------------------------------

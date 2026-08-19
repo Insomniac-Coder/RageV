@@ -1,0 +1,159 @@
+// Voxel GI, the gather (8.1, ENGINE-NOTES 7bc): the head of the chain SSGI
+// owns, asked of a voxelised scene rather than of the screen. Position and
+// normal come from the depth buffer and the surface attachment by RTAO's
+// rule (7ao, 7ae) and are carried into the world the grid is built in; six
+// cones are then marched through the lit clipmap's mip chain, and the
+// cosine-weighted mean of what they found lands in the same packing SSGI
+// writes -- irradiance in RGB, linear depth in A -- so the blur and GI
+// denoise after it run unchanged.
+//
+// What this sees that the screen gather cannot: geometry behind the camera,
+// behind other things, and off every edge of the frame. What it does not:
+// anything finer than a voxel, and anything thinner than one (7bc).
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+layout(set = 0, binding = 1) uniform sampler2D u_Surface;
+// The lit clipmap, every cascade side by side: level 0, and the directional
+// chain of its levels above -- six faces stacked along Y (voxel_mip). Linear,
+// mip linear, clamped -- the sampler VoxelGI makes for them.
+layout(set = 0, binding = 2) uniform sampler3D u_VoxelRadiance;
+layout(set = 0, binding = 4) uniform sampler3D u_VoxelFaces;
+
+// Mirrored by hand in VoxelGI.cpp (GpuGatherParams), std140.
+layout(set = 0, binding = 3) uniform GatherParams
+{
+	// xy = this pass's texel, z = FlipY (the backend's, see PostProcess), w unused
+	vec4 Texel;
+	// x = near, y = far, zw = the projection's inverse diagonal scales
+	vec4 Clip;
+	// The camera-to-world rotation as rows, and the camera's position --
+	// what carries a reconstructed point into the world (7ao).
+	vec4 CameraRow0;
+	vec4 CameraRow1;
+	vec4 CameraRow2;
+	vec4 CameraPosition;
+	// x = N, y = cascades, z = the coarsest mip a cone reads, w = how far a
+	// cone runs
+	vec4 Grid;
+	// xyz = each cascade's minimum corner, w = its voxel size
+	vec4 Cascade[4];
+} u_Params;
+
+#include "include/view_reconstruction.glsl"
+
+int   VoxelResolution()   { return int(u_Params.Grid.x + 0.5); }
+int   VoxelCascadeCount() { return int(u_Params.Grid.y + 0.5); }
+vec3  VoxelOrigin(int k)  { return u_Params.Cascade[k].xyz; }
+float VoxelSize(int k)    { return u_Params.Cascade[k].w; }
+float VoxelMaxMip()       { return u_Params.Grid.z; }
+
+#include "include/voxel_cone.glsl"
+
+vec2 InvProjection() { return u_Params.Clip.zw; }
+
+vec3 ViewPositionAt(vec2 uv)
+{
+	const vec2 depthSize = vec2(textureSize(u_Depth, 0));
+	const vec2 snapped = (floor(uv * depthSize) + 0.5) / depthSize;
+	const float z = LinearDepth(texture(u_Depth, snapped).r, u_Params.Clip.x, u_Params.Clip.y);
+	return ViewPosition(snapped, z, InvProjection());
+}
+
+// The reconstruction frame's point, out to the world (rtao_compute).
+vec3 WorldPositionOf(vec3 p, bool flip)
+{
+	const vec3 view = vec3(p.x, flip ? -p.y : p.y, -p.z);
+	return u_Params.CameraPosition.xyz + vec3(dot(u_Params.CameraRow0.xyz, view),
+											  dot(u_Params.CameraRow1.xyz, view),
+											  dot(u_Params.CameraRow2.xyz, view));
+}
+
+vec3 ReconstructedWorldNormal(vec2 uv, vec3 centre, vec2 texel, bool flip)
+{
+	const vec3 right = ViewPositionAt(uv + vec2(texel.x, 0.0));
+	const vec3 left  = ViewPositionAt(uv - vec2(texel.x, 0.0));
+	const vec3 up    = ViewPositionAt(uv + vec2(0.0, texel.y));
+	const vec3 down  = ViewPositionAt(uv - vec2(0.0, texel.y));
+
+	const vec3 dx = abs(right.z - centre.z) < abs(centre.z - left.z) ? right - centre : centre - left;
+	const vec3 dy = abs(up.z - centre.z) < abs(centre.z - down.z) ? up - centre : centre - down;
+
+	vec3 normal = normalize(cross(dy, dx));
+	normal = dot(normal, centre) > 0.0 ? -normal : normal;
+
+	const vec3 view = vec3(normal.x, flip ? -normal.y : normal.y, -normal.z);
+	return normalize(vec3(dot(u_Params.CameraRow0.xyz, view),
+						  dot(u_Params.CameraRow1.xyz, view),
+						  dot(u_Params.CameraRow2.xyz, view)));
+}
+
+uint Hash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+
+void main()
+{
+	const bool flip = u_Params.Texel.z > 0.5;
+	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec2 texel = u_Params.Texel.xy;
+	const vec3 centre = ViewPositionAt(uv);
+
+	// The sky, or nothing: no surface to receive a bounce.
+	if (centre.z >= u_Params.Clip.y * 0.999)
+	{
+		o_Color = vec4(0.0, 0.0, 0.0, centre.z);
+		return;
+	}
+
+	// The normal by SSAO's rule (7ae): the depth buffer's slope, replaced by
+	// the written normal only where the two agree within the reconstruction's
+	// own accuracy.
+	const float kAgreement = 0.96;
+	const vec4 surface = texture(u_Surface, uv);
+	const vec3 geometric = ReconstructedWorldNormal(uv, centre, texel, flip);
+	vec3 normal = geometric;
+	if (!SurfaceIsEmpty(surface))
+	{
+		const vec3 written = OctDecode(surface.rg);
+		if (dot(written, geometric) > kAgreement)
+			normal = written;
+	}
+
+	// The gather lifts the cones off the surface itself, by the voxel of the
+	// cascade the point is in (voxel_cone.glsl) -- the same self-intersection
+	// every ray this engine casts avoids, at voxel scale.
+	const vec3 world = WorldPositionOf(centre, flip);
+
+	// Per-pixel rotation of the cone set about the normal, from the pixel
+	// alone -- never the frame -- so a frame is a function of the scene (7ab).
+	const uvec2 pixel = uvec2(uv / texel);
+	const float rotation = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y)) / 4294967296.0 * 6.2831853;
+
+	const vec3 irradiance = GatherCones(world, normal, rotation, u_Params.Grid.w);
+
+	// Light in RGB, linear depth in A for the blur's edge test -- SSGI's
+	// packing, so the chain after this reads it without a word of change.
+	o_Color = vec4(max(irradiance, vec3(0.0)), centre.z);
+}

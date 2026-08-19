@@ -596,6 +596,12 @@ namespace RageV::RHI
 		return it == Textures.end() ? UINT32_MAX : it->second;
 	}
 
+	uint32_t FlatBindingMap::LookupStorageImage(uint32_t set, uint32_t binding) const
+	{
+		const auto it = StorageImages.find(Key(set, binding));
+		return it == StorageImages.end() ? UINT32_MAX : it->second;
+	}
+
 	FlatBindingMap ShaderCompiler::BuildFlatBindingMap(const ShaderReflection& reflection)
 	{
 		FlatBindingMap map;
@@ -612,6 +618,7 @@ namespace RageV::RHI
 		uint32_t nextUniformBuffer = 0;
 		uint32_t nextStorageBuffer = 0;
 		uint32_t nextTextureUnit = 0;
+		uint32_t nextImageUnit = 0;
 
 		for (const ResourceSetLayoutDesc* set : sets)
 		{
@@ -634,10 +641,13 @@ namespace RageV::RHI
 						map.StorageBuffers[key] = nextStorageBuffer++;
 						break;
 					case ResourceType::CombinedImageSampler:
-					case ResourceType::StorageImage:
 						map.Textures[key] = nextTextureUnit;
 						// An array consumes one unit per element.
 						nextTextureUnit += Math::Max(1u, binding->Count);
+						break;
+					case ResourceType::StorageImage:
+						map.StorageImages[key] = nextImageUnit;
+						nextImageUnit += Math::Max(1u, binding->Count);
 						break;
 					case ResourceType::AccelerationStructure:
 						// No GL binding point exists for one, and no shader that
@@ -657,6 +667,7 @@ namespace RageV::RHI
 		}
 
 		map.TextureUnitCount = nextTextureUnit;
+		map.ImageUnitCount = nextImageUnit;
 		return map;
 	}
 
@@ -719,7 +730,7 @@ namespace RageV::RHI
 			for (const auto& resource : resources.storage_images)
 			{
 				const auto [set, binding] = setAndBinding(resource);
-				rewrite(resource, bindings.LookupTexture(set, binding));
+				rewrite(resource, bindings.LookupStorageImage(set, binding));
 			}
 
 			for (const auto& resource : resources.push_constant_buffers)

@@ -30,6 +30,17 @@ namespace RageV::RHI
 		virtual void SetTexture(uint32_t binding, const Ref<RHITexture>& texture,
 								const Ref<RHISampler>& sampler, uint32_t arrayIndex = 0) = 0;
 
+		// One mip level of a texture created with TextureUsage::Storage, for a
+		// binding the shader declared as an image (`image3D`, `image2D`) and
+		// reads or writes with imageLoad/imageStore (ENGINE-NOTES 7bc). A
+		// level rather than the whole chain, because a pass building level 3
+		// from level 2 binds each on its own. No sampler: an image is
+		// addressed by texel. On Vulkan the texture lives in the general
+		// layout for its whole life, so the descriptor never has to know
+		// what happened to it last; on OpenGL this is a glBindImageTexture.
+		virtual void SetStorageImage(uint32_t binding, const Ref<RHITexture>& texture,
+									 uint32_t mip = 0) = 0;
+
 		// A top-level acceleration structure, for a binding the shader
 		// declared as `uniform accelerationStructureEXT` (ENGINE-NOTES 7am).
 		// Vulkan only; the OpenGL set logs and drops it, and no OpenGL shader

@@ -490,6 +490,21 @@ namespace RageV::RHI
 		AccelerationBuild,
 	};
 
+	// The same, for a texture a shader writes through a storage image
+	// (ENGINE-NOTES 7bc). Narrower than BufferSync because a texture is
+	// written by exactly two kinds of pass -- a dispatch, or a fragment stage
+	// doing imageStore -- and read by any stage through a sampler or an
+	// imageLoad.
+	enum class TextureSync : uint8_t
+	{
+		// Written by a compute shader's imageStore.
+		ComputeWrite,
+		// Written by a fragment shader's imageStore -- the voxeliser.
+		FragmentWrite,
+		// Read by any shader stage: sampled, or imageLoad.
+		ShaderRead,
+	};
+
 	// ---------------------------------------------------------------------
 	// Render passes
 	// ---------------------------------------------------------------------
@@ -560,5 +575,11 @@ namespace RageV::RHI
 		// count a single dispatch may ask for.
 		uint32_t MaxComputeWorkGroupSize  = 0;
 		uint32_t MaxComputeWorkGroupCount = 0;
+
+		// A fragment shader may write a storage image (ENGINE-NOTES 7bc):
+		// `fragmentStoresAndAtomics` on Vulkan, image load/store on OpenGL
+		// 4.2. Compute writes need nothing beyond SupportsCompute; this is
+		// the one the voxeliser asks before it draws.
+		bool SupportsFragmentStores   = false;
 	};
 }

@@ -166,6 +166,8 @@ namespace RageV::GL
 							  uint64_t offset = 0, uint64_t range = 0) override;
 		void SetTexture(uint32_t binding, const Ref<RHITexture>& texture,
 						const Ref<RHISampler>& sampler, uint32_t arrayIndex = 0) override;
+		void SetStorageImage(uint32_t binding, const Ref<RHITexture>& texture,
+							 uint32_t mip = 0) override;
 		// No such binding exists on GL, and no GL shader can declare one.
 		void SetAccelerationStructure(uint32_t binding,
 									  const Ref<RHIAccelerationStructure>& structure) override;
@@ -193,11 +195,22 @@ namespace RageV::GL
 			uint32_t Texture = 0;
 			uint32_t Sampler = 0;
 		};
+		// A storage image (ENGINE-NOTES 7bc): one level of a texture on an
+		// image unit, layered so a 3D texture is bound whole, read-write
+		// because the set does not know which the shader does.
+		struct ImageBinding
+		{
+			uint32_t Unit = 0;
+			uint32_t Texture = 0;
+			uint32_t Level = 0;
+			uint32_t InternalFormat = 0;
+		};
 
 		OpenGLPipelineBindings* m_Pipeline = nullptr;
 		std::shared_ptr<void>   m_Owner;
 		std::vector<BufferBinding>  m_Buffers;
 		std::vector<TextureBinding> m_Textures;
+		std::vector<ImageBinding>   m_Images;
 	};
 
 	class OpenGLRenderTargetRHI final : public RHIRenderTarget
@@ -265,6 +278,7 @@ namespace RageV::GL
 							 const AccelerationInstance* instances, uint32_t count) override;
 		void BuildBottomLevelAS(const Ref<RHIAccelerationStructure>& blas) override;
 		void BufferBarrier(const Ref<RHIBuffer>& buffer, BufferSync from, BufferSync to) override;
+		void TextureBarrier(const Ref<RHITexture>& texture, TextureSync from, TextureSync to) override;
 
 		void WriteTimestamp(uint32_t slot) override;
 		void GenerateMips(const Ref<RHITexture>& texture) override;

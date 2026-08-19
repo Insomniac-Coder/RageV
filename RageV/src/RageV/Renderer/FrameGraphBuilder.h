@@ -209,6 +209,13 @@ namespace RageV
 	// flag, because a serialized int can hold anything and the shader reads
 	// this as a loop bound.
 	int ResolveGiBounces(const RenderSettings& render);
+	// The voxel form (8.1, ENGINE-NOTES 7bc): the project's setting under
+	// --voxel-gi=, and only where the device can -- compute and fragment-stage
+	// image stores, which VoxelGI::IsReady answers. Does not ask whether the
+	// traced form wins; BuildFrame and the scene resolve that order
+	// themselves, rays first. The post profile's GiRadius row asks this to
+	// know whether it has been taken over.
+	bool ResolveVoxelGlobalIllumination(const RenderSettings& render);
 
 	// This frame's sub-pixel offset for a target of this size, in NDC.
 	//
