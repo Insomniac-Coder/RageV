@@ -1637,60 +1637,44 @@ pin; that is now a fourth shape for CHK.1.**
 9.13c and 9.13d were green when committed -- 9.13c's OK lines were read, 9.13d's
 were counted -- and the engine has had no regression at any point.
 
-### START HERE (2026-08-19, later): CHK.2 has done the shader half; finish it with four builds
+### START HERE (2026-08-19, end of day): CHK.2 is done. Next: a phase-8 item
 
-**State.** Phases 0-7 and 9 are done; phase 8 has nine rows open. **CHK.2 --
-re-falsifying every claim in every check script -- is two thirds done and
-written up in ENGINE-NOTES 7ba under "every claim put on the wrong side of
-itself".** Sixty-odd breaks were run across fifteen of the twenty scripts and
-every threshold they were aimed at was seen to fail; **eight claims stayed
-green under a break aimed straight at them**, and those eight are the
-valuable part of the entry. **39 commits are unpushed; pushing is the owner's
-action and it is safe to do.**
+**State.** Phases 0-7 and 9 are done; phase 8 has nine rows open (8.1, 8.3,
+8.5-8.11). **CHK.2 -- every claim in every check script put on the wrong side
+of itself -- is done and written up in ENGINE-NOTES 7ba** under "every claim
+put on the wrong side of itself": ninety-odd breaks across all twenty scripts
+(seventy-four shader and data breaks in `tools/scripts/falsify.py`, nine
+engine-break groups across eight Release builds), every threshold aimed at
+seen to fail, **ten claims that stayed green** under a break aimed straight at
+them -- three of them defects in the checks, now fixed, and seven that are
+notes on what the claim actually rests on. **40 commits are unpushed; pushing
+is the owner's action and it is safe to do.**
 
-**READ 7ba's CHK.2 SECTION FIRST.** It carries the method, the table of every
-break and its reading, the eight that did not fail, and the list below in
-more detail.
+**What CHK.2 changed in the tree**, all in `tools/scripts/`: `check_ssao`'s
+traced wall has its own floor (`MIN_TRACED_WALL_P10 = 0.998`; the RTAO
+guard's removal read 0.996 against the old 0.995); `check_lens_effects`' "off"
+profile now writes its three zeros (it was the untouched profile under another
+name, so the claim compared a file with itself -- caught by flipping the
+struct's vignette default); `check_taa_jitter`'s "eight distinct offsets"
+claim is deleted (vacuous since TAA.4 -- under accumulation no two frames are
+ever identical; claim 2 catches the same defect). `falsify.py` is the harness
+and carries every break; its `restore` reverts only the scripts a break
+names, because the directory-wide checkout it started with ate an uncommitted
+edit twice.
 
-**1. Finish CHK.2.** What is left needs a Release build per break, which is
-why it stopped -- the shader half runs at fifty seconds a check and the engine
-half at five minutes:
+**Read 7ba's CHK.2 section before writing or touching a check.** Two things
+in it generalise: the cheap lever (the runtime loads its shaders as source
+from beside the exe, so breaking the deployed copy is the same defect as a
+source edit plus a build, at fifty seconds a check), and the withdrawal -- a
+"did not fire" from the scratch harness was believed without a second run and
+was wrong; every null result in the entry was re-run through the committed
+harness before it was kept.
 
-- **One build**: the six "off is off, to the byte" claims. The break is *not*
-  forcing the pass on; it is flipping the *defaults* in `PostSettings.h`, and
-  7ba explains why that is the defect the claim guards.
-- **One build**: the four "a frame reproduces" claims -- a value seeded from
-  the clock at process start, multiplied into the SSAO radius, the SSR
-  distance and the shutter in `PostProcess.cpp`.
-- **Three builds**: the whole of `check_taa_jitter`, whose subject is
-  `TemporalJitter()` in `FrameGraphBuilder.cpp` -- a clock instead of the
-  frame, `frame / 2`, and the offset scaled by twenty. Three alternatives, so
-  three builds.
-- **`check_import_cache` has nothing re-falsified at all**, and its claims are
-  the cooker's.
-- **Six shader breaks written and not run**: `rs-no-offset` (its anchor text
-  appears in two functions and needs disambiguating -- that is what stopped
-  the last batch), the two terrain layer breaks, the two bindless ones, and
-  `sort-writes-depth`. Plus `smaa-unnormalised` and `taa-no-history` against
-  `check_smaa`, and `tangent-flipped` rendered into a PNG for
-  `check_tangent_frame`.
-- **One threshold is measured and not applied**: `check_ssao` wants
-  `MIN_TRACED_WALL_P10 = 0.998`. Removing the RTAO kernel's slope guard --
-  the defect its own comment describes -- reads 0.996 against a floor of
-  0.995, so the claim survived its own break by a thousandth. Correct reads
-  1.000. It is out of the tree because the suite could not be re-run under it
-  before the session ended; put it in, run `check_ssao`, keep it.
-
-**`tools/scripts/falsify.py` is the harness** and carries all seventy-odd
-breaks: `falsify.py <name>`, run the check, read the FAIL line, `falsify.py
-restore`. It works by editing the *deployed* shaders beside the runtime exe,
-which is the same defect a source edit plus a build produces, without the
-build.
-
-**2. Then a phase-8 item, the owner's choice.** **8.1 SDFGI / voxel GI** (XL)
+**1. A phase-8 item, the owner's choice.** **8.1 SDFGI / voxel GI** (XL)
 continues the GI arc while 7av-7bb are fresh; **8.9 FBX / Collada import** (L)
 is the cheapest genuine capability on the list. 8.5 navmesh and 8.6 networking
-reshape the architecture and should not be picked casually.
+reshape the architecture and should not be picked casually. Every row's price
+is in ROADMAP.
 
 **Two process rules that cost an hour each when they were learned:** `git
 checkout -- SampleProject/` before every `git add -A`, and bisect the *whole
@@ -1700,7 +1684,9 @@ Bash heredoc collapses backslashes.
 
 **Also carried, small:** `RayTracedGlobalIllumination` and `GiBounces` have no
 typed C# properties; the in-focus group in `check_depth_of_field` reads 115 %
-of its unblurred detail, observed and unexplained.
+of its unblurred detail, observed and unexplained; `check_ray_shadows`' speckle
+claim does not judge the ray origin offset from below on this fixture (zero
+offset reads 0.000000 dark), so a fixture that can is a gap.
 
 The 9.13 detail below stands as history.
 

@@ -26,11 +26,15 @@ first frame after each. This is the check a clock cannot accidentally pass: a
 time-driven jitter can be reproducible run-to-run under `--frame-time` and
 still have no period at all.
 
-**3. Eight distinct offsets.** Frames 30 to 37 must all differ from each
-other. Halton is a low-discrepancy sequence -- the point of it is that
-successive samples fall in the gaps the earlier ones left -- and two frames
-landing on the same offset would mean an indexing mistake that no amount of
-looking at the image would reveal.
+**3. ~~Eight distinct offsets.~~ Deleted by CHK.2 (ENGINE-NOTES 7ba).** It
+asked that frames 30 to 37 all differ from each other, so that two frames
+landing on the same offset would show. Since TAA.4 every frame carries a
+different accumulation, so no two frames are ever identical *whatever* the
+offsets -- the claim was measured against a sequence that advanced one offset
+every two frames and stayed green. A claim that cannot fail is not a claim;
+and claim 2 already catches the same defect, because a frame one period away
+is then no closer than a frame one step away (0.0491 against 0.0150, measured
+on that break).
 
 **4. It only moves edges.** A half-pixel shift of a flat region is still the
 same flat region, so every pixel away from an edge must be bit-identical to
@@ -192,16 +196,11 @@ def main():
             print(f"  taa@30 vs taa@{30 + PHASE}: {same_offset:.4f} per subpixel, "
                   f"vs {next_offset:.4f} one frame away  ({next_offset / max(same_offset, 1e-9):.0f}x)")
 
-        # 3. Eight distinct offsets.
-        for a in range(30, 30 + PHASE):
-            for b in range(a + 1, 30 + PHASE):
-                count, _ = differing(frames[a], frames[b])
-                if count == 0:
-                    failures.append(
-                        f"{backend}: taa@{a} and taa@{b} are identical, so two of the "
-                        f"{PHASE} offsets landed on the same place. The sequence is "
-                        f"indexed wrongly")
-        print(f"  {PHASE} frames, {PHASE * (PHASE - 1) // 2} pairs        all distinct")
+        # 3 was "eight distinct offsets" -- every pair of the eight frames
+        # byte-different -- and it is gone, because under accumulation every
+        # pair is byte-different whatever the offsets: CHK.2 indexed the
+        # sequence by frame / 2, two frames per offset, and the claim stayed
+        # green. The period claim above catches that break (7ba).
 
         # 4. It moves edges and only edges.
         #

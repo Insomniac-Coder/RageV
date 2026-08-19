@@ -8292,30 +8292,49 @@ The runtime loads `assets/shaders/*.rvshader` **as source, from beside the
 exe**, and compiles them at launch through a content-hashed cache. So editing
 the *deployed* copy is the same defect that a source edit plus a rebuild
 produces, without the rebuild: fifty seconds a check instead of five minutes,
-which is the difference between doing this once and doing it properly. A
-pristine copy of the whole shader directory is taken first and restored before
-every break, so no break can survive into the next one.
+which is the difference between doing this once and doing it properly.
+`tools/scripts/falsify.py` is that lever with every break in this entry in it:
+`falsify.py <name>`, run the check, read the FAIL line, `falsify.py restore`,
+which copies the editor's shader tree back over the runtime's -- what the
+build step does anyway -- so no break can survive a run.
 
-Claims no shader can reach got the rebuild they needed. Two kinds:
+Claims no shader can reach got the rebuild they needed, six builds in all:
 
-- **"Off is off, to the byte"** (six checks). The claim is not "the effect can
-  be switched off" -- it is that an explicit `false` renders what *silence*
-  renders, and silence reads the struct's default. So the defect it guards is
-  a default that disagrees with the key, and the break is one line per field
-  in `PostSettings.h`. Six checks, one build.
-- **"A frame reproduces"** (four checks) and the whole of `check_taa_jitter`,
-  whose subject -- the jitter sequence -- lives in `FrameGraphBuilder.cpp` and
-  has no shader to edit.
+- **"Off is off, to the byte"** (six checks, one build). The claim is not
+  "the effect can be switched off" -- it is that an explicit `false` renders
+  what *silence* renders, and silence reads the struct's default. So the
+  defect it guards is a default that disagrees with what the key means, and
+  the break is one line per field in `PostSettings.h`. Forcing the pass on
+  would *not* have been a falsification: with the pass forced, the explicit
+  `false` frame and the never-mentioned frame both carry the effect and still
+  match.
+- **"A frame reproduces"** (five checks, one build). A value that is not a
+  function of the scene -- a `static const float` seeded from the clock at
+  process start -- multiplied into the SSAO radius, the SSR distance, the
+  shutter, the grain, the bloom and the exposure adaptation rate. Applied only
+  where an effect is *on*, so the off-versus-untouched pairs stay equal and it
+  is the reproduction claims that fire and not everything at once.
+- **The whole of `check_taa_jitter`** (three builds), whose subject is
+  `TemporalJitter()` in `FrameGraphBuilder.cpp`: the index taken from a clock
+  instead of the frame, from `frame / 2`, and the offset scaled by twenty.
+  Three alternatives to one line, so three builds.
+- **`check_import_cache`'s "the cache was consulted"** (one build): the
+  loader's `Fetch` replaced by `false`, so `--import-cache=on` reads source,
+  loads nothing cooked, and would compare source to source and pass while
+  proving nothing -- the scenario the claim's own message describes.
 
-Three checks never launch the runtime, and their breaks are data: a colour in
+Three checks never launch the runtime and their breaks are data: a colour in
 the palette, a glyph rectangle in a `.rvfont`, a render handed to the check.
+`check_import_cache`'s other claim is data too: three cooked colour maps in
+`SampleProject/Cache` overwritten with a constant byte, header and mip sizes
+intact so they still deserialise.
 
 ### The table
 
 Every row is a check, the breaks it was put through, and what the check said.
 "Fired" means the check exited non-zero *and named the claim being tested*;
 a run that failed some other claim as collateral is not a falsification of
-this one.
+this one. Bold rows are the ones that did not fire, discussed after.
 
 | check | break | reading | claim it put on the wrong side |
 |---|---|---|---|
@@ -8342,7 +8361,8 @@ this one.
 | | velocity axes swapped | smear 12.0 px off the motion axis | "the smear lies along the motion" |
 | | a constant 0.004 uv/frame added to every velocity | still patch differs by 104 levels | "zero velocity is a no-op to the byte" |
 | `oit` | the resolve's V flip removed | 34,304 px differ, flipped would be 34,304 | the orientation claim |
-| | **the depth weight flattened to `color.a`** | **centre still (225,150,126) -- passed** | see below |
+| | the depth weight flattened to `color.a` | centre (191,191,191) -- the grey the claim describes | "near beats far" -- see below for the run that first said otherwise |
+| | every fragment written red (a control) | centre (245,16,18), silhouette misplaced | the lever reaches the picture |
 | `color_grading` | LUT sampled at `c` instead of texel centres | identity off by 3/255, swap off by 3 | the identity claim, the recipe claim, the swap |
 | | the LUT mixed at zero strength | swap reproduces the ungraded frame | "the LUT is not reaching the shader" |
 | | the tonemap's V flip removed | backends differ by 151/255 on all four grades | the cross-backend claim |
@@ -8361,34 +8381,75 @@ this one.
 | | grain sampled 8x coarser (a blur) | +0.807 four pixels away, ceiling 0.15 | `MAX_FAR_CORRELATION` |
 | | grain's frame index replaced by zero | frames 30 and 31 identical | "it animates" |
 | | the response curve put back to `1 - luma/2` | the dark band no longer under the midtone | `MIDTONE_MARGIN` |
+| `smaa` | the blend pass returns the centre unchanged | 1.0x at every angle, SMAA worse than FXAA on small features | `REQUIRED_GAIN`, the small-feature claims |
+| | both blend taps offset half a texel at every pixel | 0.6x to 0.9x at every angle; **flat regions untouched** | `REQUIRED_GAIN` only -- see below |
+| | the edge and blend passes' Y direction unflipped | Vulkan 0.1119 against OpenGL 0.0210 at 8 deg | `BACKEND_TOLERANCE` |
+| | the kernel unnormalised (`first + second - 0.9 * centre`) | 2.2x to 2.4x; **flat regions still untouched** | `REQUIRED_GAIN` only -- see below |
+| | **the blend's explicit passthrough removed, kernel normalised** | **flat regions untouched to the byte -- passed** | see below |
+| | the passthrough removed *and* the kernel unnormalised | 1,427,200 pixels more than 4 px from the edge changed | "it must not touch what is not an edge" |
+| | SSAA's resolve reduced to one tap | 0.6x at every angle, backends disagree | the SSAA gain floor and its backend claim |
+| | TAA's history dropped | 0.6x to 1.0x at every angle | `TAA_REQUIRED_GAIN` |
+| `taa_motion` | TAA's history dropped | still patch 0.9x better than no filter (wanted 2) | `REQUIRED_STILL_GAIN` |
+| | the reprojection reversed (`uv + velocity`) | 1.21x / 1.22x worse under motion, ceiling 1.10 | `ALLOWED_MOVING_LOSS` |
+| | the velocity's Y flip removed | 19.504 on Vulkan against 16.379 on OpenGL | `BACKEND_TOLERANCE` |
 | `theme_contrast` | the light theme's secondary grey replaced by the dark theme's | 2.44 and 2.14 against 4.5 | both `TextSecondary` pairs |
 | `font_atlas` | every glyph's plane bounds turned upside down | 'E' covers 59.5 % of its box | the coverage band |
 | | every glyph's atlas rect moved 30 texels | '8' reconstructs to 0.0 % | the coverage band, the other side |
+| `ray_shadows` | the shadow ray traced along -L | near IoU 0.220, far 0.394, the whole sunlit floor dark, spot 0.673, point 0.666, fox 0.455, fox frames 30 and 45 identical | seven claims at once: `MIN_IOU`, `MIN_FOX_IOU`, `MAX_SAME_POSE_IOU`, `MAX_SPECKLE_FRACTION` and the local-light pair |
+| | every ray given tMax 1e4 | spot 0.673, point 0.666, fox 0.712 | the local-light claim (a caster beyond the light shadows the disc) |
+| | **the origin offset set to zero** | **0.000000 of the open floor dark -- passed** | see below |
+| `terrain` | the layer weights not normalised | the half-intensity right reads 332 against the left's 393 | "the weights are normalised" |
+| | layers 0 and 1 swapped in the weight read | left reads blue, right reads red, the brush paints the wrong layer, the stamps' crests unpainted | eight claims at once |
+| `bindless` | the normal-map slot reads the base colour | 1,432,717 of 1,440,000 px differ | "on equals off, to the pixel" |
+| | a heap index past the end (+90000) | 1,438,505 px differ, *and* 10 `[Vulkan]` lines from GPU-assisted validation | the same, and "GPU-AV is quiet" |
+| `depth_sort` | the lit shader writes `gl_FragDepth` | 1.0x on the overdraw scene (wanted 5x) | "early-z is doing its job" |
+| `tangent_frame` | the tangent frame rotated 180 degrees about the geometric normal | tilt 60.0 against control 171.0, ratio 0.35, verdict FLIPPED | the ordering with its dead zone |
 | `gi` | the screen-space gather returns zero | near bleed +0.00, accumulation 0.00 of itself | `MIN_NEAR_BLEED`, `MIN_ACCUMULATION_MATCH`, and the quality dial |
 | | the gather x4 | +1.63 against a ceiling of 0.45 | `MAX_NEAR_BLEED` |
 | | the traced bounce returns zero | eight distinct claims at once, from the near bleed to the second bounce | `MIN_TRACED_NEAR_BLEED`, `MIN_TRACED_AWAY_BLEED`, `MIN_FLICKER_DROP`, `MIN_SETTLE_RATIO`, `MIN_SETTLED_AGREEMENT`, the sky-lit band's floor, both second-bounce claims |
 | | the traced bounce x3 | sky-lit wall 1.143, floor 1.103, settled agreement 0.82 | `MAX_SKYLIT_WALL_GAIN`, `MAX_SKYLIT_FLOOR_GAIN`, `MAX_SETTLED_AGREEMENT` |
-| | **a traced miss returns the sky again (the 9.14 regression)** | sky-lit wall 1.146, floor 1.147 -- 7bb's own pre-fix numbers, to three places | the sky-lit band, both sides |
+| | a traced miss returns the sky again (the 9.14 regression) | sky-lit wall 1.146, floor 1.147 -- 7bb's own pre-fix numbers, to three places | the sky-lit band, both sides |
 | | the second bounce switched off | lift 1.00x, unevenness 1.00 | `MIN_SECOND_BOUNCE_LIFT`, `MIN_BOUNCE_UNEVENNESS` |
 | | the second bounce replaced by a constant 1.08 scale | lift 1.00x, unevenness 1.00 | the same two, from the direction 7ba's claim 9 was banded against |
 | | **the gather's tap count pinned at 24** | **Low and High still differ -- passed** | see below |
 | | **the gather's screen-bounds rejection removed** | **the away fixture's wall does not redden -- passed** | see below |
 | | the denoiser's history dropped | noise removed 1.0x (wanted 5), settle 0.4x (wanted 4) | `MIN_FLICKER_DROP`, `MIN_SETTLE_RATIO` |
 | | **`GiIntensity` dropped from the lit shader's read** | **an intensity of zero still renders the GI-off frame -- passed** | see below |
-| `ray_shadows` | the shadow ray traced along -L | near IoU 0.220, far 0.394, the whole sunlit floor dark, spot 0.673, point 0.666, fox 0.455, fox frames 30 and 45 identical | seven claims at once: `MIN_IOU`, `MIN_FOX_IOU`, `MAX_SAME_POSE_IOU`, `MAX_SPECKLE_FRACTION` and the local-light pair |
-| | every ray given tMax 1e4 | spot 0.673, point 0.666, fox 0.712 | the local-light claim (a caster beyond the light shadows the disc) |
 
-Six breaks were written and not run when the session ended: `rs-no-offset`
-(the shadow ray's origin offset, which needs its anchor disambiguated -- the
-same line appears in two functions), the two terrain layer breaks, the two
-bindless ones, and `sort-writes-depth`. They are in `falsify.py`, aimed and
-ready.
+And the engine half, one Release build per group (each build took under
+half a minute, which is what made eight of them affordable):
+
+| group (build) | break | check | reading | claim it put on the wrong side |
+|---|---|---|---|---|
+| `defaults-flipped` | six defaults in `PostSettings.h` flipped away from "off" | `ssao` | off vs never mentioned, max 38 | "AmbientOcclusion: false changed the image" |
+| | | `ssr` | max 187 | "ScreenSpaceReflections: false changed the image" |
+| | | `depth_of_field` | 114/255 | "with depth of field off the frame differs" |
+| | | `motion_blur` | max 95 | "MotionBlur: false changed the image" |
+| | | `auto_exposure` | 29/255 | "with auto exposure off the frame differs" |
+| | | **`lens_effects`** | **max 0 -- passed**, then 36/255 after the fix below | see finding 9 |
+| `per-process-nudge` | a clock-seeded factor on the SSAO radius, SSR distance, shutter, grain, bloom and exposure key | `ssao` | frame 30 twice, max 2 / 5 | "a frame reproduces" |
+| | | `ssr` | max 42 / 19 | the same |
+| | | `motion_blur` | max 16 / 13 | the same |
+| | | `auto_exposure` | 1/255 and 6/255 (the *key*; a nudge on the adaptation *rate* read max 0, because by frame 30 any rate has converged) | the same |
+| | | `lens_effects` | grain 3/255 and 1/255 | "grain is seeded from the frame number" |
+| | | `bindless` | 663,530 and 226,019 px differ run to run | "each path reproduces" |
+| | | `depth_sort` | 1,227,027 subpixels between sorted and unsorted | "reordering changes nothing" -- two processes, so a reproduction claim in disguise |
+| `exposure-nudge` | the same factor, on the tonemap's exposure alone | `import_cache` | two identical runs differ by 18.149/255 | the control claim (budget 2.0) -- the bloom nudge above read 0.122 and stayed under it |
+| `cache-bypassed` | the loader's `Fetch` replaced by `false` | `import_cache` | "loaded nothing cooked" | "the cache was consulted" |
+| *(data)* | three cooked colour maps overwritten with a constant byte | `import_cache` | cooked vs source mean 17.822/255 | `MEAN_LIMIT` |
+| `jitter-clock` | the jitter index from a clock instead of the frame | `taa_jitter` | two runs of taa@30 differ in 4,203 subpixels; period 0.0348 vs step 0.0126 | claims 1 and 2 |
+| `jitter-half-rate` | the index from `frame / 2` | `taa_jitter` | period 0.0491 against step 0.0150; **28 pairs still distinct -- claim 3 passed** | claim 2; see finding 10 |
+| `jitter-wrong-units` | the offset scaled by twenty | `taa_jitter` | taa@31 differs from no filter in 8,744 pixels more than 4 px from the edge | claim 4 |
+| *restored* | sources back, rebuilt | `ssao`, `taa_jitter`, `import_cache`, `lens_effects`, `auto_exposure` | green | -- |
+
 
 ### What did not fail, which is the whole point
 
-Eight claims stayed green under a break aimed straight at them. None of them
-is wrong; each is measuring something other than what its wording suggests,
-and that is only visible from the wrong side.
+Ten claims stayed green under a break aimed straight at them, and each was
+re-run through the committed harness before it was believed. Three of the
+ten were defects in the checks and are fixed. The other seven are not wrong;
+each is measuring something other than what its wording suggests, and that is
+only visible from the wrong side.
 
 **1. `check_ssao`'s open-floor bound does not guard the bias.** `kBias` and
 `kBiasPerMetre` exist so a floor does not occlude itself out of its own depth
@@ -8399,113 +8460,122 @@ dipping the lift below the plane reads 71.4. The bias is doing something on
 some other geometry; on this fixture nothing measures it.
 
 **2. `check_ssao`'s traced wall claim passed its own documented defect by a
-thousandth.** The RTAO kernel refuses a ray that would go under the slope the
-depth buffer implies, and its comment says why. Remove the guard: p10 reads
-**0.996** against a floor of 0.995. Fixed here -- the traced form reaches
-1.000 where the screen-space form reaches 1.000 too but breaks differently, so
-it gets its own floor at 0.998, placed between the correct reading and the
-broken one. This is the only threshold CHK.2 changed.
+thousandth -- and this one was fixed.** The RTAO kernel refuses a ray that
+would go under the slope the depth buffer implies, and its comment says why.
+Remove the guard: p10 reads **0.996** against a floor of 0.995. The traced
+form reaches 1.000 where the screen-space form also reaches 1.000 but breaks
+differently, so it now has its own floor, `MIN_TRACED_WALL_P10 = 0.998`,
+placed between the correct reading and the broken one -- and run both ways
+before it was kept: the shipped shader reads 1.000 and passes; the guard
+removed reads 0.996 and fails on both the still claim and the jitter-phase
+claim. The only threshold CHK.2 moved.
 
 **3. `check_ssr`'s "a rough floor shows less" is not guarded by the SSR
 passes.** Disable the trace's `roughFade` *and* the resolve's roughness blur
 together and the rough floor still reads 24.63 against the mirror's 79.55 --
 the claim passes. The attenuation lives in the lit shader's specular weight,
-which is a different piece of code from the one the claim's wording points at;
-clamping the surface roughness there makes the rough floor read 79.58 against
-a mirror's 79.58 and the claim fires. The claim is sound and the file's
-explanation of it was pointing one module too early.
+a different piece of code from the one the claim's wording points at;
+clamping the surface roughness *there* makes the rough floor read 79.58
+against a mirror's 79.58 and the claim fires. Sound claim, explanation one
+module too early.
 
-**4. `check_oit`'s depth-weight claim cannot fail the way it says it can.**
-Its own docstring names the defect: "the depth weight saturated its clamp at
-every distance, which makes the resolve a flat average". Replace the weight
-with a constant and the frame is **identical to the byte** -- not close,
-identical -- and the check passes. The arithmetic says why: the resolve
-divides the weighted colour sum by the weighted alpha sum, so a constant
-factor cancels exactly. A constant weight is invisible *by construction*; what
-the 6.9 bug must actually have been is something else, and the claim as it
-stands measures the three plumes' own colours. Filed rather than fixed: the
-fix is a fixture change and wants its own item.
+**4. `check_smaa`'s flat-region claim is held by arithmetic, and the shader's
+explicit passthrough is belt and braces.** The blend pass returns the centre
+untouched wherever no weight is set, and its comment says this *has* to be an
+exact passthrough rather than a blend that happens to weigh nothing. Measured:
+remove the passthrough and leave the kernel normalised, and flat regions come
+through **bit-identical anyway** -- a bilinear tap offset by zero is the
+texel, and `c + c - c` is `c`. Blurring every pixel by half a texel does not
+move a flat region either (the two taps and the centre are the same colour).
+An *unnormalised* kernel on its own fires only the gain floor, because the
+passthrough is still protecting the flat regions. The claim fires only when
+the passthrough is removed *and* the kernel does not sum to one: 1,427,200
+pixels more than four from the edge. So the comment is half right -- the
+passthrough does hold the claim -- and half belt-and-braces, since the kernel
+holds it too.
 
-**5. `check_smaa`'s flat-region claim survives a filter that blurs
-everything.** Offset both blend taps by half a texel at every pixel and the
-flat regions come through bit-identical, because the model's weights sum to
-one and a constant region under a normalised kernel is that same constant. The
-break that can move it is a kernel whose weights *do not* sum to one.
+**5. `check_gi`'s quality dial does not isolate the tap count.** Fixing
+`TapCount()` at 24 leaves Low and High differing anyway -- the dial also
+halves the gather's target (9.13d), so the images differ by resolution
+whatever the loop does.
 
-**6. `check_gi`'s quality dial does not isolate the tap count.** Fixing
-`TapCount()` at 24 leaves Low and High differing anyway -- the dial also halves
-the gather's target (9.13d), so the images differ by resolution whatever the
-loop does.
-
-**7. `check_gi`'s off-screen claim is not guarded by the screen-bounds
+**6. `check_gi`'s off-screen claim is not guarded by the screen-bounds
 test.** Removing the rejection so out-of-range taps clamp to the edge texel
 does not redden the away fixture's wall.
 
-**8. `check_gi`'s intensity-zero claim is guarded by the frame graph, not by
+**7. `check_gi`'s intensity-zero claim is guarded by the frame graph, not by
 the shader.** Drop `GiIntensity` from the lit shader's read of the indirect
 buffer and an intensity of zero still renders the GI-off frame to the byte:
 the graph skips the whole chain at zero, so there is nothing in the buffer for
-the multiply to have failed to scale. The claim holds -- it is just not
-holding the line its wording points at.
+the multiply to have failed to scale.
+
+**8. `check_ray_shadows`' "no self-shadowing" does not judge the origin offset
+from below on this fixture.** The shadow ray's origin is pushed off the
+surface by a few millimetres, scaled by the slope, and the docstring says the
+speckle claim judges that offset from below: too small and the floor shadows
+itself in a moire. Set the offset to *zero* -- the ray starting exactly on the
+surface -- and the open floor reads **0.000000 dark**, every IoU holds, and
+the check passes. On this hardware a ray query from a point on a triangle
+does not report that triangle at t = 0, so the lower bound the claim
+describes is below the fixture's reach. The upper bound -- an offset large
+enough to detach the shadow -- is still judged by the IoU claims, which is
+what the docstring says they do.
+
+**9. `check_lens_effects`' "off is off" compared a file with itself -- and
+this one was fixed.** The claim: a profile with vignette, aberration and grain
+*explicitly at zero* renders what a profile that never mentions them renders.
+Flip the struct's vignette default to 0.4 and the claim stays green at max 0,
+because the "off" profile was `dict(base)` -- `{BloomEnabled: False}` -- the
+untouched profile written under another name. For a year the claim could not
+fail. It now writes the three zeros; under the flipped default it reads 36/255
+and fires, and under the shipped build it is green.
+
+**10. `check_taa_jitter`'s "eight distinct offsets" cannot fail since TAA.4 --
+deleted.** It asked that frames 30 to 37 all differ from each other, so that
+two frames landing on the same offset would show. Index the sequence by
+`frame / 2` -- two frames per offset, exactly the defect it describes -- and
+all twenty-eight pairs stay distinct, because under accumulation every frame
+carries a different history whatever its offset. Claim 2 was revised for
+accumulation when TAA.4 landed; claim 3 was not, and became vacuous then.
+Claim 2 catches the half-rate break anyway (0.0491 one period away against
+0.0150 one step away), so claim 3 is gone with a note saying why, the way 7aw
+deleted its claim 4.
+
+**And one withdrawn.** The first pass recorded `check_oit`'s depth-weight
+claim as unable to fail the way its docstring says it can: a flat weight was
+said to leave the frame identical to the byte. Re-run through the committed
+harness, the same break reads **(191,191,191)** -- the grey the claim
+describes -- and the claim fires. The first result was a run of the scratch
+harness that cannot now be reproduced, and it was believed because "did not
+fire" felt like the interesting answer. It is recorded here because it is the
+exact lesson 7ba exists to teach, applied to the auditor: **a null result
+wants the same second look as a positive one**, and the ten above got it.
+
 
 ### What this pass changed
 
-**No threshold was moved.** Finding 2 has one ready and measured on both
-sides -- `check_ssao` wants a `MIN_TRACED_WALL_P10` of 0.998 for the traced
-wall, between the correct 1.000 and the 0.996 that removing the kernel's guard
-produces -- and it is *not* in, because the session ended before the suite
-could be re-run under it, and a calibration that has not been watched pass is
-the thing this entry is about. It is the first job of the next pass. The other
-seven are notes rather than edits because a claim that survives a break wants
-understanding before it wants a number.
+**Three edits to the checks, each for a claim that could not fail.**
+`check_ssao` gains `MIN_TRACED_WALL_P10 = 0.998` for the ray-traced wall
+(finding 2), measured on both sides before it went in. `check_lens_effects`'
+"off" profile now says zero instead of saying nothing (finding 9).
+`check_taa_jitter` loses its "eight distinct offsets" claim (finding 10). All
+three were found by a break aimed at the claim, not by reading it -- which is
+the argument for doing this at all.
 
-`tools/scripts/falsify.py` is the harness, with every break in this table in
-it: `falsify.py <name>`, run the check, read the FAIL line, `falsify.py
-restore`. It exists so the next person does not rebuild the list from prose.
+**Two things in the harness, both learned the hard way.** `falsify.py`'s
+`restore` reverted the whole of `tools/scripts` from git, which took an
+uncommitted threshold edit and the tool's own in-progress edits with it, twice
+in an hour; it now reverts only the scripts a break names. And the OIT
+withdrawal above: a "did not fire" from the scratch harness was believed
+without a second run, and it was wrong.
 
-### What is left, and exactly what to do
-
-Everything above is the shader and data half, which is fifteen of the twenty
-scripts. The rest needs a Release build per break, and the session that did
-this ran out of clock before it. The breaks are designed and the edits are
-one-liners; what is missing is the build and the run.
-
-**The claims still to be put on the wrong side, and the break each wants:**
-
-- **"Off is off, to the byte"** -- `ssao`, `ssr`, `depth_of_field`,
-  `motion_blur`, `auto_exposure`, `lens_effects`. The break is *not* to make
-  the pass ignore its switch: with the pass forced on, the explicit-`false`
-  frame and the never-mentioned frame both have the effect and still match.
-  The claim is that silence and an explicit `false` agree, and silence reads
-  the struct's default -- so flip the defaults in `PostSettings.h`
-  (`AmbientOcclusion`, `ScreenSpaceReflections`, `DepthOfField`, `MotionBlur`,
-  `AutoExposure` to `true`, `VignetteIntensity` to 0.4). One build, six checks.
-- **"A frame reproduces"** -- `ssao`, `ssr`, `motion_blur`, `auto_exposure`,
-  and `lens_effects`' grain. A value that is not a function of the scene,
-  reaching the pass: a `static const float` seeded from the clock at process
-  start in `PostProcess.cpp`, multiplied into the SSAO radius, the SSR
-  distance and the shutter. One build.
-- **The whole of `check_taa_jitter`**, whose subject is
-  `TemporalJitter()` in `FrameGraphBuilder.cpp`: index it by a clock rather
-  than the frame (claims 1 and 2), by `frame / 2` (claim 3, two offsets
-  landing together), and scale the offset by twenty (claim 4, a jitter in the
-  wrong units moving flat regions). Three builds, because the three defects
-  are alternatives.
-- **`check_depth_sort`'s two exact claims** (identical pixels, identical draw
-  count) and **`check_bindless`'s reproduction and OpenGL-path claims**, which
-  are about the sort and the heap rather than about any shader.
-- **`check_import_cache`** -- the only script with nothing re-falsified at
-  all. Its three claims are about the cooker and the cache: something cooked
-  that differs from its source, and a run that reads nothing cooked while
-  claiming it did.
-- **`check_tangent_frame`** -- the break is written (`tangent-flipped` in
-  `falsify.py`: the tangent frame rotated 180 degrees about the geometric
-  normal, which is what a flipped `dFdy` does) and needs the parity fixture
-  rendered at 800x640 and handed to the check.
-- **Two shader breaks queued and not run**: `smaa-unnormalised` for
-  `check_smaa`'s flat-region claim (finding 5 above), and `taa-no-history`
-  against `check_smaa`'s own TAA gain floor, which is a different claim from
-  `check_taa_motion`'s and deserves its own run.
+**Nothing else was moved.** The other seven survivors are notes rather than
+edits, because a claim that survives a break wants understanding before it
+wants a number -- and in every one of the seven the claim is true; it is the
+sentence beside it that points at the wrong module, the wrong mechanism, or a
+defect the fixture cannot reach. Those sentences are corrected here
+rather than in the scripts, so that the check's own docstring still reads as
+the claim and this entry reads as what the claim turned out to rest on.
 
 ---
 

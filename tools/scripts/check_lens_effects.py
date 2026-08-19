@@ -3,9 +3,12 @@
 
 Six claims, and only the last two are about how the grain *looks*.
 
-**1. Off is exactly off.** All three default to zero, and a profile that has
-not touched them must render the *same bytes* as one that has none of these
-features at all. Not nearly the same: byte-identical. Every screenshot check
+**1. Off is exactly off.** All three default to zero, and a profile that
+sets them to zero *explicitly* must render the *same bytes* as one that has
+never mentioned them. Not nearly the same: byte-identical. (For a year the
+"off" profile was the untouched one under another name, so this compared a
+file with itself; CHK.2 caught it by flipping the default -- ENGINE-NOTES
+7ba.) Every screenshot check
 in this repository compares renders against recorded values, and an effect
 that shifts one channel by one level while "disabled" would invalidate all of
 them silently -- the images would still look right, and every threshold would
@@ -227,7 +230,15 @@ def main():
     base = {"BloomEnabled": False}
 
     variants = {
-        "off":        dict(base),
+        # **Explicit zeros, not silence.** Claim 1 compares this against a
+        # profile that names none of these keys, and for a year "off" was
+        # `dict(base)` -- the untouched profile under another name -- so the
+        # claim compared a file with itself and could not fail. CHK.2 flipped
+        # the struct's vignette default and watched it stay green
+        # (ENGINE-NOTES 7ba). Now it says zero, and a default that drifts
+        # away from zero fails here.
+        "off":        dict(base, VignetteIntensity=0.0, ChromaticAberration=0.0,
+                           FilmGrain=0.0),
         "vignette":   dict(base, VignetteIntensity=0.8, VignetteSmoothness=0.6),
         "aberration": dict(base, ChromaticAberration=0.02),
         "grain":      dict(base, FilmGrain=0.8, FilmGrainSize=2.0),

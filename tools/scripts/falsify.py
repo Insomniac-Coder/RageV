@@ -209,10 +209,12 @@ BREAKS = {
     'rs-endless-ray': [('include/pbr_fragment.glsl',
                         '0xFFu, worldPos + Ng * offset, 0.0, L, tMax);',
                         '0xFFu, worldPos + Ng * offset, 0.0, L, 1.0e4);')],
-    # Two functions compute the same offset; this is the shadow ray's.
+    # Two functions compute the same offset (the shadow ray's, and the
+    # reflection ray's shadow toward the sun); this is the shadow ray's,
+    # anchored on the line before it, which names L.
     'rs-no-offset': [('include/pbr_fragment.glsl',
-                      'float offset = 0.002 * (1.0 + min(slope, 4.0));\n\n\trayQueryEXT q;',
-                      'float offset = 0.0;\n\n\trayQueryEXT q;')],
+                      'float slope = sqrt(1.0 - NgdotL * NgdotL) / max(NgdotL, 0.15);\n\tfloat offset = 0.002 * (1.0 + min(slope, 4.0));',
+                      'float slope = sqrt(1.0 - NgdotL * NgdotL) / max(NgdotL, 0.15);\n\tfloat offset = 0.0;')],
 
     # --- check_terrain (the layered surface) ----------------------------------
     'terrain-no-normalise': [('include/pbr_fragment.glsl',
@@ -294,6 +296,19 @@ BREAKS = {
     'smaa-unnormalised': [('smaa_blend.rvshader',
                            'o_Color = vec4(first + second - centre, 1.0);',
                            'o_Color = vec4(first + second - 0.9 * centre, 1.0);')],
+    # The flat-region claim is held by the blend pass's *explicit* passthrough
+    # -- its comment names the claim -- not by the kernel's normalisation.
+    # Remove it alone, and then together with the unnormalised kernel.
+    'smaa-no-passthrough': [('smaa_blend.rvshader',
+                             'if (top + bottom + left + right < 1e-5)\n\t{\n\t\to_Color = vec4(centre, 1.0);\n\t\treturn;\n\t}',
+                             'if (false)\n\t{\n\t\to_Color = vec4(centre, 1.0);\n\t\treturn;\n\t}')],
+    'smaa-no-passthrough-unnormalised': [
+        ('smaa_blend.rvshader',
+         'if (top + bottom + left + right < 1e-5)\n\t{\n\t\to_Color = vec4(centre, 1.0);\n\t\treturn;\n\t}',
+         'if (false)\n\t{\n\t\to_Color = vec4(centre, 1.0);\n\t\treturn;\n\t}'),
+        ('smaa_blend.rvshader',
+         'o_Color = vec4(first + second - centre, 1.0);',
+         'o_Color = vec4(first + second - 0.9 * centre, 1.0);')],
     'smaa-noflip': [('smaa_edges.rvshader',
                      'vec2 up    = vec2(0.0, texel.y * (flip ? -1.0 : 1.0));',
                      'vec2 up    = vec2(0.0, texel.y);'),
@@ -326,9 +341,15 @@ def restore(config='Release'):
             target = live / path.relative_to(SOURCE)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
-    # A break that lives in a check script or a generator comes back from git;
-    # nothing else under tools/ is edited by a run.
-    subprocess.run(['git', 'checkout', '--', 'tools/scripts'], cwd=str(ROOT))
+    # A break that lives in a check script comes back from git -- **that file
+    # and only that file.** Reverting the whole directory took an uncommitted
+    # threshold edit and this tool's own in-progress edits with it.
+    scripts = sorted({filename[len('check:'):]
+                      for edits in BREAKS.values()
+                      for filename, _, _ in edits
+                      if filename.startswith('check:')})
+    for name in scripts:
+        subprocess.run(['git', 'checkout', '--', f'tools/scripts/{name}'], cwd=str(ROOT))
 
 
 def target(filename, config='Release'):

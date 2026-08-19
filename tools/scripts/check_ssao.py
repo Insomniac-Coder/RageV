@@ -43,6 +43,9 @@ AmbientOcclusion left *off* -- the render setting alone drives it:
    restrained bound asks of SSAO.
 9. **The open floor holds still**, and **the brick wall holds at one** --
    a ray has no reconstruction to wobble and no normal map to be misled by.
+   Held to a tighter floor than the screen-space form's, because it reaches a
+   better number and its own guard is worth guarding: CHK.2 removed that
+   guard and read 0.996 against a floor of 0.995 (ENGINE-NOTES 7ba).
 10. **And it holds under the temporal jitter** across the eight-frame phase.
 
 Falsified by giving the rays no length (tMax zero): nothing darkens.
@@ -77,6 +80,13 @@ MAX_OPEN_DRIFT = 1.0
 # shading normal, taken wherever it faces the camera, 0.992 and 0.954.
 MIN_WALL_P10 = 0.995
 MIN_WALL_FLOOR = 0.97
+# **And a tighter one for the traced form** (CHK.2, ENGINE-NOTES 7ba). Rays
+# read 1.000 here, and the kernel's guard -- a ray under the slope the depth
+# buffer implies is not cast -- is what holds them there. Removing that guard
+# reads 0.996, which passed the 0.995 above by a thousandth: a claim that
+# survives its own documented defect by rounding is not a claim. 0.998 sits
+# between the two with room either side.
+MIN_TRACED_WALL_P10 = 0.998
 # Under TAA, across one full jitter phase: how far the open wall's mean
 # brightness may move between the brightest and the darkest of the eight
 # frames, in 8-bit levels. The broken sign gave 37 levels; the fixed one
@@ -323,9 +333,9 @@ def main():
         p10 = float(np.percentile(factor, 10))
         print(f"vulkan: ray-traced occlusion on the open brick wall: AO factor mean {factor.mean():.3f}, "
               f"p10 {p10:.3f}, worst {float(factor.min()):.3f}")
-        if p10 < MIN_WALL_P10:
+        if p10 < MIN_TRACED_WALL_P10:
             failures.append(f"vulkan: under ray-traced occlusion the open brick wall occludes "
-                            f"itself (AO factor p10 {p10:.3f})")
+                            f"itself (AO factor p10 {p10:.3f}, floor {MIN_TRACED_WALL_P10})")
 
         off_frames = shoot_sequence(exe, "vulkan", shots / "vulkan-wall-rt-taa-off.png",
                                     "scenes/ssao_wall.rage", JITTER_PHASE)
@@ -337,7 +347,7 @@ def main():
         drift = max(means) - min(means)
         print(f"vulkan: ray-traced occlusion under TAA across {JITTER_PHASE} frames: wall AO p10 "
               f"{min(p10s):.3f} at worst, brightness drifts {drift:.2f} levels")
-        if min(p10s) < MIN_WALL_P10 or drift > MAX_WALL_JITTER_DRIFT:
+        if min(p10s) < MIN_TRACED_WALL_P10 or drift > MAX_WALL_JITTER_DRIFT:
             failures.append(f"vulkan: ray-traced occlusion on the wall is not steady across the "
                             f"jitter phase (p10 {min(p10s):.3f}, drift {drift:.2f})")
 
