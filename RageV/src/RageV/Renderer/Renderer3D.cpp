@@ -435,6 +435,7 @@ namespace RageV
 			// define, so it recompiles the lit shaders the way the other two
 			// do.
 			bool RayGlobalIlluminationOn = false;
+			bool HybridSecondBounceOn = false;
 			std::vector<GpuRayInstance> RayInstanceScratch;
 
 			// The depth-only pipeline. Its own shader and its own pipeline
@@ -710,6 +711,12 @@ namespace RageV
 	bool Renderer3D::IsRayTracedReflections()
 	{
 		return s_Data && s_Data->RayReflectionsOn;
+	}
+
+	void Renderer3D::SetHybridSecondBounce(bool enabled)
+	{
+		if (s_Data)
+			s_Data->HybridSecondBounceOn = enabled;
 	}
 
 	void Renderer3D::SetRayTracedGlobalIllumination(bool enabled)
@@ -1233,6 +1240,18 @@ namespace RageV
 		sceneSet->SetTexture(16, haveIndirect ? indirect->Texture
 											  : TextureLoader::TransparentBlack(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
+
+		// The voxel grid the hybrid's first hit reads (8.13, ENGINE-NOTES 7be).
+		// Always bound, never conditionally: VoxelGI hands back a 1x1x1 black
+		// volume and a zeroed block when there is no grid, and the block's flag
+		// is what tells the shader whether to believe any of it. A binding the
+		// layout declares and the set does not fill is a validation error --
+		// the rule binding 16 above records.
+		VoxelGI::PublishGrid(s_Data->HybridSecondBounceOn);
+		sceneSet->SetTexture(17, VoxelGI::GetRadiance(), VoxelGI::GetRadianceSampler());
+		sceneSet->SetTexture(18, VoxelGI::GetFaces(), VoxelGI::GetRadianceSampler());
+		sceneSet->SetUniformBuffer(19, VoxelGI::GetGridUniform(), 0,
+								   VoxelGI::GetGridUniformSize());
 
 		// The structure the shadow ray traces into, only where the layout
 		// declares it. This frame's when one was built, the empty one when

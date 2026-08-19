@@ -155,6 +155,40 @@ layout(set = 0, binding = 12) uniform sampler2D u_ScreenReflections;
 // Binding 16 for the reason 12 is not 11 -- see above.
 layout(set = 0, binding = 16) uniform sampler2D u_Indirect;
 
+// The voxel grid as an *input* (8.13, ENGINE-NOTES 7be): not this shader's
+// own gather -- that is the voxel form, which never runs beside rays -- but a
+// cache of multi-bounce world-space radiance that the traced first hit reads
+// instead of the probe's one number. Bound on every frame whether or not a
+// grid exists; VoxelGI hands back a 1x1x1 black volume when it has none, and
+// `Flags.x` below is what says whether to believe any of it.
+layout(set = 0, binding = 17) uniform sampler3D u_VoxelRadiance;
+layout(set = 0, binding = 18) uniform sampler3D u_VoxelFaces;
+
+// Mirrored by hand in VoxelGI.cpp (GpuHybridGrid), std140. Its own block and
+// not four fields on SceneData: that one is mirrored in five GLSL files and a
+// field added to one is a silent layout mismatch in the other four.
+layout(set = 0, binding = 19) uniform VoxelGrid
+{
+	// x = N, y = cascades, z = the coarsest mip a cone reads, w = how far a
+	// cone runs
+	vec4 Grid;
+	// xyz = each cascade's minimum corner, w = its voxel size
+	vec4 Cascade[4];
+	// x = 1 where a grid was lit this frame and the hybrid is on
+	vec4 Flags;
+} u_VoxelGrid;
+
+// The five accessors `include/voxel_cone.glsl` is written against -- the same
+// five voxelgi_gather.rvshader defines over its own block, which is why that
+// file can be included here unchanged.
+int   VoxelResolution()   { return int(u_VoxelGrid.Grid.x + 0.5); }
+int   VoxelCascadeCount() { return int(u_VoxelGrid.Grid.y + 0.5); }
+vec3  VoxelOrigin(int k)  { return u_VoxelGrid.Cascade[k].xyz; }
+float VoxelSize(int k)    { return u_VoxelGrid.Cascade[k].w; }
+float VoxelMaxMip()       { return u_VoxelGrid.Grid.z; }
+
+#include "include/voxel_cone.glsl"
+
 // Comparison samplers: the hardware compares against the reference and filters
 // the answers, which is a 2x2 percentage-closer filter for one fetch. Four
 // separate maps rather than one array texture, because indexing an array of
@@ -1442,10 +1476,26 @@ void main()
 			if (first.Missed)
 				continue;
 
-			// What arrives at the hit. At one bounce the probe answers; at two,
-			// one more ray does and the probe answers for *its* hit instead.
+			// What arrives at the hit. At one bounce the probe answers; at
+			// two, one more ray does and the probe answers for *its* hit
+			// instead; under the hybrid the voxel grid answers and no
+			// second ray is traced at all (8.13, ENGINE-NOTES 7be).
 			vec3 arriving = ProbeIrradiance(first.Normal);
-			if (giBounces >= 2)
+
+			// The hybrid. The grid already carries more than one bounce --
+			// lit from its own chain a frame late, converging on every
+			// bounce -- so this is deeper than the second ray below and
+			// costs no ray. The cone set is rotated per pixel exactly as
+			// the voxel gather's is, and the run is the grid's own reach.
+			const bool hybrid = u_VoxelGrid.Flags.x > 0.5;
+			if (hybrid)
+			{
+				arriving = GatherCones(first.Position, first.Normal,
+								   float(GiHash(giPixel.x * 0x27D4EB2Du ^ giPixel.y))
+									   / 4294967296.0 * 6.2831853,
+								   u_VoxelGrid.Grid.w);
+			}
+			else if (giBounces >= 2)
 			{
 				// Perturbed before the second draw: reusing the first ray's two
 				// numbers would send every path off in the same direction twice,
