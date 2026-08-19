@@ -1533,7 +1533,10 @@ namespace
 							"on a still scene.")))),
 
 				Field<&RenderSettings::VoxelGlobalIllumination>("VoxelGlobalIllumination",
-					Named("Voxel global illumination", Tip(
+					Named("Voxel global illumination", DisabledWhen(RayGiTakesOver,
+						"Ray-traced global illumination is on in Render Settings and wins: "
+						"the voxel grid is not built at all while it runs.",
+						Tip(
 						"Where a camera's profile asks for global illumination, "
 						"gather it from a voxelised scene instead of from the "
 						"screen: the scene is rasterised into a grid around the "
@@ -1543,28 +1546,31 @@ namespace
 						"the frame, on both backends, with no ray hardware. The "
 						"profile's Global illumination stays the on switch; "
 						"ray-traced GI wins where it runs. A wall thinner than "
-						"a voxel leaks a little light through itself."))),
+						"a voxel leaks a little light through itself.")))),
 
 				Field<&RenderSettings::VoxelGiResolution>("VoxelGiResolution",
 					Named("Voxel resolution", OnlyWhen(VoxelGiOn,
+						DisabledWhen(RayGiTakesOver, nullptr,
 						Drag(0.5f, 32, 128,
 							"Voxels along each cascade's side; rounded to 32, 64 "
 							"or 128. Memory and the voxelisation cost go with the "
-							"cube of it.")))),
+							"cube of it."))))),
 
 				Field<&RenderSettings::VoxelGiCascades>("VoxelGiCascades",
 					Named("Voxel cascades", OnlyWhen(VoxelGiOn,
+						DisabledWhen(RayGiTakesOver, nullptr,
 						Drag(0.02f, 1, 4,
 							"How many nested grids, each covering twice the "
 							"distance of the last at half the detail. Three at "
-							"the default voxel size reaches 64 metres.")))),
+							"the default voxel size reaches 64 metres."))))),
 
 				Field<&RenderSettings::VoxelGiVoxelSize>("VoxelGiVoxelSize",
 					Named("Voxel size", OnlyWhen(VoxelGiOn,
+						DisabledWhen(RayGiTakesOver, nullptr,
 						Drag(0.01f, 0.05f, 4.0f,
 							"The finest cascade's voxel, in metres. Smaller "
 							"resolves thinner walls and a smaller room; larger "
-							"reaches further for the same grid.")))),
+							"reaches further for the same grid."))))),
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,

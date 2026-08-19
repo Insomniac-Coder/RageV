@@ -231,6 +231,15 @@ namespace RageV
 		// Never set by the editor -- it would save the defaults over the
 		// user's project on the next Render Settings edit.
 		bool         RenderDefaults = false;
+		// Whether `render-defaults` was stated at all, by either the ini or the
+		// command line. A run that writes a screenshot is measuring something,
+		// and a measurement that silently inherits whatever the owner last
+		// saved in the project is not reproducible -- on a ray-capable machine
+		// a saved `RayTracing: true` selects a different GI form entirely and
+		// the run measures rays while its author believes it measured voxels.
+		// So `--screenshot` requires this to be stated, either way; see
+		// EngineConfig::Init.
+		bool         HasRenderDefaults = false;
 
 		// --msaa=N. Zero leaves the scene's count alone.
 		int          MsaaOverride = 0;

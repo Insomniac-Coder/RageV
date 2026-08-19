@@ -3,6 +3,7 @@
 
 #include <fstream>
 #include <algorithm>
+#include <cstdlib>
 
 namespace RageV
 {
@@ -128,7 +129,10 @@ namespace RageV
 		}
 
 		if (key == "render-defaults" || key == "renderdefaults")
+		{
+			config.HasRenderDefaults = true;
 			return ParseBool(value, config.RenderDefaults);
+		}
 
 		if (key == "gi-bounces" || key == "gibounces")
 		{
@@ -466,6 +470,29 @@ namespace RageV
 			LoadFile(config, iniPath);
 
 		LoadCommandLine(config, argc, argv);
+
+		// A run that writes a screenshot is measuring, and a measurement must
+		// not depend on what the owner last saved in the project. This cost a
+		// session: `SampleProject.rvproject` had an uncommitted
+		// `RayTracing: true`, the probe scripts did not pass
+		// `--render-defaults`, and on a ray-capable device that silently
+		// selected the traced form -- so every "voxel" number they printed was
+		// the ray-traced one, and a shader edit that changed nothing looked
+		// like a backend defect. Refusing is better than defaulting either
+		// way: `on` would surprise anyone screenshotting their own game with
+		// its own look, and `off` is exactly the trap. So the run has to say.
+		if (!config.ScreenshotPath.empty() && !config.HasRenderDefaults)
+		{
+			RV_CORE_ERROR("--screenshot is a measurement, so it needs "
+						  "--render-defaults=on|off stated explicitly.");
+			RV_CORE_ERROR("  on  = ignore the project's Render Settings, which is what every "
+						  "check script wants: the run then depends only on its command line.");
+			RV_CORE_ERROR("  off = use the project's saved Render Settings, for screenshotting "
+						  "a project as it is actually configured.");
+			RV_CORE_ERROR("Without it a saved setting -- RayTracing above all -- silently "
+						  "decides which form of an effect you measured.");
+			std::exit(2);
+		}
 
 		s_Config = config;
 		s_Initialized = true;
