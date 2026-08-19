@@ -662,8 +662,23 @@ namespace RageV
 				}
 
 				const PendingCaster& first = pending[start];
-				if (first.MaterialRef)
-					first.MaterialRef->Bind(cmd, s_Data->VoxelizePipeline, 1);
+
+				// No material, no draw. This used to bind set 1 only where
+				// there was one and then draw either way, which is a draw whose
+				// pipeline statically uses a set that was never bound -- the
+				// validation error `all sets 0 to 1 are not compatible`. It
+				// stayed hidden because the voxel form's checks shoot at frame
+				// 60, by which time every material has resolved; a caster whose
+				// material is still loading only exists in the first frames.
+				// Skipping is also the right answer on its own terms: a surface
+				// whose albedo is not known yet cannot be voxelised, and a
+				// frame later it will be.
+				if (!first.MaterialRef)
+				{
+					start = end;
+					continue;
+				}
+				first.MaterialRef->Bind(cmd, s_Data->VoxelizePipeline, 1);
 
 				cmd.BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
 				cmd.BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
