@@ -9477,6 +9477,39 @@ probe number, and cheaper than another ray*.
 5. `Renderer3D`'s lit resource set binds them; `pbr_fragment` defines the five
    accessors and includes `voxel_cone.glsl`; the `giBounces >= 2` branch
    becomes the hybrid branch when the flag is on.
+### Built and measured (2026-08-19) -- and the prediction above was wrong
+
+| on `gi_away`, off screen | red | rays a pixel |
+|---|---|---|
+| traced, one bounce | +0.81 | 4 |
+| traced, two bounces | +1.83 (2.25x) | 8 |
+| **hybrid** | **+1.47 (1.80x)** | **4** |
+
+**The hybrid does not beat the second traced ray. It reaches about four fifths
+of it for half the rays.** This entry predicted the opposite -- that a cache
+carrying many bounces would read deeper than one more ray -- and the fixture
+says otherwise. The likely reason is the one the entry already lists as a
+limit and then failed to weigh: the grid is quarter-metre voxels, so the cone
+gather at a ray's hit point is a blurred neighbourhood rather than that
+surface's own incoming light, and it under-reads the near field that a second
+ray resolves exactly.
+
+So the trade is real but it is a trade, not a free win: **four fifths of the
+second bounce for half the rays, plus 0.09 ms to build the grid.** Worth it
+where the frame is ray-bound; not worth it where it is not. That is a
+materially weaker case than this entry argued for, and it is the number a
+decision should be made on.
+
+**Two things nearly hid this measurement, both worth keeping.** The lit shader
+asked for `include/voxel_cone.glsl` from inside `include/`, which resolves to
+`include/include/` and does not exist, so it never compiled and every fixture
+rendered pure black -- while `cmake --build` reported success, because shaders
+compile at runtime. And `check_gi` read +0.00 off those black frames and
+called it a measurement; the first hybrid claim had its floor at 1.0, which is
+exactly the null result, so it printed OK for a feature doing nothing on a
+renderer drawing nothing. **A check that cannot tell a black frame from a
+measured zero is not a check**, and neither hole is closed yet.
+
 **Blocked, with a minimal repro (2026-08-19).** Steps 1-5 are built on
 `wip/8.13-hybrid` and run: the gate relaxation works and
 `VoxelGI: grids at 64^3 x 3 cascades, 7 levels` appears under
