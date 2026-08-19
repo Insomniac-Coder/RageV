@@ -8210,7 +8210,7 @@ thresholds are exact or bounded and they are omitted from the table.
 | `ssao` | **`MIN_SEAM_DARKENING` 3.0 vs measured 13.65** -- a floor a quarter its measurement; a triple-strength AO read 45.68 and passed | RTAO vs SSAO share a kernel; comparable | inherited, **and it broke** | banded 9-22, pinned |
 | `ssr` | **`MIN_MIRROR_GAIN` 6.0 vs 79.7; `MIN_LIMB_CONTRAST` 4.0 vs 103.85** -- one twelfth and one twenty-fifth of their measurements | mirror rays; deterministic | inherited, **and it broke** | banded 50-140 / 70-140, pinned |
 | `motion_blur` | `MIN_GROWTH_HALF` 3 vs 6 measured; the ratio band cannot see a shutter that scales both sides | -- | inherited | ceiling 14, pinned |
-| `depth_of_field` | `MIN_BLUR_DROP` 0.35 with the focus plane held by `MIN_SHARP_KEPT`; a CoC ten times too large blurs the far plane to mush and passes both | -- | inherited | pinned; **ceiling not yet placed**, see below |
+| `depth_of_field` | `MIN_BLUR_DROP` 0.35 with the focus plane held by `MIN_SHARP_KEPT`; a CoC ten times too large blurred the far plane to mush and passed both | -- | inherited | pinned; ceilings 66 % (near-focus) and 10 % (f/16), see below |
 | `smaa` | `REQUIRED_GAIN` 2.5, but the flat-region claim bounds over-blur | -- | inherited | pinned |
 | `taa_motion` | still gain floor + moving loss ceiling: a band across two regions | -- | inherited | pinned |
 | `taa_jitter` | period claims, exact | -- | inherited | pinned |
@@ -8263,9 +8263,16 @@ checks:
 
 ### What this pass did not do
 
-- **Depth of field's ceiling is not placed.** The far-plane blur has no upper
-  bound and wants one; it needs a measured break (a CoC scale, say) on the far
-  side, and that is a run and a number, not a guess.
+- ~~**Depth of field's ceiling is not placed.**~~ Placed the same day, and it
+  taught something about the metric: the "detail lost" reading **saturates at
+  the `MaxRadius` clamp** -- 74.5 % at three times the CoC and the same 74.5 %
+  at ten -- so only the near-focus far-group reading (57.5 % correct) has room
+  for a ceiling, and the far-focus reading (72.4 % correct, already at the
+  clamp) cannot discriminate and is left unbounded *and says so*. Ceilings at
+  66 % there and 10 % on f/16 (sub-pixel on this fixture; -0.1 % correct, 48.8 %
+  at ten times), each placed against a measured break, both fired by it. Also
+  observed and deliberately not bounded: the in-focus group reads 115 % of its
+  unblurred detail with the effect on, which nobody has explained.
 - **Shape 3 was not re-falsified across the board.** Every check here was
   falsified when written and says so in its commit; this pass did not repeat
   that for the twenty. It did for the three ceilings it added: `check_ssao`'s

@@ -24,6 +24,16 @@ never read the focus setting -- which is a fog, not a lens.
 than f/1.4. This is the claim that says the thin-lens maths is wired up rather
 than a blur radius with a physical-sounding name.
 
+**2b. And blurs by the right amount, not merely enough.** The far group under
+near focus is banded above as well as below (57.5% measured, ceiling 66%), and
+f/16 -- sub-pixel on this fixture -- must blur nothing. Both ceilings were
+placed against a circle of confusion scaled three and ten times, and the
+far-focus direction is *not* bounded, because it sits at the MaxRadius clamp
+already and cannot tell a correct blur from a doubled one. ENGINE-NOTES 7ba.
+An observation, not a claim: the in-focus group reads *more* detail with the
+effect on than off (115%), which nobody has explained; it is not bounded
+because a bound placed without understanding is a coin toss.
+
 **5. The near group does not lose its edges.** The artefact that makes depth
 of field read as a filter is a blurred background bleeding over a sharp
 foreground: the subject grows a halo of the wall behind it. So the in-focus
@@ -75,6 +85,25 @@ FAR_SCALE = 30.0 / 4.0
 # Measured at f/1.4 it removes far more; the margin is against noise, not
 # against a close call.
 MIN_BLUR_DROP = 0.35
+
+# **And no more than this**, on the one reading that can tell (ENGINE-NOTES
+# 7ba). Focused near, the far group loses 57.5% at f/1.4; a circle of confusion
+# three times too large takes that to 74.5%, and ten times too large reads the
+# same 74.5% because MaxRadius clamps it there. So the ceiling sits between the
+# measurement and the saturation and catches a scale error of about two and up.
+#
+# The other direction cannot be bounded and does not pretend to be: focused
+# far, the near group is already at the clamp (72.4% correct, 76.8% at 3x), so
+# a ceiling there would be either useless or a coin toss. Stated rather than
+# hidden -- the reading below the ceiling is the near-focus one only.
+MAX_BLUR_DROP_FAR = 0.66
+
+# f/16 is sub-pixel on this fixture -- a 50 mm lens focused at 4 m puts a
+# 30 m subject at a few microns on the sensor -- so it must blur *nothing*,
+# not merely less than f/1.4 (which claim 4 already says). Measured -0.1%;
+# a CoC three times too large reads 0.2% and ten times reads 48.8%, so this
+# catches the gross error the near-focus ceiling saturates on.
+MAX_STOPPED_DROP = 0.10
 
 # And the in-focus group must keep this much of its unblurred detail. Bleeding
 # from behind shows up here first, as a foreground that went soft without
@@ -284,6 +313,13 @@ def main():
                 f"{(1 - lost_far) * 100:.0f}% of its detail. Nothing is being "
                 f"defocused -- the circle of confusion is not reaching the "
                 f"gather, or it is being computed as zero")
+        if lost_far > MAX_BLUR_DROP_FAR:
+            failures.append(
+                f"{backend}: focused on the near group, the far group lost "
+                f"{lost_far * 100:.0f}% of its detail (ceiling "
+                f"{MAX_BLUR_DROP_FAR * 100:.0f}%). The circle of confusion is "
+                f"too large by two or more -- a unit or a scale, most likely, "
+                f"since the aperture and focus were right when this was set")
 
         if lost_near < MIN_BLUR_DROP:
             failures.append(
@@ -313,6 +349,13 @@ def main():
                 f"({lost_stopped * 100:.0f}% against {lost_far * 100:.0f}%). The "
                 f"aperture is not reaching the circle of confusion, so the "
                 f"thin-lens maths has a physical-sounding name and no physics")
+        if lost_stopped > MAX_STOPPED_DROP:
+            failures.append(
+                f"{backend}: f/16 blurred the background by "
+                f"{lost_stopped * 100:.0f}% (ceiling {MAX_STOPPED_DROP * 100:.0f}%) "
+                f"on a fixture where its circle of confusion is sub-pixel -- the "
+                f"circle is grossly too large, and the near-focus ceiling cannot "
+                f"see it because MaxRadius saturates there first")
 
         # --- 6. and none of it depends on the anti-aliasing -------------------
         #
@@ -342,6 +385,11 @@ def main():
                     f"reads as the near plane everywhere and blurs the whole "
                     f"frame")
 
+            if lost > MAX_BLUR_DROP_FAR:
+                failures.append(
+                    f"{backend}: with --aa={aa} the background lost "
+                    f"{lost * 100:.0f}% (ceiling {MAX_BLUR_DROP_FAR * 100:.0f}%) -- "
+                    f"the circle of confusion is too large under this mode")
             if lost < MIN_BLUR_DROP:
                 failures.append(
                     f"{backend}: with --aa={aa} the background kept "
