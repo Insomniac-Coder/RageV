@@ -18,6 +18,11 @@ The C# API is a mirror of the C++ one — the same names, the same lifecycle, th
 same rules — deliberately, so that this manual describes one engine rather than
 two. Where the two genuinely differ, the difference is called out.
 
+There is a third way to *author* a script and it is not a third language: a
+[visual graph](visual.md) is drawn on a canvas and **generates C#**, which the
+same build then compiles. Nothing on this page changes for it — the events, the
+API and the lifecycle below are the ones a graph wires together.
+
 > [!NOTE]
 > The native surface was finished and frozen *before* C# work began. Every
 > change to it afterwards costs a binding update, a marshalling update and a
@@ -66,3 +71,5 @@ See the [trap about play mode](../concepts.md#play-mode) for why.
   it costs.
 - [Writing a script in C#](csharp.md) — the same engine from the other
   language, and where the two differ.
+- [Writing a script as a graph](visual.md) — the canvas, what it generates,
+  and when to reach for it.

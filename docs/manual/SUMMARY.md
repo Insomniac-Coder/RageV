@@ -26,4 +26,5 @@ part of the manual — the generator will not emit it and nothing will link to i
   - [Writing a script in C++](scripting/cpp.md)
   - [C++ API reference](scripting/cpp-reference.md)
   - [Writing a script in C#](scripting/csharp.md)
+  - [Writing a script as a graph](scripting/visual.md)
   - [Math](scripting/math.md)

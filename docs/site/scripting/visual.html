@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-root="../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Writing a script as a graph — RageV manual</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button><a class="brand" href="../index.html"><span class="brand-mark">Rage</span>V</a><span class="brand-sub">developer manual</span><span class="topbar-spacer"></span><div class="search"><input id="search-input" type="search" placeholder="Search the manual  /" autocomplete="off" spellcheck="false" aria-label="Search"><div class="results" id="search-results"></div></div><button class="icon-button" id="theme" aria-label="Toggle theme">&#9681;</button></header>
+<div class="layout">
+<nav class="sidebar" aria-label="Manual"><ul class="nav-list"><li><a class="nav-link" href="../index.html">Introduction</a></li><li><a class="nav-link" href="../getting-started.html">Getting started</a></li><li><a class="nav-link" href="../concepts.html">Core concepts</a></li><li><a class="nav-link" href="../editor.html">The editor</a></li><li><a class="nav-link" href="../components.html">Component reference</a></li><li><a class="nav-link" href="../rendering.html">Rendering</a></li><li><a class="nav-link" href="../materials.html">Materials</a></li><li><a class="nav-link" href="../terrain.html">Terrain</a></li><li><a class="nav-link" href="../lighting.html">Lighting</a></li><li><a class="nav-link" href="../cameras.html">Cameras</a></li><li><a class="nav-link" href="../post-processing.html">Post processing</a></li><li><a class="nav-link" href="../particles.html">Particles</a></li><li><a class="nav-link" href="../physics.html">Physics</a></li><li><a class="nav-link" href="../audio.html">Audio</a></li><li><a class="nav-link" href="../animation.html">Animation</a></li><li><a class="nav-link" href="../ui.html">User interface</a></li><li><a class="nav-link" href="../prefabs.html">Prefabs</a></li><li><a class="nav-link" href="../assets.html">Assets</a></li><li><a class="nav-link" href="../scripting/index.html">Scripting</a></li><li><ul class="nav-sub"><li><a class="nav-link" href="../scripting/cpp.html">Writing a script in C++</a></li><li><a class="nav-link" href="../scripting/cpp-reference.html">C++ API reference</a></li><li><a class="nav-link" href="../scripting/csharp.html">Writing a script in C#</a></li><li><a class="nav-link is-current" href="../scripting/visual.html" aria-current="page">Writing a script as a graph</a></li><li><a class="nav-link" href="../scripting/math.html">Math</a></li></ul></li></ul></nav>
+<main id="content">
+<article>
+<h1 id="writing-a-script-as-a-graph">Writing a script as a graph<a class="anchor" href="#writing-a-script-as-a-graph" aria-label="Link to this section">#</a></h1>
+<p>A <code>.rvgraph</code> is a script you draw instead of type. It is not a third language: saving one <strong>writes C#</strong> into the project&#39;s <code>Scripts/Generated/</code>, and the same build that compiles your hand-written C# compiles it.</p>
+<p>That is the whole design, and everything else on this page follows from it. There is no interpreter, no bytecode and no second execution path — so a graph gets live reload, the Build Log and restart-on-build for free, and the code it produces is ordinary, readable, and yours to keep if you ever outgrow the canvas.</p>
+<figure class="code"><pre><code>Spinner.rvgraph  →  Scripts/Generated/Spinner.g.cs  →  the assembly  →  the Script component
+</code></pre></figure>
+<h2 id="opening-one">Opening one<a class="anchor" href="#opening-one" aria-label="Link to this section">#</a></h2>
+<p>Graphs live in the project&#39;s <code>assets/graphs/</code>. The content browser shows them with their own icon; <strong>double-click one</strong> and the canvas opens.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>This build has no <strong>New Graph...</strong> action — a graph is opened, not created, from inside the editor. To start one, copy an existing <code>.rvgraph</code> in your file browser, rename it, and press <strong>Refresh</strong> in the content browser. The sample project ships several to copy from.</p>
+</aside>
+<p>The file name is the class name. <code>Spinner.rvgraph</code> generates <code>public class Spinner : Script</code>, so renaming the file renames the class — and the class name is what scene files store, the same rule as <a href="cpp.html">C++</a> and <a href="csharp.html">C#</a>.</p>
+<h2 id="the-canvas">The canvas<a class="anchor" href="#the-canvas" aria-label="Link to this section">#</a></h2>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left"></th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Right-click</strong></td><td style="text-align:left">add a node, from a menu grouped by category</td></tr>
+<tr><td style="text-align:left"><strong>Drag a pin</strong></td><td style="text-align:left">wire it to another; the canvas refuses a wire it cannot make and says why</td></tr>
+<tr><td style="text-align:left"><strong>Middle-drag</strong></td><td style="text-align:left">pan</td></tr>
+<tr><td style="text-align:left"><strong>Wheel</strong></td><td style="text-align:left">zoom, between 25% and 250%</td></tr>
+<tr><td style="text-align:left"><strong>Delete</strong></td><td style="text-align:left">remove what is selected</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+Z / Ctrl+Y</strong></td><td style="text-align:left">undo, redo</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl+S</strong></td><td style="text-align:left">save</td></tr>
+</tbody></table></div>
+<p>Hovering a pin names it and gives its type. As you zoom out, text drops away in order — pin labels first, then the subtitle, then the title — so a graph you have zoomed out of stays readable as shapes and category colours rather than turning into unreadable smudges.</p>
+<h2 id="execution-runs-along-the-white-wires">Execution runs along the white wires<a class="anchor" href="#execution-runs-along-the-white-wires" aria-label="Link to this section">#</a></h2>
+<p>There are two kinds of wire, and the distinction is the one thing worth understanding before anything else.</p>
+<ul>
+<li><strong>Execution</strong> (white, and the pins are triangles) says <em>what happens and in what order</em>. It is what turns a picture into a sequence of statements.</li>
+<li><strong>Data</strong> (coloured by type) says <em>what a value is</em>. Data wires have no order; they are read when the statement that needs them runs.</li>
+</ul>
+<p>A node with no execution wire reaching it back to an event never runs. The panel says so — that is the most common warning you will see, and it is worth reading rather than dismissing.</p>
+<h2 id="events-are-where-a-graph-starts">Events are where a graph starts<a class="anchor" href="#events-are-where-a-graph-starts" aria-label="Link to this section">#</a></h2>
+<p>Ten of them, and they are the engine&#39;s own callbacks rather than invented ones:</p>
+<p><strong>On Create</strong>, <strong>On Tick</strong>, <strong>On Frame</strong>, <strong>On Destroy</strong>, <strong>On Collision Enter/Stay/Exit</strong>, <strong>On Trigger Enter/Stay/Exit</strong>.</p>
+<p>They mean exactly what they mean in <a href="cpp.html#the-lifecycle">C++</a> and <a href="csharp.html#the-lifecycle">C#</a> — On Tick is the fixed step, On Frame is the render frame. A graph may have as many events as it likes; each becomes one <code>override</code>.</p>
+<h2 id="what-you-can-reach">What you can reach<a class="anchor" href="#what-you-can-reach" aria-label="Link to this section">#</a></h2>
+<p>137 nodes across eighteen categories, covering the same surface a written script gets:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">Category</th><th style="text-align:left"></th></tr></thead><tbody>
+<tr><td style="text-align:left">Events, Flow, Functions</td><td style="text-align:left">On Tick, Branch, Sequence, For Loop, While Loop, Break, Function, Call</td></tr>
+<tr><td style="text-align:left">Transform, Entity, Component</td><td style="text-align:left">position, rotation, scale, parenting, find, spawn, destroy, named fields</td></tr>
+<tr><td style="text-align:left">Physics</td><td style="text-align:left">forces, impulses, velocity, raycasts</td></tr>
+<tr><td style="text-align:left">Input, Time, Audio, UI, Output</td><td style="text-align:left">actions by name, the step, one-shots, Log</td></tr>
+<tr><td style="text-align:left">Maths, Vector, Logic, Values</td><td style="text-align:left">arithmetic, trigonometry, comparison, literals</td></tr>
+<tr><td style="text-align:left">Variables</td><td style="text-align:left">numbers, vectors, flags, text and entities that survive between events</td></tr>
+<tr><td style="text-align:left">Containers</td><td style="text-align:left">lists and string-keyed maps of numbers and entities</td></tr>
+</tbody></table></div>
+<p><strong>Variables are the one thing a graph cannot work without.</strong> A node graph with no memory can only compute from its inputs, so anything that accumulates — a timer, a counter, a position being moved rather than set — needs one. Each becomes a private field on the generated class, which is exactly what makes it survive from one tick to the next.</p>
+<h2 id="types-and-the-one-conversion-allowed">Types, and the one conversion allowed<a class="anchor" href="#types-and-the-one-conversion-allowed" aria-label="Link to this section">#</a></h2>
+<p>Pins carry <code>Bool</code>, <code>Float</code>, <code>Vec3</code>, <code>String</code>, <code>Entity</code>, or a list or map of numbers or entities. Wiring mismatched pins is refused as you drag, with the reason on screen.</p>
+<p>One conversion is automatic: <strong>Bool, Float and Vec3 may feed a String input.</strong> That is not a convenience — the engine&#39;s named-field API is text, so without it nothing but a string literal could ever reach <strong>Set Field</strong> and most of the maths nodes would be unreachable. The reverse is refused, because parsing text into a number can fail and a wire that might fail is not a wire.</p>
+<h2 id="problems-warnings-and-errors">Problems: warnings and errors<a class="anchor" href="#problems-warnings-and-errors" aria-label="Link to this section">#</a></h2>
+<p>The sidebar lists what is wrong with the graph as you edit it.</p>
+<ul>
+<li>A <strong>warning</strong> means the graph still generates, but something in it will not do anything — most often a node no execution wire reaches.</li>
+<li>An <strong>error</strong> means the graph does not generate at all.</li>
+</ul>
+<blockquote><p>[!IMPORTANT] A graph with errors writes <strong>no file</strong>, and deletes the one it wrote last time. This is deliberate: an empty <code>class Foo : Script</code> compiles, attaches, runs and does nothing, so leaving a stale or empty script behind would mean the canvas showing four errors while the game happily ran the version from before them.</p>
+</blockquote>
+<h2 id="saving">Saving<a class="anchor" href="#saving" aria-label="Link to this section">#</a></h2>
+<p><strong>Ctrl+S</strong> writes the graph <em>and</em> generates its C#, together, so what the canvas shows and what the project compiles cannot disagree. Then <strong>File → Build Scripts</strong> (Ctrl+B) compiles it like any other script, after which the class appears in the Script component&#39;s dropdown — pick it, press Play.</p>
+<p><code>Scripts/Generated/</code> is worth committing: it makes a clone build without opening the editor, and it makes a graph&#39;s effect reviewable as a diff.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Do not edit a generated <code>.g.cs</code>. It is rewritten every time the graph is saved, so an edit there survives until the next save and no longer. Change the graph — or, if you have outgrown it, delete the graph and keep the code.</p>
+</aside>
+<h2 id="what-a-graph-turns-into">What a graph turns into<a class="anchor" href="#what-a-graph-turns-into" aria-label="Link to this section">#</a></h2>
+<p>The generated file is ordinary C#. This is a real one, from the sample project&#39;s <code>Spinner.rvgraph</code>:</p>
+<figure class="code"><figcaption>csharp</figcaption><pre><code><span class="tok-comment">// Generated from Spinner.rvgraph. Do not edit.</span>
+
+<span class="tok-keyword">using</span> RageV;
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">class</span> Spinner : <span class="tok-type">Script</span>
+{
+    <span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnCreate</span>()
+    {
+        Log.<span class="tok-call">Info</span>(<span class="tok-string">&quot;spinner ready&quot;</span>);
+    }
+
+    <span class="tok-keyword">public</span> <span class="tok-keyword">override</span> <span class="tok-keyword">void</span> <span class="tok-call">OnTick</span>(<span class="tok-type">float</span> deltaTime)
+    {
+        <span class="tok-keyword">var</span> value8 = ((deltaTime * <span class="tok-number">180.0f</span>) / <span class="tok-number">2.0f</span>);
+
+        <span class="tok-keyword">if</span> (value8 &gt; <span class="tok-number">0.5f</span>)
+        {
+            <span class="tok-type">Entity</span>.<span class="tok-call">SetComponentField</span>(<span class="tok-string">&quot;TransformComponent&quot;</span>, <span class="tok-string">&quot;Rotation&quot;</span>, <span class="tok-call">Text</span>(value8));
+            Log.<span class="tok-call">Info</span>(<span class="tok-string">&quot;spun&quot;</span>);
+        }
+        <span class="tok-keyword">else</span>
+        {
+            Log.<span class="tok-call">Info</span>(<span class="tok-string">&quot;too slow&quot;</span>);
+        }
+    }
+}
+</code></pre></figure>
+<p>Two things in there are worth pointing out because they are decisions rather than accidents. A value read by more than one node is <strong>spilled to a local</strong> (<code>value8</code>) rather than recomputed, so a graph cannot silently run the same arithmetic twice. And the file is written in node-id order, so generating the same graph twice produces the same bytes — a generated file whose contents wander makes every save a diff nobody can read.</p>
+<h2 id="a-graph-from-a-build-that-had-more-nodes">A graph from a build that had more nodes<a class="anchor" href="#a-graph-from-a-build-that-had-more-nodes" aria-label="Link to this section">#</a></h2>
+<p>If a graph names a node type your build does not have — a project made with a newer engine, or one where a node has since been removed — <strong>the graph is refused rather than partly loaded</strong>, and the panel says which type it was.</p>
+<p>The alternative is worse than it sounds. Dropping the unknown node and opening the rest would generate a script missing that behaviour, overwrite the previous one with it, and write the shortened graph back to disk the first time you saved. Nothing on that path is reversible.</p>
+<p>The refusal page offers <strong>Open without it</strong>, which does that same thing on purpose and in the open: it says how many nodes and wires go, opens the canvas <em>unsaved</em> so nothing has reached disk yet, and keeps a banner up until you save. The problems list then tells you what was left dangling.</p>
+<h2 id="where-to-go-next">Where to go next<a class="anchor" href="#where-to-go-next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="csharp.html">Writing a script in C#</a> — what a graph generates, written by hand.</li>
+<li><a href="cpp.html">Writing a script in C++</a> — the other language, and the same lifecycle.</li>
+<li><a href="../components.html#managedscriptcomponent">Component reference</a> — the component that names the class a graph produces.</li>
+</ul>
+</article>
+<nav class="pager"><a class="pager-link pager-prev" href="../scripting/csharp.html"><span class="pager-label">Previous</span><span class="pager-title">Writing a script in C#</span></a><a class="pager-link pager-next" href="../scripting/math.html"><span class="pager-label">Next</span><span class="pager-title">Math</span></a></nav>
+</main>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#opening-one">Opening one</a><a class="toc-link toc-l2" href="#the-canvas">The canvas</a><a class="toc-link toc-l2" href="#execution-runs-along-the-white-wires">Execution runs along the white wires</a><a class="toc-link toc-l2" href="#events-are-where-a-graph-starts">Events are where a graph starts</a><a class="toc-link toc-l2" href="#what-you-can-reach">What you can reach</a><a class="toc-link toc-l2" href="#types-and-the-one-conversion-allowed">Types, and the one conversion allowed</a><a class="toc-link toc-l2" href="#problems-warnings-and-errors">Problems: warnings and errors</a><a class="toc-link toc-l2" href="#saving">Saving</a><a class="toc-link toc-l2" href="#what-a-graph-turns-into">What a graph turns into</a><a class="toc-link toc-l2" href="#a-graph-from-a-build-that-had-more-nodes">A graph from a build that had more nodes</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+</div>
+<script src="../search-index.js"></script>
+<script src="../manual.js"></script>
+</body>
+</html>
