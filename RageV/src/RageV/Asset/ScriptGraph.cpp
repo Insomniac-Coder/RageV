@@ -142,6 +142,107 @@ namespace RageV
 				{ { "", P::Exec }, { "Value", P::Entity } }, { { "", P::Exec } },
 				Emit::SetVariable, "Entity");
 
+			// --- containers
+			set(GraphNodeType::GetNumbers, "Get Numbers", "Containers",
+				{}, { { "", P::NumberList } },
+				Emit::GetVariable, "List<float>");
+			set(GraphNodeType::SetNumbers, "Set Numbers", "Containers",
+				{ { "", P::Exec }, { "Value", P::NumberList } }, { { "", P::Exec } },
+				Emit::SetVariable, "List<float>");
+			set(GraphNodeType::GetEntities, "Get Entities", "Containers",
+				{}, { { "", P::EntityList } },
+				Emit::GetVariable, "List<Entity>");
+			set(GraphNodeType::SetEntities, "Set Entities", "Containers",
+				{ { "", P::Exec }, { "Value", P::EntityList } }, { { "", P::Exec } },
+				Emit::SetVariable, "List<Entity>");
+			set(GraphNodeType::GetNumberMap, "Get Number Map", "Containers",
+				{}, { { "", P::NumberMap } },
+				Emit::GetVariable, "Dictionary<string, float>");
+			set(GraphNodeType::SetNumberMap, "Set Number Map", "Containers",
+				{ { "", P::Exec }, { "Value", P::NumberMap } }, { { "", P::Exec } },
+				Emit::SetVariable, "Dictionary<string, float>");
+			set(GraphNodeType::GetEntityMap, "Get Entity Map", "Containers",
+				{}, { { "", P::EntityMap } },
+				Emit::GetVariable, "Dictionary<string, Entity>");
+			set(GraphNodeType::SetEntityMap, "Set Entity Map", "Containers",
+				{ { "", P::Exec }, { "Value", P::EntityMap } }, { { "", P::Exec } },
+				Emit::SetVariable, "Dictionary<string, Entity>");
+			set(GraphNodeType::NumbersAdd, "Numbers Add", "Containers",
+				{ { "", P::Exec }, { "List", P::NumberList }, { "Value", P::Float } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Add({2});");
+			set(GraphNodeType::NumbersAt, "Numbers At", "Containers",
+				{ { "List", P::NumberList }, { "Index", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "{0}[(int)({1})]");
+			set(GraphNodeType::NumbersCount, "Numbers Count", "Containers",
+				{ { "List", P::NumberList } }, { { "", P::Float } },
+				Emit::Expression, "(float){0}.Count");
+			set(GraphNodeType::NumbersHas, "Numbers Has", "Containers",
+				{ { "List", P::NumberList }, { "Value", P::Float } }, { { "", P::Bool } },
+				Emit::Expression, "{0}.Contains({1})");
+			set(GraphNodeType::NumbersRemoveAt, "Numbers Remove At", "Containers",
+				{ { "", P::Exec }, { "List", P::NumberList }, { "Index", P::Float } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.RemoveAt((int)({2}));");
+			set(GraphNodeType::NumbersClear, "Numbers Clear", "Containers",
+				{ { "", P::Exec }, { "List", P::NumberList } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Clear();");
+			set(GraphNodeType::ForEachNumber, "For Each Number", "Containers",
+				{ { "", P::Exec }, { "List", P::NumberList } }, { { "Body", P::Exec }, { "Element", P::Float }, { "Index", P::Float }, { "Completed", P::Exec } },
+				Emit::Special, "foreach");
+			set(GraphNodeType::EntitiesAdd, "Entities Add", "Containers",
+				{ { "", P::Exec }, { "List", P::EntityList }, { "Value", P::Entity } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Add({2});");
+			set(GraphNodeType::EntitiesAt, "Entities At", "Containers",
+				{ { "List", P::EntityList }, { "Index", P::Float } }, { { "", P::Entity } },
+				Emit::Expression, "{0}[(int)({1})]");
+			set(GraphNodeType::EntitiesCount, "Entities Count", "Containers",
+				{ { "List", P::EntityList } }, { { "", P::Float } },
+				Emit::Expression, "(float){0}.Count");
+			set(GraphNodeType::EntitiesRemoveAt, "Entities Remove At", "Containers",
+				{ { "", P::Exec }, { "List", P::EntityList }, { "Index", P::Float } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.RemoveAt((int)({2}));");
+			set(GraphNodeType::EntitiesClear, "Entities Clear", "Containers",
+				{ { "", P::Exec }, { "List", P::EntityList } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Clear();");
+			set(GraphNodeType::ForEachEntity, "For Each Entity", "Containers",
+				{ { "", P::Exec }, { "List", P::EntityList } }, { { "Body", P::Exec }, { "Element", P::Entity }, { "Index", P::Float }, { "Completed", P::Exec } },
+				Emit::Special, "foreach");
+			set(GraphNodeType::NumberMapSet, "Number Map Set", "Containers",
+				{ { "", P::Exec }, { "Map", P::NumberMap }, { "Key", P::String }, { "Value", P::Float } }, { { "", P::Exec } },
+				Emit::Statement, "{1}[{2}] = {3};");
+			set(GraphNodeType::NumberMapGet, "Number Map Get", "Containers",
+				{ { "Map", P::NumberMap }, { "Key", P::String } }, { { "", P::Float } },
+				Emit::Expression, "({0}.ContainsKey({1}) ? {0}[{1}] : 0.0f)");
+			set(GraphNodeType::NumberMapHas, "Number Map Has", "Containers",
+				{ { "Map", P::NumberMap }, { "Key", P::String } }, { { "", P::Bool } },
+				Emit::Expression, "{0}.ContainsKey({1})");
+			set(GraphNodeType::NumberMapRemove, "Number Map Remove", "Containers",
+				{ { "", P::Exec }, { "Map", P::NumberMap }, { "Key", P::String } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Remove({2});");
+			set(GraphNodeType::NumberMapCount, "Number Map Count", "Containers",
+				{ { "Map", P::NumberMap } }, { { "", P::Float } },
+				Emit::Expression, "(float){0}.Count");
+			set(GraphNodeType::NumberMapClear, "Number Map Clear", "Containers",
+				{ { "", P::Exec }, { "Map", P::NumberMap } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Clear();");
+			set(GraphNodeType::EntityMapSet, "Entity Map Set", "Containers",
+				{ { "", P::Exec }, { "Map", P::EntityMap }, { "Key", P::String }, { "Value", P::Entity } }, { { "", P::Exec } },
+				Emit::Statement, "{1}[{2}] = {3};");
+			set(GraphNodeType::EntityMapGet, "Entity Map Get", "Containers",
+				{ { "Map", P::EntityMap }, { "Key", P::String } }, { { "", P::Entity } },
+				Emit::Expression, "({0}.ContainsKey({1}) ? {0}[{1}] : Entity.Invalid)");
+			set(GraphNodeType::EntityMapHas, "Entity Map Has", "Containers",
+				{ { "Map", P::EntityMap }, { "Key", P::String } }, { { "", P::Bool } },
+				Emit::Expression, "{0}.ContainsKey({1})");
+			set(GraphNodeType::EntityMapRemove, "Entity Map Remove", "Containers",
+				{ { "", P::Exec }, { "Map", P::EntityMap }, { "Key", P::String } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Remove({2});");
+			set(GraphNodeType::EntityMapCount, "Entity Map Count", "Containers",
+				{ { "Map", P::EntityMap } }, { { "", P::Float } },
+				Emit::Expression, "(float){0}.Count");
+			set(GraphNodeType::EntityMapClear, "Entity Map Clear", "Containers",
+				{ { "", P::Exec }, { "Map", P::EntityMap } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Clear();");
+
 			// --- maths
 			set(GraphNodeType::Add, "Add", "Maths",
 				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } },
@@ -422,6 +523,39 @@ namespace RageV
 			{ GraphNodeType::SetText, "SetText" },
 			{ GraphNodeType::GetEntityVar, "GetEntityVar" },
 			{ GraphNodeType::SetEntityVar, "SetEntityVar" },
+			{ GraphNodeType::GetNumbers, "GetNumbers" },
+			{ GraphNodeType::SetNumbers, "SetNumbers" },
+			{ GraphNodeType::GetEntities, "GetEntities" },
+			{ GraphNodeType::SetEntities, "SetEntities" },
+			{ GraphNodeType::GetNumberMap, "GetNumberMap" },
+			{ GraphNodeType::SetNumberMap, "SetNumberMap" },
+			{ GraphNodeType::GetEntityMap, "GetEntityMap" },
+			{ GraphNodeType::SetEntityMap, "SetEntityMap" },
+			{ GraphNodeType::NumbersAdd, "NumbersAdd" },
+			{ GraphNodeType::NumbersAt, "NumbersAt" },
+			{ GraphNodeType::NumbersCount, "NumbersCount" },
+			{ GraphNodeType::NumbersHas, "NumbersHas" },
+			{ GraphNodeType::NumbersRemoveAt, "NumbersRemoveAt" },
+			{ GraphNodeType::NumbersClear, "NumbersClear" },
+			{ GraphNodeType::ForEachNumber, "ForEachNumber" },
+			{ GraphNodeType::EntitiesAdd, "EntitiesAdd" },
+			{ GraphNodeType::EntitiesAt, "EntitiesAt" },
+			{ GraphNodeType::EntitiesCount, "EntitiesCount" },
+			{ GraphNodeType::EntitiesRemoveAt, "EntitiesRemoveAt" },
+			{ GraphNodeType::EntitiesClear, "EntitiesClear" },
+			{ GraphNodeType::ForEachEntity, "ForEachEntity" },
+			{ GraphNodeType::NumberMapSet, "NumberMapSet" },
+			{ GraphNodeType::NumberMapGet, "NumberMapGet" },
+			{ GraphNodeType::NumberMapHas, "NumberMapHas" },
+			{ GraphNodeType::NumberMapRemove, "NumberMapRemove" },
+			{ GraphNodeType::NumberMapCount, "NumberMapCount" },
+			{ GraphNodeType::NumberMapClear, "NumberMapClear" },
+			{ GraphNodeType::EntityMapSet, "EntityMapSet" },
+			{ GraphNodeType::EntityMapGet, "EntityMapGet" },
+			{ GraphNodeType::EntityMapHas, "EntityMapHas" },
+			{ GraphNodeType::EntityMapRemove, "EntityMapRemove" },
+			{ GraphNodeType::EntityMapCount, "EntityMapCount" },
+			{ GraphNodeType::EntityMapClear, "EntityMapClear" },
 			{ GraphNodeType::Add, "Add" },
 			{ GraphNodeType::Subtract, "Subtract" },
 			{ GraphNodeType::Multiply, "Multiply" },
@@ -507,6 +641,10 @@ namespace RageV
 			case GraphPinType::Vec3:   return "Vec3";
 			case GraphPinType::String: return "String";
 			case GraphPinType::Entity: return "Entity";
+			case GraphPinType::NumberList: return "Numbers";
+			case GraphPinType::EntityList: return "Entities";
+			case GraphPinType::NumberMap:  return "Number Map";
+			case GraphPinType::EntityMap:  return "Entity Map";
 		}
 		return "Exec";
 	}
@@ -962,19 +1100,35 @@ namespace RageV
 			return inside;
 		};
 
+		// Every loop, and every value it offers: For Loop's Index, and For
+		// Each's Element and Index. Written over the whole family rather than
+		// per node type, because the next loop added would otherwise be the
+		// one nobody remembers to add here.
 		for (const GraphNode& node : m_Nodes)
 		{
-			if (node.Type != GraphNodeType::ForLoop)
+			const bool loop = node.Type == GraphNodeType::ForLoop
+						   || node.Type == GraphNodeType::ForEachNumber
+						   || node.Type == GraphNodeType::ForEachEntity;
+			if (!loop)
 				continue;
 
+			const GraphNodeDesc& desc = GraphNodeDescOf(node.Type);
 			const std::vector<uint32_t> inside = bodyOf(node, 0);
-			for (const GraphLink& link : m_Links)
+
+			for (uint32_t pin = 0; pin < desc.Outputs.size(); pin++)
 			{
-				if (link.FromNode != node.Id || link.FromPin != 1)
+				if (desc.Outputs[pin].Type == GraphPinType::Exec)
 					continue;
-				if (std::find(inside.begin(), inside.end(), link.ToNode) == inside.end())
-					error(link.ToNode, "this reads a For Loop's Index from outside "
-						  "its Body, where the loop counter does not exist");
+				for (const GraphLink& link : m_Links)
+				{
+					if (link.FromNode != node.Id || link.FromPin != pin)
+						continue;
+					if (std::find(inside.begin(), inside.end(), link.ToNode) != inside.end())
+						continue;
+					error(link.ToNode, std::string("this reads ") + desc.Name + "'s "
+						  + desc.Outputs[pin].Name + " from outside its Body, where "
+						  "that value does not exist");
+				}
 			}
 		}
 
@@ -987,7 +1141,9 @@ namespace RageV
 			for (const GraphNode& loop : m_Nodes)
 			{
 				if (loop.Type != GraphNodeType::ForLoop
-					&& loop.Type != GraphNodeType::WhileLoop)
+					&& loop.Type != GraphNodeType::WhileLoop
+					&& loop.Type != GraphNodeType::ForEachNumber
+					&& loop.Type != GraphNodeType::ForEachEntity)
 					continue;
 				const std::vector<uint32_t> inside = bodyOf(loop, 0);
 				if (std::find(inside.begin(), inside.end(), node.Id) != inside.end())

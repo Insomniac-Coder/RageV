@@ -27,6 +27,17 @@ namespace RageV
 		Vec3,
 		String,
 		Entity,
+
+		// Containers (10.9). One pin type per element type rather than one
+		// generic one: "a list" is not a type a wire can carry, because the
+		// thing that makes iteration expressible is knowing what comes out.
+		// Maps are keyed by string always -- a second key axis would double an
+		// already-doubled set, and the engine's own named access is
+		// string-keyed too.
+		NumberList,
+		EntityList,
+		NumberMap,
+		EntityMap,
 	};
 
 	const char* GraphPinTypeName(GraphPinType type);
@@ -99,6 +110,39 @@ namespace RageV
 		SetText,
 		GetEntityVar,
 		SetEntityVar,
+		GetNumbers,
+		SetNumbers,
+		GetEntities,
+		SetEntities,
+		GetNumberMap,
+		SetNumberMap,
+		GetEntityMap,
+		SetEntityMap,
+		NumbersAdd,
+		NumbersAt,
+		NumbersCount,
+		NumbersHas,
+		NumbersRemoveAt,
+		NumbersClear,
+		ForEachNumber,
+		EntitiesAdd,
+		EntitiesAt,
+		EntitiesCount,
+		EntitiesRemoveAt,
+		EntitiesClear,
+		ForEachEntity,
+		NumberMapSet,
+		NumberMapGet,
+		NumberMapHas,
+		NumberMapRemove,
+		NumberMapCount,
+		NumberMapClear,
+		EntityMapSet,
+		EntityMapGet,
+		EntityMapHas,
+		EntityMapRemove,
+		EntityMapCount,
+		EntityMapClear,
 		Add,
 		Subtract,
 		Multiply,

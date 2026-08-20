@@ -57,6 +57,13 @@ namespace RageV::UI
 				case GraphPinType::Vec3:   return ImVec4(0.95f, 0.80f, 0.35f, 1.0f);
 				case GraphPinType::String: return ImVec4(0.85f, 0.45f, 0.75f, 1.0f);
 				case GraphPinType::Entity: return ImVec4(0.40f, 0.65f, 0.90f, 1.0f);
+				// Containers share a family: a warm grey-blue for lists, the
+				// same hue lighter for maps, so "this wire carries many" reads
+				// before the label does.
+				case GraphPinType::NumberList: return ImVec4(0.55f, 0.62f, 0.72f, 1.0f);
+				case GraphPinType::EntityList: return ImVec4(0.45f, 0.58f, 0.78f, 1.0f);
+				case GraphPinType::NumberMap:  return ImVec4(0.70f, 0.72f, 0.60f, 1.0f);
+				case GraphPinType::EntityMap:  return ImVec4(0.62f, 0.68f, 0.52f, 1.0f);
 			}
 			return ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 		}
@@ -754,7 +761,7 @@ namespace RageV::UI
 
 		// In the table's own order, so the menu and the file agree about how
 		// the set is grouped.
-		const char* categories[] = { "Events", "Flow", "Functions", "Values", "Variables",
+		const char* categories[] = { "Events", "Flow", "Functions", "Values", "Variables", "Containers",
 									 "Maths", "Logic", "Vector", "Entity",
 									 "Transform", "Physics", "Input", "Time",
 									 "Audio", "Component", "UI", "Output" };

@@ -170,6 +170,19 @@ namespace RageV::UI
 			c.Disc(0.56f, 0.74f, 0.065f);
 		}
 
+		// Up one folder. A chevron and not an arrow: the button is small, and
+		// at fourteen pixels an arrowhead on a shaft is two marks that merge
+		// into a smudge -- the same reason the gizmo glyphs were redrawn. A
+		// chevron is one stroke and survives.
+		//
+		// Pointing left rather than up because it replaced a "<", and because
+		// the thing beside it is a horizontal trail of folders.
+		void Back(const Canvas& c)
+		{
+			c.Path({ ImVec2(0.62f, 0.20f), ImVec2(0.34f, 0.50f), ImVec2(0.62f, 0.80f) },
+				   false);
+		}
+
 		// A lens with a graded gradient across it: the frame, after something
 		// has been done to it. Deliberately not a slider or a stack of
 		// sliders -- half the icons in a settings UI are sliders, and the
@@ -575,6 +588,7 @@ namespace RageV::UI
 			case IconKind::PostProfile: PostProfile(canvas); break;
 			case IconKind::Terrain:  Terrain(canvas);  break;
 			case IconKind::ScriptGraph: ScriptGraph(canvas); break;
+			case IconKind::Back:     Back(canvas);     break;
 			case IconKind::Script:   Script(canvas);   break;
 			case IconKind::Shader:   Shader(canvas);   break;
 			case IconKind::Font:     Font(canvas);     break;

@@ -1,6 +1,7 @@
 #include "ContentBrowserPanel.h"
 #include "EditorTheme.h"
 #include "AssetIcons.h"
+#include "Widgets.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 
@@ -145,7 +146,7 @@ namespace RageV
 		const std::filesystem::path& root = Assets::Registry::Root();
 
 		ImGui::BeginDisabled(m_Current == root);
-		if (ImGui::Button("<"))
+		if (UI::IconButton("##up", UI::IconKind::Back, "Up one folder"))
 			m_Current = m_Current.parent_path();
 		ImGui::EndDisabled();
 

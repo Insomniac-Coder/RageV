@@ -10065,7 +10065,43 @@ listed as absent rather than quietly skipped:
 |---|---|
 | ~~loops~~ | **added, and the objection was wrong** -- see below |
 | ~~user-defined functions~~ | **added**, parameterless -- see below |
-| arrays and dictionaries | needs a container pin type and iteration over it, and iteration over *what* is the part a pin cannot say |
+| ~~arrays and dictionaries~~ | **added** -- see below |
+
+#### Containers, and the third objection that did not hold either
+
+This entry said these need "a container pin type and iteration over it, and
+iteration over *what* is the part a pin cannot say". **A pin can say it** -- as
+long as the answer is written down once per element type rather than invented
+per instance. `NumberList` and `EntityList` are two pin types, not one generic
+one, and that is precisely what makes `For Each` able to name what comes out of
+it.
+
+Maps are keyed by **string, always**. A second key axis would double an
+already-doubled set, and the engine's own named access is string-keyed too.
+
+Four pin types, and thirty-eight nodes: get/set for each container as a
+variable, then add, at, count, has, remove-at, clear and `For Each` for lists;
+set, get, has, remove, count and clear for maps.
+
+Three things the generator had to learn:
+
+- **A container field is constructed.** `private List<float> scores = new
+  List<float>();` -- left null the first Add throws, and the stack trace lands
+  in generated code rather than on the node that asked for it.
+- **`using System.Collections.Generic;` only when something needs it.** An
+  unused using is noise in a file somebody is meant to read.
+- **A map read cannot declare an `out var`.** Two reads in one method would
+  redeclare it, so it is a `ContainsKey` ternary instead -- the key is read
+  twice, which for a string costs nothing and cannot collide.
+
+`For Each` is a `for` over `Count` rather than a C# `foreach`, because the node
+offers an **Index** and `foreach` has none.
+
+**And the scope rule generalised rather than being copied.** It now runs over
+every loop and every non-exec output it offers -- For Loop's Index, For Each's
+Element *and* Index -- written over the family instead of per node type,
+because the next loop added would otherwise be the one nobody remembers to add
+to it.
 
 #### Loops, and the objection that did not survive being tried
 

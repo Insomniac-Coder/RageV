@@ -313,6 +313,12 @@ namespace RageV::Assets
 						return "(" + args[0] + " " + kCompare[mode] + " " + args[1] + ")";
 					}
 
+					case GraphNodeType::ForEachNumber:
+					case GraphNodeType::ForEachEntity:
+						// Element at pin 1, Index at pin 2.
+						return pin == 1 ? "element" + std::to_string(node.Id)
+							  : "(float)index" + std::to_string(node.Id);
+
 					case GraphNodeType::ForLoop:
 						// Index. A Float pin over an int counter, cast at the read.
 						return "(float)index" + std::to_string(node.Id);
@@ -411,6 +417,25 @@ namespace RageV::Assets
 							out += pad + "var " + SpawnLocal(node->Id)
 								 + " = Entity.SpawnPrefab(" + Arguments(*node)[1] + ");\n";
 							break;
+
+					case GraphNodeType::ForEachNumber:
+					case GraphNodeType::ForEachEntity:
+					{
+						// A for over Count rather than a C# foreach, because the node
+						// offers an Index and foreach has none. Element is a local, so
+						// the body reads it by name rather than indexing twice.
+						const std::string counter = "index" + std::to_string(node->Id);
+						const std::string list = Arguments(*node)[1];
+						out += pad + "for (int " + counter + " = 0; " + counter + " < "
+							+ list + ".Count; " + counter + "++)\n";
+						out += pad + "{\n";
+						out += pad + "\tvar element" + std::to_string(node->Id)
+							+ " = " + list + "[" + counter + "];\n";
+						Statements(Next(*node, 0), out, indent + 1);
+						out += pad + "}\n";
+						node = Next(*node, 3);
+						continue;
+					}
 
 						case GraphNodeType::ForLoop:
 						{
@@ -670,7 +695,16 @@ namespace RageV::Assets
 		out += "// Rewritten whenever the graph is saved or the scripts are built, so an\n";
 		out += "// edit here survives exactly until the next one. Change the graph.\n";
 		out += "// ENGINE-NOTES 7bh.\n\n";
-		out += "using RageV;\n\n";
+		// Only when something needs it: an unused using is noise in a file
+		// somebody is meant to be able to read.
+		bool containers = false;
+		for (const auto& entry : emitter.Variables)
+			containers = containers || entry.second.find('<') != std::string::npos;
+
+		out += "using RageV;\n";
+		if (containers)
+			out += "using System.Collections.Generic;\n";
+		out += "\n";
 		out += "public class " + className + " : Script\n{\n";
 
 		// Variables first: they are the class's state, and a reader looking for
@@ -680,7 +714,14 @@ namespace RageV::Assets
 			out += "\t// The graph's variables. Fields rather than locals, because\n";
 			out += "\t// that is what makes them survive between one event and the next.\n";
 			for (const auto& [name, type] : emitter.Variables)
-				out += "\tprivate " + type + " " + name + ";\n";
+			{
+				// A container field has to be constructed. Left null, the first
+				// Add throws, and the stack trace lands in generated code rather
+				// than on the node that asked for it.
+				const bool container = type.find('<') != std::string::npos;
+				out += "\tprivate " + type + " " + name
+					+ (container ? " = new " + type + "();" : ";") + "\n";
+			}
 			out += "\n";
 		}
 

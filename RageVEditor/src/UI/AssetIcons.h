@@ -67,6 +67,9 @@ namespace RageV::UI
 		Terrain,
 		ScriptGraph,
 
+		// Navigation.
+		Back,
+
 		// Everything else that turns up in a project's folders.
 		Script,     // .cs .cpp .h .hpp .c .cc
 		Shader,     // .rvshader .glsl .vert .frag .comp .spv

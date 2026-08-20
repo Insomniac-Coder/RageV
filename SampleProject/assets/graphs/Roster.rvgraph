@@ -1,0 +1,79 @@
+ScriptGraph: 1
+NextNodeId: 12
+NextLinkId: 12
+Nodes:
+  - Id: 1
+    Type: OnCreate
+    Pos: [-700, -160]
+  - Id: 2
+    Type: GetNumbers
+    Pos: [-700, 60]
+    Text: scores
+  - Id: 3
+    Type: LiteralFloat
+    Pos: [-700, 200]
+    Value: [7.5, 0, 0, 0]
+  - Id: 4
+    Type: NumbersAdd
+    Pos: [-400, -160]
+  - Id: 5
+    Type: ForEachNumber
+    Pos: [-120, -160]
+  - Id: 6
+    Type: Log
+    Pos: [200, -220]
+  - Id: 7
+    Type: GetNumberMap
+    Pos: [-700, 420]
+    Text: totals
+  - Id: 8
+    Type: LiteralString
+    Pos: [-700, 560]
+    Text: alpha
+  - Id: 9
+    Type: NumbersCount
+    Pos: [-400, 300]
+  - Id: 10
+    Type: NumberMapSet
+    Pos: [200, 60]
+  - Id: 11
+    Type: LogWarning
+    Pos: [520, 60]
+    Text: roster ready
+Links:
+  - Id: 1
+    From: [1, 0]
+    To: [4, 0]
+  - Id: 2
+    From: [2, 0]
+    To: [4, 1]
+  - Id: 3
+    From: [3, 0]
+    To: [4, 2]
+  - Id: 4
+    From: [4, 0]
+    To: [5, 0]
+  - Id: 5
+    From: [2, 0]
+    To: [5, 1]
+  - Id: 6
+    From: [5, 0]
+    To: [6, 0]
+  - Id: 7
+    From: [5, 1]
+    To: [6, 1]
+  - Id: 8
+    From: [5, 3]
+    To: [10, 0]
+  - Id: 9
+    From: [7, 0]
+    To: [10, 1]
+  - Id: 10
+    From: [8, 0]
+    To: [10, 2]
+  - Id: 11
+    From: [9, 0]
+    To: [10, 3]
+  - Id: 12
+    From: [2, 0]
+    To: [9, 0]
