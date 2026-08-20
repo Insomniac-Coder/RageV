@@ -10783,6 +10783,23 @@ rather than of the section and reads correctly under either heading. Both
 headings are drawn whether or not anything is under them, so the structure is
 visible before it is used.
 
+**And then it had to be laid out**, which was reported next and separately:
+*"need visual improvements for this section, it looks like visual mess."*
+Four things, none of them the content. Nothing lined up -- `total Float` ran
+the name and the type together with one space, so the type read as part of
+the name. The rows had no rhythm, because a variable took two lines and a
+function took one. The sub-headings were two spaces of indent against rows at
+zero, which reads as an accident rather than a hierarchy. And nothing
+separated one entry from the next, so three entries were nine words in a
+column.
+
+The fixes are ordinary and worth naming only because they are the difference
+between a feature working and a feature being usable: the type is
+right-aligned so the rows form a table without being one, every entry has the
+same two-line shape (a function’s right-hand column says `Function`),
+`SeparatorText` draws the sub-headings as labelled rules, and entries are
+separated by a blank line.
+
 Functions get `Public` alone. They are parameterless by 7bh's design, so there
 is nothing else to say about one.
 

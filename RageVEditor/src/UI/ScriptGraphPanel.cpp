@@ -1096,16 +1096,36 @@ namespace RageV::UI
 		ImGui::TextDisabled("Variables and functions");
 		ImGui::Separator();
 
-		// Two passes over one list, Public first: what the rest of the project
-		// can reach is what a reader should see first. Both headings are drawn
-		// whether or not anything is under them, so the two sections read as a
-		// structure rather than appearing when something lands in one.
+		// One row shape for everything in here, so the eye can find the
+		// repeat: a name on the left, what it is on the right, and its
+		// controls on an indented line under it. A variable and a function
+		// differ only in what the right-hand column says.
+		const auto row = [](const std::string& name, const char* kind)
+		{
+			ImGui::TextUnformatted(name.c_str());
+
+			// Right-aligned rather than a table: two columns of text do not
+			// need a table's machinery, and this keeps every row a single
+			// pair of calls.
+			const float width = ImGui::CalcTextSize(kind).x;
+			const float available = ImGui::GetContentRegionAvail().x;
+			if (available > width + 8.0f)
+			{
+				ImGui::SameLine(ImGui::GetCursorPosX() + available - width);
+				ImGui::TextDisabled("%s", kind);
+			}
+		};
+
+		// Public first: what the rest of the project can reach is what a
+		// reader should see first. Both headings are drawn whether or not
+		// anything is under them, so the two sections read as a structure
+		// rather than appearing when something lands in one.
 		for (int pass = 0; pass < 2; pass++)
 		{
 			const bool wantPublic = pass == 0;
 
-			ImGui::Spacing();
-			ImGui::TextDisabled(wantPublic ? "  Public" : "  Private");
+			ImGui::SeparatorText(wantPublic ? "Public" : "Private");
+			ImGui::Indent(8.0f);
 
 			bool any = false;
 
@@ -1114,12 +1134,14 @@ namespace RageV::UI
 				if (variable.Public != wantPublic)
 					continue;
 
+				if (any)
+					ImGui::Spacing();
 				any = true;
-				ImGui::PushID(variable.Name.c_str());
 
-				ImGui::Text("%s", variable.Name.c_str());
-				ImGui::SameLine();
-				ImGui::TextDisabled("%s", GraphPinTypeName(variable.Type));
+				ImGui::PushID(variable.Name.c_str());
+				row(variable.Name, GraphPinTypeName(variable.Type));
+
+				ImGui::Indent(10.0f);
 
 				// ShowInEditor stays a checkbox: it is a property of the
 				// variable, not of which section it is in, and both
@@ -1151,6 +1173,7 @@ namespace RageV::UI
 						: "Moves it to Public: a public field, which another\n"
 						  "script can read or write.");
 
+				ImGui::Unindent(10.0f);
 				ImGui::PopID();
 			}
 
@@ -1161,23 +1184,36 @@ namespace RageV::UI
 				if (isPublicNow != wantPublic)
 					continue;
 
+				if (any)
+					ImGui::Spacing();
 				any = true;
-				ImGui::PushID(("fn" + name).c_str());
 
-				ImGui::Text("%s()", name.c_str());
-				ImGui::SameLine();
+				ImGui::PushID(("fn" + name).c_str());
+				row(name + "()", "Function");
+
+				ImGui::Indent(10.0f);
 				if (ImGui::SmallButton(wantPublic ? "Make private" : "Make public"))
 				{
 					PushUndo();
 					m_Graph.DeclareFunction(name).Public = !wantPublic;
 				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip(wantPublic
+						? "Moves it to Private: a private method."
+						: "Moves it to Public: a public method, which another\n"
+						  "script can call.");
 
+				ImGui::Unindent(10.0f);
 				ImGui::PopID();
 			}
 
 			if (!any)
-				ImGui::TextDisabled("    (none)");
+				ImGui::TextDisabled("nothing here yet");
+
+			ImGui::Unindent(8.0f);
 		}
+
+		ImGui::Spacing();
 	}
 
 	void ScriptGraphPanel::DrawProblems()
