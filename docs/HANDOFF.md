@@ -1,6 +1,9 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-17.
+**Read this first.** Updated 2026-08-20.
+
+**There is a START HERE section immediately below this one.** It is the task in
+progress and it takes precedence over everything else in this file.
 
 Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
 finished with, and `main` is pushed.
@@ -13,6 +16,167 @@ Companion docs:
   **§7b before deciding a change is verified** — it is why exiting and pixels
   are both part of the bar.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — renderer design detail.
+
+---
+
+## START HERE — the camp scene (2026-08-20)
+
+**One task, and it runs to completion without stopping.** The owner's words:
+*"Everything happens in one go in the next session, no stopping unless I ask
+you to stop."* Do not check in for approval between stages; do not stop to
+report progress and wait. Work through the list, verify, commit, and report at
+the end.
+
+### The task
+
+Build a low-poly forest camp scene that looks like the reference, and show it
+off with a moving camera.
+
+**The reference is `C:/Users/ism19/Downloads/maxresdefault.jpg`. Open it before
+doing anything.** Everything below is a description of it, and the picture is
+the specification — where a note here disagrees with the image, the image wins.
+
+The requirements, collected from the whole session:
+
+1. **A low-poly camp scene** modelled on the reference.
+2. **Self-generated assets and self-generated textures.** No recycling: the
+   owner said so twice. The camp does not reuse the courtyard's LUT, flame
+   texture, fire sound, curves or the ambientCG map sets. Write generators.
+3. **Terrain** for the ground.
+4. **A cinematic camera** that moves through the scene and shows it from
+   several points — *"movie like introduction to the scene"*.
+5. **A mirror**, low-poly, standing on its own kickstand, angled at the fire.
+   Its purpose is stated: *"a good example of cubemap and RT reflections"*.
+6. **The animated fox** (glTF + skinning), at the edge of the firelight.
+7. **A proper fireplace**: faceted flame geometry in a ring of stones, not
+   particles alone. The owner supplied a reference for this too.
+8. **More camp equipment** — the second reference sheet had a cooler, lantern,
+   cooking pot, picnic spread, bench.
+9. **Research level design if it helps**, and apply it.
+
+### What the reference actually shows
+
+Study it rather than trusting this list, but the load-bearing observations:
+
+| | |
+|---|---|
+| **Camera** | High three-quarter, looking down about 35-40°, tight on the camp. Not a landscape shot. |
+| **Depth of field** | Strong. Foreground trees and background trees are blurred; the camp is sharp. This is most of why it reads as a miniature. |
+| **Key light** | The fire, and only the fire. A warm pool on the ground reaching about two chair-widths. |
+| **Ambient** | Deep blue-purple. The ground away from the fire is mauve-brown, not black. |
+| **Rim light** | Warm dusk glow between the far trunks — a low warm light behind the treeline, separate from the fire. |
+| **Trees** | Dark teal-green, 5-7 stacked skirted tiers, brown trunks visible, warm rims on the fire side. Foreground trees are huge and cropped by the frame. |
+| **Tent** | Red with a white lower band, dark doorway, guy lines, right of centre, angled about 30°. |
+| **Fire** | Faceted orange/yellow flame shards in a ring of pale stones, logs stacked under it. Brightest thing in frame by a wide margin. |
+| **Props** | Two folding chairs (blue and red seats, black frames) right of the fire; one blue chair foreground facing away; a log bench; a suitcase; a bedroll; a backpack; two marshmallow forks; a cut stump; split firewood; three small animals; pebbles and bright green grass tufts scattered everywhere. |
+| **Palette** | Purple-brown ground, teal trees, red/white tent, blue and red chairs, bright green grass, warm orange fire. |
+
+The scattered pebbles and grass tufts are not decoration — they are most of
+why the ground reads as *somewhere* rather than as a floor. There are a lot of
+them and they are small.
+
+### Where the work is now
+
+Everything is committed. **14 commits unpushed** — pushing is the owner's
+action, never do it.
+
+**Working, verified:**
+
+- `tools/scripts/fbxwrite.py` — the shared ASCII FBX writer. `Mesh` with
+  `box`, `prism`, `cone`, `cylinder`, piece tracking, flat shading by
+  construction.
+- `tools/scripts/make_camp_models.py` — 14 props.
+- `tools/scripts/check_models.py` — **run this after every model change.**
+  Every piece of every prop must have every face pointing outward.
+- `tools/scripts/make_prop_sheet.py` — the review sheet. See the workflow below.
+- `tools/scripts/make_camp_scene.py` — the scene generator, 300 entities.
+- `tools/scripts/make_terrain.py` — gained `clearing()`, which is the camp's
+  ground: level in the middle, lifting into forest at the edges.
+- `SampleProject/Scripts/CampCamera.cs` — four shots, smoothstep easing,
+  `OnFrame`.
+- `SampleProject/Scripts/Flicker.cs` — two-wave fire flicker, no clock, no RNG.
+- FBX import itself (8.9 stage 1) — this is what the props ride on.
+
+**Broken or unfinished, in priority order:**
+
+1. **The props are wrong** and the prop sheet says how: the chair is a spindly
+   stick figure at half its height; the stump and rock are too small to read;
+   the grass is nearly invisible; the log is a column. Fix them against the
+   sheet, not against the scene.
+2. **The camp is over-lit.** The fire is at intensity 34 over an 18 metre
+   range, which lights the whole clearing and leaves no falloff in frame. A
+   lighting pass was written and **never applied** — its patch aborted on a
+   stale anchor and correctly wrote nothing.
+3. **No generated textures yet.** The camp still uses `MAPS["soil"]` and
+   `MAPS["wood"]` from the courtyard, which the owner has ruled out.
+4. **No fireplace geometry** — the fire is particles and a light.
+5. **No extra camp equipment.**
+
+### The workflow that was learned the hard way
+
+**Model, then review on the prop sheet, then place.** The owner's instruction,
+and three renders were wasted before it: *"instead of directly placing them in
+the scene create a temp dummy scene to analyse how it looks and then place it
+in the scene."*
+
+    python tools/scripts/make_camp_models.py
+    python tools/scripts/check_models.py
+    python tools/scripts/make_prop_sheet.py
+    ...RageVRuntime.exe --render-defaults=on --rhi=vulkan \
+        --scene=scenes/prop_sheet.rage --frame-time=0.0166 \
+        --screenshot-frame=30 --screenshot=sheet.png
+
+A prop judged through firelight, depth of field and a night grade cannot be
+told from a prop that is fine but in shadow. The sheet is flat light, plain
+floor, no post, side on, against a metre grid.
+
+**A new prop has no asset handle until the engine has seen it.** Run the
+runtime once after generating models, then read the handle out of the `.meta`.
+`make_prop_sheet.py` reads them itself; `make_camp_scene.py` still has a pasted
+table — consider making it read them too.
+
+### Traps already paid for
+
+- **`fbxwrite.cone` and `cylinder` shipped wound inside out.** Reported as
+  *"the trees seem see through"*. It also lit every round prop **from behind**,
+  which is why two lighting passes failed to fix a lighting problem that was
+  not one. Fixed, and `check_models.py` guards it.
+- **A cubemap sky is the scene's image-based light, not a backdrop.** The camp
+  was lit like an afternoon because it still had the courtyard's dusk panorama.
+  A gradient sky at near-black fixed it. Turning the moon down never could
+  have.
+- **`hills` terrain has no flat part**, so the tent stood inside a hillside.
+  `clearing()` exists for this.
+- **FBX `UnitScaleFactor` is centimetres per unit**: `100` means one unit is
+  one metre. `1` divides the model by a hundred.
+- **A negative cone height does not flip a cone**, it inverts it. Use
+  `flip=True`.
+- **Auto exposure defeats a night scene** — it finds a mid-grey in anything.
+  Fixed exposure.
+- **Regenerating the demo overwrote an uncommitted editor edit** to
+  `courtyard.rvpostprofile`. Anything that must survive belongs in the
+  generator, not in the generated file.
+- **Patch scripts must be written with the Write tool**, not through a Bash
+  heredoc: heredocs collapse `\n` and `\t` inside string literals and have
+  broken three patches this session.
+- Several patch scripts failed on stale anchors after earlier partial patches.
+  `make_camp_scene.py` has drifted; **consider rewriting it cleanly** rather
+  than patching it further.
+
+### The bar before saying it is done
+
+- `python tools/scripts/check_models.py` exits 0.
+- `check_graph.py` exits 0, and `scenetest.exe --validation=on` exits 0 with
+  zero `[Vulkan]` lines.
+- Release, Debug and Dist all build.
+- `./build/bin/Release/rvdoc/rvdoc.exe --check` green, run from the repo root.
+- **Screenshot the camp and look at it.** Every problem this session was found
+  by looking, and none by reading code.
+- `git checkout -- SampleProject` before `git add -A`, **except**
+  `SampleProject/assets/post/courtyard.rvpostprofile`, which carries the
+  owner's own edit.
+- Record the design in ENGINE-NOTES first, then code, then HANDOFF and ROADMAP.
+- **Never push.**
 
 ---
 
