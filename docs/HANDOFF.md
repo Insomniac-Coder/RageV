@@ -40,8 +40,11 @@ The requirements, collected from the whole session:
 
 1. **A low-poly camp scene** modelled on the reference.
 2. **Self-generated assets and self-generated textures.** No recycling: the
-   owner said so twice. The camp does not reuse the courtyard's LUT, flame
-   texture, fire sound, curves or the ambientCG map sets. Write generators.
+   owner said so three times, the last time as *"no old textures, use the new
+   ones"*. The camp does not reuse the courtyard's LUT, flame texture, fire
+   sound, curves, or the ambientCG map sets in `MAPS`. Write generators for the
+   textures the way `make_sky_hdr.py` and `make_lut.py` already generate
+   theirs, and point the camp's materials at those.
 3. **Terrain** for the ground.
 4. **A cinematic camera** that moves through the scene and shows it from
    several points — *"movie like introduction to the scene"*.
@@ -112,23 +115,46 @@ action, never do it.
 4. **No fireplace geometry** — the fire is particles and a light.
 5. **No extra camp equipment.**
 
-### The workflow that was learned the hard way
+### The workflow, which is not optional
 
-**Model, then review on the prop sheet, then place.** The owner's instruction,
-and three renders were wasted before it: *"instead of directly placing them in
-the scene create a temp dummy scene to analyse how it looks and then place it
-in the scene."*
+The owner specified it twice and it is the difference between this working and
+another three wasted renders.
 
-    python tools/scripts/make_camp_models.py
-    python tools/scripts/check_models.py
-    python tools/scripts/make_prop_sheet.py
-    ...RageVRuntime.exe --render-defaults=on --rhi=vulkan \
-        --scene=scenes/prop_sheet.rage --frame-time=0.0166 \
-        --screenshot-frame=30 --screenshot=sheet.png
+> *"instead of directly placing them in the scene create a temp dummy scene to
+> analyse how it looks and then place it in the scene"*
+
+> *"for each asset create a dummy scene to verify whether the FBX/GLTF 3D
+> object was created the right way, post confirmation delete the dummy scene
+> and only then use it in the new demo scene"*
+
+**Per asset, in this order, and no asset skips it:**
+
+1. Model it and write the FBX.
+2. Run the engine once so the registry mints its handle into the `.meta`.
+3. Generate a **dummy scene containing that one asset**, on a plain floor
+   under flat light with every post effect off.
+4. Screenshot it and **look at it**. Confirm the object was built the right
+   way -- solid, right way out, right proportions, right size against the
+   metre grid.
+5. **Delete the dummy scene.** It is scaffolding, not content, and a project
+   full of leftover verification scenes is a project nobody can find anything
+   in.
+6. Only then place it in the camp scene.
+
+`make_prop_sheet.py` currently builds one sheet holding every prop, which was
+the first cut of this idea. **It needs a per-asset mode** -- something like
+`--only <name>` that writes `scenes/_verify_<name>.rage`, and a cleanup step
+that removes it once the screenshot has been read. Keep the shared sheet as
+well if it is useful for comparing proportions across props, but the
+per-asset pass is the one that gates placement.
+
+Also run `python tools/scripts/check_models.py` after every model change: it
+asserts that every piece of every prop has every face pointing outward, which
+is the defect that cost this session most.
 
 A prop judged through firelight, depth of field and a night grade cannot be
-told from a prop that is fine but in shadow. The sheet is flat light, plain
-floor, no post, side on, against a metre grid.
+told from a prop that is fine but in shadow. Flat light, plain floor, no post,
+side on, against a metre grid.
 
 **A new prop has no asset handle until the engine has seen it.** Run the
 runtime once after generating models, then read the handle out of the `.meta`.
