@@ -30,18 +30,12 @@ public class CampCamera : Script
 	// component, so the pacing is tunable without a rebuild -- which is most of
 	// what tuning a camera move is.
 	//
-	// **The defaults are the scene's values, not placeholders.** The camp scene
-	// sets both of these and the camera still ran at the old pace, so the
-	// override is not reaching the field -- which means anything the defaults
-	// get wrong is wrong on screen. Keeping them equal to what the scene asks
-	// for makes the timing right either way and leaves the override as the
-	// tuning knob it was meant to be.
-	//
-	// Slow, and long. Seven and a half seconds parked and fourteen travelling
-	// is twenty-one seconds a shot: unhurried enough that the eye finishes
-	// reading a frame before the camera starts on the next one.
-	private float HoldSeconds = 9.0f;
-	private float TravelSeconds = 12.7f;
+	// **The defaults are the scene's values, not placeholders.** Keeping them
+	// equal to what the scene asks for makes the timing right whether or not
+	// the override reaches the field, and leaves the override as the tuning
+	// knob it was meant to be rather than the only thing holding the pacing up.
+	private float HoldSeconds = 3.4f;
+	private float TravelSeconds = 4.2f;
 
 	// No more than this many, and the search stops at the first gap. A scene
 	// with "Shot 1" and "Shot 3" gets one shot and not a jump through the

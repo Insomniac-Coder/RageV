@@ -57,14 +57,32 @@ namespace RageV::Assets
 		// the old mesh forever. A `.glb` carries its buffers inside the file
 		// the hash is taken over, so it has no such gap. A slow load is worth
 		// avoiding; a silently stale mesh is not.
+		// Self-contained model formats only. A `.gltf` keeps its geometry in a
+		// sibling `.bin` that this cache's key does not cover, so it is always
+		// re-imported; `.glb` and `.fbx` are one file each.
+		bool IsCookedMesh(const std::string& extension)
+		{
+			return extension == ".glb" || extension == ".fbx";
+		}
+
+		bool IsCookedTexture(const std::string& extension)
+		{
+			return extension == ".png" || extension == ".jpg" || extension == ".jpeg";
+		}
+
+		// **One predicate each, because there were two and they disagreed.**
+		// When the FBX front end landed, this function learned that a `.fbx`
+		// cooks to a `.rvmesh` and `Cook` below did not learn what a `.fbx`
+		// is -- so every one of them fell past the model branch into the
+		// *image* decoder, warned that it would not decode, and was re-parsed
+		// from source on every load. The camp scene made that loud: 41 props,
+		// 82 warnings a run, and the cache doing nothing whatsoever for the
+		// format it had just been taught to name.
 		const char* CookedExtension(const std::string& extension)
 		{
-			if (extension == ".png" || extension == ".jpg" || extension == ".jpeg")
+			if (IsCookedTexture(extension))
 				return ".rvtex";
-			// Self-contained formats only. A `.gltf` keeps its geometry in a
-			// sibling `.bin` that this key does not cover, so it is always
-			// re-imported; `.glb` and `.fbx` are one file each.
-			if (extension == ".glb" || extension == ".fbx")
+			if (IsCookedMesh(extension))
 				return ".rvmesh";
 			return nullptr;
 		}
@@ -217,17 +235,27 @@ namespace RageV::Assets
 		{
 			const std::string extension = ToLower(absoluteSource.extension().string());
 
-			if (extension == ".glb")
+			if (IsCookedMesh(extension))
 			{
 				// ImportSource, not Import: Import asks this cache first, and
 				// this *is* the cache, mid-answer. The explicit entry point
-				// is what stops that being a recursion.
+				// is what stops that being a recursion. It dispatches on the
+				// extension itself, so this branch does not care which model
+				// format arrived.
 				ImportedModel model;
 				if (!ModelImporter::ImportSource(absoluteSource, model))
 					return {};
 
 				return MeshCook::Serialize(model);
 			}
+
+			// Guarded rather than assumed. Nothing else should reach here --
+			// `Fetch` only calls this when `CookedExtension` named one -- but
+			// the failure mode of getting that wrong is a warning that blames
+			// the file for not being a picture, which is what a `.fbx` spent
+			// two versions being told.
+			if (!IsCookedTexture(extension))
+				return {};
 
 			int width = 0, height = 0, channels = 0;
 			stbi_uc* pixels = stbi_load_from_memory(source.data(), (int)source.size(),

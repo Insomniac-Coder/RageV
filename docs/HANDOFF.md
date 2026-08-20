@@ -91,6 +91,11 @@ modelling mistake.
    image, which looks exactly like a framing bug.
 7. **An audio bus is an enum read by name**, so `"Sfx"` is not `"SFX"`. A near
    miss falls back to Master without a word.
+8. **The import cache had two answers to "is this a model".** `CookedExtension`
+   knew about `.fbx` and `Cook` did not, so every FBX went to the image decoder,
+   warned, and was re-parsed from source every load. Fixed by giving the
+   question one function -- but the shape of it is the thing to watch for: two
+   predicates for one question, each defensible alone.
 
 And two older ones that still hold:
 

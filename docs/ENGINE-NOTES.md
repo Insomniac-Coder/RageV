@@ -11011,7 +11011,7 @@ building it found eight defects that were not in the scene at all -- they were
 in the engine's contracts, and every one of them failed *silently*, producing a
 picture that looked like a modelling mistake.
 
-#### The eight things that were quietly wrong
+#### The nine things that were quietly wrong
 
 **A `.rage` with no `Version:` is version 1, and version 1 throws away every
 `EntityID`.** The reader mints fresh ids instead, because version 1 wrote the
@@ -11069,6 +11069,22 @@ seat hung from a rail that was not there. One FBX carries one material, so
 anything two-coloured is two files, which makes "check each asset on its own"
 necessary and *not sufficient*. `make_prop_sheet.py` grew an `--assemblies` mode
 for the six props that only mean something put together.
+
+**The import cache knew what a `.fbx` was in one function and not in the
+other.** `CookedExtension` says a `.fbx` cooks to a `.rvmesh`; `Cook` had a
+branch for `.glb` and then fell through to the *image* decoder. So every FBX in
+the project was handed to stb\_image, failed to decode, warned about it, and was
+re-parsed from source -- on every single load, for a cache whose entire purpose
+is that it is not. Forty-one props, eighty-two warnings a run, and the format
+that had just been added to the cache getting no caching at all.
+
+It survived because both halves were individually defensible: the extension
+table was updated when FBX import landed, and the cook was not, and neither is
+wrong on its own reading. **Two predicates for one question is the defect**, not
+either answer -- they are one function each now (`IsCookedMesh`,
+`IsCookedTexture`) and both callers use them. The image branch is also guarded
+rather than assumed, so a file that reaches it by mistake is not told it failed
+to be a picture.
 
 #### Verification, per asset, and why it is not optional
 

@@ -358,10 +358,12 @@ def build(profiles, mat, prop, tex, curve):
     # Slow. A travel of under four seconds reads as a whip-pan between
     # postcards; at eleven it reads as a camera being carried, and the
     # scene has time to be looked at rather than swept past.
-    # **Thirty per cent of the original speed**, which is the original 3.8 s
-    # travel stretched to 12.7. Twenty-four seconds was the answer to
-    # "slower" applied twice and it went past unhurried into stalled.
-    s.managed_script("CampCamera", HoldSeconds=9.0, TravelSeconds=12.7)
+    # **Back to the defaults.** The pacing was slowed three times on request
+    # and each step was applied to the already-slowed value rather than to the
+    # original, so it compounded: 4.2 s of travel became 11.4, then 24, then
+    # 12.7, and every one of those was still slower than the shot before it.
+    # 3.4 and 4.2 are what the camera was written with.
+    s.managed_script("CampCamera", HoldSeconds=3.4, TravelSeconds=4.2)
 
     # The shots themselves. Empty transforms, named so the script can find
     # them -- which makes the camera move a thing you can drag in the editor
@@ -458,14 +460,14 @@ def build(profiles, mat, prop, tex, curve):
     # all that is left for them to do now the flame has a shape.
     s.entity("Embers", parent="Fire", position=(0, 0.55, 0))
     s.block("ParticleEmitterComponent", [
-        # Slow. An ember off a camp fire *floats* -- it is a scrap of ash with
-        # more drag than weight, and at speed 1.15 they left the fire like
-        # tracer rounds. Long lifetime and heavy drag together are what make
-        # the rise decelerate, which is the thing the eye reads as hot air
-        # rather than as a launch.
+        # An ember off a camp fire floats rather than launches -- it is a scrap
+        # of ash with more drag than weight -- and the drag and the long
+        # lifetime are what make its rise decelerate. **The speed itself is
+        # back where it started**: dropping it to a third as well left the
+        # embers barely leaving the flame.
         ("Emit", "true"), ("Rate", 13), ("Burst", 0), ("Lifetime", 2.8),
         ("LifetimeJitter", 0.45), ("Direction", "[0, 1, 0]"), ("Spread", 28),
-        ("Speed", 0.38), ("SpeedJitter", 0.2), ("Gravity", "[0.07, 0.42, 0]"),
+        ("Speed", 1.15), ("SpeedJitter", 0.6), ("Gravity", "[0.07, 0.42, 0]"),
         ("Drag", 1.2), ("SizeStart", 0.055), ("SizeEnd", 0.012),
         ("ColorStart", "[1, 0.82, 0.4, 1]"), ("ColorEnd", "[1, 0.26, 0.05, 0]"),
         ("Spin", 0.4), ("Facing", "Billboard"), ("Blend", "Additive"),
@@ -481,7 +483,7 @@ def build(profiles, mat, prop, tex, curve):
     s.block("ParticleEmitterComponent", [
         ("Emit", "true"), ("Rate", 11), ("Burst", 0), ("Lifetime", 1.2),
         ("LifetimeJitter", 0.3), ("Direction", "[0, 1, 0]"), ("Spread", 22),
-        ("Speed", 0.23), ("SpeedJitter", 0.1), ("Gravity", "[0, 0.28, 0]"),
+        ("Speed", 0.7), ("SpeedJitter", 0.3), ("Gravity", "[0, 0.28, 0]"),
         ("Drag", 2.0), ("SizeStart", 0.5), ("SizeEnd", 0.1),
         ("ColorStart", "[1, 0.6, 0.2, 1]"), ("ColorEnd", "[0.8, 0.2, 0.03, 0]"),
         ("Spin", 0.5), ("Facing", "Billboard"), ("Blend", "Additive"),
@@ -508,10 +510,10 @@ def build(profiles, mat, prop, tex, curve):
         # something you notice second.
         ("Emit", "true"), ("Rate", 4), ("Burst", 0), ("Lifetime", 5.5),
         ("LifetimeJitter", 0.4), ("Direction", "[0, 1, 0]"), ("Spread", 16),
-        # A third of its original speed, the same fraction as the embers and
-        # the glow -- smoke that leaves the fire faster than the sparks in it
-        # is smoke coming off a different fire.
-        ("Speed", 0.165), ("SpeedJitter", 0.1), ("Gravity", "[0.12, 0.2, 0.04]"),
+        # Restored with the embers and the glow, and slower than both -- smoke
+        # that leaves a fire faster than the sparks in it is smoke off a
+        # different fire.
+        ("Speed", 0.5), ("SpeedJitter", 0.3), ("Gravity", "[0.12, 0.2, 0.04]"),
         ("Drag", 0.55), ("SizeStart", 0.3), ("SizeEnd", 1.3),
         ("ColorStart", "[0.15, 0.14, 0.16, 0.12]"),
         ("ColorEnd", "[0.08, 0.08, 0.11, 0]"),
@@ -698,11 +700,11 @@ def build(profiles, mat, prop, tex, curve):
              rotation=(0, math.radians(-148), 0), scale=(0.009, 0.009, 0.009))
     s.mesh(MESH_FOX, MAT_FOX)
     s.block("AnimatorComponent", [
-        # A quarter of the clip's own rate. A fox at the edge of firelight is
-        # watching, not hunting, and the animation at its authored speed looks
-        # agitated -- but 0.14 was a quarter of a value that was already
-        # slowed, and at that rate it read as stuck rather than as calm.
-        ("Clip", 0), ("Playing", "true"), ("Loop", "true"), ("Speed", 0.25),
+        # **1.0 -- the clip at the rate it was authored at.** Slowing it read
+        # as "calm" in a still and as "stuck" in motion, and the same
+        # compounding that got the camera got this: 0.55, then 0.28, then
+        # 0.14, each a fraction of the last.
+        ("Clip", 0), ("Playing", "true"), ("Loop", "true"), ("Speed", 1.0),
         ("BlendTime", 0.4),
     ])
 
