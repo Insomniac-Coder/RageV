@@ -327,28 +327,11 @@ DIM_REGION = (0.75, 0.90, 0.30, 0.60)
 # 2.25 -- large because this fixture has a black sky and no ambient, so at one
 # bounce every hit is shaded with an irradiance probe that holds nothing and
 # the second bounce is the first light those hits get.
-# Claim 19 (8.13, ENGINE-NOTES 7be): the hybrid replaces the traced second ray
-# with a cone gather of the voxel grid at the first hit. The grid carries more
-# than one bounce, so it has to beat the second ray it replaces -- while tracing
-# four rays a pixel rather than eight. Bounded above as well: the grid converges
-# on every bounce and a runaway would be the feedback gaining, not depth.
-# The floor is above the *second ray*, not above nothing. The first draft of
-# this said 1.0, and 1.0 is exactly "the hybrid changed the picture by zero" --
-# which is what it measured (+0.81 against +0.81) and happily called OK. A
-# claim whose floor is the null result is not a claim. The second traced ray it
-# replaces reads 2.25x, so beating that is the whole point of the item.
-# Measured 1.80x (+1.47 against one bounce's +0.81), where the second traced
-# ray it replaces reads 2.25x. **So the hybrid does not beat the second ray --
-# it reaches about four fifths of it for half the rays**, which is the opposite
-# of what 7be predicted and is the number this item is actually about. The band
-# is fitted to that: the floor is well above the null result (1.00x, which is
-# what a hybrid that does nothing reads, and what a broken lit shader read all
-# the way to a passing check), the ceiling above the second ray so a runaway
-# grid feeding itself is still caught. 1.8 was the first floor here and the
-# measurement landed exactly on it, which is a band that passes or fails on
-# noise; it is now fitted with room on both sides.
-MIN_HYBRID_LIFT = 1.4
-MAX_HYBRID_LIFT = 2.8
+# Claim 19 measured the hybrid second bounce (8.13) against this same pair. It
+# was removed with the feature on 2026-08-20, having cost +55.80 ms where the
+# traced second ray it replaced costs +2.57 (ENGINE-NOTES 7be). The number is
+# not reused: a claim number that comes back meaning something else makes every
+# log written before it a lie.
 MIN_SECOND_BOUNCE_LIFT = 1.5
 MAX_SECOND_BOUNCE_LIFT = 3.5
 
@@ -919,28 +902,6 @@ def main():
         failures.append(f"a second bounce more than {MAX_SECOND_BOUNCE_LIFT}x the light of "
                         f"one ({lift:.2f}x) -- a bounce that beats the light that made it "
                         f"is a term counted twice")
-
-    # --- 19: the hybrid, against the ray it replaces (8.13, 7be) -------------
-    #
-    # Same fixture, same region, same baseline as claim 8 above, so the three
-    # numbers are directly comparable: one traced bounce, two, and one plus the
-    # grid. The grid is lit from its own chain and converges on every bounce,
-    # so it should read at least as deep as the second ray -- and it does it
-    # with four rays a pixel instead of eight, which is the point of the item.
-    away_hybrid = shoot(exe, "vulkan", "gi_away", shots / "vulkan-away-hybrid.png",
-                        ray + ["--gi-bounces=1", "--hybrid-gi=on"], frame=90)
-    hybrid = redness(away_hybrid, AWAY_REGION) - redness(bounce_base, AWAY_REGION)
-    hybrid_lift = hybrid / max(one, 1e-6)
-    print(f"the hybrid puts {hybrid_lift:.2f}x the red of one traced bounce off screen "
-          f"({hybrid:+.2f} against {one:+.2f}), where a second traced ray puts {two:+.2f}")
-    if hybrid_lift < MIN_HYBRID_LIFT:
-        failures.append(f"the hybrid read {hybrid_lift:.2f}x one traced bounce (wanted "
-                        f"{MIN_HYBRID_LIFT}x) -- the grid is not reaching the first hit, "
-                        f"or it is not lit")
-    if hybrid_lift > MAX_HYBRID_LIFT:
-        failures.append(f"the hybrid read {hybrid_lift:.2f}x one traced bounce (ceiling "
-                        f"{MAX_HYBRID_LIFT}x) -- the grid feeding itself is gaining rather "
-                        f"than converging")
 
     profile("gi_corner", { "GiIntensity": 0.0 })
     corner_base = shoot(exe, "vulkan", "gi_corner", shots / "vulkan-corner-bounce-base.png",

@@ -1637,40 +1637,47 @@ pin; that is now a fourth shape for CHK.1.**
 9.13c and 9.13d were green when committed -- 9.13c's OK lines were read, 9.13d's
 were counted -- and the engine has had no regression at any point.
 
-### START HERE (2026-08-19, later): check_gi runs end to end. 9.15 is specified, not landed
+### START HERE (2026-08-20): 8.13 is gone. Rays and the voxel grid are exclusive again
 
-### HIGH PRIORITY: the hybrid costs ~90 ms a frame, and 7be claimed it was nearly free
+**The hybrid second bounce is removed.** The owner reported it taking the frame
+to 86-91 ms; that reproduces, it was measured properly, and the feature did not
+survive the measurement.
 
-**Owner's measurement, in the editor, 2026-08-19:** turning on Hybrid second
-bounce takes the frame to **~86-91 ms (11 FPS)**, with the render graph's GPU
-time at **90.171 ms** -- against a frame that was fine before it. Settings in
-the shot: ray tracing with RT reflections, RTAO and RT GI all on, `GiBounces`
-1, voxel GI also ticked, grid 64^3 x 3 cascades at 0.25 m.
+`demo` at 2560x1600, Vulkan, vsync off, GPU timestamps on the render graph:
 
-**8.13 as merged is unusable at that cost, and the ROADMAP row and 7be both
-say it costs "0.09 ms, less than the rays it replaces". That claim is wrong
-and was never measured.** What was measured was quality (1.80x, +1.47) and the
-*grid build*. **The gather was never timed at all**, and I asserted the cost
-from the design rather than from a number -- the same mistake as the black
-frames, one layer up.
+| configuration | Graph GPU | over one bounce |
+|---|---|---|
+| rays, one bounce | 6.638 ms | -- |
+| rays, two bounces | 9.208 ms | +2.57 |
+| rays + hybrid | 62.441 ms | **+55.80** |
 
-**Hypothesis, to verify before fixing anything:** the grid build is genuinely
-cheap; the *cone gather* is not. `GatherCones` is six cones, and the hybrid
-calls it **once per ray hit, four rays a pixel, at full resolution, inside the
-lit shader** -- so about **24 cone traces per pixel**. For scale, the voxel
-form's own gather is *one* per pixel at *half* resolution and costs 0.9 ms.
-That alone predicts something in the tens of milliseconds before divergence
-and register pressure in the lit shader are counted. If that is the cause, the
-fix is architectural rather than a constant: gather once per pixel rather than
-per ray hit, or gather at reduced rate, or restrict the cone count.
+**21x the traced second ray it existed to replace, for four fifths of its
+quality** (1.80x against 2.25x). Strictly dominated by a feature already in the
+engine, so it is out: `RenderSettings::HybridSecondBounce`, `--hybrid-gi=`,
+`ResolveHybridSecondBounce`, `VoxelGI::PublishGrid`, the lit shader's bindings
+17-19, the editor row, check_gi's claim 19 and falsify's `hybrid-probe-again`.
+Where ray-traced GI runs the grid is not built, the voxel dials grey out, and
+`Indirect` has one writer. **The full investigation, the variant table, the fix
+that would have worked and the reasons it was not built are ENGINE-NOTES 7be**,
+which is the thing to read before anyone proposes this again.
 
-**Do not trust the "0.09 ms" figure anywhere it appears until the gather is
-timed.** The GPU timestamp for the lit pass with the hybrid on and off is the
-first number to get.
+**What it cost to learn, and the rule that comes out of it: a performance claim
+is a measurement or it is not a claim.** 7be, the ROADMAP row and an editor
+tooltip all said "0.09 ms, less than the rays it replaces". 0.09 ms was the
+*grid build*; the gather was never timed at all. Quality was measured properly
+-- banded, falsified, a break that fails -- and the cost was asserted from the
+design and shipped in three places.
 
-**TWO VERIFICATION HOLES TO CLOSE FIRST, NEXT SESSION.** Both were found the
-hard way while building 8.13, both let a completely broken renderer report
-success, and neither is fixed:
+**Verified after the removal:** Release, Debug and Dist build with 0 errors;
+`rvdoc --check` green (23 pages); `scenetest` exit 0 with 0 `[Vulkan]` lines
+and verdict OK on **both** backends; `check_gi.py` exit 0, no FAIL, verdict OK
+with claim 19 gone from it; and `falsify.py voxel-no-lift` seen to take
+check_gi to exit 1 before `restore`.
+
+### THREE VERIFICATION HOLES, NONE CLOSED
+
+All three let a completely broken renderer report success. The first two were
+found building 8.13, the third while measuring it.
 
 1. **A clean `cmake --build` says nothing about whether the shaders load.**
    Shaders compile at *runtime*, so a green build proves only that the C++
@@ -1685,6 +1692,14 @@ success, and neither is fixed:
    printed **OK** for a feature doing nothing on a renderer drawing nothing.
    A check that accepts a uniformly black frame is not a check. It should
    refuse the frame, not band it.
+3. **The runtime does not load the shaders in the source tree.** It loads
+   `assets/` beside its own exe, which the build *copies* there. Three timing
+   variants edited into `RageVEditor/assets/shaders/` all read the baseline
+   back, because not one of them ran. `falsify.py`'s docstring has said this
+   from the day it was written -- which is exactly why that tool can break a
+   claim without a rebuild -- and a second shader harness was written beside
+   it anyway. **Read `falsify.py` before writing anything that edits a shader
+   to measure it.**
 
 The owner caught the black frames by looking at the screenshots, which is the
 thing no threshold in this file was doing.

@@ -9374,212 +9374,168 @@ bounce source, they should agree about how much light it sends.
 it was, `check_gi` is unchanged in its screen-space bands, and the numbers
 above are the reason the next attempt does not start by deleting a multiply.
 
-### 7be. The hybrid second bounce: rays for the first, the grid for the rest
+### 7be. The hybrid second bounce (8.13): built, measured at 21x the ray it replaced, and removed
 
-**Designed, not built.** The plumbing is listed at the end so the next session
-starts from a list rather than from this paragraph.
+**Landed 2026-08-19, removed 2026-08-20.** This entry originally argued the
+design and then recorded a quality measurement. It is rewritten around the
+number that decided its fate, because the one claim never measured was the one
+the whole feature rested on.
 
-**Why it is worth doing, and why it is the only design in which 8.1 and 8.12
-cooperate.** Every other pairing in this renderer is exclusive: one writer of
-`Indirect`, resolved rays > voxel > screen, and the loser's row greyed. That
-is right for SSR against traced reflections, where the two compute the same
-thing at different quality. It is *wasteful* for GI, because the voxel grid is
-not a worse ray tracer -- it is a **cache of multi-bounce radiance in world
-space**, and a ray tracer's weakest point is exactly where a cache is
-strongest: what to do when the ray stops.
+**The verdict.** `demo` at 2560x1600, Vulkan, vsync off, 120 frames, GPU
+timestamps on the render graph phase:
 
-Today `pbr_fragment` shoots four cosine rays. At `GiBounces` 1 the first hit's
-incoming light is `ProbeIrradiance(first.Normal)` -- one number for the whole
-room. At 2 it spends *a second ray per bounce ray* and then still ends on the
-probe, one hit further along. So the traced form pays double to move the guess
-one step back.
-
-**The hybrid spends nothing and moves it further than two rays can:**
-
-```
-arriving = VoxelIrradiance(first.Position, first.Normal);   // instead of
-                                                            // ProbeIrradiance,
-                                                            // and no second ray
-```
-
-The grid already carries more than one bounce -- with `GiBounces` 2 it is lit
-from last frame's own chain and converges on every bounce (7bc measured 4.4x
-the one-bounce number off screen, against the traced second ray's 2.25x). So
-the first ray gets a sharp, correct, ray-traced visibility test, and what it
-finds is shaded from a cache that already knows about the rest of the room.
-**Four rays a pixel, not eight, and a deeper answer than eight would give.**
-
-**What it costs:** the grid build, 0.09 ms at the defaults -- which is less
-than the four extra rays it replaces.
-
-### The shape
-
-1. **`RenderSettings::HybridSecondBounce`**, default false. Meaningful only
-   where ray-traced GI runs; it does not replace `VoxelGlobalIllumination`,
-   which is about the *gather* and stays a separate choice.
-2. **The grid is built when rays win.** Today `Scene::UpdateVoxelGI` and the
-   graph's `voxelWanted` both hang off `ResolveVoxelGlobalIllumination`, and
-   under rays the grid is never built at all -- which is what made an entire
-   session's probes measure nothing (the fifth finding above). Both need to
-   ask instead: *is the grid wanted by the gather **or** by the hybrid?*
-3. **The voxel gather still does not run** in this mode. The grid is an
-   **input to the lit shader**, not a writer of `Indirect`. `voxelGi` in
-   `FrameGraphBuilder` stays false; only `VoxelGI::Update` runs. Keeping that
-   distinction is the whole reason this does not violate the one-writer rule.
-4. **The lit shader gains the grid.** Two bindings in set 0 -- the radiance
-   chain and its face chain as `sampler3D`, and a small params block with the
-   cascade origins and sizes -- at free slots (17, 18, 19; 15 and 16 are the
-   ray-instance table and `Indirect`). `include/voxel_cone.glsl` already has
-   the cone gather and is written against accessor functions
-   (`VoxelOrigin`, `VoxelSize`, `VoxelResolution`, `VoxelCascadeCount`,
-   `VoxelMaxMip`), so the lit shader supplies its own definitions of those
-   over the new block and includes the file unchanged. **That is the reason
-   the gather was factored that way in 8.1 and the reason this is a small
-   change rather than a second cone tracer.**
-5. **One frame late, and say so.** The grid the lit shader reads was built
-   this frame by `Scene::UpdateVoxelGI` *before* the lit pass, so it is
-   current -- but its own multi-bounce feed is one frame late by construction
-   (7bc). Same determinism story as `GiBounces` 2; the frame is still a
-   function of the frame number.
-6. **The editor.** The voxel rows are greyed under ray-traced GI as of this
-   session -- correctly, because the grid is not built. **With the hybrid on
-   they must un-grey**, because the resolution, cascade count and voxel size
-   all matter again. The predicate becomes `rays win AND not hybrid` rather
-   than `rays win`.
-
-### What the check has to say
-
-On `gi_away` with `--raytracing=on --rt-gi=on`, where the bounce source is off
-screen and the numbers are already recorded: one traced bounce puts **+0.81**
-levels of red on the far wall, a traced second ray **+1.83** (2.25x, claim 8).
-The hybrid must **beat the second ray** -- the grid carries more bounces -- and
-must not run away: a band, floor above +1.83 and a ceiling well under the
-grid's own 4.4x, measured before it is written down. And it must do it while
-tracing *four* rays, which the GPU timer states.
-
-**Falsify:** point the lookup back at `ProbeIrradiance`. The band's floor must
-fail. That break is the item.
-
-**What it will not claim.** Not that this equals a path tracer. The grid is a
-voxelisation: a wall thinner than a voxel leaks, the finest cascade is a
-quarter-metre, and everything 7bc lists as not done is still not done. The
-claim is narrow -- *a cache of world-space radiance is a better answer than one
-probe number, and cheaper than another ray*.
-
-### The order to build it in
-
-1. This entry, then the ROADMAP row (8.13, the number this entry uses).
-2. `HybridSecondBounce` on `RenderSettings`, the registry row, `--hybrid-gi=`,
-   the C# mirror, and `ResolveHybridSecondBounce` beside its siblings.
-3. The gating: grid built when the gather **or** the hybrid wants it.
-4. `VoxelGI::GetRadiance()` / `GetFaces()` / `GetGatherParams()` so the lit
-   pass can bind what the gather already binds.
-5. `Renderer3D`'s lit resource set binds them; `pbr_fragment` defines the five
-   accessors and includes `voxel_cone.glsl`; the `giBounces >= 2` branch
-   becomes the hybrid branch when the flag is on.
-### Built and measured (2026-08-19) -- and the prediction above was wrong
-
-| on `gi_away`, off screen | red | rays a pixel |
+| configuration | Graph GPU | over one bounce |
 |---|---|---|
-| traced, one bounce | +0.81 | 4 |
-| traced, two bounces | +1.83 (2.25x) | 8 |
-| **hybrid** | **+1.47 (1.80x)** | **4** |
+| rays, one bounce | 6.638 ms | -- |
+| rays, two bounces | 9.208 ms | +2.57 |
+| **rays + hybrid** | **62.441 ms** | **+55.80** |
 
-**The hybrid does not beat the second traced ray. It reaches about four fifths
-of it for half the rays.** This entry predicted the opposite -- that a cache
-carrying many bounces would read deeper than one more ray -- and the fixture
-says otherwise. The likely reason is the one the entry already lists as a
-limit and then failed to weigh: the grid is quarter-metre voxels, so the cone
-gather at a ray's hit point is a blurred neighbourhood rather than that
-surface's own incoming light, and it under-reads the near field that a second
-ray resolves exactly.
+**The hybrid cost 21x the traced second ray it existed to replace, and scored
+four fifths of it** (1.80x against 2.25x, measured the day before). It was
+strictly dominated by a feature already in the engine: worse looking and
+twenty times dearer. Frame time went 6.82 ms -> 63.17 ms; the owner hit
+82-90 ms on the courtyard in the editor, which is what started this.
 
-So the trade is real but it is a trade, not a free win: **four fifths of the
-second bounce for half the rays, plus 0.09 ms to build the grid.** Worth it
-where the frame is ray-bound; not worth it where it is not. That is a
-materially weaker case than this entry argued for, and it is the number a
-decision should be made on.
+### The claim that was never measured
 
-**Two things nearly hid this measurement, both worth keeping.** The lit shader
-asked for `include/voxel_cone.glsl` from inside `include/`, which resolves to
-`include/include/` and does not exist, so it never compiled and every fixture
-rendered pure black -- while `cmake --build` reported success, because shaders
-compile at runtime. And `check_gi` read +0.00 off those black frames and
-called it a measurement; the first hybrid claim had its floor at 1.0, which is
-exactly the null result, so it printed OK for a feature doing nothing on a
-renderer drawing nothing. **A check that cannot tell a black frame from a
-measured zero is not a check**, and neither hole is closed yet.
+This entry said, twice, that the hybrid "costs the grid build, 0.09 ms --
+which is less than the four extra rays it replaces". **0.09 ms is the grid
+build. The gather was never timed at all.** Quality was measured properly:
+banded, falsified, a break that fails. Then the *cost* was asserted from the
+design and written into this entry, the ROADMAP row and an editor tooltip.
 
-**Blocked, with a minimal repro (2026-08-19).** Steps 1-5 are built on
-`wip/8.13-hybrid` and run: the gate relaxation works and
-`VoxelGI: grids at 64^3 x 3 cascades, 7 levels` appears under
-`--raytracing=on` for the first time. What stops it is **not the hybrid**:
+The grid-build figure was even right. With the grid built and the hybrid's
+branch present but reading the probe, the whole voxelise-inject-mip chain
+measures **+0.056 ms** on `gi_corner`. Everything anyone would care about was
+in the part nobody timed.
 
+**The rule this earns: a performance claim is a measurement or it is not a
+claim.** 7b already says exiting and pixels are both part of the bar. Cost is
+too -- and for a feature whose entire argument *is* cost, it is the bar.
+
+### Why it was slow, measured rather than reasoned
+
+The first hypothesis was arithmetic: 24 cone traces a pixel (6 cones x 4 ray
+hits) against the voxel gather's 1 a pixel at half resolution. That predicts a
+few tenths of a millisecond, not 17. So each part was measured by swapping the
+hybrid's body and relaunching -- shaders compile at runtime, so a variant costs
+a launch and not a build. `gi_corner` at 1280x720:
+
+| the hybrid's body | Graph GPU | over the floor |
+|---|---|---|
+| six cones, the grid's full reach (as shipped) | 17.567 ms | +16.75 |
+| six cones, four metres of reach | 12.311 ms | +11.49 |
+| one cone, full reach | 2.332 ms | +1.51 |
+| one `VoxelSample`, no march | 0.867 ms | +0.045 |
+| the branch taken, reading the probe | 0.822 ms | -- |
+| six cones, result multiplied by zero | 17.346 ms | +16.52 |
+
+Read in order they say four things:
+
+1. **It is the marching, not the shader.** One grid read at the hit costs
+   +0.045 ms. The branch, the three bindings and the uniform block cost
+   nothing between them. *Occupancy collapse in an already-enormous lit
+   shader* was the competing hypothesis, and it is wrong.
+2. **Cone count is the linear axis; reach is not.** Sixteen times less reach
+   buys 31%, because the step grows geometrically -- distance costs log time.
+3. **Nothing is optimised away.** The dead-gather row costs what the real one
+   costs, so the compiler keeps the work even when the result is discarded.
+4. **And it is still about 9x more than the cone count alone predicts.** The
+   voxel gather traces the same six cones from the *g-buffer*, where
+   neighbouring pixels sample neighbouring voxels. The hybrid traces them from
+   **ray hit points**, which land somewhere different for every pixel and for
+   each of its four rays, so the 3D-texture cache never hits. **Cone tracing
+   from incoherent origins is a different cost class from cone tracing from a
+   depth buffer.** That is the finding worth carrying forward.
+
+### The design that would have fixed it, and why it was still not built
+
+`voxel_inject.rvshader:193` **already computes the quantity the hybrid was
+paying for per pixel**:
+
+```glsl
+radiance += albedo.rgb * GatherCones(world, N, rotation, u_Params.Trace.y);
 ```
-RageVRuntime --rhi=vulkan --render-defaults=on --raytracing=on --rt-gi=on              --hybrid-gi=on --bindless=on  --validation=on   ->  10 [Vulkan] lines
-             --hybrid-gi=on --bindless=off --validation=on   ->   0
-```
 
-The error is `VoxelGI.voxelize` statically using descriptor set 1 while sets 0
-to 1 are not compatible with the bound layout, and **it is the bindless path
-that decides it** -- proved by the pair above rather than reasoned. This is
-latent, not new: 8.1's voxeliser binds materials through the *bound* set 1
-(`include/material_bound.glsl`, which has no `RV_BINDLESS` fork) and 8.2's
-bindless path has never run in the same frame, because the grid was never
-built while rays were on -- the gate 8.13 relaxes.
+once per voxel, guarded at line 131 by `albedo.a <= 0.0` so it runs only for
+**occupied** voxels -- a surface, not a volume. The fix is to keep that
+gather's result instead of consuming it, and have the lit shader read one
+texel at the ray's first hit:
 
-Ruled out already, so do not re-check: the voxeliser compiles without defines
-so its set 1 is always the bound layout; `Material::Bind` always reaches
-`BindResourceSet(set, ...)` rather than early-returning; and the draw order is
-`BindPipeline` then set 0 then set 1, which is correct. The next place to look
-is what `Renderer3D` binds for the heap under bindless and at which set index,
-against what `Material::EnsureResources(pipeline, set)` caches per pipeline --
-and whether `m_Params` holds heap slots rather than bound-path values by the
-time the voxeliser uploads it.
+1. A second `R16G16B16A16_SFLOAT` grid beside `Radiance`, same atlas layout.
+   64^3 x 3 cascades is about 6 MB.
+2. One extra `imageStore` in the injection, which already holds the value.
+3. `VoxelGI` publishes it; the lit shader reads it with a single `textureLod`
+   where `GatherCones` used to be.
 
-6. check_gi claim on `gi_away`, the falsify break, both backends (Vulkan only
-   in practice -- OpenGL has no rays, so the hybrid is unreachable there and
-   the check must say so rather than skip silently), all configs, docs.
+**Both halves of the cost are measured, not guessed.** The read is the
+`onesample` row above: **+0.045 ms**. Filling it is the injection's existing
+gather, which only runs at two bounces -- voxel-only measured **6.328 ms** at
+one bounce and **6.277 ms** at two on `demo` at 2560x1600, no increase above
+the noise floor, because occupied voxels are a surface.
 
-### Every insertion point, found and pinned
+So it would have cost roughly **+0.1 ms against the second traced ray's
++2.57 ms**: 25x cheaper. **It was still not built, for three reasons.**
 
-Worked out while starting the build and written down rather than re-derived:
+- **Quality would land below 1.80x, and 1.80x was already below the second
+  ray's 2.25x.** One value per voxel means every hit inside a quarter-metre
+  voxel -- a whole metre in the outermost cascade -- reads the same second
+  bounce; and the value carries the *voxel's injected normal*, so a voxel
+  straddling a corner serves one normal to two surfaces. Both errors only
+  subtract. It would be cheapest and worst, never best at either end.
+- **The niche is narrow.** It applies only where ray-traced GI is on, the grid
+  is on, and the frame cannot afford +2.57 ms -- a three-way configuration the
+  rest of this renderer treats as exclusive.
+- **It is a third GI path to carry**: an editor row, a claim, a falsify break,
+  a volume, and a rule about which of three things writes `Indirect`.
 
-- **The resolve helper** goes beside its siblings at the top of
-  `FrameGraphBuilder.cpp` (~line 218). Copy `ResolveVoxelGlobalIllumination`'s
-  shape exactly: `EngineConfig` override first, then the setting, then the
-  `VoxelGI::IsReady()` guard with the one-shot `RV_CORE_INFO`.
-- **The gate that starves the grid under rays** is
-  `Scene.cpp:1803` -- `ResolveVoxelGlobalIllumination(...) && !ResolveRayTracedGlobalIllumination(...)`.
-  That `&& !` is the whole reason the grid is not built under rays; it becomes
-  *gather wants it **or** hybrid wants it*.
-- **The lit set is bound** at `Renderer3D.cpp:1233`, right after `u_Indirect`
-  at binding 16, and the comment there already records the rule that bites:
-  **a binding the layout declares and the set does not fill is a validation
-  error**, so 17/18/19 must be bound on every frame, grid or no grid. That
-  means `VoxelGI` owes a 1x1x1 black volume and a zeroed params buffer for the
-  frames it has nothing -- create both in `Init`, not lazily.
-- **The hybrid flag needs no new field.** `u_Scene.GlobalIllumination` is a
-  `vec4` carrying x, the frame in y and the bounce count in z; **w is free**.
-  Use it, and do *not* add anything to `SceneData` -- which is the next point.
-- **The `SceneData` trap is worse than 9.12 recorded.** That entry says the
-  block is "mirrored by hand in two GLSL files". It is mirrored in **five**:
-  `debug.rvshader`, `quad.rvshader`, `include/pbr_fragment.glsl`,
-  `include/scene_vertex.glsl` and `include/particle_vertex.glsl`. A field added
-  to one is a layout mismatch in the other four, which is exactly the bug 9.12
-  spent a day on. **Do not extend `SceneData` for this**; the grid params want
-  their own small uniform block at binding 19.
-- **The shader side is five lines plus an include.** `voxelgi_gather.rvshader`
-  lines 61-67 are the whole pattern: define `VoxelResolution`,
-  `VoxelCascadeCount`, `VoxelOrigin`, `VoxelSize` and `VoxelMaxMip` over
-  whatever block holds the params, then `#include "include/voxel_cone.glsl"`,
-  and `GatherCones(surface, normal, rotation, maxDistance)` is available. The
-  include needs `u_VoxelRadiance` and `u_VoxelFaces` to be the sampler names,
-  which is why 17 and 18 should carry those exact names in the lit shader too.
-- **The call site** is the `if (giBounces >= 2)` branch in `pbr_fragment.glsl`
-  (~line 1448). Under the hybrid it becomes `arriving = GatherCones(first.Position,
-  first.Normal, rotation, coneLength)` with **no second `TraceSurface`** -- that
-  is where the four saved rays come from.
+**It does not require a static scene**, which was the first thing asked of it
+and the wrong thing to worry about. Nothing persists between frames: the grid
+is rebuilt entirely every frame -- voxelise, inject from that frame's cascades
+and lights, mip -- so there is no cache to invalidate and no eviction to get
+wrong. Its real dynamic-scene weaknesses are the ones the voxel path already
+has and 7bc already lists: the bounce term is one frame late by construction,
+and skinned casters do not enter the grid at all.
+
+If this is ever revived it is its own roadmap row, and its first claim is a
+*timing* claim.
+
+### What replaced it
+
+**Rays and the voxel grid are exclusive again, which is what the rest of this
+renderer already said.** Where ray-traced GI runs the grid is not built at
+all, the voxel dials grey out with a note saying why, and the resolve order
+rays > voxel > screen keeps its single writer of `Indirect`.
+`RenderSettings::HybridSecondBounce`, `--hybrid-gi=`,
+`ResolveHybridSecondBounce`, `VoxelGI::PublishGrid` and the lit shader's
+bindings 17-19 are all gone.
+
+**One thing 8.13 found is kept**, because it was never about the hybrid: the
+voxeliser issued a draw for a batch whose material had not resolved, leaving
+descriptor set 1 unbound and tripping Vulkan validation. Fixed on `main`
+(`6edc02a`, `33ccb68`) and unrelated to any of the above.
+
+### Three traps this cost a day to find
+
+- **A clean `cmake --build` says nothing about whether a shader compiled.**
+  `pbr_fragment.glsl` asked for `include/voxel_cone.glsl` from inside
+  `include/`, which resolves to `include/include/`. The lit shader never
+  compiled, **every `gi_*` fixture rendered pure black**, and the build stayed
+  green throughout, because shaders compile at runtime.
+- **`check_gi` cannot tell a black frame from a measured zero.** It read +0.00
+  off 27 blank renders and reported them as results; the first hybrid claim's
+  floor was 1.0, which is exactly the null result, so it printed OK for a
+  feature doing nothing on a renderer drawing nothing. Neither hole is closed.
+- **The runtime does not load the shaders in the source tree.** It loads
+  `assets/` beside its own exe, which the build *copies* there. Three timing
+  variants edited into `RageVEditor/assets/shaders/` all reported the baseline
+  back, because not one of them ran. **Patch what the exe opens, and check it
+  still matches git before believing the number that comes out.** This one is
+  not even a new finding: `falsify.py`'s docstring has said so from the day it
+  was written -- *"the runtime loads `assets/shaders/*.rvshader` as source,
+  from beside the exe"* -- which is the entire reason that tool can break a
+  claim without a rebuild. The tool knew; whoever wrote a second shader
+  harness beside it did not read it first.
 
 ---
 

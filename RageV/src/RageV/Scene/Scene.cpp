@@ -1420,7 +1420,6 @@ namespace RageV
 		// here so the lit shader has it: zero while the traced form is not
 		// running, which is what makes the shader's block cost nothing.
 		Renderer3D::SetRayTracedGlobalIllumination(ResolveRayTracedGlobalIllumination(Project::Render()));
-		Renderer3D::SetHybridSecondBounce(ResolveHybridSecondBounce(Project::Render()));
 
 		RenderShadowMaps(camera, cameraTransform);
 
@@ -1801,15 +1800,18 @@ namespace RageV
 		// Rays first, then voxels, then the screen (7bc): where the traced
 		// form runs the grid is not built, and where neither runs a grid left
 		// from before must not be read.
-		// Two things want a grid now (8.13, ENGINE-NOTES 7be): the gather, which
-		// only runs where rays do not, and the hybrid, which only runs where
-		// they do. Before 8.13 this read `&& !ResolveRayTraced...`, and that
-		// one clause is why the grid was never built under ray tracing -- the
-		// thing that made a session of probes measure the traced form while
-		// believing they measured voxels (7bc's fifth finding).
-		const bool gather = ResolveVoxelGlobalIllumination(Project::Render())
-						 && !ResolveRayTracedGlobalIllumination(Project::Render());
-		const bool voxel = gather || ResolveHybridSecondBounce(Project::Render());
+		//
+		// 8.13 relaxed this for a frame's worth of history -- the hybrid wanted
+		// a grid while rays ran -- and it is back, because that gather cost
+		// +55.80 ms against the second traced ray's +2.57 (7be). The two forms
+		// are exclusive, which is what every other pairing in this renderer
+		// already says. The other consequence of this clause is worth knowing
+		// before relaxing it again: while it holds, nothing about the voxel
+		// path can be measured under ray tracing, which is how a session of
+		// probes measured the traced form believing they measured voxels
+		// (7bc's fifth finding).
+		const bool voxel = ResolveVoxelGlobalIllumination(Project::Render())
+						&& !ResolveRayTracedGlobalIllumination(Project::Render());
 		if (!voxel || !VoxelGI::IsReady())
 		{
 			VoxelGI::Invalidate();

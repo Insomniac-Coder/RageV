@@ -221,15 +221,6 @@ namespace RageV
 		// and no way to have two, and does not read it.
 		int GiBounces = 1;
 
-		// The hybrid (8.13, ENGINE-NOTES 7be): where ray-traced GI runs, shade
-		// the first hit from the *voxel grid* instead of the reflection probe's
-		// one number, and do not trace a second ray for it. The grid is a cache
-		// of multi-bounce world-space radiance, so four rays a pixel buy a
-		// deeper answer than eight do, for the grid build rather than for four
-		// more rays. Needs the grid, which is otherwise not built at all while
-		// rays win -- that gate is relaxed in Scene::UpdateVoxelGI.
-		bool HybridSecondBounce = false;
-
 		// --- voxel global illumination (8.1, ENGINE-NOTES 7bc) ----------------
 		//
 		// Where a camera's profile asks for global illumination, gather it

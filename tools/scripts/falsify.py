@@ -311,15 +311,6 @@ BREAKS = {
     # the sun and the bouncing wall, and until there is one the injection's
     # shadow term is unguarded -- stated here rather than implied by a break
     # that only ever trips the reproducibility band by perturbing the grid.
-    # Claim 19 (8.13): the hybrid's first hit reads the probe again instead of
-    # the grid, which is exactly what the item replaced. The measured 1.80x
-    # falls back to 1.00x -- the null result -- and the band's floor of 1.4
-    # catches it. This is the break the first version of that claim could not
-    # have failed, because its floor was 1.0, the null result itself.
-    'hybrid-probe-again': [('include/pbr_fragment.glsl',
-                            'const bool hybrid = u_VoxelGrid.Flags.x > 0.5;',
-                            'const bool hybrid = false;')],
-
     'voxel-no-shadow': [('voxel_inject.rvshader',
                          'const float shadow = light.Params.w > 0.5 ? CascadeShadow(world, N, L) : 1.0;',
                          'const float shadow = 1.0;')],

@@ -230,10 +230,6 @@ namespace RageV
 		// what its command line says. The other overrides still apply on top.
 		// Never set by the editor -- it would save the defaults over the
 		// user's project on the next Render Settings edit.
-		// --hybrid-gi=on|off (8.13, ENGINE-NOTES 7be).
-		bool         HasHybridGiOverride = false;
-		bool         HybridGiOverride = false;
-
 		bool         RenderDefaults = false;
 		// Whether `render-defaults` was stated at all, by either the ini or the
 		// command line. A run that writes a screenshot is measuring something,

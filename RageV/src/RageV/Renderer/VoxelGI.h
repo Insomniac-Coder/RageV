@@ -89,21 +89,6 @@ namespace RageV
 						   const PostProcess::ViewReconstruction& view,
 						   RHI::Format outputFormat);
 
-		// --- what the lit shader reads under the hybrid (8.13, 7be) ----------
-		//
-		// The grid as an *input* to someone else's pass rather than as this
-		// one's own gather. Every one of these is non-null once Init has
-		// succeeded, grid or no grid: a binding the pipeline layout declares
-		// and the set does not fill is a validation error, so the lit pass
-		// binds these unconditionally and `PublishGrid` decides, in the
-		// uniform, whether the shader should believe them.
-		static void PublishGrid(bool hybridEnabled);
-		static const RHI::Ref<RHI::RHITexture>& GetRadiance();
-		static const RHI::Ref<RHI::RHITexture>& GetFaces();
-		static const RHI::Ref<RHI::RHISampler>& GetRadianceSampler();
-		static const RHI::Ref<RHI::RHIBuffer>& GetGridUniform();
-		static uint64_t GetGridUniformSize();
-
 		// For the stats panel and the checks: how many casters the last
 		// update voxelised, and how many draw calls it took.
 		static unsigned int GetCasterCount();

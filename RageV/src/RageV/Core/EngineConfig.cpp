@@ -122,12 +122,6 @@ namespace RageV
 			return ParseBool(value, config.RayGiOverride);
 		}
 
-		if (key == "hybrid-gi" || key == "hybridgi")
-		{
-			config.HasHybridGiOverride = true;
-			return ParseBool(value, config.HybridGiOverride);
-		}
-
 		if (key == "voxel-gi" || key == "voxelgi")
 		{
 			config.HasVoxelGiOverride = true;
