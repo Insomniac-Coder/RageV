@@ -120,7 +120,9 @@ def chair():
             # Splayed, so the legs form an X from the side rather than a box.
             mesh.prism(0.0, 0.44, (0.03, 0.03), (0.02, 0.02),
                        offset=(x * 1.25, 0.0, z * 1.25))
-            mesh.prism(0.44, 0.02, (0.02, 0.02), (0.02, 0.02),
+            # A foot cap on top of the leg. This read `prism(0.44, 0.02, ...)`
+            # -- a piece whose top is *below* its bottom, which inverts it.
+            mesh.prism(0.44, 0.48, (0.022, 0.022), (0.02, 0.02),
                        offset=(x, 0.0, z))
 
     mesh.box((-0.3, 0.42, -0.28), (0.3, 0.47, 0.28))          # the seat
@@ -149,7 +151,9 @@ def rock():
     """A boulder: an eight-sided lump, squashed."""
     mesh = fbxwrite.Mesh()
     mesh.cone(0.36, 0.3, sides=7)
-    mesh.cone(0.36, -0.16, sides=7)      # the underside, inverted
+    # The underside. A negative height would move the apex down and leave the
+    # winding pointing up, which is inside out -- `flip` does both.
+    mesh.cone(0.36, 0.16, sides=7, flip=True)
     return mesh
 
 

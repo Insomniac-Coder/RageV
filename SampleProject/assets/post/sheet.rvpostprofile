@@ -1,0 +1,13 @@
+PostProfile: 1
+Exposure: 1
+BloomEnabled: false
+AutoExposure: false
+DepthOfField: false
+MotionBlur: false
+AmbientOcclusion: true
+AoRadius: 0.4
+AoIntensity: 0.7
+GlobalIllumination: false
+VignetteIntensity: 0
+ChromaticAberration: 0
+FilmGrain: 0

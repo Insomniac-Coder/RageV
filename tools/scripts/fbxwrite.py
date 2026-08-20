@@ -28,6 +28,13 @@ class Mesh:
         self.points = []
         self.faces = []
 
+        # Where each piece's faces begin and end. A prop is a union of solids
+        # rather than one hull, and the only way to ask "is this wound
+        # outward" of a union is to ask it of each solid -- which is what
+        # check_models does, and what lets it demand every face rather than a
+        # fraction.
+        self.pieces = []
+
     def add(self, points, faces, offset=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0),
             yaw=0.0):
         """Append a piece, placed. Returns the index the piece started at."""
@@ -40,8 +47,10 @@ class Mesh:
                                 y + offset[1],
                                 -x * sin + z * cos + offset[2]))
 
+        first = len(self.faces)
         for face in faces:
             self.faces.append(tuple(base + i for i in face))
+        self.pieces.append((first, len(self.faces)))
         return base
 
     # --- primitives -----------------------------------------------------------
@@ -70,19 +79,34 @@ class Mesh:
                  (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
         return self.add(points, faces, **place)
 
-    def cone(self, radius, height, sides=8, base_y=0.0, **place):
+    def cone(self, radius, height, sides=8, base_y=0.0, flip=False, **place):
+        """`flip` points it downward *and reverses the winding with it*.
+
+        A negative `height` looks like it should do this and does not: it moves
+        the apex below the base and leaves every face wound for a cone that
+        points up, so the piece comes out inside out. check_models found
+        exactly that in the rock, which was two cones with one of them negative.
+        """
         points = [(0.0, base_y + height, 0.0)]
         for i in range(sides):
             angle = 2.0 * math.pi * i / sides
             points.append((math.cos(angle) * radius, base_y,
                            math.sin(angle) * radius))
 
+        # **Counter-clockwise seen from outside.** Every normal in this file
+        # is derived from the winding, so a face wound the other way is not
+        # merely invisible under backface culling -- it is lit from behind.
         faces = []
         for i in range(sides):
-            faces.append((0, 1 + i, 1 + (i + 1) % sides))
+            faces.append((0, 1 + (i + 1) % sides, 1 + i))
         # The underside, as a fan. Cheap, and never seen on a tree.
         for i in range(1, sides - 1):
-            faces.append((1, 1 + i + 1, 1 + i))
+            faces.append((1, 1 + i, 1 + i + 1))
+
+        if flip:
+            points = [(x, 2.0 * base_y - y, z) for x, y, z in points]
+            faces = [tuple(reversed(face)) for face in faces]
+
         return self.add(points, faces, **place)
 
     def cylinder(self, radius, height, sides=8, taper=1.0, base_y=0.0, **place):
@@ -99,10 +123,13 @@ class Mesh:
         faces = []
         for i in range(sides):
             j = (i + 1) % sides
-            faces.append((i, j, sides + j, sides + i))
+            faces.append((i, sides + i, sides + j, j))
         for i in range(1, sides - 1):
-            faces.append((0, i, i + 1))
-            faces.append((sides, sides + i + 1, sides + i))
+            # The caps were already right; only the sides were inverted, and
+            # flipping these too was an over-correction the same three-line
+            # check caught.
+            faces.append((0, i, i + 1))                       # bottom, -Y
+            faces.append((sides, sides + i + 1, sides + i))   # top, +Y
         return self.add(points, faces, **place)
 
 

@@ -1,0 +1,337 @@
+Scene: Prop sheet
+Environment:
+  Ambient: [0.09, 0.1, 0.12]
+  AmbientIntensity: 1
+  Sky: Gradient
+  SkyHorizon: [0.2, 0.22, 0.26]
+  SkyZenith: [0.11, 0.13, 0.18]
+  SkyGround: [0.09, 0.09, 0.1]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 9045120024999306487
+    TagComponent:
+      Tag: Sheet Camera
+    TransformComponent:
+      Position: [14.3, 3.2, 28.308]
+      Rotation: [-0.0872665, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 42
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 200
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 6066659801732870481
+  - EntityID: 13150330638402972445
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [14.3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 6999538959764848129
+  - EntityID: 6719448118198943483
+    TagComponent:
+      Tag: Rule 0
+    TransformComponent:
+      Position: [-2, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719447018687315272
+    TagComponent:
+      Tag: Rule 1
+    TransformComponent:
+      Position: [-1, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719450317222199905
+    TagComponent:
+      Tag: Rule 2
+    TransformComponent:
+      Position: [0, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719449217710571694
+    TagComponent:
+      Tag: Rule 3
+    TransformComponent:
+      Position: [1, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719452516245456327
+    TagComponent:
+      Tag: Rule 4
+    TransformComponent:
+      Position: [2, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719451416733828116
+    TagComponent:
+      Tag: Rule 5
+    TransformComponent:
+      Position: [3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719454715268712749
+    TagComponent:
+      Tag: Rule 6
+    TransformComponent:
+      Position: [4, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719453615757084538
+    TagComponent:
+      Tag: Rule 7
+    TransformComponent:
+      Position: [5, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719439322105917795
+    TagComponent:
+      Tag: Rule 8
+    TransformComponent:
+      Position: [6, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6719438222594289584
+    TagComponent:
+      Tag: Rule 9
+    TransformComponent:
+      Position: [7, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6805924329013277416
+    TagComponent:
+      Tag: Rule 10
+    TransformComponent:
+      Position: [8, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6805925428524905627
+    TagComponent:
+      Tag: Rule 11
+    TransformComponent:
+      Position: [9, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 6805926528036533838
+    TagComponent:
+      Tag: Rule 12
+    TransformComponent:
+      Position: [10, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.02, 1, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 3148832889273174067
+  - EntityID: 14499845264553703558
+    TagComponent:
+      Tag: Prop pine
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 10187732437116716290
+  - EntityID: 6375862493453774266
+    TagComponent:
+      Tag: Prop pine_small
+    TransformComponent:
+      Position: [2.2, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 10187732437116716290
+  - EntityID: 17973052516609747883
+    TagComponent:
+      Tag: Prop pine_trunk
+    TransformComponent:
+      Position: [4.4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 10187732437116716290
+  - EntityID: 10567492525662569473
+    TagComponent:
+      Tag: Prop tent_side
+    TransformComponent:
+      Position: [6.6, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 2184298104756860506
+      Material: 10187732437116716290
+  - EntityID: 13595853749363718321
+    TagComponent:
+      Tag: Prop tent_back
+    TransformComponent:
+      Position: [8.8, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 10198568704574168710
+      Material: 10187732437116716290
+  - EntityID: 17832871148871414965
+    TagComponent:
+      Tag: Prop chair
+    TransformComponent:
+      Position: [11, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 16351542612800723582
+      Material: 10187732437116716290
+  - EntityID: 11682354870877986458
+    TagComponent:
+      Tag: Prop log
+    TransformComponent:
+      Position: [13.2, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 487663307951107120
+      Material: 10187732437116716290
+  - EntityID: 12061527155209172747
+    TagComponent:
+      Tag: Prop stump
+    TransformComponent:
+      Position: [15.4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 9064280038167848881
+      Material: 10187732437116716290
+  - EntityID: 18547127418890049
+    TagComponent:
+      Tag: Prop rock
+    TransformComponent:
+      Position: [17.6, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 10187732437116716290
+  - EntityID: 13533660975386688546
+    TagComponent:
+      Tag: Prop grass
+    TransformComponent:
+      Position: [19.8, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 10187732437116716290
+  - EntityID: 972555907692680265
+    TagComponent:
+      Tag: Prop pack
+    TransformComponent:
+      Position: [22, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 10534480071590883843
+      Material: 10187732437116716290
+  - EntityID: 12926287570122816145
+    TagComponent:
+      Tag: Prop firewood
+    TransformComponent:
+      Position: [24.2, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 370120828595532354
+      Material: 10187732437116716290
+  - EntityID: 3922754468643040745
+    TagComponent:
+      Tag: Prop mirror_frame
+    TransformComponent:
+      Position: [26.4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 15121154029924751065
+      Material: 10187732437116716290
+  - EntityID: 7956346218435665696
+    TagComponent:
+      Tag: Prop mirror_glass
+    TransformComponent:
+      Position: [28.6, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 4253280667872139428
+      Material: 10187732437116716290
+  - EntityID: 5794842004658536780
+    TagComponent:
+      Tag: Key
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.663225, 0.488692, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.98, 0.94]
+      Intensity: 2.6
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 15129871006882578664
+    TagComponent:
+      Tag: Fill
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.383972, -2.44346, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [0.62, 0.7, 0.88]
+      Intensity: 0.8
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
