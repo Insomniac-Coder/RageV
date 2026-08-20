@@ -1380,6 +1380,12 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 	{
 		m_OpenNewGraph = false;
 		m_NewGraphName[0] = '\0';
+
+		// Always opens on Create, whichever mode it was left in. A dialog that
+		// remembers is a dialog that surprises somebody who opened it for the
+		// other reason.
+		m_PickExistingGraph = false;
+		m_ExistingGraphs = ListGraphNames();
 		ImGui::OpenPopup("New Graph");
 	}
 
@@ -1395,12 +1401,34 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 // Returns the new script's type name once the file is written, so the caller can
 // select it immediately. Creating a script and then having to find it in a
 // dropdown is a step nobody wants.
+// Where a new-asset modal opens: the middle of the main window, wide enough
+// that the path preview and the explanation are not three words a line.
+//
+// Said explicitly because ImGui does not guess it. A popup with no position
+// lands where the widget that opened it is -- which for one opened from a
+// dropdown near the top of the inspector is the top of the screen, which is
+// what was reported.
+static void PlaceNewAssetPopup()
+{
+	const ImGuiViewport* viewport = ImGui::GetMainViewport();
+	const ImVec2 centre(viewport->Pos.x + viewport->Size.x * 0.5f,
+						viewport->Pos.y + viewport->Size.y * 0.5f);
+
+	// Appearing, not Always: centred when it opens, and still draggable.
+	ImGui::SetNextWindowPos(centre, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(520.0f, 0.0f), ImGuiCond_Appearing);
+}
+
 bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& chosenName)
 {
+	PlaceNewAssetPopup();
 	const char* const kPopup = "New Script";
 	bool created = false;
 
-	if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	// No AlwaysAutoResize: it overrides the width set above, and the width is
+	// the point -- the explanation under the field reads as a paragraph rather
+	// than as four words a line.
+	if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_NoResize))
 		return false;
 
 	// Both languages need a project: the script goes into its Scripts/ or
@@ -1425,7 +1453,7 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 		const std::filesystem::path scripts = Project::Root() / "Source";
 
 		ImGui::Text("Class name");
-		ImGui::SetNextItemWidth(280.0f);
+		ImGui::SetNextItemWidth(-1.0f);
 		ImGui::InputText("##cppname", m_NewScriptName, sizeof(m_NewScriptName));
 
 		const std::string name(m_NewScriptName);
@@ -1473,7 +1501,7 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 	}
 
 	ImGui::Text("Class name");
-	ImGui::SetNextItemWidth(280.0f);
+	ImGui::SetNextItemWidth(-1.0f);
 	const bool submitted = ImGui::InputText("##csname", m_NewScriptName, sizeof(m_NewScriptName),
 											ImGuiInputTextFlags_EnterReturnsTrue);
 
@@ -1533,10 +1561,12 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 // inside it.
 bool RageV::SceneHierarchyPanel::DrawNewGraphPopup(std::string& chosenName)
 {
+	PlaceNewAssetPopup();
+
 	const char* const kPopup = "New Graph";
 	bool created = false;
 
-	if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_NoResize))
 		return false;
 
 	if (!Project::GetActive())
@@ -1549,11 +1579,35 @@ bool RageV::SceneHierarchyPanel::DrawNewGraphPopup(std::string& chosenName)
 		return false;
 	}
 
-	ImGui::Text("Class name");
-	ImGui::SetNextItemWidth(280.0f);
-	const bool submitted = ImGui::InputText("##graphname", m_NewGraphName,
-											sizeof(m_NewGraphName),
-											ImGuiInputTextFlags_EnterReturnsTrue);
+	bool submitted = false;
+
+	if (m_PickExistingGraph)
+	{
+		ImGui::Text("Graph");
+		ImGui::SetNextItemWidth(-1.0f);
+
+		const std::string current = m_NewGraphName[0] ? m_NewGraphName
+													  : "(choose one)";
+		if (ImGui::BeginCombo("##graphpick", current.c_str()))
+		{
+			for (const std::string& existing : m_ExistingGraphs)
+			{
+				const bool chosen = existing == m_NewGraphName;
+				if (ImGui::Selectable(existing.c_str(), chosen))
+					std::snprintf(m_NewGraphName, sizeof(m_NewGraphName), "%s",
+								  existing.c_str());
+			}
+			ImGui::EndCombo();
+		}
+	}
+	else
+	{
+		ImGui::Text("Class name");
+		ImGui::SetNextItemWidth(-1.0f);
+		submitted = ImGui::InputText("##graphname", m_NewGraphName,
+									 sizeof(m_NewGraphName),
+									 ImGuiInputTextFlags_EnterReturnsTrue);
+	}
 
 	const std::string name(m_NewGraphName);
 	const bool valid = IsIdentifier(name);
@@ -1573,7 +1627,19 @@ bool RageV::SceneHierarchyPanel::DrawNewGraphPopup(std::string& chosenName)
 		Project::Root() / "Scripts" / "Generated" / (name + ".g.cs");
 	const bool clashes = valid && !exists && std::filesystem::exists(generated, ec);
 
-	if (!name.empty() && !valid)
+	// The same fact reads opposite ways in the two modes: a graph that already
+	// exists is what Create refuses and what Pick existing is *for*.
+	if (m_PickExistingGraph)
+	{
+		if (m_ExistingGraphs.empty())
+			ImGui::TextColored(EditorTheme::Colors().Warning,
+							   "This project has no graphs yet");
+		else if (name.empty())
+			ImGui::TextDisabled(" ");
+		else
+			ImGui::TextDisabled("assets/graphs/%s.rvgraph", name.c_str());
+	}
+	else if (!name.empty() && !valid)
 		ImGui::TextColored(EditorTheme::Colors().Danger, "Not a valid class name");
 	else if (exists)
 		ImGui::TextColored(EditorTheme::Colors().Danger,
@@ -1587,16 +1653,26 @@ bool RageV::SceneHierarchyPanel::DrawNewGraphPopup(std::string& chosenName)
 		ImGui::TextDisabled(" ");
 
 	ImGui::Spacing();
-	ImGui::TextWrapped("The graph opens on a working example. Ctrl+S writes its "
-					   "C#; File > Build Scripts compiles it.");
+	ImGui::TextWrapped(
+		m_PickExistingGraph
+			? "The same graph on two entities is one script class with two "
+			  "instances: each keeps its own values, and editing the graph "
+			  "changes both."
+			: "The graph opens on a working example. Ctrl+S writes its C#; "
+			  "File > Build Scripts compiles it.");
 
 	ImGui::Separator();
 
-	const bool ok = valid && !exists && !clashes;
+	const bool ok = m_PickExistingGraph ? !name.empty()
+										: (valid && !exists && !clashes);
 	ImGui::BeginDisabled(!ok);
-	if ((ImGui::Button("Create") || (submitted && ok)) && ok)
+	if ((ImGui::Button(m_PickExistingGraph ? "Use" : "Create")
+		 || (submitted && ok)) && ok)
 	{
-		if (WriteNewGraph(file, name))
+		// Picking one writes nothing: the asset is already there, and this is
+		// only the component learning its name. Creating one writes the file
+		// first and then does exactly the same thing.
+		if (m_PickExistingGraph || WriteNewGraph(file, name))
 		{
 			// So the handle exists before anything asks for one.
 			Assets::Registry::Refresh();
@@ -1616,6 +1692,27 @@ bool RageV::SceneHierarchyPanel::DrawNewGraphPopup(std::string& chosenName)
 		ImGui::CloseCurrentPopup();
 	}
 	ImGui::EndDisabled();
+
+	ImGui::SameLine();
+
+	// The toggle names the *other* mode, which is what a toggle's label is for.
+	// Disabled with no graphs to pick: offering a list that cannot have
+	// anything in it is worse than not offering it.
+	ImGui::BeginDisabled(!m_PickExistingGraph && m_ExistingGraphs.empty());
+	if (ImGui::Button(m_PickExistingGraph ? "Create new" : "Pick existing"))
+	{
+		m_PickExistingGraph = !m_PickExistingGraph;
+
+		// The name does not carry across. A class name typed for a new graph
+		// is not a selection from the list, and a selection is not a name
+		// somebody was part-way through typing.
+		m_NewGraphName[0] = '\0';
+	}
+	ImGui::EndDisabled();
+
+	if (!m_PickExistingGraph && m_ExistingGraphs.empty() && ImGui::IsItemHovered(
+			ImGuiHoveredFlags_AllowWhenDisabled))
+		ImGui::SetTooltip("This project has no graphs to pick from yet.");
 
 	ImGui::SameLine();
 	if (ImGui::Button("Cancel"))

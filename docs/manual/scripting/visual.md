@@ -21,9 +21,20 @@ Select an entity, add a **Script** component, and set **Language** to
 away; press **Create** and the canvas opens on a working graph, with the
 component already pointed at it.
 
-The row underneath then lists the project's graphs rather than its C# classes,
-so switching an entity between two graphs is the same one-click choice as
-switching between two scripts. **Edit Graph** reopens the canvas.
+The dialog has a second mode: **Pick existing** turns the name field into a
+dropdown of the graphs already in the project, and the button becomes **Create
+new** to go back. That is how one graph ends up on several entities.
+
+The row underneath the Language row lists the project's graphs rather than its
+C# classes, so switching an entity between two graphs is the same one-click
+choice as switching between two scripts. **Edit Graph** reopens the canvas.
+
+> [!NOTE]
+> **One graph on many entities is one class with many instances.** Each entity
+> keeps its own values for the script's fields, exactly as two entities running
+> the same C# or C++ script do — editing a number on one does not touch the
+> other. What is shared is the *graph*: change it, and every entity using it
+> gets the new behaviour on the next build.
 
 Graphs go in `assets/graphs/`. An existing one also opens by
 **double-clicking it in the content browser**, where graphs have their own

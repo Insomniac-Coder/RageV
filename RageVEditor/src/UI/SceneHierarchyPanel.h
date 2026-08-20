@@ -125,6 +125,13 @@ namespace RageV
 		char m_NewScriptName[64] = {};
 		char m_NewGraphName[64] = {};
 
+		// Which half of the New Graph dialog is showing. False is the name
+		// field; true is a dropdown of the graphs that already exist, for
+		// attaching one to a second entity -- which is the whole of what
+		// "reusable" means here.
+		bool m_PickExistingGraph = false;
+		std::vector<std::string> m_ExistingGraphs;
+
 		std::function<void(AssetHandle, AssetType)> m_OnActivate;
 
 		enum class PendingScriptSwap { None, ToCpp, ToCSharp };
