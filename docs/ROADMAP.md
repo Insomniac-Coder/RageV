@@ -653,11 +653,12 @@ deleted. **None of these should be started because it sounds interesting.**
 **The honest ordering, if any of these happen:** 8.4 and 8.9 were the two
 ordinary features; 8.4 is done, so **8.9 is the only ordinary one left** and
 every other open row is XL. Open, as of 2026-08-20: 8.3, 8.5, 8.6, 8.7, 8.8,
-8.9, 8.10 and 8.11 -- eight of the thirteen. 8.1 landed on 2026-08-19 and
-8.13 was built and withdrawn the day after. 8.2 was a decision about the engine's identity, and it has been
-made: the seam is at the shader define and the material, the RHI stays one
-interface, and OpenGL is not dropped. 8.12 followed it and is done. The rest
-are each larger than everything built so far.
+8.9 and 8.11 -- seven of the thirteen. 8.1 landed on 2026-08-19 and 8.10 on
+2026-08-20; 8.13 was built on the 19th and withdrawn on the 20th. 8.2 was a
+decision about the engine's identity, and it has been made: the seam is at the
+shader define and the material, the RHI stays one interface, and OpenGL is not
+dropped. 8.12 followed it and is done. The rest are each larger than everything
+built so far.
 
 ### 8.12 in more detail, because it is the one most likely to be started for the wrong reason
 
