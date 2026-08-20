@@ -116,7 +116,46 @@ def main():
     if front[2] > -0.9:
         failures.append(f"a box's -Z face points {front}, not back")
 
-    print("primitives: cone, cylinder and box all wound outward")
+    # `strut` is `cylinder` seen from a rotated basis, and the rotation is
+    # exactly where it can go wrong: the ring's two axes have to come out
+    # left-handed against the bar's direction, because that is what `cylinder`
+    # does with X, Z and Y. Build one along +Y and it must agree with the
+    # cylinder above face for face.
+    bar = fbxwrite.Mesh()
+    bar.strut((0, 0, 0), (0, 1, 0), 1.0, sides=4)
+    if inverted_pieces(bar):
+        failures.append("a strut along +Y is inside out, which means its two "
+                        "ring axes came out right-handed against its own "
+                        "direction")
+
+    # And along an axis with no zero in it, which is the case the basis is
+    # actually for -- a bar along +Y could be right by accident.
+    slant = fbxwrite.Mesh()
+    slant.strut((0, 0, 0), (1, 2, 3), 0.2, sides=5)
+    if inverted_pieces(slant):
+        failures.append("a strut along (1, 2, 3) is inside out")
+
+    # `panel` decides which way it faces from the order of its corners, and
+    # nothing else. Given four corners counter-clockwise in the XY plane seen
+    # from +Z, its front face must point at +Z.
+    plate = fbxwrite.Mesh()
+    plate.panel([(-1, 0, 0), (1, 0, 0), (1, 1, 0), (-1, 1, 0)], 0.1)
+    faces = [f for f in plate.faces if len(f) == 4]
+    fronts = [fbxwrite.face_normal(plate.points, f) for f in faces]
+    if not any(n[2] > 0.99 for n in fronts):
+        failures.append("a panel wound counter-clockwise from +Z has no face "
+                        f"pointing at +Z; it has {fronts}")
+    if inverted_pieces(plate):
+        failures.append("a four-corner panel is not a closed solid")
+
+    # Three corners, because a tent gable is a triangle and the general case
+    # is what the tent actually uses.
+    gable = fbxwrite.Mesh()
+    gable.panel([(-1, 0, 0), (1, 0, 0), (0, 1, 0)], 0.1)
+    if inverted_pieces(gable):
+        failures.append("a three-corner panel is not a closed solid")
+
+    print("primitives: cone, cylinder, box, strut and panel all wound outward")
 
     # --- and every prop the camp actually uses --------------------------------
     #
@@ -124,7 +163,7 @@ def main():
     # grass clump are open wedges rather than closed solids and are the one
     # stated exception -- a wedge has no back, so its root face points into the
     # ground by design.
-    open_pieces = {"grass"}
+    open_pieces = {"grass", "grass_tall", "grass_low"}
 
     for name, builder, _, _ in make_camp_models.PROPS:
         mesh = builder()

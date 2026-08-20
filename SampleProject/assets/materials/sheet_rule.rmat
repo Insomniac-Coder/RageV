@@ -1,5 +1,5 @@
 Material: sheet_rule
-BaseColor: [0.62, 0.62, 0.66, 1]
+BaseColor: [0.72, 0.72, 0.75, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
 Roughness: 0.9

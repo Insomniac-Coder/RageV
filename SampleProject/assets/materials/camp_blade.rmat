@@ -1,5 +1,5 @@
 Material: camp_blade
-BaseColor: [0.32, 0.6, 0.26, 1]
+BaseColor: [0.3, 0.68, 0.2, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
 Roughness: 0.9
@@ -10,3 +10,4 @@ HeightScale: 0.03
 Tiling: [1, 1]
 UvOffset: [0, 0]
 Maps:
+  BaseColor: 17698710754704439635

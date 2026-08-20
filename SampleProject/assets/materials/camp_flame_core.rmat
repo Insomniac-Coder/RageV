@@ -1,0 +1,12 @@
+Material: camp_flame_core
+BaseColor: [1, 0.88, 0.42, 1]
+Emissive: [5.4, 3.3, 0.95, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.03
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:

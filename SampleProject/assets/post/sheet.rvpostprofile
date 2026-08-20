@@ -5,7 +5,7 @@ AutoExposure: false
 DepthOfField: false
 MotionBlur: false
 AmbientOcclusion: true
-AoRadius: 0.4
+AoRadius: 0.3
 AoIntensity: 0.7
 GlobalIllumination: false
 VignetteIntensity: 0

@@ -831,6 +831,18 @@ remaining gap a *player* would notice — everything else on the list is somethi
 a developer would notice. An engine that cannot draw a score is not finished in
 a way that matters, however good its shadows are.
 
+**The demo scene is the camp now** (2026-08-20, ENGINE-NOTES 7bo). The
+courtyard was a room; the camp is a place -- a clearing at night with a fire
+that is the only real light, terrain, 41 imported props, a probe-and-traced
+mirror, an animated fox, twelve framed camera positions and a pause button. It
+matters to the roadmap for one reason: **building it found eight defects that
+were not in the scene**, they were in the engine's contracts, and every one of
+them failed silently. A scene file with no `Version:` discards every entity id
+and so every parent link; a child with no transform renders at the origin; the
+runtime loads a script assembly it never builds. None of those is findable from
+inside the engine, and all of them are ordinary to hit from outside it. That is
+the argument for "build a game with it" below, restated as evidence.
+
 **Phase 8 items should each be treated as a proposal, not a task.** Every one of
 them was excluded once, with a reason that is still recorded next to it. Two of
 them — bindless and terrain — had prerequisites that were decisions rather than

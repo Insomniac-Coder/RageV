@@ -1,0 +1,9 @@
+LutRecipe: 1
+Temperature: 0.2
+Tint: 0.02
+Lift: [0.016, 0.008, 0.026]
+Gamma: [1, 1.0, 1.02]
+Gain: [1.10, 1.0, 0.88]
+Contrast: 1.12
+Saturation: 1.14
+Size: 33

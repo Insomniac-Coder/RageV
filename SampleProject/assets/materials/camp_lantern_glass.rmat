@@ -1,0 +1,12 @@
+Material: camp_lantern_glass
+BaseColor: [1, 0.9, 0.62, 1]
+Emissive: [3, 2.1, 0.9, 1]
+Metallic: 0
+Roughness: 0.3
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.03
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:

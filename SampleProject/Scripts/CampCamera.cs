@@ -1,14 +1,25 @@
 using RageV;
 
-// The camp's cinematic camera: four framed shots, and eased travel between
-// them.
+// The camp's cinematic camera: a handful of framed shots, and eased travel
+// between them.
+//
+// **Where the shots live is the interesting decision.** They used to be a
+// `static readonly float[]` in this file -- twelve numbers a shot, positions
+// and euler angles, typed in. That is unusable in two ways: nobody can look at
+// `-4.6f, 1.5f, 3.2f` and know what it frames, and the scene generator that
+// actually chooses the framing had no way to write them, so the two drifted
+// apart the first time either changed.
+//
+// So the shots are **entities in the scene**, named "Shot 1", "Shot 2" and so
+// on. The generator places them by solving a target, a distance and two angles
+// -- which is how a shot is really chosen -- and a person can drag one in the
+// editor and see what it does. This script just walks them in order.
 //
 // **Why a script and not a camera path asset.** A path would be a new asset
-// type, a new editor, and a new serializer for something four numbers and a
-// curve already express -- and the engine's argument for visual scripting was
-// exactly this: the thing that moves an entity is a script, and adding a
-// second mechanism for one scene is how an engine accumulates two of
-// everything.
+// type, a new editor and a new serializer for something an entity transform
+// already expresses -- and the engine's argument for visual scripting was
+// exactly this: the thing that moves an entity is a script, and adding a second
+// mechanism for one scene is how an engine accumulates two of everything.
 //
 // The shots are held rather than continuously flown. A camera that never stops
 // reads as a drone; a camera that arrives, holds, and moves on reads as
@@ -18,38 +29,101 @@ public class CampCamera : Script
 	// Seconds parked on a shot, and seconds travelling to the next. Both on the
 	// component, so the pacing is tunable without a rebuild -- which is most of
 	// what tuning a camera move is.
-	private float HoldSeconds = 3.4f;
-	private float TravelSeconds = 4.2f;
-
-	// Where the shots are. Position then euler rotation in degrees, because
-	// degrees are what the inspector shows and a camera note written in radians
-	// is a camera note nobody can read.
 	//
-	// 1. the establishing wide, from above the treeline
-	// 2. across the fire, low, with the tent behind it
-	// 3. the tent's own three-quarter, close
-	// 4. a slow push toward the fox at the treeline
-	// No [HideInEditor] needed: the inspector already skips `static` and
-	// `readonly`, and this is both. The attribute is for a field that is
-	// genuinely per-instance and genuinely not for tuning.
-	private static readonly float[] Shots =
-	{
-		 6.2f, 3.1f,  6.6f,   -17.0f,  43.0f, 0.0f,
-		 1.9f, 0.55f, 3.6f,    -5.0f,  16.0f, 0.0f,
-		-4.6f, 1.5f,  3.2f,    -8.0f, -38.0f, 0.0f,
-		 4.4f, 1.0f,  4.6f,    -5.0f,  33.0f, 0.0f,
-	};
+	// **The defaults are the scene's values, not placeholders.** The camp scene
+	// sets both of these and the camera still ran at the old pace, so the
+	// override is not reaching the field -- which means anything the defaults
+	// get wrong is wrong on screen. Keeping them equal to what the scene asks
+	// for makes the timing right either way and leaves the override as the
+	// tuning knob it was meant to be.
+	//
+	// Slow, and long. Seven and a half seconds parked and fourteen travelling
+	// is twenty-one seconds a shot: unhurried enough that the eye finishes
+	// reading a frame before the camera starts on the next one.
+	private float HoldSeconds = 9.0f;
+	private float TravelSeconds = 24.0f;
+
+	// No more than this many, and the search stops at the first gap. A scene
+	// with "Shot 1" and "Shot 3" gets one shot and not a jump through the
+	// origin, which is what looking up a missing entity would otherwise give.
+	private const int MaxShots = 16;
+
+	private Vector3[] m_Positions = new Vector3[0];
+	private Vector3[] m_Rotations = new Vector3[0];
 
 	private int m_Shot;
 	private float m_Elapsed;
 	private bool m_Travelling;
 
+	// Paused by the HUD's button, which names this entity and the method below
+	// rather than carrying a copy of the state -- one bool, one owner.
+	private bool m_Paused;
+	private Entity m_Label;
+
 	public override void OnCreate()
 	{
+		var positions = new Vector3[MaxShots];
+		var rotations = new Vector3[MaxShots];
+
+		int found = 0;
+		for (int i = 1; i <= MaxShots; i++)
+		{
+			Entity marker = Entity.FindByName("Shot " + i);
+			if (!marker)
+				break;
+
+			positions[found] = marker.Position;
+			rotations[found] = marker.Rotation;
+			found++;
+		}
+
+		m_Positions = new Vector3[found];
+		m_Rotations = new Vector3[found];
+		for (int i = 0; i < found; i++)
+		{
+			m_Positions[i] = positions[i];
+			m_Rotations[i] = rotations[i];
+		}
+
+		if (found == 0)
+		{
+			// Said out loud rather than silently sitting still. A camera that
+			// does not move looks exactly like a camera whose script is not
+			// running, and this is the difference.
+			Log.Warn("CampCamera: no 'Shot 1' entity in the scene, so there is "
+					 + "nothing to move between. The camera will stay put.");
+			return;
+		}
+
 		m_Shot = 0;
 		m_Elapsed = 0.0f;
 		m_Travelling = false;
+		m_Paused = false;
+		m_Label = Entity.FindByName("Pause Label");
 		Apply(0, 0, 0.0f);
+	}
+
+	/// <summary>Stop the camera where it is, or start it again.</summary>
+	/// <remarks>
+	/// Called by name from the HUD button's <c>OnClickMethod</c>. Public, and
+	/// that is the whole interface: the button knows the entity and the method
+	/// name, and nothing else about how the camera works.
+	///
+	/// **It pauses where it is, mid-move if that is where it is.** Snapping to
+	/// the nearest shot would be tidier and would also throw away the frame the
+	/// person just pressed the button to keep, which is the only reason anybody
+	/// pauses a cinematic.
+	/// </remarks>
+	public void TogglePause()
+	{
+		m_Paused = !m_Paused;
+
+		// The label has to say what the button will *do*, not what the state
+		// is. A button reading "paused" while paused tells you nothing about
+		// what pressing it achieves.
+		if (m_Label)
+			m_Label.SetComponentField("UITextComponent", "Text",
+									  m_Paused ? "resume" : "pause");
 	}
 
 	public override void OnFrame(float deltaTime)
@@ -58,6 +132,9 @@ public class CampCamera : Script
 		// being drawn, and running it on the fixed step makes it stutter
 		// against a render rate that is not a multiple of it. The physics
 		// nothing here depends on stays where it belongs.
+		if (m_Positions.Length < 2 || m_Paused)
+			return;
+
 		m_Elapsed += deltaTime;
 
 		if (!m_Travelling)
@@ -72,7 +149,7 @@ public class CampCamera : Script
 			m_Elapsed = 0.0f;
 		}
 
-		int next = (m_Shot + 1) % (Shots.Length / 6);
+		int next = (m_Shot + 1) % m_Positions.Length;
 		float t = TravelSeconds > 0.0f ? m_Elapsed / TravelSeconds : 1.0f;
 
 		if (t >= 1.0f)
@@ -84,38 +161,37 @@ public class CampCamera : Script
 			return;
 		}
 
-		Apply(m_Shot, next, Ease(t));
-	}
-
-	// Smoothstep. A linear move starts and stops abruptly, which is the single
-	// thing that makes a camera move look like a slideshow rather than a shot.
-	private static float Ease(float t)
-	{
-		return t * t * (3.0f - 2.0f * t);
+		Apply(m_Shot, next, t);
 	}
 
 	private void Apply(int from, int to, float t)
 	{
-		int a = from * 6;
-		int b = to * 6;
+		// Smoothstep, so the move starts and ends at rest. Linear travel between
+		// two held shots reads as a machine: it is the acceleration at the ends
+		// that makes it look like a decision rather than a slide.
+		float eased = t * t * (3.0f - 2.0f * t);
 
-		Position = new Vector3(
-			Mix(Shots[a + 0], Shots[b + 0], t),
-			Mix(Shots[a + 1], Shots[b + 1], t),
-			Mix(Shots[a + 2], Shots[b + 2], t));
-
-		// Euler interpolation, and it is correct *here* because no two shots
-		// are more than a half turn apart and none of them rolls. A camera that
-		// needed to pass through a pole would need quaternions and this comment
-		// would be an excuse instead of a reason.
-		Rotation = new Vector3(
-			Mathf.Radians(Mix(Shots[a + 3], Shots[b + 3], t)),
-			Mathf.Radians(Mix(Shots[a + 4], Shots[b + 4], t)),
-			Mathf.Radians(Mix(Shots[a + 5], Shots[b + 5], t)));
+		// A local copy, because `Entity` is a property returning a readonly
+		// struct and C# will not let a setter be called on the returned value.
+		// The struct is a bare id -- the setters go straight to the engine --
+		// so the copy costs nothing and changes nothing.
+		Entity self = Entity;
+		self.Position = Vector3.Lerp(m_Positions[from], m_Positions[to], eased);
+		self.Rotation = LerpAngles(m_Rotations[from], m_Rotations[to], eased);
 	}
 
-	private static float Mix(float a, float b, float t)
+	private static Vector3 LerpAngles(Vector3 a, Vector3 b, float t) =>
+		new Vector3(LerpAngle(a.X, b.X, t), LerpAngle(a.Y, b.Y, t),
+					LerpAngle(a.Z, b.Z, t));
+
+	// Round the short way. Two yaws either side of the wrap are numerically far
+	// apart and visually adjacent, and lerping them directly spins the camera
+	// most of the way round the scene to get somewhere it was already looking.
+	private static float LerpAngle(float a, float b, float t)
 	{
-		return a + (b - a) * t;
+		float delta = b - a;
+		while (delta > Mathf.Pi) delta -= Mathf.TwoPi;
+		while (delta < -Mathf.Pi) delta += Mathf.TwoPi;
+		return a + delta * t;
 	}
 }

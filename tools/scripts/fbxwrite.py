@@ -133,6 +133,96 @@ class Mesh:
         return self.add(points, faces, **place)
 
 
+    def strut(self, a, b, radius, sides=4, taper=1.0, **place):
+        """A round bar from point `a` to point `b`.
+
+        `cylinder` can only stand up. A camp chair is four bars that each run
+        from a corner of the floor to the opposite corner of the seat, a
+        tripod is three that meet in the air, and a guy line goes from a
+        ridge to a peg -- none of which is expressible as "a cylinder, rotated"
+        without doing this arithmetic at the call site every time.
+
+        The cross-section is placed in a frame built around the axis, and the
+        faces are wound exactly as `cylinder`'s are, because they are the same
+        faces seen from a different basis. The one subtlety is the handedness:
+        `cylinder` lays its ring out as (cos, 0, sin) about +Y, and X cross Z
+        is *minus* Y -- so the second basis vector here is `s x u`, not
+        `u x s`. Getting that backwards turns every bar inside out, and
+        check_models is what says so.
+        """
+        axis = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        length = math.sqrt(sum(component * component for component in axis))
+        if length < 1e-9:
+            return len(self.points)
+
+        u = tuple(component / length for component in axis)
+
+        # Any vector not parallel to the axis will do to start from.
+        seed = (0.0, 1.0, 0.0) if abs(u[1]) < 0.9 else (1.0, 0.0, 0.0)
+        s = (seed[1] * u[2] - seed[2] * u[1],
+             seed[2] * u[0] - seed[0] * u[2],
+             seed[0] * u[1] - seed[1] * u[0])
+        scale = math.sqrt(sum(component * component for component in s))
+        s = tuple(component / scale for component in s)
+
+        t = (s[1] * u[2] - s[2] * u[1],
+             s[2] * u[0] - s[0] * u[2],
+             s[0] * u[1] - s[1] * u[0])
+
+        points = []
+        for end, ring in ((a, radius), (b, radius * taper)):
+            for i in range(sides):
+                angle = 2.0 * math.pi * i / sides
+                cos, sin = math.cos(angle) * ring, math.sin(angle) * ring
+                points.append((end[0] + s[0] * cos + t[0] * sin,
+                               end[1] + s[1] * cos + t[1] * sin,
+                               end[2] + s[2] * cos + t[2] * sin))
+
+        faces = []
+        for i in range(sides):
+            j = (i + 1) % sides
+            faces.append((i, sides + i, sides + j, j))
+        for i in range(1, sides - 1):
+            faces.append((0, i, i + 1))                       # the `a` cap
+            faces.append((sides, sides + i + 1, sides + i))    # the `b` cap
+
+        return self.add(points, faces, **place)
+
+    def panel(self, corners, thickness, **place):
+        """A flat polygon given by its corners, thickened along its own normal.
+
+        A tent's canvas, a gable, a chair's seat and a mirror's pane are all
+        this: a shape defined by *where its corners are* rather than by a size
+        and a rotation. Expressing one as a box plus two euler angles means
+        solving for the angles, and the angles are not the thing anybody
+        knows -- the corners are.
+
+        Any number of corners from three up, because a tent has as many
+        triangles in it as quads. The corners must be given counter-clockwise
+        seen from the front, which is what decides which way the panel faces.
+        """
+        count = len(corners)
+        a, b, c = corners[0], corners[1], corners[2]
+        u = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        v = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+        n = (u[1] * v[2] - u[2] * v[1],
+             u[2] * v[0] - u[0] * v[2],
+             u[0] * v[1] - u[1] * v[0])
+        length = max(math.sqrt(sum(component * component for component in n)), 1e-9)
+        n = tuple(component / length * (thickness * 0.5) for component in n)
+
+        points = [(p[0] - n[0], p[1] - n[1], p[2] - n[2]) for p in corners]
+        points += [(p[0] + n[0], p[1] + n[1], p[2] + n[2]) for p in corners]
+
+        faces = [tuple(reversed(range(count))),
+                 tuple(range(count, count * 2))]
+        for i in range(count):
+            j = (i + 1) % count
+            faces.append((i, j, count + j, count + i))
+
+        return self.add(points, faces, **place)
+
+
 def face_normal(points, face):
     a, b, c = points[face[0]], points[face[1]], points[face[2]]
     u = (b[0] - a[0], b[1] - a[1], b[2] - a[2])

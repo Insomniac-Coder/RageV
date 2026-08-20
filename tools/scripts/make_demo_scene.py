@@ -170,13 +170,21 @@ class Scene:
             f"      Tag: {name}",
         ]
 
-        if position is not None or rotation is not None or scale is not None:
-            self.lines += [
-                "    TransformComponent:",
-                f"      Position: {vec(*(position or (0, 0, 0)))}",
-                f"      Rotation: {vec(*(rotation or (0, 0, 0)))}",
-                f"      Scale: {vec(*(scale or (1, 1, 1)))}",
-            ]
+        # **Always**, even when it is the identity. A child with no
+        # TransformComponent does not inherit its parent's -- it renders at the
+        # world origin, and the camp scene's tent came apart in exactly that
+        # way: the canvas was pitched where the tent is and its pale band and
+        # its doorway were stacked on the campfire, three metres away. So were
+        # every chair's seat and the lantern's glass.
+        #
+        # Nothing is saved by leaving it out, and what it costs is a failure
+        # that looks like a modelling mistake rather than a missing component.
+        self.lines += [
+            "    TransformComponent:",
+            f"      Position: {vec(*(position or (0, 0, 0)))}",
+            f"      Rotation: {vec(*(rotation or (0, 0, 0)))}",
+            f"      Scale: {vec(*(scale or (1, 1, 1)))}",
+        ]
 
         if parent is not None:
             self.lines += [
@@ -245,7 +253,23 @@ class Scene:
         ])
 
     def script(self, name, **fields):
-        self.lines += ["    NativeScriptComponent:", f"      Script: {name}"]
+        """A **C++** script, registered by the game module. Anvil, Bell, Rotator."""
+        self._script("NativeScriptComponent", name, fields)
+
+    def managed_script(self, name, **fields):
+        """A **C#** script, found in the project's assembly.
+
+        A separate component, and the distinction is load-bearing rather than
+        pedantic: `NativeScriptComponent` names something the C++ module
+        registered, and pointing one at a C# class gets `Scene references
+        unknown script 'CampCamera'` at load and an entity that silently does
+        nothing. The camp lost its camera move and its firelight flicker to
+        exactly that.
+        """
+        self._script("ManagedScriptComponent", name, fields)
+
+    def _script(self, component, name, fields):
+        self.lines += [f"    {component}:", f"      Script: {name}"]
         if fields:
             self.lines.append("      Fields:")
             for key, value in fields.items():
@@ -663,7 +687,8 @@ def build(profile_handle, mat):
 
 
 def write_material(path, maps, tiling, height_scale=0.03, metallic=0.0,
-                   roughness=1.0, base_color=(1, 1, 1, 1)):
+                   roughness=1.0, base_color=(1, 1, 1, 1),
+                   emissive=(0, 0, 0, 1)):
     """A `.rmat` over shared maps, tiled for a surface of a known size.
 
     **Tiling is a property of the surface, not of the texture.** A brick map at
@@ -681,7 +706,10 @@ def write_material(path, maps, tiling, height_scale=0.03, metallic=0.0,
     lines = [
         f"Material: {path.stem}",
         f"BaseColor: {vec(*base_color)}",
-        "Emissive: [0, 0, 0, 1]",
+        # Emissive above 1 is the point of the field, not an abuse of it: a
+        # flame has to survive a tone mapper that is compressing everything
+        # near white, and a surface that emits exactly white comes out grey.
+        f"Emissive: {vec(*emissive)}",
         f"Metallic: {metallic:g}",
         f"Roughness: {roughness:g}",
         "Occlusion: 1",

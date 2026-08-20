@@ -1,0 +1,13 @@
+Material: camp_rope
+BaseColor: [0.46, 0.41, 0.33, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.95
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.03
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 13856085779175466757

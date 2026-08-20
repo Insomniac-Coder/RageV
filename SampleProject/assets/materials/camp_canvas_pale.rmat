@@ -1,8 +1,8 @@
 Material: camp_canvas_pale
-BaseColor: [0.9, 0.88, 0.85, 1]
+BaseColor: [0.94, 0.92, 0.88, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
-Roughness: 0.85
+Roughness: 0.86
 Occlusion: 1
 NormalScale: 1
 Specular: 0.5
@@ -10,3 +10,4 @@ HeightScale: 0.03
 Tiling: [1, 1]
 UvOffset: [0, 0]
 Maps:
+  BaseColor: 13239452403397671356

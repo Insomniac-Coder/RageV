@@ -1,0 +1,13 @@
+Material: camp_metal
+BaseColor: [0.09, 0.09, 0.11, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.7
+Roughness: 0.42
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.03
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 17537456392070781781

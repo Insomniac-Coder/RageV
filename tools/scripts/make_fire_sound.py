@@ -23,6 +23,7 @@ tick every four seconds is more noticeable than the fire. Two measures:
     being cut, so its tail is genuinely the sound that precedes it.
 """
 
+import argparse
 import math
 import pathlib
 import struct
@@ -41,12 +42,18 @@ SAMPLES = int(RATE * SECONDS)
 SEED = 0x726167655601
 
 
-def roar(rng):
+def roar(rng, top=2600.0):
     """The broadband bed, periodic by construction.
 
     Built as a spectrum and inverse-transformed, so every component completes
     a whole number of cycles in the loop and the join is exact. Shaped to fall
     off with frequency -- a fire is mostly low, and flat noise is rain.
+
+    `top` is where the bed starts rolling off, and it is the difference between
+    a brazier and a camp fire. At 2.6 kHz the bed is warm and, for a small
+    open fire, **dull** -- there is no hiss in it, and hiss is most of what a
+    fire two metres away actually sounds like. Raising it thins the roar and
+    brings the top back.
     """
     bins = SAMPLES // 2 + 1
     freqs = np.fft.rfftfreq(SAMPLES, 1.0 / RATE)
@@ -54,12 +61,15 @@ def roar(rng):
     # Roughly 1/f above a low shelf. The shelf is what stops all the energy
     # collecting in the first few bins and turning the roar into a throb.
     shape = 1.0 / np.sqrt(1.0 + (freqs / 90.0) ** 2)
-    shape *= 1.0 / (1.0 + (freqs / 2600.0) ** 2)
+    shape *= 1.0 / (1.0 + (freqs / top) ** 2)
     shape[0] = 0.0
 
     phase = rng.uniform(0.0, 2.0 * math.pi, bins)
     spectrum = shape * np.exp(1j * phase)
     return np.fft.irfft(spectrum, SAMPLES)
+
+
+RATE_PER_SECOND = 12
 
 
 def crackles(rng):
@@ -68,7 +78,7 @@ def crackles(rng):
 
     # About twelve a second. Enough to read as a fire rather than as a
     # campfire prop that pops occasionally.
-    count = int(SECONDS * 12)
+    count = int(SECONDS * RATE_PER_SECOND)
 
     for _ in range(count):
         start = rng.integers(0, SAMPLES)
@@ -93,9 +103,30 @@ def crackles(rng):
 
 
 def main():
-    rng = np.random.default_rng(SEED)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", default="fire.wav",
+                        help="file name under assets/audio")
+    parser.add_argument("--seed", type=lambda v: int(v, 0), default=SEED)
+    parser.add_argument("--crackle", type=float, default=0.42,
+                        help="how much of the mix is crackle rather than roar")
+    parser.add_argument("--top", type=float, default=2600.0,
+                        help="where the roar rolls off, in Hz -- higher is "
+                             "brighter and less dull")
+    parser.add_argument("--pops", type=int, default=12,
+                        help="crackles per second")
+    args = parser.parse_args()
 
-    bed = roar(rng)
+    # Parameterised so a second scene can have a fire of its own rather than
+    # borrowing this one. A camp fire is smaller than a courtyard brazier and
+    # therefore cracklier -- more of the sharp end and less of the bed -- so
+    # the two are genuinely different recordings rather than the same file
+    # under two names.
+    rng = np.random.default_rng(args.seed)
+
+    global RATE_PER_SECOND
+    RATE_PER_SECOND = args.pops
+
+    bed = roar(rng, top=args.top)
     bed /= np.abs(bed).max() or 1.0
 
     pops = crackles(rng)
@@ -103,7 +134,7 @@ def main():
 
     # The ratio that makes it a fire. More bed and it is wind; more crackle
     # and it is a bowl of cereal.
-    mix = 0.72 * bed + 0.42 * pops
+    mix = 0.72 * bed + args.crackle * pops
 
     # A slow swell, also periodic, so the fire breathes rather than sitting at
     # one level. One cycle per loop exactly, or the swell itself would tick.
@@ -116,7 +147,7 @@ def main():
 
     pcm = np.clip(mix * 32767.0, -32768, 32767).astype(np.int16)
 
-    out = ROOT / "SampleProject" / "assets" / "audio" / "fire.wav"
+    out = ROOT / "SampleProject" / "assets" / "audio" / args.output
     out.parent.mkdir(parents=True, exist_ok=True)
 
     with wave.open(str(out), "wb") as handle:
