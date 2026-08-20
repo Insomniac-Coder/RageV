@@ -24,6 +24,7 @@ public class Roster : Script
 		}
 		var target10 = totals;
 		target10["alpha"] = (float)scores.Count;
+		Log.Warn("roster ready");
 	}
 
 	// The engine's named field API is text, and these are the forms it

@@ -1,6 +1,6 @@
 ScriptGraph: 1
 NextNodeId: 12
-NextLinkId: 12
+NextLinkId: 14
 Nodes:
   - Id: 1
     Type: OnCreate
@@ -77,3 +77,6 @@ Links:
   - Id: 12
     From: [2, 0]
     To: [9, 0]
+  - Id: 13
+    From: [10, 0]
+    To: [11, 0]
