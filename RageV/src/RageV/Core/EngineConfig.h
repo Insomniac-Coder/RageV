@@ -94,6 +94,17 @@ namespace RageV
 		// an identical build.
 		float        FrameTime = 0.0f;
 
+		// Start the editor in Play as soon as the scene is loaded.
+		//
+		// **This exists because a whole class of failure was unreachable
+		// without it.** Play mode is where scripts run, where particles emit,
+		// where skinned meshes animate -- and in the editor it is where a
+		// *second* frame graph renders the Game panel beside the scene view.
+		// None of that could be exercised without a person pressing a button,
+		// so a crash that needed all of it at once could only ever be found by
+		// hand and reported second-hand.
+		bool         StartPlaying = false;
+
 		// Write a PNG of one frame and exit.
 		//
 		// The only way to check what the engine actually put on screen without

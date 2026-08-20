@@ -105,6 +105,43 @@ And two older ones that still hold:
 - **A cubemap sky is the scene's image-based light, not a backdrop.** The camp
   was lit like an afternoon because it still had the courtyard's dusk panorama.
 
+### Open defect: all three ray-traced features together lose the device
+
+**Reproduce it:**
+
+    cd build/bin/Release/RageVEditor
+    ./RageVEditor.exe --project=../../../../SampleProject --rhi=vulkan         --play=on --render-defaults=off --frame-time=0.0166         --screenshot-frame=1200 --screenshot=out.png
+
+With `RayTracedReflections`, `RayTracedAmbientOcclusion` **and**
+`RayTracedGlobalIllumination` all on, that loses the device within about 400
+frames -- 3 runs out of 3. Turn **any one** of the three off and it survives
+1200 frames, 3 runs out of 3. Every pair is fine; only the full set fails.
+
+What is known:
+
+- **It needs the editor's play mode.** The runtime, which renders one frame
+  graph, is fine with all three on for thousands of frames. In play the editor
+  builds and executes a *second* graph for the Game panel in the same command
+  buffer, so every ray-traced pass runs twice a frame.
+- **It is not a timeout.** Frames cost about 22 ms, nowhere near the driver's
+  watchdog.
+- **It is not API misuse.** Synchronization validation is clean up to the loss;
+  every message after it is a consequence of it.
+- **It is not deterministic.** The same frame number fails on one run and
+  passes on the next, which is what a GPU-side fault looks like rather than an
+  out-of-bounds index that would fail identically every time.
+- GPU-assisted validation cannot be used to narrow it further: it disables
+  itself with an internal error on this workload and then crashes.
+
+**The project therefore ships with ray-traced reflections on and the other two
+off**, which is verified at 1500 frames over 3 runs. Reflections are the one
+the camp actually needs -- the mirror is the whole reason ray tracing is on --
+and the other two were switched on the same afternoon for completeness rather
+than for anything in the frame.
+
+Finding the actual fault needs a graphics debugger. The repro above is cheap
+and headless, which it was not before `--play` existed.
+
 ### If the graphics device is lost
 
 `VK_ERROR_DEVICE_LOST` means the driver tore the device down -- a GPU fault, or

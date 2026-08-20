@@ -187,6 +187,9 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "play")
+			return ParseBool(value, config.StartPlaying);
+
 		if (key == "screenshot")
 		{
 			config.ScreenshotPath = value;

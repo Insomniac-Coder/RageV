@@ -192,6 +192,9 @@ private:
 	// is what makes pressing Play feel free.
 	enum class SceneState { Edit, Play, Paused };
 	SceneState m_SceneState = SceneState::Edit;
+	// --play fires once. Without the latch, stopping the scene would start it
+	// again on the next frame and Stop would be a button that does nothing.
+	bool m_AutoPlayed = false;
 	std::string m_SceneSnapshot;
 
 	// Where the current scene came from. Needed because "set this as the start

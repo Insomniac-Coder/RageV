@@ -442,6 +442,16 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 	// Presentational per-frame work. Simulation happens on the fixed step in
 	// OnFixedUpdate, and only while playing.
+	// --play, once, and only after there is a scene to play. Held here rather
+	// than at startup because the scene arrives asynchronously and pressing
+	// Play on nothing does nothing.
+	if (EngineConfig::Get().StartPlaying && !m_AutoPlayed && m_Scene
+		&& m_SceneState == SceneState::Edit)
+	{
+		m_AutoPlayed = true;
+		OnScenePlay();
+	}
+
 	if (m_SceneState == SceneState::Edit)
 		m_Scene->OnUpdateEditor(ts);
 	else
