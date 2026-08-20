@@ -267,6 +267,53 @@ def hills(resolution=HILLS_RESOLUTION, seed=7):
     return to_u16(unit)
 
 
+def clearing(resolution=HILLS_RESOLUTION, seed=19, flat_fraction=0.17,
+             edge_fraction=0.62):
+    """Level in the middle, lifting to forest at the edges.
+
+    `flat_fraction` is how much of the map stays dead level -- the camp stands
+    on it, and anything that is not level is a prop that floats or sinks.
+    Past `edge_fraction` the ground is fully lifted, and between the two it
+    eases with a smoothstep so there is no crease for the light to catch.
+
+    The noise runs everywhere but is *multiplied by the same falloff*, so the
+    flat part is genuinely flat rather than nearly flat.
+    """
+    rng = np.random.default_rng(seed)
+    total = np.zeros((resolution, resolution))
+    amplitude, cells, weight = 1.0, 3, 0.0
+    for _ in range(5):
+        total += amplitude * value_noise(resolution, cells, rng)
+        weight += amplitude
+        amplitude *= 0.5
+        cells *= 2
+    total /= weight
+
+    ys, xs = np.mgrid[0:resolution, 0:resolution] / (resolution - 1)
+    radius = np.sqrt((xs - 0.5) ** 2 + (ys - 0.5) ** 2) * 2.0
+
+    t = np.clip((radius - flat_fraction) / (edge_fraction - flat_fraction),
+                0.0, 1.0)
+    falloff = t * t * (3.0 - 2.0 * t)
+
+    # A low floor so the flat part is not at zero -- a terrain sampled at its
+    # own minimum has nowhere to put a footprint or a wheel rut later.
+    unit = np.clip(0.08 + falloff * (0.42 + 0.5 * total), 0.0, 1.0)
+    return to_u16(unit)
+
+
+def clearing_weights(heights):
+    """Scrub on the flat, bare earth on the slopes.
+
+    The inverse of the hills' rule, and for the same reason it is a rule: what
+    grows is what is not being walked on, and in a clearing that is the edges.
+    """
+    unit = heights.astype(np.float64) / 65535.0
+    ground = np.clip((0.22 - unit) / 0.14, 0.0, 1.0)      # 1 on the level part
+    scrub = np.clip(1.0 - ground, 0.0, 1.0)
+    return to_weights(ground, scrub, np.zeros_like(ground))
+
+
 def ridge(resolution=RIDGE_RESOLUTION, size=RIDGE_SIZE):
     """A Gaussian ridge along x at z = 0 (the middle row), on a plain."""
     zs = (np.arange(resolution) / (resolution - 1) - 0.5) * size   # metres
@@ -597,6 +644,12 @@ def main():
     layers_handle = write_terrain(terrain_dir / "layers.rvterrain", layer_heights,
                                   "terrain/layers.rvterrain", weights=layer_weights)
     brush_handle = write_terrain(terrain_dir / "brush.rvterrain", ridge(), "terrain/brush.rvterrain")
+
+    # The camp's ground: flat where the tent goes, forest at the edges.
+    clearing_heights = clearing()
+    write_terrain(terrain_dir / "clearing.rvterrain", clearing_heights,
+                  "terrain/clearing.rvterrain",
+                  weights=clearing_weights(clearing_heights))
     stamp_handle = write_terrain(terrain_dir / "stamp.rvterrain",
                                  np.zeros((LAYERS_RESOLUTION, LAYERS_RESOLUTION)),
                                  "terrain/stamp.rvterrain")
@@ -605,7 +658,8 @@ def main():
     scenes = ASSETS / "scenes"
     write_fixture_scenes(scenes, hills_handle, ridge_handle, cliff_handle, layers_handle,
                          brush_handle, stamp_handle, materials)
-    print(f"wrote {terrain_dir / 'hills.rvterrain'} ({HILLS_RESOLUTION}^2, painted), "
+    print(f"wrote {terrain_dir / 'clearing.rvterrain'} ({HILLS_RESOLUTION}^2, painted), "
+          f"{terrain_dir / 'hills.rvterrain'} ({HILLS_RESOLUTION}^2, painted), "
           f"{terrain_dir / 'ridge.rvterrain'} ({RIDGE_RESOLUTION}^2), "
           f"{terrain_dir / 'cliff.rvterrain'} ({CLIFF_RESOLUTION}^2), "
           f"{terrain_dir / 'layers.rvterrain'} ({LAYERS_RESOLUTION}^2, painted), "

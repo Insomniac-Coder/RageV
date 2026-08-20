@@ -1,0 +1,3493 @@
+Scene: Camp
+Environment:
+  Ambient: [0.03, 0.04, 0.07]
+  AmbientIntensity: 1
+  Sky: Gradient
+  SkyHorizon: [0.05, 0.07, 0.14]
+  SkyZenith: [0.012, 0.018, 0.045]
+  SkyGround: [0.01, 0.012, 0.02]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 13285305414498521355
+    TagComponent:
+      Tag: Camp Camera
+    TransformComponent:
+      Position: [6.2, 3.1, 6.6]
+      Rotation: [-0.296706, 0.750492, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 46
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 500
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 11962501723077875437
+    NativeScriptComponent:
+      Script: CampCamera
+      Fields:
+        HoldSeconds: 3.4
+        TravelSeconds: 4.2
+  - EntityID: 11489088586242532446
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Position: [0, -2.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      Terrain: 2908146728069828335
+      Size: 190
+      Height: 30
+      Material: 3174722538429778150
+      Layer1: 13219457661452530527
+      Layer2: 0
+      Layer3: 0
+      TextureScale: 30
+      Collision: true
+  - EntityID: 10064204460087086705
+    TagComponent:
+      Tag: Fire Stones
+  - EntityID: 13247715209642711656
+    TagComponent:
+      Tag: Fire Stone 0
+    TransformComponent:
+      Position: [0.0747502, 0.02, 0.654449]
+      Rotation: [0, 3.05426, 0]
+      Scale: [0.394401, 0.281715, 0.394401]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 13247716309154339867
+    TagComponent:
+      Tag: Fire Stone 1
+    TransformComponent:
+      Position: [0.633287, 0.02, 0.291226]
+      Rotation: [0, 5.15724, 0]
+      Scale: [0.388626, 0.27759, 0.388626]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 13247717408665968078
+    TagComponent:
+      Tag: Fire Stone 2
+    TransformComponent:
+      Position: [0.608993, 0.02, -0.412195]
+      Rotation: [0, 0.977035, 0]
+      Scale: [0.382851, 0.273465, 0.382851]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 13247718508177596289
+    TagComponent:
+      Tag: Fire Stone 3
+    TransformComponent:
+      Position: [-0.0388746, 0.02, -0.772735]
+      Rotation: [0, 3.07939, 0]
+      Scale: [0.377076, 0.26934, 0.377076]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 13247719607689224500
+    TagComponent:
+      Tag: Fire Stone 4
+    TransformComponent:
+      Position: [-0.573941, 0.02, -0.309449]
+      Rotation: [0, 5.18237, 0]
+      Scale: [0.371301, 0.265215, 0.371301]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 13247720707200852711
+    TagComponent:
+      Tag: Fire Stone 5
+    TransformComponent:
+      Position: [-0.595124, 0.02, 0.349939]
+      Rotation: [0, 1.00154, 0]
+      Scale: [0.365526, 0.26109, 0.365526]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 13247721806712480922
+    TagComponent:
+      Tag: Fire Stone 6
+    TransformComponent:
+      Position: [-0.00961495, 0.02, 0.728657]
+      Rotation: [0, 3.10452, 0]
+      Scale: [0.359751, 0.256965, 0.359751]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 13247722906224109133
+    TagComponent:
+      Tag: Fire Stone 7
+    TransformComponent:
+      Position: [0.650741, 0.02, 0.406123]
+      Rotation: [0, 5.2075, 0]
+      Scale: [0.353976, 0.25284, 0.353976]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 13247706413549685968
+    TagComponent:
+      Tag: Fire Stone 8
+    TransformComponent:
+      Position: [0.57598, 0.02, -0.291201]
+      Rotation: [0, 1.02667, 0]
+      Scale: [0.348201, 0.248715, 0.348201]
+    RelationshipComponent:
+      Parent: 10064204460087086705
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 14725051891077042184
+    TagComponent:
+      Tag: Fire Logs
+    TransformComponent:
+      Position: [0, 0.06, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1371835419456329907
+    TagComponent:
+      Tag: Fire Log 0
+    TransformComponent:
+      Position: [0.165791, 0.04, 0.0700953]
+      Rotation: [1.29154, 0.4, 0]
+      Scale: [0.5, 0.28, 0.5]
+    RelationshipComponent:
+      Parent: 14725051891077042184
+    MeshComponent:
+      Mesh: 487663307951107120
+      Material: 12702333840733718255
+  - EntityID: 1371834319944701696
+    TagComponent:
+      Tag: Fire Log 1
+    TransformComponent:
+      Position: [-0.0581921, 0.07, 0.170334]
+      Rotation: [1.29154, 1.9, 0]
+      Scale: [0.5, 0.28, 0.5]
+    RelationshipComponent:
+      Parent: 14725051891077042184
+    MeshComponent:
+      Mesh: 487663307951107120
+      Material: 12702333840733718255
+  - EntityID: 1371837618479586329
+    TagComponent:
+      Tag: Fire Log 2
+    TransformComponent:
+      Position: [-0.177746, 0.1, -0.0283942]
+      Rotation: [1.29154, 3.3, 0]
+      Scale: [0.5, 0.28, 0.5]
+    RelationshipComponent:
+      Parent: 14725051891077042184
+    MeshComponent:
+      Mesh: 487663307951107120
+      Material: 12702333840733718255
+  - EntityID: 1371836518967958118
+    TagComponent:
+      Tag: Fire Log 3
+    TransformComponent:
+      Position: [0.0335722, 0.13, -0.176841]
+      Rotation: [1.29154, 4.9, 0]
+      Scale: [0.5, 0.28, 0.5]
+    RelationshipComponent:
+      Parent: 14725051891077042184
+    MeshComponent:
+      Mesh: 487663307951107120
+      Material: 12702333840733718255
+  - EntityID: 15104781251043351705
+    TagComponent:
+      Tag: Fire
+    TransformComponent:
+      Position: [0, 0.22, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 46
+      Burst: 0
+      Lifetime: 0.85
+      LifetimeJitter: 0.35
+      Direction: [0, 1, 0]
+      Spread: 16
+      Speed: 1.5
+      SpeedJitter: 0.5
+      Gravity: [0, 1.1, 0]
+      Drag: 1.4
+      SizeStart: 0.42
+      SizeEnd: 0.06
+      ColorStart: [1, 0.86, 0.42, 1]
+      ColorEnd: [1, 0.3, 0.05, 0]
+      Spin: 0.6
+      Facing: Billboard
+      Blend: Additive
+      Space: Local
+      Texture: 14156592944927634151
+      MaxParticles: 320
+      SimulateOnGpu: false
+      SizeCurve: 4167849381279018650
+      ColorGradient: 14237806248374965933
+      AlphaCurve: 11461028735333202510
+    LightComponent:
+      Type: Point
+      Color: [1, 0.62, 0.3]
+      Intensity: 34
+      Range: 18
+      InnerCone: 20
+      OuterCone: 30
+    AudioSourceComponent:
+      Clip: 5810587725358736489
+      Bus: Sfx
+      Volume: 0.5
+      Pitch: 1
+      Loop: true
+      PlayOnAwake: true
+      Stream: false
+      Spatial: true
+      MinDistance: 2.5
+      MaxDistance: 30
+    NativeScriptComponent:
+      Script: Flicker
+      Fields:
+        Amount: 0.22
+        Rate: 9.0
+        Base: 34.0
+  - EntityID: 16541968006000717756
+    TagComponent:
+      Tag: Firewood
+    TransformComponent:
+      Position: [1.35, 0, -0.55]
+      Rotation: [0, 0.7, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 370120828595532354
+      Material: 12702333840733718255
+  - EntityID: 2652587174154289280
+    TagComponent:
+      Tag: Tent
+    TransformComponent:
+      Position: [-3.4, 0, -2.2]
+      Rotation: [0, -0.488692, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11846551866361967297
+    TagComponent:
+      Tag: Tent Left
+    TransformComponent:
+      Position: [-0.62, 0, 0]
+      Rotation: [0, 0, -0.383972]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 2652587174154289280
+    MeshComponent:
+      Mesh: 2184298104756860506
+      Material: 554942301130596721
+  - EntityID: 10574086311887531554
+    TagComponent:
+      Tag: Tent Right
+    TransformComponent:
+      Position: [0.62, 0, 0]
+      Rotation: [0, 0, 0.383972]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 2652587174154289280
+    MeshComponent:
+      Mesh: 2184298104756860506
+      Material: 554942301130596721
+  - EntityID: 9623260931917211931
+    TagComponent:
+      Tag: Tent Back
+    TransformComponent:
+      Position: [0, 0, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 2652587174154289280
+    MeshComponent:
+      Mesh: 10198568704574168710
+      Material: 11673236765091488108
+  - EntityID: 2188732879191937314
+    TagComponent:
+      Tag: Mirror
+    TransformComponent:
+      Position: [-2.15, 0, 0.35]
+      Rotation: [0, 0.488692, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 15121154029924751065
+      Material: 12702333840733718255
+  - EntityID: 1442936011751889970
+    TagComponent:
+      Tag: Mirror Glass
+    TransformComponent:
+      Position: [0, 0, 0.042]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 2188732879191937314
+    MeshComponent:
+      Mesh: 4253280667872139428
+      Material: 13612604131617143756
+  - EntityID: 4619005523058405160
+    TagComponent:
+      Tag: Mirror Probe
+    TransformComponent:
+      Position: [0, 0.7, 0.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 2188732879191937314
+    ReflectionProbeComponent:
+      Update: Realtime
+      Resolution: 128
+      Influence: 8
+      NearClip: 0.05
+      FarClip: 80
+      Rate: 15Hz
+      FacesPerFrame: 1
+  - EntityID: 1044178680916294728
+    TagComponent:
+      Tag: Chair Near
+    TransformComponent:
+      Position: [0.6, 0, 2.1]
+      Rotation: [0, -2.93215, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 16351542612800723582
+      Material: 3469940334615857002
+  - EntityID: 3292297827117219163
+    TagComponent:
+      Tag: Chair Far
+    TransformComponent:
+      Position: [2.5, 0, 0.9]
+      Rotation: [0, -1.81514, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 16351542612800723582
+      Material: 3469940334615857002
+  - EntityID: 14398090579086113707
+    TagComponent:
+      Tag: Bench Log
+    TransformComponent:
+      Position: [-1.9, 0.22, 1.5]
+      Rotation: [1.5708, 0.314159, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 487663307951107120
+      Material: 12702333840733718255
+  - EntityID: 3318041430467493792
+    TagComponent:
+      Tag: Pack
+    TransformComponent:
+      Position: [-2.7, 0, 1.05]
+      Rotation: [0, 0.663225, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 10534480071590883843
+      Material: 3469940334615857002
+  - EntityID: 6599107248039081320
+    TagComponent:
+      Tag: Stump
+    TransformComponent:
+      Position: [1.9, 0, 2.4]
+      Rotation: [0, 0.8, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 9064280038167848881
+      Material: 12702333840733718255
+  - EntityID: 17490751808708212718
+    TagComponent:
+      Tag: Fox
+    TransformComponent:
+      Position: [3.3, 0, 2.9]
+      Rotation: [0, -2.47837, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      Mesh: 11679010045657754579
+      Material: 14845622431998451938
+    AnimatorComponent:
+      Clip: 0
+      Playing: true
+      Loop: true
+      Speed: 0.55
+      BlendTime: 0.4
+  - EntityID: 6883162270153339232
+    TagComponent:
+      Tag: Forest
+  - EntityID: 17830706996083358891
+    TagComponent:
+      Tag: Pine 0
+    TransformComponent:
+      Position: [0.0633348, -0.25, -9.16353]
+      Rotation: [0, 2.54029, 0]
+      Scale: [1.1876, 1.24698, 1.1876]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306720199849639161
+    TagComponent:
+      Tag: Pine Trunk 0
+    RelationshipComponent:
+      Parent: 17830706996083358891
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830705896571730680
+    TagComponent:
+      Tag: Pine 1
+    TransformComponent:
+      Position: [-10.355, -0.25, -6.37246]
+      Rotation: [0, 4.64265, 0]
+      Scale: [1.1738, 1.23249, 1.1738]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306719100338010950
+    TagComponent:
+      Tag: Pine Trunk 1
+    RelationshipComponent:
+      Parent: 17830705896571730680
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830709195106615313
+    TagComponent:
+      Tag: Pine 2
+    TransformComponent:
+      Position: [-13.4815, -0.25, 6.92261]
+      Rotation: [0, 0.462442, 0]
+      Scale: [1.16005, 1.21805, 1.16005]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306718000826382739
+    TagComponent:
+      Tag: Pine Trunk 2
+    RelationshipComponent:
+      Parent: 17830709195106615313
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830708095594987102
+    TagComponent:
+      Tag: Pine 3
+    TransformComponent:
+      Position: [-1.27619, -0.25, 18.1051]
+      Rotation: [0, 2.5648, 0]
+      Scale: [1.1463, 1.20361, 1.1463]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306716901314754528
+    TagComponent:
+      Tag: Pine Trunk 3
+    RelationshipComponent:
+      Parent: 17830708095594987102
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830711394129871735
+    TagComponent:
+      Tag: Pine 4
+    TransformComponent:
+      Position: [7.06039, -0.25, 4.98868]
+      Rotation: [0, 4.66778, 0]
+      Scale: [1.13255, 1.18918, 1.13255]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306724597896152005
+    TagComponent:
+      Tag: Pine Trunk 4
+    RelationshipComponent:
+      Parent: 17830711394129871735
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830710294618243524
+    TagComponent:
+      Tag: Pine 5
+    TransformComponent:
+      Position: [10.671, -0.25, -4.64964]
+      Rotation: [0, 0.487575, 0]
+      Scale: [1.1188, 1.17474, 1.1188]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306723498384523794
+    TagComponent:
+      Tag: Pine Trunk 5
+    RelationshipComponent:
+      Parent: 17830710294618243524
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830713593153128157
+    TagComponent:
+      Tag: Pine 6
+    TransformComponent:
+      Position: [1.95279, -0.25, -14.5041]
+      Rotation: [0, 2.58993, 0]
+      Scale: [1.10505, 1.1603, 1.10505]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306722398872895583
+    TagComponent:
+      Tag: Pine Trunk 6
+    RelationshipComponent:
+      Parent: 17830713593153128157
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830712493641499946
+    TagComponent:
+      Tag: Pine 7
+    TransformComponent:
+      Position: [-13.7243, -0.25, -11.0662]
+      Rotation: [0, 4.69291, 0]
+      Scale: [1.0913, 1.14586, 1.0913]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306721299361267372
+    TagComponent:
+      Tag: Pine Trunk 7
+    RelationshipComponent:
+      Parent: 17830712493641499946
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830698199990333203
+    TagComponent:
+      Tag: Pine 8
+    TransformComponent:
+      Position: [-19.3925, -0.25, 7.02304]
+      Rotation: [0, 0.51208, 0]
+      Scale: [1.07755, 1.13143, 1.07755]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306728995942664849
+    TagComponent:
+      Tag: Pine Trunk 8
+    RelationshipComponent:
+      Parent: 17830698199990333203
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 17830697100478704992
+    TagComponent:
+      Tag: Pine 9
+    TransformComponent:
+      Position: [-2.17968, -0.25, 10.9043]
+      Rotation: [0, 2.61506, 0]
+      Scale: [1.0638, 1.11699, 1.0638]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8306727896431036638
+    TagComponent:
+      Tag: Pine Trunk 9
+    RelationshipComponent:
+      Parent: 17830697100478704992
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733498481477427672
+    TagComponent:
+      Tag: Pine 10
+    TransformComponent:
+      Position: [10.404, -0.25, 9.53886]
+      Rotation: [0, 4.71804, 0]
+      Scale: [1.05005, 1.10255, 1.05005]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920533252273129858
+    TagComponent:
+      Tag: Pine Trunk 10
+    RelationshipComponent:
+      Parent: 1733498481477427672
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733499580989055883
+    TagComponent:
+      Tag: Pine 11
+    TransformComponent:
+      Position: [16.4246, -0.25, -4.79418]
+      Rotation: [0, 0.537212, 0]
+      Scale: [1.0363, 1.08811, 1.0363]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920534351784758069
+    TagComponent:
+      Tag: Pine Trunk 11
+    RelationshipComponent:
+      Parent: 1733499580989055883
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733500680500684094
+    TagComponent:
+      Tag: Pine 12
+    TransformComponent:
+      Position: [5.18322, -0.25, -19.4254]
+      Rotation: [0, 2.64019, 0]
+      Scale: [1.02255, 1.07368, 1.02255]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920531053249873436
+    TagComponent:
+      Tag: Pine Trunk 12
+    RelationshipComponent:
+      Parent: 1733500680500684094
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733501780012312305
+    TagComponent:
+      Tag: Pine 13
+    TransformComponent:
+      Position: [-7.34312, -0.25, -7.64451]
+      Rotation: [0, 4.74318, 0]
+      Scale: [1.0088, 1.05924, 1.0088]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920532152761501647
+    TagComponent:
+      Tag: Pine Trunk 13
+    RelationshipComponent:
+      Parent: 1733501780012312305
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733502879523940516
+    TagComponent:
+      Tag: Pine 14
+    TransformComponent:
+      Position: [-13.2657, -0.25, 2.97399]
+      Rotation: [0, 0.562345, 0]
+      Scale: [0.99505, 1.0448, 0.99505]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920528854226617014
+    TagComponent:
+      Tag: Pine Trunk 14
+    RelationshipComponent:
+      Parent: 1733502879523940516
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733503979035568727
+    TagComponent:
+      Tag: Pine 15
+    TransformComponent:
+      Position: [-5.28495, -0.25, 15.7257]
+      Rotation: [0, 2.66533, 0]
+      Scale: [0.9813, 1.03036, 0.9813]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920529953738245225
+    TagComponent:
+      Tag: Pine Trunk 15
+    RelationshipComponent:
+      Parent: 1733503979035568727
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733505078547196938
+    TagComponent:
+      Tag: Pine 16
+    TransformComponent:
+      Position: [12.6444, -0.25, 14.9563]
+      Rotation: [0, 4.76768, 0]
+      Scale: [0.96755, 1.01593, 0.96755]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920526655203360592
+    TagComponent:
+      Tag: Pine Trunk 16
+    RelationshipComponent:
+      Parent: 1733505078547196938
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733506178058825149
+    TagComponent:
+      Tag: Pine 17
+    TransformComponent:
+      Position: [9.9559, -0.25, -1.57686]
+      Rotation: [0, 0.587478, 0]
+      Scale: [0.9538, 1.00149, 0.9538]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920527754714988803
+    TagComponent:
+      Tag: Pine Trunk 17
+    RelationshipComponent:
+      Parent: 1733506178058825149
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733489685384401984
+    TagComponent:
+      Tag: Pine 18
+    TransformComponent:
+      Position: [4.9428, -0.25, -12.1047]
+      Rotation: [0, 2.69046, 0]
+      Scale: [0.94, 0.987, 0.94]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920542048366155546
+    TagComponent:
+      Tag: Pine Trunk 18
+    RelationshipComponent:
+      Parent: 1733489685384401984
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1733490784896030195
+    TagComponent:
+      Tag: Pine 19
+    TransformComponent:
+      Position: [-9.57593, -0.25, -12.9053]
+      Rotation: [0, 4.79281, 0]
+      Scale: [0.92625, 0.972562, 0.92625]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8920543147877783757
+    TagComponent:
+      Tag: Pine Trunk 19
+    RelationshipComponent:
+      Parent: 1733490784896030195
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736438575570696211
+    TagComponent:
+      Tag: Pine 20
+    TransformComponent:
+      Position: [-18.9815, -0.25, 1.78225]
+      Rotation: [0, 0.612611, 0]
+      Scale: [0.9125, 0.958125, 0.9125]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919541492784672761
+    TagComponent:
+      Tag: Pine Trunk 20
+    RelationshipComponent:
+      Parent: 1736438575570696211
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736437476059068000
+    TagComponent:
+      Tag: Pine 21
+    TransformComponent:
+      Position: [-4.16802, -0.25, 8.60356]
+      Rotation: [0, 2.71559, 0]
+      Scale: [0.89875, 0.943688, 0.89875]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919540393273044550
+    TagComponent:
+      Tag: Pine Trunk 21
+    RelationshipComponent:
+      Parent: 1736437476059068000
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736440774593952633
+    TagComponent:
+      Tag: Pine 22
+    TransformComponent:
+      Position: [6.82691, -0.25, 10.5367]
+      Rotation: [0, 4.81795, 0]
+      Scale: [0.885, 0.92925, 0.885]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919539293761416339
+    TagComponent:
+      Tag: Pine Trunk 22
+    RelationshipComponent:
+      Parent: 1736440774593952633
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736439675082324422
+    TagComponent:
+      Tag: Pine 23
+    TransformComponent:
+      Position: [15.5429, -0.25, -0.468906]
+      Rotation: [0, 0.637743, 0]
+      Scale: [0.87125, 0.914813, 0.87125]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919538194249788128
+    TagComponent:
+      Tag: Pine Trunk 23
+    RelationshipComponent:
+      Parent: 1736439675082324422
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736442973617209055
+    TagComponent:
+      Tag: Pine 24
+    TransformComponent:
+      Position: [9.12749, -0.25, -16.1433]
+      Rotation: [0, 2.7401, 0]
+      Scale: [0.8575, 0.900375, 0.8575]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919545890831185605
+    TagComponent:
+      Tag: Pine Trunk 24
+    RelationshipComponent:
+      Parent: 1736442973617209055
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736441874105580844
+    TagComponent:
+      Tag: Pine 25
+    TransformComponent:
+      Position: [-4.42457, -0.25, -7.8832]
+      Rotation: [0, 4.84308, 0]
+      Scale: [0.84375, 0.885938, 0.84375]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919544791319557394
+    TagComponent:
+      Tag: Pine Trunk 25
+    RelationshipComponent:
+      Parent: 1736441874105580844
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736445172640465477
+    TagComponent:
+      Tag: Pine 26
+    TransformComponent:
+      Position: [-12.0283, -0.25, -0.400702]
+      Rotation: [0, 0.662876, 0]
+      Scale: [0.83, 0.8715, 0.83]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919543691807929183
+    TagComponent:
+      Tag: Pine Trunk 26
+    RelationshipComponent:
+      Parent: 1736445172640465477
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736444073128837266
+    TagComponent:
+      Tag: Pine 27
+    TransformComponent:
+      Position: [18.3623, -0.25, 8.86722]
+      Rotation: [0, 5.54994, 0]
+      Scale: [1.22585, 1.28714, 1.22585]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919542592296300972
+    TagComponent:
+      Tag: Pine Trunk 27
+    RelationshipComponent:
+      Parent: 1736444073128837266
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736447371663721899
+    TagComponent:
+      Tag: Pine 28
+    TransformComponent:
+      Position: [9.12874, -0.25, -5.93099]
+      Rotation: [0, 1.36973, 0]
+      Scale: [1.2121, 1.2727, 1.2121]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919550288877698449
+    TagComponent:
+      Tag: Pine Trunk 28
+    RelationshipComponent:
+      Parent: 1736447371663721899
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1736446272152093688
+    TagComponent:
+      Tag: Pine 29
+    TransformComponent:
+      Position: [-0.436021, -0.25, -13.8744]
+      Rotation: [0, 3.47209, 0]
+      Scale: [1.19835, 1.25827, 1.19835]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8919549189366070238
+    TagComponent:
+      Tag: Pine Trunk 29
+    RelationshipComponent:
+      Parent: 1736446272152093688
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735482000454341866
+    TagComponent:
+      Tag: Pine 30
+    TransformComponent:
+      Position: [-14.7011, -0.25, -8.28769]
+      Rotation: [0, 5.57507, 0]
+      Scale: [1.1846, 1.24383, 1.1846]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918549733296215664
+    TagComponent:
+      Tag: Pine Trunk 30
+    RelationshipComponent:
+      Parent: 1735482000454341866
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735483099965970077
+    TagComponent:
+      Tag: Pine 31
+    TransformComponent:
+      Position: [-17.3162, -0.25, 9.74762]
+      Rotation: [0, 1.39487, 0]
+      Scale: [1.17085, 1.22939, 1.17085]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918550832807843875
+    TagComponent:
+      Tag: Pine Trunk 31
+    RelationshipComponent:
+      Parent: 1735483099965970077
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735479801431085444
+    TagComponent:
+      Tag: Pine 32
+    TransformComponent:
+      Position: [-0.332122, -0.25, 10.3609]
+      Rotation: [0, 3.49722, 0]
+      Scale: [1.1571, 1.21496, 1.1571]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918551932319472086
+    TagComponent:
+      Tag: Pine Trunk 32
+    RelationshipComponent:
+      Parent: 1735479801431085444
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735480900942713655
+    TagComponent:
+      Tag: Pine 33
+    TransformComponent:
+      Position: [11.1996, -0.25, 7.28644]
+      Rotation: [0, 5.6002, 0]
+      Scale: [1.14335, 1.20052, 1.14335]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918553031831100297
+    TagComponent:
+      Tag: Pine Trunk 33
+    RelationshipComponent:
+      Parent: 1735480900942713655
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735477602407829022
+    TagComponent:
+      Tag: Pine 34
+    TransformComponent:
+      Position: [14.7333, -0.25, -7.10332]
+      Rotation: [0, 1.42, 0]
+      Scale: [1.12955, 1.18603, 1.12955]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918554131342728508
+    TagComponent:
+      Tag: Pine Trunk 34
+    RelationshipComponent:
+      Parent: 1735477602407829022
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735478701919457233
+    TagComponent:
+      Tag: Pine 35
+    TransformComponent:
+      Position: [1.84532, -0.25, -19.2631]
+      Rotation: [0, 3.52235, 0]
+      Scale: [1.1158, 1.17159, 1.1158]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918555230854356719
+    TagComponent:
+      Tag: Pine Trunk 35
+    RelationshipComponent:
+      Parent: 1735478701919457233
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735475403384572600
+    TagComponent:
+      Tag: Pine 36
+    TransformComponent:
+      Position: [-7.89613, -0.25, -5.88216]
+      Rotation: [0, 5.62534, 0]
+      Scale: [1.10205, 1.15715, 1.10205]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918556330365984930
+    TagComponent:
+      Tag: Pine Trunk 36
+    RelationshipComponent:
+      Parent: 1735475403384572600
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735476502896200811
+    TagComponent:
+      Tag: Pine 37
+    TransformComponent:
+      Position: [-11.8974, -0.25, 4.83202]
+      Rotation: [0, 1.4445, 0]
+      Scale: [1.0883, 1.14271, 1.0883]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918557429877613141
+    TagComponent:
+      Tag: Pine Trunk 37
+    RelationshipComponent:
+      Parent: 1735476502896200811
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735473204361316178
+    TagComponent:
+      Tag: Pine 38
+    TransformComponent:
+      Position: [-2.50681, -0.25, 15.6366]
+      Rotation: [0, 3.54749, 0]
+      Scale: [1.07455, 1.12828, 1.07455]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918558529389241352
+    TagComponent:
+      Tag: Pine Trunk 38
+    RelationshipComponent:
+      Parent: 1735473204361316178
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 1735474303872944389
+    TagComponent:
+      Tag: Pine 39
+    TransformComponent:
+      Position: [14.3577, -0.25, 12.1849]
+      Rotation: [0, 5.65047, 0]
+      Scale: [1.0608, 1.11384, 1.0608]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 14553671508285180132
+      Material: 6204932610722130860
+  - EntityID: 8918559628900869563
+    TagComponent:
+      Tag: Pine Trunk 39
+    RelationshipComponent:
+      Parent: 1735474303872944389
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973418325581017987
+    TagComponent:
+      Tag: Sapling 0
+    TransformComponent:
+      Position: [-9.40945, -0.2, -9.61264]
+      Rotation: [0, 4.54651, 0]
+      Scale: [0.8585, 0.8585, 0.8585]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756628240729863281
+    TagComponent:
+      Tag: Sapling Trunk 0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973418325581017987
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973417226069389776
+    TagComponent:
+      Tag: Sapling 1
+    TransformComponent:
+      Position: [-7.02617, -0.2, 1.64487]
+      Rotation: [0, 0.36631, 0]
+      Scale: [0.84475, 0.84475, 0.84475]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756627141218235070
+    TagComponent:
+      Tag: Sapling Trunk 1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973417226069389776
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973420524604274409
+    TagComponent:
+      Tag: Sapling 2
+    TransformComponent:
+      Position: [-2.84253, -0.2, 8.72973]
+      Rotation: [0, 2.46866, 0]
+      Scale: [0.831, 0.831, 0.831]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756626041706606859
+    TagComponent:
+      Tag: Sapling Trunk 2
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973420524604274409
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973419425092646198
+    TagComponent:
+      Tag: Sapling 3
+    TransformComponent:
+      Position: [4.3157, -0.2, -4.80925]
+      Rotation: [0, 1.07317, 0]
+      Scale: [1.22685, 1.22685, 1.22685]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756624942194978648
+    TagComponent:
+      Tag: Sapling Trunk 3
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973419425092646198
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973422723627530831
+    TagComponent:
+      Tag: Sapling 4
+    TransformComponent:
+      Position: [-2.44734, -0.2, -8.06324]
+      Rotation: [0, 3.17552, 0]
+      Scale: [1.2131, 1.2131, 1.2131]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756632638776376125
+    TagComponent:
+      Tag: Sapling Trunk 4
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973422723627530831
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973421624115902620
+    TagComponent:
+      Tag: Sapling 5
+    TransformComponent:
+      Position: [-10.0688, -0.2, -2.57173]
+      Rotation: [0, 5.2785, 0]
+      Scale: [1.19935, 1.19935, 1.19935]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756631539264747914
+    TagComponent:
+      Tag: Sapling Trunk 5
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973421624115902620
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973424922650787253
+    TagComponent:
+      Tag: Sapling 6
+    TransformComponent:
+      Position: [-8.81948, -0.2, 8.65478]
+      Rotation: [0, 1.0983, 0]
+      Scale: [1.1856, 1.1856, 1.1856]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756630439753119703
+    TagComponent:
+      Tag: Sapling Trunk 6
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973424922650787253
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973423823139159042
+    TagComponent:
+      Tag: Sapling 7
+    TransformComponent:
+      Position: [1.40283, -0.2, 5.95853]
+      Rotation: [0, 3.20065, 0]
+      Scale: [1.17185, 1.17185, 1.17185]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756629340241491492
+    TagComponent:
+      Tag: Sapling Trunk 7
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973423823139159042
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973427121674043675
+    TagComponent:
+      Tag: Sapling 8
+    TransformComponent:
+      Position: [7.69196, -0.2, 2.49393]
+      Rotation: [0, 5.30364, 0]
+      Scale: [1.1581, 1.1581, 1.1581]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756619444636837593
+    TagComponent:
+      Tag: Sapling Trunk 8
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973427121674043675
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14973426022162415464
+    TagComponent:
+      Tag: Sapling 9
+    TransformComponent:
+      Position: [7.60571, -0.2, -6.57064]
+      Rotation: [0, 1.12343, 0]
+      Scale: [1.14435, 1.14435, 1.14435]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 11756618345125209382
+    TagComponent:
+      Tag: Sapling Trunk 9
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 14973426022162415464
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450426599808581536
+    TagComponent:
+      Tag: Sapling 10
+    TransformComponent:
+      Position: [-2.00631, -0.2, -11.8469]
+      Rotation: [0, 3.22579, 0]
+      Scale: [1.1306, 1.1306, 1.1306]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921345448648091466
+    TagComponent:
+      Tag: Sapling Trunk 10
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450426599808581536
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450427699320209747
+    TagComponent:
+      Tag: Sapling 11
+    TransformComponent:
+      Position: [-12.9986, -0.2, -5.1465]
+      Rotation: [0, 5.32877, 0]
+      Scale: [1.11685, 1.11685, 1.11685]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921346548159719677
+    TagComponent:
+      Tag: Sapling Trunk 11
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450427699320209747
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450428798831837958
+    TagComponent:
+      Tag: Sapling 12
+    TransformComponent:
+      Position: [-6.17014, -0.2, 4.68135]
+      Rotation: [0, 1.14794, 0]
+      Scale: [1.1031, 1.1031, 1.1031]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921343249624835044
+    TagComponent:
+      Tag: Sapling Trunk 12
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450428798831837958
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450429898343466169
+    TagComponent:
+      Tag: Sapling 13
+    TransformComponent:
+      Position: [1.0109, -0.2, 9.65699]
+      Rotation: [0, 3.25092, 0]
+      Scale: [1.08935, 1.08935, 1.08935]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921344349136463255
+    TagComponent:
+      Tag: Sapling Trunk 13
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450429898343466169
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450430997855094380
+    TagComponent:
+      Tag: Sapling 14
+    TransformComponent:
+      Position: [10.5603, -0.2, 4.97739]
+      Rotation: [0, 5.3539, 0]
+      Scale: [1.07555, 1.07555, 1.07555]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921341050601578622
+    TagComponent:
+      Tag: Sapling Trunk 14
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450430997855094380
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450432097366722591
+    TagComponent:
+      Tag: Sapling 15
+    TransformComponent:
+      Position: [11.3667, -0.2, -7.5383]
+      Rotation: [0, 1.17307, 0]
+      Scale: [1.0618, 1.0618, 1.0618]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921342150113206833
+    TagComponent:
+      Tag: Sapling Trunk 15
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450432097366722591
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450433196878350802
+    TagComponent:
+      Tag: Sapling 16
+    TransformComponent:
+      Position: [-0.302297, -0.2, -7.39775]
+      Rotation: [0, 3.27605, 0]
+      Scale: [1.04805, 1.04805, 1.04805]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921338851578322200
+    TagComponent:
+      Tag: Sapling Trunk 16
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450433196878350802
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450434296389979013
+    TagComponent:
+      Tag: Sapling 17
+    TransformComponent:
+      Position: [-8.20412, -0.2, -4.52369]
+      Rotation: [0, 5.37841, 0]
+      Scale: [1.0343, 1.0343, 1.0343]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921339951089950411
+    TagComponent:
+      Tag: Sapling Trunk 17
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450434296389979013
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450435395901607224
+    TagComponent:
+      Tag: Sapling 18
+    TransformComponent:
+      Position: [-9.82327, -0.2, 5.65228]
+      Rotation: [0, 1.1982, 0]
+      Scale: [1.02055, 1.02055, 1.02055]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921336652555065778
+    TagComponent:
+      Tag: Sapling Trunk 18
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450435395901607224
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12450436495413235435
+    TagComponent:
+      Tag: Sapling 19
+    TransformComponent:
+      Position: [-0.30077, -0.2, 13.2947]
+      Rotation: [0, 3.30119, 0]
+      Scale: [1.0068, 1.0068, 1.0068]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4921337752066693989
+    TagComponent:
+      Tag: Sapling Trunk 19
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12450436495413235435
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453261140785541819
+    TagComponent:
+      Tag: Sapling 20
+    TransformComponent:
+      Position: [5.95618, -0.2, 3.79567]
+      Rotation: [0, 5.40354, 0]
+      Scale: [0.99305, 0.99305, 0.99305]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920494426648045377
+    TagComponent:
+      Tag: Sapling Trunk 20
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453261140785541819
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453260041273913608
+    TagComponent:
+      Tag: Sapling 21
+    TransformComponent:
+      Position: [8.09444, -0.2, -3.99701]
+      Rotation: [0, 1.22334, 0]
+      Scale: [0.9793, 0.9793, 0.9793]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920493327136417166
+    TagComponent:
+      Tag: Sapling Trunk 21
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453260041273913608
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453263339808798241
+    TagComponent:
+      Tag: Sapling 22
+    TransformComponent:
+      Position: [0.94504, -0.2, -10.9515]
+      Rotation: [0, 3.32632, 0]
+      Scale: [0.96555, 0.96555, 0.96555]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920492227624788955
+    TagComponent:
+      Tag: Sapling Trunk 22
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453263339808798241
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453262240297170030
+    TagComponent:
+      Tag: Sapling 23
+    TransformComponent:
+      Position: [-10.4632, -0.2, -7.64223]
+      Rotation: [0, 5.42867, 0]
+      Scale: [0.9518, 0.9518, 0.9518]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920491128113160744
+    TagComponent:
+      Tag: Sapling Trunk 23
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453262240297170030
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453265538832054663
+    TagComponent:
+      Tag: Sapling 24
+    TransformComponent:
+      Position: [-6.20354, -0.2, 2.58787]
+      Rotation: [0, 1.24847, 0]
+      Scale: [0.93805, 0.93805, 0.93805]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920498824694558221
+    TagComponent:
+      Tag: Sapling Trunk 24
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453265538832054663
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453264439320426452
+    TagComponent:
+      Tag: Sapling 25
+    TransformComponent:
+      Position: [-1.29413, -0.2, 8.58946]
+      Rotation: [0, 3.35082, 0]
+      Scale: [0.9243, 0.9243, 0.9243]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920497725182930010
+    TagComponent:
+      Tag: Sapling Trunk 25
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453264439320426452
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453267737855311085
+    TagComponent:
+      Tag: Sapling 26
+    TransformComponent:
+      Position: [8.18546, -0.2, 6.81503]
+      Rotation: [0, 5.4538, 0]
+      Scale: [0.91055, 0.91055, 0.91055]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920496625671301799
+    TagComponent:
+      Tag: Sapling Trunk 26
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453267737855311085
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453266638343682874
+    TagComponent:
+      Tag: Sapling 27
+    TransformComponent:
+      Position: [11.9279, -0.2, -4.10898]
+      Rotation: [0, 1.2736, 0]
+      Scale: [0.8968, 0.8968, 0.8968]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920495526159673588
+    TagComponent:
+      Tag: Sapling Trunk 27
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453266638343682874
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453252344692516131
+    TagComponent:
+      Tag: Sapling 28
+    TransformComponent:
+      Position: [1.34881, -0.2, -6.23637]
+      Rotation: [0, 3.37596, 0]
+      Scale: [0.88305, 0.88305, 0.88305]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920485630555019689
+    TagComponent:
+      Tag: Sapling Trunk 28
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453252344692516131
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 12453251245180887920
+    TagComponent:
+      Tag: Sapling 29
+    TransformComponent:
+      Position: [-6.06246, -0.2, -5.73619]
+      Rotation: [0, 5.47894, 0]
+      Scale: [0.8693, 0.8693, 0.8693]
+    RelationshipComponent:
+      Parent: 6883162270153339232
+    MeshComponent:
+      Mesh: 18067670757081584947
+      Material: 6204932610722130860
+  - EntityID: 4920484531043391478
+    TagComponent:
+      Tag: Sapling Trunk 29
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.7, 0.8]
+    RelationshipComponent:
+      Parent: 12453251245180887920
+    MeshComponent:
+      Mesh: 8002729216336682092
+      Material: 11846833316922297773
+  - EntityID: 14695676026078099937
+    TagComponent:
+      Tag: Scatter
+  - EntityID: 7917564945739270040
+    TagComponent:
+      Tag: Tuft 0
+    TransformComponent:
+      Position: [3.68479, 0, 1.13359]
+      Rotation: [0, 4.86193, 0]
+      Scale: [1.18065, 1.53485, 1.18065]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917566045250898251
+    TagComponent:
+      Tag: Tuft 1
+    TransformComponent:
+      Position: [5.27663, 0, -4.69932]
+      Rotation: [0, 0.681097, 0]
+      Scale: [1.1669, 1.51697, 1.1669]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917567144762526462
+    TagComponent:
+      Tag: Tuft 2
+    TransformComponent:
+      Position: [-1.86851, 0, -10.1052]
+      Rotation: [0, 2.78408, 0]
+      Scale: [1.15315, 1.49909, 1.15315]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917568244274154673
+    TagComponent:
+      Tag: Tuft 3
+    TransformComponent:
+      Position: [-12.6135, 0, -4.77529]
+      Rotation: [0, 4.88643, 0]
+      Scale: [1.1394, 1.48122, 1.1394]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917569343785782884
+    TagComponent:
+      Tag: Tuft 4
+    TransformComponent:
+      Position: [-2.59684, 0, 2.03267]
+      Rotation: [0, 0.70623, 0]
+      Scale: [1.12565, 1.46334, 1.12565]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917570443297411095
+    TagComponent:
+      Tag: Tuft 5
+    TransformComponent:
+      Position: [0.775134, 0, 6.4621]
+      Rotation: [0, 2.80921, 0]
+      Scale: [1.1119, 1.44547, 1.1119]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917571542809039306
+    TagComponent:
+      Tag: Tuft 6
+    TransformComponent:
+      Position: [8.85295, 0, 4.01066]
+      Rotation: [0, 4.91157, 0]
+      Scale: [1.09815, 1.42759, 1.09815]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917572642320667517
+    TagComponent:
+      Tag: Tuft 7
+    TransformComponent:
+      Position: [10.6664, 0, -7.30783]
+      Rotation: [0, 0.731363, 0]
+      Scale: [1.0844, 1.40972, 1.0844]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917556149646244352
+    TagComponent:
+      Tag: Tuft 8
+    TransformComponent:
+      Position: [-0.153161, 0, -2.73606]
+      Rotation: [0, 2.83434, 0]
+      Scale: [1.07065, 1.39184, 1.07065]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 7917557249157872563
+    TagComponent:
+      Tag: Tuft 9
+    TransformComponent:
+      Position: [-5.25401, 0, -2.79455]
+      Rotation: [0, 4.9367, 0]
+      Scale: [1.0569, 1.37397, 1.0569]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725643081161595905
+    TagComponent:
+      Tag: Tuft 10
+    TransformComponent:
+      Position: [-7.8711, 0, 4.68839]
+      Rotation: [0, 0.756496, 0]
+      Scale: [1.04315, 1.3561, 1.04315]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725641981649967694
+    TagComponent:
+      Tag: Tuft 11
+    TransformComponent:
+      Position: [-0.0932838, 0, 12.3719]
+      Rotation: [0, 2.85885, 0]
+      Scale: [1.0294, 1.33822, 1.0294]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725640882138339483
+    TagComponent:
+      Tag: Tuft 12
+    TransformComponent:
+      Position: [1.85836, 0, 1.14524]
+      Rotation: [0, 4.96183, 0]
+      Scale: [1.01565, 1.32034, 1.01565]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725639782626711272
+    TagComponent:
+      Tag: Tuft 13
+    TransformComponent:
+      Position: [4.79951, 0, -2.46069]
+      Rotation: [0, 0.781628, 0]
+      Scale: [1.00185, 1.30241, 1.00185]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725647479208108749
+    TagComponent:
+      Tag: Tuft 14
+    TransformComponent:
+      Position: [0.610384, 0, -8.5825]
+      Rotation: [0, 2.88398, 0]
+      Scale: [0.9881, 1.28453, 0.9881]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725646379696480538
+    TagComponent:
+      Tag: Tuft 15
+    TransformComponent:
+      Position: [-9.646, 0, -6.82469]
+      Rotation: [0, 4.98696, 0]
+      Scale: [0.97435, 1.26665, 0.97435]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725645280184852327
+    TagComponent:
+      Tag: Tuft 16
+    TransformComponent:
+      Position: [-1.49178, 0, 0.648893]
+      Rotation: [0, 0.806133, 0]
+      Scale: [0.9606, 1.24878, 0.9606]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725644180673224116
+    TagComponent:
+      Tag: Tuft 17
+    TransformComponent:
+      Position: [-0.648485, 0, 4.79378]
+      Rotation: [0, 2.90911, 0]
+      Scale: [0.94685, 1.2309, 0.94685]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725634285068570217
+    TagComponent:
+      Tag: Tuft 18
+    TransformComponent:
+      Position: [6.26195, 0, 5.05565]
+      Rotation: [0, 5.0121, 0]
+      Scale: [0.9331, 1.21303, 0.9331]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10725633185556942006
+    TagComponent:
+      Tag: Tuft 19
+    TransformComponent:
+      Position: [10.5883, 0, -3.82706]
+      Rotation: [0, 0.831265, 0]
+      Scale: [0.91935, 1.19515, 0.91935]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726494103161641994
+    TagComponent:
+      Tag: Tuft 20
+    TransformComponent:
+      Position: [2.84512, 0, -14.1869]
+      Rotation: [0, 2.93425, 0]
+      Scale: [0.9056, 1.17728, 0.9056]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726495202673270205
+    TagComponent:
+      Tag: Tuft 21
+    TransformComponent:
+      Position: [-3.15292, 0, -2.89439]
+      Rotation: [0, 5.03723, 0]
+      Scale: [0.89185, 1.15941, 0.89185]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726491904138385572
+    TagComponent:
+      Tag: Tuft 22
+    TransformComponent:
+      Position: [-7.1919, 0, 2.09434]
+      Rotation: [0, 0.856398, 0]
+      Scale: [0.8781, 1.14153, 0.8781]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726493003650013783
+    TagComponent:
+      Tag: Tuft 23
+    TransformComponent:
+      Position: [-2.76537, 0, 10.3378]
+      Rotation: [0, 2.95938, 0]
+      Scale: [0.86435, 1.12366, 0.86435]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726489705115129150
+    TagComponent:
+      Tag: Tuft 24
+    TransformComponent:
+      Position: [9.63114, 0, 10.0391]
+      Rotation: [0, 5.06173, 0]
+      Scale: [0.8506, 1.10578, 0.8506]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726490804626757361
+    TagComponent:
+      Tag: Tuft 25
+    TransformComponent:
+      Position: [3.63291, 0, -0.812051]
+      Rotation: [0, 0.881531, 0]
+      Scale: [0.83685, 1.08791, 0.83685]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726487506091872728
+    TagComponent:
+      Tag: Tuft 26
+    TransformComponent:
+      Position: [2.21278, 0, -6.5706]
+      Rotation: [0, 2.98451, 0]
+      Scale: [0.8231, 1.07003, 0.8231]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726488605603500939
+    TagComponent:
+      Tag: Tuft 27
+    TransformComponent:
+      Position: [-1.68142, 0, 1.83623]
+      Rotation: [0, 1.58839, 0]
+      Scale: [1.21895, 1.58464, 1.21895]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726485307068616306
+    TagComponent:
+      Tag: Tuft 28
+    TransformComponent:
+      Position: [1.60068, 0, 5.47105]
+      Rotation: [0, 3.69137, 0]
+      Scale: [1.2052, 1.56676, 1.2052]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10726486406580244517
+    TagComponent:
+      Tag: Tuft 29
+    TransformComponent:
+      Position: [8.61126, 0, 2.29192]
+      Rotation: [0, 5.79373, 0]
+      Scale: [1.19145, 1.54888, 1.19145]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727450678277996339
+    TagComponent:
+      Tag: Tuft 30
+    TransformComponent:
+      Position: [8.73664, 0, -8.40276]
+      Rotation: [0, 1.61352, 0]
+      Scale: [1.17765, 1.53094, 1.17765]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727449578766368128
+    TagComponent:
+      Tag: Tuft 31
+    TransformComponent:
+      Position: [-0.423892, 0, -1.88525]
+      Rotation: [0, 3.7165, 0]
+      Scale: [1.1639, 1.51307, 1.1639]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727452877301252761
+    TagComponent:
+      Tag: Tuft 32
+    TransformComponent:
+      Position: [-4.87605, 0, -1.63529]
+      Rotation: [0, 5.81886, 0]
+      Scale: [1.15015, 1.4952, 1.15015]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727451777789624550
+    TagComponent:
+      Tag: Tuft 33
+    TransformComponent:
+      Position: [-6.37593, 0, 5.39724]
+      Rotation: [0, 1.63865, 0]
+      Scale: [1.1364, 1.47732, 1.1364]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727455076324509183
+    TagComponent:
+      Tag: Tuft 34
+    TransformComponent:
+      Position: [1.81622, 0, 11.4207]
+      Rotation: [0, 3.74164, 0]
+      Scale: [1.12265, 1.45944, 1.12265]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727453976812880972
+    TagComponent:
+      Tag: Tuft 35
+    TransformComponent:
+      Position: [13.682, 0, 5.57682]
+      Rotation: [0, 5.84399, 0]
+      Scale: [1.1089, 1.44157, 1.1089]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727457275347765605
+    TagComponent:
+      Tag: Tuft 36
+    TransformComponent:
+      Position: [3.68076, 0, -2.73477]
+      Rotation: [0, 1.66379, 0]
+      Scale: [1.09515, 1.42369, 1.09515]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727456175836137394
+    TagComponent:
+      Tag: Tuft 37
+    TransformComponent:
+      Position: [-0.733683, 0, -7.76156]
+      Rotation: [0, 3.76614, 0]
+      Scale: [1.0814, 1.40582, 1.0814]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727459474371022027
+    TagComponent:
+      Tag: Tuft 38
+    TransformComponent:
+      Position: [-9.90863, 0, -4.79258]
+      Rotation: [0, 5.86912, 0]
+      Scale: [1.06765, 1.38794, 1.06765]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10727458374859393816
+    TagComponent:
+      Tag: Tuft 39
+    TransformComponent:
+      Position: [-11.9281, 0, 7.73911]
+      Rotation: [0, 1.68892, 0]
+      Scale: [1.0539, 1.37007, 1.0539]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728442437766453436
+    TagComponent:
+      Tag: Tuft 40
+    TransformComponent:
+      Position: [0.124037, 0, 4.02751]
+      Rotation: [0, 3.79127, 0]
+      Scale: [1.04015, 1.3522, 1.04015]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728443537278081647
+    TagComponent:
+      Tag: Tuft 41
+    TransformComponent:
+      Position: [6.30466, 0, 3.55946]
+      Rotation: [0, 5.89426, 0]
+      Scale: [1.0264, 1.33432, 1.0264]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728444636789709858
+    TagComponent:
+      Tag: Tuft 42
+    TransformComponent:
+      Position: [9.11016, 0, -5.12075]
+      Rotation: [0, 1.71405, 0]
+      Scale: [1.01265, 1.31644, 1.01265]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728445736301338069
+    TagComponent:
+      Tag: Tuft 43
+    TransformComponent:
+      Position: [0.446272, 0, -13.654]
+      Rotation: [0, 3.81641, 0]
+      Scale: [0.9989, 1.29857, 0.9989]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728438039719940592
+    TagComponent:
+      Tag: Tuft 44
+    TransformComponent:
+      Position: [-2.90907, 0, -1.89524]
+      Rotation: [0, 5.91939, 0]
+      Scale: [0.98515, 1.28069, 0.98515]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728439139231568803
+    TagComponent:
+      Tag: Tuft 45
+    TransformComponent:
+      Position: [-6.02135, 0, 2.8984]
+      Rotation: [0, 1.73856, 0]
+      Scale: [0.9714, 1.26282, 0.9714]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728440238743197014
+    TagComponent:
+      Tag: Tuft 46
+    TransformComponent:
+      Position: [-0.949602, 0, 9.84758]
+      Rotation: [0, 3.84154, 0]
+      Scale: [0.9576, 1.24488, 0.9576]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728441338254825225
+    TagComponent:
+      Tag: Tuft 47
+    TransformComponent:
+      Position: [10.5037, 0, 7.83489]
+      Rotation: [0, 5.94452, 0]
+      Scale: [0.94385, 1.227, 0.94385]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728451233859479124
+    TagComponent:
+      Tag: Tuft 48
+    TransformComponent:
+      Position: [2.70102, 0, -1.09501]
+      Rotation: [0, 1.76369, 0]
+      Scale: [0.9301, 1.20913, 0.9301]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10728452333371107335
+    TagComponent:
+      Tag: Tuft 49
+    TransformComponent:
+      Position: [0.973391, 0, -6.04734]
+      Rotation: [0, 3.86667, 0]
+      Scale: [0.91635, 1.19125, 0.91635]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729434197254910533
+    TagComponent:
+      Tag: Tuft 50
+    TransformComponent:
+      Position: [-7.11423, 0, -6.04527]
+      Rotation: [0, 5.96903, 0]
+      Scale: [0.9026, 1.17338, 0.9026]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729433097743282322
+    TagComponent:
+      Tag: Tuft 51
+    TransformComponent:
+      Position: [-11.9028, 0, 3.96693]
+      Rotation: [0, 1.78882, 0]
+      Scale: [0.88885, 1.15551, 0.88885]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729431998231654111
+    TagComponent:
+      Tag: Tuft 52
+    TransformComponent:
+      Position: [-0.52141, 0, 2.29871]
+      Rotation: [0, 3.8918, 0]
+      Scale: [0.8751, 1.13763, 0.8751]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729430898720025900
+    TagComponent:
+      Tag: Tuft 53
+    TransformComponent:
+      Position: [4.00564, 0, 3.86712]
+      Rotation: [0, 5.99416, 0]
+      Scale: [0.86135, 1.11976, 0.86135]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729429799208397689
+    TagComponent:
+      Tag: Tuft 54
+    TransformComponent:
+      Position: [8.4873, 0, -2.24181]
+      Rotation: [0, 1.81396, 0]
+      Scale: [0.8476, 1.10188, 0.8476]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729428699696769478
+    TagComponent:
+      Tag: Tuft 55
+    TransformComponent:
+      Position: [3.38821, 0, -11.5003]
+      Rotation: [0, 3.91694, 0]
+      Scale: [0.83385, 1.08401, 0.83385]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729427600185141267
+    TagComponent:
+      Tag: Tuft 56
+    TransformComponent:
+      Position: [-1.21287, 0, -1.32956]
+      Rotation: [0, 6.01929, 0]
+      Scale: [0.8201, 1.06613, 0.8201]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729426500673513056
+    TagComponent:
+      Tag: Tuft 57
+    TransformComponent:
+      Position: [3.41371, 0, 10.2001]
+      Rotation: [0, 4.6238, 0]
+      Scale: [1.21595, 1.58073, 1.21595]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729442993347936221
+    TagComponent:
+      Tag: Tuft 58
+    TransformComponent:
+      Position: [13.6247, 0, 3.07246]
+      Rotation: [0, 0.442965, 0]
+      Scale: [1.2022, 1.56286, 1.2022]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10729441893836308010
+    TagComponent:
+      Tag: Tuft 59
+    TransformComponent:
+      Position: [2.62028, 0, -2.72097]
+      Rotation: [0, 2.54595, 0]
+      Scale: [1.18845, 1.54499, 1.18845]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730425956743367630
+    TagComponent:
+      Tag: Tuft 60
+    TransformComponent:
+      Position: [-1.79311, 0, -6.75417]
+      Rotation: [0, 4.64893, 0]
+      Scale: [1.1747, 1.52711, 1.1747]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730427056254995841
+    TagComponent:
+      Tag: Tuft 61
+    TransformComponent:
+      Position: [-9.78664, 0, -2.86997]
+      Rotation: [0, 0.468097, 0]
+      Scale: [1.16095, 1.50923, 1.16095]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730423757720111208
+    TagComponent:
+      Tag: Tuft 62
+    TransformComponent:
+      Position: [-9.89531, 0, 9.04961]
+      Rotation: [0, 2.57108, 0]
+      Scale: [1.14715, 1.49129, 1.14715]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730424857231739419
+    TagComponent:
+      Tag: Tuft 63
+    TransformComponent:
+      Position: [0.62721, 0, 3.15838]
+      Rotation: [0, 4.67343, 0]
+      Scale: [1.1334, 1.47342, 1.1334]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730430354789880474
+    TagComponent:
+      Tag: Tuft 64
+    TransformComponent:
+      Position: [6.04491, 0, 2.19778]
+      Rotation: [0, 0.49323, 0]
+      Scale: [1.11965, 1.45555, 1.11965]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730431454301508685
+    TagComponent:
+      Tag: Tuft 65
+    TransformComponent:
+      Position: [7.51406, 0, -6.04319]
+      Rotation: [0, 2.59621, 0]
+      Scale: [1.1059, 1.43767, 1.1059]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730428155766624052
+    TagComponent:
+      Tag: Tuft 66
+    TransformComponent:
+      Position: [-1.69904, 0, -12.7405]
+      Rotation: [0, 4.69857, 0]
+      Scale: [1.09215, 1.41979, 1.09215]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730429255278252263
+    TagComponent:
+      Tag: Tuft 67
+    TransformComponent:
+      Position: [-2.44086, 0, -1.0672]
+      Rotation: [0, 0.518363, 0]
+      Scale: [1.0784, 1.40192, 1.0784]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730417160650341942
+    TagComponent:
+      Tag: Tuft 68
+    TransformComponent:
+      Position: [-4.80205, 0, 3.38396]
+      Rotation: [0, 2.62134, 0]
+      Scale: [1.06465, 1.38404, 1.06465]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10730418260161970153
+    TagComponent:
+      Tag: Tuft 69
+    TransformComponent:
+      Position: [0.627427, 0, 9.06355]
+      Rotation: [0, 4.7237, 0]
+      Scale: [1.0509, 1.36617, 1.0509]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731276978743413719
+    TagComponent:
+      Tag: Tuft 70
+    TransformComponent:
+      Position: [10.9311, 0, 5.63034]
+      Rotation: [0, 0.543496, 0]
+      Scale: [1.03715, 1.3483, 1.03715]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731275879231785508
+    TagComponent:
+      Tag: Tuft 71
+    TransformComponent:
+      Position: [1.79541, 0, -1.10178]
+      Rotation: [0, 2.64585, 0]
+      Scale: [1.0234, 1.33042, 1.0234]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731279177766670141
+    TagComponent:
+      Tag: Tuft 72
+    TransformComponent:
+      Position: [-0.0300677, 0, -5.31707]
+      Rotation: [0, 4.74883, 0]
+      Scale: [1.00965, 1.31255, 1.00965]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731278078255041930
+    TagComponent:
+      Tag: Tuft 73
+    TransformComponent:
+      Position: [-7.31832, 0, -4.37784]
+      Rotation: [0, 0.568628, 0]
+      Scale: [0.9959, 1.29467, 0.9959]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731272580696900875
+    TagComponent:
+      Tag: Tuft 74
+    TransformComponent:
+      Position: [-10.374, 0, 5.49277]
+      Rotation: [0, 2.67098, 0]
+      Scale: [0.98215, 1.27679, 0.98215]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731271481185272664
+    TagComponent:
+      Tag: Tuft 75
+    TransformComponent:
+      Position: [-0.863655, 0, 14.9241]
+      Rotation: [0, 4.77396, 0]
+      Scale: [0.9684, 1.25892, 0.9684]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731274779720157297
+    TagComponent:
+      Tag: Tuft 76
+    TransformComponent:
+      Position: [3.92148, 0, 2.69758]
+      Rotation: [0, 0.593133, 0]
+      Scale: [0.95465, 1.24104, 0.95465]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731273680208529086
+    TagComponent:
+      Tag: Tuft 77
+    TransformComponent:
+      Position: [7.26627, 0, -3.27535]
+      Rotation: [0, 2.69611, 0]
+      Scale: [0.9409, 1.22317, 0.9409]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731268182650388031
+    TagComponent:
+      Tag: Tuft 78
+    TransformComponent:
+      Position: [1.35255, 0, -11.0989]
+      Rotation: [0, 4.7991, 0]
+      Scale: [0.9271, 1.20523, 0.9271]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10731267083138759820
+    TagComponent:
+      Tag: Tuft 79
+    TransformComponent:
+      Position: [-11.316, 0, -8.89201]
+      Rotation: [0, 0.618265, 0]
+      Scale: [0.91335, 1.18735, 0.91335]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717033905114406800
+    TagComponent:
+      Tag: Tuft 80
+    TransformComponent:
+      Position: [-3.93286, 0, 1.48046]
+      Rotation: [0, 2.72125, 0]
+      Scale: [0.8996, 1.16948, 0.8996]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717035004626035011
+    TagComponent:
+      Tag: Tuft 81
+    TransformComponent:
+      Position: [-1.36158, 0, 7.2868]
+      Rotation: [0, 4.82423, 0]
+      Scale: [0.88585, 1.1516, 0.88585]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717036104137663222
+    TagComponent:
+      Tag: Tuft 82
+    TransformComponent:
+      Position: [7.9201, 0, 7.08039]
+      Rotation: [0, 0.643398, 0]
+      Scale: [0.8721, 1.13373, 0.8721]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717037203649291433
+    TagComponent:
+      Tag: Tuft 83
+    TransformComponent:
+      Position: [13.2303, 0, -4.04288]
+      Rotation: [0, 2.74638, 0]
+      Scale: [0.85835, 1.11586, 0.85835]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717038303160919644
+    TagComponent:
+      Tag: Tuft 84
+    TransformComponent:
+      Position: [0.89534, 0, -3.53316]
+      Rotation: [0, 4.84873, 0]
+      Scale: [0.8446, 1.09798, 0.8446]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717039402672547855
+    TagComponent:
+      Tag: Tuft 85
+    TransformComponent:
+      Position: [-4.81087, 0, -4.88397]
+      Rotation: [0, 0.668531, 0]
+      Scale: [0.83085, 1.08011, 0.83085]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717040502184176066
+    TagComponent:
+      Tag: Tuft 86
+    TransformComponent:
+      Position: [0.852595, 0, 2.25633]
+      Rotation: [0, 5.55622, 0]
+      Scale: [1.2267, 1.59471, 1.2267]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717041601695804277
+    TagComponent:
+      Tag: Tuft 87
+    TransformComponent:
+      Position: [5.52831, 0, 1.02581]
+      Rotation: [0, 1.37539, 0]
+      Scale: [1.21295, 1.57683, 1.21295]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717042701207432488
+    TagComponent:
+      Tag: Tuft 88
+    TransformComponent:
+      Position: [5.87985, 0, -6.59383]
+      Rotation: [0, 3.47837, 0]
+      Scale: [1.1992, 1.55896, 1.1992]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10717043800719060699
+    TagComponent:
+      Tag: Tuft 89
+    TransformComponent:
+      Position: [-3.53457, 0, -11.515]
+      Rotation: [0, 5.58135, 0]
+      Scale: [1.18545, 1.54108, 1.18545]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 907700210567673406
+      Material: 11562440122717746241
+  - EntityID: 10803120428840306554
+    TagComponent:
+      Tag: Stone 0
+    TransformComponent:
+      Position: [6.60405, 0, 13.2689]
+      Rotation: [0, 3.39543, 0]
+      Scale: [0.46435, 0.315758, 0.46435]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803121528351934765
+    TagComponent:
+      Tag: Stone 1
+    TransformComponent:
+      Position: [4.31308, 0, 0.358541]
+      Rotation: [0, 5.49842, 0]
+      Scale: [0.457475, 0.311083, 0.457475]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803118229817050132
+    TagComponent:
+      Tag: Stone 2
+    TransformComponent:
+      Position: [4.48434, 0, -6.18033]
+      Rotation: [0, 1.31758, 0]
+      Scale: [0.4506, 0.306408, 0.4506]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803119329328678343
+    TagComponent:
+      Tag: Stone 3
+    TransformComponent:
+      Position: [-4.24454, 0, -10.0855]
+      Rotation: [0, 3.42057, 0]
+      Scale: [0.4437, 0.301716, 0.4437]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803116030793793710
+    TagComponent:
+      Tag: Stone 4
+    TransformComponent:
+      Position: [-14.0964, 0, -2.07855]
+      Rotation: [0, 5.52292, 0]
+      Scale: [0.436825, 0.297041, 0.436825]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803117130305421921
+    TagComponent:
+      Tag: Stone 5
+    TransformComponent:
+      Position: [-2.39369, 0, 2.89348]
+      Rotation: [0, 1.34272, 0]
+      Scale: [0.42995, 0.292366, 0.42995]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803113831770537288
+    TagComponent:
+      Tag: Stone 6
+    TransformComponent:
+      Position: [2.32097, 0, 6.66943]
+      Rotation: [0, 3.4457, 0]
+      Scale: [0.423075, 0.287691, 0.423075]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803114931282165499
+    TagComponent:
+      Tag: Stone 7
+    TransformComponent:
+      Position: [10.1407, 0, 2.15992]
+      Rotation: [0, 5.54805, 0]
+      Scale: [0.4162, 0.283016, 0.4162]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803111632747280866
+    TagComponent:
+      Tag: Stone 8
+    TransformComponent:
+      Position: [-4.69235, 0, -3.3957]
+      Rotation: [0, 4.15256, 0]
+      Scale: [0.614125, 0.417605, 0.614125]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10803112732258909077
+    TagComponent:
+      Tag: Stone 9
+    TransformComponent:
+      Position: [-8.38176, 0, 3.53991]
+      Rotation: [0, 6.25491, 0]
+      Scale: [0.60725, 0.41293, 0.60725]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050368388973444167
+    TagComponent:
+      Tag: Stone 10
+    TransformComponent:
+      Position: [-1.79418, 0, 12.2747]
+      Rotation: [0, 2.07471, 0]
+      Scale: [0.600375, 0.408255, 0.600375]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050367289461815956
+    TagComponent:
+      Tag: Stone 11
+    TransformComponent:
+      Position: [12.1186, 0, 9.99972]
+      Rotation: [0, 4.17769, 0]
+      Scale: [0.5935, 0.40358, 0.5935]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050370587996700589
+    TagComponent:
+      Tag: Stone 12
+    TransformComponent:
+      Position: [4.92601, 0, -1.72121]
+      Rotation: [0, 6.28004, 0]
+      Scale: [0.586625, 0.398905, 0.586625]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050369488485072378
+    TagComponent:
+      Tag: Stone 13
+    TransformComponent:
+      Position: [1.76537, 0, -8.33974]
+      Rotation: [0, 2.09984, 0]
+      Scale: [0.57975, 0.39423, 0.57975]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050363990926931323
+    TagComponent:
+      Tag: Stone 14
+    TransformComponent:
+      Position: [-8.62953, 0, -8.09347]
+      Rotation: [0, 4.20282, 0]
+      Scale: [0.572875, 0.389555, 0.572875]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050362891415303112
+    TagComponent:
+      Tag: Stone 15
+    TransformComponent:
+      Position: [-14.5782, 0, 4.07688]
+      Rotation: [0, 0.0219911, 0]
+      Scale: [0.566, 0.38488, 0.566]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050366189950187745
+    TagComponent:
+      Tag: Stone 16
+    TransformComponent:
+      Position: [-1.24792, 0, 4.47317]
+      Rotation: [0, 2.12497, 0]
+      Scale: [0.559125, 0.380205, 0.559125]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050365090438559534
+    TagComponent:
+      Tag: Stone 17
+    TransformComponent:
+      Position: [5.44246, 0, 5.79564]
+      Rotation: [0, 4.22733, 0]
+      Scale: [0.55225, 0.37553, 0.55225]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050359592880418479
+    TagComponent:
+      Tag: Stone 18
+    TransformComponent:
+      Position: [11.0114, 0, -2.33814]
+      Rotation: [0, 0.0471239, 0]
+      Scale: [0.545375, 0.370855, 0.545375]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10050358493368790268
+    TagComponent:
+      Tag: Stone 19
+    TransformComponent:
+      Position: [4.79518, 0, -13.7513]
+      Rotation: [0, 2.15011, 0]
+      Scale: [0.538475, 0.366163, 0.538475]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047533847996483884
+    TagComponent:
+      Tag: Stone 20
+    TransformComponent:
+      Position: [-2.59228, 0, -3.13754]
+      Rotation: [0, 4.25246, 0]
+      Scale: [0.5316, 0.361488, 0.5316]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047534947508112095
+    TagComponent:
+      Tag: Stone 21
+    TransformComponent:
+      Position: [-7.29815, 0, 1.07145]
+      Rotation: [0, 0.0722566, 0]
+      Scale: [0.524725, 0.356813, 0.524725]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047536047019740306
+    TagComponent:
+      Tag: Stone 22
+    TransformComponent:
+      Position: [-4.15009, 0, 9.84379]
+      Rotation: [0, 2.17461, 0]
+      Scale: [0.51785, 0.352138, 0.51785]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047537146531368517
+    TagComponent:
+      Tag: Stone 23
+    TransformComponent:
+      Position: [8.2085, 0, 11.3279]
+      Rotation: [0, 4.27759, 0]
+      Scale: [0.510975, 0.347463, 0.510975]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047529449949971040
+    TagComponent:
+      Tag: Stone 24
+    TransformComponent:
+      Position: [3.48398, 0, -0.287415]
+      Rotation: [0, 0.0973894, 0]
+      Scale: [0.5041, 0.342788, 0.5041]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047530549461599251
+    TagComponent:
+      Tag: Stone 25
+    TransformComponent:
+      Position: [3.03475, 0, -6.08782]
+      Rotation: [0, 2.19974, 0]
+      Scale: [0.497225, 0.338113, 0.497225]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047531648973227462
+    TagComponent:
+      Tag: Stone 26
+    TransformComponent:
+      Position: [-5.40119, 0, -8.54649]
+      Rotation: [0, 4.30273, 0]
+      Scale: [0.49035, 0.333438, 0.49035]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047532748484855673
+    TagComponent:
+      Tag: Stone 27
+    TransformComponent:
+      Position: [-13.4143, 0, 0.252883]
+      Rotation: [0, 0.122522, 0]
+      Scale: [0.483475, 0.328763, 0.483475]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047542644089509572
+    TagComponent:
+      Tag: Stone 28
+    TransformComponent:
+      Position: [-1.46739, 0, 2.52812]
+      Rotation: [0, 2.22488, 0]
+      Scale: [0.4766, 0.324088, 0.4766]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10047543743601137783
+    TagComponent:
+      Tag: Stone 29
+    TransformComponent:
+      Position: [2.9874, 0, 5.46657]
+      Rotation: [0, 4.32786, 0]
+      Scale: [0.469725, 0.319413, 0.469725]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10048525607484940981
+    TagComponent:
+      Tag: Stone 30
+    TransformComponent:
+      Position: [9.52659, 0, 0.425269]
+      Rotation: [0, 0.147027, 0]
+      Scale: [0.46285, 0.314738, 0.46285]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10048524507973312770
+    TagComponent:
+      Tag: Stone 31
+    TransformComponent:
+      Position: [7.1383, 0, -10.676]
+      Rotation: [0, 2.25001, 0]
+      Scale: [0.455975, 0.310063, 0.455975]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10048523408461684559
+    TagComponent:
+      Tag: Stone 32
+    TransformComponent:
+      Position: [-0.99349, 0, -2.12861]
+      Rotation: [0, 4.35299, 0]
+      Scale: [0.4491, 0.305388, 0.4491]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 10048522308950056348
+    TagComponent:
+      Tag: Stone 33
+    TransformComponent:
+      Position: [-5.62253, 0, -0.610007]
+      Rotation: [0, 0.172159, 0]
+      Scale: [0.442225, 0.300713, 0.442225]
+    RelationshipComponent:
+      Parent: 14695676026078099937
+    MeshComponent:
+      Mesh: 3804336139711518416
+      Material: 8149645884547715692
+  - EntityID: 4029298549579111072
+    TagComponent:
+      Tag: Moon
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-2.16421, 0.541052, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [0.42, 0.55, 0.9]
+      Intensity: 0.09
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+  - EntityID: 6126594324679234950
+    TagComponent:
+      Tag: Fireflies
+    TransformComponent:
+      Position: [0, 1.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleEmitterComponent:
+      Emit: true
+      Rate: 7
+      Burst: 0
+      Lifetime: 5.5
+      LifetimeJitter: 0.5
+      Direction: [0, 1, 0]
+      Spread: 180
+      Speed: 0.35
+      SpeedJitter: 0.8
+      Gravity: [0, 0.02, 0]
+      Drag: 0.9
+      SizeStart: 0.05
+      SizeEnd: 0.05
+      ColorStart: [0.85, 1, 0.5, 0]
+      ColorEnd: [0.7, 1, 0.35, 0]
+      Spin: 0
+      Facing: Billboard
+      Blend: Additive
+      Space: World
+      Texture: 14156592944927634151
+      MaxParticles: 64
+      SimulateOnGpu: false
+      SizeCurve: 0
+      ColorGradient: 0
+      AlphaCurve: 11461028735333202510

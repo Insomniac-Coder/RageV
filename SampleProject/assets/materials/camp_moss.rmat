@@ -1,0 +1,16 @@
+Material: camp_moss
+BaseColor: [0.3, 0.36, 0.24, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.95
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.01
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 17246187153222571135
+  Normal: 12973099232739305617
+  Roughness: 10909146574749930491
+  Height: 12081873772315894805

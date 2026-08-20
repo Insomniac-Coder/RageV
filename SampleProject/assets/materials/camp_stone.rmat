@@ -1,0 +1,12 @@
+Material: camp_stone
+BaseColor: [0.35, 0.35, 0.4, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.8
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.03
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:

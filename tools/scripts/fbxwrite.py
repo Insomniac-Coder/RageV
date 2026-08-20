@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""A minimal ASCII FBX writer, shared by the model generators.
+
+Three scripts needed the same forty lines of FBX boilerplate -- the import
+fixture, the demo's anvil, and the camp's props -- and the third was where
+copying it a third time stopped being acceptable.
+
+**ASCII FBX 7.4 rather than binary.** It is the format's own text form, ufbx
+reads it, and a generated asset somebody can open and read is worth more here
+than a smaller file. `PolygonVertexIndex` uses FBX's convention where the last
+index of a face is stored as its bitwise complement, which is how the format
+marks a face boundary without a separate count.
+
+**Flat shading by construction.** Every face gets its own normal, computed from
+its own winding, and no vertex is shared between faces. That is what gives a
+low-poly model the faceted look it is for -- smoothing a twelve-triangle tree
+just makes it a blurry twelve-triangle tree.
+"""
+
+import math
+import pathlib
+
+
+class Mesh:
+    """Points and faces, accumulated. Faces are triangles or quads."""
+
+    def __init__(self):
+        self.points = []
+        self.faces = []
+
+    def add(self, points, faces, offset=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0),
+            yaw=0.0):
+        """Append a piece, placed. Returns the index the piece started at."""
+        base = len(self.points)
+        cos, sin = math.cos(yaw), math.sin(yaw)
+
+        for x, y, z in points:
+            x, y, z = x * scale[0], y * scale[1], z * scale[2]
+            self.points.append((x * cos + z * sin + offset[0],
+                                y + offset[1],
+                                -x * sin + z * cos + offset[2]))
+
+        for face in faces:
+            self.faces.append(tuple(base + i for i in face))
+        return base
+
+    # --- primitives -----------------------------------------------------------
+
+    def box(self, low, high, **place):
+        x0, y0, z0 = low
+        x1, y1, z1 = high
+        points = [
+            (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+            (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1),
+        ]
+        faces = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
+                 (3, 7, 6, 2), (0, 4, 7, 3), (1, 2, 6, 5)]
+        return self.add(points, faces, **place)
+
+    def prism(self, low, high, near, far, **place):
+        """A box whose far end is a different rectangle: a taper, a wedge, a
+        tent. `near` and `far` are (half width, half depth) at each end."""
+        (nx, nz), (fx, fz) = near, far
+        y0, y1 = low, high
+        points = [
+            (-nx, y0, -nz), (nx, y0, -nz), (nx, y0, nz), (-nx, y0, nz),
+            (-fx, y1, -fz), (fx, y1, -fz), (fx, y1, fz), (-fx, y1, fz),
+        ]
+        faces = [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
+                 (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
+        return self.add(points, faces, **place)
+
+    def cone(self, radius, height, sides=8, base_y=0.0, **place):
+        points = [(0.0, base_y + height, 0.0)]
+        for i in range(sides):
+            angle = 2.0 * math.pi * i / sides
+            points.append((math.cos(angle) * radius, base_y,
+                           math.sin(angle) * radius))
+
+        faces = []
+        for i in range(sides):
+            faces.append((0, 1 + i, 1 + (i + 1) % sides))
+        # The underside, as a fan. Cheap, and never seen on a tree.
+        for i in range(1, sides - 1):
+            faces.append((1, 1 + i + 1, 1 + i))
+        return self.add(points, faces, **place)
+
+    def cylinder(self, radius, height, sides=8, taper=1.0, base_y=0.0, **place):
+        points = []
+        for i in range(sides):
+            angle = 2.0 * math.pi * i / sides
+            points.append((math.cos(angle) * radius, base_y,
+                           math.sin(angle) * radius))
+        for i in range(sides):
+            angle = 2.0 * math.pi * i / sides
+            points.append((math.cos(angle) * radius * taper, base_y + height,
+                           math.sin(angle) * radius * taper))
+
+        faces = []
+        for i in range(sides):
+            j = (i + 1) % sides
+            faces.append((i, j, sides + j, sides + i))
+        for i in range(1, sides - 1):
+            faces.append((0, i, i + 1))
+            faces.append((sides, sides + i + 1, sides + i))
+        return self.add(points, faces, **place)
+
+
+def face_normal(points, face):
+    a, b, c = points[face[0]], points[face[1]], points[face[2]]
+    u = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    v = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+    n = (u[1] * v[2] - u[2] * v[1],
+         u[2] * v[0] - u[0] * v[2],
+         u[0] * v[1] - u[1] * v[0])
+    length = max((n[0] ** 2 + n[1] ** 2 + n[2] ** 2) ** 0.5, 1e-9)
+    return (n[0] / length, n[1] / length, n[2] / length)
+
+
+def _numbers(values, per_line=6):
+    out, line = [], []
+    for value in values:
+        line.append('{0:g}'.format(value))
+        if len(line) == per_line:
+            out.append(','.join(line))
+            line = []
+    if line:
+        out.append(','.join(line))
+    return (',\n' + ' ' * 12).join(out)
+
+
+def write(path, mesh, name, colour=(0.7, 0.7, 0.7), uv_scale=1.0):
+    """One mesh, one Phong material, one node."""
+    points, faces = mesh.points, mesh.faces
+
+    vertices = []
+    for point in points:
+        vertices.extend(point)
+
+    indices = []
+    for face in faces:
+        indices.extend(face[:-1])
+        indices.append(~face[-1])
+
+    normals = []
+    for face in faces:
+        normal = face_normal(points, face)
+        for _ in range(len(face)):
+            normals.extend(normal)
+
+    # Planar UVs off the world position. These props wear flat colours and a
+    # tiling detail map at most, so a real unwrap would be work nothing reads.
+    uvs, uv_indices = [], []
+    for face in faces:
+        for corner in face:
+            x, y, z = points[corner]
+            uv_indices.append(len(uvs) // 2)
+            uvs.extend([(x + z) * uv_scale, y * uv_scale])
+
+    text = '''; FBX 7.4.0 project file
+; Generated by tools/scripts/{generator} -- do not edit by hand.
+
+FBXHeaderExtension:  {{
+    FBXHeaderVersion: 1003
+    FBXVersion: 7400
+    Creator: "RageV model generator"
+}}
+GlobalSettings:  {{
+    Version: 1000
+    Properties70:  {{
+        P: "UpAxis", "int", "Integer", "",1
+        P: "UpAxisSign", "int", "Integer", "",1
+        P: "FrontAxis", "int", "Integer", "",2
+        P: "FrontAxisSign", "int", "Integer", "",1
+        P: "CoordAxis", "int", "Integer", "",0
+        P: "CoordAxisSign", "int", "Integer", "",1
+        ; Centimetres per unit, so 100 is one unit per metre.
+        P: "UnitScaleFactor", "double", "Number", "",100
+    }}
+}}
+
+Definitions:  {{
+    Version: 100
+    Count: 3
+    ObjectType: "Geometry" {{
+        Count: 1
+    }}
+    ObjectType: "Model" {{
+        Count: 1
+    }}
+    ObjectType: "Material" {{
+        Count: 1
+    }}
+}}
+
+Objects:  {{
+    Geometry: 1100, "Geometry::{name}", "Mesh" {{
+        Vertices: *{vertex_count} {{
+            a: {vertices}
+        }}
+        PolygonVertexIndex: *{index_count} {{
+            a: {indices}
+        }}
+        GeometryVersion: 124
+        LayerElementNormal: 0 {{
+            Version: 101
+            Name: ""
+            MappingInformationType: "ByPolygonVertex"
+            ReferenceInformationType: "Direct"
+            Normals: *{normal_count} {{
+                a: {normals}
+            }}
+        }}
+        LayerElementUV: 0 {{
+            Version: 101
+            Name: "UVMap"
+            MappingInformationType: "ByPolygonVertex"
+            ReferenceInformationType: "IndexToDirect"
+            UV: *{uv_count} {{
+                a: {uvs}
+            }}
+            UVIndex: *{uv_index_count} {{
+                a: {uv_indices}
+            }}
+        }}
+        LayerElementMaterial: 0 {{
+            Version: 101
+            Name: ""
+            MappingInformationType: "AllSame"
+            ReferenceInformationType: "IndexToDirect"
+            Materials: *1 {{
+                a: 0
+            }}
+        }}
+        Layer: 0 {{
+            Version: 100
+            LayerElement:  {{
+                Type: "LayerElementNormal"
+                TypedIndex: 0
+            }}
+            LayerElement:  {{
+                Type: "LayerElementUV"
+                TypedIndex: 0
+            }}
+            LayerElement:  {{
+                Type: "LayerElementMaterial"
+                TypedIndex: 0
+            }}
+        }}
+    }}
+    Model: 2100, "Model::{name}", "Mesh" {{
+        Version: 232
+        Properties70:  {{
+            P: "Lcl Translation", "Lcl Translation", "", "A",0,0,0
+            P: "Lcl Rotation", "Lcl Rotation", "", "A",0,0,0
+            P: "Lcl Scaling", "Lcl Scaling", "", "A",1,1,1
+        }}
+        Shading: T
+        Culling: "CullingOff"
+    }}
+    Material: 3100, "Material::{name}Surface", "" {{
+        Version: 102
+        ShadingModel: "phong"
+        MultiLayer: 0
+        Properties70:  {{
+            P: "DiffuseColor", "Color", "", "A",{r:g},{g:g},{b:g}
+            P: "SpecularColor", "Color", "", "A",0.05,0.05,0.05
+            P: "ShininessExponent", "Number", "", "A",8
+        }}
+    }}
+}}
+
+Connections:  {{
+    C: "OO",2100,0
+    C: "OO",1100,2100
+    C: "OO",3100,2100
+}}
+'''.format(
+        generator=pathlib.Path(path).stem and 'make_camp_models.py',
+        name=name,
+        vertex_count=len(vertices), vertices=_numbers(vertices),
+        index_count=len(indices), indices=_numbers(indices, 8),
+        normal_count=len(normals), normals=_numbers(normals),
+        uv_count=len(uvs), uvs=_numbers(uvs, 8),
+        uv_index_count=len(uv_indices), uv_indices=_numbers(uv_indices, 8),
+        r=colour[0], g=colour[1], b=colour[2])
+
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding='utf-8')
+    return len(points), len(faces), len(text)
