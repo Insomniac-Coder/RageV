@@ -9737,6 +9737,171 @@ over both.
   with the voxel one. The CLI override is what every existing check uses, so
   nothing already in the suite would have exercised this.
 
+### 7bh. Visual scripting (8.10): an authoring surface, not a third runtime
+
+**Designed, not built.** The insertion points are pinned at the end so the
+build starts from a list rather than from this paragraph -- the shape 7be's
+entry got right even where its argument was wrong.
+
+#### The roadmap's objection, and why it does not apply to this design
+
+ROADMAP 8.10 is one line: *"Two scripting languages is already two -- and this
+would be the third."* That is a good objection and it is worth restating in
+full, because it is what kills most visual scripting systems: a third
+execution surface means a third set of interop bindings, a third thing to hold
+at protocol parity (nine protocols so far, every one of them taught to both
+languages), a third thing to document, a third thing to check, and a third
+place a bug can live.
+
+**Every word of that is about a third *runtime*. None of it is about a third
+*editor*.** So the design is: the graph is an authoring surface that **emits
+C# into the project's `Scripts/`**, and the existing managed pipeline runs it.
+There is no interpreter, no bytecode, and no new execution path.
+
+| | graph -> C# source (this) | graph -> bytecode + VM |
+|---|---|---|
+| runtimes to maintain | 2, unchanged | **3** |
+| protocol parity | automatic -- a graph can only call what C# can | a third surface, forever |
+| live reload, build console, restart-on-build | free, already built | new work each |
+| debugging a graph | read and step the generated `.cs` | a custom debugger, or nothing |
+| the objection above | dissolved | confirmed |
+
+**`rvgen` is the precedent**, and it is worth reading before starting: it
+scans a project's `Source/` at configure time and writes `<file>.rvgen.cpp`
+wrappers into the build. An artefact that authors code into the normal build
+is a thing this engine already does.
+
+#### Three findings that make this much smaller than XL
+
+Found while surveying rather than assumed, and each removes work the obvious
+design would have paid for:
+
+1. **`ManagedScriptComponent` holds only a `ScriptName` string** -- "the C#
+   type, as written in the assembly". A graph called `Patrol.rvgraph` emits
+   `class Patrol : Script`, and attaching it is setting that string, exactly
+   as a hand-written script is attached. **There is no new component, no new
+   attach path, and no new runtime step.** The stage that would have been
+   "make graphs runnable" costs nothing.
+2. **The `.csproj` is SDK-style**, so it globs `**/*.cs`. A generated file
+   dropped in `Scripts/` is compiled with no project-file change and no
+   generator plumbed into MSBuild.
+3. **`UI::CurveEditor` is the canvas precedent** -- 283 lines of hand-rolled
+   ImGui with draggable points, hit testing and drag state scoped by asset
+   handle so two curves cannot share it. A node canvas is the same problem
+   one dimension up, and the id-scoping rule transfers directly.
+
+#### What is actually hard
+
+Stated up front so the estimate is not a surprise later.
+
+- **The canvas.** Nodes, typed pins, bezier links, hit testing, pan and zoom,
+  box select, and undo. This is most of the work and all of the fun.
+- **Keeping the v1 node set small.** This is where a visual scripting system
+  turns into a career. The list below is deliberately short and closed.
+- **Determinism of the generated file.** See the traps.
+
+#### The design
+
+**The asset.** `.rvgraph`, YAML, beside the other assets and registered in
+`AssetTypeFromExtension` like every other kind. It holds nodes (id, type,
+position, literal values) and links (from node/pin to node/pin). **Node ids
+are stable and never reused** -- see the traps.
+
+**Pins are typed**, and the type decides what may connect: `Exec`, `Bool`,
+`Float`, `Vec3`, `String`, `Entity`. `Exec` is a control-flow pin in the
+Blueprint sense: it is what gives the generated statements an order, and
+without it a graph is an expression tree with no way to say "then".
+
+**The node set, v1, closed:**
+
+| group | nodes |
+|---|---|
+| events (roots) | `OnCreate`, `OnUpdate(dt)`, `OnCollisionEnter(other, speed)` |
+| flow | `Branch`, `Sequence` |
+| data | literals; `GetField(component, name)`, `SetField(component, name)` through the registry's named access -- the same surface C# already reaches |
+| maths | add, subtract, multiply, divide, compare |
+| output | `Log` |
+
+That is enough to write the fixture the check needs and nothing more. Anything
+else is a later row, and the entry says so here so that "while I am in there"
+has an answer.
+
+**Codegen.** One `.g.cs` per graph, written to `Scripts/Generated/`:
+
+```csharp
+// Generated from Patrol.rvgraph. Do not edit -- regenerated on save.
+public class Patrol : Script
+{
+    public override void OnUpdate(float dt) { ... }
+}
+```
+
+Each event node becomes an override. The generator walks the `Exec` chain in
+order emitting statements, and resolves each data pin as an expression,
+spilling to a `var` temporary where a value feeds more than one consumer so
+nothing is evaluated twice.
+
+**Generated files are committed**, not ignored. A clone that has never opened
+the editor must still build, because `ManagedScriptComponent` names a type
+that has to exist. That is also what makes a graph reviewable in a diff, which
+is half the argument for this design over a VM.
+
+#### Three traps, written down before they are hit
+
+1. **A generated file must be deterministic or every save churns the diff.**
+   Emit in node-id order, never in hash-map order. This is the difference
+   between generated code being reviewable and being noise, and it is
+   invisible until the first time two saves of an unchanged graph produce
+   different files.
+2. **A graph that fails to generate must fail loudly, not emit an empty
+   class.** An empty `class Patrol : Script` compiles, attaches, runs, and
+   does nothing -- which is 8.13's black frames again, one layer up: a green
+   result computed from something other than the thing under test (7bf). A
+   cycle in the exec chain, a pin type mismatch, or a missing required input
+   is an error that names the nodes and writes **no file**.
+3. **A graph must not silently shadow a hand-written script.** `Patrol.rvgraph`
+   beside a hand-written `Patrol.cs` is two types with one name and a build
+   error at best. Detect the collision at generate time and refuse, naming
+   both files.
+
+#### The order to build it in
+
+1. This entry and the ROADMAP row (8.10, the number it uses).
+2. **The asset and the canvas.** `.rvgraph`, its serializer, registration, and
+   the panel: pan, zoom, add, move, delete, link, box select, undo, save.
+   No codegen. **This is demonstrable on its own**, which is why it is first.
+3. **The generator.** The node set above, topological emit, the three traps
+   as errors, `Scripts/Generated/<Name>.g.cs`.
+4. **The hook.** Generate before `ScriptBuild::Build` so Build Scripts picks
+   graphs up on the path that already exists.
+5. **The check.** `check_graph.py`: a fixture graph that moves an entity on
+   `OnUpdate`, run headless, assert the transform moved -- and a `falsify`
+   break that severs the exec link, which must take it red.
+
+#### Every insertion point, found and pinned
+
+- **Asset kind**: `AssetTypeFromExtension` in `AssetRegistry.cpp` (~103),
+  beside `.rvterrain` and `.rmat`. Serializer alongside
+  `PostProfileSerializer` / `TerrainSerializer`, same shape.
+- **The panel**: `RageVEditor/src/UI/`, beside `CurveEditor` and
+  `ContentBrowserPanel`. **Read `CurveEditor.h` first** -- its rule that drag
+  state is scoped by asset handle is the one a canvas gets wrong.
+- **Attach**: nothing. `ManagedScriptComponent::ScriptName` already does it.
+- **The build hook**: `ScriptBuild::Build(csproj, output)` in
+  `Managed/ScriptBuild.cpp`; generate before it. The editor's Build Scripts
+  path then covers graphs with no new UI at all.
+- **The generated directory**: `Scripts/Generated/`, created by the generator;
+  no `.csproj` edit, because the SDK glob already covers it.
+
+#### What this will not claim
+
+Not that it replaces either language. It is a **third way to author a C#
+script**, aimed at the things graphs are genuinely better at -- event wiring,
+state that reads as a picture -- and it stops where a text editor is plainly
+better. The generated file being ordinary, readable C# is what makes that an
+honest boundary rather than a marketing one: outgrow the graph, delete it, and
+keep the code.
+
 ---
 
 ## 8. What this changes
