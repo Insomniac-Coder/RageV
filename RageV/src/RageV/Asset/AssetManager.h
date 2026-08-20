@@ -9,6 +9,7 @@
 #include "RageV/Renderer/PostSettings.h"
 #include "MaterialSerializer.h"
 #include "Curve.h"
+#include "ScriptGraph.h"
 #include "Font.h"
 #include "LutRecipe.h"
 #include "TerrainData.h"
@@ -151,6 +152,26 @@ namespace RageV::Assets
 		// ReloadPostProfile or a project change -- long enough to write
 		// through, too short to store.
 		static PostSettings* GetPostProfile(AssetHandle handle);
+
+		// The visual script behind a handle (8.10, ENGINE-NOTES 7bh).
+		//
+		// Same contract as GetCurve: owned by the cache, valid until
+		// ReloadScriptGraph or a project change, and **never null for a valid
+		// handle** -- a graph that will not load caches as an empty one, so
+		// the panel opens on a blank canvas with the parse error in the log
+		// rather than on nothing at all.
+		static const ScriptGraph* GetScriptGraph(AssetHandle handle);
+
+		// Writes a `.rvgraph` beside the other assets and returns its handle.
+		static AssetHandle CreateScriptGraph(const ScriptGraph& graph,
+											 const std::filesystem::path& relativePath);
+
+		// Writes an already-known graph back to its own file. The panel's
+		// save: unlike a curve, a graph is edited for minutes at a time and
+		// the file is written on demand rather than after every drag.
+		static bool SaveScriptGraph(AssetHandle handle, const ScriptGraph& graph);
+
+		static void ReloadScriptGraph(AssetHandle handle);
 
 		// Writes a `.rvpostprofile` beside the other assets and returns its
 		// handle. What the camera's "New post profile..." does.

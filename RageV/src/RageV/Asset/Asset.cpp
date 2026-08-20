@@ -23,6 +23,7 @@ namespace RageV
 			{ AssetType::PostProfile, "PostProfile" },
 			{ AssetType::ColorLut,    "ColorLut" },
 			{ AssetType::Terrain,     "Terrain" },
+			{ AssetType::ScriptGraph, "ScriptGraph" },
 		};
 	}
 
@@ -79,6 +80,7 @@ namespace RageV
 		if (lower == ".cube")    return AssetType::ColorLut;  // baked, read-only
 		if (lower == ".rvlut")   return AssetType::ColorLut;  // a recipe, editable
 		if (lower == ".rvterrain") return AssetType::Terrain;
+		if (lower == ".rvgraph")   return AssetType::ScriptGraph;
 
 		// A `.ttf` is deliberately absent. It is the *input* to tools/rvfont
 		// and nothing at runtime can read one, so importing it would hand out

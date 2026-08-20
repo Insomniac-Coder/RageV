@@ -230,6 +230,11 @@ namespace RageV
 		// what its command line says. The other overrides still apply on top.
 		// Never set by the editor -- it would save the defaults over the
 		// user's project on the next Render Settings edit.
+		// --graph=<relative path>: open a .rvgraph on the canvas at start
+		// (8.10, ENGINE-NOTES 7bh). The editor's affordance for looking at one
+		// without clicking through the browser, and what a check will drive.
+		std::string  GraphPath;
+
 		bool         RenderDefaults = false;
 		// Whether `render-defaults` was stated at all, by either the ini or the
 		// command line. A run that writes a screenshot is measuring something,

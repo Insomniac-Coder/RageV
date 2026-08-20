@@ -11,6 +11,7 @@
 #include "RageV/Scene/Components.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "CurveSerializer.h"
+#include "ScriptGraphSerializer.h"
 #include "FontSerializer.h"
 #include "TerrainSerializer.h"
 #include "PostProfileSerializer.h"
@@ -60,6 +61,7 @@ namespace RageV::Assets
 		// caches as an empty curve for the same reason a texture caches as
 		// null: a missing file must not be retried sixty times a second.
 		std::unordered_map<AssetHandle, Curve> s_Curves;
+		std::unordered_map<AssetHandle, ScriptGraph> s_ScriptGraphs;
 		std::unordered_map<AssetHandle, Curve::Baked> s_BakedCurves;
 
 		// Post profiles cache by value for the same reason curves do: half a
@@ -491,6 +493,7 @@ namespace RageV::Assets
 		s_DataTextures.clear();
 		s_Materials.clear();
 		s_Curves.clear();
+		s_ScriptGraphs.clear();
 		s_BakedCurves.clear();
 		s_Fonts.clear();
 		s_FontFailed.clear();
@@ -991,6 +994,75 @@ namespace RageV::Assets
 		// mip chain was: the file changes and the picture does not.
 		s_Curves.erase(handle);
 		s_BakedCurves.erase(handle);
+	}
+
+	const ScriptGraph* Manager::GetScriptGraph(AssetHandle handle)
+	{
+		// No device check, like the curve above and for the same reason: a
+		// graph is data on the CPU, which is what lets a headless tool
+		// generate from one.
+		if (!handle.IsValid())
+			return nullptr;
+
+		const auto cached = s_ScriptGraphs.find(handle);
+		if (cached != s_ScriptGraphs.end())
+			return &cached->second;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+
+		ScriptGraph graph;
+		if (path.empty() || !ScriptGraphSerializer::Load(graph, path))
+		{
+			// Cached even on failure: the serializer has already said why in
+			// the log, and re-reading a broken file every frame the panel is
+			// open would say it several hundred times.
+			s_ScriptGraphs[handle] = ScriptGraph();
+			return &s_ScriptGraphs[handle];
+		}
+
+		s_ScriptGraphs[handle] = std::move(graph);
+		return &s_ScriptGraphs[handle];
+	}
+
+	AssetHandle Manager::CreateScriptGraph(const ScriptGraph& graph,
+										   const std::filesystem::path& relativePath)
+	{
+		if (!Registry::IsInitialised())
+			return AssetHandle::Invalid();
+
+		const std::filesystem::path absolute = Registry::Root() / relativePath;
+		if (!ScriptGraphSerializer::Save(graph, absolute))
+			return AssetHandle::Invalid();
+
+		// After writing, so the file exists by the time the registry hashes it
+		// and mints its sidecar. Same order as CreateCurve.
+		Registry::Refresh();
+
+		const AssetHandle handle = Registry::GetHandle(relativePath.generic_string());
+		if (handle.IsValid())
+			s_ScriptGraphs[handle] = graph;
+
+		return handle;
+	}
+
+	bool Manager::SaveScriptGraph(AssetHandle handle, const ScriptGraph& graph)
+	{
+		if (!handle.IsValid())
+			return false;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+		if (path.empty() || !ScriptGraphSerializer::Save(graph, path))
+			return false;
+
+		// The cache holds what the file holds, so a later Get answers the
+		// saved graph rather than the one loaded before the edits.
+		s_ScriptGraphs[handle] = graph;
+		return true;
+	}
+
+	void Manager::ReloadScriptGraph(AssetHandle handle)
+	{
+		s_ScriptGraphs.erase(handle);
 	}
 
 	PostSettings Manager::GetPostSettings(AssetHandle handle)

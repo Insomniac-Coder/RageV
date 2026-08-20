@@ -1,0 +1,28 @@
+ScriptGraph: 1
+NextNodeId: 6
+NextLinkId: 3
+Nodes:
+  - Id: 1
+    Type: OnUpdate
+    Pos: [-260, -40]
+  - Id: 2
+    Type: SetField
+    Pos: [60, -40]
+    Text: TransformComponent.Rotation
+  - Id: 3
+    Type: LiteralString
+    Pos: [-260, 160]
+    Text: "0 1 0"
+  - Id: 4
+    Type: Add
+    Pos: [60, 200]
+  - Id: 5
+    Type: Branch
+    Pos: [400, 320]
+Links:
+  - Id: 1
+    From: [1, 0]
+    To: [2, 0]
+  - Id: 2
+    From: [3, 0]
+    To: [4, 0]

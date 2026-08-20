@@ -7,6 +7,7 @@
 #include <thread>
 #include "UI/SceneHierarchyPanel.h"
 #include "UI/ContentBrowserPanel.h"
+#include "UI/ScriptGraphPanel.h"
 #include "UI/EditorTheme.h"
 #include "Tools/TerrainBrushTool.h"
 #include "RageV/Scene/SceneCommands.h"
@@ -331,6 +332,11 @@ private:
 	RageV::SceneHierarchyPanel m_SceneHierarchyPanel;
 	RageV::ContentBrowserPanel m_ContentBrowser;
 
+	// The visual script canvas (8.10, ENGINE-NOTES 7bh). One at a time: a
+	// graph is what somebody is working on, and two canvases would mostly be
+	// two places to lose an unsaved edit.
+	RageV::UI::ScriptGraphPanel m_ScriptGraph;
+
 	RageV::Vec2 m_ViewportSize = { 0.0f, 0.0f };
 	RageV::Vec2 m_GameViewportSize = { 0.0f, 0.0f };
 
@@ -370,6 +376,7 @@ private:
 	bool m_ShowViewport = true;
 	bool m_ShowGameViewport = true;
 	bool m_ShowContentBrowser = true;
+	bool m_ShowScriptGraph = false;
 
 	// Which panels are open, across restarts. ImGui's own imgui.ini remembers
 	// where a window was docked but not whether the editor submits it -- that

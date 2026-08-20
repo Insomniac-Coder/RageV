@@ -48,6 +48,12 @@ namespace RageV
 		// bits the cook policy would take away, is read on the CPU, and is
 		// written back by sculpting.
 		Terrain,
+		// An `.rvgraph`: a visual script (8.10, ENGINE-NOTES 7bh). An asset
+		// rather than a component's payload because a graph is authored
+		// content that outlives the entity it was first dropped on, and
+		// because **it generates a C# file** -- the graph and its output are
+		// two files that have to be diffable side by side.
+		ScriptGraph,
 	};
 
 	const char* AssetTypeName(AssetType type);

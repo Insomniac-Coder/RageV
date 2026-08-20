@@ -134,6 +134,7 @@ void EditorLayer::OnAttach()
 	m_ContentBrowser.SetActivateCallback(
 		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
 
+
 	// One click points the Properties panel at the file. Two opens it, which
 	// the callback above still handles -- a scene load is destructive enough
 	// that it must not happen because somebody looked at a file.
@@ -231,6 +232,31 @@ void EditorLayer::OnLoaded()
 	{
 		m_EditorCamera.SetOrbit(config.CameraFocus, config.CameraDistance,
 								config.CameraYaw, config.CameraPitch);
+	}
+
+	// --graph=, so a canvas can be looked at without clicking through the
+	// browser (8.10, ENGINE-NOTES 7bh). **Here and not in OnAttach**: the
+	// registry does not exist until the project is loaded, which happens on
+	// this worker, so an OnAttach lookup finds nothing and says the asset is
+	// missing when it is merely early.
+	if (!config.GraphPath.empty())
+	{
+		const AssetHandle handle = Assets::Registry::GetHandle(config.GraphPath);
+		if (handle.IsValid())
+		{
+			m_ScriptGraph.Open(handle);
+			m_ShowScriptGraph = true;
+		}
+		else
+		{
+			// Relative to the *assets* root, like --scene: the registry is
+			// initialised with Project::AssetRoot(), so "graphs/Spin.rvgraph"
+			// and not "assets/graphs/Spin.rvgraph".
+			RV_ERROR("--graph={0}: no such asset. The path is relative to the "
+					 "project's assets folder, like --scene -- so "
+					 "'graphs/Thing.rvgraph', not 'assets/graphs/Thing.rvgraph'.",
+					 config.GraphPath);
+		}
 	}
 }
 
@@ -1061,6 +1087,11 @@ void EditorLayer::OnImGuiRender()
 		// minute of confusion every time it happens.
 		m_ContentBrowser.SetSelected(m_SceneHierarchyPanel.GetInspectedAsset());
 		m_ContentBrowser.OnImGuiRender(&m_ShowContentBrowser);
+	}
+
+	if (m_ShowScriptGraph && m_ScriptGraph.IsOpen())
+	{
+		m_ScriptGraph.OnImGuiRender(&m_ShowScriptGraph);
 	}
 	if (m_ShowDemoWindow)      ImGui::ShowDemoWindow(&m_ShowDemoWindow);
 
@@ -3324,6 +3355,13 @@ void EditorLayer::OnAssetActivated(AssetHandle handle, AssetType type)
 	{
 		case AssetType::Mesh:   root = Assets::Manager::InstantiateModel(*m_Scene, handle); break;
 		case AssetType::Prefab: root = Assets::Manager::InstantiatePrefab(*m_Scene, handle); break;
+		// A graph opens its canvas rather than putting anything in the scene:
+		// it is authored content that *generates a script*, and dropping it on
+		// the world would be guessing which entity it was meant for.
+		case AssetType::ScriptGraph:
+			m_ScriptGraph.Open(handle);
+			m_ShowScriptGraph = true;
+			return;
 		default:
 			RV_WARN("Nothing to do with a {0} asset yet", AssetTypeName(type));
 			return;

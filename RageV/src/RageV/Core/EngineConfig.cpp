@@ -219,6 +219,12 @@ namespace RageV
 			}
 		}
 
+		if (key == "graph")
+		{
+			config.GraphPath = value;
+			return true;
+		}
+
 		if (key == "scene")
 		{
 			config.ScenePath = value;
