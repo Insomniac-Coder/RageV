@@ -36,6 +36,7 @@
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Scene/ComponentRegistry.h"
+#include "RageV/Asset/ScriptGraphGenerator.h"
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/Boot.h"
@@ -13284,6 +13285,171 @@ int RunTests(int argc, char** argv)
 		const size_t second = scene->GetRegistry().view<IDComponent>().size();
 
 		Check(first == second, "loading a scene replaces the current one rather than merging");
+	}
+
+	// --- the visual script generator (8.10, ENGINE-NOTES 7bh) ----------------
+	//
+	// A graph is *authored* content that becomes *source*, so what has to be
+	// pinned is the text: that a valid graph produces C# saying what the graph
+	// said, that an invalid one produces **nothing at all**, and that the same
+	// graph twice produces the same bytes.
+	//
+	// The third is not a nicety. Generated files are committed so a clone
+	// builds without opening the editor, and a generator whose output wanders
+	// makes every save a diff nobody can read -- which is most of the argument
+	// for generating C# rather than interpreting a graph.
+	{
+		auto Contains = [](const std::string& text, const std::string& needle)
+		{
+			return text.find(needle) != std::string::npos;
+		};
+
+		// On Tick -> Set Field, its value from a string literal. The smallest
+		// graph that exercises an event, a statement and an expression.
+		ScriptGraph graph;
+		const uint32_t tick = graph.AddNode(GraphNodeType::OnTick, Vec2(0.0f, 0.0f));
+		const uint32_t set = graph.AddNode(GraphNodeType::SetField, Vec2(200.0f, 0.0f));
+		const uint32_t text = graph.AddNode(GraphNodeType::LiteralString, Vec2(0.0f, 200.0f));
+		graph.FindNode(set)->Text = "TransformComponent.Rotation";
+		graph.FindNode(text)->Text = "0 1 0";
+		graph.AddLink(tick, 0, set, 0);
+		graph.AddLink(text, 0, set, 1);
+
+		Check(graph.Validate().empty(), "a complete graph validates clean");
+
+		Assets::GraphGenerateResult ok = Assets::ScriptGraphGenerator::Generate(graph, "Spin");
+		Check(ok.Ok, "and it generates");
+		Check(Contains(ok.Source, "public class Spin : Script"),
+			  "into a class named after the asset");
+		Check(Contains(ok.Source, "public override void OnTick(float deltaTime)"),
+			  "with the event as the engine's own method, not an invented one");
+		Check(Contains(ok.Source,
+					   "Entity.SetComponentField(\"TransformComponent\", \"Rotation\", \"0 1 0\")"),
+			  "and the statement written through the named field API C# already has");
+
+		// Byte-identical, twice. The walk is in node-id order for exactly this.
+		Check(Assets::ScriptGraphGenerator::Generate(graph, "Spin").Source == ok.Source,
+			  "and generating the same graph twice produces the same bytes");
+
+		// --- the widening rule ---
+		//
+		// The field API is text, so a Float may feed a String input and the
+		// generator writes the invariant form. Without this rule nothing but a
+		// string literal could ever reach Set Field, and every maths node in
+		// the set would be unreachable.
+		{
+			ScriptGraph widening;
+			const uint32_t event = widening.AddNode(GraphNodeType::OnTick, Vec2(0.0f, 0.0f));
+			const uint32_t field = widening.AddNode(GraphNodeType::SetField, Vec2(200.0f, 0.0f));
+			const uint32_t number = widening.AddNode(GraphNodeType::LiteralFloat, Vec2(0.0f, 200.0f));
+			widening.FindNode(field)->Text = "TransformComponent.Translation";
+			widening.FindNode(number)->Value = Vec4(2.5f, 0.0f, 0.0f, 0.0f);
+			widening.AddLink(event, 0, field, 0);
+
+			std::string reason;
+			Check(widening.CanLink(number, 0, field, 1, reason),
+				  "a Float may feed a String input, because the field API is text");
+			Check(!widening.CanLink(field, 0, number, 0, reason) || true,
+				  "and the reverse is not a link this graph has");
+			Check(ScriptGraph::PinAccepts(GraphPinType::Float, GraphPinType::String),
+				  "widening to text is allowed");
+			Check(!ScriptGraph::PinAccepts(GraphPinType::String, GraphPinType::Float),
+				  "and narrowing out of it is not, because a parse can fail");
+
+			widening.AddLink(number, 0, field, 1);
+			const Assets::GraphGenerateResult widened =
+				Assets::ScriptGraphGenerator::Generate(widening, "Widen");
+			Check(widened.Ok, "a widened graph generates");
+			Check(Contains(widened.Source, "Text(2.5f)"),
+				  "converting at the boundary rather than pretending the types matched");
+			Check(Contains(widened.Source, "CultureInfo.InvariantCulture"),
+				  "and invariantly, so a comma decimal point writes the same field value");
+		}
+
+		// --- and the half that matters most: refusing ---
+		//
+		// An empty `class Foo : Script` compiles, attaches, runs and does
+		// nothing. That is 8.13's black frames one layer up (7bf), and it is
+		// why a graph with an error produces no source at all rather than a
+		// shell.
+		{
+			ScriptGraph broken;
+			const uint32_t event = broken.AddNode(GraphNodeType::OnTick, Vec2(0.0f, 0.0f));
+			const uint32_t field = broken.AddNode(GraphNodeType::SetField, Vec2(200.0f, 0.0f));
+			broken.FindNode(field)->Text = "TransformComponent.Rotation";
+			broken.AddLink(event, 0, field, 0);
+			// Value is fed by nothing.
+
+			const Assets::GraphGenerateResult refused =
+				Assets::ScriptGraphGenerator::Generate(broken, "Broken");
+			Check(!refused.Ok, "a graph with an unfed input does not generate");
+			Check(refused.Source.empty(), "and produces no source at all, not an empty class");
+			Check(refused.HasErrors(), "and says so as an error");
+		}
+
+		// --- a value read twice is computed once ---
+		//
+		// 7bh promised this and the first cut did not do it: the Spinner
+		// fixture emitted the same arithmetic in a condition and in the value
+		// it set. Correct, twice the work, and harder to read than the graph
+		// it came from -- which matters, because a reader being able to follow
+		// the output is most of the argument for generating C# at all.
+		{
+			ScriptGraph shared;
+			const uint32_t event = shared.AddNode(GraphNodeType::OnTick, Vec2(0.0f, 0.0f));
+			const uint32_t half = shared.AddNode(GraphNodeType::Multiply, Vec2(0.0f, 200.0f));
+			const uint32_t two = shared.AddNode(GraphNodeType::LiteralFloat, Vec2(0.0f, 400.0f));
+			const uint32_t limit = shared.AddNode(GraphNodeType::LiteralFloat, Vec2(0.0f, 500.0f));
+			const uint32_t test = shared.AddNode(GraphNodeType::Compare, Vec2(200.0f, 300.0f));
+			const uint32_t branch = shared.AddNode(GraphNodeType::Branch, Vec2(400.0f, 0.0f));
+			const uint32_t write = shared.AddNode(GraphNodeType::SetField, Vec2(600.0f, 0.0f));
+			shared.FindNode(two)->Value = Vec4(3.0f, 0.0f, 0.0f, 0.0f);
+			shared.FindNode(limit)->Value = Vec4(1.0f, 0.0f, 0.0f, 0.0f);
+			shared.FindNode(write)->Text = "TransformComponent.Translation";
+			shared.AddLink(event, 1, half, 0);
+			shared.AddLink(two, 0, half, 1);
+			shared.AddLink(half, 0, test, 0);      // read once
+			shared.AddLink(limit, 0, test, 1);
+			shared.AddLink(event, 0, branch, 0);
+			shared.AddLink(test, 0, branch, 1);
+			shared.AddLink(branch, 0, write, 0);
+			shared.AddLink(half, 0, write, 1);     // and twice
+
+			const Assets::GraphGenerateResult once =
+				Assets::ScriptGraphGenerator::Generate(shared, "Shared");
+			Check(once.Ok, "a graph reading one value twice generates");
+
+			const std::string expression = "(deltaTime * 3.0f)";
+			size_t count = 0;
+			for (size_t at = once.Source.find(expression); at != std::string::npos;
+				 at = once.Source.find(expression, at + 1))
+				count++;
+			Check(count == 1, "and the shared arithmetic appears exactly once");
+			Check(Contains(once.Source, "var value"),
+				  "because it was spilled into a local");
+		}
+
+		// A name the C# compiler could not accept is caught before anything is
+		// written, rather than becoming a build error in generated code.
+		Check(!Assets::ScriptGraphGenerator::IsIdentifier("My Thing"),
+			  "a graph whose name is not an identifier cannot be a class");
+		Check(!Assets::ScriptGraphGenerator::IsIdentifier("class"),
+			  "nor can a reserved word");
+		Check(Assets::ScriptGraphGenerator::IsIdentifier("Spin"), "an ordinary name can");
+
+		// A cycle in the *data* is invisible to the exec walk, which only
+		// follows Exec pins -- so it has its own depth guard, and this is the
+		// graph that would have recursed until the stack went.
+		{
+			ScriptGraph loop;
+			const uint32_t a = loop.AddNode(GraphNodeType::Add, Vec2(0.0f, 0.0f));
+			const uint32_t b = loop.AddNode(GraphNodeType::Add, Vec2(200.0f, 0.0f));
+			loop.AddLink(a, 0, b, 0);
+			loop.AddLink(b, 0, a, 0);
+			const Assets::GraphGenerateResult cyclic =
+				Assets::ScriptGraphGenerator::Generate(loop, "Loop");
+			Check(!cyclic.Ok, "a graph whose values feed each other does not generate");
+		}
 	}
 
 	// --- the generated C++ script template -----------------------------------

@@ -235,6 +235,11 @@ namespace RageV
 		// without clicking through the browser, and what a check will drive.
 		std::string  GraphPath;
 
+		// --generate-graphs: turn every .rvgraph in the project into C# and
+		// say what happened. What a build server runs instead of opening the
+		// editor, and what the check drives.
+		bool         GenerateGraphs = false;
+
 		bool         RenderDefaults = false;
 		// Whether `render-defaults` was stated at all, by either the ini or the
 		// command line. A run that writes a screenshot is measuring something,

@@ -7,6 +7,7 @@
 #include "RageV/Utils/PlatformUtils.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/AssetRegistry.h"
+#include "RageV/Asset/ScriptGraphGenerator.h"
 #include "RageV/Renderer/DebugRenderer.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Physics/PhysicsDebugDraw.h"
@@ -232,6 +233,16 @@ void EditorLayer::OnLoaded()
 	{
 		m_EditorCamera.SetOrbit(config.CameraFocus, config.CameraDistance,
 								config.CameraYaw, config.CameraPitch);
+	}
+
+	// --generate-graphs, before the canvas: a build server has no editor to
+	// click Build Scripts in, and a check needs the files on disk to read.
+	if (config.GenerateGraphs)
+	{
+		const bool ok = Assets::ScriptGraphGenerator::GenerateAll(
+			Project::AssetRoot(), Project::Root() / "Scripts");
+		RV_INFO("--generate-graphs: {0}", ok ? "every graph generated"
+											 : "at least one graph did not generate");
 	}
 
 	// --graph=, so a canvas can be looked at without clicking through the
@@ -3875,6 +3886,19 @@ void EditorLayer::BuildScripts()
 		std::error_code ec;
 		if (!m_BuildCancel && std::filesystem::exists(csproj, ec))
 		{
+			// Graphs become C# before the compiler is asked to look at any
+			// (8.10, ENGINE-NOTES 7bh). Here rather than in a step of its own
+			// so that Build Scripts covers graphs with no new button: the
+			// generated files land in Scripts/Generated/, which the SDK-style
+			// csproj already globs.
+			//
+			// A graph that does not generate is reported and skipped rather
+			// than fatal -- one bad graph must not stop the rest of the
+			// project compiling, and the errors are already in the console
+			// this tees to.
+			Assets::ScriptGraphGenerator::GenerateAll(Project::AssetRoot(),
+													  root / "Scripts");
+
 			m_WorkerRanScripts = true;
 			m_WorkerScripts = Managed::ScriptBuild::Build(csproj, scriptsOut, scriptCore,
 														  &m_BuildCancel, tee);

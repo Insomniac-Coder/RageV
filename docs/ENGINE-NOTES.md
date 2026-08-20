@@ -9893,6 +9893,122 @@ is half the argument for this design over a VM.
 - **The generated directory**: `Scripts/Generated/`, created by the generator;
   no `.csproj` edit, because the SDK glob already covers it.
 
+
+### Built (stages 1-3), and the three things reading the C# changed
+
+**The canvas, the asset and the generator are done.** A `.rvgraph` becomes
+`Scripts/Generated/<Name>.g.cs`, and the chain is closed end to end: the
+generated file **compiles against the real `RageV.ScriptCore` with 0 warnings
+and 0 errors**, which is the claim that matters and is the one thing neither
+the canvas nor the generator could assert about itself.
+
+#### 1. The event was called the wrong thing, because nobody read the base class
+
+This entry's node set had `OnUpdate`. **`Script` has no such method.** It has
+`OnTick(float)` -- the fixed step -- and `OnFrame(float)`, and the node now
+says `On Tick` and writes `OnTick`. A label that does not match the method it
+generates is precisely the drift this design exists to avoid, and it would
+have shipped from a design entry written without opening `Engine.cs`.
+
+`OnTick` is also the right one on its merits: its own documentation says
+anything that moves a body, scores a point or decides an outcome belongs
+there.
+
+#### 2. Strict pin types made most of the node set unreachable
+
+The engine's named field API is **text**: `SetComponentField(component, field,
+value)` takes a string. So `Set Field`'s value pin is `String`, and under
+strict type equality *nothing but a string literal could ever feed it* -- every
+maths node, and three of the four literals, had no consumer anywhere in the
+set. A closed node set most of which cannot be connected is not a node set.
+
+So there is a widening rule, `ScriptGraph::PinAccepts`: **a Bool, Float or Vec3
+may feed a String input**, and the generator writes the invariant text form.
+Widening only. A String into a Float stays refused, because that is a parse
+that can fail and a graph should not hide a failing parse behind a wire -- and
+the canvas says exactly that when it refuses one.
+
+#### 3. A value read twice was written twice
+
+This entry promised temporaries and the first cut did not do them. The
+`Spinner` fixture emitted `((deltaTime * 180.0f) / 2.0f)` in the condition
+*and* in the value it set. Correct, twice the work, and harder to read than
+the graph it came from -- which matters, because a reader being able to follow
+the output is most of the argument for generating C# rather than interpreting
+a graph. A pin read by two or more inputs is now spilled to a `var` at the top
+of the method.
+
+**Safe because every data node in the v1 set is pure** -- literals,
+arithmetic, a comparison and a field *read*. Nothing assigns, so computing a
+value above a branch that may not use it costs an instruction and changes no
+behaviour. The day a data node has a side effect, that stops being true.
+
+### What it generates
+
+`Spinner.rvgraph`, twenty nodes over all three events:
+
+```csharp
+public override void OnTick(float deltaTime)
+{
+    var value8 = ((deltaTime * 180.0f) / 2.0f);
+
+    if (value8 > 0.5f)
+    {
+        Entity.SetComponentField("TransformComponent", "Rotation", Text(value8));
+        Log.Info("spun");
+    }
+    else
+    {
+        Log.Info("too slow");
+    }
+}
+```
+
+Ordinary C#, which is the whole point: outgrow the graph, delete it, keep the
+file.
+
+### Refusing, which is the half that matters
+
+A graph with any error **writes no file**, and *removes a stale one*. An empty
+`class Foo : Script` compiles, attaches, runs and does nothing -- 8.13's black
+frames one layer up (7bf) -- and last-good code left compiled in while the
+canvas shows four errors is the engine disagreeing with the editor about what
+the project contains. `Broken.rvgraph` is the fixture that proves it, and the
+build says which graph and why.
+
+An identical file is also not rewritten: touching the timestamp makes MSBuild
+rebuild the assembly, which restarts the scene, every save, for nothing.
+
+### Where it runs
+
+- **On save**, from the canvas.
+- **Before `ScriptBuild::Build`**, so Build Scripts covers graphs with no new
+  button -- the files land in `Scripts/Generated/`, which the SDK-style csproj
+  already globs.
+- **`--generate-graphs`**, for a build server with no editor to click, and for
+  the check.
+
+One bad graph never stops the others compiling.
+
+### Verified
+
+`scenetest`, on both backends: a complete graph validates clean and generates;
+the class is named after the asset; the event writes the engine's own method;
+the statement goes through the named field API; **the same graph twice produces
+the same bytes**; widening converts at the boundary and invariantly; narrowing
+is refused; a graph with an unfed input produces **no source at all, not an
+empty class**; a name that is not an identifier and a reserved word are both
+caught before anything is written; a data cycle is stopped rather than
+recursing; and a value read twice appears once. Then `dotnet build` on the
+generated files: **0 warnings, 0 errors.**
+
+### Still to do
+
+Stage 5, the check: a fixture graph that moves an entity, run headless, assert
+the transform moved, plus a `falsify` break that severs the exec link. Until
+then the generator is proven to produce *correct C#* and not yet proven to
+produce *a script that runs*.
+
 #### What this will not claim
 
 Not that it replaces either language. It is a **third way to author a C#

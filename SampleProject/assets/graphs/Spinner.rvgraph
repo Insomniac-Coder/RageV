@@ -1,0 +1,136 @@
+ScriptGraph: 1
+NextNodeId: 21
+NextLinkId: 21
+Nodes:
+  - Id: 1
+    Type: OnCreate
+    Pos: [-620, -309]
+  - Id: 2
+    Type: OnTick
+    Pos: [-620, -100]
+  - Id: 3
+    Type: OnCollisionEnter
+    Pos: [-620, 273]
+  - Id: 4
+    Type: Log
+    Pos: [-300, -309]
+    Text: spinner ready
+  - Id: 5
+    Type: LiteralFloat
+    Pos: [-620, 43]
+    Value: [180, 0, 0, 0]
+  - Id: 6
+    Type: Multiply
+    Pos: [-340, -28]
+  - Id: 7
+    Type: LiteralFloat
+    Pos: [-620, 144]
+    Value: [2, 0, 0, 0]
+  - Id: 8
+    Type: Divide
+    Pos: [-80, 28]
+  - Id: 9
+    Type: LiteralFloat
+    Pos: [-340, 144]
+    Value: [0.5, 0, 0, 0]
+  - Id: 10
+    Type: Compare
+    Pos: [180, 100]
+    Value: [4, 0, 0, 0]
+  - Id: 11
+    Type: Branch
+    Pos: [180, -100]
+  - Id: 12
+    Type: SetField
+    Pos: [460, -180]
+    Text: TransformComponent.Rotation
+  - Id: 13
+    Type: Log
+    Pos: [740, -180]
+    Text: spun
+  - Id: 14
+    Type: Log
+    Pos: [460, 14]
+    Text: too slow
+  - Id: 15
+    Type: Sequence
+    Pos: [-340, 273]
+  - Id: 16
+    Type: GetField
+    Pos: [-620, 417]
+    Text: TagComponent.Tag
+  - Id: 17
+    Type: Log
+    Pos: [20, 244]
+  - Id: 18
+    Type: LiteralFloat
+    Pos: [-620, 518]
+    Value: [1, 0, 0, 0]
+  - Id: 19
+    Type: Subtract
+    Pos: [-340, 475]
+  - Id: 20
+    Type: SetField
+    Pos: [20, 432]
+    Text: RigidbodyComponent.LinearVelocity
+Links:
+  - Id: 1
+    From: [1, 0]
+    To: [4, 0]
+  - Id: 2
+    From: [2, 1]
+    To: [6, 0]
+  - Id: 3
+    From: [5, 0]
+    To: [6, 1]
+  - Id: 4
+    From: [6, 0]
+    To: [8, 0]
+  - Id: 5
+    From: [7, 0]
+    To: [8, 1]
+  - Id: 6
+    From: [8, 0]
+    To: [10, 0]
+  - Id: 7
+    From: [9, 0]
+    To: [10, 1]
+  - Id: 8
+    From: [2, 0]
+    To: [11, 0]
+  - Id: 9
+    From: [10, 0]
+    To: [11, 1]
+  - Id: 10
+    From: [11, 0]
+    To: [12, 0]
+  - Id: 11
+    From: [8, 0]
+    To: [12, 1]
+  - Id: 12
+    From: [12, 0]
+    To: [13, 0]
+  - Id: 13
+    From: [11, 1]
+    To: [14, 0]
+  - Id: 14
+    From: [3, 0]
+    To: [15, 0]
+  - Id: 15
+    From: [15, 0]
+    To: [17, 0]
+  - Id: 16
+    From: [16, 0]
+    To: [17, 1]
+  - Id: 17
+    From: [3, 2]
+    To: [19, 0]
+  - Id: 18
+    From: [18, 0]
+    To: [19, 1]
+  - Id: 19
+    From: [15, 1]
+    To: [20, 0]
+  - Id: 20
+    From: [19, 0]
+    To: [20, 1]

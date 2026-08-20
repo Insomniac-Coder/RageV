@@ -219,6 +219,9 @@ namespace RageV
 			}
 		}
 
+		if (key == "generate-graphs" || key == "generategraphs")
+			return ParseBool(value, config.GenerateGraphs);
+
 		if (key == "graph")
 		{
 			config.GraphPath = value;

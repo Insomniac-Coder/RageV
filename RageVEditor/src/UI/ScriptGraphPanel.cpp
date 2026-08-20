@@ -2,6 +2,8 @@
 #include "EditorTheme.h"
 
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/Asset/ScriptGraphGenerator.h"
+#include "RageV/Project/Project.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Core/Log.h"
 
@@ -47,7 +49,10 @@ namespace RageV::UI
 			switch (type)
 			{
 				case GraphPinType::Exec:   return ImVec4(0.92f, 0.92f, 0.92f, 1.0f);
-				case GraphPinType::Bool:   return ImVec4(0.78f, 0.30f, 0.30f, 1.0f);
+				// Teal, not red. Red is what an error outline is, and a Bool wire
+				// in the same colour reads as a broken link on a clean graph --
+				// which is the one thing this panel must never say by accident.
+				case GraphPinType::Bool:   return ImVec4(0.35f, 0.76f, 0.80f, 1.0f);
 				case GraphPinType::Float:  return ImVec4(0.45f, 0.78f, 0.55f, 1.0f);
 				case GraphPinType::Vec3:   return ImVec4(0.95f, 0.80f, 0.35f, 1.0f);
 				case GraphPinType::String: return ImVec4(0.85f, 0.45f, 0.75f, 1.0f);
@@ -197,6 +202,14 @@ namespace RageV::UI
 		}
 
 		m_Dirty = false;
+
+		// The graph and its C# are written together, so what the canvas shows
+		// and what the project compiles cannot disagree (7bh). A graph with
+		// errors writes no file and removes a stale one -- the panel is
+		// already showing why, so this does not say it twice.
+		std::vector<GraphIssue> issues;
+		Assets::ScriptGraphGenerator::GenerateToFile(m_Graph, m_Name,
+													 Project::Root() / "Scripts", issues);
 		return true;
 	}
 

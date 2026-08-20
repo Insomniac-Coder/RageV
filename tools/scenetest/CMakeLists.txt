@@ -1,5 +1,14 @@
 add_executable(scenetest main.cpp)
 
+# One translation unit holding every check in the engine, which in Debug is
+# more COFF sections than the object format allows without this -- adding the
+# graph generator's cases is what crossed it. The alternative is splitting the
+# suite across files, which trades a compiler flag for the thing that makes it
+# readable: one file, read top to bottom, in the order the engine is built.
+if (MSVC)
+    target_compile_options(scenetest PRIVATE /bigobj)
+endif()
+
 # The declaration-site marker fixture, run through the *real* rvgen at build
 # time and compiled into this executable. That is the end-to-end proof of the
 # generator -- marker to scan to wrapper TU to a registration that exists at

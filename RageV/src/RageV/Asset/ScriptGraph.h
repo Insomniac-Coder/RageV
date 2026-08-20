@@ -42,7 +42,12 @@ namespace RageV
 		// Events. Each becomes an override on the generated class, and each is
 		// a root of one exec chain.
 		OnCreate,
-		OnUpdate,
+		// The engine's fixed step, and named after it. `Script` has OnTick and
+		// OnFrame and no OnUpdate at all, and a node whose label does not match
+		// the method it writes is exactly the drift this design exists to
+		// avoid. OnTick rather than OnFrame because its own documentation says
+		// anything that moves a body or decides an outcome belongs there.
+		OnTick,
 		OnCollisionEnter,
 
 		// Flow.
@@ -166,6 +171,20 @@ namespace RageV
 		// Takes the node's links with it, which is the whole reason this is a
 		// method rather than an erase at the call site.
 		void RemoveNode(uint32_t id);
+
+		// Whether a value of `from` can be used where `to` is wanted.
+		//
+		// Equal types, plus **widening to String**: the engine's named field
+		// API is text (`SetComponentField` takes a string), so a Float, Bool or
+		// Vec3 may feed a String input and the generator writes the invariant
+		// text form. Without that rule nothing but a String literal could ever
+		// reach `Set Field`, which would leave every maths node in the set with
+		// no consumer.
+		//
+		// Widening only. A String into a Float is a parse that can fail, and a
+		// graph that hides a failing parse behind a wire is worse than one that
+		// refuses to draw it.
+		static bool PinAccepts(GraphPinType from, GraphPinType to);
 
 		// Refuses anything the graph could not generate from, and says which
 		// rule stopped it. The canvas shows the reason rather than dropping a

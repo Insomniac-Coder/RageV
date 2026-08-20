@@ -35,7 +35,7 @@ namespace RageV
 			// --- events: no exec input, because they are where a body starts.
 			set(GraphNodeType::OnCreate, "On Create", "Events",
 				{}, { { "", P::Exec } }, true);
-			set(GraphNodeType::OnUpdate, "On Update", "Events",
+			set(GraphNodeType::OnTick, "On Tick", "Events",
 				{}, { { "", P::Exec }, { "Delta", P::Float } }, true);
 			set(GraphNodeType::OnCollisionEnter, "On Collision Enter", "Events",
 				{}, { { "", P::Exec }, { "Other", P::Entity }, { "Speed", P::Float } }, true);
@@ -88,7 +88,7 @@ namespace RageV
 		const NodeName kNodeNames[] = {
 			{ GraphNodeType::None, "None" },
 			{ GraphNodeType::OnCreate, "OnCreate" },
-			{ GraphNodeType::OnUpdate, "OnUpdate" },
+			{ GraphNodeType::OnTick, "OnTick" },
 			{ GraphNodeType::OnCollisionEnter, "OnCollisionEnter" },
 			{ GraphNodeType::Branch, "Branch" },
 			{ GraphNodeType::Sequence, "Sequence" },
@@ -152,6 +152,18 @@ namespace RageV
 				return entry.Type;
 		}
 		return GraphNodeType::None;
+	}
+
+	bool ScriptGraph::PinAccepts(GraphPinType from, GraphPinType to)
+	{
+		if (from == to)
+			return true;
+
+		// Everything has a text form, and text is what the engine's named
+		// field API speaks. Exec is not a value and converts to nothing.
+		return to == GraphPinType::String
+			&& (from == GraphPinType::Bool || from == GraphPinType::Float
+				|| from == GraphPinType::Vec3);
 	}
 
 	GraphNode* ScriptGraph::FindNode(uint32_t id)
@@ -220,10 +232,16 @@ namespace RageV
 
 		const GraphPinType fromType = fromDesc.Outputs[fromPin].Type;
 		const GraphPinType toType = toDesc.Inputs[toPin].Type;
-		if (fromType != toType)
+		if (!PinAccepts(fromType, toType))
 		{
 			reason = std::string("a ") + GraphPinTypeName(fromType) + " pin does not fit a "
 				   + GraphPinTypeName(toType) + " one";
+
+			// The one case worth explaining rather than just refusing, because
+			// the reverse *is* allowed and the asymmetry looks arbitrary until
+			// somebody says why.
+			if (fromType == GraphPinType::String && toType != GraphPinType::Exec)
+				reason += " -- text does not convert back, because a parse can fail";
 			return false;
 		}
 
@@ -318,7 +336,7 @@ namespace RageV
 
 			const GraphPinType fromType = fromDesc.Outputs[link.FromPin].Type;
 			const GraphPinType toType = toDesc.Inputs[link.ToPin].Type;
-			if (fromType != toType)
+			if (!PinAccepts(fromType, toType))
 			{
 				error(link.ToNode, std::string(toDesc.Name) + " takes a "
 					  + GraphPinTypeName(toType) + " where "
