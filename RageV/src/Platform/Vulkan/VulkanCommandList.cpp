@@ -395,10 +395,11 @@ namespace RageV::Vk
 		vkCmdBindDescriptorSets(m_CommandBuffer, m_BoundPipeline->GetBindPoint(),
 								m_BoundPipeline->GetLayout(), set, 1, &handle, 0, nullptr);
 
-		// Under validation only: lets a later Commit on this same set name
-		// the rewrite-after-bind hazard instead of leaving the layer's
-		// anonymous "invalidated" message as the whole story.
-		m_Device.NoteSetBound(handle);
+		// Recorded against this command buffer, so a later Commit on the same
+		// set can tell whether rewriting it would invalidate a bind that is
+		// still pending -- and so an immediate submit can retire its own binds
+		// without forgetting this one's.
+		m_Device.NoteSetBound(handle, m_CommandBuffer);
 	}
 
 	void VulkanCommandList::BindVertexBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer, uint64_t offset)

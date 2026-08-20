@@ -139,8 +139,52 @@ the camp actually needs -- the mirror is the whole reason ray tracing is on --
 and the other two were switched on the same afternoon for completeness rather
 than for anything in the frame.
 
-Finding the actual fault needs a graphics debugger. The repro above is cheap
-and headless, which it was not before `--play` existed.
+**It is the second frame graph, confirmed.** Closing the Game panel (`game = 0`
+in the editor's `panels.ini`) leaves play mode rendering one graph, and it
+survives -- lost in 0 of 2 with the panel closed against 2 of 2 with it open,
+everything else identical. The runtime, which only ever renders one graph, is
+fine with all three on for thousands of frames.
+
+### What has already been ruled out
+
+Four theories, each checked and each wrong. Recorded so nobody spends the
+afternoon on them again.
+
+- **The TLAS being rebuilt by the second graph.** `RayShadows::Build` is
+  guarded by `BuiltThisFrame`, reset once per device frame in
+  `Renderer3D::BeginFrame`. The second graph's call is a no-op.
+- **A missing barrier after the acceleration-structure builds.** There is one,
+  and its stage mask is right: `ACCELERATION_STRUCTURE_BUILD` →
+  `FRAGMENT | COMPUTE | ACCELERATION_STRUCTURE_BUILD`, write → read.
+- **The animated skinned mesh.** Stopping the fox's animator -- which removes
+  the per-frame bottom-level rebuild entirely -- changes nothing: 2 of 2 either
+  way.
+- **Descriptor sets being rewritten after being bound.** This is the obvious
+  suspect, because there is one set per pipeline per frame in flight and the
+  editor binds each pipeline twice a frame. It is *not* happening: the engine
+  has a tripwire for exactly this and it stays silent through the fault.
+
+  Note that the tripwire's silence was worth nothing until it was fixed. It was
+  gated on validation *and* `ImmediateSubmit` cleared its record wholesale, so
+  any asset upload between the two graphs blinded it for the rest of the frame.
+  It now retires binds per command buffer, so its silence means something. It is
+  still silent.
+
+  **Rotating to a spare descriptor set was tried and reverted.** It made things
+  worse in two ways worth knowing about: a spare has never been fully written,
+  so writing only the delta into it leaves the rest of its bindings undefined
+  (visible flicker), and a spare allocated later can come from a different pool
+  block, so freeing it from `m_Pool` is an invalid free (a *more* reliable
+  device loss than the bug it was meant to fix). Both are avoidable, but the
+  approach is wrong at the root: callers may bind a set's handle without
+  committing first, so a set has to keep one stable handle per frame.
+
+- **Cross-frame resource reuse.** It fails identically at 1, 2 and 3 frames in
+  flight, so the hazard is inside a single frame.
+
+Finding the actual fault needs a graphics debugger -- RenderDoc or Nsight on the
+frame that dies. The repro above is cheap and headless, which it was not before
+`--play` existed.
 
 ### If the graphics device is lost
 

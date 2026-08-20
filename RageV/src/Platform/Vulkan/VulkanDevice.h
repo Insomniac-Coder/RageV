@@ -140,8 +140,11 @@ namespace RageV::Vk
 		// but names neither the set's owner nor the writer -- these two are
 		// what let VulkanResourceSet::Commit name both. See HANDOFF §5: "a
 		// descriptor set that is already bound must not be rewritten".
-		void NoteSetBound(VkDescriptorSet set);
+		void NoteSetBound(VkDescriptorSet set, VkCommandBuffer cmd);
 		bool WasSetBoundThisFrame(VkDescriptorSet set) const;
+		// Forget the binds made into one command buffer, because it has
+		// completed. Per buffer, not wholesale: see the comment on the map.
+		void RetireBinds(VkCommandBuffer cmd);
 
 	private:
 		void CreateInstance(bool enableValidation, bool gpuAssisted);
@@ -271,6 +274,11 @@ namespace RageV::Vk
 
 		// Sets bound into this frame's command buffer so far; cleared when the
 		// frame index advances. Empty (and untouched) unless validation is on.
-		std::unordered_set<VkDescriptorSet> m_BoundThisFrame;
+		// Which command buffer each bind went into. Keyed by set, valued by
+		// buffer, so ImmediateSubmit can retire the binds it made without
+		// forgetting the frame's -- which is what clearing wholesale did, and
+		// why the tripwire was silent through the one hazard it exists to
+		// catch.
+		std::unordered_map<VkDescriptorSet, VkCommandBuffer> m_BoundThisFrame;
 	};
 }

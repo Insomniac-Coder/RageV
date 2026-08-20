@@ -1313,15 +1313,24 @@ namespace RageV::Vk
 		m_Deletion->FrameIndex = m_FrameIndex;
 	}
 
-	void VulkanDevice::NoteSetBound(VkDescriptorSet set)
+	void VulkanDevice::NoteSetBound(VkDescriptorSet set, VkCommandBuffer cmd)
 	{
+		// Under validation only, like the tripwire it feeds: it is a
+		// diagnostic, and a hash insert on every descriptor bind is not
+		// something to pay for in a build that will never read it.
 		if (m_ValidationEnabled)
-			m_BoundThisFrame.insert(set);
+			m_BoundThisFrame[set] = cmd;
 	}
 
 	bool VulkanDevice::WasSetBoundThisFrame(VkDescriptorSet set) const
 	{
 		return m_ValidationEnabled && m_BoundThisFrame.count(set) != 0;
+	}
+
+	void VulkanDevice::RetireBinds(VkCommandBuffer cmd)
+	{
+		for (auto it = m_BoundThisFrame.begin(); it != m_BoundThisFrame.end(); )
+			it = it->second == cmd ? m_BoundThisFrame.erase(it) : std::next(it);
 	}
 
 	bool VulkanDevice::IsDeviceLost() const
@@ -1482,6 +1491,7 @@ namespace RageV::Vk
 		if (!record)
 			return;
 
+		VkCommandBuffer retired = VK_NULL_HANDLE;
 		ImmediateSubmit([&](VkCommandBuffer buffer)
 		{
 			// Adopted rather than begun: ImmediateSubmit owns the begin and
@@ -1489,14 +1499,20 @@ namespace RageV::Vk
 			VulkanCommandList list(*this);
 			list.Adopt(buffer);
 			record(list);
+			retired = buffer;
 		});
 
-		// ImmediateSubmit has waited for completion, so every bind this
-		// recording noted is finished with. Clearing wholesale also forgets
-		// any frame-command-buffer binds when this runs mid-frame -- the
-		// tripwire goes quiet for the rest of that frame rather than crying
-		// wolf, which is the right way for a diagnostic to be imperfect.
-		m_BoundThisFrame.clear();
+		// ImmediateSubmit has waited for completion, so every bind *this*
+		// recording noted is finished with -- and only those.
+		//
+		// It used to clear wholesale, which also forgot the frame command
+		// buffer's binds whenever this ran mid-frame. That was written as an
+		// acceptable imprecision in a diagnostic, and it stopped being
+		// acceptable the moment the same record started deciding whether a
+		// descriptor set is safe to rewrite: an asset upload between two
+		// scene renders would blind the check for the rest of the frame,
+		// which is exactly when the hazard happens.
+		RetireBinds(retired);
 	}
 
 	void VulkanDevice::DeferDestruction(std::function<void()> deleter)
