@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""Model the demo's anvil and export it as FBX.
+
+    python tools/scripts/make_demo_models.py
+
+**Why the anvil and not something new.** The courtyard already had one, made
+of a scaled cube, and it is the object in the scene with the best claim to
+having been *modelled* rather than knocked together: a smith builds a crate
+out of boards and buys an anvil from somebody who made it properly. So the
+demo's FBX asset is the thing whose shape a cube was already failing to
+describe -- which is the scene's own rule, that nothing goes in because it is
+new.
+
+It also puts FBX where it can be seen doing something. An anvil has a horn, a
+waist and a step, none of which a box has, and all of which are visible from
+the camera's position at the open side of the yard.
+
+Written as ASCII FBX 7.4 through the same minimal writer the import fixture
+uses: FBX's text form, which ufbx reads, and which somebody can open and check
+by eye.
+"""
+
+import argparse
+import pathlib
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+# --- the shape ----------------------------------------------------------------
+#
+# Metres, origin at the centre of the base so the scene can stand it on a block
+# without arithmetic. Built from six blocks: an anvil is a stack of simple
+# solids and pretending otherwise would make this a modelling exercise rather
+# than an export one.
+#
+#   base .... the foot that sits on the block
+#   waist ... the narrow middle, which is what makes the silhouette an anvil
+#   body .... the mass under the face
+#   face .... the flat top, the part that is struck
+#   horn .... the taper off one end
+#   step .... the small shelf at the other
+def blocks():
+    return [
+        # (name,  min x,y,z,             max x,y,z)
+        ("base", (-0.24, 0.00, -0.17), (0.24, 0.09, 0.17)),
+        ("waist", (-0.11, 0.09, -0.09), (0.11, 0.26, 0.09)),
+        ("body", (-0.26, 0.26, -0.14), (0.26, 0.36, 0.14)),
+        ("face", (-0.30, 0.36, -0.15), (0.22, 0.44, 0.15)),
+        ("step", (-0.40, 0.36, -0.10), (-0.30, 0.42, 0.10)),
+    ]
+
+
+# The horn: a box whose far end closes to a small square, which is the one
+# part of the shape a stack of boxes cannot do.
+HORN_NEAR = (0.22, 0.37, -0.13, 0.22, 0.44, 0.13)
+HORN_TIP = (0.56, 0.395, -0.025, 0.56, 0.425, 0.025)
+
+
+def box_corners(low, high):
+    x0, y0, z0 = low
+    x1, y1, z1 = high
+    return [
+        (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+        (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1),
+    ]
+
+
+QUADS = [
+    (0, 3, 2, 1),   # -Z
+    (4, 5, 6, 7),   # +Z
+    (0, 1, 5, 4),   # -Y
+    (3, 7, 6, 2),   # +Y
+    (0, 4, 7, 3),   # -X
+    (1, 2, 6, 5),   # +X
+]
+
+
+def horn_corners():
+    nx, ny0, nz0, _, ny1, nz1 = HORN_NEAR
+    tx, ty0, tz0, _, ty1, tz1 = HORN_TIP
+    return [
+        (nx, ny0, nz0), (tx, ty0, tz0), (tx, ty1, tz0), (nx, ny1, nz0),
+        (nx, ny0, nz1), (tx, ty0, tz1), (tx, ty1, tz1), (nx, ny1, nz1),
+    ]
+
+
+def build():
+    """One vertex list and one quad list for the whole anvil."""
+    points, faces = [], []
+
+    for _, low, high in blocks():
+        base = len(points)
+        points.extend(box_corners(low, high))
+        faces.extend(tuple(base + i for i in quad) for quad in QUADS)
+
+    base = len(points)
+    points.extend(horn_corners())
+    faces.extend(tuple(base + i for i in quad) for quad in QUADS)
+
+    return points, faces
+
+
+def face_normal(points, quad):
+    a, b, c = points[quad[0]], points[quad[1]], points[quad[2]]
+    u = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    v = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+    n = (u[1] * v[2] - u[2] * v[1],
+         u[2] * v[0] - u[0] * v[2],
+         u[0] * v[1] - u[1] * v[0])
+    length = max((n[0] ** 2 + n[1] ** 2 + n[2] ** 2) ** 0.5, 1e-9)
+    return (n[0] / length, n[1] / length, n[2] / length)
+
+
+def numbers(values, per_line=6):
+    out, line = [], []
+    for value in values:
+        line.append('{0:g}'.format(value))
+        if len(line) == per_line:
+            out.append(','.join(line))
+            line = []
+    if line:
+        out.append(','.join(line))
+    return (',\n' + ' ' * 12).join(out)
+
+
+def write_fbx(path, points, faces):
+    vertices = []
+    for point in points:
+        vertices.extend(point)
+
+    indices = []
+    for quad in faces:
+        indices.extend(quad[:-1])
+        indices.append(~quad[-1])       # FBX marks the last index of a face
+
+    normals = []
+    for quad in faces:
+        normal = face_normal(points, quad)
+        for _ in range(4):
+            normals.extend(normal)
+
+    # Planar-ish UVs from the world position, which is all a scene prop needs
+    # from a generator: the material on it is a tiling steel, not an atlas.
+    uvs, uv_indices = [], []
+    for quad in faces:
+        for corner in quad:
+            x, y, z = points[corner]
+            uv_indices.append(len(uvs) // 2)
+            uvs.extend([(x + z) * 1.6, y * 1.6])
+
+    text = '''; FBX 7.4.0 project file
+; Generated by tools/scripts/make_demo_models.py -- do not edit by hand.
+; The forge courtyard's anvil: the demo's imported FBX asset.
+
+FBXHeaderExtension:  {{
+    FBXHeaderVersion: 1003
+    FBXVersion: 7400
+    Creator: "RageV demo model generator"
+}}
+GlobalSettings:  {{
+    Version: 1000
+    Properties70:  {{
+        P: "UpAxis", "int", "Integer", "",1
+        P: "UpAxisSign", "int", "Integer", "",1
+        P: "FrontAxis", "int", "Integer", "",2
+        P: "FrontAxisSign", "int", "Integer", "",1
+        P: "CoordAxis", "int", "Integer", "",0
+        P: "CoordAxisSign", "int", "Integer", "",1
+        ; Centimetres per unit, so 100 is one unit per metre.
+        P: "UnitScaleFactor", "double", "Number", "",100
+    }}
+}}
+
+Definitions:  {{
+    Version: 100
+    Count: 3
+    ObjectType: "Geometry" {{
+        Count: 1
+    }}
+    ObjectType: "Model" {{
+        Count: 1
+    }}
+    ObjectType: "Material" {{
+        Count: 1
+    }}
+}}
+
+Objects:  {{
+    Geometry: 1100, "Geometry::Anvil", "Mesh" {{
+        Vertices: *{vertex_count} {{
+            a: {vertices}
+        }}
+        PolygonVertexIndex: *{index_count} {{
+            a: {indices}
+        }}
+        GeometryVersion: 124
+        LayerElementNormal: 0 {{
+            Version: 101
+            Name: ""
+            MappingInformationType: "ByPolygonVertex"
+            ReferenceInformationType: "Direct"
+            Normals: *{normal_count} {{
+                a: {normals}
+            }}
+        }}
+        LayerElementUV: 0 {{
+            Version: 101
+            Name: "UVMap"
+            MappingInformationType: "ByPolygonVertex"
+            ReferenceInformationType: "IndexToDirect"
+            UV: *{uv_count} {{
+                a: {uvs}
+            }}
+            UVIndex: *{uv_index_count} {{
+                a: {uv_indices}
+            }}
+        }}
+        LayerElementMaterial: 0 {{
+            Version: 101
+            Name: ""
+            MappingInformationType: "AllSame"
+            ReferenceInformationType: "IndexToDirect"
+            Materials: *1 {{
+                a: 0
+            }}
+        }}
+        Layer: 0 {{
+            Version: 100
+            LayerElement:  {{
+                Type: "LayerElementNormal"
+                TypedIndex: 0
+            }}
+            LayerElement:  {{
+                Type: "LayerElementUV"
+                TypedIndex: 0
+            }}
+            LayerElement:  {{
+                Type: "LayerElementMaterial"
+                TypedIndex: 0
+            }}
+        }}
+    }}
+    Model: 2100, "Model::Anvil", "Mesh" {{
+        Version: 232
+        Properties70:  {{
+            P: "Lcl Translation", "Lcl Translation", "", "A",0,0,0
+            P: "Lcl Rotation", "Lcl Rotation", "", "A",0,0,0
+            P: "Lcl Scaling", "Lcl Scaling", "", "A",1,1,1
+        }}
+        Shading: T
+        Culling: "CullingOff"
+    }}
+    Material: 3100, "Material::AnvilSteel", "" {{
+        Version: 102
+        ShadingModel: "phong"
+        MultiLayer: 0
+        Properties70:  {{
+            P: "DiffuseColor", "Color", "", "A",0.42,0.4,0.39
+            P: "SpecularColor", "Color", "", "A",0.3,0.3,0.3
+            P: "ShininessExponent", "Number", "", "A",18
+        }}
+    }}
+}}
+
+Connections:  {{
+    C: "OO",2100,0
+    C: "OO",1100,2100
+    C: "OO",3100,2100
+}}
+'''.format(
+        vertex_count=len(vertices), vertices=numbers(vertices),
+        index_count=len(indices), indices=numbers(indices, 8),
+        normal_count=len(normals), normals=numbers(normals),
+        uv_count=len(uvs), uvs=numbers(uvs, 8),
+        uv_index_count=len(uv_indices), uv_indices=numbers(uv_indices, 8))
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding='utf-8')
+    return len(text)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--output',
+                        default=str(ROOT / 'SampleProject' / 'assets' / 'models'))
+    args = parser.parse_args()
+
+    points, faces = build()
+    path = pathlib.Path(args.output) / 'anvil.fbx'
+    size = write_fbx(path, points, faces)
+
+    low = [min(p[i] for p in points) for i in range(3)]
+    high = [max(p[i] for p in points) for i in range(3)]
+
+    sys.stdout.write('wrote {0} ({1} bytes)\n'.format(path, size))
+    sys.stdout.write('{0} vertices, {1} quads, {2:.2f} x {3:.2f} x {4:.2f} m\n'.format(
+        len(points), len(faces),
+        high[0] - low[0], high[1] - low[1], high[2] - low[2]))
+
+
+if __name__ == '__main__':
+    main()

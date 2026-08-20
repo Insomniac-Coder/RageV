@@ -424,11 +424,11 @@ Entities:
     TagComponent:
       Tag: Anvil
     TransformComponent:
-      Position: [-2.6, 0.72, -0.35]
+      Position: [-2.6, 0.6, -0.35]
       Rotation: [0, 0, 0]
-      Scale: [0.78, 0.24, 0.34]
+      Scale: [1, 1, 1]
     MeshComponent:
-      Mesh: 8241982477996916736
+      Mesh: 16802294582248143889
       Material: 13042967132365226213
     NativeScriptComponent:
       Script: Anvil

@@ -84,6 +84,11 @@ def write_named(path, settings):
             lines.append(f"{key}: {'true' if value else 'false'}")
         elif isinstance(value, int) and not isinstance(value, bool):
             lines.append(f"{key}: {value}")
+        elif isinstance(value, str):
+            # An enum -- GiQuality, a tone mapper, an AA mode. Written as
+            # it is: the reader parses these by name, and the numeric
+            # branch below refuses a word outright.
+            lines.append(f"{key}: {value}")
         else:
             lines.append(f"{key}: {value:g}")
 
