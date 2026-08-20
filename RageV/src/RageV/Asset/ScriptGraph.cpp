@@ -75,6 +75,23 @@ namespace RageV
 			set(GraphNodeType::Sequence, "Sequence", "Flow",
 				{ { "", P::Exec } }, { { "Then 0", P::Exec }, { "Then 1", P::Exec } },
 				Emit::Special, "sequence");
+			set(GraphNodeType::ForLoop, "For Loop", "Flow",
+				{ { "", P::Exec }, { "Count", P::Float } }, { { "Body", P::Exec }, { "Index", P::Float }, { "Completed", P::Exec } },
+				Emit::Special, "forloop");
+			set(GraphNodeType::WhileLoop, "While Loop", "Flow",
+				{ { "", P::Exec }, { "Condition", P::Bool } }, { { "Body", P::Exec }, { "Completed", P::Exec } },
+				Emit::Special, "whileloop");
+			set(GraphNodeType::BreakLoop, "Break", "Flow",
+				{ { "", P::Exec } }, {},
+				Emit::Special, "break");
+
+			// --- functions
+			set(GraphNodeType::FunctionEntry, "Function", "Functions",
+				{}, { { "", P::Exec } },
+				Emit::Special, "function");
+			set(GraphNodeType::CallFunction, "Call", "Functions",
+				{ { "", P::Exec } }, { { "", P::Exec } },
+				Emit::Special, "call");
 
 			// --- values
 			set(GraphNodeType::LiteralBool, "Bool", "Values",
@@ -385,6 +402,11 @@ namespace RageV
 			{ GraphNodeType::OnTriggerExit, "OnTriggerExit" },
 			{ GraphNodeType::Branch, "Branch" },
 			{ GraphNodeType::Sequence, "Sequence" },
+			{ GraphNodeType::ForLoop, "ForLoop" },
+			{ GraphNodeType::WhileLoop, "WhileLoop" },
+			{ GraphNodeType::BreakLoop, "BreakLoop" },
+			{ GraphNodeType::FunctionEntry, "FunctionEntry" },
+			{ GraphNodeType::CallFunction, "CallFunction" },
 			{ GraphNodeType::LiteralBool, "LiteralBool" },
 			{ GraphNodeType::LiteralFloat, "LiteralFloat" },
 			{ GraphNodeType::LiteralVec3, "LiteralVec3" },
@@ -828,7 +850,11 @@ namespace RageV
 
 		for (const GraphNode& node : m_Nodes)
 		{
-			if (GraphNodeDescOf(node.Type).IsEvent)
+			// A function entry is a root exactly as an event is. Without this
+			// every function body reports "not connected to any event", which
+			// is true and useless.
+			if (GraphNodeDescOf(node.Type).IsEvent
+				|| node.Type == GraphNodeType::FunctionEntry)
 				walk(node.Id);
 		}
 
@@ -853,6 +879,125 @@ namespace RageV
 			if (!contains(reached, node.Id))
 				warn(node.Id, std::string(GraphNodeDescOf(node.Type).Name)
 					 + " is not connected to any event, so it will not run");
+		}
+
+		// --- functions -------------------------------------------------------
+		std::vector<std::string> declared;
+		for (const GraphNode& node : m_Nodes)
+		{
+			if (node.Type != GraphNodeType::FunctionEntry)
+				continue;
+			if (node.Text.empty())
+			{
+				error(node.Id, "this function has no name");
+				continue;
+			}
+			if (std::find(declared.begin(), declared.end(), node.Text) != declared.end())
+				error(node.Id, "there is already a function called '" + node.Text + "'");
+			else
+				declared.push_back(node.Text);
+		}
+
+		for (const GraphNode& node : m_Nodes)
+		{
+			if (node.Type != GraphNodeType::CallFunction)
+				continue;
+			if (node.Text.empty())
+				error(node.Id, "this call names no function");
+			else if (std::find(declared.begin(), declared.end(), node.Text) == declared.end())
+				error(node.Id, "there is no function called '" + node.Text + "'");
+		}
+
+		// --- scope: what a loop's Body reaches ---------------------------------
+		//
+		// The one thing a graph is otherwise missing. A loop's Index is only
+		// meaningful inside its Body and a Break only inside a loop, and both
+		// are answerable from the exec chain: the scope *is* what Body reaches.
+		// Without this, reading Index after the loop generates a reference to a
+		// counter that has gone out of scope, and the error lands on generated
+		// code rather than on the node that asked for it.
+		auto bodyOf = [this](const GraphNode& loop, uint32_t pin)
+		{
+			std::vector<uint32_t> inside;
+			std::vector<uint32_t> pending;
+
+			for (const GraphLink& link : m_Links)
+			{
+				if (link.FromNode == loop.Id && link.FromPin == pin)
+					pending.push_back(link.ToNode);
+			}
+
+			while (!pending.empty())
+			{
+				const uint32_t id = pending.back();
+				pending.pop_back();
+				if (std::find(inside.begin(), inside.end(), id) != inside.end())
+					continue;
+				inside.push_back(id);
+
+				const GraphNode* node = FindNode(id);
+				if (!node)
+					continue;
+
+				const GraphNodeDesc& desc = GraphNodeDescOf(node->Type);
+				for (uint32_t out = 0; out < desc.Outputs.size(); out++)
+				{
+					if (desc.Outputs[out].Type != GraphPinType::Exec)
+						continue;
+					for (const GraphLink& link : m_Links)
+					{
+						if (link.FromNode == id && link.FromPin == out)
+							pending.push_back(link.ToNode);
+					}
+				}
+
+				// Data feeding a statement in the body is in the body too, so
+				// an expression built inside the loop counts as inside it.
+				for (const GraphLink& link : m_Links)
+				{
+					if (link.ToNode == id)
+						pending.push_back(link.FromNode);
+				}
+			}
+			return inside;
+		};
+
+		for (const GraphNode& node : m_Nodes)
+		{
+			if (node.Type != GraphNodeType::ForLoop)
+				continue;
+
+			const std::vector<uint32_t> inside = bodyOf(node, 0);
+			for (const GraphLink& link : m_Links)
+			{
+				if (link.FromNode != node.Id || link.FromPin != 1)
+					continue;
+				if (std::find(inside.begin(), inside.end(), link.ToNode) == inside.end())
+					error(link.ToNode, "this reads a For Loop's Index from outside "
+						  "its Body, where the loop counter does not exist");
+			}
+		}
+
+		for (const GraphNode& node : m_Nodes)
+		{
+			if (node.Type != GraphNodeType::BreakLoop)
+				continue;
+
+			bool enclosed = false;
+			for (const GraphNode& loop : m_Nodes)
+			{
+				if (loop.Type != GraphNodeType::ForLoop
+					&& loop.Type != GraphNodeType::WhileLoop)
+					continue;
+				const std::vector<uint32_t> inside = bodyOf(loop, 0);
+				if (std::find(inside.begin(), inside.end(), node.Id) != inside.end())
+				{
+					enclosed = true;
+					break;
+				}
+			}
+			if (!enclosed)
+				error(node.Id, "Break is not inside a loop, so there is nothing to break out of");
 		}
 
 		// Errors first: a panel showing five warnings above the one error that

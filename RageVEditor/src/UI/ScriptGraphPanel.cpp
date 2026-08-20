@@ -144,7 +144,9 @@ namespace RageV::UI
 			// of boxes labelled "Get Number" with no name on them is a canvas
 			// nobody can read.
 			const GraphEmit emit = GraphNodeDescOf(node.Type).Emit;
-			if (emit == GraphEmit::GetVariable || emit == GraphEmit::SetVariable)
+			if (emit == GraphEmit::GetVariable || emit == GraphEmit::SetVariable
+				|| node.Type == GraphNodeType::FunctionEntry
+				|| node.Type == GraphNodeType::CallFunction)
 				return node.Text.empty() ? std::string("(unnamed)") : node.Text;
 
 			return std::string();
@@ -752,7 +754,7 @@ namespace RageV::UI
 
 		// In the table's own order, so the menu and the file agree about how
 		// the set is grouped.
-		const char* categories[] = { "Events", "Flow", "Values", "Variables",
+		const char* categories[] = { "Events", "Flow", "Functions", "Values", "Variables",
 									 "Maths", "Logic", "Vector", "Entity",
 									 "Transform", "Physics", "Input", "Time",
 									 "Audio", "Component", "UI", "Output" };
@@ -873,7 +875,9 @@ namespace RageV::UI
 					break;
 				default:
 					if (desc.Emit == GraphEmit::GetVariable
-						|| desc.Emit == GraphEmit::SetVariable)
+						|| desc.Emit == GraphEmit::SetVariable
+						|| node->Type == GraphNodeType::FunctionEntry
+						|| node->Type == GraphNodeType::CallFunction)
 					{
 						if (ImGui::InputText("Name", text, sizeof(text)))
 						{

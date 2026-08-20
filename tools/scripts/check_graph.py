@@ -122,6 +122,18 @@ def main():
     else:
         print(f"the generator wrote {stale.name}")
 
+    # Every other graph in the project must have generated too. This is here
+    # because a fixture went stale without anyone noticing: a rename left two
+    # of them naming a node type that no longer existed, they stopped
+    # generating, and nothing looked -- this check only ever asked about the
+    # two graphs it owns. A project's graphs are its graphs; check them all.
+    for graph in sorted((ROOT / "SampleProject" / "assets" / "graphs").glob("*.rvgraph")):
+        if graph.stem == "Broken":
+            continue
+        if not (generated / f"{graph.stem}.g.cs").exists():
+            failures.append(f"{graph.name} did not generate; every graph in the "
+                            f"project except the deliberately broken one must")
+
     # Claim 2, and it costs nothing because Broken.rvgraph is already there:
     # a graph with errors must leave *no* file, because an empty class compiles,
     # attaches, runs and does nothing (7bf).

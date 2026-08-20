@@ -1,0 +1,75 @@
+ScriptGraph: 1
+NextNodeId: 12
+NextLinkId: 11
+Nodes:
+  - Id: 1
+    Type: OnCreate
+    Pos: [-620, -200]
+  - Id: 2
+    Type: ForLoop
+    Pos: [-320, -200]
+  - Id: 3
+    Type: LiteralFloat
+    Pos: [-620, 40]
+    Value: [4, 0, 0, 0]
+  - Id: 4
+    Type: Log
+    Pos: [-20, -260]
+  - Id: 5
+    Type: CallFunction
+    Pos: [-20, 60]
+    Text: Settle
+  - Id: 6
+    Type: FunctionEntry
+    Pos: [-620, 320]
+    Text: Settle
+  - Id: 7
+    Type: SetNumber
+    Pos: [-320, 320]
+    Text: total
+  - Id: 8
+    Type: GetNumber
+    Pos: [-620, 520]
+    Text: total
+  - Id: 9
+    Type: LiteralFloat
+    Pos: [-620, 640]
+    Value: [1, 0, 0, 0]
+  - Id: 10
+    Type: Add
+    Pos: [-320, 540]
+  - Id: 11
+    Type: LogWarning
+    Pos: [-20, 320]
+    Text: settled
+Links:
+  - Id: 1
+    From: [1, 0]
+    To: [2, 0]
+  - Id: 2
+    From: [3, 0]
+    To: [2, 1]
+  - Id: 3
+    From: [2, 0]
+    To: [4, 0]
+  - Id: 4
+    From: [2, 1]
+    To: [4, 1]
+  - Id: 5
+    From: [2, 2]
+    To: [5, 0]
+  - Id: 6
+    From: [6, 0]
+    To: [7, 0]
+  - Id: 7
+    From: [8, 0]
+    To: [10, 0]
+  - Id: 8
+    From: [9, 0]
+    To: [10, 1]
+  - Id: 9
+    From: [10, 0]
+    To: [7, 1]
+  - Id: 10
+    From: [7, 0]
+    To: [11, 0]

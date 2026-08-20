@@ -313,6 +313,10 @@ namespace RageV::Assets
 						return "(" + args[0] + " " + kCompare[mode] + " " + args[1] + ")";
 					}
 
+					case GraphNodeType::ForLoop:
+						// Index. A Float pin over an int counter, cast at the read.
+						return "(float)index" + std::to_string(node.Id);
+
 					case GraphNodeType::SpawnEntity:
 					case GraphNodeType::SpawnPrefab:
 						return SpawnLocal(node.Id);
@@ -406,6 +410,54 @@ namespace RageV::Assets
 						case GraphNodeType::SpawnPrefab:
 							out += pad + "var " + SpawnLocal(node->Id)
 								 + " = Entity.SpawnPrefab(" + Arguments(*node)[1] + ");\n";
+							break;
+
+						case GraphNodeType::ForLoop:
+						{
+							// Body then Completed, in the Blueprint sense. The counter is an
+							// int because that is what a loop counts with; Index is a Float
+							// pin, so it casts at the read rather than accumulating error in
+							// a float counter.
+							const std::string counter = "index" + std::to_string(node->Id);
+							out += pad + "for (int " + counter + " = 0; " + counter + " < (int)("
+								+ Arguments(*node)[1] + "); " + counter + "++)\n";
+							out += pad + "{\n";
+							Statements(Next(*node, 0), out, indent + 1);
+							out += pad + "}\n";
+							node = Next(*node, 2);
+							continue;
+						}
+
+						case GraphNodeType::WhileLoop:
+						{
+							// A guard, and it says so when it trips. A graph author can write
+							// a condition that never goes false, and an unbounded while in a
+							// script means the editor stops responding with no clue why --
+							// which is a worse failure than the loop ending early and warning.
+							const std::string guard = "guard" + std::to_string(node->Id);
+							out += pad + "int " + guard + " = 0;\n";
+							out += pad + "while ("
+								+ Unwrap(Value(node->Id, 1, GraphPinType::Bool)) + ")\n";
+							out += pad + "{\n";
+							out += pad + "\t" + "if (++" + guard + " > 1000000)\n";
+							out += pad + "\t" + "{\n";
+							out += pad + "\t" + "\t" + "Log.Warn(\"While Loop ran a million times and was stopped; its condition never went false.\");\n";
+							out += pad + "\t" + "\t" + "break;\n";
+							out += pad + "\t" + "}\n";
+							Statements(Next(*node, 0), out, indent + 1);
+							out += pad + "}\n";
+							node = Next(*node, 1);
+							continue;
+						}
+
+						case GraphNodeType::BreakLoop:
+							// Terminal: nothing after a break in the same chain can run, and
+							// the validator has already refused one outside a loop body.
+							out += pad + "break;\n";
+							return;
+
+						case GraphNodeType::CallFunction:
+							out += pad + node->Text + "();\n";
 							break;
 
 						case GraphNodeType::Branch:
@@ -552,6 +604,20 @@ namespace RageV::Assets
 		std::sort(events.begin(), events.end(),
 				  [](const GraphNode* a, const GraphNode* b) { return a->Id < b->Id; });
 
+		// Functions are roots too, and become private methods. Parameterless
+		// by design (7bh): pins come from a node *type* here, so a per-instance
+		// signature is not expressible -- and the graph's variables are already
+		// class fields that a function can read and write, which is how a
+		// caller hands one anything.
+		std::vector<const GraphNode*> functions;
+		for (const GraphNode& node : graph.GetNodes())
+		{
+			if (node.Type == GraphNodeType::FunctionEntry)
+				functions.push_back(&node);
+		}
+		std::sort(functions.begin(), functions.end(),
+				  [](const GraphNode* a, const GraphNode* b) { return a->Id < b->Id; });
+
 		std::string body;
 		for (const GraphNode* event : events)
 		{
@@ -566,6 +632,26 @@ namespace RageV::Assets
 				emitter.DeclareTemp(key, declared, prelude);
 
 			body += std::string("\t") + GraphNodeDescOf(event->Type).Code + "\n\t{\n";
+			body += prelude;
+			if (!prelude.empty() && !statements.empty())
+				body += "\n";
+			body += statements;
+			body += "\t}\n\n";
+		}
+
+		for (const GraphNode* function : functions)
+		{
+			emitter.Used.clear();
+			std::string statements;
+			emitter.Statements(emitter.Next(*function, 0), statements, 2);
+
+			std::string prelude;
+			std::vector<uint64_t> declared;
+			const std::vector<uint64_t> used = emitter.Used;
+			for (uint64_t key : used)
+				emitter.DeclareTemp(key, declared, prelude);
+
+			body += "\tprivate void " + function->Text + "()\n\t{\n";
 			body += prelude;
 			if (!prelude.empty() && !statements.empty())
 				body += "\n";

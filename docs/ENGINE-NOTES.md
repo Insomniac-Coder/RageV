@@ -10063,9 +10063,72 @@ listed as absent rather than quietly skipped:
 
 | not there | why not |
 |---|---|
-| loops | a node that runs its successors N times needs a scope concept the exec chain does not have |
-| user-defined functions | wants a second graph kind and a call node that type-checks against it |
-| arrays and dictionaries | needs a container pin type and iteration, which is the loop problem again |
+| ~~loops~~ | **added, and the objection was wrong** -- see below |
+| ~~user-defined functions~~ | **added**, parameterless -- see below |
+| arrays and dictionaries | needs a container pin type and iteration over it, and iteration over *what* is the part a pin cannot say |
+
+#### Loops, and the objection that did not survive being tried
+
+This entry said a loop "needs a scope concept the exec chain does not have".
+**That was wrong, and it was wrong in an obvious way**: `Branch` already emits
+a nested block from one exec output. A loop is the same shape plus a second
+continuation -- `Body` runs per iteration, `Completed` once after -- which is
+exactly how Blueprints does it and needs nothing new from the emitter.
+
+And the scope *is* expressible. It is "what the Body output reaches", which is
+a walk over the exec chain plus the data feeding it, and the validator now
+computes it for two rules: a **For Loop's Index may only be read inside its
+Body**, and a **Break must be inside a loop**. Reading Index after the loop
+used to be a reference to a counter that has gone out of scope -- a compiler
+error landing on generated code rather than on the node that asked for it.
+
+`While Loop` carries a **runaway guard**: a million iterations and it breaks
+with a `Log.Warn` saying so. A graph author can write a condition that never
+goes false, and an unbounded `while` in a script means the editor stops
+responding with no clue why. Ending early and saying so is the better failure.
+
+#### Functions, parameterless on purpose
+
+An entry is a root exactly as an event is, and `Call` names it; both live in
+the same graph rather than a second asset kind. They generate `private void
+Name()`.
+
+**No parameters and no return, and that is a design limit rather than an
+omission**: pins come from a node *type* here, so a per-instance signature is
+not expressible without dynamic pins, which the descriptor model does not
+have. The graph's variables are already class fields, so a caller hands a
+function anything by setting one -- which is the documented idiom, not a
+workaround.
+
+What it generates:
+
+```csharp
+public override void OnCreate()
+{
+    for (int index2 = 0; index2 < (int)(4.0f); index2++)
+    {
+        Log.Info(Text((float)index2));
+    }
+    Settle();
+}
+
+private void Settle()
+{
+    total = (total + 1.0f);
+    Log.Warn("settled");
+}
+```
+
+#### A fixture went stale and nothing looked
+
+The `OnUpdate` -> `OnTick` rename touched `Spin.rvgraph` and `Broken.rvgraph`,
+a later `git checkout -- SampleProject` reverted them, and **the rename was
+never committed for those two**. Both then named a node type that no longer
+existed, both stopped generating, and the suite said nothing -- `check_graph`
+only ever asked about the two graphs it owns.
+
+It now asserts that **every** `.rvgraph` in the project generates, except the
+one that is deliberately broken. A project's graphs are its graphs.
 
 **How much variables mattered:** v1's own check fixture had to *teleport* a
 cube, because with no way to remember a number between two ticks a graph
