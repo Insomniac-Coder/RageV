@@ -207,19 +207,19 @@ namespace RageV
 	// How many bounces the traced form runs (ENGINE-NOTES 7ax). Clamped to
 	// 1 or 2 here as well as at the flag, because the setting is an int in a
 	// serialized struct and a scene file can hold anything.
-	int ResolveGiBounces(const RenderSettings& render)
+	int ResolveGiBounces(const PostSettings& post)
 	{
 		const EngineConfig& config = EngineConfig::Get();
 		const int requested = config.GiBouncesOverride != 0 ? config.GiBouncesOverride
-															: render.GiBounces;
+															: post.GiBounces;
 		return Math::Clamp(requested, 1, 2);
 	}
 
-	bool ResolveVoxelGlobalIllumination(const RenderSettings& render)
+	bool ResolveVoxelGlobalIllumination(const PostSettings& post)
 	{
 		const EngineConfig& config = EngineConfig::Get();
 		const bool requested = config.HasVoxelGiOverride ? config.VoxelGiOverride
-														: render.VoxelGlobalIllumination;
+														: post.VoxelGlobalIllumination;
 		if (requested && !VoxelGI::IsReady())
 		{
 			static bool reported = false;
@@ -433,7 +433,7 @@ namespace RageV
 		Renderer::SetGlobalIllumination(rayGi ? Math::Max(desc.Post.GiIntensity, 0.0f) : 0.0f);
 		// One while the traced form is off, so the uniform never claims a
 		// depth nothing is tracing -- the same shape as the intensity above.
-		Renderer::SetGiBounces(rayGi ? ResolveGiBounces(desc.Render) : 1);
+		Renderer::SetGiBounces(rayGi ? ResolveGiBounces(desc.Post) : 1);
 		const bool wantReflections = desc.Post.ScreenSpaceReflections
 								  && !rayReflections
 								  && desc.Reflections != nullptr
@@ -487,9 +487,9 @@ namespace RageV
 		// not win. Only with a grid lit this frame: the scene updates it
 		// beside the shadow maps, and a frame without one -- a probe capture,
 		// no camera -- adds no chain rather than reading a stale grid.
-		const bool voxelGi = !rayGi && ResolveVoxelGlobalIllumination(desc.Render)
+		const bool voxelGi = !rayGi && ResolveVoxelGlobalIllumination(desc.Post)
 						  && VoxelGI::HasGrid();
-		const bool voxelWanted = !rayGi && ResolveVoxelGlobalIllumination(desc.Render);
+		const bool voxelWanted = !rayGi && ResolveVoxelGlobalIllumination(desc.Post);
 		const bool wantIndirect = (desc.Post.GlobalIllumination || rayGi)
 							   && desc.Indirect != nullptr
 							   && PostProcess::IsReady()

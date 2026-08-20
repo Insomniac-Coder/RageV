@@ -149,6 +149,39 @@ namespace RageV
 		ReadFields(project["RenderSettings"], RenderSettingsRegistry::Fields(),
 				   &loaded->Config.Render);
 
+		// 10.6 (ENGINE-NOTES 7bg) moved the five GI settings to the post
+		// profile. A project written before that still names them here, where
+		// nothing reads them any more.
+		//
+		// **Reported rather than migrated**, and **reported rather than
+		// dropped** -- the rule SceneSerializer::ReportMovedSettings set for
+		// the 7s move, for the reasons it gives: migrating means a load
+		// silently rewriting an asset, and dropping is exactly what happened
+		// to TemporalFeedback and cost a diagnosis to find.
+		if (const YAML::Node render = project["RenderSettings"])
+		{
+			static const char* kMoved[] = {
+				"GiBounces", "VoxelGlobalIllumination", "VoxelGiResolution",
+				"VoxelGiCascades", "VoxelGiVoxelSize"
+			};
+
+			std::string named;
+			for (const char* key : kMoved)
+			{
+				if (!render[key])
+					continue;
+				if (!named.empty())
+					named += ", ";
+				named += key;
+			}
+
+			if (!named.empty())
+				RV_CORE_WARN("This project's Render Settings still name {0}, which moved "
+							 "to the .rvpostprofile attached to a camera (10.6, "
+							 "ENGINE-NOTES 7bg). Those values were not applied; set them "
+							 "on the profile instead.", named);
+		}
+
 		// A check's affordance (ENGINE-NOTES 7ba). The project's Render Settings
 		// are a fixture the checks never asked for: for a day in 2026-08 the
 		// sample project carried every ray-tracing switch on, and every

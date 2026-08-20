@@ -1674,6 +1674,46 @@ and verdict OK on **both** backends; `check_gi.py` exit 0, no FAIL, verdict OK
 with claim 19 gone from it; and `falsify.py voxel-no-lift` seen to take
 check_gi to exit 1 before `restore`.
 
+### Every GI setting now lives in the post profile (10.6, ENGINE-NOTES 7bg)
+
+`GiBounces`, `VoxelGlobalIllumination` and the three voxel dials moved out of
+Render Settings, so when ray-traced GI takes over, **every** rasterisation GI
+row greys out together in one panel.
+
+`GiBounces` had to move as well, and not for tidiness: **a registry predicate
+is handed the block its row belongs to**, so a render row whose visibility
+depends on a profile setting would have to cast the wrong struct or acquire a
+global for the active profile. All five in one block means every GI predicate
+casts what it was given. The comment on `VoxelGiTakesOver` says so, because
+the next render row that greys on GI will otherwise bring the problem back.
+
+**This amends a 9.0 rule, and the amendment is written down rather than
+slipped in.** `GiBounces` used to say it lived in Render Settings because it
+costs rays and "a camera cut must not change the ray budget". But
+`GlobalIllumination` costs four passes and `GiQuality` moves the gather to
+full resolution, and both were always profile settings -- so the line 9.0
+actually draws is the *hardware* budget. The consequence is accepted and
+stated in the field comment and the manual: **a cut between profiles can
+change the ray budget.**
+
+**Two things to know before touching this:**
+
+- **`--render-defaults=on` no longer neutralises voxel GI**, because it
+  replaces Render Settings and the form is not there any more. It comes from
+  the scene's profile now, exactly as the GI on switch always has. `check_gi`
+  is unaffected -- it writes each fixture's profile explicitly -- but any new
+  check that cares which form runs must set the profile or pass
+  `--voxel-gi=`.
+- **An old `.rvproject` naming the five keys is warned, not migrated and not
+  dropped** (the 7s rule: migrating means a load silently rewriting an asset;
+  dropping is what happened to `TemporalFeedback`).
+
+Verified including **the path that actually changed**, which no existing check
+covers because they all use the CLI override: a profile carrying
+`VoxelGlobalIllumination: true` alone builds the grid and changes the picture
+-- R-B over the bleed patch **+59.81** screen-space against **+73.93** voxel.
+
+
 ### THREE VERIFICATION HOLES, ALL CLOSED (10.1, ENGINE-NOTES 7bf)
 
 All three let a completely broken renderer report success. All three were

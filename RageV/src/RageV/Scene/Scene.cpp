@@ -1810,7 +1810,13 @@ namespace RageV
 		// path can be measured under ray tracing, which is how a session of
 		// probes measured the traced form believing they measured voxels
 		// (7bc's fifth finding).
-		const bool voxel = ResolveVoxelGlobalIllumination(Project::Render())
+		// The profile's, since 10.6 (7bg): the voxel form and its dials live
+		// beside the GI switch they answer for. One answer per frame, because
+		// `GetPostSettings` resolves the *primary camera's* profile -- the
+		// same one the graph is handed as `desc.Post`, so the grid this builds
+		// and the gather that reads it cannot disagree about its size.
+		const PostSettings post = GetPostSettings();
+		const bool voxel = ResolveVoxelGlobalIllumination(post)
 						&& !ResolveRayTracedGlobalIllumination(Project::Render());
 		if (!voxel || !VoxelGI::IsReady())
 		{
@@ -1828,10 +1834,10 @@ namespace RageV
 		UpdateWorldTransforms();
 
 		VoxelGiSettings settings;
-		settings.Resolution = Project::Render().VoxelGiResolution;
-		settings.Cascades = Project::Render().VoxelGiCascades;
-		settings.VoxelSize = Project::Render().VoxelGiVoxelSize;
-		settings.Bounces = ResolveGiBounces(Project::Render());
+		settings.Resolution = post.VoxelGiResolution;
+		settings.Cascades = post.VoxelGiCascades;
+		settings.VoxelSize = post.VoxelGiVoxelSize;
+		settings.Bounces = ResolveGiBounces(post);
 		settings.ShadowNormalOffset = Project::Render().ShadowNormalOffset;
 
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();

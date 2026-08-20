@@ -203,54 +203,12 @@ namespace RageV
 		// expensive switch here, and off by default.
 		bool RayTracedGlobalIllumination = false;
 
-		// How many times light bounces before the reflection probe answers for
-		// the rest (ENGINE-NOTES 7ax). 1 shades each bounce ray's hit with the
-		// probe's guess at the indirect light arriving there; 2 replaces that
-		// guess with one more traced ray, whose *own* indirect term takes the
-		// probe -- so the recursion ends at depth two by construction rather
-		// than by a counter. Light then reaches a surface that can see nothing
-		// directly lit, which one bounce leaves dark.
-		//
-		// Here rather than in the post profile because it costs *rays*: the
-		// profile owns how the frame looks and Render Settings owns what it
-		// costs (9.0), and a camera cut must not change the ray budget.
-		// Consulted by the traced form and, since 8.1, by the voxel form
-		// (ENGINE-NOTES 7bc), where 2 means the grid is also lit from last
-		// frame's grid -- one bounce more each frame, which on a still scene
-		// converges on every bounce. The screen-space gather has one bounce
-		// and no way to have two, and does not read it.
-		int GiBounces = 1;
-
-		// --- voxel global illumination (8.1, ENGINE-NOTES 7bc) ----------------
-		//
-		// Where a camera's profile asks for global illumination, gather it
-		// from a voxelised scene instead of from the screen: the scene is
-		// rasterised each frame into a clipmap of 3D textures around the
-		// camera, lit from the shadow cascades, mipped, and cone-traced from
-		// every pixel. Light then arrives from behind the camera, behind
-		// other things and off every edge of the frame -- what the screen
-		// gather cannot know -- on both backends, with no ray hardware. Not a
-		// switch that overrides the profile the way the ray-traced one does:
-		// that one overrides because it is hardware; this one is a cost
-		// choice, and the profile's Global illumination stays the on switch.
-		// Ray-traced global illumination wins where it runs. Off by default,
-		// so no project changes appearance. The profile's GiRadius is not
-		// read by this form -- a cone runs to the cascade's edge.
-		bool VoxelGlobalIllumination = false;
-
-		// Voxels along each cascade's side: 32, 64 or 128. Memory and the
-		// voxelisation cost go with the cube of it; 64 is the sensible
-		// default and 128 is a statement.
-		int VoxelGiResolution = 64;
-
-		// How many cascades, 1 to 4, each covering twice the distance of the
-		// last at half the detail. Three at the defaults reaches 64 metres.
-		int VoxelGiCascades = 3;
-
-		// The finest cascade's voxel, in metres. A wall thinner than this
-		// leaks light through itself, and a room smaller than the cascade's
-		// extent is mostly empty grid.
-		float VoxelGiVoxelSize = 0.25f;
+		// GiBounces and the whole of the voxel form moved to the post profile
+		// on 2026-08-20 (10.6, ENGINE-NOTES 7bg), where the rest of the GI
+		// settings already were. What stays here is the *hardware* budget --
+		// whether rays run at all -- which is the line 9.0 was actually
+		// drawing; `GlobalIllumination` and `GiQuality` have always been in
+		// the profile and have always cost passes and pixels.
 
 		// More cascades means better texel density near the camera and more
 		// scene renders. Four is the usual answer and the most this supports.

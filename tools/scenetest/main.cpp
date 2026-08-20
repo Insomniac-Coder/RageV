@@ -9614,15 +9614,15 @@ void main()
 				// is *read* and not only where it is typed: --gi-bounces=
 				// rejects anything but 1 and 2, and a scene file's int went
 				// through neither.
-				render.GiBounces = 2;
-				Check(ResolveGiBounces(render) == 2, "two bounces resolve as two");
-				render.GiBounces = 7;
-				Check(ResolveGiBounces(render) == 2,
+				post.GiBounces = 2;
+				Check(ResolveGiBounces(post) == 2, "two bounces resolve as two");
+				post.GiBounces = 7;
+				Check(ResolveGiBounces(post) == 2,
 					  "and a project asking for seven gets two, not seven");
-				render.GiBounces = 0;
-				Check(ResolveGiBounces(render) == 1,
+				post.GiBounces = 0;
+				Check(ResolveGiBounces(post) == 1,
 					  "and one asking for none gets one, because zero bounces is not off");
-				render.GiBounces = 1;
+				post.GiBounces = 1;
 
 				render.RayTracedGlobalIllumination = false;
 				render.RayTracing = false;
@@ -9635,7 +9635,7 @@ void main()
 			// in it, which is what a frame with no casters in reach gets.
 			if (VoxelGI::IsReady())
 			{
-				render.VoxelGlobalIllumination = true;
+				post.VoxelGlobalIllumination = true;
 				VoxelGI::Invalidate();
 				Check(buildBouncing() && !hasPass("Voxel GI gather") && !hasPass("SSGI"),
 					  "voxel GI resolved on with no grid lit this frame adds no chain at all");
@@ -9662,7 +9662,7 @@ void main()
 					render.RayTracing = false;
 				}
 
-				render.VoxelGlobalIllumination = false;
+				post.VoxelGlobalIllumination = false;
 				VoxelGI::Invalidate();
 				Check(buildBouncing() && hasPass("SSGI compute") && !hasPass("Voxel GI gather"),
 					  "and off again, the screen gather is back");

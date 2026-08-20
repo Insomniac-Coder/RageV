@@ -9640,6 +9640,103 @@ satisfied:
 The first of those is the 8.13 defect exactly: the same kind of missing
 include, in the same file. It used to exit 0.
 
+### 7bg. Every GI setting in the post profile (10.6), and the 9.0 rule that had to bend
+
+**The ask:** move voxel GI into the post profile's GI section, so that when
+ray-traced GI takes over, *every* rasterisation GI row greys out in one place
+instead of two.
+
+**What moved:** `GiBounces`, `VoxelGlobalIllumination`, `VoxelGiResolution`,
+`VoxelGiCascades` and `VoxelGiVoxelSize`, from `RenderSettings` to
+`PostSettings`. The profile's GI section is now, in order: the on switch, the
+form, the form's three dials, radius, quality, intensity, bounces, denoise.
+
+#### Why `GiBounces` had to go too, which was not part of the ask
+
+Because a registry predicate is handed **the block its row belongs to**, and
+after the move the voxel predicates have to read a `PostSettings`. `GiBounces`
+was a *render* row whose visibility predicate (`OffersGiBounces`) calls
+`VoxelGiTakesOver` -- so leaving it behind meant either casting a
+`RenderSettings*` to `PostSettings*`, which is reading the wrong memory, or
+adding a global for the active profile purely to satisfy an inspector row.
+
+Both are worse than moving it. With all five in one block every GI predicate
+casts the block it was given, and there is no cross-block read left to get
+wrong. The comment on `VoxelGiTakesOver` now says so, because the next person
+to add a *render* row that greys on GI will otherwise reintroduce exactly this.
+
+#### The 9.0 rule this amends, stated plainly rather than quietly reversed
+
+`GiBounces` carried this comment, and it was right to:
+
+> Here rather than in the post profile because it costs *rays*: the profile
+> owns how the frame looks and Render Settings owns what it costs (9.0), and a
+> camera cut must not change the ray budget.
+
+**That reading did not survive contact with the rest of the file.**
+`GlobalIllumination` adds four passes. `GiQuality` at High moves the gather to
+full resolution -- "where most of its cost is", by its own tooltip. Both have
+always been profile settings. So the profile has never owned only *look*; it
+has owned look **and the quality-versus-cost dials that serve it**, and what
+Render Settings actually owns is the **hardware budget**: whether rays run at
+all, whether materials are bindless, how many frames are in flight.
+
+Under that reading the five that moved are quality dials for a look the
+profile already owns, and they belong here. **The consequence the old comment
+warned about is real and is accepted, not dissolved: a cut between two cameras
+with different profiles can change the ray budget.** It is written into the
+field's comment and into the manual rather than left for somebody to discover.
+
+#### What did not move, and why
+
+`RayTracedGlobalIllumination` stays in Render Settings. It is a hardware
+switch -- it needs ray queries and bindless materials and silently stays off
+without them -- and it is the thing that *overrides* the profile rather than
+being chosen by it. That asymmetry is the whole reason the greying reads the
+way it does: one project-level switch turning off a block of profile rows.
+
+#### An old project keeps its keys, and is told
+
+A `.rvproject` written before this still names the five under `RenderSettings`,
+where nothing reads them now. `Project::Load` warns, naming them and where they
+went.
+
+**Reported rather than migrated, and reported rather than dropped** -- the rule
+`SceneSerializer::ReportMovedSettings` set for the 7s move, and it is followed
+here for the reasons it gives: migrating means a load silently rewriting an
+asset, which is hard to undo and unpleasant to discover; and dropping is
+exactly what happened to `TemporalFeedback`, where three scenes that set it
+rendered identically and the reason took a diagnosis to find.
+
+#### One affordance changed, and a check has to know
+
+`--render-defaults=on` replaces the project's **Render Settings** with the
+struct's defaults (7ba). Voxel GI is no longer in Render Settings, so **that
+flag no longer neutralises it** -- the form now comes from the scene's post
+profile, exactly as `GlobalIllumination` always has.
+
+This is not a new hazard so much as an existing one gaining two members: the
+GI on switch has always come from the profile, which is why `check_gi` writes
+each fixture's profile explicitly with `postprofile.write_beside` instead of
+relying on the command line. Any check that cares which GI form runs must set
+the profile or pass `--voxel-gi=`, and the `EngineConfig` overrides still win
+over both.
+
+#### Verified
+
+- `scenetest` on both backends, exit 0, zero `[Vulkan]` lines, verdict OK --
+  including its own GI-bounces clamp and voxel-resolve cases, which had to move
+  to `post` to compile and are the reason the move was caught immediately.
+- `rvdoc --check` green with the rows moved between `rendering.md` and
+  `post-processing.md`.
+- `check_gi.py` exit 0, verdict OK.
+- **And the path that actually changed, tested on its own**: a profile carrying
+  `VoxelGlobalIllumination: true` with no command-line override builds the grid
+  (`VoxelGI: grids at 64^3 x 3 cascades`) and changes the picture -- R-B over
+  the bleed patch reads **+59.81** with the screen-space form and **+73.93**
+  with the voxel one. The CLI override is what every existing check uses, so
+  nothing already in the suite would have exercised this.
+
 ---
 
 ## 8. What this changes

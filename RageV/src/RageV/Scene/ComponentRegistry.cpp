@@ -1349,15 +1349,21 @@ namespace
 		{
 			return ResolveRayTracedGlobalIllumination(Project::Render());
 		}
-		// The voxel form (8.1, ENGINE-NOTES 7bc): the project's choice, where
+		// The voxel form (8.1, ENGINE-NOTES 7bc): the profile's choice, where
 		// rays do not win and the device can.
+		//
+		// Both read `block` rather than a global, which is only legal because
+		// every row that reaches them is a *post* row -- including GI bounces,
+		// which is why that one had to move too (10.6, 7bg). A render row
+		// reaching either of these would cast the wrong struct.
 		bool VoxelGiTakesOver(const void* block)
 		{
-			return !RayGiTakesOver(block) && ResolveVoxelGlobalIllumination(Project::Render());
+			return !RayGiTakesOver(block)
+				&& ResolveVoxelGlobalIllumination(*static_cast<const PostSettings*>(block));
 		}
-		bool VoxelGiOn(const void*)
+		bool VoxelGiOn(const void* block)
 		{
-			return Project::Render().VoxelGlobalIllumination;
+			return static_cast<const PostSettings*>(block)->VoxelGlobalIllumination;
 		}
 		// The radius is the screen-space gather's alone: a traced ray runs
 		// until it hits something, and a cone to the cascade's edge.
@@ -1517,60 +1523,6 @@ namespace
 						"as well. While on, the post profile's Global illumination "
 						"is not used and its row says so; its intensity still "
 						"applies.")))),
-
-				Field<&RenderSettings::GiBounces>("GiBounces",
-					Named("GI bounces", OnlyWhen(OffersGiBounces,
-						Drag(0.02f, 1, 2,
-							"How many times light bounces before the reflection "
-							"probe answers for the rest. Two lets light reach a "
-							"surface that can see nothing directly lit -- the "
-							"inside of a doorway, the shaded side of a pillar -- "
-							"which one bounce leaves as dark as the probe's "
-							"average. Ray-traced: one extra ray per bounce ray, "
-							"and the temporal filter absorbs its noise. Voxel: "
-							"the grid is also lit from last frame's grid, one "
-							"bounce more each frame, converging on every bounce "
-							"on a still scene.")))),
-
-				Field<&RenderSettings::VoxelGlobalIllumination>("VoxelGlobalIllumination",
-					Named("Voxel global illumination", DisabledWhen(RayGiTakesOver,
-						"Ray-traced global illumination is on in Render Settings and wins: "
-						"the voxel grid is not built at all while it runs.",
-						Tip(
-						"Where a camera's profile asks for global illumination, "
-						"gather it from a voxelised scene instead of from the "
-						"screen: the scene is rasterised into a grid around the "
-						"camera each frame, lit from the shadow cascades, and "
-						"cone-traced from every pixel. Light arrives from behind "
-						"the camera, behind other things and off every edge of "
-						"the frame, on both backends, with no ray hardware. The "
-						"profile's Global illumination stays the on switch; "
-						"ray-traced GI wins where it runs. A wall thinner than "
-						"a voxel leaks a little light through itself.")))),
-
-				Field<&RenderSettings::VoxelGiResolution>("VoxelGiResolution",
-					Named("Voxel resolution", OnlyWhen(VoxelGiOn,
-						DisabledWhen(RayGiTakesOver, nullptr,
-						Drag(0.5f, 32, 128,
-							"Voxels along each cascade's side; rounded to 32, 64 "
-							"or 128. Memory and the voxelisation cost go with the "
-							"cube of it."))))),
-
-				Field<&RenderSettings::VoxelGiCascades>("VoxelGiCascades",
-					Named("Voxel cascades", OnlyWhen(VoxelGiOn,
-						DisabledWhen(RayGiTakesOver, nullptr,
-						Drag(0.02f, 1, 4,
-							"How many nested grids, each covering twice the "
-							"distance of the last at half the detail. Three at "
-							"the default voxel size reaches 64 metres."))))),
-
-				Field<&RenderSettings::VoxelGiVoxelSize>("VoxelGiVoxelSize",
-					Named("Voxel size", OnlyWhen(VoxelGiOn,
-						DisabledWhen(RayGiTakesOver, nullptr,
-						Drag(0.01f, 0.05f, 4.0f,
-							"The finest cascade's voxel, in metres. Smaller "
-							"resolves thinner walls and a smaller room; larger "
-							"reaches further for the same grid."))))),
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,
@@ -1848,9 +1800,49 @@ namespace
 						"beside it. Light only bounces from what is in frame and "
 						"in front of the camera -- turn away from the wall and "
 						"its colour goes with it, which is what the ray-traced "
-						"and voxel forms fix. With Voxel global illumination on "
-						"in Render Settings the bounce is gathered from a "
-						"voxelised scene instead, and sees off screen.")))),
+						"and voxel forms fix. With Voxel global illumination "
+						"below on, the bounce is gathered from a voxelised "
+						"scene instead, and sees off screen.")))),
+
+				Field<&PostSettings::VoxelGlobalIllumination>("VoxelGlobalIllumination",
+					Named("Voxel global illumination", DisabledWhen(RayGiTakesOver,
+						"Ray-traced global illumination is on in Render Settings and wins: "
+						"the voxel grid is not built at all while it runs.",
+						Tip(
+						"Where a camera's profile asks for global illumination, "
+						"gather it from a voxelised scene instead of from the "
+						"screen: the scene is rasterised into a grid around the "
+						"camera each frame, lit from the shadow cascades, and "
+						"cone-traced from every pixel. Light arrives from behind "
+						"the camera, behind other things and off every edge of "
+						"the frame, on both backends, with no ray hardware. The "
+						"profile's Global illumination stays the on switch; "
+						"ray-traced GI wins where it runs. A wall thinner than "
+						"a voxel leaks a little light through itself.")))),
+
+				Field<&PostSettings::VoxelGiResolution>("VoxelGiResolution",
+					Named("Voxel resolution", OnlyWhen(VoxelGiOn,
+						DisabledWhen(RayGiTakesOver, nullptr,
+						Drag(0.5f, 32, 128,
+							"Voxels along each cascade's side; rounded to 32, 64 "
+							"or 128. Memory and the voxelisation cost go with the "
+							"cube of it."))))),
+
+				Field<&PostSettings::VoxelGiCascades>("VoxelGiCascades",
+					Named("Voxel cascades", OnlyWhen(VoxelGiOn,
+						DisabledWhen(RayGiTakesOver, nullptr,
+						Drag(0.02f, 1, 4,
+							"How many nested grids, each covering twice the "
+							"distance of the last at half the detail. Three at "
+							"the default voxel size reaches 64 metres."))))),
+
+				Field<&PostSettings::VoxelGiVoxelSize>("VoxelGiVoxelSize",
+					Named("Voxel size", OnlyWhen(VoxelGiOn,
+						DisabledWhen(RayGiTakesOver, nullptr,
+						Drag(0.01f, 0.05f, 4.0f,
+							"The finest cascade's voxel, in metres. Smaller "
+							"resolves thinner walls and a smaller room; larger "
+							"reaches further for the same grid."))))),
 
 				Field<&PostSettings::GiRadius>("GiRadius",
 					Named("GI radius", OnlyWhen(GiScreenSpaceRuns,
@@ -1878,6 +1870,20 @@ namespace
 							"exactly the image without it. Read by both forms, "
 							"so a scene tuned under one is not re-tuned under "
 							"the other.")))),
+
+				Field<&PostSettings::GiBounces>("GiBounces",
+					Named("GI bounces", OnlyWhen(OffersGiBounces,
+						Drag(0.02f, 1, 2,
+							"How many times light bounces before the reflection "
+							"probe answers for the rest. Two lets light reach a "
+							"surface that can see nothing directly lit -- the "
+							"inside of a doorway, the shaded side of a pillar -- "
+							"which one bounce leaves as dark as the probe's "
+							"average. Ray-traced: one extra ray per bounce ray, "
+							"and the temporal filter absorbs its noise. Voxel: "
+							"the grid is also lit from last frame's grid, one "
+							"bounce more each frame, converging on every bounce "
+							"on a still scene.")))),
 
 				Field<&PostSettings::GiDenoise>("GiDenoise",
 					Named("GI denoise", OnlyWhen(GiDialsApply,

@@ -220,7 +220,7 @@ namespace RageV
 		// dial would otherwise buy nothing at High.
 		//
 		// The ray-traced form does not read this: its cost is rays, and
-		// `RenderSettings::GiBounces` is where that lives.
+		// `GiBounces` below is where that lives.
 		GiDetail GiQuality = GiDetail::Low;
 
 		// How much of last frame's indirect estimate survives into this one
@@ -240,6 +240,60 @@ namespace RageV
 		// apart. Until that gather reads an image without the indirect term
 		// in it, this dial does nothing on that path, and the manual says so.
 		float GiDenoise = 0.9f;
+
+		// How many times light bounces before the reflection probe answers for
+		// the rest (ENGINE-NOTES 7ax). 1 shades each bounce ray's hit with the
+		// probe's guess at the indirect light arriving there; 2 replaces that
+		// guess with one more traced ray, whose *own* indirect term takes the
+		// probe -- so the recursion ends at depth two by construction rather
+		// than by a counter. Light then reaches a surface that can see nothing
+		// directly lit, which one bounce leaves dark.
+		//
+		// Consulted by the traced form and by the voxel form (7bc), where 2
+		// means the grid is also lit from last frame's grid -- one bounce more
+		// each frame, converging on every bounce on a still scene. The
+		// screen-space gather has one bounce and no way to have two.
+		//
+		// **Here rather than in Render Settings since 10.6 (7bg).** The old
+		// comment said the opposite -- that this costs rays and 9.0 gives
+		// Render Settings what a frame costs -- and that reading did not
+		// survive contact: `GlobalIllumination` adds four passes and
+		// `GiQuality` changes the gather's resolution, and both have always
+		// been profile settings. The line 9.0 draws in practice is the
+		// *hardware* budget, not any cost at all. The consequence is real and
+		// stated: a camera cut between profiles can change the ray budget.
+		int GiBounces = 1;
+
+		// --- voxel global illumination (8.1, ENGINE-NOTES 7bc) ----------------
+		//
+		// Which rasterisation form answers `GlobalIllumination` above: gather
+		// the bounce from a voxelised scene rather than from the screen. The
+		// scene is rasterised each frame into a clipmap of 3D textures around
+		// the camera, lit from the shadow cascades, mipped, and cone-traced
+		// from every pixel, so light arrives from behind the camera, behind
+		// other things and off every edge of the frame -- what the screen
+		// gather cannot know -- on both backends, with no ray hardware.
+		//
+		// `GlobalIllumination` stays the on switch; this picks the form.
+		// Ray-traced GI wins where it runs and the grid is then not built at
+		// all, which is what greys this and the three dials below. Off by
+		// default, so no project changes appearance. `GiRadius` is not read by
+		// this form -- a cone runs to the cascade's edge.
+		bool VoxelGlobalIllumination = false;
+
+		// Voxels along each cascade's side: 32, 64 or 128. Memory and the
+		// voxelisation cost go with the cube of it; 64 is the sensible
+		// default and 128 is a statement.
+		int VoxelGiResolution = 64;
+
+		// How many cascades, 1 to 4, each covering twice the distance of the
+		// last at half the detail. Three at the defaults reaches 64 metres.
+		int VoxelGiCascades = 3;
+
+		// The finest cascade's voxel, in metres. A wall thinner than this
+		// leaks light through itself, and a room smaller than the cascade's
+		// extent is mostly empty grid.
+		float VoxelGiVoxelSize = 0.25f;
 
 		// --- SSAO (9.6). ENGINE-NOTES 7ac -----------------------------------
 		//
