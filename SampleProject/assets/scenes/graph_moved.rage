@@ -1,0 +1,61 @@
+Scene: graph_moved
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0.05, 0.05, 0.06]
+  SkyZenith: [0.05, 0.05, 0.06]
+  SkyGround: [0.05, 0.05, 0.06]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 1.6, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 8, 0]
+      Rotation: [-0.9, 0.5, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 1, 1]
+      Intensity: 3
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Mover
+    TransformComponent:
+      Position: [-2.2, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.4, 1.4, 1.4]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.2, 0.2, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+    ManagedScriptComponent:
+      Script: Mover

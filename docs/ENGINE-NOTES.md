@@ -10002,12 +10002,49 @@ caught before anything is written; a data cycle is stopped rather than
 recursing; and a value read twice appears once. Then `dotnet build` on the
 generated files: **0 warnings, 0 errors.**
 
-### Still to do
+### Stage 5, the check: proving a graph produces a script that *runs*
 
-Stage 5, the check: a fixture graph that moves an entity, run headless, assert
-the transform moved, plus a `falsify` break that severs the exec link. Until
-then the generator is proven to produce *correct C#* and not yet proven to
-produce *a script that runs*.
+`scenetest` pins the text and `dotnet build` pins that it compiles. Neither
+answers the only question a user of this feature has, so `check_graph.py`
+drives the whole chain and looks at pixels:
+
+> `.rvgraph` -> C# -> `dotnet build` -> the engine loads the assembly -> the
+> script attaches by name -> it moves an entity -> the frame changes
+
+Two scenes differing in exactly one thing -- whether the cube carries the
+generated script. Nothing else in frame moves, so a differing pixel has one
+explanation. **Measured: 7.1% of the frame.** A second claim costs nothing
+because `Broken.rvgraph` is already there: a graph with errors must leave *no*
+file.
+
+**The break is the important part.** `falsify.py graph-no-exec` cuts the
+fixture's exec link, so `On Create` never reaches `Set Field`. **The graph
+still generates** -- an unreached statement is a warning, not an error -- the
+C# still compiles, the script still attaches, and it does nothing. Measured
+under the break: **0.0%**, and claim 1 fails. *No amount of reading the
+generated text would have caught that*, which is the entire justification for
+a pixel check on top of the unit ones.
+
+The break lives in the fixture *writer*, not the `.rvgraph`, because the check
+regenerates the fixture on every run and would overwrite an edit to the asset
+before reading it.
+
+**SampleProject gained a `Scripts/Sample.csproj`**, which it never had: the
+generated C# needs somewhere to be compiled, and a graph proven only to
+produce text is not proven at all.
+
+### And a defect in `falsify.py` that this found
+
+`restore` shells out to `git checkout` for a break that edits a script under
+`tools/`, and **ignored the result**. `git checkout` on an untracked file
+succeeds at doing nothing -- so the break stayed applied, and the `.falsify`
+marker was removed *anyway*, leaving the next check measuring a deliberately
+broken fixture with nothing to say so. A new fixture is untracked exactly when
+it is newest, which is when somebody is most likely to be falsifying it.
+
+Restore now checks the file is tracked, checks the checkout succeeded, and
+**removes the marker last** -- only once every edit really is back. A marker
+removed while a break survives is worse than no marker at all.
 
 #### What this will not claim
 

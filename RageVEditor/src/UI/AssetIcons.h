@@ -55,7 +55,7 @@ namespace RageV::UI
 	{
 		Folder,
 
-		// The eight the registry gives a handle to.
+		// The nine the registry gives a handle to.
 		Mesh,
 		Texture,
 		Material,
@@ -65,6 +65,7 @@ namespace RageV::UI
 		Curve,
 		PostProfile,
 		Terrain,
+		ScriptGraph,
 
 		// Everything else that turns up in a project's folders.
 		Script,     // .cs .cpp .h .hpp .c .cc

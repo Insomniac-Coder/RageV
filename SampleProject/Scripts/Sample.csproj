@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Sample</AssemblyName>
+    <RootNamespace>Sample</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- The sample project had no C# until visual scripting needed somewhere to
+       generate into (8.10, ENGINE-NOTES 7bh). It exists so that check_graph.py
+       can compile a generated script and run it, which is the only way to
+       prove a graph produces a script that *works* rather than one that merely
+       compiles. -->
+
+  <!-- The editor passes -p:RageVScriptCore=<path> when it builds this. The
+       fallback exists only so that a hand-run `dotnet build` fails with
+       something a person can act on rather than a missing-type cascade. -->
+  <PropertyGroup Condition="'$(RageVScriptCore)' == ''">
+    <RageVScriptCore>RageV.ScriptCore.dll</RageVScriptCore>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RageV.ScriptCore">
+      <HintPath>$(RageVScriptCore)</HintPath>
+      <!-- The engine already has it loaded; copying it next to the game's
+           assembly would give the process two of them. -->
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

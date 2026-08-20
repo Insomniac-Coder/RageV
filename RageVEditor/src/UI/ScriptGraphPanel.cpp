@@ -190,6 +190,20 @@ namespace RageV::UI
 		m_Zoom = 1.0f;
 	}
 
+	void ScriptGraphPanel::RequestOpen(AssetHandle handle)
+	{
+		if (!handle.IsValid() || handle == m_Handle)
+			return;
+
+		if (!m_Dirty || !m_Handle.IsValid())
+		{
+			Open(handle);
+			return;
+		}
+
+		m_PendingOpen = handle;
+	}
+
 	bool ScriptGraphPanel::Save()
 	{
 		if (!m_Handle.IsValid())
@@ -1010,6 +1024,42 @@ namespace RageV::UI
 		}
 
 		DrawAddMenu();
+
+		// Asked here rather than at the call site, because the panel is what
+		// knows whether anything would be lost.
+		if (m_PendingOpen.IsValid())
+			ImGui::OpenPopup("Unsaved graph##graphswitch");
+
+		if (ImGui::BeginPopupModal("Unsaved graph##graphswitch", nullptr,
+								   ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::Text("'%s' has unsaved changes.", m_Name.c_str());
+			ImGui::Spacing();
+
+			if (ImGui::Button("Save and open"))
+			{
+				Save();
+				const AssetHandle next = m_PendingOpen;
+				m_PendingOpen = AssetHandle::Invalid();
+				Open(next);
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Discard"))
+			{
+				const AssetHandle next = m_PendingOpen;
+				m_PendingOpen = AssetHandle::Invalid();
+				Open(next);
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+			{
+				m_PendingOpen = AssetHandle::Invalid();
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
 
 		ImGui::End();
 	}

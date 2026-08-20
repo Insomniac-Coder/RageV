@@ -235,16 +235,6 @@ void EditorLayer::OnLoaded()
 								config.CameraYaw, config.CameraPitch);
 	}
 
-	// --generate-graphs, before the canvas: a build server has no editor to
-	// click Build Scripts in, and a check needs the files on disk to read.
-	if (config.GenerateGraphs)
-	{
-		const bool ok = Assets::ScriptGraphGenerator::GenerateAll(
-			Project::AssetRoot(), Project::Root() / "Scripts");
-		RV_INFO("--generate-graphs: {0}", ok ? "every graph generated"
-											 : "at least one graph did not generate");
-	}
-
 	// --graph=, so a canvas can be looked at without clicking through the
 	// browser (8.10, ENGINE-NOTES 7bh). **Here and not in OnAttach**: the
 	// registry does not exist until the project is loaded, which happens on
@@ -3370,7 +3360,8 @@ void EditorLayer::OnAssetActivated(AssetHandle handle, AssetType type)
 		// it is authored content that *generates a script*, and dropping it on
 		// the world would be guessing which entity it was meant for.
 		case AssetType::ScriptGraph:
-			m_ScriptGraph.Open(handle);
+			// Request, not Open: the panel asks before dropping unsaved edits.
+			m_ScriptGraph.RequestOpen(handle);
 			m_ShowScriptGraph = true;
 			return;
 		default:

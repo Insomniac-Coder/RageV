@@ -6,6 +6,7 @@
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/Asset/ScriptGraphGenerator.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Core/InputMap.h"
@@ -94,6 +95,19 @@ namespace RageV {
 
 		if (Project::GetActive())
 			Assets::Registry::Init(Project::AssetRoot());
+
+		// --generate-graphs, for both executables (8.10, ENGINE-NOTES 7bh).
+		// Here rather than in the editor's layer because a build server and
+		// every check in tools/scripts run the *runtime*, and a generator only
+		// the editor can drive is one a check cannot.
+		if (config.GenerateGraphs && Project::GetActive())
+		{
+			const bool generated = Assets::ScriptGraphGenerator::GenerateAll(
+				Project::AssetRoot(), Project::Root() / "Scripts");
+			RV_CORE_INFO("--generate-graphs: {0}",
+						 generated ? "every graph generated"
+								   : "at least one graph did not generate");
+		}
 
 		Assets::Manager::Init(*m_Device);
 

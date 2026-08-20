@@ -146,6 +146,30 @@ namespace RageV::UI
 			c.Disc(0.86f, 0.26f, 0.075f);
 		}
 
+		// Two nodes and the wire between them, which is what a graph *is* --
+		// and the one shape in this set that could not be anything else.
+		//
+		// Deliberately not a flowchart diamond or a tree: both are pictures of
+		// a decision, and this asset is not a decision, it is a wiring. The
+		// pins are what make it read as a node graph rather than two boxes
+		// with a line, and they survive down to 34 pixels because they are
+		// filled discs rather than outlines.
+		void ScriptGraph(const Canvas& c)
+		{
+			c.Rect(0.10f, 0.14f, 0.44f, 0.38f);
+			c.Rect(0.56f, 0.62f, 0.90f, 0.86f);
+
+			// Out of the right pin, sideways, and into the left one -- the
+			// same shape the canvas draws, so the icon and the thing it opens
+			// look like each other.
+			c.Draw->AddBezierCubic(c.At(0.44f, 0.26f), c.At(0.62f, 0.26f),
+								   c.At(0.38f, 0.74f), c.At(0.56f, 0.74f),
+								   c.Color, c.Stroke(), 0);
+
+			c.Disc(0.44f, 0.26f, 0.065f);
+			c.Disc(0.56f, 0.74f, 0.065f);
+		}
+
 		// A lens with a graded gradient across it: the frame, after something
 		// has been done to it. Deliberately not a slider or a stack of
 		// sliders -- half the icons in a settings UI are sliders, and the
@@ -470,6 +494,7 @@ namespace RageV::UI
 			case AssetType::Curve:    return IconKind::Curve;
 			case AssetType::PostProfile: return IconKind::PostProfile;
 			case AssetType::Terrain:  return IconKind::Terrain;
+			case AssetType::ScriptGraph: return IconKind::ScriptGraph;
 			default:                  return IconKind::Unknown;
 		}
 	}
@@ -549,6 +574,7 @@ namespace RageV::UI
 			case IconKind::Curve:    Curve(canvas);    break;
 			case IconKind::PostProfile: PostProfile(canvas); break;
 			case IconKind::Terrain:  Terrain(canvas);  break;
+			case IconKind::ScriptGraph: ScriptGraph(canvas); break;
 			case IconKind::Script:   Script(canvas);   break;
 			case IconKind::Shader:   Shader(canvas);   break;
 			case IconKind::Font:     Font(canvas);     break;

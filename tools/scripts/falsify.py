@@ -321,6 +321,22 @@ BREAKS = {
                    'o_Color = vec4(color, baseColor.a);',
                    'o_Color = vec4(0.0, 0.0, 0.0, baseColor.a);')],
 
+    # check_graph claim 1 (8.10): the fixture graph's exec link is cut, so
+    # On Create never reaches Set Field. **The graph still generates** -- an
+    # unreached statement is a warning, not an error -- and the C# still
+    # compiles, and the script still attaches, and it does nothing. That is
+    # the exact shape of failure the whole check exists for, and no amount of
+    # reading the generated text would catch it.
+    #
+    # The break is in the *fixture writer* rather than the .rvgraph, because
+    # check_graph regenerates the fixture on every run and would overwrite an
+    # edit to the asset before reading it.
+    'graph-no-exec': [('check:make_graph_scene.py',
+                       '''  - Id: 1
+    From: [1, 0]
+    To: [2, 0]
+''', '')],
+
     'voxel-no-shadow': [('voxel_inject.rvshader',
                          'const float shadow = light.Params.w > 0.5 ? CascadeShadow(world, N, L) : 1.0;',
                          'const float shadow = 1.0;')],
@@ -408,11 +424,6 @@ BREAKS = {
 def restore(config='Release'):
     """The editor's shader tree over the runtime's -- what the build does."""
     live = deployed(config)
-    # Before the copy, so a run interrupted between the two does not leave a
-    # marker claiming a break that is no longer there.
-    marker = live / rvcheck.FALSIFY_MARKER
-    if marker.is_file():
-        marker.unlink()
     for path in SOURCE.rglob('*'):
         if path.is_file():
             target = live / path.relative_to(SOURCE)
@@ -425,8 +436,33 @@ def restore(config='Release'):
                       for edits in BREAKS.values()
                       for filename, _, _ in edits
                       if filename.startswith('check:')})
+    #
+    # **Checked, not fired and forgotten.** `git checkout` on a file git does
+    # not track succeeds at doing nothing, and this used to ignore that: the
+    # break stayed applied, the marker below was removed anyway, and the next
+    # check measured a deliberately broken fixture with nothing to say it was
+    # one. A new fixture is untracked exactly when it is newest, which is when
+    # somebody is most likely to be falsifying it.
     for name in scripts:
-        subprocess.run(['git', 'checkout', '--', f'tools/scripts/{name}'], cwd=str(ROOT))
+        relative = f'tools/scripts/{name}'
+        tracked = subprocess.run(['git', 'ls-files', '--error-unmatch', relative],
+                                 cwd=str(ROOT), capture_output=True)
+        if tracked.returncode != 0:
+            print(f'FAIL: {relative} is not tracked by git, so this cannot put it '
+                  f'back. The break is still applied. Commit the file, or undo the '
+                  f'edit by hand.')
+            sys.exit(1)
+        if subprocess.run(['git', 'checkout', '--', relative],
+                          cwd=str(ROOT)).returncode != 0:
+            print(f'FAIL: could not restore {relative}; the break is still applied.')
+            sys.exit(1)
+
+    # Last, and only once every edit really is back: a marker removed while a
+    # break survives is worse than no marker at all, because the next check
+    # then reports a broken renderer as a clean one.
+    marker = live / rvcheck.FALSIFY_MARKER
+    if marker.is_file():
+        marker.unlink()
 
 
 def target(filename, config='Release'):

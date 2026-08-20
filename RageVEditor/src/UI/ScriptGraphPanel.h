@@ -34,6 +34,13 @@ namespace RageV::UI
 		// what makes closing without saving mean something.
 		void Open(AssetHandle handle);
 
+		// What the content browser calls. Opens straight away when there is
+		// nothing to lose; otherwise asks, because a double-click on a file is
+		// far too cheap a gesture to throw away unsaved work with -- the same
+		// rule the scene's ConfirmDiscard follows, and it exists because the
+		// scene once lost edits the same way.
+		void RequestOpen(AssetHandle handle);
+
 		bool IsOpen() const { return m_Handle.IsValid(); }
 		AssetHandle GetHandle() const { return m_Handle; }
 
@@ -126,6 +133,9 @@ namespace RageV::UI
 		// linear, so caching it against an edit counter would be a staleness
 		// bug traded for nothing measurable.
 		std::vector<GraphIssue> m_Issues;
+
+		// A graph waiting on the answer to "save first?".
+		AssetHandle m_PendingOpen;
 
 		std::vector<ScriptGraph> m_Undo;
 		std::vector<ScriptGraph> m_Redo;
