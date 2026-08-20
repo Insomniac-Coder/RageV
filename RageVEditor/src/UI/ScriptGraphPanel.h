@@ -42,6 +42,9 @@ namespace RageV::UI
 		void RequestOpen(AssetHandle handle);
 
 		bool IsOpen() const { return m_Handle.IsValid(); }
+
+		// For --graph-zoom, and clamped by the same limits the wheel uses.
+		void SetZoom(float zoom);
 		AssetHandle GetHandle() const { return m_Handle; }
 
 		// True while there are edits the file does not have. The window title

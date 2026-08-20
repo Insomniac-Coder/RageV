@@ -240,6 +240,10 @@ namespace RageV
 		// editor, and what the check drives.
 		bool         GenerateGraphs = false;
 
+		// --graph-zoom=<factor>: open the canvas at a zoom, so a screenshot can
+		// show what one looks like. Zero leaves it at the framing default.
+		float        GraphZoom = 0.0f;
+
 		bool         RenderDefaults = false;
 		// Whether `render-defaults` was stated at all, by either the ini or the
 		// command line. A run that writes a screenshot is measuring something,

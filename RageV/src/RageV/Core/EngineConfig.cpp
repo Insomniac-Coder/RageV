@@ -222,6 +222,20 @@ namespace RageV
 		if (key == "generate-graphs" || key == "generategraphs")
 			return ParseBool(value, config.GenerateGraphs);
 
+		if (key == "graph-zoom" || key == "graphzoom")
+		{
+			try
+			{
+				config.GraphZoom = std::stof(value);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("graph-zoom expects a number, got '{0}'", value);
+				return false;
+			}
+		}
+
 		if (key == "graph")
 		{
 			config.GraphPath = value;

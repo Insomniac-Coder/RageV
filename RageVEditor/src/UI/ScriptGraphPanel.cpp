@@ -26,6 +26,13 @@ namespace RageV::UI
 		// row of tiny maths nodes looking like a row; the ceiling stops one
 		// long field name stretching a node across the canvas, and that is the
 		// case the ellipsis and the tooltip are still for.
+		// The zoom the wheel and --graph-zoom are both held to. A quarter is
+		// where a node is a coloured block and the shape of the graph is all
+		// there is to read; two and a half is where one node fills a third of
+		// the canvas and there is nothing further to see.
+		constexpr float kMinZoom = 0.25f;
+		constexpr float kMaxZoom = 2.5f;
+
 		constexpr float kMinNodeWidth = 168.0f;
 		constexpr float kMaxNodeWidth = 340.0f;
 		constexpr float kHeaderHeight = 26.0f;
@@ -236,6 +243,11 @@ namespace RageV::UI
 		}
 
 		m_PendingOpen = handle;
+	}
+
+	void ScriptGraphPanel::SetZoom(float zoom)
+	{
+		m_Zoom = Math::Clamp(zoom, kMinZoom, kMaxZoom);
 	}
 
 	bool ScriptGraphPanel::Save()
@@ -485,7 +497,13 @@ namespace RageV::UI
 	{
 		const ImVec2 origin = ImGui::GetItemRectMin();
 		const EditorTheme::Palette& colors = EditorTheme::Colors();
-		const bool labels = m_Zoom > 0.45f;
+		// Level of detail, densest first. A pin label is the most text per
+		// pixel on a node and is the first thing to go; the title is the last,
+		// because "which node is this" survives being small in a way that
+		// "which pin is this" does not.
+		const bool showPins = m_Zoom > 0.70f;
+		const bool showSubtitle = m_Zoom > 0.50f;
+		const bool showTitle = m_Zoom > 0.30f;
 
 		for (const GraphNode& node : m_Graph.GetNodes())
 		{
@@ -525,18 +543,20 @@ namespace RageV::UI
 			}
 			draw->AddRect(min, max, ImGui::GetColorU32(outline), rounding, 0, thickness);
 
-			if (labels)
+			if (showTitle)
 			{
 				const float width = NodeWidth(node);
 				DrawFitted(draw, ImVec2(min.x + 8.0f * m_Zoom, min.y + 5.0f * m_Zoom),
 						   ImGui::GetColorU32(ImVec4(1, 1, 1, 0.95f)),
 						   desc.Name, width - 16.0f, m_Zoom);
 
-				const std::string subtitle = NodeSubtitle(node);
-				DrawFitted(draw, ImVec2(min.x + 8.0f * m_Zoom,
-										min.y + (kHeaderHeight + 2.0f) * m_Zoom),
-						   ImGui::GetColorU32(colors.TextSecondary),
-						   subtitle, width - 16.0f, m_Zoom);
+				if (showSubtitle)
+				{
+					DrawFitted(draw, ImVec2(min.x + 8.0f * m_Zoom,
+											min.y + (kHeaderHeight + 2.0f) * m_Zoom),
+							   ImGui::GetColorU32(colors.TextSecondary),
+							   NodeSubtitle(node), width - 16.0f, m_Zoom);
+				}
 			}
 
 			// Pins. Exec pins are triangles and data pins circles, so control
@@ -572,7 +592,7 @@ namespace RageV::UI
 						draw->AddCircle(at, r, color, 12, 1.6f * m_Zoom);
 				}
 
-				if (labels && info.Name && info.Name[0])
+				if (showPins && info.Name && info.Name[0])
 				{
 					// Half the node only when the *other* side of this row has a
 					// label to protect. On a row where one side is empty --
@@ -615,7 +635,8 @@ namespace RageV::UI
 		if (hovered && io.MouseWheel != 0.0f)
 		{
 			const Vec2 before = ToGraph(local);
-			m_Zoom = Math::Clamp(m_Zoom * (1.0f + io.MouseWheel * 0.12f), 0.25f, 2.5f);
+			m_Zoom = Math::Clamp(m_Zoom * (1.0f + io.MouseWheel * 0.12f),
+								 kMinZoom, kMaxZoom);
 			const Vec2 after = ToGraph(local);
 			m_Pan.x += before.x - after.x;
 			m_Pan.y += before.y - after.y;
@@ -1006,6 +1027,9 @@ namespace RageV::UI
 		ImGui::Spacing();
 		ImGui::TextDisabled("Canvas");
 		ImGui::Separator();
+		ImGui::Text("Zoom %.0f%%%s", m_Zoom * 100.0f,
+					m_Zoom <= kMinZoom + 0.001f ? "  (min)"
+					: m_Zoom >= kMaxZoom - 0.001f ? "  (max)" : "");
 		ImGui::BulletText("Right-click: add");
 		ImGui::BulletText("Middle-drag: pan");
 		ImGui::BulletText("Wheel: zoom");
