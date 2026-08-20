@@ -7,7 +7,7 @@ BloomKnee: 0.4
 BloomIntensity: 0.075
 BloomClamp: 14
 DepthOfField: true
-FocusDistance: 5.4
+FocusDistance: 8.4
 FocalLength: 55
 Aperture: 1.8
 MaxBokehRadius: 14

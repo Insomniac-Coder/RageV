@@ -399,6 +399,117 @@ def spark_sprite():
     return np.concatenate([rgb, alpha[:, :, None]], axis=-1)
 
 
+# --- the one word this scene has to spell -------------------------------------
+#
+# A stroke font, four glyphs long, because the scene needs exactly one word and
+# the alternatives are both worse: a system TrueType file is not portable out of
+# a clone, and parsing the project's own `.rvfont` atlas to bake one label is a
+# lot of machinery for six letters. Strokes are twenty lines and they are in
+# the same spirit as everything else in this file.
+#
+# Glyph space is x across, y **downward** from the cap line at 0 to the baseline
+# at 1. A descender goes past 1, which is what makes the y in "Foxy" a y.
+
+STROKE_GLYPHS = {
+    "F": (("line", (0.14, 0.02), (0.14, 1.00)),
+          ("line", (0.14, 0.02), (0.62, 0.02)),
+          ("line", (0.14, 0.50), (0.54, 0.50))),
+    "o": (("ring", (0.36, 0.66), 0.30),),
+    "x": (("line", (0.10, 0.36), (0.62, 1.00)),
+          ("line", (0.62, 0.36), (0.10, 1.00))),
+    "y": (("line", (0.10, 0.36), (0.38, 0.94)),
+          ("line", (0.66, 0.36), (0.24, 1.34))),
+}
+
+STROKE_ADVANCE = {"F": 0.70, "o": 0.74, "x": 0.72, "y": 0.74}
+
+
+def _segment_distance(xs, ys, a, b):
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    length = dx * dx + dy * dy
+    if length < 1e-9:
+        return np.hypot(xs - ax, ys - ay)
+
+    t = np.clip(((xs - ax) * dx + (ys - ay) * dy) / length, 0.0, 1.0)
+    return np.hypot(xs - (ax + dx * t), ys - (ay + dy * t))
+
+
+def stroke_text(word, width, height, em, stroke, ink, paper):
+    """Draw `word` as strokes. Returns an RGB image.
+
+    Rasterised by distance rather than by scan conversion: every stroke is a
+    line segment or a circle, and a pixel is ink if it is within half a stroke
+    width of one. That gives round caps and joins for free, which is what a
+    hand-lettered sign has and what a filled polygon would not.
+    """
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float64)
+
+    advance = sum(STROKE_ADVANCE[letter] for letter in word)
+    pen = (width - advance * em) * 0.5
+    baseline = height * 0.5 + em * 0.5
+
+    field = np.full((height, width), 1e9)
+
+    for letter in word:
+        origin_x = pen
+        cap_y = baseline - em
+
+        for shape in STROKE_GLYPHS[letter]:
+            if shape[0] == "line":
+                a = (origin_x + shape[1][0] * em, cap_y + shape[1][1] * em)
+                b = (origin_x + shape[2][0] * em, cap_y + shape[2][1] * em)
+                field = np.minimum(field, _segment_distance(xs, ys, a, b))
+            else:
+                centre = (origin_x + shape[1][0] * em, cap_y + shape[1][1] * em)
+                radius = shape[2] * em
+                ring = np.abs(np.hypot(xs - centre[0], ys - centre[1]) - radius)
+                field = np.minimum(field, ring)
+
+        pen += STROKE_ADVANCE[letter] * em
+
+    # One pixel of softness at the edge and no more. This is a 256 px texture on
+    # a 60 cm sign; a hard edge aliases and a soft one turns to mush.
+    coverage = np.clip((stroke * 0.5 + 0.5 - field), 0.0, 1.0)
+
+    ink = np.array(ink, dtype=np.float64)
+    paper = np.array(paper, dtype=np.float64)
+    return (paper[None, None, :] * (1.0 - coverage[:, :, None])
+            + ink[None, None, :] * coverage[:, :, None])
+
+
+def name_plate():
+    """The fox's name tag: dark letters on a warm cream plaque.
+
+    **Dark on light, not light on dark**, and that decides how it is lit. The
+    material carries a flat emissive and there is no emissive *map*, so
+    whatever glows, glows uniformly -- which means the readable arrangement is
+    a plaque that self-lights with letters cut out of it. Light letters on a
+    dark ground would need the ground to stay dark while the letters glowed,
+    and that is exactly what one flat value cannot do.
+    """
+    plate = stroke_text("Foxy", 256, 96, em=52.0, stroke=8.0,
+                        ink=(0.16, 0.10, 0.08), paper=(0.93, 0.87, 0.76))
+
+    # A border, so the sign has an edge rather than fading into whatever is
+    # behind it.
+    plate[:4, :, :] = plate[-4:, :, :] = (0.42, 0.30, 0.22)
+    plate[:, :4, :] = plate[:, -4:, :] = (0.42, 0.30, 0.22)
+
+    # **Written upside down on purpose**, and this is the classic image-origin
+    # mismatch rather than a mistake. A PNG's first row is its *top*; the quad
+    # primitive's v runs the other way, so a plate written the way it reads
+    # comes out inverted on the mesh -- which is exactly how the first one
+    # appeared over the fox's head. Flipping the rows here is the smallest
+    # place to fix it: the alternative is a negative scale on the entity, which
+    # reverses the winding and would light the sign from behind.
+    #
+    # So: open this file in an image viewer and it is upside down. That is
+    # correct, and this paragraph is why.
+    return plate[::-1]
+
+
 # --- the grade ----------------------------------------------------------------
 
 def write_lut(path):
@@ -476,7 +587,8 @@ def main():
         sys.stdout.write("  {0:<14} colour, flat patches\n".format(name))
 
     for name, image in (("camp_flame", flame_sprite()),
-                        ("camp_spark", spark_sprite())):
+                        ("camp_spark", spark_sprite()),
+                        ("camp_foxy", name_plate())):
         path = textures / (name + ".png")
         total += png(path, image)
         handles[name] = write_meta(path, "Texture")

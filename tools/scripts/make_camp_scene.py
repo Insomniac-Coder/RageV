@@ -267,6 +267,28 @@ SHOTS = (
 
 
 
+# **One focus distance cannot serve twelve shots.** They range from 2.3 m -- the
+# mirror, close -- to 9.6 m at the final wide, and a single value leaves either
+# the close shots blurred at the front or the wides blurred at the subject. The
+# fox's own closing shot came back as a soft orange smear with an unreadable
+# name tag, which is the shot the whole film ends on.
+#
+# So a **shot marker carries its own lens**: each one gets a CameraComponent of
+# its own, with a ViewRank far above the live camera's so it can never become
+# primary, pointing at whichever of these focus bands is nearest its subject.
+# The script copies the marker's profile onto the live camera as it moves.
+#
+# Four bands rather than twelve profiles: focus is a soft quantity and the
+# difference between 3.4 m and 3.6 m is not visible, while four small files are
+# four things to keep track of instead of twelve.
+FOCUS_BANDS = (2.6, 3.6, 5.4, 8.4)
+
+
+def focus_band(distance):
+    """The band nearest a subject distance."""
+    return min(FOCUS_BANDS, key=lambda band: abs(band - distance))
+
+
 def segment_distance(point, a, b):
     """Distance from a point to a line segment, in the ground plane."""
     ax, az = a
@@ -317,11 +339,13 @@ def look_at(target, distance, yaw, pitch):
 
 # --- the scene ----------------------------------------------------------------
 
-def build(profile, mat, prop, tex, curve):
+def build(profiles, mat, prop, tex, curve):
     s = Scene()
 
     # --- the camera and its shots --------------------------------------------
     start, start_rotation = look_at(*SHOTS[0][1:])
+    profile = profiles[focus_band(SHOTS[0][2])]
+
     s.entity("Camp Camera", position=start, rotation=start_rotation)
     s.block("CameraComponent", [
         ("ViewRank", 0), ("FixedAspectRatio", "false"),
@@ -334,7 +358,10 @@ def build(profile, mat, prop, tex, curve):
     # Slow. A travel of under four seconds reads as a whip-pan between
     # postcards; at eleven it reads as a camera being carried, and the
     # scene has time to be looked at rather than swept past.
-    s.managed_script("CampCamera", HoldSeconds=9.0, TravelSeconds=24.0)
+    # **Thirty per cent of the original speed**, which is the original 3.8 s
+    # travel stretched to 12.7. Twenty-four seconds was the answer to
+    # "slower" applied twice and it went past unhurried into stalled.
+    s.managed_script("CampCamera", HoldSeconds=9.0, TravelSeconds=12.7)
 
     # The shots themselves. Empty transforms, named so the script can find
     # them -- which makes the camera move a thing you can drag in the editor
@@ -374,6 +401,18 @@ def build(profile, mat, prop, tex, curve):
                     f"it -- move the target or flip the yaw")
 
         s.entity(name, position=position, rotation=rotation)
+
+        # The marker's own lens. ViewRank 90 rather than 0: lowest wins, so
+        # these can never take over the view, and the field exists to be read
+        # rather than rendered through.
+        s.block("CameraComponent", [
+            ("ViewRank", 90), ("FixedAspectRatio", "false"),
+            ("ProjectionType", "Perspective"), ("PerspectiveFOV", 50),
+            ("PerspectiveNearClip", 0.05), ("PerspectiveFarClip", 400),
+            ("OrthographicScale", 10), ("OrthographicNearClip", -1),
+            ("OrthographicFarClip", 1),
+            ("PostProfile", profiles[focus_band(distance)]),
+        ])
 
     # --- the ground ----------------------------------------------------------
     s.entity("Ground", position=(0, TERRAIN_Y, 0))
@@ -426,7 +465,7 @@ def build(profile, mat, prop, tex, curve):
         # rather than as a launch.
         ("Emit", "true"), ("Rate", 13), ("Burst", 0), ("Lifetime", 2.8),
         ("LifetimeJitter", 0.45), ("Direction", "[0, 1, 0]"), ("Spread", 28),
-        ("Speed", 0.55), ("SpeedJitter", 0.28), ("Gravity", "[0.07, 0.42, 0]"),
+        ("Speed", 0.38), ("SpeedJitter", 0.2), ("Gravity", "[0.07, 0.42, 0]"),
         ("Drag", 1.2), ("SizeStart", 0.055), ("SizeEnd", 0.012),
         ("ColorStart", "[1, 0.82, 0.4, 1]"), ("ColorEnd", "[1, 0.26, 0.05, 0]"),
         ("Spin", 0.4), ("Facing", "Billboard"), ("Blend", "Additive"),
@@ -442,7 +481,7 @@ def build(profile, mat, prop, tex, curve):
     s.block("ParticleEmitterComponent", [
         ("Emit", "true"), ("Rate", 11), ("Burst", 0), ("Lifetime", 1.2),
         ("LifetimeJitter", 0.3), ("Direction", "[0, 1, 0]"), ("Spread", 22),
-        ("Speed", 0.33), ("SpeedJitter", 0.16), ("Gravity", "[0, 0.28, 0]"),
+        ("Speed", 0.23), ("SpeedJitter", 0.1), ("Gravity", "[0, 0.28, 0]"),
         ("Drag", 2.0), ("SizeStart", 0.5), ("SizeEnd", 0.1),
         ("ColorStart", "[1, 0.6, 0.2, 1]"), ("ColorEnd", "[0.8, 0.2, 0.03, 0]"),
         ("Spin", 0.5), ("Facing", "Billboard"), ("Blend", "Additive"),
@@ -469,7 +508,10 @@ def build(profile, mat, prop, tex, curve):
         # something you notice second.
         ("Emit", "true"), ("Rate", 4), ("Burst", 0), ("Lifetime", 5.5),
         ("LifetimeJitter", 0.4), ("Direction", "[0, 1, 0]"), ("Spread", 16),
-        ("Speed", 0.26), ("SpeedJitter", 0.16), ("Gravity", "[0.12, 0.2, 0.04]"),
+        # A third of its original speed, the same fraction as the embers and
+        # the glow -- smoke that leaves the fire faster than the sparks in it
+        # is smoke coming off a different fire.
+        ("Speed", 0.165), ("SpeedJitter", 0.1), ("Gravity", "[0.12, 0.2, 0.04]"),
         ("Drag", 0.55), ("SizeStart", 0.3), ("SizeEnd", 1.3),
         ("ColorStart", "[0.15, 0.14, 0.16, 0.12]"),
         ("ColorEnd", "[0.08, 0.08, 0.11, 0]"),
@@ -656,11 +698,31 @@ def build(profile, mat, prop, tex, curve):
              rotation=(0, math.radians(-148), 0), scale=(0.009, 0.009, 0.009))
     s.mesh(MESH_FOX, MAT_FOX)
     s.block("AnimatorComponent", [
-        # Half speed. A fox at the edge of firelight is watching, not
-        # hunting, and the clip at its authored rate looks agitated.
-        ("Clip", 0), ("Playing", "true"), ("Loop", "true"), ("Speed", 0.14),
+        # A quarter of the clip's own rate. A fox at the edge of firelight is
+        # watching, not hunting, and the animation at its authored speed looks
+        # agitated -- but 0.14 was a quarter of a value that was already
+        # slowed, and at that rate it read as stuck rather than as calm.
+        ("Clip", 0), ("Playing", "true"), ("Loop", "true"), ("Speed", 0.25),
         ("BlendTime", 0.4),
     ])
+
+    # And the name tag over its head. The engine's UI is screen space -- a
+    # canvas has a scale mode and no world mode -- so a label belonging to
+    # something *in* the scene has to be geometry: a quad wearing a plaque
+    # texture, turned to face the camera by `Billboard`. It is lit by the fire,
+    # occluded by the tent and reflected in the mirror like anything else,
+    # which a screen-space label would not be.
+    #
+    # The height is the fox's own: about 0.9 m at this scale, and the tag sits
+    # a little clear of the ears rather than on them.
+    s.entity("Foxy Label",
+             position=(4.15, ground_height(4.15, 1.95) + 0.98, 1.95),
+             # 42 cm across, which is a third smaller than it first was. A tag
+             # wider than the animal it names stops being a label and becomes
+             # a sign the animal is standing next to.
+             scale=(0.42, 0.158, 1.0))
+    s.mesh(QUAD, mat["nameplate"])
+    s.managed_script("Billboard")
 
     # And the rabbits, which are what make the camp feel visited rather than
     # staged. Three, all facing the fire, at the distance an animal actually
@@ -1057,6 +1119,13 @@ def materials(tex):
                           roughness=0.4),
         "white": surface("white", None, (0.96, 0.93, 0.86, 1), roughness=0.85),
 
+        # The name tag. A modest flat emissive so the sign is readable four
+        # metres from the fire without being a lamp -- and the letters stay
+        # dark because they are dark in the *map*, which is the only way to
+        # have a partly-glowing surface with no emissive map to vary it.
+        "nameplate": surface("nameplate", "foxy", (1.0, 1.0, 1.0, 1),
+                             roughness=0.85, emissive=(0.34, 0.3, 0.24, 1)),
+
         # The van. Pale green paint, because the frame already has a red tent
         # in it and a second saturated body colour would fight it for the eye;
         # a muted one reads as a vehicle and stays out of the way.
@@ -1112,6 +1181,7 @@ def main():
     tex.update({
         "flame": read_handle(ASSETS / "textures" / "camp_flame.png.meta"),
         "spark": read_handle(ASSETS / "textures" / "camp_spark.png.meta"),
+        "foxy": read_handle(ASSETS / "textures" / "camp_foxy.png.meta"),
         "lut": read_handle(ASSETS / "post" / "camp.rvlut.meta"),
         "terrain": read_handle(ASSETS / "terrain" / "clearing.rvterrain.meta"),
         "fire_sound": read_handle(ASSETS / "audio" / "camp_fire.wav.meta"),
@@ -1120,7 +1190,7 @@ def main():
     })
     require(tex, "ground", "bark", "canvas", "fabric", "stone", "needle",
             "metal", "flame", "spark", "lut", "terrain", "fire_sound",
-            "ambience", "font")
+            "ambience", "font", "foxy")
 
     curves = ASSETS / "curves"
     curve = {
@@ -1147,7 +1217,7 @@ def main():
     mat = materials(tex)
 
     # Night, and every effect chosen for the picture.
-    profile = postprofile.write_named(ASSETS / "post" / "camp.rvpostprofile", {
+    settings = {
         # **Fixed, not automatic.** Auto exposure hunts for a mid-grey and
         # finds one in any scene, so a night scene comes back correctly exposed
         # and therefore not night. The fire is the subject; it should be the
@@ -1168,9 +1238,26 @@ def main():
         # miniature**, and it is not subtle there: the foreground trees and the
         # treeline are both well out of focus and only the camp is sharp.
         "DepthOfField": True,
-        "FocusDistance": 7.2,
+        # **One focus distance has to serve twelve shots**, and they range from
+        # 2.3 m (the mirror, close) to 9.6 m (the final wide). At 7.2 m and
+        # f/1.45 the establishing shot was beautiful and the fox -- the subject
+        # of the shot that closes the film -- was a soft orange smear, along
+        # with its name tag. Five metres and f/2 keeps the near shots readable
+        # and still throws the treeline out on the wides, which is where the
+        # miniature effect actually comes from.
+        #
+        # A focus distance per shot would be better and is not available: the
+        # profile is an asset the camera points at, not a field a script can
+        # set.
+        # Overridden per band below; the value here is the fallback for
+        # anything that reads this dict directly.
+        "FocusDistance": 5.4,
         "FocalLength": 55.0,
-        "Aperture": 1.45,
+        # Back to a shallow stop now that each shot focuses on its own subject.
+        # The shallow depth is most of why the reference reads as a miniature,
+        # and it was only stopped down to paper over one focus serving twelve
+        # shots.
+        "Aperture": 1.8,
         "MaxBokehRadius": 14.0,
 
         # **Screen-space reflections, and the mirror is what they are for.**
@@ -1232,9 +1319,20 @@ def main():
         # screen. Enough to keep the dark parts from banding and no more.
         "FilmGrain": 0.07,
         "FilmGrainSize": 1.5,
-    })
+    }
 
-    scene = build(profile, mat, prop, tex, curve)
+    # One profile per focus band, identical in every other respect. The camp's
+    # own `camp.rvpostprofile` stays as the mid band under its old name, so a
+    # camera that has not been told otherwise still grades the scene correctly.
+    profiles = {}
+    for band in FOCUS_BANDS:
+        name = ("camp.rvpostprofile" if band == 5.4
+                else "camp_focus_{0}.rvpostprofile".format(
+                    str(band).replace(".", "_")))
+        profiles[band] = postprofile.write_named(
+            ASSETS / "post" / name, dict(settings, FocusDistance=band))
+
+    scene = build(profiles, mat, prop, tex, curve)
 
     header = [
         "Scene: Camp",
@@ -1274,7 +1372,9 @@ def main():
     entities = scene.count("  - EntityID:")
     print(f"{path}: {entities} entities")
     print(f"  {len(prop)} props, {len(mat)} materials, {len(curve)} curves")
-    print(f"  profile   {ASSETS / 'post' / 'camp.rvpostprofile'}")
+    print(f"  focus     " + ", ".join(
+        f"{name}@{focus_band(distance):g}m"
+        for name, _, distance, _, _ in SHOTS))
     for name, target, distance, yaw, pitch in SHOTS:
         position, _ = look_at(target, distance, yaw, pitch)
         print(f"  {name}    at ({position[0]:.2f}, {position[1]:.2f}, "

@@ -11141,6 +11141,57 @@ scaled between 0.78 and 1.33: the margin that clears a one-metre sapling puts
 the lens inside a two-and-a-half-metre pine, which is precisely what the camera
 was flying through.
 
+#### A shot is a position, an aim and a lens
+
+The shots are entities, so the obvious next question is what else belongs on
+one. The answer turned out to be the **focus distance**, and it was not
+optional: twelve shots spanning 2.3 m at the mirror to 9.6 m at the final wide
+cannot share a single one. At 7.2 m the establishing shot was beautiful and the
+fox -- the subject of the shot the film ends on -- was a soft orange smear with
+an unreadable name tag above it. At 5 m the near shots were sharp and the wides
+had lost their background blur, which is most of where the miniature effect
+comes from.
+
+So a **shot marker carries its own `CameraComponent`**, with a `ViewRank` far
+above the live camera's so it can never become primary, pointing at whichever of
+four focus bands is nearest its subject. `CampCamera` reads the marker's
+`PostProfile` with `GetComponentField` and writes it onto the live camera with
+`SetComponentField`. Four shared profiles rather than twelve: focus is a soft
+quantity and 3.4 m against 3.6 m is not a visible difference, while eight extra
+files are eight things to keep track of.
+
+**The switch happens halfway through the travel.** Two profiles cannot be
+blended -- it is an asset reference, not a number -- so the focus changes in one
+step whenever it changes at all, and halfway is where both ends are equally
+wrong and the camera is moving fastest. It is the one moment nobody can see it.
+
+#### The label over the fox, and two conventions that bite
+
+The engine's UI is screen space: a `UICanvasComponent` has a scale mode and a
+reference resolution and no world mode. So a label belonging to something *in*
+the scene cannot be a `UIText` -- it has to be geometry. The fox's name tag is a
+quad wearing a generated plaque texture, turned to face the camera by a
+`Billboard` script, which means it is lit by the fire, occluded by the tent and
+reflected in the mirror like anything else in the scene.
+
+Two conventions had to be got right and neither announced itself:
+
+**The billboard pitches as well as yaws.** Turning only about Y keeps the sign
+vertical in the world, which sounds like what a standing sign does -- and then
+the establishing shot looks down at it from thirty degrees and foreshortens it
+to a third of its height, so it reads as a slab lying on the ground.
+
+**A PNG's first row is its top and the quad primitive's v runs the other way**,
+so the plate is generated upside down. That is the classic image-origin
+mismatch, and the alternative fix -- a negative scale on the entity -- reverses
+the winding and lights the sign from behind.
+
+The word itself is drawn by a **four-glyph stroke font** in
+`make_camp_textures.py`: line segments and one ring, rasterised by distance so
+the caps and joins come out round for free. A system TrueType file is not
+portable out of a clone and parsing the project's own `.rvfont` atlas to bake
+one label is a great deal of machinery for six letters.
+
 #### The fire, and what a fire is not
 
 The flame is **modelled**, not simulated: six faceted shards in a ring of pale

@@ -41,7 +41,7 @@ public class CampCamera : Script
 	// is twenty-one seconds a shot: unhurried enough that the eye finishes
 	// reading a frame before the camera starts on the next one.
 	private float HoldSeconds = 9.0f;
-	private float TravelSeconds = 24.0f;
+	private float TravelSeconds = 12.7f;
 
 	// No more than this many, and the search stops at the first gap. A scene
 	// with "Shot 1" and "Shot 3" gets one shot and not a jump through the
@@ -50,6 +50,17 @@ public class CampCamera : Script
 
 	private Vector3[] m_Positions = new Vector3[0];
 	private Vector3[] m_Rotations = new Vector3[0];
+
+	// Each shot's post profile, read off the marker's own CameraComponent.
+	//
+	// **A shot is a position, an aim and a lens**, and the lens is the part
+	// that was missing. Twelve shots spanning 2.3 m to 9.6 m cannot share one
+	// focus distance: at any single value either the close shots blur at the
+	// front or the wides blur at the subject, and the fox's closing shot came
+	// back as a soft smear because of it. The markers carry a profile each --
+	// same grade, different focus -- and this copies it across.
+	private string[] m_Profiles = new string[0];
+	private string m_Applied = "";
 
 	private int m_Shot;
 	private float m_Elapsed;
@@ -64,6 +75,7 @@ public class CampCamera : Script
 	{
 		var positions = new Vector3[MaxShots];
 		var rotations = new Vector3[MaxShots];
+		var profiles = new string[MaxShots];
 
 		int found = 0;
 		for (int i = 1; i <= MaxShots; i++)
@@ -74,15 +86,22 @@ public class CampCamera : Script
 
 			positions[found] = marker.Position;
 			rotations[found] = marker.Rotation;
+			// Empty when the marker has no camera of its own, which is a
+			// perfectly good way to author a shot -- it just keeps whatever
+			// lens the live camera already has.
+			profiles[found] = marker.GetComponentField("CameraComponent",
+													   "PostProfile");
 			found++;
 		}
 
 		m_Positions = new Vector3[found];
 		m_Rotations = new Vector3[found];
+		m_Profiles = new string[found];
 		for (int i = 0; i < found; i++)
 		{
 			m_Positions[i] = positions[i];
 			m_Rotations[i] = rotations[i];
+			m_Profiles[i] = profiles[i];
 		}
 
 		if (found == 0)
@@ -178,6 +197,29 @@ public class CampCamera : Script
 		Entity self = Entity;
 		self.Position = Vector3.Lerp(m_Positions[from], m_Positions[to], eased);
 		self.Rotation = LerpAngles(m_Rotations[from], m_Rotations[to], eased);
+
+		// **Switched at the halfway point, not at either end.** Two profiles
+		// cannot be blended -- it is one asset reference, not a number -- so
+		// the focus changes in a single step whenever it changes at all. Doing
+		// it halfway through the travel puts that step where both ends are
+		// equally wrong and the camera is moving fastest, which is the one
+		// moment nobody can see it.
+		Focus(eased < 0.5f ? from : to);
+	}
+
+	private void Focus(int shot)
+	{
+		string profile = m_Profiles[shot];
+		if (profile.Length == 0 || profile == m_Applied)
+			return;
+
+		// Written every time it *changes* rather than every frame: this crosses
+		// the managed boundary with three strings and re-derives the camera's
+		// cached projection behind it, which is not a per-frame cost worth
+		// paying for a value that changes twelve times in four minutes.
+		Entity self = Entity;
+		if (self.SetComponentField("CameraComponent", "PostProfile", profile))
+			m_Applied = profile;
 	}
 
 	private static Vector3 LerpAngles(Vector3 a, Vector3 b, float t) =>

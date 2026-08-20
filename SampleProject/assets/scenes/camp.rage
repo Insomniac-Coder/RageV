@@ -27,12 +27,12 @@ Entities:
       OrthographicScale: 10
       OrthographicNearClip: -1
       OrthographicFarClip: 1
-      PostProfile: 11962501723077875437
+      PostProfile: 5121286002614474790
     ManagedScriptComponent:
       Script: CampCamera
       Fields:
         HoldSeconds: 9.0
-        TravelSeconds: 24.0
+        TravelSeconds: 12.7
   - EntityID: 10748874122643597306
     TagComponent:
       Tag: Shot 1
@@ -40,6 +40,17 @@ Entities:
       Position: [3.4612, 4.6, 6.07135]
       Rotation: [-0.523599, 0.453786, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 5121286002614474790
   - EntityID: 10748873023131969095
     TagComponent:
       Tag: Shot 2
@@ -47,6 +58,17 @@ Entities:
       Position: [-1.3174, 4.05953, 6.33803]
       Rotation: [-0.471239, -0.279253, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 5121286002614474790
   - EntityID: 10748871923620340884
     TagComponent:
       Tag: Shot 3
@@ -54,6 +76,17 @@ Entities:
       Position: [0.72736, 1.15102, 2.94544]
       Rotation: [-0.139626, -0.10472, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 7837477982603712757
   - EntityID: 10748870824108712673
     TagComponent:
       Tag: Shot 4
@@ -61,6 +94,17 @@ Entities:
       Position: [1.24968, 1.31359, 1.33837]
       Rotation: [-0.10472, -0.20944, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 2328503605430662106
   - EntityID: 10748869724597084462
     TagComponent:
       Tag: Shot 5
@@ -68,6 +112,17 @@ Entities:
       Position: [7.00811, 2.13114, 0.731481]
       Rotation: [-0.20944, 0.907571, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 11962501723077875437
   - EntityID: 10748868625085456251
     TagComponent:
       Tag: Shot 6
@@ -75,6 +130,17 @@ Entities:
       Position: [3.4191, 2.48468, -6.8781]
       Rotation: [-0.226893, 2.6529, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 11962501723077875437
   - EntityID: 10748867525573828040
     TagComponent:
       Tag: Shot 7
@@ -82,6 +148,17 @@ Entities:
       Position: [-4.17209, 2.18302, -6.91587]
       Rotation: [-0.191986, 3.57792, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 11962501723077875437
   - EntityID: 10748866426062199829
     TagComponent:
       Tag: Shot 8
@@ -89,6 +166,17 @@ Entities:
       Position: [-10.5527, 1.79587, -4.99346]
       Rotation: [-0.139626, 4.36332, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 11962501723077875437
   - EntityID: 10748865326550571618
     TagComponent:
       Tag: Shot 9
@@ -96,6 +184,17 @@ Entities:
       Position: [1.49801, 1.48453, 1.44641]
       Rotation: [-0.139626, 1.29154, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 7837477982603712757
   - EntityID: 620698599112399934
     TagComponent:
       Tag: Shot 10
@@ -103,6 +202,17 @@ Entities:
       Position: [-0.565721, 1.05046, 1.56562]
       Rotation: [-0.0872665, 1.0472, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 2328503605430662106
   - EntityID: 620699698624028145
     TagComponent:
       Tag: Shot 11
@@ -110,6 +220,17 @@ Entities:
       Position: [6.15857, 0.981877, 4.57248]
       Rotation: [-0.15708, 0.698132, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 7837477982603712757
   - EntityID: 620696400089143512
     TagComponent:
       Tag: Shot 12
@@ -117,6 +238,17 @@ Entities:
       Position: [-6.00976, 5.10836, 5.74624]
       Rotation: [-0.453786, -0.872665, 0]
       Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 90
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 5121286002614474790
   - EntityID: 11489088586242532446
     TagComponent:
       Tag: Ground
@@ -326,8 +458,8 @@ Entities:
       LifetimeJitter: 0.45
       Direction: [0, 1, 0]
       Spread: 28
-      Speed: 0.55
-      SpeedJitter: 0.28
+      Speed: 0.38
+      SpeedJitter: 0.2
       Gravity: [0.07, 0.42, 0]
       Drag: 1.2
       SizeStart: 0.055
@@ -361,8 +493,8 @@ Entities:
       LifetimeJitter: 0.3
       Direction: [0, 1, 0]
       Spread: 22
-      Speed: 0.33
-      SpeedJitter: 0.16
+      Speed: 0.23
+      SpeedJitter: 0.1
       Gravity: [0, 0.28, 0]
       Drag: 2.0
       SizeStart: 0.5
@@ -396,8 +528,8 @@ Entities:
       LifetimeJitter: 0.4
       Direction: [0, 1, 0]
       Spread: 16
-      Speed: 0.26
-      SpeedJitter: 0.16
+      Speed: 0.165
+      SpeedJitter: 0.1
       Gravity: [0.12, 0.2, 0.04]
       Drag: 0.55
       SizeStart: 0.3
@@ -860,8 +992,20 @@ Entities:
       Clip: 0
       Playing: true
       Loop: true
-      Speed: 0.14
+      Speed: 0.25
       BlendTime: 0.4
+  - EntityID: 8833755852786211287
+    TagComponent:
+      Tag: Foxy Label
+    TransformComponent:
+      Position: [4.15, 0.980092, 1.95]
+      Rotation: [0, 0, 0]
+      Scale: [0.42, 0.158, 1]
+    MeshComponent:
+      Mesh: 8241982477996916740
+      Material: 14304214303899630800
+    ManagedScriptComponent:
+      Script: Billboard
   - EntityID: 7206348170727298397
     TagComponent:
       Tag: Rabbit 0
