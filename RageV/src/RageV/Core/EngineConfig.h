@@ -235,6 +235,12 @@ namespace RageV
 		// without clicking through the browser, and what a check will drive.
 		std::string  GraphPath;
 
+		// --graph-drop-unknown=on: take the refusal page's "open without it"
+		// as soon as the graph is opened, so a check can reach a path that
+		// otherwise needs a click. Same route as the button, not a second one
+		// -- a flag that took its own would be checking itself.
+		bool         GraphDropUnknown = false;
+
 		// --generate-graphs: turn every .rvgraph in the project into C# and
 		// say what happened. What a build server runs instead of opening the
 		// editor, and what the check drives.

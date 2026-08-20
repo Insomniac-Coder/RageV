@@ -5,6 +5,8 @@
 
 #include "yaml-cpp/yaml.h"
 
+#include <spdlog/fmt/fmt.h>
+
 #include <algorithm>
 #include <fstream>
 
@@ -14,8 +16,9 @@ namespace RageV::Assets
 	{
 		// The file's version, so a graph written by a later node set can be
 		// refused with a sentence rather than half-read. Bumped when the
-		// *format* changes, not when a node is added: an unknown node name is
-		// already handled below by dropping that node and saying so.
+		// *format* changes, not when a node is added -- an unknown node name
+		// is refused below on its own terms, which is a different question
+		// from the file's shape having changed.
 		constexpr uint32_t kVersion = 1;
 	}
 
@@ -91,8 +94,30 @@ namespace RageV::Assets
 		return true;
 	}
 
-	bool ScriptGraphSerializer::Load(ScriptGraph& out, const std::filesystem::path& path)
+	namespace
 	{
+		// Say it once, to both places. The log is for whoever is running a
+		// build; the string is for whoever is looking at the editor.
+		bool Refuse(std::string* outError, const std::string& message)
+		{
+			RV_CORE_ERROR("{0}", message);
+			if (outError)
+				*outError = message;
+			return false;
+		}
+	}
+
+	bool ScriptGraphSerializer::Load(ScriptGraph& out, const std::filesystem::path& path,
+									 std::string* outMessage, GraphLoadMode mode)
+	{
+		std::string* outError = outMessage;
+		if (outMessage)
+			outMessage->clear();
+
+		// What DropUnknown left behind, so the caller can say how much.
+		std::vector<std::string> droppedTypes;
+		uint32_t droppedLinks = 0;
+
 		std::string text;
 		if (!IO::VFS::ReadText(path, text))
 		{
@@ -136,16 +161,43 @@ namespace RageV::Assets
 				const std::string typeName = entry["Type"].as<std::string>("None");
 				node.Type = GraphNodeTypeFromName(typeName);
 
-				// A node this build has never heard of is dropped and named.
-				// Silently keeping it would mean saving a graph on an older
-				// build quietly deletes work; dropping it *loudly* is the
-				// honest half of that trade, and the version above is what a
-				// real format change uses instead.
-				if (node.Type == GraphNodeType::None || node.Id == 0)
+				// **Refused, not dropped** (10.10). This used to keep the rest
+				// of the graph and carry on, which reads as tolerant and is
+				// not: the graph then generated without that node, the
+				// generated C# was overwritten, and a save wrote the shortened
+				// graph back over the file. Nothing along that path is
+				// reversible and nothing on it is loud.
+				//
+				// The version field above is what a *format* change uses. A
+				// node type that no longer exists is not a format change; it
+				// is this build being unable to represent what the file says,
+				// and the only honest answer is to say so and touch nothing.
+				if (node.Type == GraphNodeType::None)
 				{
-					RV_CORE_WARN("Script graph {0}: dropping node {1} of unknown type '{2}'",
-								 path.string(), node.Id, typeName);
-					continue;
+					if (mode == GraphLoadMode::DropUnknown)
+					{
+						droppedTypes.push_back(typeName);
+						continue;
+					}
+
+					return Refuse(outError, fmt::format(
+						"Script graph {0}: node {1} is of type '{2}', which this "
+						"build does not know. The graph is left untouched -- "
+						"opening or generating it would drop that node and save "
+						"the loss.",
+						path.string(), node.Id, typeName));
+				}
+
+				// Id 0 is not a node this build is too new for: `NextNodeId`
+				// starts at 1 and a link names its endpoints by id, so a zero
+				// is a file that has been edited by hand or truncated.
+				if (node.Id == 0)
+				{
+					return Refuse(outError, fmt::format(
+						"Script graph {0}: a node of type '{1}' has no id. Ids "
+						"start at 1 and links name their endpoints by id, so "
+						"this file cannot be read as written.",
+						path.string(), typeName));
 				}
 
 				if (const YAML::Node position = entry["Pos"]; position && position.size() >= 2)
@@ -187,9 +239,13 @@ namespace RageV::Assets
 
 				// A link to a node that was dropped above, or that was never
 				// there, is not a link. Keeping one would leave the canvas
-				// drawing a wire into empty space.
+				// drawing a wire into empty space. Counted, because under
+				// DropUnknown this is half of what the user is agreeing to.
 				if (!known(link.FromNode) || !known(link.ToNode))
+				{
+					droppedLinks++;
 					continue;
+				}
 
 				highestLink = Math::Max(highestLink, link.Id);
 				links.push_back(link);
@@ -204,6 +260,29 @@ namespace RageV::Assets
 		// already has, because a repeated id re-parents links (7bh).
 		out.SetNextIds(Math::Max(root["NextNodeId"].as<uint32_t>(1u), highestNode + 1),
 					   Math::Max(root["NextLinkId"].as<uint32_t>(1u), highestLink + 1));
+
+		// What DropUnknown cost. Named types rather than a count alone: "1
+		// node" is not something anybody can go and look for, and
+		// 'NumbersAppend' is.
+		if (!droppedTypes.empty() && outMessage)
+		{
+			std::sort(droppedTypes.begin(), droppedTypes.end());
+			std::string names;
+			for (const std::string& type : droppedTypes)
+			{
+				if (!names.empty())
+					names += ", ";
+				names += "'" + type + "'";
+			}
+
+			*outMessage = fmt::format(
+				"Opened without {0} node{1} this build cannot read ({2}), and "
+				"{3} link{4} that touched {5}.",
+				droppedTypes.size(), droppedTypes.size() == 1 ? "" : "s", names,
+				droppedLinks, droppedLinks == 1 ? "" : "s",
+				droppedTypes.size() == 1 ? "it" : "them");
+		}
+
 		return true;
 	}
 }

@@ -155,12 +155,32 @@ namespace RageV::Assets
 
 		// The visual script behind a handle (8.10, ENGINE-NOTES 7bh).
 		//
-		// Same contract as GetCurve: owned by the cache, valid until
-		// ReloadScriptGraph or a project change, and **never null for a valid
-		// handle** -- a graph that will not load caches as an empty one, so
-		// the panel opens on a blank canvas with the parse error in the log
-		// rather than on nothing at all.
+		// Owned by the cache and valid until ReloadScriptGraph or a project
+		// change, like GetCurve -- but **null when the graph will not load**,
+		// which is the opposite of what this said until 10.10.
+		//
+		// It used to answer a failed load with an empty graph and a valid
+		// pointer, so that the panel opened on a blank canvas with the error
+		// in the log. That is a blank canvas *over a file that has contents*,
+		// and the first Save writes the blank back. `s_FontFailed` had the
+		// right shape all along: a failure is an absent entry, because "empty"
+		// and "unreadable" want different answers and an empty value cannot
+		// say which it is.
 		static const ScriptGraph* GetScriptGraph(AssetHandle handle);
+
+		// Why the graph above would not load, for a caller that has to put it
+		// in front of somebody. Empty when the handle loaded, or was never
+		// asked for.
+		static const std::string& GetScriptGraphError(AssetHandle handle);
+
+		// The same file with everything this build cannot read taken out, and
+		// `outMessage` saying what that was. **Deliberately not cached and
+		// never written**: this is not what the file says, it is what the file
+		// says minus something, and only the editor's "open without it" asks
+		// for it -- after telling somebody the cost. It stays a graph in
+		// memory until they press Save.
+		static bool LoadScriptGraphWithoutUnknown(AssetHandle handle, ScriptGraph& out,
+												  std::string* outMessage);
 
 		// Writes a `.rvgraph` beside the other assets and returns its handle.
 		static AssetHandle CreateScriptGraph(const ScriptGraph& graph,

@@ -61,7 +61,11 @@ namespace RageV::Assets
 		// caches as an empty curve for the same reason a texture caches as
 		// null: a missing file must not be retried sixty times a second.
 		std::unordered_map<AssetHandle, Curve> s_Curves;
+		// A failed load is an absent entry plus its reason, the shape
+		// s_FontFailed uses below -- not an empty graph, which the panel
+		// cannot tell from a graph somebody has just created (10.10).
 		std::unordered_map<AssetHandle, ScriptGraph> s_ScriptGraphs;
+		std::unordered_map<AssetHandle, std::string> s_ScriptGraphErrors;
 		std::unordered_map<AssetHandle, Curve::Baked> s_BakedCurves;
 
 		// Post profiles cache by value for the same reason curves do: half a
@@ -494,6 +498,7 @@ namespace RageV::Assets
 		s_Materials.clear();
 		s_Curves.clear();
 		s_ScriptGraphs.clear();
+		s_ScriptGraphErrors.clear();
 		s_BakedCurves.clear();
 		s_Fonts.clear();
 		s_FontFailed.clear();
@@ -1004,6 +1009,9 @@ namespace RageV::Assets
 		if (!handle.IsValid())
 			return nullptr;
 
+		if (s_ScriptGraphErrors.count(handle) != 0)
+			return nullptr;
+
 		const auto cached = s_ScriptGraphs.find(handle);
 		if (cached != s_ScriptGraphs.end())
 			return &cached->second;
@@ -1011,17 +1019,42 @@ namespace RageV::Assets
 		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 
 		ScriptGraph graph;
-		if (path.empty() || !ScriptGraphSerializer::Load(graph, path))
+		std::string error;
+		if (path.empty() || !ScriptGraphSerializer::Load(graph, path, &error))
 		{
-			// Cached even on failure: the serializer has already said why in
-			// the log, and re-reading a broken file every frame the panel is
-			// open would say it several hundred times.
-			s_ScriptGraphs[handle] = ScriptGraph();
-			return &s_ScriptGraphs[handle];
+			// The failure is remembered, not the graph: re-reading a file that
+			// will not read, every frame the panel is open, would say so
+			// several hundred times. The message is kept because the caller
+			// has to show it -- and `path.empty()` has none of its own.
+			s_ScriptGraphErrors[handle] = error.empty()
+				? std::string("The graph's file could not be found.")
+				: error;
+			return nullptr;
 		}
 
 		s_ScriptGraphs[handle] = std::move(graph);
 		return &s_ScriptGraphs[handle];
+	}
+
+	const std::string& Manager::GetScriptGraphError(AssetHandle handle)
+	{
+		static const std::string none;
+		const auto found = s_ScriptGraphErrors.find(handle);
+		return found == s_ScriptGraphErrors.end() ? none : found->second;
+	}
+
+	bool Manager::LoadScriptGraphWithoutUnknown(AssetHandle handle, ScriptGraph& out,
+												std::string* outMessage)
+	{
+		if (!handle.IsValid())
+			return false;
+
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+		if (path.empty())
+			return false;
+
+		return ScriptGraphSerializer::Load(out, path, outMessage,
+										   GraphLoadMode::DropUnknown);
 	}
 
 	AssetHandle Manager::CreateScriptGraph(const ScriptGraph& graph,
@@ -1040,7 +1073,10 @@ namespace RageV::Assets
 
 		const AssetHandle handle = Registry::GetHandle(relativePath.generic_string());
 		if (handle.IsValid())
+		{
 			s_ScriptGraphs[handle] = graph;
+			s_ScriptGraphErrors.erase(handle);
+		}
 
 		return handle;
 	}
@@ -1055,14 +1091,20 @@ namespace RageV::Assets
 			return false;
 
 		// The cache holds what the file holds, so a later Get answers the
-		// saved graph rather than the one loaded before the edits.
+		// saved graph rather than the one loaded before the edits -- and a
+		// handle that would not load has just been written over by one that
+		// will, so its refusal goes with it.
 		s_ScriptGraphs[handle] = graph;
+		s_ScriptGraphErrors.erase(handle);
 		return true;
 	}
 
 	void Manager::ReloadScriptGraph(AssetHandle handle)
 	{
+		// The refusal too, or a graph fixed outside the editor stays refused
+		// for the life of the process.
 		s_ScriptGraphs.erase(handle);
+		s_ScriptGraphErrors.erase(handle);
 	}
 
 	PostSettings Manager::GetPostSettings(AssetHandle handle)

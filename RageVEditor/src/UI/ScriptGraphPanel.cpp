@@ -187,14 +187,18 @@ namespace RageV::UI
 		if (!handle.IsValid())
 			return;
 
-		const ScriptGraph* graph = Assets::Manager::GetScriptGraph(handle);
-		if (!graph)
-			return;
-
 		m_Handle = handle;
-		m_Graph = *graph;
-		m_Dirty = false;
 		m_Name = Assets::Registry::GetAbsolutePath(handle).stem().string();
+		m_Dirty = false;
+
+		// Null is "will not load" since 10.10, and the panel has to say so
+		// rather than return -- a double-click that opens nothing looks like
+		// the editor being broken, which is the wrong thing to have learnt.
+		const ScriptGraph* graph = Assets::Manager::GetScriptGraph(handle);
+		m_LoadError = graph ? std::string()
+							: Assets::Manager::GetScriptGraphError(handle);
+		m_Graph = graph ? *graph : ScriptGraph();
+		m_DroppedNotice.clear();
 
 		// Everything transient is cleared with the asset, not carried over:
 		// a drag half-finished in the last graph must not continue into this
@@ -255,6 +259,17 @@ namespace RageV::UI
 		if (!m_Handle.IsValid())
 			return false;
 
+		// Nothing on the refusal page offers this, and it still says no: the
+		// canvas behind a refusal is empty because the file could not be read,
+		// not because the graph is, and writing it back is exactly the loss
+		// 10.10 exists to stop.
+		if (!m_LoadError.empty())
+		{
+			RV_ERROR("Refusing to save '{0}' over a graph that would not load",
+					 m_Name);
+			return false;
+		}
+
 		if (!Assets::Manager::SaveScriptGraph(m_Handle, m_Graph))
 		{
 			RV_ERROR("Could not save script graph '{0}'", m_Name);
@@ -262,6 +277,7 @@ namespace RageV::UI
 		}
 
 		m_Dirty = false;
+		m_DroppedNotice.clear();
 
 		// The graph and its C# are written together, so what the canvas shows
 		// and what the project compiles cannot disagree (7bh). A graph with
@@ -914,6 +930,22 @@ namespace RageV::UI
 	{
 		ImGui::BeginChild("##graphside", ImVec2(300.0f, 0.0f), true);
 
+		// Up until the graph is saved. Somebody who chose "open without it" ten
+		// minutes ago is no longer thinking about it, and the next Save is the
+		// moment the file stops holding what they dropped.
+		if (!m_DroppedNotice.empty())
+		{
+			const EditorTheme::Palette& warn = EditorTheme::Colors();
+			ImGui::PushStyleColor(ImGuiCol_Text, warn.Warning);
+			ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x);
+			ImGui::TextUnformatted(m_DroppedNotice.c_str());
+			ImGui::TextUnformatted("Saving makes this permanent.");
+			ImGui::PopTextWrapPos();
+			ImGui::PopStyleColor();
+			ImGui::Separator();
+			ImGui::Spacing();
+		}
+
 		ImGui::TextDisabled("Graph");
 		ImGui::Separator();
 		ImGui::Text("%s", m_Name.c_str());
@@ -1106,6 +1138,95 @@ namespace RageV::UI
 		ImGui::EndChild();
 	}
 
+	void ScriptGraphPanel::DrawLoadError()
+	{
+		const EditorTheme::Palette& colors = EditorTheme::Colors();
+
+		ImGui::Dummy(ImVec2(0.0f, 12.0f));
+		ImGui::PushStyleColor(ImGuiCol_Text, colors.Danger);
+		ImGui::TextUnformatted("This graph was not opened.");
+		ImGui::PopStyleColor();
+
+		ImGui::Spacing();
+		ImGui::TextDisabled("%s.rvgraph", m_Name.c_str());
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		// Wrapped rather than truncated: the sentence names the node type and
+		// the node's id, which is the whole of what a person needs to go and
+		// look, and an ellipsis would take exactly that off the end.
+		ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x);
+		ImGui::TextUnformatted(m_LoadError.c_str());
+		ImGui::PopTextWrapPos();
+
+		ImGui::Spacing();
+		ImGui::Spacing();
+
+		// **Why this is a page and not a silent drop.** The editor *can* open
+		// the graph without what it cannot read -- that is the second button
+		// -- and it does not do so on its own, because dropping a node is a
+		// decision about somebody's work and the two ways out are not
+		// equivalent. ENGINE-NOTES 7bi, 10.10.
+		ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x);
+		ImGui::TextDisabled(
+			"Nothing has been changed on disk, and nothing will be until you "
+			"save. Open the project on a build that still has this node type to "
+			"get the graph back whole -- or open it without that node here, and "
+			"rewire what it was connected to.");
+		ImGui::PopTextWrapPos();
+
+		ImGui::Spacing();
+		if (ImGui::Button("Try again"))
+		{
+			// For the case where somebody has just fixed the file in another
+			// window. Drops the cached refusal so the loader is asked again.
+			Assets::Manager::ReloadScriptGraph(m_Handle);
+			Open(m_Handle);
+		}
+
+		ImGui::SameLine();
+
+		// **The way forward, and why it is a button rather than the default.**
+		// Refusing keeps the file safe and leaves the user nowhere: the graph
+		// cannot be opened, so it cannot be repaired in the tool that made it.
+		// This is the same operation the loader used to perform silently at
+		// generate time -- with the difference that somebody has now read what
+		// it costs and pressed it, the canvas opens *dirty*, and the file is
+		// untouched until they save.
+		if (ImGui::Button("Open without it"))
+			OpenWithoutUnknown();
+
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Opens the graph with the parts this build cannot "
+							  "read removed.\nNothing is written until you save.");
+	}
+
+	void ScriptGraphPanel::OpenWithoutUnknown()
+	{
+		if (!m_Handle.IsValid())
+			return;
+
+		ScriptGraph partial;
+		std::string dropped;
+		if (!Assets::Manager::LoadScriptGraphWithoutUnknown(m_Handle, partial,
+														   &dropped))
+			return;
+
+		m_Graph = std::move(partial);
+		m_LoadError.clear();
+		m_DroppedNotice = dropped;
+
+		// Dirty on purpose: the canvas is showing something the file does not
+		// contain, and the title's asterisk plus the unsaved-changes guard are
+		// how this editor already says exactly that.
+		m_Dirty = true;
+		m_Selection.clear();
+		m_Undo.clear();
+		m_Redo.clear();
+		FrameAll();
+	}
+
 	void ScriptGraphPanel::OnImGuiRender(bool* open)
 	{
 		if (!m_Handle.IsValid())
@@ -1124,6 +1245,13 @@ namespace RageV::UI
 
 		if (!ImGui::Begin(title, open))
 		{
+			ImGui::End();
+			return;
+		}
+
+		if (!m_LoadError.empty())
+		{
+			DrawLoadError();
 			ImGui::End();
 			return;
 		}

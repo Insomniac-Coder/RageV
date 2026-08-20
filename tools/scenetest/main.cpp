@@ -37,6 +37,7 @@
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Asset/ScriptGraphGenerator.h"
+#include "RageV/Asset/ScriptGraphSerializer.h"
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/Boot.h"
@@ -13505,6 +13506,75 @@ int RunTests(int argc, char** argv)
 			const Assets::GraphGenerateResult cyclic =
 				Assets::ScriptGraphGenerator::Generate(loop, "Loop");
 			Check(!cyclic.Ok, "a graph whose values feed each other does not generate");
+		}
+
+		// --- a node type this build does not have (10.10, ENGINE-NOTES 7bi) ---
+		//
+		// The loader used to drop such a node, keep the rest and return
+		// success, so the graph generated *silently emptied* and a save wrote
+		// the loss to disk. CHK.3 measured it on a real fixture: thirty-one
+		// lines of C# became an empty OnCreate, and it compiled.
+		//
+		// Two claims, and the second is what keeps the first from being a dead
+		// end for whoever hits it.
+		{
+			const std::filesystem::path file =
+				std::filesystem::temp_directory_path() / "ragev_scenetest_unknown.rvgraph";
+
+			// Written by hand rather than through Save, because Save can only
+			// write types this build has -- which is the whole situation being
+			// modelled: a file from a build that had one more.
+			{
+				std::ofstream out(file, std::ios::binary);
+				out << "ScriptGraph: 1\n"
+					<< "NextNodeId: 4\n"
+					<< "NextLinkId: 3\n"
+					<< "Nodes:\n"
+					<< "  - Id: 1\n    Type: OnTick\n    Pos: [0, 0]\n"
+					<< "  - Id: 2\n    Type: LiteralString\n    Pos: [0, 200]\n    Text: hello\n"
+					<< "  - Id: 3\n    Type: NumbersAppend\n    Pos: [200, 0]\n"
+					<< "Links:\n"
+					<< "  - Id: 1\n    From: [1, 0]\n    To: [3, 0]\n"
+					<< "  - Id: 2\n    From: [2, 0]\n    To: [3, 1]\n";
+			}
+
+			// **Strict refuses, and leaves the caller's graph alone.** The
+			// second half matters as much as the first: the panel pre-fills
+			// nothing, but the generator loops over a reused local, and a
+			// half-filled one there would generate a half-graph.
+			ScriptGraph target;
+			target.AddNode(GraphNodeType::OnCreate, Vec2(5.0f, 5.0f));
+
+			std::string why;
+			const bool strict = Assets::ScriptGraphSerializer::Load(target, file, &why);
+			Check(!strict, "a graph naming a node type this build lacks is refused");
+			Check(target.GetNodes().size() == 1,
+				  "and a refused load leaves the caller's graph untouched");
+			Check(why.find("NumbersAppend") != std::string::npos,
+				  "and says which type it was, because a count is not something "
+				  "anybody can go and look for");
+
+			// **DropUnknown loads it, and says what it cost.** This is the
+			// editor's "open without it": the same operation the loader used
+			// to perform silently, now behind a button, reported, and written
+			// to disk only when somebody saves.
+			ScriptGraph partial;
+			std::string dropped;
+			const bool loose = Assets::ScriptGraphSerializer::Load(
+				partial, file, &dropped, Assets::GraphLoadMode::DropUnknown);
+
+			Check(loose, "the same file opens when the caller asks for it without");
+			Check(partial.GetNodes().size() == 2, "with the unknown node gone");
+			Check(partial.GetLinks().empty(),
+				  "and both links that touched it gone with it -- a wire into "
+				  "nothing is not a wire");
+			Check(dropped.find("NumbersAppend") != std::string::npos
+				  && dropped.find("2 link") != std::string::npos,
+				  "and the message names the type and counts the links, which is "
+				  "what the button promised");
+
+			std::error_code discard;
+			std::filesystem::remove(file, discard);
 		}
 	}
 

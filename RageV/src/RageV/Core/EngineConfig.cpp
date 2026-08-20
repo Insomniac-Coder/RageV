@@ -222,6 +222,9 @@ namespace RageV
 		if (key == "generate-graphs" || key == "generategraphs")
 			return ParseBool(value, config.GenerateGraphs);
 
+		if (key == "graph-drop-unknown" || key == "graphdropunknown")
+			return ParseBool(value, config.GraphDropUnknown);
+
 		if (key == "graph-zoom" || key == "graphzoom")
 		{
 			try

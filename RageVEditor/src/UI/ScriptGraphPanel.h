@@ -43,6 +43,10 @@ namespace RageV::UI
 
 		bool IsOpen() const { return m_Handle.IsValid(); }
 
+		// What the refusal page's "open without it" does, so that the button
+		// and --graph-drop-unknown cannot drift apart.
+		void OpenWithoutUnknown();
+
 		// For --graph-zoom, and clamped by the same limits the wheel uses.
 		void SetZoom(float zoom);
 		AssetHandle GetHandle() const { return m_Handle; }
@@ -74,6 +78,9 @@ namespace RageV::UI
 		void DrawLinks(ImDrawList* draw);
 		void DrawNodes(ImDrawList* draw);
 		void DrawSidebar();
+
+		// Shown in place of the whole panel when the graph would not load.
+		void DrawLoadError();
 		void DrawProblems();
 
 		// Put the whole graph in view. Called on open, and bound to F: a graph
@@ -108,6 +115,18 @@ namespace RageV::UI
 		ScriptGraph m_Graph;
 		bool m_Dirty = false;
 		std::string m_Name;
+
+		// Why this graph would not load, from the loader (10.10). Non-empty
+		// means the panel is showing a refusal rather than a canvas, and
+		// **there is no Save while it is** -- an empty canvas over a file with
+		// contents is the data loss the refusal exists to prevent, arriving
+		// one layer up.
+		std::string m_LoadError;
+
+		// Set when the graph was opened through "open without it": what was
+		// left out. Stays on screen until the graph is saved, because a banner
+		// that disappears is a banner that was not read.
+		std::string m_DroppedNotice;
 
 		// The view. Pan is in graph space; zoom multiplies.
 		Vec2 m_Pan;

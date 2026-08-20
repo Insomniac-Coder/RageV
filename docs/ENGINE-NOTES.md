@@ -10438,6 +10438,121 @@ Four breaks added: `graph-stale-node`, `lens-vignette-everywhere`,
 
 ---
 
+### 7bj. A graph is loaded whole or not at all (10.10), and the way back out
+
+CHK.3 found the loader dropping a node of a type this build does not have,
+keeping the rest, and returning success (7bi, finding 2). The consequences ran
+downhill from there: the graph generated *silently emptied* -- `Roster.g.cs`
+thirty-one lines to an empty `OnCreate`, which `dotnet build` compiled -- and
+a save in the editor would have written the shortened graph back over the
+file. Nothing on that path was reversible and nothing on it was loud.
+
+The comment above the drop had an argument for it, and it is worth quoting
+because it is half right: *"silently keeping it would mean saving a graph on
+an older build quietly deletes work; dropping it loudly is the honest half of
+that trade."* The trade is real. What is wrong is the word **loudly**: the
+drop was a `RV_CORE_WARN` in a console, followed by a generate that overwrote
+the C# and a save that overwrote the graph. Nobody was asked and nothing
+stopped.
+
+#### The rule
+
+**A partial graph is the one answer the loader cannot give.** The file is
+somebody's work, and half of it is not a smaller version of it. So an unknown
+node type is now an error and `Load` returns false, in the same shape the
+version check above it already used -- and the version field keeps its own
+meaning: a *format* change. A node type that no longer exists is not a format
+change, it is this build being unable to represent what the file says.
+
+Two things fall out, and both were needed or the refusal only moves the loss:
+
+- **`GenerateAll` removes the stale `.g.cs`.** `GenerateToFile` already had
+  this rule for a graph that fails to *validate*, with the reason written next
+  to it -- the canvas would say "4 errors" while the game ran the version from
+  before them. A graph that will not load at all is the same case one step
+  earlier, and the loop used to `continue` straight past it. Without this the
+  refusal would leave the *previous* script compiled in, which is the same
+  defect wearing better manners. The rule now lives in one helper both callers
+  use.
+- **`Manager::GetScriptGraph` returns null.** It used to answer a failed load
+  with an *empty graph and a valid pointer*, and its header said so on purpose:
+  "never null for a valid handle -- a graph that will not load caches as an
+  empty one, so the panel opens on a blank canvas with the parse error in the
+  log". That is a blank canvas **over a file with contents**, and the first
+  Save makes it true. `s_FontFailed` had the right shape all along and its
+  comment is the argument, already written years earlier in this same file: a
+  failure is an absent entry, because "empty" and "unreadable" want different
+  answers and an empty value cannot say which it is.
+
+#### The half that was missing, and the owner caught it
+
+The first cut stopped there, and the panel showed a refusal page with one
+button on it: **Try again**. The owner's question was the right one --
+*"what if the user wants to edit after seeing the refusal message? where is
+the edit option?"*
+
+There was none. Refusing keeps the file safe and leaves the user nowhere: the
+graph cannot be opened, so it cannot be repaired in the tool that made it, and
+the page's own advice was to go and edit YAML by hand.
+
+**The data loss was never "loading a graph with an unknown node in it".** It
+was doing that *silently*, *automatically*, at generate time, with nobody
+asked. The same operation, chosen and shown, is not the same thing at all. So
+the page has a second button, **Open without it**:
+
+- it says what it costs before it is pressed, and again after -- *"Opened
+  without 1 node this build cannot read ('NumbersAppend'), and 4 links that
+  touched it. Saving makes this permanent."*
+- the canvas opens **dirty**, so the title carries its asterisk and the
+  existing unsaved-changes guard applies,
+- the banner stays up until the graph is saved, because that is the moment the
+  file stops holding what was dropped,
+- and **the file on disk is untouched until then**.
+
+`GraphLoadMode::DropUnknown` is what it asks for, and `Strict` remains the
+default for every caller that runs without somebody watching: the generator,
+the asset cache, the packager. One enum value, one caller.
+
+The validator does the rest of the work for free. On the real fixture the
+recovered graph reports **nine problems** -- "Get Numbers is not connected to
+any event, so it will not run", and so on -- so what needs rewiring is already
+listed beside the canvas rather than left to be discovered.
+
+#### What is checked, and where
+
+`scenetest` gained eight claims, on a `.rvgraph` written by hand rather than
+through `Save` -- because `Save` can only write types this build has, which is
+exactly the situation being modelled: a file from a build that had one more.
+
+| claim | |
+|---|---|
+| a graph naming a node type this build lacks is refused | Strict |
+| a refused load leaves the caller's graph untouched | Strict |
+| the message names the type | `NumbersAppend`, not "1 node" |
+| the same file opens when the caller asks for it without | DropUnknown |
+| with the unknown node gone | 3 nodes to 2 |
+| and both links that touched it gone with it | a wire into nothing is not a wire |
+| the message names the type and counts the links | what the button promised |
+
+**Falsified** by putting the old behaviour back -- `if (true)` in place of the
+mode test, so Strict drops again -- and rebuilding: `a graph naming a node type
+this build lacks is refused` and `a refused load leaves the caller's graph
+untouched` both go red, and scenetest exits 1.
+
+`--graph-drop-unknown=on` drives the recovery path so a screenshot can reach
+it, following `--brush=` and `--graph-zoom=`. It calls
+`ScriptGraphPanel::OpenWithoutUnknown`, which **is** the button's handler
+rather than a second copy of it -- a flag that took its own route would be
+checking itself.
+
+#### Not done
+
+The manual has no visual-scripting page at all; 8.10 shipped without one, and
+this behaviour is the kind that belongs in it rather than only in an engine
+note.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

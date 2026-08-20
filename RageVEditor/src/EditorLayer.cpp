@@ -246,6 +246,8 @@ void EditorLayer::OnLoaded()
 		if (handle.IsValid())
 		{
 			m_ScriptGraph.Open(handle);
+			if (config.GraphDropUnknown)
+				m_ScriptGraph.OpenWithoutUnknown();
 			if (config.GraphZoom > 0.0f)
 				m_ScriptGraph.SetZoom(config.GraphZoom);
 			m_ShowScriptGraph = true;

@@ -1780,14 +1780,17 @@ inverts it, so nothing had ever asked one to do too *much*.
    *"at least one graph did not generate"* in the same run this check printed
    OK. It now compares **content against git** -- regenerate everything, and
    every graph must produce exactly what is committed.
-2. **The engine behind it is worse, and is open as ROADMAP 10.10.**
-   `ScriptGraphSerializer::Load` **drops** a node of unknown type and returns
-   success, so the graph does not fail to generate -- it generates *silently
-   emptied*. `Roster.g.cs` went thirty-one lines to an empty `OnCreate`, and
-   `dotnet build` compiled it. That is what `check_graph`'s own claim 2
-   forbids, enforced until now only for the fixture named `Broken`. **Data
-   loss in an authoring surface**; the check catches it on the fixtures and
-   nothing catches it on a user's graph.
+2. **The engine behind it was worse, and is now fixed -- ROADMAP 10.10,
+   ENGINE-NOTES 7bj.**
+   `ScriptGraphSerializer::Load` **dropped** a node of unknown type and
+   returned success, so the graph did not fail to generate -- it generated
+   *silently emptied*. `Roster.g.cs` went thirty-one lines to an empty
+   `OnCreate`, and `dotnet build` compiled it. It now refuses, `GenerateAll`
+   removes the stale script, and `GetScriptGraph` answers null rather than an
+   empty graph. **And the refusal is not a dead end**: the panel's page offers
+   *Open without it*, which drops what cannot be read, says what that was,
+   opens dirty and writes nothing until you save. Eight scenetest claims,
+   falsified.
 3. **Two of the three lens effects had no magnitude at all.** A vignette that
    ignores `VignetteSmoothness` and covers the whole frame passed; so did a
    twelvefold aberration. The existing corner-versus-centre claim is blind to

@@ -755,6 +755,30 @@ namespace RageV::Assets
 		return result;
 	}
 
+	namespace
+	{
+		// A graph that has stopped generating must not leave last-good code
+		// compiled in: the canvas would say "4 errors" while the game ran the
+		// version from before them. Both callers below need it -- one for a
+		// graph that fails to validate, one for a graph that will not load --
+		// so the rule lives here rather than twice.
+		void RemoveStaleScript(const std::string& className,
+							   const std::filesystem::path& scriptsRoot,
+							   const char* because)
+		{
+			const std::filesystem::path file =
+				scriptsRoot / "Generated" / (className + ".g.cs");
+
+			std::error_code error;
+			if (!std::filesystem::exists(file, error))
+				return;
+
+			std::filesystem::remove(file, error);
+			RV_CORE_WARN("Script graph '{0}' {1}; removed {2}",
+						 className, because, file.filename().string());
+		}
+	}
+
 	bool ScriptGraphGenerator::GenerateToFile(const ScriptGraph& graph,
 											  const std::string& className,
 											  const std::filesystem::path& scriptsRoot,
@@ -768,16 +792,7 @@ namespace RageV::Assets
 
 		if (!result.Ok)
 		{
-			// A graph that has stopped generating must not leave last-good code
-			// compiled in: the canvas would say "4 errors" while the game ran
-			// the version from before them.
-			std::error_code error;
-			if (std::filesystem::exists(file, error))
-			{
-				std::filesystem::remove(file, error);
-				RV_CORE_WARN("Script graph '{0}' no longer generates; removed {1}",
-							 className, file.filename().string());
-			}
+			RemoveStaleScript(className, scriptsRoot, "no longer generates");
 			return false;
 		}
 
@@ -824,10 +839,23 @@ namespace RageV::Assets
 		bool ok = true;
 		for (const std::filesystem::path& path : files)
 		{
+			// **A graph that will not load is a failure with output to clean
+			// up, not a file to skip** (10.10). The loader refuses a graph
+			// naming a node type this build does not have, and it used to drop
+			// the node instead -- which meant this loop generated a shortened
+			// script over the top of the real one. Refusing fixes that half;
+			// this fixes the other, or the *previous* script survives and the
+			// game runs behaviour the graph no longer describes.
+			// No out-param: `Refuse` has already put the sentence in the log,
+			// which is where a build reads it. The editor asks for the string
+			// because a console is not where somebody who double-clicked a
+			// file is looking.
 			ScriptGraph graph;
 			if (!ScriptGraphSerializer::Load(graph, path))
 			{
 				ok = false;
+				RemoveStaleScript(path.stem().string(), scriptsRoot,
+								  "will not load");
 				continue;
 			}
 
