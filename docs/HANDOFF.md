@@ -105,132 +105,166 @@ And two older ones that still hold:
 - **A cubemap sky is the scene's image-based light, not a backdrop.** The camp
   was lit like an afternoon because it still had the courtyard's dusk panorama.
 
-### Open defect: all three ray-traced features together lose the device
+## Open defect: the editor loses the device in Play on Vulkan
 
-**Reproduce it:**
+**Status: not fixed.** Reproducible, narrowed, instrumented, and understood well
+enough that the next session should not have to re-derive any of it. The project
+ships around it (see *What ships* below), which is a workaround and not a fix.
+
+### Reproduce it
 
     cd build/bin/Release/RageVEditor
-    ./RageVEditor.exe --project=../../../../SampleProject --rhi=vulkan         --play=on --render-defaults=off --frame-time=0.0166         --screenshot-frame=1200 --screenshot=out.png
+    ./RageVEditor.exe --project=../../../../SampleProject --rhi=vulkan \
+        --play=on --render-defaults=off --frames-in-flight=1 \
+        --frame-time=0.0166 --screenshot-frame=1200 --screenshot=out.png
 
-With `RayTracedReflections`, `RayTracedAmbientOcclusion` **and**
-`RayTracedGlobalIllumination` all on, that loses the device within about 400
-frames -- 3 runs out of 3. Turn **any one** of the three off and it survives
-1200 frames, 3 runs out of 3. Every pair is fine; only the full set fails.
+with all three ray-traced features on in `SampleProject.rvproject`:
 
-What is known:
+    RayTracing: true
+    RayTracedReflections: true
+    RayTracedAmbientOcclusion: true
+    RayTracedGlobalIllumination: true
 
-- **It needs the editor's play mode.** The runtime, which renders one frame
-  graph, is fine with all three on for thousands of frames. In play the editor
-  builds and executes a *second* graph for the Game panel in the same command
-  buffer, so every ray-traced pass runs twice a frame.
-- **It is not a timeout.** Frames cost about 22 ms, nowhere near the driver's
-  watchdog.
-- **It is not API misuse.** Synchronization validation is clean up to the loss;
-  every message after it is a consequence of it.
-- **It is not deterministic.** The same frame number fails on one run and
-  passes on the next, which is what a GPU-side fault looks like rather than an
-  out-of-bounds index that would fail identically every time.
-- GPU-assisted validation cannot be used to narrow it further: it disables
-  itself with an internal error on this workload and then crashes.
+Dies inside about 400 frames. `frames-in-flight=1` is the fastest repro; it
+fails at 1, 2 and 3 alike.
 
-**The project therefore ships with ray-traced reflections on and the other two
-off**, which is verified at 1500 frames over 3 runs. Reflections are the one
-the camp actually needs -- the mirror is the whole reason ray tracing is on --
-and the other two were switched on the same afternoon for completeness rather
-than for anything in the frame.
+### What is established, with the measurement behind it
 
-**It is the second frame graph, confirmed.** Closing the Game panel (`game = 0`
-in the editor's `panels.ini`) leaves play mode rendering one graph, and it
-survives -- lost in 0 of 2 with the panel closed against 2 of 2 with it open,
-everything else identical. The runtime, which only ever renders one graph, is
-fine with all three on for thousands of frames.
+| Claim | Evidence |
+|---|---|
+| Needs **all three** ray-traced features | all three: lost 3/3. Any one off: 0/3 at 1200 frames. Every *pair* is fine |
+| Needs the editor's **second frame graph** | Game panel open: 2/2 lost. Closed (`game = 0` in `panels.ini`): 0/2. Nothing else changed |
+| The runtime is unaffected | one graph, all three on, thousands of frames, clean |
+| Inside one frame, not across frames | fails identically at 1, 2 and 3 frames in flight |
+| Not a timeout | ~22 ms/frame against a 2 s watchdog |
+| Not API misuse | synchronization validation clean up to the loss; every message after it is a consequence |
+| Not deterministic | the same frame number passes on one run and fails on the next |
+| Does **not** cross the graph boundary | `--graph-barrier=on` records a full pipeline barrier between the two graphs. Still lost 3/3 |
+| The fault precedes the first pass | GPU checkpoints report **none reached**, on a device where checkpoints are confirmed available |
+| Device fault addresses | two, types 6 and 1, e.g. `0x1701191190 (±0x10)` and `0x670ea000 (±0x1000)`. Identical across runs |
 
-### What has already been ruled out
+Hardware: NVIDIA GeForce RTX 5070 Ti Laptop, Vulkan 1.4.325. Both
+`VK_NV_device_diagnostic_checkpoints` and `VK_EXT_device_fault` are available and
+enabled; the device logs which it has at startup.
 
-Four theories, each checked and each wrong. Recorded so nobody spends the
-afternoon on them again.
+**"No checkpoints reached" is the sharpest clue and it is not yet explained.**
+Every render-graph pass drops a breadcrumb before it runs, so the fault happening
+before *any* of them puts it in work recorded ahead of the graphs — the shadow
+passes, the acceleration-structure builds, the skinning compute — or in the
+submission itself. That is where to look next.
 
-- **The TLAS being rebuilt by the second graph.** `RayShadows::Build` is
-  guarded by `BuiltThisFrame`, reset once per device frame in
-  `Renderer3D::BeginFrame`. The second graph's call is a no-op.
-- **A missing barrier after the acceleration-structure builds.** There is one,
-  and its stage mask is right: `ACCELERATION_STRUCTURE_BUILD` →
+### Ruled out, each checked directly
+
+- **The TLAS being rebuilt by the second graph.** `RayShadows::Build` is guarded
+  by `BuiltThisFrame`, reset once per device frame in `Renderer3D::BeginFrame`.
+  The second graph's call is a no-op.
+- **A missing barrier after the acceleration-structure builds.** There is one and
+  its stage mask is right: `ACCELERATION_STRUCTURE_BUILD` →
   `FRAGMENT | COMPUTE | ACCELERATION_STRUCTURE_BUILD`, write → read.
-- **The animated skinned mesh.** Stopping the fox's animator -- which removes
-  the per-frame bottom-level rebuild entirely -- changes nothing: 2 of 2 either
-  way.
-- **Descriptor sets being rewritten after being bound.** This is the obvious
-  suspect, because there is one set per pipeline per frame in flight and the
-  editor binds each pipeline twice a frame. It is *not* happening: the engine
-  has a tripwire for exactly this and it stays silent through the fault.
+- **The animated skinned mesh.** Stopping the fox's animator removes the
+  per-frame bottom-level rebuild entirely and changes nothing: 2/2 either way.
+- **Descriptor sets rewritten after being bound.** The obvious suspect, because
+  there is one set per pipeline per frame in flight and the editor binds each
+  pipeline twice a frame. The engine has a tripwire for exactly this and it stays
+  silent through the fault — *and the tripwire is now trustworthy*: it used to be
+  gated on validation with `ImmediateSubmit` clearing its record wholesale, so an
+  asset upload between the two graphs blinded it for the rest of the frame. It
+  now retires binds per command buffer. Still silent.
+- **Renderer3D per-scene slots overflowing.** They grow on demand, no fixed cap.
+- **Cross-frame resource reuse.** See the frames-in-flight row above.
 
-  Note that the tripwire's silence was worth nothing until it was fixed. It was
-  gated on validation *and* `ImmediateSubmit` cleared its record wholesale, so
-  any asset upload between the two graphs blinded it for the rest of the frame.
-  It now retires binds per command buffer, so its silence means something. It is
-  still silent.
+### Two failed fixes, and why they failed
 
-  **Rotating to a spare descriptor set was tried and reverted.** It made things
-  worse in two ways worth knowing about: a spare has never been fully written,
-  so writing only the delta into it leaves the rest of its bindings undefined
-  (visible flicker), and a spare allocated later can come from a different pool
-  block, so freeing it from `m_Pool` is an invalid free (a *more* reliable
-  device loss than the bug it was meant to fix). Both are avoidable, but the
-  approach is wrong at the root: callers may bind a set's handle without
-  committing first, so a set has to keep one stable handle per frame.
+Both were attempts at the descriptor-set theory, both reverted. Recorded because
+the reasons generalise.
 
-- **Cross-frame resource reuse.** It fails identically at 1, 2 and 3 frames in
-  flight, so the hazard is inside a single frame.
+**Rotating to a spare descriptor set when the current one is already bound.**
+Wrong at the root: callers may bind a set's handle without committing first, so a
+set has to keep one stable handle per frame. On the way to learning that it also
 
-### The tools that now exist for it
+- **flickered** — a spare has never been fully written, and `Commit` writes only
+  the delta when the frame slot is not dirty, so the rest of the new set's
+  bindings were undefined; and
+- **lost the device more reliably than the original bug** — a spare allocated
+  later comes from a different pool block in the device's chain, and
+  `vkFreeDescriptorSets` must be given the pool that owns the set. Freeing every
+  spare from `m_Pool` is an invalid free.
 
-- **`--play=on`** starts the editor in Play as soon as the scene loads, which
-  is what makes the fault reachable without a person pressing a button.
-- **GPU checkpoints and device fault** are enabled when the driver has them
-  (`VK_NV_device_diagnostic_checkpoints`, `VK_EXT_device_fault`), and the
-  device logs which of the two it got at startup -- because "no checkpoints
-  reached" means two very different things depending on it. On a loss the
-  engine prints the last breadcrumb the GPU reached and any faulting address.
-  Every render-graph pass drops a breadcrumb named `<graph>/<pass>`, and the
-  editor's two graphs are named `scene` and `game` so a report can tell them
-  apart.
-- **`--graph-barrier=on`** records a full pipeline barrier between the two
-  graphs. A bisection tool, not a fix: if a hazard vanishes under it, the
-  hazard crosses the graphs.
+### Tools that exist for it now
 
-**What they said, on a machine where both extensions are available:** the
-barrier did **not** help -- 3 of 3 still lost -- so the hazard does not cross
-the graph boundary. Checkpoints reported **none reached**, which puts the fault
-before the first pass breadcrumb of the submission, and the device fault
-reported two addresses (types 6 and 1). That is where the next session starts.
+- **`--play=on`** — starts the editor in Play as soon as the scene loads. Without
+  it the fault needs a person pressing a button and cannot be scripted.
+- **`--graph-barrier=on`** — full pipeline barrier between the editor's two
+  graphs. A bisection tool: if a hazard vanishes under it, it crosses the graphs.
+  It does not.
+- **GPU checkpoints and device fault** — enabled when present. On a loss the
+  engine prints the last breadcrumb reached and any faulting address. Passes drop
+  breadcrumbs named `<graph>/<pass>`; the editor's graphs are named `scene` and
+  `game` so a report can tell two identically-named passes apart.
+- **A device-lost latch** — the first loss is reported in full and the
+  application stops. Before this it reported the wait and the submit failing once
+  each, every frame, forever: a report of it arrived as 250 identical lines in
+  one second with the first failure long gone off the top.
 
-### A separate finding: TAA shimmer, and it is not a bug
+### What ships
 
-Chasing "flicker in the game view" turned up something real and unrelated. With
-a static camera and a static scene, the two panels shimmered on several
-thousand pixels a frame -- and the same measurement on the **runtime** showed
-it too, so it was never the editor's two-graph path.
+`RayTracing: true`, `RayTracedReflections: true`, the other two `false`. Verified
+at 1500 frames over three runs. Reflections are the one the camp needs — the
+mirror is the whole reason ray tracing is on.
 
-It is `TemporalFeedback`, and it is working as designed. At the engine default
-of 0.6 each frame keeps 60 % of the accumulated image and takes 40 % of a
-freshly *jittered* one, so a still frame never settles. Measured on the camp,
-in pixels changing by more than 32 between consecutive frames:
+### Next step
 
-| Feedback | Still | Motion sharpness |
-|---|---|---|
-| 0.6 (engine default) | 1562 | 3.917 |
-| 0.9 | **40** | 3.479 |
-| FXAA, for reference | 9 | -- |
+A graphics debugger — RenderDoc or Nsight — on the frame that dies, looking at
+what is recorded *before* the first graph pass, since that is where the
+checkpoint evidence points. `--play=on` makes the capture a two-minute setup.
 
-The camp holds its camera for 3.4 s of every 7.6 s, which is exactly the case
-the field's own note describes: *"A project that knows it is mostly still
-should raise it."* So the **project** sets 0.9 -- 39 times less shimmer for
-11 % softer edges while moving. The engine default is untouched, because it is
-the right default for a project that is mostly motion.
+### TAA shimmer: measured, and not a regression
 
-Finding the actual fault needs a graphics debugger -- RenderDoc or Nsight on the
-frame that dies. The repro above is cheap and headless, which it was not before
-`--play` existed.
+"Flicker in the Game view" was reported repeatedly during the crash work. It was
+chased with a metric -- pixels in the Game panel changing by more than 32 between
+consecutive frames, with the camera held still -- and it is **temporal
+anti-aliasing**, present before any of this session's work.
+
+| Configuration | Shimmering pixels |
+|---|---|
+| Courtyard scene, pre-session settings (RT off, feedback 0.6) | **2023** |
+| Camp scene, pre-session settings (RT off, feedback 0.6) | 1680 |
+| Camp, RT reflections on, feedback 0.6 | 1312 |
+| Camp, RT off, feedback 0.9 | 419 |
+| Camp, RT reflections on, feedback 0.9 -- **what ships** | **142** |
+| Camp, FXAA instead of TAA | 9 |
+| Camp, no AA | 11 |
+
+Three things follow, each worth keeping.
+
+**Ray tracing is not the cause.** Turning it off makes shimmer *worse*, not
+better, at matched feedback.
+
+**It is not new.** The old demo scene -- the courtyard, which is what the editor
+opened on before the camp existed -- shimmers *more* at the pre-session settings
+than the camp does. Anyone who did not see it before was most likely not looking
+at the Game panel in Play, which is the only place that panel renders.
+
+**It is `TemporalFeedback` behaving as documented.** At 0.6 each frame keeps 60 %
+of the accumulated image and takes 40 % of a freshly *jittered* one, so a still
+frame never settles. The field's own note says a project that knows it is mostly
+still should raise it, and the camp holds its camera for 3.4 of every 7.6
+seconds. The project sets 0.9 -- twelve times less shimmer than the pre-session
+default -- and the engine default is untouched, because 0.6 is right for a
+project that is mostly motion.
+
+Checked and found clean, so nobody re-checks them: no intermittent flash frames
+(48 consecutive frames, deltas 0.57-0.62, zero outliers above 3x the median); no
+region-specific flicker (sky, ground, fire and the HUD each between 0.00 % and
+0.04 % of pixels changing); the ~3 % luma pulse across the view is the `Flicker`
+script on the fire light, which is deliberate.
+
+**One lever measured but not applied**, left as a decision rather than taken:
+`TemporalJitterScale: 0.5` halves shimmer again at no measurable cost to
+sharpness -- 145 px to 101 px at feedback 0.9, 1302 to 705 at 0.6, with edge
+sharpness unchanged at 1.24. It narrows the reconstruction filter, so it trades
+some anti-aliasing quality for stability; worth trying if the shimmer is still
+objectionable.
 
 ### If the graphics device is lost
 
