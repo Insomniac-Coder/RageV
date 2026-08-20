@@ -10739,6 +10739,112 @@ scenetest claims, `check_graph`, and the whole suite's build.
 
 ---
 
+### 7bm. Variables say what they are (10.13): public, private, and ShowInEditor
+
+The owner's ask, in one sentence: *"each graph should have public and private
+section in which you can create variables and user defined functions and the
+variables should have a ShowInEditor check box, and changing the value of a
+public variable on one object should not affect the other object's script
+component that uses the same graph."*
+
+The last clause turned out to be a question rather than a requirement, and
+answering it first is what kept this change small.
+
+#### What already worked, and why
+
+**Per-entity values were never at risk.** A graph generates a class; attaching
+it to two entities makes two instances; `ScriptFieldOverrides` lives on the
+*component*. So two entities sharing one graph already held their own numbers,
+and `public` does not change that — a public field is still an instance field.
+Nothing was built for this. It is stated in the manual now rather than left to
+be discovered, which is the only thing that was missing.
+
+The same answers the question that came with it: C++, C# and graphs are all
+reusable, and always have been.
+
+#### Two flags, because they are two questions
+
+`Public` is the generated field's access modifier. `ShowInEditor` is whether
+the Script component draws a row for it. They are independent, and the useful
+combinations are not the diagonal ones: **public and hidden** is something
+another script drives, **private and shown** is an ordinary tuning number, and
+that second one is the common case — which is why "public" could not have been
+made to mean both.
+
+**They are not both checkboxes, and the first cut got that wrong.** It gave
+every row a `Public` box *and* filed the row under a Public or Private
+heading, which the owner read straight back: a Private variable with an
+unticked Public box states the same fact twice, and an unticked box under a
+heading looks like a third state. Two mutually exclusive sections have exactly
+one control between them and it is a **move** — `Make public` / `Make
+private` — with the heading as the only place visibility is written down.
+`ShowInEditor` stays a checkbox, because it is a property of the variable
+rather than of the section and reads correctly under either heading. Both
+headings are drawn whether or not anything is under them, so the structure is
+visible before it is used.
+
+Functions get `Public` alone. They are parameterless by 7bh's design, so there
+is nothing else to say about one.
+
+#### ShowInEditor needed a mechanism that did not exist
+
+`ScriptFields.Editable` reflects **every instance field**, private included,
+and its comment argues the case: Unity needs `[SerializeField]` to opt *in*,
+this needs nothing, which is fewer concepts for the same result. That argument
+holds and left one thing impossible — keeping a field *out*. The only escapes
+were `static` and `readonly`, and both change what the field is rather than how
+it is presented.
+
+So ScriptCore gains **`[HideInEditor]`**, and it is an opt-*out*: the default
+stays "you can tune it". A cleared checkbox emits the attribute. Hand-written
+C# gets the same thing at the same time, which it had wanted anyway.
+
+#### Declarations are additive, and that is checked rather than hoped
+
+A graph written before today has no `Variables:` block. Everything still works,
+because a variable a node names and no declaration covers keeps the defaults it
+always had. The serializer writes a declaration **only when it says something**
+— a variable that is private and shown is exactly what the loader assumes, so
+writing it would add a line that changes nothing and churn the diff of every
+existing graph.
+
+The proof is not the argument, it is `check_graph`: every committed `.g.cs`
+regenerates **byte-identically** after this change. That claim exists because
+of CHK.3 (7bi) and this is the first feature it has caught nothing in.
+
+#### Listed, not created
+
+The section shows what the graph *has*. A variable comes into existence by a
+Get or Set node carrying its name — that is what makes the name mean anything —
+so an "add variable" button would create a second place a variable can exist,
+and immediately raise two questions with no good answers: what is an
+undeclared-but-used variable, and what does a declared-but-unused one do?
+
+Listing sidesteps both. `UsedVariables()` walks the nodes, takes each name's
+type from **the pin** rather than from a second table, and folds in whatever
+the declarations say. Adding a variable is still adding a node, which is where
+everything else in a graph comes from.
+
+The type is deliberately not the declaration's to argue with: `DeclareVariable`
+overwrites it from the nodes every time, because a stale type here would
+generate a field the graph cannot assign to.
+
+#### Six claims in scenetest
+
+| claim | |
+|---|---|
+| a variable is whatever the nodes name, declared or not | `UsedVariables` |
+| its type is the pin's, not something said twice | `Float` from the Set node |
+| a graph that says nothing generates what it always did | `private float speed;`, no marker |
+| Public makes it a public field | the whole of what public means |
+| ShowInEditor off marks it | `[HideInEditor]`, since a modifier cannot say this |
+| the two flags do not fight | public *and* hidden generates both |
+
+The third is the one that matters most, and `check_graph`'s content claim is
+the same assertion against six real fixtures rather than one synthetic graph.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

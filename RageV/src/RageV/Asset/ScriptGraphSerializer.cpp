@@ -66,6 +66,53 @@ namespace RageV::Assets
 		}
 		emitter << YAML::EndSeq;
 
+		// Only the ones that say something. A variable at the defaults is
+		// exactly what the loader assumes for a name it has never been told
+		// about, so writing it would add a line that changes nothing and churn
+		// every graph written before declarations existed.
+		bool anyVariable = false;
+		for (const GraphVariable& variable : graph.GetVariables())
+			anyVariable = anyVariable || variable.Public || !variable.ShowInEditor;
+
+		if (anyVariable)
+		{
+			emitter << YAML::Key << "Variables" << YAML::Value << YAML::BeginSeq;
+			for (const GraphVariable& variable : graph.GetVariables())
+			{
+				if (!variable.Public && variable.ShowInEditor)
+					continue;
+
+				emitter << YAML::BeginMap;
+				emitter << YAML::Key << "Name" << YAML::Value << variable.Name;
+				if (variable.Public)
+					emitter << YAML::Key << "Public" << YAML::Value << true;
+				if (!variable.ShowInEditor)
+					emitter << YAML::Key << "ShowInEditor" << YAML::Value << false;
+				emitter << YAML::EndMap;
+			}
+			emitter << YAML::EndSeq;
+		}
+
+		bool anyFunction = false;
+		for (const GraphFunction& function : graph.GetFunctions())
+			anyFunction = anyFunction || function.Public;
+
+		if (anyFunction)
+		{
+			emitter << YAML::Key << "Functions" << YAML::Value << YAML::BeginSeq;
+			for (const GraphFunction& function : graph.GetFunctions())
+			{
+				if (!function.Public)
+					continue;
+
+				emitter << YAML::BeginMap;
+				emitter << YAML::Key << "Name" << YAML::Value << function.Name;
+				emitter << YAML::Key << "Public" << YAML::Value << true;
+				emitter << YAML::EndMap;
+			}
+			emitter << YAML::EndSeq;
+		}
+
 		emitter << YAML::Key << "Links" << YAML::Value << YAML::BeginSeq;
 		for (const GraphLink& link : links)
 		{
@@ -252,8 +299,46 @@ namespace RageV::Assets
 			}
 		}
 
+		// The declarations (10.13). Absent is not an error and never will be:
+		// every graph written before they existed has none, and a variable
+		// nothing says anything about keeps the defaults it always had.
+		std::vector<GraphVariable> variables;
+		if (const YAML::Node list = root["Variables"])
+		{
+			for (const YAML::Node& entry : list)
+			{
+				const std::string name = entry["Name"].as<std::string>("");
+				if (name.empty())
+					continue;
+
+				GraphVariable variable;
+				variable.Name = name;
+				variable.Public = entry["Public"].as<bool>(false);
+				variable.ShowInEditor = entry["ShowInEditor"].as<bool>(true);
+				variables.push_back(variable);
+			}
+		}
+
+		std::vector<GraphFunction> functions;
+		if (const YAML::Node list = root["Functions"])
+		{
+			for (const YAML::Node& entry : list)
+			{
+				const std::string name = entry["Name"].as<std::string>("");
+				if (name.empty())
+					continue;
+
+				GraphFunction function;
+				function.Name = name;
+				function.Public = entry["Public"].as<bool>(false);
+				functions.push_back(function);
+			}
+		}
+
 		out.Clear();
 		out.SetContents(std::move(nodes), std::move(links));
+		out.SetVariables(std::move(variables));
+		out.SetFunctions(std::move(functions));
 
 		// Past the highest id actually present, not merely what the file said:
 		// a hand-edited or truncated file must not hand out an id something

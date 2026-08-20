@@ -79,6 +79,11 @@ namespace RageV::UI
 		void DrawNodes(ImDrawList* draw);
 		void DrawSidebar();
 
+		// The graph's variables and functions, split into Public and Private
+		// (10.13). Listed from the nodes rather than created here: a variable
+		// exists because a node carries its name.
+		void DrawDeclarations();
+
 		// Shown in place of the whole panel when the graph would not load.
 		void DrawLoadError();
 		void DrawProblems();

@@ -676,7 +676,13 @@ namespace RageV::Assets
 			for (uint64_t key : used)
 				emitter.DeclareTemp(key, declared, prelude);
 
-			body += "\tprivate void " + function->Text + "()\n\t{\n";
+			// Same question for a function, and the same default: private
+			// unless the graph says otherwise.
+			const GraphFunction* declaredFunction = graph.FindFunction(function->Text);
+			const bool functionPublic = declaredFunction && declaredFunction->Public;
+
+			body += std::string("\t") + (functionPublic ? "public" : "private")
+				  + " void " + function->Text + "()\n\t{\n";
 			body += prelude;
 			if (!prelude.empty() && !statements.empty())
 				body += "\n";
@@ -715,11 +721,24 @@ namespace RageV::Assets
 			out += "\t// that is what makes them survive between one event and the next.\n";
 			for (const auto& [name, type] : emitter.Variables)
 			{
+				// What the graph says about this one, if it says anything. A
+				// variable nothing has been said about keeps the shape it had
+				// before declarations existed: private, and visible.
+				const GraphVariable* declared = graph.FindVariable(name);
+				const bool isPublic = declared && declared->Public;
+				const bool shown = !declared || declared->ShowInEditor;
+
+				// The inspector reflects every instance field, private ones
+				// included, so hiding needs a marker rather than a modifier.
+				if (!shown)
+					out += "\t[HideInEditor]\n";
+
 				// A container field has to be constructed. Left null, the first
 				// Add throws, and the stack trace lands in generated code rather
 				// than on the node that asked for it.
 				const bool container = type.find('<') != std::string::npos;
-				out += "\tprivate " + type + " " + name
+				out += std::string("\t") + (isPublic ? "public " : "private ")
+					+ type + " " + name
 					+ (container ? " = new " + type + "();" : ";") + "\n";
 			}
 			out += "\n";

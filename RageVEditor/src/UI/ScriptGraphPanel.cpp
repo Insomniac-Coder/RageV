@@ -955,6 +955,8 @@ namespace RageV::UI
 		if (ImGui::Button(m_Dirty ? "Save*" : "Save", ImVec2(-1.0f, 0.0f)))
 			Save();
 
+		DrawDeclarations();
+
 		ImGui::Spacing();
 		ImGui::TextDisabled("Selected");
 		ImGui::Separator();
@@ -1069,6 +1071,113 @@ namespace RageV::UI
 		ImGui::BulletText("Ctrl+Z / Ctrl+S");
 
 		ImGui::EndChild();
+	}
+
+	void ScriptGraphPanel::DrawDeclarations()
+	{
+		const std::vector<GraphVariable> used = m_Graph.UsedVariables();
+
+		// Functions come from their entry nodes, the same way variables come
+		// from their Get and Set nodes.
+		std::vector<std::string> functions;
+		for (const GraphNode& node : m_Graph.GetNodes())
+		{
+			if (node.Type == GraphNodeType::FunctionEntry && !node.Text.empty())
+				functions.push_back(node.Text);
+		}
+		std::sort(functions.begin(), functions.end());
+		functions.erase(std::unique(functions.begin(), functions.end()),
+						functions.end());
+
+		if (used.empty() && functions.empty())
+			return;
+
+		ImGui::Spacing();
+		ImGui::TextDisabled("Variables and functions");
+		ImGui::Separator();
+
+		// Two passes over one list, Public first: what the rest of the project
+		// can reach is what a reader should see first. Both headings are drawn
+		// whether or not anything is under them, so the two sections read as a
+		// structure rather than appearing when something lands in one.
+		for (int pass = 0; pass < 2; pass++)
+		{
+			const bool wantPublic = pass == 0;
+
+			ImGui::Spacing();
+			ImGui::TextDisabled(wantPublic ? "  Public" : "  Private");
+
+			bool any = false;
+
+			for (const GraphVariable& variable : used)
+			{
+				if (variable.Public != wantPublic)
+					continue;
+
+				any = true;
+				ImGui::PushID(variable.Name.c_str());
+
+				ImGui::Text("%s", variable.Name.c_str());
+				ImGui::SameLine();
+				ImGui::TextDisabled("%s", GraphPinTypeName(variable.Type));
+
+				// ShowInEditor stays a checkbox: it is a property of the
+				// variable, not of which section it is in, and both
+				// combinations are things somebody wants.
+				bool shown = variable.ShowInEditor;
+				if (ImGui::Checkbox("ShowInEditor", &shown))
+				{
+					PushUndo();
+					m_Graph.DeclareVariable(variable.Name, variable.Type).ShowInEditor = shown;
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("A row in the Script component, per entity.\n"
+									  "Each entity keeps its own value.");
+
+				// And the move. A button rather than a checkbox, because the
+				// heading above already says which section this is in and a
+				// second control saying the same thing can only disagree with
+				// it.
+				ImGui::SameLine();
+				if (ImGui::SmallButton(wantPublic ? "Make private" : "Make public"))
+				{
+					PushUndo();
+					m_Graph.DeclareVariable(variable.Name, variable.Type).Public = !wantPublic;
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip(wantPublic
+						? "Moves it to Private: a private field, which no other\n"
+						  "script can reach."
+						: "Moves it to Public: a public field, which another\n"
+						  "script can read or write.");
+
+				ImGui::PopID();
+			}
+
+			for (const std::string& name : functions)
+			{
+				const GraphFunction* declared = m_Graph.FindFunction(name);
+				const bool isPublicNow = declared && declared->Public;
+				if (isPublicNow != wantPublic)
+					continue;
+
+				any = true;
+				ImGui::PushID(("fn" + name).c_str());
+
+				ImGui::Text("%s()", name.c_str());
+				ImGui::SameLine();
+				if (ImGui::SmallButton(wantPublic ? "Make private" : "Make public"))
+				{
+					PushUndo();
+					m_Graph.DeclareFunction(name).Public = !wantPublic;
+				}
+
+				ImGui::PopID();
+			}
+
+			if (!any)
+				ImGui::TextDisabled("    (none)");
+		}
 	}
 
 	void ScriptGraphPanel::DrawProblems()

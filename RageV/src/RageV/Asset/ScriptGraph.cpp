@@ -682,6 +682,108 @@ namespace RageV
 		return GraphNodeType::None;
 	}
 
+	GraphVariable* ScriptGraph::FindVariable(const std::string& name)
+	{
+		for (GraphVariable& variable : m_Variables)
+		{
+			if (variable.Name == name)
+				return &variable;
+		}
+		return nullptr;
+	}
+
+	const GraphVariable* ScriptGraph::FindVariable(const std::string& name) const
+	{
+		return const_cast<ScriptGraph*>(this)->FindVariable(name);
+	}
+
+	GraphFunction* ScriptGraph::FindFunction(const std::string& name)
+	{
+		for (GraphFunction& function : m_Functions)
+		{
+			if (function.Name == name)
+				return &function;
+		}
+		return nullptr;
+	}
+
+	const GraphFunction* ScriptGraph::FindFunction(const std::string& name) const
+	{
+		return const_cast<ScriptGraph*>(this)->FindFunction(name);
+	}
+
+	GraphVariable& ScriptGraph::DeclareVariable(const std::string& name, GraphPinType type)
+	{
+		if (GraphVariable* existing = FindVariable(name))
+		{
+			// The type comes from the nodes and is not the declaration's to
+			// argue with: a variable is whatever the Get and Set nodes say it
+			// is, and a stale type here would generate a field the graph
+			// cannot assign to.
+			existing->Type = type;
+			return *existing;
+		}
+
+		GraphVariable variable;
+		variable.Name = name;
+		variable.Type = type;
+		m_Variables.push_back(variable);
+		return m_Variables.back();
+	}
+
+	GraphFunction& ScriptGraph::DeclareFunction(const std::string& name)
+	{
+		if (GraphFunction* existing = FindFunction(name))
+			return *existing;
+
+		GraphFunction function;
+		function.Name = name;
+		m_Functions.push_back(function);
+		return m_Functions.back();
+	}
+
+	std::vector<GraphVariable> ScriptGraph::UsedVariables() const
+	{
+		// In the order the nodes give them, deduplicated, so the panel's list
+		// does not jump about as somebody edits. A name used by both a Get and
+		// a Set is one variable -- that is the whole point of the name.
+		std::vector<GraphVariable> used;
+
+		for (const GraphNode& node : m_Nodes)
+		{
+			const GraphNodeDesc& desc = GraphNodeDescOf(node.Type);
+			const bool reads = desc.Emit == GraphEmit::GetVariable;
+			const bool writes = desc.Emit == GraphEmit::SetVariable;
+			if ((!reads && !writes) || node.Text.empty())
+				continue;
+
+			bool seen = false;
+			for (const GraphVariable& already : used)
+				seen = seen || already.Name == node.Text;
+			if (seen)
+				continue;
+
+			GraphVariable variable;
+			variable.Name = node.Text;
+
+			// The pin the node carries the value on: the output for a Get, the
+			// Value input for a Set. One place the type is written down, which
+			// is the descriptor, rather than a second table here.
+			variable.Type = reads ? desc.Outputs[0].Type : desc.Inputs[1].Type;
+
+			// Whatever the graph already says about it, if anything.
+			if (const GraphVariable* declared = FindVariable(node.Text))
+			{
+				variable.Public = declared->Public;
+				variable.ShowInEditor = declared->ShowInEditor;
+			}
+
+			used.push_back(variable);
+		}
+
+		return used;
+	}
+
 	ScriptGraph ScriptGraph::Starter(const std::string& className)
 	{
 		ScriptGraph graph;
@@ -1194,6 +1296,13 @@ namespace RageV
 	{
 		m_Nodes.clear();
 		m_Links.clear();
+
+		// The declarations too. `Load` calls this before filling the graph in,
+		// and a variable list surviving from the previous asset would attach
+		// one graph's visibility flags to another's variables.
+		m_Variables.clear();
+		m_Functions.clear();
+
 		m_NextNodeId = 1;
 		m_NextLinkId = 1;
 	}

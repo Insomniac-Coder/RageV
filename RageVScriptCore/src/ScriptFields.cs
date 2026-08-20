@@ -5,6 +5,24 @@ using System.Runtime.InteropServices;
 
 namespace RageV;
 
+/// <summary>
+/// Keeps a field out of the inspector, without changing what the field is.
+/// </summary>
+/// <remarks>
+/// The inspector shows every instance field of a supported type, private ones
+/// included, and that default is deliberate -- see <c>Editable</c>. This is how
+/// a script says "not this one": working state, a cache, something another
+/// script drives. The alternatives were <c>static</c> and <c>readonly</c>, and
+/// both of those change the field rather than how it is presented.
+///
+/// A visual graph emits it for any variable whose ShowInEditor box is clear
+/// (10.13); hand-written C# can use it directly.
+/// </remarks>
+[AttributeUsage(AttributeTargets.Field, AllowMultiple = false, Inherited = true)]
+public sealed class HideInEditorAttribute : Attribute
+{
+}
+
 /// <summary>What kind of thing a script field is. Matches the native enum.</summary>
 public enum ScriptFieldType
 {
@@ -164,7 +182,8 @@ public static unsafe class ScriptFields
 	/// type, public or private.
 	/// </summary>
 	/// <remarks>
-	/// Private ones included on purpose. The engine's own example scripts write
+	/// Private ones included on purpose, and <see cref="HideInEditorAttribute"/>
+	/// is how a field opts back out. The engine's own example scripts write
 	/// `private float m_Speed = 1.2f;`, which is the right way to write C# and
 	/// would otherwise be the one thing nobody can tune. Unity solves this with
 	/// a `[SerializeField]` attribute; this solves it by not requiring one,
@@ -177,6 +196,8 @@ public static unsafe class ScriptFields
 		foreach (FieldInfo field in fields)
 		{
 			if (field.IsInitOnly || field.IsLiteral)
+				continue;
+			if (field.IsDefined(typeof(HideInEditorAttribute), inherit: true))
 				continue;
 			if (TypeOf(field.FieldType) == ScriptFieldType.Unsupported)
 				continue;

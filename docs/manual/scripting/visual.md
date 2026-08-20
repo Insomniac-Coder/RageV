@@ -130,6 +130,42 @@ timer, a counter, a position being moved rather than set — needs one. Each
 becomes a private field on the generated class, which is exactly what makes it
 survive from one tick to the next.
 
+## Public, private, and what the inspector shows
+
+The sidebar lists the graph's variables and functions under **Variables and
+functions**, split into **Public** and **Private**. They are listed rather than
+created there: a variable exists because a Get or Set node carries its name,
+which is what makes the name mean anything. The section is where you say
+something *about* one.
+
+**The two sections are mutually exclusive, and the heading is the only place
+that says which one a thing is in.** A variable moves between them with **Make
+public** / **Make private** — an action rather than a checkbox, because a
+checkbox beside a heading that already states the answer can only repeat it or
+appear to disagree with it. Public means the generated field carries the
+`public` modifier, so another script can reach it. Functions move the same way.
+
+**ShowInEditor** is a checkbox, and it is a separate question: whether the
+Script component puts a row on screen for that variable. It is orthogonal to
+the section on purpose — a public variable can be hidden, which is the shape of
+something another script drives, and a private one can be shown, which is the
+ordinary tuning number.
+
+The defaults are private and shown, which is what every graph had before these
+existed, so nothing changes for a graph that says nothing.
+
+> [!NOTE]
+> **Shown is the default, and hiding is the opt-out.** The inspector reflects
+> every instance field, private ones included — see
+> [fields and the inspector](csharp.md#fields-and-the-inspector) — so clearing
+> ShowInEditor emits `[HideInEditor]`, which hand-written C# can use too.
+
+**Each entity keeps its own values.** Both public and private variables are
+instance fields on the generated class, so two entities carrying the same graph
+hold their own numbers: changing one on one entity does not touch the other.
+That is not a rule graphs add — it is what two instances of any C# or C++
+script already do.
+
 ## Types, and the one conversion allowed
 
 Pins carry `Bool`, `Float`, `Vec3`, `String`, `Entity`, or a list or map of

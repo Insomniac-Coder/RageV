@@ -269,6 +269,7 @@ window.RVDOC_INDEX = [
 {"h":"Execution runs along the white wires","p":"Writing a script as a graph","u":"scripting/visual.html#execution-runs-along-the-white-wires","t":""},
 {"h":"Events are where a graph starts","p":"Writing a script as a graph","u":"scripting/visual.html#events-are-where-a-graph-starts","t":""},
 {"h":"What you can reach","p":"Writing a script as a graph","u":"scripting/visual.html#what-you-can-reach","t":""},
+{"h":"Public, private, and what the inspector shows","p":"Writing a script as a graph","u":"scripting/visual.html#public-private-and-what-the-inspector-shows","t":""},
 {"h":"Types, and the one conversion allowed","p":"Writing a script as a graph","u":"scripting/visual.html#types-and-the-one-conversion-allowed","t":""},
 {"h":"Problems: warnings and errors","p":"Writing a script as a graph","u":"scripting/visual.html#problems-warnings-and-errors","t":""},
 {"h":"Saving","p":"Writing a script as a graph","u":"scripting/visual.html#saving","t":""},

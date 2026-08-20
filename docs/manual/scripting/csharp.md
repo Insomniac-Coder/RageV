@@ -67,6 +67,12 @@ entity that never overrode it.
 A field of any other type is not an error. It simply does not appear, and
 keeps whatever the constructor gave it.
 
+To keep a supported field *out* of the inspector, mark it `[HideInEditor]` —
+for working state, a cache, or something another script drives. That is the
+opt-out to this section's opt-in-by-default, and it changes only how the field
+is presented: `static` and `readonly` are also skipped, but both change what
+the field is.
+
 ## The lifecycle
 
 ```csharp

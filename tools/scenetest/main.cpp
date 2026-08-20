@@ -13508,6 +13508,53 @@ int RunTests(int argc, char** argv)
 			Check(!cyclic.Ok, "a graph whose values feed each other does not generate");
 		}
 
+		// --- variables say what they are (10.13) ----------------------------
+		//
+		// Two flags answering two questions, and the defaults are what every
+		// graph written before them had: private, and visible. The last claim
+		// is the one that matters most -- a graph that says nothing must
+		// generate exactly what it generated yesterday.
+		{
+			ScriptGraph graph;
+			const uint32_t event = graph.AddNode(GraphNodeType::OnTick, Vec2(0.0f, 0.0f));
+			const uint32_t set = graph.AddNode(GraphNodeType::SetNumber, Vec2(200.0f, 0.0f));
+			const uint32_t value = graph.AddNode(GraphNodeType::LiteralFloat, Vec2(0.0f, 200.0f));
+			graph.FindNode(set)->Text = "speed";
+			graph.AddLink(event, 0, set, 0);
+			graph.AddLink(value, 0, set, 1);
+
+			const std::vector<GraphVariable> used = graph.UsedVariables();
+			Check(used.size() == 1 && used[0].Name == "speed",
+				  "a variable is whatever the nodes name, declared or not");
+			Check(used[0].Type == GraphPinType::Float,
+				  "and its type is the pin's, not something said twice");
+
+			const Assets::GraphGenerateResult plain =
+				Assets::ScriptGraphGenerator::Generate(graph, "Vis");
+			Check(plain.Ok && Contains(plain.Source, "private float speed;"),
+				  "a graph that says nothing generates what it always did: "
+				  "private, and no marker");
+
+			graph.DeclareVariable("speed", GraphPinType::Float).Public = true;
+			const Assets::GraphGenerateResult shared =
+				Assets::ScriptGraphGenerator::Generate(graph, "Vis");
+			Check(shared.Ok && Contains(shared.Source, "public float speed;"),
+				  "Public makes it a public field, which is the whole of what "
+				  "public means");
+
+			graph.DeclareVariable("speed", GraphPinType::Float).ShowInEditor = false;
+			const Assets::GraphGenerateResult hidden =
+				Assets::ScriptGraphGenerator::Generate(graph, "Vis");
+			Check(hidden.Ok && Contains(hidden.Source, "[HideInEditor]"),
+				  "and ShowInEditor off marks it, because the inspector reflects "
+				  "every instance field and a modifier cannot say this");
+
+			// The two are independent, which is why there are two of them.
+			Check(Contains(hidden.Source, "public float speed;"),
+				  "the two flags do not fight: public and hidden is a thing "
+				  "somebody may want");
+		}
+
 		// --- what "New Graph..." starts you with (10.11) --------------------
 		//
 		// The first thing anybody sees of this feature. A starter that does

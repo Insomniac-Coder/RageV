@@ -300,6 +300,42 @@ namespace RageV
 		std::string Message;
 	};
 
+	// What a graph says *about* one of its variables (10.13, ENGINE-NOTES 7bm).
+	//
+	// Two flags rather than one, because they answer different questions and
+	// the owner asked for both. `Public` is the generated field's access
+	// modifier -- whether another script can reach it. `ShowInEditor` is
+	// whether the Script component puts a row on screen for it. A variable can
+	// be public and hidden (something another script drives), or private and
+	// shown (a tuning number nobody else should touch), and neither of those
+	// is a strange thing to want.
+	//
+	// **Neither affects per-entity independence.** Both forms are instance
+	// fields on the generated class, so two entities carrying the same graph
+	// hold their own values -- that is C#'s doing, not a rule this adds.
+	struct GraphVariable
+	{
+		std::string Name;
+		GraphPinType Type = GraphPinType::Float;
+		bool Public = false;
+
+		// The default is *shown*, matching what C# scripts already do:
+		// `ScriptFields.Editable` reflects every instance field, private
+		// included, on the argument that a field nobody can tune is the one
+		// thing worth having. Unchecking this is opting out of that, and the
+		// generator marks the field so the reflection skips it.
+		bool ShowInEditor = true;
+	};
+
+	// The same question for a user-defined function: can anything outside the
+	// class call it. Parameterless, as 7bh's design records -- pins come from a
+	// node type, so a per-instance signature would need dynamic pins.
+	struct GraphFunction
+	{
+		std::string Name;
+		bool Public = false;
+	};
+
 	class ScriptGraph
 	{
 	public:
@@ -320,6 +356,43 @@ namespace RageV
 		static ScriptGraph Starter(const std::string& className);
 		const std::vector<GraphNode>& GetNodes() const { return m_Nodes; }
 		const std::vector<GraphLink>& GetLinks() const { return m_Links; }
+
+		// --- declarations (10.13) ---------------------------------------------
+		//
+		// A graph is readable without these: a variable a node names and no
+		// declaration covers keeps the defaults it had before they existed.
+		// They are how somebody *says something* about one.
+		const std::vector<GraphVariable>& GetVariables() const { return m_Variables; }
+		const std::vector<GraphFunction>& GetFunctions() const { return m_Functions; }
+
+		// By name, or null. The name is the key on both: it is what the nodes
+		// carry and what the generated C# is called, so there is nothing else
+		// it could be.
+		GraphVariable* FindVariable(const std::string& name);
+		const GraphVariable* FindVariable(const std::string& name) const;
+		GraphFunction* FindFunction(const std::string& name);
+		const GraphFunction* FindFunction(const std::string& name) const;
+
+		// Declares one if it is not declared already, and returns it either
+		// way -- so the editor can hand somebody a checkbox for a variable
+		// that until now existed only because a node said its name.
+		GraphVariable& DeclareVariable(const std::string& name, GraphPinType type);
+		GraphFunction& DeclareFunction(const std::string& name);
+
+		void SetVariables(std::vector<GraphVariable> variables)
+		{
+			m_Variables = std::move(variables);
+		}
+		void SetFunctions(std::vector<GraphFunction> functions)
+		{
+			m_Functions = std::move(functions);
+		}
+
+		// Every variable the graph *uses*, from the nodes, with the type each
+		// was used at. The declarations do not have to cover all of them and a
+		// declaration for one nothing uses is not an error -- somebody may be
+		// part-way through wiring it up.
+		std::vector<GraphVariable> UsedVariables() const;
 
 		GraphNode* FindNode(uint32_t id);
 		const GraphNode* FindNode(uint32_t id) const;
@@ -386,6 +459,8 @@ namespace RageV
 	private:
 		std::vector<GraphNode> m_Nodes;
 		std::vector<GraphLink> m_Links;
+		std::vector<GraphVariable> m_Variables;
+		std::vector<GraphFunction> m_Functions;
 		uint32_t m_NextNodeId = 1;
 		uint32_t m_NextLinkId = 1;
 	};
