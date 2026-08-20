@@ -3,6 +3,7 @@
 #include "AssetRegistry.h"
 #include "FontSerializer.h"
 #include "GltfImporter.h"
+#include "ModelImporter.h"
 #include "MeshCook.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Core/Log.h"
@@ -60,7 +61,10 @@ namespace RageV::Assets
 		{
 			if (extension == ".png" || extension == ".jpg" || extension == ".jpeg")
 				return ".rvtex";
-			if (extension == ".glb")
+			// Self-contained formats only. A `.gltf` keeps its geometry in a
+			// sibling `.bin` that this key does not cover, so it is always
+			// re-imported; `.glb` and `.fbx` are one file each.
+			if (extension == ".glb" || extension == ".fbx")
 				return ".rvmesh";
 			return nullptr;
 		}
@@ -219,7 +223,7 @@ namespace RageV::Assets
 				// this *is* the cache, mid-answer. The explicit entry point
 				// is what stops that being a recursion.
 				ImportedModel model;
-				if (!GltfImporter::ImportSource(absoluteSource, model))
+				if (!ModelImporter::ImportSource(absoluteSource, model))
 					return {};
 
 				return MeshCook::Serialize(model);

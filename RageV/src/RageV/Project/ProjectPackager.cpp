@@ -3,6 +3,7 @@
 #include "Project.h"
 #include "ModuleBuild.h"
 #include "RageV/Asset/GltfImporter.h"
+#include "RageV/Asset/ModelImporter.h"
 #include "RageV/Asset/ImportCache.h"
 #include "RageV/Asset/MeshCook.h"
 #include "RageV/Core/Log.h"
@@ -220,10 +221,10 @@ namespace RageV
 				return IO::TextureCook::Serialize(cooked);
 			}
 
-			if (extension == ".gltf" || extension == ".glb")
+			if (Assets::ModelImporter::IsModelExtension(extension))
 			{
 				Assets::ImportedModel model;
-				if (!Assets::GltfImporter::Import(Project::AssetRoot() / relative, model))
+				if (!Assets::ModelImporter::Import(Project::AssetRoot() / relative, model))
 				{
 					result.Warnings.push_back(relative + " would not import; shipped raw");
 					return bytes;

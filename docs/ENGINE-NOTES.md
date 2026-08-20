@@ -10955,6 +10955,48 @@ from the same source as both formats imports to the same geometry**, since it
 is the only claim that can catch an axis or unit error, and those are the
 errors this format actually produces.
 
+`make_fbx_fixture.py` writes both from one description. The shape is chosen so
+a space error cannot hide: off the origin (a symmetric shape hides sign
+errors), different in all three dimensions (a cube hides an axis swap
+completely), and with one corner cut so it is chiral (a mirrored import differs
+even when the bounding box matches).
+
+#### Stage 1, done -- and the check earned its keep twice on its first run
+
+**Eight claims, three of which failed immediately, and two of the three were
+real defects rather than wrong thresholds.**
+
+**The unit failure was the fixture's, and the importer was right.** The shape
+arrived at exactly a hundredth of its size, because FBX's `UnitScaleFactor` is
+*centimetres per unit*: `1` means one unit is one centimetre, and asking for
+metres correctly divides by a hundred. The fixture writes `100` now. That the
+first thing this check did was catch a genuine unit mismatch is the whole
+argument for having written it as a comparison.
+
+**The material failure was the importer's, and it contradicted this entry.**
+Two paragraphs above, the design says it will not invent PBR from Phong. The
+code then read `material->pbr` unconditionally -- and **ufbx fills that view for
+a Phong material by converting the shininess exponent.** So the importer was
+fabricating precisely the number the design promised it would not, and the
+entry was describing something that did not happen.
+
+`shader_type` is the gate now: the two FBX builtins have no PBR to give, and
+everything else in the enum is a real PBR shader whose numbers are the artist's
+own. Maps are still taken from either kind, because a texture is connected or
+it is not -- for a Phong the diffuse map is the base colour map under another
+name, and dropping it would lose real work over a technicality.
+
+**What the fixture cannot check**, stated rather than implied: the vendor PBR
+extras. Maya's Stingray and 3ds Max's Physical Material need the shader-graph
+objects around them before ufbx will detect them at all, and a hand-written
+imitation would be a fake test of a real feature. That mapping is exercised by
+ufbx's own suite; ours checks the Phong promise, which is the path this
+importer adds.
+
+**Also not done, and said in the log rather than left to be discovered:**
+skinning and animation. A file with skins imports its geometry at the bind pose
+and warns. That is stage 2.
+
 ---
 
 ## 8. What this changes

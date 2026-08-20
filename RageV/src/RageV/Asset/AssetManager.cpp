@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "AssetManager.h"
 #include "ImportCache.h"
+#include "ModelImporter.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Core/Log.h"
 #include "RageV/Renderer/TextureLoader.h"
@@ -577,7 +578,7 @@ namespace RageV::Assets
 			return nullptr;
 
 		ImportedModel model;
-		if (!GltfImporter::Import(path, model) || model.Primitives.empty())
+		if (!ModelImporter::Import(path, model) || model.Primitives.empty())
 		{
 			// Cached as null so a broken file is not re-parsed every frame.
 			s_Meshes[handle] = nullptr;
@@ -1434,7 +1435,7 @@ namespace RageV::Assets
 		}
 
 		ImportedModel model;
-		if (!GltfImporter::Import(path, model))
+		if (!ModelImporter::Import(path, model))
 			return {};
 
 		// Textures resolve relative to the model, which is where glTF's URIs

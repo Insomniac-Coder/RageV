@@ -38,6 +38,7 @@
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Asset/ScriptGraphGenerator.h"
 #include "RageV/Asset/ScriptGraphSerializer.h"
+#include "RageV/Asset/ModelImporter.h"
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/Boot.h"
@@ -5992,6 +5993,102 @@ void main()
 			// nothing is worse than one that is absent.
 			Check(false, "the skinned test model is staged beside the executable");
 			return;
+		}
+
+		// --- FBX (8.9, ENGINE-NOTES 7bn) ------------------------------------
+		//
+		// The two fixtures are the same eight corners written by one script
+		// into two formats, which is what lets these be comparisons rather
+		// than eyeballing. A space error -- swapped axis, flipped handedness,
+		// centimetres left as centimetres -- moves the FBX and not the glTF,
+		// and every claim below is built to notice that.
+		{
+			const std::filesystem::path fbx = Project::AssetPath("models/spacecheck.fbx");
+			const std::filesystem::path twin = Project::AssetPath("models/spacecheck.gltf");
+
+			Assets::ImportedModel fromFbx;
+			Assets::ImportedModel fromGltf;
+
+			const bool readFbx = Assets::ModelImporter::Import(fbx, fromFbx);
+			const bool readGltf = Assets::ModelImporter::Import(twin, fromGltf);
+
+			Check(readFbx, "an FBX imports through the same door as a glTF");
+			Check(readGltf, "and so does its twin");
+
+			if (readFbx && readGltf)
+			{
+				// Bounds rather than vertex-by-vertex: the two formats index
+				// their corners differently and legitimately, and the shape's
+				// extent is what a space error moves.
+				auto extent = [](const Assets::ImportedModel& model, Vec3& low, Vec3& high)
+				{
+					low = Vec3(FLT_MAX);
+					high = Vec3(-FLT_MAX);
+					for (const Assets::ImportedPrimitive& primitive : model.Primitives)
+					{
+						for (const MeshVertex& vertex : primitive.Vertices)
+						{
+							low = Math::Min(low, vertex.Position);
+							high = Math::Max(high, vertex.Position);
+						}
+					}
+				};
+
+				Vec3 fbxLow, fbxHigh, gltfLow, gltfHigh;
+				extent(fromFbx, fbxLow, fbxHigh);
+				extent(fromGltf, gltfLow, gltfHigh);
+
+				// A millimetre. The fixture's numbers are exact in both files;
+				// this is float round-trip room, not a tolerance for being
+				// roughly right.
+				const float slack = 0.001f;
+				Check(Math::Length(fbxLow - gltfLow) < slack
+					  && Math::Length(fbxHigh - gltfHigh) < slack,
+					  "and lands in the same place: an axis swap, a flipped "
+					  "handedness or centimetres left as centimetres all move "
+					  "one and not the other");
+
+				// The shape is deliberately different in all three dimensions,
+				// so this is a claim rather than an accident of symmetry.
+				const Vec3 size = fbxHigh - fbxLow;
+				Check(Math::Abs(size.x - 0.6f) < slack
+					  && Math::Abs(size.y - 1.4f) < slack
+					  && Math::Abs(size.z - 0.9f) < slack,
+					  "at the size the fixture says, which a cube could not have "
+					  "told us");
+
+				// Six quads triangulated is twelve triangles. An n-gon left
+				// untriangulated, or a fan built wrongly, changes this.
+				size_t triangles = 0;
+				for (const Assets::ImportedPrimitive& primitive : fromFbx.Primitives)
+					triangles += primitive.Indices.size() / 3;
+				Check(triangles == 12,
+					  "with its quads triangulated -- an FBX face is an n-gon "
+					  "where a glTF primitive is triangles by definition");
+
+				// **What a Phong material is promised, which is the honest
+				// claim** (7bn). An FBX material is Lambert or Phong
+				// underneath; a colour is a colour in any shading model and
+				// transfers, and nothing else does -- a roughness guessed from
+				// a shininess exponent is a number nobody could debug. So the
+				// claim is that the colour arrives *and* that the rest is left
+				// at the engine's defaults rather than invented.
+				const MaterialParams defaults;
+				Check(!fromFbx.Materials.empty()
+					  && Math::Abs(fromFbx.Materials[0].Params.BaseColor.x - 0.8f) < 0.01f
+					  && Math::Abs(fromFbx.Materials[0].Params.BaseColor.y - 0.35f) < 0.01f,
+					  "a Phong material's colour transfers, because a colour means "
+					  "the same thing in every shading model");
+				Check(!fromFbx.Materials.empty()
+					  && fromFbx.Materials[0].Params.Roughness == defaults.Roughness
+					  && fromFbx.Materials[0].Params.Metallic == defaults.Metallic,
+					  "and its roughness and metalness are the engine's defaults "
+					  "rather than something derived from a shininess exponent");
+
+				Check(fromFbx.Nodes.size() == 1 && !fromFbx.Nodes[0].Primitives.empty(),
+					  "and the node owns its geometry, so the entity tree has "
+					  "something to hang");
+			}
 		}
 
 		Assets::ImportedModel imported;

@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "Asset.h"
+#include "ModelImporter.h"
 #include <algorithm>
 
 namespace RageV
@@ -53,7 +54,9 @@ namespace RageV
 		std::transform(lower.begin(), lower.end(), lower.begin(),
 					   [](unsigned char c) { return (char)std::tolower(c); });
 
-		if (lower == ".gltf" || lower == ".glb")
+		// One list, in ModelImporter, so this and the import cache and the
+		// packager cannot disagree about what counts as a mesh (8.9).
+		if (Assets::ModelImporter::IsModelExtension(lower))
 			return AssetType::Mesh;
 
 		if (lower == ".png" || lower == ".jpg" || lower == ".jpeg" ||
