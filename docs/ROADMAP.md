@@ -652,8 +652,9 @@ deleted. **None of these should be started because it sounds interesting.**
 
 **The honest ordering, if any of these happen:** 8.4 and 8.9 were the two
 ordinary features; 8.4 is done, so **8.9 is the only ordinary one left** and
-every other open row is XL. Open, as of 2026-08-18: 8.1, 8.3, 8.5, 8.6, 8.7,
-8.8, 8.9, 8.10 and 8.11 -- nine of the twelve. 8.2 was a decision about the engine's identity, and it has been
+every other open row is XL. Open, as of 2026-08-20: 8.3, 8.5, 8.6, 8.7, 8.8,
+8.9, 8.10 and 8.11 -- eight of the thirteen. 8.1 landed on 2026-08-19 and
+8.13 was built and withdrawn the day after. 8.2 was a decision about the engine's identity, and it has been
 made: the seam is at the shader define and the material, the RHI stays one
 interface, and OpenGL is not dropped. 8.12 followed it and is done. The rest
 are each larger than everything built so far.
@@ -693,6 +694,38 @@ already demonstrated by `CheckParticleSort`; and an RTX or RDNA2-class GPU to
 develop against with a defined behaviour on everything older.
 
 ---
+
+### Phase 10 — Engine health *(no new capability; the engine gets better at being one)*
+
+Every row above adds something the engine could not do before. **None of them
+make what is already there smaller, faster, or harder to break** — and by the
+end of phase 9 that had become the larger risk. 8.13 is the case in point: it
+shipped on a cost figure nobody had measured, through a check suite that could
+not tell a black frame from a zero, on a renderer whose shaders the build never
+verified. Not one of those is a missing feature.
+
+So this phase has no theme beyond **the engine being trustworthy to work on**.
+Rows are earned by evidence rather than proposed by taste: a check that cannot
+fail, a measurement that was never taken, code nothing reaches, a cost nobody
+looked at. **A row here must name the thing that went wrong, or the number that
+was never measured** — "tidy up the renderer" is not a row.
+
+Unlike phase 8, these are meant to be picked up in gaps rather than planned:
+most are S, none block anything, and any of them can be done on the way past.
+
+|  # | Item | Size |  What it is |
+| ---|---|---| ---|
+| 10.1 | The three verification holes | S | ✅ **done 2026-08-20 (ENGINE-NOTES 7bf).** All three let a completely broken renderer report success, and all three were found the hard way building 8.13. **(a) Shaders compile at runtime, so a green `cmake --build` proves nothing about them** — 8.13's lit shader had a bad `#include` from the moment it was written, never compiled once, rendered every `gi_*` fixture pure black, and the runtime exited 0 throughout. `ShaderCompiler` now counts failures and a `--screenshot` or `--benchmark` run exits 3. **(b) `check_gi` read +0.00 off 27 blank frames and called it a measurement**; `rvcheck.require_drawn` refuses a frame nothing was drawn into. **(c) The runtime loads `assets/` beside its exe, not the source tree** — three timing variants were measured off shaders that never ran; `rvcheck.require_current_shaders` refuses a stale tree, and every check that launches the runtime calls it. A fourth hole fell out of fixing (c): `falsify.py` now marks the active break, so a forgotten `restore` can no longer be mistaken for a clean run. All four falsified |
+| 10.2 | Dead code and settings nothing reads | S | Not a tidy-up: **a setting the engine ignores is a lie the inspector tells**, and the manual's drift check will happily document it. Wants a pass over `RenderSettings`/`PostSettings` for fields no resolve function reads, registry rows whose predicates can never be true, and RHI entry points with one caller that is a test. Evidence first — name each one and what reaches it |
+| 10.3 | The costs never measured | M | 8.13's rule generalised: **a performance claim is a measurement or it is not a claim.** The profiler has GPU timestamps per phase and almost nothing quotes them. Wants a standing benchmark fixture and a recorded per-phase baseline, so a regression is visible as a number rather than as somebody noticing the editor feel slow. Note `--frame-time` makes the CPU frame column a constant and must never be passed to a benchmark |
+| 10.4 | The claims that have never failed | S | 7ba's shape 3, still open in places: `voxel-no-shadow` guards nothing, and claim 15's two attempted breaks both survived and were deleted. Every claim wants a break in `falsify.py` that has been seen to go red, and the ones that cannot have one want a sentence saying why |
+| 10.5 | Minor improvements found in passing | S | The catch-all, and deliberately last. Anything small, evidenced and unblocking: a confusing tooltip, a log line that says nothing, an editor row in the wrong section. **Not a licence to refactor** — if it needs a design, it needs a row of its own |
+
+**What does not belong here.** Anything that changes what the engine can do —
+that is a phase 8 row however small it looks. And anything justified by "this
+would be cleaner": the whole point of the phase is that its rows come from
+something having gone visibly wrong, and a row without that evidence is a
+preference wearing a number.
 
 ## 6. Technology choices
 

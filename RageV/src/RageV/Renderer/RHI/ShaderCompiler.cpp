@@ -298,8 +298,43 @@ namespace RageV::RHI
 		}
 	}
 
+	namespace
+	{
+		// Session-wide, and never reset: a shader that failed once has already
+		// produced whatever frames were captured after it.
+		uint32_t s_ShaderFailures = 0;
+		std::string s_FirstShaderFailure;
+
+		void RecordShaderFailure(const std::string& name)
+		{
+			s_ShaderFailures++;
+			if (s_FirstShaderFailure.empty())
+				s_FirstShaderFailure = name;
+		}
+	}
+
+	uint32_t ShaderCompiler::FailureCount() { return s_ShaderFailures; }
+	const std::string& ShaderCompiler::FirstFailure() { return s_FirstShaderFailure; }
+
 	std::optional<CompiledShader> ShaderCompiler::CompileFromFile(const std::filesystem::path& path,
 																  const std::vector<std::string>& defines)
+	{
+		std::optional<CompiledShader> compiled = CompileFromFileImpl(path, defines);
+		if (!compiled)
+			RecordShaderFailure(path.string());
+		return compiled;
+	}
+
+	std::optional<CompiledShader> ShaderCompiler::Compile(const ShaderDesc& desc)
+	{
+		std::optional<CompiledShader> compiled = CompileImpl(desc);
+		if (!compiled)
+			RecordShaderFailure(desc.Name);
+		return compiled;
+	}
+
+	std::optional<CompiledShader> ShaderCompiler::CompileFromFileImpl(const std::filesystem::path& path,
+																	  const std::vector<std::string>& defines)
 	{
 		std::string source;
 		std::vector<std::filesystem::path> seen;
@@ -349,10 +384,10 @@ namespace RageV::RHI
 			return std::nullopt;
 		}
 
-		return Compile(desc);
+		return CompileImpl(desc);
 	}
 
-	std::optional<CompiledShader> ShaderCompiler::Compile(const ShaderDesc& desc)
+	std::optional<CompiledShader> ShaderCompiler::CompileImpl(const ShaderDesc& desc)
 	{
 		Init();
 

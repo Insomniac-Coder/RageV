@@ -9537,6 +9537,109 @@ descriptor set 1 unbound and tripping Vulkan validation. Fixed on `main`
   claim without a rebuild. The tool knew; whoever wrote a second shader
   harness beside it did not read it first.
 
+### 7bf. The three verification holes, closed (10.1)
+
+7be ends with three traps, each of which let a completely broken renderer
+report success. They are closed here. **The shape of all three is the same: a
+green result computed from something other than the thing under test**, which
+is why they are worth one entry rather than three.
+
+The rule they share: **a check that cannot fail has not passed.** 7ba (CHK.1)
+already sorted four ways a check lies; these are a fifth, sixth and seventh,
+and they differ from the first four in that the *claim* was fine. Nothing was
+wrong with the thresholds. What was wrong was that the renderer under them was
+not the one anybody thought.
+
+#### Hole 1: a shader that did not compile, and a build that stayed green
+
+Shaders compile at **runtime**, so `cmake --build` proves only that the C++
+compiled. 8.13's lit shader asked for an include that did not exist, never
+compiled once, every `gi_*` fixture rendered pure black -- and the build was
+green and the runtime exited **0** throughout.
+
+**The error was always logged.** `ShaderCompiler` printed *"Shader file not
+found"* on every launch. What was missing was consequence.
+
+So the compiler counts its failures -- `FailureCount()` and `FirstFailure()`,
+recorded in thin wrappers around `CompileFromFile` and `Compile` so that no
+path out of a compile can forget to, **including the paths that fail before a
+stage is ever reached, which is exactly where 8.13's failed**. `main` then
+reads them: a run asked for `--screenshot` or `--benchmark` exits **3** rather
+than reporting whatever the frame happened to contain.
+
+Only those two. An interactive session is where somebody edits a shader, sees
+the error and fixes it; exiting non-zero over a mistake corrected an hour ago
+is noise. **A screenshot or a benchmark is a number somebody is going to
+believe**, which is the same line `--render-defaults` already draws.
+
+#### Hole 2: a black frame read as a measured zero
+
+`check_gi` read +0.00 off 27 blank renders and reported them as results. With
+the first hybrid claim floored at 1.0 -- exactly the null result -- it printed
+**OK** for a feature doing nothing on a renderer drawing nothing.
+
+`rvcheck.require_drawn(image, label)` refuses a frame nothing was drawn into,
+and `shoot`/`sequence` pass every frame through it. **The bar is deliberately
+far below any real frame**: every legitimate `check_gi` frame measured at the
+time had a mean of 113 or more with better than half its pixels lit, against a
+black frame's mean of exactly 0 and not one lit pixel. The guard asks *did the
+renderer draw anything at all*, not *is this bright enough*, so a legitimately
+dim fixture is never refused by it.
+
+#### Hole 3: the runtime does not load the shaders in the source tree
+
+It loads `assets/` beside its own exe, which the build **copies** there. Three
+timing variants edited into `RageVEditor/assets/shaders/` while measuring 8.13
+all read the baseline back, because not one of them ran.
+
+`rvcheck.require_current_shaders(root, config)` compares the two trees and
+refuses to measure when they differ, naming the files. **Every check that
+launches the runtime calls it** -- sixteen of them mechanically, `check_gi` by
+hand; the four that never launch it (`check_font_atlas`, `check_tangent_frame`,
+`check_theme_contrast`, and the guard itself) cannot hit this and do not.
+
+**This was never a new finding.** `falsify.py`'s docstring has said it from the
+day it was written -- *"the runtime loads `assets/shaders/*.rvshader` as
+source, from beside the exe"* -- which is the entire reason that tool can break
+a claim without a rebuild. The tool knew. A second shader harness was written
+beside it without reading it.
+
+#### And the hole that opening hole 3 revealed
+
+A deliberate break is not staleness, so `require_current_shaders` has to let
+one through. `falsify.py` now writes a `.falsify` marker into the deployed tree
+naming the active break, and clears it on `restore` -- *before* the copy, so a
+run interrupted between the two cannot leave a marker claiming a break that is
+no longer there. A check that finds the marker prints a banner instead of
+refusing:
+
+```
+========================================================================
+  A FALSIFY BREAK IS ACTIVE: lit-black
+  These shaders are deliberately wrong. Any number below is a
+  broken-renderer number. `falsify.py restore` puts them back.
+========================================================================
+```
+
+**This closes a fourth hole nobody had listed.** Before it, a check run after a
+forgotten `restore` measured a deliberately broken shader and reported the
+number without comment -- the same failure as measuring a stale one, one level
+along, and rather more likely.
+
+#### All three were falsified
+
+CHK.2's rule, and the one 7be says the first hybrid claim could never have
+satisfied:
+
+| guard | break | result |
+|---|---|---|
+| shaders compiled | a bad `#include` in the deployed lit shader | runtime **exit 3**, naming `pbr.rvshader` |
+| the frame was drawn | `falsify.py lit-black` -- compiles, renders black | check_gi **exit 1**, *"rendered an empty frame -- 0.00% of pixels above level 8"* |
+| the shaders are current | append a line to the deployed lit shader | check_gi **exit 1**, naming `include/pbr_fragment.glsl` |
+
+The first of those is the 8.13 defect exactly: the same kind of missing
+include, in the same file. It used to exit 0.
+
 ---
 
 ## 8. What this changes

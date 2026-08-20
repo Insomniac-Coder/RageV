@@ -162,6 +162,8 @@ import sys
 import numpy as np
 from PIL import Image
 
+import rvcheck
+
 FRAME = 30
 
 # Regions, as fractions of the frame. The white wall just past the corner, and
@@ -407,7 +409,12 @@ def shoot(exe, backend, scene, path, extra=(), aa="none", frame=FRAME):
         print(f"FAIL: {backend} {scene} exited {code} / no image")
         print(log[-2000:])
         sys.exit(1)
-    return np.asarray(Image.open(path).convert("RGB")).astype(float)
+    # An image on disk is not a rendered image. 27 of these came back pure
+    # black once -- the lit shader had never compiled -- and every claim
+    # measured +0.00 off them and reported it (ENGINE-NOTES 7be).
+    return rvcheck.require_drawn(
+        np.asarray(Image.open(path).convert("RGB")).astype(float),
+        f"{backend} {scene}")
 
 
 def sequence(exe, backend, scene, path, first, count, extra=(), aa="none"):
@@ -436,7 +443,10 @@ def sequence(exe, backend, scene, path, first, count, extra=(), aa="none"):
         print(f"FAIL: {backend} {scene} exited {code} / {len(missing)} frames missing")
         print(log[-2000:])
         sys.exit(1)
-    return [np.asarray(Image.open(f).convert("RGB")).astype(float) for f in frames]
+    return [rvcheck.require_drawn(
+                np.asarray(Image.open(f).convert("RGB")).astype(float),
+                f"{backend} {scene} frame {n}")
+            for n, f in enumerate(frames, first)]
 
 
 def patch(image, region):
@@ -487,6 +497,11 @@ def main():
     sys.path.insert(0, str(root / "tools" / "scripts"))
     import make_gi_scene
     import postprofile
+
+    # Before a single launch: the runtime loads `assets/` beside its exe,
+    # which the build copies there, so an unbuilt shader edit is measured as
+    # the last build's shader and nothing says so (ENGINE-NOTES 7be).
+    rvcheck.require_current_shaders(root, args.config)
 
     scenes = root / "SampleProject" / "assets" / "scenes"
     shots = root / "build" / "gi"

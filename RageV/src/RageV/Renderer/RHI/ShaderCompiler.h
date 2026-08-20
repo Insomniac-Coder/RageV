@@ -63,6 +63,18 @@ namespace RageV::RHI
 
 		static std::optional<CompiledShader> Compile(const ShaderDesc& desc);
 
+		// How many shaders have failed to compile this session, and the first
+		// one's name (ENGINE-NOTES 7be, hole 1).
+		//
+		// **Shaders compile at runtime, so a clean `cmake --build` proves
+		// nothing about them.** 8.13's lit shader asked for an include that
+		// did not exist, never compiled once, and rendered every GI fixture
+		// pure black while the build reported success and the runtime exited
+		// 0. The failure was logged every time and nothing read it. A
+		// measurement run reads this instead and refuses to report a number.
+		static uint32_t FailureCount();
+		static const std::string& FirstFailure();
+
 		// SPIR-V -> GLSL for the OpenGL backend, with descriptor bindings
 		// rewritten into GL's flat binding namespace.
 		static std::optional<std::string> CrossCompileToGLSL(const CompiledStage& stage,
@@ -79,6 +91,14 @@ namespace RageV::RHI
 		static void SetCacheDirectory(const std::filesystem::path& directory);
 
 	private:
+		// The bodies. The public pair above are thin wrappers that count a
+		// failure, so no path out of a compile can forget to -- including the
+		// ones that fail before a stage is ever reached, which is exactly
+		// where 8.13's did.
+		static std::optional<CompiledShader> CompileFromFileImpl(const std::filesystem::path& path,
+																 const std::vector<std::string>& defines);
+		static std::optional<CompiledShader> CompileImpl(const ShaderDesc& desc);
+
 		static std::optional<std::vector<uint32_t>> CompileStage(const std::string& source,
 																 ShaderStage stage,
 																 const std::string& preamble,

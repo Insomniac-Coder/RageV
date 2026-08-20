@@ -30,6 +30,8 @@ import shutil
 import subprocess
 import sys
 
+import rvcheck
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'RageVEditor' / 'assets' / 'shaders'
 
@@ -311,6 +313,14 @@ BREAKS = {
     # the sun and the bouncing wall, and until there is one the injection's
     # shadow term is unguarded -- stated here rather than implied by a break
     # that only ever trips the reproducibility band by perturbing the grid.
+    # Not a claim's break but a *guard's*: rvcheck.require_drawn refuses a
+    # frame nothing was drawn into. This compiles cleanly and renders black,
+    # which is precisely the state 27 check_gi frames were in while every
+    # claim measured +0.00 off them and reported it (ENGINE-NOTES 7be).
+    'lit-black': [('include/pbr_fragment.glsl',
+                   'o_Color = vec4(color, baseColor.a);',
+                   'o_Color = vec4(0.0, 0.0, 0.0, baseColor.a);')],
+
     'voxel-no-shadow': [('voxel_inject.rvshader',
                          'const float shadow = light.Params.w > 0.5 ? CascadeShadow(world, N, L) : 1.0;',
                          'const float shadow = 1.0;')],
@@ -398,6 +408,11 @@ BREAKS = {
 def restore(config='Release'):
     """The editor's shader tree over the runtime's -- what the build does."""
     live = deployed(config)
+    # Before the copy, so a run interrupted between the two does not leave a
+    # marker claiming a break that is no longer there.
+    marker = live / rvcheck.FALSIFY_MARKER
+    if marker.is_file():
+        marker.unlink()
     for path in SOURCE.rglob('*'):
         if path.is_file():
             target = live / path.relative_to(SOURCE)
@@ -436,6 +451,14 @@ def apply(name, config='Release'):
         io.open(path, 'w', encoding='utf-8', newline='').write(
             s.replace('\n', '\r\n') if crlf else s)
         print(f'  {filename}: {old[:60]!r}')
+
+    # Name the break where a check will find it. `rvcheck.require_current_shaders`
+    # reads this and prints a banner instead of refusing -- a deliberate break
+    # is not staleness -- so a forgotten `restore` can no longer be mistaken
+    # for a clean measurement.
+    live = deployed(config)
+    live.mkdir(parents=True, exist_ok=True)
+    io.open(live / rvcheck.FALSIFY_MARKER, 'w', encoding='utf-8').write(name)
 
 
 def main():

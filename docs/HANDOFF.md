@@ -1674,35 +1674,51 @@ and verdict OK on **both** backends; `check_gi.py` exit 0, no FAIL, verdict OK
 with claim 19 gone from it; and `falsify.py voxel-no-lift` seen to take
 check_gi to exit 1 before `restore`.
 
-### THREE VERIFICATION HOLES, NONE CLOSED
+### THREE VERIFICATION HOLES, ALL CLOSED (10.1, ENGINE-NOTES 7bf)
 
-All three let a completely broken renderer report success. The first two were
-found building 8.13, the third while measuring it.
+All three let a completely broken renderer report success. All three were
+found the hard way building 8.13, and all three are now guarded by something
+that has been *seen* to fail.
 
-1. **A clean `cmake --build` says nothing about whether the shaders load.**
-   Shaders compile at *runtime*, so a green build proves only that the C++
-   compiled. `pbr_fragment.glsl` had a bad `#include` path from the moment it
-   was written, the lit shader never compiled once, **every `gi_*` fixture
-   rendered pure black** -- and the build stayed green through all of it. The
-   checks need to fail loudly when a shader did not compile, rather than
-   measuring whatever the frame happens to contain.
-2. **`check_gi` cannot tell a black frame from a measured zero.** It read
-   +0.00 off 27 blank renders and reported them as results; with the hybrid
-   claim's original floor of 1.0 -- which is exactly the null result -- it
-   printed **OK** for a feature doing nothing on a renderer drawing nothing.
-   A check that accepts a uniformly black frame is not a check. It should
-   refuse the frame, not band it.
-3. **The runtime does not load the shaders in the source tree.** It loads
-   `assets/` beside its own exe, which the build *copies* there. Three timing
-   variants edited into `RageVEditor/assets/shaders/` all read the baseline
-   back, because not one of them ran. `falsify.py`'s docstring has said this
-   from the day it was written -- which is exactly why that tool can break a
-   claim without a rebuild -- and a second shader harness was written beside
-   it anyway. **Read `falsify.py` before writing anything that edits a shader
-   to measure it.**
+1. **A shader that did not compile, and a build that stayed green.** Shaders
+   compile at runtime, so `cmake --build` proves only that the C++ did.
+   `ShaderCompiler` now counts failures (`FailureCount`, `FirstFailure`,
+   recorded in wrappers so no exit path can forget), and a run asked for
+   `--screenshot` or `--benchmark` exits **3** rather than reporting whatever
+   the frame contained. Interactive runs are untouched -- that is where a
+   person edits a shader, sees the error and fixes it.
+2. **A black frame read as a measured zero.** `rvcheck.require_drawn` refuses
+   a frame nothing was drawn into; `check_gi`'s `shoot` and `sequence` pass
+   every frame through it. The bar is two orders of magnitude below the
+   darkest real frame, so it asks "did the renderer draw anything" rather
+   than "is this bright enough".
+3. **The runtime does not load the shaders in the source tree.**
+   `rvcheck.require_current_shaders` compares the deployed tree against the
+   source tree and refuses to measure when they differ, naming the files.
+   **Every check that launches the runtime calls it** -- sixteen wired
+   mechanically, `check_gi` by hand, and the four that never launch it cannot
+   hit this.
 
-The owner caught the black frames by looking at the screenshots, which is the
-thing no threshold in this file was doing.
+**And a fourth that fell out of fixing the third:** a deliberate break is not
+staleness, so `falsify.py` now writes a `.falsify` marker naming the active
+break and clears it on `restore`. A check that finds it prints a banner and
+continues. Before this, a check run after a forgotten `restore` measured a
+deliberately broken shader and said nothing.
+
+**Falsified, all four:**
+
+| guard | break | result |
+|---|---|---|
+| shaders compiled | a bad `#include` in the deployed lit shader | runtime **exit 3** |
+| the frame was drawn | `falsify.py lit-black` (compiles, renders black) | check_gi **exit 1** |
+| the shaders are current | a line appended to the deployed lit shader | check_gi **exit 1** |
+| a break is announced | `falsify.py lit-black` | the banner, then the guard above |
+
+The first is the 8.13 defect exactly -- the same kind of missing include, in
+the same file. It used to exit 0.
+
+**New in the toolbox:** `tools/scripts/rvcheck.py`. Import it from any check;
+it is where a shared measurement guard belongs from now on.
 
 **State.** Phases 0-7 and 9 are done; 8.1 is done; phase 8 has 8.3, 8.5-8.11
 open. **Everything through `8cfc0a5` is pushed.** This session's work is on top

@@ -82,6 +82,12 @@ def main():
     args = parser.parse_args()
 
     runtime_dir = os.path.join(root, "build", "bin", args.config, "RageVRuntime")
+
+    # The runtime loads `assets/` beside its exe, which the build copies there
+    # (ENGINE-NOTES 7be, hole 3): a shader edited but not built is measured as
+    # the last build's shader, and nothing says so.
+    import rvcheck
+    rvcheck.require_current_shaders(root, args.config)
     if not os.path.isdir(runtime_dir):
         raise SystemExit(f"FAIL: no runtime at {runtime_dir} -- build {args.config} first")
 

@@ -93,6 +93,12 @@ def main():
 
     root = pathlib.Path(__file__).resolve().parents[2]
     exe = root / "build" / "bin" / args.config / "RageVRuntime" / "RageVRuntime.exe"
+
+    # The runtime loads `assets/` beside its exe, which the build copies there
+    # (ENGINE-NOTES 7be, hole 3): a shader edited but not built is measured as
+    # the last build's shader, and nothing says so.
+    import rvcheck
+    rvcheck.require_current_shaders(root, args.config)
     if not exe.exists():
         print(f"FAIL: {exe} does not exist; build {args.config} first")
         sys.exit(1)
