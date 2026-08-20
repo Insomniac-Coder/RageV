@@ -75,6 +75,22 @@ target_include_directories(cgltf PUBLIC cgltf)
 set_target_properties(cgltf PROPERTIES FOLDER ${VENDOR_FOLDER})
 
 # ---------------------------------------------------------------------------
+# ufbx -- FBX import (single header + single source, no dependencies)
+#
+# The same shape as cgltf above and chosen on the same grounds: one .c and one
+# .h, nothing to configure, MIT or public domain at the user's choice. Assimp
+# covers more formats and is a large CMake project whose material model is a
+# lowest-common-denominator one this engine would have to translate a second
+# time; the Autodesk FBX SDK cannot be redistributed, which for an engine is
+# the same disqualifier recorded for FMOD below.
+#
+# FBX only. Collada is deferred, not covered -- ROADMAP 8.9.
+# ---------------------------------------------------------------------------
+add_library(ufbx STATIC ufbx/ufbx.c)
+target_include_directories(ufbx PUBLIC ufbx)
+set_target_properties(ufbx PROPERTIES FOLDER ${VENDOR_FOLDER})
+
+# ---------------------------------------------------------------------------
 # miniaudio -- playback, decoding, mixing and 3D spatialisation
 #
 # One header and one implementation file, no dependencies, and public domain.

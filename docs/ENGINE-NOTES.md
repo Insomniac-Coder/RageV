@@ -10862,6 +10862,101 @@ the same assertion against six real fixtures rather than one synthetic graph.
 
 ---
 
+### 7bn. FBX import (8.9): a second front end, not a second pipeline
+
+The roadmap has said the same thing about this row since it was written: *"a
+second material translation with its own failure modes."* That is the accurate
+half. The inaccurate half is the size, and finding out why is what shaped the
+design.
+
+#### The finding that sizes the work
+
+**`ImportedModel` is already format-neutral.** Nothing in it is glTF: vertices,
+materials, textures by relative path and sRGB flag, a node list with parents
+before children, one skeleton, a list of clips. `GltfImporter` fills it and
+five callers consume it —
+
+| caller | what it does with a model |
+|---|---|
+| `AssetManager` (×2) | GPU resources, and the entity tree |
+| `ImportCache` | cooks it to `.rvmesh` |
+| `ProjectPackager` | the same, into the pak |
+| `scenetest` | four claims |
+
+— and **not one of them knows what parsed it.** So FBX is a function that fills
+a struct, and everything downstream of that struct is already written, already
+cooked, already packed and already checked. The row is an importer, not a
+pipeline.
+
+What it needs from the engine is a façade: `ModelImporter::Import` picks the
+front end by extension, `GltfImporter` stays glTF, and the five call sites
+change one identifier each. Three lists learn `.fbx` —
+`AssetTypeFromExtension`, `ImportCache::CookedExtension`, and the packager's.
+
+#### ufbx, and Collada deferred
+
+**ufbx**, vendored the way cgltf is: one `.c`, one `.h`, no dependencies, MIT
+or public domain at the user's choice. The vendor notes already argue this
+shape once, for cgltf over fastgltf, and the argument transfers. Assimp covers
+more formats and is a large CMake project whose material model is a
+lowest-common-denominator one this engine would translate a *second* time; the
+Autodesk SDK cannot be redistributed, which is the disqualifier already
+recorded for FMOD.
+
+**Collada is deferred rather than dropped** (owner's call). FBX is what Maya,
+3ds Max, Unity and Unreal round-trip; `.dae` is largely retired, and glTF plus
+FBX between them cover essentially every source an asset arrives from. Picking
+it up later means a second front end against the same struct — which is now the
+cheap shape rather than the expensive one.
+
+#### The four things FBX has that glTF does not
+
+glTF is a delivery format and pins everything down. FBX is an interchange
+format and pins almost nothing, so these are where the failure modes the
+roadmap warned about actually live.
+
+**1. Axes and units.** glTF is Y-up, right-handed, metres, always. An FBX
+carries its own up axis, front axis and unit scale, and the common defaults
+disagree with each other: Maya is Y-up centimetres, 3ds Max is Z-up
+centimetres, Blender is Z-up metres. This is the whole of "the model imported a
+hundred times too big and lying on its side". ufbx converts on load —
+`target_axes` and `target_unit_meters` — and doing it there rather than in a
+post-pass is what keeps the skeleton, the animation curves and the mesh in the
+same space as each other.
+
+**2. The material model, which is the row's stated cost.** FBX's native
+material is Lambert or Phong: diffuse, specular, shininess. Metallic-roughness
+arrives as vendor extras — Maya's Stingray, Max's Physical Material, Blender's
+Principled export — under different property names per exporter. ufbx
+normalises those into `ufbx_material.pbr`, and that is the map this reads.
+**What it will not do is invent PBR from Phong.** A file with only a Lambert
+material gets its diffuse colour and the material defaults, and says so in the
+log, because guessing a roughness from a shininess exponent is a number nobody
+can debug later.
+
+**3. Polygons.** A glTF primitive is triangles by definition. An FBX face is an
+n-gon, and quads are the common case. `ufbx_triangulate_face` handles it; the
+importer's own vertex de-duplication is unchanged, because it works on the
+triangle stream either way.
+
+**4. Texture paths from somebody else's machine.** FBX stores the absolute path
+the artist had — `C:\Users\...\textures\brick.png` — and usually a relative one
+beside it. The rule here is the same one the engine already applies to every
+other path: resolve relative to the model file, and if that fails, try the
+file's own name in the model's folder. An absolute path from another machine is
+never followed; it is a path into a computer that is not this one.
+
+#### What gets checked
+
+The claims are the same shape as the glTF ones in `scenetest`, because the
+output is the same struct — which is the point of the design and worth
+demonstrating rather than asserting. The one that matters is **a cube exported
+from the same source as both formats imports to the same geometry**, since it
+is the only claim that can catch an axis or unit error, and those are the
+errors this format actually produces.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
