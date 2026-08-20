@@ -13508,6 +13508,34 @@ int RunTests(int argc, char** argv)
 			Check(!cyclic.Ok, "a graph whose values feed each other does not generate");
 		}
 
+		// --- what "New Graph..." starts you with (10.11) --------------------
+		//
+		// The first thing anybody sees of this feature. A starter that does
+		// not validate would greet a new user with an error list, and one
+		// that does not generate would greet them with a build that fails --
+		// so both are claims rather than hopes.
+		{
+			const ScriptGraph starter = ScriptGraph::Starter("Greeter");
+
+			Check(starter.Validate().empty(),
+				  "the graph New Graph... starts you with validates clean");
+
+			const Assets::GraphGenerateResult made =
+				Assets::ScriptGraphGenerator::Generate(starter, "Greeter");
+			Check(made.Ok, "and generates");
+			Check(Contains(made.Source, "public override void OnCreate()"),
+				  "into the event it shows on the canvas");
+			Check(Contains(made.Source, "Log.Info(\"Greeter ready\")"),
+				  "with the literal's text reaching the statement, which is the "
+				  "data wire doing its job");
+
+			// Both kinds of wire, which is the thing the starter exists to
+			// demonstrate: one exec link and one data link, no more.
+			Check(starter.GetLinks().size() == 2,
+				  "and it has exactly one wire of each kind, because showing "
+				  "both is what it is for");
+		}
+
 		// --- a node type this build does not have (10.10, ENGINE-NOTES 7bi) ---
 		//
 		// The loader used to drop such a node, keep the rest and return

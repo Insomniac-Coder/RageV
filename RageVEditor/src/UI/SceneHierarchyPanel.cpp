@@ -18,6 +18,8 @@
 #include "AssetIcons.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Asset/AssetManager.h"
+#include "RageV/Asset/ScriptGraph.h"
+#include "RageV/Asset/ScriptGraphSerializer.h"
 #include "../Tools/TerrainBrushTool.h"
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Scene/ScriptRegistry.h"
@@ -989,8 +991,13 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 
 	// Creating one selects it, so the next step is Build Scripts rather than
 	// hunting for the new name in a dropdown.
+	// Both, unconditionally: a modal that is not drawn on a frame it is
+	// open is a modal ImGui closes. `||` would have short-circuited one of
+	// them away on the frame the other returned true.
 	std::string created;
-	if (DrawNewScriptPopup(true, created))
+	const bool madeScript = DrawNewScriptPopup(true, created);
+	const bool madeGraph = DrawNewGraphPopup(created);
+	if (madeScript || madeGraph)
 	{
 		script.ScriptName = created;
 		script.Fields.Values.clear();
@@ -1241,6 +1248,12 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 		if (ImGui::Selectable("New Script..."))
 			m_OpenNewScript = true;
 
+		// Only under C#. A graph generates a C# class, so offering it while the
+		// component is native would promise something this engine does not do
+		// -- and 7bh's whole argument is that a graph is not a third runtime.
+		if (managed && ImGui::Selectable("New Graph..."))
+			m_OpenNewGraph = true;
+
 		ImGui::EndCombo();
 	}
 
@@ -1253,7 +1266,13 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 		ImGui::OpenPopup("New Script");
 	}
 
-	(void)managed;
+	if (m_OpenNewGraph)
+	{
+		m_OpenNewGraph = false;
+		m_NewGraphName[0] = '\0';
+		ImGui::OpenPopup("New Graph");
+	}
+
 	return changed;
 }
 
@@ -1389,6 +1408,128 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 
 	ImGui::EndPopup();
 	return created;
+}
+
+// "New Graph..." -- a `.rvgraph` in the project's assets, and the canvas open
+// on it (10.11, ENGINE-NOTES 7bk).
+//
+// The one asset type the editor could not create. `Manager::CreateScriptGraph`
+// had been written for this and had no callers, so the manual told people to
+// copy a file in their file browser and press Refresh.
+//
+// Returns the class name once the file is written, so the component points at
+// it immediately -- the same courtesy DrawNewScriptPopup does, and it matters
+// more here, because the name comes from the *file* rather than from anything
+// inside it.
+bool RageV::SceneHierarchyPanel::DrawNewGraphPopup(std::string& chosenName)
+{
+	const char* const kPopup = "New Graph";
+	bool created = false;
+
+	if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		return false;
+
+	if (!Project::GetActive())
+	{
+		ImGui::TextWrapped("Open a project first. A graph belongs to one.");
+		ImGui::Separator();
+		if (ImGui::Button("Close"))
+			ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+		return false;
+	}
+
+	ImGui::Text("Class name");
+	ImGui::SetNextItemWidth(280.0f);
+	const bool submitted = ImGui::InputText("##graphname", m_NewGraphName,
+											sizeof(m_NewGraphName),
+											ImGuiInputTextFlags_EnterReturnsTrue);
+
+	const std::string name(m_NewGraphName);
+	const bool valid = IsIdentifier(name);
+
+	// Under `graphs/` beside the ones that ship, so the content browser has
+	// somewhere obvious to have put it.
+	const std::filesystem::path file =
+		Project::AssetRoot() / "graphs" / (name + ".rvgraph");
+
+	std::error_code ec;
+	const bool exists = valid && std::filesystem::exists(file, ec);
+
+	// The generated C# would collide too, and that is the collision that
+	// actually bites: two classes of one name do not compile, and the error
+	// would arrive from a file nobody wrote.
+	const std::filesystem::path generated =
+		Project::Root() / "Scripts" / "Generated" / (name + ".g.cs");
+	const bool clashes = valid && !exists && std::filesystem::exists(generated, ec);
+
+	if (!name.empty() && !valid)
+		ImGui::TextColored(EditorTheme::Colors().Danger, "Not a valid class name");
+	else if (exists)
+		ImGui::TextColored(EditorTheme::Colors().Danger,
+						   "assets/graphs/%s.rvgraph already exists", name.c_str());
+	else if (clashes)
+		ImGui::TextColored(EditorTheme::Colors().Danger,
+						   "Scripts/Generated/%s.g.cs already exists", name.c_str());
+	else if (valid)
+		ImGui::TextDisabled("assets/graphs/%s.rvgraph", name.c_str());
+	else
+		ImGui::TextDisabled(" ");
+
+	ImGui::Spacing();
+	ImGui::TextWrapped("The graph opens on a working example. Ctrl+S writes its "
+					   "C#; File > Build Scripts compiles it.");
+
+	ImGui::Separator();
+
+	const bool ok = valid && !exists && !clashes;
+	ImGui::BeginDisabled(!ok);
+	if ((ImGui::Button("Create") || (submitted && ok)) && ok)
+	{
+		if (WriteNewGraph(file, name))
+		{
+			// So the handle exists before anything asks for one.
+			Assets::Registry::Refresh();
+
+			chosenName = name;
+			created = true;
+			RV_INFO("Created assets/graphs/{0}.rvgraph -- Ctrl+S in the canvas "
+					"writes its C#, then File > Build Scripts", name);
+
+			// And open it, through the editor's own "open this asset" rather
+			// than by reaching for the panel: one behaviour, one owner.
+			const AssetHandle handle = Assets::Registry::GetHandle(
+				("graphs/" + name + ".rvgraph"));
+			if (handle.IsValid() && m_OnActivate)
+				m_OnActivate(handle, AssetType::ScriptGraph);
+		}
+		ImGui::CloseCurrentPopup();
+	}
+	ImGui::EndDisabled();
+
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel"))
+		ImGui::CloseCurrentPopup();
+
+	ImGui::EndPopup();
+	return created;
+}
+
+// Writes the starter graph. What it *is* lives on ScriptGraph, so scenetest
+// can assert that it validates and generates without an editor.
+bool RageV::SceneHierarchyPanel::WriteNewGraph(const std::filesystem::path& file,
+											   const std::string& name)
+{
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+
+	if (!Assets::ScriptGraphSerializer::Save(ScriptGraph::Starter(name), file))
+	{
+		RV_ERROR("Could not write {0}", file.string());
+		return false;
+	}
+
+	return true;
 }
 
 // The file a new C# script starts as.

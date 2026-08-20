@@ -14,21 +14,37 @@ canvas.
 Spinner.rvgraph  →  Scripts/Generated/Spinner.g.cs  →  the assembly  →  the Script component
 ```
 
-## Opening one
+## Making one
 
-Graphs live in the project's `assets/graphs/`. The content browser shows them
-with their own icon; **double-click one** and the canvas opens.
+Select an entity, add a **Script** component, set **Language** to C#, and open
+the script dropdown: the last entry is **New Graph...**. Name it, press
+**Create**, and the canvas opens on a working graph — the component is already
+pointed at it, so there is no hunting for the new name afterwards.
 
-> [!NOTE]
-> This build has no **New Graph...** action — a graph is opened, not created,
-> from inside the editor. To start one, copy an existing `.rvgraph` in your
-> file browser, rename it, and press **Refresh** in the content browser. The
-> sample project ships several to copy from.
+It goes in the project's `assets/graphs/`. An existing one is opened by
+**double-clicking it in the content browser**, where graphs have their own
+icon.
 
 The file name is the class name. `Spinner.rvgraph` generates
 `public class Spinner : Script`, so renaming the file renames the class — and
 the class name is what scene files store, the same rule as
 [C++](cpp.md) and [C#](csharp.md).
+
+> [!NOTE]
+> **New Graph...** appears only under the C# language, because C# is what a
+> graph generates. Under C++ the dropdown offers **New Script...** alone.
+
+What you start with is deliberately not an empty canvas:
+
+```
+On Create ──▶ Log
+              ▲
+   "Name ready" ─┘
+```
+
+Two nodes and a value — one execution wire and one data wire. That is the
+smallest graph that shows both kinds, and the difference between them is the
+one thing about a graph that cannot be guessed.
 
 ## The canvas
 

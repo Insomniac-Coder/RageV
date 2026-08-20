@@ -303,6 +303,21 @@ namespace RageV
 	class ScriptGraph
 	{
 	public:
+		// What a graph made by "New Graph..." starts as (10.11): On Create ->
+		// Log, its text on a literal rather than typed into the Log node.
+		//
+		// Not an empty canvas, for the reason a new C# script is not an empty
+		// file -- and the literal is deliberate rather than decoration. **The
+		// one thing about a graph that is not guessable is that there are two
+		// kinds of wire**, and a starter with only an execution wire in it
+		// would teach half of that. Two nodes and a value, one white wire and
+		// one coloured, is the smallest graph that shows both.
+		//
+		// Here rather than in the editor because it is *content*, and content
+		// nothing headless can reach is content nothing can check: a starter
+		// that does not validate or does not generate is a bad first five
+		// minutes and would go unnoticed.
+		static ScriptGraph Starter(const std::string& className);
 		const std::vector<GraphNode>& GetNodes() const { return m_Nodes; }
 		const std::vector<GraphLink>& GetLinks() const { return m_Links; }
 

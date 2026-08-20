@@ -135,6 +135,13 @@ void EditorLayer::OnAttach()
 	m_ContentBrowser.SetActivateCallback(
 		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
 
+	// The same handler, from the inspector: "New Graph..." creates a `.rvgraph`
+	// and then wants its canvas, which is what opening a graph already means
+	// (10.11). One behaviour, one owner -- a second route would be a second
+	// place for it to drift.
+	m_SceneHierarchyPanel.SetActivateCallback(
+		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
+
 
 	// One click points the Properties panel at the file. Two opens it, which
 	// the callback above still handles -- a scene load is destructive enough

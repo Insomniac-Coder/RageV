@@ -10553,6 +10553,108 @@ note.
 
 ---
 
+### 7bk. New Graph... (10.11): the one asset the editor could not create
+
+Found by writing documentation, which is worth recording as much as the fix
+is. The manual's visual-scripting page needed a "how do I make one" section,
+and there was no answer: a `.rvgraph` could be opened, edited, saved and
+generated from, but not **started**. The page shipped telling people to copy a
+file in their file browser and press Refresh — a documented workaround for a
+missing button, which is the kind of sentence that only gets written when
+somebody tries to explain the feature to a stranger.
+
+`Manager::CreateScriptGraph` had been written for exactly this and **had no
+callers**. That is 10.2's subject as much as 10.11's: an API reachable only by
+the person who wrote it is not a feature, it is a plan.
+
+#### Where it goes, and why not the content browser
+
+Beside **New Script...**, in the script dropdown, for the reason the comment
+above `DrawScriptPicker` already gave when that entry was placed there:
+
+> Choosing a script and making a new one are the same decision — "which script
+> runs here" — and splitting them across two controls made the row read as two
+> unrelated things.
+
+A graph is a way of authoring a C# class. It belongs where C# classes are
+chosen. A content-browser "new asset" menu would be a second place to look for
+the same decision, and this editor has consistently put creation in the field
+that needs the thing — `New post profile...`, `New colour LUT...`, `New
+Script...`.
+
+**C# only.** Under the native language the dropdown offers `New Script...`
+alone, because a graph generates C# and offering it beside C++ would promise
+something 7bh's whole argument says this engine does not do.
+
+#### What it writes
+
+Not an empty canvas, for the same reason `WriteNewScript` does not write an
+empty file — the first five minutes should not be spent working out what the
+thing has to look like. But the choice of starter is more pointed here:
+
+```
+On Create ──▶ Log
+              ▲
+   "Name ready" ─┘
+```
+
+**The one thing about a node graph that cannot be guessed is that there are
+two kinds of wire.** Execution says what happens and in what order; data says
+what a value is. A starter with only an execution wire in it would teach half
+of that, and the literal is there to teach the other half rather than to
+decorate — the text could have been typed into the Log node's own field and
+the graph would work identically.
+
+Two nodes and a value is the smallest graph that shows both.
+
+#### The starter is engine content, not editor code
+
+It began as a private static in the inspector panel and was moved to
+`ScriptGraph::Starter`. The reason is the one CHK.3 spent a session on: **a
+starter that does not validate would greet a new user with an error list, and
+one that does not generate would greet them with a failing build** — and in
+the panel, nothing headless could reach it to say so.
+
+Five claims in `scenetest` now do:
+
+| claim | |
+|---|---|
+| it validates clean | no warnings on a brand-new graph |
+| and generates | `Ok`, with a file |
+| into the event the canvas shows | `public override void OnCreate()` |
+| the literal's text reaches the statement | `Log.Info("Greeter ready")` — the data wire doing its job |
+| exactly one wire of each kind | two links, which is what "shows both" means |
+
+The last one is the one that would otherwise rot. Someone tidying the starter
+into "just the event and the log" would leave every other claim passing and
+quietly remove the thing the starter exists for.
+
+#### Two details worth keeping
+
+**It checks for the generated file's name as well as its own.** A `.rvgraph`
+that does not exist can still collide, because `Scripts/Generated/Name.g.cs`
+might — two classes of one name do not compile, and the error would arrive
+from a file nobody wrote.
+
+**It opens the canvas through the editor's own activate handler.** The panel
+gained the same `SetActivateCallback` the content browser has, pointed at the
+same `OnAssetActivated`, rather than reaching into the graph panel directly.
+"Open this asset" is one behaviour the editor owns; a second route to it would
+be a second place for it to drift — and the content browser's route already
+does the `RequestOpen` that asks before dropping unsaved edits.
+
+#### What is not checked
+
+**The popup itself has not been clicked by anything but a person.** The
+starter graph, its validation and its generation are covered headlessly; the
+sixty lines of ImGui around them mirror `DrawNewScriptPopup`, which works, and
+are verified by eye. Driving an ImGui modal from a check would need a third
+test-only flag on the editor, and the two that exist (`--brush=`,
+`--graph-drop-unknown=`) were each added to reach a *behaviour* a check could
+then measure, not to press a button.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

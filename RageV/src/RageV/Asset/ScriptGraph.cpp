@@ -682,6 +682,24 @@ namespace RageV
 		return GraphNodeType::None;
 	}
 
+	ScriptGraph ScriptGraph::Starter(const std::string& className)
+	{
+		ScriptGraph graph;
+		const uint32_t event = graph.AddNode(GraphNodeType::OnCreate,
+											 Vec2(-260.0f, -40.0f));
+		const uint32_t message = graph.AddNode(GraphNodeType::Log,
+											   Vec2(60.0f, -40.0f));
+		const uint32_t text = graph.AddNode(GraphNodeType::LiteralString,
+											Vec2(-260.0f, 120.0f));
+
+		if (GraphNode* node = graph.FindNode(text))
+			node->Text = className + " ready";
+
+		graph.AddLink(event, 0, message, 0);
+		graph.AddLink(text, 0, message, 1);
+		return graph;
+	}
+
 	bool ScriptGraph::PinAccepts(GraphPinType from, GraphPinType to)
 	{
 		if (from == to)

@@ -1,6 +1,7 @@
 #pragma once
 #include "RageV.h"
 #include <vector>
+#include <functional>
 #include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Scene/SceneCommands.h"
 
@@ -45,6 +46,16 @@ namespace RageV
 		// content browser the game engine should show properties of it in
 		// inspector".
 		void SetInspectedAsset(AssetHandle handle) { m_InspectedAsset = handle; }
+
+		// Called when this panel wants an asset opened -- today only a graph it
+		// has just created. Deliberately the *same* signature the content
+		// browser's activate callback uses, and pointed at the same handler:
+		// "open this asset" is one behaviour the editor owns, and a second
+		// route to it would be a second place for it to drift.
+		void SetActivateCallback(std::function<void(AssetHandle, AssetType)> callback)
+		{
+			m_OnActivate = std::move(callback);
+		}
 		AssetHandle GetInspectedAsset() const { return m_InspectedAsset; }
 
 	private:
@@ -62,10 +73,17 @@ namespace RageV
 		// walked -- so it is queued and applied afterwards, the way removal is.
 		void DrawScriptLanguageRow(bool managed);
 		bool DrawNewScriptPopup(bool managed, std::string& chosenName);
+
+		// "New Graph..." (10.11). Same shape as the popup above and the same
+		// reason for existing: a template rather than a blank file, and the
+		// name it returns is selected straight away so that making one and
+		// then hunting for it in a dropdown is not a step.
+		bool DrawNewGraphPopup(std::string& chosenName);
 		bool DrawScriptPicker(const std::vector<std::string>& available,
 							  std::string& scriptName, bool managed);
 		void DrawScriptNameRow(std::string& label);
 		bool m_OpenNewScript = false;
+		bool m_OpenNewGraph = false;
 
 		// Scripts that exist as a file but are not in this build yet, refreshed
 		// each time the dropdown opens rather than each frame it is open.
@@ -76,10 +94,18 @@ namespace RageV
 		std::vector<std::string> m_UnbuiltScripts;
 		static bool WriteNewScript(const std::filesystem::path& file,
 								   const std::string& name);
+
+		// Writes `ScriptGraph::Starter` to disk. The graph itself lives in the
+		// engine, where a headless check can reach it.
+		static bool WriteNewGraph(const std::filesystem::path& file,
+								  const std::string& name);
 		static bool WriteNewNativeScript(const std::filesystem::path& file,
 										 const std::string& name);
 		static bool IsIdentifier(const std::string& name);
 		char m_NewScriptName[64] = {};
+		char m_NewGraphName[64] = {};
+
+		std::function<void(AssetHandle, AssetType)> m_OnActivate;
 
 		enum class PendingScriptSwap { None, ToCpp, ToCSharp };
 		PendingScriptSwap m_PendingScriptSwap = PendingScriptSwap::None;

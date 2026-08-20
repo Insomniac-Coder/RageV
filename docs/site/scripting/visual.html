@@ -18,11 +18,18 @@
 <p>That is the whole design, and everything else on this page follows from it. There is no interpreter, no bytecode and no second execution path — so a graph gets live reload, the Build Log and restart-on-build for free, and the code it produces is ordinary, readable, and yours to keep if you ever outgrow the canvas.</p>
 <figure class="code"><pre><code>Spinner.rvgraph  →  Scripts/Generated/Spinner.g.cs  →  the assembly  →  the Script component
 </code></pre></figure>
-<h2 id="opening-one">Opening one<a class="anchor" href="#opening-one" aria-label="Link to this section">#</a></h2>
-<p>Graphs live in the project&#39;s <code>assets/graphs/</code>. The content browser shows them with their own icon; <strong>double-click one</strong> and the canvas opens.</p>
-<aside class="callout callout-note"><p class="callout-label">Note</p><p>This build has no <strong>New Graph...</strong> action — a graph is opened, not created, from inside the editor. To start one, copy an existing <code>.rvgraph</code> in your file browser, rename it, and press <strong>Refresh</strong> in the content browser. The sample project ships several to copy from.</p>
-</aside>
+<h2 id="making-one">Making one<a class="anchor" href="#making-one" aria-label="Link to this section">#</a></h2>
+<p>Select an entity, add a <strong>Script</strong> component, set <strong>Language</strong> to C#, and open the script dropdown: the last entry is <strong>New Graph...</strong>. Name it, press <strong>Create</strong>, and the canvas opens on a working graph — the component is already pointed at it, so there is no hunting for the new name afterwards.</p>
+<p>It goes in the project&#39;s <code>assets/graphs/</code>. An existing one is opened by <strong>double-clicking it in the content browser</strong>, where graphs have their own icon.</p>
 <p>The file name is the class name. <code>Spinner.rvgraph</code> generates <code>public class Spinner : Script</code>, so renaming the file renames the class — and the class name is what scene files store, the same rule as <a href="cpp.html">C++</a> and <a href="csharp.html">C#</a>.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>New Graph...</strong> appears only under the C# language, because C# is what a graph generates. Under C++ the dropdown offers <strong>New Script...</strong> alone.</p>
+</aside>
+<p>What you start with is deliberately not an empty canvas:</p>
+<figure class="code"><pre><code>On Create ──▶ Log
+              ▲
+   <span class="tok-string">&quot;Name ready&quot;</span> ─┘
+</code></pre></figure>
+<p>Two nodes and a value — one execution wire and one data wire. That is the smallest graph that shows both kinds, and the difference between them is the one thing about a graph that cannot be guessed.</p>
 <h2 id="the-canvas">The canvas<a class="anchor" href="#the-canvas" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left"></th></tr></thead><tbody>
 <tr><td style="text-align:left"><strong>Right-click</strong></td><td style="text-align:left">add a node, from a menu grouped by category</td></tr>
@@ -116,7 +123,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="../scripting/csharp.html"><span class="pager-label">Previous</span><span class="pager-title">Writing a script in C#</span></a><a class="pager-link pager-next" href="../scripting/math.html"><span class="pager-label">Next</span><span class="pager-title">Math</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#opening-one">Opening one</a><a class="toc-link toc-l2" href="#the-canvas">The canvas</a><a class="toc-link toc-l2" href="#execution-runs-along-the-white-wires">Execution runs along the white wires</a><a class="toc-link toc-l2" href="#events-are-where-a-graph-starts">Events are where a graph starts</a><a class="toc-link toc-l2" href="#what-you-can-reach">What you can reach</a><a class="toc-link toc-l2" href="#types-and-the-one-conversion-allowed">Types, and the one conversion allowed</a><a class="toc-link toc-l2" href="#problems-warnings-and-errors">Problems: warnings and errors</a><a class="toc-link toc-l2" href="#saving">Saving</a><a class="toc-link toc-l2" href="#what-a-graph-turns-into">What a graph turns into</a><a class="toc-link toc-l2" href="#a-graph-from-a-build-that-had-more-nodes">A graph from a build that had more nodes</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#making-one">Making one</a><a class="toc-link toc-l2" href="#the-canvas">The canvas</a><a class="toc-link toc-l2" href="#execution-runs-along-the-white-wires">Execution runs along the white wires</a><a class="toc-link toc-l2" href="#events-are-where-a-graph-starts">Events are where a graph starts</a><a class="toc-link toc-l2" href="#what-you-can-reach">What you can reach</a><a class="toc-link toc-l2" href="#types-and-the-one-conversion-allowed">Types, and the one conversion allowed</a><a class="toc-link toc-l2" href="#problems-warnings-and-errors">Problems: warnings and errors</a><a class="toc-link toc-l2" href="#saving">Saving</a><a class="toc-link toc-l2" href="#what-a-graph-turns-into">What a graph turns into</a><a class="toc-link toc-l2" href="#a-graph-from-a-build-that-had-more-nodes">A graph from a build that had more nodes</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
 </div>
 <script src="../search-index.js"></script>
 <script src="../manual.js"></script>
