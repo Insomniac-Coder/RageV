@@ -65,6 +65,13 @@ namespace RageV::RHI
 
 		virtual void WaitIdle() = 0;
 
+		// True once the backend has lost its device and cannot render again.
+		// Asked once a frame by the application, which closes rather than
+		// spinning on a device that is gone. Not pure: a backend that cannot
+		// lose its device -- OpenGL, as far as this engine is concerned --
+		// answers no and needs no code for it.
+		virtual bool IsDeviceLost() const { return false; }
+
 		// Hands back the pixels of the frame about to be presented, once.
 		//
 		// The only way to check what an engine actually put on screen without

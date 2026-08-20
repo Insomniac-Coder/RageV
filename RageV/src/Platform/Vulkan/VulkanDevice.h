@@ -47,6 +47,7 @@ namespace RageV::Vk
 		RHI::RHICommandList* BeginFrame() override;
 		void EndFrame() override;
 		void WaitIdle() override;
+		bool IsDeviceLost() const override;
 		void RequestCapture(CaptureCallback callback) override;
 		void CaptureSwapchainImage();
 		void OnResize(uint32_t width, uint32_t height) override;

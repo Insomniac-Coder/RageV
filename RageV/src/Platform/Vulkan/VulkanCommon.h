@@ -26,6 +26,21 @@ namespace RageV::Vk
 
 namespace RageV::Vk
 {
+	// **A lost device is not an error, it is the end of the device.**
+	//
+	// VK_ERROR_DEVICE_LOST means the driver has torn the whole thing down --
+	// usually a GPU fault or a watchdog reset. Every subsequent call fails the
+	// same way, including the wait and the submit at the top and bottom of a
+	// frame, so treating it as an ordinary failure produces two error lines per
+	// frame forever: a report of this arrived as two hundred and fifty
+	// identical lines inside one second, with the actual first failure long
+	// gone off the top.
+	//
+	// So it latches. The first one is reported in full and says what it means;
+	// everything after it is silence, because there is nothing after it that is
+	// not a consequence.
+	bool DeviceLost();
+
 	// Destruction has to be deferred: the GPU may still be reading a resource
 	// from an in-flight frame when its last reference is dropped.
 	//

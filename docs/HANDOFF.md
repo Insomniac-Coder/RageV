@@ -105,6 +105,25 @@ And two older ones that still hold:
 - **A cubemap sky is the scene's image-based light, not a backdrop.** The camp
   was lit like an afternoon because it still had the courtyard's dusk panorama.
 
+### If the graphics device is lost
+
+`VK_ERROR_DEVICE_LOST` means the driver tore the device down -- a GPU fault, or
+its watchdog resetting a frame that took too long. **It cannot be recovered
+from** without recreating the device and every resource on it.
+
+The engine now latches it: the first one is reported in full, everything after
+it is silent, and the application closes. Before this it was treated as an
+ordinary call failure, so the wait and the submit failed once each per frame
+forever -- a report of it arrived as 250 identical lines inside one second with
+the actual first failure long gone off the top of the log.
+
+**To diagnose one**: set `validation = on` in the editor's `ragev.ini`, do the
+thing that caused it, and read the *first* error. A fault has a cause and the
+layers normally name it. If the fault only appears with ray tracing on, the
+one-line test is `RayTracing: false` in `SampleProject.rvproject` -- the camp
+turned all four ray-traced settings on and they are by far the heaviest thing
+in the frame.
+
 ### The rules this scene is built to
 
 - **Verify every asset on its own, then delete the scene that verified it.** One

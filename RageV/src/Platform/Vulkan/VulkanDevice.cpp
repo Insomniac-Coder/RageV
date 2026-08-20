@@ -1212,6 +1212,13 @@ namespace RageV::Vk
 		if (m_Swapchain == VK_NULL_HANDLE || m_SwapchainExtent.width == 0 || m_SwapchainExtent.height == 0)
 			return nullptr;
 
+		// Nothing is recorded or submitted after the device is gone. Without
+		// this the frame proceeds, fails at the wait, fails again at the
+		// submit, and does it again next frame -- which is how one fault
+		// becomes a log with nothing in it but the fault's own echo.
+		if (Vk::DeviceLost())
+			return nullptr;
+
 		FrameContext& frame = m_Frames[m_FrameIndex];
 
 		// Waiting here is what makes the rest of this frame slot safe to touch:
@@ -1315,6 +1322,11 @@ namespace RageV::Vk
 	bool VulkanDevice::WasSetBoundThisFrame(VkDescriptorSet set) const
 	{
 		return m_ValidationEnabled && m_BoundThisFrame.count(set) != 0;
+	}
+
+	bool VulkanDevice::IsDeviceLost() const
+	{
+		return Vk::DeviceLost();
 	}
 
 	void VulkanDevice::WaitIdle()

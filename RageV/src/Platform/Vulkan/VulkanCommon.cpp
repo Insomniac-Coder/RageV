@@ -34,12 +34,42 @@ namespace RageV::Vk
 
 	namespace Detail
 	{
+		// Latched rather than counted: see the comment on DeviceLost in the
+		// header. Not atomic, because every Vulkan call in this engine is made
+		// from the render thread and a flag that pretends otherwise would be
+		// claiming a thread safety the rest of the file does not have.
+		bool s_DeviceLost = false;
+
 		void ReportFailure(VkResult result, const char* expression, const char* file, int line)
 		{
+			// Everything after the loss is a consequence of it, including the
+			// failures that are not themselves DEVICE_LOST.
+			if (s_DeviceLost)
+				return;
+
+			if (result == VK_ERROR_DEVICE_LOST)
+			{
+				s_DeviceLost = true;
+				RV_CORE_ERROR("The graphics device was lost: {0} ({1}:{2})",
+							  expression, file, line);
+				RV_CORE_ERROR("  A lost device cannot be recovered from without "
+							  "recreating it, so rendering stops here and the "
+							  "application will close.");
+				RV_CORE_ERROR("  It usually means the GPU faulted or the driver's "
+							  "watchdog reset it. Re-run with --validation=on: a "
+							  "fault has a cause and the layers normally name it.");
+				return;
+			}
+
 			RV_CORE_ERROR("Vulkan call failed: {0} returned {1} ({2}:{3})",
 						  expression, ResultToString(result), file, line);
 			RV_CORE_ASSERT(false, "Vulkan call failed");
 		}
+	}
+
+	bool DeviceLost()
+	{
+		return Detail::s_DeviceLost;
 	}
 
 	VkFormat ToVkFormat(Format format)

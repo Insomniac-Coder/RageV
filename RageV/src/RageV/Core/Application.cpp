@@ -588,6 +588,19 @@ namespace RageV {
 			if (!config.ScreenshotPath.empty() && frameNumber >= lastScreenshotFrame)
 				m_Running = false;
 
+			// **A lost device ends the run.** It cannot be recovered from
+			// without recreating the device and every resource on it, and the
+			// alternative to stopping is what a report of this actually looked
+			// like: a window that keeps its last frame and writes two errors
+			// per frame until somebody kills it. Stopping loses nothing that
+			// was not already lost, and it leaves the *first* error at the
+			// bottom of the log where it can be read.
+			if (m_Device && m_Device->IsDeviceLost())
+			{
+				RV_CORE_ERROR("Stopping: the graphics device is gone.");
+				m_Running = false;
+			}
+
 			if (benchmarkFrames > 0)
 			{
 				// Counted here rather than beside the screenshot's counter,
