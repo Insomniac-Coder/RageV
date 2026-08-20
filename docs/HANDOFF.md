@@ -1818,7 +1818,7 @@ upstream by the exit-3 rule; a fixture that loads and puts nothing in frame is
 not.
 
 **State.** Phases 0-7 and 9 are done; 8.1, 8.2, 8.4, 8.10 and 8.12 are
-done; phase 8 has 8.3, 8.5-8.9 and 8.11 open. **Everything through `8cfc0a5`
+done; phase 8 has 8.3, 8.5-8.9 and 8.11 open. **Everything through `fe13763`
 is pushed.** This session's work is on top of that and is the owner's to push.
 
 **1. `check_gi.py` now runs end to end and passes** -- the thing the last
