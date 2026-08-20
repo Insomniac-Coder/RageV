@@ -190,6 +190,9 @@ namespace RageV
 		if (key == "play")
 			return ParseBool(value, config.StartPlaying);
 
+		if (key == "graph-barrier" || key == "graphbarrier")
+			return ParseBool(value, config.DebugGraphBarrier);
+
 		if (key == "screenshot")
 		{
 			config.ScreenshotPath = value;

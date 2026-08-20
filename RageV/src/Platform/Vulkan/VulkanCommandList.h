@@ -67,6 +67,8 @@ namespace RageV::Vk
 
 		void PushDebugGroup(const char* name) override;
 		void PopDebugGroup() override;
+		void SetCheckpoint(const char* name) override;
+		void FullBarrier() override;
 
 		VkCommandBuffer GetHandle() const { return m_CommandBuffer; }
 		void* GetNativeHandle() const override { return (void*)m_CommandBuffer; }

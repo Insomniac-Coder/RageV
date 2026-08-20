@@ -567,8 +567,35 @@ namespace RageV::Vk
 		if (m_RayQuerySupported)
 			extensions.insert(extensions.end(), rayExtensions.begin(), rayExtensions.end());
 
+		// The post-mortem pair, both optional and both free when idle.
+		// Checkpoints (NVIDIA) let the queue answer "which breadcrumb did the
+		// GPU reach" after a loss; device fault (cross-vendor) reports what
+		// kind of fault and at what address. Neither changes rendering.
+		m_CheckpointsSupported = HasDeviceExtensions(
+			m_PhysicalDevice, { VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME });
+		if (m_CheckpointsSupported)
+			extensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+
+		VkPhysicalDeviceFaultFeaturesEXT supportedFault{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT };
+		if (HasDeviceExtensions(m_PhysicalDevice, { VK_EXT_DEVICE_FAULT_EXTENSION_NAME }))
+		{
+			VkPhysicalDeviceFeatures2 faultQuery{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+			faultQuery.pNext = &supportedFault;
+			vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &faultQuery);
+		}
+		m_DeviceFaultSupported = supportedFault.deviceFault == VK_TRUE;
+
+		VkPhysicalDeviceFaultFeaturesEXT faultFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT };
+		faultFeatures.deviceFault = VK_TRUE;
+		if (m_DeviceFaultSupported)
+		{
+			extensions.push_back(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+			faultFeatures.pNext = &features12;
+		}
+
 		VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-		createInfo.pNext = &features12;
+		createInfo.pNext = m_DeviceFaultSupported ? (void*)&faultFeatures
+												  : (void*)&features12;
 		createInfo.queueCreateInfoCount = (uint32_t)queueInfos.size();
 		createInfo.pQueueCreateInfos = queueInfos.data();
 		createInfo.pEnabledFeatures = &features;
@@ -579,6 +606,13 @@ namespace RageV::Vk
 		// Loads device-level entry points directly, skipping the loader's
 		// dispatch trampoline on every call.
 		volkLoadDevice(m_Device);
+
+		// Said once, because "no checkpoints reached" means two very different
+		// things depending on this and a post-mortem that cannot tell them
+		// apart is worse than none.
+		RV_CORE_INFO("GPU post-mortem: checkpoints {0}, device fault {1}",
+					 m_CheckpointsSupported ? "available" : "UNAVAILABLE",
+					 m_DeviceFaultSupported ? "available" : "UNAVAILABLE");
 
 		vkGetDeviceQueue(m_Device, m_QueueFamilies.Graphics, 0, &m_GraphicsQueue);
 		vkGetDeviceQueue(m_Device, m_QueueFamilies.Present, 0, &m_PresentQueue);
@@ -1335,7 +1369,95 @@ namespace RageV::Vk
 
 	bool VulkanDevice::IsDeviceLost() const
 	{
+		// The first caller to learn the device is gone triggers the
+		// post-mortem. Here rather than at the VK_CHECK that latched it,
+		// because the report needs the device and the queue, and the latch
+		// site is a free function that has neither.
+		if (Vk::DeviceLost() && !m_CrashDetailsReported)
+		{
+			m_CrashDetailsReported = true;
+			ReportGpuCrashDetails();
+		}
 		return Vk::DeviceLost();
+	}
+
+	void VulkanDevice::SetCheckpoint(VkCommandBuffer cmd, const char* name)
+	{
+		if (!m_CheckpointsSupported || !name)
+			return;
+
+		// The driver stores the pointer, not the characters, and answers with
+		// it after the crash -- so the string is interned for the device's
+		// lifetime. A node-based set keeps every address stable as it grows.
+		const auto& interned = *m_CheckpointNames.insert(name).first;
+		vkCmdSetCheckpointNV(cmd, interned.c_str());
+	}
+
+	void VulkanDevice::ReportGpuCrashDetails() const
+	{
+		if (m_CheckpointsSupported)
+		{
+			uint32_t count = 0;
+			vkGetQueueCheckpointDataNV(m_GraphicsQueue, &count, nullptr);
+			std::vector<VkCheckpointDataNV> data(count);
+			for (auto& entry : data)
+				entry.sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
+			vkGetQueueCheckpointDataNV(m_GraphicsQueue, &count, data.data());
+
+			if (count == 0)
+				RV_CORE_ERROR("  GPU checkpoints: none reached -- the fault "
+							  "precedes the first breadcrumb");
+			for (const VkCheckpointDataNV& entry : data)
+			{
+				// Top-of-pipe means the marker's pass *started*; bottom means
+				// it finished. The started-but-not-finished one is the killer.
+				const char* stage =
+					entry.stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT ? "started"
+					: entry.stage == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT ? "finished"
+					: "reached";
+				RV_CORE_ERROR("  GPU checkpoint ({0}): {1}", stage,
+							  entry.pCheckpointMarker
+								  ? (const char*)entry.pCheckpointMarker
+								  : "<null>");
+			}
+		}
+
+		if (m_DeviceFaultSupported)
+		{
+			VkDeviceFaultCountsEXT counts{ VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT };
+			if (vkGetDeviceFaultInfoEXT(m_Device, &counts, nullptr) == VK_SUCCESS)
+			{
+				std::vector<VkDeviceFaultAddressInfoEXT> addresses(counts.addressInfoCount);
+				std::vector<VkDeviceFaultVendorInfoEXT> vendor(counts.vendorInfoCount);
+				VkDeviceFaultInfoEXT info{ VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT };
+				info.pAddressInfos = addresses.empty() ? nullptr : addresses.data();
+				info.pVendorInfos = vendor.empty() ? nullptr : vendor.data();
+				counts.vendorBinarySize = 0;
+
+				if (vkGetDeviceFaultInfoEXT(m_Device, &counts, &info) == VK_SUCCESS)
+				{
+					RV_CORE_ERROR("  Device fault: {0}", info.description);
+					for (const VkDeviceFaultAddressInfoEXT& address : addresses)
+					{
+						RV_CORE_ERROR("    address {0:#x} (+/- {1:#x}), type {2}",
+									  (uint64_t)address.reportedAddress,
+									  (uint64_t)address.addressPrecision,
+									  (int)address.addressType);
+					}
+					for (const VkDeviceFaultVendorInfoEXT& entry : vendor)
+					{
+						RV_CORE_ERROR("    vendor: {0} (code {1:#x}, data {2:#x})",
+									  entry.description,
+									  (uint64_t)entry.vendorFaultCode,
+									  (uint64_t)entry.vendorFaultData);
+					}
+				}
+			}
+		}
+
+		if (!m_CheckpointsSupported && !m_DeviceFaultSupported)
+			RV_CORE_ERROR("  No post-mortem extensions on this device; a "
+						  "graphics debugger is the remaining tool");
 	}
 
 	void VulkanDevice::WaitIdle()

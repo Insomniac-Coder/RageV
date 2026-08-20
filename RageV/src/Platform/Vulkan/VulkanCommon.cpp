@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "VulkanCommon.h"
+#include <map>
 
 namespace RageV::Vk
 {
@@ -70,6 +71,77 @@ namespace RageV::Vk
 	bool DeviceLost()
 	{
 		return Detail::s_DeviceLost;
+	}
+
+	namespace Detail
+	{
+		struct GpuRange
+		{
+			std::string Name;
+			uint64_t    Size = 0;
+			bool        Freed = false;
+		};
+		// Keyed by base address, ordered, so a fault address resolves with one
+		// lower_bound rather than a scan.
+		std::map<uint64_t, GpuRange>& GpuRanges()
+		{
+			static std::map<uint64_t, GpuRange> ranges;
+			return ranges;
+		}
+	}
+
+	void NoteGpuRange(const char* name, uint64_t base, uint64_t size)
+	{
+		if (base == 0)
+			return;
+		Detail::GpuRanges()[base] = { name ? name : "?", size, false };
+	}
+
+	void MarkGpuRangeFreed(uint64_t base)
+	{
+		auto it = Detail::GpuRanges().find(base);
+		if (it != Detail::GpuRanges().end())
+			it->second.Freed = true;
+	}
+
+	void DescribeGpuAddress(uint64_t fault)
+	{
+		const auto& ranges = Detail::GpuRanges();
+		if (ranges.empty())
+		{
+			RV_CORE_ERROR("    (no registered GPU ranges to match against)");
+			return;
+		}
+
+		// First range at or after the fault, then step back for the candidate
+		// that could contain it.
+		auto after = ranges.lower_bound(fault);
+		if (after != ranges.begin())
+		{
+			auto candidate = std::prev(after);
+			const uint64_t end = candidate->first + candidate->second.Size;
+			if (fault < end)
+			{
+				RV_CORE_ERROR("    -> inside '{0}' [{1:#x} + {2:#x}]{3}",
+							  candidate->second.Name, candidate->first,
+							  candidate->second.Size,
+							  candidate->second.Freed
+								  ? " -- WHICH IS FREED: use-after-free"
+								  : "");
+				return;
+			}
+			RV_CORE_ERROR("    -> {0:#x} past the end of '{1}' [{2:#x} + {3:#x}]{4}",
+						  fault - end, candidate->second.Name, candidate->first,
+						  candidate->second.Size,
+						  candidate->second.Freed ? " (freed)" : "");
+		}
+		if (after != ranges.end())
+		{
+			RV_CORE_ERROR("    -> {0:#x} before the start of '{1}' [{2:#x} + {3:#x}]{4}",
+						  after->first - fault, after->second.Name, after->first,
+						  after->second.Size,
+						  after->second.Freed ? " (freed)" : "");
+		}
 	}
 
 	VkFormat ToVkFormat(Format format)

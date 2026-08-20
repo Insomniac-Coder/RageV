@@ -182,6 +182,52 @@ afternoon on them again.
 - **Cross-frame resource reuse.** It fails identically at 1, 2 and 3 frames in
   flight, so the hazard is inside a single frame.
 
+### The tools that now exist for it
+
+- **`--play=on`** starts the editor in Play as soon as the scene loads, which
+  is what makes the fault reachable without a person pressing a button.
+- **GPU checkpoints and device fault** are enabled when the driver has them
+  (`VK_NV_device_diagnostic_checkpoints`, `VK_EXT_device_fault`), and the
+  device logs which of the two it got at startup -- because "no checkpoints
+  reached" means two very different things depending on it. On a loss the
+  engine prints the last breadcrumb the GPU reached and any faulting address.
+  Every render-graph pass drops a breadcrumb named `<graph>/<pass>`, and the
+  editor's two graphs are named `scene` and `game` so a report can tell them
+  apart.
+- **`--graph-barrier=on`** records a full pipeline barrier between the two
+  graphs. A bisection tool, not a fix: if a hazard vanishes under it, the
+  hazard crosses the graphs.
+
+**What they said, on a machine where both extensions are available:** the
+barrier did **not** help -- 3 of 3 still lost -- so the hazard does not cross
+the graph boundary. Checkpoints reported **none reached**, which puts the fault
+before the first pass breadcrumb of the submission, and the device fault
+reported two addresses (types 6 and 1). That is where the next session starts.
+
+### A separate finding: TAA shimmer, and it is not a bug
+
+Chasing "flicker in the game view" turned up something real and unrelated. With
+a static camera and a static scene, the two panels shimmered on several
+thousand pixels a frame -- and the same measurement on the **runtime** showed
+it too, so it was never the editor's two-graph path.
+
+It is `TemporalFeedback`, and it is working as designed. At the engine default
+of 0.6 each frame keeps 60 % of the accumulated image and takes 40 % of a
+freshly *jittered* one, so a still frame never settles. Measured on the camp,
+in pixels changing by more than 32 between consecutive frames:
+
+| Feedback | Still | Motion sharpness |
+|---|---|---|
+| 0.6 (engine default) | 1562 | 3.917 |
+| 0.9 | **40** | 3.479 |
+| FXAA, for reference | 9 | -- |
+
+The camp holds its camera for 3.4 s of every 7.6 s, which is exactly the case
+the field's own note describes: *"A project that knows it is mostly still
+should raise it."* So the **project** sets 0.9 -- 39 times less shimmer for
+11 % softer edges while moving. The engine default is untouched, because it is
+the right default for a project that is mostly motion.
+
 Finding the actual fault needs a graphics debugger -- RenderDoc or Nsight on the
 frame that dies. The repro above is cheap and headless, which it was not before
 `--play` existed.

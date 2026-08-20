@@ -7,7 +7,7 @@ Project:
     AntiAliasing: TAA
     MsaaSamples: 4
     SupersampleFactor: 2
-    TemporalFeedback: 0.6
+    TemporalFeedback: 0.9
     TemporalJitterScale: 1
     TemporalJitterPhase: 8
     ShadowsEnabled: true

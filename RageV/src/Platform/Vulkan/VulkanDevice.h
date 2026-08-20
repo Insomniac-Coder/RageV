@@ -48,6 +48,13 @@ namespace RageV::Vk
 		void EndFrame() override;
 		void WaitIdle() override;
 		bool IsDeviceLost() const override;
+
+		// Record a breadcrumb into `cmd`. Interns the name; no-op without the
+		// checkpoint extension.
+		void SetCheckpoint(VkCommandBuffer cmd, const char* name);
+		// Ask the queue and the driver what actually happened. Called once,
+		// from the first IsDeviceLost() that answers yes.
+		void ReportGpuCrashDetails() const;
 		void RequestCapture(CaptureCallback callback) override;
 		void CaptureSwapchainImage();
 		void OnResize(uint32_t width, uint32_t height) override;
@@ -226,6 +233,24 @@ namespace RageV::Vk
 		bool m_DescriptorIndexingSupported = false;
 		VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
 		bool m_RayQuerySupported = false;
+
+		// Post-mortem diagnostics, both optional extensions probed at device
+		// creation. Checkpoints are NVIDIA's breadcrumb mechanism: a marker
+		// recorded into the command stream whose last-reached value the queue
+		// still answers for *after* a device loss. Device fault is the
+		// cross-vendor page-fault report. Together they turn DEVICE_LOST from
+		// a shrug into a pass name and an address.
+		bool m_CheckpointsSupported = false;
+		bool m_DeviceFaultSupported = false;
+		// vkCmdSetCheckpointNV stores the raw pointer, not the characters, so
+		// every marker string has to stay alive until the queue is asked for
+		// it -- after the crash. A node-based set gives each interned name a
+		// stable address for the device's whole life.
+		std::unordered_set<std::string> m_CheckpointNames;
+		// The crash report runs once. Mutable because the natural place to
+		// notice the loss is IsDeviceLost() const, and a diagnostic that has
+		// already fired is not observable state.
+		mutable bool m_CrashDetailsReported = false;
 
 		// One pool per frame in flight, so a frame never resets a pool the GPU
 		// is still writing into.

@@ -131,6 +131,11 @@ void EditorLayer::OnAttach()
 	auto& graphDevice = Renderer::GetDevice();
 	m_Graph = std::make_unique<RenderGraph>(graphDevice);
 	m_GameGraph = std::make_unique<RenderGraph>(graphDevice);
+	// For GPU breadcrumbs: both graphs record identical pass names into one
+	// command buffer, and a post-mortem that cannot tell them apart names the
+	// wrong suspect half the time.
+	m_Graph->SetName("scene");
+	m_GameGraph->SetName("game");
 
 	m_ContentBrowser.SetActivateCallback(
 		[this](AssetHandle handle, AssetType type) { OnAssetActivated(handle, type); });
@@ -610,6 +615,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 			RV_ERROR("Render graph (scene view): {0}", error);
 	}
 	}
+
+	// --graph-barrier: everything-to-everything between the two graphs. The
+	// bisection experiment for the play-mode device loss -- if full sync here
+	// cures it, the hazard crosses the graphs; if not, it lives inside one.
+	if (EngineConfig::Get().DebugGraphBarrier)
+		cmd->FullBarrier();
 
 	// The same scene again, through whichever camera holds the lowest ViewRank.
 	// Drawing a scene twice in one frame is what the renderers' per-batch

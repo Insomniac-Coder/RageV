@@ -409,6 +409,7 @@ namespace RageV
 				context.Width = m_Width;
 				context.Height = m_Height;
 
+				cmd.SetCheckpoint((m_Name + '/' + pass.Name).c_str());
 				cmd.PushDebugGroup(pass.Name.c_str());
 				if (pass.ExecuteFn)
 					pass.ExecuteFn(context);
@@ -454,6 +455,11 @@ namespace RageV
 				context.Width = output.Target->GetWidth();
 				context.Height = output.Target->GetHeight();
 			}
+
+			// The breadcrumb goes down before the render pass opens, so a
+			// death anywhere inside it -- clears included -- still reads as
+			// this pass having started and not finished.
+			cmd.SetCheckpoint((m_Name + '/' + pass.Name).c_str());
 
 			// Named in the capture, so a frame in RenderDoc reads the same way
 			// the declaration does.

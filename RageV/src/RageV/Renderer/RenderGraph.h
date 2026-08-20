@@ -204,6 +204,11 @@ namespace RageV
 		using PassExecute = std::function<void(RGPassContext&)>;
 
 		explicit RenderGraph(RHI::RHIDevice& device);
+
+		// Names this graph in GPU breadcrumbs. The editor records two graphs
+		// into one command buffer with identical pass names; without this a
+		// post-mortem cannot say which of the two "SSAO" passes died.
+		void SetName(std::string name) { m_Name = std::move(name); }
 		~RenderGraph();
 
 		// Starts a new frame's description. `width` and `height` are the size
@@ -320,6 +325,7 @@ namespace RageV
 		std::vector<Pass> m_Passes;
 		std::vector<std::string> m_Errors;
 		bool m_Compiled = false;
+		std::string m_Name;
 
 		// Kept between frames so a stable frame allocates nothing after the
 		// first. Keyed by description and size.

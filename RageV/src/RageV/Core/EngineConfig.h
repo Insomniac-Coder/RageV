@@ -105,6 +105,12 @@ namespace RageV
 		// hand and reported second-hand.
 		bool         StartPlaying = false;
 
+		// Record a full pipeline barrier between the editor's two render
+		// graphs. A diagnostic, not a fix: it exists to answer one question
+		// about the play-mode device loss, and costs enough GPU overlap that
+		// nothing should ship with it on.
+		bool         DebugGraphBarrier = false;
+
 		// Write a PNG of one frame and exit.
 		//
 		// The only way to check what the engine actually put on screen without

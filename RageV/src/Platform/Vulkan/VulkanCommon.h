@@ -41,6 +41,21 @@ namespace RageV::Vk
 	// not a consequence.
 	bool DeviceLost();
 
+	// The GPU address-range registry, for reading a device-fault address.
+	//
+	// VK_EXT_device_fault answers a loss with *an address*, and an address
+	// without a map is a number. Every buffer that hands out a device address
+	// and every acceleration structure's backing registers its range here;
+	// destruction marks the range freed rather than erasing it, because a
+	// fault inside a freed range is the finding -- a use-after-free with the
+	// culprit's debug name on it. Render-thread only, like every other Vulkan
+	// call in this engine.
+	void NoteGpuRange(const char* name, uint64_t base, uint64_t size);
+	void MarkGpuRangeFreed(uint64_t base);
+	// Logs the range containing `fault`, or the nearest ones either side when
+	// nothing contains it -- just-past-the-end is an overrun caught red-handed.
+	void DescribeGpuAddress(uint64_t fault);
+
 	// Destruction has to be deferred: the GPU may still be reading a resource
 	// from an in-flight frame when its last reference is dropped.
 	//

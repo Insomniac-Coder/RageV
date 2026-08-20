@@ -192,6 +192,22 @@ namespace RageV::RHI
 		virtual void PushDebugGroup(const char* name) = 0;
 		virtual void PopDebugGroup() = 0;
 
+		// A GPU breadcrumb. Debug groups annotate a capture; a checkpoint
+		// survives a device loss -- after VK_ERROR_DEVICE_LOST the queue can
+		// be asked which checkpoint the GPU actually reached, which turns
+		// "the device is gone" into the name of the pass that killed it.
+		// No-op on backends without an equivalent, and on hardware without
+		// the extension, because a breadcrumb nobody can read back is cost
+		// without a diagnostic.
+		virtual void SetCheckpoint(const char* name) { (void)name; }
+
+		// Everything-to-everything execution and memory barrier. Never part
+		// of a real frame: this is the bisection tool for synchronisation
+		// bugs -- if a hazard disappears under it, the hazard is a missing
+		// dependency between recorded work; if it survives, the bug is in
+		// the work itself. Must be recorded outside a render pass.
+		virtual void FullBarrier() {}
+
 		// Escape hatch for third-party libraries that render themselves and
 		// need the underlying handle -- Dear ImGui's backends being the reason
 		// this exists. Returns a VkCommandBuffer on Vulkan and nullptr on

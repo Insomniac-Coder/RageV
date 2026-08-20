@@ -757,6 +757,29 @@ namespace RageV::Vk
 		dst->TransitionTo(m_CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
 
+	void VulkanCommandList::SetCheckpoint(const char* name)
+	{
+		m_Device.SetCheckpoint(m_CommandBuffer, name);
+	}
+
+	void VulkanCommandList::FullBarrier()
+	{
+		RV_CORE_ASSERT(!m_InRenderPass, "FullBarrier must be recorded outside a render pass");
+
+		// Everything before against everything after, execution and memory
+		// both. The bisection tool, not a building block -- see the RHI note.
+		VkMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+		barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+		VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		dependency.memoryBarrierCount = 1;
+		dependency.pMemoryBarriers = &barrier;
+		vkCmdPipelineBarrier2(m_CommandBuffer, &dependency);
+	}
+
 	void VulkanCommandList::PushDebugGroup(const char* name)
 	{
 		if (!vkCmdBeginDebugUtilsLabelEXT)

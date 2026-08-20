@@ -45,6 +45,7 @@ void RuntimeLayer::OnAttach()
 									  RHI::Format::R16G16B16A16_SFLOAT);
 
 	m_Graph = std::make_unique<RenderGraph>(Renderer::GetDevice());
+	m_Graph->SetName("scene");
 
 	// So the UI pass does not wipe the frame this layer just drew.
 	//
