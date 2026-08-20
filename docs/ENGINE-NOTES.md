@@ -10655,6 +10655,90 @@ then measure, not to press a button.
 
 ---
 
+### 7bl. Graph is a language in the row, not an entry inside C# (10.12)
+
+10.11 put **New Graph...** at the bottom of the script dropdown, under the C#
+language, and reasoned that a graph generates C# so that is where it belongs.
+The owner's correction:
+
+> we generate a C# script behind the scene but it shouldn't mean that I find
+> the graph option under the C# section, graph should be a 3rd scripting
+> option available
+
+That is right, and the mistake is worth naming because it is a common one:
+**the implementation's structure had been allowed to become the user's menu.**
+C# is how a graph is *executed*. It is not what the person chose, and making
+them know the first in order to find the second is exactly the kind of leak
+7bh's design was supposed to avoid — the entry point advertised the
+implementation while the manual page argued the opposite.
+
+#### What changed
+
+**Language is three-way:** C++, C#, Graph. Picking Graph asks for a name
+immediately, because that is what choosing it means. Cancel leaves the
+language selected and the dropdown listing the graphs that exist, so it is not
+a trap for somebody who meant to pick an existing one.
+
+**The picker follows the language.** Under Graph the row is labelled *Graph*
+and lists `.rvgraph` assets rather than every class in the assembly; its last
+entry is **New Graph...** and not **New Script...**. One "new" per language,
+because the language is already chosen one row above.
+
+**A graph-backed component gets Edit Graph**, which opens the canvas through
+the editor's own activate handler — the same door the content browser uses.
+
+#### How the editor knows, and why it is not a flag
+
+`assets/graphs/<Name>.rvgraph` exists. One stat, per frame the row is on
+screen, which is what lets the answer be the file system rather than a cached
+idea of it.
+
+**Not a field on `ManagedScriptComponent`**, deliberately, and this was the
+one real design decision in the change. A stored flag can disagree with the
+file system — a graph deleted outside the editor, a project moved, a scene
+authored by hand — and then something has to arbitrate between two sources for
+one fact. The asset *is* the fact. It also costs nothing: no scene format
+change, no serializer change, no migration for scenes written before today,
+and no new row in `components.md`.
+
+The two name spaces were already shared, so nothing is being inferred that was
+not already true: a graph and a hand-written script cannot both be called
+`Spinner`, because the generated `Spinner.g.cs` would collide with the
+hand-written one — which is why the New Graph popup checks *both* names before
+enabling Create.
+
+The known edge, stated rather than hidden: a `.rvgraph` somewhere other than
+`assets/graphs/` generates a class the inspector will describe as C#. The
+listing walks the whole asset tree, so it is still selectable; only the
+language label is wrong, and only for a file put somewhere nothing in the
+editor puts one.
+
+#### The bug that only appears across a conversion
+
+Picking Graph while the component is **C++** has to do two things: convert the
+component to managed, and open the popup. The conversion is queued and applied
+after the component walk (the list is being iterated), so the popup request
+has to survive into the *next* frame — the first one where the managed
+inspector is the thing on screen.
+
+The first cut consumed the request in whichever picker ran, including the
+native one, which does not call `BeginPopupModal` for it. `ImGui::OpenPopup`
+followed by nobody beginning that popup drops it silently: the component
+converted and no dialog ever appeared. The request is now ignored by the
+native row and picked up by the managed one on the frame after.
+
+#### Verification
+
+The Language row and the graph-backed inspector are screenshots — `--select=`
+and a scene whose entity carries only a Tag, a Transform and the script, so
+the Script section is above the fold. Nothing here is measurable by a check:
+it is a menu, and the thing that would break is a person's ability to find it.
+
+What *is* checked is unchanged and still passes: the starter graph's five
+scenetest claims, `check_graph`, and the whole suite's build.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

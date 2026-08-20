@@ -18,10 +18,11 @@ The C# API is a mirror of the C++ one — the same names, the same lifecycle, th
 same rules — deliberately, so that this manual describes one engine rather than
 two. Where the two genuinely differ, the difference is called out.
 
-There is a third way to *author* a script and it is not a third language: a
-[visual graph](visual.md) is drawn on a canvas and **generates C#**, which the
-same build then compiles. Nothing on this page changes for it — the events, the
-API and the lifecycle below are the ones a graph wires together.
+There is a third choice in the **Language** row — a
+[visual graph](visual.md), drawn on a canvas — and it is not a third *runtime*:
+it generates C#, which the same build compiles. Nothing on this page changes
+for it, because the events, the API and the lifecycle below are the ones a
+graph wires together.
 
 > [!NOTE]
 > The native surface was finished and frozen *before* C# work began. Every

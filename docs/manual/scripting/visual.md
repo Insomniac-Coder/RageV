@@ -16,12 +16,16 @@ Spinner.rvgraph  →  Scripts/Generated/Spinner.g.cs  →  the assembly  →  th
 
 ## Making one
 
-Select an entity, add a **Script** component, set **Language** to C#, and open
-the script dropdown: the last entry is **New Graph...**. Name it, press
-**Create**, and the canvas opens on a working graph — the component is already
-pointed at it, so there is no hunting for the new name afterwards.
+Select an entity, add a **Script** component, and set **Language** to
+**Graph** — the third option beside C++ and C#. It asks for a name straight
+away; press **Create** and the canvas opens on a working graph, with the
+component already pointed at it.
 
-It goes in the project's `assets/graphs/`. An existing one is opened by
+The row underneath then lists the project's graphs rather than its C# classes,
+so switching an entity between two graphs is the same one-click choice as
+switching between two scripts. **Edit Graph** reopens the canvas.
+
+Graphs go in `assets/graphs/`. An existing one also opens by
 **double-clicking it in the content browser**, where graphs have their own
 icon.
 
@@ -31,8 +35,12 @@ the class name is what scene files store, the same rule as
 [C++](cpp.md) and [C#](csharp.md).
 
 > [!NOTE]
-> **New Graph...** appears only under the C# language, because C# is what a
-> graph generates. Under C++ the dropdown offers **New Script...** alone.
+> A graph *runs* as C#, and the editor still says **Graph**, because those are
+> different questions. Which language a component is written in is the
+> engine's business; which of the three you chose is yours. The editor decides
+> a component is a graph by finding `assets/graphs/<Name>.rvgraph` — the asset
+> is the fact, rather than a flag in the scene file that could disagree with
+> it.
 
 What you start with is deliberately not an empty canvas:
 

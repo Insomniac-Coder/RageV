@@ -953,8 +953,14 @@ void RageV::SceneHierarchyPanel::CommitPendingEdit()
 // code reaches every entity that never overrode it.
 void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& script)
 {
+	// Which of the two managed kinds this is. Asked every frame, of the file
+	// system, so a graph deleted or created outside the editor is reflected
+	// without anything having to be told.
+	const ScriptKind kind = IsGraphScript(script.ScriptName) ? ScriptKind::Graph
+															 : ScriptKind::CSharp;
+
 	DrawScriptNameRow(script.Label);
-	DrawScriptLanguageRow(true);
+	DrawScriptLanguageRow(kind);
 
 	if (!Managed::Interop::IsReady())
 	{
@@ -986,8 +992,40 @@ void RageV::SceneHierarchyPanel::DrawManagedScript(ManagedScriptComponent& scrip
 		}
 	}
 
-	if (DrawScriptPicker(types, script.ScriptName, true))
+	// Under Graph the choice is between *graphs*, not between every class the
+	// assembly happens to hold -- and a graph whose C# is not compiled yet goes
+	// in the "not built" group, exactly as an unbuilt script does.
+	std::vector<std::string> options = types;
+	if (kind == ScriptKind::Graph)
+	{
+		options.clear();
+		m_GraphsNotBuilt.clear();
+
+		for (const std::string& name : ListGraphNames())
+		{
+			const bool built = std::find(types.begin(), types.end(), name) != types.end();
+			(built ? options : m_GraphsNotBuilt).push_back(name);
+		}
+	}
+
+	if (DrawScriptPicker(options, script.ScriptName, kind))
 		script.Fields.Values.clear();
+
+	// The way back to the canvas. A graph is edited somewhere else, and the
+	// component that names it is where somebody will look for the door --
+	// through the editor's own "open this asset", the same as everything else.
+	if (kind == ScriptKind::Graph)
+	{
+		UI::BeginField("Canvas", "Opens this graph in the script graph editor.");
+		if (ImGui::Button("Edit Graph", ImVec2(-1.0f, 0.0f)))
+		{
+			const AssetHandle handle = Assets::Registry::GetHandle(
+				"graphs/" + script.ScriptName + ".rvgraph");
+			if (handle.IsValid() && m_OnActivate)
+				m_OnActivate(handle, AssetType::ScriptGraph);
+		}
+		UI::EndField();
+	}
 
 	// Creating one selects it, so the next step is Build Scripts rather than
 	// hunting for the new name in a dropdown.
@@ -1160,20 +1198,76 @@ std::vector<std::string> RageV::SceneHierarchyPanel::ScanUnbuiltScripts(
 // cannot be done here -- the caller is iterating the component list and adding
 // or removing one invalidates it -- so the choice is queued and applied after
 // the loop, exactly as component removal already is.
-void RageV::SceneHierarchyPanel::DrawScriptLanguageRow(bool managed)
+bool RageV::SceneHierarchyPanel::IsGraphScript(const std::string& scriptName)
+{
+	if (scriptName.empty() || !Project::GetActive())
+		return false;
+
+	// One stat, on the path New Graph... writes to. Cheap enough to ask every
+	// frame the row is on screen, which is what lets the answer be the file
+	// system rather than a cached idea of it.
+	std::error_code ec;
+	return std::filesystem::exists(
+		Project::AssetRoot() / "graphs" / (scriptName + ".rvgraph"), ec);
+}
+
+std::vector<std::string> RageV::SceneHierarchyPanel::ListGraphNames()
+{
+	std::vector<std::string> names;
+	if (!Project::GetActive())
+		return names;
+
+	std::error_code ec;
+	const std::filesystem::path root = Project::AssetRoot();
+	if (!std::filesystem::exists(root, ec))
+		return names;
+
+	for (const std::filesystem::directory_entry& entry :
+		 std::filesystem::recursive_directory_iterator(root, ec))
+	{
+		if (entry.is_regular_file(ec) && entry.path().extension() == ".rvgraph")
+			names.push_back(entry.path().stem().string());
+	}
+
+	std::sort(names.begin(), names.end());
+	return names;
+}
+
+// Three, not two (10.12). A graph *runs* as C#, and that is the engine's
+// business rather than the user's: burying it under the C# dropdown made
+// finding the feature depend on knowing how it is implemented.
+//
+// Picking Graph asks for a name immediately, because that is what choosing it
+// means -- and if there are graphs already, Cancel leaves the language set and
+// the dropdown listing them.
+void RageV::SceneHierarchyPanel::DrawScriptLanguageRow(ScriptKind kind)
 {
 	UI::BeginField("Language",
 			   "C++ scripts are compiled into the engine and need a rebuild.\n"
-			   "C# scripts live in the project and rebuild from File > Build Scripts.");
+			   "C# scripts live in the project and rebuild from File > Build Scripts.\n"
+			   "A graph is drawn on a canvas; it generates C# and rebuilds the same way.");
 
-	const char* const kLanguages[] = { "C++", "C#" };
-	int current = managed ? 1 : 0;
+	const char* const kLanguages[] = { "C++", "C#", "Graph" };
+	int current = (int)kind;
 
-	if (ImGui::Combo("##language", &current, kLanguages, 2))
+	if (ImGui::Combo("##language", &current, kLanguages, 3))
 	{
-		if ((current == 1) != managed)
-			m_PendingScriptSwap = (current == 1) ? PendingScriptSwap::ToCSharp
-												 : PendingScriptSwap::ToCpp;
+		const ScriptKind picked = (ScriptKind)current;
+		if (picked != kind)
+		{
+			// A graph is a managed script, so coming from C++ is the same
+			// conversion C# needs; coming from C# is no conversion at all.
+			if (picked == ScriptKind::Graph)
+			{
+				if (kind == ScriptKind::Cpp)
+					m_PendingScriptSwap = PendingScriptSwap::ToCSharp;
+				m_OpenNewGraph = true;
+			}
+			else if (picked == ScriptKind::CSharp && kind == ScriptKind::Cpp)
+				m_PendingScriptSwap = PendingScriptSwap::ToCSharp;
+			else if (picked == ScriptKind::Cpp)
+				m_PendingScriptSwap = PendingScriptSwap::ToCpp;
+		}
 	}
 
 	UI::EndField();
@@ -1189,12 +1283,16 @@ void RageV::SceneHierarchyPanel::DrawScriptLanguageRow(bool managed)
 //
 // Returns true when the selection changed.
 bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>& available,
-												  std::string& scriptName, bool managed)
+												  std::string& scriptName, ScriptKind kind)
 {
 	bool changed = false;
+	const bool graph = kind == ScriptKind::Graph;
 
-	UI::BeginField("Script", "The name written into the scene file. Renaming a script\n"
-						 "breaks every scene that used it.");
+	UI::BeginField(graph ? "Graph" : "Script",
+				   graph ? "The graph's file name, which is also the class it\n"
+						   "generates. Renaming it breaks every scene that used it."
+						 : "The name written into the scene file. Renaming a script\n"
+						   "breaks every scene that used it.");
 
 	const std::string current = scriptName.empty() ? "(none)" : scriptName;
 
@@ -1202,8 +1300,10 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 	{
 		// Scanned when the list opens rather than every frame it is open: it
 		// touches the disk, and the answer cannot change while it is on screen.
-		if (ImGui::IsWindowAppearing())
-			m_UnbuiltScripts = ScanUnbuiltScripts(available, managed);
+		// A graph's "not built yet" list is worked out by the caller, which
+		// has the assembly's type list; a script's is scanned from source.
+		if (ImGui::IsWindowAppearing() && !graph)
+			m_UnbuiltScripts = ScanUnbuiltScripts(available, kind == ScriptKind::CSharp);
 
 		if (ImGui::Selectable("(none)", scriptName.empty()))
 		{
@@ -1224,10 +1324,13 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 		// the build catches up is the normal order of doing this. The scene
 		// stores the name either way, and the entity starts working the moment
 		// the build has it.
-		if (!m_UnbuiltScripts.empty())
+		const std::vector<std::string>& pending =
+			graph ? m_GraphsNotBuilt : m_UnbuiltScripts;
+
+		if (!pending.empty())
 		{
 			ImGui::Separator();
-			for (const std::string& name : m_UnbuiltScripts)
+			for (const std::string& name : pending)
 			{
 				// The same suffix for both languages now: either way the fix is
 				// Build Scripts, not an engine rebuild.
@@ -1245,14 +1348,16 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 
 		// The popup cannot be opened from inside the combo -- the combo closes
 		// and takes the popup with it. Flagged here, opened after EndCombo.
-		if (ImGui::Selectable("New Script..."))
+		// One "new..." per language, because the language is already chosen
+		// one row above. Offering both here was the arrangement 10.12
+		// replaced: it made Graph something you found inside C#.
+		if (graph)
+		{
+			if (ImGui::Selectable("New Graph..."))
+				m_OpenNewGraph = true;
+		}
+		else if (ImGui::Selectable("New Script..."))
 			m_OpenNewScript = true;
-
-		// Only under C#. A graph generates a C# class, so offering it while the
-		// component is native would promise something this engine does not do
-		// -- and 7bh's whole argument is that a graph is not a third runtime.
-		if (managed && ImGui::Selectable("New Graph..."))
-			m_OpenNewGraph = true;
 
 		ImGui::EndCombo();
 	}
@@ -1266,7 +1371,12 @@ bool RageV::SceneHierarchyPanel::DrawScriptPicker(const std::vector<std::string>
 		ImGui::OpenPopup("New Script");
 	}
 
-	if (m_OpenNewGraph)
+	// Not from the native row, which does not draw the popup: picking Graph
+	// while the component is still C++ queues the conversion *first*, and
+	// the request has to survive to the frame after it, when the managed
+	// inspector is the one on screen. Opening a modal that nothing calls
+	// BeginPopupModal for would drop it silently.
+	if (m_OpenNewGraph && kind != ScriptKind::Cpp)
 	{
 		m_OpenNewGraph = false;
 		m_NewGraphName[0] = '\0';
@@ -1587,12 +1697,12 @@ bool RageV::SceneHierarchyPanel::WriteNewScript(const std::filesystem::path& fil
 void RageV::SceneHierarchyPanel::DrawNativeScript(NativeScriptComponent& script)
 {
 	DrawScriptNameRow(script.Label);
-	DrawScriptLanguageRow(false);
+	DrawScriptLanguageRow(ScriptKind::Cpp);
 
 	// Overrides belong to the script that had them. Carrying them across a
 	// change of script would apply one script's values to another's identically
 	// named field, which is worse than losing them.
-	if (DrawScriptPicker(ScriptRegistry::GetNames(), script.ScriptName, false))
+	if (DrawScriptPicker(ScriptRegistry::GetNames(), script.ScriptName, ScriptKind::Cpp))
 		script.Fields.Values.clear();
 
 	// Creating one selects it, same as the C# side: the next step is Build

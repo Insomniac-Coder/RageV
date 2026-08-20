@@ -71,7 +71,22 @@ namespace RageV
 		// One script inspector for both languages. The language row converts the
 		// component, which cannot happen while the component list is being
 		// walked -- so it is queued and applied afterwards, the way removal is.
-		void DrawScriptLanguageRow(bool managed);
+		// What the Language row offers. A graph runs as C# and is *chosen* as
+		// a graph, and those are different questions -- the row answers the
+		// second one (10.12, ENGINE-NOTES 7bl).
+		enum class ScriptKind { Cpp, CSharp, Graph };
+
+		// Whether a managed script's name belongs to a graph. Decided by
+		// `assets/graphs/<name>.rvgraph` existing rather than by anything in
+		// the scene file: the asset is the fact, and a flag that can disagree
+		// with the file system is a flag somebody has to arbitrate.
+		static bool IsGraphScript(const std::string& scriptName);
+
+		// Every `.rvgraph` in the project, by class name. Recursive, like the
+		// generator's own walk -- a graph is wherever somebody put it.
+		static std::vector<std::string> ListGraphNames();
+
+		void DrawScriptLanguageRow(ScriptKind kind);
 		bool DrawNewScriptPopup(bool managed, std::string& chosenName);
 
 		// "New Graph..." (10.11). Same shape as the popup above and the same
@@ -80,7 +95,7 @@ namespace RageV
 		// then hunting for it in a dropdown is not a step.
 		bool DrawNewGraphPopup(std::string& chosenName);
 		bool DrawScriptPicker(const std::vector<std::string>& available,
-							  std::string& scriptName, bool managed);
+							  std::string& scriptName, ScriptKind kind);
 		void DrawScriptNameRow(std::string& label);
 		bool m_OpenNewScript = false;
 		bool m_OpenNewGraph = false;
@@ -92,6 +107,11 @@ namespace RageV
 		static bool FileRegistersScript(const std::filesystem::path& file,
 										const std::string& name);
 		std::vector<std::string> m_UnbuiltScripts;
+
+		// Graphs that exist but whose generated class the assembly does not
+		// have yet. Computed by the caller, because deciding it needs the
+		// built type list the picker is not given.
+		std::vector<std::string> m_GraphsNotBuilt;
 		static bool WriteNewScript(const std::filesystem::path& file,
 								   const std::string& name);
 

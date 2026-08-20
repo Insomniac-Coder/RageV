@@ -24,7 +24,7 @@
 <tr><td style="text-align:left">Cost of a mistake</td><td style="text-align:left">Crashes the editor</td><td style="text-align:left">Throws, and the editor survives</td></tr>
 </tbody></table></div>
 <p>The C# API is a mirror of the C++ one — the same names, the same lifecycle, the same rules — deliberately, so that this manual describes one engine rather than two. Where the two genuinely differ, the difference is called out.</p>
-<p>There is a third way to <em>author</em> a script and it is not a third language: a <a href="visual.html">visual graph</a> is drawn on a canvas and <strong>generates C#</strong>, which the same build then compiles. Nothing on this page changes for it — the events, the API and the lifecycle below are the ones a graph wires together.</p>
+<p>There is a third choice in the <strong>Language</strong> row — a <a href="visual.html">visual graph</a>, drawn on a canvas — and it is not a third <em>runtime</em>: it generates C#, which the same build compiles. Nothing on this page changes for it, because the events, the API and the lifecycle below are the ones a graph wires together.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>The native surface was finished and frozen <em>before</em> C# work began. Every change to it afterwards costs a binding update, a marshalling update and a class-library update, so it was worth designing once. If you are writing C++ scripts today, what you learn transfers.</p>
 </aside>
 <h2 id="the-shape-of-a-script">The shape of a script<a class="anchor" href="#the-shape-of-a-script" aria-label="Link to this section">#</a></h2>

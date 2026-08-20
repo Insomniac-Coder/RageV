@@ -19,10 +19,11 @@
 <figure class="code"><pre><code>Spinner.rvgraph  →  Scripts/Generated/Spinner.g.cs  →  the assembly  →  the Script component
 </code></pre></figure>
 <h2 id="making-one">Making one<a class="anchor" href="#making-one" aria-label="Link to this section">#</a></h2>
-<p>Select an entity, add a <strong>Script</strong> component, set <strong>Language</strong> to C#, and open the script dropdown: the last entry is <strong>New Graph...</strong>. Name it, press <strong>Create</strong>, and the canvas opens on a working graph — the component is already pointed at it, so there is no hunting for the new name afterwards.</p>
-<p>It goes in the project&#39;s <code>assets/graphs/</code>. An existing one is opened by <strong>double-clicking it in the content browser</strong>, where graphs have their own icon.</p>
+<p>Select an entity, add a <strong>Script</strong> component, and set <strong>Language</strong> to <strong>Graph</strong> — the third option beside C++ and C#. It asks for a name straight away; press <strong>Create</strong> and the canvas opens on a working graph, with the component already pointed at it.</p>
+<p>The row underneath then lists the project&#39;s graphs rather than its C# classes, so switching an entity between two graphs is the same one-click choice as switching between two scripts. <strong>Edit Graph</strong> reopens the canvas.</p>
+<p>Graphs go in <code>assets/graphs/</code>. An existing one also opens by <strong>double-clicking it in the content browser</strong>, where graphs have their own icon.</p>
 <p>The file name is the class name. <code>Spinner.rvgraph</code> generates <code>public class Spinner : Script</code>, so renaming the file renames the class — and the class name is what scene files store, the same rule as <a href="cpp.html">C++</a> and <a href="csharp.html">C#</a>.</p>
-<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>New Graph...</strong> appears only under the C# language, because C# is what a graph generates. Under C++ the dropdown offers <strong>New Script...</strong> alone.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>A graph <em>runs</em> as C#, and the editor still says <strong>Graph</strong>, because those are different questions. Which language a component is written in is the engine&#39;s business; which of the three you chose is yours. The editor decides a component is a graph by finding <code>assets/graphs/&lt;Name&gt;.rvgraph</code> — the asset is the fact, rather than a flag in the scene file that could disagree with it.</p>
 </aside>
 <p>What you start with is deliberately not an empty canvas:</p>
 <figure class="code"><pre><code>On Create ──▶ Log
