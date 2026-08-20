@@ -61,6 +61,12 @@ namespace RageV::UI
 		ImVec2 PinPos(const GraphNode& node, uint32_t pin, bool input) const;
 		ImVec2 NodeSize(const GraphNode& node) const;
 
+		// How wide this node has to be to say what it says: its title, its
+		// subtitle, and the widest input/output label pair on any one row.
+		// A constant width is what produced "Comple..." on a pin called
+		// Completed -- the node was narrower than its own vocabulary.
+		float NodeWidth(const GraphNode& node) const;
+
 		void DrawGrid(ImDrawList* draw, const ImVec2& origin, const ImVec2& size) const;
 		void DrawLinks(ImDrawList* draw);
 		void DrawNodes(ImDrawList* draw);

@@ -22,7 +22,12 @@ namespace RageV::UI
 
 		float LengthSq(const ImVec2& v) { return v.x * v.x + v.y * v.y; }
 
-		constexpr float kNodeWidth = 168.0f;
+		// A floor and a ceiling rather than a fixed width. The floor keeps a
+		// row of tiny maths nodes looking like a row; the ceiling stops one
+		// long field name stretching a node across the canvas, and that is the
+		// case the ellipsis and the tooltip are still for.
+		constexpr float kMinNodeWidth = 168.0f;
+		constexpr float kMaxNodeWidth = 340.0f;
 		constexpr float kHeaderHeight = 26.0f;
 		constexpr float kPinRow = 20.0f;
 		constexpr float kPinRadius = 5.0f;
@@ -111,6 +116,16 @@ namespace RageV::UI
 			const std::string cut = text.substr(0, keep) + kEllipsis;
 			draw->AddText(ImGui::GetFont(), size, at, color,
 						  cut.c_str(), cut.c_str() + cut.size());
+		}
+
+		// Width of a string at the canvas's scale, in graph units.
+		float TextWidth(const std::string& text, float zoom)
+		{
+			if (text.empty() || zoom <= 0.0f)
+				return 0.0f;
+			const float size = ImGui::GetFontSize() * zoom;
+			return ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f,
+												   text.c_str()).x / zoom;
 		}
 
 		// What a node shows under its header: the literal it carries, or the
@@ -257,12 +272,37 @@ namespace RageV::UI
 		return Vec2(screen.x / m_Zoom + m_Pan.x, screen.y / m_Zoom + m_Pan.y);
 	}
 
+	float ScriptGraphPanel::NodeWidth(const GraphNode& node) const
+	{
+		const GraphNodeDesc& desc = GraphNodeDescOf(node.Type);
+
+		// The title and the subtitle each need the node minus their margins.
+		float wanted = TextWidth(desc.Name, m_Zoom) + 16.0f;
+		wanted = Math::Max(wanted, TextWidth(NodeSubtitle(node), m_Zoom) + 16.0f);
+
+		// And every row needs its input label, its output label, and the two
+		// pin gutters -- measured per row, because it is the widest *pair*
+		// that sets the width, not the widest label.
+		const size_t rows = Math::Max(desc.Inputs.size(), desc.Outputs.size());
+		for (size_t row = 0; row < rows; row++)
+		{
+			float used = 24.0f;
+			if (row < desc.Inputs.size())
+				used += TextWidth(desc.Inputs[row].Name, m_Zoom);
+			if (row < desc.Outputs.size())
+				used += TextWidth(desc.Outputs[row].Name, m_Zoom);
+			wanted = Math::Max(wanted, used + 16.0f);
+		}
+
+		return Math::Clamp(wanted, kMinNodeWidth, kMaxNodeWidth);
+	}
+
 	ImVec2 ScriptGraphPanel::NodeSize(const GraphNode& node) const
 	{
 		const GraphNodeDesc& desc = GraphNodeDescOf(node.Type);
 		const size_t rows = Math::Max(desc.Inputs.size(), desc.Outputs.size());
 		const float subtitle = NodeSubtitle(node).empty() ? 0.0f : kPinRow;
-		return ImVec2(kNodeWidth,
+		return ImVec2(NodeWidth(node),
 					  kHeaderHeight + subtitle + (float)rows * kPinRow + kNodePad);
 	}
 
@@ -271,7 +311,7 @@ namespace RageV::UI
 		const GraphNodeDesc& desc = GraphNodeDescOf(node.Type);
 		const float subtitle = NodeSubtitle(node).empty() ? 0.0f : kPinRow;
 		const float y = kHeaderHeight + subtitle + ((float)pin + 0.5f) * kPinRow;
-		const float x = input ? 0.0f : kNodeWidth;
+		const float x = input ? 0.0f : NodeWidth(node);
 		(void)desc;
 		return ImVec2((node.Position.x - m_Pan.x) * m_Zoom + x * m_Zoom,
 					  (node.Position.y - m_Pan.y) * m_Zoom + y * m_Zoom);
@@ -487,15 +527,16 @@ namespace RageV::UI
 
 			if (labels)
 			{
+				const float width = NodeWidth(node);
 				DrawFitted(draw, ImVec2(min.x + 8.0f * m_Zoom, min.y + 5.0f * m_Zoom),
 						   ImGui::GetColorU32(ImVec4(1, 1, 1, 0.95f)),
-						   desc.Name, kNodeWidth - 16.0f, m_Zoom);
+						   desc.Name, width - 16.0f, m_Zoom);
 
 				const std::string subtitle = NodeSubtitle(node);
 				DrawFitted(draw, ImVec2(min.x + 8.0f * m_Zoom,
 										min.y + (kHeaderHeight + 2.0f) * m_Zoom),
 						   ImGui::GetColorU32(colors.TextSecondary),
-						   subtitle, kNodeWidth - 16.0f, m_Zoom);
+						   subtitle, width - 16.0f, m_Zoom);
 			}
 
 			// Pins. Exec pins are triangles and data pins circles, so control
@@ -533,10 +574,18 @@ namespace RageV::UI
 
 				if (labels && info.Name && info.Name[0])
 				{
-					// Half the node minus the pin gutters, so a long input
-					// label and a long output label on the same row cannot
-					// run into each other in the middle.
-					const float room = kNodeWidth * 0.5f - 16.0f;
+					// Half the node only when the *other* side of this row has a
+					// label to protect. On a row where one side is empty --
+					// which is most of them, and every output-only row on a
+					// loop -- the label gets the whole node, and halving it
+					// was what turned "Completed" into "Compl...".
+					const GraphNodeDesc& rowDesc = GraphNodeDescOf(node.Type);
+					const std::vector<GraphPin>& opposite = input ? rowDesc.Outputs
+																  : rowDesc.Inputs;
+					const bool shared = index < opposite.size()
+									 && opposite[index].Name && opposite[index].Name[0];
+					const float room = shared ? NodeWidth(node) * 0.5f - 16.0f
+											  : NodeWidth(node) - 28.0f;
 					const float size = ImGui::GetFontSize() * m_Zoom;
 					const float w = ImGui::GetFont()->CalcTextSizeA(
 						size, FLT_MAX, 0.0f, info.Name).x;
@@ -617,6 +666,57 @@ namespace RageV::UI
 			{
 				hitNode = node.Id;
 				break;
+			}
+		}
+
+		// --- what the cursor is over, said in words ---------------------------
+		//
+		// A pin's name can still be clipped -- at low zoom, or on a field name
+		// longer than the node's ceiling -- and its *type* is worth saying even
+		// when the name fits, because the colour is a hint and this is the
+		// answer. Not while dragging a wire: the canvas is already telling that
+		// story with the dimming and the red.
+		if (hovered && !m_DraggingLink && !m_DraggingNodes && !m_BoxSelecting)
+		{
+			if (overPin)
+			{
+				const GraphNode* node = m_Graph.FindNode(hitNode);
+				if (node)
+				{
+					const GraphNodeDesc& desc = GraphNodeDescOf(node->Type);
+					const std::vector<GraphPin>& pins = hitPinInput ? desc.Inputs
+																   : desc.Outputs;
+					if (hitPin < pins.size())
+					{
+						const char* name = pins[hitPin].Name;
+						ImGui::SetTooltip("%s%s%s",
+										  name && name[0] ? name : "(flow)",
+										  name && name[0] ? "  -  " : "  -  ",
+										  GraphPinTypeName(pins[hitPin].Type));
+					}
+				}
+			}
+			else if (hitNode != 0)
+			{
+				// Only when something was actually cut: a tooltip that repeats
+				// a label already on screen is noise on every node.
+				const GraphNode* node = m_Graph.FindNode(hitNode);
+				if (node)
+				{
+					const GraphNodeDesc& desc = GraphNodeDescOf(node->Type);
+					const std::string subtitle = NodeSubtitle(*node);
+					const float room = NodeWidth(*node) - 16.0f;
+					const bool clipped =
+						TextWidth(desc.Name, m_Zoom) > room
+						|| TextWidth(subtitle, m_Zoom) > room;
+					if (clipped)
+					{
+						if (subtitle.empty())
+							ImGui::SetTooltip("%s", desc.Name);
+						else
+							ImGui::SetTooltip("%s\n%s", desc.Name, subtitle.c_str());
+					}
+				}
 			}
 		}
 
