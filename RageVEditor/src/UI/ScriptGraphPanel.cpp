@@ -128,6 +128,7 @@ namespace RageV::UI
 				case GraphNodeType::GetField:
 				case GraphNodeType::SetField:
 				case GraphNodeType::Log:
+				case GraphNodeType::LogWarning:
 					return node.Text;
 				case GraphNodeType::Compare:
 				{
@@ -136,8 +137,17 @@ namespace RageV::UI
 					return names[Math::Clamp(mode, 0, 4)];
 				}
 				default:
-					return std::string();
+					break;
 			}
+
+			// Every variable node carries its name in Text, and a canvas full
+			// of boxes labelled "Get Number" with no name on them is a canvas
+			// nobody can read.
+			const GraphEmit emit = GraphNodeDescOf(node.Type).Emit;
+			if (emit == GraphEmit::GetVariable || emit == GraphEmit::SetVariable)
+				return node.Text.empty() ? std::string("(unnamed)") : node.Text;
+
+			return std::string();
 		}
 	}
 
@@ -740,7 +750,12 @@ namespace RageV::UI
 		ImGui::TextDisabled("Add node");
 		ImGui::Separator();
 
-		const char* categories[] = { "Events", "Flow", "Values", "Component", "Maths", "Output" };
+		// In the table's own order, so the menu and the file agree about how
+		// the set is grouped.
+		const char* categories[] = { "Events", "Flow", "Values", "Variables",
+									 "Maths", "Logic", "Vector", "Entity",
+									 "Transform", "Physics", "Input", "Time",
+									 "Audio", "Component", "UI", "Output" };
 		for (const char* category : categories)
 		{
 			if (!ImGui::BeginMenu(category))
@@ -837,6 +852,7 @@ namespace RageV::UI
 				}
 				case GraphNodeType::LiteralString:
 				case GraphNodeType::Log:
+				case GraphNodeType::LogWarning:
 					if (ImGui::InputText("Text", text, sizeof(text)))
 					{
 						node->Text = text;
@@ -856,7 +872,20 @@ namespace RageV::UI
 					ImGui::TextDisabled("Component.Field");
 					break;
 				default:
-					ImGui::TextDisabled("No settings.");
+					if (desc.Emit == GraphEmit::GetVariable
+						|| desc.Emit == GraphEmit::SetVariable)
+					{
+						if (ImGui::InputText("Name", text, sizeof(text)))
+						{
+							node->Text = text;
+							m_Dirty = true;
+						}
+						ImGui::TextWrapped("A field on the generated class, so it survives between events.");
+					}
+					else
+					{
+						ImGui::TextDisabled("No settings.");
+					}
 					break;
 			}
 		}

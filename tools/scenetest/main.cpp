@@ -13429,6 +13429,62 @@ int RunTests(int argc, char** argv)
 				  "because it was spilled into a local");
 		}
 
+		// --- the wider node set (10.7) ---
+		//
+		// Two properties of the *table* rather than of any one node, because at
+		// ninety-nine nodes the table is the thing that can be wrong: every
+		// node has a name the file format can round-trip, and every node the
+		// menu offers has an emit rule, so none of them can be placed on a
+		// canvas and then fail to generate.
+		{
+			size_t named = 0;
+			for (const GraphNodeDesc& desc : GraphNodeDescs())
+			{
+				if (desc.Type == GraphNodeType::None)
+					continue;
+				named++;
+				const char* name = GraphNodeTypeName(desc.Type);
+				Check(GraphNodeTypeFromName(name) == desc.Type,
+					  std::string("'") + desc.Name + "' survives a save and a load");
+				Check(desc.Code[0] != 0 || desc.Emit == GraphEmit::Special,
+					  std::string("'") + desc.Name + "' knows what C# it becomes");
+			}
+			Check(named > 90, "the node set covers the scripting API rather than a corner of it");
+		}
+
+		// --- variables: the one language construct a graph cannot do without ---
+		//
+		// v1 had none, which is why its check fixture had to *teleport* a cube
+		// rather than move it: with no way to remember a number between two
+		// ticks, a graph cannot accumulate anything.
+		{
+			ScriptGraph counter;
+			const uint32_t event = counter.AddNode(GraphNodeType::OnTick, Vec2(0.0f, 0.0f));
+			const uint32_t get = counter.AddNode(GraphNodeType::GetNumber, Vec2(0.0f, 200.0f));
+			const uint32_t add = counter.AddNode(GraphNodeType::Add, Vec2(200.0f, 200.0f));
+			const uint32_t set = counter.AddNode(GraphNodeType::SetNumber, Vec2(400.0f, 0.0f));
+			counter.FindNode(get)->Text = "elapsed";
+			counter.FindNode(set)->Text = "elapsed";
+			counter.AddLink(event, 0, set, 0);
+			counter.AddLink(get, 0, add, 0);
+			counter.AddLink(event, 1, add, 1);
+			counter.AddLink(add, 0, set, 1);
+
+			const Assets::GraphGenerateResult counted =
+				Assets::ScriptGraphGenerator::Generate(counter, "Counter");
+			Check(counted.Ok, "a graph that accumulates generates");
+			Check(Contains(counted.Source, "private float elapsed;"),
+				  "its variable becomes a field, so it survives between ticks");
+			Check(Contains(counted.Source, "elapsed = (elapsed + deltaTime);"),
+				  "and the accumulation is the statement it looks like");
+
+			// A variable name is a C# identifier, and being told so beats a
+			// compiler error pointing at code nobody wrote.
+			counter.FindNode(set)->Text = "not a name";
+			Check(!Assets::ScriptGraphGenerator::Generate(counter, "Counter").Ok,
+				  "a variable whose name is not an identifier stops the file");
+		}
+
 		// A name the C# compiler could not accept is caught before anything is
 		// written, rather than becoming a build error in generated code.
 		Check(!Assets::ScriptGraphGenerator::IsIdentifier("My Thing"),

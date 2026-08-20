@@ -10046,6 +10046,73 @@ Restore now checks the file is tracked, checks the checkout succeeded, and
 **removes the marker last** -- only once every edit really is back. A marker
 removed while a break survives is worse than no marker at all.
 
+### 10.7: the node set grows to the scripting API, and gains variables
+
+The owner asked for everything C# and C++ scripting can do. That splits into
+two problems and only one of them is a node.
+
+**The API surface** -- Entity transform and hierarchy, physics, raycasts,
+input, time, audio, components, UI, and the maths library -- is mechanical, and
+the set went from 18 nodes to **99** across 16 categories.
+
+**Language constructs are not.** C# has variables, loops, user functions and
+collections. Of those, **variables are the one that actually blocked people**,
+and they are in: a `Get`/`Set` pair per type, generated as *fields* on the
+class so they survive between events. Everything else is honestly absent, and
+listed as absent rather than quietly skipped:
+
+| not there | why not |
+|---|---|
+| loops | a node that runs its successors N times needs a scope concept the exec chain does not have |
+| user-defined functions | wants a second graph kind and a call node that type-checks against it |
+| arrays and dictionaries | needs a container pin type and iteration, which is the loop problem again |
+
+**How much variables mattered:** v1's own check fixture had to *teleport* a
+cube, because with no way to remember a number between two ticks a graph
+cannot accumulate. The `Patrol` fixture now writes this, which v1 could not
+express at all:
+
+```csharp
+private float timer;
+
+public override void OnTick(float deltaTime)
+{
+    timer = (timer + deltaTime);
+    var target14 = Entity;
+    target14.Position = new Vector3((Mathf.Sin(timer) * 3.0f), 1.0f, 0.0f);
+}
+```
+
+#### The table now carries the C#
+
+At 18 nodes a switch in the generator was fine. At 99 it is a promise nobody
+can keep, so **the emit rule moved onto the descriptor beside the pins** --
+`GraphEmit` and a format string over the node's inputs. A node is one line of
+the table and no code at all, and 7bh's one-table rule now covers what a node
+*generates* as well as how it looks. The table itself is produced from a single
+spec, so the pins and the C# cannot be edited apart.
+
+#### Two things only compiling caught
+
+- **`Script.Entity` is a property returning a struct**, so `Entity.Position = v`
+  does not compile: C# will not let you assign through the return value of one.
+  Assignment targets now spill to a local first. The first fix guessed by
+  looking at the text -- "it is already a plain name, so it must be a variable"
+  -- and `Entity` looks exactly like a plain name and is not one. **Telling an
+  lvalue from a name by reading it is guesswork; one extra local is not.**
+- The whole reason this surfaced at all is that `check_graph.py` runs
+  `dotnet build` over the generated files. Reading them would not have found
+  it, and neither would any number of unit checks over the emitted text.
+
+#### What the checks pin
+
+Two properties of the *table*, because at ninety-nine nodes the table is what
+can be wrong: every node's name survives a save and a load, and every node has
+an emit rule -- so none can be placed on a canvas and then fail to generate.
+Then variables end to end: the field is declared, the accumulation reads as
+the statement it looks like, and a variable named `not a name` stops the file
+being written.
+
 #### What this will not claim
 
 Not that it replaces either language. It is a **third way to author a C#

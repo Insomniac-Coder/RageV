@@ -9,6 +9,7 @@ namespace RageV
 	namespace
 	{
 		using P = GraphPinType;
+		using Emit = GraphEmit;
 
 		// The one table. The canvas draws a node from this and the generator
 		// will emit one from it, so a node cannot look like one thing on the
@@ -19,7 +20,7 @@ namespace RageV
 
 			auto set = [&](GraphNodeType type, const char* name, const char* category,
 						   std::vector<GraphPin> inputs, std::vector<GraphPin> outputs,
-						   bool isEvent = false)
+						   GraphEmit emit, const char* code, bool isEvent = false)
 			{
 				GraphNodeDesc& desc = descs[(size_t)type];
 				desc.Type = type;
@@ -28,56 +29,341 @@ namespace RageV
 				desc.Inputs = std::move(inputs);
 				desc.Outputs = std::move(outputs);
 				desc.IsEvent = isEvent;
+				desc.Emit = emit;
+				desc.Code = code;
 			};
 
-			set(GraphNodeType::None, "None", "", {}, {});
+			set(GraphNodeType::None, "None", "", {}, {},
+				Emit::Special, "");
 
-			// --- events: no exec input, because they are where a body starts.
+			// --- events
 			set(GraphNodeType::OnCreate, "On Create", "Events",
-				{}, { { "", P::Exec } }, true);
+				{}, { { "", P::Exec } },
+				Emit::Event, "public override void OnCreate()", true);
 			set(GraphNodeType::OnTick, "On Tick", "Events",
-				{}, { { "", P::Exec }, { "Delta", P::Float } }, true);
+				{}, { { "", P::Exec }, { "Delta", P::Float } },
+				Emit::Event, "public override void OnTick(float deltaTime)", true);
+			set(GraphNodeType::OnFrame, "On Frame", "Events",
+				{}, { { "", P::Exec }, { "Delta", P::Float } },
+				Emit::Event, "public override void OnFrame(float deltaTime)", true);
+			set(GraphNodeType::OnDestroy, "On Destroy", "Events",
+				{}, { { "", P::Exec } },
+				Emit::Event, "public override void OnDestroy()", true);
 			set(GraphNodeType::OnCollisionEnter, "On Collision Enter", "Events",
-				{}, { { "", P::Exec }, { "Other", P::Entity }, { "Speed", P::Float } }, true);
+				{}, { { "", P::Exec }, { "Other", P::Entity }, { "Speed", P::Float }, { "Point", P::Vec3 }, { "Normal", P::Vec3 } },
+				Emit::Event, "public override void OnCollisionEnter(Collision collision)", true);
+			set(GraphNodeType::OnCollisionStay, "On Collision Stay", "Events",
+				{}, { { "", P::Exec }, { "Other", P::Entity }, { "Speed", P::Float }, { "Point", P::Vec3 }, { "Normal", P::Vec3 } },
+				Emit::Event, "public override void OnCollisionStay(Collision collision)", true);
+			set(GraphNodeType::OnCollisionExit, "On Collision Exit", "Events",
+				{}, { { "", P::Exec }, { "Other", P::Entity }, { "Speed", P::Float }, { "Point", P::Vec3 }, { "Normal", P::Vec3 } },
+				Emit::Event, "public override void OnCollisionExit(Collision collision)", true);
+			set(GraphNodeType::OnTriggerEnter, "On Trigger Enter", "Events",
+				{}, { { "", P::Exec }, { "Other", P::Entity }, { "Speed", P::Float }, { "Point", P::Vec3 }, { "Normal", P::Vec3 } },
+				Emit::Event, "public override void OnTriggerEnter(Collision collision)", true);
+			set(GraphNodeType::OnTriggerStay, "On Trigger Stay", "Events",
+				{}, { { "", P::Exec }, { "Other", P::Entity }, { "Speed", P::Float }, { "Point", P::Vec3 }, { "Normal", P::Vec3 } },
+				Emit::Event, "public override void OnTriggerStay(Collision collision)", true);
+			set(GraphNodeType::OnTriggerExit, "On Trigger Exit", "Events",
+				{}, { { "", P::Exec }, { "Other", P::Entity }, { "Speed", P::Float }, { "Point", P::Vec3 }, { "Normal", P::Vec3 } },
+				Emit::Event, "public override void OnTriggerExit(Collision collision)", true);
 
 			// --- flow
 			set(GraphNodeType::Branch, "Branch", "Flow",
-				{ { "", P::Exec }, { "Condition", P::Bool } },
-				{ { "True", P::Exec }, { "False", P::Exec } });
+				{ { "", P::Exec }, { "Condition", P::Bool } }, { { "True", P::Exec }, { "False", P::Exec } },
+				Emit::Special, "branch");
 			set(GraphNodeType::Sequence, "Sequence", "Flow",
-				{ { "", P::Exec } },
-				{ { "Then 0", P::Exec }, { "Then 1", P::Exec } });
+				{ { "", P::Exec } }, { { "Then 0", P::Exec }, { "Then 1", P::Exec } },
+				Emit::Special, "sequence");
 
-			// --- literals
-			set(GraphNodeType::LiteralBool, "Bool", "Values", {}, { { "", P::Bool } });
-			set(GraphNodeType::LiteralFloat, "Float", "Values", {}, { { "", P::Float } });
-			set(GraphNodeType::LiteralVec3, "Vector 3", "Values", {}, { { "", P::Vec3 } });
-			set(GraphNodeType::LiteralString, "String", "Values", {}, { { "", P::String } });
+			// --- values
+			set(GraphNodeType::LiteralBool, "Bool", "Values",
+				{}, { { "", P::Bool } },
+				Emit::Special, "literal");
+			set(GraphNodeType::LiteralFloat, "Float", "Values",
+				{}, { { "", P::Float } },
+				Emit::Special, "literal");
+			set(GraphNodeType::LiteralVec3, "Vector 3", "Values",
+				{}, { { "", P::Vec3 } },
+				Emit::Special, "literal");
+			set(GraphNodeType::LiteralString, "String", "Values",
+				{}, { { "", P::String } },
+				Emit::Special, "literal");
+			set(GraphNodeType::SelfEntity, "Self", "Values",
+				{}, { { "", P::Entity } },
+				Emit::Expression, "Entity");
 
-			// --- the component surface, by registry name. `Text` on the node
-			// holds "Component.Field"; the value crosses as a string exactly
-			// as it does for C#, which is what keeps the two surfaces equal.
-			set(GraphNodeType::GetField, "Get Field", "Component",
-				{}, { { "Value", P::String } });
-			set(GraphNodeType::SetField, "Set Field", "Component",
-				{ { "", P::Exec }, { "Value", P::String } }, { { "", P::Exec } });
+			// --- variables
+			set(GraphNodeType::GetNumber, "Get Number", "Variables",
+				{}, { { "", P::Float } },
+				Emit::GetVariable, "float");
+			set(GraphNodeType::SetNumber, "Set Number", "Variables",
+				{ { "", P::Exec }, { "Value", P::Float } }, { { "", P::Exec } },
+				Emit::SetVariable, "float");
+			set(GraphNodeType::GetVector, "Get Vector", "Variables",
+				{}, { { "", P::Vec3 } },
+				Emit::GetVariable, "Vector3");
+			set(GraphNodeType::SetVector, "Set Vector", "Variables",
+				{ { "", P::Exec }, { "Value", P::Vec3 } }, { { "", P::Exec } },
+				Emit::SetVariable, "Vector3");
+			set(GraphNodeType::GetFlag, "Get Flag", "Variables",
+				{}, { { "", P::Bool } },
+				Emit::GetVariable, "bool");
+			set(GraphNodeType::SetFlag, "Set Flag", "Variables",
+				{ { "", P::Exec }, { "Value", P::Bool } }, { { "", P::Exec } },
+				Emit::SetVariable, "bool");
+			set(GraphNodeType::GetText, "Get Text", "Variables",
+				{}, { { "", P::String } },
+				Emit::GetVariable, "string");
+			set(GraphNodeType::SetText, "Set Text", "Variables",
+				{ { "", P::Exec }, { "Value", P::String } }, { { "", P::Exec } },
+				Emit::SetVariable, "string");
+			set(GraphNodeType::GetEntityVar, "Get Entity", "Variables",
+				{}, { { "", P::Entity } },
+				Emit::GetVariable, "Entity");
+			set(GraphNodeType::SetEntityVar, "Set Entity", "Variables",
+				{ { "", P::Exec }, { "Value", P::Entity } }, { { "", P::Exec } },
+				Emit::SetVariable, "Entity");
 
 			// --- maths
 			set(GraphNodeType::Add, "Add", "Maths",
-				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } });
+				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "({0} + {1})");
 			set(GraphNodeType::Subtract, "Subtract", "Maths",
-				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } });
+				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "({0} - {1})");
 			set(GraphNodeType::Multiply, "Multiply", "Maths",
-				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } });
+				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "({0} * {1})");
 			set(GraphNodeType::Divide, "Divide", "Maths",
-				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } });
+				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "({0} / {1})");
 			set(GraphNodeType::Compare, "Compare", "Maths",
-				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Bool } });
+				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Bool } },
+				Emit::Special, "compare");
+			set(GraphNodeType::MinOf, "Min", "Maths",
+				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "Mathf.Min({0}, {1})");
+			set(GraphNodeType::MaxOf, "Max", "Maths",
+				{ { "A", P::Float }, { "B", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "Mathf.Max({0}, {1})");
+			set(GraphNodeType::AbsOf, "Abs", "Maths",
+				{ { "Value", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "Mathf.Abs({0})");
+			set(GraphNodeType::ClampOf, "Clamp", "Maths",
+				{ { "Value", P::Float }, { "Min", P::Float }, { "Max", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "Mathf.Clamp({0}, {1}, {2})");
+			set(GraphNodeType::LerpOf, "Lerp", "Maths",
+				{ { "A", P::Float }, { "B", P::Float }, { "T", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "Mathf.Lerp({0}, {1}, {2})");
+			set(GraphNodeType::SinOf, "Sin", "Maths",
+				{ { "Value", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "Mathf.Sin({0})");
+			set(GraphNodeType::CosOf, "Cos", "Maths",
+				{ { "Value", P::Float } }, { { "", P::Float } },
+				Emit::Expression, "Mathf.Cos({0})");
+
+			// --- logic
+			set(GraphNodeType::AndOf, "And", "Logic",
+				{ { "A", P::Bool }, { "B", P::Bool } }, { { "", P::Bool } },
+				Emit::Expression, "({0} && {1})");
+			set(GraphNodeType::OrOf, "Or", "Logic",
+				{ { "A", P::Bool }, { "B", P::Bool } }, { { "", P::Bool } },
+				Emit::Expression, "({0} || {1})");
+			set(GraphNodeType::NotOf, "Not", "Logic",
+				{ { "Value", P::Bool } }, { { "", P::Bool } },
+				Emit::Expression, "(!{0})");
+
+			// --- vector
+			set(GraphNodeType::MakeVector, "Make Vector", "Vector",
+				{ { "X", P::Float }, { "Y", P::Float }, { "Z", P::Float } }, { { "", P::Vec3 } },
+				Emit::Expression, "new Vector3({0}, {1}, {2})");
+			set(GraphNodeType::BreakVectorX, "Vector X", "Vector",
+				{ { "Vector", P::Vec3 } }, { { "", P::Float } },
+				Emit::Expression, "{0}.X");
+			set(GraphNodeType::BreakVectorY, "Vector Y", "Vector",
+				{ { "Vector", P::Vec3 } }, { { "", P::Float } },
+				Emit::Expression, "{0}.Y");
+			set(GraphNodeType::BreakVectorZ, "Vector Z", "Vector",
+				{ { "Vector", P::Vec3 } }, { { "", P::Float } },
+				Emit::Expression, "{0}.Z");
+			set(GraphNodeType::VectorAdd, "Vector Add", "Vector",
+				{ { "A", P::Vec3 }, { "B", P::Vec3 } }, { { "", P::Vec3 } },
+				Emit::Expression, "({0} + {1})");
+			set(GraphNodeType::VectorSubtract, "Vector Subtract", "Vector",
+				{ { "A", P::Vec3 }, { "B", P::Vec3 } }, { { "", P::Vec3 } },
+				Emit::Expression, "({0} - {1})");
+			set(GraphNodeType::VectorScale, "Vector Scale", "Vector",
+				{ { "Vector", P::Vec3 }, { "By", P::Float } }, { { "", P::Vec3 } },
+				Emit::Expression, "({0} * {1})");
+			set(GraphNodeType::VectorLength, "Vector Length", "Vector",
+				{ { "Vector", P::Vec3 } }, { { "", P::Float } },
+				Emit::Expression, "{0}.Length");
+			set(GraphNodeType::VectorNormalize, "Normalize", "Vector",
+				{ { "Vector", P::Vec3 } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.Normalized");
+			set(GraphNodeType::VectorDot, "Dot", "Vector",
+				{ { "A", P::Vec3 }, { "B", P::Vec3 } }, { { "", P::Float } },
+				Emit::Expression, "Vector3.Dot({0}, {1})");
+
+			// --- entity
+			set(GraphNodeType::FindByName, "Find By Name", "Entity",
+				{ { "Name", P::String } }, { { "", P::Entity } },
+				Emit::Expression, "Entity.FindByName({0})");
+			set(GraphNodeType::SpawnEntity, "Spawn", "Entity",
+				{ { "", P::Exec }, { "Name", P::String } }, { { "", P::Exec }, { "Entity", P::Entity } },
+				Emit::Special, "spawn");
+			set(GraphNodeType::SpawnPrefab, "Spawn Prefab", "Entity",
+				{ { "", P::Exec }, { "Asset", P::String } }, { { "", P::Exec }, { "Entity", P::Entity } },
+				Emit::Special, "spawnprefab");
+			set(GraphNodeType::DestroyEntity, "Destroy", "Entity",
+				{ { "", P::Exec }, { "Entity", P::Entity } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Destroy();");
+			set(GraphNodeType::GetParent, "Get Parent", "Entity",
+				{ { "Entity", P::Entity } }, { { "", P::Entity } },
+				Emit::Expression, "{0}.Parent");
+			set(GraphNodeType::EntityExists, "Exists", "Entity",
+				{ { "Entity", P::Entity } }, { { "", P::Bool } },
+				Emit::Expression, "{0}.Exists");
+			set(GraphNodeType::GetEntityName, "Get Name", "Entity",
+				{ { "Entity", P::Entity } }, { { "", P::String } },
+				Emit::Expression, "{0}.Name");
+
+			// --- transform
+			set(GraphNodeType::GetPosition, "Get Position", "Transform",
+				{ { "Entity", P::Entity } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.Position");
+			set(GraphNodeType::SetPosition, "Set Position", "Transform",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Value", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Position = {2};");
+			set(GraphNodeType::GetRotation, "Get Rotation", "Transform",
+				{ { "Entity", P::Entity } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.Rotation");
+			set(GraphNodeType::SetRotation, "Set Rotation", "Transform",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Value", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Rotation = {2};");
+			set(GraphNodeType::GetScale, "Get Scale", "Transform",
+				{ { "Entity", P::Entity } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.Scale");
+			set(GraphNodeType::SetScale, "Set Scale", "Transform",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Value", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Scale = {2};");
+			set(GraphNodeType::TranslateBy, "Translate", "Transform",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Delta", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Translate({2});");
+			set(GraphNodeType::RotateBy, "Rotate", "Transform",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Delta", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Rotate({2});");
+			set(GraphNodeType::LookAtPoint, "Look At", "Transform",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Target", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.LookAt({2});");
+			set(GraphNodeType::GetWorldPosition, "World Position", "Transform",
+				{ { "Entity", P::Entity } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.WorldPosition");
+			set(GraphNodeType::GetForward, "Forward", "Transform",
+				{ { "Entity", P::Entity } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.Forward");
+			set(GraphNodeType::GetRight, "Right", "Transform",
+				{ { "Entity", P::Entity } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.Right");
+			set(GraphNodeType::GetUp, "Up", "Transform",
+				{ { "Entity", P::Entity } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.Up");
+
+			// --- physics
+			set(GraphNodeType::AddForce, "Add Force", "Physics",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Force", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.AddForce({2});");
+			set(GraphNodeType::AddImpulse, "Add Impulse", "Physics",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Impulse", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.AddImpulse({2});");
+			set(GraphNodeType::GetVelocity, "Get Velocity", "Physics",
+				{ { "Entity", P::Entity } }, { { "", P::Vec3 } },
+				Emit::Expression, "{0}.LinearVelocity");
+			set(GraphNodeType::SetVelocity, "Set Velocity", "Physics",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Value", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.LinearVelocity = {2};");
+			set(GraphNodeType::RaycastHit, "Raycast Hit", "Physics",
+				{ { "Origin", P::Vec3 }, { "Direction", P::Vec3 } }, { { "", P::Bool } },
+				Emit::Expression, "Entity.Raycast({0}, {1}).Hit");
+			set(GraphNodeType::RaycastEntity, "Raycast Entity", "Physics",
+				{ { "Origin", P::Vec3 }, { "Direction", P::Vec3 } }, { { "", P::Entity } },
+				Emit::Expression, "Entity.Raycast({0}, {1}).Entity");
+			set(GraphNodeType::RaycastPoint, "Raycast Point", "Physics",
+				{ { "Origin", P::Vec3 }, { "Direction", P::Vec3 } }, { { "", P::Vec3 } },
+				Emit::Expression, "Entity.Raycast({0}, {1}).Position");
+			set(GraphNodeType::RaycastDistance, "Raycast Distance", "Physics",
+				{ { "Origin", P::Vec3 }, { "Direction", P::Vec3 } }, { { "", P::Float } },
+				Emit::Expression, "Entity.Raycast({0}, {1}).Distance");
+
+			// --- input
+			set(GraphNodeType::ActionDown, "Action Down", "Input",
+				{ { "Action", P::String } }, { { "", P::Bool } },
+				Emit::Expression, "Input.IsActionDown({0})");
+			set(GraphNodeType::ActionPressed, "Action Pressed", "Input",
+				{ { "Action", P::String } }, { { "", P::Bool } },
+				Emit::Expression, "Input.WasActionPressed({0})");
+			set(GraphNodeType::ActionReleased, "Action Released", "Input",
+				{ { "Action", P::String } }, { { "", P::Bool } },
+				Emit::Expression, "Input.WasActionReleased({0})");
+			set(GraphNodeType::InputAxis, "Axis", "Input",
+				{ { "Axis", P::String } }, { { "", P::Float } },
+				Emit::Expression, "Input.GetAxis({0})");
+
+			// --- time
+			set(GraphNodeType::FixedDelta, "Fixed Delta", "Time",
+				{}, { { "", P::Float } },
+				Emit::Expression, "Time.FixedDeltaTime");
+			set(GraphNodeType::ElapsedTime, "Elapsed", "Time",
+				{}, { { "", P::Float } },
+				Emit::Expression, "Time.Elapsed");
+
+			// --- audio
+			set(GraphNodeType::PlaySound2D, "Play Sound", "Audio",
+				{ { "", P::Exec }, { "Clip", P::String } }, { { "", P::Exec } },
+				Emit::Statement, "Audio.PlayOneShot2D({1});");
+			set(GraphNodeType::PlaySoundAt, "Play Sound At", "Audio",
+				{ { "", P::Exec }, { "Clip", P::String }, { "Position", P::Vec3 } }, { { "", P::Exec } },
+				Emit::Statement, "Audio.PlayOneShotAt({1}, {2});");
+			set(GraphNodeType::PlaySource, "Play Source", "Audio",
+				{ { "", P::Exec }, { "Entity", P::Entity } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.PlaySource();");
+			set(GraphNodeType::StopSource, "Stop Source", "Audio",
+				{ { "", P::Exec }, { "Entity", P::Entity } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.StopSource();");
+
+			// --- component
+			set(GraphNodeType::HasComponent, "Has Component", "Component",
+				{ { "Entity", P::Entity }, { "Name", P::String } }, { { "", P::Bool } },
+				Emit::Expression, "{0}.HasComponent({1})");
+			set(GraphNodeType::AddComponent, "Add Component", "Component",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Name", P::String } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.AddComponent({2});");
+			set(GraphNodeType::RemoveComponent, "Remove Component", "Component",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Name", P::String } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.RemoveComponent({2});");
+			set(GraphNodeType::GetField, "Get Field", "Component",
+				{}, { { "Value", P::String } },
+				Emit::Special, "getfield");
+			set(GraphNodeType::SetField, "Set Field", "Component",
+				{ { "", P::Exec }, { "Value", P::String } }, { { "", P::Exec } },
+				Emit::Special, "setfield");
+
+			// --- ui
+			set(GraphNodeType::SetUIText, "Set UI Text", "UI",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Text", P::String } }, { { "", P::Exec } },
+				Emit::Statement, "{1}.Text = {2};");
+			set(GraphNodeType::ButtonClicked, "Button Clicked", "UI",
+				{ { "Entity", P::Entity } }, { { "", P::Bool } },
+				Emit::Expression, "{0}.WasButtonClicked()");
 
 			// --- output
 			set(GraphNodeType::Log, "Log", "Output",
-				{ { "", P::Exec }, { "Message", P::String } }, { { "", P::Exec } });
-
+				{ { "", P::Exec }, { "Message", P::String } }, { { "", P::Exec } },
+				Emit::Special, "log");
+			set(GraphNodeType::LogWarning, "Log Warning", "Output",
+				{ { "", P::Exec }, { "Message", P::String } }, { { "", P::Exec } },
+				Emit::Special, "logwarn");
 			return descs;
 		}
 
@@ -89,21 +375,103 @@ namespace RageV
 			{ GraphNodeType::None, "None" },
 			{ GraphNodeType::OnCreate, "OnCreate" },
 			{ GraphNodeType::OnTick, "OnTick" },
+			{ GraphNodeType::OnFrame, "OnFrame" },
+			{ GraphNodeType::OnDestroy, "OnDestroy" },
 			{ GraphNodeType::OnCollisionEnter, "OnCollisionEnter" },
+			{ GraphNodeType::OnCollisionStay, "OnCollisionStay" },
+			{ GraphNodeType::OnCollisionExit, "OnCollisionExit" },
+			{ GraphNodeType::OnTriggerEnter, "OnTriggerEnter" },
+			{ GraphNodeType::OnTriggerStay, "OnTriggerStay" },
+			{ GraphNodeType::OnTriggerExit, "OnTriggerExit" },
 			{ GraphNodeType::Branch, "Branch" },
 			{ GraphNodeType::Sequence, "Sequence" },
 			{ GraphNodeType::LiteralBool, "LiteralBool" },
 			{ GraphNodeType::LiteralFloat, "LiteralFloat" },
 			{ GraphNodeType::LiteralVec3, "LiteralVec3" },
 			{ GraphNodeType::LiteralString, "LiteralString" },
-			{ GraphNodeType::GetField, "GetField" },
-			{ GraphNodeType::SetField, "SetField" },
+			{ GraphNodeType::SelfEntity, "SelfEntity" },
+			{ GraphNodeType::GetNumber, "GetNumber" },
+			{ GraphNodeType::SetNumber, "SetNumber" },
+			{ GraphNodeType::GetVector, "GetVector" },
+			{ GraphNodeType::SetVector, "SetVector" },
+			{ GraphNodeType::GetFlag, "GetFlag" },
+			{ GraphNodeType::SetFlag, "SetFlag" },
+			{ GraphNodeType::GetText, "GetText" },
+			{ GraphNodeType::SetText, "SetText" },
+			{ GraphNodeType::GetEntityVar, "GetEntityVar" },
+			{ GraphNodeType::SetEntityVar, "SetEntityVar" },
 			{ GraphNodeType::Add, "Add" },
 			{ GraphNodeType::Subtract, "Subtract" },
 			{ GraphNodeType::Multiply, "Multiply" },
 			{ GraphNodeType::Divide, "Divide" },
 			{ GraphNodeType::Compare, "Compare" },
+			{ GraphNodeType::MinOf, "MinOf" },
+			{ GraphNodeType::MaxOf, "MaxOf" },
+			{ GraphNodeType::AbsOf, "AbsOf" },
+			{ GraphNodeType::ClampOf, "ClampOf" },
+			{ GraphNodeType::LerpOf, "LerpOf" },
+			{ GraphNodeType::SinOf, "SinOf" },
+			{ GraphNodeType::CosOf, "CosOf" },
+			{ GraphNodeType::AndOf, "AndOf" },
+			{ GraphNodeType::OrOf, "OrOf" },
+			{ GraphNodeType::NotOf, "NotOf" },
+			{ GraphNodeType::MakeVector, "MakeVector" },
+			{ GraphNodeType::BreakVectorX, "BreakVectorX" },
+			{ GraphNodeType::BreakVectorY, "BreakVectorY" },
+			{ GraphNodeType::BreakVectorZ, "BreakVectorZ" },
+			{ GraphNodeType::VectorAdd, "VectorAdd" },
+			{ GraphNodeType::VectorSubtract, "VectorSubtract" },
+			{ GraphNodeType::VectorScale, "VectorScale" },
+			{ GraphNodeType::VectorLength, "VectorLength" },
+			{ GraphNodeType::VectorNormalize, "VectorNormalize" },
+			{ GraphNodeType::VectorDot, "VectorDot" },
+			{ GraphNodeType::FindByName, "FindByName" },
+			{ GraphNodeType::SpawnEntity, "SpawnEntity" },
+			{ GraphNodeType::SpawnPrefab, "SpawnPrefab" },
+			{ GraphNodeType::DestroyEntity, "DestroyEntity" },
+			{ GraphNodeType::GetParent, "GetParent" },
+			{ GraphNodeType::EntityExists, "EntityExists" },
+			{ GraphNodeType::GetEntityName, "GetEntityName" },
+			{ GraphNodeType::GetPosition, "GetPosition" },
+			{ GraphNodeType::SetPosition, "SetPosition" },
+			{ GraphNodeType::GetRotation, "GetRotation" },
+			{ GraphNodeType::SetRotation, "SetRotation" },
+			{ GraphNodeType::GetScale, "GetScale" },
+			{ GraphNodeType::SetScale, "SetScale" },
+			{ GraphNodeType::TranslateBy, "TranslateBy" },
+			{ GraphNodeType::RotateBy, "RotateBy" },
+			{ GraphNodeType::LookAtPoint, "LookAtPoint" },
+			{ GraphNodeType::GetWorldPosition, "GetWorldPosition" },
+			{ GraphNodeType::GetForward, "GetForward" },
+			{ GraphNodeType::GetRight, "GetRight" },
+			{ GraphNodeType::GetUp, "GetUp" },
+			{ GraphNodeType::AddForce, "AddForce" },
+			{ GraphNodeType::AddImpulse, "AddImpulse" },
+			{ GraphNodeType::GetVelocity, "GetVelocity" },
+			{ GraphNodeType::SetVelocity, "SetVelocity" },
+			{ GraphNodeType::RaycastHit, "RaycastHit" },
+			{ GraphNodeType::RaycastEntity, "RaycastEntity" },
+			{ GraphNodeType::RaycastPoint, "RaycastPoint" },
+			{ GraphNodeType::RaycastDistance, "RaycastDistance" },
+			{ GraphNodeType::ActionDown, "ActionDown" },
+			{ GraphNodeType::ActionPressed, "ActionPressed" },
+			{ GraphNodeType::ActionReleased, "ActionReleased" },
+			{ GraphNodeType::InputAxis, "InputAxis" },
+			{ GraphNodeType::FixedDelta, "FixedDelta" },
+			{ GraphNodeType::ElapsedTime, "ElapsedTime" },
+			{ GraphNodeType::PlaySound2D, "PlaySound2D" },
+			{ GraphNodeType::PlaySoundAt, "PlaySoundAt" },
+			{ GraphNodeType::PlaySource, "PlaySource" },
+			{ GraphNodeType::StopSource, "StopSource" },
+			{ GraphNodeType::HasComponent, "HasComponent" },
+			{ GraphNodeType::AddComponent, "AddComponent" },
+			{ GraphNodeType::RemoveComponent, "RemoveComponent" },
+			{ GraphNodeType::GetField, "GetField" },
+			{ GraphNodeType::SetField, "SetField" },
+			{ GraphNodeType::SetUIText, "SetUIText" },
+			{ GraphNodeType::ButtonClicked, "ButtonClicked" },
 			{ GraphNodeType::Log, "Log" },
+			{ GraphNodeType::LogWarning, "LogWarning" },
 		};
 	}
 
@@ -366,7 +734,9 @@ namespace RageV
 				// against nothing being generated would itself be the reason.
 				if (desc.Inputs[pin].Type == GraphPinType::Exec)
 					continue;
-				if (node.Type == GraphNodeType::Log && pin == 1 && !node.Text.empty())
+				if ((node.Type == GraphNodeType::Log
+					 || node.Type == GraphNodeType::LogWarning)
+					&& pin == 1 && !node.Text.empty())
 					continue;
 
 				const char* name = desc.Inputs[pin].Name;

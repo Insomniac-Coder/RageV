@@ -31,51 +31,141 @@ namespace RageV
 
 	const char* GraphPinTypeName(GraphPinType type);
 
-	// The v1 node set, and it is **closed** (7bh). This is where a visual
-	// scripting system turns into a career, so the list is exactly what the
-	// check's fixture needs and nothing else. A new node is a new roadmap row,
-	// not a slot somebody adds while passing.
+	// How a node becomes C#. **On the descriptor, beside the pins**, because
+	// 7bh's one-table rule is what stops a node looking like one thing on the
+	// canvas and meaning another in the file -- and at ninety-nine nodes that
+	// is no longer a style preference, it is the only way the two stay in step.
+	//
+	// `Code` is a format over the node's *inputs*: {0} is input 0, {1} input 1,
+	// and so on, with exec pins resolving to nothing. So a node is usually one
+	// line of this table and no code at all.
+	enum class GraphEmit : uint8_t
+	{
+		// Nothing; the None entry.
+		Special = 0,
+		// `Code` is an expression over the inputs.
+		Expression,
+		// `Code` is a statement over them.
+		Statement,
+		// `Code` is the C# method signature this event overrides.
+		Event,
+		// `Code` is the C# type of the variable the node's Text names.
+		GetVariable,
+		SetVariable,
+	};
+
+	// The node set. **Grown to cover the scripting API rather than closed at
+	// the eighteen v1 shipped with** (10.7): every entry point a C# script can
+	// reach -- transform, hierarchy, physics, input, time, audio, raycasts,
+	// components, UI and the maths library -- plus variables, which are the one
+	// *language* construct a graph cannot work without.
+	//
+	// What is deliberately still absent, because a node is the wrong shape for
+	// it: loops, user-defined functions and collections. Those want their own
+	// design rather than a slot in this list.
 	enum class GraphNodeType : uint16_t
 	{
 		None = 0,
 
-		// Events. Each becomes an override on the generated class, and each is
-		// a root of one exec chain.
 		OnCreate,
-		// The engine's fixed step, and named after it. `Script` has OnTick and
-		// OnFrame and no OnUpdate at all, and a node whose label does not match
-		// the method it writes is exactly the drift this design exists to
-		// avoid. OnTick rather than OnFrame because its own documentation says
-		// anything that moves a body or decides an outcome belongs there.
 		OnTick,
+		OnFrame,
+		OnDestroy,
 		OnCollisionEnter,
-
-		// Flow.
+		OnCollisionStay,
+		OnCollisionExit,
+		OnTriggerEnter,
+		OnTriggerStay,
+		OnTriggerExit,
 		Branch,
 		Sequence,
-
-		// Literals. `Value` carries the number(s), `Text` the string.
 		LiteralBool,
 		LiteralFloat,
 		LiteralVec3,
 		LiteralString,
-
-		// The component surface, by registry name with text values -- the same
-		// access C# already has, which is what keeps a graph from reaching
-		// anything a script could not.
-		GetField,
-		SetField,
-
-		// Maths.
+		SelfEntity,
+		GetNumber,
+		SetNumber,
+		GetVector,
+		SetVector,
+		GetFlag,
+		SetFlag,
+		GetText,
+		SetText,
+		GetEntityVar,
+		SetEntityVar,
 		Add,
 		Subtract,
 		Multiply,
 		Divide,
 		Compare,
-
-		// Output.
+		MinOf,
+		MaxOf,
+		AbsOf,
+		ClampOf,
+		LerpOf,
+		SinOf,
+		CosOf,
+		AndOf,
+		OrOf,
+		NotOf,
+		MakeVector,
+		BreakVectorX,
+		BreakVectorY,
+		BreakVectorZ,
+		VectorAdd,
+		VectorSubtract,
+		VectorScale,
+		VectorLength,
+		VectorNormalize,
+		VectorDot,
+		FindByName,
+		SpawnEntity,
+		SpawnPrefab,
+		DestroyEntity,
+		GetParent,
+		EntityExists,
+		GetEntityName,
+		GetPosition,
+		SetPosition,
+		GetRotation,
+		SetRotation,
+		GetScale,
+		SetScale,
+		TranslateBy,
+		RotateBy,
+		LookAtPoint,
+		GetWorldPosition,
+		GetForward,
+		GetRight,
+		GetUp,
+		AddForce,
+		AddImpulse,
+		GetVelocity,
+		SetVelocity,
+		RaycastHit,
+		RaycastEntity,
+		RaycastPoint,
+		RaycastDistance,
+		ActionDown,
+		ActionPressed,
+		ActionReleased,
+		InputAxis,
+		FixedDelta,
+		ElapsedTime,
+		PlaySound2D,
+		PlaySoundAt,
+		PlaySource,
+		StopSource,
+		HasComponent,
+		AddComponent,
+		RemoveComponent,
+		GetField,
+		SetField,
+		SetUIText,
+		ButtonClicked,
 		Log,
-
+		LogWarning,
 		Count,
 	};
 
@@ -99,6 +189,10 @@ namespace RageV
 		// An event is a root: it has no exec input and the generator starts a
 		// method body at it.
 		bool IsEvent = false;
+
+		// How this node becomes C#, and the format it becomes.
+		GraphEmit Emit = GraphEmit::Special;
+		const char* Code = "";
 	};
 
 	// Every node type, in menu order. Indexed by GraphNodeType.

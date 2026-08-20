@@ -1,0 +1,94 @@
+ScriptGraph: 1
+NextNodeId: 15
+NextLinkId: 14
+Nodes:
+  - Id: 1
+    Type: OnCreate
+    Pos: [-620, -300]
+  - Id: 2
+    Type: Log
+    Pos: [-320, -300]
+    Text: patrolling
+  - Id: 3
+    Type: OnTick
+    Pos: [-620, -60]
+  - Id: 4
+    Type: GetNumber
+    Pos: [-620, 140]
+    Text: timer
+  - Id: 5
+    Type: Add
+    Pos: [-360, 60]
+  - Id: 6
+    Type: SetNumber
+    Pos: [-100, -60]
+    Text: timer
+  - Id: 7
+    Type: SinOf
+    Pos: [-360, 260]
+  - Id: 8
+    Type: LiteralFloat
+    Pos: [-620, 360]
+    Value: [3, 0, 0, 0]
+  - Id: 9
+    Type: Multiply
+    Pos: [-100, 300]
+  - Id: 10
+    Type: LiteralFloat
+    Pos: [-360, 440]
+    Value: [1, 0, 0, 0]
+  - Id: 11
+    Type: LiteralFloat
+    Pos: [-360, 540]
+  - Id: 12
+    Type: MakeVector
+    Pos: [140, 340]
+  - Id: 13
+    Type: SelfEntity
+    Pos: [140, 140]
+  - Id: 14
+    Type: SetPosition
+    Pos: [420, -60]
+Links:
+  - Id: 1
+    From: [1, 0]
+    To: [2, 0]
+  - Id: 2
+    From: [3, 0]
+    To: [6, 0]
+  - Id: 3
+    From: [4, 0]
+    To: [5, 0]
+  - Id: 4
+    From: [3, 1]
+    To: [5, 1]
+  - Id: 5
+    From: [5, 0]
+    To: [6, 1]
+  - Id: 6
+    From: [6, 0]
+    To: [14, 0]
+  - Id: 7
+    From: [4, 0]
+    To: [7, 0]
+  - Id: 8
+    From: [7, 0]
+    To: [9, 0]
+  - Id: 9
+    From: [8, 0]
+    To: [9, 1]
+  - Id: 10
+    From: [9, 0]
+    To: [12, 0]
+  - Id: 11
+    From: [10, 0]
+    To: [12, 1]
+  - Id: 12
+    From: [11, 0]
+    To: [12, 2]
+  - Id: 13
+    From: [13, 0]
+    To: [14, 1]
+  - Id: 14
+    From: [12, 0]
+    To: [14, 2]

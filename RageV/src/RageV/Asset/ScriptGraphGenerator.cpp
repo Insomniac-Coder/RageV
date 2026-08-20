@@ -12,10 +12,11 @@ namespace RageV::Assets
 {
 	namespace
 	{
-		// C# reserved words a file stem could plausibly collide with. Not the
-		// whole list: an asset called `unsafe.rvgraph` is not a real risk, and
-		// a table nobody can keep complete invites more confidence than it
-		// deserves. These are the ones a person actually names a behaviour.
+		// C# reserved words a file stem or a variable name could plausibly
+		// collide with. Not the whole list: an asset called `unsafe.rvgraph` is
+		// not a real risk, and a table nobody can keep complete invites more
+		// confidence than it deserves. These are the ones a person actually
+		// names a behaviour or a variable.
 		const char* kReserved[] = {
 			"abstract", "base", "bool", "break", "byte", "case", "catch", "char",
 			"class", "const", "continue", "default", "delegate", "do", "double",
@@ -26,8 +27,8 @@ namespace RageV::Assets
 			"private", "protected", "public", "readonly", "ref", "return",
 			"sealed", "short", "sizeof", "static", "string", "struct", "switch",
 			"this", "throw", "true", "try", "typeof", "uint", "ulong",
-			"unchecked", "unsafe", "ushort", "using", "virtual", "void",
-			"volatile", "while",
+			"unchecked", "unsafe", "ushort", "using", "value", "var", "virtual",
+			"void", "volatile", "while",
 		};
 
 		std::string Escape(const std::string& text)
@@ -85,6 +86,28 @@ namespace RageV::Assets
 			}
 			return text.substr(1, text.size() - 2);
 		}
+
+		// `{0}`, `{1}` ... replaced by the node's resolved inputs. The whole
+		// reason ninety-nine nodes need about ninety-nine *lines* rather than
+		// ninety-nine cases.
+		std::string Format(const std::string& code,
+						   const std::vector<std::string>& arguments)
+		{
+			std::string out;
+			for (size_t i = 0; i < code.size(); i++)
+			{
+				if (code[i] != '{' || i + 2 >= code.size() || code[i + 2] != '}'
+					|| !std::isdigit((unsigned char)code[i + 1]))
+				{
+					out += code[i];
+					continue;
+				}
+				const size_t index = (size_t)(code[i + 1] - '0');
+				out += index < arguments.size() ? arguments[index] : "default";
+				i += 2;
+			}
+			return out;
+		}
 	}
 
 	bool GraphGenerateResult::HasErrors() const
@@ -114,31 +137,30 @@ namespace RageV::Assets
 
 	namespace
 	{
-		// One pass of emission over one graph. A struct rather than a pile of
-		// free functions because the expression walk needs the graph, the
-		// issue list and the "did I use the text helper" flag, and threading
-		// three references through eight functions is how one of them ends up
-		// out of date.
+		// One pass of emission over one graph.
 		struct Emitter
 		{
 			const ScriptGraph& Graph;
 			std::vector<GraphIssue>& Issues;
+
 			bool UsedTextFloat = false;
 			bool UsedTextBool = false;
+			bool UsedTextVector = false;
 
 			// Output pins read more than once, and the local each becomes.
-			// Keyed node<<32|pin.
 			std::unordered_map<uint64_t, std::string> Temps;
 			std::vector<uint64_t> Used;
+
+			// Variables the graph names, and the C# type each was declared at.
+			// A field on the generated class, so it survives between events --
+			// which is the entire point, and the thing v1 could not do.
+			std::map<std::string, std::string> Variables;
 
 			static uint64_t Key(uint32_t node, uint32_t pin)
 			{
 				return ((uint64_t)node << 32) | pin;
 			}
 
-			// How deep the expression walk is, so a data cycle -- which the
-			// exec-cycle check cannot see, because it only follows Exec pins --
-			// stops instead of recursing until the stack goes.
 			int Depth = 0;
 
 			const GraphNode* SourceOf(uint32_t node, uint32_t pin, uint32_t& outPin) const
@@ -158,7 +180,14 @@ namespace RageV::Assets
 				Issues.push_back({ GraphIssueSeverity::Error, node, std::move(message) });
 			}
 
-			// The C# for whatever feeds `pin`, converted to `wanted`.
+			// A node that spawns something declares a local, and its Entity
+			// output is that local. Named from the node id so two spawns in one
+			// method cannot collide.
+			static std::string SpawnLocal(uint32_t id)
+			{
+				return "spawned" + std::to_string(id);
+			}
+
 			std::string Value(uint32_t node, uint32_t pin, GraphPinType wanted)
 			{
 				uint32_t fromPin = 0;
@@ -175,10 +204,6 @@ namespace RageV::Assets
 
 				const GraphPinType have = GraphNodeDescOf(from->Type).Outputs[fromPin].Type;
 
-				// A value read twice is computed once, into a local declared
-				// at the top of the method. The name is decided before the
-				// declaration is written, which is what lets the statements be
-				// emitted first and the prelude prepended after.
 				std::string expression;
 				const auto temp = Temps.find(Key(from->Id, fromPin));
 				if (temp != Temps.end())
@@ -203,19 +228,64 @@ namespace RageV::Assets
 				if (wanted == GraphPinType::String)
 				{
 					if (have == GraphPinType::Bool)
-					{
 						UsedTextBool = true;
-						return "Text(" + expression + ")";
-					}
-					UsedTextFloat = true;
+					else if (have == GraphPinType::Vec3)
+						UsedTextVector = true;
+					else
+						UsedTextFloat = true;
 					return "Text(" + expression + ")";
 				}
 
 				return expression;
 			}
 
+			// The inputs of a node, resolved. Exec pins resolve to nothing, so
+			// a statement's format can index its data pins by their real
+			// position and the table stays readable.
+			std::vector<std::string> Arguments(const GraphNode& node)
+			{
+				const GraphNodeDesc& desc = GraphNodeDescOf(node.Type);
+				std::vector<std::string> out;
+				out.reserve(desc.Inputs.size());
+				for (uint32_t i = 0; i < desc.Inputs.size(); i++)
+				{
+					out.push_back(desc.Inputs[i].Type == GraphPinType::Exec
+								  ? std::string()
+								  : Value(node.Id, i, desc.Inputs[i].Type));
+				}
+				return out;
+			}
+
 			std::string Expression(const GraphNode& node, uint32_t pin)
 			{
+				const GraphNodeDesc& desc = GraphNodeDescOf(node.Type);
+
+				switch (desc.Emit)
+				{
+					case GraphEmit::Expression:
+						return Format(desc.Code, Arguments(node));
+
+					case GraphEmit::GetVariable:
+						Variables[node.Text] = desc.Code;
+						return node.Text;
+
+					case GraphEmit::Event:
+						// An event's data outputs are the method's parameters.
+						if (node.Type == GraphNodeType::OnTick
+							|| node.Type == GraphNodeType::OnFrame)
+							return "deltaTime";
+						switch (pin)
+						{
+							case 1: return "collision.Other";
+							case 2: return "collision.ImpactSpeed";
+							case 3: return "collision.Point";
+							default: return "collision.Normal";
+						}
+
+					default:
+						break;
+				}
+
 				switch (node.Type)
 				{
 					case GraphNodeType::LiteralBool:
@@ -223,56 +293,37 @@ namespace RageV::Assets
 					case GraphNodeType::LiteralFloat:
 						return Number(node.Value.x);
 					case GraphNodeType::LiteralVec3:
-						// Straight to its text form: nothing in the v1 set
-						// takes a Vec3, and the field API is text anyway.
-						return "\"" + Number(node.Value.x) + " " + Number(node.Value.y)
-							 + " " + Number(node.Value.z) + "\"";
+						return "new Vector3(" + Number(node.Value.x) + ", "
+							 + Number(node.Value.y) + ", " + Number(node.Value.z) + ")";
 					case GraphNodeType::LiteralString:
 						return "\"" + Escape(node.Text) + "\"";
 
 					case GraphNodeType::GetField:
 					{
 						const size_t dot = node.Text.find('.');
-						const std::string component = node.Text.substr(0, dot);
-						const std::string field = node.Text.substr(dot + 1);
-						return "Entity.GetComponentField(\"" + Escape(component)
-							 + "\", \"" + Escape(field) + "\")";
-					}
-
-					case GraphNodeType::Add:
-					case GraphNodeType::Subtract:
-					case GraphNodeType::Multiply:
-					case GraphNodeType::Divide:
-					{
-						const char* op = node.Type == GraphNodeType::Add ? " + "
-									   : node.Type == GraphNodeType::Subtract ? " - "
-									   : node.Type == GraphNodeType::Multiply ? " * " : " / ";
-						return "(" + Value(node.Id, 0, GraphPinType::Float) + op
-							 + Value(node.Id, 1, GraphPinType::Float) + ")";
+						return "Entity.GetComponentField(\""
+							 + Escape(node.Text.substr(0, dot)) + "\", \""
+							 + Escape(node.Text.substr(dot + 1)) + "\")";
 					}
 
 					case GraphNodeType::Compare:
 					{
 						const int mode = Math::Clamp((int)node.Value.x, 0, 4);
-						return "(" + Value(node.Id, 0, GraphPinType::Float) + " "
-							 + kCompare[mode] + " "
-							 + Value(node.Id, 1, GraphPinType::Float) + ")";
+						std::vector<std::string> args = Arguments(node);
+						return "(" + args[0] + " " + kCompare[mode] + " " + args[1] + ")";
 					}
 
-					// An event's data outputs are the method's parameters.
-					case GraphNodeType::OnTick:
-						return "deltaTime";
-					case GraphNodeType::OnCollisionEnter:
-						return pin == 1 ? "collision.Other" : "collision.ImpactSpeed";
+					case GraphNodeType::SpawnEntity:
+					case GraphNodeType::SpawnPrefab:
+						return SpawnLocal(node.Id);
 
 					default:
-						Error(node.Id, std::string(GraphNodeDescOf(node.Type).Name)
+						Error(node.Id, std::string(desc.Name)
 							  + " cannot be used as a value");
 						return "default";
 				}
 			}
 
-			// The statements from `node` onward, following the Exec chain.
 			void Statements(const GraphNode* node, std::string& out, int indent)
 			{
 				const std::string pad(indent, '\t');
@@ -281,38 +332,86 @@ namespace RageV::Assets
 				{
 					const GraphNodeDesc& desc = GraphNodeDescOf(node->Type);
 
+					if (desc.Emit == GraphEmit::Statement)
+					{
+						std::vector<std::string> args = Arguments(*node);
+						const std::string code = desc.Code;
+
+						// `{N}.Property = ...` needs an *lvalue*, and most of what
+						// feeds one here is not: Script.Entity is a property returning
+						// a struct, and C# will not let you assign through the return
+						// value of one. Spilling to a local fixes it and stays correct,
+						// because an Entity is a handle -- the copy writes to the same
+						// thing the original names.
+						//
+						// Found by *compiling* the output rather than reading it, which
+						// is the whole reason check_graph runs dotnet.
+						if (code.size() > 3 && code[0] == '{' && code[2] == '}'
+							&& std::isdigit((unsigned char)code[1])
+							&& code.find(" = ") != std::string::npos)
+						{
+							const size_t index = (size_t)(code[1] - '0');
+							if (index < args.size())
+							{
+								const std::string local = "target" + std::to_string(node->Id);
+								out += pad + "var " + local + " = " + args[index] + ";\n";
+								args[index] = local;
+							}
+						}
+
+						out += pad + Format(code, args) + "\n";
+						node = Next(*node, 0);
+						continue;
+					}
+
+					if (desc.Emit == GraphEmit::SetVariable)
+					{
+						Variables[node->Text] = desc.Code;
+						out += pad + node->Text + " = " + Arguments(*node)[1] + ";\n";
+						node = Next(*node, 0);
+						continue;
+					}
+
 					switch (node->Type)
 					{
 						case GraphNodeType::SetField:
 						{
 							const size_t dot = node->Text.find('.');
-							const std::string component = node->Text.substr(0, dot);
-							const std::string field = node->Text.substr(dot + 1);
-							out += pad + "Entity.SetComponentField(\"" + Escape(component)
-								 + "\", \"" + Escape(field) + "\", "
+							out += pad + "Entity.SetComponentField(\""
+								 + Escape(node->Text.substr(0, dot)) + "\", \""
+								 + Escape(node->Text.substr(dot + 1)) + "\", "
 								 + Value(node->Id, 1, GraphPinType::String) + ");\n";
 							break;
 						}
 
 						case GraphNodeType::Log:
+						case GraphNodeType::LogWarning:
 						{
 							// The node's own text when nothing is wired in,
 							// which is the literal fallback the validator
-							// already allows for this pin.
+							// allows for this pin.
 							const std::string message = Graph.IsInputLinked(node->Id, 1)
 								? Value(node->Id, 1, GraphPinType::String)
 								: "\"" + Escape(node->Text) + "\"";
-							out += pad + "Log.Info(" + message + ");\n";
+							out += pad + (node->Type == GraphNodeType::Log
+										  ? "Log.Info(" : "Log.Warn(") + message + ");\n";
 							break;
 						}
 
+						case GraphNodeType::SpawnEntity:
+							out += pad + "var " + SpawnLocal(node->Id) + " = Entity.Spawn("
+								 + Arguments(*node)[1] + ");\n";
+							break;
+
+						case GraphNodeType::SpawnPrefab:
+							out += pad + "var " + SpawnLocal(node->Id)
+								 + " = Entity.SpawnPrefab(" + Arguments(*node)[1] + ");\n";
+							break;
+
 						case GraphNodeType::Branch:
 						{
-							// The condition already parenthesises itself when it
-							// is an operator, and `if ((a > b))` is noise in a
-							// file whose readability is the point.
-							out += pad + "if (" + Unwrap(Value(node->Id, 1, GraphPinType::Bool))
-								 + ")\n";
+							out += pad + "if ("
+								 + Unwrap(Value(node->Id, 1, GraphPinType::Bool)) + ")\n";
 							out += pad + "{\n";
 							Statements(Next(*node, 0), out, indent + 1);
 							out += pad + "}\n";
@@ -323,8 +422,6 @@ namespace RageV::Assets
 								Statements(Next(*node, 1), out, indent + 1);
 								out += pad + "}\n";
 							}
-							// Both arms are terminal: a Branch has no exec
-							// output past them, so nothing follows it.
 							return;
 						}
 
@@ -339,17 +436,10 @@ namespace RageV::Assets
 							return;
 					}
 
-					// Every statement node above has exactly one exec output,
-					// at pin 0. Branch and Sequence returned.
 					node = Next(*node, 0);
 				}
 			}
 
-			// `var <name> = <expression>;` for each temp that was used, with
-			// anything it depends on declared above it. Recursive rather than
-			// sorted, because the dependency is discovered by emitting: a
-			// temp's expression asks Value() for its inputs, which is what
-			// records the temps *those* need.
 			void DeclareTemp(uint64_t key, std::vector<uint64_t>& done, std::string& out)
 			{
 				if (std::find(done.begin(), done.end(), key) != done.end())
@@ -362,9 +452,6 @@ namespace RageV::Assets
 				if (!node)
 					return;
 
-				// Emitted into a scratch buffer first: writing the expression
-				// is what discovers the temps it reads, and those have to be
-				// declared above it.
 				const size_t before = Used.size();
 				const std::string expression = Expression(*node, pin);
 				for (size_t i = before; i < Used.size(); i++)
@@ -399,18 +486,29 @@ namespace RageV::Assets
 								   "file to letters, digits and underscores" });
 		}
 
-		// Before emitting anything, not after: the point of the check is that
-		// no file is written, and a generator that emits first and decides
-		// later is one refactor away from writing it anyway.
+		// A variable is a C# field, so its name has to be one. Checked here
+		// rather than left to the compiler: "my count" would otherwise produce
+		// a generated file that does not build, and the error would point at
+		// code nobody wrote.
+		for (const GraphNode& node : graph.GetNodes())
+		{
+			const GraphEmit emit = GraphNodeDescOf(node.Type).Emit;
+			if (emit != GraphEmit::GetVariable && emit != GraphEmit::SetVariable)
+				continue;
+			if (node.Text.empty())
+				result.Issues.push_back({ GraphIssueSeverity::Error, node.Id,
+										  "this variable has no name" });
+			else if (!IsIdentifier(node.Text))
+				result.Issues.push_back({ GraphIssueSeverity::Error, node.Id,
+										  "'" + node.Text + "' cannot be a variable name; "
+										  "use letters, digits and underscores" });
+		}
+
 		if (result.HasErrors())
 			return result;
 
 		Emitter emitter{ graph, result.Issues };
 
-		// A pin read by two or more inputs earns a local. Counted over the
-		// whole graph rather than per method: a pin read once in each of two
-		// events is read once in each *method*, and hoisting it there would
-		// declare a local used a single time.
 		{
 			std::unordered_map<uint64_t, int> reads;
 			for (const GraphLink& link : graph.GetLinks())
@@ -425,20 +523,26 @@ namespace RageV::Assets
 				reads[Emitter::Key(link.FromNode, link.FromPin)]++;
 			}
 
-			// An event's own outputs are already named -- `deltaTime`,
-			// `collision.ImpactSpeed` -- so a local for one would be an alias.
 			for (const auto& [key, count] : reads)
 			{
 				if (count < 2)
 					continue;
 				const GraphNode* node = graph.FindNode((uint32_t)(key >> 32));
-				if (!node || GraphNodeDescOf(node->Type).IsEvent)
+				if (!node)
+					continue;
+				const GraphEmit emit = GraphNodeDescOf(node->Type).Emit;
+
+				// An event's outputs are already named, a variable already is
+				// a name, and a spawn already declares its own local. A local
+				// for any of those would be an alias.
+				if (emit == GraphEmit::Event || emit == GraphEmit::GetVariable
+					|| node->Type == GraphNodeType::SpawnEntity
+					|| node->Type == GraphNodeType::SpawnPrefab)
 					continue;
 				emitter.Temps[key] = "value" + std::to_string((uint32_t)(key >> 32));
 			}
 		}
 
-		// Events in id order, so the file is deterministic (7bh, trap 1).
 		std::vector<const GraphNode*> events;
 		for (const GraphNode& node : graph.GetNodes())
 		{
@@ -451,25 +555,6 @@ namespace RageV::Assets
 		std::string body;
 		for (const GraphNode* event : events)
 		{
-			std::string signature;
-			switch (event->Type)
-			{
-				case GraphNodeType::OnCreate:
-					signature = "public override void OnCreate()";
-					break;
-				case GraphNodeType::OnTick:
-					signature = "public override void OnTick(float deltaTime)";
-					break;
-				case GraphNodeType::OnCollisionEnter:
-					signature = "public override void OnCollisionEnter(Collision collision)";
-					break;
-				default:
-					continue;
-			}
-
-			// Statements first: writing them is what records which temps this
-			// method actually reads. The prelude is then built from that and
-			// put in front, which is why the names are chosen up front.
 			emitter.Used.clear();
 			std::string statements;
 			emitter.Statements(emitter.Next(*event, 0), statements, 2);
@@ -480,7 +565,7 @@ namespace RageV::Assets
 			for (uint64_t key : used)
 				emitter.DeclareTemp(key, declared, prelude);
 
-			body += "\t" + signature + "\n\t{\n";
+			body += std::string("\t") + GraphNodeDescOf(event->Type).Code + "\n\t{\n";
 			body += prelude;
 			if (!prelude.empty() && !statements.empty())
 				body += "\n";
@@ -501,11 +586,21 @@ namespace RageV::Assets
 		out += "// ENGINE-NOTES 7bh.\n\n";
 		out += "using RageV;\n\n";
 		out += "public class " + className + " : Script\n{\n";
+
+		// Variables first: they are the class's state, and a reader looking for
+		// what a script *remembers* should not have to find it among methods.
+		if (!emitter.Variables.empty())
+		{
+			out += "\t// The graph's variables. Fields rather than locals, because\n";
+			out += "\t// that is what makes them survive between one event and the next.\n";
+			for (const auto& [name, type] : emitter.Variables)
+				out += "\tprivate " + type + " " + name + ";\n";
+			out += "\n";
+		}
+
 		out += body;
 
-		// Emitted only where used, so a graph that needs neither does not
-		// carry a helper somebody then wonders about.
-		if (emitter.UsedTextFloat || emitter.UsedTextBool)
+		if (emitter.UsedTextFloat || emitter.UsedTextBool || emitter.UsedTextVector)
 		{
 			out += "\t// The engine's named field API is text, and these are the forms it\n";
 			out += "\t// parses. Invariant: a machine with a comma decimal point has to\n";
@@ -518,8 +613,12 @@ namespace RageV::Assets
 		}
 		if (emitter.UsedTextBool)
 			out += "\tprivate static string Text(bool value) => value ? \"true\" : \"false\";\n\n";
+		if (emitter.UsedTextVector)
+		{
+			out += "\tprivate static string Text(Vector3 value) =>\n";
+			out += "\t\tText(value.X) + \" \" + Text(value.Y) + \" \" + Text(value.Z);\n\n";
+		}
 
-		// One trailing brace, and the body already ended with a blank line.
 		while (out.size() >= 2 && out[out.size() - 1] == '\n' && out[out.size() - 2] == '\n')
 			out.pop_back();
 		out += "}\n";
@@ -544,8 +643,7 @@ namespace RageV::Assets
 		{
 			// A graph that has stopped generating must not leave last-good code
 			// compiled in: the canvas would say "4 errors" while the game ran
-			// the version from before them, which is the engine disagreeing
-			// with the editor about what the project contains.
+			// the version from before them.
 			std::error_code error;
 			if (std::filesystem::exists(file, error))
 			{
@@ -587,8 +685,6 @@ namespace RageV::Assets
 		if (!std::filesystem::exists(assetsRoot, error))
 			return true;
 
-		// Sorted, so a build's log reads the same way twice and a failure is
-		// found in the same place.
 		std::vector<std::filesystem::path> files;
 		for (const std::filesystem::directory_entry& entry :
 			 std::filesystem::recursive_directory_iterator(assetsRoot, error))
@@ -613,9 +709,6 @@ namespace RageV::Assets
 			if (GenerateToFile(graph, className, scriptsRoot, issues))
 				continue;
 
-			// One bad graph must not stop the others compiling, so this
-			// records and carries on -- but it says which, and why, because a
-			// script that silently stops existing is the worst way to find out.
 			ok = false;
 			RV_CORE_ERROR("Script graph '{0}' did not generate:", className);
 			for (const GraphIssue& issue : issues)

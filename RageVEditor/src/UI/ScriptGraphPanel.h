@@ -93,7 +93,9 @@ namespace RageV::UI
 		void Undo();
 		void Redo();
 
-		AssetHandle m_Handle;
+		// Explicitly invalid: UUID()'s default is a *random* id, never zero,
+		// so a default-constructed handle is valid and points at nothing.
+		AssetHandle m_Handle = AssetHandle::Invalid();
 		ScriptGraph m_Graph;
 		bool m_Dirty = false;
 		std::string m_Name;
@@ -135,7 +137,7 @@ namespace RageV::UI
 		std::vector<GraphIssue> m_Issues;
 
 		// A graph waiting on the answer to "save first?".
-		AssetHandle m_PendingOpen;
+		AssetHandle m_PendingOpen = AssetHandle::Invalid();
 
 		std::vector<ScriptGraph> m_Undo;
 		std::vector<ScriptGraph> m_Redo;
