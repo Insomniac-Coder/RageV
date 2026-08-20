@@ -88,6 +88,40 @@ MAX_ADJACENT_IDENTICAL = 0.20
 MIN_NEIGHBOUR_CORRELATION = 0.30
 MAX_FAR_CORRELATION = 0.15
 
+# Claims 2b and 2c (CHK.3): **how much**, not merely whether.
+#
+# Every break this file had for these two effects switched one *off* or
+# inverted it, and claim 2 is `changed == 0` -- so nothing here had ever asked
+# how strong they are. Both of these passed: a vignette that ignores
+# `VignetteSmoothness` and rolls off from the centre outwards
+# (`falsify.py lens-vignette-everywhere`), and a twelvefold fringe
+# (`lens-aberration-wide`).
+#
+# The vignette's own claim -- corner against centre -- cannot see the first,
+# and that is not a subtlety: at the corner the two shaders agree to within
+# four levels (66.77 against 70.38) because the falloff has saturated there
+# either way. **The difference is entirely in the middle distance**, which
+# nothing was reading: 3.02 levels shipped against 23.29 broken, at half the
+# radius. The corner band is the strength claim; the mid-radius ceiling is the
+# shape claim, and it is the one with teeth.
+MIN_CORNER_DROP = 45.0
+MAX_CORNER_DROP = 90.0
+MAX_MID_DROP = 8.0
+
+# The aberration's fringe, measured as the fraction of the *tone ramp* that
+# the effect moves by more than two levels of red-against-blue.
+#
+# On the ramp rather than the AA scene, and that is the finding rather than a
+# convenience: two flat levels have almost nothing to disperse, so the AA
+# scene reads 3,588 subpixels -- 0.08 % of the frame -- and a twelvefold
+# aberration only takes that to 7,012. The same break on the ramp goes
+# **8.49 % to 58.71 %**, because a ramp is all edges between unequal
+# brightnesses, which is what a chromatic fringe needs to exist at all.
+# 9.3's revision built this fixture for the grain's response curve; the
+# aberration wanted it just as much and nobody noticed.
+MIN_FRINGE_EXTENT = 0.03
+MAX_FRINGE_EXTENT = 0.20
+
 # Claim 6. The response curve is sqrt(4L(1-L)), so relative to its peak the
 # bands below sit at 0.44 (L=0.05), 0.99 (L=0.44) and 0.48 (L=0.94). A margin
 # of 1.3x is comfortably inside that and comfortably outside measurement noise
@@ -180,6 +214,19 @@ def build_ramp(profile):
         ]
 
     return chr(10).join(lines) + chr(10)
+
+
+def radii(shape):
+    """Distance from the frame's centre in the shader's units: 1 at a corner.
+
+    The same expression `tonemap.rvshader` uses -- deliberately not aspect
+    corrected, for the reason its comment gives.
+    """
+    height, width = shape[:2]
+    ys, xs = np.mgrid[0:height, 0:width]
+    u = (xs + 0.5) / width - 0.5
+    v = (ys + 0.5) / height - 0.5
+    return np.sqrt(u * u + v * v) * 1.41421356
 
 
 def luma_of(image):
@@ -319,6 +366,38 @@ def main():
                 f"({centre_drop:.1f} against {corner_drop:.1f}). It is inverted, or "
                 f"the falloff is not a function of distance from the middle")
 
+        # --- 2b. and by how much, and over what ----------------------------
+        #
+        # Read on rings rather than boxes, because the claim is about a radial
+        # falloff. The middle ring is what the direction claim above cannot
+        # see: the corner saturates under any falloff wide enough to reach it.
+        distance = radii(frames["off"].shape)
+        ring_corner = distance > 0.90
+        ring_mid = (distance > 0.45) & (distance < 0.55)
+
+        ring_corner_drop = float(frames["off"][ring_corner].mean()
+                                 - frames["vignette"][ring_corner].mean())
+        ring_mid_drop = float(frames["off"][ring_mid].mean()
+                              - frames["vignette"][ring_mid].mean())
+        print(f"  vignette on rings: corner {ring_corner_drop:.2f}, "
+              f"mid-radius {ring_mid_drop:.2f} levels")
+
+        if not MIN_CORNER_DROP <= ring_corner_drop <= MAX_CORNER_DROP:
+            failures.append(
+                f"{backend}: the vignette takes {ring_corner_drop:.1f} levels off "
+                f"the corner, outside the band {MIN_CORNER_DROP}-{MAX_CORNER_DROP} "
+                f"this fixture's VignetteIntensity of 0.8 was calibrated at. "
+                f"Under it the effect is barely arriving; over it, it is being "
+                f"applied more than once or read at the wrong strength")
+
+        if ring_mid_drop > MAX_MID_DROP:
+            failures.append(
+                f"{backend}: the vignette takes {ring_mid_drop:.1f} levels off the "
+                f"middle of the frame (ceiling {MAX_MID_DROP}, measured 3.0). The "
+                f"falloff has no start -- VignetteSmoothness is being ignored, or "
+                f"the roll-off begins at the centre -- and the corner reads the "
+                f"same either way, so nothing else here can see it")
+
         # --- 3 and 4. grain animates, and reproduces -----------------------
         again = shoot(exe, backend, shots / f"{backend}-grain-again.png",
                       "scenes/lens_grain.rage")
@@ -402,6 +481,31 @@ def main():
         ramp_grain = shoot(exe, backend, shots / f"{backend}-ramp-grain.png",
                            f"scenes/{ramp.name}")
 
+        # --- 2c. the aberration's fringe, on the one fixture that has edges
+        # between unequal brightnesses. The AA scene cannot measure this: it is
+        # two flat levels, and a fringe needs a gradient to be a fringe.
+        ramp.write_text(build_ramp(profiles["aberration"]))
+        ramp_ab = shoot(exe, backend, shots / f"{backend}-ramp-aberration.png",
+                        f"scenes/{ramp.name}")
+
+        divergence = np.abs((ramp_ab[:, :, 0].astype(np.float64) - ramp_ab[:, :, 2])
+                            - (ramp_off[:, :, 0].astype(np.float64) - ramp_off[:, :, 2]))
+        extent = float((divergence > 2.0).mean())
+        print(f"  aberration fringes {extent * 100:.2f}% of the ramp")
+
+        if extent < MIN_FRINGE_EXTENT:
+            failures.append(
+                f"{backend}: the aberration fringes only {extent * 100:.2f}% of the "
+                f"ramp (floor {MIN_FRINGE_EXTENT * 100:.0f}%, measured 8.5%). It is "
+                f"reaching the shader -- claim 2 says so -- but displacing almost "
+                f"nothing")
+        if extent > MAX_FRINGE_EXTENT:
+            failures.append(
+                f"{backend}: the aberration fringes {extent * 100:.1f}% of the ramp "
+                f"(ceiling {MAX_FRINGE_EXTENT * 100:.0f}%, measured 8.5%). A lens "
+                f"disperses at its edges; this is dispersing the picture. The "
+                f"offset is being scaled by something it should not be")
+
         # Binned by the luma of the *ungrained* render, so the bands are where
         # the renderer actually put them rather than where the scene meant to.
         luma = luma_of(ramp_off)
@@ -449,10 +553,11 @@ def main():
             print(f"FAIL: {failure}")
         sys.exit(1)
 
-    print("OK: off is off to the byte, each effect lands, the vignette darkens "
-          "the corner rather than the middle, the grain animates without "
-          "becoming irreproducible, and it is clumps of a definite size that "
-          "peak in the midtones")
+    print("OK: off is off to the byte, each effect lands and lands at the "
+          "strength it was calibrated at, the vignette darkens the corner and "
+          "leaves the middle alone, the aberration fringes edges rather than the "
+          "picture, and the grain animates without becoming irreproducible in "
+          "clumps of a definite size that peak in the midtones")
 
 
 if __name__ == "__main__":

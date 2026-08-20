@@ -10223,6 +10223,221 @@ keep the code.
 
 ---
 
+### 7bi. The check audit (CHK.3): what the first two passes could not have covered
+
+The owner asked for the remaining check scripts to be audited for floors that
+cannot fail. Two passes already exist and this entry is written against them
+rather than over them: **7ba (CHK.1)** named four shapes and audited twenty
+scripts for them, and **CHK.2** put every claim in all twenty on the wrong
+side of itself. Repeating either would have produced a longer document and no
+new information.
+
+So the scope is the three places those passes could not reach:
+
+1. **What was written after CHK.2 landed** (`b1ef27d`, 2026-08-19). Two
+   scripts have substantive changes since: `check_gi` grew the voxel claims
+   with 8.1, and **`check_graph` did not exist at all** -- it was written the
+   next day for 8.10 and has never been through either pass.
+2. **A shape neither pass names.** CHK.1's four are about a claim's
+   *threshold*; this one is about its *evidence*.
+3. **A break kind CHK.2 did not use.** Every break in `falsify.py` for an
+   effect either switches it off or inverts it. Nothing had ever asked an
+   effect to do *too much* except where a ceiling already existed to catch it
+   -- which is circular, and is how two of the findings below survived a pass
+   whose whole subject was floors.
+
+---
+
+#### Finding 1: `check_graph`'s "every graph generates" claim could not fail
+
+The claim was written for a regression that really happened -- a rename left
+two fixtures naming a node type that no longer existed, they stopped
+generating, and nothing looked. It asks that a `.g.cs` **exist** for every
+`.rvgraph` in the project.
+
+The generated files are **tracked in git**, and only `Mover.g.cs` -- the one
+the check regenerates as its own fixture -- was deleted before the generator
+ran. The other five were answered by whatever the last checkout had put on
+disk.
+
+Measured, by renaming `NumbersAdd` to `NumbersAppend` in `Roster.rvgraph`:
+
+```
+[RageV] Script graph ...Roster.rvgraph: dropping node 4 of unknown type 'NumbersAppend'
+[RageV] --generate-graphs: at least one graph did not generate
+...
+OK: a graph becomes C#, the C# compiles, the engine loads it, and the script
+    it describes moves an entity -- while a graph with errors writes no file
+    at all                                                          exit 0
+```
+
+The runtime says the thing the check exists to notice, in the same run, and
+the check says OK.
+
+#### Finding 2: and the engine behind it is worse than the check
+
+`ScriptGraphSerializer::Load` **drops** a node of unknown type and returns
+success. So `Roster` did not fail to generate: it generated *silently
+emptied*, thirty-one lines down to ten, an `OnCreate` with nothing in it --
+and `dotnet build` compiled it.
+
+That is precisely what `check_graph`'s own claim 2 exists to forbid, in its
+own words: *"a graph with errors must write no file, because an empty class
+compiles, attaches, runs and does nothing"* (7bf). The rule was stated, and
+enforced only for the one fixture named `Broken`.
+
+**This is why fixing the check by deleting the files first is not enough.**
+Delete every `.g.cs`, and the broken graph still writes one -- an empty one --
+so an existence test still passes. The claim is unguardable at that level.
+
+**So the claim became content, not existence.** The generated files are
+tracked, which means git already holds the expected output: after
+regenerating, every graph must produce exactly what is committed. That catches
+the dropped node, the stale fixture, and a generator change nobody
+re-recorded, and it costs one `git diff`. Its price is that a legitimate
+generator change now has to be committed along with its output, which is the
+correct bill for a tracked fixture.
+
+Under the same break, through the committed harness:
+
+```
+FAIL: the regenerated C# is not what is committed:
+        SampleProject/Scripts/Generated/Roster.g.cs | 21 ---------------------
+```
+
+**The engine defect is left open and is the more serious half.** An authoring
+surface that discards part of the user's graph and saves the result is data
+loss, not a check problem; the right fix is for the loader to refuse a graph
+containing an unknown node type rather than to drop it, which is a change with
+its own verification and is not this pass's to make. The check now catches it
+on the fixtures. Nothing catches it on a user's graph.
+
+#### Finding 3: two of the three lens effects have no magnitude at all
+
+CHK.1's table records `lens_effects` as covered for shape 1 -- *"correlations,
+bounded in [0,1]; ceiling on far correlation present"*. That row is about the
+**grain**, which got a full treatment in 9.3's revision after it looked wrong
+while passing everything. The other two effects in the same file were guarded
+by `changed == 0` and, for the vignette, a direction.
+
+The file even states the principle it then does not apply: *"the vignette has
+a direction, and 'it changed pixels' would pass with the sign inverted"*. The
+same sentence is true of magnitude, and true of the aberration, which has only
+the `changed == 0` half.
+
+Two breaks, both new, both passing before this pass:
+
+| break | what it does | before | after | verdict |
+|---|---|---|---|---|
+| `lens-vignette-everywhere` | `VignetteSmoothness` ignored: the roll-off starts at the centre | 2,996,427 subpixels changed | **4,286,570** -- 99 % of the frame | **OK** |
+| `lens-aberration-wide` | the radial offset scaled twelvefold | 3,588 subpixels | **7,012** | **OK** |
+
+**The vignette's existing claim cannot see the first, and not by a little.**
+At the corner the correct shader and the broken one agree to within four
+levels -- 66.77 against 70.38 -- because the falloff has saturated there under
+either. The whole of the difference is in the middle distance, which nothing
+was reading: **3.02 levels against 23.29** at half the radius. A corner-versus-
+centre test is blind to the shape of what happens in between, which is the
+only thing `VignetteSmoothness` controls.
+
+So the vignette gets two claims where it had one: a **band on the corner**
+(strength) and a **ceiling at mid-radius** (shape). Rings rather than boxes,
+because the claim is about a radial falloff.
+
+#### Finding 4: the aberration's fixture had almost nothing to disperse
+
+Chasing the second break turned up the reason its numbers are so small. The AA
+scene is **two flat levels** -- deliberately, because that is what makes an
+edge measurable -- and a chromatic fringe needs a *gradient* to exist. The
+whole aberration reads 3,588 subpixels, **0.08 % of the frame**, and twelve
+times the offset only doubles it, because there is nothing there to displace.
+
+The fixture that can measure it was already in the file. 9.3's revision built
+`build_ramp` -- eight emissive slabs across the tone scale -- so the grain's
+response curve could be measured at all. It is all edges between unequal
+brightnesses, which is exactly what an aberration needs:
+
+| | AA scene | tone ramp |
+|---|---|---|
+| shipped | 0.08 % of the frame | **8.49 %** |
+| twelvefold | 0.16 % | **58.71 %** |
+
+The claim is now the fringe's **extent** on the ramp, banded 3 %--20 %. The
+finding generalises past this file: **a fixture chosen for one effect is not
+automatically able to measure another**, and the AA scene is shared by most of
+the suite.
+
+#### Finding 5: hole 2 of 10.1 was closed in one script, not the suite
+
+`rvcheck` was written three days ago for the three verification holes (7bf).
+Its two guards have very different reach:
+
+- `require_current_shaders` -- **18 of 18** scripts that launch the runtime.
+- `require_drawn` -- **2 of 21**: `check_gi`, where the hole was found, and
+  `check_graph`, which was written afterwards.
+
+The documentation is accurate about this and says so ("`check_gi`'s `shoot`
+and `sequence` pass every frame through it"), so this is a gap rather than a
+claim that is wrong. It matters most for the strongest-looking claims in the
+suite: **two black frames are byte-identical**, so every "off is off, to the
+byte" claim -- six scripts -- is perfectly satisfied by a renderer drawing
+nothing. The most common cause of that is now caught upstream by the exit-3
+rule, which is why this is filed rather than fixed here; a fixture that loads
+but puts nothing in frame is not.
+
+---
+
+#### What changed
+
+**`check_graph`** compares content against git instead of testing existence,
+and deletes every generated file first rather than one.
+
+**`check_lens_effects`** gains five thresholds where it had a direction and a
+non-zero test, each placed between a measured correct reading and a measured
+broken one:
+
+| threshold | shipped | break | reading |
+|---|---|---|---|
+| `MIN_CORNER_DROP` 45 | 66.77 | `lens-vignette-inverted` | 1.38 |
+| `MAX_CORNER_DROP` 90 | 66.77 | `lens-vignette-twice` | 111.60 |
+| `MAX_MID_DROP` 8 | 3.02 | `lens-vignette-everywhere` | 23.29 |
+| `MIN_FRINGE_EXTENT` 3 % | 8.49 % | `lens-aberration-dead` | 0.00 % |
+| `MAX_FRINGE_EXTENT` 20 % | 8.49 % | `lens-aberration-wide` | 58.71 % |
+
+Both backends agree to the third decimal on every one of them.
+
+**`falsify.py`** learns a third target kind. It could break a deployed shader
+(`<name>`) and a check script (`check:<name>`); it can now break a project
+asset (`asset:<repo-relative path>`), which is what a claim about a `.rvgraph`
+needs. Restoring one is `git checkout` with the same tracked-or-refuse rule
+the check scripts get -- **plus one thing that rule did not cover**: putting a
+graph back leaves its generated `.g.cs` holding whatever the broken graph
+produced, because the generator overwrote it. The sibling comes back with it.
+That is the untracked-file trap of 7bf, one file along.
+
+Four breaks added: `graph-stale-node`, `lens-vignette-everywhere`,
+`lens-vignette-twice`, `lens-aberration-wide`.
+
+#### What this pass did not do
+
+- **The loader still drops unknown node types** (finding 2). It is an engine
+  change, it is data loss, and it wants its own row.
+- **`require_drawn` is still in two scripts** (finding 5).
+- **The voxel claims are unaudited by anything but their own author.** They
+  postdate CHK.2 and `falsify.py` already records what is known: claim 15's
+  radius half cannot be broken with the shader lever because `GiRadius`
+  reaches the voxel gather through no path at all, and its floor half had two
+  breaks written and both survived. `voxel-no-shadow` guards nothing on
+  `gi_corner`, which has no shadowed surface for the break to light. All three
+  were already written down before this pass and none of them moved.
+- **Only two scripts were changed.** The rest were read against the three
+  scopes above and had nothing in them; that is the expected result of a third
+  pass over a set two passes have already been through, and it is worth
+  saying plainly rather than padding.
+
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

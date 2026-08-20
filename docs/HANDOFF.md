@@ -1760,9 +1760,66 @@ the same file. It used to exit 0.
 **New in the toolbox:** `tools/scripts/rvcheck.py`. Import it from any check;
 it is where a shared measurement guard belongs from now on.
 
-**State.** Phases 0-7 and 9 are done; 8.1 is done; phase 8 has 8.3, 8.5-8.11
-open. **Everything through `8cfc0a5` is pushed.** This session's work is on top
-of that and is the owner's to push.
+
+### THE THIRD CHECK AUDIT (CHK.3, 10.4, ENGINE-NOTES 7bi)
+
+Asked for as "audit the other check scripts for floors that cannot fail". Two
+passes already existed -- 7ba named four shapes and audited twenty scripts,
+CHK.2 put every claim on the wrong side of itself -- so this one is scoped to
+the three places they could not reach: **what was written after CHK.2**,
+**a shape neither names** (a claim's evidence, not its threshold), and **a
+break kind CHK.2 never used** -- every break for an effect switches it off or
+inverts it, so nothing had ever asked one to do too *much*.
+
+**Two scripts changed. Three findings, each measured before it was believed.**
+
+1. **`check_graph`'s "every graph generates" claim could not fail.** The
+   generated C# is tracked in git and only the fixture's own file was deleted
+   before the generator ran, so the other five were answered by the last
+   checkout. Renaming a node type in `Roster.rvgraph` had the runtime log
+   *"at least one graph did not generate"* in the same run this check printed
+   OK. It now compares **content against git** -- regenerate everything, and
+   every graph must produce exactly what is committed.
+2. **The engine behind it is worse, and is open as ROADMAP 10.10.**
+   `ScriptGraphSerializer::Load` **drops** a node of unknown type and returns
+   success, so the graph does not fail to generate -- it generates *silently
+   emptied*. `Roster.g.cs` went thirty-one lines to an empty `OnCreate`, and
+   `dotnet build` compiled it. That is what `check_graph`'s own claim 2
+   forbids, enforced until now only for the fixture named `Broken`. **Data
+   loss in an authoring surface**; the check catches it on the fixtures and
+   nothing catches it on a user's graph.
+3. **Two of the three lens effects had no magnitude at all.** A vignette that
+   ignores `VignetteSmoothness` and covers the whole frame passed; so did a
+   twelvefold aberration. The existing corner-versus-centre claim is blind to
+   the first *by construction* -- the corner reads 66.77 against 70.38 either
+   way, because the falloff has saturated there under both, and the whole
+   difference is at mid-radius: **3.02 against 23.29**. Five new thresholds,
+   each between a measured correct reading and a measured broken one.
+
+**And one finding about fixtures rather than thresholds.** The aberration
+reads 0.08 % of the frame on the AA scene, and twelve times the offset only
+doubles it -- two flat levels have nothing to disperse. On the tone ramp 9.3
+built for the grain's response curve it goes **8.49 % to 58.71 %**. *A fixture
+chosen for one effect cannot be assumed to measure another*, and the AA scene
+is shared by most of the suite.
+
+**`falsify.py` learns a third target kind**: `asset:<repo-relative path>`, for
+a claim about a project asset rather than a shader or a check script. Restored
+from git with the same tracked-or-refuse rule -- plus its generated sibling,
+because putting a `.rvgraph` back leaves the `.g.cs` the broken one produced.
+Four breaks added: `graph-stale-node`, `lens-vignette-everywhere`,
+`lens-vignette-twice`, `lens-aberration-wide`.
+
+**Left open, deliberately:** `require_drawn` is in **2 of 21** scripts where
+`require_current_shaders` is in 18 of 18. Two black frames are byte-identical,
+so every *"off is off, to the byte"* claim -- six scripts -- is perfectly
+satisfied by a renderer drawing nothing. The commonest cause is caught
+upstream by the exit-3 rule; a fixture that loads and puts nothing in frame is
+not.
+
+**State.** Phases 0-7 and 9 are done; 8.1, 8.2, 8.4, 8.10 and 8.12 are
+done; phase 8 has 8.3, 8.5-8.9 and 8.11 open. **Everything through `8cfc0a5`
+is pushed.** This session's work is on top of that and is the owner's to push.
 
 **1. `check_gi.py` now runs end to end and passes** -- the thing the last
 START HERE said was owed. It is green on both backends, exit 0, verdict OK.

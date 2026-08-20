@@ -25,6 +25,23 @@ a cube landed.
 ships alongside precisely so that a run of the generator proves the refusal
 every time, not only when somebody remembers to try it.
 
+**Claim 3.** Every graph in the project regenerates to exactly the C# that is
+committed. The generated files are tracked, so git holds the expected output
+and `git diff` is the comparison -- which makes this the claim that has to be
+re-recorded (`git add`) whenever the generator legitimately changes, and that
+is the point of it.
+
+*It replaced a claim that could not fail* (CHK.3). The old one asked only
+that a `.g.cs` **exist** for every graph, against files that are tracked and
+were never deleted -- so it was answered by the last checkout rather than by
+this run. Renaming a node type in `Roster.rvgraph` to one that no longer
+exists made the runtime log "at least one graph did not generate" while this
+file printed OK. Worse, the loader *drops* an unknown node and generates
+anyway, so `Roster.g.cs` was silently rewritten from thirty-one lines to an
+empty `OnCreate` -- a file that exists, compiles, attaches and does nothing,
+which is the thing claim 2 exists to forbid. Existence cannot see that.
+Content can.
+
 **The break** (`falsify.py graph-no-exec`) severs the graph's exec link, which
 is the smallest edit that makes a valid-looking graph do nothing. Claim 1's
 floor is what catches it: the two scenes become identical.
@@ -103,10 +120,13 @@ def main():
     #
     # Through the runtime, not the editor: a check that needs a person to click
     # Build Scripts is a check nobody runs.
+    # Every one of them, not just the fixture's: a file left over from the
+    # last run answers an existence test without the generator having run at
+    # all, and these are tracked in git, so "left over" means "since checkout".
     generated = ROOT / "SampleProject" / "Scripts" / "Generated"
+    for previous in generated.glob("*.g.cs"):
+        previous.unlink()
     stale = generated / "Mover.g.cs"
-    if stale.exists():
-        stale.unlink()
 
     code, log = run(exe, ["--render-defaults=on", "--rhi=vulkan",
                           "--generate-graphs=on", "--frame-time=0.0166",
@@ -133,6 +153,37 @@ def main():
         if not (generated / f"{graph.stem}.g.cs").exists():
             failures.append(f"{graph.name} did not generate; every graph in the "
                             f"project except the deliberately broken one must")
+
+    # Claim 3: what came back is what is committed. The existence loop above
+    # cannot see a graph that generates *wrongly* -- a dropped node, a changed
+    # emit rule, a fixture edited without regenerating -- and every one of
+    # those leaves a file that compiles and misbehaves rather than a missing
+    # one. git holds the expected output because these files are tracked.
+    diff = subprocess.run(["git", "diff", "--stat", "--",
+                           "SampleProject/Scripts/Generated"],
+                          cwd=str(ROOT), capture_output=True, text=True)
+
+    # An empty stdout means "no difference" only if git actually answered.
+    # Without this, no repository or no git on PATH reads as a pass -- which
+    # is the shape this claim was written to close, one level along.
+    if diff.returncode != 0:
+        failures.append(
+            "git could not compare the generated C# against what is committed "
+            "(exit {0}): {1}. This claim's evidence is git's answer, so no "
+            "answer is not a pass.".format(diff.returncode,
+                                           (diff.stderr or "").strip()[:200]))
+    elif diff.stdout.strip():
+        failures.append(
+            "the regenerated C# is not what is committed:\n"
+            + "\n".join("        " + line
+                         for line in diff.stdout.strip().splitlines())
+            + "\n        Either a graph now generates differently -- in which "
+              "case read the diff and\n        commit it -- or a graph stopped "
+              "generating what it used to and the file you\n        are looking "
+              "at is wrong. `git diff SampleProject/Scripts/Generated` shows "
+              "which.")
+    else:
+        print("and every graph regenerated to exactly the C# that is committed")
 
     # Claim 2, and it costs nothing because Broken.rvgraph is already there:
     # a graph with errors must leave *no* file, because an empty class compiles,
@@ -186,9 +237,9 @@ def main():
             print(f"FAIL: {failure}")
         sys.exit(1)
 
-    print("\nOK: a graph becomes C#, the C# compiles, the engine loads it, and "
-          "the script it describes moves an entity -- while a graph with errors "
-          "writes no file at all")
+    print("\nOK: every graph regenerates to the C# that is committed, it "
+          "compiles, the engine loads it, and the script it describes moves an "
+          "entity -- while a graph with errors writes no file at all")
 
 
 if __name__ == "__main__":

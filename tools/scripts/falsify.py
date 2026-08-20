@@ -184,6 +184,25 @@ BREAKS = {
     'lens-aberration-dead': [('tonemap.rvshader',
                               'if (u_Params.Aberration > 0.0)',
                               'if (false)')],
+    # **Two overdrives, added by the CHK.3 audit.** Every lens break above
+    # switches an effect *off* or inverts it, and claim 2 is `changed == 0` --
+    # so nothing in this file has ever asked how *much* the vignette and the
+    # aberration do. These two are the shape-1 question for them.
+    'lens-vignette-everywhere': [
+        ('tonemap.rvshader',
+         'float falloff = smoothstep(1.0 - u_Params.VignetteSmoothness, 1.0, d);',
+         'float falloff = smoothstep(0.0, 1.0, d);')],
+    'lens-aberration-wide': [
+        ('tonemap.rvshader',
+         'vec2 offset = toCentre * u_Params.Aberration;',
+         'vec2 offset = toCentre * u_Params.Aberration * 12.0;')],
+    # And the corner band's ceiling: the vignette multiplied in twice, which
+    # is what a second call site or a doubled pass would do.
+    'lens-vignette-twice': [
+        ('tonemap.rvshader',
+         'color *= mix(1.0, 1.0 - u_Params.Vignette, falloff);',
+         'color *= mix(1.0, 1.0 - u_Params.Vignette, falloff);'
+         '\n\t\tcolor *= mix(1.0, 1.0 - u_Params.Vignette, falloff);')],
     'lens-grain-white-noise': [('tonemap.rvshader',
                                 'vec3 grain = GrainField(gl_FragCoord.xy / max(u_Params.GrainSize, 1.0),',
                                 'vec3 grain = GrainField(gl_FragCoord.xy * 64.0 / max(u_Params.GrainSize, 1.0),')],
@@ -337,6 +356,16 @@ BREAKS = {
     To: [2, 0]
 ''', '')],
 
+    # check_graph's content claim (CHK.3). The regression it is drawn from
+    # really happened: a rename left two fixtures naming a node type that no
+    # longer existed. The loader **drops** an unknown node and generates
+    # anyway, so this does not stop `Roster.g.cs` being written -- it makes it
+    # be written empty, which is why the claim had to become "what is
+    # committed" rather than "a file exists".
+    'graph-stale-node': [('asset:SampleProject/assets/graphs/Roster.rvgraph',
+                          '    Type: NumbersAdd',
+                          '    Type: NumbersAppend')],
+
     'voxel-no-shadow': [('voxel_inject.rvshader',
                          'const float shadow = light.Params.w > 0.5 ? CascadeShadow(world, N, L) : 1.0;',
                          'const float shadow = 1.0;')],
@@ -432,10 +461,19 @@ def restore(config='Release'):
     # A break that lives in a check script comes back from git -- **that file
     # and only that file.** Reverting the whole directory took an uncommitted
     # threshold edit and this tool's own in-progress edits with it.
-    scripts = sorted({filename[len('check:'):]
+    scripts = sorted({path
                       for edits in BREAKS.values()
                       for filename, _, _ in edits
-                      if filename.startswith('check:')})
+                      for path in [from_git(filename)]
+                      if path})
+
+    # A `.rvgraph` break leaves its generated C# holding what the broken graph
+    # produced -- the generator overwrites that file, and `git checkout` of the
+    # asset alone does not reach it. It is the same trap as the untracked-file
+    # one below, one file along.
+    scripts += [f'SampleProject/Scripts/Generated/{path.rsplit("/", 1)[-1][:-len(".rvgraph")]}.g.cs'
+                for path in list(scripts) if path.endswith('.rvgraph')]
+    scripts = sorted(set(scripts))
     #
     # **Checked, not fired and forgotten.** `git checkout` on a file git does
     # not track succeeds at doing nothing, and this used to ignore that: the
@@ -443,8 +481,7 @@ def restore(config='Release'):
     # check measured a deliberately broken fixture with nothing to say it was
     # one. A new fixture is untracked exactly when it is newest, which is when
     # somebody is most likely to be falsifying it.
-    for name in scripts:
-        relative = f'tools/scripts/{name}'
+    for relative in scripts:
         tracked = subprocess.run(['git', 'ls-files', '--error-unmatch', relative],
                                  cwd=str(ROOT), capture_output=True)
         if tracked.returncode != 0:
@@ -466,10 +503,22 @@ def restore(config='Release'):
 
 
 def target(filename, config='Release'):
-    """A deployed shader by default; `check:<name>` for a script under tools."""
+    """A deployed shader by default; `check:<name>` for a script under tools;
+    `asset:<repo-relative path>` for anything the project ships."""
     if filename.startswith('check:'):
         return ROOT / 'tools' / 'scripts' / filename[len('check:'):]
+    if filename.startswith('asset:'):
+        return ROOT / filename[len('asset:'):]
     return deployed(config) / filename
+
+
+def from_git(filename):
+    """The repo-relative path of a break that git has to put back, or None."""
+    if filename.startswith('check:'):
+        return 'tools/scripts/' + filename[len('check:'):]
+    if filename.startswith('asset:'):
+        return filename[len('asset:'):]
+    return None
 
 
 def apply(name, config='Release'):
