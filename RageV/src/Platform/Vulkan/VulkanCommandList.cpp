@@ -458,6 +458,16 @@ namespace RageV::Vk
 		vkCmdDrawIndexed(m_CommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 	}
 
+	void VulkanCommandList::DrawIndexedIndirect(const RHI::Ref<RHI::RHIBuffer>& args, uint64_t offset,
+												uint32_t drawCount, uint32_t stride)
+	{
+		if (!args || drawCount == 0)
+			return;
+
+		auto vulkanBuffer = std::static_pointer_cast<VulkanBuffer>(args);
+		vkCmdDrawIndexedIndirect(m_CommandBuffer, vulkanBuffer->GetHandle(), offset, drawCount, stride);
+	}
+
 	namespace
 	{
 		// What a use means to Vulkan: which stage touches the buffer, and how.

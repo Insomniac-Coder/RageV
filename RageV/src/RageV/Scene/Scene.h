@@ -4,6 +4,7 @@
 #include "RageV/Core/UUID.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
+#include "RageV/Renderer/GpuCull.h"
 #include "RageV/Renderer/Light.h"
 #include "RageV/Renderer/PostSettings.h"
 #include "RageV/Renderer/ViewportGrid.h"
@@ -128,7 +129,18 @@ namespace RageV
 			MeshComponent* Source = nullptr;
 			RHI::Ref<Mesh> Resolved;
 			bool Skinned = false;
+			// Which mesh slot this object went into in the GPU cull table, or
+			// kNoCullSlot when it went into none -- a skinned mesh, or any
+			// object at all when the cull passes are unavailable.
+			//
+			// A depth view reads this to know what it must *not* draw: the
+			// static casters were already submitted by an indirect draw, and
+			// drawing them again would double every shadow's depth writes for
+			// no visible change and twice the cost.
+			uint32_t CullSlot = kNoCullSlot;
 		};
+
+		static constexpr uint32_t kNoCullSlot = ~0u;
 
 		// Rebuilt from the registry. Call after UpdateWorldTransforms and
 		// before anything reads the list; both render entry points do.
@@ -505,6 +517,38 @@ namespace RageV
 		// is most of why rebuilding it every frame costs what it does.
 		std::vector<DrawBounds> m_DrawBounds;
 		std::vector<DrawItem> m_DrawItems;
+
+		// The same objects again, in the form the cull pass reads (roadmap
+		// 8.3), built in the same walk and uploaded at the end of it. Static
+		// meshes only: a skinned caster needs bones, which are a per-frame CPU
+		// product, and there are a handful of those against tens of thousands
+		// of the other kind.
+		//
+		// Three arrays because the GPU and the CPU need different halves of
+		// the same answer. `m_CullObjects` is what the dispatch reads;
+		// `m_CullSlots` is the indirect commands' template, one per distinct
+		// mesh, which the reset pass copies; `m_CullMeshes` is what the draw
+		// needs and the GPU does not -- which mesh to bind before each slot's
+		// indirect draw.
+		std::vector<GpuCull::Object> m_CullObjects;
+		std::vector<GpuCull::SlotCommand> m_CullSlots;
+		std::vector<GpuCull::Slot> m_CullMeshes;
+		// How many objects named each slot, which becomes the length of the
+		// slot's range in the instance buffer. Kept between frames for the
+		// allocation, like everything else here.
+		std::vector<uint32_t> m_CullCounts;
+
+		// Which entries of the draw list the GPU table does *not* hold: the
+		// skinned casters, and anything with too few indices to draw. Filled
+		// only when there is a cull pass, because without one the answer is
+		// every entry and walking the whole array is what already happens.
+		//
+		// A list rather than a test inside the loop, so the walk that survives
+		// stays over the small array. Checking each item's slot would mean
+		// touching `DrawItem` for every object to find the handful that are
+		// not static, which is exactly the streaming the two arrays exist to
+		// avoid.
+		std::vector<uint32_t> m_CpuDraws;
 
 		std::vector<ProbeSlot> m_ProbeSlots;
 

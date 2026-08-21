@@ -79,6 +79,27 @@ namespace RageV::RHI
 								 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 								 uint32_t firstInstance = 0) = 0;
 
+		// The same draw, with its arguments read from a buffer the GPU wrote
+		// rather than from registers the CPU filled: `drawCount` consecutive
+		// DrawIndexedIndirectCommand at `offset`, `stride` bytes apart.
+		//
+		// **This exists so a count can come from a compute pass.** Everything
+		// else about the draw -- which mesh, how many indices, where its
+		// instances start -- is known when the command is recorded; how many
+		// of those instances survive culling is not, and that is the whole
+		// difference between this and DrawIndexed.
+		//
+		// The buffer must carry BufferUsage::Indirect, and the write that
+		// filled it must be ordered against this by the caller:
+		// BufferBarrier(args, ComputeWrite, IndirectRead). Nothing here can do
+		// that for you -- the command list does not know who wrote it, for the
+		// same reason BuildBottomLevelAS cannot order its vertex buffer.
+		//
+		// Recorded inside a render pass, like any other draw.
+		virtual void DrawIndexedIndirect(const Ref<RHIBuffer>& args, uint64_t offset = 0,
+										 uint32_t drawCount = 1,
+										 uint32_t stride = sizeof(DrawIndexedIndirectCommand)) = 0;
+
 		// Runs the bound compute pipeline over a grid of work groups -- groups,
 		// not invocations. RHIComputePipeline::GroupsFor converts.
 		//

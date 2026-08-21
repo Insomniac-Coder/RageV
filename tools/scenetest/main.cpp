@@ -23,6 +23,7 @@
 #include <atomic>
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/GpuCull.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
@@ -1417,6 +1418,107 @@ namespace
 	// alone passes for an emitter that never left the origin, which is the bug
 	// this feature exists to fix -- so every bound check here is paired with a
 	// fill check.
+	// GPU culling (roadmap 8.3): the table the depth views cull against.
+	//
+	// What is checkable here is the *shape* of the table, not the culling
+	// itself -- how many objects a view kept is a number in device memory that
+	// the CPU never reads back, which is the whole point of the feature. So
+	// this asserts the two properties the draw depends on and the two that a
+	// wrong answer would break silently: that objects sharing a mesh share a
+	// slot, and that turning the pass off puts every object back on the walk.
+	//
+	// The first matters because each slot's range in the instance buffer is
+	// sized to the objects that named it. Two meshes sharing a slot would give
+	// one range twice the traffic it was allocated, and the overrun would land
+	// in the next mesh's instances -- geometry drawn at another object's
+	// transform, which reads as a corrupt scene rather than as a culling bug.
+	void CheckGpuCull()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		if (!GpuCull::IsAvailable())
+		{
+			// Said rather than skipped in silence: a run that proved nothing
+			// should not read like a run that proved something.
+			RV_CORE_WARN("scenetest: GPU culling is unavailable on this device, so its "
+						 "checks did not run");
+			return;
+		}
+
+		auto grouped = [](const Scene& scene)
+		{
+			std::unordered_map<const Mesh*, uint32_t> slots;
+			bool consistent = true;
+			for (const Scene::DrawItem& item : scene.GetDrawItems())
+			{
+				auto found = slots.find(item.Resolved.get());
+				if (found == slots.end())
+					slots.emplace(item.Resolved.get(), item.CullSlot);
+				else if (found->second != item.CullSlot)
+					consistent = false;
+			}
+			return std::pair<size_t, bool>{ slots.size(), consistent };
+		};
+
+		auto build = []()
+		{
+			auto scene = std::make_shared<Scene>();
+			// Two of one mesh and one of another: enough for a slot to be
+			// shared and for a second slot to exist beside it.
+			scene->CreateEntity("Cube A").AddComponent<MeshComponent>(PrimitiveType::Cube);
+			scene->CreateEntity("Cube B").AddComponent<MeshComponent>(PrimitiveType::Cube);
+			scene->CreateEntity("Sphere").AddComponent<MeshComponent>(PrimitiveType::Sphere);
+			return scene;
+		};
+
+		{
+			GpuCull::BeginFrame();
+			auto scene = build();
+			scene->RefreshDrawList();
+
+			const auto& items = scene->GetDrawItems();
+			Check(items.size() == 3, "the draw list holds every mesh that resolved");
+
+			size_t slotted = 0;
+			for (const Scene::DrawItem& item : items)
+				if (item.CullSlot != Scene::kNoCullSlot)
+					slotted++;
+			Check(slotted == 3, "and with a cull pass, every static one goes into its table");
+
+			const auto [distinct, consistent] = grouped(*scene);
+			Check(consistent, "objects sharing a mesh share a cull slot");
+			Check(distinct == 2, "and two distinct meshes make two slots, not one and not three");
+		}
+
+		// And the way back. `--gpu-cull=off` has to leave the frame exactly
+		// what it was, which starts with nothing claiming the GPU drew it.
+		{
+			GpuCull::SetEnabled(false);
+			GpuCull::BeginFrame();
+			auto scene = build();
+			scene->RefreshDrawList();
+
+			bool anyClaimed = false;
+			for (const Scene::DrawItem& item : scene->GetDrawItems())
+				if (item.CullSlot != Scene::kNoCullSlot)
+					anyClaimed = true;
+
+			Check(!GpuCull::IsAvailable(), "turning the cull pass off makes it unavailable");
+			Check(!anyClaimed, "and no object then claims the table drew it");
+			GpuCull::SetEnabled(true);
+		}
+
+		// The layout the two backends and the shader all read the same way.
+		// A static_assert says this at compile time; saying it here as well
+		// puts it in the log of the run that depends on it.
+		Check(sizeof(RHI::DrawIndexedIndirectCommand) == 20,
+			  "an indirect draw's arguments are the twenty bytes both backends read");
+		Check(sizeof(GpuCull::SlotCommand) == 24 &&
+			  offsetof(GpuCull::SlotCommand, InstanceBase) == 20,
+			  "and the instance base rides in the sixth word, which is the stride's reason");
+	}
+
 	void CheckEmitterVolumes()
 	{
 		constexpr float dt = 1.0f / 60.0f;
@@ -13700,6 +13802,7 @@ int RunTests(int argc, char** argv)
 	CheckCurveAsset();
 	CheckParticleCurves();
 	CheckParticles();
+	CheckGpuCull();
 	CheckEmitterVolumes();
 	CheckViewportZoom();
 	CheckAssetWatcher();

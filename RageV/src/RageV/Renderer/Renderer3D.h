@@ -7,6 +7,7 @@
 #include "Mesh.h"
 #include "Material.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
+#include "GpuCull.h"
 
 namespace RageV
 {
@@ -67,6 +68,18 @@ namespace RageV
 		// set is bound in this pass at all.
 		static void BeginShadow(const Mat4& viewProjection);
 		static void DrawMeshShadow(const RHI::Ref<Mesh>& mesh, const Mat4& transform);
+
+		// Every static caster this view kept, in as many draws as the scene
+		// has distinct meshes -- each one's instance count read out of the
+		// buffer GpuCull::Cull filled rather than counted here (roadmap 8.3).
+		//
+		// Between BeginShadow and EndShadow, like the calls above, and it does
+		// not disturb them: the pending list the CPU path accumulates is
+		// untouched, so a view can submit its static casters this way and its
+		// skinned ones and its terrain the other. `slots` is the table the
+		// same RefreshDrawList built, and must be the one the cull was given.
+		static void DrawShadowIndirect(const GpuCull::View& view,
+									   const std::vector<GpuCull::Slot>& slots);
 
 		// The same pose the lit pass was given. Without this a skinned figure
 		// walks and its shadow stands still in the bind pose.

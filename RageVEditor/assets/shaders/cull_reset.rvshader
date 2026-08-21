@@ -1,0 +1,56 @@
+// Puts one view's indirect draw commands back to zero survivors.
+//
+// The commands the cull pass counts into must live in device memory: it
+// increments them once per surviving object, and an atomic on host-visible
+// memory crosses the bus every time. That rules out the obvious way of
+// clearing them, which is for the CPU to write the array -- a device-local
+// buffer's Upload stages through a temporary and blocks, once per view, every
+// frame.
+//
+// So the CPU writes a *template* into a host-visible buffer once a frame --
+// one entry per mesh slot, saying how many indices that mesh has and where its
+// instances start -- and this copies it across for each view with the count
+// zeroed. Sixty-four invocations cover more slots than any scene here has.
+
+#type compute
+#version 450 core
+
+layout(local_size_x = 64) in;
+
+// The layout cull_casters.rvshader writes into and the backend reads as
+// indirect arguments; see that file for why the base is the sixth word.
+struct SlotCommand
+{
+	uint IndexCount;
+	uint InstanceCount;
+	uint FirstIndex;
+	uint VertexOffset;
+	uint FirstInstance;
+	uint InstanceBase;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer Template
+{
+	SlotCommand Items[];
+} u_Template;
+
+layout(std430, set = 0, binding = 1) writeonly buffer Commands
+{
+	SlotCommand Items[];
+} u_Commands;
+
+layout(push_constant) uniform Params
+{
+	uint SlotCount;
+} u_Params;
+
+void main()
+{
+	uint i = gl_GlobalInvocationID.x;
+	if (i >= u_Params.SlotCount)
+		return;
+
+	SlotCommand command = u_Template.Items[i];
+	command.InstanceCount = 0u;
+	u_Commands.Items[i] = command;
+}

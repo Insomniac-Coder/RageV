@@ -309,6 +309,7 @@ namespace RageV
 
 	void Scene::UpdateWorldTransforms()
 	{
+
 		// The draw list is built out of these matrices, so it is stale the
 		// moment they are recomputed. Raised here rather than at every site
 		// that moves something, for the reason the recomputation itself is
@@ -1455,6 +1456,30 @@ namespace RageV
 		m_DrawBounds.clear();
 		m_DrawItems.clear();
 
+		// Built alongside, when there is a cull pass to read it (8.3). The
+		// flag is taken once rather than per object: whether the pass exists
+		// is a property of the device and the shaders, decided at startup.
+		const bool gpuCull = GpuCull::IsAvailable();
+
+		// **The table is a frame's product; this list is a call's.** The list
+		// is rebuilt every time a render path raises the dirty flag, which is
+		// twice a frame at least, because its component pointers are only
+		// good for the walk that took them. The table has no pointers in it
+		// and nothing in it changes between those calls, so building it again
+		// would be ninety-six bytes an object written and uploaded for a
+		// second copy of an identical answer -- which at sixty thousand
+		// objects costs more than the walks the table exists to remove.
+		//
+		// The slot assignment below still runs either way. It is a handful of
+		// entries, and the *rest* of this walk needs it: which entries the
+		// depth pass must not draw itself, and which mesh each slot binds.
+		const bool buildTable = gpuCull && !GpuCull::HasObjects(this);
+		m_CullObjects.clear();
+		m_CullSlots.clear();
+		m_CullMeshes.clear();
+		m_CullCounts.clear();
+		m_CpuDraws.clear();
+
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 
 		// Reserving on the view's size rather than growing: at sixty thousand
@@ -1464,6 +1489,35 @@ namespace RageV
 		const size_t count = meshView.size_hint();
 		m_DrawBounds.reserve(count);
 		m_DrawItems.reserve(count);
+		if (buildTable)
+			m_CullObjects.reserve(count);
+
+		// **The slot lookup, and why it is a scan.** A scene has tens of
+		// thousands of objects and a handful of distinct meshes -- the scale
+		// scenes have four -- so the answer is almost always the one before
+		// it, and the fallback is a walk over a vector that fits in a cache
+		// line or two. A hash per object would be a second hash per object:
+		// resolving the mesh handle above is already one.
+		const Mesh* lastMesh = nullptr;
+		uint32_t lastSlot = kNoCullSlot;
+
+		auto slotFor = [&](const Mesh* key) -> uint32_t
+		{
+			if (key == lastMesh)
+				return lastSlot;
+
+			for (uint32_t i = 0; i < (uint32_t)m_CullMeshes.size(); i++)
+			{
+				if (m_CullMeshes[i].MeshRef.get() == key)
+				{
+					lastMesh = key;
+					lastSlot = i;
+					return i;
+				}
+			}
+
+			return kNoCullSlot;
+		};
 
 		for (auto& item : meshView)
 		{
@@ -1486,10 +1540,79 @@ namespace RageV
 			entry.Transform = &transform;
 			entry.Source = &mesh;
 			entry.Skinned = resolved->IsSkinned();
+
+			// Static meshes only, and only when there is a pass to read them.
+			// A skinned caster is posed from bones the CPU composed this
+			// frame, and an indexless mesh has nothing for an indexed draw to
+			// draw.
+			if (gpuCull && !entry.Skinned && resolved->GetIndexCount() >= 3)
+			{
+				uint32_t slot = slotFor(resolved.get());
+				if (slot == kNoCullSlot)
+				{
+					slot = (uint32_t)m_CullMeshes.size();
+
+					GpuCull::Slot record;
+					record.MeshRef = resolved;
+					m_CullMeshes.push_back(std::move(record));
+					m_CullCounts.push_back(0);
+
+					GpuCull::SlotCommand command;
+					command.Draw.IndexCount = resolved->GetIndexCount();
+					m_CullSlots.push_back(command);
+
+					lastMesh = resolved.get();
+					lastSlot = slot;
+				}
+
+				if (buildTable)
+				{
+					GpuCull::Object object;
+					object.Model = transform.World;
+					object.Centre = bounds.Centre;
+					object.Extents = bounds.Extents;
+					object.Slot = slot;
+					m_CullObjects.push_back(object);
+				}
+
+				m_CullCounts[slot]++;
+				entry.CullSlot = slot;
+			}
+			else if (gpuCull)
+			{
+				m_CpuDraws.push_back((uint32_t)m_DrawItems.size());
+			}
+
 			entry.Resolved = std::move(resolved);
 
 			m_DrawBounds.push_back(bounds);
 			m_DrawItems.push_back(std::move(entry));
+		}
+
+		// Where each slot's range begins: the running total of the ones before
+		// it, so the ranges together are exactly the object count. Every slot's
+		// range is as long as the number of objects that named it, which is why
+		// an atomic handing out places inside it cannot overrun however the
+		// culling goes -- and why nothing needs sorting.
+		if (gpuCull && !m_CullSlots.empty())
+		{
+			uint32_t base = 0;
+			for (uint32_t i = 0; i < (uint32_t)m_CullSlots.size(); i++)
+			{
+				m_CullSlots[i].InstanceBase = base;
+				m_CullMeshes[i].InstanceBase = base;
+				base += m_CullCounts[i];
+			}
+
+			if (!GpuCull::SetObjects(this, m_CullObjects, m_CullSlots))
+			{
+				// The table did not reach the GPU, so nothing may claim its
+				// objects were drawn from it. Every view then takes the walk,
+				// which is what the empty list below says.
+				for (DrawItem& entry : m_DrawItems)
+					entry.CullSlot = kNoCullSlot;
+				m_CpuDraws.clear();
+			}
 		}
 	}
 
@@ -1522,9 +1645,23 @@ namespace RageV
 		const uint32_t pointResolution =
 			(uint32_t)Math::Clamp(Project::Render().ShadowResolution / 4, 128, 2048);
 
-		// Drawing every caster, once per map. Culling is roadmap 3.6, and until
-		// it exists a shadow map costs a full scene walk.
-		auto drawCasters = [this, &meshView](const Mat4& viewProjection)
+		// **What this view kept, when the GPU decided it** (roadmap 8.3),
+		// handed from the half of the pass that runs before the render pass
+		// opens to the half that runs inside it. Invalid when there is no cull
+		// pass, when the table did not reach the device, or on a frame that
+		// never built one -- and then every caster is walked here as before.
+		GpuCull::View culled;
+
+		ShadowMap::CasterPass casters;
+
+		// A dispatch, so it cannot be inside the render pass. This is the only
+		// reason ShadowMap's caster callback has two halves.
+		casters.Prepare = [cmd, &culled](const Mat4& viewProjection)
+		{
+			culled = GpuCull::Cull(*cmd, viewProjection);
+		};
+
+		casters.Draw = [this, &culled](const Mat4& viewProjection)
 		{
 			// Against this pass's own frustum, not the camera's. A cascade sees
 			// a different volume from the viewer, and culling it against the
@@ -1538,14 +1675,13 @@ namespace RageV
 			// loop used to do first -- the view's component fetch, the mesh
 			// lookup, the bounds transform -- does not depend on which cascade
 			// is asking, and RefreshDrawList did it once for all of them.
-			const size_t drawCount = m_DrawBounds.size();
-			for (size_t index = 0; index < drawCount; index++)
+			auto submit = [this, &frustum](size_t index)
 			{
 				const DrawBounds& bounds = m_DrawBounds[index];
 				if (!frustum.Intersects(bounds.Centre, bounds.Extents))
 				{
 					Renderer3D::CountCulled();
-					continue;
+					return;
 				}
 
 				// Only what survives reads the item, which is the whole reason
@@ -1573,10 +1709,31 @@ namespace RageV
 						Renderer3D::DrawSkinnedMeshShadow(entry.Resolved, world, bind);
 					}
 
-					continue;
+					return;
 				}
 
 				Renderer3D::DrawMeshShadow(entry.Resolved, world);
+			};
+
+			if (culled.IsValid())
+			{
+				// One draw per distinct mesh, each one's instance count read
+				// out of device memory. The CPU never learns how many
+				// survived, which is the point: learning it is a read back
+				// across the bus and a stall to make it meaningful.
+				Renderer3D::DrawShadowIndirect(culled, m_CullMeshes);
+
+				// Everything the table does not hold -- the skinned casters,
+				// and anything with too few indices to draw indexed. A short
+				// list, walked in full.
+				for (uint32_t index : m_CpuDraws)
+					submit(index);
+			}
+			else
+			{
+				const size_t drawCount = m_DrawBounds.size();
+				for (size_t index = 0; index < drawCount; index++)
+					submit(index);
 			}
 
 			// The terrain's chunks at their chosen level, against this pass's
@@ -1713,7 +1870,7 @@ namespace RageV
 
 					ShadowMap::Assign((uint32_t)lightIndex, assigned);
 					ShadowMap::RenderSpot(*cmd, spotSlot, localResolution,
-										  projection * view, drawCasters);
+										  projection * view, casters);
 					spotSlot++;
 					break;
 				}
@@ -1743,7 +1900,7 @@ namespace RageV
 
 					ShadowMap::Assign((uint32_t)lightIndex, assigned);
 					ShadowMap::RenderPoint(*cmd, pointSlot, pointResolution,
-										   position, reach, drawCasters);
+										   position, reach, casters);
 					pointSlot++;
 					break;
 				}
@@ -1844,7 +2001,7 @@ namespace RageV
 								   flip, cascades);
 
 		ShadowMap::SetLightIndex(casterIndex);
-		ShadowMap::Render(*cmd, cascades, count, resolution, drawCasters);
+		ShadowMap::Render(*cmd, cascades, count, resolution, casters);
 	}
 
 	LightList Scene::CollectLights()

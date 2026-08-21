@@ -254,9 +254,9 @@ namespace RageV
 	}
 
 	void ShadowMap::RenderSpot(RHICommandList& cmd, uint32_t slot, uint32_t resolution,
-							   const Mat4& viewProjection, const DrawCasters& draw)
+							   const Mat4& viewProjection, const CasterPass& casters)
 	{
-		if (!s_Data || !s_Data->Ready || !draw || slot >= kMaxLocal)
+		if (!s_Data || !s_Data->Ready || !casters.Draw || slot >= kMaxLocal)
 			return;
 
 		resolution = Math::Clamp(resolution, 256u, 4096u);
@@ -293,17 +293,19 @@ namespace RageV
 		begin.Clear.Depth = 1.0f;
 
 		cmd.PushDebugGroup("Spot shadow");
+		if (casters.Prepare)
+			casters.Prepare(viewProjection);
 		cmd.BeginRenderPass(begin);
-		draw(viewProjection);
+		casters.Draw(viewProjection);
 		cmd.EndRenderPass();
 		cmd.PopDebugGroup();
 	}
 
 	void ShadowMap::RenderPoint(RHICommandList& cmd, uint32_t slot, uint32_t resolution,
 								const Vec3& position, float farClip,
-								const DrawCasters& draw)
+								const CasterPass& casters)
 	{
-		if (!s_Data || !s_Data->Ready || !draw || slot >= kMaxLocal)
+		if (!s_Data || !s_Data->Ready || !casters.Draw || slot >= kMaxLocal)
 			return;
 
 		// Smaller than a spot map by default and deliberately: this is six of
@@ -366,11 +368,18 @@ namespace RageV
 			begin.UseDepth = true;
 			begin.Clear.Depth = 1.0f;
 
-			cmd.BeginRenderPass(begin);
 			// The same face basis a reflection probe captures with. Two
 			// features that disagreed about which way a cube face points would
-			// be two features that could not be debugged together.
-			draw(projection * Math::Inverse(ReflectionProbe::FaceTransform(i, position)));
+			// be two features that could not be debugged together. Worked out
+			// before the pass opens, because the preparation needs it there.
+			const Mat4 viewProjection =
+				projection * Math::Inverse(ReflectionProbe::FaceTransform(i, position));
+
+			if (casters.Prepare)
+				casters.Prepare(viewProjection);
+
+			cmd.BeginRenderPass(begin);
+			casters.Draw(viewProjection);
 			cmd.EndRenderPass();
 
 			cmd.CopyToTextureLayer(face, s_Data->PointCubes[slot], i);
@@ -505,9 +514,9 @@ namespace RageV
 	}
 
 	void ShadowMap::Render(RHICommandList& cmd, const ShadowCascade* cascades,
-						   uint32_t count, uint32_t resolution, const DrawCasters& draw)
+						   uint32_t count, uint32_t resolution, const CasterPass& casters)
 	{
-		if (!s_Data || !s_Data->Ready || !cascades || !draw || count == 0)
+		if (!s_Data || !s_Data->Ready || !cascades || !casters.Draw || count == 0)
 			return;
 
 		count = Math::Min(count, kMaxCascades);
@@ -551,9 +560,12 @@ namespace RageV
 			begin.Clear.Depth = 1.0f;
 
 			cmd.PushDebugGroup("Shadow cascade");
+			if (casters.Prepare)
+				casters.Prepare(cascades[i].ViewProjection);
+
 			cmd.BeginRenderPass(begin);
 
-			draw(cascades[i].ViewProjection);
+			casters.Draw(cascades[i].ViewProjection);
 
 			cmd.EndRenderPass();
 			cmd.PopDebugGroup();

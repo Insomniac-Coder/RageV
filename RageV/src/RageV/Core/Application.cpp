@@ -12,6 +12,7 @@
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Renderer/Renderer2D.h"
+#include "RageV/Renderer/GpuCull.h"
 #include "Timestep.h"
 #include "RageV/ImGui/LoadingScreen.h"
 #include "Platform/Windows/WindowsPlatform.h"
@@ -464,6 +465,11 @@ namespace RageV {
 		// A benchmark that cannot say which pass spent the time is a number
 		// without a lead, so it turns this on for itself.
 		FrameProfiler::EnablePassTimings(config.PassTimings || benchmarkFrames > 0);
+		// Before the first frame and after Renderer3D::Init, which is what the
+		// flag has to sit between: the pipelines are already built, and
+		// switching this off makes IsAvailable answer no so every depth view
+		// takes the walk instead.
+		GpuCull::SetEnabled(config.GpuCull);
 		const uint32_t benchmarkWarmup = benchmarkFrames > 0
 			? Math::Max(10u, benchmarkFrames / 5u) : 0u;
 

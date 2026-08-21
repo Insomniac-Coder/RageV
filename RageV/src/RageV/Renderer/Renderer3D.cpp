@@ -400,6 +400,15 @@ namespace RageV
 			std::vector<std::vector<ShadowSlot>> ShadowSlots;
 			uint32_t ShadowCursor = 0;
 
+			// The depth pass's *culled* form needs a set and nothing else:
+			// the instances it binds were written by the cull pass and live in
+			// device memory, so there is no buffer here to grow and no upload
+			// to make. Its own ring rather than a ShadowSlot's, which would
+			// hand out a host-visible instance buffer per view that nothing
+			// would ever write.
+			std::vector<std::vector<Ref<RHIResourceSet>>> CulledShadowSets;
+			uint32_t CulledShadowCursor = 0;
+
 			// The slot BeginScene took, so EndScene reaches the same one
 			// without recomputing an index from the cursor -- which is off by
 			// one the moment BeginScene returns early.
@@ -588,6 +597,7 @@ namespace RageV
 		// on a device without ray queries, and then everything below that asks
 		// about it is answered "no" (ENGINE-NOTES 7am).
 		RayShadows::Init(device);
+		GpuCull::Init(device);
 
 		if (!CompileLitShaders())
 			return;
@@ -595,6 +605,7 @@ namespace RageV
 		// Slots are created on demand; most frames need one.
 		s_Data->SceneSlots.resize(device.GetFramesInFlight());
 		s_Data->ShadowSlots.resize(device.GetFramesInFlight());
+		s_Data->CulledShadowSets.resize(device.GetFramesInFlight());
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
 
@@ -642,6 +653,7 @@ namespace RageV
 		Mesh::ClearCache();
 		TextureLoader::ClearCache();
 		RayShadows::Shutdown();
+		GpuCull::Shutdown();
 		// After s_Data's default material, which holds a reference to it.
 		s_Data.reset();
 		Material::ReleaseShared();
@@ -1044,12 +1056,17 @@ namespace RageV
 		// The GPU has finished with this frame's slots, so they are reusable.
 		s_Data->SceneCursor = 0;
 		s_Data->ShadowCursor = 0;
+		s_Data->CulledShadowCursor = 0;
 		// And with the heap slots retired when this frame index last came
 		// round, which is what lets the heap recycle them now.
 		if (s_Data->Heap)
 			s_Data->Heap->BeginFrame(s_Data->Device->GetFrameIndex());
 		// Last frame's acceleration structure is last frame's.
 		RayShadows::BeginFrame();
+		// Rewinds the ring of per-view cull results, and forgets last frame's
+		// object table -- which must happen before any scene refreshes its
+		// draw list, and does, because this runs once at the top of the frame.
+		GpuCull::BeginFrame();
 		VoxelGI::BeginFrame();
 		// Accumulated across every scene drawn this frame rather than reset per
 		// scene, or the statistics panel would only ever show the last viewport.
@@ -2012,6 +2029,68 @@ namespace RageV
 		draw.LightMVP = s_Data->ShadowViewProjection * transform;
 
 		s_Data->ShadowPending.push_back(std::move(draw));
+	}
+
+	void Renderer3D::DrawShadowIndirect(const GpuCull::View& view,
+										const std::vector<GpuCull::Slot>& slots)
+	{
+		if (!s_Data || !s_Data->ShadowActive || !view.IsValid() || slots.empty())
+			return;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd || !s_Data->ShadowPipeline)
+			return;
+
+		const uint32_t frame = s_Data->Device->GetFrameIndex();
+		auto& sets = s_Data->CulledShadowSets[frame];
+		while (s_Data->CulledShadowCursor >= sets.size())
+			sets.push_back(nullptr);
+
+		Ref<RHIResourceSet>& set = sets[s_Data->CulledShadowCursor++];
+		if (!set)
+			set = s_Data->Device->CreateResourceSet(s_Data->ShadowPipeline, 0);
+		if (!set)
+			return;
+
+		// The buffer the cull pass wrote, in place of the one the CPU used to
+		// fill. shadow_depth.rvshader does not know the difference: it was
+		// already reading one matrix per instance out of set 0 binding 0, and
+		// it still is.
+		set->SetStorageBuffer(0, view.Instances);
+		set->Commit();
+
+		cmd->BindPipeline(s_Data->ShadowPipeline);
+		cmd->BindResourceSet(0, set);
+
+		// The cull filled as many commands as the table had slots; a shorter
+		// `slots` than that would mean the two came from different walks.
+		const uint32_t count = Math::Min((uint32_t)slots.size(), view.SlotCount);
+		for (uint32_t i = 0; i < count; i++)
+		{
+			const GpuCull::Slot& entry = slots[i];
+			if (!entry.MeshRef)
+				continue;
+
+			// Where this slot's instances begin, from the CPU's copy of the
+			// same table the GPU has. Not the draw's firstInstance, for the
+			// reason shadow_depth.rvshader gives: the two backends disagree
+			// about whether it reaches the shader.
+			ObjectPushConstants object;
+			object.BaseInstance = (int32_t)entry.InstanceBase;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+			cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
+			cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+			cmd->DrawIndexedIndirect(view.Commands,
+									 (uint64_t)i * sizeof(GpuCull::SlotCommand),
+									 1, sizeof(GpuCull::SlotCommand));
+
+			// The draw is counted; the triangles are not, and cannot be. How
+			// many instances this command draws is a number in device memory
+			// that the CPU never reads back -- which is the whole point -- so
+			// the statistics line reports the draws honestly and stops.
+			s_Data->DrawCalls++;
+		}
 	}
 
 	void Renderer3D::DrawSkinnedMeshShadow(const Ref<Mesh>& mesh, const Mat4& transform,

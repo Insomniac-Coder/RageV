@@ -1,0 +1,160 @@
+// Which casters a shadow view can see, decided on the GPU (roadmap 8.3).
+//
+// The depth pass used to answer this on the CPU, once per view: a frustum test
+// per object, a matrix multiply per survivor, a sort of the survivors, and a
+// copy of the result into a buffer to upload. A frame opens one of these views
+// per cascade, per casting spot light and per face of every point light's cube,
+// so the whole walk happened five or more times over the same objects.
+//
+// Here it happens once per view over a table the CPU wrote once, and the only
+// thing that crosses back is a count -- written into the indirect draw's own
+// InstanceCount field, which is the entire reason RHICommandList grew
+// DrawIndexedIndirect.
+//
+// **The sort is gone rather than moved.** The CPU sorted so that runs of one
+// mesh would be contiguous and could be drawn together; here every object was
+// assigned a mesh slot before it arrived, each slot owns a fixed range of the
+// instance buffer, and an atomic hands out places inside it. Contiguity is a
+// property of the layout instead of a result of sorting.
+
+#type compute
+#version 450 core
+
+layout(local_size_x = 64) in;
+
+struct Object
+{
+	mat4 Model;
+	// xyz is the world-space centre of the object's bounds. w is not a number:
+	// it carries the mesh slot's *bits*, read back with floatBitsToUint. A
+	// slot is an index, and the alternative -- a second buffer holding one
+	// uint per object -- is another descriptor and another cache line for four
+	// bytes that fit in the padding this vec4 had anyway.
+	vec4 CentreSlot;
+	// xyz half-extents, world space and axis-aligned. w unused.
+	vec4 Extents;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer Objects
+{
+	Object Items[];
+} u_Objects;
+
+// One per mesh slot, laid out as the draw reads it. The first five words are
+// the indirect command the backend consumes -- and *are* consumed by it, from
+// this very buffer -- and the sixth says where this slot's instances begin.
+//
+// The base lives here rather than in the command because an indirect command
+// has no field for it that both backends agree on: Vulkan folds FirstInstance
+// into gl_InstanceIndex and OpenGL does not fold it into gl_InstanceID, so the
+// draw passes it as a push constant instead and reads it from the CPU-side
+// copy of this same array. Twenty-four bytes, which is the stride the draw is
+// given; a command's own size is twenty.
+struct SlotCommand
+{
+	uint IndexCount;
+	uint InstanceCount;
+	uint FirstIndex;
+	uint VertexOffset;
+	uint FirstInstance;
+	uint InstanceBase;
+};
+
+layout(std430, set = 0, binding = 1) buffer Commands
+{
+	SlotCommand Items[];
+} u_Commands;
+
+// What the depth pass reads as its per-instance data: light view-projection
+// times model, already multiplied out, exactly as the CPU used to hand it
+// over. shadow_depth.rvshader is unchanged by any of this -- it was already
+// reading a mat4 per instance out of a storage buffer, and it still is.
+layout(std430, set = 0, binding = 2) writeonly buffer Instances
+{
+	mat4 Items[];
+} u_Instances;
+
+layout(push_constant) uniform Params
+{
+	mat4 ViewProjection;
+	uint ObjectCount;
+	uint SlotCount;
+} u_Params;
+
+// Gribb-Hartmann, the same six planes Frustum::Build extracts in C++, derived
+// here rather than pushed: a mat4 and six vec4s is a hundred and sixty bytes
+// and Vulkan guarantees only a hundred and twenty-eight of push constants. The
+// arithmetic is a few dozen flops against a pass that is entirely memory-bound.
+//
+// **Not normalised, and it does not need to be.** Frustum::Build normalises so
+// that the value it computes is a real distance; nothing here reads the
+// distance, only its sign, and dividing a plane by the positive length of its
+// normal cannot change that.
+//
+// Near is row 2 alone rather than row 3 plus row 2, because this engine's
+// projections put the near plane at z = 0 (GLM_FORCE_DEPTH_ZERO_TO_ONE) on
+// both backends. The OpenGL form would cull everything in the near half of
+// the frustum.
+bool Visible(vec3 centre, vec3 extents)
+{
+	mat4 m = u_Params.ViewProjection;
+	vec4 r0 = vec4(m[0][0], m[1][0], m[2][0], m[3][0]);
+	vec4 r1 = vec4(m[0][1], m[1][1], m[2][1], m[3][1]);
+	vec4 r2 = vec4(m[0][2], m[1][2], m[2][2], m[3][2]);
+	vec4 r3 = vec4(m[0][3], m[1][3], m[2][3], m[3][3]);
+
+	vec4 planes[6];
+	planes[0] = r3 + r0;   // left
+	planes[1] = r3 - r0;   // right
+	planes[2] = r3 + r1;   // bottom
+	planes[3] = r3 - r1;   // top
+	planes[4] = r2;        // near
+	planes[5] = r3 - r2;   // far
+
+	for (int i = 0; i < 6; i++)
+	{
+		vec3 normal = planes[i].xyz;
+
+		// The half-width of the box's projection onto this normal, whichever
+		// way the normal points. Conservative, like the CPU test it replaces:
+		// a box straddling a plane counts as inside, because drawing something
+		// invisible costs a draw and skipping something visible costs a hole.
+		float reach = dot(abs(normal), extents);
+
+		if (dot(normal, centre) + planes[i].w + reach < 0.0)
+			return false;
+	}
+
+	return true;
+}
+
+void main()
+{
+	uint i = gl_GlobalInvocationID.x;
+	if (i >= u_Params.ObjectCount)
+		return;
+
+	Object object = u_Objects.Items[i];
+	if (!Visible(object.CentreSlot.xyz, object.Extents.xyz))
+		return;
+
+	uint slot = floatBitsToUint(object.CentreSlot.w);
+
+	// **A guard, not a formality.** The object table and the slot table are
+	// uploaded together but each view's dispatch was recorded with the counts
+	// that were current when it was recorded, and a frame that draws two
+	// viewports writes the table twice. An index past the end would send an
+	// atomic somewhere outside the buffer, which is the kind of corruption
+	// that surfaces as something else entirely.
+	if (slot >= u_Params.SlotCount)
+		return;
+
+	// The count the draw will read, and this survivor's place inside the
+	// slot's range, in one operation. Every slot's range is as long as the
+	// number of objects that named it, so this cannot overrun however many
+	// survive.
+	uint place = atomicAdd(u_Commands.Items[slot].InstanceCount, 1u);
+
+	u_Instances.Items[u_Commands.Items[slot].InstanceBase + place] =
+		u_Params.ViewProjection * object.Model;
+}

@@ -141,6 +141,35 @@ namespace RageV::RHI
 		UInt32,
 	};
 
+	// The arguments of one indexed draw, laid out as the GPU writes them.
+	//
+	// **The layout is not ours to choose.** Vulkan reads it as
+	// VkDrawIndexedIndirectCommand and OpenGL as DrawElementsIndirectCommand,
+	// and the two agree field for field -- which is the only reason one struct
+	// can serve both. A compute shader that fills these is writing a structure
+	// defined by the driver, so the assert below is load-bearing rather than
+	// decorative.
+	//
+	// FirstIndex counts indices, not bytes, on both. VertexOffset is signed on
+	// both, although OpenGL calls it unsigned and means the same thing.
+	struct DrawIndexedIndirectCommand
+	{
+		uint32_t IndexCount    = 0;
+		// The field the GPU is here to write. Everything else is known when
+		// the command is built; this is what a cull pass counts.
+		uint32_t InstanceCount = 0;
+		uint32_t FirstIndex    = 0;
+		int32_t  VertexOffset  = 0;
+		// **Left at zero by everything in this engine**, and read from a push
+		// constant instead, because the two backends disagree about it:
+		// Vulkan folds it into gl_InstanceIndex and OpenGL does not fold it
+		// into gl_InstanceID. A shader written against one would index the
+		// wrong instance on the other, silently.
+		uint32_t FirstInstance = 0;
+	};
+	static_assert(sizeof(DrawIndexedIndirectCommand) == 20,
+				  "Must match VkDrawIndexedIndirectCommand and DrawElementsIndirectCommand");
+
 	// ---------------------------------------------------------------------
 	// Acceleration structures (ENGINE-NOTES 7am)
 	// ---------------------------------------------------------------------

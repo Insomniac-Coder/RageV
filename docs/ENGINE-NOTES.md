@@ -11594,6 +11594,101 @@ the film. A generator that refused to run until somebody made it would be
 holding the scene hostage over a judgement call; one that said nothing would
 let it rot. It prints on every build until somebody decides.
 
+### 7bx. GPU-driven rendering finds the wall somewhere else (8.3)
+
+The roadmap deferred 8.3 on "the renderer draws a thousand in 1.9 ms and is
+nowhere near the wall", and the previous session's measurement corrected that:
+the wall is at five thousand objects, and it is CPU. So the row was taken up,
+built, and measured. The feature works. It is also **almost entirely beside the
+point**, and the measurement that says so is the useful part of this note.
+
+### What was built
+
+`RHICommandList::DrawIndexedIndirect` on both backends -- the last missing
+piece, since `BufferUsage::Indirect` and `BufferSync::IndirectRead` were
+already there and unused. `GpuCull` uploads one table of every static object a
+frame (a model matrix and a world-space box, 96 bytes) and each depth view
+costs two dispatches: one to copy the per-mesh draw template across with its
+count zeroed, one to test the frustum and `atomicAdd` a place for each
+survivor. The count the CPU used to compute as `end - start` is now a word in
+device memory that the draw reads and the CPU never sees.
+
+The sort is *gone*, not moved. Every object is assigned a mesh slot before it
+arrives and each slot owns a fixed range of the instance buffer as long as the
+number of objects that named it, so contiguity is a property of the layout.
+`shadow_depth.rvshader` is unchanged -- it was already reading one matrix per
+instance out of a storage buffer, and it still is.
+
+### What it was worth, on the same binary either way
+
+`--gpu-cull=on|off` exists so the two paths can be compared on one machine in
+one build, which is the only way this number means anything.
+
+| | 20,000 objects | 60,000 objects |
+|---|---|---|
+| frame, cull off | 14.53 ms | 53.37 ms |
+| frame, cull on | 13.95 ms | 52.51 ms |
+| depth-pass CPU | 2.31 -> 2.07 | 6.68 -> 6.13 |
+
+**Four percent at twenty thousand and under two at sixty.** Not nothing, and
+not what an XL row is for.
+
+### Why: the thing 8.3 names is not the thing that costs
+
+A probe around the two per-object walks says it plainly. At 60,000 objects, in
+a 52 ms frame:
+
+| | calls a frame | ms a frame |
+|---|---|---|
+| `UpdateWorldTransforms` | **7** | **27.4** |
+| `RefreshDrawList` | 2 | 2.9 |
+| every depth view's culling | 11 | ~0.6 |
+
+**The hierarchy walk is half the frame.** The culling that 8.3 is about is one
+percent of it. And the call count is not a constant: the fixed-step loop calls
+`UpdateWorldTransforms` after every `OnTick`, so a frame slow enough to run
+three steps walks the hierarchy three extra times -- the cost rises with the
+frame time it is causing, which is the shape of a spiral rather than of a
+plateau. At 20,000 objects it is four calls; at 60,000 it is seven.
+
+**The rule this leaves: measure the phase, not the feature.** The row named
+"compute-built draw commands" and the previous session's baseline confirmed
+that CPU cost dominates, and both were right. Neither asked which CPU cost, and
+the answer was a function nobody had suspected -- it appears in no row, and it
+recomputes every entity's world matrix from scratch whether or not anything
+moved.
+
+### Two things the measurement changed on the way
+
+**Building the table twice a frame cost more than the walks it removed.** The
+draw list is rebuilt every time a render path raises the dirty flag -- twice a
+frame at least, because the depth pass and the lit pass each do -- and the
+first version rebuilt the table with it. At 60,000 objects that made the whole
+feature a *net loss* of 1.6 ms: +1.9 ms in the graph phase against -0.6 ms in
+the shadow phase. The table has no pointers in it and nothing in it changes
+between those calls, so the first build of a frame is now the one that counts,
+keyed on the scene that built it so two scenes in one frame cannot be handed
+each other's.
+
+**The frustum planes could not be pushed.** A mat4 and six vec4s is 160 bytes
+and Vulkan guarantees 128 of push constants, so the shader derives the planes
+from the matrix (Gribb-Hartmann, the same six `Frustum::Build` extracts) --
+and does not normalise them, because nothing reads the distance, only its sign,
+and dividing a plane by the positive length of its normal cannot change that.
+
+### What it is worth keeping for
+
+The depth pass alone cannot pay for the table, because the depth pass's own
+walk is 24 bytes an object and the table is 96. The *lit* pass is where the
+per-object cost lives -- 256 bytes of instance data per visible object, an
+inverse-transpose among them, a sort of 340-byte records, and an upload -- and
+it is 16 ms of the 60,000-object frame. One table serves both, and it is
+already the model matrices the lit pass writes out again every frame.
+
+So this is scaffolding with one of its two users built: the indirect draw, the
+compute cull, the object table, and the two-half caster pass that exists
+because a dispatch may not be recorded inside a render pass and a draw must be.
+
 ---
 
 ## 8. What this changes

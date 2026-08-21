@@ -40,6 +40,9 @@
 //   --rt-ao=on|off          override the ray-traced ambient occlusion option
 //   --gi-bounces=1|2        how many times traced light bounces (7ax)
 //   --pass-timings=on       GPU time every render-graph pass (implied by --benchmark)
+//   --gpu-cull=on|off       cull the depth views in compute (8.3) or on the
+//                           CPU; on where the device allows it. Off draws the
+//                           same picture the old way, for comparison.
 //   --render-defaults=on|off  ignore the project's Render Settings and use
 //                           the struct's defaults, so a check depends only on
 //                           its own command line (ENGINE-NOTES 7ba). The
@@ -246,6 +249,12 @@ namespace RageV
 		// Time every render-graph pass on the GPU. Implied by --benchmark;
 		// off otherwise, because seventy timestamps a frame is not free.
 		bool         PassTimings = false;
+		// Whether the depth views decide what they can see in a compute pass
+		// (roadmap 8.3) or by walking the scene on the CPU. On by default
+		// where the device allows it; off is the same picture drawn the old
+		// way, which is what makes the two directly comparable -- and an
+		// escape hatch if a driver ever disagrees about indirect draws.
+		bool         GpuCull = true;
 		// A check's affordance (ENGINE-NOTES 7ba): the project's Render Settings
 		// are replaced by `RenderSettings{}` at load, so a run depends only on
 		// what its command line says. The other overrides still apply on top.

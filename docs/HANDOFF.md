@@ -6,83 +6,83 @@ Work on **`main`**, which is pushed and clean.
 
 ---
 
-## Start here: where 8.3 got to, and what is next
+## Start here: what 8.3 turned out to be, and where the frame actually goes
 
-**Next session's job is the GPU path for roadmap 8.3.** The measuring is done,
-the cheap half has landed, and the object table the GPU version needs is already
-built. What follows is enough to pick it up cold.
+**8.3's depth half is built, measured and committed. The measurement then
+pointed somewhere else, and that is the thing to pick up.**
 
-### What the measurement said, because it changed what 8.3 is
+### The short version
 
-`tools/scripts/make_scale_scenes.py` builds stress scenes at a range of object
-counts with density held constant; `tools/scripts/bench_scale.py` walks them.
-Run the second before and after anything that claims to make scale cheaper. It
-passes `--vsync=off` for you, which is not optional -- with vsync on, every
-number is the display's refresh and the benchmark says so in as many words.
+`RHICommandList::DrawIndexedIndirect` exists on both backends. `GpuCull`
+uploads one table of every static object a frame and each depth view -- cascade,
+spot light, cube face -- costs two dispatches instead of a walk over every
+object. `--gpu-cull=on|off` switches between the two paths on one binary, which
+is the only way the numbers below mean anything.
 
-Baseline, Vulkan, 1280x720, default render settings:
-
-| objects | frame | FPS | GPU | shadow CPU | graph CPU | draws |
-|---|---|---|---|---|---|---|
-| 1,000 | 0.87 ms | 1149 | 0.33 ms | 0.20 | 0.34 | 12 |
-| 5,000 | 3.55 ms | 282 | 0.48 ms | 0.83 | 1.62 | 9 |
-| 20,000 | 15.53 ms | 64 | 0.85 ms | 3.20 | 7.86 | 5 |
-| 60,000 | 60.18 ms | 17 | 7.08 ms | 9.04 | 28.85 | 5 |
-
-The row's own reason for deferring itself -- "draws a thousand in 1.9 ms and is
-nowhere near the wall" -- was true where it was made and wrong about the shape.
-At a thousand the GPU is 38 % of the frame; at twenty thousand it is 5 %.
-
-**It is not a draw-call problem: there are five.** Instancing already collapses
-twenty thousand objects across four meshes into five `DrawIndexed` calls, so
-"compute-built draw commands", which is how the row words itself, would save
-almost nothing. The experiment that isolates the real cost is
-`scenes/scale_sky.rage` -- the same twenty thousand objects with the camera
-pitched at the sky, everything culled, one draw, zero triangles, **still 8.26 ms
-a frame**. Shadow maps cost 3.01 ms of that whether or not anything is visible.
-
-So the expensive thing is the per-object CPU work that happens regardless of
-what is drawn, and that is what the GPU path has to remove.
-
-### What landed (98225ed), and what it is worth
-
-`Scene::RefreshDrawList` resolves the mesh and the world bounds **once a frame**
-instead of once per view, into two parallel arrays: `DrawBounds` (24 bytes, what
-the cull touches) and `DrawItem` (what only survivors read). Every view keeps
-just the frustum test.
-
-| objects | frame | shadow CPU |
+| | 20,000 objects | 60,000 objects |
 |---|---|---|
-| 1,000 | 0.87 -> 0.83 ms | 0.20 -> 0.16 |
-| 5,000 | 3.55 -> 3.19 ms | 0.83 -> 0.61 |
-| 20,000 | 15.53 -> 14.26 ms | 3.20 -> 2.25 |
-| 60,000 | 60.18 -> 51.92 ms | 9.04 -> 6.60 |
+| frame, cull off | 14.53 ms | 53.37 ms |
+| frame, cull on | 13.95 ms | 52.51 ms |
+| depth-pass CPU | 2.31 -> 2.07 | 6.68 -> 6.13 |
 
-**Shadow CPU down 27-30 %, the frame 5-14 %, and that is the whole of it.** The
-graph barely moved, because the camera pass's cost was never the lookup -- it is
-submitting what survives. "Other" barely moved either: that is
-`UpdateWorldTransforms` over every entity, untouched. Twenty thousand objects
-went 64 -> 70 FPS against 0.85 ms of GPU work. **The wall is still there**, which
-is why this is kept as a gain and not as the fix.
+Four percent, then under two. It is kept because it is the scaffolding the lit
+pass needs, not because of what it measured. ENGINE-NOTES 7bx has the whole of
+it, including the version that was a *net loss* and why.
 
-### The design the measurement implies
+### The thing to pick up: 8.15
 
-1. **`DrawBounds` uploaded to a storage buffer** when the scene changes rather
-   than rebuilt per frame. It is already the right shape and the right 24 bytes.
-2. **A cull compute pass per view** -- camera and each cascade -- testing that
-   buffer against the view's frustum and compacting surviving instance indices,
-   with an atomic count that becomes an indirect draw's `instanceCount`.
-3. **`DrawIndexedIndirect` in the RHI**, which does not exist yet: there is no
-   indirect draw of any kind. Everything else it needs does -- compute
-   pipelines, storage buffers, `Dispatch`, barriers -- proven by GPU skinning,
-   GPU particle simulation and the voxel injection.
-4. **Vulkan only, with the CPU path as the OpenGL fallback**, which is the
-   precedent bindless and ray tracing both set. `SupportsRayQuery` and
-   `SupportsDescriptorIndexing` are the shape to copy.
+A probe around the two per-object walks, at 60,000 objects in a 52 ms frame:
 
-`UpdateWorldTransforms` is the other 20 ms at sixty thousand objects and none of
-the above touches it. Worth measuring separately before assuming the GPU path
-alone gets the frame under control.
+| | calls a frame | ms a frame |
+|---|---|---|
+| `UpdateWorldTransforms` | **7** | **27.4** |
+| `RefreshDrawList` | 2 | 2.9 |
+| every depth view's culling together | 11 | ~0.6 |
+
+**Half the frame is the hierarchy walk**, and the culling that 8.3 names is one
+percent of it. `Scene::UpdateWorldTransforms` recomputes every entity's world
+matrix from the root down with no notion of what changed, and the fixed-step
+loop calls it after every `OnTick` -- so a frame slow enough to run three steps
+walks three extra times, and the cost rises with the frame time it is causing.
+Four calls at 20,000 objects; seven at 60,000.
+
+The fix is dirty tracking. The reason it is not trivial is written in `Scene.h`
+about the draw list's own flag: *a flag that has to be set at every write site
+is a flag one of them will forget*, and a missed one is an object frozen at
+last frame's transform -- which reads as a physics or a scripting bug. So the
+write sites want narrowing before the flag is worth having.
+
+### The other half of 8.3, if the lit pass is the goal instead
+
+The depth pass alone cannot pay for the table: its own walk is 24 bytes an
+object and the table is 96. The lit pass is where the per-object cost lives --
+256 bytes of instance data per *visible* object, an inverse-transpose among
+them, a sort of 340-byte records, an upload -- about 16 ms of the 60,000-object
+frame. One table serves both, and it already holds the model matrices the lit
+pass writes out again every frame.
+
+What that needs, beyond what exists: the cull writing a compacted *index* list
+rather than a finished matrix, `pbr.rvshader` reading its instance through that
+index, and somewhere for the material parameters and the probe choice to live
+that is not rebuilt per frame. The depth sort is the awkward part -- it orders
+runs by depth on the CPU, and the CPU no longer knows what survived.
+
+### How to measure any of it
+
+`tools/scripts/make_scale_scenes.py` builds the fixtures;
+`tools/scripts/bench_scale.py` walks them. Run it before and after anything
+claiming to make scale cheaper. It passes `--vsync=off` for you, which is not
+optional -- with vsync on every number is the display's refresh, and the
+benchmark says so in as many words.
+
+For an A/B on one build, `--gpu-cull=on|off` and read `shadow maps` and
+`render graph` in the phase table rather than the frame mean: the frame mean
+moves by less than the run-to-run spread at these sizes, and the phase lines
+do not.
+
+**And the frame is not GPU-bound anywhere on that curve.** 0.9 ms of GPU work
+in a 14 ms frame at 20,000; 2.0 ms in 52 ms at 60,000. Nothing in this area
+should be reasoned about as a GPU cost.
 
 ---
 

@@ -98,6 +98,9 @@ namespace RageV
 		if (key == "pass-timings" || key == "passtimings")
 			return ParseBool(value, config.PassTimings);
 
+		if (key == "gpu-cull" || key == "gpucull")
+			return ParseBool(value, config.GpuCull);
+
 		if (key == "bindless")
 			return ParseBool(value, config.Bindless);
 

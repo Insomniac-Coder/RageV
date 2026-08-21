@@ -1436,6 +1436,37 @@ namespace RageV::GL
 			(GLsizei)instanceCount, vertexOffset, firstInstance);
 	}
 
+	void OpenGLCommandListRHI::DrawIndexedIndirect(const Ref<RHIBuffer>& args, uint64_t offset,
+												   uint32_t drawCount, uint32_t stride)
+	{
+		if (!args || drawCount == 0)
+			return;
+
+		RV_CORE_ASSERT(m_BoundPipeline, "DrawIndexedIndirect requires a bound pipeline");
+
+		// The arguments arrive through a binding point rather than a
+		// parameter, which is the one structural difference from Vulkan: the
+		// pointer below is then an offset into whatever is bound here.
+		auto glBuffer = std::static_pointer_cast<OpenGLBufferRHI>(args);
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, glBuffer->GetHandle());
+
+		// **The index offset has to be folded in on this backend and not on
+		// the other.** Vulkan's bound index buffer carries its own offset;
+		// here the offset was recorded at bind time and the indirect
+		// command's FirstIndex counts from the buffer's start, so a mesh
+		// living partway into a shared index buffer would draw from the wrong
+		// place. Nothing in this engine binds at a non-zero offset yet, which
+		// is exactly why it would be found late.
+		RV_CORE_ASSERT(m_IndexOffset == 0,
+					   "DrawIndexedIndirect cannot honour a non-zero index-buffer offset");
+
+		glMultiDrawElementsIndirect(m_BoundPipeline->GetTopology(), m_IndexType,
+									(const void*)(uintptr_t)offset, (GLsizei)drawCount,
+									(GLsizei)stride);
+
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+	}
+
 	void OpenGLCommandListRHI::BuildTopLevelAS(const Ref<RHIAccelerationStructure>&,
 												const AccelerationInstance*, uint32_t)
 	{

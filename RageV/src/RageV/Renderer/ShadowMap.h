@@ -97,10 +97,30 @@ namespace RageV
 		// transform world positions by; the caller draws whatever casts.
 		using DrawCasters = std::function<void(const Mat4& viewProjection)>;
 
+		// What one depth view asks of its caller, in two halves.
+		//
+		// **The halves exist because a view's work straddles the render
+		// pass.** Deciding what it can see is a compute dispatch now (roadmap
+		// 8.3), and Vulkan forbids a dispatch inside a render pass; drawing
+		// what it decided is a draw, and that has to be inside one. Only this
+		// class knows where the boundary falls -- it is the thing that opens
+		// the pass, and for cascades and cube faces it is also the thing that
+		// works out the view-projection -- so it is the thing that has to call
+		// both, with the same matrix, either side of the boundary.
+		//
+		// Prepare may be empty; Draw may not.
+		struct CasterPass
+		{
+			// Outside the pass, with the matrix Draw is about to be given.
+			DrawCasters Prepare;
+			// Inside it.
+			DrawCasters Draw;
+		};
+
 		// Renders every cascade. Must be called outside a render pass -- it
 		// opens one per cascade.
 		static void Render(RHI::RHICommandList& cmd, const ShadowCascade* cascades,
-						   uint32_t count, uint32_t resolution, const DrawCasters& draw);
+						   uint32_t count, uint32_t resolution, const CasterPass& casters);
 
 		// What the last Render produced. The lit pass reads these rather than
 		// being handed them, because it is called once per viewport and the
@@ -122,13 +142,13 @@ namespace RageV
 		// One perspective depth map. `viewProjection` is the light's own
 		// frustum, so nothing is fitted and nothing crawls.
 		static void RenderSpot(RHI::RHICommandList& cmd, uint32_t slot, uint32_t resolution,
-							   const Mat4& viewProjection, const DrawCasters& draw);
+							   const Mat4& viewProjection, const CasterPass& casters);
 
 		// Six faces of one, into a depth cube. The face basis is the same table
 		// the reflection probes use -- the two features disagree about nothing.
 		static void RenderPoint(RHI::RHICommandList& cmd, uint32_t slot, uint32_t resolution,
 								const Vec3& position, float farClip,
-								const DrawCasters& draw);
+								const CasterPass& casters);
 
 		// Which map each light in the scene's list ended up with -- or, under
 		// ray-traced shadows (ENGINE-NOTES 7an), which kind of ray it gets
