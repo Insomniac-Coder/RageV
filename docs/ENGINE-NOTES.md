@@ -11375,6 +11375,80 @@ the frames are laid out in order.
 
 ---
 
+### 7bu. A half-resolution pass must snap to the buffer it reads
+
+The camper's flank in the camp scene carried a regular lattice of bright
+dashes -- rows about 14 pixels apart, each row a dashed line -- over anything
+large, flat and steeply sloped. Reported as banding, and Vulkan only.
+
+**Vulkan only was a true observation about a false cause.** OpenGL has no ray
+queries, so it never runs the traced bounce at all; what the two backends
+differ in here is not precision but which GI is running. Turning the features
+off one at a time settles it, and the numbers are the ripple's amplitude in
+display levels at its own frequency, down a clean column of the flank:
+
+| | strongest period | amplitude |
+|---|---|---|
+| As shipped (Vulkan, GI Medium) | 14.0 px | **2.64 levels** |
+| `--rt-ao=off` | 14.0 px | 2.64 -- untouched |
+| `--rt-reflections=off` | 14.0 px | 2.64 -- untouched |
+| `--rt-gi=off` | none | 0.36 |
+| `--rt=off` | none | 0.36 |
+| OpenGL | none | 0.21 |
+
+**The mechanism.** `rtgi_trace` runs at half the frame at Medium and below,
+and reads the scene pass's depth and surface attachments, which are full
+resolution. Its own texel centres therefore land on the *corners* of the depth
+texels: the point fetch takes one of the four, and the uv the position was
+reconstructed from describes the junction of all of them. The ray then starts
+half a full-resolution texel away from the point whose depth it used -- along
+the view ray, so the displacement is *off the plane*. On a surface the camera
+sees at a grazing angle that is centimetres, and the origin is only lifted
+2 mm along the normal, so the bounce rays start below the surface and hit the
+thing they left. Self-intersection, on the sampling lattice, which is why it
+is a lattice.
+
+Everything else about it follows from that:
+
+- **Only at half resolution.** At `RayTracedGlobalIllumination: High` the pass
+  is full resolution, its texel centres *are* the depth texels' centres, and
+  the ripple measures 0.37 levels -- GI off measures 0.36.
+- **Gone at 2560x1440**, which looked like a contradiction and is the same
+  fact: the trace is still half the frame, but a full-resolution texel now
+  covers half as much world, so the off-plane error halves and falls under the
+  2 mm lift.
+- **Only on the camper's flank**, because that is the one large surface in the
+  frame the camera sees nearly edge-on. Depth slope per texel is what sets the
+  error, and a face pointing at the camera has none.
+
+**The fix is one line, and it is a rule the engine already had.** SSAO snaps
+its reconstruction to the depth texel's centre (7an) and RTAO's
+`ViewPositionAt` does the same. `rtgi_trace` did not, and it is the one that
+needed it most: it is the only one of the three whose own resolution differs
+from the buffer's, so for the other two snapping is a half-texel correction
+and here it is a half-texel correction *at a different scale*. After it, the
+ripple is 0.38 levels -- GI at High is 0.37, GI off is 0.36. 2.50 % of the
+frame's pixels change by more than 8, which is the acne being removed.
+
+**What the first attempt got wrong.** It was read as eight-bit contouring, and
+the plan written down was to compare swapchain formats. A fixture settles that
+question and settles it the other way: a flat panel under one light, rendered
+on both backends, quantises to 39 levels over a 183-to-221 ramp with flat runs
+averaging 9.35 pixels -- and the two images are the same to within one level,
+`max |vk - gl| = 1`, zero pixels differing by more than 2. Output quantisation
+is real, and it is **symmetric**, so it could never have explained a
+Vulkan-only artefact. *Whatever explains "only on one backend" has to be
+something only one backend does.* Ray queries are that; eight bits are not.
+
+**And the measuring lesson, which is the same one as 7bq's.** Three sessions
+looked at this by sampling a patch and reading the numbers. What identified it
+was subtracting the two frames -- `--rt-gi=off` from as-shipped -- and looking
+at the difference, where the lattice is unmistakable and the smooth indirect
+light it sits on has cancelled. A defect that is 2.6 levels on top of a 40-level
+ramp is invisible in the ramp's statistics and obvious once the ramp is gone.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

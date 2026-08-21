@@ -1,0 +1,60 @@
+Scene: Banding panel
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 0
+  SkyHorizon: [0, 0, 0]
+  SkyZenith: [0, 0, 0]
+  SkyGround: [0, 0, 0]
+  SkyIntensity: 0
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Panel
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 40, 0.05]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.80, 0.66, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.55
+        Occlusion: 1
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Key
+    TransformComponent:
+      Position: [0, 0, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 1, 1]
+      Intensity: 26
+      Range: 40
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false

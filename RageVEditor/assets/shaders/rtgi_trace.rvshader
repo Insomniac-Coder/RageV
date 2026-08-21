@@ -80,9 +80,27 @@ void main()
 	const bool flip = u_Gi.FlipY > 0.5;
 	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
 
+	// **Snapped to the depth texel's centre**, as SSAO's reconstruction is
+	// (7an) and as RTAO's ViewPositionAt is -- and this pass needs it more
+	// than either, because it is the only one of the three whose own
+	// resolution differs from the buffer's (ENGINE-NOTES 7bu).
+	//
+	// At Medium and below this target is half the frame, so *its* texel
+	// centres land on the depth texels' corners: the point fetch takes one of
+	// the four and the unsnapped uv describes the junction of all of them.
+	// The ray then starts half a full-resolution texel from the point its
+	// depth belongs to, along the view ray -- which on a surface the camera
+	// sees at a grazing angle is far enough off the plane to beat the 2 mm
+	// the origin is lifted by, so the bounce rays hit the surface they left.
+	// It reads as a lattice of dashes over anything large and steeply sloped.
+	const vec2 depthSize = vec2(textureSize(u_GiDepth, 0));
+	const vec2 snapped = (floor(uv * depthSize) + 0.5) / depthSize;
+
 	// Sky, grid, particles, text: anything the PBR shaders did not draw has no
-	// surface to bounce light off and no depth worth reconstructing.
-	const vec4 surface = texture(u_GiSurface, uv);
+	// surface to bounce light off and no depth worth reconstructing. Snapped
+	// too, so the normal and the depth describe the same texel rather than
+	// two of the four the junction touches.
+	const vec4 surface = texture(u_GiSurface, snapped);
 	if (SurfaceIsEmpty(surface))
 	{
 		o_Indirect = vec4(0.0, 0.0, 0.0, 1.0);
@@ -94,9 +112,9 @@ void main()
 	// texel describes is the one whose NDC is the texel's minus that offset.
 	// A pass that hands the position straight back to ViewToUv never notices;
 	// this one casts a real ray from it and cannot cancel the error.
-	const float z = LinearDepth(texture(u_GiDepth, uv).r, u_Gi.NearClip, u_Gi.FarClip);
+	const float z = LinearDepth(texture(u_GiDepth, snapped).r, u_Gi.NearClip, u_Gi.FarClip);
 	const vec2 jitter = vec2(u_Scene.Jitter.x, flip ? -u_Scene.Jitter.y : u_Scene.Jitter.y) * 0.5;
-	const vec3 frame = ViewPosition(uv - jitter, z, vec2(u_Gi.InvP0, u_Gi.InvP1));
+	const vec3 frame = ViewPosition(snapped - jitter, z, vec2(u_Gi.InvP0, u_Gi.InvP1));
 
 	// The reconstruction frame out to the world: undo the row direction and
 	// the depth axis, then the camera.
