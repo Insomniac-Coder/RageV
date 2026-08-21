@@ -259,6 +259,15 @@ namespace RageV
 			float ViewDepth = 0.0f;
 		};
 
+		// One draw's place in the order, as the sort sees it: everything the
+		// comparison needs, and the index of the record it belongs to. Sorted
+		// as a flat array of these, so no comparison touches a PendingDraw.
+		struct SortEntry
+		{
+			uint64_t Key = 0;
+			uint32_t Index = 0;
+		};
+
 		// A maximal span of Pending sharing one pipeline, mesh and material --
 		// exactly what becomes one instanced draw. Ordering these rather than
 		// the draws inside them is what lets depth sorting and batching
@@ -462,6 +471,19 @@ namespace RageV
 			// nothing on a stable scene.
 			std::vector<DrawRun> Runs;
 			std::vector<PendingDraw> SortScratch;
+			// The permutation both sorts are decided over, and the two scratch
+			// arrays they need. Indices and keys rather than records: see the
+			// sorting section of EndScene.
+			std::vector<uint32_t> SortOrder;
+			std::vector<uint32_t> OrderScratch;
+			std::vector<SortEntry> SortEntries;
+			// Compact ids for the packed key, rebuilt each scene. Small: a
+			// scene has a handful of each however many objects it has.
+			std::vector<const Mesh*> MeshIds;
+			std::vector<uint64_t> MaterialIds;
+			// Said once, not per frame, when a scene has more of either than
+			// the key's fifteen bits can number.
+			bool PackWarned = false;
 
 			// The depth pass carries only a matrix per caster.
 			std::vector<PendingShadowDraw> ShadowPending;
@@ -1596,83 +1618,257 @@ namespace RageV
 		// realistic scene that trade loses: 1500 spread-out meshes measured
 		// 0.567 ms globally depth-sorted against 0.548 ms in the grouped order,
 		// because the draw calls lost cost more than the overdraw saved.
-		auto SortBatchesFrontToBack = [&]()
+		//
+		// ---
+		//
+		// **Nothing below moves a PendingDraw until the very end** (roadmap
+		// 8.16). Both orderings are decided over an array of indices, and the
+		// records are permuted once, afterwards, in a single pass. At sixty
+		// thousand objects the two sorts were 6.48 ms of a 13.94 ms render
+		// graph -- the largest single item in it -- because `std::sort` moves
+		// its elements about `n log n` times and each element was 72 bytes.
+		// Four-byte indices move instead, and 72-byte records move once.
+		auto& pending = s_Data->Pending;
+		const size_t pendingCount = pending.size();
+
+		// **One sort, one key, nothing chased.**
+		//
+		// Deciding the order over an array of indices was the obvious fix and
+		// it bought almost nothing: 6.48 ms to 6.15 at sixty thousand objects.
+		// The records had already been shrunk to 72 bytes, so moving them was
+		// no longer what cost -- every *comparison* was, because it dereferenced
+		// two indices into a four-megabyte array and missed cache twice.
+		//
+		// So the key carries everything the comparison needs. Pipeline, mesh,
+		// material and depth pack into one 64-bit word, sorted as plain
+		// unsigned integers with no indirection at all, and the sort that used
+		// to be two passes is one:
+		//
+		//   bits 62-63  pipeline kind    static, skinned, layered
+		//   bits 47-61  mesh id          compact, assigned below
+		//   bits 32-46  material id      compact, assigned below
+		//   bits  0-31  view depth       IEEE bits, which order like the float
+		//
+		// Grouping falls out of the high bits and front-to-back ordering out of
+		// the low ones, in a single ascending sort -- within one run the high
+		// bits are equal, so the depth decides. A view depth is a distance and
+		// therefore never negative, which is what makes its bit pattern compare
+		// in the same order the float does.
+		s_Data->SortEntries.clear();
+		s_Data->SortEntries.reserve(pendingCount);
+
+		// Compact ids, by linear scan with a last-hit cache. A scene has tens
+		// of thousands of objects and a handful of meshes and materials, so the
+		// answer is almost always the one before it and the fallback walks a
+		// vector that fits in a cache line or two. A hash per draw would be a
+		// hash per draw.
+		auto& meshIds = s_Data->MeshIds;
+		auto& materialIds = s_Data->MaterialIds;
+		meshIds.clear();
+		materialIds.clear();
+
+		const Mesh* lastMesh = nullptr;
+		uint32_t lastMeshId = 0;
+		uint64_t lastMaterial = 0;
+		uint32_t lastMaterialId = 0;
+		bool lastMaterialValid = false;
+
+		// 15 bits each. A scene past this is not one this packing can order, so
+		// it takes the comparator below instead of being ordered wrongly.
+		constexpr uint32_t kMaxPackedId = (1u << 15) - 1;
+		bool packable = true;
+
+		for (uint32_t i = 0; i < (uint32_t)pendingCount && packable; i++)
 		{
-			if (!EngineConfig::Get().DepthSortOpaque)
-				return;
+			const PendingDraw& draw = pending[i];
 
-			auto& pending = s_Data->Pending;
-			if (pending.size() < 2)
-				return;
+			uint32_t meshId;
+			if (draw.MeshKey == lastMesh)
+			{
+				meshId = lastMeshId;
+			}
+			else
+			{
+				meshId = (uint32_t)meshIds.size();
+				for (uint32_t j = 0; j < (uint32_t)meshIds.size(); j++)
+				{
+					if (meshIds[j] == draw.MeshKey)
+					{
+						meshId = j;
+						break;
+					}
+				}
+				if (meshId == (uint32_t)meshIds.size())
+					meshIds.push_back(draw.MeshKey);
+				lastMesh = draw.MeshKey;
+				lastMeshId = meshId;
+			}
 
+			uint32_t materialId;
+			if (lastMaterialValid && draw.MaterialKey == lastMaterial)
+			{
+				materialId = lastMaterialId;
+			}
+			else
+			{
+				materialId = (uint32_t)materialIds.size();
+				for (uint32_t j = 0; j < (uint32_t)materialIds.size(); j++)
+				{
+					if (materialIds[j] == draw.MaterialKey)
+					{
+						materialId = j;
+						break;
+					}
+				}
+				if (materialId == (uint32_t)materialIds.size())
+					materialIds.push_back(draw.MaterialKey);
+				lastMaterial = draw.MaterialKey;
+				lastMaterialId = materialId;
+				lastMaterialValid = true;
+			}
+
+			if (meshId > kMaxPackedId || materialId > kMaxPackedId)
+			{
+				packable = false;
+				break;
+			}
+
+			// Depth only where it is wanted. With front-to-back ordering off
+			// the low half is the submission index instead, which keeps runs
+			// in the order the scene produced them.
+			uint32_t low = i;
+			if (EngineConfig::Get().DepthSortOpaque)
+			{
+				const float depth = draw.ViewDepth;
+				memcpy(&low, &depth, sizeof(low));
+			}
+
+			const uint64_t key = ((uint64_t)draw.Kind << 62)
+							   | ((uint64_t)meshId << 47)
+							   | ((uint64_t)materialId << 32)
+							   | (uint64_t)low;
+			s_Data->SortEntries.push_back({ key, i });
+		}
+
+
+		std::vector<uint32_t>& order = s_Data->SortOrder;
+		order.resize(pendingCount);
+
+		if (packable)
+		{
+			auto& entries = s_Data->SortEntries;
+			std::sort(entries.begin(), entries.end(),
+					  [](const SortEntry& a, const SortEntry& b)
+					  {
+						  if (a.Key != b.Key)
+							  return a.Key < b.Key;
+						  // Equal in every packed field: keep submission order,
+						  // so the arrangement is the same on every run of the
+						  // same frame.
+						  return a.Index < b.Index;
+					  });
+
+			for (size_t i = 0; i < pendingCount; i++)
+				order[i] = entries[i].Index;
+		}
+		else
+		{
+			// More distinct meshes or materials than the key can hold. Said
+			// once: the frame is still correct, and still grouped and ordered,
+			// by the comparator this packing exists to avoid.
+			if (!s_Data->PackWarned)
+			{
+				RV_CORE_WARN("Renderer3D: more than {0} distinct meshes or materials in one "
+							 "scene, so the draw order is decided by comparison rather than "
+							 "by a packed key. Correct, and slower at scale.", kMaxPackedId);
+				s_Data->PackWarned = true;
+			}
+
+			for (uint32_t i = 0; i < (uint32_t)pendingCount; i++)
+				order[i] = i;
+
+			std::sort(order.begin(), order.end(),
+					  [&pending](uint32_t lhs, uint32_t rhs)
+					  {
+						  const PendingDraw& a = pending[lhs];
+						  const PendingDraw& b = pending[rhs];
+						  if (a.Kind != b.Kind)
+							  return a.Kind < b.Kind;
+						  if (a.MeshKey != b.MeshKey)
+							  return a.MeshKey < b.MeshKey;
+						  if (a.MaterialKey != b.MaterialKey)
+							  return a.MaterialKey < b.MaterialKey;
+						  if (EngineConfig::Get().DepthSortOpaque && a.ViewDepth != b.ViewDepth)
+							  return a.ViewDepth < b.ViewDepth;
+						  return lhs < rhs;
+					  });
+		}
+
+
+		// Runs are ordered by their nearest member, which helps when a scene
+		// has many distinct meshes rather than many copies of one. The order
+		// *within* each run is already settled by the key's low half.
+		if (EngineConfig::Get().DepthSortOpaque && pendingCount >= 2)
+		{
 			s_Data->Runs.clear();
 
-			for (size_t begin = 0; begin < pending.size();)
+			for (size_t begin = 0; begin < pendingCount;)
 			{
+				const PendingDraw& first = pending[order[begin]];
+
 				size_t end = begin + 1;
-				while (end < pending.size() &&
-					   pending[end].Kind == pending[begin].Kind &&
-					   pending[end].MeshKey == pending[begin].MeshKey &&
-					   pending[end].MaterialKey == pending[begin].MaterialKey &&
-					   pending[end].IndexCount == pending[begin].IndexCount)
+				while (end < pendingCount)
 				{
+					const PendingDraw& next = pending[order[end]];
+					// IndexCount is not in the key -- it differs only for a
+					// terrain chunk drawn without its skirts (7ap) -- so it is
+					// checked here, where a run is actually cut.
+					if (next.Kind != first.Kind || next.MeshKey != first.MeshKey ||
+						next.MaterialKey != first.MaterialKey ||
+						next.IndexCount != first.IndexCount)
+					{
+						break;
+					}
 					end++;
 				}
 
-				// Inside the batch. Free, and the level the measurement says
-				// carries the effect.
-				std::sort(pending.begin() + begin, pending.begin() + end,
-						  [](const PendingDraw& a, const PendingDraw& b)
-						  { return a.ViewDepth < b.ViewDepth; });
-
-				s_Data->Runs.push_back({ begin, end, pending[begin].ViewDepth });
+				s_Data->Runs.push_back({ begin, end, pending[order[begin]].ViewDepth });
 				begin = end;
 			}
 
-			if (s_Data->Runs.size() < 2)
-				return;
-
-			// The kinds in their order whatever their depth: the pipelines
-			// must stay separated, which is the property the grouping sort
-			// guarantees.
-			std::stable_sort(s_Data->Runs.begin(), s_Data->Runs.end(),
-							 [&](const DrawRun& a, const DrawRun& b)
-							 {
-								 const DrawKind kindA = pending[a.Begin].Kind;
-								 const DrawKind kindB = pending[b.Begin].Kind;
-								 if (kindA != kindB)
-									 return kindA < kindB;
-								 return a.Nearest < b.Nearest;
-							 });
-
-			s_Data->SortScratch.clear();
-			s_Data->SortScratch.reserve(pending.size());
-			for (const DrawRun& run : s_Data->Runs)
+			if (s_Data->Runs.size() >= 2)
 			{
-				for (size_t i = run.Begin; i < run.End; i++)
-					s_Data->SortScratch.push_back(std::move(pending[i]));
+				// The kinds in their order whatever their depth: the pipelines
+				// must stay separated, which is the property the grouping gives.
+				std::stable_sort(s_Data->Runs.begin(), s_Data->Runs.end(),
+								 [&](const DrawRun& a, const DrawRun& b)
+								 {
+									 const DrawKind kindA = pending[order[a.Begin]].Kind;
+									 const DrawKind kindB = pending[order[b.Begin]].Kind;
+									 if (kindA != kindB)
+										 return kindA < kindB;
+									 return a.Nearest < b.Nearest;
+								 });
+
+				s_Data->OrderScratch.clear();
+				s_Data->OrderScratch.reserve(pendingCount);
+				for (const DrawRun& run : s_Data->Runs)
+				{
+					for (size_t i = run.Begin; i < run.End; i++)
+						s_Data->OrderScratch.push_back(order[i]);
+				}
+				order.swap(s_Data->OrderScratch);
 			}
+		}
 
-			pending.swap(s_Data->SortScratch);
-		};
 
-		// Grouped, not merely sorted. Objects arrive in registry order, which
-		// is neither, so runs of identical state only exist after this.
-		std::sort(s_Data->Pending.begin(), s_Data->Pending.end(),
-				  [](const PendingDraw& a, const PendingDraw& b)
-				  {
-					  // Pipeline first. Static, skinned and layered are three
-					  // pipelines, so a run has to be entirely one of them --
-					  // sorting them together would put a pipeline switch in the
-					  // middle of a batch.
-					  if (a.Kind != b.Kind)
-						  return a.Kind < b.Kind;
-					  if (a.MeshKey != b.MeshKey)
-						  return a.MeshKey < b.MeshKey;
-					  return a.MaterialKey < b.MaterialKey;
-				  });
-
-		SortBatchesFrontToBack();
+		// **The one place a PendingDraw moves.** Everything above decided an
+		// order; this applies it, once.
+		s_Data->SortScratch.clear();
+		s_Data->SortScratch.reserve(pendingCount);
+		for (uint32_t index : order)
+			s_Data->SortScratch.push_back(std::move(pending[index]));
+		pending.swap(s_Data->SortScratch);
 
 		const uint32_t count = (uint32_t)s_Data->Pending.size();
 
