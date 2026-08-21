@@ -237,7 +237,19 @@ namespace RageV
 			// the mesh's count for everything but a terrain chunk drawn without
 			// its skirts (7ap). Part of what a run must agree on.
 			uint32_t IndexCount = 0;
-			InstanceData Instance;
+			// **Where this draw's instance data lives, not the data itself**
+			// (roadmap 8.16). It used to be the 256-byte InstanceData inline,
+			// which made this record 336 bytes -- and both of the sorts below
+			// move these records, so every comparison swap shifted a third of
+			// a kilobyte. At sixty thousand objects the front-to-back sort
+			// alone shuffled about twenty megabytes and cost 12.2 ms of CPU to
+			// save 0.6 ms of GPU.
+			//
+			// An index instead. The record is a quarter of the size, the sorts
+			// move a quarter as much, and the instance data does not move at
+			// all -- it is read once, in sorted order, when the buffer is
+			// filled. Every draw has one, so this is never invalid.
+			uint32_t Instance = 0;
 			// Distance from the eye, for ordering batches front to back.
 			float ViewDepth = 0.0f;
 		};
@@ -424,6 +436,11 @@ namespace RageV
 
 			// Accumulated between BeginScene and EndScene, then sorted.
 			std::vector<PendingDraw> Pending;
+			// The instance data those draws point into, in submission order
+			// and never reordered. A draw finds its row by index, and the
+			// index survives the sorts because it travels inside the record
+			// being sorted.
+			std::vector<InstanceData> Instances;
 			std::vector<InstanceData> InstanceScratch;
 			// The frame's material records and which record each material got,
 			// bindless path only. Kept between frames for the allocation.
@@ -518,6 +535,15 @@ namespace RageV
 				slot.Set = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
 
 			return slot;
+		}
+
+		// Takes the next row of the frame's instance pool and points `draw` at
+		// it. The reference is good until the next call, which is all any
+		// caller needs: each fills its row completely before submitting.
+		InstanceData& AllocateInstance(PendingDraw& draw)
+		{
+			draw.Instance = (uint32_t)s_Data->Instances.size();
+			return s_Data->Instances.emplace_back();
 		}
 
 		Renderer3DData::ShadowSlot& AcquireShadowSlot()
@@ -1511,6 +1537,7 @@ namespace RageV
 		// descriptor set that is already bound to a command buffer, which is
 		// the hazard recorded in HANDOFF §5.
 		s_Data->Pending.clear();
+		s_Data->Instances.clear();
 		s_Data->BoneScratch.clear();
 		s_Data->SceneActive = true;
 	}
@@ -1658,7 +1685,7 @@ namespace RageV
 					it = s_Data->MaterialIndex.emplace(key, (uint32_t)s_Data->MaterialScratch.size()).first;
 					s_Data->MaterialScratch.push_back(record);
 				}
-				draw.Instance.Indices.z = (float)it->second;
+				s_Data->Instances[draw.Instance].Indices.z = (float)it->second;
 			}
 
 			// The ray-instance table (7ao): one row per structure instance, in
@@ -1747,10 +1774,14 @@ namespace RageV
 			return;
 		}
 
+		// **The one place the instance data moves.** Read in the order the
+		// sorts settled on, written contiguously for the upload. Scattered on
+		// the read side, but in 256-byte runs rather than at random, and once
+		// rather than once per comparison swap.
 		s_Data->InstanceScratch.clear();
 		s_Data->InstanceScratch.reserve(count);
 		for (const PendingDraw& draw : s_Data->Pending)
-			s_Data->InstanceScratch.push_back(draw.Instance);
+			s_Data->InstanceScratch.push_back(s_Data->Instances[draw.Instance]);
 
 		slot.Instances->Upload(s_Data->InstanceScratch.data(),
 							   (uint64_t)count * sizeof(InstanceData));
@@ -1928,6 +1959,7 @@ namespace RageV
 		}
 
 		s_Data->Pending.clear();
+		s_Data->Instances.clear();
 	}
 
 	void Renderer3D::BeginShadow(const Mat4& viewProjection)
@@ -2296,18 +2328,19 @@ namespace RageV
 		draw.MaterialRef = effective;
 		draw.IndexCount = mesh->GetIndexCount();
 
-		draw.Instance.Model = transform;
-		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;
+		InstanceData& instance = AllocateInstance(draw);
+		instance.Model = transform;
+		instance.PreviousModel = previousTransform ? *previousTransform : transform;
 		// Once per object rather than once per vertex, which is where the
 		// shader was doing it -- an inverse and a transpose of a 3x3 for every
 		// vertex of every mesh, all producing the same matrix.
-		draw.Instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
-		draw.Instance.BaseColor = params.BaseColor;
-		draw.Instance.EmissiveColor = params.EmissiveColor;
-		draw.Instance.Surface = { params.Metallic, params.Roughness,
-								  params.Occlusion, params.NormalScale };
+		instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
+		instance.BaseColor = params.BaseColor;
+		instance.EmissiveColor = params.EmissiveColor;
+		instance.Surface = { params.Metallic, params.Roughness,
+							 params.Occlusion, params.NormalScale };
 		// No bones, and the probe the scene picked for this object.
-		draw.Instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
+		instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
 
 		{
 			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
@@ -2353,14 +2386,15 @@ namespace RageV
 		draw.MaterialRef = effective;
 		draw.IndexCount = mesh->GetIndexCount();
 
-		draw.Instance.Model = transform;
-		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;
-		draw.Instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
-		draw.Instance.BaseColor = params.BaseColor;
-		draw.Instance.EmissiveColor = params.EmissiveColor;
-		draw.Instance.Surface = { params.Metallic, params.Roughness,
-								  params.Occlusion, params.NormalScale };
-		draw.Instance.Indices = { (float)base, (float)probe, 0.0f, 0.0f };
+		InstanceData& instance = AllocateInstance(draw);
+		instance.Model = transform;
+		instance.PreviousModel = previousTransform ? *previousTransform : transform;
+		instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
+		instance.BaseColor = params.BaseColor;
+		instance.EmissiveColor = params.EmissiveColor;
+		instance.Surface = { params.Metallic, params.Roughness,
+							 params.Occlusion, params.NormalScale };
+		instance.Indices = { (float)base, (float)probe, 0.0f, 0.0f };
 
 		s_Data->Pending.push_back(std::move(draw));
 	}
@@ -2395,14 +2429,15 @@ namespace RageV
 		draw.LayeredRef = layered;
 		draw.IndexCount = indexCount;
 
-		draw.Instance.Model = transform;
-		draw.Instance.PreviousModel = previousTransform ? *previousTransform : transform;
-		draw.Instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
-		draw.Instance.BaseColor = params.BaseColor;
-		draw.Instance.EmissiveColor = params.EmissiveColor;
-		draw.Instance.Surface = { params.Metallic, params.Roughness,
-								  params.Occlusion, params.NormalScale };
-		draw.Instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
+		InstanceData& instance = AllocateInstance(draw);
+		instance.Model = transform;
+		instance.PreviousModel = previousTransform ? *previousTransform : transform;
+		instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
+		instance.BaseColor = params.BaseColor;
+		instance.EmissiveColor = params.EmissiveColor;
+		instance.Surface = { params.Metallic, params.Roughness,
+							 params.Occlusion, params.NormalScale };
+		instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
 
 		{
 			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
