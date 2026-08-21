@@ -14,7 +14,7 @@ layout(location = 2) in vec2 a_TexCoord;
 
 void main()
 {
-	InstanceData instance = u_Instances.Instances[u_Object.BaseInstance + gl_InstanceIndex];
+	InstanceData instance = FetchInstance();
 
 	vec4 world = instance.Model * vec4(a_Position, 1.0);
 

@@ -56,6 +56,11 @@ namespace RageV
 		static_assert(sizeof(GpuRayInstance) == 96, "Must match RayInstance in pbr_fragment.glsl");
 		static_assert(offsetof(GpuRayInstance, BaseColor) == 48, "RayInstance vec4s begin at 48");
 		constexpr uint32_t kRayInstanceBinding = 15;
+		// Where the visible-index buffer binds (roadmap 8.16). Declared by
+		// every scene vertex stage through scene_vertex.glsl, so all three
+		// lit sets carry it -- unlike the material and ray-instance bindings
+		// above, which only the bindless variants declare.
+		constexpr uint32_t kVisibleBinding = 17;
 		constexpr uint32_t kRayInstancePosed = 1u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
@@ -355,6 +360,11 @@ namespace RageV
 				// allocating after its first frame.
 				Ref<RHIBuffer>      Instances;
 				uint32_t            InstanceCapacity = 0;
+				// Which row of the array above each drawn instance reads, in
+				// draw order (roadmap 8.16). Four bytes a draw against the
+				// 256 the reordering used to move.
+				Ref<RHIBuffer>      Visible;
+				uint32_t            VisibleCapacity = 0;
 				// Every light in this scene, however many that is.
 				Ref<RHIBuffer>      Lights;
 				uint32_t            LightCapacity = 0;
@@ -441,7 +451,9 @@ namespace RageV
 			// index survives the sorts because it travels inside the record
 			// being sorted.
 			std::vector<InstanceData> Instances;
-			std::vector<InstanceData> InstanceScratch;
+			// One row per draw, in the order the sorts settled on, naming the
+			// instance each draw reads. Kept between frames for the allocation.
+			std::vector<uint32_t> VisibleScratch;
 			// The frame's material records and which record each material got,
 			// bindless path only. Kept between frames for the allocation.
 			std::vector<GpuMaterial> MaterialScratch;
@@ -1768,26 +1780,45 @@ namespace RageV
 			s_Data->Heap->Commit();
 		}
 
-		if (!EnsureInstanceBuffer(slot.Instances, slot.InstanceCapacity, count,
+		// **The instance data never moves.** It goes up exactly as it was
+		// written, in submission order, as one memcpy -- and the sorts are
+		// expressed by the four-byte index buffer below instead. This used to
+		// end with a gather: fifteen megabytes read in scattered 256-byte runs
+		// at sixty thousand objects, to write a contiguous copy.
+		//
+		// Sized on the pool rather than on the draw count. They agree today --
+		// every submitted draw takes exactly one row -- but a row allocated by
+		// a draw that then bailed out would make the pool longer, and
+		// uploading `count` rows would truncate the tail that a later draw's
+		// index still points at.
+		const uint32_t instanceRows = (uint32_t)s_Data->Instances.size();
+		if (!EnsureInstanceBuffer(slot.Instances, slot.InstanceCapacity, instanceRows,
 								  sizeof(InstanceData), "Renderer3D.instances"))
 		{
 			return;
 		}
 
-		// **The one place the instance data moves.** Read in the order the
-		// sorts settled on, written contiguously for the upload. Scattered on
-		// the read side, but in 256-byte runs rather than at random, and once
-		// rather than once per comparison swap.
-		s_Data->InstanceScratch.clear();
-		s_Data->InstanceScratch.reserve(count);
-		for (const PendingDraw& draw : s_Data->Pending)
-			s_Data->InstanceScratch.push_back(s_Data->Instances[draw.Instance]);
+		if (!EnsureInstanceBuffer(slot.Visible, slot.VisibleCapacity, count,
+								  sizeof(uint32_t), "Renderer3D.visible"))
+		{
+			return;
+		}
 
-		slot.Instances->Upload(s_Data->InstanceScratch.data(),
-							   (uint64_t)count * sizeof(InstanceData));
+		slot.Instances->Upload(s_Data->Instances.data(),
+							   (uint64_t)instanceRows * sizeof(InstanceData));
+
+		s_Data->VisibleScratch.clear();
+		s_Data->VisibleScratch.reserve(count);
+		for (const PendingDraw& draw : s_Data->Pending)
+			s_Data->VisibleScratch.push_back(draw.Instance);
+
+		slot.Visible->Upload(s_Data->VisibleScratch.data(),
+							 (uint64_t)count * sizeof(uint32_t));
 
 		slot.Set->SetStorageBuffer(7, slot.Instances, 0,
-								   (uint64_t)count * sizeof(InstanceData));
+								   (uint64_t)instanceRows * sizeof(InstanceData));
+		slot.Set->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+								   (uint64_t)count * sizeof(uint32_t));
 		// Only where the layout declares it: on the bound path the shader has
 		// no binding 13, and writing an undeclared binding is the validation
 		// error HANDOFF section 5 records.
@@ -1833,8 +1864,10 @@ namespace RageV
 		// layout declares them.
 		if (slot.SkinnedSet)
 		{
+			slot.SkinnedSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+											  (uint64_t)count * sizeof(uint32_t));
 			slot.SkinnedSet->SetStorageBuffer(7, slot.Instances, 0,
-											  (uint64_t)count * sizeof(InstanceData));
+											  (uint64_t)instanceRows * sizeof(InstanceData));
 			slot.SkinnedSet->SetStorageBuffer(11, slot.Bones, 0,
 											  (uint64_t)boneCount * sizeof(Mat4));
 			if (s_Data->Bindless)
@@ -1849,8 +1882,10 @@ namespace RageV
 
 		if (slot.LayeredSet)
 		{
+			slot.LayeredSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+											  (uint64_t)count * sizeof(uint32_t));
 			slot.LayeredSet->SetStorageBuffer(7, slot.Instances, 0,
-											  (uint64_t)count * sizeof(InstanceData));
+											  (uint64_t)instanceRows * sizeof(InstanceData));
 			if (s_Data->Bindless)
 			{
 				slot.LayeredSet->SetStorageBuffer(13, slot.Materials, 0,

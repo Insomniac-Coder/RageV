@@ -141,6 +141,24 @@ layout(std430, set = 0, binding = 7) readonly buffer InstanceBlock
 	InstanceData Instances[];
 } u_Instances;
 
+// Which row of the buffer above each drawn instance reads (roadmap 8.16).
+//
+// **The instances are uploaded in submission order and never reordered; this
+// is what carries the order instead.** Sorting used to be expressed by moving
+// the instance data itself, so the frame ended with a gather -- fifteen
+// megabytes read in scattered 256-byte runs to write one contiguous buffer.
+// Four bytes an instance moves instead, and the 256 stay where they were
+// written.
+//
+// It is also the layout GPU-driven rendering needs: a compute pass that culls
+// cannot rewrite the instance data, only decide which rows survive and in what
+// order. The CPU path and the GPU path therefore agree about what the shader
+// reads, which is what lets one be the other's fallback.
+layout(std430, set = 0, binding = 17) readonly buffer VisibleBlock
+{
+	uint Visible[];
+} u_Visible;
+
 // Where this batch starts in the buffer above.
 //
 // Deliberately not the draw's firstInstance parameter. Vulkan's
@@ -152,6 +170,14 @@ layout(push_constant) uniform ObjectData
 {
 	int BaseInstance;
 } u_Object;
+
+// This vertex's instance, through the indirection above. Every vertex stage
+// that draws scene geometry goes through here rather than indexing the
+// instance buffer itself, so there is one place the indirection can be wrong.
+InstanceData FetchInstance()
+{
+	return u_Instances.Instances[u_Visible.Visible[u_Object.BaseInstance + gl_InstanceIndex]];
+}
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
