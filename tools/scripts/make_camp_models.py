@@ -674,6 +674,55 @@ VAN_DOOR_Z = 0.10      # centre of the side door
 VAN_AXLES = (1.72, -1.58)
 VAN_WHEEL = 0.42       # tyre radius
 
+# --- the raked cab front, which is where the windscreen lives -----------------
+#
+# The rake runs from the top of the cab down and forward to the top of the
+# grille, and both the body's frame around the screen and the screen itself are
+# patches of it. One function answers where a patch is so the two cannot
+# disagree -- the glass and the hole it fills are the same shape by
+# construction, which is the only way a rebate closes.
+VAN_RAKE_HALF = VAN_HALF - 0.03          # how wide the cab front is
+VAN_RAKE_TOP_Z = VAN_NOSE - 0.42         # where the rake starts, at cab height
+VAN_RAKE_LEN = math.hypot(VAN_CAB_TOP - VAN_BONNET, VAN_NOSE - VAN_RAKE_TOP_Z)
+
+# The frame around the screen: an A-pillar each side, a header and the lip over
+# the grille. In metres along the surface, not fractions, because that is what
+# they are on a van.
+VAN_PILLAR = 0.085
+VAN_HEADER = 0.075
+VAN_LIP = 0.060
+
+# **The glass laps under the frame rather than butting against it.** Meeting it
+# edge to edge leaves two coincident faces a centimetre wide down each pillar,
+# which is z-fighting in a place a low-poly model has no business having any --
+# and leaving a gap instead lets the eye through into an empty cab. Four
+# millimetres of overlap is entirely inside the frame's own thickness, so it is
+# not visible from anywhere, and it is what makes the rebate watertight.
+VAN_GLASS_LAP = 0.004
+
+
+def _van_rake_quad(x0, x1, s0, s1):
+    """A patch of the cab's raked front, wound to face out.
+
+    `s` runs 0 at the cab roof to 1 at the grille -- along the slope, so a
+    margin given in metres is a margin on the surface rather than a height.
+    """
+    def at(x, s):
+        return (x,
+                VAN_CAB_TOP + (VAN_BONNET - VAN_CAB_TOP) * s,
+                VAN_RAKE_TOP_Z + (VAN_NOSE - VAN_RAKE_TOP_Z) * s)
+
+    # Low edge first, so the winding matches every other outward-facing panel
+    # on this model.
+    return [at(x0, s1), at(x1, s1), at(x1, s0), at(x0, s0)]
+
+
+def _van_screen_bounds(lap=0.0):
+    """The window opening: half-width in x, and the two s along the rake."""
+    return (VAN_RAKE_HALF - VAN_PILLAR + lap,
+            (VAN_HEADER - lap) / VAN_RAKE_LEN,
+            1.0 - (VAN_LIP - lap) / VAN_RAKE_LEN)
+
 
 def _van_side_panel(mesh, sign, y0, y1, z0, z1, proud=0.012, thickness=0.02):
     """A flat panel lying on one side of the shell, at the same z on both sides.
@@ -712,14 +761,26 @@ def van_body():
     mesh.box((-VAN_HALF + 0.03, VAN_SILL, VAN_CAB - 0.06),
              (VAN_HALF - 0.03, VAN_CAB_TOP, VAN_NOSE - 0.42))
 
-    # The nose below the windscreen, solid, and the step from the cab roof down
-    # to it -- the line the reference has above its windscreen.
-    mesh.box((-VAN_HALF + 0.03, VAN_SILL, VAN_NOSE - 0.42),
+    # The nose below the windscreen, solid.
+    mesh.box((-VAN_HALF + 0.03, VAN_SILL, VAN_RAKE_TOP_Z),
              (VAN_HALF - 0.03, VAN_BONNET, VAN_NOSE))
-    mesh.panel([(-VAN_HALF + 0.03, VAN_CAB_TOP, VAN_NOSE - 0.42),
-                (VAN_HALF - 0.03, VAN_CAB_TOP, VAN_NOSE - 0.42),
-                (VAN_HALF - 0.03, VAN_BONNET, VAN_NOSE),
-                (-VAN_HALF + 0.03, VAN_BONNET, VAN_NOSE)], 0.05)
+
+    # And the cab front as a **frame around the screen** rather than a solid
+    # panel with the glass laid on top of it.
+    #
+    # It was the panel, and the glass had to be lifted 22 mm clear of it or the
+    # two fought for the same pixels -- which left the screen standing proud of
+    # the nose on a ledge of bodywork, with a slot round it deep enough to see
+    # into. No van looks like that: a windscreen sits *in* an opening, and the
+    # pillars and header stand proud of the glass rather than the other way
+    # round. Four strips and a hole, and the glass fills the hole at the rake's
+    # own plane -- no lift, nothing coplanar, and the frame meets the glass all
+    # the way round.
+    half, s_top, s_bottom = _van_screen_bounds()
+    mesh.panel(_van_rake_quad(-VAN_RAKE_HALF, VAN_RAKE_HALF, 0.0, s_top), 0.05)
+    mesh.panel(_van_rake_quad(-VAN_RAKE_HALF, VAN_RAKE_HALF, s_bottom, 1.0), 0.05)
+    mesh.panel(_van_rake_quad(-VAN_RAKE_HALF, -half, s_top, s_bottom), 0.05)
+    mesh.panel(_van_rake_quad(half, VAN_RAKE_HALF, s_top, s_bottom), 0.05)
 
     # Wheel arches, as a lip round each opening -- without them the wheels look
     # parked beside the van rather than under it.
@@ -821,21 +882,20 @@ def van_glass():
     """
     mesh = fbxwrite.Mesh()
 
-    # The windscreen, raked, spanning most of the cab's width.
+    # The windscreen: the opening in the cab front, filled.
     #
-    # **Lifted clear of the panel it covers**, which is why it was invisible:
-    # the body's own raked front runs between exactly these two heights, so
-    # glass laid on those corners is coplanar with it and the two fight for the
-    # same pixels -- and the body, being drawn first and opaque, wins. Every
-    # other window here is offset along the flank's normal by construction;
-    # this one slopes, so its offset has to slope with it.
-    slope_z, slope_y = 0.891, 0.456   # the wedge's outward normal, in (z, y)
-    lift_z, lift_y = 0.022 * slope_z, 0.022 * slope_y
-    mesh.panel([(-VAN_HALF + 0.06, VAN_BONNET + 0.02 + lift_y, VAN_NOSE - 0.02 + lift_z),
-                (VAN_HALF - 0.06, VAN_BONNET + 0.02 + lift_y, VAN_NOSE - 0.02 + lift_z),
-                (VAN_HALF - 0.06, VAN_CAB_TOP - 0.06 + lift_y, VAN_NOSE - 0.40 + lift_z),
-                (-VAN_HALF + 0.06, VAN_CAB_TOP - 0.06 + lift_y, VAN_NOSE - 0.40 + lift_z)],
-               0.03)
+    # **On the rake's own plane, with no lift.** It used to be a slab pushed
+    # 22 mm out along the slope to keep it from z-fighting the solid panel
+    # underneath, and that lift was the whole defect -- the screen stood proud
+    # of the nose with a slot round it. There is nothing underneath it now, so
+    # it sits where the bodywork would have been: 30 mm thick against the
+    # frame's 50, which recesses it 10 mm behind the pillars and leaves it
+    # 10 mm proud of their inner face, so neither side of the rebate is open.
+    #
+    # Lapped 4 mm under the frame, which is what makes the join watertight
+    # without two coincident faces to fight over it. See VAN_GLASS_LAP.
+    half, s_top, s_bottom = _van_screen_bounds(VAN_GLASS_LAP)
+    mesh.panel(_van_rake_quad(-half, half, s_top, s_bottom), 0.03)
 
     for sign in (-1.0, 1.0):
         # The cab's own side glass, on the lower section.
