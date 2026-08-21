@@ -522,7 +522,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// chromatic aberration belong to the lens they were authored for --
 	// through the editor camera, DoF focus-blurs a distance the author set
 	// for a different viewpoint, which reads as a broken viewport rather
-	// than as an effect. Stripped unless View > Preview Post says otherwise;
+	// than as an effect. Stripped unless Window > Preview Post says otherwise;
 	// the Game panel, and this viewport when switched to the scene camera,
 	// always keep everything. Bloom, exposure, the grade and the AA stay:
 	// they describe the scene, not one camera's lens.

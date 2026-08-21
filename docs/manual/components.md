@@ -328,8 +328,9 @@ were born, live out their lifetime and go, which with a box is a field of
 things blinking on and off in place.
 
 > [!TIP]
-> **View > Show Emitters** (F4) draws every box emitter's volume in the scene
-> view, and nothing in the game view. It is drawn from the same function the
+> **Window > Show Emitters** (F4) draws every box emitter's volume in the scene
+> view, and nothing in the game view. It is off by default, like the collider
+> overlay beside it. It is drawn from the same function the
 > emitter spawns from, so it cannot show a box the particles do not use.
 
 ## User interface

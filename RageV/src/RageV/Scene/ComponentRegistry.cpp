@@ -1039,7 +1039,7 @@ namespace
 									   "scale, as a collider's is -- so an emitter "
 									   "parented to something scaled is not scaled "
 									   "twice. Shown in the viewport under "
-									   "View > Show Emitters." }))),
+									   "Window > Show Emitters, or F4." }))),
 				Field<&ParticleEmitterComponent::Motion>("Motion",
 					Enum(kParticleMotionNames,
 						 "Whether a particle goes anywhere once it is born. "
