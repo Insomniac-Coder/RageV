@@ -833,10 +833,29 @@ must be picked instead, Phase 6". **Phase 5 is done and so is Phase 6.** Half of
 that recommendation has been carried out; the half that has not is the one it
 called the strongest thing in the document.*
 
-**Build a game with it.** Phases 0-7 and 9 are closed, Phase 10 is eleven rows
-of thirteen, and Phase 8 is down to six XL items that were each written as a
-proposal rather than a task. What is left is not a queue any more — it is a
-menu, and a menu is exactly the situation the argument below was written for.
+**Build a game with it.** Phases 0-7 and 9 are closed and Phase 10 is eleven
+rows of thirteen. What is left is not a queue any more — it is a menu, and a
+menu is exactly the situation the argument below was written for.
+
+**It is not, however, a short menu, and counting rows makes it look like one.**
+Phase 8 has four items still open and available, and every one of them is XL —
+multi-week, and in two cases engine-sized on their own:
+
+| # | | Why it is still there |
+|---|---|---|
+| 8.3 | GPU-driven rendering | Compute-built draw commands and meshlets. The row's own reason stands: real wins arrive at hundreds of thousands of objects, and this renderer draws a thousand in 1.9 ms without being near the wall. The pieces it would be built on **do** exist now — compute pipelines, storage buffers, GPU skinning, GPU particle simulation and sort — but there is no indirect draw in the RHI, and that is the whole of it |
+| 8.5 | Navigation and AI | An engine-sized subsystem on its own |
+| 8.6 | Networking | Touches every system that owns state, and retrofitting it is the classic way an engine's architecture gets rewritten |
+| 8.7 | Non-Windows platforms | A second window layer, a second input layer, a second CI. The RHI keeps the door open and nothing has closed it since — `AssetWatcher` was written on `<filesystem>` rather than `ReadDirectoryChangesW` for exactly that reason |
+
+Two more are decided rather than open: **8.8 XR is archived** and **8.11 asset
+store is deferred**, both the owner's call, both kept as rows for the cost
+written next to them. And 8.13 was built and withdrawn.
+
+So the honest measure of what remains is **four multi-week projects and three
+sittings** (9.15, 10.2, 10.5) — not the "almost everything is closed" that a
+tick count suggests. A phase whose remaining rows are all XL is not nearly
+finished; it is a phase whose cheap items are gone.
 
 **The evidence for it keeps arriving, and none of it was on the list.**
 2026-08-20's demo scene found eight engine defects by being *authored* rather
