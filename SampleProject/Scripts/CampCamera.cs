@@ -219,6 +219,12 @@ public class CampCamera : Script
 		// the managed boundary with three strings and re-derives the camera's
 		// cached projection behind it, which is not a per-frame cost worth
 		// paying for a value that changes twelve times in four minutes.
+		// **The path, not the handle.** The bridge resolves an asset field with
+		// Registry::GetHandle, which matches on the path the registry stores;
+		// a handle is the engine's internal name and the getter never hands
+		// one out. Passing one fails the lookup and SetComponentField returns
+		// false -- and a refused write says nothing to the scene, so every
+		// shot quietly kept the lens the first one set.
 		Entity self = Entity;
 		if (self.SetComponentField("CameraComponent", "PostProfile", profile))
 			m_Applied = profile;

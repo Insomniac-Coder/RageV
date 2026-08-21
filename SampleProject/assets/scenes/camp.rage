@@ -33,7 +33,7 @@ Entities:
       Fields:
         HoldSeconds: 3.4
         TravelSeconds: 4.2
-        Profiles: 5121286002614474790,5121286002614474790,7837477982603712757,2328503605430662106,11962501723077875437,11962501723077875437,11962501723077875437,11962501723077875437,7837477982603712757,2328503605430662106,7837477982603712757,5121286002614474790
+        Profiles: post/camp_focus_8_4.rvpostprofile,post/camp_focus_8_4.rvpostprofile,post/camp_focus_3_6.rvpostprofile,post/camp_focus_2_6.rvpostprofile,post/camp.rvpostprofile,post/camp.rvpostprofile,post/camp.rvpostprofile,post/camp.rvpostprofile,post/camp_focus_3_6.rvpostprofile,post/camp_focus_2_6.rvpostprofile,post/camp_focus_3_6.rvpostprofile,post/camp_focus_8_4.rvpostprofile
   - EntityID: 10748874122643597306
     TagComponent:
       Tag: Shot 1

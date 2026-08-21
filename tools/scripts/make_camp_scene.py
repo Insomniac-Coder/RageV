@@ -345,7 +345,7 @@ def look_at(target, distance, yaw, pitch):
 
 # --- the scene ----------------------------------------------------------------
 
-def build(profiles, mat, prop, tex, curve):
+def build(profiles, profile_paths, mat, prop, tex, curve):
     s = Scene()
 
     # --- the camera and its shots --------------------------------------------
@@ -371,10 +371,19 @@ def build(profiles, mat, prop, tex, curve):
     # 3.4 and 4.2 are what the camera was written with.
     #
     # The focus table rides on the script rather than on twelve markers: one
-    # profile handle per shot, in shot order, comma separated. Written from the
+    # profile *path* per shot, in shot order, comma separated. Written from the
     # same `focus_band` call the profiles themselves were built from, so a band
     # cannot be renumbered here and left stale there.
-    shot_profiles = ",".join(str(profiles[focus_band(shot[2])]) for shot in SHOTS)
+    #
+    # **A path and not a handle, which is not a detail.** The scripting bridge
+    # takes an asset field as text and resolves it with Registry::GetHandle,
+    # which looks a *path* up -- a handle is the engine's internal name and a
+    # script holding one could do nothing honest with it, so the getter hands
+    # out paths too. Handing it a handle fails the lookup, SetComponentField
+    # returns false, and the camera keeps whatever lens it started with: every
+    # shot focused at the first shot's distance, silently, because a refused
+    # write reports nothing to the scene.
+    shot_profiles = ",".join(profile_paths[focus_band(shot[2])] for shot in SHOTS)
     s.managed_script("CampCamera", HoldSeconds=3.4, TravelSeconds=4.2,
                      Profiles=shot_profiles)
 
@@ -1331,14 +1340,18 @@ def main():
     # own `camp.rvpostprofile` stays as the mid band under its old name, so a
     # camera that has not been told otherwise still grades the scene correctly.
     profiles = {}
+    profile_paths = {}
     for band in FOCUS_BANDS:
         name = ("camp.rvpostprofile" if band == 5.4
                 else "camp_focus_{0}.rvpostprofile".format(
                     str(band).replace(".", "_")))
         profiles[band] = postprofile.write_named(
             ASSETS / "post" / name, dict(settings, FocusDistance=band))
+        # What the asset registry will call this file: relative to the asset
+        # directory, forward slashes, which is what GetHandle matches on.
+        profile_paths[band] = "post/" + name
 
-    scene = build(profiles, mat, prop, tex, curve)
+    scene = build(profiles, profile_paths, mat, prop, tex, curve)
 
     header = [
         "Scene: Camp",
