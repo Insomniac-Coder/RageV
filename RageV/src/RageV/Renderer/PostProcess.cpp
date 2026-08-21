@@ -777,8 +777,11 @@ namespace RageV
 			Vec4 CameraRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
 			Vec4 CameraRow2{ 0.0f, 0.0f, 1.0f, 0.0f };
 			Vec4 CameraPosition{ 0.0f, 0.0f, 0.0f, 0.0f };
+			// The frame's TAA jitter in NDC, xy. 128 bytes with it, which is
+			// exactly the push-constant size every Vulkan device guarantees.
+			Vec4 Jitter{ 0.0f, 0.0f, 0.0f, 0.0f };
 		};
-		static_assert(offsetof(RtaoComputeParams, CameraRow0) == 48 && sizeof(RtaoComputeParams) == 112,
+		static_assert(offsetof(RtaoComputeParams, CameraRow0) == 48 && sizeof(RtaoComputeParams) == 128,
 					  "RtaoComputeParams must match rtao_compute.rvshader");
 	}
 
@@ -809,6 +812,7 @@ namespace RageV
 		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
 		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
 		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+		params.Jitter = Vec4(view.JitterX, view.JitterY, 0.0f, 0.0f);
 
 		Dispatch(cmd, Shader::RtaoCompute, outputFormat, depth, surface,
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,

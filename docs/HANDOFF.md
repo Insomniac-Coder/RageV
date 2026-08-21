@@ -216,11 +216,41 @@ stale allocation, and was the clue that mattered.
 
 ### What ships
 
-The crash was the only reason `RayTracedAmbientOcclusion` and
-`RayTracedGlobalIllumination` were off. They can go back on; measured cost on
-this machine is **9.3 ms/frame with reflections alone against 13.8 ms/frame with
-all three**, at 1600x900 with the editor drawing two views. Left as the owner's
-call rather than flipped quietly.
+All three ray-traced features on. The crash was the only reason
+`RayTracedAmbientOcclusion` and `RayTracedGlobalIllumination` were off; measured
+cost on this machine is **9.3 ms/frame with reflections alone against 13.8
+ms/frame with all three**, at 1600x900 with the editor drawing two views.
+
+Turning them back on immediately exposed a second, unrelated defect -- see
+*Ray-traced AO strobed with the TAA jitter* below. That is fixed too.
+
+### Ray-traced AO strobed with the TAA jitter -- fixed (2026-08-21)
+
+Reported as "the green trees in the background clearly show a flicker", in the
+editor and not the runtime. It was **ray-traced ambient occlusion**, and it had
+nothing to do with the device-loss fix: measured byte-identical at commit
+`6bb7718` with the same settings, so it had been there as long as RTAO had.
+
+`ViewPosition` reconstructs a point from the depth buffer without subtracting
+the TAA jitter the depth was drawn through, so every reconstructed position is
+displaced by an amount proportional to depth that changes every frame. SSAO, SSR
+and SSGI convert straight back through `ViewToUv` and the offset cancels; RTAO
+casts a real ray from that point and it does not. RTAO also has no temporal
+accumulation, so it goes to the screen undamped. Full account in ENGINE-NOTES
+7bq.
+
+| Editor, held camera | luma swing | canopy pixels changing |
+|---|---|---|
+| Before | 1.48 %, cycling with `TemporalJitterPhase` | 1.20 % |
+| After | 0.21 %, no pattern | 0.01 % |
+
+**How it was found, because the method is the transferable part.** Three rounds
+of whole-frame "percentage of pixels changing" reported 0.45 % and read as
+noise. Laying the per-frame mean luma out *as a series* made it obvious --
+`62.0 62.1 62.1 61.7 62.1 62.1 61.2 61.2`, repeating -- and changing
+`TemporalJitterPhase` from 8 to 4 changed the period to 4, which named the
+cause outright. A statistic that averages over a period cannot see a defect with
+that period.
 
 ### TAA shimmer: what is measured, and what is not established
 

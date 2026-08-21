@@ -204,6 +204,20 @@ namespace RageV
 			float InvProjection0 = 1.0f;
 			float InvProjection1 = 1.0f;
 			Mat4 View{ 1.0f };
+
+			// The NDC offset TAA added to the projection this frame.
+			//
+			// The depth buffer these passes read was rendered *through* the
+			// jittered projection, so the point a texel describes is not the
+			// point its own uv reconstructs to -- it is that point shifted by
+			// the jitter. A pass that stays in screen space never notices,
+			// because ViewToUv is the exact inverse and the offset cancels
+			// end to end. A pass that leaves for world space does: RTAO casts
+			// from the reconstructed position, and an origin that moves with
+			// the jitter sequence makes the occlusion move with it too.
+			// ENGINE-NOTES 7bq.
+			float JitterX = 0.0f;
+			float JitterY = 0.0f;
 		};
 
 		// SSAO (9.6), four passes -- the blur runs twice. ENGINE-NOTES 7ac.

@@ -65,6 +65,8 @@ layout(push_constant) uniform Params
 	vec4 CameraRow1;
 	vec4 CameraRow2;
 	vec4 CameraPosition;
+	// The frame's TAA jitter in NDC, xy. See ViewPositionAt.
+	vec4 Jitter;
 } u_Params;
 
 #include "include/view_reconstruction.glsl"
@@ -79,6 +81,15 @@ const float kLiftPerMetre = 0.0004;
 
 vec2 InvProjection() { return vec2(u_Params.InvP0, u_Params.InvP1); }
 
+// The jitter in sampling-space uv. NDC is twice uv, and this frame's y runs
+// along texel rows -- which is the axis FlipY exists for -- so the y component
+// turns over on the backend whose row 0 is the top.
+vec2 JitterUv()
+{
+	const bool flip = u_Params.FlipY > 0.5;
+	return vec2(u_Params.Jitter.x, flip ? -u_Params.Jitter.y : u_Params.Jitter.y) * 0.5;
+}
+
 vec3 ViewPositionAt(vec2 uv)
 {
 	// Snapped to the depth texel's centre, as SSAO's is (7an): the point the
@@ -86,7 +97,20 @@ vec3 ViewPositionAt(vec2 uv)
 	const vec2 depthSize = vec2(textureSize(u_Depth, 0));
 	const vec2 snapped = (floor(uv * depthSize) + 0.5) / depthSize;
 	const float z = LinearDepth(texture(u_Depth, snapped).r, u_Params.NearClip, u_Params.FarClip);
-	return ViewPosition(snapped, z, InvProjection());
+
+	// **Minus the jitter, and this is the whole of 7bq.** TAA translates the
+	// projection by a sub-pixel offset each frame, so the depth in this texel
+	// belongs to the point whose NDC is the texel's *minus* that offset.
+	// Reconstructing without it puts the point somewhere it never was, by an
+	// error that grows with depth and changes every frame -- which is a ray
+	// origin that walks the jitter sequence, and distant geometry that
+	// strobes at the sequence's period. SSAO and SSR never saw it: they hand
+	// the position straight back to ViewToUv, which is the exact inverse, and
+	// a constant offset cancels. A ray leaves for world space and cannot.
+	//
+	// The normal is unaffected either way -- it is a difference of four of
+	// these, and a constant offset cancels there too.
+	return ViewPosition(snapped - JitterUv(), z, InvProjection());
 }
 
 // The reconstruction frame's point, out to the world: the frame is view

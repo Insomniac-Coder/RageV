@@ -784,6 +784,10 @@ namespace RageV
 		reconstruction.InvProjection0 = desc.InvProjection0;
 		reconstruction.InvProjection1 = desc.InvProjection1;
 		reconstruction.View = desc.View;
+		// What the scene was drawn through, so a pass that reconstructs a
+		// position from its depth can take it back out again (7bq).
+		reconstruction.JitterX = jitter.x;
+		reconstruction.JitterY = jitter.y;
 
 		// --- SSAO --------------------------------------------------------------
 		//

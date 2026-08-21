@@ -11316,6 +11316,65 @@ structure reference against the registry before writing it, which ruled out
 
 ---
 
+### 7bq. A jittered depth buffer reconstructs to the wrong place
+
+Ray-traced ambient occlusion strobed. Distant foliage in particular: the pine
+canopies at the back of the camp pulsed, and the period was exactly
+`TemporalJitterPhase` -- eight frames by default, four when the setting was
+changed to four, which is how it was identified.
+
+**The mechanism.** TAA translates the projection by a sub-pixel offset each
+frame. Everything drawn into the scene target -- colour, velocity, *depth* --
+is drawn through that translated projection. So the depth in a texel belongs to
+the point whose NDC is that texel's minus the offset. `ViewPosition` did not
+subtract it, so every reconstructed position was displaced by
+`jitter * invProjection * depth` -- an error proportional to distance, changing
+every frame, cycling with the jitter sequence.
+
+**Why only RTAO.** SSAO, SSR and SSGI reconstruct a position and then hand it
+straight back to `ViewToUv`, which is the exact inverse. A constant offset
+cancels end to end and they never saw it. RTAO reconstructs a position and then
+*leaves screen space*: it is the origin of a real ray in a real acceleration
+structure, and there is nothing downstream to cancel against. An origin that
+walks the jitter sequence gives occlusion that walks it too.
+
+**Why it was so visible.** RTAO has no temporal accumulation -- raw, blur,
+blur, apply -- so the error goes to the screen undamped. Traced GI has the same
+reconstruction and does not show it, because `GiDenoise` accumulates at 0.9
+feedback and irradiance is low frequency. The two features looked equally
+suspect until they were measured apart: with reflections on, AO alone swung
+1.51 % and GI alone swung 0.08 %.
+
+The normal is unaffected either way. It is a difference of four reconstructed
+positions, and a constant offset cancels in a difference -- which is why the
+shading looked right and only the rays were wrong.
+
+**Measured.** Held camera, editor viewport, mean luma over the canopy:
+
+| | luma swing | canopy pixels changing | of those, green |
+|---|---|---|---|
+| Before | 1.48 % | 1.20 % | 12.89 % |
+| After  | 0.21 % | 0.01 % | 2.50 % |
+
+and the periodic pattern -- `......XX......XX` at phase 8 -- is gone rather
+than reduced. Ambient occlusion still does its job: 3.73 % of pixels differ
+between RTAO on and off.
+
+**The rule this leaves.** *A position reconstructed from a depth buffer is only
+as unjittered as the projection that drew it.* Anything that reconstructs and
+stays in screen space may ignore the jitter; anything that reconstructs and
+leaves must subtract it. `ViewReconstruction` now carries the frame's offset so
+the question can be answered rather than assumed.
+
+**And a measuring lesson.** The first three attempts to characterise this used
+whole-frame percentage-of-pixels-changed, which reported the editor at 0.45 %
+and looked like noise. What identified it was per-frame *mean luma* as a series:
+`62.0 62.1 62.1 61.7 62.1 62.1 61.2 61.2` repeating. A periodic defect is
+invisible to a statistic that averages over the period, and obvious the moment
+the frames are laid out in order.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
