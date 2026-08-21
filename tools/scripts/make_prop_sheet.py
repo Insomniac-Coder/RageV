@@ -87,8 +87,10 @@ ASSEMBLIES = {
     "lamp": (("lantern", (0, 0, 0)), ("lantern_glass", (0, 0, 0))),
     "mirror": (("mirror_frame", (0, 0, 0)), ("mirror_glass", (0, 0, 0.030))),
     "toast": (("fork", (0, 0, 0)), ("marshmallow", (0, 0.05, 0.80))),
-    "van": (("van_body", (0, 0, 0)), ("van_glass", (0, 0, 0)),
-            ("van_wheels", (0, 0, 0))),
+    "van": (("van_body", (0, 0, 0)), ("van_trim", (0, 0, 0)),
+            ("van_roof_units", (0, 0, 0)), ("van_stripe_wide", (0, 0, 0)),
+            ("van_stripe_thin", (0, 0, 0)), ("van_glass", (0, 0, 0)),
+            ("van_lights", (0, 0, 0)), ("van_wheels", (0, 0, 0))),
 }
 
 

@@ -289,6 +289,42 @@ SHOTS = (
 # four things to keep track of instead of twelve.
 FOCUS_BANDS = (2.6, 3.6, 5.4, 8.4)
 
+# Where the tent stands and how it is turned, named because three things now
+# need to agree about it: the tent itself, the shot solver's rejection radius,
+# and the chairs' clearance check.
+TENT_AT = (3.05, -2.5)
+TENT_YAW = -52.0
+# The tent's footprint, from make_camp_models: half its width and half its
+# length. A rectangle rather than a radius, because it is one -- and the chair
+# that clipped was outside a 2.0 m circle and inside the tent.
+TENT_HALF_X = 1.3
+TENT_HALF_Z = 1.5
+# How much room a folding chair needs around its own origin.
+CHAIR_RADIUS = 0.42
+
+
+def tent_clearance(x, z, at, yaw_degrees):
+    """Distance from a point to the tent's footprint, in metres.
+
+    Positive outside, negative within. The point is taken into the tent's own
+    frame and measured against the rectangle there, which is the only honest
+    way to ask: a tent turned fifty-two degrees is not a circle, and treating
+    it as one is what let a chair stand inside the end gable while passing a
+    two-metre distance test.
+    """
+    theta = math.radians(yaw_degrees)
+    dx, dz = x - at[0], z - at[1]
+    # World to local for a yaw about Y, the inverse of the rotation the entity
+    # carries.
+    lx = math.cos(theta) * dx - math.sin(theta) * dz
+    lz = math.sin(theta) * dx + math.cos(theta) * dz
+
+    outside_x = abs(lx) - TENT_HALF_X
+    outside_z = abs(lz) - TENT_HALF_Z
+    if outside_x <= 0.0 and outside_z <= 0.0:
+        return -min(-outside_x, -outside_z)
+    return math.hypot(max(outside_x, 0.0), max(outside_z, 0.0))
+
 
 def focus_band(distance):
     """The band nearest a subject distance."""
@@ -573,9 +609,9 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
     # Off to one side with its doorway toward the fire, which is where anybody
     # would pitch it and also what keeps the dark opening facing the camera on
     # two of the five shots.
-    tent_at = (3.05, -2.5)
+    tent_at = TENT_AT
     s.entity("Tent", position=(tent_at[0], ground_height(*tent_at), tent_at[1]),
-             rotation=(0, math.radians(-52.0), 0))
+             rotation=(0, math.radians(TENT_YAW), 0))
     s.mesh(prop["tent"], mat["canvas_red"])
 
     s.entity("Tent Band", parent="Tent")
@@ -599,13 +635,20 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
     # frame, which had nothing but trees in it.
     s.entity("Van", position=(VAN_AT[0], ground_height(*VAN_AT), VAN_AT[1]),
              rotation=(0, math.radians(104.0), 0))
-    s.mesh(prop["van_body"], mat["paint"])
+    s.mesh(prop["van_body"], mat["van_paint"])
 
-    s.entity("Van Glass", parent="Van")
-    s.mesh(prop["van_glass"], mat["glass_dark"])
-
-    s.entity("Van Wheels", parent="Van")
-    s.mesh(prop["van_wheels"], mat["rubber"])
+    # Seven pieces rather than three, because the reference is not a painted
+    # box: the stripes, the roof units and the dark trim are what make it read
+    # as a camper somebody drove here rather than a van-shaped volume.
+    for piece, material in (("van_stripe_wide", "van_stripe_a"),
+                            ("van_stripe_thin", "van_stripe_b"),
+                            ("van_trim", "van_trim"),
+                            ("van_roof_units", "van_shell_white"),
+                            ("van_glass", "van_glass"),
+                            ("van_lights", "glass_warm_dim"),
+                            ("van_wheels", "van_rubber")):
+        s.entity(f"Van {piece[4:].replace('_', ' ').title()}", parent="Van")
+        s.mesh(prop[piece], mat[material])
 
     # --- the mirror ----------------------------------------------------------
     #
@@ -642,13 +685,29 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
 
     chairs = (
         ("Chair Right", (2.05, 0.95), -116.6, "fabric_blue"),
-        ("Chair Back", (2.45, -0.55), -76.6, "fabric_red"),
+        # Pulled out from (2.45, -0.55), which put its back leg through the
+        # tent's end gable. The tent is 2.6 by 3.0 metres and turned 52
+        # degrees, so "two metres from the tent's centre" is inside it down the
+        # long axis and outside it across the short one -- which is why a
+        # distance check would not have caught this and the rectangle below
+        # does. Same bearing from the fire, so it still faces what it faced.
+        ("Chair Back", (2.286, -0.014), -76.6, "fabric_red"),
         # The one in the foreground, facing away from the camera and into the
         # fire. The reference has it and it is doing real work: a shape the eye
         # reads as "somebody sits here" between the lens and the subject.
         ("Chair Near", (-0.62, 2.35), 165.0, "fabric_blue"),
     )
     for name, (x, z), yaw, cloth in chairs:
+        # **A prop inside the tent is a build error, not a render to look at.**
+        # The same argument the shot solver makes about cameras: an arrangement
+        # is chosen in numbers and its faults are found in pixels, so the check
+        # belongs where the numbers are.
+        clearance = tent_clearance(x, z, tent_at, TENT_YAW)
+        if clearance < CHAIR_RADIUS:
+            raise SystemExit(
+                f"{name} is {clearance:.2f} m from the tent's side and needs "
+                f"{CHAIR_RADIUS:.2f} -- it will clip through it")
+
         s.entity(name, position=(x, ground_height(x, z), z),
                  rotation=(0, math.radians(yaw), 0))
         s.mesh(prop["chair_frame"], mat["metal"])
@@ -1157,6 +1216,38 @@ def materials(tex):
         # colour, and a second one would fight it.
         "paint": surface("paint", "metal", (0.54, 0.58, 0.51, 1),
                          metallic=0.35, roughness=0.45),
+        # The camper's own palette, from the reference: a warm cream shell with
+        # an orange band and a darker red one under it. Not metallic -- a
+        # motorhome's sides are painted panel, and the sheen the old van had
+        # made it read as a car.
+        # **Every one of these is flat colour, and none of them is metal.**
+        # The old van wore the shared metal map, which striped a five-metre
+        # flank from roof to sill and read as corrugated iron rather than as
+        # paint -- and gave the bumpers and the tyres the same weave. A
+        # low-poly vehicle gets its shape from its facets; a texture on it is
+        # noise competing with the silhouette.
+        "van_paint": surface("van_paint", None, (0.88, 0.82, 0.67, 1),
+                             metallic=0.0, roughness=0.55),
+        "van_stripe_a": surface("van_stripe_a", None, (0.90, 0.47, 0.17, 1),
+                                roughness=0.55),
+        "van_stripe_b": surface("van_stripe_b", None, (0.66, 0.18, 0.14, 1),
+                                roughness=0.55),
+        # Teal, as the reference's glass is, and dark enough to stay a window
+        # at night rather than a lit panel.
+        "van_glass": surface("van_glass", None, (0.06, 0.20, 0.22, 1),
+                             metallic=0.2, roughness=0.12),
+        # The bumpers, grille and roof rack: near-black, so they read as the
+        # gaps in the shape rather than as a second colour competing with it.
+        "van_trim": surface("van_trim", None, (0.17, 0.18, 0.20, 1),
+                            metallic=0.1, roughness=0.55),
+        "van_shell_white": surface("van_shell_white", None, (0.93, 0.92, 0.88, 1),
+                                   roughness=0.7),
+        "van_rubber": surface("van_rubber", None, (0.09, 0.09, 0.10, 1),
+                              roughness=0.9),
+        # The headlamps and marker lights: warm, and faintly lit so they catch
+        # the eye at the edge of the firelight without pretending to be lamps.
+        "glass_warm_dim": surface("van_lamp", None, (0.95, 0.90, 0.72, 1),
+                                  roughness=0.3, emissive=(0.55, 0.42, 0.20, 1)),
         "glass_dark": surface("glass_dark", None, (0.05, 0.07, 0.10, 1),
                               metallic=0.2, roughness=0.12),
         "rubber": surface("rubber", "metal", (0.06, 0.06, 0.07, 1),
@@ -1190,7 +1281,8 @@ def main():
             "pebble", "grass", "grass_tall", "grass_low", "pack", "bedroll",
             "suitcase", "cooler", "lantern", "lantern_glass", "pot", "mug",
             "fork", "marshmallow", "mirror_frame", "mirror_glass", "rabbit",
-            "van_body", "van_glass", "van_wheels")
+            "van_body", "van_trim", "van_roof_units", "van_stripe_wide",
+            "van_stripe_thin", "van_glass", "van_lights", "van_wheels")
 
     tex = handles_in(ASSETS / "materials", "_color.png", "camp_")
     tex.update({

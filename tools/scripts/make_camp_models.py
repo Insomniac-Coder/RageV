@@ -656,84 +656,223 @@ def marshmallow():
 #
 # Three materials, so three meshes: the paint, the glass and the wheels.
 
-VAN_HALF = 0.92        # half the body width
-VAN_NOSE = 2.15        # z of the front bumper
-VAN_TAIL = -2.15       # z of the rear
-VAN_SILL = 0.42        # underside of the body
-VAN_WAIST = 1.16       # where the panels stop and the windows start
-VAN_ROOF = 1.78
+# A small motorhome rather than the minivan this was: 5.4 metres long, 2.1
+# wide, 2.5 tall at the roof. Bigger than what it replaces, and that is the
+# point -- the camp needed something between a two-metre tent and a nine-metre
+# tree, and a camper is what a clearing like this has parked in it.
+VAN_HALF = 1.05        # half the body width
+VAN_NOSE = 2.70        # z of the front face
+VAN_TAIL = -2.70       # z of the rear
+VAN_SILL = 0.52        # underside of the body
+VAN_ROOF = 2.50        # top of the living box
+VAN_CAB = 1.35         # z where the cab steps down from the box
+VAN_CAB_TOP = 2.16     # roof height over the cab
+VAN_BONNET = 1.34      # top of the grille, foot of the windscreen
+VAN_BELT = 1.52        # bottom of the side windows
+VAN_HEAD = 2.18        # top of them
+VAN_DOOR_Z = 0.10      # centre of the side door
+VAN_AXLES = (1.72, -1.58)
+VAN_WHEEL = 0.42       # tyre radius
+
+
+def _van_side_panel(mesh, sign, y0, y1, z0, z1, proud=0.012, thickness=0.02):
+    """A flat panel lying on one side of the shell, at the same z on both sides.
+
+    **The same z, which is the whole reason this exists.** The windows used to
+    be placed at `sign * near`, which mirrors the *longitudinal* position as
+    well as the side -- so one flank's glass sat where the other flank's body
+    was, and the van came out with a window missing down one side and one that
+    did not line up with its pillar down the other. A side is chosen by x; z is
+    the same number on both.
+    """
+    x = sign * (VAN_HALF + proud)
+    corners = [(x, y0, z0), (x, y0, z1), (x, y1, z1), (x, y1, z0)]
+    if sign < 0.0:
+        corners.reverse()
+    mesh.panel(corners, thickness)
 
 
 def van_body():
-    """The painted shell: sills, a short bonnet, a boxy greenhouse, a rack."""
+    """The shell of a small motorhome: a solid box, a lower cab, a raked nose.
+
+    **Solid, and that is the fix.** The van this replaces was built as a
+    greenhouse -- a floor, a roof and four corner pillars, with the sides left
+    open for glass to fill. Where the glass did not reach, or reached the wrong
+    flank, you could see straight through the vehicle. So the body here is a
+    closed volume and every window is a panel lying *on* it, which is how a
+    low-poly vehicle is drawn anyway: the glass is a shape, not a hole.
+    """
     mesh = fbxwrite.Mesh()
 
-    # The lower body, from the rear to the base of the windscreen.
-    mesh.box((-VAN_HALF, VAN_SILL, VAN_TAIL), (VAN_HALF, VAN_WAIST, 1.28))
-    # The bonnet, lower and shorter -- a minivan has one, a bus does not, and
-    # that step is most of what tells them apart in silhouette.
-    mesh.box((-VAN_HALF + 0.02, VAN_SILL, 1.28),
-             (VAN_HALF - 0.02, 1.02, VAN_NOSE))
+    # The living box: rear wall to the back of the cab, full height.
+    mesh.box((-VAN_HALF, VAN_SILL, VAN_TAIL), (VAN_HALF, VAN_ROOF, VAN_CAB))
 
-    # The roof, and the two pillars that are not glass.
-    mesh.box((-VAN_HALF, VAN_ROOF - 0.08, VAN_TAIL),
-             (VAN_HALF, VAN_ROOF, 1.30))
-    for x in (-VAN_HALF, VAN_HALF - 0.07):
-        mesh.box((x, VAN_WAIST, VAN_TAIL), (x + 0.07, VAN_ROOF, VAN_TAIL + 0.08))
-        mesh.box((x, VAN_WAIST, 1.22), (x + 0.07, VAN_ROOF, 1.30))
-        # The B pillar, which is what stops the side glass being one long slab.
-        mesh.box((x, VAN_WAIST, -0.34), (x + 0.07, VAN_ROOF, -0.22))
+    # The cab, lower and a little narrower, overlapping the box so there is no
+    # seam between them to see through.
+    mesh.box((-VAN_HALF + 0.03, VAN_SILL, VAN_CAB - 0.06),
+             (VAN_HALF - 0.03, VAN_CAB_TOP, VAN_NOSE - 0.42))
 
-    # The windscreen frame, raked forward from the bonnet to the roof.
-    mesh.panel([(-VAN_HALF, 1.02, VAN_NOSE - 0.06),
-                (VAN_HALF, 1.02, VAN_NOSE - 0.06),
-                (VAN_HALF, VAN_ROOF, 1.30), (-VAN_HALF, VAN_ROOF, 1.30)], 0.06)
-
-    # Bumpers.
-    mesh.box((-VAN_HALF - 0.03, 0.36, VAN_NOSE - 0.04),
-             (VAN_HALF + 0.03, 0.66, VAN_NOSE + 0.08))
-    mesh.box((-VAN_HALF - 0.03, 0.36, VAN_TAIL - 0.08),
-             (VAN_HALF + 0.03, 0.72, VAN_TAIL + 0.04))
-
-    # The roof rack. A camping van has one and it is two bars and four feet.
-    for x in (-0.62, 0.62):
-        mesh.strut((x, VAN_ROOF + 0.10, -1.85), (x, VAN_ROOF + 0.10, 1.05),
-                   0.035, sides=4)
-        for z in (-1.7, 0.9):
-            mesh.box((x - 0.05, VAN_ROOF - 0.01, z - 0.05),
-                     (x + 0.05, VAN_ROOF + 0.10, z + 0.05))
+    # The nose below the windscreen, solid, and the step from the cab roof down
+    # to it -- the line the reference has above its windscreen.
+    mesh.box((-VAN_HALF + 0.03, VAN_SILL, VAN_NOSE - 0.42),
+             (VAN_HALF - 0.03, VAN_BONNET, VAN_NOSE))
+    mesh.panel([(-VAN_HALF + 0.03, VAN_CAB_TOP, VAN_NOSE - 0.42),
+                (VAN_HALF - 0.03, VAN_CAB_TOP, VAN_NOSE - 0.42),
+                (VAN_HALF - 0.03, VAN_BONNET, VAN_NOSE),
+                (-VAN_HALF + 0.03, VAN_BONNET, VAN_NOSE)], 0.05)
 
     # Wheel arches, as a lip round each opening -- without them the wheels look
-    # like they are parked beside the van rather than under it.
-    for z in (1.45, -1.35):
-        for x in (-VAN_HALF, VAN_HALF - 0.04):
-            mesh.box((x, VAN_SILL - 0.06, z - 0.44), (x + 0.04, 0.86, z + 0.44))
+    # parked beside the van rather than under it.
+    for z in VAN_AXLES:
+        for sign in (-1.0, 1.0):
+            x = sign * VAN_HALF
+            lo, hi = sorted((x, x - sign * 0.05))
+            mesh.box((lo, VAN_SILL - 0.10, z - 0.52), (hi, VAN_SILL + 0.30, z + 0.52))
+
+    # The side door, proud of the flank so it reads as a door and not a decal.
+    # One side only: the reference has it on the kerb side and so does this.
+    _van_side_panel(mesh, 1.0, VAN_SILL + 0.06, VAN_BELT + 0.60,
+                    VAN_DOOR_Z - 0.34, VAN_DOOR_Z + 0.34, proud=0.010, thickness=0.03)
+
+    # The awning rail above it, which is the detail that says somebody camps in
+    # this rather than that it is a bus.
+    mesh.strut((VAN_HALF + 0.03, VAN_BELT + 0.70, VAN_DOOR_Z - 1.05),
+               (VAN_HALF + 0.03, VAN_BELT + 0.70, VAN_DOOR_Z + 0.55), 0.035, sides=4)
 
     return mesh
 
 
-def van_glass():
-    """Windscreen, four side windows and the tailgate. Dark, and flat."""
+def van_trim():
+    """Bumpers, grille slats and the roof rack: everything painted dark."""
     mesh = fbxwrite.Mesh()
 
-    mesh.panel([(-0.86, 1.06, VAN_NOSE - 0.10), (0.86, 1.06, VAN_NOSE - 0.10),
-                (0.86, VAN_ROOF - 0.06, 1.34), (-0.86, VAN_ROOF - 0.06, 1.34)],
+    mesh.box((-VAN_HALF - 0.04, VAN_SILL - 0.06, VAN_NOSE - 0.04),
+             (VAN_HALF + 0.04, VAN_SILL + 0.26, VAN_NOSE + 0.10))
+    mesh.box((-VAN_HALF - 0.04, VAN_SILL - 0.06, VAN_TAIL - 0.10),
+             (VAN_HALF + 0.04, VAN_SILL + 0.30, VAN_TAIL + 0.04))
+
+    # The grille: four slats, which at this scale is a texture made of geometry
+    # and is what the reference does too.
+    for i in range(4):
+        y = VAN_SILL + 0.44 + i * 0.09
+        mesh.box((-0.62, y, VAN_NOSE - 0.02), (0.62, y + 0.05, VAN_NOSE + 0.03))
+
+    # The roof rack: two rails on feet, with two cross bars.
+    for sign in (-1.0, 1.0):
+        x = sign * (VAN_HALF - 0.22)
+        mesh.strut((x, VAN_ROOF + 0.13, VAN_TAIL + 0.30),
+                   (x, VAN_ROOF + 0.13, VAN_CAB - 0.10), 0.035, sides=4)
+        for z in (VAN_TAIL + 0.45, 0.0, VAN_CAB - 0.25):
+            mesh.box((x - 0.05, VAN_ROOF - 0.01, z - 0.05),
+                     (x + 0.05, VAN_ROOF + 0.13, z + 0.05))
+    for z in (VAN_TAIL + 0.45, VAN_CAB - 0.25):
+        mesh.strut((-VAN_HALF + 0.22, VAN_ROOF + 0.13, z),
+                   (VAN_HALF - 0.22, VAN_ROOF + 0.13, z), 0.030, sides=4)
+
+    return mesh
+
+
+def van_roof_units():
+    """Two air conditioners, the silhouette detail that says camper.
+
+    Each is a low box with a shallower lid, because a real one has a moulded
+    cover and a single box reads as a crate strapped to the roof.
+    """
+    mesh = fbxwrite.Mesh()
+    for z in (VAN_TAIL + 1.05, VAN_CAB - 0.85):
+        mesh.box((-0.42, VAN_ROOF, z - 0.34), (0.42, VAN_ROOF + 0.20, z + 0.34))
+        mesh.box((-0.34, VAN_ROOF + 0.20, z - 0.26), (0.34, VAN_ROOF + 0.26, z + 0.26))
+    return mesh
+
+
+def _van_stripe(y, height):
+    """One horizontal band, down both flanks and across the tail."""
+    mesh = fbxwrite.Mesh()
+    for sign in (-1.0, 1.0):
+        _van_side_panel(mesh, sign, y, y + height, VAN_TAIL + 0.04, VAN_NOSE - 0.30,
+                        proud=0.014, thickness=0.012)
+
+    corners = [(-VAN_HALF + 0.04, y, VAN_TAIL - 0.014),
+               (VAN_HALF - 0.04, y, VAN_TAIL - 0.014),
+               (VAN_HALF - 0.04, y + height, VAN_TAIL - 0.014),
+               (-VAN_HALF + 0.04, y + height, VAN_TAIL - 0.014)]
+    corners.reverse()
+    mesh.panel(corners, 0.012)
+    return mesh
+
+
+def van_stripe_wide():
+    """The broad band, the upper of the two."""
+    return _van_stripe(VAN_BELT - 0.30, 0.14)
+
+
+def van_stripe_thin():
+    """The narrow one under it, which is what makes the pair read as a stripe
+    rather than as a painted panel."""
+    return _van_stripe(VAN_BELT - 0.48, 0.07)
+
+
+def van_glass():
+    """Every window, as panels on the shell -- the same z on both flanks.
+
+    Windscreen, cab glass and two living-area windows a side, the door's light
+    and the rear window. Nothing here cuts a hole in anything: the body is
+    closed and these lie on it.
+    """
+    mesh = fbxwrite.Mesh()
+
+    # The windscreen, raked, spanning most of the cab's width.
+    #
+    # **Lifted clear of the panel it covers**, which is why it was invisible:
+    # the body's own raked front runs between exactly these two heights, so
+    # glass laid on those corners is coplanar with it and the two fight for the
+    # same pixels -- and the body, being drawn first and opaque, wins. Every
+    # other window here is offset along the flank's normal by construction;
+    # this one slopes, so its offset has to slope with it.
+    slope_z, slope_y = 0.891, 0.456   # the wedge's outward normal, in (z, y)
+    lift_z, lift_y = 0.022 * slope_z, 0.022 * slope_y
+    mesh.panel([(-VAN_HALF + 0.06, VAN_BONNET + 0.02 + lift_y, VAN_NOSE - 0.02 + lift_z),
+                (VAN_HALF - 0.06, VAN_BONNET + 0.02 + lift_y, VAN_NOSE - 0.02 + lift_z),
+                (VAN_HALF - 0.06, VAN_CAB_TOP - 0.06 + lift_y, VAN_NOSE - 0.40 + lift_z),
+                (-VAN_HALF + 0.06, VAN_CAB_TOP - 0.06 + lift_y, VAN_NOSE - 0.40 + lift_z)],
                0.03)
 
     for sign in (-1.0, 1.0):
-        x = sign * (VAN_HALF - 0.03)
-        for near, far in ((-0.22, 1.20), (-1.98, -0.36)):
-            # Wound so each side's outward face is the one facing out.
-            corners = [(x, VAN_WAIST + 0.04, sign * near),
-                       (x, VAN_WAIST + 0.04, sign * far),
-                       (x, VAN_ROOF - 0.08, sign * far),
-                       (x, VAN_ROOF - 0.08, sign * near)]
-            mesh.panel(corners, 0.03)
+        # The cab's own side glass, on the lower section.
+        _van_side_panel(mesh, sign, VAN_BELT + 0.04, VAN_CAB_TOP - 0.14,
+                        VAN_CAB - 0.02, VAN_NOSE - 0.52)
+        # The long window behind the axle, and the one forward of the door.
+        _van_side_panel(mesh, sign, VAN_BELT, VAN_HEAD,
+                        VAN_TAIL + 0.34, VAN_TAIL + 1.62)
+        _van_side_panel(mesh, sign, VAN_BELT, VAN_HEAD,
+                        VAN_DOOR_Z + 0.52, VAN_CAB - 0.20)
 
-    mesh.panel([(0.84, VAN_WAIST + 0.04, VAN_TAIL + 0.06),
-                (-0.84, VAN_WAIST + 0.04, VAN_TAIL + 0.06),
-                (-0.84, VAN_ROOF - 0.08, VAN_TAIL + 0.06),
-                (0.84, VAN_ROOF - 0.08, VAN_TAIL + 0.06)], 0.03)
+    # The door's light, smaller and higher, on the door's own face.
+    _van_side_panel(mesh, 1.0, VAN_BELT + 0.10, VAN_HEAD - 0.06,
+                    VAN_DOOR_Z - 0.24, VAN_DOOR_Z + 0.24, proud=0.026)
+
+    # The rear window.
+    corners = [(-0.66, VAN_BELT, VAN_TAIL - 0.016),
+               (0.66, VAN_BELT, VAN_TAIL - 0.016),
+               (0.66, VAN_HEAD, VAN_TAIL - 0.016),
+               (-0.66, VAN_HEAD, VAN_TAIL - 0.016)]
+    corners.reverse()
+    mesh.panel(corners, 0.03)
+    return mesh
+
+
+def van_lights():
+    """Headlights, and the marker lamps along the top of the cab."""
+    mesh = fbxwrite.Mesh()
+    for sign in (-1.0, 1.0):
+        x = sign * 0.74
+        lo, hi = sorted((x, x - sign * 0.22))
+        mesh.box((lo, VAN_SILL + 0.30, VAN_NOSE + 0.01),
+                 (hi, VAN_SILL + 0.46, VAN_NOSE + 0.05))
+        for i in range(3):
+            lx = sign * (0.18 + i * 0.16)
+            mesh.box((lx - 0.05, VAN_CAB_TOP - 0.10, VAN_NOSE - 0.44),
+                     (lx + 0.05, VAN_CAB_TOP - 0.03, VAN_NOSE - 0.40))
     return mesh
 
 
@@ -744,10 +883,11 @@ def van_wheels():
     vehicle this angular, and at eight sides it stays part of the same drawing.
     """
     mesh = fbxwrite.Mesh()
-    for z in (1.45, -1.35):
+    for z in VAN_AXLES:
         for sign in (-1.0, 1.0):
-            x = sign * (VAN_HALF - 0.06)
-            mesh.strut((x, 0.36, z), (x + sign * 0.20, 0.36, z), 0.36, sides=8)
+            x = sign * (VAN_HALF - 0.10)
+            mesh.strut((x, VAN_WHEEL, z), (x + sign * 0.22, VAN_WHEEL, z),
+                       VAN_WHEEL, sides=8)
     return mesh
 
 
@@ -878,8 +1018,13 @@ PROPS = (
     ("fork", fork, (0.2, 0.2, 0.22), 2.0),
     ("marshmallow", marshmallow, (0.96, 0.94, 0.9), 2.4),
 
-    ("van_body", van_body, (0.82, 0.80, 0.74), 0.5),
-    ("van_glass", van_glass, (0.09, 0.11, 0.14), 0.8),
+    ("van_body", van_body, (0.80, 0.74, 0.60), 0.5),
+    ("van_trim", van_trim, (0.28, 0.29, 0.31), 0.7),
+    ("van_roof_units", van_roof_units, (0.90, 0.90, 0.88), 1.0),
+    ("van_stripe_wide", van_stripe_wide, (0.84, 0.42, 0.16), 0.7),
+    ("van_stripe_thin", van_stripe_thin, (0.60, 0.16, 0.13), 0.7),
+    ("van_glass", van_glass, (0.09, 0.16, 0.17), 0.8),
+    ("van_lights", van_lights, (0.95, 0.90, 0.72), 1.2),
     ("van_wheels", van_wheels, (0.08, 0.08, 0.09), 1.4),
 
     ("mirror_frame", mirror_frame, (0.48, 0.34, 0.22), 1.4),

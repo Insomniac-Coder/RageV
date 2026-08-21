@@ -555,7 +555,55 @@ Entities:
       Scale: [1, 1, 1]
     MeshComponent:
       Mesh: 7800776690869238957
-      Material: 11228159450584300071
+      Material: 4389059549555606549
+  - EntityID: 9454145379766782770
+    TagComponent:
+      Tag: Van Stripe Wide
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8910165265860744450
+    MeshComponent:
+      Mesh: 9926005618706393774
+      Material: 5242329188545083568
+  - EntityID: 412014610002210330
+    TagComponent:
+      Tag: Van Stripe Thin
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8910165265860744450
+    MeshComponent:
+      Mesh: 1571350966194299200
+      Material: 15007018272931752511
+  - EntityID: 963505189762837526
+    TagComponent:
+      Tag: Van Trim
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8910165265860744450
+    MeshComponent:
+      Mesh: 6915622081707225261
+      Material: 17721244420540611347
+  - EntityID: 5856891070978210859
+    TagComponent:
+      Tag: Van Roof Units
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8910165265860744450
+    MeshComponent:
+      Mesh: 6315421975517545057
+      Material: 17102388073113353905
   - EntityID: 16514801475028497490
     TagComponent:
       Tag: Van Glass
@@ -567,7 +615,19 @@ Entities:
       Parent: 8910165265860744450
     MeshComponent:
       Mesh: 6045825053001167382
-      Material: 637765234356204118
+      Material: 11929429381966091669
+  - EntityID: 14299070675265207323
+    TagComponent:
+      Tag: Van Lights
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8910165265860744450
+    MeshComponent:
+      Mesh: 16233924463474422843
+      Material: 1746426820253112717
   - EntityID: 17209341606412961298
     TagComponent:
       Tag: Van Wheels
@@ -579,7 +639,7 @@ Entities:
       Parent: 8910165265860744450
     MeshComponent:
       Mesh: 12795881172003690952
-      Material: 8914338899924700759
+      Material: 17190568320087244077
   - EntityID: 2188732879191937314
     TagComponent:
       Tag: Mirror
@@ -645,7 +705,7 @@ Entities:
     TagComponent:
       Tag: Chair Back
     TransformComponent:
-      Position: [2.45, 9.15541e-05, -0.55]
+      Position: [2.286, 9.15541e-05, -0.014]
       Rotation: [0, -1.33692, 0]
       Scale: [1, 1, 1]
     MeshComponent:
